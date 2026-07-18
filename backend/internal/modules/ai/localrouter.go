@@ -8,24 +8,99 @@ import (
 	"sync"
 )
 
-// NewUnmeteredRouter builds a Router over an in-memory meter and the
-// static single-seat budget — the DB-less path for dev tooling (the
-// worker's siteread debug subcommand). Calls ride the full routing,
+// localOpts collects the LocalOption knobs NewLocalRouter assembles a
+// Router from. monthlyBudget defaults to DefaultMonthlyTokens so a caller
+// that names no budget gets the same static single-seat ceiling
+// NewUnmeteredRouter used to hard-code.
+type localOpts struct {
+	callStore     CallRecorder
+	cacheOff      bool
+	monthlyBudget int64
+	fakeClient    *FakeClient
+}
+
+// LocalOption configures the DB-less router NewLocalRouter builds — the
+// composition seam every DB-less caller (the worker's siteread debug
+// tool, the aicert lane) assembles a Router through instead of hand-rolling
+// one.
+type LocalOption func(*localOpts)
+
+// WithCallStore installs a CallRecorder so a DB-less caller can still
+// observe every completion terminal (an in-memory store for a cert run
+// or a test), instead of the default nil recorder that traces nothing.
+func WithCallStore(cs CallRecorder) LocalOption {
+	return func(o *localOpts) { o.callStore = cs }
+}
+
+// WithoutResultCache disables the §6 result cache entirely. The cert lane
+// and a scripted-repeat test both need every identical request to reach
+// the model again — a cache hit would silently collapse two distinct
+// scripted responses into one.
+func WithoutResultCache() LocalOption {
+	return func(o *localOpts) { o.cacheOff = true }
+}
+
+// WithMonthlyBudget overrides the static token ceiling the in-memory
+// meter is judged against (default DefaultMonthlyTokens). The budget is
+// static for the life of the Router — it cannot degrade mid-run when set
+// generously — but a small value proves the budget-band guardrail (§1.3)
+// is genuinely live over this DB-less path, not merely wired and idle.
+func WithMonthlyBudget(tokens int64) LocalOption {
+	return func(o *localOpts) { o.monthlyBudget = tokens }
+}
+
+// WithFakeClient replaces every fake-provider client NewLocalRouter would
+// otherwise build fresh (each tier bound to ProviderFake, and the
+// embedder when its lane is bound to ProviderFake) with the caller's own
+// *FakeClient. Building fresh fakes from cfg.buildClients gives the
+// caller no handle on the instance actually serving calls; this option is
+// how a scripted test (or a cert run) gets one to script and to inspect
+// afterward via Calls().
+func WithFakeClient(c *FakeClient) LocalOption {
+	return func(o *localOpts) { o.fakeClient = c }
+}
+
+// NewLocalRouter builds a Router over an in-memory meter and no
+// Postgres — the DB-less path for dev tooling (the worker's siteread
+// debug subcommand) and the aicert lane. Calls ride the full routing,
 // budget-band, retry and secret-stripping pipeline; only the spend
-// record lives in process memory instead of ai_usage.
-func NewUnmeteredRouter(cfg RoutingConfig) (*Router, error) {
+// record lives in process memory instead of ai_usage, and by default no
+// ai_call rows are traced (WithCallStore installs a recorder) and the
+// result cache runs (WithoutResultCache turns it off).
+func NewLocalRouter(cfg RoutingConfig, opts ...LocalOption) (*Router, error) {
 	clients, embedder, err := cfg.buildClients()
 	if err != nil {
 		return nil, err
+	}
+	o := localOpts{monthlyBudget: int64(DefaultMonthlyTokens)}
+	for _, opt := range opts {
+		opt(&o)
+	}
+	if o.fakeClient != nil {
+		// Swap in the caller's fake for every slot cfg.buildClients would
+		// otherwise have filled with an untracked fresh one — matched by
+		// binding, not by client identity, since buildClients never hands
+		// back which Client instance it built.
+		for tier, binding := range cfg.Tiers {
+			if binding.Provider == ProviderFake {
+				clients[tier] = o.fakeClient
+			}
+		}
+		if cfg.Embeddings.Provider == ProviderFake {
+			embedder = o.fakeClient
+		}
 	}
 	meta := make(map[Tier]routeMeta, len(cfg.Tiers))
 	for tier, binding := range cfg.Tiers {
 		meta[tier] = routeMeta{provider: binding.Provider, model: binding.Model}
 	}
-	// nil callStore: the DB-less debug path traces no ai_call rows (the
-	// router skips tracing when calls == nil), captures no payloads, and
-	// logs through slog.Default.
-	return assembleRouter(clients, embedder, cfg.Profile, &memoryMeter{}, DefaultMonthlyTokens, nil, meta, false, nil), nil
+	// o.callStore: the DB-less debug path traces no ai_call rows by
+	// default (the router skips tracing when calls == nil), captures no
+	// payloads, and logs through slog.Default; WithCallStore opts a
+	// caller into tracing.
+	router := assembleRouter(clients, embedder, cfg.Profile, &memoryMeter{}, StaticBudget(o.monthlyBudget), o.callStore, meta, false, nil)
+	router.cacheOff = o.cacheOff
+	return router, nil
 }
 
 // memoryMeter accumulates spend for the life of one process: enough for

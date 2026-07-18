@@ -32,9 +32,16 @@ type Call struct {
 	CachedTokens       int
 	LatencyMS          int64
 	CacheHit           bool
-	Degraded           bool
-	ErrorSentinel      string
-	AgentRunID         *ids.UUID
+	// CacheOff records that the serving Router had the result cache
+	// disabled (ai.WithoutResultCache — the cert lane and scripted tests
+	// that must observe every repeat call, not a collapsed cache hit).
+	// In-memory only this phase: the ai_call.cache_off column and the
+	// CallMeter write land in Phase 3; CallMeter ignores this field until
+	// then.
+	CacheOff      bool
+	Degraded      bool
+	ErrorSentinel string
+	AgentRunID    *ids.UUID
 	// Payload, when non-nil, carries the opt-in post-stripper content
 	// (Layer 3). It is written to ai_call_payload in the SAME transaction
 	// so the content row can never outlive its metadata row.
@@ -49,11 +56,19 @@ type Payload struct {
 	Response json.RawMessage
 }
 
-// callStore is what the router needs to trace a call; the interface keeps
-// router unit tests off Postgres while CallMeter is the one real impl.
-type callStore interface {
+// CallRecorder is what the router needs to trace a call; the interface
+// keeps router unit tests off Postgres while CallMeter is the one real
+// impl. Exported so the DB-less local router seam (ai.WithCallStore) can
+// take a caller-supplied recorder (an in-memory store for a cert run or a
+// test) without reaching into Postgres.
+type CallRecorder interface {
 	Record(ctx context.Context, c Call) error
 }
+
+// callStore is the pre-existing internal name, kept as an alias so every
+// call site inside this package (Router.calls, NewRouter, assembleRouter)
+// compiles unchanged.
+type callStore = CallRecorder
 
 // CallMeter writes ai_call (+ ai_call_payload when capture is on). It rides
 // the workspace GUC transaction like every tenant write.

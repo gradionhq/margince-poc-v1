@@ -209,7 +209,7 @@ func SiteReadDebugBrain(routingPath, modelOverride string, fake bool) (completer
 		if err != nil {
 			return nil, "", err
 		}
-		router, err := ai.NewUnmeteredRouter(cfg)
+		router, err := ai.NewLocalRouter(cfg)
 		if err != nil {
 			return nil, "", err
 		}
@@ -219,7 +219,7 @@ func SiteReadDebugBrain(routingPath, modelOverride string, fake bool) (completer
 		if !found || provider == "" || modelName == "" {
 			return nil, "", fmt.Errorf("--model wants provider:model (e.g. anthropic:claude-sonnet-4-6), got %q", modelOverride)
 		}
-		router, err := ai.NewUnmeteredRouter(ai.RoutingConfig{
+		router, err := ai.NewLocalRouter(ai.RoutingConfig{
 			Profile:    ai.ProfileCloudFrontier,
 			Tiers:      map[ai.Tier]ai.ProviderConfig{ai.TierCheapCloud: {Provider: provider, Model: modelName}},
 			Embeddings: ai.ProviderConfig{Provider: ai.ProviderFake},

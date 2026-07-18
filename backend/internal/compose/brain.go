@@ -64,6 +64,28 @@ func NewModelPath(cfg ai.RoutingConfig, pool *pgxpool.Pool, capturePayloads bool
 	}, nil
 }
 
+// NewLocalModelPath builds a ModelPath over the DB-less local router
+// (ai.NewLocalRouter) instead of NewModelPath's Postgres-backed one —
+// the same lane set, wired the same way, for a caller with no pool (the
+// aicert lane's candidate/judge routers). opts ride straight through to
+// NewLocalRouter, so a caller wires a call recorder, disables the result
+// cache, or pins a static budget exactly as it would calling the router
+// constructor directly.
+func NewLocalModelPath(cfg ai.RoutingConfig, opts ...ai.LocalOption) (ModelPath, error) {
+	router, err := ai.NewLocalRouter(cfg, opts...)
+	if err != nil {
+		return ModelPath{}, err
+	}
+	return ModelPath{
+		Agent:       agentBrain{router: router},
+		ColdStart:   routerBrain{router: router, task: ai.TaskColdStart},
+		SiteExtract: routerBrain{router: router, task: ai.TaskSiteExtract},
+		BriefRank:   routerBrain{router: router, task: ai.TaskBriefRanking},
+		OfferDraft:  routerBrain{router: router, task: ai.TaskOfferDraft},
+		Embedder:    router,
+	}, nil
+}
+
 // WriteMetrics renders the model path's underlying router's AI call
 // counters (margince_ai_calls_total et al.) for the /metrics endpoint.
 // Nil-safe for the fake path (FakeModelPath's Agent is a fakeBrain, not an

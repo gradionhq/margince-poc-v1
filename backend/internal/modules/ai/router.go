@@ -60,6 +60,10 @@ type Router struct {
 	log             *slog.Logger
 	metrics         *callMetrics
 	now             func() time.Time
+	// cacheOff disables the §6 result cache entirely (ai.WithoutResultCache):
+	// the cert lane and scripted repeat-call tests need every call to reach
+	// the model, not collapse onto a cached answer.
+	cacheOff bool
 }
 
 // RouteInfo tells the caller how its request was actually served — the
@@ -163,6 +167,10 @@ func (r *Router) serveCompletion(ctx context.Context, task Task, ladder []Tier, 
 	defer func() {
 		trace.LatencyMS = r.now().Sub(start).Milliseconds()
 		trace.ErrorSentinel = classifyError(err)
+		// Stamped from the Router's own posture, not per-request: a
+		// cache-off Router never consulted the cache for this call, so
+		// every one of its traces says so, hit-or-miss.
+		trace.CacheOff = r.cacheOff
 		if m := r.routeMeta[trace.Tier]; trace.Tier != "" {
 			trace.Provider, trace.ModelID = m.provider, m.model
 		}
@@ -187,8 +195,10 @@ func (r *Router) serveCompletion(ctx context.Context, task Task, ladder []Tier, 
 	// ladder: after a budget band tightened or the profile remapped the
 	// route, a premium-tier entry must not smuggle premium output into an
 	// economy route. The stale entry stays put — TTL ages it out, and the
-	// band may relax within its lifetime.
-	if cached, tier, hit := r.cache.get(key, wsID); hit && tierOnLadder(ladder, tier) {
+	// band may relax within its lifetime. A cache-off Router (§ cert lane,
+	// scripted repeat-call tests) never consults it: every call must reach
+	// the model.
+	if cached, tier, hit := r.cache.get(key, wsID); !r.cacheOff && hit && tierOnLadder(ladder, tier) {
 		trace.Tier, trace.CacheHit = tier, true
 		if meterErr := r.meter.Record(ctx, Usage{Task: task, Tier: tier, Cached: true}); meterErr != nil {
 			// A served (cache-hit) call whose metering failed: label it as a
@@ -246,7 +256,9 @@ func (r *Router) attemptLadder(ctx context.Context, task Task, ladder []Tier, re
 			// mislabeling this a provider error.
 			return out, t, false, fmt.Errorf("ai: call served but metering failed: %w", errors.Join(errMeteringFailed, meterErr))
 		}
-		r.cache.put(key, wsID, out, t)
+		if !r.cacheOff {
+			r.cache.put(key, wsID, out, t)
+		}
 		return out, t, true, nil
 	}
 	if lastErr != nil {
