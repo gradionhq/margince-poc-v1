@@ -10,8 +10,8 @@ import (
 
 // localOpts collects the LocalOption knobs NewLocalRouter assembles a
 // Router from. monthlyBudget defaults to DefaultMonthlyTokens so a caller
-// that names no budget gets the same static single-seat ceiling
-// NewUnmeteredRouter used to hard-code.
+// that names no budget still gets a static single-seat ceiling, never an
+// unbounded one.
 type localOpts struct {
 	callStore     CallRecorder
 	cacheOff      bool

@@ -339,7 +339,7 @@ Open work, roughly in priority order:
   JSON, ready to `go:embed`), a nightly scheduled lane, deeper corpora
   for the tasks that have only starters, and the §6 upstream spec notes
   (contract file location, verdict rules, served-identity vocabulary)
-  to reconcile in `margince-foundation`. Six tasks in the contract
+  to reconcile in `margince-foundation`. Seven tasks in the contract
   (`enrich`, `capture_classify`, `deal_health`, `draft_reply`,
   `nl_search`, `summarize`, `transcript`) have no production call site
   yet — their starter scenarios are documented placeholders.

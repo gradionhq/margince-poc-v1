@@ -360,8 +360,11 @@ func selectModelPath(routingPath string, fake, capturePayloads bool, pool *pgxpo
 		// FakeModelPath's direct client wiring: the worker always has a
 		// pool, so --ai-fake safely rides the real Router (tiering, the
 		// budget guardrail, metering, call tracing) with only the
-		// provider swapped for the deterministic fake.
-		return compose.NewModelPath(ai.FakeRoutingConfig(), pool, false, log)
+		// provider swapped for the deterministic fake. capturePayloads
+		// still names the deployment's own posture — cmd/api's
+		// resolveModelPath honors it on this same arm, and two process
+		// roles must never disagree on whether content capture is on.
+		return compose.NewModelPath(ai.FakeRoutingConfig(), pool, capturePayloads, log)
 	default:
 		return compose.ModelPath{}, nil
 	}

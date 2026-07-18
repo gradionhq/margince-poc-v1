@@ -102,11 +102,11 @@ func TestNewLocalRouterWithCallStoreRecordsOneCallPerCompletionAndStampsCacheOff
 	}
 }
 
-// TestNewLocalRouterCacheOnByDefaultCollapsesIdenticalRequests is the
-// regression guard for the pre-existing NewUnmeteredRouter/sitereaddebug
-// behavior: with no LocalOption at all, the result cache still runs, so
-// the second of two identical requests is served from cache rather than
-// reaching the model again.
+// TestNewLocalRouterCacheOnByDefaultCollapsesIdenticalRequests pins the
+// default posture DB-less callers (the worker's siteread debug tool, among
+// others) rely on: with no LocalOption at all, the result cache still
+// runs, so the second of two identical requests is served from cache
+// rather than reaching the model again.
 func TestNewLocalRouterCacheOnByDefaultCollapsesIdenticalRequests(t *testing.T) {
 	fake := NewFakeClient().Script("first answer", "second answer")
 	r, err := NewLocalRouter(localFakeConfig(), WithFakeClient(fake))

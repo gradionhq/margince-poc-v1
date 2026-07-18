@@ -188,8 +188,8 @@ func tierConst(name string) string { return "Tier" + pascalCase(name) }
 
 // emitGo renders tasks_gen.go: the Task/Tier types and constants, the
 // routing ladders, the degrade-to map, the nonInteractive derivation, and
-// knownTiers — every table tasks.go and routing.go used to hand-maintain,
-// now compiled from the contract. The result is gofmt-clean, matching
+// knownTiers — the one table compiled from the contract, so tasks.go and
+// routing.go never hand-maintain it. The result is gofmt-clean, matching
 // every other *_gen.go the repo checks in.
 func emitGo(c contract, contractHash string) (string, error) {
 	taskNames := c.sortedTaskNames()

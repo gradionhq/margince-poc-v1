@@ -155,51 +155,97 @@ func certifyTask(ctx context.Context, task ai.Task, scenarios []Scenario, baseCf
 		return Record{}, fmt.Errorf("aicert: task %s: judge router: %w", task, err)
 	}
 
-	var allResults []RunResult
-	var latencies []int64
-	tokensTotal := 0
-	passed := 0
-	var provider, servedModel, identitySource, judgeServedModel string
-	selfJudgedEveryRun := true
+	acc := &taskAccumulation{selfJudgedEveryRun: true}
 	taskVerdict := VerdictCertified // folded down to the worst scenario verdict below
 
 	for _, sc := range scenarios {
-		scenarioResults := make([]RunResult, 0, repeats)
-		for i := 0; i < repeats; i++ {
-			outcome, runErr := runOnce(ctx, candidateRouter, candidateRec, judgeRouter, judgeRec, sc, task, log)
-			if runErr != nil {
-				return Record{}, fmt.Errorf("aicert: task %s scenario %s run %d: %w", task, sc.Name, i+1, runErr)
-			}
-			if outcome.Degraded {
-				return Record{}, fmt.Errorf(
-					"aicert: task %s scenario %s run %d: candidate attempt served on a budget-degraded route — refusing to certify a demoted answer",
-					task, sc.Name, i+1)
-			}
-			if outcome.JudgeDegraded {
-				return Record{}, fmt.Errorf(
-					"aicert: task %s scenario %s run %d: judge attempt served on a budget-degraded route — refusing to trust a demoted grader",
-					task, sc.Name, i+1)
-			}
-			scenarioResults = append(scenarioResults, outcome.RunResult)
-			allResults = append(allResults, outcome.RunResult)
-			latencies = append(latencies, outcome.LatencyMS)
-			tokensTotal += outcome.Tokens
-			provider, servedModel, identitySource = outcome.Provider, outcome.ServedModel, outcome.ServedIdentitySource
-			judgeServedModel = outcome.JudgeServedModel
-			if !selfJudged(outcome.ServedModel, outcome.JudgeServedModel) {
-				selfJudgedEveryRun = false
-			}
-			if outcome.HardPass {
-				passed++
-			}
+		scenarioVerdict, err := runScenario(ctx, task, sc, repeats, candidateRouter, candidateRec, judgeRouter, judgeRec, log, acc)
+		if err != nil {
+			return Record{}, err
 		}
-		scenarioVerdict, _ := Verdict(scenarioResults, sc.Expect.Bands)
 		taskVerdict = worstVerdict(taskVerdict, scenarioVerdict)
 	}
 
-	reliability := float64(passed) / float64(len(allResults))
-	return buildRecord(task, taskVerdict, reliability, allResults, latencies, tokensTotal,
-		provider, servedModel, identitySource, judgeServedModel, selfJudgedEveryRun, baseCfg), nil
+	reliability := float64(acc.passed) / float64(len(acc.allResults))
+	return buildRecord(task, taskVerdict, reliability, acc.allResults, acc.latencies, acc.tokensTotal,
+		acc.provider, acc.servedModel, acc.identitySource, acc.judgeServedModel, acc.selfJudgedEveryRun, baseCfg), nil
+}
+
+// taskAccumulation collects the pooled stats certifyTask folds across
+// every scenario's repeats for buildRecord, plus the I2 served-identity
+// uniformity state: the first run's candidate provider/model is the
+// task's baseline, and every later run must match it exactly. A mid-set
+// ladder fallback (a transient provider error on any repeat serving that
+// run from a DIFFERENT rung's model) must void the whole record rather
+// than let it certify "task x provider x model" over scores partly
+// produced by another model.
+type taskAccumulation struct {
+	allResults                                              []RunResult
+	latencies                                               []int64
+	tokensTotal                                             int
+	passed                                                  int
+	provider, servedModel, identitySource, judgeServedModel string
+	selfJudgedEveryRun                                      bool
+	identitySet                                             bool
+}
+
+// addRun folds one scored run into acc, first checking outcome's candidate
+// identity against the task's baseline (the first run recorded). Returns
+// an error — voiding the whole task's record — when a later run's
+// provider or served model diverges from that baseline.
+func (acc *taskAccumulation) addRun(task ai.Task, sc Scenario, runIndex int, outcome runOutcome) error {
+	if acc.identitySet && (outcome.Provider != acc.provider || outcome.ServedModel != acc.servedModel) {
+		return fmt.Errorf(
+			"aicert: task %s scenario %s run %d: candidate served by %s:%s, but run 1 was served by %s:%s — refusing to certify a mixed run set",
+			task, sc.Name, runIndex+1, outcome.Provider, outcome.ServedModel, acc.provider, acc.servedModel)
+	}
+	acc.allResults = append(acc.allResults, outcome.RunResult)
+	acc.latencies = append(acc.latencies, outcome.LatencyMS)
+	acc.tokensTotal += outcome.Tokens
+	acc.provider, acc.servedModel, acc.identitySource = outcome.Provider, outcome.ServedModel, outcome.ServedIdentitySource
+	acc.identitySet = true
+	acc.judgeServedModel = outcome.JudgeServedModel
+	if !selfJudged(outcome.ServedModel, outcome.JudgeServedModel) {
+		acc.selfJudgedEveryRun = false
+	}
+	if outcome.HardPass {
+		acc.passed++
+	}
+	return nil
+}
+
+// runScenario drives repeats runs of one scenario, folding each into acc,
+// and returns the scenario's own verdict for certifyTask to fold into the
+// task's worst-case verdict. Split out of certifyTask so the per-run
+// degrade/uniformity gates and the per-scenario verdict fold live on
+// their own function, not certifyTask's.
+func runScenario(ctx context.Context, task ai.Task, sc Scenario, repeats int,
+	candidateRouter *ai.Router, candidateRec *traceRecorder, judgeRouter *ai.Router, judgeRec *traceRecorder,
+	log *slog.Logger, acc *taskAccumulation,
+) (string, error) {
+	scenarioResults := make([]RunResult, 0, repeats)
+	for i := 0; i < repeats; i++ {
+		outcome, runErr := runOnce(ctx, candidateRouter, candidateRec, judgeRouter, judgeRec, sc, task, log)
+		if runErr != nil {
+			return "", fmt.Errorf("aicert: task %s scenario %s run %d: %w", task, sc.Name, i+1, runErr)
+		}
+		if outcome.Degraded {
+			return "", fmt.Errorf(
+				"aicert: task %s scenario %s run %d: candidate attempt served on a budget-degraded route — refusing to certify a demoted answer",
+				task, sc.Name, i+1)
+		}
+		if outcome.JudgeDegraded {
+			return "", fmt.Errorf(
+				"aicert: task %s scenario %s run %d: judge attempt served on a budget-degraded route — refusing to trust a demoted grader",
+				task, sc.Name, i+1)
+		}
+		if err := acc.addRun(task, sc, i, outcome); err != nil {
+			return "", err
+		}
+		scenarioResults = append(scenarioResults, outcome.RunResult)
+	}
+	scenarioVerdict, _ := Verdict(scenarioResults, sc.Expect.Bands)
+	return scenarioVerdict, nil
 }
 
 // runOutcome is one scored run plus the identity fields Record needs

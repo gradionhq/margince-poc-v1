@@ -135,13 +135,11 @@ func TestSharedIsPure(t *testing.T) {
 }
 
 // modelClientConstructors is every call that mints a model client or a
-// router in front of one. Phase 2 (compose.NewLocalModelPath, the
-// --ai-fake route through the real Router) closed every path to a single
-// gate: internal/modules/ai builds these because that IS the gate, and
-// the two sanctioned assemblies in internal/compose (brain.go's
-// NewModelPath/NewLocalModelPath, sitereaddebug.go's DB-less debug
-// wiring) are the only other callers. Anything else is a second gate —
-// the exact bypass Phase 2 deleted (compose.FakeModelPath).
+// router in front of one. internal/modules/ai builds these because that
+// IS the one gate, and the two sanctioned assemblies in internal/compose
+// (brain.go's NewModelPath/NewLocalModelPath, sitereaddebug.go's DB-less
+// debug wiring) are the only other callers. Anything else is a second
+// gate and must be rejected on sight.
 var modelClientConstructors = []string{"ai.NewFakeClient(", "ai.NewRouter(", "ai.NewLocalRouter("}
 
 // modelPathAssemblySeam: the only non-test, non-ai-module files allowed to

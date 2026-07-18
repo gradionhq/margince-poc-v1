@@ -5,6 +5,7 @@ package aicert
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"strconv"
@@ -393,6 +394,35 @@ func TestCertifyTaskFoldsMultipleScenariosToTheirWorstVerdict(t *testing.T) {
 	}
 	if rec.Verdict != VerdictNotSupported {
 		t.Fatalf("verdict = %q, want %q — the task must fold to its worst scenario", rec.Verdict, VerdictNotSupported)
+	}
+}
+
+// TestCertifyTaskVoidsARecordWhenALaterRunIsServedByADifferentModel
+// covers I2: TaskSummarize's ladder is [cheap_cloud, premium]; cheap_cloud
+// serves run 1 as "model-a", then fails transiently on run 2 so premium
+// serves it instead as "model-b" — a genuine mid-set ladder fallback
+// (mirroring the ai package's own TestLadderFallbackBuffersOneLogicalCall-
+// WithTwoAttempts at the router level, replayed here through certifyTask's
+// pooled accounting). The task must void its record rather than certify
+// scores partly produced by one model and partly by another.
+func TestCertifyTaskVoidsARecordWhenALaterRunIsServedByADifferentModel(t *testing.T) {
+	candidateFake := ai.NewFakeClient().ScriptSteps(
+		ai.FakeStep{Text: "the widget is blue and durable", ServedModel: "model-a"}, // run 1: cheap_cloud serves
+		ai.FakeStep{Err: errors.New("cheap_cloud: transient provider error")},       // run 2: cheap_cloud fails
+		ai.FakeStep{Text: "the widget is blue and durable", ServedModel: "model-b"}, // run 2: premium falls back and serves
+	)
+	judgeFake := ai.NewFakeClient().Script(scoreJSON(90), scoreJSON(90))
+
+	sc := testScenario("basic", wideBands, widgetChecks())
+	_, err := certifyTask(wsContext(t), ai.TaskSummarize, []Scenario{sc}, ai.FakeRoutingConfig(), "", 2, quietLogger(), &certifyHooks{
+		candidateOpts: []ai.LocalOption{ai.WithFakeClient(candidateFake)},
+		judgeOpts:     []ai.LocalOption{ai.WithFakeClient(judgeFake)},
+	})
+	if err == nil {
+		t.Fatal("want an error — no record for a task whose runs were served by more than one model")
+	}
+	if !strings.Contains(err.Error(), "model-a") || !strings.Contains(err.Error(), "model-b") {
+		t.Fatalf("error should name both identities, got %v", err)
 	}
 }
 
