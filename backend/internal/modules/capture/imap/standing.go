@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"slices"
 	"strconv"
@@ -51,6 +52,10 @@ type imapCursor struct {
 	UIDValidity uint32 `json:"uidvalidity"`
 	LastUID     uint32 `json:"last_uid"`
 	Email       string `json:"email"`
+	// Mailbox binds the watermark to the folder it was taken in: the same
+	// account switched to another mailbox re-anchors instead of reusing
+	// UIDs from a different sequence.
+	Mailbox string `json:"mailbox,omitempty"`
 }
 
 func parseIMAPCursor(cur connector.Cursor) (imapCursor, error) {
@@ -84,7 +89,8 @@ func normalizeCredentials(creds Credentials) (Credentials, error) {
 	case creds.Port < 1 || creds.Port > 65535:
 		return Credentials{}, fmt.Errorf("imap: port %d is outside 1..65535: %w", creds.Port, ErrLoginRejected)
 	}
-	if strings.TrimSpace(creds.Mailbox) == "" {
+	creds.Mailbox = strings.TrimSpace(creds.Mailbox)
+	if creds.Mailbox == "" {
 		creds.Mailbox = defaultMailbox
 	}
 	switch {
@@ -175,8 +181,11 @@ func (c *Connector) syncStanding(ctx context.Context, auth connector.Auth, curso
 	// connection, so all per-pull state lives on this local, never on c —
 	// concurrent syncs of different mailboxes must not see each other.
 	st := &syncState{owner: creds.Email, contacts: map[string]struct{}{}}
-	//craft:ignore swallowed-errors refreshing the read deadline for the pull; a closed conn surfaces as the next read failing
-	_ = netConn.SetDeadline(time.Now().Add(pullDeadline))
+	if err := netConn.SetDeadline(time.Now().Add(pullDeadline)); err != nil {
+		// Without the deadline a wedged server could hang this pull
+		// forever — refuse rather than sync unbounded.
+		return nil, fmt.Errorf("imap: arming the read deadline: %w", errors.Join(ErrUnreachable, err))
+	}
 
 	selData, err := client.Select(creds.Mailbox, &imapv2.SelectOptions{ReadOnly: true}).Wait()
 	if err != nil {
@@ -188,13 +197,13 @@ func (c *Connector) syncStanding(ctx context.Context, auth connector.Auth, curso
 	// (the steady-state rule). The identity check matters when a connection
 	// is replaced with another account whose UIDVALIDITY happens to match:
 	// reusing the old watermark there would silently skip its mail.
-	if cur.Email != creds.Email || cur.UIDValidity != selData.UIDValidity || cur.LastUID == 0 {
+	if cur.Email != creds.Email || cur.Mailbox != creds.Mailbox || cur.UIDValidity != selData.UIDValidity || cur.LastUID == 0 {
 		maxUID, err := c.pullWindow(ctx, client, selData, creds.MaxMessages, sink, st)
 		if err != nil {
 			return nil, err
 		}
 		return marshalIMAPCursor(imapCursor{
-			UIDValidity: selData.UIDValidity, LastUID: maxUID, Email: creds.Email,
+			UIDValidity: selData.UIDValidity, LastUID: maxUID, Email: creds.Email, Mailbox: creds.Mailbox,
 		}), nil
 	}
 
@@ -204,6 +213,7 @@ func (c *Connector) syncStanding(ctx context.Context, auth connector.Auth, curso
 	}
 	cur.UIDValidity = selData.UIDValidity
 	cur.Email = creds.Email
+	cur.Mailbox = creds.Mailbox
 	return marshalIMAPCursor(cur), nil
 }
 
@@ -212,12 +222,14 @@ func (c *Connector) syncStanding(ctx context.Context, auth connector.Auth, curso
 // beyond that window simply continues next sync from the new watermark (the
 // capture key makes any overlap a no-op).
 func (c *Connector) syncIncremental(ctx context.Context, client *imapclient.Client, creds Credentials, cur imapCursor, sink connector.Sink, st *syncState) (imapCursor, error) {
-	newUIDs, err := c.listNewUIDs(client, cur.LastUID+1)
+	if cur.LastUID == math.MaxUint32 {
+		// The 32-bit UID space is exhausted: +1 would wrap to 0 and rescan
+		// the mailbox. Hold the watermark until UIDVALIDITY rolls over.
+		return cur, nil
+	}
+	newUIDs, err := c.listNewUIDs(client, cur.LastUID+1, creds.MaxMessages)
 	if err != nil {
 		return cur, err
-	}
-	if len(newUIDs) > creds.MaxMessages {
-		newUIDs = newUIDs[:creds.MaxMessages]
 	}
 	if len(newUIDs) == 0 {
 		return cur, nil
@@ -239,7 +251,7 @@ func (c *Connector) syncIncremental(ctx context.Context, client *imapclient.Clie
 // listNewUIDs enumerates the UIDs at or above from, ascending, fetching no
 // bodies — the pre-flight that lets the incremental pull bound how many
 // messages actually stream.
-func (c *Connector) listNewUIDs(client *imapclient.Client, from uint32) ([]imapv2.UID, error) {
+func (c *Connector) listNewUIDs(client *imapclient.Client, from uint32, retain int) ([]imapv2.UID, error) {
 	var set imapv2.UIDSet
 	set.AddRange(imapv2.UID(from), 0) // 0 = *
 	cmd := client.Fetch(set, &imapv2.FetchOptions{UID: true})
@@ -258,11 +270,21 @@ func (c *Connector) listNewUIDs(client *imapclient.Client, from uint32) ([]imapv
 				uids = append(uids, it.UID)
 			}
 		}
+		// Retention stays bounded however large the backlog: keep only the
+		// LOWEST retain UIDs (the oldest mail syncs first; the watermark
+		// walks forward through the rest on later pulls).
+		if retain > 0 && len(uids) > 2*retain {
+			slices.Sort(uids)
+			uids = uids[:retain]
+		}
 	}
 	if err := cmd.Close(); err != nil {
 		return nil, fmt.Errorf("imap: listing new mail: %w", errors.Join(ErrUnreachable, err))
 	}
 	slices.Sort(uids)
+	if retain > 0 && len(uids) > retain {
+		uids = uids[:retain]
+	}
 	return uids, nil
 }
 
