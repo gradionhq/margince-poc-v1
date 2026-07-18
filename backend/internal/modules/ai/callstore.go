@@ -38,10 +38,21 @@ type Call struct {
 	// In-memory only this phase: the ai_call.cache_off column and the
 	// CallMeter write land in Phase 3; CallMeter ignores this field until
 	// then.
-	CacheOff      bool
-	Degraded      bool
-	ErrorSentinel string
-	AgentRunID    *ids.UUID
+	CacheOff bool
+	// ServedModel is the provider-reported identity of the model that
+	// actually answered (model.Response.ServedModel), and ServedIdentitySource
+	// names how that identity was obtained: "response" when the adapter reads
+	// it off the wire response body, "echo" when the generic OpenAI-compatible
+	// wire merely echoes back the requested model rather than confirming what
+	// served it, "configured" when the provider reported no identity at all
+	// and the trace falls back to the tier's configured binding. In-memory
+	// only for now — the ai_call columns and the CallMeter write land in a
+	// later migration; CallMeter ignores these fields until then.
+	ServedModel          string
+	ServedIdentitySource string
+	Degraded             bool
+	ErrorSentinel        string
+	AgentRunID           *ids.UUID
 	// Payload, when non-nil, carries the opt-in post-stripper content
 	// (Layer 3). It is written to ai_call_payload in the SAME transaction
 	// so the content row can never outlive its metadata row.

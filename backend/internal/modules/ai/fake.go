@@ -74,6 +74,9 @@ func (f *FakeClient) Complete(ctx context.Context, req model.Request) (model.Res
 		// budget tests to see plausible, deterministic numbers.
 		InputTokens:  len(payload) / 4,
 		OutputTokens: len(text) / 4,
+		// ServedModel is the literal "fake": the fake client IS the wire, so
+		// this is exactly as honest as a real adapter's provider-reported field.
+		ServedModel: "fake",
 	}, nil
 }
 

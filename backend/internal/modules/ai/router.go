@@ -42,6 +42,45 @@ type routeMeta struct {
 	model    string
 }
 
+// Served-identity sources for Call.ServedIdentitySource: how trustworthy a
+// provider's model.Response.ServedModel is. servedIdentitySourceResponse is a
+// dedicated wire field the vendor sets independently ("model" on Anthropic/
+// Ollama/OpenAI, "modelVersion" on Gemini, the fake's own literal).
+// servedIdentitySourceEcho is the generic OpenAI-compatible wire
+// (openai_compatible, vllm) whose "model" field is only ever the request's
+// own model back-reflected — never confirmed against what actually generated
+// the completion. servedIdentitySourceConfigured is the fallback when the
+// provider reported no identity at all.
+const (
+	servedIdentitySourceResponse   = "response"
+	servedIdentitySourceEcho       = "echo"
+	servedIdentitySourceConfigured = "configured"
+)
+
+// servedSource maps a provider to its served-identity source.
+var servedSource = map[string]string{
+	providerAnthropic:        servedIdentitySourceResponse,
+	providerOllama:           servedIdentitySourceResponse,
+	providerGemini:           servedIdentitySourceResponse,
+	providerOpenAI:           servedIdentitySourceResponse,
+	providerOpenAICompatible: servedIdentitySourceEcho,
+	providerVLLM:             servedIdentitySourceEcho,
+	ProviderFake:             servedIdentitySourceResponse,
+}
+
+// servedIdentity resolves a trace's served-model fields: the response's own
+// reported identity wins, tagged with how trustworthy that report is; an empty
+// report (the provider named none, or the call never reached a provider at
+// all — a total ladder failure) falls back to the tier's configured binding,
+// honestly labeled servedIdentitySourceConfigured rather than passed off as
+// confirmed.
+func servedIdentity(provider, configuredModel, respServedModel string) (servedModel, source string) {
+	if respServedModel == "" {
+		return configuredModel, servedIdentitySourceConfigured
+	}
+	return respServedModel, servedSource[provider]
+}
+
 // Router is the tiered routing engine (B-EP06.4): tasks name tiers,
 // tiers resolve to bound Clients, the budget guardrail bends the route
 // before the call, and every call lands in the meter. This is the one
@@ -174,6 +213,7 @@ func (r *Router) serveCompletion(ctx context.Context, task Task, ladder []Tier, 
 		if m := r.routeMeta[trace.Tier]; trace.Tier != "" {
 			trace.Provider, trace.ModelID = m.provider, m.model
 		}
+		trace.ServedModel, trace.ServedIdentitySource = servedIdentity(trace.Provider, trace.ModelID, resp.ServedModel)
 		// The trace write must outlive request cancellation: a timed-out or
 		// canceled call is exactly the terminal worth recording, and the
 		// workspace GUC values ride context values, which WithoutCancel

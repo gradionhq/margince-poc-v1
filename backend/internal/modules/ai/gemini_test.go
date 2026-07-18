@@ -33,7 +33,7 @@ func TestGeminiCompleteMapsNativeWireAndUsage(t *testing.T) {
 			t.Errorf("api key header %q", r.Header.Get("x-goog-api-key"))
 		}
 		body = readBody(t, r.Body)
-		_, _ = w.Write([]byte(`{"candidates":[{"content":{"role":"model","parts":[{"text":"answer"}]},"finishReason":"STOP"}],
+		_, _ = w.Write([]byte(`{"modelVersion":"gemini-x-001","candidates":[{"content":{"role":"model","parts":[{"text":"answer"}]},"finishReason":"STOP"}],
 			"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":5,"cachedContentTokenCount":6,"thoughtsTokenCount":4}}`))
 	})
 	resp, err := client.Complete(context.Background(), model.Request{
@@ -47,6 +47,9 @@ func TestGeminiCompleteMapsNativeWireAndUsage(t *testing.T) {
 	// candidates (5) and thoughts (4) separately, so the adapter sums them.
 	if resp.Text != "answer" || resp.InputTokens != 10 || resp.OutputTokens != 9 || resp.CachedTokens != 6 || resp.ReasoningTokens != 4 {
 		t.Fatalf("mapping wrong: %+v", resp)
+	}
+	if resp.ServedModel != "gemini-x-001" {
+		t.Fatalf("ServedModel not decoded from modelVersion: %q", resp.ServedModel)
 	}
 	var wire struct {
 		Contents []struct {

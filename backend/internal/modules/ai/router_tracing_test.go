@@ -86,6 +86,63 @@ func TestCompleteRecordsServedCall(t *testing.T) {
 	}
 }
 
+// TestServedIdentityStamping covers the terminals servedIdentity must
+// distinguish: a provider that reports its own served model off the wire
+// (source "response"), the generic OpenAI-compatible wire that only ever
+// echoes back the requested model (source "echo"), a response that reports
+// no identity at all, which falls back to the tier's configured binding
+// (source "configured") rather than passing an empty string off as
+// confirmed, and — the same fallback — an echo-wire provider that comes back
+// with no ServedModel at all: it must NOT be stamped "echo", since there is
+// no echoed value to trust or distrust; it degrades to "configured" exactly
+// like any other provider's empty response.
+func TestServedIdentityStamping(t *testing.T) {
+	cases := []struct {
+		name       string
+		provider   string
+		resp       model.Response
+		wantModel  string
+		wantSource string
+	}{
+		{"provider reports its own served model", providerAnthropic, model.Response{Text: "hi", ServedModel: "claude-served"}, "claude-served", "response"},
+		{"openai-compatible wire only echoes the request", providerOpenAICompatible, model.Response{Text: "hi", ServedModel: "mistral-echoed"}, "mistral-echoed", "echo"},
+		{"vllm wire only echoes the request", providerVLLM, model.Response{Text: "hi", ServedModel: "local-echoed"}, "local-echoed", "echo"},
+		{"no reported identity falls back to the configured binding", providerAnthropic, model.Response{Text: "hi"}, "claude-configured", "configured"},
+		{"openai-compatible wire with no echoed identity falls back to configured, not echo", providerOpenAICompatible, model.Response{Text: "hi"}, "claude-configured", "configured"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fcs := &fakeCallStore{}
+			r := assembleRouter(
+				map[Tier]model.Client{TierCheapCloud: stubClient{resp: tc.resp}},
+				nil, ProfileCloudFrontier, stubMeter{}, unlimitedBudget{}, fcs,
+				map[Tier]routeMeta{TierCheapCloud: {provider: tc.provider, model: "claude-configured"}},
+				false, nil,
+			)
+			r.now = func() time.Time { return time.Unix(0, 0) }
+			if _, _, err := r.serveCompletion(wsCtx(), TaskColdStart, []Tier{TierCheapCloud}, model.Request{}); err != nil {
+				t.Fatalf("complete: %v", err)
+			}
+			got := fcs.recorded[0]
+			if got.ServedModel != tc.wantModel || got.ServedIdentitySource != tc.wantSource {
+				t.Fatalf("served identity wrong: %+v (want model=%q source=%q)", got, tc.wantModel, tc.wantSource)
+			}
+		})
+	}
+}
+
+// servedSource must carry exactly one entry per knownProviders: a provider
+// missing from the map silently stamps ServedIdentitySource="" instead of a
+// real trust label, and a stray key can never be reached from a
+// ParseRouting-validated config.
+func TestServedSourceCoversEveryKnownProvider(t *testing.T) {
+	names := make([]string, 0, len(servedSource))
+	for name := range servedSource {
+		names = append(names, name)
+	}
+	assertSetEqual(t, "servedSource", names, knownProviders)
+}
+
 func TestCompleteRecordsFailure(t *testing.T) {
 	fcs := &fakeCallStore{}
 	r := newTracingRouter(t, stubClient{err: errors.New("provider down")}, fcs)
