@@ -177,6 +177,28 @@ func TestGmailPushWebhookRoutesToTheConnection(t *testing.T) {
 		}
 	})
 
+	t.Run("malformed input is refused, not retried", func(t *testing.T) {
+		if code := post(srv.URL+"/webhooks/gmail-push?token="+token, []byte("not json")); code != http.StatusBadRequest {
+			t.Fatalf("garbage body status = %d, want 400", code)
+		}
+		if code := post(srv.URL+"/webhooks/gmail-push?token="+token, []byte(`{"message":{"data":"%%%not-base64%%%"}}`)); code != http.StatusBadRequest {
+			t.Fatalf("bad base64 status = %d, want 400", code)
+		}
+		empty := base64.StdEncoding.EncodeToString([]byte(`{"historyId":1}`))
+		if code := post(srv.URL+"/webhooks/gmail-push?token="+token, []byte(`{"message":{"data":"`+empty+`"}}`)); code != http.StatusBadRequest {
+			t.Fatalf("missing emailAddress status = %d, want 400", code)
+		}
+		resp, err := http.Get(srv.URL + "/webhooks/gmail-push?token=" + token)
+		if err != nil {
+			t.Fatal(err)
+		}
+		//craft:ignore swallowed-errors test response body close; the status code is the assertion
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Fatalf("GET status = %d, want 405", resp.StatusCode)
+		}
+	})
+
 	t.Run("an unknown mailbox is a 204 no-op", func(t *testing.T) {
 		if code := post(srv.URL+"/webhooks/gmail-push?token="+token, pushBody(t, "stranger@nowhere.example")); code != http.StatusNoContent {
 			t.Fatalf("status = %d, want 204 — Pub/Sub must stop retrying", code)
