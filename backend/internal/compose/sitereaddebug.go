@@ -18,7 +18,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
@@ -33,7 +32,7 @@ import (
 type SiteReadDebugOptions struct {
 	SeedURL string
 	Caps    CrawlCaps
-	Brain   runner.Brain
+	Brain   completer
 	// IncludePageText carries each fetched page's reduced text into the
 	// report (DebugPage.Text) — for the --dump-pages flag; off by default
 	// because page text dwarfs everything else in the JSON.
@@ -143,7 +142,7 @@ func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *s
 // for the debug report. The debug loop is sequential, so the mutable
 // page label is safe; production never sees this type.
 type recordingBrain struct {
-	inner runner.Brain
+	inner completer
 	page  string
 	calls []DebugModelCall
 }
@@ -191,7 +190,7 @@ func (b *recordingBrain) record(req model.Request, resp model.Response, err erro
 // retries, budget bands, secret stripping).
 //
 //nolint:ireturn // the Brain seam is the point: three providers (routed, override, fake) behind the one interface every consumer takes.
-func SiteReadDebugBrain(routingPath, modelOverride string, fake bool) (runner.Brain, string, error) {
+func SiteReadDebugBrain(routingPath, modelOverride string, fake bool) (completer, string, error) {
 	selected := 0
 	for _, on := range []bool{routingPath != "", modelOverride != "", fake} {
 		if on {
@@ -222,7 +221,7 @@ func SiteReadDebugBrain(routingPath, modelOverride string, fake bool) (runner.Br
 		router, err := ai.NewUnmeteredRouter(ai.RoutingConfig{
 			Profile:    ai.ProfileCloudFrontier,
 			Tiers:      map[ai.Tier]ai.ProviderConfig{ai.TierCheapCloud: {Provider: provider, Model: modelName}},
-			Embeddings: ai.ProviderConfig{Provider: "fake"},
+			Embeddings: ai.ProviderConfig{Provider: ai.ProviderFake},
 		})
 		if err != nil {
 			return nil, "", err

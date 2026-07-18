@@ -40,6 +40,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
@@ -59,6 +60,7 @@ func main() {
 // workerConfig is the parsed boot configuration of the worker process.
 type workerConfig struct {
 	dsn                string
+	configPath         string
 	redisAddr          string
 	routingPath        string
 	fakeBrain          bool
@@ -87,6 +89,8 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	fs := flag.NewFlagSet("worker", flag.ContinueOnError)
 	var cfg workerConfig
 	fs.StringVar(&cfg.dsn, "dsn", os.Getenv("MARGINCE_DSN"), "Postgres DSN (runtime app role)")
+	fs.StringVar(&cfg.configPath, "config", envOr("MARGINCE_CONFIG", "margince.yaml"),
+		"path to the deployment configuration file (A107/ADR-0061); read for the ai.capture_payloads posture the Surface-B runner honors. A missing file boots with capture off")
 	fs.StringVar(&cfg.redisAddr, "redis", envOr("MARGINCE_REDIS", "localhost:56379"), "Redis address (event bus)")
 	fs.StringVar(&cfg.routingPath, "ai-routing", os.Getenv("MARGINCE_AI_ROUTING"), "path to ai-routing.yaml; enables the Surface-B runner")
 	fs.BoolVar(&cfg.fakeBrain, "ai-fake", false, "run the Surface-B runner on the offline fake model (dev/test only)")
@@ -155,6 +159,15 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	defer pool.Close()
 
+	// The Surface-B runner (below) runs on THIS process, so the operator's
+	// ai.capture_payloads posture must be read here too — not only in cmd/api.
+	// A missing file returns the zero config (capture off), keeping the
+	// no-config boot's behaviour; an invalid file is a boot error, same as api.
+	deployCfg, err := deployconfig.Load(cfg.configPath)
+	if err != nil {
+		return err
+	}
+
 	rdb, err := events.NewClient(ctx, cfg.redisAddr)
 	if err != nil {
 		return err
@@ -165,7 +178,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		}
 	}()
 
-	modelPath, err := selectModelPath(cfg.routingPath, cfg.fakeBrain, pool)
+	modelPath, err := selectModelPath(cfg.routingPath, cfg.fakeBrain, deployCfg.AI.CapturePayloads, pool, logger)
 	if err != nil {
 		return err
 	}
@@ -329,14 +342,14 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 // deployments, the offline fake behind an explicit dev flag, or the
 // zero path — the runner and the embed lane simply don't start without
 // a declared model; nothing is picked silently.
-func selectModelPath(routingPath string, fake bool, pool *pgxpool.Pool) (compose.ModelPath, error) {
+func selectModelPath(routingPath string, fake, capturePayloads bool, pool *pgxpool.Pool, log *slog.Logger) (compose.ModelPath, error) {
 	switch {
 	case routingPath != "":
 		cfg, err := ai.LoadRoutingFile(routingPath)
 		if err != nil {
 			return compose.ModelPath{}, err
 		}
-		return compose.NewModelPath(cfg, pool)
+		return compose.NewModelPath(cfg, pool, capturePayloads, log)
 	case fake:
 		return compose.FakeModelPath(ai.NewFakeClient()), nil
 	default:

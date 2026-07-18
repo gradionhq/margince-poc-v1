@@ -26,7 +26,8 @@ func SeedDefaultRetentionTx(ctx context.Context, tx pgx.Tx) error {
 		  ('activity', NULL,                 1095, 'archive'),
 		  ('activity', 'transcript',         365,  'erase'),
 		  ('person',   'no_consent_no_deal', 730,  'anonymize'),
-		  ('deal',     'lost',               1825, 'archive')
+		  ('deal',     'lost',               1825, 'archive'),
+		  ('ai_call_payload', 'content',     365,  'erase')
 		) AS v(object_type, category, retain_days, action)`)
 	return err
 }

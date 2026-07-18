@@ -101,10 +101,13 @@ var tableOwners = map[string]string{
 	"capture_sync_state":     "internal/modules/capture",
 	// search
 	"embedding": "internal/modules/search",
-	// ai (voice DNA: the derived profile artifact + corpus manifest)
+	// ai (voice DNA: the derived profile artifact + corpus manifest;
+	// the tracing spine: per-call metadata + opt-in captured payload)
 	"ai_usage":            "internal/modules/ai",
 	"voice_profile":       "internal/modules/ai",
 	"voice_corpus_source": "internal/modules/ai",
+	"ai_call":             "internal/modules/ai",
+	"ai_call_payload":     "internal/modules/ai",
 	// agents (incl. the runner subpackage)
 	"agent_run":  "internal/modules/agents",
 	"runner_job": "internal/modules/agents",
@@ -193,6 +196,7 @@ var crossStoreWrites = map[string]string{
 	"internal/modules/privacy:deal":             "retention archives over-age lost deals per its audited per-record transaction",
 	"internal/modules/privacy:embedding":        "erasure/retention purge the subject's vectors — a similarity probe must not reconstruct erased text",
 	"internal/modules/privacy:raw_capture":      "erasure purges raw provider payloads carrying the subject's identifiers in the single erasure transaction",
+	"internal/modules/privacy:ai_call_payload":  "erasure purges captured AI payloads mentioning the subject's identifiers, and retention ages every payload out at 365d — the special-category-adjacent content, deleted in the single erasure/per-record transaction while the ai_call metadata row survives",
 	"internal/modules/privacy:field_provenance": "Art. 17 erasure deletes the subject's field-origin metadata in the single erasure transaction — provenance must not outlive the fields it annotates",
 
 	// direct audit_log/event_outbox writers: storekit.Audit stamps

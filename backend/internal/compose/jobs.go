@@ -21,7 +21,6 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
-	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
@@ -245,7 +244,7 @@ type JobRunnerConfig struct {
 	// dial). May be nil: the deep-read worker still registers, so a
 	// queued read on a brainless worker finishes failed with an actionable
 	// log instead of sitting queued forever behind a job no one works.
-	DeepReadBrain runner.Brain
+	DeepReadBrain completer
 	// DeepReadCaps bounds each deep-read crawl; the zero value takes the
 	// compose defaults (CrawlCaps.withDefaults).
 	DeepReadCaps CrawlCaps

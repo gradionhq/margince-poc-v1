@@ -122,7 +122,7 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err := e.eraseAttachments(ctx, tx, subjectAttachmentsWhere, subject); err != nil {
 			return err
 		}
-		rawPurged, err := purgeDerivedTraces(ctx, tx, subject, emails)
+		rawPurged, aiPayloadsPurged, err := purgeDerivedTraces(ctx, tx, subject, emails)
 		if err != nil {
 			return err
 		}
@@ -135,7 +135,7 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		// gone.
 		auditID, err := storekit.AuditWithEvidence(ctx, tx, actionErase, "person", subject.UUID, nil, nil, map[string]any{
 			"reason": reason, "emails_suppressed": len(emails), "raw_rows_purged": rawPurged,
-			"activities_redacted": len(activitiesRedacted),
+			"ai_payloads_purged": aiPayloadsPurged, "activities_redacted": len(activitiesRedacted),
 		})
 		if err != nil {
 			return err
@@ -347,14 +347,13 @@ func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID
 // of activities on the subject's timeline embed text ABOUT them; the
 // vector store must not keep what a similarity probe could partially
 // reconstruct.
-func purgeDerivedTraces(ctx context.Context, tx pgx.Tx, personID ids.PersonID, emails []string) (int64, error) {
-	var rawPurged int64
+func purgeDerivedTraces(ctx context.Context, tx pgx.Tx, personID ids.PersonID, emails []string) (rawPurged, aiPayloadsPurged int64, err error) {
 	for _, email := range emails {
-		tag, err := tx.Exec(ctx,
+		tag, execErr := tx.Exec(ctx,
 			`DELETE FROM raw_capture WHERE payload::text ILIKE '%' || $1 || '%' ESCAPE '\'`,
 			storekit.EscapeLike(email))
-		if err != nil {
-			return 0, err
+		if execErr != nil {
+			return 0, 0, execErr
 		}
 		rawPurged += tag.RowsAffected()
 	}
@@ -362,17 +361,38 @@ func purgeDerivedTraces(ctx context.Context, tx pgx.Tx, personID ids.PersonID, e
 		DELETE FROM embedding e USING activity_link l
 		WHERE e.entity_type = 'activity' AND l.person_id = $1 AND e.entity_id = l.activity_id`,
 		personID); err != nil {
-		return 0, err
+		return 0, 0, err
+	}
+	// Captured AI payloads (Layer 3) are purged by the same identifier
+	// match as raw_capture: any opt-in request/response body whose content
+	// names one of the subject's addresses goes, and its ai_call metadata
+	// row survives (the FK is ON DELETE CASCADE from ai_call, never the
+	// reverse). This reaches ONLY payloads whose text mentions the subject —
+	// a call that never named them keeps no PII and ages out anyway via the
+	// 365d ai_call_payload retention erase; there is no subject FK to scope
+	// by, so a content match is the reachable boundary, crude on purpose
+	// (over-deleting captured content is recoverable, under-deleting PII is
+	// a violation).
+	for _, email := range emails {
+		tag, execErr := tx.Exec(ctx, `
+			DELETE FROM ai_call_payload
+			WHERE request_payload::text ILIKE '%' || $1 || '%' ESCAPE '\'
+			   OR response_payload::text ILIKE '%' || $1 || '%' ESCAPE '\'`,
+			storekit.EscapeLike(email))
+		if execErr != nil {
+			return 0, 0, execErr
+		}
+		aiPayloadsPurged += tag.RowsAffected()
 	}
 	for _, email := range emails {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO erasure_suppression (workspace_id, kind, value_hash)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'email', $1)
 			ON CONFLICT DO NOTHING`, storekit.SuppressionHash(email)); err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 	}
-	return rawPurged, nil
+	return rawPurged, aiPayloadsPurged, nil
 }
 
 // lowercased normalizes identifiers for SQL ANY matching.

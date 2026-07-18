@@ -101,6 +101,24 @@ func TestLoadMissingFileBootsExistingInstallation(t *testing.T) {
 	}
 }
 
+func TestParseAICapturePayloads(t *testing.T) {
+	cfg, err := Parse([]byte("version: 1\nai:\n  capture_payloads: true\n"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !cfg.AI.CapturePayloads {
+		t.Fatal("ai.capture_payloads should be true")
+	}
+	// Default is off.
+	def, err := Parse([]byte("version: 1\n"))
+	if err != nil {
+		t.Fatalf("parse default: %v", err)
+	}
+	if def.AI.CapturePayloads {
+		t.Fatal("ai.capture_payloads must default to false")
+	}
+}
+
 func TestBootstrapAdminPasswordComesFromTheFileReference(t *testing.T) {
 	pwFile := filepath.Join(t.TempDir(), "pw")
 	if err := os.WriteFile(pwFile, []byte("a bootstrap password!\n"), 0o600); err != nil {
