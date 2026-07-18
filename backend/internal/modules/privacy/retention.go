@@ -38,7 +38,13 @@ const retentionBatch = 200
 // setting: ai_call carries no subject content (it is telemetry — routing,
 // spend, and identity facts, never a customer's data), so its age-out is
 // engine-owned hygiene, the same footing as commercialCorrespondenceFloor
-// below rather than a §3.4 storage-limitation policy.
+// below rather than a §3.4 storage-limitation policy. Only the embedding
+// kind is aged because its volume is different in kind, not in risk:
+// every indexed record emits embed rows on every re-index, and past the
+// spend ledger's monthly close they answer no question a completion row
+// doesn't. Completion rows ARE the certification substrate (attempt
+// ladders, served identity, config lineage) and stay until a spec
+// retention rule says otherwise.
 const embedCallRetention = 90
 
 // RetentionService drives the evaluator; the worker ticks it nightly.

@@ -14,7 +14,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
@@ -25,9 +24,12 @@ import (
 // small enough that a runaway completion still terminates.
 const defaultRunMaxTokens = 2048
 
-// judgeMaxTokens bounds the judge's own reply: a one-line JSON verdict
-// never needs more.
-const judgeMaxTokens = 512
+// judgeMaxTokens bounds the judge's own reply. The verdict is one line
+// of JSON, but reasoning models (Gemini 2.5, o-series) spend output
+// tokens on internal thinking BEFORE the verdict — a tight cap starves
+// the reply into a MAX_TOKENS stop with zero visible text, so the cap
+// carries thinking headroom, not just verdict length.
+const judgeMaxTokens = 4096
 
 // judgeSystemPrompt is the fixed rubric-scorer instruction every judge
 // call carries — never the candidate's own system prompt, so a
@@ -54,7 +56,13 @@ func buildRequest(sc Scenario) model.Request {
 // judgeRequest builds the judge's own completion request: the rubric,
 // the scenario's input for context, and the candidate's raw output to
 // score — never the candidate's system prompt or history, only what a
-// grader needs to judge the answer actually produced.
+// grader needs to judge the answer actually produced. The candidate's
+// output is interpolated verbatim, so a candidate CAN address the judge
+// in its answer — accepted for this manually-run internal lane (fixed
+// grader system prompt, separate never-overridden router, strict
+// range-checked verdict parse, self_judged surfaced on the record);
+// anything higher-stakes than a committed QA record needs a delimited
+// or tool-forced verdict channel first.
 func judgeRequest(sc Scenario, candidateOutput string) model.Request {
 	user := fmt.Sprintf("Rubric:\n%s\n\nScenario input:\n%s\n\nCandidate output:\n%s", sc.Expect.Rubric, sc.Input, candidateOutput)
 	return model.Request{
@@ -77,7 +85,7 @@ type judgeVerdict struct {
 // silently accepting a nonsense score.
 func parseJudgeVerdict(text string) (judgeVerdict, error) {
 	var v judgeVerdict
-	if err := json.Unmarshal([]byte(strings.TrimSpace(text)), &v); err != nil {
+	if err := json.Unmarshal([]byte(ai.Unfence(text)), &v); err != nil {
 		return judgeVerdict{}, fmt.Errorf("judge output is not the expected JSON object: %w", err)
 	}
 	if v.Score < 0 || v.Score > 100 {

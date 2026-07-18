@@ -233,12 +233,17 @@ func runOnce(ctx context.Context, candidate *ai.Router, candidateRec *traceRecor
 		return runOutcome{RunResult: RunResult{Degraded: true}}, nil
 	}
 
-	score, judgeServedModel, judgeDegraded, err := judgeScore(ctx, judge, judgeRec, sc, resp.Text, log)
+	// Judge and checks consume what production's parsers consume: the
+	// unfenced text (every serving path strips markdown fences before
+	// json.Unmarshal, so a fence is presentation, not a defect).
+	output := ai.Unfence(resp.Text)
+
+	score, judgeServedModel, judgeDegraded, err := judgeScore(ctx, judge, judgeRec, sc, output, log)
 	if err != nil {
 		return runOutcome{}, fmt.Errorf("judge: %w", err)
 	}
 
-	structuralOK, structuralFailures := RunChecks(sc.Expect.Structural, resp.Text)
+	structuralOK, structuralFailures := RunChecks(sc.Expect.Structural, output)
 	capsOK, capFailures := checkCaps(sc.Expect.Caps, term)
 	if !structuralOK || !capsOK {
 		log.WarnContext(ctx, "aicert: run failed its structural/caps gate",
@@ -248,7 +253,7 @@ func runOnce(ctx context.Context, candidate *ai.Router, candidateRec *traceRecor
 
 	return runOutcome{
 		RunResult: RunResult{
-			Output:    resp.Text,
+			Output:    output,
 			LatencyMS: term.LatencyMS,
 			Tokens:    term.TokensIn + term.TokensOut,
 			HardPass:  structuralOK && capsOK,
