@@ -1,0 +1,21 @@
+# margince.dev.example.yaml — optional dev deployment-config OVERLAY.
+#
+# `make dev` generates the real deployment config at .tmp/dev/<slug>/margince.yaml
+# on every boot (and deletes it on `make dev-stop`), so editing that file in place
+# never sticks. This overlay is the persistent, gitignored place to add operator
+# POSTURE that survives restarts: copy this file to config/margince.dev.yaml and
+# `make dev` appends it to the generated config, for BOTH the api and worker roles.
+#
+#     cp config/margince.dev.example.yaml config/margince.dev.yaml
+#     # edit config/margince.dev.yaml, then: make dev-stop && make dev
+#
+# Add ONLY keys the generated base does not already set — it owns version,
+# organization, and bootstrap_admin (the admin password file). The overlay is
+# appended verbatim, so a key the base also sets would be a YAML duplicate.
+#
+# Today the one operator-posture block is the AI runtime. Turn on Layer-3 AI
+# payload capture (ai_call_payload) — OFF by default because it stores
+# special-category-adjacent content that then ages under the retention engine
+# and the Art. 17 erasure cascade:
+ai:
+  capture_payloads: true

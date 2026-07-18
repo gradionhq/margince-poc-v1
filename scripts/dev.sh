@@ -225,6 +225,22 @@ bootstrap_admin:
   password_file: ${admin_pw_file}
 EOF_CFG
 
+  # Operator-posture overlay. The rundir margince.yaml above is REGENERATED
+  # every boot (and deleted on dev-stop), so editing it in place never sticks.
+  # An optional, gitignored config/margince.dev.yaml lets a developer add
+  # runtime posture that persists across restarts — e.g. Layer-3 payload capture:
+  #     ai:
+  #       capture_payloads: true
+  # It is APPENDED to the generated config (which owns the bootstrap/password
+  # bits), so add only keys the base doesn't set. Copy config/margince.dev.example.yaml
+  # to start. Both api and worker below take --config, so the posture reaches both roles.
+  dev_overlay="config/margince.dev.yaml"
+  if [[ -f "$dev_overlay" ]]; then
+    printf '\n# --- appended from %s (operator overlay) ---\n' "$dev_overlay" >>"$deploy_cfg"
+    cat "$dev_overlay" >>"$deploy_cfg"
+    echo "dev: applied operator overlay $dev_overlay to the deployment config"
+  fi
+
   # Run the compiled binary directly (not `go run`): it starts in <1s so the
   # poll window is real, and $be_pid is the actual server process for a clean
   # kill. Redis is the ONE shared instance. The api keeps its default inline
@@ -295,6 +311,7 @@ EOF_CFG
     MARGINCE_BLOBSTORE_SECRET_KEY=minioadmin \
     MARGINCE_BLOBSTORE_BUCKET=margince-dev \
     ./bin/worker --dsn "$dev_app_url" --redis "localhost:${REDIS_PORT}" \
+    --config "$deploy_cfg" \
     --retention-interval 720h \
     "${ai_flag[@]}" "${worker_gmail_flags[@]+"${worker_gmail_flags[@]}"}" >>"$log" 2>&1 &
   worker_pid=$!

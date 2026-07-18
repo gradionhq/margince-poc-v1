@@ -27,6 +27,12 @@ coverage.out
 # so the committed .example template is never matched.
 /config/ai-routing.yaml
 
+# Per-engineer dev deployment-config overlay — optional operator-posture blocks
+# (e.g. ai.capture_payloads) `make dev` appends to the generated margince.yaml.
+# Copy config/margince.dev.example.yaml here to use it. Anchored so the committed
+# .example template is never matched.
+/config/margince.dev.yaml
+
 # Storybook static build + fe-uat capture artifacts
 frontend/storybook-static/
 .tmp/
