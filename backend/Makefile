@@ -35,7 +35,7 @@ export MARGINCE_ENV          ?= dev
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check build test test-v test-cover test-integration e2e-siteread test-db-up test-it test-integration-serial lint arch-lint vet gen gen-workflow drift db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql redis-cli tidy dev infra-down infra-logs infra-reset clean vuln tools tools-go hooks
+.PHONY: help check build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report test-db-up test-it test-integration-serial lint arch-lint vet gen gen-workflow drift db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql redis-cli tidy dev infra-down infra-logs infra-reset clean vuln tools tools-go hooks
 
 help: ## List targets with their descriptions (the default goal)
 	@grep -hE '^[a-zA-Z][a-zA-Z0-9_-]*:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -65,6 +65,23 @@ test-integration: ## Integration lane: real Postgres, fails loudly without it (n
 
 e2e-siteread: ## Deep-read quality floor vs the real gradion.com (paid: real model + network; opt-in). Judge a model with MARGINCE_E2E_MODEL=provider:model (+ its BYOK key) or MARGINCE_AI_ROUTING.
 	$(GO) test -tags e2e_llm ./internal/compose/ -run TestSiteReadE2E -v -count=1 -timeout 20m
+
+# TestE2ECertify has no MARGINCE_E2E_MODEL-style fallback of its own — it
+# hard-fails without a routing file — so, unlike e2e-siteread, e2e-ai
+# supplies one: the per-engineer config/ai-routing.yaml `make install`
+# already seeds, so `make e2e-ai` runs against your local binding out of
+# the box. $(CURDIR) makes it absolute: `go test` runs the binary with its
+# cwd set to the aicert package directory, not to backend/, so a relative
+# "../config/..." would resolve from the wrong place. Override with
+# MARGINCE_AI_ROUTING=<path> for a different one.
+MARGINCE_AI_ROUTING ?= $(CURDIR)/../config/ai-routing.yaml
+
+e2e-ai: ## Certify AI tasks vs the local binding (paid: real model + network; opt-in). TASK=x MODEL=prov:model RUNS=3 MARGINCE_AI_ROUTING=path
+	MARGINCE_AICERT=1 MARGINCE_AI_ROUTING=$(MARGINCE_AI_ROUTING) MARGINCE_AICERT_TASK=$(TASK) MARGINCE_AICERT_MODEL=$(MODEL) MARGINCE_AICERT_RUNS=$(RUNS) \
+	  $(GO) test -tags e2e_llm ./internal/compose/aicert/ -run TestE2ECertify -v -count=1 -timeout 30m
+
+e2e-ai-report: ## Print the certification matrix (task x provider x model) from the committed records under internal/compose/aicert/records/.
+	$(GO) run ./internal/compose/aicert/reportcmd
 
 test-db-up: ## (Re)build the migrated margince_test template the parallel lane clones from
 	@bash -c 'cd .. && source scripts/lib-testdb.sh && parse_test_dsn && build_template && echo "test-db-up: template $$TEMPLATE_NAME migrated to head"'
