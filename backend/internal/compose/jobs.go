@@ -252,6 +252,9 @@ type JobRunnerConfig struct {
 	// queued read on a brainless worker finishes failed with an actionable
 	// log instead of sitting queued forever behind a job no one works.
 	DeepReadBrain completer
+	// DeepReadFactBrain serves the page-parallel fact lane
+	// (modelPath.SiteFactExtract); nil falls back to DeepReadBrain.
+	DeepReadFactBrain completer
 	// DeepReadCaps bounds each deep-read crawl; the zero value takes the
 	// compose defaults (CrawlCaps.withDefaults).
 	DeepReadCaps CrawlCaps
@@ -277,7 +280,7 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	workers := river.NewWorkers()
 	// The deep read is not periodic — the api enqueues one job per started
 	// dossier; the worker role only needs the worker registered.
-	river.AddWorker(workers, newSiteDeepReadWorker(pool, cfg.DeepReadBrain, log, cfg.DeepReadCaps))
+	river.AddWorker(workers, newSiteDeepReadWorker(pool, cfg.DeepReadBrain, cfg.DeepReadFactBrain, log, cfg.DeepReadCaps))
 	river.AddWorker(workers, &closeDateSweepWorker{corrector: NewCloseDateCorrector(pool, log)})
 	river.AddWorker(workers, &followUpReconcileWorker{reconciler: NewFollowUpReconciler(pool, log)})
 	river.AddWorker(workers, &timeScanWorker{scanner: NewTimeScanner(pool, log)})

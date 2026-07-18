@@ -70,10 +70,11 @@ func normalizeEvidence(s string) string {
 // category lanes are "category:<name>", built where the category is
 // known.
 const (
-	laneFields = "fields"
-	lanePeople = "people"
-	laneCorpus = "corpus"
-	laneLegal  = "legal"
+	laneFields    = "fields"
+	lanePeople    = "people"
+	lanePageFacts = "page_facts"
+	laneProfile   = "profile"
+	laneLegal     = "legal"
 )
 
 // Drop reasons: why a model-claimed finding did not survive its gate.
@@ -93,13 +94,27 @@ const (
 	// site's legal pages disagree on the entity: with no trustworthy
 	// override, no lane may smuggle one back in.
 	dropLegalConflict = "legal_conflict_no_override"
-	// dropUnknownPage marks a claim naming a source_url the corpus never
-	// showed the model.
-	dropUnknownPage = "source_url_not_in_corpus"
+	// dropLegalCensusIncomplete marks the legal trio withheld because a
+	// LEGAL page's fact call failed: with an entity vote possibly
+	// missing, the abstention cannot trust its count.
+	dropLegalCensusIncomplete = "legal_census_incomplete"
 	// dropLegalNotFromLegalPage marks a legal-identity claim quoted from
 	// anything but a shallow legal page — marketing copy cannot testify
 	// to the register.
 	dropLegalNotFromLegalPage = "legal_field_not_from_legal_page"
+	// dropSnippetIDUnknown marks a citation outside the numbered index —
+	// unreachable when the schema enum held, the honest gate when a
+	// provider ignored it.
+	dropSnippetIDUnknown = "snippet_id_unknown"
+	// dropValueNotInSnippet marks a finding whose NAME the cited passage
+	// (±1 same-page neighbor) does not carry — the reference-evidence
+	// no-guess rule.
+	dropValueNotInSnippet = "value_not_in_snippet"
+	// dropParaphraseLowOverlap is WARNING-class, never a refusal: a
+	// paraphrase profile field whose value shares no content word with
+	// its cited passage. Multilingual sites trip it legitimately; the
+	// rate is watched, the finding kept.
+	dropParaphraseLowOverlap = "paraphrase_low_overlap"
 )
 
 // droppedFinding is one gate rejection, kept for the drop sink instead

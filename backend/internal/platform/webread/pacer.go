@@ -11,13 +11,13 @@ import (
 
 const (
 	// pacerMaxConcurrent and pacerMinInterval are the burst budget toward
-	// one site: at most twelve requests in flight, request STARTS at least
+	// one site: at most eight requests in flight, request STARTS at least
 	// 25ms apart. A deep read is a one-shot, bounded read of one company's
-	// site (page/byte/wall caps), not sustained crawling — the founder set
-	// the target at "the whole site in under five seconds" (2026-07-18),
-	// and a browser page-load fans out harder than this burst does.
-	// Robots.txt honor is unchanged.
-	pacerMaxConcurrent = 12
+	// site (page/byte/wall caps), not sustained crawling. Eight is the
+	// measured sweet spot: at twelve, origin servers start queuing and
+	// the fetch tail balloons past what the extra lanes save. Robots.txt
+	// honor is unchanged.
+	pacerMaxConcurrent = 8
 	pacerMinInterval   = 25 * time.Millisecond
 )
 

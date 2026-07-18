@@ -155,6 +155,10 @@ func (r *crawlRun) commit(adm admission, res fetchResult) {
 	if adm.cand.probe {
 		r.probeKindDone[adm.cand.kind] = true
 	}
-	r.crawl.Pages = append(r.crawl.Pages, crawlPage{URL: adm.url, Kind: adm.kind, Text: page.Text, Bytes: page.Bytes, FetchDur: res.dur})
+	committed := crawlPage{URL: adm.url, Kind: adm.kind, Text: page.Text, Bytes: page.Bytes, FetchDur: res.dur}
+	r.crawl.Pages = append(r.crawl.Pages, committed)
+	if r.onPage != nil {
+		r.onPage(committed)
+	}
 	r.queue = append(r.queue, linkCandidates(page.Links)...)
 }
