@@ -87,6 +87,8 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/customfields:ActiveColumns":            "called from inside a record store's own gated Get/List/Create/Update, whose object-level RBAC already ran; the column names/types it answers are workspace-visible schema (the same shape custom_field:read already exposes), not row data a second gate would need to narrow",
 	"internal/modules/people:WithFieldCatalog":               "composition-root wiring (injects the fieldcatalog reader the cf_* read/write paths use); no data access",
 	"internal/modules/deals:WithFieldCatalog":                "composition-root wiring (injects the fieldcatalog reader the cf_* read/write paths use); no data access",
+	"internal/modules/activities:UnlabeledCaptureEmails":     "classify-backlog read driven by the worker sweep under the workspace GUC, no human principal (ADR-0063); the rows were admitted at capture time and the labels route attention only",
+	"internal/modules/activities:SetCaptureLabel":            "classify verdict write driven by the worker sweep under the workspace GUC; a CAS on capture_label IS NULL that touches nothing but the two label columns — attention routing, not a record mutation (§3.2)",
 }
 
 // gateFnInfo is what the gate needs to know about one function name in a

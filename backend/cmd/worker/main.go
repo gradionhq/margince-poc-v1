@@ -295,6 +295,9 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 		ReconcileInterval: cfg.reconcileInterval,
 		TimeScanInterval:  cfg.timeScanInterval,
 		GmailRegistry:     captureReg,
+		// The classify pass runs only where a model is configured; without
+		// one, mail stays honestly unlabeled (no job registered).
+		ClassifyBrain: modelPath.CaptureClassify,
 
 		GmailWatch: watchCfg,
 		// The deep-read worker registers regardless: without a model path

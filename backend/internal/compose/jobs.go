@@ -246,6 +246,10 @@ type JobRunnerConfig struct {
 	TimeScanInterval  time.Duration
 	GmailRegistry     *capture.Registry
 	GmailWatch        GmailWatchConfig
+	// ClassifyBrain is the capture-classify model lane (the worker's
+	// modelPath.CaptureClassify). Nil = no AI configured — the label pass
+	// is absent by omission and mail simply stays unlabeled (honest no-op).
+	ClassifyBrain completer
 	// DeepReadBrain is the model lane the site deep-read job extracts with
 	// (the worker's modelPath.SiteExtract — the crawl's own routing
 	// dial). May be nil: the deep-read worker still registers, so a
@@ -301,6 +305,19 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 			func() (river.JobArgs, *river.InsertOpts) { return TimeScanArgs{}, sweepInsertOpts() },
 			&river.PeriodicJobOpts{RunOnStart: true},
 		),
+	}
+
+	if cfg.ClassifyBrain != nil {
+		river.AddWorker(workers, &captureClassifyWorker{
+			classifier: NewCaptureClassifier(pool, cfg.ClassifyBrain, log),
+		})
+		// The hourly catch-up pass (ADR-0063): the nightly suite reruns the
+		// same engine; the backlog index makes an empty pass one cheap probe.
+		periodic = append(periodic, river.NewPeriodicJob(
+			river.PeriodicInterval(time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) { return CaptureClassifyArgs{}, sweepInsertOpts() },
+			&river.PeriodicJobOpts{RunOnStart: true},
+		))
 	}
 
 	if cfg.GmailRegistry != nil {
@@ -387,4 +404,22 @@ func (w *captureBackfillWorker) Work(ctx context.Context, job *river.Job[Capture
 		}
 	}
 	return river.JobSnooze(time.Second)
+}
+
+// CaptureClassifyArgs runs one catch-up classify pass (ADR-0063; §2.8).
+type CaptureClassifyArgs struct{}
+
+// Kind is the stable job identifier River persists in river_job.
+func (CaptureClassifyArgs) Kind() string { return "capture_classify" }
+
+// captureClassifyWorker drives the batched label engine; the engine
+// commits per model call, so a mid-pass crash or budget stop loses
+// nothing and the next tick resumes from the shrunken backlog.
+type captureClassifyWorker struct {
+	river.WorkerDefaults[CaptureClassifyArgs]
+	classifier *CaptureClassifier
+}
+
+func (w *captureClassifyWorker) Work(ctx context.Context, _ *river.Job[CaptureClassifyArgs]) error {
+	return w.classifier.Run(ctx, 0)
 }
