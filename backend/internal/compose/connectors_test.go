@@ -119,7 +119,7 @@ func TestCallbackDeniedRedirectsHonestly(t *testing.T) {
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status = %d, want 302", rec.Code)
 	}
-	if loc := rec.Header().Get("Location"); loc != "https://app.test/activation?connect=denied" {
+	if loc := rec.Header().Get("Location"); loc != "https://app.test/#/onboarding/connect/denied" {
 		t.Errorf("Location = %q, want the denied landing", loc)
 	}
 }
@@ -139,7 +139,7 @@ func TestCallbackBadStateRedirectsError(t *testing.T) {
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status = %d, want 302", rec.Code)
 	}
-	if loc := rec.Header().Get("Location"); loc != "https://app.test/activation?connect=error" {
+	if loc := rec.Header().Get("Location"); loc != "https://app.test/#/onboarding/connect/error" {
 		t.Errorf("Location = %q, want the error landing", loc)
 	}
 }

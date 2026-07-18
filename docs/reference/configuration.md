@@ -57,6 +57,22 @@ Operational endpoints (served next to `/v1`):
 | `--runner-interval` | — | `30s` | Surface-B scheduler tick |
 | `--retention-interval` | — | `24h` | retention evaluator pass interval |
 | `--time-scan-interval` | — | `1h` | clock-trigger automation scan interval (`no_activity_reminder` et al. — the River periodic job `TimeScanner.Scan` drives) |
+| `--deepread-max-pages` | `MARGINCE_DEEPREAD_MAX_PAGES` | `0` (= built-in 40) | deep-read crawl page cap |
+| `--deepread-max-bytes` | `MARGINCE_DEEPREAD_MAX_BYTES` | `0` (= built-in 32 MiB) | deep-read crawl aggregate byte cap |
+| `--deepread-wall` | `MARGINCE_DEEPREAD_WALL` | `0` (= built-in 4m) | deep-read crawl wall clock |
+
+### `worker siteread` — the deep-read debug loop (no DB)
+
+`worker siteread <url…> [--urls-file f]` runs the whole crawl→extract→merge
+pipeline in memory — no Postgres, no Redis, no staging — and prints every
+intermediate: pages with skip reasons, every extracted field/fact with its
+evidence, every finding the gate DROPPED (with why), merge decisions, and
+per-model-call token/latency telemetry. Exactly one model selection is
+required: `--ai-routing <yaml>`, `--model provider:model` (e.g.
+`anthropic:claude-opus-4-8` — needs the provider's BYOK env key), or
+`--ai-fake` (crawl dry-run). `--max-pages/--max-bytes/--wall` override the
+caps per run; `--json <path|->` writes a diffable machine-readable report;
+`--dump-pages <dir>` saves each page's reduced text.
 
 Without a declared model (`--ai-routing`/`--ai-fake`) the runner and the
 embedding lane simply do not start; the relay, retention, the event-triggered

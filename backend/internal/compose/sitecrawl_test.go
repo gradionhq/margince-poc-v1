@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
@@ -61,7 +62,7 @@ func (instantPacer) Wait(context.Context) error { return nil }
 func (instantPacer) Done()                      {}
 
 func testSiteCrawler(site *fakeSite) *siteCrawler {
-	crawler := newSiteCrawler(site)
+	crawler := newSiteCrawler(site, CrawlCaps{})
 	crawler.newPacer = func() crawlPacer { return instantPacer{} }
 	return crawler
 }
@@ -91,6 +92,19 @@ func seedOnly(linkPaths ...string) map[string]fakeSitePage {
 	}
 }
 
+func TestCrawlCapsZeroValueTakesTheDefaultsAndExplicitCapsHold(t *testing.T) {
+	defaulted := newSiteCrawler(&fakeSite{}, CrawlCaps{})
+	if defaulted.maxPages != defaultCrawlMaxPages || defaulted.maxBytes != defaultCrawlMaxBytes || defaulted.wall != defaultCrawlWall {
+		t.Fatalf("zero caps gave %d pages / %d bytes / %s, want the defaults %d / %d / %s",
+			defaulted.maxPages, defaulted.maxBytes, defaulted.wall,
+			defaultCrawlMaxPages, defaultCrawlMaxBytes, defaultCrawlWall)
+	}
+	explicit := newSiteCrawler(&fakeSite{}, CrawlCaps{MaxPages: 3, MaxBytes: 1 << 10, Wall: time.Second})
+	if explicit.maxPages != 3 || explicit.maxBytes != 1<<10 || explicit.wall != time.Second {
+		t.Fatalf("explicit caps not honored: %d pages / %d bytes / %s", explicit.maxPages, explicit.maxBytes, explicit.wall)
+	}
+}
+
 func TestCrawlWithoutASeedPageIsAFailureNotAPartialRead(t *testing.T) {
 	site := &fakeSite{pages: map[string]fakeSitePage{}}
 	if _, err := testSiteCrawler(site).Crawl(context.Background(), seedURL); err == nil {
@@ -99,6 +113,7 @@ func TestCrawlWithoutASeedPageIsAFailureNotAPartialRead(t *testing.T) {
 }
 
 func TestCrawlStopsAtThePageCapAndRecordsWhatWasCut(t *testing.T) {
+	const maxPages = 12
 	site := &fakeSite{pages: seedOnly()}
 	for i := range 40 {
 		pageURL := fmt.Sprintf("%s/page-%02d", seedURL, i)
@@ -106,12 +121,14 @@ func TestCrawlStopsAtThePageCapAndRecordsWhatWasCut(t *testing.T) {
 		site.pages[pageURL] = fakeSitePage{text: readable(pageURL)}
 	}
 
-	crawl, err := testSiteCrawler(site).Crawl(context.Background(), seedURL)
+	crawler := testSiteCrawler(site)
+	crawler.maxPages = maxPages
+	crawl, err := crawler.Crawl(context.Background(), seedURL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(crawl.Pages) != crawlMaxPages {
-		t.Fatalf("fetched %d pages, want the cap %d", len(crawl.Pages), crawlMaxPages)
+	if len(crawl.Pages) != maxPages {
+		t.Fatalf("fetched %d pages, want the cap %d", len(crawl.Pages), maxPages)
 	}
 	if crawl.Stopped == nil || *crawl.Stopped != crmcontracts.SiteReadReportStoppedReasonPageCap {
 		t.Fatalf("Stopped = %v, want page_cap", crawl.Stopped)
@@ -295,18 +312,75 @@ func TestCrawlOrderIsDeterministicAcrossRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Fetch timing is wall-clock observability, the one field two
+	// identical crawls legitimately disagree on.
+	for i := range first.Pages {
+		first.Pages[i].FetchDur = 0
+	}
+	for i := range second.Pages {
+		second.Pages[i].FetchDur = 0
+	}
 	if !reflect.DeepEqual(first, second) {
 		t.Fatalf("two crawls of the same site diverged:\n%v\n%v", first, second)
 	}
-	// And the order itself is the documented one: probes before sitemap
-	// before harvested links.
+	// And the order itself is the documented one: probes first, then
+	// discovered URLs by kind priority (insertion order breaking ties),
+	// boilerplate archives (/blog) last.
 	var order []string
 	for _, page := range first.Pages {
 		order = append(order, page.URL)
 	}
-	want := []string{seedURL, seedURL + "/about", seedURL + "/team", seedURL + "/cases", seedURL + "/blog", seedURL + "/pricing"}
+	want := []string{seedURL, seedURL + "/about", seedURL + "/team", seedURL + "/cases", seedURL + "/pricing", seedURL + "/blog"}
 	if !reflect.DeepEqual(order, want) {
 		t.Fatalf("page order = %v, want %v", order, want)
+	}
+}
+
+func TestCrawlSpendsAScarcePageBudgetOnFactPagesBeforeBlogLinks(t *testing.T) {
+	site := &fakeSite{pages: seedOnly()}
+	// Thirty blog posts arrive in the sitemap BEFORE the late-discovered
+	// legal and about pages; under a small cap the kind ranking must
+	// still fetch the fact pages.
+	for i := range 30 {
+		postURL := fmt.Sprintf("%s/blog/post-%02d", seedURL, i)
+		site.sitemap = append(site.sitemap, postURL)
+		site.pages[postURL] = fakeSitePage{text: readable(postURL)}
+	}
+	site.sitemap = append(site.sitemap, seedURL+"/de/impressum-seite", seedURL+"/ueber-uns-firma")
+	site.pages[seedURL+"/de/impressum-seite"] = fakeSitePage{text: readable("Impressum. Acme GmbH.")}
+	site.pages[seedURL+"/ueber-uns-firma"] = fakeSitePage{text: readable("Über uns.")}
+
+	crawler := testSiteCrawler(site)
+	crawler.maxPages = 3 // the seed plus two more
+	crawl, err := crawler.Crawl(context.Background(), seedURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, page := range crawl.Pages {
+		got = append(got, page.URL)
+	}
+	want := []string{seedURL, seedURL + "/de/impressum-seite", seedURL + "/ueber-uns-firma"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("the budget went to %v, want the fact pages %v", got, want)
+	}
+}
+
+func TestNormalizeCandidateStripsTrackingParamsSoVariantsDedupe(t *testing.T) {
+	plain, ok := normalizeCandidate(seedURL + "/about")
+	if !ok {
+		t.Fatal("a plain URL failed to normalize")
+	}
+	tracked, ok := normalizeCandidate(seedURL + "/about?utm_source=nl&utm_campaign=x&fbclid=abc")
+	if !ok {
+		t.Fatal("a tracked URL failed to normalize")
+	}
+	if tracked != plain {
+		t.Fatalf("tracking variants did not collapse: %q vs %q", tracked, plain)
+	}
+	kept, ok := normalizeCandidate(seedURL + "/about?lang=de")
+	if !ok || kept != seedURL+"/about?lang=de" {
+		t.Fatalf("a real query parameter was mangled: %q", kept)
 	}
 }
 

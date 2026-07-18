@@ -22,6 +22,70 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**Deep-read quality loop — debug CLI + ingestion quality** — the answer
+to "12 pages, missing facts, wrong company": crawl caps are now
+operator-tunable with raised defaults (40 pages / 32 MiB / 240 s;
+`--deepread-*` worker flags), and `worker siteread <url>` runs the whole
+crawl→extract→merge pipeline **without the stack** (no DB/Redis/staging)
+printing every intermediate — pages, skips, every extracted field with
+evidence, every finding the gate DROPPED with its reason, merge
+decisions, per-call model telemetry, diffable `--json`. Quality fixes:
+the evidence gate now falls back to presentation-normalized matching
+(quotes/dashes/whitespace/case — words never forgiven) and reports every
+drop instead of silently discarding; the crawl queue is kind-ranked
+(impressum/about/team before blog archives; tracking params stripped);
+extraction has its own routing dial (`site_extract` task) so its tier is
+an `ai-routing.yaml` edit; a site-level synthesis pass reconciles
+contradictions across pages (still evidence-gated per named page,
+degrades to the merge on failure); and the legal-page override is
+hardened (path-depth ≤ 2 authority rule; disagreeing legal pages cancel
+the override entirely). Model comparison per site:
+`worker siteread <url> --model anthropic:<model>`. Spec reconciliation
+pending upstream: the R2 caps (12/8 MiB/90 s) were raised by founder
+decision 2026-07-18.
+
+**Website deep read — crawl a company's whole site (PR #103)** — the
+generic, powerful ingestion: an async River-queued crawl of a company's
+site (bounded — ≤12 pages / 8 MiB / 90s, robots-honored, SSRF-guarded,
+discovery deterministic and never model-chosen) that extracts far more
+than the cold-start fields — company facts, offerings, market signals,
+and team members — through the same evidence-or-omit gate, and stages
+every finding as a confirm-first 🟡 proposal. New home
+`organization_fact` (closed per-category vocabularies, enforced in prompt
++ schema + DB CHECK); the 11 cold-start fields keep
+`organization_profile_field`. Team members become thin, published-only
+`site_lead` proposals landing through the capture Sink as segregated
+leads (NEVER-8 kept). `POST /organizations/{id}/deep-read` (202 + poll),
+`GET .../site-reads/{readId}` reports pages read, pages skipped *with
+reasons*, and any early-stop cause. Reused for onboarding *and*
+enrichment of any org. Live-verified against gradion.com (12 pages, 40
+facts, accepted end-to-end). The live run also caught a defect no fake
+could: River's silent 1-min job timeout killed real crawls and the
+exhausted context wedged the dossier `running` — fixed with an 8-min
+worker timeout + `terminalCtx` (WithoutCancel + fresh deadline) so the
+terminal write survives the work's death.
+
+**Website read-back reads the SITE, and the onboarding design fix (PR #101)**
+— the read-back now fetches the given page *plus* the well-known
+Impressum/legal-notice paths and merges per-page (legal facts prefer the
+page that legally states them), so German sites finally ground
+legal_name/VAT/registered_address; `display_name` joined the
+ColdStartField vocabulary. The fetcher moved to `platform/webread` and
+keeps ADR-0006's promise: robots.txt honored (RFC 9309 semantics, named
+UA), SSRF-guarded via the socket Control hook. The onboarding company
+form was rebuilt on the design-system atoms (it had bespoke CSS that read
+as a foreign screen).
+
+**Onboarding first-run — a bare installation lands in a company form (PR #98)**
+— a cold-start admin used to land in the main menu on top of a nameless
+org; now the app shell gates on `GET /company` (404 = undescribed) and
+routes them into a mandatory company step. `PUT /company` is the human's
+confirm-first write (the unsaved form IS the 🟡 staged state, marked
+`human-only`); `POST /coldstart/preview` pre-fills it without staging.
+The anchor org is marked `organization.is_anchor` (0083). Required
+identity block (name, legal entity, VAT, address, industry); the step
+cannot be skipped.
+
 **Cloud-provider review remediation (PR #102)** — the top-10 correctness
 findings from the post-merge review of the cloud model providers (#96):
 streams surface failure/truncation terminals instead of clean EOF (openai
@@ -204,6 +268,26 @@ tooling and gate suite the baseline needs. Merged so far:
 
 Open work, roughly in priority order:
 
+- **Deep-read durability-hardening pass** (from the #103 review, deferred
+  as cross-cutting rather than rushed per-effect) — the redeem-then-execute
+  accept effects (coldstart/scrape/deepread/site_lead) share the ADR-0036
+  pattern where a consumed-but-unapplied approval can't be retried; the
+  correct fix is transactional redeem+apply at the approvals-framework
+  level, repo-wide. Plus: transactional River enqueue (Start→enqueue and
+  stage→finish are separate module txns today; `closeUnqueued` is the
+  current compensation), and a stale-`running` dossier reclaim/sweeper (a
+  crash between Begin and Finish wedges the org's one in-flight slot;
+  `terminalCtx` shrinks but doesn't close the window). Recorded in PR #103's
+  tracking comment.
+- **Website ingestion — upstream ratifications to reconcile** (spec repo,
+  contract-first): founder ratifications R1–R5 (well-known-path probes
+  within ADR-0006, crawl caps/robots posture, the `organization_fact`
+  category home, thin-lead sourcing under NEVER-8) recorded in the #101/#103
+  PR bodies; the two-page quick read measures ~13.3s vs ONBOARD-PARAM-1's
+  8s p95 (re-pin the budget for the multi-page read, or parallelize once the
+  fake client scripts per-page); and `crm.yaml`'s `deepReadCompany`
+  description still mentions a `deepread`-vs-`enrich` proposal kind and a
+  `budget` stop reason the v1 does not emit.
 - **No scanner product + no boot wiring** — new uploads stay
   `scanning`/undownloadable until an admin or test drives
   `activities.Store.MarkScanResult`; no real scanning product is

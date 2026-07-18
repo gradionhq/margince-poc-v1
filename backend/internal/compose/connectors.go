@@ -75,8 +75,13 @@ func (h connectorHandlers) callbackURL() string {
 	return strings.TrimRight(base, "/") + "/v1/connectors/gmail/callback"
 }
 
+// landingURL is the wizard's OAuth-return deep link. The SPA is hash-routed,
+// so the outcome rides the route — the connect step reads it and renders
+// success, the honest denial, or the honest failure. Earlier-step completion
+// is server-derived on mount, so no client state needs to survive the
+// redirect.
 func (h connectorHandlers) landingURL(outcome string) string {
-	return strings.TrimRight(h.publicBaseURL, "/") + "/activation?connect=" + outcome
+	return strings.TrimRight(h.publicBaseURL, "/") + "/#/onboarding/connect/" + outcome
 }
 
 func (h connectorHandlers) ListConnectors(w http.ResponseWriter, r *http.Request) {

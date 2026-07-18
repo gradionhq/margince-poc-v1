@@ -164,6 +164,23 @@ func extractionShapeValid(text string) error {
 type evidenceExtractor struct {
 	fetch PageFetcher
 	brain completer
+	// drops receives every finding a gate refused (nil = log only).
+	// The debug CLI feeds its dropped-facts report through this; the
+	// production path keeps the log line, so a read that came back thin
+	// is explainable from the server log either way.
+	drops func(sourceURL string, d droppedFinding)
+}
+
+// reportDrops forwards one call's gate rejections to the sink and the
+// log — a dropped fact is diagnostic signal, never a silent vanish.
+func (x evidenceExtractor) reportDrops(ctx context.Context, sourceURL string, dropped []droppedFinding) {
+	for _, d := range dropped {
+		slog.WarnContext(ctx, "extraction finding dropped",
+			"lane", d.Lane, "field", d.Field, "reason", d.Reason, "url", sourceURL)
+		if x.drops != nil {
+			x.drops(sourceURL, d)
+		}
+	}
 }
 
 // impressumProbePaths are the well-known locations of the legal-notice page,
@@ -343,7 +360,9 @@ func (x evidenceExtractor) extractFields(ctx context.Context, sourceLabel, sourc
 	if err != nil {
 		return nil, err
 	}
-	return gateEvidence(resp.Text, sourceText, sourceURL, accept), nil
+	fields, dropped := gateEvidence(resp.Text, sourceText, sourceURL, accept)
+	x.reportDrops(ctx, sourceURL, dropped)
+	return fields, nil
 }
 
 // extractGrounded is the single-source wrapper over extractFields, shared by
@@ -364,43 +383,55 @@ func (x evidenceExtractor) extractGrounded(ctx context.Context, sourceLabel, sou
 }
 
 // gateEvidence is the no-guess gate, generic over the accepted field
-// vocabulary: accepted name, non-empty value, evidence VERBATIM in the page,
-// confidence in (0,1], first occurrence wins. Whatever fails is dropped
-// silently — an absent field is the contract's way of saying "could not
-// evidence".
-func gateEvidence(modelText, pageText, sourceURL string, accept func(string) bool) []evidencedField {
+// vocabulary: accepted name, non-empty value, evidence on the page
+// (byte-exact or presentation-normalized — evidenceOnPage), confidence
+// in (0,1], first occurrence wins. Whatever fails comes back as a
+// droppedFinding with its reason — an absent field is still the
+// contract's "could not evidence", but never a silent one.
+func gateEvidence(modelText, pageText, sourceURL string, accept func(string) bool) ([]evidencedField, []droppedFinding) {
+	const lane = laneFields
 	var parsed struct {
 		Fields []extractedField `json:"fields"`
 	}
 	if err := json.Unmarshal([]byte(ai.Unfence(modelText)), &parsed); err != nil {
-		return nil
+		return nil, []droppedFinding{{Lane: lane, Reason: dropUnparseableReply}}
 	}
 
 	var out []evidencedField
-	seen := map[string]bool{}
-	for _, f := range parsed.Fields {
-		if !accept(f.Field) || seen[f.Field] {
-			continue
-		}
-		if strings.TrimSpace(f.Value) == "" || strings.TrimSpace(f.EvidenceSnippet) == "" {
-			continue
-		}
-		if !strings.Contains(pageText, f.EvidenceSnippet) {
-			continue
-		}
-		if f.Confidence <= 0 || f.Confidence > 1 {
-			continue
-		}
-		seen[f.Field] = true
-		out = append(out, evidencedField{
-			Field:           f.Field,
-			Value:           f.Value,
-			EvidenceSnippet: f.EvidenceSnippet,
-			SourceURL:       sourceURL,
-			Confidence:      f.Confidence,
+	var dropped []droppedFinding
+	drop := func(f extractedField, reason string) {
+		dropped = append(dropped, droppedFinding{
+			Lane: lane, Field: f.Field, Value: f.Value, EvidenceSnippet: f.EvidenceSnippet, Reason: reason,
 		})
 	}
-	return out
+	pageNorm := normalizeEvidence(pageText)
+	seen := map[string]bool{}
+	for _, f := range parsed.Fields {
+		switch {
+		case !accept(f.Field):
+			drop(f, dropUnknownField)
+		case seen[f.Field]:
+			drop(f, dropDuplicate)
+		case strings.TrimSpace(f.Value) == "":
+			drop(f, dropEmptyValue)
+		case strings.TrimSpace(f.EvidenceSnippet) == "":
+			drop(f, dropEmptyEvidence)
+		case !evidenceOnPage(pageText, pageNorm, f.EvidenceSnippet):
+			drop(f, dropEvidenceNotOnPage)
+		case f.Confidence <= 0 || f.Confidence > 1:
+			drop(f, dropConfidenceRange)
+		default:
+			seen[f.Field] = true
+			out = append(out, evidencedField{
+				Field:           f.Field,
+				Value:           f.Value,
+				EvidenceSnippet: f.EvidenceSnippet,
+				SourceURL:       sourceURL,
+				Confidence:      f.Confidence,
+			})
+		}
+	}
+	return out, dropped
 }
 
 // NewWebFetcher builds the egress fetcher used by cmd/api for both the

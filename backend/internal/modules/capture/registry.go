@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -42,7 +43,17 @@ type Registry struct {
 	// whose credential lives in the vault — a not-yet-backfilled legacy row
 	// still resolves from its auth column with no vault.
 	vault keyvault.Vault
+
+	// The scheduling state machine's knobs (ADR-0063): now is injected so
+	// the backoff/pacing arithmetic is testable; syncInterval paces a
+	// healthy connection (next_sync_at = success + interval).
+	now          func() time.Time
+	syncInterval time.Duration
 }
+
+// defaultSyncInterval paces a healthy connection between syncs; the push
+// webhook (when live) makes this the safety net, not the latency floor.
+const defaultSyncInterval = 2 * time.Minute
 
 // NewRegistry builds the connector registry over the pool, the capture Sink,
 // the live-authority resolver, and the keyvault that seals/resolves each
@@ -50,12 +61,23 @@ type Registry struct {
 // transient one-shot pull (which persists no credential).
 func NewRegistry(pool *pgxpool.Pool, sink *Sink, authority authz.Resolver, vault keyvault.Vault) *Registry {
 	return &Registry{
-		connectors: map[string]connector.Connector{},
-		pool:       pool,
-		sink:       sink,
-		authority:  authority,
-		vault:      vault,
+		connectors:   map[string]connector.Connector{},
+		pool:         pool,
+		sink:         sink,
+		authority:    authority,
+		vault:        vault,
+		now:          time.Now,
+		syncInterval: defaultSyncInterval,
 	}
+}
+
+// WithSyncInterval overrides the healthy-connection pacing (the worker's
+// --gmail-sync-interval flag lands here).
+func (r *Registry) WithSyncInterval(d time.Duration) *Registry {
+	if d > 0 {
+		r.syncInterval = d
+	}
+	return r
 }
 
 // Register adds one connector at composition time.
@@ -91,9 +113,9 @@ func (r *Registry) Connectors() []connector.Descriptor {
 // the granting human does not hold is refused at grant time, not
 // discovered at 3am mid-sync.
 //
-// note: the returned id (and the connectionID threaded through SyncOnce /
-// markError) names a capture_connection row, which the kernel does not
-// model as a first-class entity — no kind exists for it, so it stays
+// note: the returned id (and the connectionID threaded through SyncOnce and
+// the sync-state recording) names a capture_connection row, which the kernel
+// does not model as a first-class entity — no kind exists for it, so it stays
 // ids.UUID rather than inventing one.
 func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth) (ids.UUID, error) {
 	c, err := r.connector(name)
@@ -132,13 +154,23 @@ func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth
 	}
 	var id ids.UUID
 	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `
+		if err := tx.QueryRow(ctx, `
 			INSERT INTO capture_connection (workspace_id, provider, user_id, scopes, credential_ref, status)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, 'connected')
 			ON CONFLICT (workspace_id, user_id, provider)
 			DO UPDATE SET credential_ref = EXCLUDED.credential_ref, auth = NULL, status = 'connected', archived_at = NULL
 			RETURNING id`,
-			name, actor.UserID, scopes, string(ref)).Scan(&id)
+			name, actor.UserID, scopes, string(ref)).Scan(&id); err != nil {
+			return err
+		}
+		// A (re)connect starts the scheduling ladder clean: a row parked by
+		// reauth_required or degraded by backoff is due immediately with a
+		// fresh credential (ADR-0063).
+		_, err = tx.Exec(ctx, `
+			UPDATE capture_sync_state
+			SET next_sync_at = now(), consecutive_failures = 0, last_error_class = NULL
+			WHERE connection_id = $1`, id)
+		return err
 	})
 	if err != nil {
 		return ids.Nil, fmt.Errorf("capture: storing connection: %w", err)
@@ -188,9 +220,13 @@ func (r *Registry) SyncOnce(ctx context.Context, connectionID ids.UUID) error {
 		cursor        []byte
 	)
 	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+		// 'error' is syncable by design (ADR-0063): the daily probe of a
+		// degraded connection runs through this same path, and its success
+		// is what flips the row back to connected. Only 'disconnected' and
+		// 'reauth_required' park a connection.
 		return tx.QueryRow(ctx, `
 			SELECT provider, user_id, credential_ref, auth, sync_cursor FROM capture_connection
-			WHERE id = $1 AND status = 'connected'`, connectionID).
+			WHERE id = $1 AND status IN ('connected','error')`, connectionID).
 			Scan(&name, &grantedBy, &credentialRef, &authBytes, &cursor)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -203,23 +239,32 @@ func (r *Registry) SyncOnce(ctx context.Context, connectionID ids.UUID) error {
 	if err != nil {
 		return err
 	}
-	auth, err := r.resolveCredential(ctx, credentialRef, authBytes)
-	if err != nil {
-		return err
-	}
-
+	// The connector principal is built before credential resolution so every
+	// failure past this point records into the scheduling state under an
+	// actor-bearing context (the sidecar's system_log line needs one).
 	runCtx, err := r.connectorContext(ctx, name, grantedBy)
 	if err != nil {
 		return err
 	}
+	auth, err := r.resolveCredential(ctx, credentialRef, authBytes)
+	if err != nil {
+		if recErr := r.recordSyncFailure(runCtx, connectionID, err); recErr != nil {
+			return errors.Join(err, recErr)
+		}
+		return err
+	}
+
 	next, syncErr := c.Sync(runCtx, auth, connector.Cursor(cursor), r.sink)
 	if syncErr != nil {
-		if markErr := r.markError(ctx, connectionID); markErr != nil {
-			return errors.Join(syncErr, markErr)
+		// A transient failure never kills the connection (ADR-0063): the
+		// state machine classifies, backs off, degrades to a daily probe at
+		// worst — and auth parks the row for its human.
+		if recErr := r.recordSyncFailure(runCtx, connectionID, syncErr); recErr != nil {
+			return errors.Join(syncErr, recErr)
 		}
 		return syncErr
 	}
-	return database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		// sync_cursor is jsonb; the connector's watermark is already JSON. A
 		// connector that yields no cursor writes NULL, never an empty jsonb.
 		var cur []byte
@@ -231,6 +276,10 @@ func (r *Registry) SyncOnce(ctx context.Context, connectionID ids.UUID) error {
 			WHERE id = $1`, connectionID, cur)
 		return err
 	})
+	if err != nil {
+		return err
+	}
+	return r.recordSyncSuccess(ctx, connectionID)
 }
 
 // resolveCredential turns a stored connection's credential into the opaque
@@ -384,23 +433,6 @@ func (r *Registry) connectorContext(ctx context.Context, name string, grantedBy 
 	}
 	runCtx := principal.WithActor(ctx, p)
 	return principal.WithCorrelationID(runCtx, ids.NewV7()), nil
-}
-
-// markError flips a connection to the 'error' status so the poller stops
-// selecting it (DueConnections filters on 'connected'). The failing sync's
-// error is returned to the caller by SyncOnce; capture_connection no longer
-// keeps a diagnostic column (CAP-DDL-2), so operational detail rides the
-// system_log ledger, not this row. The guard keeps a sync failure that races a
-// concurrent Disconnect from resurrecting the user's 'disconnected' choice into
-// 'error' — only a still-connected, live row transitions.
-func (r *Registry) markError(ctx context.Context, connectionID ids.UUID) error {
-	return database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `
-			UPDATE capture_connection SET status = 'error'
-			WHERE id = $1 AND status = 'connected' AND archived_at IS NULL`,
-			connectionID)
-		return err
-	})
 }
 
 func (r *Registry) connector(name string) (connector.Connector, error) {
