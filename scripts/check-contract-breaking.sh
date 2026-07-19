@@ -31,6 +31,11 @@ case "$CONTRACT_STABILITY" in
   *) echo "check-contract-breaking: unknown CONTRACT_STABILITY='$CONTRACT_STABILITY' (want stable|pre-live)" >&2; exit 2 ;;
 esac
 
+# A ratified pre-live resync can be recorded as one exact old/new contract
+# blob pair. The exception cannot mask the next contract edit: either blob
+# changing returns the gate to stable automatically.
+ALLOWLIST="${CONTRACT_BREAKING_ALLOWLIST:-scripts/contract-breaking-allowlist.txt}"
+
 if [ ! -f "$CRM_YAML" ]; then
   echo "check-contract-breaking: contract not found at $CRM_YAML" >&2
   exit 2
@@ -50,12 +55,29 @@ if ! git cat-file -e "$BASE_REF:$CRM_YAML" 2>/dev/null; then
   exit 0
 fi
 
-if [ "$CONTRACT_STABILITY" = pre-live ]; then
+ALLOWLISTED_RESYNC=0
+if [ "$CONTRACT_STABILITY" = stable ] && [ -f "$ALLOWLIST" ]; then
+  BASE_BLOB="$(git rev-parse "$BASE_REF:$CRM_YAML")"
+  CURRENT_BLOB="$(git hash-object "$CRM_YAML")"
+  while read -r old_blob new_blob reason; do
+    case "$old_blob" in ''|'#'*) continue ;; esac
+    if [ "$old_blob" = "$BASE_BLOB" ] && [ "$new_blob" = "$CURRENT_BLOB" ] && [ -n "${reason:-}" ]; then
+      ALLOWLISTED_RESYNC=1
+      break
+    fi
+  done < "$ALLOWLIST"
+fi
+
+if [ "$CONTRACT_STABILITY" = pre-live ] || [ "$ALLOWLISTED_RESYNC" = 1 ]; then
   # Advisory stance: print every change (oasdiff without --fail-on never
   # exits non-zero on findings) so the deliberate breaks stay visible in
   # the log, but do not block.
   $OASDIFF breaking "$BASE_REF:$CRM_YAML" "$CRM_YAML" -f text
-  echo "contract-breaking-check: advisory (CONTRACT_STABILITY=pre-live) — breaking change(s) printed above, if any, are deliberately permitted for this run"
+  if [ "$ALLOWLISTED_RESYNC" = 1 ]; then
+    echo "contract-breaking-check: advisory — this exact pre-live contract resync is ratified; any later contract edit restores the stable gate"
+  else
+    echo "contract-breaking-check: advisory (CONTRACT_STABILITY=pre-live) — breaking change(s) printed above, if any, are deliberately permitted for this run"
+  fi
 elif $OASDIFF breaking "$BASE_REF:$CRM_YAML" "$CRM_YAML" --fail-on ERR -f text; then
   echo "contract-breaking-check: no breaking API changes since $BASE_REF"
 else

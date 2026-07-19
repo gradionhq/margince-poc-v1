@@ -110,12 +110,16 @@ var tableOwners = map[string]string{
 	"embedding": "internal/modules/search",
 	// ai (voice DNA: the derived profile artifact + corpus manifest;
 	// the tracing spine: per-call metadata + opt-in captured payload)
-	"ai_usage":            "internal/modules/ai",
-	"voice_profile":       "internal/modules/ai",
-	"voice_corpus_source": "internal/modules/ai",
-	"ai_call":             "internal/modules/ai",
-	"ai_call_payload":     "internal/modules/ai",
-	"ai_call_config":      "internal/modules/ai",
+	"ai_usage":              "internal/modules/ai",
+	"voice_profile":         "internal/modules/ai",
+	"voice_corpus_source":   "internal/modules/ai",
+	"voice_build":           "internal/modules/ai",
+	"voice_profile_version": "internal/modules/ai",
+	"voice_profile_delta":   "internal/modules/ai",
+	"voice_learning_signal": "internal/modules/ai",
+	"ai_call":               "internal/modules/ai",
+	"ai_call_payload":       "internal/modules/ai",
+	"ai_call_config":        "internal/modules/ai",
 	// agents (incl. the runner subpackage)
 	"agent_run":  "internal/modules/agents",
 	"runner_job": "internal/modules/agents",

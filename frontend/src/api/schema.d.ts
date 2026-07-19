@@ -2707,14 +2707,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List the voice profiles visible to the caller. */
+        /** List the calling user's live voice profile (zero or one in V1). */
         get: operations["listVoiceProfiles"];
         put?: never;
         /**
-         * Create a voice profile (status=building, empty derived artifact).
-         * @description A `user`-scope profile is owned by the caller — one live profile per user (409 on a second).
-         *     `personality_md` is the human-authored identity half; the derived `voice_profile_md` is
-         *     written only by the profile builder and arrives empty here.
+         * Create the calling user's one personal voice profile.
+         * @description The profile starts collecting with an empty derived artifact. A second live profile is 409.
          */
         post: operations["createVoiceProfile"];
         delete?: never;
@@ -2733,19 +2731,17 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Read one voice profile (derived artifact + human identity). */
+        /** Read the calling user's voice profile and active derived artifact. */
         get: operations["getVoiceProfile"];
         put?: never;
         post?: never;
-        /** Archive a voice profile (soft; its corpus stops being read). */
+        /** Archive the calling user's voice profile and stop its use in drafts. */
         delete: operations["deleteVoiceProfile"];
         options?: never;
         head?: never;
         /**
-         * Edit the human-authored personality_md (never the derived artifact).
-         * @description The PATCH surface deliberately carries ONLY `personality_md`: the derived
-         *     `voice_profile_md` + its `profile_version` are written by the rebuild path alone, so the
-         *     human-authored/machine-derived split (features/09 §B0.2) is enforced by the contract shape.
+         * Replace human-authored preferences or enable/disable automatic improvement.
+         * @description The derived artifact and its version are never writable through this operation.
          */
         patch: operations["updateVoiceProfile"];
         trace?: never;
@@ -2760,18 +2756,14 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** The corpus manifest — every ingested source plus the live word/register meter. */
+        /** List the owner's corpus manifest and live meter; source text is never returned. */
         get: operations["listVoiceCorpusSources"];
         put?: never;
         /**
-         * Ingest one corpus source (idempotent on source_ref).
-         * @description Accepts the source text (`.txt`/`.md` as-is; `.vtt`/`.srt`/transcript-JSON are parsed and
-         *     SPEAKER-FILTERED to `speaker_label` — only the owner's own turns enter, features/09 §B1.2),
-         *     tags its register (explicit or defaulted by kind), counts the REAL words of the ingested
-         *     text (never an estimate), and upserts by `source_ref` — re-ingesting a source replaces its
-         *     row, it never double-counts the meter. The V1 corpus is text only (features/09 §B1.1):
-         *     binary documents (`.docx`/`.pdf`) are refused with a 422 — convert or paste the text
-         *     instead. Server-side binary extraction is deferred to B-E07.5c.
+         * Ingest or replace one manual own-authored text source.
+         * @description Idempotent on `source_ref`. Transcript inputs are speaker-filtered to the supplied owner label;
+         *     other speakers contribute zero words. V1 accepts text/transcript formats only, never binary
+         *     documents. Ingest updates the meter and marks a built profile stale but makes no model call.
          */
         post: operations["ingestVoiceCorpusSource"];
         delete?: never;
@@ -2794,11 +2786,222 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
+        /** Permanently remove one retained source and mark any active artifact stale. */
+        delete: operations["deleteVoiceCorpusSource"];
+        options?: never;
+        head?: never;
+        /** Exclude/re-include a source or change its weight without rebuilding inline. */
+        patch: operations["updateVoiceCorpusSource"];
+        trace?: never;
+    };
+    "/voice-profiles/{id}/corpus/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Permanently clear retained corpus, learning content, builds, deltas, and derived versions.
+         * @description Human preferences remain; automatic improvement turns off; the profile returns to collecting.
+         */
+        post: operations["clearVoiceCorpus"];
         delete?: never;
         options?: never;
         head?: never;
-        /** Flip a source's manifest opt-out (excluded) or its weight. */
-        patch: operations["updateVoiceCorpusSource"];
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}/builds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Queue a durable build over the current included corpus. */
+        post: operations["createVoiceBuild"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}/builds/{buildId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                buildId: string;
+            };
+            cookie?: never;
+        };
+        /** Poll a durable build, including budget-deferred state. */
+        get: operations["getVoiceBuild"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** List immutable active, superseded, rejected, and candidate versions newest first. */
+        get: operations["listVoiceProfileVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}/versions/{profileVersion}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                /** @description Immutable Voice DNA artifact version number within one profile. */
+                profileVersion: components["parameters"]["VoiceProfileVersionNumber"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Explicitly activate a candidate version that awaited owner review. */
+        post: operations["applyVoiceProfileVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}/versions/{profileVersion}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                /** @description Immutable Voice DNA artifact version number within one profile. */
+                profileVersion: components["parameters"]["VoiceProfileVersionNumber"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject a candidate; the last known-good remains active. */
+        post: operations["rejectVoiceProfileVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}/versions/{profileVersion}/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                /** @description Immutable Voice DNA artifact version number within one profile. */
+                profileVersion: components["parameters"]["VoiceProfileVersionNumber"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore an earlier artifact byte-for-byte as a new forward active version. */
+        post: operations["rollbackVoiceProfileVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}/deltas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** List typed, explainable changes between completed versions. */
+        get: operations["listVoiceProfileDeltas"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}/learning": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Read privacy-safe aggregate draft outcomes and qualifying transformations. */
+        get: operations["getVoiceLearningSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}/draft-rejections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record that the owner rejected a bound generated draft; generated text never becomes corpus. */
+        post: operations["rejectVoiceDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/products": {
@@ -6883,106 +7086,260 @@ export interface components {
             /** @description Link into the audit_log row for this run. */
             audit_id?: string | null;
         };
-        /**
-         * @description A user's/team's voice DNA. `voice_profile_md` is machine-DERIVED (versioned by
-         *     `profile_version`, rewritten wholesale on rebuild); `personality_md` is human-AUTHORED
-         *     free text a rebuild never touches.
-         */
+        /** @description The calling owner's live personal Voice DNA control record and active derived artifact. */
         VoiceProfile: {
             /** Format: uuid */
             id: string;
-            /**
-             * Format: uuid
-             * @description null = workspace/team profile.
-             */
-            owner_id?: string | null;
+            /** Format: uuid */
+            readonly owner_id: string;
             /** @enum {string} */
-            scope: "user" | "team" | "workspace";
-            /** @description Derived style descriptor / embedding ref. */
-            model_ref?: string | null;
+            status: "collecting" | "ready" | "stale";
             /** @enum {string} */
-            status: "building" | "ready" | "stale";
-            /** @description The derived artifact (Identity · stats · signature moves · patterns · rules · vocabulary · anti-patterns · register notes · few-shot examples). */
-            voice_profile_md: string;
-            /** @description Bumps on every derived rebuild; 0 = never built. */
-            profile_version: number;
+            readonly maturity: "collecting" | "provisional" | "building";
+            /** @enum {string} */
+            readonly quality_band: "thin" | "good" | "rich" | "sharp";
+            /** @description Active derived Voice DNA artifact; empty while collecting. */
+            readonly voice_profile_md: string;
+            /** @description Zero means no active artifact yet. */
+            readonly profile_version: number;
+            /** @description Owner-authored preferences; model output never overwrites this field. */
             personality_md: string;
-            version?: number;
+            /**
+             * @description Explicit owner opt-in; defaults off.
+             * @default false
+             */
+            auto_learning_enabled: boolean;
+            readonly active_source_hash: string | null;
+            readonly candidate_version: number | null;
+            /** Format: date-time */
+            readonly last_built_at: string | null;
+            source: string;
+            readonly captured_by: string;
+            version: number;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
-            updated_at?: string | null;
+            updated_at: string;
+            /** Format: date-time */
+            archived_at: string | null;
         };
         CreateVoiceProfileRequest: {
-            /**
-             * @description Defaults to user (owned by the caller).
-             * @enum {string|null}
-             */
-            scope?: "user" | "team" | "workspace" | null;
-            personality_md?: string | null;
-        };
-        UpdateVoiceProfileRequest: {
+            /** @default  */
             personality_md: string;
         };
-        /** @description One corpus manifest row. The ingested text itself is builder-internal and never echoed back. */
+        UpdateVoiceProfileRequest: {
+            personality_md?: string;
+            auto_learning_enabled?: boolean;
+        };
+        /** @description Privacy-safe source manifest. Retained source text is deliberately not returned. */
         VoiceCorpusSource: {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            kind: "post" | "transcript" | "email" | "chat" | "longform" | "voice_memo";
+            origin: "manual" | "capture" | "draft_signal";
             /** @enum {string} */
-            register: "spoken" | "written" | "casual" | "formal";
+            kind: "email" | "linkedin" | "proposal" | "transcript" | "document" | "other";
+            /** @enum {string} */
+            register: "email" | "social" | "long_form" | "spoken" | "general";
             weight: number;
             source_label: string;
-            /** @description The source natural key ingest is idempotent on. */
+            /** @description Stable owner-scoped natural key; not raw content. */
             source_ref: string;
             word_count: number;
-            excluded: boolean;
+            included: boolean;
+            exclusion_reason: string | null;
+            extractor_version: string;
+            /** Format: date-time */
+            occurred_at: string;
+            /** Format: date-time */
+            retention_until: string | null;
+            /** Format: date-time */
+            readonly content_erased_at: string | null;
+            source: string;
+            readonly captured_by: string;
+            version: number;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
-            updated_at?: string | null;
+            updated_at: string;
+            /** Format: date-time */
+            archived_at: string | null;
         };
         IngestVoiceCorpusSourceRequest: {
             /** @enum {string} */
-            kind: "post" | "transcript" | "email" | "chat" | "longform" | "voice_memo";
-            /**
-             * @description Defaults by kind: transcript/voice_memo→spoken, chat→casual, post/longform/email→written.
-             * @enum {string|null}
-             */
-            register?: "spoken" | "written" | "casual" | "formal" | null;
-            /** @description 0.1–5.0; defaults to 1.0. */
-            weight?: number | null;
+            kind: "email" | "linkedin" | "proposal" | "transcript" | "document" | "other";
+            /** @enum {string} */
+            register: "email" | "social" | "long_form" | "spoken" | "general";
+            /** @default 1 */
+            weight: number;
             source_label: string;
-            /** @description Natural key (message id, upload name…); defaults to a hash of the content. */
-            source_ref?: string | null;
-            /**
-             * @description Defaults to txt. vtt/srt/json are transcript formats and require speaker_label when turns are speaker-labelled.
-             * @enum {string|null}
-             */
-            format?: "txt" | "md" | "vtt" | "srt" | "json" | null;
-            /** @description The owner's label in a transcript; only matching turns are ingested (features/09 §B1.2). */
+            source_ref: string;
+            /** @enum {string} */
+            format: "text" | "transcript";
+            /** @description Required for transcript format; only this speaker is retained. */
             speaker_label?: string | null;
-            /** @description The raw source text in the declared format. */
+            /** Format: date-time */
+            occurred_at?: string | null;
             content: string;
         };
-        /** @description Any subset; omit a field to leave it unchanged. */
         UpdateVoiceCorpusSourceRequest: {
-            excluded?: boolean | null;
-            weight?: number | null;
+            included?: boolean;
+            weight?: number;
         };
-        /** @description The live word-count + register-mix meter over the non-excluded manifest (features/09 §B1.4). */
         VoiceCorpusSummary: {
             total_words: number;
-            /** @description The ~30k corpus target the meter fills toward. */
-            target_words: number;
+            /** @constant */
+            target_words: 30000;
+            /** @enum {string} */
+            maturity: "collecting" | "provisional" | "building";
             /** @enum {string} */
             quality_band: "thin" | "good" | "rich" | "sharp";
-            /** @description Word totals per register (spoken/written/casual/formal mix). */
+            source_count: number;
             register_words: {
                 [key: string]: number;
             };
+        };
+        CreateVoiceBuildRequest: {
+            /** @enum {string} */
+            reason: "onboarding" | "manual";
+        };
+        VoiceBuild: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            profile_id: string;
+            /** @enum {string} */
+            reason: "onboarding" | "manual" | "automatic";
+            /** @enum {string} */
+            status: "queued" | "deferred" | "running" | "succeeded" | "failed";
+            /** @enum {string|null} */
+            stage: null | "snapshot" | "extract" | "evaluate" | "activate";
+            source_hash: string;
             source_count: number;
+            result_version: number | null;
+            /**
+             * @default none
+             * @enum {string}
+             */
+            candidate_action: "none" | "auto_activated" | "review_required";
+            /** @enum {string|null} */
+            status_code: null | "budget_deferred" | "model_unavailable" | "invalid_output" | "quality_regression" | "material_drift" | "internal";
+            /** @description Safe operator guidance; never provider payload */
+            status_detail: string | null;
+            /** Format: date-time */
+            next_attempt_at: string | null;
+            version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            started_at: string | null;
+            /** Format: date-time */
+            completed_at: string | null;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            archived_at: string | null;
+        };
+        VoiceProfileEvaluation: {
+            /** @constant */
+            held_out_prompts: 5;
+            /** @constant */
+            repeats_per_prompt: 3;
+            active_median_voice_score: number | null;
+            candidate_median_voice_score?: number;
+            anti_ai_hard_failures: number;
+            structured_output_valid: boolean;
+            corpus_citations_valid: boolean;
+            identity_word_jaccard: number;
+            signature_set_jaccard: number;
+            removed_avoid_rules: number;
+            removed_register_rules: number;
+            /** @enum {string} */
+            classification: "routine" | "material";
+            passed: boolean;
+        };
+        VoiceProfileVersion: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            profile_id: string;
+            profile_version: number;
+            /** @enum {string} */
+            status: "candidate" | "active" | "superseded" | "rejected";
+            voice_profile_md: string;
+            profile_json: {
+                [key: string]: unknown;
+            };
+            stats_json: {
+                [key: string]: unknown;
+            };
+            source_hash: string;
+            source_count: number;
+            /** @enum {string} */
+            reason: "onboarding" | "manual" | "automatic" | "rollback";
+            predecessor_version: number | null;
+            model_provider: string;
+            model_name: string;
+            builder_version: string;
+            source: string;
+            readonly captured_by: string;
+            activation_policy_version: string;
+            evaluation: components["schemas"]["VoiceProfileEvaluation"];
+            review_reasons: string[];
+            /** @description Row concurrency version; distinct from the immutable artifact's profile_version. */
+            version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            archived_at: string | null;
+            /** Format: date-time */
+            activated_at: string | null;
+        };
+        VoiceProfileDelta: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            profile_id: string;
+            from_version: number | null;
+            to_version: number;
+            /** @enum {string} */
+            classification: "routine" | "material";
+            /** @enum {string} */
+            activation_outcome: "auto_activated" | "review_required" | "manually_activated" | "rejected" | "rollback";
+            words_added: number;
+            sources_added: number;
+            sources_excluded: number;
+            identity_word_jaccard: number | null;
+            signature_set_jaccard: number | null;
+            avoid_rules_added: number;
+            avoid_rules_removed: number;
+            register_rules_removed: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            archived_at: string | null;
+        };
+        VoiceLearningTransformation: {
+            key: string;
+            observation_count: number;
+            /** @description Aggregate transformation description; never copied user text. */
+            description: string;
+        };
+        VoiceLearningSummary: {
+            drafted: number;
+            accepted: number;
+            edited_sent: number;
+            rejected: number;
+            qualifying_source_count: number;
+            qualifying_words: number;
+            transformations: components["schemas"]["VoiceLearningTransformation"][];
+        };
+        RejectVoiceDraftRequest: {
+            draft_ref: string;
         };
         /** @description A rate-card entry. Mirrors the `product` table — data an offer line snapshots from, never a configurator. */
         Product: {
@@ -7727,6 +8084,8 @@ export interface components {
         CaptureProvider: "gmail" | "gcal" | "graph" | "imap";
         /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
         Id: string;
+        /** @description Immutable Voice DNA artifact version number within one profile. */
+        VoiceProfileVersionNumber: number;
         /**
          * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
          *     effective `sort` of the originating request (field + direction) plus the last row's keyset
@@ -13293,28 +13652,14 @@ export interface operations {
     };
     listVoiceProfiles: {
         parameters: {
-            query?: {
-                /**
-                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
-                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
-                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
-                 *     together with a `sort` that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
-                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
-                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
-                 */
-                cursor?: components["parameters"]["Cursor"];
-                /** @description Max items in the page. */
-                limit?: components["parameters"]["Limit"];
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Voice profiles. */
+            /** @description The caller's profile, when one exists. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13322,18 +13667,27 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["VoiceProfile"][];
-                        page: components["schemas"]["PageInfo"];
                     };
                 };
             };
             401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
         };
     };
     createVoiceProfile: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -13343,7 +13697,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Created (building). */
+            /** @description Created. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -13383,7 +13737,16 @@ export interface operations {
     deleteVoiceProfile: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
             path: {
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
                 id: components["parameters"]["Id"];
@@ -13392,14 +13755,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Archived. */
-            204: {
+            /** @description Archived profile; no longer used for drafting. */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["VoiceProfile"];
+                };
             };
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     updateVoiceProfile: {
@@ -13443,7 +13809,21 @@ export interface operations {
     };
     listVoiceCorpusSources: {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+            };
             header?: never;
             path: {
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
@@ -13453,7 +13833,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Manifest rows + meter summary. */
+            /** @description Manifest and meter. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13462,6 +13842,7 @@ export interface operations {
                     "application/json": {
                         data: components["schemas"]["VoiceCorpusSource"][];
                         summary: components["schemas"]["VoiceCorpusSummary"];
+                        page: components["schemas"]["PageInfo"];
                     };
                 };
             };
@@ -13471,7 +13852,18 @@ export interface operations {
     ingestVoiceCorpusSource: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
             path: {
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
                 id: components["parameters"]["Id"];
@@ -13484,7 +13876,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Ingested (created or replaced). */
+            /** @description Created or replaced. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -13500,10 +13892,54 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    deleteVoiceCorpusSource: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                sourceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archived source manifest; retained content has been scrubbed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceCorpusSource"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
     updateVoiceCorpusSource: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
             path: {
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
                 id: components["parameters"]["Id"];
@@ -13517,7 +13953,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Updated manifest row + refreshed meter. */
+            /** @description Updated source and meter. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13531,6 +13967,391 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    clearVoiceCorpus: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Corpus and derived history cleared; human-authored preferences remain. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceProfile"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    createVoiceBuild: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateVoiceBuildRequest"];
+            };
+        };
+        responses: {
+            /** @description Queued, or the already-active build returned idempotently. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceBuild"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getVoiceBuild: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                buildId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Build state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceBuild"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listVoiceProfileVersions: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Version history. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["VoiceProfileVersion"][];
+                        page: components["schemas"]["PageInfo"];
+                    };
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    applyVoiceProfileVersion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                /** @description Immutable Voice DNA artifact version number within one profile. */
+                profileVersion: components["parameters"]["VoiceProfileVersionNumber"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Activated version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceProfileVersion"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    rejectVoiceProfileVersion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                /** @description Immutable Voice DNA artifact version number within one profile. */
+                profileVersion: components["parameters"]["VoiceProfileVersionNumber"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rejected candidate. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceProfileVersion"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    rollbackVoiceProfileVersion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                /** @description Immutable Voice DNA artifact version number within one profile. */
+                profileVersion: components["parameters"]["VoiceProfileVersionNumber"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description New active forward version. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceProfileVersion"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    listVoiceProfileDeltas: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Newest deltas first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["VoiceProfileDelta"][];
+                        page: components["schemas"]["PageInfo"];
+                    };
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getVoiceLearningSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Aggregate only; generated originals and final text are never returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceLearningSummary"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    rejectVoiceDraft: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RejectVoiceDraftRequest"];
+            };
+        };
+        responses: {
+            /** @description Rejection recorded, or already recorded; updated aggregate returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceLearningSummary"];
+                };
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     listProducts: {

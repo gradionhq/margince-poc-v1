@@ -430,6 +430,16 @@ tooling and gate suite the baseline needs. Merged so far:
 
 Open work, roughly in priority order:
 
+- **Progressive Voice lifecycle** — ADR-0066's owner-private, human-only
+  contract is implemented on `feat/voice-profile-lifecycle`: durable builds,
+  immutable versions, candidate deltas, apply/reject/rollback, corpus clear,
+  source-driven staleness, learning summaries, and the seven Voice-stream
+  events. Migration 0105 preserves a legacy built profile as its first active
+  immutable version and quarantines obsolete team-scoped rows. Local merge and
+  real-Postgres gates are being completed before the PR; the next PR is the
+  structured Voice builder, followed by canonical reply usage/learning and the
+  settings/onboarding surface.
+
 - **aicert follow-ups** (from the certification arc): the
   trace-extraction pipeline (scenarios from production `ai_call` rows
   with a real pseudonymizer — `extracted:` provenance is refused until
@@ -442,24 +452,15 @@ Open work, roughly in priority order:
   `nl_search`, `summarize`, `transcript`) have no production call site
   yet — their starter scenarios are documented placeholders.
 
-- **Cold-start + company-context refresh** — the rollout and PR boundaries are
-  mapped in
+- **Cold-start + company-context refresh** — Phases 1–4 are merged; the rollout
+  and PR boundaries are mapped in
   [docs/explanation/coldstart-company-context-plan.md](docs/explanation/coldstart-company-context-plan.md).
   Foundation PR #1104 is merged at `f97ef6b` with `g1-deterministic` and
-  `llm-advisory` green; ADR-0065/A111 now pins the anchor/profile/fact/site-read
+  `llm-advisory` green; ADR-0065/A111 pins the anchor/profile/fact/site-read
   schema, optional three-field manual path, reusable deep-read wire, typed
-  context policy, progressive budgets/events, and five-step UI. Phase 1
-  merged in PR #127: it adds the typed, provenance-bearing
-  `CompanyContext` read substrate and reconciles profile/fact vocabulary without
-  duplicating the already-built anchor/deep-read stores. Phase 2 is implemented
-  on `agent/coldstart-company-context-phase2`: an unbound, progressive onboarding
-  dossier; hash/version-bound accept-subset confirmation; mixed website/human
-  provenance; separate team-member lead proposals; transactional River enqueue;
-  stale-running recovery; and atomic deep-read approval redeem+apply. Focused
-  real-Postgres tests prove zero domain persistence before confirmation and full
-  rollback on queue/staging/apply failures. `make check` and the complete
-  15-package integration lane are green locally. The Phase 2 PR still requires
-  every GitHub quality gate before merge.
+  context policy, progressive budgets/events, and five-step UI. The remaining
+  Phase 5 work is settings refresh/conflict resolution, observability,
+  capability rollout, and existing-installation backfill.
 
 - **Email ingestion — deferred pieces of ADR-0063** (the pipeline is
   live; these were scoped out, not missed):

@@ -4,7 +4,7 @@
 package backendarch
 
 // The write-shape obligation as a fitness function: every mutation that
-// writes an audit row commits a paired outbox event in the same function
+// writes an audit row commits a paired outbox event on the same static call path
 // (data-model §11, events.md §4.2 — spelled once in storekit), across
 // modules AND the composition layer. A mutation that audits without
 // emitting silently exempts itself from the event backbone; this test
@@ -19,6 +19,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -47,12 +48,6 @@ var auditOnlyWrites = map[string]string{
 	"internal/modules/automation:Create":                 "automation config is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no automation.* type; the runs it produces are separately recorded in workflow_run",
 	"internal/modules/automation:Update":                 "automation config is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no automation.* type; the runs it produces are separately recorded in workflow_run",
 	"internal/modules/automation:Archive":                "automation config is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no automation.* type; the runs it produces are separately recorded in workflow_run",
-	"internal/modules/ai:CreateProfile":                  "voice DNA is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no voice.* type and the closed-verb law forbids inventing one build-side",
-	"internal/modules/ai:UpdateProfile":                  "voice DNA is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no voice.* type and the closed-verb law forbids inventing one build-side",
-	"internal/modules/ai:SetDerivedProfile":              "voice DNA is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no voice.* type and the closed-verb law forbids inventing one build-side",
-	"internal/modules/ai:ArchiveProfile":                 "voice DNA is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no voice.* type and the closed-verb law forbids inventing one build-side",
-	"internal/modules/ai:IngestSource":                   "voice DNA is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no voice.* type and the closed-verb law forbids inventing one build-side",
-	"internal/modules/ai:UpdateSource":                   "voice DNA is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no voice.* type and the closed-verb law forbids inventing one build-side",
 	"internal/modules/deals:CreateProduct":               "the rate-card is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no product.* type and the closed-verb law forbids inventing one build-side",
 	"internal/modules/deals:UpdateProduct":               "the rate-card is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no product.* type and the closed-verb law forbids inventing one build-side",
 	"internal/modules/deals:ArchiveProduct":              "the rate-card is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no product.* type and the closed-verb law forbids inventing one build-side",
@@ -101,6 +96,7 @@ func TestEveryAuditedMutationEmitsAnEvent(t *testing.T) {
 		}
 	}
 	used := map[string]bool{}
+	emissionPathsByDir := map[string]map[string]bool{}
 	fset := token.NewFileSet()
 	for _, root := range []string{"internal/modules", "internal/compose"} {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -113,6 +109,15 @@ func TestEveryAuditedMutationEmitsAnEvent(t *testing.T) {
 			if err != nil {
 				return err
 			}
+			dir := filepath.Dir(path)
+			emissionPaths, ok := emissionPathsByDir[dir]
+			if !ok {
+				emissionPaths, err = emissionBearingFunctions(fset, dir)
+				if err != nil {
+					return err
+				}
+				emissionPathsByDir[dir] = emissionPaths
+			}
 			for _, decl := range file.Decls {
 				fn, ok := decl.(*ast.FuncDecl)
 				if !ok || fn.Body == nil {
@@ -120,15 +125,18 @@ func TestEveryAuditedMutationEmitsAnEvent(t *testing.T) {
 				}
 				var audits, emits bool
 				ast.Inspect(fn.Body, func(n ast.Node) bool {
-					sel, ok := n.(*ast.SelectorExpr)
-					if !ok {
-						return true
-					}
-					if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "storekit" {
-						switch sel.Sel.Name {
-						case "Audit", "AuditWithEvidence":
-							audits = true
-						case "Emit":
+					switch node := n.(type) {
+					case *ast.SelectorExpr:
+						if pkg, ok := node.X.(*ast.Ident); ok && pkg.Name == "storekit" {
+							switch node.Sel.Name {
+							case "Audit", "AuditWithEvidence":
+								audits = true
+							case "Emit":
+								emits = true
+							}
+						}
+					case *ast.CallExpr:
+						if callee, ok := node.Fun.(*ast.Ident); ok && emissionPaths[callee.Name] {
 							emits = true
 						}
 					}
@@ -155,4 +163,62 @@ func TestEveryAuditedMutationEmitsAnEvent(t *testing.T) {
 			t.Errorf("auditOnlyWrites[%s] matches no audit-only function — stale waiver, remove it", key)
 		}
 	}
+}
+
+// emissionBearingFunctions follows package-local plain-function calls so the
+// gate accepts one named event-envelope helper without forcing every caller to
+// spell Emit. Method helpers deliberately do not qualify: a receiver abstraction
+// would make the transactional write shape too hard to verify statically here.
+func emissionBearingFunctions(fset *token.FileSet, dir string) (map[string]bool, error) {
+	emits := map[string]bool{}
+	calls := map[string][]string{}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		path := filepath.Join(dir, entry.Name())
+		if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") || isIntegrationTagged(path) {
+			continue
+		}
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return nil, err
+		}
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil || fn.Recv != nil {
+				continue
+			}
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				switch node := n.(type) {
+				case *ast.SelectorExpr:
+					if pkg, ok := node.X.(*ast.Ident); ok && pkg.Name == "storekit" && node.Sel.Name == "Emit" {
+						emits[fn.Name.Name] = true
+					}
+				case *ast.CallExpr:
+					if callee, ok := node.Fun.(*ast.Ident); ok {
+						calls[fn.Name.Name] = append(calls[fn.Name.Name], callee.Name)
+					}
+				}
+				return true
+			})
+		}
+	}
+	for changed := true; changed; {
+		changed = false
+		for caller, callees := range calls {
+			if emits[caller] {
+				continue
+			}
+			for _, callee := range callees {
+				if emits[callee] {
+					emits[caller] = true
+					changed = true
+					break
+				}
+			}
+		}
+	}
+	return emits, nil
 }

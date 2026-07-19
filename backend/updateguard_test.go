@@ -96,7 +96,6 @@ var unguardedByIDUpdates = map[string]string{
 	// so concurrent archives converge on the same terminal row and the
 	// in-transaction visibility read supplies the NotFound.
 	"internal/modules/automation:Archive":           "absolute idempotent archive transition; concurrent archives converge, the visibility pre-read only feeds the audit before-image",
-	"internal/modules/ai:ArchiveProfile":            "absolute idempotent archive transition; concurrent archives converge, the visibility pre-read only feeds the audit before-image",
 	"internal/modules/collections:ArchiveList":      "absolute idempotent archive transition; the RETURNING + archived_at IS NULL predicate makes a lost race read as already archived",
 	"internal/modules/collections:ArchiveSavedView": "absolute idempotent archive transition; the RETURNING + archived_at IS NULL predicate makes a lost race read as already archived",
 	"internal/modules/collections:ArchiveTag":       "absolute idempotent archive transition; the RETURNING + archived_at IS NULL predicate makes a lost race read as already archived",

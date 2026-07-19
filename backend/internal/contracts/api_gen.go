@@ -2055,24 +2055,18 @@ func (e CreateStageRequestSemantic) Valid() bool {
 	}
 }
 
-// Defines values for CreateVoiceProfileRequestScope.
+// Defines values for CreateVoiceBuildRequestReason.
 const (
-	CreateVoiceProfileRequestScopeLessThannil CreateVoiceProfileRequestScope = "<nil>"
-	CreateVoiceProfileRequestScopeTeam        CreateVoiceProfileRequestScope = "team"
-	CreateVoiceProfileRequestScopeUser        CreateVoiceProfileRequestScope = "user"
-	CreateVoiceProfileRequestScopeWorkspace   CreateVoiceProfileRequestScope = "workspace"
+	CreateVoiceBuildRequestReasonManual     CreateVoiceBuildRequestReason = "manual"
+	CreateVoiceBuildRequestReasonOnboarding CreateVoiceBuildRequestReason = "onboarding"
 )
 
-// Valid indicates whether the value is a known member of the CreateVoiceProfileRequestScope enum.
-func (e CreateVoiceProfileRequestScope) Valid() bool {
+// Valid indicates whether the value is a known member of the CreateVoiceBuildRequestReason enum.
+func (e CreateVoiceBuildRequestReason) Valid() bool {
 	switch e {
-	case CreateVoiceProfileRequestScopeLessThannil:
+	case CreateVoiceBuildRequestReasonManual:
 		return true
-	case CreateVoiceProfileRequestScopeTeam:
-		return true
-	case CreateVoiceProfileRequestScopeUser:
-		return true
-	case CreateVoiceProfileRequestScopeWorkspace:
+	case CreateVoiceBuildRequestReasonOnboarding:
 		return true
 	default:
 		return false
@@ -2432,28 +2426,16 @@ func (e FilteredExportRequestObject) Valid() bool {
 
 // Defines values for IngestVoiceCorpusSourceRequestFormat.
 const (
-	IngestVoiceCorpusSourceRequestFormatJson        IngestVoiceCorpusSourceRequestFormat = "json"
-	IngestVoiceCorpusSourceRequestFormatLessThannil IngestVoiceCorpusSourceRequestFormat = "<nil>"
-	IngestVoiceCorpusSourceRequestFormatMd          IngestVoiceCorpusSourceRequestFormat = "md"
-	IngestVoiceCorpusSourceRequestFormatSrt         IngestVoiceCorpusSourceRequestFormat = "srt"
-	IngestVoiceCorpusSourceRequestFormatTxt         IngestVoiceCorpusSourceRequestFormat = "txt"
-	IngestVoiceCorpusSourceRequestFormatVtt         IngestVoiceCorpusSourceRequestFormat = "vtt"
+	IngestVoiceCorpusSourceRequestFormatText       IngestVoiceCorpusSourceRequestFormat = "text"
+	IngestVoiceCorpusSourceRequestFormatTranscript IngestVoiceCorpusSourceRequestFormat = "transcript"
 )
 
 // Valid indicates whether the value is a known member of the IngestVoiceCorpusSourceRequestFormat enum.
 func (e IngestVoiceCorpusSourceRequestFormat) Valid() bool {
 	switch e {
-	case IngestVoiceCorpusSourceRequestFormatJson:
+	case IngestVoiceCorpusSourceRequestFormatText:
 		return true
-	case IngestVoiceCorpusSourceRequestFormatLessThannil:
-		return true
-	case IngestVoiceCorpusSourceRequestFormatMd:
-		return true
-	case IngestVoiceCorpusSourceRequestFormatSrt:
-		return true
-	case IngestVoiceCorpusSourceRequestFormatTxt:
-		return true
-	case IngestVoiceCorpusSourceRequestFormatVtt:
+	case IngestVoiceCorpusSourceRequestFormatTranscript:
 		return true
 	default:
 		return false
@@ -2462,28 +2444,28 @@ func (e IngestVoiceCorpusSourceRequestFormat) Valid() bool {
 
 // Defines values for IngestVoiceCorpusSourceRequestKind.
 const (
-	IngestVoiceCorpusSourceRequestKindChat       IngestVoiceCorpusSourceRequestKind = "chat"
+	IngestVoiceCorpusSourceRequestKindDocument   IngestVoiceCorpusSourceRequestKind = "document"
 	IngestVoiceCorpusSourceRequestKindEmail      IngestVoiceCorpusSourceRequestKind = "email"
-	IngestVoiceCorpusSourceRequestKindLongform   IngestVoiceCorpusSourceRequestKind = "longform"
-	IngestVoiceCorpusSourceRequestKindPost       IngestVoiceCorpusSourceRequestKind = "post"
+	IngestVoiceCorpusSourceRequestKindLinkedin   IngestVoiceCorpusSourceRequestKind = "linkedin"
+	IngestVoiceCorpusSourceRequestKindOther      IngestVoiceCorpusSourceRequestKind = "other"
+	IngestVoiceCorpusSourceRequestKindProposal   IngestVoiceCorpusSourceRequestKind = "proposal"
 	IngestVoiceCorpusSourceRequestKindTranscript IngestVoiceCorpusSourceRequestKind = "transcript"
-	IngestVoiceCorpusSourceRequestKindVoiceMemo  IngestVoiceCorpusSourceRequestKind = "voice_memo"
 )
 
 // Valid indicates whether the value is a known member of the IngestVoiceCorpusSourceRequestKind enum.
 func (e IngestVoiceCorpusSourceRequestKind) Valid() bool {
 	switch e {
-	case IngestVoiceCorpusSourceRequestKindChat:
+	case IngestVoiceCorpusSourceRequestKindDocument:
 		return true
 	case IngestVoiceCorpusSourceRequestKindEmail:
 		return true
-	case IngestVoiceCorpusSourceRequestKindLongform:
+	case IngestVoiceCorpusSourceRequestKindLinkedin:
 		return true
-	case IngestVoiceCorpusSourceRequestKindPost:
+	case IngestVoiceCorpusSourceRequestKindOther:
+		return true
+	case IngestVoiceCorpusSourceRequestKindProposal:
 		return true
 	case IngestVoiceCorpusSourceRequestKindTranscript:
-		return true
-	case IngestVoiceCorpusSourceRequestKindVoiceMemo:
 		return true
 	default:
 		return false
@@ -2492,25 +2474,25 @@ func (e IngestVoiceCorpusSourceRequestKind) Valid() bool {
 
 // Defines values for IngestVoiceCorpusSourceRequestRegister.
 const (
-	IngestVoiceCorpusSourceRequestRegisterCasual      IngestVoiceCorpusSourceRequestRegister = "casual"
-	IngestVoiceCorpusSourceRequestRegisterFormal      IngestVoiceCorpusSourceRequestRegister = "formal"
-	IngestVoiceCorpusSourceRequestRegisterLessThannil IngestVoiceCorpusSourceRequestRegister = "<nil>"
-	IngestVoiceCorpusSourceRequestRegisterSpoken      IngestVoiceCorpusSourceRequestRegister = "spoken"
-	IngestVoiceCorpusSourceRequestRegisterWritten     IngestVoiceCorpusSourceRequestRegister = "written"
+	IngestVoiceCorpusSourceRequestRegisterEmail    IngestVoiceCorpusSourceRequestRegister = "email"
+	IngestVoiceCorpusSourceRequestRegisterGeneral  IngestVoiceCorpusSourceRequestRegister = "general"
+	IngestVoiceCorpusSourceRequestRegisterLongForm IngestVoiceCorpusSourceRequestRegister = "long_form"
+	IngestVoiceCorpusSourceRequestRegisterSocial   IngestVoiceCorpusSourceRequestRegister = "social"
+	IngestVoiceCorpusSourceRequestRegisterSpoken   IngestVoiceCorpusSourceRequestRegister = "spoken"
 )
 
 // Valid indicates whether the value is a known member of the IngestVoiceCorpusSourceRequestRegister enum.
 func (e IngestVoiceCorpusSourceRequestRegister) Valid() bool {
 	switch e {
-	case IngestVoiceCorpusSourceRequestRegisterCasual:
+	case IngestVoiceCorpusSourceRequestRegisterEmail:
 		return true
-	case IngestVoiceCorpusSourceRequestRegisterFormal:
+	case IngestVoiceCorpusSourceRequestRegisterGeneral:
 		return true
-	case IngestVoiceCorpusSourceRequestRegisterLessThannil:
+	case IngestVoiceCorpusSourceRequestRegisterLongForm:
+		return true
+	case IngestVoiceCorpusSourceRequestRegisterSocial:
 		return true
 	case IngestVoiceCorpusSourceRequestRegisterSpoken:
-		return true
-	case IngestVoiceCorpusSourceRequestRegisterWritten:
 		return true
 	default:
 		return false
@@ -4449,30 +4431,180 @@ func (e UserStatus) Valid() bool {
 	}
 }
 
+// Defines values for VoiceBuildCandidateAction.
+const (
+	VoiceBuildCandidateActionAutoActivated  VoiceBuildCandidateAction = "auto_activated"
+	VoiceBuildCandidateActionNone           VoiceBuildCandidateAction = "none"
+	VoiceBuildCandidateActionReviewRequired VoiceBuildCandidateAction = "review_required"
+)
+
+// Valid indicates whether the value is a known member of the VoiceBuildCandidateAction enum.
+func (e VoiceBuildCandidateAction) Valid() bool {
+	switch e {
+	case VoiceBuildCandidateActionAutoActivated:
+		return true
+	case VoiceBuildCandidateActionNone:
+		return true
+	case VoiceBuildCandidateActionReviewRequired:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VoiceBuildReason.
+const (
+	VoiceBuildReasonAutomatic  VoiceBuildReason = "automatic"
+	VoiceBuildReasonManual     VoiceBuildReason = "manual"
+	VoiceBuildReasonOnboarding VoiceBuildReason = "onboarding"
+)
+
+// Valid indicates whether the value is a known member of the VoiceBuildReason enum.
+func (e VoiceBuildReason) Valid() bool {
+	switch e {
+	case VoiceBuildReasonAutomatic:
+		return true
+	case VoiceBuildReasonManual:
+		return true
+	case VoiceBuildReasonOnboarding:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VoiceBuildStage.
+const (
+	VoiceBuildStageActivate    VoiceBuildStage = "activate"
+	VoiceBuildStageEvaluate    VoiceBuildStage = "evaluate"
+	VoiceBuildStageExtract     VoiceBuildStage = "extract"
+	VoiceBuildStageLessThannil VoiceBuildStage = "<nil>"
+	VoiceBuildStageSnapshot    VoiceBuildStage = "snapshot"
+)
+
+// Valid indicates whether the value is a known member of the VoiceBuildStage enum.
+func (e VoiceBuildStage) Valid() bool {
+	switch e {
+	case VoiceBuildStageActivate:
+		return true
+	case VoiceBuildStageEvaluate:
+		return true
+	case VoiceBuildStageExtract:
+		return true
+	case VoiceBuildStageLessThannil:
+		return true
+	case VoiceBuildStageSnapshot:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VoiceBuildStatus.
+const (
+	VoiceBuildStatusDeferred  VoiceBuildStatus = "deferred"
+	VoiceBuildStatusFailed    VoiceBuildStatus = "failed"
+	VoiceBuildStatusQueued    VoiceBuildStatus = "queued"
+	VoiceBuildStatusRunning   VoiceBuildStatus = "running"
+	VoiceBuildStatusSucceeded VoiceBuildStatus = "succeeded"
+)
+
+// Valid indicates whether the value is a known member of the VoiceBuildStatus enum.
+func (e VoiceBuildStatus) Valid() bool {
+	switch e {
+	case VoiceBuildStatusDeferred:
+		return true
+	case VoiceBuildStatusFailed:
+		return true
+	case VoiceBuildStatusQueued:
+		return true
+	case VoiceBuildStatusRunning:
+		return true
+	case VoiceBuildStatusSucceeded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VoiceBuildStatusCode.
+const (
+	BudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
+	Internal          VoiceBuildStatusCode = "internal"
+	InvalidOutput     VoiceBuildStatusCode = "invalid_output"
+	LessThannil       VoiceBuildStatusCode = "<nil>"
+	MaterialDrift     VoiceBuildStatusCode = "material_drift"
+	ModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
+	QualityRegression VoiceBuildStatusCode = "quality_regression"
+)
+
+// Valid indicates whether the value is a known member of the VoiceBuildStatusCode enum.
+func (e VoiceBuildStatusCode) Valid() bool {
+	switch e {
+	case BudgetDeferred:
+		return true
+	case Internal:
+		return true
+	case InvalidOutput:
+		return true
+	case LessThannil:
+		return true
+	case MaterialDrift:
+		return true
+	case ModelUnavailable:
+		return true
+	case QualityRegression:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for VoiceCorpusSourceKind.
 const (
-	VoiceCorpusSourceKindChat       VoiceCorpusSourceKind = "chat"
+	VoiceCorpusSourceKindDocument   VoiceCorpusSourceKind = "document"
 	VoiceCorpusSourceKindEmail      VoiceCorpusSourceKind = "email"
-	VoiceCorpusSourceKindLongform   VoiceCorpusSourceKind = "longform"
-	VoiceCorpusSourceKindPost       VoiceCorpusSourceKind = "post"
+	VoiceCorpusSourceKindLinkedin   VoiceCorpusSourceKind = "linkedin"
+	VoiceCorpusSourceKindOther      VoiceCorpusSourceKind = "other"
+	VoiceCorpusSourceKindProposal   VoiceCorpusSourceKind = "proposal"
 	VoiceCorpusSourceKindTranscript VoiceCorpusSourceKind = "transcript"
-	VoiceCorpusSourceKindVoiceMemo  VoiceCorpusSourceKind = "voice_memo"
 )
 
 // Valid indicates whether the value is a known member of the VoiceCorpusSourceKind enum.
 func (e VoiceCorpusSourceKind) Valid() bool {
 	switch e {
-	case VoiceCorpusSourceKindChat:
+	case VoiceCorpusSourceKindDocument:
 		return true
 	case VoiceCorpusSourceKindEmail:
 		return true
-	case VoiceCorpusSourceKindLongform:
+	case VoiceCorpusSourceKindLinkedin:
 		return true
-	case VoiceCorpusSourceKindPost:
+	case VoiceCorpusSourceKindOther:
+		return true
+	case VoiceCorpusSourceKindProposal:
 		return true
 	case VoiceCorpusSourceKindTranscript:
 		return true
-	case VoiceCorpusSourceKindVoiceMemo:
+	default:
+		return false
+	}
+}
+
+// Defines values for VoiceCorpusSourceOrigin.
+const (
+	VoiceCorpusSourceOriginCapture     VoiceCorpusSourceOrigin = "capture"
+	VoiceCorpusSourceOriginDraftSignal VoiceCorpusSourceOrigin = "draft_signal"
+	VoiceCorpusSourceOriginManual      VoiceCorpusSourceOrigin = "manual"
+)
+
+// Valid indicates whether the value is a known member of the VoiceCorpusSourceOrigin enum.
+func (e VoiceCorpusSourceOrigin) Valid() bool {
+	switch e {
+	case VoiceCorpusSourceOriginCapture:
+		return true
+	case VoiceCorpusSourceOriginDraftSignal:
+		return true
+	case VoiceCorpusSourceOriginManual:
 		return true
 	default:
 		return false
@@ -4481,22 +4613,46 @@ func (e VoiceCorpusSourceKind) Valid() bool {
 
 // Defines values for VoiceCorpusSourceRegister.
 const (
-	Casual  VoiceCorpusSourceRegister = "casual"
-	Formal  VoiceCorpusSourceRegister = "formal"
-	Spoken  VoiceCorpusSourceRegister = "spoken"
-	Written VoiceCorpusSourceRegister = "written"
+	VoiceCorpusSourceRegisterEmail    VoiceCorpusSourceRegister = "email"
+	VoiceCorpusSourceRegisterGeneral  VoiceCorpusSourceRegister = "general"
+	VoiceCorpusSourceRegisterLongForm VoiceCorpusSourceRegister = "long_form"
+	VoiceCorpusSourceRegisterSocial   VoiceCorpusSourceRegister = "social"
+	VoiceCorpusSourceRegisterSpoken   VoiceCorpusSourceRegister = "spoken"
 )
 
 // Valid indicates whether the value is a known member of the VoiceCorpusSourceRegister enum.
 func (e VoiceCorpusSourceRegister) Valid() bool {
 	switch e {
-	case Casual:
+	case VoiceCorpusSourceRegisterEmail:
 		return true
-	case Formal:
+	case VoiceCorpusSourceRegisterGeneral:
 		return true
-	case Spoken:
+	case VoiceCorpusSourceRegisterLongForm:
 		return true
-	case Written:
+	case VoiceCorpusSourceRegisterSocial:
+		return true
+	case VoiceCorpusSourceRegisterSpoken:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VoiceCorpusSummaryMaturity.
+const (
+	VoiceCorpusSummaryMaturityBuilding    VoiceCorpusSummaryMaturity = "building"
+	VoiceCorpusSummaryMaturityCollecting  VoiceCorpusSummaryMaturity = "collecting"
+	VoiceCorpusSummaryMaturityProvisional VoiceCorpusSummaryMaturity = "provisional"
+)
+
+// Valid indicates whether the value is a known member of the VoiceCorpusSummaryMaturity enum.
+func (e VoiceCorpusSummaryMaturity) Valid() bool {
+	switch e {
+	case VoiceCorpusSummaryMaturityBuilding:
+		return true
+	case VoiceCorpusSummaryMaturityCollecting:
+		return true
+	case VoiceCorpusSummaryMaturityProvisional:
 		return true
 	default:
 		return false
@@ -4505,43 +4661,67 @@ func (e VoiceCorpusSourceRegister) Valid() bool {
 
 // Defines values for VoiceCorpusSummaryQualityBand.
 const (
-	Good  VoiceCorpusSummaryQualityBand = "good"
-	Rich  VoiceCorpusSummaryQualityBand = "rich"
-	Sharp VoiceCorpusSummaryQualityBand = "sharp"
-	Thin  VoiceCorpusSummaryQualityBand = "thin"
+	VoiceCorpusSummaryQualityBandGood  VoiceCorpusSummaryQualityBand = "good"
+	VoiceCorpusSummaryQualityBandRich  VoiceCorpusSummaryQualityBand = "rich"
+	VoiceCorpusSummaryQualityBandSharp VoiceCorpusSummaryQualityBand = "sharp"
+	VoiceCorpusSummaryQualityBandThin  VoiceCorpusSummaryQualityBand = "thin"
 )
 
 // Valid indicates whether the value is a known member of the VoiceCorpusSummaryQualityBand enum.
 func (e VoiceCorpusSummaryQualityBand) Valid() bool {
 	switch e {
-	case Good:
+	case VoiceCorpusSummaryQualityBandGood:
 		return true
-	case Rich:
+	case VoiceCorpusSummaryQualityBandRich:
 		return true
-	case Sharp:
+	case VoiceCorpusSummaryQualityBandSharp:
 		return true
-	case Thin:
+	case VoiceCorpusSummaryQualityBandThin:
 		return true
 	default:
 		return false
 	}
 }
 
-// Defines values for VoiceProfileScope.
+// Defines values for VoiceProfileMaturity.
 const (
-	VoiceProfileScopeTeam      VoiceProfileScope = "team"
-	VoiceProfileScopeUser      VoiceProfileScope = "user"
-	VoiceProfileScopeWorkspace VoiceProfileScope = "workspace"
+	VoiceProfileMaturityBuilding    VoiceProfileMaturity = "building"
+	VoiceProfileMaturityCollecting  VoiceProfileMaturity = "collecting"
+	VoiceProfileMaturityProvisional VoiceProfileMaturity = "provisional"
 )
 
-// Valid indicates whether the value is a known member of the VoiceProfileScope enum.
-func (e VoiceProfileScope) Valid() bool {
+// Valid indicates whether the value is a known member of the VoiceProfileMaturity enum.
+func (e VoiceProfileMaturity) Valid() bool {
 	switch e {
-	case VoiceProfileScopeTeam:
+	case VoiceProfileMaturityBuilding:
 		return true
-	case VoiceProfileScopeUser:
+	case VoiceProfileMaturityCollecting:
 		return true
-	case VoiceProfileScopeWorkspace:
+	case VoiceProfileMaturityProvisional:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VoiceProfileQualityBand.
+const (
+	VoiceProfileQualityBandGood  VoiceProfileQualityBand = "good"
+	VoiceProfileQualityBandRich  VoiceProfileQualityBand = "rich"
+	VoiceProfileQualityBandSharp VoiceProfileQualityBand = "sharp"
+	VoiceProfileQualityBandThin  VoiceProfileQualityBand = "thin"
+)
+
+// Valid indicates whether the value is a known member of the VoiceProfileQualityBand enum.
+func (e VoiceProfileQualityBand) Valid() bool {
+	switch e {
+	case VoiceProfileQualityBandGood:
+		return true
+	case VoiceProfileQualityBandRich:
+		return true
+	case VoiceProfileQualityBandSharp:
+		return true
+	case VoiceProfileQualityBandThin:
 		return true
 	default:
 		return false
@@ -4550,19 +4730,130 @@ func (e VoiceProfileScope) Valid() bool {
 
 // Defines values for VoiceProfileStatus.
 const (
-	Building VoiceProfileStatus = "building"
-	Ready    VoiceProfileStatus = "ready"
-	Stale    VoiceProfileStatus = "stale"
+	Collecting VoiceProfileStatus = "collecting"
+	Ready      VoiceProfileStatus = "ready"
+	Stale      VoiceProfileStatus = "stale"
 )
 
 // Valid indicates whether the value is a known member of the VoiceProfileStatus enum.
 func (e VoiceProfileStatus) Valid() bool {
 	switch e {
-	case Building:
+	case Collecting:
 		return true
 	case Ready:
 		return true
 	case Stale:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VoiceProfileDeltaActivationOutcome.
+const (
+	VoiceProfileDeltaActivationOutcomeAutoActivated     VoiceProfileDeltaActivationOutcome = "auto_activated"
+	VoiceProfileDeltaActivationOutcomeManuallyActivated VoiceProfileDeltaActivationOutcome = "manually_activated"
+	VoiceProfileDeltaActivationOutcomeRejected          VoiceProfileDeltaActivationOutcome = "rejected"
+	VoiceProfileDeltaActivationOutcomeReviewRequired    VoiceProfileDeltaActivationOutcome = "review_required"
+	VoiceProfileDeltaActivationOutcomeRollback          VoiceProfileDeltaActivationOutcome = "rollback"
+)
+
+// Valid indicates whether the value is a known member of the VoiceProfileDeltaActivationOutcome enum.
+func (e VoiceProfileDeltaActivationOutcome) Valid() bool {
+	switch e {
+	case VoiceProfileDeltaActivationOutcomeAutoActivated:
+		return true
+	case VoiceProfileDeltaActivationOutcomeManuallyActivated:
+		return true
+	case VoiceProfileDeltaActivationOutcomeRejected:
+		return true
+	case VoiceProfileDeltaActivationOutcomeReviewRequired:
+		return true
+	case VoiceProfileDeltaActivationOutcomeRollback:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VoiceProfileDeltaClassification.
+const (
+	VoiceProfileDeltaClassificationMaterial VoiceProfileDeltaClassification = "material"
+	VoiceProfileDeltaClassificationRoutine  VoiceProfileDeltaClassification = "routine"
+)
+
+// Valid indicates whether the value is a known member of the VoiceProfileDeltaClassification enum.
+func (e VoiceProfileDeltaClassification) Valid() bool {
+	switch e {
+	case VoiceProfileDeltaClassificationMaterial:
+		return true
+	case VoiceProfileDeltaClassificationRoutine:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VoiceProfileEvaluationClassification.
+const (
+	VoiceProfileEvaluationClassificationMaterial VoiceProfileEvaluationClassification = "material"
+	VoiceProfileEvaluationClassificationRoutine  VoiceProfileEvaluationClassification = "routine"
+)
+
+// Valid indicates whether the value is a known member of the VoiceProfileEvaluationClassification enum.
+func (e VoiceProfileEvaluationClassification) Valid() bool {
+	switch e {
+	case VoiceProfileEvaluationClassificationMaterial:
+		return true
+	case VoiceProfileEvaluationClassificationRoutine:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VoiceProfileVersionReason.
+const (
+	Automatic  VoiceProfileVersionReason = "automatic"
+	Manual     VoiceProfileVersionReason = "manual"
+	Onboarding VoiceProfileVersionReason = "onboarding"
+	Rollback   VoiceProfileVersionReason = "rollback"
+)
+
+// Valid indicates whether the value is a known member of the VoiceProfileVersionReason enum.
+func (e VoiceProfileVersionReason) Valid() bool {
+	switch e {
+	case Automatic:
+		return true
+	case Manual:
+		return true
+	case Onboarding:
+		return true
+	case Rollback:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VoiceProfileVersionStatus.
+const (
+	VoiceProfileVersionStatusActive     VoiceProfileVersionStatus = "active"
+	VoiceProfileVersionStatusCandidate  VoiceProfileVersionStatus = "candidate"
+	VoiceProfileVersionStatusRejected   VoiceProfileVersionStatus = "rejected"
+	VoiceProfileVersionStatusSuperseded VoiceProfileVersionStatus = "superseded"
+)
+
+// Valid indicates whether the value is a known member of the VoiceProfileVersionStatus enum.
+func (e VoiceProfileVersionStatus) Valid() bool {
+	switch e {
+	case VoiceProfileVersionStatusActive:
+		return true
+	case VoiceProfileVersionStatusCandidate:
+		return true
+	case VoiceProfileVersionStatusRejected:
+		return true
+	case VoiceProfileVersionStatusSuperseded:
 		return true
 	default:
 		return false
@@ -4748,25 +5039,25 @@ func (e UploadAttachmentMultipartBodyEntityType) Valid() bool {
 
 // Defines values for ListAutomationRunsParamsOutcome.
 const (
-	Blocked           ListAutomationRunsParamsOutcome = "blocked"
-	Failed            ListAutomationRunsParamsOutcome = "failed"
-	Fired             ListAutomationRunsParamsOutcome = "fired"
-	QueuedForApproval ListAutomationRunsParamsOutcome = "queued_for_approval"
-	Skipped           ListAutomationRunsParamsOutcome = "skipped"
+	ListAutomationRunsParamsOutcomeBlocked           ListAutomationRunsParamsOutcome = "blocked"
+	ListAutomationRunsParamsOutcomeFailed            ListAutomationRunsParamsOutcome = "failed"
+	ListAutomationRunsParamsOutcomeFired             ListAutomationRunsParamsOutcome = "fired"
+	ListAutomationRunsParamsOutcomeQueuedForApproval ListAutomationRunsParamsOutcome = "queued_for_approval"
+	ListAutomationRunsParamsOutcomeSkipped           ListAutomationRunsParamsOutcome = "skipped"
 )
 
 // Valid indicates whether the value is a known member of the ListAutomationRunsParamsOutcome enum.
 func (e ListAutomationRunsParamsOutcome) Valid() bool {
 	switch e {
-	case Blocked:
+	case ListAutomationRunsParamsOutcomeBlocked:
 		return true
-	case Failed:
+	case ListAutomationRunsParamsOutcomeFailed:
 		return true
-	case Fired:
+	case ListAutomationRunsParamsOutcomeFired:
 		return true
-	case QueuedForApproval:
+	case ListAutomationRunsParamsOutcomeQueuedForApproval:
 		return true
-	case Skipped:
+	case ListAutomationRunsParamsOutcomeSkipped:
 		return true
 	default:
 		return false
@@ -5285,22 +5576,22 @@ func (e ListSignalsParamsKind) Valid() bool {
 
 // Defines values for ListSignalsParamsResolutionState.
 const (
-	ListSignalsParamsResolutionStateDropped       ListSignalsParamsResolutionState = "dropped"
-	ListSignalsParamsResolutionStateLowConfidence ListSignalsParamsResolutionState = "low_confidence"
-	ListSignalsParamsResolutionStateResolved      ListSignalsParamsResolutionState = "resolved"
-	ListSignalsParamsResolutionStateUnresolved    ListSignalsParamsResolutionState = "unresolved"
+	Dropped       ListSignalsParamsResolutionState = "dropped"
+	LowConfidence ListSignalsParamsResolutionState = "low_confidence"
+	Resolved      ListSignalsParamsResolutionState = "resolved"
+	Unresolved    ListSignalsParamsResolutionState = "unresolved"
 )
 
 // Valid indicates whether the value is a known member of the ListSignalsParamsResolutionState enum.
 func (e ListSignalsParamsResolutionState) Valid() bool {
 	switch e {
-	case ListSignalsParamsResolutionStateDropped:
+	case Dropped:
 		return true
-	case ListSignalsParamsResolutionStateLowConfidence:
+	case LowConfidence:
 		return true
-	case ListSignalsParamsResolutionStateResolved:
+	case Resolved:
 		return true
-	case ListSignalsParamsResolutionStateUnresolved:
+	case Unresolved:
 		return true
 	default:
 		return false
@@ -6880,16 +7171,18 @@ type CreateTagRequest struct {
 	Name  string  `json:"name"`
 }
 
+// CreateVoiceBuildRequest defines model for CreateVoiceBuildRequest.
+type CreateVoiceBuildRequest struct {
+	Reason CreateVoiceBuildRequestReason `json:"reason"`
+}
+
+// CreateVoiceBuildRequestReason defines model for CreateVoiceBuildRequest.Reason.
+type CreateVoiceBuildRequestReason string
+
 // CreateVoiceProfileRequest defines model for CreateVoiceProfileRequest.
 type CreateVoiceProfileRequest struct {
 	PersonalityMd *string `json:"personality_md,omitempty"`
-
-	// Scope Defaults to user (owned by the caller).
-	Scope *CreateVoiceProfileRequestScope `json:"scope,omitempty"`
 }
-
-// CreateVoiceProfileRequestScope Defaults to user (owned by the caller).
-type CreateVoiceProfileRequestScope string
 
 // CustomField A workspace-defined runtime field on an existing core object. Mirrors the
 // `custom_field` catalog table — the system-of-record for every runtime-added
@@ -7245,34 +7538,26 @@ type ImapConnectResult struct {
 
 // IngestVoiceCorpusSourceRequest defines model for IngestVoiceCorpusSourceRequest.
 type IngestVoiceCorpusSourceRequest struct {
-	// Content The raw source text in the declared format.
-	Content string `json:"content"`
+	Content     *string                                `json:"content,omitempty"`
+	Format      IngestVoiceCorpusSourceRequestFormat   `json:"format"`
+	Kind        IngestVoiceCorpusSourceRequestKind     `json:"kind"`
+	OccurredAt  *time.Time                             `json:"occurred_at,omitempty"`
+	Register    IngestVoiceCorpusSourceRequestRegister `json:"register"`
+	SourceLabel string                                 `json:"source_label"`
+	SourceRef   string                                 `json:"source_ref"`
 
-	// Format Defaults to txt. vtt/srt/json are transcript formats and require speaker_label when turns are speaker-labelled.
-	Format *IngestVoiceCorpusSourceRequestFormat `json:"format,omitempty"`
-	Kind   IngestVoiceCorpusSourceRequestKind    `json:"kind"`
-
-	// Register Defaults by kind: transcript/voice_memo→spoken, chat→casual, post/longform/email→written.
-	Register    *IngestVoiceCorpusSourceRequestRegister `json:"register,omitempty"`
-	SourceLabel string                                  `json:"source_label"`
-
-	// SourceRef Natural key (message id, upload name…); defaults to a hash of the content.
-	SourceRef *string `json:"source_ref,omitempty"`
-
-	// SpeakerLabel The owner's label in a transcript; only matching turns are ingested (features/09 §B1.2).
-	SpeakerLabel *string `json:"speaker_label,omitempty"`
-
-	// Weight 0.1–5.0; defaults to 1.0.
-	Weight *float32 `json:"weight,omitempty"`
+	// SpeakerLabel Required for transcript format; only this speaker is retained.
+	SpeakerLabel *string  `json:"speaker_label,omitempty"`
+	Weight       *float32 `json:"weight,omitempty"`
 }
 
-// IngestVoiceCorpusSourceRequestFormat Defaults to txt. vtt/srt/json are transcript formats and require speaker_label when turns are speaker-labelled.
+// IngestVoiceCorpusSourceRequestFormat defines model for IngestVoiceCorpusSourceRequest.Format.
 type IngestVoiceCorpusSourceRequestFormat string
 
 // IngestVoiceCorpusSourceRequestKind defines model for IngestVoiceCorpusSourceRequest.Kind.
 type IngestVoiceCorpusSourceRequestKind string
 
-// IngestVoiceCorpusSourceRequestRegister Defaults by kind: transcript/voice_memo→spoken, chat→casual, post/longform/email→written.
+// IngestVoiceCorpusSourceRequestRegister defines model for IngestVoiceCorpusSourceRequest.Register.
 type IngestVoiceCorpusSourceRequestRegister string
 
 // IssuePassportRequest defines model for IssuePassportRequest.
@@ -8449,6 +8734,11 @@ type RejectOfferRequest struct {
 	Reason *string `json:"reason,omitempty"`
 }
 
+// RejectVoiceDraftRequest defines model for RejectVoiceDraftRequest.
+type RejectVoiceDraftRequest struct {
+	DraftRef string `json:"draft_ref"`
+}
+
 // Relationship The typed edge. Mirrors `relationship` (data-model §5). Shapes by `kind`:
 // `employment` (person↔org), `deal_stakeholder` (deal↔person), and the partner edges
 // (A41/ADR-0032, org↔org via `counterparty_org_id`): `partner_of` (org served by a partner
@@ -9245,15 +9535,16 @@ type UpdateStageRequest struct {
 // UpdateStageRequestSemantic defines model for UpdateStageRequest.Semantic.
 type UpdateStageRequestSemantic string
 
-// UpdateVoiceCorpusSourceRequest Any subset; omit a field to leave it unchanged.
+// UpdateVoiceCorpusSourceRequest defines model for UpdateVoiceCorpusSourceRequest.
 type UpdateVoiceCorpusSourceRequest struct {
-	Excluded *bool    `json:"excluded,omitempty"`
+	Included *bool    `json:"included,omitempty"`
 	Weight   *float32 `json:"weight,omitempty"`
 }
 
 // UpdateVoiceProfileRequest defines model for UpdateVoiceProfileRequest.
 type UpdateVoiceProfileRequest struct {
-	PersonalityMd string `json:"personality_md"`
+	AutoLearningEnabled *bool   `json:"auto_learning_enabled,omitempty"`
+	PersonalityMd       *string `json:"personality_md,omitempty"`
 }
 
 // UpsertPartnerRequest defines model for UpsertPartnerRequest.
@@ -9307,74 +9598,236 @@ type UserListResponse struct {
 	Page PageInfo `json:"page"`
 }
 
-// VoiceCorpusSource One corpus manifest row. The ingested text itself is builder-internal and never echoed back.
-type VoiceCorpusSource struct {
-	CreatedAt   time.Time                 `json:"created_at"`
-	Excluded    bool                      `json:"excluded"`
-	Id          openapi_types.UUID        `json:"id"`
-	Kind        VoiceCorpusSourceKind     `json:"kind"`
-	Register    VoiceCorpusSourceRegister `json:"register"`
-	SourceLabel string                    `json:"source_label"`
+// VoiceBuild defines model for VoiceBuild.
+type VoiceBuild struct {
+	ArchivedAt      *time.Time                `json:"archived_at"`
+	CandidateAction VoiceBuildCandidateAction `json:"candidate_action"`
+	CompletedAt     *time.Time                `json:"completed_at"`
+	CreatedAt       time.Time                 `json:"created_at"`
+	Id              openapi_types.UUID        `json:"id"`
+	NextAttemptAt   *time.Time                `json:"next_attempt_at"`
+	ProfileId       openapi_types.UUID        `json:"profile_id"`
+	Reason          VoiceBuildReason          `json:"reason"`
+	ResultVersion   *int                      `json:"result_version"`
+	SourceCount     int                       `json:"source_count"`
+	SourceHash      string                    `json:"source_hash"`
+	Stage           *VoiceBuildStage          `json:"stage"`
+	StartedAt       *time.Time                `json:"started_at"`
+	Status          VoiceBuildStatus          `json:"status"`
+	StatusCode      *VoiceBuildStatusCode     `json:"status_code"`
 
-	// SourceRef The source natural key ingest is idempotent on.
-	SourceRef string     `json:"source_ref"`
-	UpdatedAt *time.Time `json:"updated_at,omitempty"`
-	Weight    float32    `json:"weight"`
-	WordCount int        `json:"word_count"`
+	// StatusDetail Safe operator guidance; never provider payload
+	StatusDetail *string   `json:"status_detail"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Version      int       `json:"version"`
+}
+
+// VoiceBuildCandidateAction defines model for VoiceBuild.CandidateAction.
+type VoiceBuildCandidateAction string
+
+// VoiceBuildReason defines model for VoiceBuild.Reason.
+type VoiceBuildReason string
+
+// VoiceBuildStage defines model for VoiceBuild.Stage.
+type VoiceBuildStage string
+
+// VoiceBuildStatus defines model for VoiceBuild.Status.
+type VoiceBuildStatus string
+
+// VoiceBuildStatusCode defines model for VoiceBuild.StatusCode.
+type VoiceBuildStatusCode string
+
+// VoiceCorpusSource Privacy-safe source manifest. Retained source text is deliberately not returned.
+type VoiceCorpusSource struct {
+	ArchivedAt       *time.Time                `json:"archived_at"`
+	CapturedBy       *string                   `json:"captured_by,omitempty"`
+	ContentErasedAt  *time.Time                `json:"content_erased_at,omitempty"`
+	CreatedAt        time.Time                 `json:"created_at"`
+	ExclusionReason  *string                   `json:"exclusion_reason"`
+	ExtractorVersion string                    `json:"extractor_version"`
+	Id               openapi_types.UUID        `json:"id"`
+	Included         bool                      `json:"included"`
+	Kind             VoiceCorpusSourceKind     `json:"kind"`
+	OccurredAt       time.Time                 `json:"occurred_at"`
+	Origin           VoiceCorpusSourceOrigin   `json:"origin"`
+	Register         VoiceCorpusSourceRegister `json:"register"`
+	RetentionUntil   *time.Time                `json:"retention_until"`
+	Source           string                    `json:"source"`
+	SourceLabel      string                    `json:"source_label"`
+
+	// SourceRef Stable owner-scoped natural key; not raw content.
+	SourceRef string    `json:"source_ref"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Version   int       `json:"version"`
+	Weight    float32   `json:"weight"`
+	WordCount int       `json:"word_count"`
 }
 
 // VoiceCorpusSourceKind defines model for VoiceCorpusSource.Kind.
 type VoiceCorpusSourceKind string
 
+// VoiceCorpusSourceOrigin defines model for VoiceCorpusSource.Origin.
+type VoiceCorpusSourceOrigin string
+
 // VoiceCorpusSourceRegister defines model for VoiceCorpusSource.Register.
 type VoiceCorpusSourceRegister string
 
-// VoiceCorpusSummary The live word-count + register-mix meter over the non-excluded manifest (features/09 §B1.4).
+// VoiceCorpusSummary defines model for VoiceCorpusSummary.
 type VoiceCorpusSummary struct {
-	QualityBand VoiceCorpusSummaryQualityBand `json:"quality_band"`
-
-	// RegisterWords Word totals per register (spoken/written/casual/formal mix).
-	RegisterWords map[string]int `json:"register_words"`
-	SourceCount   int            `json:"source_count"`
-
-	// TargetWords The ~30k corpus target the meter fills toward.
-	TargetWords int `json:"target_words"`
-	TotalWords  int `json:"total_words"`
+	Maturity      VoiceCorpusSummaryMaturity    `json:"maturity"`
+	QualityBand   VoiceCorpusSummaryQualityBand `json:"quality_band"`
+	RegisterWords map[string]int                `json:"register_words"`
+	SourceCount   int                           `json:"source_count"`
+	TargetWords   int                           `json:"target_words"`
+	TotalWords    int                           `json:"total_words"`
 }
+
+// VoiceCorpusSummaryMaturity defines model for VoiceCorpusSummary.Maturity.
+type VoiceCorpusSummaryMaturity string
 
 // VoiceCorpusSummaryQualityBand defines model for VoiceCorpusSummary.QualityBand.
 type VoiceCorpusSummaryQualityBand string
 
-// VoiceProfile A user's/team's voice DNA. `voice_profile_md` is machine-DERIVED (versioned by
-// `profile_version`, rewritten wholesale on rebuild); `personality_md` is human-AUTHORED
-// free text a rebuild never touches.
-type VoiceProfile struct {
-	CreatedAt time.Time          `json:"created_at"`
-	Id        openapi_types.UUID `json:"id"`
-
-	// ModelRef Derived style descriptor / embedding ref.
-	ModelRef *string `json:"model_ref,omitempty"`
-
-	// OwnerId null = workspace/team profile.
-	OwnerId       *openapi_types.UUID `json:"owner_id,omitempty"`
-	PersonalityMd string              `json:"personality_md"`
-
-	// ProfileVersion Bumps on every derived rebuild; 0 = never built.
-	ProfileVersion int                `json:"profile_version"`
-	Scope          VoiceProfileScope  `json:"scope"`
-	Status         VoiceProfileStatus `json:"status"`
-	UpdatedAt      *time.Time         `json:"updated_at,omitempty"`
-	Version        *int               `json:"version,omitempty"`
-
-	// VoiceProfileMd The derived artifact (Identity · stats · signature moves · patterns · rules · vocabulary · anti-patterns · register notes · few-shot examples).
-	VoiceProfileMd string `json:"voice_profile_md"`
+// VoiceLearningSummary defines model for VoiceLearningSummary.
+type VoiceLearningSummary struct {
+	Accepted              int                           `json:"accepted"`
+	Drafted               int                           `json:"drafted"`
+	EditedSent            int                           `json:"edited_sent"`
+	QualifyingSourceCount int                           `json:"qualifying_source_count"`
+	QualifyingWords       int                           `json:"qualifying_words"`
+	Rejected              int                           `json:"rejected"`
+	Transformations       []VoiceLearningTransformation `json:"transformations"`
 }
 
-// VoiceProfileScope defines model for VoiceProfile.Scope.
-type VoiceProfileScope string
+// VoiceLearningTransformation defines model for VoiceLearningTransformation.
+type VoiceLearningTransformation struct {
+	// Description Aggregate transformation description; never copied user text.
+	Description      string `json:"description"`
+	Key              string `json:"key"`
+	ObservationCount int    `json:"observation_count"`
+}
+
+// VoiceProfile The calling owner's live personal Voice DNA control record and active derived artifact.
+type VoiceProfile struct {
+	ActiveSourceHash *string    `json:"active_source_hash,omitempty"`
+	ArchivedAt       *time.Time `json:"archived_at"`
+
+	// AutoLearningEnabled Explicit owner opt-in; defaults off.
+	AutoLearningEnabled bool                  `json:"auto_learning_enabled"`
+	CandidateVersion    *int                  `json:"candidate_version,omitempty"`
+	CapturedBy          *string               `json:"captured_by,omitempty"`
+	CreatedAt           time.Time             `json:"created_at"`
+	Id                  openapi_types.UUID    `json:"id"`
+	LastBuiltAt         *time.Time            `json:"last_built_at,omitempty"`
+	Maturity            *VoiceProfileMaturity `json:"maturity,omitempty"`
+	OwnerId             *openapi_types.UUID   `json:"owner_id,omitempty"`
+
+	// PersonalityMd Owner-authored preferences; model output never overwrites this field.
+	PersonalityMd string `json:"personality_md"`
+
+	// ProfileVersion Zero means no active artifact yet.
+	ProfileVersion *int                     `json:"profile_version,omitempty"`
+	QualityBand    *VoiceProfileQualityBand `json:"quality_band,omitempty"`
+	Source         string                   `json:"source"`
+	Status         VoiceProfileStatus       `json:"status"`
+	UpdatedAt      time.Time                `json:"updated_at"`
+	Version        int                      `json:"version"`
+
+	// VoiceProfileMd Active derived Voice DNA artifact; empty while collecting.
+	VoiceProfileMd *string `json:"voice_profile_md,omitempty"`
+}
+
+// VoiceProfileMaturity defines model for VoiceProfile.Maturity.
+type VoiceProfileMaturity string
+
+// VoiceProfileQualityBand defines model for VoiceProfile.QualityBand.
+type VoiceProfileQualityBand string
 
 // VoiceProfileStatus defines model for VoiceProfile.Status.
 type VoiceProfileStatus string
+
+// VoiceProfileDelta defines model for VoiceProfileDelta.
+type VoiceProfileDelta struct {
+	ActivationOutcome    VoiceProfileDeltaActivationOutcome `json:"activation_outcome"`
+	ArchivedAt           *time.Time                         `json:"archived_at"`
+	AvoidRulesAdded      int                                `json:"avoid_rules_added"`
+	AvoidRulesRemoved    int                                `json:"avoid_rules_removed"`
+	Classification       VoiceProfileDeltaClassification    `json:"classification"`
+	CreatedAt            time.Time                          `json:"created_at"`
+	FromVersion          *int                               `json:"from_version"`
+	Id                   openapi_types.UUID                 `json:"id"`
+	IdentityWordJaccard  *float32                           `json:"identity_word_jaccard"`
+	ProfileId            openapi_types.UUID                 `json:"profile_id"`
+	RegisterRulesRemoved int                                `json:"register_rules_removed"`
+	SignatureSetJaccard  *float32                           `json:"signature_set_jaccard"`
+	SourcesAdded         int                                `json:"sources_added"`
+	SourcesExcluded      int                                `json:"sources_excluded"`
+	ToVersion            int                                `json:"to_version"`
+	UpdatedAt            time.Time                          `json:"updated_at"`
+	WordsAdded           int                                `json:"words_added"`
+}
+
+// VoiceProfileDeltaActivationOutcome defines model for VoiceProfileDelta.ActivationOutcome.
+type VoiceProfileDeltaActivationOutcome string
+
+// VoiceProfileDeltaClassification defines model for VoiceProfileDelta.Classification.
+type VoiceProfileDeltaClassification string
+
+// VoiceProfileEvaluation defines model for VoiceProfileEvaluation.
+type VoiceProfileEvaluation struct {
+	ActiveMedianVoiceScore    *float32                             `json:"active_median_voice_score"`
+	AntiAiHardFailures        int                                  `json:"anti_ai_hard_failures"`
+	CandidateMedianVoiceScore *float32                             `json:"candidate_median_voice_score,omitempty"`
+	Classification            VoiceProfileEvaluationClassification `json:"classification"`
+	CorpusCitationsValid      bool                                 `json:"corpus_citations_valid"`
+	HeldOutPrompts            int                                  `json:"held_out_prompts"`
+	IdentityWordJaccard       float32                              `json:"identity_word_jaccard"`
+	Passed                    bool                                 `json:"passed"`
+	RemovedAvoidRules         int                                  `json:"removed_avoid_rules"`
+	RemovedRegisterRules      int                                  `json:"removed_register_rules"`
+	RepeatsPerPrompt          int                                  `json:"repeats_per_prompt"`
+	SignatureSetJaccard       float32                              `json:"signature_set_jaccard"`
+	StructuredOutputValid     bool                                 `json:"structured_output_valid"`
+}
+
+// VoiceProfileEvaluationClassification defines model for VoiceProfileEvaluation.Classification.
+type VoiceProfileEvaluationClassification string
+
+// VoiceProfileVersion defines model for VoiceProfileVersion.
+type VoiceProfileVersion struct {
+	ActivatedAt             *time.Time                `json:"activated_at"`
+	ActivationPolicyVersion string                    `json:"activation_policy_version"`
+	ArchivedAt              *time.Time                `json:"archived_at"`
+	BuilderVersion          string                    `json:"builder_version"`
+	CapturedBy              *string                   `json:"captured_by,omitempty"`
+	CreatedAt               time.Time                 `json:"created_at"`
+	Evaluation              VoiceProfileEvaluation    `json:"evaluation"`
+	Id                      openapi_types.UUID        `json:"id"`
+	ModelName               string                    `json:"model_name"`
+	ModelProvider           string                    `json:"model_provider"`
+	PredecessorVersion      *int                      `json:"predecessor_version"`
+	ProfileId               openapi_types.UUID        `json:"profile_id"`
+	ProfileJson             map[string]interface{}    `json:"profile_json"`
+	ProfileVersion          int                       `json:"profile_version"`
+	Reason                  VoiceProfileVersionReason `json:"reason"`
+	ReviewReasons           []string                  `json:"review_reasons"`
+	Source                  string                    `json:"source"`
+	SourceCount             int                       `json:"source_count"`
+	SourceHash              string                    `json:"source_hash"`
+	StatsJson               map[string]interface{}    `json:"stats_json"`
+	Status                  VoiceProfileVersionStatus `json:"status"`
+	UpdatedAt               time.Time                 `json:"updated_at"`
+
+	// Version Row concurrency version; distinct from the immutable artifact's profile_version.
+	Version        int    `json:"version"`
+	VoiceProfileMd string `json:"voice_profile_md"`
+}
+
+// VoiceProfileVersionReason defines model for VoiceProfileVersion.Reason.
+type VoiceProfileVersionReason string
+
+// VoiceProfileVersionStatus defines model for VoiceProfileVersion.Status.
+type VoiceProfileVersionStatus string
 
 // ApprovalToken defines model for ApprovalToken.
 type ApprovalToken = string
@@ -9402,6 +9855,9 @@ type Limit = int
 
 // Sort defines model for Sort.
 type Sort = string
+
+// VoiceProfileVersionNumber defines model for VoiceProfileVersionNumber.
+type VoiceProfileVersionNumber = int
 
 // Conflict RFC 7807 problem+json with a stable machine `code` and structured `details`.
 type Conflict = Problem
@@ -11244,8 +11700,71 @@ type UpdateSavedViewParams struct {
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
-// ListVoiceProfilesParams defines parameters for ListVoiceProfiles.
-type ListVoiceProfilesParams struct {
+// CreateVoiceProfileParams defines parameters for CreateVoiceProfile.
+type CreateVoiceProfileParams struct {
+	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// DeleteVoiceProfileParams defines parameters for DeleteVoiceProfile.
+type DeleteVoiceProfileParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// UpdateVoiceProfileParams defines parameters for UpdateVoiceProfile.
+type UpdateVoiceProfileParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// CreateVoiceBuildParams defines parameters for CreateVoiceBuild.
+type CreateVoiceBuildParams struct {
+	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// ClearVoiceCorpusParams defines parameters for ClearVoiceCorpus.
+type ClearVoiceCorpusParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+
+	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// ListVoiceProfileDeltasParams defines parameters for ListVoiceProfileDeltas.
+type ListVoiceProfileDeltasParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
 	// effective `sort` of the originating request (field + direction) plus the last row's keyset
 	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
@@ -11260,14 +11779,130 @@ type ListVoiceProfilesParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
-// UpdateVoiceProfileParams defines parameters for UpdateVoiceProfile.
-type UpdateVoiceProfileParams struct {
+// RejectVoiceDraftParams defines parameters for RejectVoiceDraft.
+type RejectVoiceDraftParams struct {
+	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// ListVoiceCorpusSourcesParams defines parameters for ListVoiceCorpusSources.
+type ListVoiceCorpusSourcesParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// IngestVoiceCorpusSourceParams defines parameters for IngestVoiceCorpusSource.
+type IngestVoiceCorpusSourceParams struct {
+	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// DeleteVoiceCorpusSourceParams defines parameters for DeleteVoiceCorpusSource.
+type DeleteVoiceCorpusSourceParams struct {
 	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
 	// the last-seen entity `version`. If the row's current `version` differs, the write is
 	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
 	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
 	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// UpdateVoiceCorpusSourceParams defines parameters for UpdateVoiceCorpusSource.
+type UpdateVoiceCorpusSourceParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// ListVoiceProfileVersionsParams defines parameters for ListVoiceProfileVersions.
+type ListVoiceProfileVersionsParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ApplyVoiceProfileVersionParams defines parameters for ApplyVoiceProfileVersion.
+type ApplyVoiceProfileVersionParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+
+	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// RejectVoiceProfileVersionParams defines parameters for RejectVoiceProfileVersion.
+type RejectVoiceProfileVersionParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+
+	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// RollbackVoiceProfileVersionParams defines parameters for RollbackVoiceProfileVersion.
+type RollbackVoiceProfileVersionParams struct {
+	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // LogActivityJSONRequestBody defines body for LogActivity for application/json ContentType.
@@ -11524,6 +12159,12 @@ type CreateVoiceProfileJSONRequestBody = CreateVoiceProfileRequest
 
 // UpdateVoiceProfileJSONRequestBody defines body for UpdateVoiceProfile for application/json ContentType.
 type UpdateVoiceProfileJSONRequestBody = UpdateVoiceProfileRequest
+
+// CreateVoiceBuildJSONRequestBody defines body for CreateVoiceBuild for application/json ContentType.
+type CreateVoiceBuildJSONRequestBody = CreateVoiceBuildRequest
+
+// RejectVoiceDraftJSONRequestBody defines body for RejectVoiceDraft for application/json ContentType.
+type RejectVoiceDraftJSONRequestBody = RejectVoiceDraftRequest
 
 // IngestVoiceCorpusSourceJSONRequestBody defines body for IngestVoiceCorpusSource for application/json ContentType.
 type IngestVoiceCorpusSourceJSONRequestBody = IngestVoiceCorpusSourceRequest
@@ -16978,30 +17619,63 @@ type ServerInterface interface {
 	// Update a saved view's name or query state.
 	// (PATCH /views/{id})
 	UpdateSavedView(w http.ResponseWriter, r *http.Request, id Id, params UpdateSavedViewParams)
-	// List the voice profiles visible to the caller.
+	// List the calling user's live voice profile (zero or one in V1).
 	// (GET /voice-profiles)
-	ListVoiceProfiles(w http.ResponseWriter, r *http.Request, params ListVoiceProfilesParams)
-	// Create a voice profile (status=building, empty derived artifact).
+	ListVoiceProfiles(w http.ResponseWriter, r *http.Request)
+	// Create the calling user's one personal voice profile.
 	// (POST /voice-profiles)
-	CreateVoiceProfile(w http.ResponseWriter, r *http.Request)
-	// Archive a voice profile (soft; its corpus stops being read).
+	CreateVoiceProfile(w http.ResponseWriter, r *http.Request, params CreateVoiceProfileParams)
+	// Archive the calling user's voice profile and stop its use in drafts.
 	// (DELETE /voice-profiles/{id})
-	DeleteVoiceProfile(w http.ResponseWriter, r *http.Request, id Id)
-	// Read one voice profile (derived artifact + human identity).
+	DeleteVoiceProfile(w http.ResponseWriter, r *http.Request, id Id, params DeleteVoiceProfileParams)
+	// Read the calling user's voice profile and active derived artifact.
 	// (GET /voice-profiles/{id})
 	GetVoiceProfile(w http.ResponseWriter, r *http.Request, id Id)
-	// Edit the human-authored personality_md (never the derived artifact).
+	// Replace human-authored preferences or enable/disable automatic improvement.
 	// (PATCH /voice-profiles/{id})
 	UpdateVoiceProfile(w http.ResponseWriter, r *http.Request, id Id, params UpdateVoiceProfileParams)
-	// The corpus manifest — every ingested source plus the live word/register meter.
+	// Queue a durable build over the current included corpus.
+	// (POST /voice-profiles/{id}/builds)
+	CreateVoiceBuild(w http.ResponseWriter, r *http.Request, id Id, params CreateVoiceBuildParams)
+	// Poll a durable build, including budget-deferred state.
+	// (GET /voice-profiles/{id}/builds/{buildId})
+	GetVoiceBuild(w http.ResponseWriter, r *http.Request, id Id, buildId openapi_types.UUID)
+	// Permanently clear retained corpus, learning content, builds, deltas, and derived versions.
+	// (POST /voice-profiles/{id}/corpus/clear)
+	ClearVoiceCorpus(w http.ResponseWriter, r *http.Request, id Id, params ClearVoiceCorpusParams)
+	// List typed, explainable changes between completed versions.
+	// (GET /voice-profiles/{id}/deltas)
+	ListVoiceProfileDeltas(w http.ResponseWriter, r *http.Request, id Id, params ListVoiceProfileDeltasParams)
+	// Record that the owner rejected a bound generated draft; generated text never becomes corpus.
+	// (POST /voice-profiles/{id}/draft-rejections)
+	RejectVoiceDraft(w http.ResponseWriter, r *http.Request, id Id, params RejectVoiceDraftParams)
+	// Read privacy-safe aggregate draft outcomes and qualifying transformations.
+	// (GET /voice-profiles/{id}/learning)
+	GetVoiceLearningSummary(w http.ResponseWriter, r *http.Request, id Id)
+	// List the owner's corpus manifest and live meter; source text is never returned.
 	// (GET /voice-profiles/{id}/sources)
-	ListVoiceCorpusSources(w http.ResponseWriter, r *http.Request, id Id)
-	// Ingest one corpus source (idempotent on source_ref).
+	ListVoiceCorpusSources(w http.ResponseWriter, r *http.Request, id Id, params ListVoiceCorpusSourcesParams)
+	// Ingest or replace one manual own-authored text source.
 	// (POST /voice-profiles/{id}/sources)
-	IngestVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id)
-	// Flip a source's manifest opt-out (excluded) or its weight.
+	IngestVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id, params IngestVoiceCorpusSourceParams)
+	// Permanently remove one retained source and mark any active artifact stale.
+	// (DELETE /voice-profiles/{id}/sources/{sourceId})
+	DeleteVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id, sourceId openapi_types.UUID, params DeleteVoiceCorpusSourceParams)
+	// Exclude/re-include a source or change its weight without rebuilding inline.
 	// (PATCH /voice-profiles/{id}/sources/{sourceId})
-	UpdateVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id, sourceId openapi_types.UUID)
+	UpdateVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id, sourceId openapi_types.UUID, params UpdateVoiceCorpusSourceParams)
+	// List immutable active, superseded, rejected, and candidate versions newest first.
+	// (GET /voice-profiles/{id}/versions)
+	ListVoiceProfileVersions(w http.ResponseWriter, r *http.Request, id Id, params ListVoiceProfileVersionsParams)
+	// Explicitly activate a candidate version that awaited owner review.
+	// (POST /voice-profiles/{id}/versions/{profileVersion}/apply)
+	ApplyVoiceProfileVersion(w http.ResponseWriter, r *http.Request, id Id, profileVersion VoiceProfileVersionNumber, params ApplyVoiceProfileVersionParams)
+	// Reject a candidate; the last known-good remains active.
+	// (POST /voice-profiles/{id}/versions/{profileVersion}/reject)
+	RejectVoiceProfileVersion(w http.ResponseWriter, r *http.Request, id Id, profileVersion VoiceProfileVersionNumber, params RejectVoiceProfileVersionParams)
+	// Restore an earlier artifact byte-for-byte as a new forward active version.
+	// (POST /voice-profiles/{id}/versions/{profileVersion}/rollback)
+	RollbackVoiceProfileVersion(w http.ResponseWriter, r *http.Request, id Id, profileVersion VoiceProfileVersionNumber, params RollbackVoiceProfileVersionParams)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -18226,51 +18900,117 @@ func (_ Unimplemented) UpdateSavedView(w http.ResponseWriter, r *http.Request, i
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// List the voice profiles visible to the caller.
+// List the calling user's live voice profile (zero or one in V1).
 // (GET /voice-profiles)
-func (_ Unimplemented) ListVoiceProfiles(w http.ResponseWriter, r *http.Request, params ListVoiceProfilesParams) {
+func (_ Unimplemented) ListVoiceProfiles(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Create a voice profile (status=building, empty derived artifact).
+// Create the calling user's one personal voice profile.
 // (POST /voice-profiles)
-func (_ Unimplemented) CreateVoiceProfile(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) CreateVoiceProfile(w http.ResponseWriter, r *http.Request, params CreateVoiceProfileParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Archive a voice profile (soft; its corpus stops being read).
+// Archive the calling user's voice profile and stop its use in drafts.
 // (DELETE /voice-profiles/{id})
-func (_ Unimplemented) DeleteVoiceProfile(w http.ResponseWriter, r *http.Request, id Id) {
+func (_ Unimplemented) DeleteVoiceProfile(w http.ResponseWriter, r *http.Request, id Id, params DeleteVoiceProfileParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Read one voice profile (derived artifact + human identity).
+// Read the calling user's voice profile and active derived artifact.
 // (GET /voice-profiles/{id})
 func (_ Unimplemented) GetVoiceProfile(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Edit the human-authored personality_md (never the derived artifact).
+// Replace human-authored preferences or enable/disable automatic improvement.
 // (PATCH /voice-profiles/{id})
 func (_ Unimplemented) UpdateVoiceProfile(w http.ResponseWriter, r *http.Request, id Id, params UpdateVoiceProfileParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// The corpus manifest — every ingested source plus the live word/register meter.
+// Queue a durable build over the current included corpus.
+// (POST /voice-profiles/{id}/builds)
+func (_ Unimplemented) CreateVoiceBuild(w http.ResponseWriter, r *http.Request, id Id, params CreateVoiceBuildParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Poll a durable build, including budget-deferred state.
+// (GET /voice-profiles/{id}/builds/{buildId})
+func (_ Unimplemented) GetVoiceBuild(w http.ResponseWriter, r *http.Request, id Id, buildId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Permanently clear retained corpus, learning content, builds, deltas, and derived versions.
+// (POST /voice-profiles/{id}/corpus/clear)
+func (_ Unimplemented) ClearVoiceCorpus(w http.ResponseWriter, r *http.Request, id Id, params ClearVoiceCorpusParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List typed, explainable changes between completed versions.
+// (GET /voice-profiles/{id}/deltas)
+func (_ Unimplemented) ListVoiceProfileDeltas(w http.ResponseWriter, r *http.Request, id Id, params ListVoiceProfileDeltasParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Record that the owner rejected a bound generated draft; generated text never becomes corpus.
+// (POST /voice-profiles/{id}/draft-rejections)
+func (_ Unimplemented) RejectVoiceDraft(w http.ResponseWriter, r *http.Request, id Id, params RejectVoiceDraftParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read privacy-safe aggregate draft outcomes and qualifying transformations.
+// (GET /voice-profiles/{id}/learning)
+func (_ Unimplemented) GetVoiceLearningSummary(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the owner's corpus manifest and live meter; source text is never returned.
 // (GET /voice-profiles/{id}/sources)
-func (_ Unimplemented) ListVoiceCorpusSources(w http.ResponseWriter, r *http.Request, id Id) {
+func (_ Unimplemented) ListVoiceCorpusSources(w http.ResponseWriter, r *http.Request, id Id, params ListVoiceCorpusSourcesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Ingest one corpus source (idempotent on source_ref).
+// Ingest or replace one manual own-authored text source.
 // (POST /voice-profiles/{id}/sources)
-func (_ Unimplemented) IngestVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id) {
+func (_ Unimplemented) IngestVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id, params IngestVoiceCorpusSourceParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Flip a source's manifest opt-out (excluded) or its weight.
+// Permanently remove one retained source and mark any active artifact stale.
+// (DELETE /voice-profiles/{id}/sources/{sourceId})
+func (_ Unimplemented) DeleteVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id, sourceId openapi_types.UUID, params DeleteVoiceCorpusSourceParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Exclude/re-include a source or change its weight without rebuilding inline.
 // (PATCH /voice-profiles/{id}/sources/{sourceId})
-func (_ Unimplemented) UpdateVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id, sourceId openapi_types.UUID) {
+func (_ Unimplemented) UpdateVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id, sourceId openapi_types.UUID, params UpdateVoiceCorpusSourceParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List immutable active, superseded, rejected, and candidate versions newest first.
+// (GET /voice-profiles/{id}/versions)
+func (_ Unimplemented) ListVoiceProfileVersions(w http.ResponseWriter, r *http.Request, id Id, params ListVoiceProfileVersionsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Explicitly activate a candidate version that awaited owner review.
+// (POST /voice-profiles/{id}/versions/{profileVersion}/apply)
+func (_ Unimplemented) ApplyVoiceProfileVersion(w http.ResponseWriter, r *http.Request, id Id, profileVersion VoiceProfileVersionNumber, params ApplyVoiceProfileVersionParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Reject a candidate; the last known-good remains active.
+// (POST /voice-profiles/{id}/versions/{profileVersion}/reject)
+func (_ Unimplemented) RejectVoiceProfileVersion(w http.ResponseWriter, r *http.Request, id Id, profileVersion VoiceProfileVersionNumber, params RejectVoiceProfileVersionParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Restore an earlier artifact byte-for-byte as a new forward active version.
+// (POST /voice-profiles/{id}/versions/{profileVersion}/rollback)
+func (_ Unimplemented) RollbackVoiceProfileVersion(w http.ResponseWriter, r *http.Request, id Id, profileVersion VoiceProfileVersionNumber, params RollbackVoiceProfileVersionParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -28291,48 +29031,14 @@ func (siw *ServerInterfaceWrapper) UpdateSavedView(w http.ResponseWriter, r *htt
 // ListVoiceProfiles operation middleware
 func (siw *ServerInterfaceWrapper) ListVoiceProfiles(w http.ResponseWriter, r *http.Request) {
 
-	var err error
-	_ = err
-
 	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
 
-	// Parameter object where we will unmarshal all parameters from the context
-	var params ListVoiceProfilesParams
-
-	// ------------- Optional query parameter "cursor" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "limit" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
-		}
-		return
-	}
-
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListVoiceProfiles(w, r, params)
+		siw.Handler.ListVoiceProfiles(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -28345,14 +29051,41 @@ func (siw *ServerInterfaceWrapper) ListVoiceProfiles(w http.ResponseWriter, r *h
 // CreateVoiceProfile operation middleware
 func (siw *ServerInterfaceWrapper) CreateVoiceProfile(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateVoiceProfileParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateVoiceProfile(w, r)
+		siw.Handler.CreateVoiceProfile(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -28383,8 +29116,32 @@ func (siw *ServerInterfaceWrapper) DeleteVoiceProfile(w http.ResponseWriter, r *
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteVoiceProfileParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteVoiceProfile(w, r, id)
+		siw.Handler.DeleteVoiceProfile(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -28410,8 +29167,6 @@ func (siw *ServerInterfaceWrapper) GetVoiceProfile(w http.ResponseWriter, r *htt
 	}
 
 	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
@@ -28484,6 +29239,327 @@ func (siw *ServerInterfaceWrapper) UpdateVoiceProfile(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// CreateVoiceBuild operation middleware
+func (siw *ServerInterfaceWrapper) CreateVoiceBuild(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateVoiceBuildParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateVoiceBuild(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetVoiceBuild operation middleware
+func (siw *ServerInterfaceWrapper) GetVoiceBuild(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "buildId" -------------
+	var buildId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "buildId", chi.URLParam(r, "buildId"), &buildId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "buildId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetVoiceBuild(w, r, id, buildId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ClearVoiceCorpus operation middleware
+func (siw *ServerInterfaceWrapper) ClearVoiceCorpus(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ClearVoiceCorpusParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ClearVoiceCorpus(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListVoiceProfileDeltas operation middleware
+func (siw *ServerInterfaceWrapper) ListVoiceProfileDeltas(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListVoiceProfileDeltasParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListVoiceProfileDeltas(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RejectVoiceDraft operation middleware
+func (siw *ServerInterfaceWrapper) RejectVoiceDraft(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RejectVoiceDraftParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RejectVoiceDraft(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetVoiceLearningSummary operation middleware
+func (siw *ServerInterfaceWrapper) GetVoiceLearningSummary(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetVoiceLearningSummary(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListVoiceCorpusSources operation middleware
 func (siw *ServerInterfaceWrapper) ListVoiceCorpusSources(w http.ResponseWriter, r *http.Request) {
 
@@ -28501,14 +29577,41 @@ func (siw *ServerInterfaceWrapper) ListVoiceCorpusSources(w http.ResponseWriter,
 
 	ctx := r.Context()
 
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListVoiceCorpusSourcesParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListVoiceCorpusSources(w, r, id)
+		siw.Handler.ListVoiceCorpusSources(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -28539,8 +29642,97 @@ func (siw *ServerInterfaceWrapper) IngestVoiceCorpusSource(w http.ResponseWriter
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params IngestVoiceCorpusSourceParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.IngestVoiceCorpusSource(w, r, id)
+		siw.Handler.IngestVoiceCorpusSource(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteVoiceCorpusSource operation middleware
+func (siw *ServerInterfaceWrapper) DeleteVoiceCorpusSource(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "sourceId" -------------
+	var sourceId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sourceId", chi.URLParam(r, "sourceId"), &sourceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sourceId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteVoiceCorpusSourceParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteVoiceCorpusSource(w, r, id, sourceId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -28580,8 +29772,326 @@ func (siw *ServerInterfaceWrapper) UpdateVoiceCorpusSource(w http.ResponseWriter
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateVoiceCorpusSourceParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateVoiceCorpusSource(w, r, id, sourceId)
+		siw.Handler.UpdateVoiceCorpusSource(w, r, id, sourceId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListVoiceProfileVersions operation middleware
+func (siw *ServerInterfaceWrapper) ListVoiceProfileVersions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListVoiceProfileVersionsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListVoiceProfileVersions(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ApplyVoiceProfileVersion operation middleware
+func (siw *ServerInterfaceWrapper) ApplyVoiceProfileVersion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "profileVersion" -------------
+	var profileVersion VoiceProfileVersionNumber
+
+	err = runtime.BindStyledParameterWithOptions("simple", "profileVersion", chi.URLParam(r, "profileVersion"), &profileVersion, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "profileVersion", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ApplyVoiceProfileVersionParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ApplyVoiceProfileVersion(w, r, id, profileVersion, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RejectVoiceProfileVersion operation middleware
+func (siw *ServerInterfaceWrapper) RejectVoiceProfileVersion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "profileVersion" -------------
+	var profileVersion VoiceProfileVersionNumber
+
+	err = runtime.BindStyledParameterWithOptions("simple", "profileVersion", chi.URLParam(r, "profileVersion"), &profileVersion, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "profileVersion", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RejectVoiceProfileVersionParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RejectVoiceProfileVersion(w, r, id, profileVersion, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RollbackVoiceProfileVersion operation middleware
+func (siw *ServerInterfaceWrapper) RollbackVoiceProfileVersion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "profileVersion" -------------
+	var profileVersion VoiceProfileVersionNumber
+
+	err = runtime.BindStyledParameterWithOptions("simple", "profileVersion", chi.URLParam(r, "profileVersion"), &profileVersion, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "profileVersion", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RollbackVoiceProfileVersionParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RollbackVoiceProfileVersion(w, r, id, profileVersion, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -29329,13 +30839,46 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/voice-profiles/{id}", wrapper.UpdateVoiceProfile)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/voice-profiles/{id}/builds", wrapper.CreateVoiceBuild)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/voice-profiles/{id}/builds/{buildId}", wrapper.GetVoiceBuild)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/voice-profiles/{id}/corpus/clear", wrapper.ClearVoiceCorpus)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/voice-profiles/{id}/deltas", wrapper.ListVoiceProfileDeltas)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/voice-profiles/{id}/draft-rejections", wrapper.RejectVoiceDraft)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/voice-profiles/{id}/learning", wrapper.GetVoiceLearningSummary)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/voice-profiles/{id}/sources", wrapper.ListVoiceCorpusSources)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/voice-profiles/{id}/sources", wrapper.IngestVoiceCorpusSource)
 	})
 	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/voice-profiles/{id}/sources/{sourceId}", wrapper.DeleteVoiceCorpusSource)
+	})
+	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/voice-profiles/{id}/sources/{sourceId}", wrapper.UpdateVoiceCorpusSource)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/voice-profiles/{id}/versions", wrapper.ListVoiceProfileVersions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/voice-profiles/{id}/versions/{profileVersion}/apply", wrapper.ApplyVoiceProfileVersion)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/voice-profiles/{id}/versions/{profileVersion}/reject", wrapper.RejectVoiceProfileVersion)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/voice-profiles/{id}/versions/{profileVersion}/rollback", wrapper.RollbackVoiceProfileVersion)
 	})
 
 	return r

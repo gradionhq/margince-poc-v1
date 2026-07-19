@@ -96,6 +96,15 @@ var idempotentOperations = map[string]bool{
 	"POST /v1/data-subject-requests":               true,
 	"POST /v1/people/{id}/consent":                 true,
 	"POST /v1/record-grants":                       true,
+
+	"POST /v1/voice-profiles":                                         true,
+	"POST /v1/voice-profiles/{id}/builds":                             true,
+	"POST /v1/voice-profiles/{id}/corpus/clear":                       true,
+	"POST /v1/voice-profiles/{id}/draft-rejections":                   true,
+	"POST /v1/voice-profiles/{id}/sources":                            true,
+	"POST /v1/voice-profiles/{id}/versions/{profileVersion}/apply":    true,
+	"POST /v1/voice-profiles/{id}/versions/{profileVersion}/reject":   true,
+	"POST /v1/voice-profiles/{id}/versions/{profileVersion}/rollback": true,
 }
 
 // claimOutcome is what the claim transaction decided.
