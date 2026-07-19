@@ -60,27 +60,23 @@ The stored data is split deliberately:
 - Published team members are not company-context rows. They are staged as thin
   `site_lead` proposals and become leads only after separate acceptance.
 
-The important current gap is read-side reuse. `organization_profile_field` is
-primarily assembled for `GET /company`; `organization_fact` has no production
-read consumer outside its acceptance/write path. A few profile values happen to
-flow elsewhere because they are also copied to `organization` columns, but there
-is no common company-context service and no declared model-call injection policy.
-Rich website extraction is therefore persisted and auditable, but is not yet a
-product-wide knowledge source.
+The plan began with a read-side reuse gap: profile fields were assembled only for
+`GET /company`, facts had no production read consumer, and no bounded service
+could supply governed company knowledge to later product calls. Phase 1 closed
+that substrate gap with the typed, scoped `GET /company/context` read model.
+Product-wide model-call injection remains Phase 3 work.
 
-There are also contract mismatches to resolve first:
+The contract mismatches recorded during planning now have explicit outcomes:
 
-- The foundation spec still records the business-profile persistence home as
-  open (`ONBOARD-AC-OPEN-2`), while this implementation now has profile and fact
-  tables plus `/company`.
-- The foundation onboarding design expects separate Read and Confirm steps; the
-  current React screen combines them into one long form and exposes only four
-  top-level steps.
-- `CompanyProfile` says only `display_name` is required, while
-  `CompanyProfileInput` requires display name, legal name, registered address,
-  VAT/register, and industry.
-- The original quick-read latency and five/ten-field assumptions predate the
-  whole-site deep-read implementation and its measured latency.
+- **Resolved in Phase 0:** ADR-0065/A111 ratified the anchor organization,
+  profile/fact persistence homes, and `/company` plus `/company/context` reads.
+- **Scheduled for Phase 4:** the current React screen still combines Read and
+  Confirm and exposes four top-level steps; the ratified target has five.
+- **Resolved in Phase 0/1:** the universal manual minimum is display name,
+  offer summary, and ICP. Legal identity fields are optional until a workflow
+  with a real legal or invoicing need requires them.
+- **Resolved in Phase 0:** progressive whole-site latency replaced the obsolete
+  quick-read eight-second and five/ten-field assumptions.
 
 ## Recommended company model
 
@@ -184,10 +180,9 @@ triggers, history, locations, and proof are recommended but optional. Base
 currency and timezone already come from installation configuration and should not
 be duplicated in this form.
 
-Before implementation, ratify whether `offer_summary` is a new canonical profile
-field or a clearer replacement/alias for the current `value_proposition`. The
-recommendation is to keep them distinct: offer summary answers “what is sold,”
-while value proposition answers “what outcome makes it valuable.”
+ADR-0065 ratifies `offer_summary` and `value_proposition` as distinct canonical
+profile fields: offer summary answers “what is sold,” while value proposition
+answers “what outcome makes it valuable.”
 
 ## Website-ingestion target flow
 
@@ -344,7 +339,7 @@ progressively arriving findings.
 
 ## Delivery plan
 
-### Phase 0 — Contract and product decisions
+### Phase 0 — Contract and product decisions (completed)
 
 1. Reconcile the richer implementation into `margince-foundation`: persistence
    ownership, company-context read model, field vocabulary/cardinality, manual
@@ -359,23 +354,22 @@ progressively arriving findings.
    a dedicated draft table. Do not implement a hidden anchor record workaround.
 4. Ratify the three required fields and conditional legal requirements.
 
-Exit gate: updated spec, data ownership, contract shapes, event semantics,
-acceptance criteria, and migration approach are approved upstream.
+Exit gate met by `margince-foundation` PR #1104: updated spec, data ownership,
+contract shapes, event semantics, acceptance criteria, and migration approach
+were approved upstream.
 
-### Phase 1 — Unified profile read/write substrate
+### Phase 1 — Unified profile read/write substrate (implementation complete)
 
-1. Extend the profile/fact vocabularies additively and pin contract, Go, prompt,
-   and database vocabularies with derived fitness tests.
-2. Implement the typed company-context assembler with provenance, deterministic
-   ordering, scopes, version/fingerprint, and RLS-safe reads.
-3. Extend `/company` or add the ratified profile endpoint so the UI can read and
-   edit both single-value profile fields and repeatable facts without losing
-   provenance.
-4. Ensure all writes retain the mutation + audit + outbox single-transaction
-   shape and preserve human precedence.
+PR #127 delivers the additive profile/fact vocabularies, the provenance-bearing
+and RLS-safe company-context assembler, expanded `/company` read/write mapping,
+deterministic scopes/fingerprints, human precedence, and the existing atomic
+mutation + audit + outbox write shape.
 
-Exit gate: manual creation/editing and context assembly work with no AI provider;
-cross-workspace, stale-write, provenance, and audit/outbox integration tests pass.
+Its local and GitHub gates cover provider-free manual creation/editing,
+cross-workspace isolation, provenance, audit/outbox behavior, migrations, and
+zero-skip integration. The remaining stale-draft conflict belongs to Phase 2's
+version-bound onboarding confirmation endpoint; it is not a second Phase 1 write
+path.
 
 ### Phase 2 — Onboarding deep read
 
