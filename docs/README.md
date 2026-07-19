@@ -23,6 +23,7 @@ maps the codebase and links everything below.
 - [run-the-frontend.md](how-to/run-the-frontend.md) — run the SPA in dev.
 - [enrich-with-a-local-llm.md](how-to/enrich-with-a-local-llm.md) — point the AI lanes at a local Ollama and enrich a company with no cloud key.
 - [connect-a-cloud-model-provider.md](how-to/connect-a-cloud-model-provider.md) — bind the AI lanes to a BYOK cloud key (Anthropic / OpenAI / Gemini / any OpenAI-compatible vendor).
+- [certify-an-ai-model.md](how-to/certify-an-ai-model.md) — certify a model against a task's scenario corpus and benchmark a candidate swap (`make e2e-ai`).
 
 ### Reference — look it up
 - [modules.md](reference/modules.md) — the 17 modules: what each owns, its tables, its HTTP surface.

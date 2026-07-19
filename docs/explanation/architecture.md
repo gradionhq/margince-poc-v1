@@ -44,6 +44,20 @@ shared  →  platform  →  modules  →  compose  →  cmd
   cross-module edge is wired: [composition-layer.md](composition-layer.md).
 - **`cmd/{api,worker,migrate,mcp}`** — thin process roles.
 
+`cmd/<role>` is reserved for those **four deployable process-role
+binaries** (ADR-0054/A69). A *developer/CI harness* binary — a tool a
+human or a `make` target runs, not a role that gets deployed — does not
+belong there: it lives **beside the package it serves** (e.g. the AI
+certification report tool at `internal/compose/aicert/reportcmd`, run by
+`make e2e-ai-report`) or in the separate `backend/tools/` module (the
+codegen chain). Two reasons: a harness under `cmd/<role>` would read as
+a fifth deployment role and blur A69's pinned count, and keeping the tool
+next to the code it imports (the `aicert` internals) means it moves and
+versions with that code. The rule of thumb: if it is composed through
+`internal/compose` and meant to run as a server/job, it earns a
+`cmd/<role>`; if it is tooling around one package, it stays with that
+package.
+
 The DAG is enforced three ways, and deliberately mechanically: depguard
 (golangci-lint), go-arch-lint, and the fitness tests in
 `backend/arch_test.go`, which derive their package and module lists from
