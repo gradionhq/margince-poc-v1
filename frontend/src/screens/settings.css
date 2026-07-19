@@ -110,12 +110,22 @@
 }
 
 .company-context-kicker,
-.company-context-saved,
-.company-context-warning {
+.company-context-saved {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.company-context-warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--warning);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
