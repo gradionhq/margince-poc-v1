@@ -21,6 +21,13 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
+type companyContextTrace struct {
+	scopes      []string
+	fingerprint string
+	cacheHit    bool
+	requestHash string
+}
+
 func TestCompanyContextBindsPromptCacheAndAICallTrace(t *testing.T) {
 	e := Setup(t)
 	ctx := e.Admin()
@@ -65,38 +72,7 @@ func TestCompanyContextBindsPromptCacheAndAICallTrace(t *testing.T) {
 		t.Fatalf("post-edit agent completion: %v", err)
 	}
 
-	type trace struct {
-		scopes      []string
-		fingerprint string
-		cacheHit    bool
-		requestHash string
-	}
-	var traces []trace
-	err = database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `
-			SELECT context_scopes, context_fingerprint, cache_hit, request_fingerprint
-			FROM ai_call
-			WHERE task = 'agent_loop'
-			ORDER BY occurred_at, id`)
-		if err != nil {
-			return fmt.Errorf("query ai_call context trace: %w", err)
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var got trace
-			if err := rows.Scan(&got.scopes, &got.fingerprint, &got.cacheHit, &got.requestHash); err != nil {
-				return fmt.Errorf("scan ai_call context trace: %w", err)
-			}
-			traces = append(traces, got)
-		}
-		if err := rows.Err(); err != nil {
-			return fmt.Errorf("iterate ai_call context traces: %w", err)
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	traces := readCompanyContextTraces(ctx, t, e, "agent_loop")
 	if len(traces) != 3 {
 		t.Fatalf("agent-loop traces = %d, want 3: %+v", len(traces), traces)
 	}
@@ -115,6 +91,37 @@ func TestCompanyContextBindsPromptCacheAndAICallTrace(t *testing.T) {
 	if traces[2].fingerprint == traces[0].fingerprint || traces[2].requestHash == traces[0].requestHash {
 		t.Fatalf("company edit reused stale context/cache identity: %+v", traces)
 	}
+}
+
+func readCompanyContextTraces(ctx context.Context, t *testing.T, e *Env, task string) []companyContextTrace {
+	t.Helper()
+	var traces []companyContextTrace
+	err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			SELECT context_scopes, context_fingerprint, cache_hit, request_fingerprint
+			FROM ai_call
+			WHERE task = $1
+			ORDER BY occurred_at, id`, task)
+		if err != nil {
+			return fmt.Errorf("query ai_call context trace: %w", err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var got companyContextTrace
+			if err := rows.Scan(&got.scopes, &got.fingerprint, &got.cacheHit, &got.requestHash); err != nil {
+				return fmt.Errorf("scan ai_call context trace: %w", err)
+			}
+			traces = append(traces, got)
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("iterate ai_call context traces: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return traces
 }
 
 func TestPolicyNoneTraceCarriesEmptyCompanyContext(t *testing.T) {

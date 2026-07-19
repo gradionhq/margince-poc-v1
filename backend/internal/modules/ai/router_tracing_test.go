@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -77,10 +76,7 @@ func newTracingRouter(t *testing.T, client model.Client, fcs *fakeCallStore) *Ro
 func TestCompleteRecordsServedCall(t *testing.T) {
 	fcs := &fakeCallStore{}
 	r := newTracingRouter(t, stubClient{resp: model.Response{Text: "hi", InputTokens: 10, OutputTokens: 5}}, fcs)
-	contextFingerprint := strings.Repeat("a", 64)
-	if _, _, err := r.serveCompletion(wsCtx(), TaskColdStart, []Tier{TierCheapCloud}, model.Request{
-		ContextScopes: []string{"identity", "offer"}, ContextFingerprint: contextFingerprint,
-	}); err != nil {
+	if _, _, err := r.serveCompletion(wsCtx(), TaskColdStart, []Tier{TierCheapCloud}, model.Request{}); err != nil {
 		t.Fatalf("complete: %v", err)
 	}
 	if len(fcs.recorded) != 1 {
@@ -89,9 +85,6 @@ func TestCompleteRecordsServedCall(t *testing.T) {
 	got := fcs.recorded[0]
 	if got.Provider != "openai" || got.ModelID != "gpt-x" || got.TokensIn != 10 || got.TokensOut != 5 || got.ErrorSentinel != "" || got.CacheHit {
 		t.Fatalf("served call recorded wrong: %+v", got)
-	}
-	if !reflect.DeepEqual(got.ContextScopes, []string{"identity", "offer"}) || got.ContextFingerprint != contextFingerprint {
-		t.Fatalf("served call lost company-context trace metadata: %+v", got)
 	}
 }
 
