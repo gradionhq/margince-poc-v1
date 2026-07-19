@@ -3062,6 +3062,92 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /company/site-reads:
+    post:
+      tags: [Organizations, AI]
+      operationId: startCompanySiteRead
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Start an optional progressive website read before the anchor company exists.
+      description: |
+        Creates only an unbound operational dossier and queues the shared deep-read engine in the
+        same transaction. No organization, profile field, fact, lead, or domain row is created.
+        Repeating the same URL while its read is active joins the existing dossier.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StartCompanySiteReadRequest' }
+      responses:
+        '202':
+          description: Read accepted; poll the returned dossier while extraction progresses.
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanySiteRead' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /company/site-reads/{readId}:
+    parameters:
+      - name: readId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Organizations, AI]
+      operationId: getCompanySiteRead
+      summary: Read the latest progressive onboarding dossier and its grounded draft findings.
+      responses:
+        '200':
+          description: Current read state, coverage, findings, omissions, and separately staged people.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanySiteRead' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /company/site-reads/{readId}/confirm:
+    parameters:
+      - name: readId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Organizations, AI]
+      operationId: confirmCompanySiteRead
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Confirm a selected onboarding draft into the anchor company atomically.
+      description: |
+        Applies only the submitted profile and selected fact keys. The draft version and proposal
+        hash bind confirmation to the exact inspected proposal; a stale confirmation returns 409.
+        Unchanged values retain website evidence, edits become human assertions, and published people
+        remain separate site-lead proposals rather than becoming contacts or company-context rows.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConfirmCompanySiteReadRequest' }
+      responses:
+        '200':
+          description: Confirmed anchor company profile and accepted facts.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyProfile' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   # -------------------------- /connectors/imap ------------------------------
   /connectors/imap/connect:
     post:
@@ -8709,6 +8795,88 @@ components:
         fingerprint: { type: string, description: Deterministic SHA-256 digest of the selected confirmed values and accepted facts. }
         generated_at: { type: string, format: date-time }
 
+    StartCompanySiteReadRequest:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string, format: uri, description: Public company website to read. }
+
+    CompanySiteReadPage:
+      type: object
+      required: [url, status]
+      properties:
+        url: { type: string, format: uri }
+        status: { type: string, enum: [fetched, skipped, failed] }
+        kind: { type: [string, 'null'], enum: [home, impressum, about, team, services, products, contact, other] }
+        reason: { type: [string, 'null'], description: Stable human-readable reason when skipped or failed. }
+
+    CompanySiteReadFact:
+      type: object
+      required: [category, field, value, value_key, evidence_snippet, evidence_url, confidence]
+      properties:
+        category: { type: string, enum: [company, offering, market, signal] }
+        field: { type: string, enum: [founded_year, employee_range, phone, contact_email, location, service, product, capability, served_industry, company_size, geography, language, certification, partner, named_customer, technology, quantified_outcome] }
+        value: { type: string }
+        value_key: { type: string }
+        evidence_snippet: { type: string, minLength: 1 }
+        evidence_url: { type: string, format: uri }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+
+    CompanySiteReadPerson:
+      type: object
+      required: [name, role, evidence_snippet, evidence_url]
+      properties:
+        name: { type: string }
+        role: { type: string }
+        published_email: { type: [string, 'null'], format: email }
+        linkedin_url: { type: [string, 'null'], format: uri }
+        evidence_snippet: { type: string, minLength: 1 }
+        evidence_url: { type: string, format: uri }
+        disposition: { type: string, enum: [separate_lead_proposal], description: People never enter company context or contact records through company confirmation. }
+
+    CompanySiteRead:
+      type: object
+      required: [id, target_kind, root_url, status, pages, profile_fields, facts, people, warnings, draft_version, proposal_hash, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        target_kind: { type: string, enum: [onboarding] }
+        organization_id: { type: [string, 'null'], format: uuid }
+        root_url: { type: string, format: uri }
+        status: { type: string, enum: [queued, reading, ready, partial, failed, confirmed, abandoned] }
+        phase: { type: [string, 'null'], enum: [crawling, extracting] }
+        pages_read: { type: integer, minimum: 0 }
+        pages:
+          type: array
+          items: { $ref: '#/components/schemas/CompanySiteReadPage' }
+        profile_fields:
+          type: array
+          items: { $ref: '#/components/schemas/ColdStartField' }
+        facts:
+          type: array
+          items: { $ref: '#/components/schemas/CompanySiteReadFact' }
+        people:
+          type: array
+          items: { $ref: '#/components/schemas/CompanySiteReadPerson' }
+        warnings:
+          type: array
+          items: { type: string }
+        draft_version: { type: integer, minimum: 1 }
+        proposal_hash: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ConfirmCompanySiteReadRequest:
+      type: object
+      required: [draft_version, proposal_hash, profile, selected_fact_keys]
+      properties:
+        draft_version: { type: integer, minimum: 1 }
+        proposal_hash: { type: string }
+        profile: { $ref: '#/components/schemas/CompanyProfileInput' }
+        selected_fact_keys:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+
     EnrichCompanyRequest:
       type: object
       description: Optional override. With no body the org's own domain is read.
@@ -8737,7 +8905,10 @@ components:
       required: [url, reason]
       properties:
         url: { type: string, format: uri }
-        reason: { type: string, enum: [robots, off_domain, page_cap, byte_cap, unreadable] }
+        reason:
+          type: string
+          enum: [robots, off_domain, page_cap, byte_cap, unreadable]
+          x-enum-varnames: [SiteReadSkipReasonRobots, SiteReadSkipReasonOffDomain, SiteReadSkipReasonPageCap, SiteReadSkipReasonByteCap, SiteReadSkipReasonUnreadable]
 
     SiteReadReport:
       type: object

@@ -1011,6 +1011,231 @@ func (e CompanyProfileFieldSource) Valid() bool {
 	}
 }
 
+// Defines values for CompanySiteReadPhase.
+const (
+	CompanySiteReadPhaseCrawling   CompanySiteReadPhase = "crawling"
+	CompanySiteReadPhaseExtracting CompanySiteReadPhase = "extracting"
+)
+
+// Valid indicates whether the value is a known member of the CompanySiteReadPhase enum.
+func (e CompanySiteReadPhase) Valid() bool {
+	switch e {
+	case CompanySiteReadPhaseCrawling:
+		return true
+	case CompanySiteReadPhaseExtracting:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompanySiteReadStatus.
+const (
+	CompanySiteReadStatusAbandoned CompanySiteReadStatus = "abandoned"
+	CompanySiteReadStatusConfirmed CompanySiteReadStatus = "confirmed"
+	CompanySiteReadStatusFailed    CompanySiteReadStatus = "failed"
+	CompanySiteReadStatusPartial   CompanySiteReadStatus = "partial"
+	CompanySiteReadStatusQueued    CompanySiteReadStatus = "queued"
+	CompanySiteReadStatusReading   CompanySiteReadStatus = "reading"
+	CompanySiteReadStatusReady     CompanySiteReadStatus = "ready"
+)
+
+// Valid indicates whether the value is a known member of the CompanySiteReadStatus enum.
+func (e CompanySiteReadStatus) Valid() bool {
+	switch e {
+	case CompanySiteReadStatusAbandoned:
+		return true
+	case CompanySiteReadStatusConfirmed:
+		return true
+	case CompanySiteReadStatusFailed:
+		return true
+	case CompanySiteReadStatusPartial:
+		return true
+	case CompanySiteReadStatusQueued:
+		return true
+	case CompanySiteReadStatusReading:
+		return true
+	case CompanySiteReadStatusReady:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompanySiteReadTargetKind.
+const (
+	Onboarding CompanySiteReadTargetKind = "onboarding"
+)
+
+// Valid indicates whether the value is a known member of the CompanySiteReadTargetKind enum.
+func (e CompanySiteReadTargetKind) Valid() bool {
+	switch e {
+	case Onboarding:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompanySiteReadFactCategory.
+const (
+	CompanySiteReadFactCategoryCompany  CompanySiteReadFactCategory = "company"
+	CompanySiteReadFactCategoryMarket   CompanySiteReadFactCategory = "market"
+	CompanySiteReadFactCategoryOffering CompanySiteReadFactCategory = "offering"
+	CompanySiteReadFactCategorySignal   CompanySiteReadFactCategory = "signal"
+)
+
+// Valid indicates whether the value is a known member of the CompanySiteReadFactCategory enum.
+func (e CompanySiteReadFactCategory) Valid() bool {
+	switch e {
+	case CompanySiteReadFactCategoryCompany:
+		return true
+	case CompanySiteReadFactCategoryMarket:
+		return true
+	case CompanySiteReadFactCategoryOffering:
+		return true
+	case CompanySiteReadFactCategorySignal:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompanySiteReadFactField.
+const (
+	CompanySiteReadFactFieldCapability        CompanySiteReadFactField = "capability"
+	CompanySiteReadFactFieldCertification     CompanySiteReadFactField = "certification"
+	CompanySiteReadFactFieldCompanySize       CompanySiteReadFactField = "company_size"
+	CompanySiteReadFactFieldContactEmail      CompanySiteReadFactField = "contact_email"
+	CompanySiteReadFactFieldEmployeeRange     CompanySiteReadFactField = "employee_range"
+	CompanySiteReadFactFieldFoundedYear       CompanySiteReadFactField = "founded_year"
+	CompanySiteReadFactFieldGeography         CompanySiteReadFactField = "geography"
+	CompanySiteReadFactFieldLanguage          CompanySiteReadFactField = "language"
+	CompanySiteReadFactFieldLocation          CompanySiteReadFactField = "location"
+	CompanySiteReadFactFieldNamedCustomer     CompanySiteReadFactField = "named_customer"
+	CompanySiteReadFactFieldPartner           CompanySiteReadFactField = "partner"
+	CompanySiteReadFactFieldPhone             CompanySiteReadFactField = "phone"
+	CompanySiteReadFactFieldProduct           CompanySiteReadFactField = "product"
+	CompanySiteReadFactFieldQuantifiedOutcome CompanySiteReadFactField = "quantified_outcome"
+	CompanySiteReadFactFieldServedIndustry    CompanySiteReadFactField = "served_industry"
+	CompanySiteReadFactFieldService           CompanySiteReadFactField = "service"
+	CompanySiteReadFactFieldTechnology        CompanySiteReadFactField = "technology"
+)
+
+// Valid indicates whether the value is a known member of the CompanySiteReadFactField enum.
+func (e CompanySiteReadFactField) Valid() bool {
+	switch e {
+	case CompanySiteReadFactFieldCapability:
+		return true
+	case CompanySiteReadFactFieldCertification:
+		return true
+	case CompanySiteReadFactFieldCompanySize:
+		return true
+	case CompanySiteReadFactFieldContactEmail:
+		return true
+	case CompanySiteReadFactFieldEmployeeRange:
+		return true
+	case CompanySiteReadFactFieldFoundedYear:
+		return true
+	case CompanySiteReadFactFieldGeography:
+		return true
+	case CompanySiteReadFactFieldLanguage:
+		return true
+	case CompanySiteReadFactFieldLocation:
+		return true
+	case CompanySiteReadFactFieldNamedCustomer:
+		return true
+	case CompanySiteReadFactFieldPartner:
+		return true
+	case CompanySiteReadFactFieldPhone:
+		return true
+	case CompanySiteReadFactFieldProduct:
+		return true
+	case CompanySiteReadFactFieldQuantifiedOutcome:
+		return true
+	case CompanySiteReadFactFieldServedIndustry:
+		return true
+	case CompanySiteReadFactFieldService:
+		return true
+	case CompanySiteReadFactFieldTechnology:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompanySiteReadPageKind.
+const (
+	CompanySiteReadPageKindAbout     CompanySiteReadPageKind = "about"
+	CompanySiteReadPageKindContact   CompanySiteReadPageKind = "contact"
+	CompanySiteReadPageKindHome      CompanySiteReadPageKind = "home"
+	CompanySiteReadPageKindImpressum CompanySiteReadPageKind = "impressum"
+	CompanySiteReadPageKindOther     CompanySiteReadPageKind = "other"
+	CompanySiteReadPageKindProducts  CompanySiteReadPageKind = "products"
+	CompanySiteReadPageKindServices  CompanySiteReadPageKind = "services"
+	CompanySiteReadPageKindTeam      CompanySiteReadPageKind = "team"
+)
+
+// Valid indicates whether the value is a known member of the CompanySiteReadPageKind enum.
+func (e CompanySiteReadPageKind) Valid() bool {
+	switch e {
+	case CompanySiteReadPageKindAbout:
+		return true
+	case CompanySiteReadPageKindContact:
+		return true
+	case CompanySiteReadPageKindHome:
+		return true
+	case CompanySiteReadPageKindImpressum:
+		return true
+	case CompanySiteReadPageKindOther:
+		return true
+	case CompanySiteReadPageKindProducts:
+		return true
+	case CompanySiteReadPageKindServices:
+		return true
+	case CompanySiteReadPageKindTeam:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompanySiteReadPageStatus.
+const (
+	CompanySiteReadPageStatusFailed  CompanySiteReadPageStatus = "failed"
+	CompanySiteReadPageStatusFetched CompanySiteReadPageStatus = "fetched"
+	CompanySiteReadPageStatusSkipped CompanySiteReadPageStatus = "skipped"
+)
+
+// Valid indicates whether the value is a known member of the CompanySiteReadPageStatus enum.
+func (e CompanySiteReadPageStatus) Valid() bool {
+	switch e {
+	case CompanySiteReadPageStatusFailed:
+		return true
+	case CompanySiteReadPageStatusFetched:
+		return true
+	case CompanySiteReadPageStatusSkipped:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompanySiteReadPersonDisposition.
+const (
+	SeparateLeadProposal CompanySiteReadPersonDisposition = "separate_lead_proposal"
+)
+
+// Valid indicates whether the value is a known member of the CompanySiteReadPersonDisposition enum.
+func (e CompanySiteReadPersonDisposition) Valid() bool {
+	switch e {
+	case SeparateLeadProposal:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ComputedFieldKind.
 const (
 	ComputedFieldKindCount          ComputedFieldKind = "count"
@@ -3839,22 +4064,22 @@ func (e UpsertPartnerRequestCertStatus) Valid() bool {
 
 // Defines values for UpsertPartnerRequestMarginTier.
 const (
-	LessThannil UpsertPartnerRequestMarginTier = "<nil>"
-	Tier115     UpsertPartnerRequestMarginTier = "tier1_15"
-	Tier220     UpsertPartnerRequestMarginTier = "tier2_20"
-	Tier325     UpsertPartnerRequestMarginTier = "tier3_25"
+	UpsertPartnerRequestMarginTierLessThannil UpsertPartnerRequestMarginTier = "<nil>"
+	UpsertPartnerRequestMarginTierTier115     UpsertPartnerRequestMarginTier = "tier1_15"
+	UpsertPartnerRequestMarginTierTier220     UpsertPartnerRequestMarginTier = "tier2_20"
+	UpsertPartnerRequestMarginTierTier325     UpsertPartnerRequestMarginTier = "tier3_25"
 )
 
 // Valid indicates whether the value is a known member of the UpsertPartnerRequestMarginTier enum.
 func (e UpsertPartnerRequestMarginTier) Valid() bool {
 	switch e {
-	case LessThannil:
+	case UpsertPartnerRequestMarginTierLessThannil:
 		return true
-	case Tier115:
+	case UpsertPartnerRequestMarginTierTier115:
 		return true
-	case Tier220:
+	case UpsertPartnerRequestMarginTierTier220:
 		return true
-	case Tier325:
+	case UpsertPartnerRequestMarginTierTier325:
 		return true
 	default:
 		return false
@@ -5740,6 +5965,83 @@ type CompanyProfileInput struct {
 	Website *string `json:"website,omitempty"`
 }
 
+// CompanySiteRead defines model for CompanySiteRead.
+type CompanySiteRead struct {
+	CreatedAt      time.Time                 `json:"created_at"`
+	DraftVersion   int                       `json:"draft_version"`
+	Facts          []CompanySiteReadFact     `json:"facts"`
+	Id             openapi_types.UUID        `json:"id"`
+	OrganizationId *openapi_types.UUID       `json:"organization_id,omitempty"`
+	Pages          []CompanySiteReadPage     `json:"pages"`
+	PagesRead      *int                      `json:"pages_read,omitempty"`
+	People         []CompanySiteReadPerson   `json:"people"`
+	Phase          *CompanySiteReadPhase     `json:"phase,omitempty"`
+	ProfileFields  []ColdStartField          `json:"profile_fields"`
+	ProposalHash   string                    `json:"proposal_hash"`
+	RootUrl        string                    `json:"root_url"`
+	Status         CompanySiteReadStatus     `json:"status"`
+	TargetKind     CompanySiteReadTargetKind `json:"target_kind"`
+	UpdatedAt      time.Time                 `json:"updated_at"`
+	Warnings       []string                  `json:"warnings"`
+}
+
+// CompanySiteReadPhase defines model for CompanySiteRead.Phase.
+type CompanySiteReadPhase string
+
+// CompanySiteReadStatus defines model for CompanySiteRead.Status.
+type CompanySiteReadStatus string
+
+// CompanySiteReadTargetKind defines model for CompanySiteRead.TargetKind.
+type CompanySiteReadTargetKind string
+
+// CompanySiteReadFact defines model for CompanySiteReadFact.
+type CompanySiteReadFact struct {
+	Category        CompanySiteReadFactCategory `json:"category"`
+	Confidence      float32                     `json:"confidence"`
+	EvidenceSnippet string                      `json:"evidence_snippet"`
+	EvidenceUrl     string                      `json:"evidence_url"`
+	Field           CompanySiteReadFactField    `json:"field"`
+	Value           string                      `json:"value"`
+	ValueKey        string                      `json:"value_key"`
+}
+
+// CompanySiteReadFactCategory defines model for CompanySiteReadFact.Category.
+type CompanySiteReadFactCategory string
+
+// CompanySiteReadFactField defines model for CompanySiteReadFact.Field.
+type CompanySiteReadFactField string
+
+// CompanySiteReadPage defines model for CompanySiteReadPage.
+type CompanySiteReadPage struct {
+	Kind *CompanySiteReadPageKind `json:"kind,omitempty"`
+
+	// Reason Stable human-readable reason when skipped or failed.
+	Reason *string                   `json:"reason,omitempty"`
+	Status CompanySiteReadPageStatus `json:"status"`
+	Url    string                    `json:"url"`
+}
+
+// CompanySiteReadPageKind defines model for CompanySiteReadPage.Kind.
+type CompanySiteReadPageKind string
+
+// CompanySiteReadPageStatus defines model for CompanySiteReadPage.Status.
+type CompanySiteReadPageStatus string
+
+// CompanySiteReadPerson defines model for CompanySiteReadPerson.
+type CompanySiteReadPerson struct {
+	// Disposition People never enter company context or contact records through company confirmation.
+	Disposition     *CompanySiteReadPersonDisposition `json:"disposition,omitempty"`
+	EvidenceSnippet string                            `json:"evidence_snippet"`
+	EvidenceUrl     string                            `json:"evidence_url"`
+	LinkedinUrl     *string                           `json:"linkedin_url,omitempty"`
+	Name            string                            `json:"name"`
+	PublishedEmail  *openapi_types.Email              `json:"published_email,omitempty"`
+	Role            string                            `json:"role"`
+}
+
+// CompanySiteReadPersonDisposition People never enter company context or contact records through company confirmation.
+type CompanySiteReadPersonDisposition string
+
 // ComputedField S-E15.8c formula-field display row (RD-AC-6/RD-AC-7/RD-AC-N-1) — a read-only,
 // database-computed value, never a runtime-authored expression. `computable: false` +
 // `reason` is the honest floor for a field with no backend data model yet — the row is
@@ -5766,6 +6068,22 @@ type ComputedField struct {
 
 // ComputedFieldKind defines model for ComputedField.Kind.
 type ComputedFieldKind string
+
+// ConfirmCompanySiteReadRequest defines model for ConfirmCompanySiteReadRequest.
+type ConfirmCompanySiteReadRequest struct {
+	DraftVersion int `json:"draft_version"`
+
+	// Profile The company form's body. New onboarding requires the semantic minimum: display_name,
+	// offer_summary and icp. The OpenAPI wire keeps only display_name structurally required so clients
+	// can be upgraded independently: clients that submit the former five-field legal identity block
+	// still succeed, while the current UI and server-created onboarding flow enforce the semantic
+	// minimum. Legal/registration fields are optional until a feature with a real
+	// jurisdictional or invoicing need asks for them. An omitted optional field is unchanged and one
+	// sent empty is cleared.
+	Profile          CompanyProfileInput `json:"profile"`
+	ProposalHash     string              `json:"proposal_hash"`
+	SelectedFactKeys []string            `json:"selected_fact_keys"`
+}
 
 // ConnectConnectorRequest Connect input. OAuth providers (`gmail`/`gcal`/`graph`) need only an optional `redirect_uri`
 // (the app page to return to after consent); `imap` supplies direct credentials. The secret is
@@ -8230,6 +8548,12 @@ type StartBackfillRequest struct {
 // StartBackfillRequestWindow `none` is expressed by never calling this op. Widen-only versus a prior run.
 type StartBackfillRequestWindow string
 
+// StartCompanySiteReadRequest defines model for StartCompanySiteReadRequest.
+type StartCompanySiteReadRequest struct {
+	// Url Public company website to read.
+	Url string `json:"url"`
+}
+
 // Tag A tag. Mirrors the `tag` table.
 type Tag struct {
 	ArchivedAt  *time.Time         `json:"archived_at,omitempty"`
@@ -9032,6 +9356,30 @@ type BookMeetingJSONBodyLinksEntityType string
 type GetCompanyContextParams struct {
 	// Scopes Comma-separated context scopes. Omit for the bounded default set.
 	Scopes *string `form:"scopes,omitempty" json:"scopes,omitempty"`
+}
+
+// StartCompanySiteReadParams defines parameters for StartCompanySiteRead.
+type StartCompanySiteReadParams struct {
+	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// ConfirmCompanySiteReadParams defines parameters for ConfirmCompanySiteRead.
+type ConfirmCompanySiteReadParams struct {
+	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ConnectorOAuthCallbackParams defines parameters for ConnectorOAuthCallback.
@@ -10553,6 +10901,12 @@ type ColdStartPreviewJSONRequestBody = ColdStartRequest
 
 // PutCompanyJSONRequestBody defines body for PutCompany for application/json ContentType.
 type PutCompanyJSONRequestBody = CompanyProfileInput
+
+// StartCompanySiteReadJSONRequestBody defines body for StartCompanySiteRead for application/json ContentType.
+type StartCompanySiteReadJSONRequestBody = StartCompanySiteReadRequest
+
+// ConfirmCompanySiteReadJSONRequestBody defines body for ConfirmCompanySiteRead for application/json ContentType.
+type ConfirmCompanySiteReadJSONRequestBody = ConfirmCompanySiteReadRequest
 
 // ConnectImapJSONRequestBody defines body for ConnectImap for application/json ContentType.
 type ConnectImapJSONRequestBody = ImapConnectRequest
@@ -15731,6 +16085,15 @@ type ServerInterface interface {
 	// The deterministic, typed context assembled from the anchor company.
 	// (GET /company/context)
 	GetCompanyContext(w http.ResponseWriter, r *http.Request, params GetCompanyContextParams)
+	// Start an optional progressive website read before the anchor company exists.
+	// (POST /company/site-reads)
+	StartCompanySiteRead(w http.ResponseWriter, r *http.Request, params StartCompanySiteReadParams)
+	// Read the latest progressive onboarding dossier and its grounded draft findings.
+	// (GET /company/site-reads/{readId})
+	GetCompanySiteRead(w http.ResponseWriter, r *http.Request, readId openapi_types.UUID)
+	// Confirm a selected onboarding draft into the anchor company atomically.
+	// (POST /company/site-reads/{readId}/confirm)
+	ConfirmCompanySiteRead(w http.ResponseWriter, r *http.Request, readId openapi_types.UUID, params ConfirmCompanySiteReadParams)
 	// List the calling user's capture connections + sync state.
 	// (GET /connectors)
 	ListConnectors(w http.ResponseWriter, r *http.Request)
@@ -16499,6 +16862,24 @@ func (_ Unimplemented) PutCompany(w http.ResponseWriter, r *http.Request) {
 // The deterministic, typed context assembled from the anchor company.
 // (GET /company/context)
 func (_ Unimplemented) GetCompanyContext(w http.ResponseWriter, r *http.Request, params GetCompanyContextParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Start an optional progressive website read before the anchor company exists.
+// (POST /company/site-reads)
+func (_ Unimplemented) StartCompanySiteRead(w http.ResponseWriter, r *http.Request, params StartCompanySiteReadParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read the latest progressive onboarding dossier and its grounded draft findings.
+// (GET /company/site-reads/{readId})
+func (_ Unimplemented) GetCompanySiteRead(w http.ResponseWriter, r *http.Request, readId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Confirm a selected onboarding draft into the anchor company atomically.
+// (POST /company/site-reads/{readId}/confirm)
+func (_ Unimplemented) ConfirmCompanySiteRead(w http.ResponseWriter, r *http.Request, readId openapi_types.UUID, params ConfirmCompanySiteReadParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -19495,6 +19876,143 @@ func (siw *ServerInterfaceWrapper) GetCompanyContext(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetCompanyContext(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartCompanySiteRead operation middleware
+func (siw *ServerInterfaceWrapper) StartCompanySiteRead(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params StartCompanySiteReadParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartCompanySiteRead(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCompanySiteRead operation middleware
+func (siw *ServerInterfaceWrapper) GetCompanySiteRead(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "readId" -------------
+	var readId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "readId", chi.URLParam(r, "readId"), &readId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "readId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCompanySiteRead(w, r, readId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ConfirmCompanySiteRead operation middleware
+func (siw *ServerInterfaceWrapper) ConfirmCompanySiteRead(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "readId" -------------
+	var readId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "readId", chi.URLParam(r, "readId"), &readId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "readId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ConfirmCompanySiteReadParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ConfirmCompanySiteRead(w, r, readId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -27793,6 +28311,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/company/context", wrapper.GetCompanyContext)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/company/site-reads", wrapper.StartCompanySiteRead)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/company/site-reads/{readId}", wrapper.GetCompanySiteRead)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/company/site-reads/{readId}/confirm", wrapper.ConfirmCompanySiteRead)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/connectors", wrapper.ListConnectors)

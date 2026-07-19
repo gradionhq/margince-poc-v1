@@ -17,6 +17,8 @@ package compose
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -232,6 +234,45 @@ func TestDeepReadCrawlsExtractsStagesOneDeepReadProposalAndFinishesDone(t *testi
 	}
 	if updatedEvents != 1 {
 		t.Fatalf("%d organization.updated outbox events after accept, want exactly 1 for the whole delta", updatedEvents)
+	}
+}
+
+func TestDeepReadApplyFailureLeavesTheApprovedProposalUnconsumed(t *testing.T) {
+	e := integration.Setup(t)
+	org := insertOrg(t, e, e.Rep1, "acme.example", "")
+	worker, svc := newDeepReadTestWorker(e, acmeDeepSite(), acmeDeepBrain())
+	read, args := startDeepRead(t, e, org)
+	if err := worker.run(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	done, err := e.People.GetSiteRead(e.As(e.Rep1, nil, integration.AdminPerms), orgIDOf(org), read.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	broken := []byte(`{"organization_id":"` + org.String() + `","source_url":"` + seedURL + `","site_read_id":"` + read.ID.String() + `","fields":[],"facts":[{"category":"unknown","field":"service","value":"X","value_key":"x","evidence_snippet":"X","source_url":"` + seedURL + `","confidence":0.9}]}`)
+	digest := sha256.Sum256(broken)
+	hash := hex.EncodeToString(digest[:])
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `UPDATE approval
+			SET proposed_change = $2, diff_hash = $3 WHERE id = $1`, done.ProposalIDs[0], broken, hash)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.From[ids.ApprovalKind](done.ProposalIDs[0]), true, nil)
+	if err == nil {
+		t.Fatal("invalid deep-read effect unexpectedly applied")
+	}
+	var status string
+	var consumed bool
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `SELECT status, consumed_at IS NOT NULL
+			FROM approval WHERE id = $1`, done.ProposalIDs[0]).Scan(&status, &consumed)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if status != "approved" || consumed {
+		t.Fatalf("failed effect left approval status=%s consumed=%t, want approved and retryable", status, consumed)
 	}
 }
 
@@ -499,7 +540,7 @@ type fakeInserter struct {
 	err     error
 }
 
-func (f *fakeInserter) Enqueue(_ context.Context, args river.JobArgs, _ *river.InsertOpts) error {
+func (f *fakeInserter) EnqueueTx(_ context.Context, _ pgx.Tx, args river.JobArgs, _ *river.InsertOpts) error {
 	if f.err != nil {
 		return f.err
 	}
@@ -511,7 +552,6 @@ func newDeepReadTestEngine(e *integration.Env, inserter *fakeInserter) *deepRead
 	return &deepReadEngine{
 		people:  e.People,
 		enqueue: inserter,
-		log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 }
 
@@ -587,7 +627,7 @@ func TestDeepReadStartWithoutADomainOrOverrideIs422(t *testing.T) {
 	}
 }
 
-func TestDeepReadStartClosesTheDossierWhenTheEnqueueFails(t *testing.T) {
+func TestDeepReadStartRollsBackTheDossierWhenTheEnqueueFails(t *testing.T) {
 	e := integration.Setup(t)
 	org := insertOrg(t, e, e.Rep1, "acme.example", "")
 	inserter := &fakeInserter{err: context.DeadlineExceeded}
@@ -597,16 +637,16 @@ func TestDeepReadStartClosesTheDossierWhenTheEnqueueFails(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("start with a broken queue → %d, want 500", rec.Code)
 	}
-	// The dossier must not squat the org's in-flight slot: it is closed as
-	// failed, so the next start mints a fresh read instead of joining a
-	// zombie.
-	if n := e.WsCount(t, `SELECT count(*) FROM site_read WHERE status = 'failed'`); n != 1 {
-		t.Fatalf("%d failed dossiers after an enqueue failure, want 1", n)
+	// The dossier and queue row share one transaction. A failed enqueue leaves
+	// neither half behind, so the next start mints a fresh read instead of
+	// joining an undeliverable dossier.
+	if n := e.WsCount(t, `SELECT count(*) FROM site_read`); n != 0 {
+		t.Fatalf("%d dossiers after an enqueue failure, want 0", n)
 	}
 	inserter.err = nil
 	rec2, retried := postDeepRead(t, e, engine, e.Rep1, org)
 	if rec2.Code != http.StatusAccepted || retried.Status != crmcontracts.SiteReadStartedStatusQueued {
-		t.Fatalf("retry after a closed enqueue failure → %d %+v, want a fresh 202 queued", rec2.Code, retried)
+		t.Fatalf("retry after a rolled-back enqueue failure → %d %+v, want a fresh 202 queued", rec2.Code, retried)
 	}
 }
 
@@ -629,7 +669,7 @@ func TestDeepReadFinishSurvivesACancelledWorkContext(t *testing.T) {
 	}
 	cancel()
 
-	if err := worker.finish(workCtx, read.ID, "partial", nil, siteCrawl{}, 0, nil); err != nil {
+	if err := worker.finish(workCtx, read.ID, "partial", nil, siteCrawl{}, 0, nil, nil, nil, nil, nil, ""); err != nil {
 		t.Fatalf("finish under a cancelled work context: %v", err)
 	}
 

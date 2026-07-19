@@ -153,8 +153,11 @@ func TestCrawlAndExtractStreamsDeterministicallyAndFiresProfileOnce(t *testing.T
 		}
 		crawler := testSiteCrawler(site)
 		crawler.fetchWave = crawler.maxPages // production frontier sizing
+		var published []int
 		crawl, extraction, err := crawlAndExtract(context.Background(), crawler,
-			evidenceExtractor{brain: brain, factBrain: brain}, seedURL, nil)
+			evidenceExtractor{brain: brain, factBrain: brain}, seedURL, nil, func(partial pageFactsResult) {
+				published = append(published, len(partial.facts))
+			})
 		if err != nil {
 			t.Fatalf("crawlAndExtract(%d pages): %v", pages, err)
 		}
@@ -166,6 +169,9 @@ func TestCrawlAndExtractStreamsDeterministicallyAndFiresProfileOnce(t *testing.T
 		}
 		if len(extraction.merged.facts) != pages {
 			t.Fatalf("facts = %d, want one per catalog page (%d)", len(extraction.merged.facts), pages)
+		}
+		if len(published) < 2 || published[len(published)-1] != pages {
+			t.Fatalf("progressive drafts = %v, want multiple snapshots ending at %d facts", published, pages)
 		}
 		// Commit-ordered merge: fact order follows the crawl's page order,
 		// whatever order the concurrent calls completed in.

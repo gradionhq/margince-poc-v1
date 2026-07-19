@@ -82,6 +82,8 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/capture/exclusions":                      {Op: "createCaptureExclusion", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/coldstart":                               {Op: "coldStartReadback", Access: "tool", Tool: "enrich", RecordType: "", Tier: "yellow"},
 	"POST /v1/coldstart/preview":                       {Op: "coldStartPreview", Access: "tool", Tool: "read", RecordType: "", Tier: "green"},
+	"POST /v1/company/site-reads":                      {Op: "startCompanySiteRead", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"POST /v1/company/site-reads/{readId}/confirm":     {Op: "confirmCompanySiteRead", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/connectors/imap/connect":                 {Op: "connectImap", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/connectors/{provider}/backfill":          {Op: "startConnectorBackfill", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/connectors/{provider}/backfill/preview":  {Op: "previewConnectorBackfill", Access: "human-only", Tool: "", RecordType: "", Tier: ""},

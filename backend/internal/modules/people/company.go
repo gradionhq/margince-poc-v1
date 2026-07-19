@@ -61,6 +61,7 @@ const (
 
 // The audit row's and the event envelope's payload keys.
 const (
+	actionUpdate      = "update"
 	auditKeyFields    = "fields"
 	auditKeySource    = "source"
 	auditKeySourceURL = "source_url"
@@ -212,7 +213,7 @@ func (s *Store) SaveCompany(ctx context.Context, in SaveCompanyInput) (Company, 
 		}
 		applied["display_name"] = in.DisplayName
 
-		action, eventType := "update", "organization.updated"
+		action, eventType := actionUpdate, "organization.updated"
 		if created {
 			action, eventType = "create", "organization.created"
 		}

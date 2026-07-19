@@ -11,17 +11,18 @@ package compose
 import (
 	"context"
 	"errors"
-	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/riverqueue/river"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -31,7 +32,7 @@ import (
 // deepReadEnqueuer is the slice of *jobs.Runner the start handler needs;
 // tests fake it to count inserts.
 type deepReadEnqueuer interface {
-	Enqueue(ctx context.Context, args river.JobArgs, opts *river.InsertOpts) error
+	EnqueueTx(ctx context.Context, tx pgx.Tx, args river.JobArgs, opts *river.InsertOpts) error
 }
 
 // decodeSeedOverride reads the optional body override and validates it; it
@@ -59,9 +60,9 @@ func decodeSeedOverride(w http.ResponseWriter, r *http.Request) (string, bool) {
 // deepReadEngine backs the transport: start creates-or-joins the dossier
 // and queues the crawl job; report is the SPA's poll.
 type deepReadEngine struct {
-	people  *people.Store
-	enqueue deepReadEnqueuer
-	log     *slog.Logger
+	people    *people.Store
+	approvals *approvals.Service
+	enqueue   deepReadEnqueuer
 }
 
 // start resolves the seed URL (body override, else the org's own domain),
@@ -93,29 +94,19 @@ func (e *deepReadEngine) start(w http.ResponseWriter, r *http.Request, id openap
 		seedURL = resolved
 	}
 
-	read, joined, err := e.people.StartSiteRead(r.Context(), orgID, seedURL, requestedBy(r.Context()))
+	read, joined, err := e.people.StartSiteReadQueued(r.Context(), orgID, seedURL, requestedBy(r.Context()),
+		func(ctx context.Context, tx pgx.Tx, read people.SiteRead) error {
+			return e.enqueue.EnqueueTx(ctx, tx, SiteDeepReadArgs{
+				WorkspaceID:    storekit.MustWorkspace(ctx),
+				OrganizationID: orgID.UUID,
+				SiteReadID:     read.ID,
+				SeedURL:        read.SeedURL,
+				RequestedBy:    read.RequestedBy,
+			}, siteDeepReadInsertOpts())
+		})
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
-	}
-	if !joined {
-		wsID, _ := principal.WorkspaceID(r.Context())
-		err := e.enqueue.Enqueue(r.Context(), SiteDeepReadArgs{
-			WorkspaceID:    wsID,
-			OrganizationID: orgID.UUID,
-			SiteReadID:     read.ID,
-			SeedURL:        read.SeedURL,
-			RequestedBy:    read.RequestedBy,
-		}, siteDeepReadInsertOpts())
-		if err != nil {
-			// A queued dossier with no job behind it would hold the org's
-			// in-flight slot forever (a re-click JOINS it, never re-queues),
-			// so close it as failed before reporting the error; the caller's
-			// next start then mints a fresh read.
-			e.closeUnqueued(r.Context(), read.ID)
-			httperr.Write(w, r, fmt.Errorf("queueing the site read: %w", err))
-			return
-		}
 	}
 	status := crmcontracts.SiteReadStartedStatusQueued
 	if joined {
@@ -125,22 +116,6 @@ func (e *deepReadEngine) start(w http.ResponseWriter, r *http.Request, id openap
 		ReadId: openapi_types.UUID(read.ID),
 		Status: status,
 	})
-}
-
-// closeUnqueued flips a dossier whose job never made the queue to failed
-// through the worker's own CAS pair. Best-effort: the request already
-// reports the enqueue failure; a dossier this cannot close is logged so
-// the stuck in-flight slot is findable.
-func (e *deepReadEngine) closeUnqueued(ctx context.Context, readID ids.UUID) {
-	if _, err := e.people.BeginSiteRead(ctx, readID); err != nil {
-		e.log.ErrorContext(ctx, "site read stuck queued: could not claim it to record the enqueue failure",
-			"read", readID.String(), "err", err)
-		return
-	}
-	if err := e.people.FinishSiteRead(ctx, readID, people.FinishSiteReadInput{Status: "failed"}); err != nil {
-		e.log.ErrorContext(ctx, "site read stuck running: could not record the enqueue failure",
-			"read", readID.String(), "err", err)
-	}
 }
 
 // report answers the SPA's poll with the dossier as it stands.
@@ -157,6 +132,9 @@ func (e *deepReadEngine) report(w http.ResponseWriter, r *http.Request, id, read
 // always concrete (empty, never null): the report's whole point is an
 // explicit account.
 func siteReadReport(read people.SiteRead) crmcontracts.SiteReadReport {
+	if read.OrganizationID == nil {
+		panic("siteReadReport called for an unbound onboarding dossier")
+	}
 	report := crmcontracts.SiteReadReport{
 		ReadId:         openapi_types.UUID(read.ID),
 		OrganizationId: openapi_types.UUID(read.OrganizationID.UUID),
@@ -206,14 +184,15 @@ func requestedBy(ctx context.Context) string {
 // Without it both operations stay their explicit 501.
 func WithDeepRead(inserter *jobs.Runner) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
-		engine := &deepReadEngine{people: people.NewStore(pool), enqueue: inserter, log: s.log}
-		s.siteReadHandlers = siteReadHandlers{start: engine.start, report: engine.report}
+		engine := &deepReadEngine{people: people.NewStore(pool), approvals: approvals.NewService(pool), enqueue: inserter}
+		s.siteReadHandlers = siteReadHandlers{engine: engine, start: engine.start, report: engine.report}
 	}
 }
 
 // siteReadHandlers shadows the generated DeepReadCompany / GetSiteRead stubs.
 // Both fields nil until WithDeepRead wires the engine.
 type siteReadHandlers struct {
+	engine *deepReadEngine
 	start  func(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 	report func(w http.ResponseWriter, r *http.Request, id, readID openapi_types.UUID)
 }

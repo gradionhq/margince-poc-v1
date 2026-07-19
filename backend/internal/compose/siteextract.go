@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -56,7 +57,7 @@ const profileTriggerPages = 12
 // is first). The read's wall clock becomes ~max(crawl, slowest lane)
 // instead of their sum. onPage (may be nil) fires serially with the
 // extracted-page count.
-func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtractor, seedURL string, onPage func(done int)) (siteCrawl, siteExtraction, error) {
+func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtractor, seedURL string, onPage func(done int), onDraft func(pageFactsResult)) (siteCrawl, siteExtraction, error) {
 	var out siteExtraction
 	var results []pageFactsResult
 	var failed []error
@@ -108,6 +109,11 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 				}
 			} else {
 				results = append(results, res)
+				if onDraft != nil {
+					snapshot := append([]pageFactsResult(nil), results...)
+					sort.Slice(snapshot, func(i, j int) bool { return snapshot[i].url < snapshot[j].url })
+					onDraft(mergePageResults(snapshot))
+				}
 			}
 			mu.Unlock()
 			report()
