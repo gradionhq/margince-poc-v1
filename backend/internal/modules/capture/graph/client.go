@@ -50,6 +50,11 @@ const (
 	paramClientID = "client_id"
 	paramScope    = "scope"
 	paramFilter   = "$filter"
+
+	// maxMIMELen bounds one message's fetched RFC822 bytes. A message over
+	// this is refused rather than truncated (a truncated MIME blob is not
+	// parseable, honest evidence) — the same cap discipline as IMAP.
+	maxMIMELen = 8 << 20 // 8 MiB
 )
 
 // The package sentinels wrap the shared connector vocabulary (ADR-0063) so
@@ -141,6 +146,12 @@ func NewOAuth(cfg OAuthConfig) OAuth {
 		TokenURL:     cfg.TokenURL,
 		// Microsoft returns the code on the query (not fragment); the v2
 		// endpoint requires the scope in every token form for a refresh token.
+		// Microsoft rotates the refresh token on each redemption. The stored
+		// original keeps working within its lifetime (a confidential-client
+		// refresh token is valid ~90 days), so an actively-synced mailbox
+		// never reauths; a mailbox idle past that window must reconnect. A
+		// credential-rotation seam (Sync surfacing an updated credential for
+		// the registry to re-seal) is a tracked follow-up, not this PR.
 		AuthParams:        map[string]string{"response_mode": "query"},
 		ScopeInTokenForms: true,
 		AuthRejected:      ErrAuthRejected,
@@ -267,12 +278,22 @@ func (a *httpAPI) GetMIME(ctx context.Context, accessToken, msgID string) ([]byt
 	}
 	//craft:ignore swallowed-errors best-effort close of the message body — the MIME bytes are already read below
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	// Read one byte past the cap so an oversized message is detected, not
+	// silently truncated: LimitReader alone returns EOF exactly at the cap,
+	// which would parse and persist a body missing its tail (the same
+	// discipline the IMAP connector's readCapped uses).
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxMIMELen+1))
 	if err != nil {
 		return nil, fmt.Errorf("graph: reading message %s: %w", msgID, ErrUnreachable)
 	}
 	if err := classifyStatus(resp); err != nil {
 		return nil, err
+	}
+	if len(body) > maxMIMELen {
+		// Oversized: a truncated MIME blob is neither parseable nor honest
+		// evidence, so it is refused (counted as a skip upstream), never
+		// stored half-read.
+		return nil, fmt.Errorf("graph: message %s exceeds the size cap: %w", msgID, connector.ErrSkip)
 	}
 	return body, nil
 }
@@ -372,9 +393,15 @@ func (a *httpAPI) get(ctx context.Context, accessToken, fullURL string, hdr http
 	}
 	//craft:ignore swallowed-errors best-effort close of the response body — the decoded result/status is what matters
 	defer func() { _ = resp.Body.Close() }()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	// Classify on status/headers first: a 429/401 must be honored even if the
+	// body read failed. Only on an otherwise-OK response does a read failure
+	// matter — a truncated-but-valid-JSON prefix must never pass as complete.
 	if err := classifyStatus(resp); err != nil {
 		return resp.StatusCode, err
+	}
+	if readErr != nil {
+		return resp.StatusCode, fmt.Errorf("graph: reading response: %w", ErrUnreachable)
 	}
 	if err := json.Unmarshal(body, out); err != nil {
 		return resp.StatusCode, fmt.Errorf("graph: decoding response: %w", ErrUnreachable)

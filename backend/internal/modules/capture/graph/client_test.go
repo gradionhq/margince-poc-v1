@@ -109,6 +109,13 @@ func msStub(t *testing.T) *httptest.Server {
 		w.WriteHeader(http.StatusTooManyRequests)
 	})
 
+	mux.HandleFunc("/me/messages/huge/$value", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "message/rfc822")
+		// One byte past the 8 MiB cap — an oversized message.
+		//craft:ignore swallowed-errors test stub write; a short write surfaces as the client-side assertion
+		_, _ = w.Write(make([]byte, (8<<20)+1))
+	})
+
 	srv = httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv
@@ -264,6 +271,14 @@ func TestGetMIMEReturnsRawBytes(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), "Subject: hi") {
 		t.Errorf("MIME = %q, want it to contain the header", raw)
+	}
+}
+
+func TestGetMIMERefusesOversizedMessage(t *testing.T) {
+	_, api := newTestClients(t)
+	_, err := api.GetMIME(context.Background(), "access-2", "huge")
+	if !errors.Is(err, connector.ErrSkip) {
+		t.Fatalf("an oversized message must be a skip, not truncated capture, got %v", err)
 	}
 }
 

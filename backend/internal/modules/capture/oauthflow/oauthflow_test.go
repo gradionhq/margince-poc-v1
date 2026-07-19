@@ -11,6 +11,9 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 var (
@@ -175,5 +178,23 @@ func TestDialFailureIsUnreachable(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "connection refused") {
 		t.Fatal("the raw transport error must not reach the caller")
+	}
+}
+
+func TestTokenEndpointThrottleRateLimits(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "45")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(testConfig(srv.URL, false))
+	_, err := c.AccessToken(context.Background(), "stored")
+	var rl *connector.RateLimitedError
+	if !errors.As(err, &rl) {
+		t.Fatalf("a 429 token response must rate-limit, got %v", err)
+	}
+	if rl.RetryAfter != 45*time.Second {
+		t.Fatalf("Retry-After = %v, want 45s", rl.RetryAfter)
 	}
 }

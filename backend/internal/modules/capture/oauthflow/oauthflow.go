@@ -18,8 +18,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 // httpTimeout bounds every token-endpoint call; a wedged IdP must not hang a
@@ -164,16 +167,38 @@ func (c *Client) token(ctx context.Context, form url.Values) (tokenResponse, err
 	}
 	//craft:ignore swallowed-errors best-effort close of the token response body — the exchange result is already read below
 	defer func() { _ = resp.Body.Close() }()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	// A throttled token endpoint is weather, not a bad credential: honor
+	// Retry-After and let the registry back off, rather than parking the
+	// connection as rejected. Classified on status before the body matters.
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return tokenResponse{}, &connector.RateLimitedError{RetryAfter: retryAfter(resp)}
+	}
 	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
 		return tokenResponse{}, c.cfg.AuthRejected
 	}
 	if resp.StatusCode != http.StatusOK {
 		return tokenResponse{}, c.cfg.Unreachable
 	}
+	if readErr != nil {
+		// A truncated body that happens to be valid-JSON prefix must never
+		// pass as a complete token response.
+		return tokenResponse{}, fmt.Errorf("%s: reading token response: %w", c.cfg.Provider, c.cfg.Unreachable)
+	}
 	var tok tokenResponse
 	if err := json.Unmarshal(body, &tok); err != nil {
 		return tokenResponse{}, fmt.Errorf("%s: decoding token response: %w", c.cfg.Provider, c.cfg.Unreachable)
 	}
 	return tok, nil
+}
+
+// retryAfter parses the token endpoint's Retry-After (delta-seconds); zero
+// when absent, leaving the registry's own backoff to take over.
+func retryAfter(resp *http.Response) time.Duration {
+	if s := resp.Header.Get("Retry-After"); s != "" {
+		if secs, err := strconv.Atoi(s); err == nil && secs > 0 {
+			return time.Duration(secs) * time.Second
+		}
+	}
+	return 0
 }

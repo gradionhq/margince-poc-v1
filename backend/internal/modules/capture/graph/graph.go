@@ -174,6 +174,12 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, cursor connec
 
 	for _, id := range ids {
 		raw, err := c.api.GetMIME(ctx, access, id)
+		if errors.Is(err, connector.ErrSkip) {
+			// An oversized message is a per-message drop (truncated MIME is
+			// not honest evidence), never a pull-stopping fault — the cursor
+			// still advances past it.
+			continue
+		}
 		if err != nil {
 			// A fetch fault is transient — stop the pull without advancing the
 			// cursor so the next cycle retries from the same watermark.
