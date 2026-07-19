@@ -106,7 +106,7 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 		if err := storekit.Emit(ctx, tx, auditID, "organization.created", "organization", id.UUID, map[string]any{"display_name": in.DisplayName}); err != nil {
 			return fmt.Errorf("emit organization.created: %w", err)
 		}
-		if err := match.recordIfReview(ctx, tx, id); err != nil {
+		if err := match.recordIfReview(ctx, tx, id, in.DisplayName, in.Source, by); err != nil {
 			return err
 		}
 		if out, err = readOrganization(ctx, tx, id, storekit.LiveOnly, active); err != nil {

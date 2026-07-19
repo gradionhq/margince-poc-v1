@@ -116,6 +116,30 @@ type NormalizedRecord struct {
 	// for it. Kept off Fields on purpose: exclusion is a pipeline concern,
 	// not a domain column.
 	Match ExclusionAttrs
+
+	// Counterparty is the human on the other side of a captured message —
+	// the auto-create pipeline's input (ADR-0063). Zero for records that
+	// carry no counterparty (a lead import, a system activity); the
+	// resolver never runs for those.
+	Counterparty Counterparty
+
+	// ThreadKey is the provider's conversation identity (Gmail threadId /
+	// Graph conversationId / RFC822 References root) — the CAP-FORMULA-1
+	// reply-detection join key and activity.thread_key's source. Empty when
+	// the provider knows no thread.
+	ThreadKey string
+}
+
+// Counterparty names the non-owner participant of one captured message.
+// Email is authoritative; DisplayName is the header's human name (may be
+// empty or hostile — consumers must treat it as untrusted text); Domain is
+// the lowercased mail domain; Direction is the message's direction relative
+// to the mailbox owner (inbound | outbound).
+type Counterparty struct {
+	Email       string
+	DisplayName string
+	Domain      string
+	Direction   string
 }
 
 // ExclusionAttrs is the normalized, matchable face of a captured message

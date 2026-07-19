@@ -150,7 +150,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
-	opts, closeSchemaPool, err := baseComposeOptions(ctx, cfg, pool, logger, stdout)
+	opts, closeSchemaPool, err := baseComposeOptions(ctx, cfg, deployCfg.Capture.FreemailExtra, pool, logger, stdout)
 	if err != nil {
 		return err
 	}
@@ -234,7 +234,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 // returned close func releases whatever this stage opened (currently
 // only the schema pool) and is always safe to call, even when nothing
 // was opened.
-func baseComposeOptions(ctx context.Context, cfg apiConfig, pool *pgxpool.Pool, logger *slog.Logger, stdout io.Writer) ([]compose.Option, func(), error) {
+func baseComposeOptions(ctx context.Context, cfg apiConfig, freemailExtra []string, pool *pgxpool.Pool, logger *slog.Logger, stdout io.Writer) ([]compose.Option, func(), error) {
 	var opts []compose.Option
 	if cfg.publicBaseURL != "" {
 		opts = append(opts, compose.WithPublicBaseURL(cfg.publicBaseURL))
@@ -256,7 +256,7 @@ func baseComposeOptions(ctx context.Context, cfg apiConfig, pool *pgxpool.Pool, 
 	// they must follow kvOpts (and graph follows gmail: WithGraphCapture
 	// joins the connect registry WithGmailCapture builds when both are
 	// configured).
-	gmailOpts, err := gmailOptions(cfg, pool, logger, stdout)
+	gmailOpts, err := gmailOptions(cfg, freemailExtra, pool, logger, stdout)
 	if err != nil {
 		return nil, nil, err
 	}

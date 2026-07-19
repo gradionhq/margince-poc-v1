@@ -27,6 +27,7 @@ import { ClientSurfaceScreen } from "./screens/client";
 import { AuthProbeError, consumeAuthExitNotice, useMe } from "./screens/common";
 import { CustomFieldsScreen } from "./screens/customfields";
 import { DealScreen, DealsScreen } from "./screens/deals";
+import { DedupeScreen } from "./screens/dedupe";
 import { DesignScreen } from "./screens/design";
 import { HomeScreen } from "./screens/home";
 import { InboxScreen } from "./screens/inbox";
@@ -122,6 +123,10 @@ function ScreenView({
       return <AskAiScreen />;
     case "settings":
       return <SettingsScreen tab={id} />;
+    // reached from the digest/settings, not the rail (the 9-item rail is
+    // canonical): the dedupe review queue (M4).
+    case "dedupe":
+      return <DedupeScreen />;
     // reached from Settings, not the rail — the 9-item rail is canonical
     case "products":
       return <ProductsScreen />;

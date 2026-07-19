@@ -1858,6 +1858,116 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ai/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * AI usage + budget — the spend is never invisible.
+         * @description Per-day × task × tier usage from the metering record (AIRT-PARAM-33) plus the workspace
+         *     budget block: monthly token budget, spent, current band (AIRT-PARAM-9..11), and since
+         *     when. The admin economy-mode banner and the spend view read this (AIRT-WIRE-1; resolves
+         *     the former AIRT-WIRE-N-1 gap). Inference is the customer's own key (ADR-0020) — this is
+         *     their own bill made visible, never a Margince meter for resale.
+         */
+        get: operations["getAiUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dedupe/candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The dedupe review queue, confidence-sorted. */
+        get: operations["listDedupeCandidates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dedupe/candidates/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** One candidate with its full detection-time evidence. */
+        get: operations["getDedupeCandidate"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dedupe/candidates/{id}/disposition": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decide one pair — merge through the owner's verb, or dismiss forever.
+         * @description `merge` requires `winner_id` (one of the pair) and executes `mergePerson`/
+         *     `mergeOrganization` server-side — one merge in the system, no second verb.
+         *     `not_a_duplicate` flips the row and suppresses the pair from every future
+         *     sweep (AC-dedupe-7). `409 already_disposed`; `422` when `winner_id` is not
+         *     one of the pair.
+         */
+        post: operations["disposeDedupeCandidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dedupe/candidates/{id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-open a disposed pair.
+         * @description A dismissed pair re-opens (the suppression lifts). A merged pair needs the
+         *     merge verb's reversibility (PO-AC-M6) — `409 not_undoable` until the
+         *     survivor-side restore exists or when the survivor mutated since.
+         */
+        post: operations["undoDedupeDisposition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/capture/exclusions": {
         parameters: {
             query?: never;
@@ -11234,6 +11344,140 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    getAiUsage: {
+        parameters: {
+            query?: {
+                /** @description Default: first day of the current month. Must not be after `to`; the window is capped at 366 days (422 otherwise). */
+                from?: string;
+                /** @description Default: today. */
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Usage + budget. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiUsage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listDedupeCandidates: {
+        parameters: {
+            query?: {
+                status?: "open" | "merged" | "not_a_duplicate";
+                entity_type?: "person" | "organization";
+                /** @description Opaque keyset cursor. */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of candidates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DedupeCandidateListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getDedupeCandidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The candidate. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DedupeCandidate"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    disposeDedupeCandidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DedupeDispositionRequest"];
+            };
+        };
+        responses: {
+            /** @description The disposed candidate. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DedupeCandidate"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    undoDedupeDisposition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The re-opened candidate. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DedupeCandidate"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     listCaptureExclusions: {

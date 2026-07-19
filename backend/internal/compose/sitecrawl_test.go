@@ -145,7 +145,7 @@ func TestCrawlStopsAtThePageCapAndRecordsWhatWasCut(t *testing.T) {
 	}
 	var capSkips int
 	for _, skip := range crawl.Skipped {
-		if skip.Reason == crmcontracts.PageCap {
+		if skip.Reason == crmcontracts.SiteReadSkipReasonPageCap {
 			capSkips++
 		}
 	}
@@ -175,7 +175,7 @@ func TestCrawlStopsAtTheByteCap(t *testing.T) {
 	}
 	var found bool
 	for _, skip := range crawl.Skipped {
-		if skip.URL == seedURL+"/never-reached" && skip.Reason == crmcontracts.ByteCap {
+		if skip.URL == seedURL+"/never-reached" && skip.Reason == crmcontracts.SiteReadSkipReasonByteCap {
 			found = true
 		}
 	}
@@ -192,7 +192,7 @@ func TestCrawlRecordsARobotsRefusalAsASkip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := crawlSkip{URL: seedURL + "/impressum", Reason: crmcontracts.Robots}
+	want := crawlSkip{URL: seedURL + "/impressum", Reason: crmcontracts.SiteReadSkipReasonRobots}
 	var found bool
 	for _, skip := range crawl.Skipped {
 		if skip == want {
@@ -223,7 +223,7 @@ func TestCrawlNeverFollowsAnOffDomainLink(t *testing.T) {
 	}
 	var offDomainRecorded, subdomainFetched bool
 	for _, skip := range crawl.Skipped {
-		if skip.URL == hostileTarget && skip.Reason == crmcontracts.OffDomain {
+		if skip.URL == hostileTarget && skip.Reason == crmcontracts.SiteReadSkipReasonOffDomain {
 			offDomainRecorded = true
 		}
 	}

@@ -698,6 +698,34 @@ export async function mockApi(target: Page): Promise<void> {
     if (path.includes("/context")) {
       return json({ anchor: { type: "person", id: "x" }, sections: [] });
     }
+    // The home digest card (CAP-WIRE-6): a MorningDigest, not the list
+    // envelope — the generic fallthrough below would 200 a page shape the
+    // card destructures and crashes on.
+    if (path === "/digest") {
+      return json({
+        date: "2026-07-13",
+        generated_at: "2026-07-13T05:00:00Z",
+        capture: {
+          messages_synced: 24,
+          activities_created: 18,
+          people_created: 3,
+          organizations_created: 1,
+        },
+        review: {
+          dedupe_open: 2,
+          approvals_pending: 1,
+          classify: { commitments: 4, meetings: 2, noise: 9 },
+        },
+        connectors: [
+          {
+            provider: "gmail",
+            status: "connected",
+            last_synced_at: "2026-07-13T04:55:00Z",
+            last_sync_error_class: null,
+          },
+        ],
+      });
+    }
     if (path === "/agent-tools") {
       return json({
         data: [
