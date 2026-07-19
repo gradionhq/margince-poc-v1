@@ -7,8 +7,8 @@ package people
 // Unlike the cold-start read-back it never resolves-by-domain or creates — it
 // fills the org the proposal named, and only its empty fields, with the
 // executing principal's provenance (agent:scrape). The per-field apply loop is
-// shared with the read-back (applyEvidenceFields) so both write evidence
-// identically; only the target resolution and the source label differ.
+// shared with the read-back (applyEvidenceFields) so both write website
+// evidence under the same site_read source vocabulary; the target differs.
 
 import (
 	"context"
@@ -61,7 +61,7 @@ func (s *Store) EnrichTargetURL(ctx context.Context, orgID ids.OrganizationID) (
 // org: fill only empty columns, upsert the evidence row for every field, never
 // overwrite a human-set value. One transaction, one audit row, one
 // organization.updated event; captured_by is the executing principal
-// (agent:scrape), source is scrape.
+// (agent:scrape), source is site_read.
 func (s *Store) ApplyEnrichment(ctx context.Context, orgID ids.OrganizationID, in ApplyColdStartProfileInput) error {
 	if err := auth.Require(ctx, "organization", principal.ActionUpdate); err != nil {
 		return err
@@ -82,18 +82,18 @@ func (s *Store) ApplyEnrichment(ctx context.Context, orgID ids.OrganizationID, i
 		if err := auth.EnsureVisible(ctx, tx, "organization", orgID.UUID); err != nil {
 			return err
 		}
-		applied, err := applyEvidenceFields(ctx, tx, wsID, orgID, "scrape", by, in.Fields)
+		applied, err := applyEvidenceFields(ctx, tx, wsID, orgID, companySourceSiteRead, by, in.Fields)
 		if err != nil {
 			return err
 		}
 		auditID, err := storekit.Audit(ctx, tx, "update", "organization", orgID.UUID, nil, map[string]any{
-			"source": "scrape", "source_url": in.SourceURL, "fields": applied,
+			auditKeySource: companySourceSiteRead, auditKeySourceURL: in.SourceURL, auditKeyFields: applied,
 		})
 		if err != nil {
 			return fmt.Errorf("audit enrichment apply: %w", err)
 		}
 		if err := storekit.Emit(ctx, tx, auditID, "organization.updated", "organization", orgID.UUID, map[string]any{
-			"delta": applied, "source": "scrape", "source_url": in.SourceURL,
+			eventKeyDelta: applied, auditKeySource: companySourceSiteRead, auditKeySourceURL: in.SourceURL,
 		}); err != nil {
 			return fmt.Errorf("emit organization.updated: %w", err)
 		}

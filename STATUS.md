@@ -33,7 +33,7 @@ Router (metering, tracing, budget — fake provider only), the DB-less
 seam is `ai.NewLocalRouter`/`compose.NewLocalModelPath`, and
 `FakeModelPath` is deleted with arch fitness tests
 (`TestNoModelClientOutsideTheGate`, `TestOneModelPathPerRole`) keeping
-it that way. Tracing moved to the certification grain (migration 0099):
+it that way. Tracing moved to the certification grain (migration 0100):
 one `ai_call` row per ATTEMPT (retries/degrades/escalations visible,
 terminal-only metrics), served-model identity reported from the wire
 (`response|echo|configured`, never overclaimed), embeddings traced,
@@ -389,6 +389,20 @@ Open work, roughly in priority order:
   (`enrich`, `capture_classify`, `deal_health`, `draft_reply`,
   `nl_search`, `summarize`, `transcript`) have no production call site
   yet — their starter scenarios are documented placeholders.
+
+- **Cold-start + company-context refresh** — the rollout and PR boundaries are
+  mapped in
+  [docs/explanation/coldstart-company-context-plan.md](docs/explanation/coldstart-company-context-plan.md).
+  Foundation PR #1104 is merged at `f97ef6b` with `g1-deterministic` and
+  `llm-advisory` green; ADR-0065/A111 now pins the anchor/profile/fact/site-read
+  schema, optional three-field manual path, reusable deep-read wire, typed
+  context policy, progressive budgets/events, and five-step UI. Phase 1
+  implementation is complete in PR #127: it adds the typed, provenance-bearing
+  `CompanyContext` read substrate and reconciles profile/fact vocabulary without
+  duplicating the already-built anchor/deep-read stores. `make check`, the
+  zero-skip integration lane, UAT, CodeRabbit, SonarCloud, and a migration
+  reverse/reapply cycle are green; merge remains conditional on every restarted
+  check and required review conversation staying green.
 
 - **Email ingestion — deferred pieces of ADR-0063** (the pipeline is
   live; these were scoped out, not missed):

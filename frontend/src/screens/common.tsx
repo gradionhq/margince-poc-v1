@@ -332,11 +332,16 @@ const COLD_FIELD_LABELS: Record<string, MessageKey> = {
   // display_name is the company form's own field, not one a read-back can
   // ground — it shares this map so both surfaces name it the same way.
   display_name: "ob.field.display_name",
+  offer_summary: "ob.field.offer_summary",
   icp: "ob.field.icp",
   buying_center: "ob.field.buying_center",
   value_proposition: "ob.field.value_proposition",
   usp: "ob.field.usp",
+  customer_pains: "ob.field.customer_pains",
+  desired_outcomes: "ob.field.desired_outcomes",
   buying_intents: "ob.field.buying_intents",
+  common_objections: "ob.field.common_objections",
+  sales_motion: "ob.field.sales_motion",
   legal_name: "ob.field.legal_name",
   registered_address: "ob.field.registered_address",
   register_vat: "ob.field.register_vat",

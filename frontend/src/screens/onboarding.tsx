@@ -88,11 +88,16 @@ const IDENTITY_FIELDS = [
   "industry",
 ] as const;
 const POSITIONING_FIELDS = [
+  "offer_summary",
   "icp",
   "value_proposition",
   "usp",
+  "customer_pains",
+  "desired_outcomes",
   "buying_center",
   "buying_intents",
+  "common_objections",
+  "sales_motion",
   "history",
 ] as const;
 
@@ -102,17 +107,13 @@ type CompanyFieldName =
   | (typeof POSITIONING_FIELDS)[number];
 type CompanyForm = Record<CompanyFieldName, string>;
 
-// The contract's CompanyProfileInput.required (crm.yaml), mirrored here so the
-// form refuses what the server would 422 anyway: an installation that will not
-// say who it legally is cannot invoice and cannot meet its retention duties.
-// The positioning fields stay optional — they can be discovered later, the
-// legal facts cannot.
+// The universal semantic minimum is enough to tell later product calls who the
+// company is, what it sells, and to whom. Legal and registry details stay
+// optional until a workflow with a real invoicing or jurisdictional need asks.
 const REQUIRED_FIELDS = [
   "display_name",
-  "legal_name",
-  "registered_address",
-  "register_vat",
-  "industry",
+  "offer_summary",
+  "icp",
 ] as const satisfies readonly CompanyFieldName[];
 
 // The read-back can only ground the contract's ColdStartField names —
@@ -134,11 +135,16 @@ const EMPTY_FORM: CompanyForm = {
   register_vat: "",
   registered_address: "",
   industry: "",
+  offer_summary: "",
   icp: "",
   value_proposition: "",
   usp: "",
+  customer_pains: "",
+  desired_outcomes: "",
   buying_center: "",
   buying_intents: "",
+  common_objections: "",
+  sales_motion: "",
   history: "",
 };
 
@@ -148,20 +154,29 @@ const EMPTY_DRAFT: CompanyDraft = {
   edited: new Set(),
 };
 
+function orEmpty(value: string | null | undefined): string {
+  return value ?? "";
+}
+
 function formFromProfile(p: CompanyProfile): CompanyForm {
   return {
     display_name: p.display_name,
-    website: p.website ?? "",
-    legal_name: p.legal_name ?? "",
-    register_vat: p.register_vat ?? "",
-    registered_address: p.registered_address ?? "",
-    industry: p.industry ?? "",
-    icp: p.icp ?? "",
-    value_proposition: p.value_proposition ?? "",
-    usp: p.usp ?? "",
-    buying_center: p.buying_center ?? "",
-    buying_intents: p.buying_intents ?? "",
-    history: p.history ?? "",
+    website: orEmpty(p.website),
+    legal_name: orEmpty(p.legal_name),
+    register_vat: orEmpty(p.register_vat),
+    registered_address: orEmpty(p.registered_address),
+    industry: orEmpty(p.industry),
+    offer_summary: orEmpty(p.offer_summary),
+    icp: orEmpty(p.icp),
+    value_proposition: orEmpty(p.value_proposition),
+    usp: orEmpty(p.usp),
+    customer_pains: orEmpty(p.customer_pains),
+    desired_outcomes: orEmpty(p.desired_outcomes),
+    buying_center: orEmpty(p.buying_center),
+    buying_intents: orEmpty(p.buying_intents),
+    common_objections: orEmpty(p.common_objections),
+    sales_motion: orEmpty(p.sales_motion),
+    history: orEmpty(p.history),
   };
 }
 
@@ -359,6 +374,8 @@ export function OnboardingScreen() {
         body: {
           ...draft.values,
           display_name: draft.values.display_name.trim(),
+          offer_summary: draft.values.offer_summary.trim(),
+          icp: draft.values.icp.trim(),
           legal_name: draft.values.legal_name.trim(),
           registered_address: draft.values.registered_address.trim(),
           register_vat: draft.values.register_vat.trim(),
@@ -633,8 +650,10 @@ function CompanyStep({
             value={draft.values[field]}
             grounded={groundingOf(draft, field)}
             edited={draft.edited.has(field)}
-            required={false}
-            error={null}
+            required={isRequired(field)}
+            error={
+              missingRequired.includes(field) ? t("ob.s1.fieldRequired") : null
+            }
             multiline
             onChange={(v) => setField(field, v)}
           />

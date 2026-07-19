@@ -21,6 +21,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -41,8 +42,9 @@ func TestCompanyIsUnsetUntilAHumanSavesIt(t *testing.T) {
 		DisplayName: "Acme GmbH",
 		Website:     strptr("https://www.acme.example/about"),
 		Fields: map[string]*string{
-			"legal_name": strptr("Acme Gesellschaft mit beschränkter Haftung"),
-			"icp":        strptr("RevOps at SaaS scale-ups"),
+			"legal_name":    strptr("Acme Gesellschaft mit beschränkter Haftung"),
+			"offer_summary": strptr("Revenue operations software"),
+			"icp":           strptr("RevOps at SaaS scale-ups"),
 			// A field nobody filled stays absent rather than becoming "".
 			"usp": nil,
 		},
@@ -52,6 +54,9 @@ func TestCompanyIsUnsetUntilAHumanSavesIt(t *testing.T) {
 	}
 	if saved.DisplayName != "Acme GmbH" {
 		t.Fatalf("saved name = %q", saved.DisplayName)
+	}
+	if !saved.MinimumComplete {
+		t.Fatal("the three semantic fields did not make the company minimum-complete")
 	}
 	// The website is stored as the bare domain — the same handle a read-back
 	// resolves organizations by — so a full URL normalises on the way in.
@@ -76,6 +81,16 @@ func TestCompanyIsUnsetUntilAHumanSavesIt(t *testing.T) {
 	}
 	if anchors != 1 {
 		t.Fatalf("the saved company is not marked as the installation's own (%d anchor rows)", anchors)
+	}
+	if audits := e.WsCount(t,
+		`SELECT count(*) FROM audit_log WHERE entity_type = 'organization' AND entity_id = $1 AND action = 'create'`,
+		saved.OrganizationID.UUID); audits != 1 {
+		t.Fatalf("company save wrote %d create audits, want 1", audits)
+	}
+	if outbox := e.WsCount(t,
+		`SELECT count(*) FROM event_outbox WHERE envelope->>'type' = 'organization.created' AND envelope#>>'{entity,id}' = $1`,
+		saved.OrganizationID.String()); outbox != 1 {
+		t.Fatalf("company save wrote %d organization.created events, want 1", outbox)
 	}
 
 	// Re-reading is the form's own round-trip.
@@ -207,8 +222,8 @@ func TestCompanySavedByAHumanSurvivesALaterReadBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if capturedBy != "human:"+e.Rep1.String() || source != "manual" {
-		t.Fatalf("human-typed field stamped captured_by=%q source=%q, want human:<id> / manual", capturedBy, source)
+	if capturedBy != "human:"+e.Rep1.String() || source != "human" {
+		t.Fatalf("human-typed field stamped captured_by=%q source=%q, want human:<id> / human", capturedBy, source)
 	}
 
 	// Now an agent reads the same site back and its accept lands on the same
@@ -238,5 +253,105 @@ func TestCompanySavedByAHumanSurvivesALaterReadBack(t *testing.T) {
 	}
 	if got.Fields["icp"] != "What the human says we sell to" {
 		t.Fatalf("an agent read-back overwrote the human's own value: %q", got.Fields["icp"])
+	}
+}
+
+func TestCompanyContextIsScopedProvenanceBearingAndChangesWithTheProfile(t *testing.T) {
+	e := integration.Setup(t)
+	store := people.NewStore(e.Pool)
+	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
+
+	saved, err := store.SaveCompany(ctx, people.SaveCompanyInput{
+		DisplayName: "Acme GmbH",
+		Website:     strptr("https://acme.example"),
+		Fields: map[string]*string{
+			"offer_summary": strptr("Revenue operations software"),
+			"icp":           strptr("Mid-market manufacturers"),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.WsExec(t, `
+		INSERT INTO organization_fact
+		  (workspace_id, organization_id, category, field, value, value_key,
+		   evidence_snippet, source_url, confidence, source, captured_by)
+		VALUES ($1, $2, 'offering', 'service', 'CRM rollout', 'crm rollout',
+		        '', '', 1, 'human', $3)`, e.WS, saved.OrganizationID, "human:"+e.Rep1.String())
+
+	foreignWS, foreignOrg := ids.NewV7(), ids.NewV7()
+	owner := integration.OwnerConn(t)
+	if _, err := owner.Exec(context.Background(),
+		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Foreign', $2, 'EUR')`,
+		foreignWS, "foreign-"+foreignWS.String()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.Exec(context.Background(), `
+		INSERT INTO organization (id, workspace_id, display_name, is_anchor, source, captured_by)
+		VALUES ($1, $2, 'Foreign Secret', true, 'manual', 'human:foreign')`,
+		foreignOrg, foreignWS); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.Exec(context.Background(), `
+		INSERT INTO organization_profile_field
+		  (workspace_id, organization_id, field, value, evidence_snippet, source_url, confidence, source, captured_by)
+		VALUES ($1, $2, 'offer_summary', 'Secret foreign offer', '', '', 1, 'human', 'human:foreign')`,
+		foreignWS, foreignOrg); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := store.GetCompanyContext(ctx, []people.CompanyContextScope{
+		people.CompanyContextOffer, people.CompanyContextPositioning,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Scopes) != 2 || first.Scopes[0].Scope != people.CompanyContextPositioning || first.Scopes[1].Scope != people.CompanyContextOffer {
+		t.Fatalf("context scopes = %#v, want canonical positioning then offer", first.Scopes)
+	}
+	if len(first.Scopes[0].Items) != 1 || first.Scopes[0].Items[0].Key != "icp" || first.Scopes[0].Items[0].Source != "human" {
+		t.Fatalf("positioning context = %#v, want human-provenance ICP", first.Scopes[0].Items)
+	}
+	if len(first.Scopes[1].Items) != 2 {
+		t.Fatalf("offer context = %#v, want summary and repeatable service", first.Scopes[1].Items)
+	}
+	foreignCtx := principal.WithWorkspaceID(context.Background(), foreignWS)
+	foreignCtx = principal.WithCorrelationID(foreignCtx, ids.NewV7())
+	foreignCtx = principal.WithActor(foreignCtx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:foreign", UserID: ids.NewV7(), Permissions: integration.AdminPerms,
+	})
+	foreign, err := store.GetCompanyContext(foreignCtx, []people.CompanyContextScope{people.CompanyContextOffer})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(foreign.Scopes) != 1 || len(foreign.Scopes[0].Items) != 1 || foreign.Scopes[0].Items[0].Value != "Secret foreign offer" {
+		t.Fatalf("foreign workspace context = %#v", foreign.Scopes)
+	}
+	again, err := store.GetCompanyContext(ctx, []people.CompanyContextScope{
+		people.CompanyContextPositioning, people.CompanyContextOffer,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Fingerprint != again.Fingerprint {
+		t.Fatalf("unchanged context fingerprint moved from %q to %q", first.Fingerprint, again.Fingerprint)
+	}
+
+	if _, err := store.SaveCompany(ctx, people.SaveCompanyInput{
+		DisplayName: saved.DisplayName,
+		Fields: map[string]*string{
+			"offer_summary": strptr("Revenue intelligence software"),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := store.GetCompanyContext(ctx, []people.CompanyContextScope{
+		people.CompanyContextOffer, people.CompanyContextPositioning,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Fingerprint == changed.Fingerprint {
+		t.Fatal("editing a contributing profile value did not change the context fingerprint")
 	}
 }

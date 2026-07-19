@@ -433,7 +433,7 @@ func TestDeepReadOfferingsDedupeOnValueKeyAndAcceptRespectsHumanPrecedence(t *te
 			  (workspace_id, organization_id, category, field, value, value_key,
 			   evidence_snippet, source_url, confidence, source, captured_by)
 			VALUES ($1, $2, 'offering', 'service', 'CRM Rollout (human curated)', 'crm rollout',
-			        'set by hand', '', 1, 'manual', $3)`,
+			        'set by hand', '', 1, 'human', $3)`,
 			e.WS, org, "human:"+e.Rep1.String())
 		return err
 	})

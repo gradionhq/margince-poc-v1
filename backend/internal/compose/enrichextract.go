@@ -92,17 +92,22 @@ type extractedField struct {
 // slice to iterate, so this direction can't be auto-gated — KEEP IN SYNC with
 // the ColdStartField enum whenever a field is added to it.
 var extractionFieldNames = []string{
-	string(crmcontracts.DisplayName),
-	string(crmcontracts.Icp),
-	string(crmcontracts.BuyingCenter),
-	string(crmcontracts.ValueProposition),
-	string(crmcontracts.Usp),
-	string(crmcontracts.BuyingIntents),
-	string(crmcontracts.LegalName),
-	string(crmcontracts.RegisteredAddress),
-	string(crmcontracts.RegisterVat),
-	string(crmcontracts.Industry),
-	string(crmcontracts.History),
+	string(crmcontracts.ColdStartFieldFieldDisplayName),
+	string(crmcontracts.ColdStartFieldFieldOfferSummary),
+	string(crmcontracts.ColdStartFieldFieldIcp),
+	string(crmcontracts.ColdStartFieldFieldValueProposition),
+	string(crmcontracts.ColdStartFieldFieldUsp),
+	string(crmcontracts.ColdStartFieldFieldCustomerPains),
+	string(crmcontracts.ColdStartFieldFieldDesiredOutcomes),
+	string(crmcontracts.ColdStartFieldFieldBuyingCenter),
+	string(crmcontracts.ColdStartFieldFieldBuyingIntents),
+	string(crmcontracts.ColdStartFieldFieldCommonObjections),
+	string(crmcontracts.ColdStartFieldFieldSalesMotion),
+	string(crmcontracts.ColdStartFieldFieldLegalName),
+	string(crmcontracts.ColdStartFieldFieldRegisteredAddress),
+	string(crmcontracts.ColdStartFieldFieldRegisterVat),
+	string(crmcontracts.ColdStartFieldFieldIndustry),
+	string(crmcontracts.ColdStartFieldFieldHistory),
 }
 
 // companyFactsSystem is the shared extraction prompt. Its vocabulary is the
@@ -220,9 +225,9 @@ const perProbeTimeout = 2500 * time.Millisecond
 // the model's confidence numbers claim — specificity of the SOURCE outranks
 // self-reported confidence.
 var legalPageFields = map[string]bool{
-	string(crmcontracts.LegalName):         true,
-	string(crmcontracts.RegisteredAddress): true,
-	string(crmcontracts.RegisterVat):       true,
+	string(crmcontracts.ColdStartFieldFieldLegalName):         true,
+	string(crmcontracts.ColdStartFieldFieldRegisteredAddress): true,
+	string(crmcontracts.ColdStartFieldFieldRegisterVat):       true,
 }
 
 // extract reads the SITE the URL names — the given page plus, when the site

@@ -10,13 +10,14 @@ package compose
 // provider consent URL carrying a signed state; the session-less callback
 // verifies that state, exchanges the code, reconstructs the granting human's
 // authority from the (trusted) state, and persists the connection through the
-// capture Registry; the background poller then syncs it. Only gmail is wired
-// today (gcal/graph are contract-declared, not yet implemented).
+// capture Registry; the background poller then syncs it. Gmail and Microsoft
+// Graph share this flow, dispatched by provider (gcal is contract-declared,
+// not yet implemented).
 //
-// connectorHandlers is embedded in Server as a zero value; a role that does
-// not wire the Gmail OAuth app (no --gmail-client-id) leaves oauth/registry
-// nil, and every operation answers the repo's standard 501 rather than
-// nil-derefing — capture stays declared-but-absent by omission.
+// connectorHandlers is embedded in Server as a zero value; a role that wires
+// neither OAuth app (no --gmail-client-id / --graph-client-id) leaves
+// oauth/registry nil, and every operation answers the repo's standard 501
+// rather than nil-derefing — capture stays declared-but-absent by omission.
 
 import (
 	"context"
@@ -34,6 +35,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
+	"github.com/gradionhq/margince/backend/internal/modules/capture/graph"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/imap"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -45,9 +47,12 @@ import (
 // click through Google, short enough that a leaked state is quickly useless.
 const connectStateTTL = 10 * time.Minute
 
-// providerGmail is the only capture provider this transport implements today
-// (gcal/graph are contract-declared, not yet wired).
-const providerGmail = "gmail"
+// The OAuth capture providers this transport implements (gcal is
+// contract-declared, not yet wired).
+const (
+	providerGmail = "gmail"
+	providerGraph = "graph"
+)
 
 // codeUnauthorized is the RFC 7807 code for connector/backfill ops that
 // require a signed-in human principal — the contract's documented 401
@@ -68,6 +73,8 @@ type connectorHandlers struct {
 	imapAuthenticate func(ctx context.Context, req connector.AuthRequest) (connector.Auth, error)
 	oauth            gmail.OAuth
 	gmailAPI         gmail.API
+	graphOAuth       graph.OAuth
+	graphAPI         graph.API
 	signer           stateSigner
 	// publicBaseURL is the canonical public/front origin (the SPA): where the
 	// browser lands after consent, and — for a same-origin deployment — the
@@ -83,12 +90,57 @@ type connectorHandlers struct {
 // wired reports whether the Gmail OAuth app is composed for this role.
 func (h connectorHandlers) wired() bool { return h.registry != nil && h.oauth != nil }
 
-func (h connectorHandlers) callbackURL() string {
+func (h connectorHandlers) callbackURL(provider string) string {
 	base := h.apiBaseURL
 	if base == "" {
 		base = h.publicBaseURL
 	}
-	return strings.TrimRight(base, "/") + "/v1/connectors/gmail/callback"
+	return strings.TrimRight(base, "/") + "/v1/connectors/" + provider + "/callback"
+}
+
+// oauthApp is one composed OAuth provider seen through the shared
+// connect/callback flow: the consent-URL builder and the code-for-credential
+// exchange, so the flow itself stays provider-agnostic.
+type oauthApp struct {
+	authCodeURL  func(state, redirectURI string) string
+	authenticate func(ctx context.Context, code, redirectURI string) (connector.Auth, error)
+}
+
+// oauthApp resolves the composed OAuth app for a provider; false when this
+// deployment did not configure it (its surface stays the declared 501).
+func (h connectorHandlers) oauthApp(provider string) (oauthApp, bool) {
+	switch provider {
+	case providerGmail:
+		if h.oauth == nil {
+			return oauthApp{}, false
+		}
+		return oauthApp{
+			authCodeURL: h.oauth.AuthCodeURL,
+			authenticate: func(ctx context.Context, code, redirectURI string) (connector.Auth, error) {
+				req, err := gmail.AuthRequestFrom(code, redirectURI)
+				if err != nil {
+					return nil, err
+				}
+				return gmail.New(h.oauth, h.gmailAPI).Authenticate(ctx, req)
+			},
+		}, true
+	case providerGraph:
+		if h.graphOAuth == nil {
+			return oauthApp{}, false
+		}
+		return oauthApp{
+			authCodeURL: h.graphOAuth.AuthCodeURL,
+			authenticate: func(ctx context.Context, code, redirectURI string) (connector.Auth, error) {
+				req, err := graph.AuthRequestFrom(code, redirectURI)
+				if err != nil {
+					return nil, err
+				}
+				return graph.New(h.graphOAuth, h.graphAPI).Authenticate(ctx, req)
+			},
+		}, true
+	default:
+		return oauthApp{}, false
+	}
 }
 
 // landingURL is the wizard's OAuth-return deep link. The SPA is hash-routed,
@@ -130,16 +182,23 @@ func (h connectorHandlers) ConnectConnector(w http.ResponseWriter, r *http.Reque
 		h.connectIMAP(w, r)
 		return
 	}
-	if !h.wired() {
-		httperr.NotImplemented(w, r, "ConnectConnector")
-		return
-	}
-	if string(provider) != providerGmail {
+	if string(provider) != providerGmail && string(provider) != providerGraph {
+		if h.registry == nil {
+			httperr.NotImplemented(w, r, "ConnectConnector")
+			return
+		}
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusUnprocessableEntity,
 			Code:   "connector_unsupported",
-			Detail: "Only gmail and imap connect here; gcal/graph are not yet implemented.",
+			Detail: "Only gmail, graph and imap connect here; gcal is not yet implemented.",
 		})
+		return
+	}
+	app, ok := h.oauthApp(string(provider))
+	if h.registry == nil || !ok {
+		// The OAuth app for this provider is not composed in this deployment —
+		// its surface keeps the declared 501.
+		httperr.NotImplemented(w, r, "ConnectConnector")
 		return
 	}
 	actor, ok := principal.Actor(r.Context())
@@ -166,20 +225,22 @@ func (h connectorHandlers) ConnectConnector(w http.ResponseWriter, r *http.Reque
 		SameSite: http.SameSiteLaxMode,
 	})
 	state := h.signer.sign(
-		connectState{Workspace: ws, User: actor.UserID, Provider: providerGmail, Nonce: nonce},
+		connectState{Workspace: ws, User: actor.UserID, Provider: string(provider), Nonce: nonce},
 		time.Now().Add(connectStateTTL),
 	)
-	authURL := h.oauth.AuthCodeURL(state, h.callbackURL())
+	authURL := app.authCodeURL(state, h.callbackURL(string(provider)))
 	httperr.WriteJSON(w, http.StatusOK, crmcontracts.ConnectConnectorResponse{AuthorizeUrl: &authURL})
 }
 
 func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http.Request, provider crmcontracts.CaptureProvider, params crmcontracts.ConnectorOAuthCallbackParams) {
-	if !h.wired() {
+	app, ok := h.oauthApp(string(provider))
+	if h.registry == nil || !ok {
 		httperr.NotImplemented(w, r, "ConnectorOAuthCallback")
 		return
 	}
 	ctx := r.Context()
-	// The user denied consent at Google — surface it honestly, never as an error.
+	// The user denied consent at the provider — surface it honestly, never as
+	// an error.
 	if params.Error != nil && *params.Error != "" {
 		http.Redirect(w, r, h.landingURL("denied"), http.StatusFound)
 		return
@@ -188,8 +249,8 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 	// on the cross-site redirect). A bad/expired/mismatched state or a missing
 	// code cannot proceed — redirect with an honest error, details logged only.
 	st, err := h.signer.verify(params.State, time.Now())
-	if err != nil || string(provider) != providerGmail || st.Provider != providerGmail || params.Code == nil || *params.Code == "" {
-		slog.WarnContext(ctx, "gmail connector callback rejected", "err", err, "provider", string(provider))
+	if err != nil || st.Provider != string(provider) || params.Code == nil || *params.Code == "" {
+		slog.WarnContext(ctx, "connector callback rejected", "err", err, "provider", string(provider))
 		http.Redirect(w, r, h.landingURL("error"), http.StatusFound)
 		return
 	}
@@ -200,7 +261,7 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 	// attacker's account (account-linking CSRF).
 	csrf, cerr := r.Cookie(oauthCSRFCookie)
 	if cerr != nil || st.Nonce == "" || subtle.ConstantTimeCompare([]byte(csrf.Value), []byte(st.Nonce)) != 1 {
-		slog.WarnContext(ctx, "gmail connector callback: CSRF nonce missing/mismatched", "err", cerr)
+		slog.WarnContext(ctx, "connector callback: CSRF nonce missing/mismatched", "err", cerr, "provider", string(provider))
 		http.Redirect(w, r, h.landingURL("error"), http.StatusFound)
 		return
 	}
@@ -211,15 +272,9 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 		HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
 	})
 
-	authReq, err := gmail.AuthRequestFrom(*params.Code, h.callbackURL())
+	auth, err := app.authenticate(ctx, *params.Code, h.callbackURL(string(provider)))
 	if err != nil {
-		slog.ErrorContext(ctx, "gmail connector callback: building auth request", "err", err)
-		http.Redirect(w, r, h.landingURL("error"), http.StatusFound)
-		return
-	}
-	auth, err := gmail.New(h.oauth, h.gmailAPI).Authenticate(ctx, authReq)
-	if err != nil {
-		slog.ErrorContext(ctx, "gmail connector callback: token exchange", "err", err)
+		slog.ErrorContext(ctx, "connector callback: token exchange", "err", err, "provider", string(provider))
 		http.Redirect(w, r, h.landingURL("error"), http.StatusFound)
 		return
 	}
@@ -237,8 +292,8 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 		UserID: st.User,
 		Scopes: principal.NewScopeSet(principal.ScopeRead),
 	})
-	if _, err := h.registry.Connect(runCtx, providerGmail, auth); err != nil {
-		slog.ErrorContext(ctx, "gmail connector callback: persisting connection", "err", err)
+	if _, err := h.registry.Connect(runCtx, string(provider), auth); err != nil {
+		slog.ErrorContext(ctx, "connector callback: persisting connection", "err", err, "provider", string(provider))
 		http.Redirect(w, r, h.landingURL("error"), http.StatusFound)
 		return
 	}

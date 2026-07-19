@@ -73,6 +73,9 @@ type apiConfig struct {
 	gmailPushAudience string
 	gmailPushSA       string
 	gmailJWKSURL      string
+	graphClientID     string
+	graphClientSecret string
+	graphTenant       string
 	connectorStateKey string
 }
 
@@ -93,15 +96,18 @@ func parseAPIFlags(args []string) (apiConfig, error) {
 	fs.BoolVar(&cfg.fakeBrain, "ai-fake", false, "drive the AI surfaces with the offline fake model (dev/test only)")
 	fs.StringVar(&cfg.logLevel, "log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
 	fs.StringVar(&cfg.logFormat, "log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")
-	fs.StringVar(&cfg.publicBaseURL, "public-base-url", os.Getenv("MARGINCE_PUBLIC_BASE_URL"), "canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe); required to send marketing mail and for the Gmail OAuth callback")
+	fs.StringVar(&cfg.publicBaseURL, "public-base-url", os.Getenv("MARGINCE_PUBLIC_BASE_URL"), "canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe); required to send marketing mail and for the Gmail/Graph OAuth callback")
 	fs.StringVar(&cfg.gmailClientID, "gmail-client-id", os.Getenv("MARGINCE_GMAIL_CLIENT_ID"), "Google OAuth client id for the Gmail capture connector; with the secret, state key and public-base-url, enables /connectors/gmail/*")
 	fs.StringVar(&cfg.gmailClientSecret, "gmail-client-secret", os.Getenv("MARGINCE_GMAIL_CLIENT_SECRET"), "Google OAuth client secret for the Gmail capture connector")
 	fs.StringVar(&cfg.gmailPushToken, "gmail-push-token", os.Getenv("MARGINCE_GMAIL_PUSH_TOKEN"), "shared secret on the Pub/Sub push subscription URL; enables POST /webhooks/gmail-push (empty = route absent)")
 	fs.StringVar(&cfg.gmailPushAudience, "gmail-push-audience", os.Getenv("MARGINCE_GMAIL_PUSH_AUDIENCE"), "OIDC audience the Pub/Sub push subscription mints tokens for (this endpoint's public URL); with --gmail-push-service-account, the push webhook also verifies Google's OIDC token")
 	fs.StringVar(&cfg.gmailPushSA, "gmail-push-service-account", os.Getenv("MARGINCE_GMAIL_PUSH_SERVICE_ACCOUNT"), "the Google service account email that signs Pub/Sub push OIDC tokens; verified as the token's email claim")
 	fs.StringVar(&cfg.gmailJWKSURL, "gmail-jwks-url", os.Getenv("MARGINCE_GMAIL_JWKS_URL"), "override Google's OIDC JWKS URL; test/dev only")
+	fs.StringVar(&cfg.graphClientID, "graph-client-id", os.Getenv("MARGINCE_GRAPH_CLIENT_ID"), "Microsoft (Entra) application id for the Outlook/M365 capture connector; with the secret, state key and public-base-url, enables /connectors/graph/*")
+	fs.StringVar(&cfg.graphClientSecret, "graph-client-secret", os.Getenv("MARGINCE_GRAPH_CLIENT_SECRET"), "Microsoft client secret for the Outlook/M365 capture connector")
+	fs.StringVar(&cfg.graphTenant, "graph-tenant", os.Getenv("MARGINCE_GRAPH_TENANT"), "Microsoft identity tenant for the consent endpoint (default: common — any organization)")
 	fs.StringVar(&cfg.apiBaseURL, "api-base-url", os.Getenv("MARGINCE_API_BASE_URL"), "the api's externally-reachable base for the OAuth callback redirect_uri; defaults to --public-base-url (same-origin deployments), set only when the api is on a different origin than the SPA (e.g. dev)")
-	fs.StringVar(&cfg.connectorStateKey, "connector-state-key", os.Getenv("MARGINCE_CONNECTOR_STATE_KEY"), "HMAC key (>=32 bytes) signing the OAuth connect `state`; required for the Gmail connect flow")
+	fs.StringVar(&cfg.connectorStateKey, "connector-state-key", os.Getenv("MARGINCE_CONNECTOR_STATE_KEY"), "HMAC key (>=32 bytes) signing the OAuth connect `state`; required for the Gmail and Graph connect flows")
 	if err := fs.Parse(args); err != nil {
 		return apiConfig{}, err
 	}
@@ -249,13 +255,20 @@ func baseComposeOptions(ctx context.Context, cfg apiConfig, freemailExtra []stri
 	}
 	opts = append(opts, kvOpts...)
 
-	// The Gmail transport rides the vault WithKeyvault wired, so it must
-	// follow kvOpts.
+	// The Gmail and Graph transports ride the vault WithKeyvault wired, so
+	// they must follow kvOpts (and graph follows gmail: WithGraphCapture
+	// joins the connect registry WithGmailCapture builds when both are
+	// configured).
 	gmailOpts, err := gmailOptions(cfg, freemailExtra, pool, logger, stdout)
 	if err != nil {
 		return nil, nil, err
 	}
 	opts = append(opts, gmailOpts...)
+	graphOpts, err := graphOptions(cfg, pool, logger, stdout)
+	if err != nil {
+		return nil, nil, err
+	}
+	opts = append(opts, graphOpts...)
 
 	schemaOpts, closeSchemaPool, err := schemaPoolOptions(ctx, cfg.schemaDSN, stdout)
 	if err != nil {
