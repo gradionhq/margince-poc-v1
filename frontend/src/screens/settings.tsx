@@ -8,6 +8,7 @@ import {
   Building2,
   ChevronDown,
   Database,
+  Factory,
   type LucideIcon,
   Package,
   ScrollText,
@@ -48,6 +49,10 @@ import {
   useLogout,
   useMe,
 } from "./common";
+import {
+  CompanyContextCard,
+  useCompanyContextCapabilities,
+} from "./company-context";
 import { CreateAction, type CreateField, CreateRecordModal } from "./create";
 import { EditAction } from "./edit";
 import { EntityRef } from "./entityref";
@@ -69,6 +74,7 @@ import "./settings.css";
 // (#/settings/<id>), so a tab is linkable and the palette can deep-link one.
 const SETTINGS_TABS = [
   { id: "account", icon: Building2 },
+  { id: "company", icon: Factory },
   { id: "ai", icon: Sparkles },
   { id: "data", icon: Database },
   { id: "catalog", icon: Package },
@@ -82,6 +88,8 @@ function tabContent(id: SettingsTabId): ReactNode {
   switch (id) {
     case "account":
       return <IdentityCard />;
+    case "company":
+      return <CompanyContextCard />;
     case "ai":
       return (
         <>
@@ -115,16 +123,19 @@ function tabContent(id: SettingsTabId): ReactNode {
 
 export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
   const t = useT();
+  const capabilities = useCompanyContextCapabilities();
+  const tabs = SETTINGS_TABS.filter(
+    (entry) => entry.id !== "company" || capabilities.data?.read_enabled,
+  );
   // Unknown / absent id falls back to the first tab — a stale deep-link lands
   // on Account rather than a blank screen.
-  const active =
-    SETTINGS_TABS.find((entry) => entry.id === tab) ?? SETTINGS_TABS[0];
+  const active = tabs.find((entry) => entry.id === tab) ?? tabs[0];
   return (
     <div className="wrap">
       <SectionHeader title={t("nav.settings")} />
       <div className="set-grid">
         <nav className="set-nav" aria-label={t("settings.navAria")}>
-          {SETTINGS_TABS.map(({ id, icon: Icon }) => {
+          {tabs.map(({ id, icon: Icon }) => {
             const isActive = id === active.id;
             return (
               <a

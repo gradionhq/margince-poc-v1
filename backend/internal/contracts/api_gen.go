@@ -870,6 +870,30 @@ func (e CompanyContextSchemaVersion) Valid() bool {
 	}
 }
 
+// Defines values for CompanyContextCapabilitiesRollout.
+const (
+	CompanyContextCapabilitiesRolloutOff        CompanyContextCapabilitiesRollout = "off"
+	CompanyContextCapabilitiesRolloutOnboarding CompanyContextCapabilitiesRollout = "onboarding"
+	CompanyContextCapabilitiesRolloutRead       CompanyContextCapabilitiesRollout = "read"
+	CompanyContextCapabilitiesRolloutTasks      CompanyContextCapabilitiesRollout = "tasks"
+)
+
+// Valid indicates whether the value is a known member of the CompanyContextCapabilitiesRollout enum.
+func (e CompanyContextCapabilitiesRollout) Valid() bool {
+	switch e {
+	case CompanyContextCapabilitiesRolloutOff:
+		return true
+	case CompanyContextCapabilitiesRolloutOnboarding:
+		return true
+	case CompanyContextCapabilitiesRolloutRead:
+		return true
+	case CompanyContextCapabilitiesRolloutTasks:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CompanyContextItemSource.
 const (
 	CompanyContextItemSourceConnector CompanyContextItemSource = "connector"
@@ -1085,13 +1109,82 @@ func (e CompanySiteReadStatusCode) Valid() bool {
 
 // Defines values for CompanySiteReadTargetKind.
 const (
-	Onboarding CompanySiteReadTargetKind = "onboarding"
+	CompanySiteReadTargetKindOnboarding CompanySiteReadTargetKind = "onboarding"
 )
 
 // Valid indicates whether the value is a known member of the CompanySiteReadTargetKind enum.
 func (e CompanySiteReadTargetKind) Valid() bool {
 	switch e {
-	case Onboarding:
+	case CompanySiteReadTargetKindOnboarding:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompanySiteReadComparisonClassification.
+const (
+	CompanySiteReadComparisonClassificationHumanConflict CompanySiteReadComparisonClassification = "human_conflict"
+	CompanySiteReadComparisonClassificationMachineChange CompanySiteReadComparisonClassification = "machine_change"
+	CompanySiteReadComparisonClassificationNew           CompanySiteReadComparisonClassification = "new"
+	CompanySiteReadComparisonClassificationUnchanged     CompanySiteReadComparisonClassification = "unchanged"
+)
+
+// Valid indicates whether the value is a known member of the CompanySiteReadComparisonClassification enum.
+func (e CompanySiteReadComparisonClassification) Valid() bool {
+	switch e {
+	case CompanySiteReadComparisonClassificationHumanConflict:
+		return true
+	case CompanySiteReadComparisonClassificationMachineChange:
+		return true
+	case CompanySiteReadComparisonClassificationNew:
+		return true
+	case CompanySiteReadComparisonClassificationUnchanged:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompanySiteReadComparisonCurrentSource.
+const (
+	CompanySiteReadComparisonCurrentSourceConnector   CompanySiteReadComparisonCurrentSource = "connector"
+	CompanySiteReadComparisonCurrentSourceHuman       CompanySiteReadComparisonCurrentSource = "human"
+	CompanySiteReadComparisonCurrentSourceLessThannil CompanySiteReadComparisonCurrentSource = "<nil>"
+	CompanySiteReadComparisonCurrentSourceMigration   CompanySiteReadComparisonCurrentSource = "migration"
+	CompanySiteReadComparisonCurrentSourceSiteRead    CompanySiteReadComparisonCurrentSource = "site_read"
+)
+
+// Valid indicates whether the value is a known member of the CompanySiteReadComparisonCurrentSource enum.
+func (e CompanySiteReadComparisonCurrentSource) Valid() bool {
+	switch e {
+	case CompanySiteReadComparisonCurrentSourceConnector:
+		return true
+	case CompanySiteReadComparisonCurrentSourceHuman:
+		return true
+	case CompanySiteReadComparisonCurrentSourceLessThannil:
+		return true
+	case CompanySiteReadComparisonCurrentSourceMigration:
+		return true
+	case CompanySiteReadComparisonCurrentSourceSiteRead:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompanySiteReadComparisonValueKind.
+const (
+	Fact         CompanySiteReadComparisonValueKind = "fact"
+	ProfileField CompanySiteReadComparisonValueKind = "profile_field"
+)
+
+// Valid indicates whether the value is a known member of the CompanySiteReadComparisonValueKind enum.
+func (e CompanySiteReadComparisonValueKind) Valid() bool {
+	switch e {
+	case Fact:
+		return true
+	case ProfileField:
 		return true
 	default:
 		return false
@@ -1251,6 +1344,27 @@ const (
 func (e CompanySiteReadPersonDisposition) Valid() bool {
 	switch e {
 	case SeparateLeadProposal:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompanySiteReadResolutionAction.
+const (
+	AcceptProposal CompanySiteReadResolutionAction = "accept_proposal"
+	KeepCurrent    CompanySiteReadResolutionAction = "keep_current"
+	UseValue       CompanySiteReadResolutionAction = "use_value"
+)
+
+// Valid indicates whether the value is a known member of the CompanySiteReadResolutionAction enum.
+func (e CompanySiteReadResolutionAction) Valid() bool {
+	switch e {
+	case AcceptProposal:
+		return true
+	case KeepCurrent:
+		return true
+	case UseValue:
 		return true
 	default:
 		return false
@@ -4775,28 +4889,28 @@ func (e ListDealsParamsStatus) Valid() bool {
 
 // Defines values for ListDealOffersParamsStatus.
 const (
-	ListDealOffersParamsStatusAccepted   ListDealOffersParamsStatus = "accepted"
-	ListDealOffersParamsStatusDraft      ListDealOffersParamsStatus = "draft"
-	ListDealOffersParamsStatusExpired    ListDealOffersParamsStatus = "expired"
-	ListDealOffersParamsStatusRejected   ListDealOffersParamsStatus = "rejected"
-	ListDealOffersParamsStatusSent       ListDealOffersParamsStatus = "sent"
-	ListDealOffersParamsStatusSuperseded ListDealOffersParamsStatus = "superseded"
+	Accepted   ListDealOffersParamsStatus = "accepted"
+	Draft      ListDealOffersParamsStatus = "draft"
+	Expired    ListDealOffersParamsStatus = "expired"
+	Rejected   ListDealOffersParamsStatus = "rejected"
+	Sent       ListDealOffersParamsStatus = "sent"
+	Superseded ListDealOffersParamsStatus = "superseded"
 )
 
 // Valid indicates whether the value is a known member of the ListDealOffersParamsStatus enum.
 func (e ListDealOffersParamsStatus) Valid() bool {
 	switch e {
-	case ListDealOffersParamsStatusAccepted:
+	case Accepted:
 		return true
-	case ListDealOffersParamsStatusDraft:
+	case Draft:
 		return true
-	case ListDealOffersParamsStatusExpired:
+	case Expired:
 		return true
-	case ListDealOffersParamsStatusRejected:
+	case Rejected:
 		return true
-	case ListDealOffersParamsStatusSent:
+	case Sent:
 		return true
-	case ListDealOffersParamsStatusSuperseded:
+	case Superseded:
 		return true
 	default:
 		return false
@@ -4871,22 +4985,22 @@ func (e GetFieldHistoryParamsEntityType) Valid() bool {
 
 // Defines values for GetFieldHistoryParamsActorType.
 const (
-	Agent     GetFieldHistoryParamsActorType = "agent"
-	Connector GetFieldHistoryParamsActorType = "connector"
-	Human     GetFieldHistoryParamsActorType = "human"
-	System    GetFieldHistoryParamsActorType = "system"
+	GetFieldHistoryParamsActorTypeAgent     GetFieldHistoryParamsActorType = "agent"
+	GetFieldHistoryParamsActorTypeConnector GetFieldHistoryParamsActorType = "connector"
+	GetFieldHistoryParamsActorTypeHuman     GetFieldHistoryParamsActorType = "human"
+	GetFieldHistoryParamsActorTypeSystem    GetFieldHistoryParamsActorType = "system"
 )
 
 // Valid indicates whether the value is a known member of the GetFieldHistoryParamsActorType enum.
 func (e GetFieldHistoryParamsActorType) Valid() bool {
 	switch e {
-	case Agent:
+	case GetFieldHistoryParamsActorTypeAgent:
 		return true
-	case Connector:
+	case GetFieldHistoryParamsActorTypeConnector:
 		return true
-	case Human:
+	case GetFieldHistoryParamsActorTypeHuman:
 		return true
-	case System:
+	case GetFieldHistoryParamsActorTypeSystem:
 		return true
 	default:
 		return false
@@ -6004,6 +6118,17 @@ type CompanyContext struct {
 // CompanyContextSchemaVersion defines model for CompanyContext.SchemaVersion.
 type CompanyContextSchemaVersion int
 
+// CompanyContextCapabilities defines model for CompanyContextCapabilities.
+type CompanyContextCapabilities struct {
+	OnboardingEnabled bool                              `json:"onboarding_enabled"`
+	ReadEnabled       bool                              `json:"read_enabled"`
+	Rollout           CompanyContextCapabilitiesRollout `json:"rollout"`
+	TasksEnabled      bool                              `json:"tasks_enabled"`
+}
+
+// CompanyContextCapabilitiesRollout defines model for CompanyContextCapabilities.Rollout.
+type CompanyContextCapabilitiesRollout string
+
 // CompanyContextItem defines model for CompanyContextItem.
 type CompanyContextItem struct {
 	CapturedBy *string                  `json:"captured_by,omitempty"`
@@ -6132,21 +6257,23 @@ type CompanyProfileInput struct {
 
 // CompanySiteRead defines model for CompanySiteRead.
 type CompanySiteRead struct {
-	CreatedAt      time.Time                  `json:"created_at"`
-	DraftVersion   int                        `json:"draft_version"`
-	Facts          []CompanySiteReadFact      `json:"facts"`
-	Id             openapi_types.UUID         `json:"id"`
-	NextAttemptAt  *time.Time                 `json:"next_attempt_at"`
-	OrganizationId *openapi_types.UUID        `json:"organization_id,omitempty"`
-	Pages          []CompanySiteReadPage      `json:"pages"`
-	PagesRead      *int                       `json:"pages_read,omitempty"`
-	People         []CompanySiteReadPerson    `json:"people"`
-	Phase          *CompanySiteReadPhase      `json:"phase,omitempty"`
-	ProfileFields  []ColdStartField           `json:"profile_fields"`
-	ProposalHash   string                     `json:"proposal_hash"`
-	RootUrl        string                     `json:"root_url"`
-	Status         CompanySiteReadStatus      `json:"status"`
-	StatusCode     *CompanySiteReadStatusCode `json:"status_code"`
+	// Comparisons Version-bound comparison against current confirmed company truth.
+	Comparisons    []CompanySiteReadComparison `json:"comparisons"`
+	CreatedAt      time.Time                   `json:"created_at"`
+	DraftVersion   int                         `json:"draft_version"`
+	Facts          []CompanySiteReadFact       `json:"facts"`
+	Id             openapi_types.UUID          `json:"id"`
+	NextAttemptAt  *time.Time                  `json:"next_attempt_at"`
+	OrganizationId *openapi_types.UUID         `json:"organization_id,omitempty"`
+	Pages          []CompanySiteReadPage       `json:"pages"`
+	PagesRead      *int                        `json:"pages_read,omitempty"`
+	People         []CompanySiteReadPerson     `json:"people"`
+	Phase          *CompanySiteReadPhase       `json:"phase,omitempty"`
+	ProfileFields  []ColdStartField            `json:"profile_fields"`
+	ProposalHash   string                      `json:"proposal_hash"`
+	RootUrl        string                      `json:"root_url"`
+	Status         CompanySiteReadStatus       `json:"status"`
+	StatusCode     *CompanySiteReadStatusCode  `json:"status_code"`
 
 	// StatusDetail Safe guidance only; never provider payload
 	StatusDetail *string                   `json:"status_detail"`
@@ -6166,6 +6293,27 @@ type CompanySiteReadStatusCode string
 
 // CompanySiteReadTargetKind defines model for CompanySiteRead.TargetKind.
 type CompanySiteReadTargetKind string
+
+// CompanySiteReadComparison defines model for CompanySiteReadComparison.
+type CompanySiteReadComparison struct {
+	Classification CompanySiteReadComparisonClassification `json:"classification"`
+	CurrentSource  *CompanySiteReadComparisonCurrentSource `json:"current_source"`
+	CurrentValue   *string                                 `json:"current_value"`
+
+	// Key Stable profile-field key or fact selection key.
+	Key           string                             `json:"key"`
+	ProposedValue string                             `json:"proposed_value"`
+	ValueKind     CompanySiteReadComparisonValueKind `json:"value_kind"`
+}
+
+// CompanySiteReadComparisonClassification defines model for CompanySiteReadComparison.Classification.
+type CompanySiteReadComparisonClassification string
+
+// CompanySiteReadComparisonCurrentSource defines model for CompanySiteReadComparison.CurrentSource.
+type CompanySiteReadComparisonCurrentSource string
+
+// CompanySiteReadComparisonValueKind defines model for CompanySiteReadComparison.ValueKind.
+type CompanySiteReadComparisonValueKind string
 
 // CompanySiteReadFact defines model for CompanySiteReadFact.
 type CompanySiteReadFact struct {
@@ -6215,6 +6363,18 @@ type CompanySiteReadPerson struct {
 // CompanySiteReadPersonDisposition People never enter company context or contact records through company confirmation.
 type CompanySiteReadPersonDisposition string
 
+// CompanySiteReadResolution defines model for CompanySiteReadResolution.
+type CompanySiteReadResolution struct {
+	Action CompanySiteReadResolutionAction `json:"action"`
+	Key    string                          `json:"key"`
+
+	// Value Required and non-blank only for use_value; forbidden for other actions.
+	Value *string `json:"value,omitempty"`
+}
+
+// CompanySiteReadResolutionAction defines model for CompanySiteReadResolution.Action.
+type CompanySiteReadResolutionAction string
+
 // ComputedField S-E15.8c formula-field display row (RD-AC-6/RD-AC-7/RD-AC-N-1) — a read-only,
 // database-computed value, never a runtime-authored expression. `computable: false` +
 // `reason` is the honest floor for a field with no backend data model yet — the row is
@@ -6253,9 +6413,12 @@ type ConfirmCompanySiteReadRequest struct {
 	// minimum. Legal/registration fields are optional until a feature with a real
 	// jurisdictional or invoicing need asks for them. An omitted optional field is unchanged and one
 	// sent empty is cleared.
-	Profile          CompanyProfileInput `json:"profile"`
-	ProposalHash     string              `json:"proposal_hash"`
-	SelectedFactKeys []string            `json:"selected_fact_keys"`
+	Profile      CompanyProfileInput `json:"profile"`
+	ProposalHash string              `json:"proposal_hash"`
+
+	// Resolutions Exactly one keyed resolution for every human_conflict comparison. Omitted is equivalent to an empty array for existing clients and succeeds only when no human conflict exists.
+	Resolutions      *[]CompanySiteReadResolution `json:"resolutions,omitempty"`
+	SelectedFactKeys []string                     `json:"selected_fact_keys"`
 }
 
 // ConnectConnectorRequest Connect input. OAuth providers (`gmail`/`gcal`/`graph`) need only an optional `redirect_uri`
@@ -16356,6 +16519,9 @@ type ServerInterface interface {
 	// The deterministic, typed context assembled from the anchor company.
 	// (GET /company/context)
 	GetCompanyContext(w http.ResponseWriter, r *http.Request, params GetCompanyContextParams)
+	// Get the effective server-side company-context rollout capability.
+	// (GET /company/context/capabilities)
+	GetCompanyContextCapabilities(w http.ResponseWriter, r *http.Request)
 	// Start an optional progressive website read before the anchor company exists.
 	// (POST /company/site-reads)
 	StartCompanySiteRead(w http.ResponseWriter, r *http.Request, params StartCompanySiteReadParams)
@@ -17139,6 +17305,12 @@ func (_ Unimplemented) PutCompany(w http.ResponseWriter, r *http.Request) {
 // The deterministic, typed context assembled from the anchor company.
 // (GET /company/context)
 func (_ Unimplemented) GetCompanyContext(w http.ResponseWriter, r *http.Request, params GetCompanyContextParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get the effective server-side company-context rollout capability.
+// (GET /company/context/capabilities)
+func (_ Unimplemented) GetCompanyContextCapabilities(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -20096,8 +20268,6 @@ func (siw *ServerInterfaceWrapper) GetCompany(w http.ResponseWriter, r *http.Req
 
 	ctx := r.Context()
 
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
@@ -20141,8 +20311,6 @@ func (siw *ServerInterfaceWrapper) GetCompanyContext(w http.ResponseWriter, r *h
 
 	ctx := r.Context()
 
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
@@ -20165,6 +20333,26 @@ func (siw *ServerInterfaceWrapper) GetCompanyContext(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetCompanyContext(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCompanyContextCapabilities operation middleware
+func (siw *ServerInterfaceWrapper) GetCompanyContextCapabilities(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCompanyContextCapabilities(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -20237,8 +20425,6 @@ func (siw *ServerInterfaceWrapper) GetCompanySiteRead(w http.ResponseWriter, r *
 	}
 
 	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
@@ -28667,6 +28853,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/company/context", wrapper.GetCompanyContext)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/company/context/capabilities", wrapper.GetCompanyContextCapabilities)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/company/site-reads", wrapper.StartCompanySiteRead)

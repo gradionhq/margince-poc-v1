@@ -220,6 +220,10 @@ func (stubs) GetCompanyContext(w nethttp.ResponseWriter, r *nethttp.Request, par
 	httperr.NotImplemented(w, r, "GetCompanyContext")
 }
 
+func (stubs) GetCompanyContextCapabilities(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetCompanyContextCapabilities")
+}
+
 func (stubs) StartCompanySiteRead(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.StartCompanySiteReadParams) {
 	httperr.NotImplemented(w, r, "StartCompanySiteRead")
 }

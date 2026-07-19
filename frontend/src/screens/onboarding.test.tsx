@@ -71,6 +71,7 @@ const readyRead = {
       confidence: 0.88,
     },
   ],
+  comparisons: [],
   people: [],
   warnings: [],
   draft_version: 1,

@@ -332,6 +332,14 @@ export async function mockApi(target: Page): Promise<void> {
         teams: [],
       });
     }
+    if (path === "/company/context/capabilities") {
+      return json({
+        rollout: "onboarding",
+        read_enabled: true,
+        tasks_enabled: true,
+        onboarding_enabled: true,
+      });
+    }
     // The installation's own company. A described installation is the state
     // every AC below assumes: the shell gates on this, and a 404 would (rightly)
     // redirect them all into onboarding. Onboarding's own AC reaches the wizard

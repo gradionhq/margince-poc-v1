@@ -50,16 +50,16 @@ func (e *deepReadEngine) startCompanySiteRead(w http.ResponseWriter, r *http.Req
 		return
 	}
 	w.Header().Set("Location", "/v1/company/site-reads/"+read.ID.String())
-	httperr.WriteJSON(w, http.StatusAccepted, companySiteRead(read))
+	httperr.WriteJSON(w, http.StatusAccepted, companySiteRead(read, nil))
 }
 
 func (e *deepReadEngine) getCompanySiteRead(w http.ResponseWriter, r *http.Request, readID openapi_types.UUID) {
-	read, err := e.people.GetOnboardingSiteRead(r.Context(), ids.UUID(readID))
+	read, comparisons, err := e.people.GetCompanySiteRead(r.Context(), ids.UUID(readID))
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
 	}
-	httperr.WriteJSON(w, http.StatusOK, companySiteRead(read))
+	httperr.WriteJSON(w, http.StatusOK, companySiteRead(read, comparisons))
 }
 
 func (e *deepReadEngine) confirmCompanySiteRead(w http.ResponseWriter, r *http.Request, readID openapi_types.UUID) {
@@ -103,8 +103,14 @@ func (e *deepReadEngine) confirmCompanySiteRead(w http.ResponseWriter, r *http.R
 			fieldHistory: trimOptional(req.Profile.History),
 		},
 		SelectedFactKeys: req.SelectedFactKeys,
+		Resolutions:      siteReadResolutions(req.Resolutions),
 	}, e.stageOnboardingPeople)
 	if err != nil {
+		var invalid *people.InvalidSiteReadResolutionError
+		if errors.As(err, &invalid) {
+			httperr.Write(w, r, httperr.Validation("resolutions", "invalid", invalid.Reason))
+			return
+		}
 		httperr.Write(w, r, err)
 		return
 	}
@@ -137,7 +143,20 @@ func (e *deepReadEngine) stageOnboardingPeople(ctx context.Context, tx pgx.Tx, o
 	return proposalIDs, nil
 }
 
-func companySiteRead(read people.SiteRead) crmcontracts.CompanySiteRead {
+func siteReadResolutions(in *[]crmcontracts.CompanySiteReadResolution) []people.SiteReadResolution {
+	if in == nil {
+		return nil
+	}
+	out := make([]people.SiteReadResolution, len(*in))
+	for i, resolution := range *in {
+		out[i] = people.SiteReadResolution{
+			Key: resolution.Key, Action: string(resolution.Action), Value: resolution.Value,
+		}
+	}
+	return out
+}
+
+func companySiteRead(read people.SiteRead, compared []people.SiteReadComparison) crmcontracts.CompanySiteRead {
 	pages := make([]crmcontracts.CompanySiteReadPage, 0, len(read.Pages)+len(read.Skipped))
 	for _, page := range read.Pages {
 		kind := crmcontracts.CompanySiteReadPageKind(page.Kind)
@@ -184,6 +203,7 @@ func companySiteRead(read people.SiteRead) crmcontracts.CompanySiteRead {
 		}
 		found = append(found, out)
 	}
+	comparisons := contractSiteReadComparisons(compared)
 	status := map[string]string{
 		"queued": "queued", siteReadStatusDeferred: siteReadStatusDeferred, "running": "reading", "done": "ready",
 		siteReadWireStatusPartial: siteReadWireStatusPartial,
@@ -195,7 +215,7 @@ func companySiteRead(read people.SiteRead) crmcontracts.CompanySiteRead {
 	out := crmcontracts.CompanySiteRead{
 		Id: openapi_types.UUID(read.ID), TargetKind: crmcontracts.CompanySiteReadTargetKind("onboarding"),
 		RootUrl: read.SeedURL, Status: crmcontracts.CompanySiteReadStatus(status), Pages: pages,
-		ProfileFields: fields, Facts: facts, People: found, Warnings: read.Warnings,
+		ProfileFields: fields, Facts: facts, Comparisons: comparisons, People: found, Warnings: read.Warnings,
 		DraftVersion: read.DraftVersion, ProposalHash: read.ProposalHash,
 		CreatedAt: read.CreatedAt, UpdatedAt: read.UpdatedAt, PagesRead: &read.PagesRead,
 		StatusDetail: read.StatusDetail, NextAttemptAt: read.NextAttemptAt,
@@ -215,7 +235,28 @@ func companySiteRead(read people.SiteRead) crmcontracts.CompanySiteRead {
 	return out
 }
 
+func contractSiteReadComparisons(compared []people.SiteReadComparison) []crmcontracts.CompanySiteReadComparison {
+	out := make([]crmcontracts.CompanySiteReadComparison, 0, len(compared))
+	for _, comparison := range compared {
+		var source *crmcontracts.CompanySiteReadComparisonCurrentSource
+		if comparison.CurrentSource != nil {
+			value := crmcontracts.CompanySiteReadComparisonCurrentSource(*comparison.CurrentSource)
+			source = &value
+		}
+		out = append(out, crmcontracts.CompanySiteReadComparison{
+			Key: comparison.Key, ValueKind: crmcontracts.CompanySiteReadComparisonValueKind(comparison.ValueKind),
+			Classification: crmcontracts.CompanySiteReadComparisonClassification(comparison.Classification),
+			CurrentValue:   comparison.CurrentValue, CurrentSource: source, ProposedValue: comparison.ProposedValue,
+		})
+	}
+	return out
+}
+
 func (h siteReadHandlers) StartCompanySiteRead(w http.ResponseWriter, r *http.Request, _ crmcontracts.StartCompanySiteReadParams) {
+	if !companyContextReadEnabled(h.companyContextRollout) {
+		httperr.NotImplemented(w, r, "startCompanySiteRead (company context read rollout is disabled)")
+		return
+	}
 	if h.engine == nil {
 		httperr.NotImplemented(w, r, "startCompanySiteRead (no crawl runner configured)")
 		return
@@ -224,6 +265,10 @@ func (h siteReadHandlers) StartCompanySiteRead(w http.ResponseWriter, r *http.Re
 }
 
 func (h siteReadHandlers) GetCompanySiteRead(w http.ResponseWriter, r *http.Request, readID openapi_types.UUID) {
+	if !companyContextReadEnabled(h.companyContextRollout) {
+		httperr.NotImplemented(w, r, "getCompanySiteRead (company context read rollout is disabled)")
+		return
+	}
 	if h.engine == nil {
 		httperr.NotImplemented(w, r, "getCompanySiteRead (no crawl runner configured)")
 		return
@@ -232,6 +277,10 @@ func (h siteReadHandlers) GetCompanySiteRead(w http.ResponseWriter, r *http.Requ
 }
 
 func (h siteReadHandlers) ConfirmCompanySiteRead(w http.ResponseWriter, r *http.Request, readID openapi_types.UUID, _ crmcontracts.ConfirmCompanySiteReadParams) {
+	if !companyContextReadEnabled(h.companyContextRollout) {
+		httperr.NotImplemented(w, r, "confirmCompanySiteRead (company context read rollout is disabled)")
+		return
+	}
 	if h.engine == nil {
 		httperr.NotImplemented(w, r, "confirmCompanySiteRead (no crawl runner configured)")
 		return

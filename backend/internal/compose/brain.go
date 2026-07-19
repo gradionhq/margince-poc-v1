@@ -54,6 +54,18 @@ type ModelPath struct {
 	Embedder        search.Embedder // the retrieval embed lane
 }
 
+// SetCompanyContextEnabled applies the operator's ordered task-rollout stage
+// to every lane sharing this path. Task policy remains exhaustive even while
+// injection is disabled.
+func (p *ModelPath) SetCompanyContextEnabled(enabled bool) {
+	if p == nil {
+		return
+	}
+	if brain, ok := p.Agent.(agentBrain); ok && brain.companyContext != nil {
+		brain.companyContext.enabled = enabled
+	}
+}
+
 // NewModelPath builds the production model path from a validated
 // routing config. capturePayloads and log ride straight into the
 // router's ai_call tracing (ai.NewRouter) — the deployment's

@@ -65,13 +65,14 @@ type SiteRead struct {
 	// Phase and PagesRead are the worker's live-progress hints while
 	// Status is 'running' (crawling | extracting + committed page count);
 	// the terminal report is the authority once Status ends.
-	Phase       *string
-	PagesRead   int
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	StartedAt   *time.Time
-	FinishedAt  *time.Time
-	ConfirmedAt *time.Time
+	Phase           *string
+	PagesRead       int
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	StartedAt       *time.Time
+	FirstGroundedAt *time.Time
+	FinishedAt      *time.Time
+	ConfirmedAt     *time.Time
 }
 
 // SiteReadPerson is one published person held in the operational dossier.
@@ -90,7 +91,7 @@ type SiteReadPerson struct {
 // scanSiteRead pairs with it positionally.
 const siteReadColumns = `id, organization_id, target_kind, seed_url, status, status_code, status_detail, next_attempt_at, pages, skipped,
 	stopped_reason, fact_count, proposal_ids, requested_by, profile_fields, facts, people, warnings,
-	draft_version, proposal_hash, phase, pages_read, created_at, updated_at, started_at, finished_at, confirmed_at`
+	draft_version, proposal_hash, phase, pages_read, created_at, updated_at, started_at, first_grounded_at, finished_at, confirmed_at`
 
 // siteReadOrgKey names the audit payload's org reference once (the goconst
 // pin): the same string in relationship.go is that file's column vocabulary —
@@ -290,10 +291,13 @@ func (s *Store) UpdateSiteReadDraft(ctx context.Context, readID ids.UUID, facts 
 		return fmt.Errorf("people: progressive site-read people: %w", err)
 	}
 	return s.tx(ctx, func(tx pgx.Tx) error {
+		grounded := len(facts) > 0
 		if _, err := tx.Exec(ctx, `UPDATE site_read
 			SET facts = $2, people = $3, proposal_hash = $4,
-			    draft_version = draft_version + 1, updated_at = now()
-			WHERE id = $1 AND status = 'running'`, readID, factsRaw, peopleRaw, proposalHash); err != nil {
+			    draft_version = draft_version + 1,
+			    first_grounded_at = CASE WHEN $5 THEN COALESCE(first_grounded_at, now()) ELSE first_grounded_at END,
+			    updated_at = now()
+			WHERE id = $1 AND status = 'running'`, readID, factsRaw, peopleRaw, proposalHash, grounded); err != nil {
 			return fmt.Errorf("update progressive site-read draft: %w", err)
 		}
 		return nil
@@ -423,6 +427,7 @@ func (s *Store) FinishSiteRead(ctx context.Context, readID ids.UUID, in FinishSi
 	if err != nil {
 		return fmt.Errorf("people: site-read warnings: %w", err)
 	}
+	grounded := len(in.ProfileFields) > 0 || len(in.Facts) > 0
 	return s.tx(ctx, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE site_read
@@ -430,10 +435,11 @@ func (s *Store) FinishSiteRead(ctx context.Context, readID ids.UUID, in FinishSi
 			    fact_count = $6, proposal_ids = $7, profile_fields = $8, facts = $9,
 			    people = $10, warnings = $11, proposal_hash = $12,
 			    draft_version = draft_version + 1, pages_read = $13, phase = NULL,
+			    first_grounded_at = CASE WHEN $14 THEN COALESCE(first_grounded_at, now()) ELSE first_grounded_at END,
 			    finished_at = now(), updated_at = now()
 			WHERE id = $1 AND status = 'running'`,
 			readID, in.Status, pages, skipped, in.StoppedReason, in.FactCount, proposals,
-			profileFields, facts, people, warnings, in.ProposalHash, len(in.Pages))
+			profileFields, facts, people, warnings, in.ProposalHash, len(in.Pages), grounded)
 		if err != nil {
 			return fmt.Errorf("finish site read: %w", err)
 		}
@@ -461,7 +467,7 @@ func scanSiteRead(row pgx.Row) (SiteRead, error) {
 		&sr.StatusCode, &sr.StatusDetail, &sr.NextAttemptAt, &pagesRaw, &skippedRaw,
 		&sr.StoppedReason, &sr.FactCount, &sr.ProposalIDs, &sr.RequestedBy,
 		&profileRaw, &factsRaw, &peopleRaw, &warningsRaw, &sr.DraftVersion, &sr.ProposalHash,
-		&sr.Phase, &sr.PagesRead, &sr.CreatedAt, &sr.UpdatedAt, &sr.StartedAt, &sr.FinishedAt, &sr.ConfirmedAt); err != nil {
+		&sr.Phase, &sr.PagesRead, &sr.CreatedAt, &sr.UpdatedAt, &sr.StartedAt, &sr.FirstGroundedAt, &sr.FinishedAt, &sr.ConfirmedAt); err != nil {
 		return SiteRead{}, err
 	}
 	if err := json.Unmarshal(pagesRaw, &sr.Pages); err != nil {

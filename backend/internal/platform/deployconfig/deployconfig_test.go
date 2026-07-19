@@ -39,6 +39,8 @@ email:
     port: 587
     username: crm@example.com
   from_address: crm@example.com
+company_context:
+  rollout: tasks
 `
 
 func TestParseAcceptsTheFullDocumentedShape(t *testing.T) {
@@ -57,6 +59,9 @@ func TestParseAcceptsTheFullDocumentedShape(t *testing.T) {
 	}
 	if !cfg.Auth.PasswordEnabled() || !cfg.Email.Enabled {
 		t.Fatalf("auth/email switches lost: %+v %+v", cfg.Auth, cfg.Email)
+	}
+	if cfg.CompanyContext.EffectiveRollout() != CompanyContextTasks {
+		t.Fatalf("company-context rollout = %q", cfg.CompanyContext.EffectiveRollout())
 	}
 }
 
@@ -83,11 +88,22 @@ func TestParseValidatesFailClosed(t *testing.T) {
 		"email without smtp":      "version: 1\nemail: { enabled: true, from_address: a@b.co }\n",
 		"smtp port out of range":  "version: 1\nemail: { enabled: true, from_address: a@b.co, smtp: { host: h, port: 70000 } }\n",
 		"password auth disabled":  "version: 1\nauth: { password: { enabled: false } }\n",
+		"unknown context rollout": "version: 1\ncompany_context: { rollout: everything }\n",
 	}
 	for name, doc := range cases {
 		if _, err := Parse([]byte(doc)); err == nil {
 			t.Errorf("%s: parsed without error", name)
 		}
+	}
+}
+
+func TestCompanyContextRolloutDefaultsToOnboarding(t *testing.T) {
+	cfg, err := Parse([]byte("version: 1\n"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := cfg.CompanyContext.EffectiveRollout(); got != CompanyContextOnboarding {
+		t.Fatalf("default rollout = %q, want onboarding", got)
 	}
 }
 

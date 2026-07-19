@@ -53,7 +53,22 @@ const (
 	fieldHistory           = "history"
 )
 
-type companyHandlers struct{ store *people.Store }
+type companyHandlers struct {
+	store   *people.Store
+	rollout string
+}
+
+func (h companyHandlers) GetCompanyContextCapabilities(w http.ResponseWriter, r *http.Request) {
+	rollout := h.rollout
+	if rollout == "" {
+		rollout = companyContextRolloutOnboarding
+	}
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.CompanyContextCapabilities{
+		Rollout:     crmcontracts.CompanyContextCapabilitiesRollout(rollout),
+		ReadEnabled: companyContextReadEnabled(rollout), TasksEnabled: companyContextTasksEnabled(rollout),
+		OnboardingEnabled: companyContextOnboardingEnabled(rollout),
+	})
+}
 
 func (h companyHandlers) GetCompany(w http.ResponseWriter, r *http.Request) {
 	if h.store == nil {
@@ -151,6 +166,10 @@ func (h companyHandlers) PutCompany(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h companyHandlers) GetCompanyContext(w http.ResponseWriter, r *http.Request, params crmcontracts.GetCompanyContextParams) {
+	if !companyContextReadEnabled(h.rollout) {
+		httperr.NotImplemented(w, r, "getCompanyContext (company context rollout is off)")
+		return
+	}
 	if h.store == nil {
 		httperr.NotImplemented(w, r, "getCompanyContext")
 		return

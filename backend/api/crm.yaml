@@ -3023,6 +3023,8 @@ paths:
     get:
       tags: [Organizations]
       operationId: getCompany
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
       summary: The installation's own company (the anchor organization).
       description: |
         The company this installation belongs to — the spec's anchor organization, marked by
@@ -3086,10 +3088,28 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /company/context/capabilities:
+    get:
+      tags: [Organizations, AI]
+      operationId: getCompanyContextCapabilities
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Get the effective server-side company-context rollout capability.
+      description: The UI follows this authenticated response instead of inferring deployment configuration.
+      responses:
+        '200':
+          description: Effective ordered rollout stage and its derived capabilities.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyContextCapabilities' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
   /company/context:
     get:
       tags: [Organizations, AI]
       operationId: getCompanyContext
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
       summary: The deterministic, typed context assembled from the anchor company.
       description: |
         Reads confirmed company identity, profile fields and accepted repeatable facts under the
@@ -3152,6 +3172,8 @@ paths:
     get:
       tags: [Organizations, AI]
       operationId: getCompanySiteRead
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
       summary: Read the latest progressive onboarding dossier and its grounded draft findings.
       responses:
         '200':
@@ -3178,8 +3200,9 @@ paths:
       description: |
         Applies only the submitted profile and selected fact keys. The draft version and proposal
         hash bind confirmation to the exact inspected proposal; a stale confirmation returns 409.
-        Unchanged values retain website evidence, edits become human assertions, and published people
-        remain separate site-lead proposals rather than becoming contacts or company-context rows.
+        Every human-held collision requires an explicit keyed resolution. Unchanged values retain
+        website evidence, edits become human assertions, and published people remain separate
+        site-lead proposals rather than becoming contacts or company-context rows.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -8910,6 +8933,15 @@ components:
         fingerprint: { type: string, description: Deterministic SHA-256 digest of the selected confirmed values and accepted facts. }
         generated_at: { type: string, format: date-time }
 
+    CompanyContextCapabilities:
+      type: object
+      required: [rollout, read_enabled, tasks_enabled, onboarding_enabled]
+      properties:
+        rollout: { type: string, enum: [off, read, tasks, onboarding] }
+        read_enabled: { type: boolean }
+        tasks_enabled: { type: boolean }
+        onboarding_enabled: { type: boolean }
+
     StartCompanySiteReadRequest:
       type: object
       required: [url]
@@ -8937,6 +8969,27 @@ components:
         evidence_url: { type: string, format: uri }
         confidence: { type: number, minimum: 0, maximum: 1 }
 
+    CompanySiteReadComparison:
+      type: object
+      required: [key, value_kind, classification, current_value, current_source, proposed_value]
+      properties:
+        key: { type: string, description: Stable profile-field key or fact selection key. }
+        value_kind: { type: string, enum: [profile_field, fact] }
+        classification: { type: string, enum: [new, machine_change, human_conflict, unchanged] }
+        current_value: { type: [string, 'null'] }
+        current_source: { type: [string, 'null'], enum: [human, site_read, connector, migration, null] }
+        proposed_value: { type: string }
+
+    CompanySiteReadResolution:
+      type: object
+      required: [key, action]
+      properties:
+        key: { type: string }
+        action: { type: string, enum: [keep_current, accept_proposal, use_value] }
+        value:
+          type: [string, 'null']
+          description: Required and non-blank only for use_value; forbidden for other actions.
+
     CompanySiteReadPerson:
       type: object
       required: [name, role, evidence_snippet, evidence_url]
@@ -8951,7 +9004,7 @@ components:
 
     CompanySiteRead:
       type: object
-      required: [id, target_kind, root_url, status, status_code, status_detail, next_attempt_at, pages, profile_fields, facts, people, warnings, draft_version, proposal_hash, created_at, updated_at]
+      required: [id, target_kind, root_url, status, status_code, status_detail, next_attempt_at, pages, profile_fields, facts, comparisons, people, warnings, draft_version, proposal_hash, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         target_kind: { type: string, enum: [onboarding] }
@@ -8972,6 +9025,10 @@ components:
         facts:
           type: array
           items: { $ref: '#/components/schemas/CompanySiteReadFact' }
+        comparisons:
+          type: array
+          description: Version-bound comparison against current confirmed company truth.
+          items: { $ref: '#/components/schemas/CompanySiteReadComparison' }
         people:
           type: array
           items: { $ref: '#/components/schemas/CompanySiteReadPerson' }
@@ -8994,6 +9051,10 @@ components:
           type: array
           uniqueItems: true
           items: { type: string }
+        resolutions:
+          type: array
+          description: Exactly one keyed resolution for every human_conflict comparison. Omitted is equivalent to an empty array for existing clients and succeeds only when no human conflict exists.
+          items: { $ref: '#/components/schemas/CompanySiteReadResolution' }
 
     EnrichCompanyRequest:
       type: object

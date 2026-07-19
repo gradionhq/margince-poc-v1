@@ -83,11 +83,12 @@ type companyContextReader interface {
 }
 
 type companyContextProvider struct {
-	reader companyContextReader
+	reader  companyContextReader
+	enabled bool
 }
 
 func newCompanyContextProvider(reader companyContextReader) *companyContextProvider {
-	return &companyContextProvider{reader: reader}
+	return &companyContextProvider{reader: reader, enabled: true}
 }
 
 // Prepare applies the task policy at the one model-path boundary. Callers
@@ -102,6 +103,11 @@ func (p *companyContextProvider) Prepare(ctx context.Context, task ai.Task, req 
 	req.IncludeCompanyContext = false
 	req.ContextScopes = nil
 	req.ContextFingerprint = ""
+	req.ContextBytes = 0
+	req.ContextTokensEstimate = 0
+	if p != nil && !p.enabled {
+		return req, nil
+	}
 	if len(policy.scopes) == 0 || (policy.conditional && !requested) {
 		return req, nil
 	}
@@ -129,6 +135,8 @@ func (p *companyContextProvider) Prepare(ctx context.Context, task ai.Task, req 
 	if block == "" {
 		return req, nil
 	}
+	req.ContextBytes = len(block)
+	req.ContextTokensEstimate = (len(block) + 3) / 4
 	if req.System == "" {
 		req.System = companyContextGuardrail
 	} else if !strings.Contains(req.System, companyContextGuardrail) {
