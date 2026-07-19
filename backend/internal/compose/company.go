@@ -36,6 +36,7 @@ const (
 // The company form's field names on the wire — the contract's ColdStartField
 // vocabulary, which is also how the store keys its profile rows.
 const (
+	fieldOfferSummary      = "offer_summary"
 	fieldLegalName         = "legal_name"
 	fieldRegisteredAddress = "registered_address"
 	fieldRegisterVat       = "register_vat"
@@ -43,8 +44,12 @@ const (
 	fieldICP               = "icp"
 	fieldValueProposition  = "value_proposition"
 	fieldUSP               = "usp"
+	fieldCustomerPains     = "customer_pains"
+	fieldDesiredOutcomes   = "desired_outcomes"
 	fieldBuyingCenter      = "buying_center"
 	fieldBuyingIntents     = "buying_intents"
+	fieldCommonObjections  = "common_objections"
+	fieldSalesMotion       = "sales_motion"
 	fieldHistory           = "history"
 )
 
@@ -74,19 +79,29 @@ func (h companyHandlers) PutCompany(w http.ResponseWriter, r *http.Request) {
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	// The identity block is what the installation IS — a whitespace-only
-	// answer is not an answer, so each is named individually rather than
-	// refused as one lump the human has to guess their way through.
-	for _, required := range []struct{ field, value, detail string }{
-		{"display_name", req.DisplayName, "a company needs a name"},
-		{fieldLegalName, req.LegalName, "name the registered legal entity"},
-		{fieldRegisteredAddress, req.RegisteredAddress, "give the registered address"},
-		{fieldRegisterVat, req.RegisterVat, "give the VAT ID or commercial register entry"},
-		{fieldIndustry, req.Industry, "say which industry this company is in"},
-	} {
-		if strings.TrimSpace(required.value) == "" {
-			httperr.Write(w, r, httperr.Validation(required.field, "empty", required.detail))
-			return
+	if strings.TrimSpace(req.DisplayName) == "" {
+		httperr.Write(w, r, httperr.Validation("display_name", "empty", "a company needs a name"))
+		return
+	}
+	// New onboarding requires the three semantic answers. During the pre-live
+	// compatibility transition the former complete legal block remains an
+	// accepted legacy submission; it is returned as minimum_complete=false and
+	// the current UI asks for the semantic fields on the next edit.
+	legacyComplete := optionalFilled(req.LegalName) && optionalFilled(req.RegisteredAddress) &&
+		optionalFilled(req.RegisterVat) && optionalFilled(req.Industry)
+	if !legacyComplete {
+		for _, required := range []struct {
+			field  string
+			value  *string
+			detail string
+		}{
+			{fieldOfferSummary, req.OfferSummary, "say what the company sells or delivers"},
+			{fieldICP, req.Icp, "say who the company sells to"},
+		} {
+			if !optionalFilled(required.value) {
+				httperr.Write(w, r, httperr.Validation(required.field, "empty", required.detail))
+				return
+			}
 		}
 	}
 	// The website is normalized ONCE, here: what the validator judged is what
@@ -111,15 +126,20 @@ func (h companyHandlers) PutCompany(w http.ResponseWriter, r *http.Request) {
 		DisplayName: strings.TrimSpace(req.DisplayName),
 		Website:     website,
 		Fields: map[string]*string{
-			fieldLegalName:         &req.LegalName,
-			fieldRegisteredAddress: &req.RegisteredAddress,
-			fieldRegisterVat:       &req.RegisterVat,
-			fieldIndustry:          &req.Industry,
+			fieldOfferSummary:      trimOptional(req.OfferSummary),
+			fieldLegalName:         trimOptional(req.LegalName),
+			fieldRegisteredAddress: trimOptional(req.RegisteredAddress),
+			fieldRegisterVat:       trimOptional(req.RegisterVat),
+			fieldIndustry:          trimOptional(req.Industry),
 			fieldICP:               req.Icp,
 			fieldValueProposition:  req.ValueProposition,
 			fieldUSP:               req.Usp,
+			fieldCustomerPains:     req.CustomerPains,
+			fieldDesiredOutcomes:   req.DesiredOutcomes,
 			fieldBuyingCenter:      req.BuyingCenter,
 			fieldBuyingIntents:     req.BuyingIntents,
+			fieldCommonObjections:  req.CommonObjections,
+			fieldSalesMotion:       req.SalesMotion,
 			fieldHistory:           req.History,
 		},
 	})
@@ -128,6 +148,53 @@ func (h companyHandlers) PutCompany(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httperr.WriteJSON(w, http.StatusOK, toContractCompany(company))
+}
+
+func (h companyHandlers) GetCompanyContext(w http.ResponseWriter, r *http.Request, params crmcontracts.GetCompanyContextParams) {
+	if h.store == nil {
+		httperr.NotImplemented(w, r, "getCompanyContext")
+		return
+	}
+	scopes, ok := parseCompanyContextScopes(w, r, params.Scopes)
+	if !ok {
+		return
+	}
+	companyContext, err := h.store.GetCompanyContext(r.Context(), scopes)
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, toContractCompanyContext(companyContext))
+}
+
+func parseCompanyContextScopes(w http.ResponseWriter, r *http.Request, raw *string) ([]people.CompanyContextScope, bool) {
+	if raw == nil || strings.TrimSpace(*raw) == "" {
+		return nil, true
+	}
+	parts := strings.Split(*raw, ",")
+	scopes := make([]people.CompanyContextScope, 0, len(parts))
+	for _, part := range parts {
+		name := strings.TrimSpace(part)
+		scope, valid := people.ParseCompanyContextScope(name)
+		if !valid {
+			httperr.Write(w, r, httperr.Validation("scopes", "invalid", "unknown company-context scope: "+name))
+			return nil, false
+		}
+		scopes = append(scopes, scope)
+	}
+	return scopes, true
+}
+
+func optionalFilled(value *string) bool {
+	return value != nil && strings.TrimSpace(*value) != ""
+}
+
+func trimOptional(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	return &trimmed
 }
 
 // parseableWebsite accepts what a human types — a bare domain as readily as a
@@ -154,7 +221,30 @@ func toContractCompany(c people.Company) crmcontracts.CompanyProfile {
 		Website:        c.Website,
 		UpdatedAt:      &c.UpdatedAt,
 	}
+	profileFields := make([]crmcontracts.CompanyProfileField, 0, len(c.ProfileFields))
+	for _, field := range c.ProfileFields {
+		profileFields = append(profileFields, crmcontracts.CompanyProfileField{
+			Field: crmcontracts.CompanyProfileFieldField(field.Field), Value: field.Value,
+			Source: crmcontracts.CompanyProfileFieldSource(field.Source), CapturedBy: &field.CapturedBy,
+			EvidenceSnippet: nonEmptyString(field.EvidenceSnippet), SourceUrl: nonEmptyString(field.SourceURL),
+			Confidence: &field.Confidence, UpdatedAt: field.UpdatedAt,
+		})
+	}
+	facts := make([]crmcontracts.OrganizationFact, 0, len(c.Facts))
+	for _, fact := range c.Facts {
+		facts = append(facts, crmcontracts.OrganizationFact{
+			Category: crmcontracts.OrganizationFactCategory(fact.Category),
+			Field:    crmcontracts.OrganizationFactField(fact.Field), Value: fact.Value, ValueKey: fact.ValueKey,
+			Source: crmcontracts.OrganizationFactSource(fact.Source), CapturedBy: &fact.CapturedBy,
+			EvidenceSnippet: nonEmptyString(fact.EvidenceSnippet), SourceUrl: nonEmptyString(fact.SourceURL),
+			Confidence: &fact.Confidence, UpdatedAt: fact.UpdatedAt,
+		})
+	}
+	out.Fields = &profileFields
+	out.Facts = &facts
+	out.MinimumComplete = &c.MinimumComplete
 	for field, target := range map[string]**string{
+		fieldOfferSummary:      &out.OfferSummary,
 		fieldLegalName:         &out.LegalName,
 		fieldRegisteredAddress: &out.RegisteredAddress,
 		fieldRegisterVat:       &out.RegisterVat,
@@ -162,8 +252,12 @@ func toContractCompany(c people.Company) crmcontracts.CompanyProfile {
 		fieldICP:               &out.Icp,
 		fieldValueProposition:  &out.ValueProposition,
 		fieldUSP:               &out.Usp,
+		fieldCustomerPains:     &out.CustomerPains,
+		fieldDesiredOutcomes:   &out.DesiredOutcomes,
 		fieldBuyingCenter:      &out.BuyingCenter,
 		fieldBuyingIntents:     &out.BuyingIntents,
+		fieldCommonObjections:  &out.CommonObjections,
+		fieldSalesMotion:       &out.SalesMotion,
 		fieldHistory:           &out.History,
 	} {
 		if value, filled := c.Fields[field]; filled {
@@ -171,4 +265,32 @@ func toContractCompany(c people.Company) crmcontracts.CompanyProfile {
 		}
 	}
 	return out
+}
+
+func toContractCompanyContext(c people.CompanyContext) crmcontracts.CompanyContext {
+	scopes := make([]crmcontracts.CompanyContextScope, 0, len(c.Scopes))
+	for _, section := range c.Scopes {
+		items := make([]crmcontracts.CompanyContextItem, 0, len(section.Items))
+		for _, item := range section.Items {
+			items = append(items, crmcontracts.CompanyContextItem{
+				Key: item.Key, Value: item.Value,
+				Source: crmcontracts.CompanyContextItemSource(item.Source), CapturedBy: &item.CapturedBy,
+				SourceUrl: nonEmptyString(item.SourceURL), Confidence: item.Confidence,
+			})
+		}
+		scopes = append(scopes, crmcontracts.CompanyContextScope{
+			Scope: crmcontracts.CompanyContextScopeScope(section.Scope), Items: items,
+		})
+	}
+	return crmcontracts.CompanyContext{
+		OrganizationId: openapi_types.UUID(c.OrganizationID.UUID), SchemaVersion: crmcontracts.N1,
+		Scopes: scopes, Fingerprint: c.Fingerprint, GeneratedAt: c.GeneratedAt,
+	}
+}
+
+func nonEmptyString(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }

@@ -353,6 +353,20 @@ tooling and gate suite the baseline needs. Merged so far:
 
 Open work, roughly in priority order:
 
+- **Cold-start + company-context refresh** — the rollout and PR boundaries are
+  mapped in
+  [docs/explanation/coldstart-company-context-plan.md](docs/explanation/coldstart-company-context-plan.md).
+  Foundation PR #1104 is merged at `f97ef6b` with `g1-deterministic` and
+  `llm-advisory` green; ADR-0065/A111 now pins the anchor/profile/fact/site-read
+  schema, optional three-field manual path, reusable deep-read wire, typed
+  context policy, progressive budgets/events, and five-step UI. Phase 1
+  implementation is complete in PR #127: it adds the typed, provenance-bearing
+  `CompanyContext` read substrate and reconciles profile/fact vocabulary without
+  duplicating the already-built anchor/deep-read stores. `make check`, the
+  zero-skip integration lane, UAT, CodeRabbit, SonarCloud, and a migration
+  reverse/reapply cycle are green; merge remains conditional on every restarted
+  check and required review conversation staying green.
+
 - **Email ingestion — deferred pieces of ADR-0063** (the pipeline is
   live; these were scoped out, not missed):
   - **Graph webhook (PR-7b)** — the connector is poll-only; the

@@ -18,31 +18,24 @@ import { OnboardingScreen } from "./onboarding";
 // the contract requires; the company step cannot be skipped; and the step-3
 // results tell the truth about a skipped voice step.
 
-// The five fields crm.yaml's CompanyProfileInput marks required — the form
-// refuses a save without them, so every test that saves must fill them.
+// The universal semantic minimum works without a website, model, legal entity
+// or invoicing setup.
 const REQUIRED_LABELS = [
   /Company name/,
-  /Registered legal name/,
-  /Registered address/,
-  /Register \/ VAT ID/,
-  /Industry/,
+  /What do you sell\?/,
+  /Ideal customer/,
 ] as const;
 
 async function fillRequired() {
   await userEvent.type(screen.getByLabelText(/Company name/), "Gradion");
   await userEvent.type(
-    screen.getByLabelText(/Registered legal name/),
-    "Gradion GmbH",
+    screen.getByLabelText(/What do you sell\?/),
+    "Revenue software for manufacturers",
   );
   await userEvent.type(
-    screen.getByLabelText(/Registered address/),
-    "Hauptstrasse 1, 10115 Berlin",
+    screen.getByLabelText(/Ideal customer/),
+    "Mid-market manufacturers",
   );
-  await userEvent.type(
-    screen.getByLabelText(/Register \/ VAT ID/),
-    "DE123456789",
-  );
-  await userEvent.type(screen.getByLabelText(/Industry/), "Robotics");
 }
 
 afterEach(() => {
@@ -102,6 +95,8 @@ const savedProfile = {
   registered_address: "Hauptstrasse 1, 10115 Berlin",
   register_vat: "DE123456789",
   industry: "Robotics",
+  offer_summary: "Revenue software for manufacturers",
+  icp: "Mid-market manufacturers",
 };
 
 type Route = { url: string; body: unknown; status?: number };
@@ -159,10 +154,6 @@ describe("the company step is a form, not a read-back gate", () => {
     render(<OnboardingScreen />);
 
     await fillRequired();
-    await userEvent.type(
-      screen.getByLabelText(/Ideal customer/),
-      "Mid-market manufacturers",
-    );
     await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
 
     await waitFor(() =>
@@ -171,10 +162,7 @@ describe("the company step is a form, not a read-back gate", () => {
     const put = requestTo(calls, "/company", "PUT") as Request;
     const body = (await put.clone().json()) as Record<string, string>;
     expect(body.display_name).toBe("Gradion");
-    expect(body.legal_name).toBe("Gradion GmbH");
-    expect(body.registered_address).toBe("Hauptstrasse 1, 10115 Berlin");
-    expect(body.register_vat).toBe("DE123456789");
-    expect(body.industry).toBe("Robotics");
+    expect(body.offer_summary).toBe("Revenue software for manufacturers");
     expect(body.icp).toBe("Mid-market manufacturers");
     // Nothing is staged and nothing is approved — the form IS the 🟡 gate.
     expect(calls.some((r) => r.url.includes("/approvals"))).toBe(false);
@@ -189,7 +177,7 @@ describe("the company step is a form, not a read-back gate", () => {
 
     expect(
       screen.getByText(
-        "Fill these in before you continue: Company name, Registered legal name, Registered address, Register / VAT ID, Industry",
+        "Fill these in before you continue: Company name, What do you sell?, Ideal customer",
       ),
     ).toBeTruthy();
     expect(requestTo(calls, "/company", "PUT")).toBeUndefined();
@@ -203,27 +191,20 @@ describe("the company step is a form, not a read-back gate", () => {
 
     await userEvent.type(screen.getByLabelText(/Company name/), "Gradion");
     await userEvent.type(
-      screen.getByLabelText(/Registered legal name/),
-      "Gradion GmbH",
+      screen.getByLabelText(/What do you sell\?/),
+      "Revenue software for manufacturers",
     );
     await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
 
     expect(
-      screen.getByText(
-        "Fill these in before you continue: Registered address, Register / VAT ID, Industry",
-      ),
+      screen.getByText("Fill these in before you continue: Ideal customer"),
     ).toBeTruthy();
     expect(requestTo(calls, "/company", "PUT")).toBeUndefined();
 
     await userEvent.type(
-      screen.getByLabelText(/Registered address/),
-      "Hauptstrasse 1, 10115 Berlin",
+      screen.getByLabelText(/Ideal customer/),
+      "Mid-market manufacturers",
     );
-    await userEvent.type(
-      screen.getByLabelText(/Register \/ VAT ID/),
-      "DE123456789",
-    );
-    await userEvent.type(screen.getByLabelText(/Industry/), "Robotics");
     await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
 
     await waitFor(() =>
@@ -236,12 +217,12 @@ describe("the company step is a form, not a read-back gate", () => {
     render(<OnboardingScreen />);
 
     await fillRequired();
-    await userEvent.clear(screen.getByLabelText(/Industry/));
-    await userEvent.type(screen.getByLabelText(/Industry/), "   ");
+    await userEvent.clear(screen.getByLabelText(/What do you sell\?/));
+    await userEvent.type(screen.getByLabelText(/What do you sell\?/), "   ");
     await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
 
     expect(
-      screen.getByText("Fill these in before you continue: Industry"),
+      screen.getByText("Fill these in before you continue: What do you sell?"),
     ).toBeTruthy();
     expect(requestTo(calls, "/company", "PUT")).toBeUndefined();
   });
@@ -255,9 +236,10 @@ describe("the company step is a form, not a read-back gate", () => {
         true,
       );
     }
-    // Positioning fields can be discovered later — they are not gated.
+    // Legal details and the website can be discovered later — they are not gated.
     expect(
-      (screen.getByLabelText(/Ideal customer/) as HTMLTextAreaElement).required,
+      (screen.getByLabelText(/Registered legal name/) as HTMLInputElement)
+        .required,
     ).toBe(false);
     expect(
       (screen.getByRole("textbox", { name: "Website" }) as HTMLInputElement)
@@ -348,14 +330,9 @@ describe("the website read-back pre-fills the form", () => {
 
     await userEvent.type(screen.getByLabelText(/Company name/), "Gradion");
     await userEvent.type(
-      screen.getByLabelText(/Registered address/),
-      "Hauptstrasse 1, 10115 Berlin",
+      screen.getByLabelText(/What do you sell\?/),
+      "Revenue software for manufacturers",
     );
-    await userEvent.type(
-      screen.getByLabelText(/Register \/ VAT ID/),
-      "DE123456789",
-    );
-    await userEvent.type(screen.getByLabelText(/Industry/), "Robotics");
     await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
     await waitFor(() =>
       expect(requestTo(calls, "/company", "PUT")).toBeTruthy(),

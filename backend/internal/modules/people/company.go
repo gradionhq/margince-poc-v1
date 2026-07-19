@@ -12,7 +12,7 @@ package people
 // This is the human's write. Unlike the cold-start read-back it resolves no
 // domain, creates no approval and fills no blanks on its own: a human looked
 // at every value in a form and saved it, so every field lands stamped
-// human:<user id> / source=manual — which is exactly what makes a later agent
+// human:<user id> / source=human — which is exactly what makes a later agent
 // read-back leave it alone (applyEvidenceFields refuses to overwrite a
 // human-captured row).
 
@@ -37,6 +37,7 @@ import (
 // once. A read-back fills these and the company form types them; they are the
 // same set on purpose, which is what lets a site pre-fill a form.
 const (
+	fieldOfferSummary      = "offer_summary"
 	fieldLegalName         = "legal_name"
 	fieldRegisteredAddress = "registered_address"
 	fieldRegisterVat       = "register_vat"
@@ -44,9 +45,18 @@ const (
 	fieldICP               = "icp"
 	fieldValueProposition  = "value_proposition"
 	fieldUSP               = "usp"
+	fieldCustomerPains     = "customer_pains"
+	fieldDesiredOutcomes   = "desired_outcomes"
 	fieldBuyingCenter      = "buying_center"
 	fieldBuyingIntents     = "buying_intents"
+	fieldCommonObjections  = "common_objections"
+	fieldSalesMotion       = "sales_motion"
 	fieldHistory           = "history"
+)
+
+const (
+	companySourceHuman    = "human"
+	companySourceSiteRead = "site_read"
 )
 
 // The audit row's and the event envelope's payload keys.
@@ -71,6 +81,8 @@ type companyField struct {
 // deliberately the same set a read-back can fill. Ordered so an audit delta
 // reads the way the form does.
 var companyFields = []companyField{
+	{name: fieldDisplayName},
+	{name: fieldOfferSummary},
 	{name: fieldLegalName, update: `UPDATE organization SET legal_name = $2 WHERE id = $1`},
 	{name: fieldRegisteredAddress, update: `UPDATE organization SET address_line1 = $2 WHERE id = $1`},
 	{name: fieldRegisterVat},
@@ -78,20 +90,57 @@ var companyFields = []companyField{
 	{name: fieldICP},
 	{name: fieldValueProposition},
 	{name: fieldUSP},
+	{name: fieldCustomerPains},
+	{name: fieldDesiredOutcomes},
 	{name: fieldBuyingCenter},
 	{name: fieldBuyingIntents},
+	{name: fieldCommonObjections},
+	{name: fieldSalesMotion},
 	{name: fieldHistory},
+}
+
+// CompanyProfileField is one confirmed single-value company statement with
+// its field-level provenance. Empty evidence/source URLs mean the value was
+// supplied by a human rather than read from a source document.
+type CompanyProfileField struct {
+	Field           string
+	Value           string
+	EvidenceSnippet string
+	SourceURL       string
+	Confidence      float32
+	Source          string
+	CapturedBy      string
+	UpdatedAt       time.Time
+}
+
+// CompanyFact is one accepted repeatable fact about the company.
+type CompanyFact struct {
+	Category        string
+	Field           string
+	Value           string
+	ValueKey        string
+	EvidenceSnippet string
+	SourceURL       string
+	Confidence      float32
+	Source          string
+	CapturedBy      string
+	UpdatedAt       time.Time
 }
 
 // Company is the installation's own company as the form reads and writes it.
 // Fields carries the companyFields vocabulary; an absent key is a field
 // nobody has filled yet.
 type Company struct {
-	OrganizationID ids.OrganizationID
-	DisplayName    string
-	Website        *string
-	Fields         map[string]string
-	UpdatedAt      time.Time
+	OrganizationID         ids.OrganizationID
+	DisplayName            string
+	OrganizationSource     string
+	OrganizationCapturedBy string
+	Website                *string
+	Fields                 map[string]string
+	ProfileFields          []CompanyProfileField
+	Facts                  []CompanyFact
+	MinimumComplete        bool
+	UpdatedAt              time.Time
 }
 
 // SaveCompanyInput is one submission of the company form. A nil field was not
@@ -146,7 +195,12 @@ func (s *Store) SaveCompany(ctx context.Context, in SaveCompanyInput) (Company, 
 			return err
 		}
 
-		applied, err := writeCompanyFields(ctx, tx, orgID, by, in.Fields)
+		fields := make(map[string]*string, len(in.Fields)+1)
+		for field, value := range in.Fields {
+			fields[field] = value
+		}
+		fields[fieldDisplayName] = &in.DisplayName
+		applied, err := writeCompanyFields(ctx, tx, orgID, by, fields)
 		if err != nil {
 			return err
 		}
@@ -163,13 +217,13 @@ func (s *Store) SaveCompany(ctx context.Context, in SaveCompanyInput) (Company, 
 			action, eventType = "create", "organization.created"
 		}
 		auditID, err := storekit.Audit(ctx, tx, action, "organization", orgID.UUID, nil, map[string]any{
-			auditKeySource: "manual", "anchor": true, auditKeyFields: applied,
+			auditKeySource: companySourceHuman, "anchor": true, auditKeyFields: applied,
 		})
 		if err != nil {
 			return fmt.Errorf("audit company save: %w", err)
 		}
 		if err := storekit.Emit(ctx, tx, auditID, eventType, "organization", orgID.UUID, map[string]any{
-			eventKeyDelta: applied, auditKeySource: "manual", "anchor": true, "captured_by": by,
+			eventKeyDelta: applied, auditKeySource: companySourceHuman, "anchor": true, "captured_by": by,
 		}); err != nil {
 			return fmt.Errorf("emit %s: %w", eventType, err)
 		}
@@ -285,15 +339,15 @@ func writeCompanyFields(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID
 			continue
 		}
 		// A human-typed value has no snippet to quote — the human IS the
-		// evidence, which is what source=manual + captured_by=human:<id>
+		// evidence, which is what source=human + captured_by=human:<id>
 		// record. Confidence is 1: they are not guessing about themselves.
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO organization_profile_field
 			  (workspace_id, organization_id, field, value, evidence_snippet, source_url, confidence, source, captured_by)
-			VALUES ($1, $2, $3, $4, '', '', 1, 'manual', $5)
+			VALUES ($1, $2, $3, $4, '', '', 1, 'human', $5)
 			ON CONFLICT (workspace_id, organization_id, field)
 			DO UPDATE SET value = EXCLUDED.value, evidence_snippet = '', source_url = '',
-			              confidence = 1, source = 'manual',
+			              confidence = 1, source = 'human',
 			              captured_by = EXCLUDED.captured_by, captured_at = now()`,
 			workspaceID(ctx), orgID, field, trimmed, by); err != nil {
 			return nil, fmt.Errorf("save company field %s: %w", field, err)
@@ -380,32 +434,66 @@ func companyHost(website string) (string, error) {
 func readCompany(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (Company, error) {
 	out := Company{OrganizationID: orgID, Fields: map[string]string{}}
 	if err := tx.QueryRow(ctx,
-		`SELECT o.display_name, o.updated_at, d.domain
+		`SELECT o.display_name, o.source, o.captured_by, o.updated_at, d.domain
 		   FROM organization o
 		   LEFT JOIN organization_domain d
 		     ON d.organization_id = o.id AND d.is_primary AND d.archived_at IS NULL
 		  WHERE o.id = $1`,
-		orgID).Scan(&out.DisplayName, &out.UpdatedAt, &out.Website); err != nil {
+		orgID).Scan(&out.DisplayName, &out.OrganizationSource, &out.OrganizationCapturedBy,
+		&out.UpdatedAt, &out.Website); err != nil {
 		return Company{}, fmt.Errorf("read company: %w", err)
 	}
 
 	rows, err := tx.Query(ctx,
-		`SELECT field, value FROM organization_profile_field
-		  WHERE workspace_id = $1 AND organization_id = $2`,
+		`SELECT field, value, evidence_snippet, source_url, confidence,
+		        source, captured_by, updated_at
+		   FROM organization_profile_field
+		  WHERE workspace_id = $1 AND organization_id = $2
+		  ORDER BY field`,
 		workspaceID(ctx), orgID)
 	if err != nil {
 		return Company{}, fmt.Errorf("read company fields: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var field, value string
-		if err := rows.Scan(&field, &value); err != nil {
+		var field CompanyProfileField
+		if err := rows.Scan(&field.Field, &field.Value, &field.EvidenceSnippet,
+			&field.SourceURL, &field.Confidence, &field.Source, &field.CapturedBy,
+			&field.UpdatedAt); err != nil {
 			return Company{}, fmt.Errorf("scan company field: %w", err)
 		}
-		out.Fields[field] = value
+		out.Fields[field.Field] = field.Value
+		out.ProfileFields = append(out.ProfileFields, field)
 	}
 	if err := rows.Err(); err != nil {
 		return Company{}, fmt.Errorf("read company fields: %w", err)
 	}
+
+	facts, err := tx.Query(ctx,
+		`SELECT category, field, value, value_key, evidence_snippet, source_url,
+		        confidence, source, captured_by, updated_at
+		   FROM organization_fact
+		  WHERE workspace_id = $1 AND organization_id = $2
+		  ORDER BY category, field, value_key, value`,
+		workspaceID(ctx), orgID)
+	if err != nil {
+		return Company{}, fmt.Errorf("read company facts: %w", err)
+	}
+	defer facts.Close()
+	for facts.Next() {
+		var fact CompanyFact
+		if err := facts.Scan(&fact.Category, &fact.Field, &fact.Value, &fact.ValueKey,
+			&fact.EvidenceSnippet, &fact.SourceURL, &fact.Confidence, &fact.Source,
+			&fact.CapturedBy, &fact.UpdatedAt); err != nil {
+			return Company{}, fmt.Errorf("scan company fact: %w", err)
+		}
+		out.Facts = append(out.Facts, fact)
+	}
+	if err := facts.Err(); err != nil {
+		return Company{}, fmt.Errorf("read company facts: %w", err)
+	}
+	out.MinimumComplete = strings.TrimSpace(out.DisplayName) != "" &&
+		strings.TrimSpace(out.Fields[fieldOfferSummary]) != "" &&
+		strings.TrimSpace(out.Fields[fieldICP]) != ""
 	return out, nil
 }

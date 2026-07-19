@@ -440,6 +440,9 @@ export async function mockApi(target: Page): Promise<void> {
     if (path === "/people/p-anna") {
       return json(anna);
     }
+    if (path === "/people/p-anna/consent" && method === "GET") {
+      return json({ state: [], events: [] });
+    }
     if (path === "/organizations" && method === "GET") {
       return json(page([brandt]));
     }

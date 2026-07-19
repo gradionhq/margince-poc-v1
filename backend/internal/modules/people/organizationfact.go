@@ -30,13 +30,20 @@ import (
 
 // OrganizationFactFields is the closed category/field vocabulary,
 // mirroring the org_fact_field_vocab CHECK so a bad staged payload reads
-// as an actionable error, not a constraint 500. The 11 cold-start company
-// fields stay in organization_profile_field; this vocabulary is only the
-// NEW facts.
+// as an actionable error, not a constraint 500. Confirmed profile fields stay
+// in organization_profile_field; this vocabulary holds repeatable facts.
+const (
+	factCategoryCompany  = "company"
+	factCategoryOffering = "offering"
+	factCategoryMarket   = "market"
+	factCategorySignal   = "signal"
+)
+
 var OrganizationFactFields = map[string][]string{
-	"company":  {"founded_year", "employee_range", "phone", "contact_email", "location"},
-	"offering": {"service", "product"},
-	"signal":   {"certification", "partner", "named_customer", "technology"},
+	factCategoryCompany:  {"founded_year", "employee_range", "phone", "contact_email", "location"},
+	factCategoryOffering: {"service", "product", "capability"},
+	factCategoryMarket:   {"served_industry", "company_size", "geography", "language"},
+	factCategorySignal:   {"certification", "partner", "named_customer", "technology", "quantified_outcome"},
 }
 
 // OrganizationFactMultiValue names the fields that may carry several rows
@@ -49,7 +56,7 @@ var OrganizationFactMultiValue = multiValueFactFields()
 
 func multiValueFactFields() map[string]bool {
 	multi := map[string]bool{"location": true}
-	for _, category := range []string{"offering", "signal"} {
+	for _, category := range []string{factCategoryOffering, factCategoryMarket, factCategorySignal} {
 		for _, field := range OrganizationFactFields[category] {
 			multi[field] = true
 		}
@@ -120,7 +127,7 @@ func UnmarshalDeepRead(raw json.RawMessage) (DeepReadProposal, error) {
 func validDeepReadFact(f DeepReadFact) error {
 	fields, ok := OrganizationFactFields[f.Category]
 	if !ok {
-		return fmt.Errorf("people: %q is not an organization-fact category (company|offering|signal)", f.Category)
+		return fmt.Errorf("people: %q is not an organization-fact category (company|offering|market|signal)", f.Category)
 	}
 	known := false
 	for _, name := range fields {
@@ -183,7 +190,7 @@ func (s *Store) ApplyDeepRead(ctx context.Context, in DeepReadProposal) error {
 		if err := auth.EnsureVisible(ctx, tx, "organization", in.OrganizationID.UUID); err != nil {
 			return err
 		}
-		appliedFields, err := applyEvidenceFields(ctx, tx, wsID, in.OrganizationID, "deepread", by, fields)
+		appliedFields, err := applyEvidenceFields(ctx, tx, wsID, in.OrganizationID, companySourceSiteRead, by, fields)
 		if err != nil {
 			return err
 		}
@@ -192,7 +199,7 @@ func (s *Store) ApplyDeepRead(ctx context.Context, in DeepReadProposal) error {
 			return err
 		}
 		auditID, err := storekit.Audit(ctx, tx, "update", "organization", in.OrganizationID.UUID, nil, map[string]any{
-			auditKeySource: "deepread", auditKeySourceURL: in.SourceURL,
+			auditKeySource: companySourceSiteRead, auditKeySourceURL: in.SourceURL,
 			auditKeyFields: appliedFields, "facts": appliedFacts,
 		})
 		if err != nil {
@@ -200,7 +207,7 @@ func (s *Store) ApplyDeepRead(ctx context.Context, in DeepReadProposal) error {
 		}
 		if err := storekit.Emit(ctx, tx, auditID, "organization.updated", "organization", in.OrganizationID.UUID, map[string]any{
 			eventKeyDelta:  map[string]any{auditKeyFields: appliedFields, "facts": appliedFacts},
-			auditKeySource: "deepread", auditKeySourceURL: in.SourceURL,
+			auditKeySource: companySourceSiteRead, auditKeySourceURL: in.SourceURL,
 		}); err != nil {
 			return fmt.Errorf("emit organization.updated: %w", err)
 		}
@@ -226,7 +233,7 @@ func upsertOrganizationFacts(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceI
 			INSERT INTO organization_fact
 			  (workspace_id, organization_id, category, field, value, value_key,
 			   evidence_snippet, source_url, confidence, source, captured_by, site_read_id)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'deepread', $10, $11)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'site_read', $10, $11)
 			ON CONFLICT (workspace_id, organization_id, category, field, value_key)
 			DO UPDATE SET value = EXCLUDED.value, evidence_snippet = EXCLUDED.evidence_snippet,
 			              source_url = EXCLUDED.source_url, confidence = EXCLUDED.confidence,

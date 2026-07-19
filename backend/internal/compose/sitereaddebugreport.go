@@ -175,9 +175,9 @@ func wrongCompanySignal(seedURL string, merged []evidencedField) string {
 	var legalName, displayName string
 	for _, f := range merged {
 		switch f.Field {
-		case string(crmcontracts.LegalName):
+		case string(crmcontracts.ColdStartFieldFieldLegalName):
 			legalName = f.Value
-		case string(crmcontracts.DisplayName):
+		case string(crmcontracts.ColdStartFieldFieldDisplayName):
 			displayName = f.Value
 		}
 	}

@@ -63,16 +63,16 @@ func TestExtractReadsTheImpressumForLegalFacts(t *testing.T) {
 	}
 	// The Impressum wins the legal facts even at LOWER model confidence: the
 	// page that legally states a fact outranks a landing-page guess.
-	legal := byName[string(crmcontracts.LegalName)]
+	legal := byName[string(crmcontracts.ColdStartFieldFieldLegalName)]
 	if legal.Value != "Acme Robotics GmbH" || legal.SourceURL != "https://acme.example/impressum" {
 		t.Fatalf("legal_name = %q from %s, want the Impressum's value", legal.Value, legal.SourceURL)
 	}
 	// A fact only the Impressum grounds arrives with the Impressum's URL.
-	if vat := byName[string(crmcontracts.RegisterVat)]; vat.Value != "DE811234567" || vat.SourceURL != "https://acme.example/impressum" {
+	if vat := byName[string(crmcontracts.ColdStartFieldFieldRegisterVat)]; vat.Value != "DE811234567" || vat.SourceURL != "https://acme.example/impressum" {
 		t.Fatalf("register_vat = %q from %s, want the Impressum's value WITH its provenance", vat.Value, vat.SourceURL)
 	}
 	// A positioning fact stays the landing page's.
-	if icp := byName[string(crmcontracts.Icp)]; icp.SourceURL != "https://acme.example" {
+	if icp := byName[string(crmcontracts.ColdStartFieldFieldIcp)]; icp.SourceURL != "https://acme.example" {
 		t.Fatalf("icp came from %s, want the landing page", icp.SourceURL)
 	}
 }
@@ -130,7 +130,7 @@ func TestExtractOffersDisplayNameToTheModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(fields) != 1 || fields[0].Field != string(crmcontracts.DisplayName) {
+	if len(fields) != 1 || fields[0].Field != string(crmcontracts.ColdStartFieldFieldDisplayName) {
 		t.Fatalf("fields = %+v, want the grounded display_name", fields)
 	}
 	if !strings.Contains(string(brain.Calls()[0].Payload), "display_name") {

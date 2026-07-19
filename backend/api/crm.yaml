@@ -3003,7 +3003,7 @@ paths:
       description: |
         Creates the anchor organization on first save (marking it `is_anchor`) and updates it on every
         later one. This is a HUMAN write: every field is stamped
-        `captured_by=human:<user id>`, `source=manual`, whether it was typed from scratch or accepted
+        `captured_by=human:<user id>`, `source=human`, whether it was typed from scratch or accepted
         from a /coldstart/preview read-back — once a human has looked at a value and saved it, it is
         theirs, and a later agent read-back will not overwrite it.
 
@@ -3033,6 +3033,33 @@ paths:
               schema: { $ref: '#/components/schemas/CompanyProfile' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /company/context:
+    get:
+      tags: [Organizations, AI]
+      operationId: getCompanyContext
+      summary: The deterministic, typed context assembled from the anchor company.
+      description: |
+        Reads confirmed company identity, profile fields and accepted repeatable facts under the
+        caller's normal organization row scope. The requested scopes bound the result; raw crawl
+        pages and individual people never enter this read model. Ordering and fingerprinting are
+        deterministic so downstream model calls can bind cache entries and traces to the exact
+        company knowledge they used.
+      parameters:
+        - name: scopes
+          in: query
+          description: Comma-separated context scopes. Omit for the bounded default set.
+          schema: { type: string, example: 'identity,positioning,offer' }
+      responses:
+        '200':
+          description: The selected company-context scopes and their provenance-bearing values.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyContext' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
   # -------------------------- /connectors/imap ------------------------------
@@ -8522,7 +8549,7 @@ components:
         ONLY for `source_kind=url` (nullable otherwise — text/self-description evidence has no URL).
       required: [field, value, evidence_snippet, source_kind, confidence]
       properties:
-        field: { type: string, enum: [icp, buying_center, value_proposition, usp, buying_intents, legal_name, registered_address, register_vat, industry, history, display_name] }
+        field: { type: string, enum: [display_name, offer_summary, icp, value_proposition, usp, customer_pains, desired_outcomes, buying_center, buying_intents, common_objections, sales_motion, legal_name, registered_address, register_vat, industry, history] }
         value: { type: string }
         evidence_snippet: { type: string, minLength: 1, description: 'Verbatim source text (from the page, the pasted text, or the user''s own words) — non-empty or the field is absent.' }
         source_kind: { type: string, enum: [url, text, self_description], description: 'Where evidence_snippet came from. For self_description the "evidence" is the user''s own statement — a self-declared ICP is grounded in that statement (B-E01.13), not fabricated.' }
@@ -8558,9 +8585,11 @@ components:
     CompanyProfile:
       type: object
       description: |
-        The installation's own company. `display_name` is the only field the form requires — a company
-        that will not say its VAT ID is still a company. Every other field is nullable and stays null
-        until someone fills it, by hand or from a read-back.
+        The installation's own company. The flat properties remain compatibility aliases for the
+        existing form; `fields` and `facts` are the provenance-bearing source records used by new
+        clients and by CompanyContext. New onboarding considers the profile minimum-complete when
+        display_name, offer_summary and icp are confirmed. Existing installations may remain
+        incomplete until their next edit; reads never fabricate the missing values.
       required: [organization_id, display_name]
       properties:
         organization_id: { type: string, format: uuid, description: The anchor organization this profile belongs to. }
@@ -8570,37 +8599,115 @@ components:
         registered_address: { type: [string, 'null'], description: The registered address as one formatted line. }
         register_vat: { type: [string, 'null'], description: 'VAT ID / commercial register entry (e.g. DE123456789, HRB 12345 B).' }
         industry: { type: [string, 'null'] }
+        offer_summary: { type: [string, 'null'], description: Plain-language summary of what the company sells or delivers. }
         icp: { type: [string, 'null'], description: Ideal customer profile — who this company sells to. }
         value_proposition: { type: [string, 'null'] }
         usp: { type: [string, 'null'] }
+        customer_pains: { type: [string, 'null'] }
+        desired_outcomes: { type: [string, 'null'] }
         buying_center: { type: [string, 'null'], description: The roles that decide on a purchase. }
         buying_intents: { type: [string, 'null'] }
+        common_objections: { type: [string, 'null'] }
+        sales_motion: { type: [string, 'null'] }
         history: { type: [string, 'null'], description: Company background. }
+        fields:
+          type: array
+          items: { $ref: '#/components/schemas/CompanyProfileField' }
+        facts:
+          type: array
+          items: { $ref: '#/components/schemas/OrganizationFact' }
+        minimum_complete: { type: boolean, description: True when display_name, offer_summary and icp are confirmed. }
         updated_at: { type: string, format: date-time }
 
     CompanyProfileInput:
       type: object
       description: |
-        The company form's body. The identity block is REQUIRED — an installation that will not say who
-        it legally is cannot invoice, cannot meet its GoBD retention duties, and leaves every downstream
-        feature guessing. A read-back fills what it can quote; whatever it cannot, the human types. The
-        positioning fields are optional: they can be discovered later, the legal facts cannot.
-
-        Among the optional fields, an omitted one is left as it was and one sent empty is cleared.
-      required: [display_name, legal_name, registered_address, register_vat, industry]
+        The company form's body. New onboarding requires the semantic minimum: display_name,
+        offer_summary and icp. The OpenAPI wire keeps only display_name structurally required so clients
+        can be upgraded independently: clients that submit the former five-field legal identity block
+        still succeed, while the current UI and server-created onboarding flow enforce the semantic
+        minimum. Legal/registration fields are optional until a feature with a real
+        jurisdictional or invoicing need asks for them. An omitted optional field is unchanged and one
+        sent empty is cleared.
+      required: [display_name]
       properties:
         display_name: { type: string, minLength: 1 }
-        legal_name: { type: string, minLength: 1, description: The registered legal entity. }
-        registered_address: { type: string, minLength: 1, description: The registered address as one formatted line. }
-        register_vat: { type: string, minLength: 1, description: 'VAT ID / commercial register entry (e.g. DE123456789, HRB 12345 B).' }
-        industry: { type: string, minLength: 1 }
+        legal_name: { type: [string, 'null'], description: The registered legal entity. }
+        registered_address: { type: [string, 'null'], description: The registered address as one formatted line. }
+        register_vat: { type: [string, 'null'], description: 'VAT ID / commercial register entry (e.g. DE123456789, HRB 12345 B).' }
+        industry: { type: [string, 'null'] }
         website: { type: [string, 'null'], description: 'The company''s own domain or full URL; stored as the bare domain.' }
+        offer_summary: { type: [string, 'null'] }
         icp: { type: [string, 'null'] }
         value_proposition: { type: [string, 'null'] }
         usp: { type: [string, 'null'] }
+        customer_pains: { type: [string, 'null'] }
+        desired_outcomes: { type: [string, 'null'] }
         buying_center: { type: [string, 'null'] }
         buying_intents: { type: [string, 'null'] }
+        common_objections: { type: [string, 'null'] }
+        sales_motion: { type: [string, 'null'] }
         history: { type: [string, 'null'] }
+
+    CompanyProfileField:
+      type: object
+      required: [field, value, source, captured_by, updated_at]
+      properties:
+        field: { type: string, enum: [display_name, offer_summary, icp, value_proposition, usp, customer_pains, desired_outcomes, buying_center, buying_intents, common_objections, sales_motion, legal_name, registered_address, register_vat, industry, history] }
+        value: { type: string }
+        source: { type: string, enum: [human, site_read, connector, migration] }
+        captured_by: { type: string, readOnly: true }
+        evidence_snippet: { type: [string, 'null'] }
+        source_url: { type: [string, 'null'], format: uri }
+        confidence: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        updated_at: { type: string, format: date-time }
+
+    OrganizationFact:
+      type: object
+      required: [category, field, value, value_key, source, captured_by, updated_at]
+      properties:
+        category: { type: string, enum: [company, offering, market, signal] }
+        field: { type: string, enum: [founded_year, employee_range, phone, contact_email, location, service, product, capability, served_industry, company_size, geography, language, certification, partner, named_customer, technology, quantified_outcome] }
+        value: { type: string }
+        value_key: { type: string }
+        source: { type: string, enum: [human, site_read, connector, migration] }
+        captured_by: { type: string, readOnly: true }
+        evidence_snippet: { type: [string, 'null'] }
+        source_url: { type: [string, 'null'], format: uri }
+        confidence: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        updated_at: { type: string, format: date-time }
+
+    CompanyContextItem:
+      type: object
+      required: [key, value, source, captured_by]
+      properties:
+        key: { type: string }
+        value: { type: string }
+        source: { type: string, enum: [human, site_read, connector, migration] }
+        captured_by: { type: string, readOnly: true }
+        source_url: { type: [string, 'null'], format: uri }
+        confidence: { type: [number, 'null'], minimum: 0, maximum: 1 }
+
+    CompanyContextScope:
+      type: object
+      required: [scope, items]
+      properties:
+        scope: { type: string, enum: [identity, positioning, sales, offer, market, proof, administrative] }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CompanyContextItem' }
+
+    CompanyContext:
+      type: object
+      required: [organization_id, schema_version, scopes, fingerprint, generated_at]
+      properties:
+        organization_id: { type: string, format: uuid }
+        schema_version: { type: integer, enum: [1] }
+        scopes:
+          type: array
+          items: { $ref: '#/components/schemas/CompanyContextScope' }
+        fingerprint: { type: string, description: Deterministic SHA-256 digest of the selected confirmed values and accepted facts. }
+        generated_at: { type: string, format: date-time }
 
     EnrichCompanyRequest:
       type: object

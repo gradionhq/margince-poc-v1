@@ -740,43 +740,58 @@ func (e CaptureExclusionRuleKind) Valid() bool {
 
 // Defines values for ColdStartFieldField.
 const (
-	BuyingCenter      ColdStartFieldField = "buying_center"
-	BuyingIntents     ColdStartFieldField = "buying_intents"
-	DisplayName       ColdStartFieldField = "display_name"
-	History           ColdStartFieldField = "history"
-	Icp               ColdStartFieldField = "icp"
-	Industry          ColdStartFieldField = "industry"
-	LegalName         ColdStartFieldField = "legal_name"
-	RegisterVat       ColdStartFieldField = "register_vat"
-	RegisteredAddress ColdStartFieldField = "registered_address"
-	Usp               ColdStartFieldField = "usp"
-	ValueProposition  ColdStartFieldField = "value_proposition"
+	ColdStartFieldFieldBuyingCenter      ColdStartFieldField = "buying_center"
+	ColdStartFieldFieldBuyingIntents     ColdStartFieldField = "buying_intents"
+	ColdStartFieldFieldCommonObjections  ColdStartFieldField = "common_objections"
+	ColdStartFieldFieldCustomerPains     ColdStartFieldField = "customer_pains"
+	ColdStartFieldFieldDesiredOutcomes   ColdStartFieldField = "desired_outcomes"
+	ColdStartFieldFieldDisplayName       ColdStartFieldField = "display_name"
+	ColdStartFieldFieldHistory           ColdStartFieldField = "history"
+	ColdStartFieldFieldIcp               ColdStartFieldField = "icp"
+	ColdStartFieldFieldIndustry          ColdStartFieldField = "industry"
+	ColdStartFieldFieldLegalName         ColdStartFieldField = "legal_name"
+	ColdStartFieldFieldOfferSummary      ColdStartFieldField = "offer_summary"
+	ColdStartFieldFieldRegisterVat       ColdStartFieldField = "register_vat"
+	ColdStartFieldFieldRegisteredAddress ColdStartFieldField = "registered_address"
+	ColdStartFieldFieldSalesMotion       ColdStartFieldField = "sales_motion"
+	ColdStartFieldFieldUsp               ColdStartFieldField = "usp"
+	ColdStartFieldFieldValueProposition  ColdStartFieldField = "value_proposition"
 )
 
 // Valid indicates whether the value is a known member of the ColdStartFieldField enum.
 func (e ColdStartFieldField) Valid() bool {
 	switch e {
-	case BuyingCenter:
+	case ColdStartFieldFieldBuyingCenter:
 		return true
-	case BuyingIntents:
+	case ColdStartFieldFieldBuyingIntents:
 		return true
-	case DisplayName:
+	case ColdStartFieldFieldCommonObjections:
 		return true
-	case History:
+	case ColdStartFieldFieldCustomerPains:
 		return true
-	case Icp:
+	case ColdStartFieldFieldDesiredOutcomes:
 		return true
-	case Industry:
+	case ColdStartFieldFieldDisplayName:
 		return true
-	case LegalName:
+	case ColdStartFieldFieldHistory:
 		return true
-	case RegisterVat:
+	case ColdStartFieldFieldIcp:
 		return true
-	case RegisteredAddress:
+	case ColdStartFieldFieldIndustry:
 		return true
-	case Usp:
+	case ColdStartFieldFieldLegalName:
 		return true
-	case ValueProposition:
+	case ColdStartFieldFieldOfferSummary:
+		return true
+	case ColdStartFieldFieldRegisterVat:
+		return true
+	case ColdStartFieldFieldRegisteredAddress:
+		return true
+	case ColdStartFieldFieldSalesMotion:
+		return true
+	case ColdStartFieldFieldUsp:
+		return true
+	case ColdStartFieldFieldValueProposition:
 		return true
 	default:
 		return false
@@ -834,6 +849,162 @@ const (
 func (e ColdStartProposalStatus) Valid() bool {
 	switch e {
 	case ColdStartProposalStatusStaged:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompanyContextSchemaVersion.
+const (
+	N1 CompanyContextSchemaVersion = 1
+)
+
+// Valid indicates whether the value is a known member of the CompanyContextSchemaVersion enum.
+func (e CompanyContextSchemaVersion) Valid() bool {
+	switch e {
+	case N1:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompanyContextItemSource.
+const (
+	CompanyContextItemSourceConnector CompanyContextItemSource = "connector"
+	CompanyContextItemSourceHuman     CompanyContextItemSource = "human"
+	CompanyContextItemSourceMigration CompanyContextItemSource = "migration"
+	CompanyContextItemSourceSiteRead  CompanyContextItemSource = "site_read"
+)
+
+// Valid indicates whether the value is a known member of the CompanyContextItemSource enum.
+func (e CompanyContextItemSource) Valid() bool {
+	switch e {
+	case CompanyContextItemSourceConnector:
+		return true
+	case CompanyContextItemSourceHuman:
+		return true
+	case CompanyContextItemSourceMigration:
+		return true
+	case CompanyContextItemSourceSiteRead:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompanyContextScopeScope.
+const (
+	CompanyContextScopeScopeAdministrative CompanyContextScopeScope = "administrative"
+	CompanyContextScopeScopeIdentity       CompanyContextScopeScope = "identity"
+	CompanyContextScopeScopeMarket         CompanyContextScopeScope = "market"
+	CompanyContextScopeScopeOffer          CompanyContextScopeScope = "offer"
+	CompanyContextScopeScopePositioning    CompanyContextScopeScope = "positioning"
+	CompanyContextScopeScopeProof          CompanyContextScopeScope = "proof"
+	CompanyContextScopeScopeSales          CompanyContextScopeScope = "sales"
+)
+
+// Valid indicates whether the value is a known member of the CompanyContextScopeScope enum.
+func (e CompanyContextScopeScope) Valid() bool {
+	switch e {
+	case CompanyContextScopeScopeAdministrative:
+		return true
+	case CompanyContextScopeScopeIdentity:
+		return true
+	case CompanyContextScopeScopeMarket:
+		return true
+	case CompanyContextScopeScopeOffer:
+		return true
+	case CompanyContextScopeScopePositioning:
+		return true
+	case CompanyContextScopeScopeProof:
+		return true
+	case CompanyContextScopeScopeSales:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompanyProfileFieldField.
+const (
+	CompanyProfileFieldFieldBuyingCenter      CompanyProfileFieldField = "buying_center"
+	CompanyProfileFieldFieldBuyingIntents     CompanyProfileFieldField = "buying_intents"
+	CompanyProfileFieldFieldCommonObjections  CompanyProfileFieldField = "common_objections"
+	CompanyProfileFieldFieldCustomerPains     CompanyProfileFieldField = "customer_pains"
+	CompanyProfileFieldFieldDesiredOutcomes   CompanyProfileFieldField = "desired_outcomes"
+	CompanyProfileFieldFieldDisplayName       CompanyProfileFieldField = "display_name"
+	CompanyProfileFieldFieldHistory           CompanyProfileFieldField = "history"
+	CompanyProfileFieldFieldIcp               CompanyProfileFieldField = "icp"
+	CompanyProfileFieldFieldIndustry          CompanyProfileFieldField = "industry"
+	CompanyProfileFieldFieldLegalName         CompanyProfileFieldField = "legal_name"
+	CompanyProfileFieldFieldOfferSummary      CompanyProfileFieldField = "offer_summary"
+	CompanyProfileFieldFieldRegisterVat       CompanyProfileFieldField = "register_vat"
+	CompanyProfileFieldFieldRegisteredAddress CompanyProfileFieldField = "registered_address"
+	CompanyProfileFieldFieldSalesMotion       CompanyProfileFieldField = "sales_motion"
+	CompanyProfileFieldFieldUsp               CompanyProfileFieldField = "usp"
+	CompanyProfileFieldFieldValueProposition  CompanyProfileFieldField = "value_proposition"
+)
+
+// Valid indicates whether the value is a known member of the CompanyProfileFieldField enum.
+func (e CompanyProfileFieldField) Valid() bool {
+	switch e {
+	case CompanyProfileFieldFieldBuyingCenter:
+		return true
+	case CompanyProfileFieldFieldBuyingIntents:
+		return true
+	case CompanyProfileFieldFieldCommonObjections:
+		return true
+	case CompanyProfileFieldFieldCustomerPains:
+		return true
+	case CompanyProfileFieldFieldDesiredOutcomes:
+		return true
+	case CompanyProfileFieldFieldDisplayName:
+		return true
+	case CompanyProfileFieldFieldHistory:
+		return true
+	case CompanyProfileFieldFieldIcp:
+		return true
+	case CompanyProfileFieldFieldIndustry:
+		return true
+	case CompanyProfileFieldFieldLegalName:
+		return true
+	case CompanyProfileFieldFieldOfferSummary:
+		return true
+	case CompanyProfileFieldFieldRegisterVat:
+		return true
+	case CompanyProfileFieldFieldRegisteredAddress:
+		return true
+	case CompanyProfileFieldFieldSalesMotion:
+		return true
+	case CompanyProfileFieldFieldUsp:
+		return true
+	case CompanyProfileFieldFieldValueProposition:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompanyProfileFieldSource.
+const (
+	CompanyProfileFieldSourceConnector CompanyProfileFieldSource = "connector"
+	CompanyProfileFieldSourceHuman     CompanyProfileFieldSource = "human"
+	CompanyProfileFieldSourceMigration CompanyProfileFieldSource = "migration"
+	CompanyProfileFieldSourceSiteRead  CompanyProfileFieldSource = "site_read"
+)
+
+// Valid indicates whether the value is a known member of the CompanyProfileFieldSource enum.
+func (e CompanyProfileFieldSource) Valid() bool {
+	switch e {
+	case CompanyProfileFieldSourceConnector:
+		return true
+	case CompanyProfileFieldSourceHuman:
+		return true
+	case CompanyProfileFieldSourceMigration:
+		return true
+	case CompanyProfileFieldSourceSiteRead:
 		return true
 	default:
 		return false
@@ -2316,6 +2487,117 @@ func (e OrganizationSizeBand) Valid() bool {
 	case OrganizationSizeBandN5011000:
 		return true
 	case OrganizationSizeBandN51200:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OrganizationFactCategory.
+const (
+	OrganizationFactCategoryCompany  OrganizationFactCategory = "company"
+	OrganizationFactCategoryMarket   OrganizationFactCategory = "market"
+	OrganizationFactCategoryOffering OrganizationFactCategory = "offering"
+	OrganizationFactCategorySignal   OrganizationFactCategory = "signal"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationFactCategory enum.
+func (e OrganizationFactCategory) Valid() bool {
+	switch e {
+	case OrganizationFactCategoryCompany:
+		return true
+	case OrganizationFactCategoryMarket:
+		return true
+	case OrganizationFactCategoryOffering:
+		return true
+	case OrganizationFactCategorySignal:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OrganizationFactField.
+const (
+	OrganizationFactFieldCapability        OrganizationFactField = "capability"
+	OrganizationFactFieldCertification     OrganizationFactField = "certification"
+	OrganizationFactFieldCompanySize       OrganizationFactField = "company_size"
+	OrganizationFactFieldContactEmail      OrganizationFactField = "contact_email"
+	OrganizationFactFieldEmployeeRange     OrganizationFactField = "employee_range"
+	OrganizationFactFieldFoundedYear       OrganizationFactField = "founded_year"
+	OrganizationFactFieldGeography         OrganizationFactField = "geography"
+	OrganizationFactFieldLanguage          OrganizationFactField = "language"
+	OrganizationFactFieldLocation          OrganizationFactField = "location"
+	OrganizationFactFieldNamedCustomer     OrganizationFactField = "named_customer"
+	OrganizationFactFieldPartner           OrganizationFactField = "partner"
+	OrganizationFactFieldPhone             OrganizationFactField = "phone"
+	OrganizationFactFieldProduct           OrganizationFactField = "product"
+	OrganizationFactFieldQuantifiedOutcome OrganizationFactField = "quantified_outcome"
+	OrganizationFactFieldServedIndustry    OrganizationFactField = "served_industry"
+	OrganizationFactFieldService           OrganizationFactField = "service"
+	OrganizationFactFieldTechnology        OrganizationFactField = "technology"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationFactField enum.
+func (e OrganizationFactField) Valid() bool {
+	switch e {
+	case OrganizationFactFieldCapability:
+		return true
+	case OrganizationFactFieldCertification:
+		return true
+	case OrganizationFactFieldCompanySize:
+		return true
+	case OrganizationFactFieldContactEmail:
+		return true
+	case OrganizationFactFieldEmployeeRange:
+		return true
+	case OrganizationFactFieldFoundedYear:
+		return true
+	case OrganizationFactFieldGeography:
+		return true
+	case OrganizationFactFieldLanguage:
+		return true
+	case OrganizationFactFieldLocation:
+		return true
+	case OrganizationFactFieldNamedCustomer:
+		return true
+	case OrganizationFactFieldPartner:
+		return true
+	case OrganizationFactFieldPhone:
+		return true
+	case OrganizationFactFieldProduct:
+		return true
+	case OrganizationFactFieldQuantifiedOutcome:
+		return true
+	case OrganizationFactFieldServedIndustry:
+		return true
+	case OrganizationFactFieldService:
+		return true
+	case OrganizationFactFieldTechnology:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OrganizationFactSource.
+const (
+	OrganizationFactSourceConnector OrganizationFactSource = "connector"
+	OrganizationFactSourceHuman     OrganizationFactSource = "human"
+	OrganizationFactSourceMigration OrganizationFactSource = "migration"
+	OrganizationFactSourceSiteRead  OrganizationFactSource = "site_read"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationFactSource enum.
+func (e OrganizationFactSource) Valid() bool {
+	switch e {
+	case OrganizationFactSourceConnector:
+		return true
+	case OrganizationFactSourceHuman:
+		return true
+	case OrganizationFactSourceMigration:
+		return true
+	case OrganizationFactSourceSiteRead:
 		return true
 	default:
 		return false
@@ -4199,22 +4481,22 @@ func (e GetFieldHistoryParamsEntityType) Valid() bool {
 
 // Defines values for GetFieldHistoryParamsActorType.
 const (
-	GetFieldHistoryParamsActorTypeAgent     GetFieldHistoryParamsActorType = "agent"
-	GetFieldHistoryParamsActorTypeConnector GetFieldHistoryParamsActorType = "connector"
-	GetFieldHistoryParamsActorTypeHuman     GetFieldHistoryParamsActorType = "human"
-	GetFieldHistoryParamsActorTypeSystem    GetFieldHistoryParamsActorType = "system"
+	Agent     GetFieldHistoryParamsActorType = "agent"
+	Connector GetFieldHistoryParamsActorType = "connector"
+	Human     GetFieldHistoryParamsActorType = "human"
+	System    GetFieldHistoryParamsActorType = "system"
 )
 
 // Valid indicates whether the value is a known member of the GetFieldHistoryParamsActorType enum.
 func (e GetFieldHistoryParamsActorType) Valid() bool {
 	switch e {
-	case GetFieldHistoryParamsActorTypeAgent:
+	case Agent:
 		return true
-	case GetFieldHistoryParamsActorTypeConnector:
+	case Connector:
 		return true
-	case GetFieldHistoryParamsActorTypeHuman:
+	case Human:
 		return true
-	case GetFieldHistoryParamsActorTypeSystem:
+	case System:
 		return true
 	default:
 		return false
@@ -5319,16 +5601,58 @@ type ColdStartRequest1 = interface{}
 // ColdStartRequest2 defines model for .
 type ColdStartRequest2 = interface{}
 
-// CompanyProfile The installation's own company. `display_name` is the only field the form requires — a company
-// that will not say its VAT ID is still a company. Every other field is nullable and stays null
-// until someone fills it, by hand or from a read-back.
+// CompanyContext defines model for CompanyContext.
+type CompanyContext struct {
+	// Fingerprint Deterministic SHA-256 digest of the selected confirmed values and accepted facts.
+	Fingerprint    string                      `json:"fingerprint"`
+	GeneratedAt    time.Time                   `json:"generated_at"`
+	OrganizationId openapi_types.UUID          `json:"organization_id"`
+	SchemaVersion  CompanyContextSchemaVersion `json:"schema_version"`
+	Scopes         []CompanyContextScope       `json:"scopes"`
+}
+
+// CompanyContextSchemaVersion defines model for CompanyContext.SchemaVersion.
+type CompanyContextSchemaVersion int
+
+// CompanyContextItem defines model for CompanyContextItem.
+type CompanyContextItem struct {
+	CapturedBy *string                  `json:"captured_by,omitempty"`
+	Confidence *float32                 `json:"confidence,omitempty"`
+	Key        string                   `json:"key"`
+	Source     CompanyContextItemSource `json:"source"`
+	SourceUrl  *string                  `json:"source_url,omitempty"`
+	Value      string                   `json:"value"`
+}
+
+// CompanyContextItemSource defines model for CompanyContextItem.Source.
+type CompanyContextItemSource string
+
+// CompanyContextScope defines model for CompanyContextScope.
+type CompanyContextScope struct {
+	Items []CompanyContextItem     `json:"items"`
+	Scope CompanyContextScopeScope `json:"scope"`
+}
+
+// CompanyContextScopeScope defines model for CompanyContextScope.Scope.
+type CompanyContextScopeScope string
+
+// CompanyProfile The installation's own company. The flat properties remain compatibility aliases for the
+// existing form; `fields` and `facts` are the provenance-bearing source records used by new
+// clients and by CompanyContext. New onboarding considers the profile minimum-complete when
+// display_name, offer_summary and icp are confirmed. Existing installations may remain
+// incomplete until their next edit; reads never fabricate the missing values.
 type CompanyProfile struct {
 	// BuyingCenter The roles that decide on a purchase.
-	BuyingCenter  *string `json:"buying_center,omitempty"`
-	BuyingIntents *string `json:"buying_intents,omitempty"`
+	BuyingCenter     *string `json:"buying_center,omitempty"`
+	BuyingIntents    *string `json:"buying_intents,omitempty"`
+	CommonObjections *string `json:"common_objections,omitempty"`
+	CustomerPains    *string `json:"customer_pains,omitempty"`
+	DesiredOutcomes  *string `json:"desired_outcomes,omitempty"`
 
 	// DisplayName What the company is called day to day.
-	DisplayName string `json:"display_name"`
+	DisplayName string                 `json:"display_name"`
+	Facts       *[]OrganizationFact    `json:"facts,omitempty"`
+	Fields      *[]CompanyProfileField `json:"fields,omitempty"`
 
 	// History Company background.
 	History *string `json:"history,omitempty"`
@@ -5340,6 +5664,12 @@ type CompanyProfile struct {
 	// LegalName The registered legal entity
 	LegalName *string `json:"legal_name,omitempty"`
 
+	// MinimumComplete True when display_name
+	MinimumComplete *bool `json:"minimum_complete,omitempty"`
+
+	// OfferSummary Plain-language summary of what the company sells or delivers.
+	OfferSummary *string `json:"offer_summary,omitempty"`
+
 	// OrganizationId The anchor organization this profile belongs to.
 	OrganizationId openapi_types.UUID `json:"organization_id"`
 
@@ -5348,6 +5678,7 @@ type CompanyProfile struct {
 
 	// RegisteredAddress The registered address as one formatted line.
 	RegisteredAddress *string    `json:"registered_address,omitempty"`
+	SalesMotion       *string    `json:"sales_motion,omitempty"`
 	UpdatedAt         *time.Time `json:"updated_at,omitempty"`
 	Usp               *string    `json:"usp,omitempty"`
 	ValueProposition  *string    `json:"value_proposition,omitempty"`
@@ -5356,28 +5687,52 @@ type CompanyProfile struct {
 	Website *string `json:"website,omitempty"`
 }
 
-// CompanyProfileInput The company form's body. The identity block is REQUIRED — an installation that will not say who
-// it legally is cannot invoice, cannot meet its GoBD retention duties, and leaves every downstream
-// feature guessing. A read-back fills what it can quote; whatever it cannot, the human types. The
-// positioning fields are optional: they can be discovered later, the legal facts cannot.
-//
-// Among the optional fields, an omitted one is left as it was and one sent empty is cleared.
+// CompanyProfileField defines model for CompanyProfileField.
+type CompanyProfileField struct {
+	CapturedBy      *string                   `json:"captured_by,omitempty"`
+	Confidence      *float32                  `json:"confidence,omitempty"`
+	EvidenceSnippet *string                   `json:"evidence_snippet,omitempty"`
+	Field           CompanyProfileFieldField  `json:"field"`
+	Source          CompanyProfileFieldSource `json:"source"`
+	SourceUrl       *string                   `json:"source_url,omitempty"`
+	UpdatedAt       time.Time                 `json:"updated_at"`
+	Value           string                    `json:"value"`
+}
+
+// CompanyProfileFieldField defines model for CompanyProfileField.Field.
+type CompanyProfileFieldField string
+
+// CompanyProfileFieldSource defines model for CompanyProfileField.Source.
+type CompanyProfileFieldSource string
+
+// CompanyProfileInput The company form's body. New onboarding requires the semantic minimum: display_name,
+// offer_summary and icp. The OpenAPI wire keeps only display_name structurally required so clients
+// can be upgraded independently: clients that submit the former five-field legal identity block
+// still succeed, while the current UI and server-created onboarding flow enforce the semantic
+// minimum. Legal/registration fields are optional until a feature with a real
+// jurisdictional or invoicing need asks for them. An omitted optional field is unchanged and one
+// sent empty is cleared.
 type CompanyProfileInput struct {
-	BuyingCenter  *string `json:"buying_center,omitempty"`
-	BuyingIntents *string `json:"buying_intents,omitempty"`
-	DisplayName   string  `json:"display_name"`
-	History       *string `json:"history,omitempty"`
-	Icp           *string `json:"icp,omitempty"`
-	Industry      string  `json:"industry"`
+	BuyingCenter     *string `json:"buying_center,omitempty"`
+	BuyingIntents    *string `json:"buying_intents,omitempty"`
+	CommonObjections *string `json:"common_objections,omitempty"`
+	CustomerPains    *string `json:"customer_pains,omitempty"`
+	DesiredOutcomes  *string `json:"desired_outcomes,omitempty"`
+	DisplayName      string  `json:"display_name"`
+	History          *string `json:"history,omitempty"`
+	Icp              *string `json:"icp,omitempty"`
+	Industry         *string `json:"industry,omitempty"`
 
 	// LegalName The registered legal entity.
-	LegalName string `json:"legal_name"`
+	LegalName    *string `json:"legal_name,omitempty"`
+	OfferSummary *string `json:"offer_summary,omitempty"`
 
 	// RegisterVat VAT ID / commercial register entry (e.g. DE123456789, HRB 12345 B).
-	RegisterVat string `json:"register_vat"`
+	RegisterVat *string `json:"register_vat,omitempty"`
 
 	// RegisteredAddress The registered address as one formatted line.
-	RegisteredAddress string  `json:"registered_address"`
+	RegisteredAddress *string `json:"registered_address,omitempty"`
+	SalesMotion       *string `json:"sales_motion,omitempty"`
 	Usp               *string `json:"usp,omitempty"`
 	ValueProposition  *string `json:"value_proposition,omitempty"`
 
@@ -6826,6 +7181,29 @@ type OrganizationDomain struct {
 	Source         string              `json:"source"`
 	UpdatedAt      *time.Time          `json:"updated_at,omitempty"`
 }
+
+// OrganizationFact defines model for OrganizationFact.
+type OrganizationFact struct {
+	CapturedBy      *string                  `json:"captured_by,omitempty"`
+	Category        OrganizationFactCategory `json:"category"`
+	Confidence      *float32                 `json:"confidence,omitempty"`
+	EvidenceSnippet *string                  `json:"evidence_snippet,omitempty"`
+	Field           OrganizationFactField    `json:"field"`
+	Source          OrganizationFactSource   `json:"source"`
+	SourceUrl       *string                  `json:"source_url,omitempty"`
+	UpdatedAt       time.Time                `json:"updated_at"`
+	Value           string                   `json:"value"`
+	ValueKey        string                   `json:"value_key"`
+}
+
+// OrganizationFactCategory defines model for OrganizationFact.Category.
+type OrganizationFactCategory string
+
+// OrganizationFactField defines model for OrganizationFact.Field.
+type OrganizationFactField string
+
+// OrganizationFactSource defines model for OrganizationFact.Source.
+type OrganizationFactSource string
 
 // OrganizationHierarchyRollup The account-tree roll-up over organization.parent_org_id. A server read only,
 // never client-summed. Money is base-currency converted — never a raw
@@ -8649,6 +9027,12 @@ type BookMeetingParams struct {
 
 // BookMeetingJSONBodyLinksEntityType defines parameters for BookMeeting.
 type BookMeetingJSONBodyLinksEntityType string
+
+// GetCompanyContextParams defines parameters for GetCompanyContext.
+type GetCompanyContextParams struct {
+	// Scopes Comma-separated context scopes. Omit for the bounded default set.
+	Scopes *string `form:"scopes,omitempty" json:"scopes,omitempty"`
+}
 
 // ConnectorOAuthCallbackParams defines parameters for ConnectorOAuthCallback.
 type ConnectorOAuthCallbackParams struct {
@@ -15344,6 +15728,9 @@ type ServerInterface interface {
 	// Save the installation's own company — the human's confirm-first write.
 	// (PUT /company)
 	PutCompany(w http.ResponseWriter, r *http.Request)
+	// The deterministic, typed context assembled from the anchor company.
+	// (GET /company/context)
+	GetCompanyContext(w http.ResponseWriter, r *http.Request, params GetCompanyContextParams)
 	// List the calling user's capture connections + sync state.
 	// (GET /connectors)
 	ListConnectors(w http.ResponseWriter, r *http.Request)
@@ -16106,6 +16493,12 @@ func (_ Unimplemented) GetCompany(w http.ResponseWriter, r *http.Request) {
 // Save the installation's own company — the human's confirm-first write.
 // (PUT /company)
 func (_ Unimplemented) PutCompany(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The deterministic, typed context assembled from the anchor company.
+// (GET /company/context)
+func (_ Unimplemented) GetCompanyContext(w http.ResponseWriter, r *http.Request, params GetCompanyContextParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -19061,6 +19454,47 @@ func (siw *ServerInterfaceWrapper) PutCompany(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PutCompany(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCompanyContext operation middleware
+func (siw *ServerInterfaceWrapper) GetCompanyContext(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetCompanyContextParams
+
+	// ------------- Optional query parameter "scopes" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "scopes", r.URL.Query(), &params.Scopes, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scopes"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scopes", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCompanyContext(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -27356,6 +27790,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/company", wrapper.PutCompany)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/company/context", wrapper.GetCompanyContext)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/connectors", wrapper.ListConnectors)
