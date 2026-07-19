@@ -34,7 +34,7 @@ surface decides**. Each iteration:
 4. **Terminal** — a `final` step completes the run.
 5. **Act** — `registry.Invoke(tool, args)` (the runner's *only* path to an action).
 6. **Observe** — on the tool's result:
-   - a **🟡 refusal** *suspends* the run on the staged approval (`awaiting-approval`) — it never blocks;
+   - a **🟡 refusal** *suspends* the run on the staged approval (`awaiting_approval`) — it never blocks;
    - a **scope/budget refusal** is fed back as an *observation*, so the model re-plans within its
      authority;
    - **success** is observed and the loop continues.
@@ -51,7 +51,9 @@ not architecture**. `internal/modules/ai/` owns it:
 
 - **`SelectBrain(cfg)`** turns one binding (from `ai-routing.yaml`) into a `Client` — "offline fake ↔
   API key ↔ local, one line." Providers:
-  - **`anthropic`** — cloud-frontier **BYOK**: you supply the key, the product runs no inference of its own.
+  - **`anthropic`**, **`openai`**, **`gemini`** (the shipped cloud default), and **`openai_compatible`**
+    (any vendor speaking the OpenAI wire shape, `base_url`-bound) — cloud **BYOK**: you supply the
+    key, the product runs no inference of its own.
   - **`ollama`** and **`vllm`** — local / self-host adapters (`LocalOnly`, eligible for the zero-egress
     sovereign profile).
   - **`fake`** — a fully deterministic offline client that every test drives (records each outbound
@@ -64,9 +66,11 @@ not architecture**. `internal/modules/ai/` owns it:
   ladder and the erasure engines, not by stripping). The sovereign profile blocks egress entirely.
 - **Metering & budget** — `ai_usage` accumulates per-(workspace, day, task, tier) counters against a
   **workspace monthly token budget** (distinct from the per-run step/output-token ceilings above,
-  which stop a single runaway run). At ≥80% utilization the router soft-degrades a tier; at ≥100% it
-  queues non-interactive work (`ErrBudgetExhausted`). **Core CRM is never behind this error — only
-  model calls are.**
+  which stop a single runaway run). At ≥80% utilization the router soft-degrades a tier; at ≥100%
+  **background** tasks are deferred with a typed `BudgetDeferralError` (unwraps to
+  `ErrBudgetDeferred`, carries `NextAttemptAt` — the next budget window) before any provider attempt
+  or trace row, while **interactive** tasks degrade to `local_small` rather than block a user
+  mid-flow. **Core CRM is never behind this error — only model calls are.**
 
 ## Automations & MCP transports (in brief)
 

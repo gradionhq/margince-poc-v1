@@ -47,7 +47,7 @@ A passing run writes/refreshes a record under
 The **task** names come from the contract (`backend/api/ai-tasks.yaml`):
 `cold_start`, `site_extract`, `site_fact_extract`, `brief_ranking`,
 `offer_draft`, `capture_classify`, `enrich`, `deal_health`, `draft_reply`,
-`nl_search`, `summarize`, `transcript`, `agent_loop`. Omit `TASK=` to run the
+`nl_search`, `summarize`, `transcript`, `agent_loop`, `voice_build`. Omit `TASK=` to run the
 whole corpus. Seven tasks have no production call site yet — their scenarios are
 documented starters, not full corpora (see [STATUS.md](../../STATUS.md)).
 

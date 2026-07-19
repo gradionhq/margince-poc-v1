@@ -16,7 +16,6 @@ cannot mint credentials.
 
 ```sh
 curl -X POST http://localhost:8080/v1/passports \
-  -H 'X-Workspace-Slug: <slug>' \
   --cookie 'crm_session=<your session>' \
   -H 'Content-Type: application/json' \
   -d '{"label": "Claude Desktop", "scopes": ["read", "write"], "ttl_hours": 720}'

@@ -28,7 +28,7 @@ stdio protocol channel). Log lines carry the per-request
 | `--inline-relay` | — | `true` | run the outbox relay in-process; set `false` when `cmd/worker` runs it |
 | `--ai-routing` | `MARGINCE_AI_ROUTING` | — | path to `ai-routing.yaml`; enables the cold-start read-back, per-org enrichment, the Morning-Brief L2 re-order, and AI-drafted offer regeneration |
 | `--ai-fake` | — | `false` | offline fake model (dev/test only); drives the same AI surfaces as `--ai-routing` |
-| `--public-base-url` | `MARGINCE_PUBLIC_BASE_URL` | — | canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe / preference center); required to send marketing mail — a send refuses rather than derive the token-bearing link from the request Host |
+| `--public-base-url` | `MARGINCE_PUBLIC_BASE_URL` | — | canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe / preference center); required to send marketing mail — a send refuses rather than derive the token-bearing link from the request Host — and for the Gmail/Graph OAuth callback |
 
 With `--inline-relay` (the default) an unreachable Redis fails the boot:
 without a relay every committed write would strand its outbox row.
@@ -57,6 +57,8 @@ Operational endpoints (served next to `/v1`):
 | `--runner-interval` | — | `30s` | Surface-B scheduler tick |
 | `--retention-interval` | — | `24h` | retention evaluator pass interval |
 | `--time-scan-interval` | — | `1h` | clock-trigger automation scan interval (`no_activity_reminder` et al. — the River periodic job `TimeScanner.Scan` drives) |
+| `--close-date-interval` | — | `24h` | close-date hygiene sweep interval (INV-CLOSE-PAST) |
+| `--reconcile-interval` | — | `24h` | overnight follow-up reconciliation pass interval |
 | `--deepread-max-pages` | `MARGINCE_DEEPREAD_MAX_PAGES` | `0` (= built-in 40) | deep-read crawl page cap |
 | `--deepread-max-bytes` | `MARGINCE_DEEPREAD_MAX_BYTES` | `0` (= built-in 32 MiB) | deep-read crawl aggregate byte cap |
 | `--deepread-wall` | `MARGINCE_DEEPREAD_WALL` | `0` (= built-in 4m) | deep-read crawl wall clock |
@@ -93,6 +95,29 @@ embedding lane simply do not start; the relay, retention, the event-triggered
 workflow dispatch (`cg:workflows`), and the clock time-scan always run.
 Shutdown is graceful: in-flight subscriber handlers finish their ack before
 the process exits.
+
+## Capture connector OAuth (api, worker) — Gmail / Microsoft 365
+
+The Gmail and Outlook/M365 capture connectors are enabled by supplying the
+operator's own OAuth app. Absent these, `make dev` is unchanged and the
+`/connectors/gmail/*` / `/connectors/graph/*` surfaces stay their declared
+501. Secrets travel via the environment, never CLI flags in production
+(argv is world-readable). Roles: **api** serves connect/callback, **worker**
+runs the background sync.
+
+| Flag | Env | Role | Meaning |
+|---|---|---|---|
+| `--gmail-client-id` / `--gmail-client-secret` | `MARGINCE_GMAIL_CLIENT_ID` / `…_SECRET` | api + worker | the Google OAuth app; with the state key and `--public-base-url`, enables `/connectors/gmail/*` (api) and the sync poll (worker) |
+| `--graph-client-id` / `--graph-client-secret` | `MARGINCE_GRAPH_CLIENT_ID` / `…_SECRET` | api + worker | the Microsoft (Entra) app; same enablement shape for `/connectors/graph/*` |
+| `--graph-tenant` | `MARGINCE_GRAPH_TENANT` | api + worker | Microsoft identity tenant (default `common` — any organization) |
+| `--connector-state-key` | `MARGINCE_CONNECTOR_STATE_KEY` | api | HMAC key (≥32 bytes) signing the OAuth connect `state`; required for both connect flows |
+| `--api-base-url` | `MARGINCE_API_BASE_URL` | api | the api's externally-reachable base for the callback `redirect_uri`; defaults to `--public-base-url`, set only when api and SPA are on different origins (e.g. dev) |
+| `--gmail-sync-interval` | — | worker | Gmail incremental-sync poll interval (default `2m`) |
+| `--gmail-pubsub-topic` | `MARGINCE_GMAIL_PUBSUB_TOPIC` | worker | Gmail Pub/Sub topic (`projects/<p>/topics/<t>`); enables the push-watch register+renew job (empty = poll only) |
+| `--gmail-watch-interval` / `--gmail-watch-renew-within` | — | worker | push-watch maintenance scan (`6h`) / renew this far ahead of the 7-day expiry (`48h`) |
+| `--gmail-push-token` | `MARGINCE_GMAIL_PUSH_TOKEN` | api | shared secret on the Pub/Sub push subscription URL; enables `POST /webhooks/gmail-push` (empty = route absent) |
+| `--gmail-push-audience` / `--gmail-push-service-account` | `MARGINCE_GMAIL_PUSH_AUDIENCE` / `…_SERVICE_ACCOUNT` | api | OIDC audience + signing service-account email; set both and the push webhook also verifies Google's OIDC token |
+| `--gmail-jwks-url` | `MARGINCE_GMAIL_JWKS_URL` | api | override Google's OIDC JWKS URL; test/dev only |
 
 ## Object storage (api, worker) — attachments
 
@@ -170,12 +195,14 @@ It is deliberately not a flag: argv is world-readable.
 
 ```
 migrate <up|down> --dsn <owner-dsn> [--steps n]
+migrate reset-password --dsn <owner-dsn> --email <user-email>
 ```
 
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
 | `--dsn` | `MARGINCE_DSN` | — (required) | Postgres DSN, **owner** role |
 | `--steps` | — | `1` | migrations to revert (`down` only) |
+| `--email` | — | — | user email (`reset-password` only): the operator break-glass (A107/ADR-0061 §9.1) — sets that user's password directly against the database, reading the new password from **stdin** (never argv); the way back in when the admin is locked out and no outbound email is configured |
 
 ## Other environment variables
 

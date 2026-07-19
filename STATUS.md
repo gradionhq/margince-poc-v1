@@ -442,9 +442,11 @@ Open work, roughly in priority order:
   `nl_search`, `summarize`, `transcript`) have no production call site
   yet — their starter scenarios are documented placeholders.
 
-- **Cold-start + company-context refresh** — the rollout and PR boundaries are
-  mapped in
-  [docs/explanation/coldstart-company-context-plan.md](docs/explanation/coldstart-company-context-plan.md).
+- **Cold-start + company-context refresh** — all phases (0–5) are delivered;
+  the executed state is explained in
+  [docs/explanation/company-context.md](docs/explanation/company-context.md)
+  (the phase plan lives in git history as
+  `docs/explanation/coldstart-company-context-plan.md`).
   Foundation PR #1104 is merged at `f97ef6b` with `g1-deterministic` and
   `llm-advisory` green; ADR-0065/A111 now pins the anchor/profile/fact/site-read
   schema, optional three-field manual path, reusable deep-read wire, typed

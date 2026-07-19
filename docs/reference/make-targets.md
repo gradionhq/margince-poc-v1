@@ -11,7 +11,7 @@ common backend targets and adds the frontend lane. In `backend/`, `make`
 |---|---|
 | `help` | List targets (the default goal) |
 | `install` | One-shot fresh-worktree setup (frontend deps + Go gate binaries + git hooks). The factory's `worktree-init` runs this by name |
-| `dev` | Full local stack: db-up + migrate + `cmd/api` + `cmd/worker` (always on: the outbox relay + Surface-B runner) + API-seed + the Vite SPA, on `http://localhost:5173` (api `:8080`). Returns when ready; the servers run in the background. `DEV_SLUG=<slug>` gives an isolated `margince_dev_<slug>` on slug-derived ports (two worktrees at once). Reads an optional Anthropic BYOK key from `.env.local` for the live cold-start read-back |
+| `dev` | Full local stack: db-up + migrate + `cmd/api` + `cmd/worker` (always on: the outbox relay + Surface-B runner) + API-seed + the Vite SPA, on `http://localhost:5173` (api `:8080`). Returns when ready; the servers run in the background. `DEV_SLUG=<slug>` gives an isolated `margince_dev_<slug>` on slug-derived ports (two worktrees at once). Activates real AI routing only when every cloud provider bound in `config/ai-routing.yaml` has its BYOK key in the environment / `.env.local` (else the offline fake) |
 | `dev-stop` | `make dev-stop [DEV_SLUG=<slug>] [DROP=1]` — stop the stack started by `make dev` and free its ports; `DROP=1` also drops an isolated `margince_dev_<slug>` database |
 | `mcp-inspector` | `make mcp-inspector TOKEN=mgp_… [DEV_SLUG=<slug>] [WORKSPACE=<slug>]` — build `cmd/mcp` and open the MCP Inspector over stdio against the running `make dev` stack. Token comes from `TOKEN=` or `MARGINCE_PASSPORT_TOKEN` in `.env.local`; the DSN is read from the running stack (so `DEV_SLUG` just works). Token + DSN pass through the environment only, never argv |
 | `db-up` / `infra-up` | Start the dev Postgres 16 (pgvector, port 55432) and Redis 7 (port 56379) containers, create the app role (`infra-up` is an alias) |
@@ -38,6 +38,7 @@ UAT guides call by name (`docs/target-minimum-setup.md §3`). `check-q`,
 | Target | What it does |
 |---|---|
 | `check` | **The merge gate.** Backend `make check` = build + vet + lint + arch-lint + test + drift. Root `make check` runs that **plus** the craft-doc floor, image pins, contract breaking-change (`oasdiff`), test-lane hygiene, and the file-length ratchet |
+| `check-backend` / `check-fe` | The two halves of the root gate, runnable alone: `check-backend` = backend `check` + the root script gates below (what CI's deterministic-gates job runs); `check-fe` = `frontend-check` with a loud fail if `frontend/node_modules` is missing |
 | `build` | `go build ./...` |
 | `vet` | `go vet ./...` |
 | `test` | Unit tests; the root fitness tests (license header, write shape, architecture, enum sync, `audit_log` enum coherence, contract `$ref` resolution) run uncached |
@@ -72,12 +73,27 @@ root gates (each is a small script; all merge-blocking):
 |---|---|
 | `vuln` | govulncheck over all packages (not yet part of `check`; CI wiring comes later) |
 | `hooks` | Install `scripts/pre-commit` (gofmt + license-header test) into git's resolved hooks dir (honors `core.hooksPath`) |
+| `tools` / `tools-go` | Install every gate binary at its pinned version (fresh-machine bootstrap) |
+| `migrate-up` / `migrate-down` | Alias for `migrate` / roll back the last migration(s) (`STEPS=n`) |
+| `run` | `go run ./cmd/api` on `:8080` — no db-up/migrate first |
+| `seed-reset` / `seed-dev-db` | Wipe the demo workspace / apply the API-less dev SQL seed |
+| `psql` / `redis-cli` | Open a shell on the dev database (owner role) / dev Redis |
+| `test-v` / `test-cover` | Verbose unit tests / unit tests with a coverage summary |
+| `db-wait` / `infra-logs` / `infra-reset` | Block until Postgres answers / tail the dev-stack logs / wipe volumes and restart the stack |
+| `bench-perf` | The PERF benchmark harness on the mid-market tier (needs `db-up`; seeds 250k contacts) |
+| `tidy` | `go mod tidy` |
 
 ## Root-only (frontend lane)
 
 | Target | What it does |
 |---|---|
-| `frontend-check` | `pnpm install --frozen-lockfile && pnpm check` in `frontend/` (needs node + pnpm) |
+| `frontend-check` | The frontend gate: the design-system purity/font-lock/icon-glyph/spacing script gates, a `pnpm gen:api` + `schema.d.ts` drift check, then `pnpm check` (Biome lint + vitest + tsc + vite build) (needs node + pnpm) |
+| `fe-install` / `fe-lint` / `fe-test` / `fe-build` / `fe-format` / `fe-preview` | The individual frontend steps (`pnpm` wrappers) |
+| `ds-purity` / `font-lock` / `icon-lint` / `ds-spacing` | The design-system script gates, runnable alone |
+| `gen-types` / `gen-types-check` | Aliases for backend `gen` / `drift` |
+| `seed-dev` | API-seed the demo workspace against a running stack (idempotent), then the API-less extras (`seed-dev-db`) |
+| `verify-boot` | Prove a running, seeded stack end to end: seeded-admin login, seeded people over `/v1`, frontend production build — pure client, fails loudly |
+| `ai-routing-local` | Seed the gitignored `config/ai-routing.yaml` from the committed template on first run (never clobbers an existing copy) |
 | `frontend-e2e` | The screen-acceptance UAT harness: AC-named tests + 390px sweep + axe WCAG 2.2 AA + perceived-perf budgets, against the built app over the seed mock (`BASE_URL=…` targets a live backend). Wired into CI as the `uat` job |
 | `storybook` | The component workbench on `:6006` — the design-system catalog and the story surface `fe-uat` renders. Stories live beside their component as `<name>.stories.tsx` |
 | `fe-uat` | Change-scoped Storybook render+capture UAT for frontend-only diffs: renders THIS branch's changed component's stories in headless Chromium and screenshots them (no live stack, no DB). Fails on an unclean render, an unregistered story, or a changed component with no story. Artifact: `.tmp/fe-uat/manifest.json`. Deliberately **not** in `make check` — the fe-only UAT lane a coordinator runs instead of the full stack. `ARGS="--allow-missing"` |

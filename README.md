@@ -253,12 +253,25 @@ per-client throttling at the proxy.
   itself needs; redemption is single-use, 15-minute window, bound to the
   staging passport and the content hash, refused on target version skew
   (the human's yes was about the world they saw).
-- **Web UI**: the Vite/React app in `frontend/` — login/bootstrap,
-  people, leads (with the promote-on-engagement dialog), the stage-column
-  deal board with advance, the activity timeline, and more — a standalone
-  static build served separately from the API, design tokens from the
-  spec's design language. Security headers (CSP, frame-denial, nosniff)
-  are set on every API response.
+- **AI runtime + certification**: every model call rides one contract-first
+  path — tasks and tier ladders compiled from `backend/api/ai-tasks.yaml`,
+  runtime provider bindings in `config/ai-routing.yaml` (BYOK:
+  Anthropic/OpenAI/Gemini/OpenAI-compatible cloud, Ollama/vLLM local, an
+  offline fake for dev/test), the one `ai.Router` gate (workspace budget with
+  typed deferral, secret stripping, per-attempt `ai_call` tracing), and a
+  certification lane (`make e2e-ai`) that scores a candidate model against a
+  task's scenario corpus before you trust it. Bounded company context —
+  confirmed in the five-step onboarding wizard — is injected per declared
+  task policy, behind the `company_context.rollout` kill switch. See
+  [docs/explanation/ai-runtime.md](docs/explanation/ai-runtime.md) and
+  [docs/explanation/company-context.md](docs/explanation/company-context.md).
+- **Web UI**: the Vite/React app in `frontend/` — login, the five-step
+  resumable onboarding wizard (website read or manual entry), people, leads
+  (with the promote-on-engagement dialog), the stage-column deal board with
+  advance, the activity timeline, the Company Context settings screen, and
+  more — a standalone static build served separately from the API, design
+  tokens from the spec's design language. Security headers (CSP,
+  frame-denial, nosniff) are set on every API response.
 - **Gates**: golangci-lint (incl. depguard module DAG, default-deny for
   the Tier-0 layer) clean; go-arch-lint as a hard gate; leaf-purity and
   interface-freeze fitness tests; the ADR-0055 contract drift-lint; an
