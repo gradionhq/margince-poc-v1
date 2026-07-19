@@ -76,8 +76,20 @@ e2e-siteread: ## Deep-read quality floor vs the real gradion.com (paid: real mod
 # MARGINCE_AI_ROUTING=<path> for a different one.
 MARGINCE_AI_ROUTING ?= $(CURDIR)/../config/ai-routing.yaml
 
-e2e-ai: ## Certify AI tasks vs the local binding (paid: real model + network; opt-in). TASK=x MODEL=prov:model RUNS=3 MARGINCE_AI_ROUTING=path
-	MARGINCE_AICERT=1 MARGINCE_AI_ROUTING=$(MARGINCE_AI_ROUTING) MARGINCE_AICERT_TASK=$(TASK) MARGINCE_AICERT_MODEL=$(MODEL) MARGINCE_AICERT_RUNS=$(RUNS) \
+# TRACE names a directory for the payload trace — every candidate and judge
+# call's post-stripper request+response (the ai_call_payload shape), dumped to
+# a JSONL file whose path is printed to stdout for fast prompt tuning. ON by
+# default (`TRACE=1`) because the corpus is a fixed hand-authored scenario set
+# and the content is post-SecretStripper and written local-only (repo-root
+# .tmp/aicert, gitignored) — no customer data, nothing to leak. `TRACE=<dir>`
+# picks a directory; `TRACE=` (empty) turns it off.
+TRACE ?= 1
+ifeq ($(TRACE),1)
+override TRACE := $(CURDIR)/../.tmp/aicert
+endif
+
+e2e-ai: ## Certify AI tasks vs the local binding (paid: real model + network; opt-in). Payload trace ON by default (TRACE= to disable). TASK=x MODEL=prov:model RUNS=3 MARGINCE_AI_ROUTING=path
+	MARGINCE_AICERT=1 MARGINCE_AI_ROUTING=$(MARGINCE_AI_ROUTING) MARGINCE_AICERT_TASK=$(TASK) MARGINCE_AICERT_MODEL=$(MODEL) MARGINCE_AICERT_RUNS=$(RUNS) MARGINCE_AICERT_TRACE=$(TRACE) \
 	  $(GO) test -tags e2e_llm ./internal/compose/aicert/ -run TestE2ECertify -v -count=1 -timeout 30m
 
 e2e-ai-report: ## Print the certification matrix (task x provider x model) from the committed records under internal/compose/aicert/records/.

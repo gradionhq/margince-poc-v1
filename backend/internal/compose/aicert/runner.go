@@ -23,7 +23,6 @@ import (
 	"log/slog"
 	"math"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
@@ -61,6 +60,11 @@ type RunnerConfig struct {
 	Repeats     int    // MARGINCE_AICERT_RUNS, default 3, must be odd
 	RecordDir   string
 	CorpusDir   string
+	// TraceDir, when non-empty, turns on the opt-in payload trace
+	// (MARGINCE_AICERT_TRACE): every candidate and judge call's
+	// post-stripper request+response is dumped to a JSONL file under this
+	// directory and its path printed to stdout. Empty = no trace.
+	TraceDir string
 }
 
 // Run certifies every task named by cfg.TaskFilter (or, when empty,
@@ -97,10 +101,24 @@ func Run(ctx context.Context, cfg RunnerConfig, log *slog.Logger) ([]Record, err
 
 	ctx = ensureWorkspace(ctx)
 
+	// TraceDir empty ⇒ tracing off: trace stays nil and every method no-ops.
+	var trace *payloadTrace
+	if cfg.TraceDir != "" {
+		trace, err = openPayloadTrace(cfg.TraceDir, nowFunc().UTC().Format("20060102T150405Z"))
+		if err != nil {
+			return nil, fmt.Errorf("aicert: runner: %w", err)
+		}
+	}
+	defer func() {
+		if cerr := trace.close(); cerr != nil {
+			log.WarnContext(ctx, "aicert: closing payload trace", "err", cerr)
+		}
+	}()
+
 	var records []Record
 	var runErrs []error
 	for _, task := range sortedTasks(byTask) {
-		rec, err := certifyTask(ctx, task, byTask[task], baseCfg, cfg.Override, repeats, log, nil)
+		rec, err := certifyTask(ctx, task, byTask[task], baseCfg, cfg.Override, repeats, log, &certifyHooks{trace: trace})
 		if err != nil {
 			log.ErrorContext(ctx, "aicert: task certification failed — no record written", "task", string(task), "err", err)
 			runErrs = append(runErrs, fmt.Errorf("task %s: %w", task, err))
@@ -115,15 +133,19 @@ func Run(ctx context.Context, cfg RunnerConfig, log *slog.Logger) ([]Record, err
 	return records, errors.Join(runErrs...)
 }
 
-// certifyHooks lets this package's own tests reach into certifyTask's two
-// router constructions — a scripted *ai.FakeClient via ai.WithFakeClient,
-// a starved ai.WithMonthlyBudget to force a deterministic degrade — none
-// of which RunnerConfig's pinned shape has room for and none of which a
-// real cert run ever needs (Run always passes nil). This mirrors
-// ai.assembleRouter: "the seam unit tests inject fakes through."
+// certifyHooks is the injection seam for certifyTask's two router
+// constructions and the per-run payload trace both routers feed. The
+// candidate/judge LocalOption lists let this package's own tests reach in —
+// a scripted *ai.FakeClient via ai.WithFakeClient, a starved
+// ai.WithMonthlyBudget to force a deterministic degrade — none of which
+// RunnerConfig's pinned shape has room for. trace is the one field a real
+// run sets: Run passes &certifyHooks{trace: t} (t nil unless
+// MARGINCE_AICERT_TRACE named a directory), the tests leave it nil. This
+// mirrors ai.assembleRouter: "the seam unit tests inject fakes through."
 type certifyHooks struct {
 	candidateOpts []ai.LocalOption
 	judgeOpts     []ai.LocalOption
+	trace         *payloadTrace
 }
 
 // certifyTask runs every scenario for one task over a fresh
@@ -134,8 +156,15 @@ func certifyTask(ctx context.Context, task ai.Task, scenarios []Scenario, baseCf
 		return Record{}, err
 	}
 	var candidateExtra, judgeExtra []ai.LocalOption
+	var trace *payloadTrace
 	if hooks != nil {
-		candidateExtra, judgeExtra = hooks.candidateOpts, hooks.judgeOpts
+		candidateExtra, judgeExtra, trace = hooks.candidateOpts, hooks.judgeOpts, hooks.trace
+	}
+	// Capture the post-stripper bodies only when a trace will consume them —
+	// otherwise the router pays the marshal+strip cost for content nothing reads.
+	if trace != nil {
+		candidateExtra = append(candidateExtra, ai.WithPayloadCapture())
+		judgeExtra = append(judgeExtra, ai.WithPayloadCapture())
 	}
 
 	candidateRec := newTraceRecorder()
@@ -159,7 +188,7 @@ func certifyTask(ctx context.Context, task ai.Task, scenarios []Scenario, baseCf
 	taskVerdict := VerdictCertified // folded down to the worst scenario verdict below
 
 	for _, sc := range scenarios {
-		scenarioVerdict, err := runScenario(ctx, task, sc, repeats, candidateRouter, candidateRec, judgeRouter, judgeRec, log, acc)
+		scenarioVerdict, err := runScenario(ctx, task, sc, repeats, candidateRouter, candidateRec, judgeRouter, judgeRec, log, acc, trace)
 		if err != nil {
 			return Record{}, err
 		}
@@ -221,11 +250,11 @@ func (acc *taskAccumulation) addRun(task ai.Task, sc Scenario, runIndex int, out
 // their own function, not certifyTask's.
 func runScenario(ctx context.Context, task ai.Task, sc Scenario, repeats int,
 	candidateRouter *ai.Router, candidateRec *traceRecorder, judgeRouter *ai.Router, judgeRec *traceRecorder,
-	log *slog.Logger, acc *taskAccumulation,
+	log *slog.Logger, acc *taskAccumulation, trace *payloadTrace,
 ) (string, error) {
 	scenarioResults := make([]RunResult, 0, repeats)
 	for i := 0; i < repeats; i++ {
-		outcome, runErr := runOnce(ctx, candidateRouter, candidateRec, judgeRouter, judgeRec, sc, task, log)
+		outcome, runErr := runOnce(ctx, candidateRouter, candidateRec, judgeRouter, judgeRec, sc, task, log, trace, i+1)
 		if runErr != nil {
 			return "", fmt.Errorf("aicert: task %s scenario %s run %d: %w", task, sc.Name, i+1, runErr)
 		}
@@ -266,7 +295,7 @@ type runOutcome struct {
 // whole task's record on outcome.Degraded regardless of what the judge
 // says, so scoring a demoted answer would be a real, paid judge call
 // spent on a result guaranteed to be thrown away.
-func runOnce(ctx context.Context, candidate *ai.Router, candidateRec *traceRecorder, judge *ai.Router, judgeRec *traceRecorder, sc Scenario, task ai.Task, log *slog.Logger) (runOutcome, error) {
+func runOnce(ctx context.Context, candidate *ai.Router, candidateRec *traceRecorder, judge *ai.Router, judgeRec *traceRecorder, sc Scenario, task ai.Task, log *slog.Logger, trace *payloadTrace, run int) (runOutcome, error) {
 	resp, _, err := candidate.Complete(ctx, task, buildRequest(sc))
 	if err != nil {
 		return runOutcome{}, fmt.Errorf("candidate call: %w", err)
@@ -275,6 +304,7 @@ func runOnce(ctx context.Context, candidate *ai.Router, candidateRec *traceRecor
 	if !ok {
 		return runOutcome{}, fmt.Errorf("candidate call: no terminal trace recorded")
 	}
+	traceCall(ctx, trace, "candidate", task, sc, run, term, log)
 	if term.Degraded {
 		return runOutcome{RunResult: RunResult{Degraded: true}}, nil
 	}
@@ -287,6 +317,9 @@ func runOnce(ctx context.Context, candidate *ai.Router, candidateRec *traceRecor
 	score, judgeServedModel, judgeDegraded, err := judgeScore(ctx, judge, judgeRec, sc, output, log)
 	if err != nil {
 		return runOutcome{}, fmt.Errorf("judge: %w", err)
+	}
+	if judgeTerm, ok := judgeRec.lastTerminal(); ok {
+		traceCall(ctx, trace, "judge", task, sc, run, judgeTerm, log)
 	}
 
 	structuralOK, structuralFailures := RunChecks(sc.Expect.Structural, output)
@@ -311,61 +344,6 @@ func runOnce(ctx context.Context, candidate *ai.Router, candidateRec *traceRecor
 		JudgeServedModel:     judgeServedModel,
 		JudgeDegraded:        judgeDegraded,
 	}, nil
-}
-
-// overrideForTask rebinds ONLY the tiers on task's routing ladder to the
-// MODEL= override's provider:model, over a COPY of base's tier map —
-// base itself is never mutated, so the judge router built from the same
-// base afterward still sees every tier as configured. Empty override is
-// a no-op: the candidate then rides base exactly like the judge.
-func overrideForTask(base ai.RoutingConfig, task ai.Task, override string) (ai.RoutingConfig, error) {
-	if override == "" {
-		return base, nil
-	}
-	provider, modelName, found := strings.Cut(override, ":")
-	if !found || provider == "" || modelName == "" {
-		return ai.RoutingConfig{}, fmt.Errorf("aicert: MARGINCE_AICERT_MODEL wants provider:model, got %q", override)
-	}
-	ladder := ai.TaskLadder(task)
-	if len(ladder) == 0 {
-		return ai.RoutingConfig{}, fmt.Errorf("aicert: task %s has no routing ladder to override", task)
-	}
-	tiers := make(map[ai.Tier]ai.ProviderConfig, len(base.Tiers))
-	for tier, binding := range base.Tiers {
-		tiers[tier] = binding
-	}
-	for _, tier := range ladder {
-		tiers[tier] = ai.ProviderConfig{Provider: provider, Model: modelName}
-	}
-	overridden := base
-	overridden.Tiers = tiers
-	return overridden, nil
-}
-
-// groupByTask buckets scenarios by their Task field, keeping only tasks
-// matching filter when filter is non-empty.
-func groupByTask(scenarios []Scenario, filter string) map[ai.Task][]Scenario {
-	byTask := map[ai.Task][]Scenario{}
-	for _, sc := range scenarios {
-		if filter != "" && sc.Task != filter {
-			continue
-		}
-		t := ai.Task(sc.Task)
-		byTask[t] = append(byTask[t], sc)
-	}
-	return byTask
-}
-
-// sortedTasks returns byTask's keys in deterministic order, so two runs
-// over the same corpus process tasks (and therefore emit any errors) in
-// the same order.
-func sortedTasks(byTask map[ai.Task][]Scenario) []ai.Task {
-	tasks := make([]ai.Task, 0, len(byTask))
-	for t := range byTask {
-		tasks = append(tasks, t)
-	}
-	sort.Slice(tasks, func(i, j int) bool { return tasks[i] < tasks[j] })
-	return tasks
 }
 
 // repeatsOrDefault applies RunnerConfig.Repeats' default and validates

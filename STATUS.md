@@ -45,7 +45,15 @@ fitness-tested), structural checks + a pinned rubric judge
 cache-off repeats, spec §5 verdict math, and committed JSON records —
 `make e2e-ai TASK=x MODEL=prov:model` certifies any binding;
 `make e2e-ai-report` prints the matrix. Boot warns loudly on unbound
-ladders; `/readyz` names the AI state.
+ladders; `/readyz` names the AI state. A payload trace (`TRACE=1`, on by
+default) dumps every candidate+judge request/response — the post-stripper
+`ai_call_payload` shape — to a gitignored `.tmp/aicert/*.jsonl` for prompt
+tuning. First full-corpus Gemini sweep committed (2026-07-19): of 13 tasks,
+6 certified, 2 supported_degraded, 5 not_supported (mostly Gemini emitting
+`confidence` as a JSON string where the schema wants a number), and
+`offer_draft` blocked — Gemini 2.5's thinking exhausts its 300-token cap
+scenario before it answers. The verdicts are an honest snapshot, not a
+target to game.
 
 **Email ingestion — from fragment to nightly, every-user pipeline
 (ADR-0063, 2026-07-19)** — capture was operationally fragile (one 429

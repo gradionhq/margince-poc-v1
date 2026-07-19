@@ -165,7 +165,10 @@ pinned rubric judge on its *own* `cert_judge` binding (never the candidate's),
 folds N odd cache-off runs into a `certified` / `supported_degraded` /
 `not_supported` verdict, and commits the result as JSON. This is how you compare
 gemini-2.5-flash against a cheaper swap on the same rubric before changing the
-routing file. Full walkthrough:
+routing file. When a verdict needs explaining, the lane can dump every
+candidate and judge call's request/response — the *same* post-stripper
+`ai_call_payload` shape — to a local JSONL trace for tuning (on by default,
+gitignored). Full walkthrough:
 [how-to/certify-an-ai-model.md](../how-to/certify-an-ai-model.md).
 
 ## Reference

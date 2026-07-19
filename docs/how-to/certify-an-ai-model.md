@@ -83,6 +83,46 @@ cold_start  gemini    gemini-2.5-flash       certified  1.00         100        
 cold_start  gemini    gemini-2.5-flash-lite  certified  1.00         100        2020            3
 ```
 
+## 4. See the prompts — trace request/response for tuning
+
+When a task lands `not_supported` or `supported_degraded`, the verdict alone
+doesn't tell you *why*. Turn on the payload trace to read exactly what each
+model saw and said:
+
+```
+make e2e-ai TASK=deal_health          # trace is ON by default
+```
+
+Every candidate **and** judge call is dumped to a JSONL file under the
+repo-root `.tmp/aicert/` (gitignored), and the path is printed to stdout:
+
+```
+aicert: payload trace → /…/margince-next/.tmp/aicert/aicert-trace-20260719T054005Z.jsonl
+```
+
+One JSON object per call, in the **same shape as the `ai_call_payload`
+table** — `request_payload` (system + messages) and `response_payload`, both
+run through the *same* SecretStripper that guards egress, so a credential in
+a prompt is scrubbed before it reaches disk. Each line also carries `role`
+(`candidate`/`judge`), `task`, `scenario`, `run`, `served_model`, and the
+token/latency numbers, so you can pinpoint the failing run:
+
+```json
+{"task":"deal_health","role":"candidate","scenario":"…","run":1,
+ "served_model":"gemini-2.5-flash",
+ "request_payload":{"system":"…","messages":[…]},
+ "response_payload":"{\"signals\":[{\"confidence\":\"0.9\"…"}
+```
+
+That `"0.9"` (a string where the schema wants the number `0.9`) is a typical
+find: a `not_supported` verdict driven by a structural schema miss, not a
+quality problem. Read the candidate's raw output, adjust, re-run.
+
+The trace is **on by default** because the corpus is a fixed, hand-authored
+scenario set and the content is post-stripper and written local-only — there
+is nothing to leak. `TRACE=<dir>` picks a directory; `TRACE=` (empty)
+turns it off.
+
 ## How the verdict is decided
 
 Each run either **HardPasses** (all structural checks pass — JSON schema,
