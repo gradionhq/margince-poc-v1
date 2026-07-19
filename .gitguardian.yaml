@@ -14,6 +14,11 @@ secret:
     # approval-token stand-ins and demo ids — that trip the generic
     # high-entropy detector but are never real credentials. Scoped to the
     # fixture file types only, so product source is still fully scanned.
+    # The IMAP connector's standing-connection tests
+    # (internal/modules/capture/imap/standing*_test.go) are one such case:
+    # the mailbox password is generated per run from crypto/rand (memPass =
+    # testSecret()), so the tree carries no password-shaped literal, yet the
+    # `Password: memPass` struct field trips the generic-password detector.
     - "**/*.test.ts"
     - "**/*.test.tsx"
     - "**/*.stories.tsx"
