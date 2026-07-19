@@ -16,7 +16,7 @@ func TestClassifyError(t *testing.T) {
 		want string
 	}{
 		{"nil is success", nil, ""},
-		{"budget exhausted", fmt.Errorf("wrap: %w", ErrBudgetExhausted), "budget_exhausted"},
+		{"budget deferred", fmt.Errorf("wrap: %w", ErrBudgetDeferred), "budget_deferred"},
 		{"served but metering failed", fmt.Errorf("wrap: %w", errMeteringFailed), "metering_failed"},
 		{"other is provider_error", errors.New("connection reset"), "provider_error"},
 	}

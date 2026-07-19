@@ -8,6 +8,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -135,12 +136,27 @@ func TestRouterSoftDegradeAtEightyPercent(t *testing.T) {
 	}
 }
 
-func TestRouterHardCapQueuesNonInteractive(t *testing.T) {
+func TestRouterHardCapDefersBackgroundWithoutAttemptOrTrace(t *testing.T) {
 	meter := &memMeter{spent: int64(DefaultMonthlyTokens) + 1}
-	r := testRouter(map[Tier]model.Client{TierLocalSmall: NewFakeClient()}, meter, DefaultMonthlyTokens, ProfileEUHosted)
+	client := NewFakeClient()
+	calls := &fakeCallStore{}
+	r := testRouter(map[Tier]model.Client{TierLocalSmall: client}, meter, DefaultMonthlyTokens, ProfileEUHosted)
+	r.calls = calls
+	r.now = func() time.Time { return time.Date(2026, time.July, 19, 9, 30, 0, 0, time.FixedZone("ICT", 7*60*60)) }
 	_, _, err := r.Complete(wsContext(t), TaskCaptureClassify, model.Request{Messages: []model.Message{{Role: "user", Content: "x"}}})
-	if !errors.Is(err, ErrBudgetExhausted) {
-		t.Fatalf("non-interactive task at hard cap must queue, got %v", err)
+	if !errors.Is(err, ErrBudgetDeferred) {
+		t.Fatalf("background task at hard cap must defer, got %v", err)
+	}
+	var deferral *BudgetDeferralError
+	if !errors.As(err, &deferral) {
+		t.Fatalf("budget error does not carry its retry boundary: %T", err)
+	}
+	wantNext := time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC)
+	if deferral.Task != TaskCaptureClassify || !deferral.NextAttemptAt.Equal(wantNext) {
+		t.Fatalf("deferral = %+v, want task %s at %s", deferral, TaskCaptureClassify, wantNext)
+	}
+	if len(client.Calls()) != 0 || len(calls.recorded) != 0 {
+		t.Fatalf("deferral made model/trace attempts: model=%d trace=%d", len(client.Calls()), len(calls.recorded))
 	}
 }
 

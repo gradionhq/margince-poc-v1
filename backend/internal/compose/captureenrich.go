@@ -98,7 +98,7 @@ func (e *CaptureEnricher) Run(ctx context.Context) error {
 	return nil
 }
 
-func isBudgetStop(err error) bool { return errors.Is(err, ai.ErrBudgetExhausted) }
+func isBudgetStop(err error) bool { return errors.Is(err, ai.ErrBudgetDeferred) }
 
 // enrichOne reads one candidate's signature block, gates the model's
 // fields against it, and applies the survivors fill-only-empty.

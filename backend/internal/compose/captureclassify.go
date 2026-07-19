@@ -105,7 +105,7 @@ func (c *CaptureClassifier) Run(ctx context.Context, maxLabels int) error {
 			}
 			n, err := c.classifyBatch(wsCtx, batch)
 			labeled += n
-			if errors.Is(err, ai.ErrBudgetExhausted) {
+			if errors.Is(err, ai.ErrBudgetDeferred) {
 				// ≥100% band: non-interactive work stops for this cycle;
 				// what is labeled is committed, the rest waits (§2.8).
 				c.log.InfoContext(ctx, "capture classify: budget exhausted, stopping the pass", "labeled", labeled)

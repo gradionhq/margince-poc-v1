@@ -162,7 +162,7 @@ func TestNewLocalRouterWithMonthlyBudgetIsLive(t *testing.T) {
 	if err == nil {
 		t.Fatal("second call must be gated by the now-exhausted 100-token budget")
 	}
-	if !errors.Is(err, ErrBudgetExhausted) && !strings.Contains(err.Error(), "no bound tier") {
+	if !errors.Is(err, ErrBudgetDeferred) && !strings.Contains(err.Error(), "no bound tier") {
 		t.Fatalf("want a budget-band effect (queue or honest degrade), got %v", err)
 	}
 }

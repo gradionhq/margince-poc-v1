@@ -279,8 +279,8 @@ func TestCertifyTaskDegradedCandidateAttemptYieldsNoRecord(t *testing.T) {
 // a weaker model and nothing in the Record would ever show it.
 //
 // The judge's task (cert_judge) queues rather than degrades once its
-// budget is fully exhausted (nonInteractive), so a naively tiny budget
-// would surface a hard ErrBudgetExhausted, not the soft in-band
+// budget is fully exhausted for background work, so a naively tiny budget
+// would surface a hard ErrBudgetDeferred, not the soft in-band
 // [80%,100%) demotion this test needs. Instead: probe the exact token
 // cost of the judge's first call (request and response text are fixed,
 // so the fake client's deterministic "4 bytes per token" arithmetic

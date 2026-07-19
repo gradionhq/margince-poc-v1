@@ -6,15 +6,30 @@ package ai
 import (
 	"context"
 	"errors"
+	"fmt"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// ErrBudgetExhausted reports a non-interactive task refused at ≥100%
-// budget utilization (§1.3): the caller queues it for next-cycle budget
-// instead of running it degraded. Core CRM is never behind this error —
-// only model calls are.
-var ErrBudgetExhausted = errors.New("ai: workspace token budget exhausted; queue for next cycle")
+// ErrBudgetDeferred identifies a background model call that its durable
+// carrier must resume in the next budget window. The router owns the timing
+// decision but never invents a generic job: the caller already owns the work.
+var ErrBudgetDeferred = errors.New("ai: background task deferred until the next budget window")
+
+// BudgetDeferralError carries the exact retry boundary to a background task's
+// durable carrier. It is returned before a provider attempt or ai_call trace is
+// created, so deferral is scheduling state rather than a failed model call.
+type BudgetDeferralError struct {
+	Task          Task
+	NextAttemptAt time.Time
+}
+
+func (e *BudgetDeferralError) Error() string {
+	return fmt.Sprintf("ai: task %s deferred until %s", e.Task, e.NextAttemptAt.Format(time.RFC3339))
+}
+
+func (e *BudgetDeferralError) Unwrap() error { return ErrBudgetDeferred }
 
 // BudgetPolicy answers "how many tokens may this workspace burn per
 // month". Injected so the composition layer can derive it from seat

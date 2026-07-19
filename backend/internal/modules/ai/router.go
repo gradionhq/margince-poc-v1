@@ -167,6 +167,10 @@ func (r *Router) serveAttempt(ctx context.Context, lc *logicalCall, task Task, l
 		return model.Response{}, RouteInfo{}, fmt.Errorf("ai: task %s outside workspace context", task)
 	}
 	wsID := ids.From[ids.WorkspaceKind](rawWS)
+	ladder, degraded, budgetErr := r.applyBudget(ctx, task, wsID, ladder)
+	if budgetErr != nil {
+		return model.Response{}, RouteInfo{}, budgetErr
+	}
 	if req.SecretStripper == nil {
 		req.SecretStripper = r.stripper
 	}
@@ -197,10 +201,6 @@ func (r *Router) serveAttempt(ctx context.Context, lc *logicalCall, task Task, l
 		r.finalizeAttempt(ctx, lc, &trace, req, resp, err, start)
 	}()
 
-	ladder, degraded, budgetErr := r.applyBudget(ctx, task, wsID, ladder)
-	if budgetErr != nil {
-		return model.Response{}, RouteInfo{}, budgetErr
-	}
 	trace.Degraded = degraded
 	if degraded {
 		// The budget guardrail forced a demoted ladder — worth naming even
@@ -293,7 +293,7 @@ func (r *Router) EmbedDims() int { return r.embedder.Caps().EmbedDims }
 func (r *Router) Invalidate(workspaceID ids.WorkspaceID) { r.cache.invalidate(workspaceID) }
 
 // applyBudget bends the ladder per §1.3: soft-degrade one tier at 80%,
-// queue non-interactive / pin interactive to local-small at 100%.
+// defer background work / pin interactive work to local-small at 100%.
 func (r *Router) applyBudget(ctx context.Context, task Task, wsID ids.WorkspaceID, ladder []Tier) ([]Tier, bool, error) {
 	budgetTokens, err := r.budget.MonthlyTokenBudget(ctx, wsID)
 	if err != nil {
@@ -311,8 +311,10 @@ func (r *Router) applyBudget(ctx context.Context, task Task, wsID ids.WorkspaceI
 	utilization := float64(spent) / float64(budgetTokens)
 	switch {
 	case utilization >= queueUtilization:
-		if nonInteractive[task] {
-			return nil, false, fmt.Errorf("%w: task %s", ErrBudgetExhausted, task)
+		if taskExecutionModes[task] == ExecutionModeBackground {
+			now := r.now().UTC()
+			nextWindow := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, time.UTC)
+			return nil, false, &BudgetDeferralError{Task: task, NextAttemptAt: nextWindow}
 		}
 		return []Tier{TierLocalSmall}, true, nil
 	case utilization >= degradeUtilization:

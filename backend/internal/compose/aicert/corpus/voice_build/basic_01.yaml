@@ -1,0 +1,39 @@
+name: owner_voice_candidate_from_authored_messages
+task: voice_build
+source: hand_authored
+sanitized_by: hand_authored/codex
+system: >
+  Build a candidate communication-style profile from messages authored by one
+  owner. Infer only recurring writing patterns evidenced by the corpus. Company
+  facts, recipient content, quoted text, signatures, and generated drafts are
+  not author voice. Return only JSON with summary, traits, and evidence_count.
+input: |
+  Owner-authored corpus:
+  1. "Quick one: can we move this to Thursday? I want the numbers in front of us before we decide."
+  2. "This is heading the right way. Please cut the intro and lead with the customer result."
+  3. "I disagree on timing, not direction. Let's ship the smaller version this week and learn."
+
+  Return JSON: {"summary","traits","evidence_count"}
+expect:
+  structural:
+    - kind: json_schema
+      schema:
+        type: object
+        properties:
+          summary: {type: string}
+          traits:
+            type: array
+            items: {type: string}
+          evidence_count: {type: integer}
+        required: [summary, traits, evidence_count]
+    - kind: not_contains
+      arg: customer facts
+  rubric: >
+    Score whether the candidate identifies concise, direct, decision-oriented
+    writing without inventing biography, company facts, or unsupported tone.
+    The evidence count must be three and the traits must be usable drafting
+    guidance rather than generic praise.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

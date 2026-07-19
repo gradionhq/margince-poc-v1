@@ -1033,6 +1033,7 @@ func (e CompanySiteReadPhase) Valid() bool {
 const (
 	CompanySiteReadStatusAbandoned CompanySiteReadStatus = "abandoned"
 	CompanySiteReadStatusConfirmed CompanySiteReadStatus = "confirmed"
+	CompanySiteReadStatusDeferred  CompanySiteReadStatus = "deferred"
 	CompanySiteReadStatusFailed    CompanySiteReadStatus = "failed"
 	CompanySiteReadStatusPartial   CompanySiteReadStatus = "partial"
 	CompanySiteReadStatusQueued    CompanySiteReadStatus = "queued"
@@ -1047,6 +1048,8 @@ func (e CompanySiteReadStatus) Valid() bool {
 		return true
 	case CompanySiteReadStatusConfirmed:
 		return true
+	case CompanySiteReadStatusDeferred:
+		return true
 	case CompanySiteReadStatusFailed:
 		return true
 	case CompanySiteReadStatusPartial:
@@ -1056,6 +1059,24 @@ func (e CompanySiteReadStatus) Valid() bool {
 	case CompanySiteReadStatusReading:
 		return true
 	case CompanySiteReadStatusReady:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompanySiteReadStatusCode.
+const (
+	CompanySiteReadStatusCodeBudgetDeferred CompanySiteReadStatusCode = "budget_deferred"
+	CompanySiteReadStatusCodeLessThannil    CompanySiteReadStatusCode = "<nil>"
+)
+
+// Valid indicates whether the value is a known member of the CompanySiteReadStatusCode enum.
+func (e CompanySiteReadStatusCode) Valid() bool {
+	switch e {
+	case CompanySiteReadStatusCodeBudgetDeferred:
+		return true
+	case CompanySiteReadStatusCodeLessThannil:
 		return true
 	default:
 		return false
@@ -3785,16 +3806,19 @@ func (e SiteReadReportPhase) Valid() bool {
 
 // Defines values for SiteReadReportStatus.
 const (
-	SiteReadReportStatusDone    SiteReadReportStatus = "done"
-	SiteReadReportStatusFailed  SiteReadReportStatus = "failed"
-	SiteReadReportStatusPartial SiteReadReportStatus = "partial"
-	SiteReadReportStatusQueued  SiteReadReportStatus = "queued"
-	SiteReadReportStatusRunning SiteReadReportStatus = "running"
+	SiteReadReportStatusDeferred SiteReadReportStatus = "deferred"
+	SiteReadReportStatusDone     SiteReadReportStatus = "done"
+	SiteReadReportStatusFailed   SiteReadReportStatus = "failed"
+	SiteReadReportStatusPartial  SiteReadReportStatus = "partial"
+	SiteReadReportStatusQueued   SiteReadReportStatus = "queued"
+	SiteReadReportStatusRunning  SiteReadReportStatus = "running"
 )
 
 // Valid indicates whether the value is a known member of the SiteReadReportStatus enum.
 func (e SiteReadReportStatus) Valid() bool {
 	switch e {
+	case SiteReadReportStatusDeferred:
+		return true
 	case SiteReadReportStatusDone:
 		return true
 	case SiteReadReportStatusFailed:
@@ -3804,6 +3828,24 @@ func (e SiteReadReportStatus) Valid() bool {
 	case SiteReadReportStatusQueued:
 		return true
 	case SiteReadReportStatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SiteReadReportStatusCode.
+const (
+	SiteReadReportStatusCodeBudgetDeferred SiteReadReportStatusCode = "budget_deferred"
+	SiteReadReportStatusCodeLessThannil    SiteReadReportStatusCode = "<nil>"
+)
+
+// Valid indicates whether the value is a known member of the SiteReadReportStatusCode enum.
+func (e SiteReadReportStatusCode) Valid() bool {
+	switch e {
+	case SiteReadReportStatusCodeBudgetDeferred:
+		return true
+	case SiteReadReportStatusCodeLessThannil:
 		return true
 	default:
 		return false
@@ -3866,13 +3908,16 @@ func (e SiteReadSkipReason) Valid() bool {
 
 // Defines values for SiteReadStartedStatus.
 const (
-	SiteReadStartedStatusQueued  SiteReadStartedStatus = "queued"
-	SiteReadStartedStatusRunning SiteReadStartedStatus = "running"
+	SiteReadStartedStatusDeferred SiteReadStartedStatus = "deferred"
+	SiteReadStartedStatusQueued   SiteReadStartedStatus = "queued"
+	SiteReadStartedStatusRunning  SiteReadStartedStatus = "running"
 )
 
 // Valid indicates whether the value is a known member of the SiteReadStartedStatus enum.
 func (e SiteReadStartedStatus) Valid() bool {
 	switch e {
+	case SiteReadStartedStatusDeferred:
+		return true
 	case SiteReadStartedStatusQueued:
 		return true
 	case SiteReadStartedStatusRunning:
@@ -6087,22 +6132,27 @@ type CompanyProfileInput struct {
 
 // CompanySiteRead defines model for CompanySiteRead.
 type CompanySiteRead struct {
-	CreatedAt      time.Time                 `json:"created_at"`
-	DraftVersion   int                       `json:"draft_version"`
-	Facts          []CompanySiteReadFact     `json:"facts"`
-	Id             openapi_types.UUID        `json:"id"`
-	OrganizationId *openapi_types.UUID       `json:"organization_id,omitempty"`
-	Pages          []CompanySiteReadPage     `json:"pages"`
-	PagesRead      *int                      `json:"pages_read,omitempty"`
-	People         []CompanySiteReadPerson   `json:"people"`
-	Phase          *CompanySiteReadPhase     `json:"phase,omitempty"`
-	ProfileFields  []ColdStartField          `json:"profile_fields"`
-	ProposalHash   string                    `json:"proposal_hash"`
-	RootUrl        string                    `json:"root_url"`
-	Status         CompanySiteReadStatus     `json:"status"`
-	TargetKind     CompanySiteReadTargetKind `json:"target_kind"`
-	UpdatedAt      time.Time                 `json:"updated_at"`
-	Warnings       []string                  `json:"warnings"`
+	CreatedAt      time.Time                  `json:"created_at"`
+	DraftVersion   int                        `json:"draft_version"`
+	Facts          []CompanySiteReadFact      `json:"facts"`
+	Id             openapi_types.UUID         `json:"id"`
+	NextAttemptAt  *time.Time                 `json:"next_attempt_at"`
+	OrganizationId *openapi_types.UUID        `json:"organization_id,omitempty"`
+	Pages          []CompanySiteReadPage      `json:"pages"`
+	PagesRead      *int                       `json:"pages_read,omitempty"`
+	People         []CompanySiteReadPerson    `json:"people"`
+	Phase          *CompanySiteReadPhase      `json:"phase,omitempty"`
+	ProfileFields  []ColdStartField           `json:"profile_fields"`
+	ProposalHash   string                     `json:"proposal_hash"`
+	RootUrl        string                     `json:"root_url"`
+	Status         CompanySiteReadStatus      `json:"status"`
+	StatusCode     *CompanySiteReadStatusCode `json:"status_code"`
+
+	// StatusDetail Safe guidance only; never provider payload
+	StatusDetail *string                   `json:"status_detail"`
+	TargetKind   CompanySiteReadTargetKind `json:"target_kind"`
+	UpdatedAt    time.Time                 `json:"updated_at"`
+	Warnings     []string                  `json:"warnings"`
 }
 
 // CompanySiteReadPhase defines model for CompanySiteRead.Phase.
@@ -6110,6 +6160,9 @@ type CompanySiteReadPhase string
 
 // CompanySiteReadStatus defines model for CompanySiteRead.Status.
 type CompanySiteReadStatus string
+
+// CompanySiteReadStatusCode defines model for CompanySiteRead.StatusCode.
+type CompanySiteReadStatusCode string
 
 // CompanySiteReadTargetKind defines model for CompanySiteRead.TargetKind.
 type CompanySiteReadTargetKind string
@@ -8658,6 +8711,7 @@ type SiteReadReport struct {
 	// FactCount Evidenced fields staged in the deepread proposal.
 	FactCount      *int               `json:"fact_count,omitempty"`
 	FinishedAt     *time.Time         `json:"finished_at,omitempty"`
+	NextAttemptAt  *time.Time         `json:"next_attempt_at"`
 	OrganizationId openapi_types.UUID `json:"organization_id"`
 	Pages          []SiteReadPage     `json:"pages"`
 
@@ -8668,11 +8722,15 @@ type SiteReadReport struct {
 	Phase *SiteReadReportPhase `json:"phase,omitempty"`
 
 	// ProposalIds The staged 🟡 approvals this read produced (the deepread bundle first, then one per site_lead).
-	ProposalIds []openapi_types.UUID `json:"proposal_ids"`
-	ReadId      openapi_types.UUID   `json:"read_id"`
-	SeedUrl     string               `json:"seed_url"`
-	Skipped     []SiteReadSkip       `json:"skipped"`
-	Status      SiteReadReportStatus `json:"status"`
+	ProposalIds []openapi_types.UUID      `json:"proposal_ids"`
+	ReadId      openapi_types.UUID        `json:"read_id"`
+	SeedUrl     string                    `json:"seed_url"`
+	Skipped     []SiteReadSkip            `json:"skipped"`
+	Status      SiteReadReportStatus      `json:"status"`
+	StatusCode  *SiteReadReportStatusCode `json:"status_code"`
+
+	// StatusDetail Safe guidance only; never provider payload
+	StatusDetail *string `json:"status_detail"`
 
 	// StoppedReason Why the crawl ended early; null when it exhausted discovery.
 	StoppedReason *SiteReadReportStoppedReason `json:"stopped_reason,omitempty"`
@@ -8683,6 +8741,9 @@ type SiteReadReportPhase string
 
 // SiteReadReportStatus defines model for SiteReadReport.Status.
 type SiteReadReportStatus string
+
+// SiteReadReportStatusCode defines model for SiteReadReport.StatusCode.
+type SiteReadReportStatusCode string
 
 // SiteReadReportStoppedReason Why the crawl ended early; null when it exhausted discovery.
 type SiteReadReportStoppedReason string
@@ -8700,11 +8761,11 @@ type SiteReadSkipReason string
 type SiteReadStarted struct {
 	ReadId openapi_types.UUID `json:"read_id"`
 
-	// Status running when the request joined a read already in flight.
+	// Status The joined dossier state when a read is already in flight.
 	Status SiteReadStartedStatus `json:"status"`
 }
 
-// SiteReadStartedStatus running when the request joined a read already in flight.
+// SiteReadStartedStatus The joined dossier state when a read is already in flight.
 type SiteReadStartedStatus string
 
 // Stage A pipeline stage. Mirrors the `stage` table.

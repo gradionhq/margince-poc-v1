@@ -5,7 +5,7 @@ package people
 
 // The deep-read dossier (site_read, 0085): one row per async crawl of an
 // organization's website, created queued when a human asks for the read,
-// advanced by the worker (queued → running → done|partial|failed), and
+// advanced by the worker (queued → running → deferred|done|partial|failed), and
 // polled by the SPA. At most one read per organization is in flight
 // (uq_site_read_inflight): a second click while one runs JOINS it
 // instead of racing a rival crawl. The dossier itself is operational
@@ -47,6 +47,9 @@ type SiteRead struct {
 	TargetKind     string
 	SeedURL        string
 	Status         string
+	StatusCode     *string
+	StatusDetail   *string
+	NextAttemptAt  *time.Time
 	Pages          []SiteReadPage
 	Skipped        []SiteReadSkip
 	StoppedReason  *string
@@ -85,7 +88,7 @@ type SiteReadPerson struct {
 
 // siteReadColumns is the ONE column list every dossier read scans —
 // scanSiteRead pairs with it positionally.
-const siteReadColumns = `id, organization_id, target_kind, seed_url, status, pages, skipped,
+const siteReadColumns = `id, organization_id, target_kind, seed_url, status, status_code, status_detail, next_attempt_at, pages, skipped,
 	stopped_reason, fact_count, proposal_ids, requested_by, profile_fields, facts, people, warnings,
 	draft_version, proposal_hash, phase, pages_read, created_at, updated_at, started_at, finished_at, confirmed_at`
 
@@ -93,6 +96,8 @@ const siteReadColumns = `id, organization_id, target_kind, seed_url, status, pag
 // pin): the same string in relationship.go is that file's column vocabulary —
 // a different concept, deliberately not shared.
 const siteReadOrgKey = "organization_id"
+
+const siteReadBudgetDetail = "AI budget reached its current limit. This website read will resume automatically."
 
 // finishedSiteReadStatuses are the terminal states a worker may report;
 // anything else is a programming error caught before the row's CHECK.
@@ -182,7 +187,7 @@ func (s *Store) createOrJoinSiteRead(ctx context.Context, orgID *ids.Organizatio
 		inFlight := tx.QueryRow(ctx, `
 			SELECT `+siteReadColumns+` FROM site_read
 			WHERE target_kind = $1 AND organization_id IS NOT DISTINCT FROM $2
-			  AND seed_url = $3 AND status IN ('queued','running')`, targetKind, orgID, seedURL)
+			  AND seed_url = $3 AND status IN ('queued','deferred','running')`, targetKind, orgID, seedURL)
 		out, err = scanSiteRead(inFlight)
 		if err != nil {
 			return fmt.Errorf("join in-flight site read: %w", err)
@@ -295,7 +300,7 @@ func (s *Store) UpdateSiteReadDraft(ctx context.Context, readID ids.UUID, facts 
 	})
 }
 
-// BeginSiteRead flips the dossier queued → running as the worker picks it
+// BeginSiteRead flips an eligible queued/deferred dossier → running as the worker picks it
 // up. No auth.Require here: the worker is not a human principal — the
 // human's authority was checked at StartSiteRead, and the workspace-bound
 // transaction (RLS) still scopes the write to the job's tenant. The
@@ -311,8 +316,10 @@ func (s *Store) BeginSiteRead(ctx context.Context, readID ids.UUID, reclaimAfter
 		// and the staged proposal derive from what the dossier says, never
 		// from job args that could in principle diverge from it.
 		err := tx.QueryRow(ctx, `
-			UPDATE site_read SET status = 'running', started_at = now(), updated_at = now()
+			UPDATE site_read SET status = 'running', status_code = NULL, status_detail = NULL,
+				next_attempt_at = NULL, started_at = now(), updated_at = now()
 			WHERE id = $1 AND (status = 'queued' OR
+			  (status = 'deferred' AND next_attempt_at <= now()) OR
 			  (status = 'running' AND started_at < now() - ($2 * interval '1 microsecond')))
 			RETURNING organization_id, target_kind, seed_url, requested_by`, readID, reclaimAfter.Microseconds()).
 			Scan(&claim.OrganizationID, &claim.TargetKind, &claim.SeedURL, &claim.RequestedBy)
@@ -328,6 +335,28 @@ func (s *Store) BeginSiteRead(ctx context.Context, readID ids.UUID, reclaimAfter
 		return SiteReadClaim{}, err
 	}
 	return claim, nil
+}
+
+// DeferSiteRead returns a running dossier to its durable carrier without
+// discarding progress. The guarded transition prevents a late budget result
+// from overwriting a terminal write by another worker.
+func (s *Store) DeferSiteRead(ctx context.Context, readID ids.UUID, nextAttemptAt time.Time) error {
+	if nextAttemptAt.IsZero() {
+		return errors.New("people: site-read deferral requires a retry time")
+	}
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `UPDATE site_read
+			SET status = 'deferred', status_code = 'budget_deferred', status_detail = $2,
+				next_attempt_at = $3, phase = NULL, updated_at = now()
+			WHERE id = $1 AND status = 'running'`, readID, siteReadBudgetDetail, nextAttemptAt.UTC())
+		if err != nil {
+			return fmt.Errorf("defer site read: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return apperrors.ErrNotFound
+		}
+		return nil
+	})
 }
 
 // SiteReadClaim is what BeginSiteRead's CAS hands the worker: the claimed
@@ -428,7 +457,8 @@ func marshalSiteReadList[T any](list []T) ([]byte, error) {
 func scanSiteRead(row pgx.Row) (SiteRead, error) {
 	var sr SiteRead
 	var pagesRaw, skippedRaw, profileRaw, factsRaw, peopleRaw, warningsRaw []byte
-	if err := row.Scan(&sr.ID, &sr.OrganizationID, &sr.TargetKind, &sr.SeedURL, &sr.Status, &pagesRaw, &skippedRaw,
+	if err := row.Scan(&sr.ID, &sr.OrganizationID, &sr.TargetKind, &sr.SeedURL, &sr.Status,
+		&sr.StatusCode, &sr.StatusDetail, &sr.NextAttemptAt, &pagesRaw, &skippedRaw,
 		&sr.StoppedReason, &sr.FactCount, &sr.ProposalIDs, &sr.RequestedBy,
 		&profileRaw, &factsRaw, &peopleRaw, &warningsRaw, &sr.DraftVersion, &sr.ProposalHash,
 		&sr.Phase, &sr.PagesRead, &sr.CreatedAt, &sr.UpdatedAt, &sr.StartedAt, &sr.FinishedAt, &sr.ConfirmedAt); err != nil {

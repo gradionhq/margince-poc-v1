@@ -26,6 +26,9 @@ const reading = {
   organization_id: null,
   root_url: "https://gradion.com",
   status: "reading" as const,
+  status_code: null,
+  status_detail: null,
+  next_attempt_at: null,
   phase: "extracting" as const,
   pages_read: 2,
   pages: [
@@ -95,13 +98,23 @@ const partial = {
   proposal_hash: "proposal-3",
 };
 
+const deferred = {
+  ...reading,
+  status: "deferred" as const,
+  phase: null,
+  status_code: "budget_deferred" as const,
+  status_detail:
+    "AI budget reached its current limit. This website read will resume automatically.",
+  next_attempt_at: "2026-08-01T00:00:00Z",
+};
+
 function ReadStory({
   mode = "website",
   read = null,
   error = null,
 }: Readonly<{
   mode?: "website" | "manual" | null;
-  read?: typeof reading | typeof partial | null;
+  read?: typeof reading | typeof partial | typeof deferred | null;
   error?: string | null;
 }>) {
   return (
@@ -138,6 +151,10 @@ export const ManualChoice: Story = {
 
 export const ReadingProgress: Story = {
   render: () => <ReadStory read={reading} />,
+};
+
+export const WaitingForBudget: Story = {
+  render: () => <ReadStory read={deferred} />,
 };
 
 export const PartialCoverage: Story = {

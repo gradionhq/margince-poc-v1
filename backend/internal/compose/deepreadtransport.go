@@ -111,6 +111,9 @@ func (e *deepReadEngine) start(w http.ResponseWriter, r *http.Request, id openap
 	status := crmcontracts.SiteReadStartedStatusQueued
 	if joined {
 		status = crmcontracts.SiteReadStartedStatusRunning
+		if read.Status == siteReadStatusDeferred {
+			status = crmcontracts.SiteReadStartedStatusDeferred
+		}
 	}
 	httperr.WriteJSON(w, http.StatusAccepted, crmcontracts.SiteReadStarted{
 		ReadId: openapi_types.UUID(read.ID),
@@ -146,6 +149,12 @@ func siteReadReport(read people.SiteRead) crmcontracts.SiteReadReport {
 		FactCount:      &read.FactCount,
 		CreatedAt:      read.CreatedAt,
 		FinishedAt:     read.FinishedAt,
+		StatusDetail:   read.StatusDetail,
+		NextAttemptAt:  read.NextAttemptAt,
+	}
+	if read.StatusCode != nil {
+		code := crmcontracts.SiteReadReportStatusCode(*read.StatusCode)
+		report.StatusCode = &code
 	}
 	for _, p := range read.Pages {
 		report.Pages = append(report.Pages, crmcontracts.SiteReadPage{Url: p.URL, Kind: crmcontracts.SiteReadPageKind(p.Kind)})

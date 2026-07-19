@@ -4,8 +4,7 @@
 // Command gen-aitasks compiles backend/api/ai-tasks.yaml — the AI task
 // contract (ai-operational-spec §1.2) — into the tables package ai
 // consumes at runtime: the Task/Tier constants, the per-task routing
-// ladders, the degrade-to map, and the non-interactive set derived from
-// each task's on_budget_exhausted policy. It also regenerates
+// ladders, the degrade-to map, and each task's execution mode. It also regenerates
 // config/ai-routing.schema.json's tier enum from the same contract, so a
 // tier can be added or renamed in exactly one place (ai-tasks.yaml) and
 // every downstream artifact — the binary and the deployment schema —
@@ -73,10 +72,11 @@ func main() {
 }
 
 // taskDef is one tasks.<name> entry: the routing ladder, the
-// budget-exhaustion policy, and an optional doc string carried through
+// execution mode, budget-exhaustion policy, and an optional doc string carried through
 // to the generated constant's comment.
 type taskDef struct {
 	Ladder            []string `yaml:"ladder"`
+	ExecutionMode     string   `yaml:"execution_mode"`
 	OnBudgetExhausted string   `yaml:"on_budget_exhausted"`
 	Doc               string   `yaml:"doc"`
 }
@@ -97,6 +97,8 @@ type contract struct {
 // matching the Go identifier derivation (pascalCase) 1:1.
 var taskNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
+const goConstBlockStart = "const (\n"
+
 // parseContract decodes and validates ai-tasks.yaml. Unknown keys are
 // errors: a typo'd field would otherwise silently drop routing policy.
 func parseContract(raw []byte) (contract, error) {
@@ -115,7 +117,8 @@ func parseContract(raw []byte) (contract, error) {
 // validate enforces the contract's own invariants: every tier a ladder
 // or degrade_to entry names must be declared in tiers, every task name
 // is a valid Go-identifier source, and on_budget_exhausted is one of the
-// two policies the runtime understands.
+// two policies the runtime understands. Execution mode and exhaustion policy
+// are a closed pair: interactive tasks degrade, background tasks queue.
 func (c contract) validate() error {
 	if len(c.Tiers) == 0 {
 		return fmt.Errorf("contract declares no tiers")
@@ -143,6 +146,18 @@ func (c contract) validate() error {
 		case "queue", "degrade":
 		default:
 			return fmt.Errorf("task %q: on_budget_exhausted must be \"queue\" or \"degrade\", got %q", name, def.OnBudgetExhausted)
+		}
+		switch def.ExecutionMode {
+		case "interactive":
+			if def.OnBudgetExhausted != "degrade" {
+				return fmt.Errorf("task %q: interactive execution_mode requires on_budget_exhausted \"degrade\"", name)
+			}
+		case "background":
+			if def.OnBudgetExhausted != "queue" {
+				return fmt.Errorf("task %q: background execution_mode requires on_budget_exhausted \"queue\"", name)
+			}
+		default:
+			return fmt.Errorf("task %q: execution_mode must be \"interactive\" or \"background\", got %q", name, def.ExecutionMode)
 		}
 	}
 	for from, to := range c.DegradeTo {
@@ -187,7 +202,7 @@ func taskConst(name string) string { return "Task" + pascalCase(name) }
 func tierConst(name string) string { return "Tier" + pascalCase(name) }
 
 // emitGo renders tasks_gen.go: the Task/Tier types and constants, the
-// routing ladders, the degrade-to map, the nonInteractive derivation, and
+// routing ladders, the degrade-to map, the execution-mode table, and
 // knownTiers — the one table compiled from the contract, so tasks.go and
 // routing.go never hand-maintain it. The result is gofmt-clean, matching
 // every other *_gen.go the repo checks in.
@@ -202,7 +217,7 @@ func emitGo(c contract, contractHash string) (string, error) {
 	b.WriteString("// task (ai-operational-spec §1.2); code never names a vendor.\n")
 	b.WriteString("type Task string\n\n")
 
-	b.WriteString("const (\n")
+	b.WriteString(goConstBlockStart)
 	for _, name := range taskNames {
 		if doc := c.Tasks[name].Doc; doc != "" {
 			fmt.Fprintf(&b, "\t// %s is %s\n", taskConst(name), doc)
@@ -211,11 +226,20 @@ func emitGo(c contract, contractHash string) (string, error) {
 	}
 	b.WriteString(")\n\n")
 
+	b.WriteString("// ExecutionMode distinguishes request-bound work from work carried by a\n")
+	b.WriteString("// durable background job. Budget exhaustion degrades the former and\n")
+	b.WriteString("// defers the latter.\n")
+	b.WriteString("type ExecutionMode string\n\n")
+	b.WriteString(goConstBlockStart)
+	b.WriteString("\tExecutionModeInteractive ExecutionMode = \"interactive\"\n")
+	b.WriteString("\tExecutionModeBackground  ExecutionMode = \"background\"\n")
+	b.WriteString(")\n\n")
+
 	b.WriteString("// Tier is a capability tier (§1.1); ai-routing.yaml binds each to a\n")
 	b.WriteString("// provider+model per deployment.\n")
 	b.WriteString("type Tier string\n\n")
 
-	b.WriteString("const (\n")
+	b.WriteString(goConstBlockStart)
 	for _, name := range c.Tiers {
 		fmt.Fprintf(&b, "\t%s Tier = %q\n", tierConst(name), name)
 	}
@@ -259,16 +283,12 @@ func emitGo(c contract, contractHash string) (string, error) {
 	}
 	b.WriteString("}\n\n")
 
-	b.WriteString("// nonInteractive marks the tasks that queue rather than degrade when\n")
-	b.WriteString("// the budget is exhausted (§1.3 ≥100%): nothing is waiting on them\n")
-	b.WriteString("// interactively, so next-cycle budget beats reduced quality. Derived\n")
-	b.WriteString("// from on_budget_exhausted == \"queue\"; the \"degrade\" tasks are simply\n")
-	b.WriteString("// absent (a missing key reads as false).\n")
-	b.WriteString("var nonInteractive = map[Task]bool{\n")
+	b.WriteString("// taskExecutionModes is the scheduling contract compiled from\n")
+	b.WriteString("// execution_mode. Every task is present by construction.\n")
+	b.WriteString("var taskExecutionModes = map[Task]ExecutionMode{\n")
 	for _, name := range taskNames {
-		if c.Tasks[name].OnBudgetExhausted == "queue" {
-			fmt.Fprintf(&b, "\t%s: true,\n", taskConst(name))
-		}
+		mode := "ExecutionMode" + pascalCase(c.Tasks[name].ExecutionMode)
+		fmt.Fprintf(&b, "\t%s: %s,\n", taskConst(name), mode)
 	}
 	b.WriteString("}\n\n")
 

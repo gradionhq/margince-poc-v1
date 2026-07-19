@@ -9,8 +9,11 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
 import { OnboardingScreen } from "./onboarding";
+
+type CompanySiteRead = components["schemas"]["CompanySiteRead"];
 
 const savedProfile = {
   organization_id: "018f3a1b-0000-7000-8000-0000000000a1",
@@ -30,6 +33,9 @@ const readyRead = {
   organization_id: null,
   root_url: "https://gradion.com",
   status: "ready",
+  status_code: null,
+  status_detail: null,
+  next_attempt_at: null,
   phase: null,
   pages_read: 2,
   pages: [
@@ -71,12 +77,12 @@ const readyRead = {
   proposal_hash: "proposal-1",
   created_at: "2026-07-19T08:00:00Z",
   updated_at: "2026-07-19T08:00:01Z",
-} as const;
+} as const satisfies CompanySiteRead;
 
 type StubOptions = {
   company?: typeof savedProfile | null;
   state?: Record<string, unknown> | null;
-  read?: typeof readyRead;
+  read?: CompanySiteRead;
   readStartError?: { detail: string; status: number };
   saveError?: { detail: string; status: number };
   conflictOnce?: boolean;
@@ -282,6 +288,42 @@ describe("the optional website path", () => {
       screen.getByRole("button", { name: /Continue manually/ }),
     );
     expect(await screen.findByLabelText(/Company name/)).toBeTruthy();
+  });
+
+  it("shows a deferred read as scheduled work and keeps the manual path available", async () => {
+    stubApi({
+      read: {
+        ...readyRead,
+        status: "deferred",
+        phase: null,
+        status_code: "budget_deferred",
+        status_detail:
+          "AI budget reached its current limit. This website read will resume automatically.",
+        next_attempt_at: "2026-08-01T00:00:00Z",
+        profile_fields: [],
+        facts: [],
+      },
+    });
+    render(<OnboardingScreen />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Read my website/ }),
+    );
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Website" }),
+      "gradion.com",
+    );
+    await userEvent.click(
+      screen
+        .getAllByRole("button", { name: /Read my website/ })
+        .at(-1) as HTMLElement,
+    );
+
+    expect(await screen.findByText("Waiting for AI budget")).toBeTruthy();
+    expect(screen.getByText(/Resumes automatically/)).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /Enter it myself/ }),
+    ).toBeTruthy();
   });
 });
 

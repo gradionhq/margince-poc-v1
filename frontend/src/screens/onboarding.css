@@ -1327,6 +1327,15 @@
   color: var(--online);
   background: color-mix(in srgb, var(--online) 11%, transparent);
 }
+.read-deferral {
+  margin: 0;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--borderSubtle);
+  color: var(--textSecondary);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  font-size: 12px;
+  line-height: 1.5;
+}
 .reading-live {
   display: flex;
   align-items: center;

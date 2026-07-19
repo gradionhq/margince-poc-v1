@@ -248,8 +248,8 @@ func classifyError(err error) string {
 	switch {
 	case err == nil:
 		return ""
-	case errors.Is(err, ErrBudgetExhausted):
-		return "budget_exhausted"
+	case errors.Is(err, ErrBudgetDeferred):
+		return "budget_deferred"
 	case errors.Is(err, errMeteringFailed):
 		return "metering_failed"
 	default:

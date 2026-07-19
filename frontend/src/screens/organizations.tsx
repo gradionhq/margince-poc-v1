@@ -400,6 +400,7 @@ type SiteReadReport = components["schemas"]["SiteReadReport"];
 
 const SITE_READ_STATUS_LABELS: Record<SiteReadReport["status"], MessageKey> = {
   queued: "deepread.statusQueued",
+  deferred: "deepread.statusDeferred",
   running: "deepread.statusRunning",
   done: "deepread.statusDone",
   partial: "deepread.statusPartial",
@@ -448,6 +449,31 @@ function shortUrl(url: string): string {
   return bare.length > 60 ? `${bare.slice(0, 59)}…` : bare;
 }
 
+function SiteReadDeferral({ report }: Readonly<{ report: SiteReadReport }>) {
+  const t = useT();
+  const { locale } = useLocale();
+  if (report.status !== "deferred") {
+    return null;
+  }
+  return (
+    <p className="t-small" style={{ margin: "var(--space-2) 0 0" }}>
+      {report.status_detail}
+      {report.next_attempt_at && (
+        <>
+          {" "}
+          {t("deepread.resumesAt", {
+            when: formatDateTime(
+              report.next_attempt_at,
+              locale,
+              "Europe/Berlin",
+            ),
+          })}
+        </>
+      )}
+    </p>
+  );
+}
+
 // The polled half of the deep read: renders progress while the crawl is in
 // flight (3s poll, stops on a terminal status) and the full account when it
 // ends — pages read, pages SKIPPED and why, and the stop reason when the
@@ -472,7 +498,10 @@ function SiteReadPanel({
     },
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      return status === "queued" || status === "running" ? 3000 : false;
+      if (status === "queued" || status === "running") {
+        return 3000;
+      }
+      return status === "deferred" ? 60_000 : false;
     },
   });
 
@@ -526,6 +555,7 @@ function SiteReadPanel({
           </span>
         )}
       </p>
+      <SiteReadDeferral report={report} />
       {report.stopped_reason && (
         <p style={{ margin: "var(--space-2) 0 0" }}>
           <Badge tone="warn">
