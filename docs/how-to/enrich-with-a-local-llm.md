@@ -62,11 +62,14 @@ make dev   # look for: "dev: using config/ai-routing.yaml for the cold-start rea
 > Persist keys in `.env.local` if you prefer — it is git-ignored and `make dev`
 > reads it.
 >
-> ⚠️ With the default routing, enrich starts on `local_small` (Ollama) and
-> stays local — but any flow that ladders up to a cloud-bound tier (the
-> cold-start read-back runs `cheap_cloud` → `premium`) calls that cloud
-> provider. Rebind those tiers to Ollama first (§2) if you exercise them
-> without a key.
+> ⚠️ Ladders can leave the box: enrich *starts* on `local_small` (Ollama)
+> but its ladder is `local_small` → `cheap_cloud`, so a provider error or
+> schema failure escalates to the cloud tier — and flows that start
+> cloud-bound (the cold-start read-back runs `cheap_cloud` → `premium`)
+> call it immediately. For a guaranteed-local run, rebind every tier you
+> exercise to Ollama (§2). And remember the all-or-nothing gate above: a
+> missing key for *any* bound cloud provider puts the whole stack on the
+> offline fake — Ollama included.
 
 `make dev` brings up the api on `:8080`, API-seeds the demo workspace on boot,
 and runs the Vite SPA on `:5173`. Open **http://localhost:5173** and log in

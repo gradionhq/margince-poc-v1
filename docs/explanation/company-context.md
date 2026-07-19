@@ -10,7 +10,7 @@ prompt prose. This page explains the whole lane; the model runtime it feeds is
 
 ## The shape at a glance
 
-```
+```text
  FIRST RUN (the wizard)                 THE PROFILE (people module)       AI TASKS (compose + ai)
  ─────────────────────                 ───────────────────────────      ───────────────────────
  Read → Confirm → Voice                 organization        (identity)   CompanyContextProvider

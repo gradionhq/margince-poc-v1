@@ -447,21 +447,13 @@ Open work, roughly in priority order:
   [docs/explanation/company-context.md](docs/explanation/company-context.md)
   (the phase plan lives in git history as
   `docs/explanation/coldstart-company-context-plan.md`).
-  Foundation PR #1104 is merged at `f97ef6b` with `g1-deterministic` and
-  `llm-advisory` green; ADR-0065/A111 now pins the anchor/profile/fact/site-read
-  schema, optional three-field manual path, reusable deep-read wire, typed
-  context policy, progressive budgets/events, and five-step UI. Phase 1
-  merged in PR #127: it adds the typed, provenance-bearing
-  `CompanyContext` read substrate and reconciles profile/fact vocabulary without
-  duplicating the already-built anchor/deep-read stores. Phase 2 is implemented
-  on `agent/coldstart-company-context-phase2`: an unbound, progressive onboarding
-  dossier; hash/version-bound accept-subset confirmation; mixed website/human
-  provenance; separate team-member lead proposals; transactional River enqueue;
-  stale-running recovery; and atomic deep-read approval redeem+apply. Focused
-  real-Postgres tests prove zero domain persistence before confirmation and full
-  rollback on queue/staging/apply failures. `make check` and the complete
-  15-package integration lane are green locally. The Phase 2 PR still requires
-  every GitHub quality gate before merge.
+  Upstream, foundation PR #1104 is merged at `f97ef6b`; ADR-0065/A111 pins the
+  anchor/profile/fact/site-read schema, the optional three-field manual path,
+  the reusable deep-read wire, the typed context policy, progressive
+  budgets/events, and the five-step UI. Downstream, the phases landed as PRs
+  #127 (read substrate), #128 (onboarding dossier), #130/#131 (task injection +
+  five-step wizard), and #132/#133 (budget deferral + refresh/rollout) — all
+  merged; the per-phase delivery narrative is in those PRs.
 
 - **Email ingestion — deferred pieces of ADR-0063** (the pipeline is
   live; these were scoped out, not missed):
