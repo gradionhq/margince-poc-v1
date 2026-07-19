@@ -1,7 +1,7 @@
 {
-  "task": "cold_start",
+  "task": "capture_classify",
   "provider": "gemini",
-  "served_model": "gemini-2.5-flash",
+  "served_model": "gemini-2.5-flash-lite",
   "env_class": "eu_hosted",
   "prompt_version": "v1",
   "corpus_version": "v1",
@@ -10,12 +10,12 @@
   "reliability": 1,
   "score_p50": 100,
   "score_min": 100,
-  "latency_p50": 9246,
-  "latency_p95": 10263,
-  "mean_tokens": 2121,
+  "latency_p50": 858,
+  "latency_p95": 870,
+  "mean_tokens": 321,
   "est_cost_microusd": 0,
   "judge_served_model": "gemini-2.5-pro",
   "self_judged": false,
   "served_identity_source": "response",
-  "ran_at": "2026-07-19T05:44:07Z"
+  "ran_at": "2026-07-19T05:41:58Z"
 }

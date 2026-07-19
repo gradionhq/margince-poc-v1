@@ -64,6 +64,11 @@ func TestE2ECertify(t *testing.T) {
 		Repeats:     repeats,
 		CorpusDir:   "corpus",
 		RecordDir:   "records",
+		// MARGINCE_AICERT_TRACE names a directory for the payload trace
+		// (every candidate+judge request/response, ai_call_payload shape);
+		// unset = no trace. `make e2e-ai` sets it to the repo-root
+		// .tmp/aicert default (TRACE=1); pass TRACE= to disable.
+		TraceDir: os.Getenv("MARGINCE_AICERT_TRACE"),
 	}
 
 	records, err := aicert.Run(context.Background(), cfg, slog.Default())

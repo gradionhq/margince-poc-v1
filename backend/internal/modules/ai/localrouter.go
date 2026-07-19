@@ -13,10 +13,11 @@ import (
 // that names no budget still gets a static single-seat ceiling, never an
 // unbounded one.
 type localOpts struct {
-	callStore     CallRecorder
-	cacheOff      bool
-	monthlyBudget int64
-	fakeClient    *FakeClient
+	callStore       CallRecorder
+	cacheOff        bool
+	monthlyBudget   int64
+	fakeClient      *FakeClient
+	capturePayloads bool
 }
 
 // LocalOption configures the DB-less router NewLocalRouter builds — the
@@ -60,6 +61,16 @@ func WithFakeClient(c *FakeClient) LocalOption {
 	return func(o *localOpts) { o.fakeClient = c }
 }
 
+// WithPayloadCapture turns on the Layer-3 content capture (the same
+// post-SecretStripper request+response the production router writes to
+// ai_call_payload) on this DB-less router, so a caller that installed a
+// CallRecorder sees each terminal Call carry its Payload. Off by default:
+// the debug/dev paths only pay the marshal+strip cost when a caller (the
+// aicert lane's trace dump) actually wants the bodies.
+func WithPayloadCapture() LocalOption {
+	return func(o *localOpts) { o.capturePayloads = true }
+}
+
 // NewLocalRouter builds a Router over an in-memory meter and no
 // Postgres — the DB-less path for dev tooling (the worker's siteread
 // debug subcommand) and the aicert lane. Calls ride the full routing,
@@ -96,9 +107,9 @@ func NewLocalRouter(cfg RoutingConfig, opts ...LocalOption) (*Router, error) {
 	}
 	// o.callStore: the DB-less debug path traces no ai_call rows by
 	// default (the router skips tracing when calls == nil), captures no
-	// payloads, and logs through slog.Default; WithCallStore opts a
-	// caller into tracing.
-	router := assembleRouter(clients, embedder, cfg.Profile, &memoryMeter{}, StaticBudget(o.monthlyBudget), o.callStore, meta, false, nil)
+	// payloads (WithPayloadCapture opts in), and logs through slog.Default;
+	// WithCallStore opts a caller into tracing.
+	router := assembleRouter(clients, embedder, cfg.Profile, &memoryMeter{}, StaticBudget(o.monthlyBudget), o.callStore, meta, o.capturePayloads, nil)
 	router.cacheOff = o.cacheOff
 	router.installConfigSnapshot(cfg.sourceHash)
 	return router, nil
