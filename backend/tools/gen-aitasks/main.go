@@ -97,6 +97,8 @@ type contract struct {
 // matching the Go identifier derivation (pascalCase) 1:1.
 var taskNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
+const goConstBlockStart = "const (\n"
+
 // parseContract decodes and validates ai-tasks.yaml. Unknown keys are
 // errors: a typo'd field would otherwise silently drop routing policy.
 func parseContract(raw []byte) (contract, error) {
@@ -215,7 +217,7 @@ func emitGo(c contract, contractHash string) (string, error) {
 	b.WriteString("// task (ai-operational-spec §1.2); code never names a vendor.\n")
 	b.WriteString("type Task string\n\n")
 
-	b.WriteString("const (\n")
+	b.WriteString(goConstBlockStart)
 	for _, name := range taskNames {
 		if doc := c.Tasks[name].Doc; doc != "" {
 			fmt.Fprintf(&b, "\t// %s is %s\n", taskConst(name), doc)
@@ -228,7 +230,7 @@ func emitGo(c contract, contractHash string) (string, error) {
 	b.WriteString("// durable background job. Budget exhaustion degrades the former and\n")
 	b.WriteString("// defers the latter.\n")
 	b.WriteString("type ExecutionMode string\n\n")
-	b.WriteString("const (\n")
+	b.WriteString(goConstBlockStart)
 	b.WriteString("\tExecutionModeInteractive ExecutionMode = \"interactive\"\n")
 	b.WriteString("\tExecutionModeBackground  ExecutionMode = \"background\"\n")
 	b.WriteString(")\n\n")
@@ -237,7 +239,7 @@ func emitGo(c contract, contractHash string) (string, error) {
 	b.WriteString("// provider+model per deployment.\n")
 	b.WriteString("type Tier string\n\n")
 
-	b.WriteString("const (\n")
+	b.WriteString(goConstBlockStart)
 	for _, name := range c.Tiers {
 		fmt.Fprintf(&b, "\t%s Tier = %q\n", tierConst(name), name)
 	}

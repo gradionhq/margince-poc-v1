@@ -99,6 +99,40 @@ degrade_to:
 	}
 }
 
+func TestParseContractRejectsExecutionModeBudgetPolicyMismatch(t *testing.T) {
+	tests := []struct {
+		name       string
+		mode       string
+		policy     string
+		wantDetail string
+	}{
+		{name: "interactive queues", mode: "interactive", policy: "queue", wantDetail: "interactive execution_mode requires"},
+		{name: "background degrades", mode: "background", policy: "degrade", wantDetail: "background execution_mode requires"},
+		{name: "unknown mode", mode: "scheduled", policy: "queue", wantDetail: "execution_mode must be"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raw := strings.ReplaceAll(`
+tiers: [alpha]
+
+tasks:
+  foo: {ladder: [alpha], execution_mode: MODE, on_budget_exhausted: POLICY}
+
+degrade_to:
+  alpha: alpha
+`, "MODE", tt.mode)
+			raw = strings.ReplaceAll(raw, "POLICY", tt.policy)
+			_, err := parseContract([]byte(raw))
+			if err == nil {
+				t.Fatal("parseContract accepted an invalid execution-mode and budget-policy pairing")
+			}
+			if !strings.Contains(err.Error(), tt.wantDetail) {
+				t.Fatalf("error %q does not explain the invalid pairing", err)
+			}
+		})
+	}
+}
+
 // TestEmitSchemaSourcesTierEnumFromContract proves the routing schema's
 // tier enum is derived, not hand-copied: the propertyNames enum lists
 // exactly the contract's tiers, in contract order.
