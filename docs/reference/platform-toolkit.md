@@ -95,6 +95,29 @@ Hand-rolled runner for the ownership namespaces (core, custom, packs), each with
 - `Load(fsys, dir)`, `Up(ctx, conn, namespaces…)`, `Down(ctx, conn, ns, n)`.
 - **Reach for it when:** applying/rolling back migrations in tooling (usually you just run `cmd/migrate`).
 
+### `platform/deployconfig` — the installation config (`margince.yaml`)
+Loads the operator's deployment file (A107/ADR-0061): the singleton organization, the bootstrap admin,
+auth/email/AI/capture posture, and the ordered `company_context.rollout` capability
+(`off < read < tasks < onboarding`; empty resolves to `onboarding`).
+- `Load(path)`, the typed `Config` tree, `EffectiveRollout()`.
+- **Reach for it when:** a behavior is an operator deployment choice, not workspace data — it belongs in this file, not a new flag.
+
+### `platform/mailer` — transactional email
+The ONE outbound channel for product-originated mail (A74/ADR-0056), operator-configured SMTP; first
+consumer is password-reset delivery. Consent's marketing lanes are a separate, gated concern.
+- **Reach for it when:** the product itself must send a mail (never for tenant marketing sends).
+
+### `platform/webread` — the public-web fetcher
+The outbound page fetcher behind the scrape/enrichment seam: plain GETs of tenant-named pages reduced
+to whitespace-normalized text. SSRF-guarded post-dial (every redirect hop re-enters the guard),
+robots-aware, paced, byte/time-bounded. No extraction, no discovery policy — those stay with callers.
+- **Reach for it when:** fetching a tenant-supplied URL — never hand-roll an `http.Client` for one.
+
+### `platform/testdb` — test database harness
+Migrate-once schema setup + fast `TRUNCATE` reset for the integration lanes (`EnsureSchema`,
+`Truncate`); the `integrationmigrateonce_test.go` gate enforces its use.
+- **Reach for it when:** writing a real-Postgres test setup.
+
 ---
 
 ## `shared/` — stdlib-only leaves
@@ -132,6 +155,25 @@ Store APIs accept no write without it (missing provenance is a compile error).
 - `type Provenance { Source, CapturedBy }`, `Validate()`.
 - **Reach for it when:** any write — pass where the value came from and who wrote it.
 
+### `shared/kernel/values` — domain value objects
+Parse-don't-validate types for formats that would otherwise travel as bare strings: email lowercasing,
+E.164 phones, host-only domains, slugs, timezones, the money pair. Each parses/normalizes ONCE at the
+seam where input enters a store; a malformed value is unrepresentable downstream. Constructors return
+`ParseError`, which the transport maps to the 422 validation shape.
+- **Reach for it when:** accepting an email/phone/domain/money/… input — parse it here, don't validate ad hoc.
+
+### `shared/kernel/diffhash` — the one diff-hash canonicalization
+The ONE spelling of a `diff_hash` (ADR-0036): decode to maps, re-marshal (sorting keys at every
+depth), hash. Staging, redemption, and modify-then-approve all hash through here — "identical call"
+is a property of content, never whitespace or key order.
+- **Reach for it when:** comparing or binding a staged payload by content.
+
+### `shared/schema` — structured-output JSON Schema builder
+Composable `Object`/`Array`/`String`/… builders rendering the `model.Request.ResponseSchema` value, so
+every structured-output schema is compile-checked and built one way (objects are CLOSED —
+`additionalProperties: false`).
+- **Reach for it when:** constraining a model call to a JSON shape — never hand-write the schema string.
+
 ### `shared/ports/*` — the frozen seam interfaces
 Dependency-free interfaces that decouple platform/AI/UI (and one module from another) from concrete
 implementations; the composition root injects the impls. **Depend on the interface, never the concrete
@@ -146,6 +188,8 @@ module.**
 | `model` | `Client { Complete/Stream/Embed/Caps }`, `SecretStripper` | the provider-agnostic LLM seam (model choice is config, not architecture) |
 | `retrieval` | `Retriever { Search; AssembleContext }` | grounded hybrid retrieval with per-item evidence (evidence-or-omit) |
 | `workflow` | `Handler { Spec; Match; Plan }` | the automation seam — typed trigger + effect + idempotency key + risk tier; runs ride the job queue |
+| `extraction` | `Extractor { Extract }` | the staged attachment-extraction seam — grounded-or-omitted fields, never a guess (prod default: the honestly-empty `NoOpExtractor`) |
+| `fieldcatalog` | `Reader { ActiveColumns }` | how record stores learn the active `cf_*` custom-field columns per object (impl: customfields' Service) without importing the module |
 | `jurisdiction` | `Pack { Code; Retention }` + `Register`/`For`/`Applicable` | compile-time country packs (the `de` pack); core never names a jurisdiction |
 
 **Reach for a ports interface when:** code above a seam needs a module's capability without importing it.

@@ -15,8 +15,13 @@ is world-readable in `ps`:
 ```sh
 MARGINCE_PASSPORT_TOKEN=mgp_… \
 MARGINCE_DSN='postgres://margince_app:…@localhost:55432/margince' \
-mcp --workspace <slug>
+mcp
 ```
+
+There is no workspace flag: one installation serves one organization
+(A107/ADR-0061), so the process binds the bootstrapped installation's
+workspace itself at boot — against a pre-bootstrap database it refuses
+to start ("start the API with a margince.yaml first").
 
 The process speaks MCP JSON-RPC on stdin/stdout; diagnostics go to
 stderr (stdout belongs to the protocol). A dead or revoked token fails
@@ -27,7 +32,6 @@ An MCP client config looks like:
 ```json
 {
   "command": "mcp",
-  "args": ["--workspace", "acme"],
   "env": {
     "MARGINCE_PASSPORT_TOKEN": "mgp_…",
     "MARGINCE_DSN": "postgres://…"
@@ -39,7 +43,7 @@ During development, run it straight from the repo:
 
 ```sh
 cd backend && MARGINCE_PASSPORT_TOKEN=mgp_… go run ./cmd/mcp \
-  --workspace <slug> --dsn 'postgres://margince_app:margince_app_dev@localhost:55432/margince'
+  --dsn 'postgres://margince_app:margince_app_dev@localhost:55432/margince'
 ```
 
 ## A2: hosted (streamable HTTP)

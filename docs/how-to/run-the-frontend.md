@@ -13,11 +13,9 @@ make dev   # full local stack: db + migrate + api (:8080) + seed + the Vite SPA 
 `make dev` starts the Vite dev server too, with its `/v1` proxy pointed at
 the api (plain http — `localhost` is a browser secure-context, so the
 `Secure` session cookie survives without TLS). Open the SPA on
-http://localhost:5173. Log in to get the
-`crm_session` cookie, then set the workspace slug once under Settings →
-Workspace connection (local dev sends `X-Workspace-Slug`; production
-resolves the workspace from the subdomain). Stop the stack with
-`make dev-stop`.
+http://localhost:5173 and log in to get the `crm_session` cookie — the
+server resolves its singleton organization itself (A107/ADR-0061), so no
+workspace selection exists. Stop the stack with `make dev-stop`.
 
 ## Verify
 

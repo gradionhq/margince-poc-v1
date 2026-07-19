@@ -14,9 +14,10 @@ the model runtime itself.
  WHAT (contract, a rebuild)            WHERE (config, runtime)          THE GATE (one path)
  ─────────────────────────            ─────────────────────           ───────────────────
  backend/api/ai-tasks.yaml            config/ai-routing.yaml           ai.Router
-   task  → ladder of tiers              tier → provider + model          • meter (seat budget)
-   + on_budget_exhausted                profile (egress posture)         • trace (ai_call rows)
-        │                              BYOK key ← env var                • strip secrets
+   task  → ladder of tiers              tier → provider + model          • meter (workspace budget)
+   + execution_mode                     profile (egress posture)         • inject company context
+   + on_budget_exhausted                BYOK key ← env var               • trace (ai_call rows)
+        │                                     │                          • strip secrets
         │ make gen (drift-gated)              │                          • walk the ladder
         ▼                                     ▼                                 │
    tasks_gen.go  ───────────────────────────────────────────────────────────►  │
@@ -48,21 +49,22 @@ the model runtime itself.
 ## The task contract
 
 A **task** is a named AI workload — `cold_start`, `site_extract`,
-`capture_classify`, `agent_loop`, and 10 more (14 in all, including the
+`capture_classify`, `agent_loop`, and 11 more (15 in all, including the
+deep-read `site_fact_extract`, the Voice-DNA `voice_build`, and the
 certification `cert_judge`). Code never picks a model; it names a task, and the
 Router resolves the rest.
 
-Each task declares a **ladder** — an ordered list of capability **tiers** — and a
-**budget posture**:
+Each task declares a **ladder** — an ordered list of capability **tiers** — an
+**execution mode**, and a **budget posture**:
 
 ```yaml
 # backend/api/ai-tasks.yaml
 tiers: [local_small, cheap_cloud, premium, local_large]
 
 tasks:
-  cold_start:    {ladder: [cheap_cloud, premium], on_budget_exhausted: degrade}
-  site_extract:  {ladder: [premium],              on_budget_exhausted: queue}
-  capture_classify: {ladder: [local_small, cheap_cloud], on_budget_exhausted: queue}
+  cold_start:    {ladder: [cheap_cloud, premium], execution_mode: interactive, on_budget_exhausted: degrade}
+  site_extract:  {ladder: [premium],              execution_mode: background,  on_budget_exhausted: queue}
+  capture_classify: {ladder: [local_small, cheap_cloud], execution_mode: background, on_budget_exhausted: queue}
 ```
 
 - **Tiers** are *capability classes*, not models: `local_small` / `local_large`
@@ -70,10 +72,18 @@ tasks:
   (strongest). A task's ladder is its **fallback order** — the Router starts at
   the first tier and walks to the next on a provider error or a schema-validation
   failure, so a transient failure degrades instead of dropping the call.
-- **`on_budget_exhausted`** is what happens when the seat's model budget is spent:
-  `degrade` (answer on a cheaper rung / smaller result) or `queue` (defer rather
-  than overspend). A premium-only task like `site_extract` has no cheaper rung —
-  it queues.
+- **`execution_mode`** names who is waiting: `interactive` (a human, mid-flow)
+  or `background` (a worker job). It pairs with the budget posture — an
+  interactive task always declares `degrade`, a background task `queue` — and
+  the contract's own header states the invariant.
+- **`on_budget_exhausted`** is what happens when the workspace's monthly model
+  budget is spent: `degrade` (answer on a cheaper rung — at 100% an interactive
+  task is pinned to `local_small` rather than blocked) or `queue` (defer rather
+  than overspend). A queued deferral is a **typed refusal**: the Router returns
+  `BudgetDeferralError` (unwraps to `ErrBudgetDeferred`) carrying
+  `NextAttemptAt` — the next budget window — **before any provider attempt or
+  `ai_call` row exists**, so a deferral costs nothing and traces nothing. A
+  premium-only task like `site_extract` has no cheaper rung — it queues.
 
 `make gen` compiles this into `tasks_gen.go` (and `config/ai-routing.schema.json`);
 the drift gate fails the build if the generated files don't match, so the contract
@@ -118,12 +128,24 @@ and [enrich-with-a-local-llm.md](../how-to/enrich-with-a-local-llm.md).
 
 Every call converges on the Router (`internal/modules/ai`). In one pass it:
 
-- **meters** the seat's model budget (and applies `on_budget_exhausted` when spent);
+- **meters** the workspace's monthly model budget — derived from seat count —
+  (and applies `execution_mode` + `on_budget_exhausted` when spent);
+- **injects company context** where the task's policy asks for it (below);
 - **strips secrets** from the prompt before the request leaves the process, and
   again from anything it records;
 - **walks the ladder** — one attempt per rung, escalating on provider error or a
   structured-output schema failure;
 - **traces** every attempt (below).
+
+**Company context** is the installation's own profile (offer, ICP, voice —
+what the onboarding wizard confirms) injected into task prompts as governed
+data, not ad-hoc prose: a request carries typed `ContextScopes`, a
+`ContextFingerprint`, and byte/token estimates (`ports/model`), all of which
+land in the `ai_call` trace, key the response cache (same prompt + different
+context is a different call), and surface as per-task `/metrics` counters. The
+whole lane sits behind the `company_context.rollout` kill switch in
+`margince.yaml` — ordered `off < read < tasks < onboarding` (default
+`onboarding` = fully on; `platform/deployconfig`).
 
 The DB-less variant `ai.NewLocalRouter` serves the same seam for offline
 fixtures and the certification lane; `--ai-fake` binds the offline fake *through
@@ -148,6 +170,9 @@ final answer:
 - **Config snapshots** are hash-keyed in `ai_call_config` (task-contract hash +
   routing-config hash) — the deterministic build/deploy facts, never a key or a
   prompt.
+- **Company-context provenance** rides the same row (migration `0102`): the
+  context scopes, fingerprint, and size that shaped the prompt — so "what did
+  the model know about us" is answerable per attempt.
 - Embeddings are traced too, and their rows age out at 90 days via the privacy
   retention evaluator.
 
@@ -180,7 +205,9 @@ gitignored). Full walkthrough:
 | BYOK keys | environment only (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENAI_COMPATIBLE_API_KEY`) |
 | The gate | `internal/modules/ai` — `ai.Router` / `ai.NewLocalRouter`; `--ai-fake` flag |
 | Providers | `anthropic`, `openai`, `gemini` (native) · `ollama`, `vllm`, `openai_compatible` · `fake` |
-| Tracing | `ai_call` / `ai_call_payload` / `ai_call_config` (migrations `0088`, `0089`, `0100`) |
+| Tracing | `ai_call` / `ai_call_payload` / `ai_call_config` (migrations `0088`, `0089`, `0100`, `0102`) |
+| Budget deferral | `BudgetDeferralError` / `ErrBudgetDeferred` (`internal/modules/ai/budget.go`) |
+| Company context | `companycontextprompt.go` (compose) · rollout switch `company_context.rollout` (`margince.yaml`, `platform/deployconfig`, migration `0105`) |
 | Boot/ops surface | `/readyz` AI state; per-task unbound-ladder boot warnings |
 | Certification | `internal/compose/aicert` — `make e2e-ai`, `make e2e-ai-report` |
 

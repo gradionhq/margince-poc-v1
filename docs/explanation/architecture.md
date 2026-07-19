@@ -15,18 +15,19 @@ shared  →  platform  →  modules  →  compose  →  cmd
 ```
 
 - **`internal/shared/`** — Tier-0 leaves, stdlib-only:
-  `kernel/{ids,events,provenance,principal}`, `apperrors` (the fixed
-  error-sentinel registry), and `ports/` (the frozen seam interfaces:
-  authz, datasource, mcp, connector, workflow, model, retrieval,
-  jurisdiction).
+  `kernel/{ids,events,provenance,principal,values,diffhash}`, `apperrors`
+  (the fixed error-sentinel registry), and `ports/` (the frozen seam
+  interfaces: authz, datasource, mcp, connector, workflow, model,
+  retrieval, extraction, fieldcatalog, jurisdiction).
 - **`internal/platform/`** — technical plumbing that owns no domain:
   `database` (pool + the RLS workspace-transaction contract) and
   `database/storekit` (the one spelling of the write shape), `auth` (the
   one admission point), `events` (outbox relay/subscriber/dedupe),
   `dbmigrate`, `httperr`, `httpserver`.
-- **`internal/modules/`** — the bounded capabilities (identity, people,
-  deals, activities, approvals, agents, ai, search, capture, consent,
-  privacy, collections, signals, and the `de` jurisdiction pack). A
+- **`internal/modules/`** — the seventeen bounded capabilities (identity,
+  people, deals, activities, approvals, agents, automation, ai, search,
+  capture, consent, privacy, collections, signals, customfields, quotas,
+  and the `de` jurisdiction pack). A
   module package starts flat (store + mapping + transport + provider in
   one package, ADR-0054 §3) and earns a subpackage only under the
   module growth policy —

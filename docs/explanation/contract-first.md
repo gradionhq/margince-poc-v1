@@ -23,11 +23,17 @@ runtime from day one:
    contract's `x-mcp-tool` / `x-agent-access` annotations — and **fails
    generation** for any mutating operation carrying neither, so an
    un-tiered endpoint cannot ship.
+4. `tools/gen-aitasks` compiles the **AI task contract**
+   (`backend/api/ai-tasks.yaml` — the task/tier/ladder table) into
+   `internal/modules/ai/tasks_gen.go` and the routing-config schema
+   `config/ai-routing.schema.json`, so the runtime's task registry and
+   the operator's config validation both derive from the one contract.
 
 ## Drift is merge-blocking
 
 `make drift` regenerates everything and fails on any diff (`git diff
---exit-code` over the generated files). That gate is part of
+--exit-code` over `*_gen.go`, `internal/contracts/`, and
+`config/ai-routing.schema.json`). That gate is part of
 `make check`, so:
 
 - hand-editing a generated file fails the build;
