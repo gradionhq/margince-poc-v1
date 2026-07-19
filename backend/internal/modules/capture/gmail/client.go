@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/modules/capture/oauthflow"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
@@ -38,8 +39,6 @@ const (
 	googleAuthURL  = "https://accounts.google.com/o/oauth2/v2/auth"
 	googleTokenURL = "https://oauth2.googleapis.com/token" //nolint:gosec // G101 false positive: Google's public OAuth token *endpoint URL*, not a credential
 	gmailAPIBase   = "https://gmail.googleapis.com/gmail/v1/users/me"
-
-	paramClientID = "client_id"
 )
 
 // The package sentinels wrap the shared connector vocabulary (ADR-0063) so
@@ -102,13 +101,10 @@ type OAuthConfig struct {
 	TokenURL     string
 }
 
-type httpOAuth struct {
-	client *http.Client
-	cfg    OAuthConfig
-}
-
 // NewOAuth builds the OAuth client, applying Google's default endpoints when
-// the config leaves them empty.
+// the config leaves them empty. The handshake itself is the shared
+// oauthflow; only Google's endpoints, consent parameters, and this package's
+// sentinels are supplied here.
 //
 //nolint:ireturn // returns the OAuth seam by design — the connector holds it as an interface so tests substitute a stub
 func NewOAuth(cfg OAuthConfig) OAuth {
@@ -118,91 +114,23 @@ func NewOAuth(cfg OAuthConfig) OAuth {
 	if cfg.TokenURL == "" {
 		cfg.TokenURL = googleTokenURL
 	}
-	return &httpOAuth{client: boundedHTTPClient(), cfg: cfg}
-}
-
-func (o *httpOAuth) AuthCodeURL(state, redirectURI string) string {
-	q := url.Values{
-		paramClientID:            {o.cfg.ClientID},
-		"redirect_uri":           {redirectURI},
-		"response_type":          {"code"},
-		"scope":                  {strings.Join(o.cfg.Scopes, " ")},
-		"access_type":            {"offline"},
-		"prompt":                 {"consent"},
-		"include_granted_scopes": {"true"},
-		"state":                  {state},
-	}
-	return o.cfg.AuthURL + "?" + q.Encode()
-}
-
-// tokenResponse is the subset of Google's token endpoint payload we read.
-type tokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-}
-
-func (o *httpOAuth) Exchange(ctx context.Context, code, redirectURI string) (string, error) {
-	tok, err := o.token(ctx, url.Values{
-		"grant_type":    {"authorization_code"},
-		"code":          {code},
-		"redirect_uri":  {redirectURI},
-		paramClientID:   {o.cfg.ClientID},
-		"client_secret": {o.cfg.ClientSecret},
+	return oauthflow.New(oauthflow.Config{
+		Provider:     "gmail",
+		ClientID:     cfg.ClientID,
+		ClientSecret: cfg.ClientSecret,
+		Scopes:       cfg.Scopes,
+		AuthURL:      cfg.AuthURL,
+		TokenURL:     cfg.TokenURL,
+		// Google needs offline access + a forced consent prompt to return a
+		// refresh token, and includes previously-granted scopes.
+		AuthParams: map[string]string{
+			"access_type":            "offline",
+			"prompt":                 "consent",
+			"include_granted_scopes": "true",
+		},
+		AuthRejected: ErrAuthRejected,
+		Unreachable:  ErrUnreachable,
 	})
-	if err != nil {
-		return "", err
-	}
-	if tok.RefreshToken == "" {
-		// No refresh token means the consent did not grant offline access —
-		// we cannot sync later, so treat it as a rejected authorization.
-		return "", fmt.Errorf("gmail: consent returned no refresh token: %w", ErrAuthRejected)
-	}
-	return tok.RefreshToken, nil
-}
-
-func (o *httpOAuth) AccessToken(ctx context.Context, refreshToken string) (string, error) {
-	tok, err := o.token(ctx, url.Values{
-		"grant_type":    {"refresh_token"},
-		"refresh_token": {refreshToken},
-		paramClientID:   {o.cfg.ClientID},
-		"client_secret": {o.cfg.ClientSecret},
-	})
-	if err != nil {
-		return "", err
-	}
-	if tok.AccessToken == "" {
-		return "", fmt.Errorf("gmail: token refresh returned no access token: %w", ErrAuthRejected)
-	}
-	return tok.AccessToken, nil
-}
-
-// token posts the form to the token endpoint and decodes the response. A 4xx
-// is an authorization problem (ErrAuthRejected); anything else reaching or
-// reading Google is ErrUnreachable. Google's raw body never reaches the caller.
-func (o *httpOAuth) token(ctx context.Context, form url.Values) (tokenResponse, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.cfg.TokenURL, strings.NewReader(form.Encode()))
-	if err != nil {
-		return tokenResponse{}, fmt.Errorf("gmail: building token request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := o.client.Do(req)
-	if err != nil {
-		return tokenResponse{}, fmt.Errorf("gmail: token endpoint: %w", ErrUnreachable)
-	}
-	//craft:ignore swallowed-errors best-effort close of the token response body — the exchange result is already read below
-	defer func() { _ = resp.Body.Close() }()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
-		return tokenResponse{}, ErrAuthRejected
-	}
-	if resp.StatusCode != http.StatusOK {
-		return tokenResponse{}, ErrUnreachable
-	}
-	var tok tokenResponse
-	if err := json.Unmarshal(body, &tok); err != nil {
-		return tokenResponse{}, fmt.Errorf("gmail: decoding token response: %w", ErrUnreachable)
-	}
-	return tok, nil
 }
 
 type httpAPI struct {
