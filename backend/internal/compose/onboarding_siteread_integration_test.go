@@ -85,7 +85,11 @@ func finishOnboardingDraft(t *testing.T, e *integration.Env, read people.SiteRea
 	return ready
 }
 
-func onboardingPOST(ctx context.Context, t *testing.T, path string, body any) *http.Request {
+type onboardingRequest interface {
+	crmcontracts.StartCompanySiteReadRequest | crmcontracts.ConfirmCompanySiteReadRequest
+}
+
+func onboardingPOST[T onboardingRequest](ctx context.Context, t *testing.T, path string, body T) *http.Request {
 	t.Helper()
 	raw, err := json.Marshal(body)
 	if err != nil {
