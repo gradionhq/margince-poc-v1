@@ -523,7 +523,13 @@ function RefreshReview(
   const conflicts = props.read.comparisons.filter(
     (item) => item.classification === "human_conflict",
   );
-  const unresolved = conflicts.some((item) => !props.resolutions[item.key]);
+  const unresolved = conflicts.some((item) => {
+    const resolution = props.resolutions[item.key];
+    return (
+      !resolution ||
+      (resolution.action === "use_value" && !(resolution.value ?? "").trim())
+    );
+  });
   const coverage =
     props.read.pages.length === 0
       ? 0
