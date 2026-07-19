@@ -171,22 +171,7 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 	// as pages commit, so the crawl's slow tail hides behind extraction.
 	// The crawler owns the wall clock (caps.Wall); a seed page that
 	// cannot be read at all is a failed read, not an empty one.
-	progress := func(pagesDone int) {
-		if err := w.people.UpdateSiteReadProgress(ctx, args.SiteReadID, "extracting", pagesDone); err != nil {
-			w.log.WarnContext(ctx, "site read progress update failed", "read", args.SiteReadID.String(), "err", err)
-		}
-	}
-	publishDraft := func(partial pageFactsResult) {
-		found := siteReadPeople(partial.people)
-		hash, err := siteReadProposalHash(nil, partial.facts, found)
-		if err != nil {
-			w.log.WarnContext(ctx, "site read progressive draft hash failed", "read", args.SiteReadID.String(), "err", err)
-			return
-		}
-		if err := w.people.UpdateSiteReadDraft(ctx, args.SiteReadID, partial.facts, found, hash); err != nil {
-			w.log.WarnContext(ctx, "site read progressive draft update failed", "read", args.SiteReadID.String(), "err", err)
-		}
-	}
+	progress, publishDraft := w.progressiveCallbacks(ctx, args.SiteReadID)
 	crawl, extraction, err := crawlAndExtract(ctx, w.crawler, w.extract, claim.SeedURL, progress, publishDraft)
 	if err != nil {
 		return w.fail(ctx, args.SiteReadID, fmt.Errorf("site deep read %s: %w", args.SiteReadID, err))
@@ -244,6 +229,26 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 	// no proposal — not an error: the site simply evidenced nothing.
 	return w.finish(ctx, args.SiteReadID, status, readPages, crawl, factCount, proposalIDs,
 		draftFields, extraction.merged.facts, draftPeople, warnings, proposalHash)
+}
+
+func (w *siteDeepReadWorker) progressiveCallbacks(ctx context.Context, readID ids.UUID) (func(int), func(pageFactsResult)) {
+	progress := func(pagesDone int) {
+		if err := w.people.UpdateSiteReadProgress(ctx, readID, "extracting", pagesDone); err != nil {
+			w.log.WarnContext(ctx, "site read progress update failed", "read", readID.String(), "err", err)
+		}
+	}
+	publishDraft := func(partial pageFactsResult) {
+		found := siteReadPeople(partial.people)
+		hash, err := siteReadProposalHash(nil, partial.facts, found)
+		if err != nil {
+			w.log.WarnContext(ctx, "site read progressive draft hash failed", "read", readID.String(), "err", err)
+			return
+		}
+		if err := w.people.UpdateSiteReadDraft(ctx, readID, partial.facts, found, hash); err != nil {
+			w.log.WarnContext(ctx, "site read progressive draft update failed", "read", readID.String(), "err", err)
+		}
+	}
+	return progress, publishDraft
 }
 
 func deepReadFields(fields []evidencedField) []people.DeepReadField {

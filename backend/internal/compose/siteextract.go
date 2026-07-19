@@ -74,10 +74,7 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 	var profileErr error
 	fireProfile := func() {
 		profileOnce.Do(func() {
-			committedMu.Lock()
-			snapshot := make([]crawlPage, len(committed))
-			copy(snapshot, committed)
-			committedMu.Unlock()
+			snapshot := snapshotCrawlPages(&committedMu, &committed)
 			profileWg.Add(1)
 			go func() {
 				defer profileWg.Done()
@@ -139,6 +136,12 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 	out.merged = mergeInCommitOrder(crawl, results)
 	out.err = errors.Join(failed...)
 	return crawl, out, nil
+}
+
+func snapshotCrawlPages(mu *sync.Mutex, pages *[]crawlPage) []crawlPage {
+	mu.Lock()
+	defer mu.Unlock()
+	return append([]crawlPage(nil), (*pages)...)
 }
 
 // progressReporter serializes the progress callback: it fires from the

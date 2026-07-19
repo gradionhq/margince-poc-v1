@@ -59,7 +59,6 @@ const (
 	companySourceSiteRead = "site_read"
 )
 
-// The audit row's and the event envelope's payload keys.
 const (
 	actionUpdate      = "update"
 	auditKeyFields    = "fields"
