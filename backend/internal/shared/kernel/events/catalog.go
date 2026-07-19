@@ -36,8 +36,8 @@ func Streams() []string {
 // catalog is the enumerable V1 event catalog (events.md §5.1–§5.9, plus
 // the §5.11 signal lifecycle): each type's home stream entity and current
 // payload schema version. §5.10 (overlay mirror) is overlay-mode-only and
-// the remaining §5.11 types (engagement.reply, forecast.period_closed)
-// ride E15/E09 — deferred with their work packages.
+// the remaining §5.11 type (forecast.period_closed) rides E09 —
+// deferred with its work package.
 //
 // Types whose entity segment is not itself a stream ride their family's
 // stream (events.md §1 routing rule): consent.*/retention.* are
@@ -87,6 +87,10 @@ var catalog = map[string]struct {
 	"activity.captured": {"activity", 1},
 	"activity.updated":  {"activity", 1},
 	"activity.archived": {"activity", 1},
+	// §5.11: a thread-matched inbound is an activity-family fact, emitted
+	// by capture alongside activity.captured (EVT-SEM-14 — idempotent per
+	// reply; a duplicate inbound for the same reply does not re-emit).
+	"engagement.reply": {"activity", 1},
 
 	"approval.requested": {"approval", 1},
 	"approval.decided":   {"approval", 1},

@@ -514,6 +514,16 @@ export const de = {
   "home.factorMomentum": "Momentum",
   "home.factorWarmth": "Nähe",
 
+  "home.digest": "Über Nacht erfasst",
+  "home.digestFor": "Digest vom {date}",
+  "home.digestSynced": "E-Mails synchronisiert",
+  "home.digestPeople": "Personen angelegt",
+  "home.digestOrgs": "Firmen angelegt",
+  "home.digestApprovals": "Genehmigungen offen",
+  "home.digestDedupe": "Dubletten zu prüfen",
+  "home.digestClassify":
+    "Über Nacht einsortiert: {commitments} Zusagen · {meetings} Termine · {noise} Rauschen",
+
   "enrich.title": "Von der Website lesen",
   "enrich.sub":
     "belegt oder weggelassen — füllt nur leere Felder, und nur nach deiner Freigabe",
@@ -953,6 +963,23 @@ export const de = {
   "ob.s4.googleOkBody":
     "Die Erfassung läuft im Hintergrund — neue Mails erscheinen innerhalb von etwa einer Minute auf deiner Timeline und bleiben ab jetzt von selbst synchron.",
   "ob.s4.googleLive": "Verbindung bestätigt — Hintergrund-Erfassung läuft",
+  "dedupe.title": "Mögliche Duplikate",
+  "dedupe.intro":
+    "Paare, die die Erfassung als vermutlich dieselbe Person oder Firma erkannt hat. Zusammenführen erhält die Historie beider Datensätze; Verwerfen bedeutet: nie wieder nach diesem Paar fragen.",
+  "dedupe.loading": "Prüf-Warteschlange wird geladen…",
+  "dedupe.empty": "Keine Duplikate offen — die Warteschlange ist leer.",
+  "dedupe.confidence": "Übereinstimmung:",
+  "dedupe.field": "Feld",
+  "dedupe.left": "Links behalten",
+  "dedupe.right": "Rechts behalten",
+  "dedupe.kindPerson": "Person",
+  "dedupe.kindOrganization": "Firma",
+  "dedupe.mergeCta": "In Auswahl zusammenführen",
+  "dedupe.notDuplicateCta": "Kein Duplikat",
+  "dedupe.decided": "Entscheidung gespeichert.",
+  "dedupe.undoCta": "Rückgängig",
+  "dedupe.undone": "Paar wieder geöffnet.",
+  "dedupe.dismissNote": "Ausblenden",
   "backfill.title": "E-Mail-Verlauf importieren",
   "backfill.intro":
     "Wählen Sie, wie weit zurück importiert wird. Umfang und geschätzte Kosten sehen Sie vor dem Start — Sie können diesen Schritt auch überspringen.",

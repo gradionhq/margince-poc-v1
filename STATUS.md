@@ -33,7 +33,7 @@ Router (metering, tracing, budget — fake provider only), the DB-less
 seam is `ai.NewLocalRouter`/`compose.NewLocalModelPath`, and
 `FakeModelPath` is deleted with arch fitness tests
 (`TestNoModelClientOutsideTheGate`, `TestOneModelPathPerRole`) keeping
-it that way. Tracing moved to the certification grain (migration 0093):
+it that way. Tracing moved to the certification grain (migration 0099):
 one `ai_call` row per ATTEMPT (retries/degrades/escalations visible,
 terminal-only metrics), served-model identity reported from the wire
 (`response|echo|configured`, never overclaimed), embeddings traced,
@@ -46,6 +46,52 @@ cache-off repeats, spec §5 verdict math, and committed JSON records —
 `make e2e-ai TASK=x MODEL=prov:model` certifies any binding;
 `make e2e-ai-report` prints the matrix. Boot warns loudly on unbound
 ladders; `/readyz` names the AI state.
+
+**Email ingestion — from fragment to nightly, every-user pipeline
+(ADR-0063, 2026-07-19)** — capture was operationally fragile (one 429
+permanently killed a connection) and mail never became a person. It is
+now a production feature: connect a mailbox, a bounded backfill fills the
+CRM under a preview-before-spend estimate, and a continuous + nightly
+pipeline grows it — persons, companies, employment edges, timeline
+activities, AI classification and signature enrichment, all deduped
+through one resolver. Landed across ten PRs:
+
+- **Sync hardening** (#106): a transient failure never kills a
+  connection — the `capture_sync_state` sidecar, the error taxonomy
+  (429/Retry-After, unreachable backoff, auth→reauth), the per-connection
+  dispatcher; `error` is degraded-and-probed-daily, never a tombstone.
+- **Gmail** — one-click connect (#107), the Pub/Sub push webhook (#110)
+  with Google **OIDC** token verification (#113, salvaged + credited from
+  a duplicate community PR).
+- **IMAP** as a standing connection (#112): UID cursor bound to its
+  mailbox, vault-sealed credentials, bounded incremental fetch.
+- **Bounded backfill** (#117): 3/6/12-month widen-only windows, the
+  ADR-0020 estimate-before-spend, per-page cursor commits with honest
+  resume, cancel keeps captured rows; the M2 window→estimate→activation
+  UI.
+- **Auto-create + core AI** (#120): every captured mail ensures its
+  counterparty through the **ONE dedupe chokepoint** (PO-F-1/PO-F-2) —
+  exact reuses, fuzzy creates-and-records; person + domain-named company
+  + employment edge + person-only activity link, owner-visibility until a
+  human promotes, punycode/impersonation quarantine, erased addresses
+  stay dead (A13); `engagement.reply` (CAP-FORMULA-1) enters the event
+  catalog. The §2.8 **classify** batch (commitment/meeting/noise, per-call
+  commit, budget-clean stop), §2.9 evidence-or-omit **signature enrich**
+  (`person_profile_field`, fill-only-empty, never overwrites a human),
+  the DH-EXT-1/2 **dedupe review queue** (+ the M4 screen) executing the
+  one merge verb, the CAP-DDL-6 morning **digest** (+ `GET /digest` + home
+  card) and `GET /ai/usage`.
+- **Manual creates** meet the same chokepoint (#118): exact still 409s,
+  fuzzy creates and records the near-match.
+- **Microsoft Graph** connector (#119): delta-cursor sync with 410
+  re-anchor, bounded backfill, one-click connect — sharing the extracted
+  `capture/oauthflow` handshake with Gmail (the OAuth2 flow lives once,
+  not mirrored).
+
+The spec package landed first, contract-first, in the sibling
+`margince-foundation` repo (ADR-0063 + the capture / people-and-orgs /
+ai-operational / data-hygiene chapter amendments); this code is built
+from it.
 
 **Deep read v3 — reference evidence + page-parallel lanes (founder
 target ≤15 s, 2026-07-18)** — v2's one corpus call hit the output-token
@@ -343,6 +389,32 @@ Open work, roughly in priority order:
   (`enrich`, `capture_classify`, `deal_health`, `draft_reply`,
   `nl_search`, `summarize`, `transcript`) have no production call site
   yet — their starter scenarios are documented placeholders.
+
+- **Email ingestion — deferred pieces of ADR-0063** (the pipeline is
+  live; these were scoped out, not missed):
+  - **Graph webhook (PR-7b)** — the connector is poll-only; the
+    change-notification subscription (validationToken handshake,
+    clientState, ≤3-day renewal riding the existing watch sweep) is
+    unbuilt, so Outlook latency is the poll interval, not the 60s p95.
+  - **Graph refresh-token rotation** — Microsoft rotates the refresh
+    token on each redemption; the stored original works within its
+    ~90-day confidential-client window (active mailboxes never reauth),
+    but persisting the rotated token needs a **credential-update seam**
+    (Sync surfacing an updated credential for the registry to re-seal) that
+    `connector.Connector` does not have — a cross-connector follow-up.
+  - **Dedupe undo of a *merged* pair** answers `409 not_undoable` — the
+    merge verb's reversibility (PO-AC-M6) is not built; dismissals undo
+    fine.
+  - **Nightly dispatcher consolidation** — classify, enrich and digest run
+    as their own daily River jobs (run-on-start); the ADR-0063 staggered
+    coordinator (catch-up → classify → reconcile → enrich → dedupe sweep →
+    digest, one ordered pass) is not yet a single dispatcher, and the
+    `capture_reconcile` sweep over link-less connector activities is
+    unbuilt.
+  - **`ai_usage` RBAC object** — `GET /ai/usage` is gated on the
+    admin-held `automation:update` permission (no `ai_usage` noun exists
+    in the closed RBAC object set); a dedicated object should be pinned
+    upstream (spec-repo reconciliation).
 
 - **Deep-read durability-hardening pass** (from the #103 review, deferred
   as cross-cutting rather than rushed per-effect) — the redeem-then-execute

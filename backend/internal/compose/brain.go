@@ -37,12 +37,18 @@ type completer interface {
 // decides the tier per workload, and every lane draws on the
 // seat-derived monthly budget.
 type ModelPath struct {
-	Agent           runner.Brain    // the Surface-B reason-act loop (records served model identity)
-	ColdStart       completer       // the website read-back extraction
-	SiteExtract     completer       // the deep read's profile lane (one premium-first call)
-	SiteFactExtract completer       // the deep read's page-parallel fact lane (fast tier)
-	BriefRank       completer       // the Morning-Brief L2 re-order (B-E05.2)
-	OfferDraft      completer       // the offer regenerate-from-signal drafting call
+	Agent           runner.Brain // the Surface-B reason-act loop (records served model identity)
+	ColdStart       completer    // the website read-back extraction
+	SiteExtract     completer    // the deep read's profile lane (one premium-first call)
+	SiteFactExtract completer    // the deep read's page-parallel fact lane (fast tier)
+	BriefRank       completer    // the Morning-Brief L2 re-order (B-E05.2)
+	OfferDraft      completer    // the offer regenerate-from-signal drafting call
+	// CaptureClassify is the §2.8 batched mail-label lane (ADR-0063) —
+	// the highest-volume, cheapest task, routed L-S with the C-C solo
+	// re-ask riding the same ladder.
+	CaptureClassify completer
+	// SignatureEnrich is the §2.9 evidence-or-omit field extraction lane.
+	SignatureEnrich completer
 	Embedder        search.Embedder // the retrieval embed lane
 }
 
@@ -62,6 +68,8 @@ func NewModelPath(cfg ai.RoutingConfig, pool *pgxpool.Pool, capturePayloads bool
 		SiteFactExtract: routerBrain{router: router, task: ai.TaskSiteFactExtract},
 		BriefRank:       routerBrain{router: router, task: ai.TaskBriefRanking},
 		OfferDraft:      routerBrain{router: router, task: ai.TaskOfferDraft},
+		CaptureClassify: routerBrain{router: router, task: ai.TaskCaptureClassify},
+		SignatureEnrich: routerBrain{router: router, task: ai.TaskEnrich},
 		Embedder:        router,
 	}, nil
 }

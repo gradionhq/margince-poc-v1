@@ -3324,6 +3324,129 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /ai/usage:
+    get:
+      tags: [AI]
+      operationId: getAiUsage
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: AI usage + budget — the spend is never invisible.
+      description: |
+        Per-day × task × tier usage from the metering record (AIRT-PARAM-33) plus the workspace
+        budget block: monthly token budget, spent, current band (AIRT-PARAM-9..11), and since
+        when. The admin economy-mode banner and the spend view read this (AIRT-WIRE-1; resolves
+        the former AIRT-WIRE-N-1 gap). Inference is the customer's own key (ADR-0020) — this is
+        their own bill made visible, never a Margince meter for resale.
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date }, description: 'Default: first day of the current month. Must not be after `to`; the window is capped at 366 days (422 otherwise).' }
+        - { name: to, in: query, schema: { type: string, format: date }, description: 'Default: today.' }
+      responses:
+        '200':
+          description: Usage + budget.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiUsage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+
+  # ------------------ /dedupe (DH-EXT-1/2, ADR-0062) ------------------------
+  # The dedupe review queue over dedupe_candidate (DH-DDL-1): confidence-
+  # sorted open pairs with their detection-time evidence snapshot (DH-N-8).
+  # `merge` executes the owner's merge verb server-side (one merge in the
+  # system); `not_a_duplicate` suppresses the pair from every future sweep
+  # (AC-dedupe-7).
+  /dedupe/candidates:
+    get:
+      tags: [People]
+      operationId: listDedupeCandidates
+      security: [ { cookieAuth: [] } ]
+      summary: The dedupe review queue, confidence-sorted.
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [open, merged, not_a_duplicate], default: open } }
+        - { name: entity_type, in: query, schema: { type: string, enum: [person, organization] } }
+        - { name: cursor, in: query, schema: { type: string }, description: Opaque keyset cursor. }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+      responses:
+        '200':
+          description: One page of candidates.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DedupeCandidateListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /dedupe/candidates/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [People]
+      operationId: getDedupeCandidate
+      security: [ { cookieAuth: [] } ]
+      summary: One candidate with its full detection-time evidence.
+      responses:
+        '200':
+          description: The candidate.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DedupeCandidate' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /dedupe/candidates/{id}/disposition:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [People]
+      operationId: disposeDedupeCandidate
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      summary: Decide one pair — merge through the owner's verb, or dismiss forever.
+      description: |
+        `merge` requires `winner_id` (one of the pair) and executes `mergePerson`/
+        `mergeOrganization` server-side — one merge in the system, no second verb.
+        `not_a_duplicate` flips the row and suppresses the pair from every future
+        sweep (AC-dedupe-7). `409 already_disposed`; `422` when `winner_id` is not
+        one of the pair.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DedupeDispositionRequest' }
+      responses:
+        '200':
+          description: The disposed candidate.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DedupeCandidate' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /dedupe/candidates/{id}/undo:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [People]
+      operationId: undoDedupeDisposition
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      summary: Re-open a disposed pair.
+      description: |
+        A dismissed pair re-opens (the suppression lifts). A merged pair needs the
+        merge verb's reversibility (PO-AC-M6) — `409 not_undoable` until the
+        survivor-side restore exists or when the survivor mutated since.
+      responses:
+        '200':
+          description: The re-opened candidate.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DedupeCandidate' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
   # ------------------ /capture/exclusions (RC-2 personal-mail) ---------------
   # The per-user personal-mail exclusion rule set (RC-2): a bounded, typed
   # (kind, value) list — sender domain, recipient domain, or mail label,

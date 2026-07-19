@@ -1,4 +1,4 @@
--- 0093 down: drop the config-snapshot dimension and revert ai_call to the
+-- 0099 down: drop the config-snapshot dimension and revert ai_call to the
 -- one-row-per-terminal grain.
 ALTER TABLE ai_call DROP CONSTRAINT ai_call_config_fk;
 DROP TABLE IF EXISTS ai_call_config;

@@ -1,4 +1,4 @@
--- 0093: ai_call moves from one-row-per-terminal to one-row-per-attempt
+-- 0099: ai_call moves from one-row-per-terminal to one-row-per-attempt
 -- (spec §4, the certification substrate). A retried, degraded, or escalated
 -- completion now leaves every rung it walked as its own row — logical_call_id
 -- groups them, attempt orders them, is_terminal names the one the caller

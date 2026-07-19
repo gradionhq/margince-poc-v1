@@ -42,6 +42,8 @@ type Message struct {
 	from             string
 	to               string
 	counterparty     string
+	counterpartyName string   // display name from the counterparty's header — untrusted text
+	threadKey        string   // conversation identity: References root / In-Reply-To / own Message-ID
 	senderDomain     string   // lowercased domain of From — for the RC-2 gate
 	recipientDomains []string // lowercased, de-duped domains of every To — for the RC-2 gate
 	autoSubmit       bool
@@ -50,6 +52,9 @@ type Message struct {
 // Counterparty is the non-owner address on the message (the person this
 // mail was with) — exported so a connector can tally distinct contacts.
 func (m Message) Counterparty() string { return m.counterparty }
+
+// ThreadKey is the conversation identity this message belongs to.
+func (m Message) ThreadKey() string { return m.threadKey }
 
 var htmlTag = regexp.MustCompile(`(?s)<[^>]*>`)
 
@@ -76,9 +81,11 @@ func Parse(raw []byte, owner string) (Message, error) {
 	ownerLower := strings.ToLower(strings.TrimSpace(owner))
 	direction := "inbound"
 	counterparty := from
+	counterpartyName := displayName(fromList, counterparty)
 	if strings.ToLower(from) == ownerLower && ownerLower != "" {
 		direction = "outbound"
 		counterparty = firstNonOwner(toList, ownerLower)
+		counterpartyName = displayName(toList, counterparty)
 	}
 
 	autoSubmit := isAutoSubmitted(header.Get("Auto-Submitted"), header.Get("Precedence"))
@@ -92,10 +99,45 @@ func Parse(raw []byte, owner string) (Message, error) {
 		from:             from,
 		to:               to,
 		counterparty:     counterparty,
+		counterpartyName: counterpartyName,
+		threadKey:        threadKey(header.Get("References"), header.Get("In-Reply-To"), messageID),
 		senderDomain:     domainOf(from),
 		recipientDomains: domainsOf(toList),
 		autoSubmit:       autoSubmit,
 	}, nil
+}
+
+// threadKey derives the conversation identity from the standard reply
+// headers: the References ROOT (its first id — stable across every reply in
+// the thread), else In-Reply-To, else the message's own id (a fresh thread
+// is rooted at its opener, so later replies referencing it join it). Never
+// a subject heuristic — "Re: Invoice" joining unrelated threads is worse
+// than no join (CAP-FORMULA-1's no-subject-fallback rule).
+func threadKey(references, inReplyTo, messageID string) string {
+	if refs := strings.Fields(references); len(refs) > 0 {
+		return trimAngle(refs[0])
+	}
+	if irt := strings.TrimSpace(inReplyTo); irt != "" {
+		return trimAngle(irt)
+	}
+	return trimAngle(strings.TrimSpace(messageID))
+}
+
+// trimAngle strips the RFC822 angle brackets off a message id.
+func trimAngle(id string) string {
+	return strings.TrimSuffix(strings.TrimPrefix(id, "<"), ">")
+}
+
+// displayName returns the header display name for addr from list, "" when
+// the header carried none. The value is whatever the sender typed — hostile
+// input until a consumer sanitizes it.
+func displayName(list []*mail.Address, addr string) string {
+	for _, a := range list {
+		if strings.EqualFold(a.Address, addr) {
+			return strings.TrimSpace(a.Name)
+		}
+	}
+	return ""
 }
 
 // SkipReason names why a message is intentionally dropped, or reports that
@@ -158,6 +200,13 @@ func (m Message) ToRecord(connectorName string, raw []byte) connector.Normalized
 			SenderDomain:     m.senderDomain,
 			RecipientDomains: m.recipientDomains,
 		},
+		Counterparty: connector.Counterparty{
+			Email:       strings.ToLower(strings.TrimSpace(m.counterparty)),
+			DisplayName: m.counterpartyName,
+			Domain:      domainOf(m.counterparty),
+			Direction:   m.direction,
+		},
+		ThreadKey: m.threadKey,
 	}
 }
 

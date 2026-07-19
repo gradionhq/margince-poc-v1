@@ -33,6 +33,15 @@ type Config struct {
 	Auth           Auth            `yaml:"auth"`
 	Email          Email           `yaml:"email"`
 	AI             AIConfig        `yaml:"ai"`
+	Capture        Capture         `yaml:"capture"`
+}
+
+// Capture is the deployment's mail-capture pipeline tuning (ADR-0063).
+type Capture struct {
+	// FreemailExtra appends deployment-specific consumer mail domains to
+	// the pinned baseline blocklist (CAP-PARAM-5): mail from these domains
+	// still creates the person, never a company.
+	FreemailExtra []string `yaml:"freemail_extra"`
 }
 
 // Organization names the installation's singleton organization. Consumed

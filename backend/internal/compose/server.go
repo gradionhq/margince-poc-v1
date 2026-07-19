@@ -336,7 +336,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		signalsHandlers:    signals.NewHandlers(pool, signalStrength{people: people.NewStore(pool)}),
 		privacyHandlers:    privacy.NewHandlers(pool),
 		automationHandlers: automation.NewHandlers(pool),
-		voiceHandlers:      ai.NewHandlers(pool),
+		voiceHandlers:      ai.NewHandlers(pool, NewSeatBudget(pool)),
 		reportHandlers:     reportHandlers{engine: newReportEngine(pool)},
 		// The Morning Brief always serves on the deterministic §10.1 floor;
 		// the L2 re-order is opt-in via WithBrief (the api role's model path).

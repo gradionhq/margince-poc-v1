@@ -48,11 +48,12 @@ if [[ -n "$COVER_OUT" ]]; then
 fi
 
 # Per-package go-test timeout. Coverage instrumentation roughly doubles a
-# package's wall-time, and the heaviest package (compose/integration re-migrates
-# per test, ~180×) can cross the tight 300s cap under coverage + parallel
-# Postgres contention. Give the coverage run more headroom; a plain run keeps
-# the tight 300s. Overridable via INTEGRATION_TIMEOUT.
-IT_TIMEOUT="${INTEGRATION_TIMEOUT:-$([[ -n "$COVER_OUT" ]] && echo 600s || echo 300s)}"
+# package's wall-time, and the heaviest package (compose/integration, ~200
+# serial re-migrating tests after the email-ingestion suites landed) crosses
+# the tight 300s cap under coverage + parallel Postgres contention. Give the
+# coverage run generous headroom; a plain run keeps the tight 300s for fast PR
+# feedback. Overridable via INTEGRATION_TIMEOUT.
+IT_TIMEOUT="${INTEGRATION_TIMEOUT:-$([[ -n "$COVER_OUT" ]] && echo 900s || echo 300s)}"
 export IT_TIMEOUT
 
 # Build the migrated template once, fresh, before fanning out. Every package
