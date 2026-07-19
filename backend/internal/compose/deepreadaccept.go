@@ -16,6 +16,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -26,11 +28,6 @@ import (
 // injects for kind "deepread".
 func deepReadAcceptEffect(svc *approvals.Service, store *people.Store) approvals.ApprovedEffect {
 	return func(ctx context.Context, approvalID ids.ApprovalID, proposedChange json.RawMessage, diffHash string) error {
-		// The single-use redemption IS the idempotency claim: whoever consumes
-		// the approval executes; anyone else finds it consumed.
-		if err := svc.Redeem(ctx, approvalID, deepReadProposalKind, diffHash); err != nil {
-			return err
-		}
 		proposal, err := people.UnmarshalDeepRead(proposedChange)
 		if err != nil {
 			return err
@@ -49,6 +46,8 @@ func deepReadAcceptEffect(svc *approvals.Service, store *people.Store) approvals
 			UserID:     decider.UserID,
 			OnBehalfOf: decider.UserID,
 		})
-		return store.ApplyDeepRead(execCtx, proposal)
+		return svc.RedeemAndApply(ctx, approvalID, deepReadProposalKind, diffHash, func(tx pgx.Tx) error {
+			return store.ApplyDeepReadTx(execCtx, tx, proposal)
+		})
 	}
 }

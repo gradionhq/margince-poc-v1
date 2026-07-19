@@ -15,9 +15,13 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -86,14 +90,14 @@ func TestSiteReadWorkerAdvancesTheDossierThroughGuardedTransitions(t *testing.T)
 	// The pickup is a CAS: the first Begin flips queued → running and hands
 	// back the claimed row's own identity; a second worker claiming the same
 	// read is told there is nothing to begin.
-	claim, err := store.BeginSiteRead(worker, read.ID)
+	claim, err := store.BeginSiteRead(worker, read.ID, 10*time.Minute)
 	if err != nil {
 		t.Fatalf("BeginSiteRead: %v", err)
 	}
-	if claim.SeedURL != read.SeedURL || claim.OrganizationID != org.UUID {
+	if claim.OrganizationID == nil || claim.SeedURL != read.SeedURL || *claim.OrganizationID != org.UUID {
 		t.Fatalf("the claim reports %q/%s, want the dossier's own seed and org", claim.SeedURL, claim.OrganizationID)
 	}
-	if _, err := store.BeginSiteRead(worker, read.ID); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := store.BeginSiteRead(worker, read.ID, 10*time.Minute); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("second BeginSiteRead → %v, want ErrNotFound (the read is no longer queued)", err)
 	}
 	running, err := store.GetSiteRead(human, org, read.ID)
@@ -152,6 +156,45 @@ func TestSiteReadWorkerAdvancesTheDossierThroughGuardedTransitions(t *testing.T)
 	}
 	if joined || again.ID == read.ID {
 		t.Fatalf("a start after the read finished joined the finished dossier (id %s, joined %t)", again.ID, joined)
+	}
+}
+
+func TestSiteReadWorkerReclaimsAStaleRunningDossier(t *testing.T) {
+	e := integration.Setup(t)
+	store := people.NewStore(e.Pool)
+	human := e.As(e.Rep1, nil, integration.AdminPerms)
+	worker := siteReadWorkerCtx(e)
+	org := siteReadOrg(e.SeedOrg(t, "Acme", &e.Rep1))
+	read, _, err := store.StartSiteRead(human, org, "https://acme.example", "human:"+e.Rep1.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.BeginSiteRead(worker, read.ID, 20*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `UPDATE site_read
+			SET started_at = now() - interval '11 minutes' WHERE id = $1`, read.ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.BeginSiteRead(worker, read.ID, 20*time.Minute); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("reclaim before configured timeout: %v, want ErrNotFound", err)
+	}
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `UPDATE site_read
+			SET started_at = now() - interval '21 minutes' WHERE id = $1`, read.ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	claim, err := store.BeginSiteRead(worker, read.ID, 20*time.Minute)
+	if err != nil {
+		t.Fatalf("reclaim stale running dossier: %v", err)
+	}
+	if claim.OrganizationID == nil || *claim.OrganizationID != org.UUID {
+		t.Fatalf("reclaimed target = %v, want %s", claim.OrganizationID, org)
 	}
 }
 

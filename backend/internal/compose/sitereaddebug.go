@@ -115,7 +115,7 @@ func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *s
 			// alone is the honest signal.
 			opts.Progress("extracted page", done, done)
 		}
-	})
+	}, nil)
 	if err != nil {
 		return SiteReadDebugReport{}, err
 	}

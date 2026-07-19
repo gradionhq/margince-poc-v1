@@ -26,64 +26,90 @@ const redemptionTTL = 15 * time.Minute
 // at the version the human saw. Single-use is enforced by the conditional
 // UPDATE — two racing redemptions cannot both pass.
 func (s *Service) Redeem(ctx context.Context, id ids.ApprovalID, tool, diffHash string) error {
+	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		return s.RedeemInTx(ctx, tx, id, tool, diffHash)
+	})
+}
+
+// RedeemAndApply consumes the authority object and applies its effect in the
+// same transaction. Effects that can expose a half-applied state use this
+// path: a failed domain write leaves the approval unconsumed and retryable.
+func (s *Service) RedeemAndApply(ctx context.Context, id ids.ApprovalID, tool, diffHash string, apply func(pgx.Tx) error) error {
+	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if err := s.RedeemInTx(ctx, tx, id, tool, diffHash); err != nil {
+			return err
+		}
+		return apply(tx)
+	})
+}
+
+// RedeemInTx validates and consumes one approval through a caller-owned
+// transaction.
+func (s *Service) RedeemInTx(ctx context.Context, tx pgx.Tx, id ids.ApprovalID, tool, diffHash string) error {
 	p, ok := principal.Actor(ctx)
 	if !ok {
 		return errors.New("crmapprovals: no actor bound to context")
 	}
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		a, err := get(ctx, tx, id)
-		if err != nil {
-			// An unknown approval id reads as an invalid token, not a 404:
-			// the caller is asserting authority, not browsing.
-			return fmt.Errorf("no such approval: %w", apperrors.ErrApprovalTokenInvalid)
-		}
-		switch {
-		case a.Status != "approved":
-			return fmt.Errorf("approval is %s: %w", a.effectiveStatus(s.now()), apperrors.ErrApprovalTokenInvalid)
-		case a.ConsumedAt != nil:
-			return fmt.Errorf("approval already redeemed: %w", apperrors.ErrApprovalTokenInvalid)
-		case a.DecidedAt != nil && s.now().Sub(*a.DecidedAt) > redemptionTTL:
-			return fmt.Errorf("approval expired %s after decision: %w", redemptionTTL, apperrors.ErrApprovalTokenInvalid)
-		case a.Kind != tool:
-			return fmt.Errorf("approval is for %s, not %s: %w", a.Kind, tool, apperrors.ErrApprovalTokenInvalid)
-		case a.DiffHash != diffHash:
-			return fmt.Errorf("call differs from the approved change: %w", apperrors.ErrApprovalTokenInvalid)
-		case !p.PassportID.IsZero() && a.PassportID == nil:
-			// AGENT token redemption (ADR-0055): a staging with no passport
-			// binds to no agent, so no agent may consume it. A HUMAN inbox
-			// decision is the other redeemer — it reached here through Decide
-			// (human-only, decide-authority, pending→approved once), so an
-			// unbound, human-staged approval is theirs to consume below.
-			return fmt.Errorf("approval is not bound to a passport: %w", apperrors.ErrApprovalTokenInvalid)
-		case !p.PassportID.IsZero() && *a.PassportID != ids.From[ids.PassportKind](p.PassportID):
-			// An agent may only redeem the passport that staged the approval.
-			return fmt.Errorf("approval was staged by a different passport: %w", apperrors.ErrApprovalTokenInvalid)
-		}
-
-		if a.TargetVersion != nil && a.TargetID != nil && a.TargetType != nil {
-			current, err := targetVersion(ctx, tx, *a.TargetType, *a.TargetID)
-			if err != nil {
-				return err
-			}
-			if current != *a.TargetVersion {
-				// The world moved since the human saw the diff — their yes
-				// no longer covers it (ADR-0036); re-stage.
-				return fmt.Errorf("target changed since approval (v%d → v%d): %w",
-					*a.TargetVersion, current, apperrors.ErrVersionSkew)
-			}
-		}
-
-		tag, err := tx.Exec(ctx,
-			`UPDATE approval SET consumed_at = now() WHERE id = $1 AND consumed_at IS NULL`, id)
-		if err != nil {
-			return err
-		}
-		if tag.RowsAffected() != 1 {
-			return fmt.Errorf("approval already redeemed: %w", apperrors.ErrApprovalTokenInvalid)
-		}
-		_, err = s.audit(ctx, tx, p, "update", id.UUID, map[string]any{"kind": a.Kind, "redeemed": true})
+	a, err := get(ctx, tx, id)
+	if err != nil {
+		// An unknown approval id reads as an invalid token, not a 404:
+		// the caller is asserting authority, not browsing.
+		return fmt.Errorf("no such approval: %w", apperrors.ErrApprovalTokenInvalid)
+	}
+	if err := validateRedemption(a, p, tool, diffHash, s.now()); err != nil {
 		return err
-	})
+	}
+
+	if err := validateRedemptionTarget(ctx, tx, a); err != nil {
+		return err
+	}
+
+	tag, err := tx.Exec(ctx,
+		`UPDATE approval SET consumed_at = now() WHERE id = $1 AND consumed_at IS NULL`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("approval already redeemed: %w", apperrors.ErrApprovalTokenInvalid)
+	}
+	_, err = s.audit(ctx, tx, p, "update", id.UUID, map[string]any{approvalKeyKind: a.Kind, "redeemed": true})
+	return err
+}
+
+func validateRedemption(a row, p principal.Principal, tool, diffHash string, now time.Time) error {
+	switch {
+	case a.Status != approvalStatusApproved:
+		return fmt.Errorf("approval is %s: %w", a.effectiveStatus(now), apperrors.ErrApprovalTokenInvalid)
+	case a.ConsumedAt != nil:
+		return fmt.Errorf("approval already redeemed: %w", apperrors.ErrApprovalTokenInvalid)
+	case a.DecidedAt != nil && now.Sub(*a.DecidedAt) > redemptionTTL:
+		return fmt.Errorf("approval expired %s after decision: %w", redemptionTTL, apperrors.ErrApprovalTokenInvalid)
+	case a.Kind != tool:
+		return fmt.Errorf("approval is for %s, not %s: %w", a.Kind, tool, apperrors.ErrApprovalTokenInvalid)
+	case a.DiffHash != diffHash:
+		return fmt.Errorf("call differs from the approved change: %w", apperrors.ErrApprovalTokenInvalid)
+	case !p.PassportID.IsZero() && a.PassportID == nil:
+		return fmt.Errorf("approval is not bound to a passport: %w", apperrors.ErrApprovalTokenInvalid)
+	case !p.PassportID.IsZero() && *a.PassportID != ids.From[ids.PassportKind](p.PassportID):
+		return fmt.Errorf("approval was staged by a different passport: %w", apperrors.ErrApprovalTokenInvalid)
+	default:
+		return nil
+	}
+}
+
+func validateRedemptionTarget(ctx context.Context, tx pgx.Tx, a row) error {
+	if a.TargetVersion == nil || a.TargetID == nil || a.TargetType == nil {
+		return nil
+	}
+	current, err := targetVersion(ctx, tx, *a.TargetType, *a.TargetID)
+	if err != nil {
+		return err
+	}
+	if current != *a.TargetVersion {
+		return fmt.Errorf("target changed since approval (v%d → v%d): %w",
+			*a.TargetVersion, current, apperrors.ErrVersionSkew)
+	}
+	return nil
 }
 
 // versionTables whitelists the tables a target_version re-check may read:

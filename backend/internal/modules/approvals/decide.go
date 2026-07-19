@@ -118,13 +118,13 @@ func (s *Service) decideInTx(ctx context.Context, tx pgx.Tx, p principal.Princip
 
 	status, action, verdict := "rejected", "reject", "rejected"
 	if approve {
-		status, action, verdict = "approved", "approve", "approved"
+		status, action, verdict = approvalStatusApproved, "approve", approvalStatusApproved
 	}
 	auditEvidence := map[string]any{
-		"kind": a.Kind, "verdict": verdict, "reason": reason,
+		approvalKeyKind: a.Kind, "verdict": verdict, "reason": reason,
 	}
 	decidedPayload := map[string]any{
-		"kind": a.Kind, "verdict": verdict, "decided_by": p.UserID,
+		approvalKeyKind: a.Kind, "verdict": verdict, "decided_by": p.UserID,
 	}
 	if edited != nil {
 		if err := applyEditedPayload(ctx, tx, id, edited, a, auditEvidence, decidedPayload); err != nil {

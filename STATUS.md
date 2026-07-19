@@ -397,12 +397,17 @@ Open work, roughly in priority order:
   `llm-advisory` green; ADR-0065/A111 now pins the anchor/profile/fact/site-read
   schema, optional three-field manual path, reusable deep-read wire, typed
   context policy, progressive budgets/events, and five-step UI. Phase 1
-  implementation is complete in PR #127: it adds the typed, provenance-bearing
+  merged in PR #127: it adds the typed, provenance-bearing
   `CompanyContext` read substrate and reconciles profile/fact vocabulary without
-  duplicating the already-built anchor/deep-read stores. `make check`, the
-  zero-skip integration lane, UAT, CodeRabbit, SonarCloud, and a migration
-  reverse/reapply cycle are green; merge remains conditional on every restarted
-  check and required review conversation staying green.
+  duplicating the already-built anchor/deep-read stores. Phase 2 is implemented
+  on `agent/coldstart-company-context-phase2`: an unbound, progressive onboarding
+  dossier; hash/version-bound accept-subset confirmation; mixed website/human
+  provenance; separate team-member lead proposals; transactional River enqueue;
+  stale-running recovery; and atomic deep-read approval redeem+apply. Focused
+  real-Postgres tests prove zero domain persistence before confirmation and full
+  rollback on queue/staging/apply failures. `make check` and the complete
+  15-package integration lane are green locally. The Phase 2 PR still requires
+  every GitHub quality gate before merge.
 
 - **Email ingestion — deferred pieces of ADR-0063** (the pipeline is
   live; these were scoped out, not missed):

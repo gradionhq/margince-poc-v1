@@ -371,7 +371,7 @@ zero-skip integration. The remaining stale-draft conflict belongs to Phase 2's
 version-bound onboarding confirmation endpoint; it is not a second Phase 1 write
 path.
 
-### Phase 2 — Onboarding deep read
+### Phase 2 — Onboarding deep read (implementation complete)
 
 1. Reuse the current crawler, extraction lanes, evidence gate, legal census, and
    merging logic behind the onboarding dossier contract.
@@ -386,6 +386,18 @@ path.
 Exit gate: website and manual paths produce the same confirmed context shape;
 zero domain persistence occurs before confirmation; failed/partial reads never
 block setup.
+
+The Phase 2 implementation adds the unbound `site_read` target and the
+`/company/site-reads` start/poll/confirm surface. Page findings are versioned and
+published progressively; confirmation binds the inspected version/hash, writes
+only the selected facts, preserves untouched website evidence, treats edits as
+human assertions, and stages every published person as a separate `site_lead`
+proposal. The dossier and River job now enqueue transactionally, stale running
+work can be reclaimed, and the existing organization deep-read approval consumes
+its authority in the same transaction as the domain apply. Real-Postgres tests
+prove zero pre-confirm domain rows, stale/replayed rejection, transactional
+rollback, accept-subset, mixed provenance, and lead separation. The five-step UI
+that consumes this API remains Phase 4.
 
 ### Phase 3 — Context-aware product calls
 
