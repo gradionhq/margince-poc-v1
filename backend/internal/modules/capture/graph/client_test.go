@@ -109,6 +109,10 @@ func msStub(t *testing.T) *httptest.Server {
 		w.WriteHeader(http.StatusTooManyRequests)
 	})
 
+	mux.HandleFunc("/me/messages/gone/$value", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound) // deleted between enumeration and fetch
+	})
+
 	mux.HandleFunc("/me/messages/huge/$value", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "message/rfc822")
 		// One byte past the 8 MiB cap — an oversized message.
@@ -271,6 +275,14 @@ func TestGetMIMEReturnsRawBytes(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), "Subject: hi") {
 		t.Errorf("MIME = %q, want it to contain the header", raw)
+	}
+}
+
+func TestGetMIMESkipsAVanishedMessage(t *testing.T) {
+	_, api := newTestClients(t)
+	_, err := api.GetMIME(context.Background(), "access-2", "gone")
+	if !errors.Is(err, connector.ErrSkip) {
+		t.Fatalf("a 404 (deleted after enumeration) must skip, not wedge the sync, got %v", err)
 	}
 }
 

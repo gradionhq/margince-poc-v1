@@ -168,15 +168,24 @@ func TestUndecodableBodyIsUnreachable(t *testing.T) {
 	}
 }
 
-func TestDialFailureIsUnreachable(t *testing.T) {
-	// A token URL that cannot be reached (server closed) classifies as
-	// unreachable, never a leaked transport error.
-	c := New(testConfig("http://127.0.0.1:1/token", false))
+// failingTransport fails every request deterministically — no host network.
+type failingTransport struct{}
+
+func (failingTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("dial refused by the test transport")
+}
+
+func TestTransportFailureIsUnreachable(t *testing.T) {
+	// A transport-level failure classifies as unreachable and never leaks the
+	// raw transport error to the caller.
+	cfg := testConfig("https://idp.example/token", false)
+	cfg.HTTPClient = &http.Client{Transport: failingTransport{}}
+	c := New(cfg)
 	_, err := c.Exchange(context.Background(), "c", "cb")
 	if !errors.Is(err, errUnre) {
-		t.Fatalf("dial failure = %v, want Unreachable", err)
+		t.Fatalf("transport failure = %v, want Unreachable", err)
 	}
-	if strings.Contains(err.Error(), "connection refused") {
+	if strings.Contains(err.Error(), "dial refused by the test transport") {
 		t.Fatal("the raw transport error must not reach the caller")
 	}
 }

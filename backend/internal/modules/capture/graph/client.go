@@ -244,6 +244,12 @@ func (a *httpAPI) deltaWalk(ctx context.Context, accessToken, startURL string) (
 			}
 		}
 		if page.NextLink == "" {
+			if page.DeltaLink == "" {
+				// A closed round with neither a next nor a delta link has lost
+				// the resumable cursor — treat the malformed response as
+				// unreachable rather than reporting success with no watermark.
+				return nil, "", ErrUnreachable
+			}
 			return ids, page.DeltaLink, nil
 		}
 		if err := a.sameAPIOrigin(page.NextLink); err != nil {
@@ -285,6 +291,12 @@ func (a *httpAPI) GetMIME(ctx context.Context, accessToken, msgID string) ([]byt
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxMIMELen+1))
 	if err != nil {
 		return nil, fmt.Errorf("graph: reading message %s: %w", msgID, ErrUnreachable)
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		// The message was deleted between delta enumeration and this fetch —
+		// skip it (the cursor still advances) rather than retrying a message
+		// that is permanently gone, which would wedge the whole sync.
+		return nil, fmt.Errorf("graph: message %s no longer exists: %w", msgID, connector.ErrSkip)
 	}
 	if err := classifyStatus(resp); err != nil {
 		return nil, err
