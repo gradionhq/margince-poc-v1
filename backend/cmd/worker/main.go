@@ -229,7 +229,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	defer stopJobs()
 
-	workflows := compose.NewWorkflowEngine(pool)
+	workflows := compose.NewWorkflowEngine(pool, compose.NewVoiceDrafter(pool, modelPath.DraftReply))
 	_, _ = fmt.Fprintln(stdout, "worker dispatching workflows (cg:workflows)")
 	background.Go(func() { runSubscriber(ctx, rdb, "cg:workflows", workflows.HandleEvent, logger) })
 
@@ -316,6 +316,7 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 		// leaving it queued behind a job no one can work.
 		DeepReadBrain:     modelPath.SiteExtract,
 		DeepReadFactBrain: modelPath.SiteFactExtract,
+		VoiceBuildBrain:   modelPath.VoiceBuild,
 		DeepReadCaps: compose.CrawlCaps{
 			MaxPages: cfg.deepReadMaxPages,
 			MaxBytes: cfg.deepReadMaxBytes,

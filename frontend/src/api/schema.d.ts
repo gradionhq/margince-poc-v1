@@ -2751,6 +2751,133 @@ export interface paths {
         patch: operations["updateVoiceCorpusSource"];
         trace?: never;
     };
+    "/voice-profiles/{id}/corpus": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Permanently clear retained voice evidence and derived versions.
+         * @description Removes corpus text, learning signals, builds, deltas, and immutable derived
+         *     versions for the calling user's profile. Human-authored personality preferences
+         *     remain, automatic learning is paused, and the profile returns to its unbuilt state.
+         */
+        delete: operations["clearVoiceCorpus"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}/builds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Queue a durable voice-profile build over the current included corpus. */
+        post: operations["createVoiceBuild"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}/builds/{buildId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                buildId: string;
+            };
+            cookie?: never;
+        };
+        /** Poll one durable voice build. */
+        get: operations["getVoiceBuild"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** List immutable voice-profile versions, newest first. */
+        get: operations["listVoiceProfileVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}/versions/{profileVersion}/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                profileVersion: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore an earlier artifact as a new forward version. */
+        post: operations["rollbackVoiceProfileVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}/deltas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** List explainable changes between completed profile versions. */
+        get: operations["listVoiceProfileDeltas"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/products": {
         parameters: {
             query?: never;
@@ -4849,6 +4976,11 @@ export interface components {
             to?: string[];
             /** Format: uuid */
             in_reply_to_activity_id?: string | null;
+            /** @description Opaque reference binding later send edits to this original draft. */
+            draft_ref: string;
+            /** @description Active personal voice version used, null for the universal baseline only. */
+            voice_profile_version?: number | null;
+            ai_generated: boolean;
         };
         SendEmailRequest: {
             subject: string;
@@ -4856,6 +4988,8 @@ export interface components {
             body: string;
             to: string[];
             cc?: string[];
+            /** @description Reference returned by the draft operation; enables private edit learning. */
+            draft_ref?: string | null;
             /**
              * @description The consent purpose this send falls under (e.g. `transactional`, `marketing_email`).
              *     The send is suppressed (409 `consent_not_granted`) unless every recipient has an active
@@ -6753,6 +6887,12 @@ export interface components {
             /** @description Bumps on every derived rebuild; 0 = never built. */
             profile_version: number;
             personality_md: string;
+            /** @description Opt in to batched refreshes from safe own-authored capture sources. */
+            auto_learning_enabled: boolean;
+            /** @description Fingerprint of the source snapshot used by the active version. */
+            active_source_hash: string;
+            /** Format: date-time */
+            last_built_at?: string | null;
             version?: number;
             /** Format: date-time */
             created_at: string;
@@ -6769,6 +6909,7 @@ export interface components {
         };
         UpdateVoiceProfileRequest: {
             personality_md: string;
+            auto_learning_enabled?: boolean | null;
         };
         /** @description One corpus manifest row. The ingested text itself is builder-internal and never echoed back. */
         VoiceCorpusSource: {
@@ -6784,6 +6925,12 @@ export interface components {
             source_ref: string;
             word_count: number;
             excluded: boolean;
+            /** @enum {string} */
+            origin: "manual" | "capture" | "draft_signal";
+            exclusion_reason?: string | null;
+            extractor_version: number;
+            /** Format: date-time */
+            occurred_at?: string | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -6816,6 +6963,8 @@ export interface components {
         UpdateVoiceCorpusSourceRequest: {
             excluded?: boolean | null;
             weight?: number | null;
+            /** @description Required by the UI when a source is excluded; cleared when re-included. */
+            exclusion_reason?: string | null;
         };
         /** @description The live word-count + register-mix meter over the non-excluded manifest (features/09 §B1.4). */
         VoiceCorpusSummary: {
@@ -6829,6 +6978,68 @@ export interface components {
                 [key: string]: number;
             };
             source_count: number;
+        };
+        CreateVoiceBuildRequest: {
+            /** @enum {string} */
+            reason: "onboarding" | "manual";
+        };
+        VoiceBuild: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            voice_profile_id: string;
+            /** @enum {string} */
+            reason: "onboarding" | "manual" | "automatic";
+            /** @enum {string} */
+            status: "queued" | "running" | "succeeded" | "failed";
+            stage: string;
+            source_hash: string;
+            source_word_count: number;
+            result_version?: number | null;
+            failure_detail?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            started_at?: string | null;
+            /** Format: date-time */
+            finished_at?: string | null;
+        };
+        VoiceProfileVersion: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            voice_profile_id: string;
+            profile_version: number;
+            voice_profile_md: string;
+            profile: {
+                [key: string]: unknown;
+            };
+            stats: {
+                [key: string]: unknown;
+            };
+            model_ref?: string | null;
+            builder_version: number;
+            source_hash: string;
+            source_word_count: number;
+            /** @enum {string} */
+            reason: "onboarding" | "manual" | "automatic" | "rollback";
+            predecessor_version?: number | null;
+            active: boolean;
+            /** Format: date-time */
+            created_at: string;
+        };
+        VoiceProfileDelta: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            voice_profile_id: string;
+            from_version: number;
+            to_version: number;
+            summary: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            created_at: string;
         };
         /** @description A rate-card entry. Mirrors the `product` table — data an offer line snapshots from, never a configurator. */
         Product: {
@@ -13295,6 +13506,159 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    clearVoiceCorpus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Corpus and derived history permanently cleared. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createVoiceBuild: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateVoiceBuildRequest"];
+            };
+        };
+        responses: {
+            /** @description Build queued (or the already-active build returned idempotently). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceBuild"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getVoiceBuild: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                buildId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current build state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceBuild"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listVoiceProfileVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Version history. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["VoiceProfileVersion"][];
+                    };
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    rollbackVoiceProfileVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                profileVersion: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description New active forward version. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceProfileVersion"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listVoiceProfileDeltas: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Newest deltas first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["VoiceProfileDelta"][];
+                    };
+                };
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     listProducts: {

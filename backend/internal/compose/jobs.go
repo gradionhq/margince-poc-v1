@@ -22,6 +22,7 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
@@ -262,6 +263,10 @@ type JobRunnerConfig struct {
 	// DeepReadFactBrain serves the page-parallel fact lane
 	// (modelPath.SiteFactExtract); nil falls back to DeepReadBrain.
 	DeepReadFactBrain completer
+	// VoiceBuildBrain serves the durable per-user profile builder. The
+	// worker remains registered when nil so queued builds fail with an
+	// actionable state instead of remaining invisible in River.
+	VoiceBuildBrain completer
 	// DeepReadCaps bounds each deep-read crawl; the zero value takes the
 	// compose defaults (CrawlCaps.withDefaults).
 	DeepReadCaps CrawlCaps
@@ -288,6 +293,7 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	// The deep read is not periodic — the api enqueues one job per started
 	// dossier; the worker role only needs the worker registered.
 	river.AddWorker(workers, newSiteDeepReadWorker(pool, cfg.DeepReadBrain, cfg.DeepReadFactBrain, log, cfg.DeepReadCaps))
+	river.AddWorker(workers, newVoiceBuildWorker(pool, cfg.VoiceBuildBrain, log))
 	river.AddWorker(workers, &closeDateSweepWorker{corrector: NewCloseDateCorrector(pool, log)})
 	river.AddWorker(workers, &followUpReconcileWorker{reconciler: NewFollowUpReconciler(pool, log)})
 	river.AddWorker(workers, &timeScanWorker{scanner: NewTimeScanner(pool, log)})
@@ -308,6 +314,14 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 			func() (river.JobArgs, *river.InsertOpts) { return TimeScanArgs{}, sweepInsertOpts() },
 			&river.PeriodicJobOpts{RunOnStart: true},
 		),
+	}
+	if cfg.VoiceBuildBrain != nil {
+		river.AddWorker(workers, &automaticVoiceSweepWorker{store: ai.NewVoiceStore(pool), log: log})
+		periodic = append(periodic, river.NewPeriodicJob(
+			river.PeriodicInterval(24*time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) { return AutomaticVoiceSweepArgs{}, sweepInsertOpts() },
+			&river.PeriodicJobOpts{RunOnStart: true},
+		))
 	}
 
 	if cfg.ClassifyBrain != nil {

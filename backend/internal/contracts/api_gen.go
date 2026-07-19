@@ -1064,13 +1064,13 @@ func (e CompanySiteReadStatus) Valid() bool {
 
 // Defines values for CompanySiteReadTargetKind.
 const (
-	Onboarding CompanySiteReadTargetKind = "onboarding"
+	CompanySiteReadTargetKindOnboarding CompanySiteReadTargetKind = "onboarding"
 )
 
 // Valid indicates whether the value is a known member of the CompanySiteReadTargetKind enum.
 func (e CompanySiteReadTargetKind) Valid() bool {
 	switch e {
-	case Onboarding:
+	case CompanySiteReadTargetKindOnboarding:
 		return true
 	default:
 		return false
@@ -1914,6 +1914,24 @@ func (e CreateStageRequestSemantic) Valid() bool {
 	case CreateStageRequestSemanticOpen:
 		return true
 	case CreateStageRequestSemanticWon:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateVoiceBuildRequestReason.
+const (
+	CreateVoiceBuildRequestReasonManual     CreateVoiceBuildRequestReason = "manual"
+	CreateVoiceBuildRequestReasonOnboarding CreateVoiceBuildRequestReason = "onboarding"
+)
+
+// Valid indicates whether the value is a known member of the CreateVoiceBuildRequestReason enum.
+func (e CreateVoiceBuildRequestReason) Valid() bool {
+	switch e {
+	case CreateVoiceBuildRequestReasonManual:
+		return true
+	case CreateVoiceBuildRequestReasonOnboarding:
 		return true
 	default:
 		return false
@@ -4170,6 +4188,51 @@ func (e UserStatus) Valid() bool {
 	}
 }
 
+// Defines values for VoiceBuildReason.
+const (
+	VoiceBuildReasonAutomatic  VoiceBuildReason = "automatic"
+	VoiceBuildReasonManual     VoiceBuildReason = "manual"
+	VoiceBuildReasonOnboarding VoiceBuildReason = "onboarding"
+)
+
+// Valid indicates whether the value is a known member of the VoiceBuildReason enum.
+func (e VoiceBuildReason) Valid() bool {
+	switch e {
+	case VoiceBuildReasonAutomatic:
+		return true
+	case VoiceBuildReasonManual:
+		return true
+	case VoiceBuildReasonOnboarding:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VoiceBuildStatus.
+const (
+	VoiceBuildStatusFailed    VoiceBuildStatus = "failed"
+	VoiceBuildStatusQueued    VoiceBuildStatus = "queued"
+	VoiceBuildStatusRunning   VoiceBuildStatus = "running"
+	VoiceBuildStatusSucceeded VoiceBuildStatus = "succeeded"
+)
+
+// Valid indicates whether the value is a known member of the VoiceBuildStatus enum.
+func (e VoiceBuildStatus) Valid() bool {
+	switch e {
+	case VoiceBuildStatusFailed:
+		return true
+	case VoiceBuildStatusQueued:
+		return true
+	case VoiceBuildStatusRunning:
+		return true
+	case VoiceBuildStatusSucceeded:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for VoiceCorpusSourceKind.
 const (
 	VoiceCorpusSourceKindChat       VoiceCorpusSourceKind = "chat"
@@ -4194,6 +4257,27 @@ func (e VoiceCorpusSourceKind) Valid() bool {
 	case VoiceCorpusSourceKindTranscript:
 		return true
 	case VoiceCorpusSourceKindVoiceMemo:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VoiceCorpusSourceOrigin.
+const (
+	VoiceCorpusSourceOriginCapture     VoiceCorpusSourceOrigin = "capture"
+	VoiceCorpusSourceOriginDraftSignal VoiceCorpusSourceOrigin = "draft_signal"
+	VoiceCorpusSourceOriginManual      VoiceCorpusSourceOrigin = "manual"
+)
+
+// Valid indicates whether the value is a known member of the VoiceCorpusSourceOrigin enum.
+func (e VoiceCorpusSourceOrigin) Valid() bool {
+	switch e {
+	case VoiceCorpusSourceOriginCapture:
+		return true
+	case VoiceCorpusSourceOriginDraftSignal:
+		return true
+	case VoiceCorpusSourceOriginManual:
 		return true
 	default:
 		return false
@@ -4284,6 +4368,30 @@ func (e VoiceProfileStatus) Valid() bool {
 	case Ready:
 		return true
 	case Stale:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VoiceProfileVersionReason.
+const (
+	Automatic  VoiceProfileVersionReason = "automatic"
+	Manual     VoiceProfileVersionReason = "manual"
+	Onboarding VoiceProfileVersionReason = "onboarding"
+	Rollback   VoiceProfileVersionReason = "rollback"
+)
+
+// Valid indicates whether the value is a known member of the VoiceProfileVersionReason enum.
+func (e VoiceProfileVersionReason) Valid() bool {
+	switch e {
+	case Automatic:
+		return true
+	case Manual:
+		return true
+	case Onboarding:
+		return true
+	case Rollback:
 		return true
 	default:
 		return false
@@ -4469,25 +4577,25 @@ func (e UploadAttachmentMultipartBodyEntityType) Valid() bool {
 
 // Defines values for ListAutomationRunsParamsOutcome.
 const (
-	Blocked           ListAutomationRunsParamsOutcome = "blocked"
-	Failed            ListAutomationRunsParamsOutcome = "failed"
-	Fired             ListAutomationRunsParamsOutcome = "fired"
-	QueuedForApproval ListAutomationRunsParamsOutcome = "queued_for_approval"
-	Skipped           ListAutomationRunsParamsOutcome = "skipped"
+	ListAutomationRunsParamsOutcomeBlocked           ListAutomationRunsParamsOutcome = "blocked"
+	ListAutomationRunsParamsOutcomeFailed            ListAutomationRunsParamsOutcome = "failed"
+	ListAutomationRunsParamsOutcomeFired             ListAutomationRunsParamsOutcome = "fired"
+	ListAutomationRunsParamsOutcomeQueuedForApproval ListAutomationRunsParamsOutcome = "queued_for_approval"
+	ListAutomationRunsParamsOutcomeSkipped           ListAutomationRunsParamsOutcome = "skipped"
 )
 
 // Valid indicates whether the value is a known member of the ListAutomationRunsParamsOutcome enum.
 func (e ListAutomationRunsParamsOutcome) Valid() bool {
 	switch e {
-	case Blocked:
+	case ListAutomationRunsParamsOutcomeBlocked:
 		return true
-	case Failed:
+	case ListAutomationRunsParamsOutcomeFailed:
 		return true
-	case Fired:
+	case ListAutomationRunsParamsOutcomeFired:
 		return true
-	case QueuedForApproval:
+	case ListAutomationRunsParamsOutcomeQueuedForApproval:
 		return true
-	case Skipped:
+	case ListAutomationRunsParamsOutcomeSkipped:
 		return true
 	default:
 		return false
@@ -6544,6 +6652,14 @@ type CreateTagRequest struct {
 	Name  string  `json:"name"`
 }
 
+// CreateVoiceBuildRequest defines model for CreateVoiceBuildRequest.
+type CreateVoiceBuildRequest struct {
+	Reason CreateVoiceBuildRequestReason `json:"reason"`
+}
+
+// CreateVoiceBuildRequestReason defines model for CreateVoiceBuildRequest.Reason.
+type CreateVoiceBuildRequestReason string
+
 // CreateVoiceProfileRequest defines model for CreateVoiceProfileRequest.
 type CreateVoiceProfileRequest struct {
 	PersonalityMd *string `json:"personality_md,omitempty"`
@@ -6769,10 +6885,17 @@ type DedupeDispositionRequestDisposition string
 
 // EmailDraft A drafted email (never sent by drafting). Send via /activities/{id}/send-email (🟡).
 type EmailDraft struct {
-	Body                string                 `json:"body"`
+	AiGenerated bool   `json:"ai_generated"`
+	Body        string `json:"body"`
+
+	// DraftRef Opaque reference binding later send edits to this original draft.
+	DraftRef            string                 `json:"draft_ref"`
 	InReplyToActivityId *openapi_types.UUID    `json:"in_reply_to_activity_id,omitempty"`
 	Subject             string                 `json:"subject"`
 	To                  *[]openapi_types.Email `json:"to,omitempty"`
+
+	// VoiceProfileVersion Active personal voice version used, null for the universal baseline only.
+	VoiceProfileVersion *int `json:"voice_profile_version,omitempty"`
 }
 
 // EnrichCompanyRequest Optional override. With no body the org's own domain is read.
@@ -8280,9 +8403,12 @@ type SendEmailRequest struct {
 	// ConsentPurpose The consent purpose this send falls under (e.g. `transactional`, `marketing_email`).
 	// The send is suppressed (409 `consent_not_granted`) unless every recipient has an active
 	// `granted` `person_consent` for THIS purpose (default-deny per purpose, A22/ADR-0011).
-	ConsentPurpose string                `json:"consent_purpose"`
-	Subject        string                `json:"subject"`
-	To             []openapi_types.Email `json:"to"`
+	ConsentPurpose string `json:"consent_purpose"`
+
+	// DraftRef Reference returned by the draft operation; enables private edit learning.
+	DraftRef *string               `json:"draft_ref,omitempty"`
+	Subject  string                `json:"subject"`
+	To       []openapi_types.Email `json:"to"`
 }
 
 // Signal A surfaced "something changed / worth attention" item. Mirrors the `signal` table:
@@ -8828,13 +8954,17 @@ type UpdateStageRequestSemantic string
 
 // UpdateVoiceCorpusSourceRequest Any subset; omit a field to leave it unchanged.
 type UpdateVoiceCorpusSourceRequest struct {
-	Excluded *bool    `json:"excluded,omitempty"`
-	Weight   *float32 `json:"weight,omitempty"`
+	Excluded *bool `json:"excluded,omitempty"`
+
+	// ExclusionReason Required by the UI when a source is excluded; cleared when re-included.
+	ExclusionReason *string  `json:"exclusion_reason,omitempty"`
+	Weight          *float32 `json:"weight,omitempty"`
 }
 
 // UpdateVoiceProfileRequest defines model for UpdateVoiceProfileRequest.
 type UpdateVoiceProfileRequest struct {
-	PersonalityMd string `json:"personality_md"`
+	AutoLearningEnabled *bool  `json:"auto_learning_enabled,omitempty"`
+	PersonalityMd       string `json:"personality_md"`
 }
 
 // UpsertPartnerRequest defines model for UpsertPartnerRequest.
@@ -8888,14 +9018,40 @@ type UserListResponse struct {
 	Page PageInfo `json:"page"`
 }
 
+// VoiceBuild defines model for VoiceBuild.
+type VoiceBuild struct {
+	CreatedAt       time.Time          `json:"created_at"`
+	FailureDetail   *string            `json:"failure_detail,omitempty"`
+	FinishedAt      *time.Time         `json:"finished_at,omitempty"`
+	Id              openapi_types.UUID `json:"id"`
+	Reason          VoiceBuildReason   `json:"reason"`
+	ResultVersion   *int               `json:"result_version,omitempty"`
+	SourceHash      string             `json:"source_hash"`
+	SourceWordCount int                `json:"source_word_count"`
+	Stage           string             `json:"stage"`
+	StartedAt       *time.Time         `json:"started_at,omitempty"`
+	Status          VoiceBuildStatus   `json:"status"`
+	VoiceProfileId  openapi_types.UUID `json:"voice_profile_id"`
+}
+
+// VoiceBuildReason defines model for VoiceBuild.Reason.
+type VoiceBuildReason string
+
+// VoiceBuildStatus defines model for VoiceBuild.Status.
+type VoiceBuildStatus string
+
 // VoiceCorpusSource One corpus manifest row. The ingested text itself is builder-internal and never echoed back.
 type VoiceCorpusSource struct {
-	CreatedAt   time.Time                 `json:"created_at"`
-	Excluded    bool                      `json:"excluded"`
-	Id          openapi_types.UUID        `json:"id"`
-	Kind        VoiceCorpusSourceKind     `json:"kind"`
-	Register    VoiceCorpusSourceRegister `json:"register"`
-	SourceLabel string                    `json:"source_label"`
+	CreatedAt        time.Time                 `json:"created_at"`
+	Excluded         bool                      `json:"excluded"`
+	ExclusionReason  *string                   `json:"exclusion_reason,omitempty"`
+	ExtractorVersion int                       `json:"extractor_version"`
+	Id               openapi_types.UUID        `json:"id"`
+	Kind             VoiceCorpusSourceKind     `json:"kind"`
+	OccurredAt       *time.Time                `json:"occurred_at,omitempty"`
+	Origin           VoiceCorpusSourceOrigin   `json:"origin"`
+	Register         VoiceCorpusSourceRegister `json:"register"`
+	SourceLabel      string                    `json:"source_label"`
 
 	// SourceRef The source natural key ingest is idempotent on.
 	SourceRef string     `json:"source_ref"`
@@ -8906,6 +9062,9 @@ type VoiceCorpusSource struct {
 
 // VoiceCorpusSourceKind defines model for VoiceCorpusSource.Kind.
 type VoiceCorpusSourceKind string
+
+// VoiceCorpusSourceOrigin defines model for VoiceCorpusSource.Origin.
+type VoiceCorpusSourceOrigin string
 
 // VoiceCorpusSourceRegister defines model for VoiceCorpusSource.Register.
 type VoiceCorpusSourceRegister string
@@ -8930,8 +9089,14 @@ type VoiceCorpusSummaryQualityBand string
 // `profile_version`, rewritten wholesale on rebuild); `personality_md` is human-AUTHORED
 // free text a rebuild never touches.
 type VoiceProfile struct {
-	CreatedAt time.Time          `json:"created_at"`
-	Id        openapi_types.UUID `json:"id"`
+	// ActiveSourceHash Fingerprint of the source snapshot used by the active version.
+	ActiveSourceHash string `json:"active_source_hash"`
+
+	// AutoLearningEnabled Opt in to batched refreshes from safe own-authored capture sources.
+	AutoLearningEnabled bool               `json:"auto_learning_enabled"`
+	CreatedAt           time.Time          `json:"created_at"`
+	Id                  openapi_types.UUID `json:"id"`
+	LastBuiltAt         *time.Time         `json:"last_built_at,omitempty"`
 
 	// ModelRef Derived style descriptor / embedding ref.
 	ModelRef *string `json:"model_ref,omitempty"`
@@ -8956,6 +9121,37 @@ type VoiceProfileScope string
 
 // VoiceProfileStatus defines model for VoiceProfile.Status.
 type VoiceProfileStatus string
+
+// VoiceProfileDelta defines model for VoiceProfileDelta.
+type VoiceProfileDelta struct {
+	CreatedAt      time.Time              `json:"created_at"`
+	FromVersion    int                    `json:"from_version"`
+	Id             openapi_types.UUID     `json:"id"`
+	Summary        map[string]interface{} `json:"summary"`
+	ToVersion      int                    `json:"to_version"`
+	VoiceProfileId openapi_types.UUID     `json:"voice_profile_id"`
+}
+
+// VoiceProfileVersion defines model for VoiceProfileVersion.
+type VoiceProfileVersion struct {
+	Active             bool                      `json:"active"`
+	BuilderVersion     int                       `json:"builder_version"`
+	CreatedAt          time.Time                 `json:"created_at"`
+	Id                 openapi_types.UUID        `json:"id"`
+	ModelRef           *string                   `json:"model_ref,omitempty"`
+	PredecessorVersion *int                      `json:"predecessor_version,omitempty"`
+	Profile            map[string]interface{}    `json:"profile"`
+	ProfileVersion     int                       `json:"profile_version"`
+	Reason             VoiceProfileVersionReason `json:"reason"`
+	SourceHash         string                    `json:"source_hash"`
+	SourceWordCount    int                       `json:"source_word_count"`
+	Stats              map[string]interface{}    `json:"stats"`
+	VoiceProfileId     openapi_types.UUID        `json:"voice_profile_id"`
+	VoiceProfileMd     string                    `json:"voice_profile_md"`
+}
+
+// VoiceProfileVersionReason defines model for VoiceProfileVersion.Reason.
+type VoiceProfileVersionReason string
 
 // ApprovalToken defines model for ApprovalToken.
 type ApprovalToken = string
@@ -11090,6 +11286,9 @@ type CreateVoiceProfileJSONRequestBody = CreateVoiceProfileRequest
 
 // UpdateVoiceProfileJSONRequestBody defines body for UpdateVoiceProfile for application/json ContentType.
 type UpdateVoiceProfileJSONRequestBody = UpdateVoiceProfileRequest
+
+// CreateVoiceBuildJSONRequestBody defines body for CreateVoiceBuild for application/json ContentType.
+type CreateVoiceBuildJSONRequestBody = CreateVoiceBuildRequest
 
 // IngestVoiceCorpusSourceJSONRequestBody defines body for IngestVoiceCorpusSource for application/json ContentType.
 type IngestVoiceCorpusSourceJSONRequestBody = IngestVoiceCorpusSourceRequest
@@ -16550,6 +16749,18 @@ type ServerInterface interface {
 	// Edit the human-authored personality_md (never the derived artifact).
 	// (PATCH /voice-profiles/{id})
 	UpdateVoiceProfile(w http.ResponseWriter, r *http.Request, id Id, params UpdateVoiceProfileParams)
+	// Queue a durable voice-profile build over the current included corpus.
+	// (POST /voice-profiles/{id}/builds)
+	CreateVoiceBuild(w http.ResponseWriter, r *http.Request, id Id)
+	// Poll one durable voice build.
+	// (GET /voice-profiles/{id}/builds/{buildId})
+	GetVoiceBuild(w http.ResponseWriter, r *http.Request, id Id, buildId openapi_types.UUID)
+	// Permanently clear retained voice evidence and derived versions.
+	// (DELETE /voice-profiles/{id}/corpus)
+	ClearVoiceCorpus(w http.ResponseWriter, r *http.Request, id Id)
+	// List explainable changes between completed profile versions.
+	// (GET /voice-profiles/{id}/deltas)
+	ListVoiceProfileDeltas(w http.ResponseWriter, r *http.Request, id Id)
 	// The corpus manifest — every ingested source plus the live word/register meter.
 	// (GET /voice-profiles/{id}/sources)
 	ListVoiceCorpusSources(w http.ResponseWriter, r *http.Request, id Id)
@@ -16559,6 +16770,12 @@ type ServerInterface interface {
 	// Flip a source's manifest opt-out (excluded) or its weight.
 	// (PATCH /voice-profiles/{id}/sources/{sourceId})
 	UpdateVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id, sourceId openapi_types.UUID)
+	// List immutable voice-profile versions, newest first.
+	// (GET /voice-profiles/{id}/versions)
+	ListVoiceProfileVersions(w http.ResponseWriter, r *http.Request, id Id)
+	// Restore an earlier artifact as a new forward version.
+	// (POST /voice-profiles/{id}/versions/{profileVersion}/rollback)
+	RollbackVoiceProfileVersion(w http.ResponseWriter, r *http.Request, id Id, profileVersion int)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -17795,6 +18012,30 @@ func (_ Unimplemented) UpdateVoiceProfile(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Queue a durable voice-profile build over the current included corpus.
+// (POST /voice-profiles/{id}/builds)
+func (_ Unimplemented) CreateVoiceBuild(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Poll one durable voice build.
+// (GET /voice-profiles/{id}/builds/{buildId})
+func (_ Unimplemented) GetVoiceBuild(w http.ResponseWriter, r *http.Request, id Id, buildId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Permanently clear retained voice evidence and derived versions.
+// (DELETE /voice-profiles/{id}/corpus)
+func (_ Unimplemented) ClearVoiceCorpus(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List explainable changes between completed profile versions.
+// (GET /voice-profiles/{id}/deltas)
+func (_ Unimplemented) ListVoiceProfileDeltas(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // The corpus manifest — every ingested source plus the live word/register meter.
 // (GET /voice-profiles/{id}/sources)
 func (_ Unimplemented) ListVoiceCorpusSources(w http.ResponseWriter, r *http.Request, id Id) {
@@ -17810,6 +18051,18 @@ func (_ Unimplemented) IngestVoiceCorpusSource(w http.ResponseWriter, r *http.Re
 // Flip a source's manifest opt-out (excluded) or its weight.
 // (PATCH /voice-profiles/{id}/sources/{sourceId})
 func (_ Unimplemented) UpdateVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id, sourceId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List immutable voice-profile versions, newest first.
+// (GET /voice-profiles/{id}/versions)
+func (_ Unimplemented) ListVoiceProfileVersions(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Restore an earlier artifact as a new forward version.
+// (POST /voice-profiles/{id}/versions/{profileVersion}/rollback)
+func (_ Unimplemented) RollbackVoiceProfileVersion(w http.ResponseWriter, r *http.Request, id Id, profileVersion int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -27942,6 +28195,147 @@ func (siw *ServerInterfaceWrapper) UpdateVoiceProfile(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// CreateVoiceBuild operation middleware
+func (siw *ServerInterfaceWrapper) CreateVoiceBuild(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateVoiceBuild(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetVoiceBuild operation middleware
+func (siw *ServerInterfaceWrapper) GetVoiceBuild(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "buildId" -------------
+	var buildId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "buildId", chi.URLParam(r, "buildId"), &buildId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "buildId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetVoiceBuild(w, r, id, buildId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ClearVoiceCorpus operation middleware
+func (siw *ServerInterfaceWrapper) ClearVoiceCorpus(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ClearVoiceCorpus(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListVoiceProfileDeltas operation middleware
+func (siw *ServerInterfaceWrapper) ListVoiceProfileDeltas(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListVoiceProfileDeltas(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListVoiceCorpusSources operation middleware
 func (siw *ServerInterfaceWrapper) ListVoiceCorpusSources(w http.ResponseWriter, r *http.Request) {
 
@@ -28040,6 +28434,81 @@ func (siw *ServerInterfaceWrapper) UpdateVoiceCorpusSource(w http.ResponseWriter
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateVoiceCorpusSource(w, r, id, sourceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListVoiceProfileVersions operation middleware
+func (siw *ServerInterfaceWrapper) ListVoiceProfileVersions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListVoiceProfileVersions(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RollbackVoiceProfileVersion operation middleware
+func (siw *ServerInterfaceWrapper) RollbackVoiceProfileVersion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "profileVersion" -------------
+	var profileVersion int
+
+	err = runtime.BindStyledParameterWithOptions("simple", "profileVersion", chi.URLParam(r, "profileVersion"), &profileVersion, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "profileVersion", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RollbackVoiceProfileVersion(w, r, id, profileVersion)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -28778,6 +29247,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/voice-profiles/{id}", wrapper.UpdateVoiceProfile)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/voice-profiles/{id}/builds", wrapper.CreateVoiceBuild)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/voice-profiles/{id}/builds/{buildId}", wrapper.GetVoiceBuild)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/voice-profiles/{id}/corpus", wrapper.ClearVoiceCorpus)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/voice-profiles/{id}/deltas", wrapper.ListVoiceProfileDeltas)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/voice-profiles/{id}/sources", wrapper.ListVoiceCorpusSources)
 	})
 	r.Group(func(r chi.Router) {
@@ -28785,6 +29266,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/voice-profiles/{id}/sources/{sourceId}", wrapper.UpdateVoiceCorpusSource)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/voice-profiles/{id}/versions", wrapper.ListVoiceProfileVersions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/voice-profiles/{id}/versions/{profileVersion}/rollback", wrapper.RollbackVoiceProfileVersion)
 	})
 
 	return r

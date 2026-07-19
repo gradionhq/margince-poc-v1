@@ -352,12 +352,13 @@ describe("PassportCard revoke (AS-2)", () => {
 });
 
 describe("SettingsScreen tab layout", () => {
-  it("shows a settings-sections nav with the six tabs, Account current by default", () => {
+  it("shows a settings-sections nav with the seven tabs, Account current by default", () => {
     render(<SettingsScreen />);
     const nav = screen.getByRole("navigation", { name: /settings sections/i });
     expect(nav).toBeTruthy();
     for (const label of [
       "Account",
+      "My voice",
       "AI & autonomy",
       "Data model",
       "Catalog",
@@ -380,6 +381,94 @@ describe("SettingsScreen tab layout", () => {
     await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
     // Scout lives on the AI tab; the default Account tab must not render it.
     expect(screen.queryByText("Scout")).toBeNull();
+  });
+
+  it("renders the persisted owner-private voice, sources, and immutable history", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.includes("/sources")) {
+          return jsonResponse({
+            data: [
+              {
+                id: "018f0000-0000-7000-8000-000000000002",
+                kind: "email",
+                register: "written",
+                weight: 1,
+                source_label: "Sent mail",
+                source_ref: "graph:m1",
+                word_count: 1240,
+                excluded: false,
+                origin: "capture",
+                extractor_version: 1,
+                created_at: "2026-07-19T08:00:00Z",
+              },
+            ],
+            summary: {
+              total_words: 1240,
+              target_words: 30000,
+              quality_band: "thin",
+              register_words: { written: 1240 },
+              source_count: 1,
+            },
+          });
+        }
+        if (url.includes("/versions")) {
+          return jsonResponse({
+            data: [
+              {
+                id: "018f0000-0000-7000-8000-000000000003",
+                voice_profile_id: "018f0000-0000-7000-8000-000000000001",
+                profile_version: 1,
+                voice_profile_md: "# Lars voice",
+                profile: {},
+                stats: {},
+                builder_version: 1,
+                source_hash: "abc",
+                source_word_count: 1240,
+                reason: "onboarding",
+                active: true,
+                created_at: "2026-07-19T08:05:00Z",
+              },
+            ],
+          });
+        }
+        if (url.includes("/deltas")) return jsonResponse({ data: [] });
+        if (
+          new URL(url, "http://localhost").pathname.endsWith(
+            "/v1/voice-profiles",
+          )
+        ) {
+          return jsonResponse({
+            data: [
+              {
+                id: "018f0000-0000-7000-8000-000000000001",
+                scope: "user",
+                status: "ready",
+                voice_profile_md: "# Lars voice\n\nDirect and specific.",
+                profile_version: 1,
+                personality_md: "No em dashes.",
+                auto_learning_enabled: true,
+                active_source_hash: "abc",
+                version: 2,
+                created_at: "2026-07-19T08:00:00Z",
+                updated_at: "2026-07-19T08:05:00Z",
+              },
+            ],
+            page: { has_more: false },
+          });
+        }
+        return jsonResponse({ data: [], page: { has_more: false } });
+      }),
+    );
+    render(<SettingsScreen tab="voice" />);
+    await waitFor(() => expect(screen.getByText("Sent mail")).toBeTruthy());
+    expect(screen.getByText(/Direct and specific/)).toBeTruthy();
+    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(
+      true,
+    );
+    expect(screen.getByText("Version 1")).toBeTruthy();
   });
 
   it("surfaces the custom-fields door on the Data model tab", () => {

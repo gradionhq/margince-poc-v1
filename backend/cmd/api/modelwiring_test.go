@@ -128,7 +128,8 @@ func TestColdStartOptionsRespectsResolvedPath(t *testing.T) {
 }
 
 // TestOfferDraftOptionsRespectsResolvedPath mirrors
-// TestColdStartOptionsRespectsResolvedPath for the offer-draft surface.
+// TestColdStartOptionsRespectsResolvedPath for the shared offer and personal
+// voice drafting surfaces.
 func TestOfferDraftOptionsRespectsResolvedPath(t *testing.T) {
 	if got := offerDraftOptions(nil, nil); got != nil {
 		t.Fatalf("offerDraftOptions(nil) = %d options, want 0", len(got))
@@ -137,8 +138,8 @@ func TestOfferDraftOptionsRespectsResolvedPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveModelPath: %v", err)
 	}
-	if got := offerDraftOptions(nil, modelPath); len(got) != 1 {
-		t.Fatalf("offerDraftOptions(bound path) = %d options, want 1 (offer draft)", len(got))
+	if got := offerDraftOptions(nil, modelPath); len(got) != 2 {
+		t.Fatalf("offerDraftOptions(bound path) = %d options, want 2 (offer and voice draft)", len(got))
 	}
 }
 

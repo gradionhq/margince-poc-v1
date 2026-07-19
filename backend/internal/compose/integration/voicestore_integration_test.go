@@ -6,9 +6,9 @@
 package integration
 
 // Store-level Voice DNA gates (B-E07.4): the platform row-scope clause
-// over voice profiles — a voice corpus is its owner's personal writing,
-// so a rep in another team reads absence while a teammate reads
-// presence — and the derived-rebuild write path: SetDerivedProfile
+// over voice profiles — a voice profile and corpus are their owner's personal
+// writing, so every other user reads absence from the normal profile surface —
+// and the derived-rebuild write path: SetDerivedProfile
 // persists the §B0.2 artifact from an ingested fixture corpus WITH a
 // bumped profile_version while the human-authored personality_md
 // survives untouched (the split that makes rebuilds safe).
@@ -36,7 +36,7 @@ var voiceRepPerms = principal.Permissions{
 	RowScope: principal.RowScopeTeam,
 }
 
-func TestVoiceProfileRowScopeFollowsTeamVisibility(t *testing.T) {
+func TestPersonalVoiceProfileIsOwnerPrivate(t *testing.T) {
 	e := Setup(t)
 	voice := ai.NewVoiceStore(e.Pool)
 
@@ -46,11 +46,11 @@ func TestVoiceProfileRowScopeFollowsTeamVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A teammate (team scope) sees the profile; a rep in another team
-	// reads absence — 404 semantics, existence hidden.
+	// Team scope never widens personal voice content: teammate and outsider
+	// both read absence, and neither sees it in the list.
 	teammate := e.As(e.Rep2, []ids.UUID{e.Team1}, voiceRepPerms)
-	if _, err := voice.GetProfile(teammate, created.ID); err != nil {
-		t.Fatalf("teammate read: %v", err)
+	if _, err := voice.GetProfile(teammate, created.ID); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("teammate read → %v, want ErrNotFound", err)
 	}
 	outsider := e.As(e.Rep3, []ids.UUID{e.Team2}, voiceRepPerms)
 	if _, err := voice.GetProfile(outsider, created.ID); !errors.Is(err, apperrors.ErrNotFound) {
@@ -62,6 +62,13 @@ func TestVoiceProfileRowScopeFollowsTeamVisibility(t *testing.T) {
 	}
 	if len(page.Items) != 0 {
 		t.Fatalf("outsider lists %d profiles, want 0", len(page.Items))
+	}
+	page, err = voice.ListProfiles(teammate, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 0 {
+		t.Fatalf("teammate lists %d profiles, want 0", len(page.Items))
 	}
 
 	// The corpus rides the same gate: an outsider cannot ingest into or
@@ -84,7 +91,7 @@ func TestVoiceProfileRowScopeFollowsTeamVisibility(t *testing.T) {
 		}); !errors.Is(err, apperrors.ErrPermissionDenied) {
 			t.Fatalf("%s ingest into a personal profile → %v, want ErrPermissionDenied", who, err)
 		}
-		if _, err := voice.UpdateProfile(ctx, created.ID, "not their identity", nil); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		if _, err := voice.UpdateProfile(ctx, created.ID, "not their identity", nil, nil); !errors.Is(err, apperrors.ErrPermissionDenied) {
 			t.Fatalf("%s personality edit → %v, want ErrPermissionDenied", who, err)
 		}
 		if _, _, err := voice.ListSources(ctx, created.ID); !errors.Is(err, apperrors.ErrPermissionDenied) {

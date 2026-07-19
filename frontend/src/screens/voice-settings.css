@@ -1,0 +1,147 @@
+.voice-admin {
+  display: grid;
+  gap: 14px;
+}
+
+.voice-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.voice-stat {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  background: var(--bgSubtle);
+}
+
+.voice-stat small,
+.voice-source small,
+.voice-version small,
+.voice-switch small {
+  color: var(--textSecondary);
+}
+
+.voice-switch {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 14px;
+}
+
+.voice-switch span,
+.voice-source > div,
+.voice-version span {
+  display: grid;
+  gap: 3px;
+  flex: 1;
+}
+
+.voice-textarea,
+.voice-profile-preview {
+  width: 100%;
+  min-height: 150px;
+  margin-bottom: 10px;
+  padding: 12px;
+  border: 1px solid var(--borderDefault);
+  border-radius: var(--r-sm);
+  background: var(--bgRaised);
+  color: var(--textPrimary);
+  font: inherit;
+  line-height: 1.55;
+  box-sizing: border-box;
+}
+
+.voice-profile-preview {
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.voice-source-list,
+.voice-version-list {
+  display: grid;
+  gap: 8px;
+}
+
+.voice-add-source {
+  margin-bottom: var(--space-4);
+}
+
+.voice-add-source .voice-textarea {
+  min-height: 90px;
+}
+
+.voice-source,
+.voice-version {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+}
+
+.voice-source select {
+  padding: 6px;
+  border: 1px solid var(--borderDefault);
+  border-radius: var(--r-sm);
+  background: var(--bgRaised);
+  color: var(--textPrimary);
+}
+
+.voice-version svg,
+.voice-danger-zone > svg {
+  width: 17px;
+  flex: none;
+}
+
+.voice-version .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.voice-version .badge svg {
+  width: 13px;
+}
+
+.voice-deltas {
+  margin-top: 12px;
+}
+
+.voice-danger-zone {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-color: var(--dangerBorder);
+}
+
+.voice-danger-zone div {
+  flex: 1;
+}
+
+.voice-danger-zone p {
+  margin: 4px 0 0;
+  color: var(--textSecondary);
+}
+
+.voice-error {
+  color: var(--danger);
+}
+
+@media (max-width: 800px) {
+  .voice-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .voice-source,
+  .voice-version,
+  .voice-danger-zone {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

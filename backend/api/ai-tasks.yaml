@@ -9,6 +9,8 @@ tasks:
   enrich:           {ladder: [local_small, cheap_cloud], on_budget_exhausted: queue}
   summarize:        {ladder: [cheap_cloud, premium], on_budget_exhausted: degrade}
   draft_reply:      {ladder: [cheap_cloud, premium], on_budget_exhausted: degrade}
+  voice_build:      {ladder: [premium, cheap_cloud], on_budget_exhausted: queue,
+                     doc: "the durable evidence-grounded personal writing-profile build lane"}
   nl_search:        {ladder: [cheap_cloud, premium], on_budget_exhausted: degrade}
   cold_start:       {ladder: [cheap_cloud, premium], on_budget_exhausted: degrade}
   transcript:       {ladder: [cheap_cloud, premium], on_budget_exhausted: degrade}

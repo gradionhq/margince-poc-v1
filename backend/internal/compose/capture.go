@@ -14,9 +14,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
@@ -26,6 +28,9 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
 // gmailReadonlyScope is the single Google scope the read-only capture
@@ -68,7 +73,33 @@ func newCaptureSink(pool *pgxpool.Pool, freemailExtra []string) *capture.Sink {
 		// The ADR-0063 auto-create pipeline: every captured mail ensures
 		// its counterparty exists, through the people module's ONE dedupe
 		// chokepoint — composed here so capture never imports people.
-		WithEnsurer(peopleEnsurer{store: people.NewStore(pool)}, capture.NewFreemailList(freemailExtra))
+		WithEnsurer(peopleEnsurer{store: people.NewStore(pool)}, capture.NewFreemailList(freemailExtra)).
+		WithObserver(voiceCaptureObserver{store: ai.NewVoiceStore(pool)})
+}
+
+type voiceCaptureObserver struct{ store *ai.VoiceStore }
+
+func (v voiceCaptureObserver) ObserveCapture(ctx context.Context, rec connector.NormalizedRecord, _ datasource.EntityRef) error {
+	fields, ok := rec.Fields.(capture.ActivityFields)
+	if !ok || fields.Kind != "email" || fields.Direction != "outbound" {
+		return nil
+	}
+	actor, ok := principal.Actor(ctx)
+	if !ok || actor.UserID == ids.Nil {
+		return errors.New("voice capture: connector has no granting user")
+	}
+	text := ai.ExtractOwnEmailText(fields.Body)
+	reason, excluded := ai.ExcludeEmailFromVoice(fields.Subject, text)
+	var exclusionReason *string
+	if excluded {
+		exclusionReason = &reason
+	}
+	label := strings.TrimSpace(fields.Subject)
+	if label == "" {
+		label = "Sent email"
+	}
+	return v.store.IngestCapturedEmail(ctx, actor.UserID,
+		rec.NaturalKey.SourceSystem+":"+rec.NaturalKey.SourceID, label, text, fields.OccurredAt, exclusionReason)
 }
 
 // peopleEnsurer adapts the people module's auto-create engine onto

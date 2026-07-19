@@ -71,6 +71,14 @@ func (f *fakeAPI) Delta(_ context.Context, _, deltaLink string) ([]string, strin
 	return f.deltaIDs, f.deltaLink, nil
 }
 
+func (f *fakeAPI) SentDeltaInit(context.Context, string, time.Time) ([]string, string, error) {
+	return nil, "https://graph/sent-delta?token=s1", nil
+}
+
+func (f *fakeAPI) SentDelta(context.Context, string, string) ([]string, string, error) {
+	return nil, "https://graph/sent-delta?token=s2", nil
+}
+
 func (f *fakeAPI) GetMIME(_ context.Context, _, id string) ([]byte, error) {
 	if f.getErr != nil {
 		return nil, f.getErr
@@ -207,7 +215,7 @@ func TestSyncInitialAnchorIsBoundedAndCaptures(t *testing.T) {
 	if sink.recs[0].CapturedBy != "connector:graph" {
 		t.Errorf("CapturedBy = %q, want connector:graph", sink.recs[0].CapturedBy)
 	}
-	if delta, _ := parseCursor(cur); delta != "https://graph/delta?token=d1" {
+	if delta, _ := parseCursor(cur); delta.DeltaLink != "https://graph/delta?token=d1" {
 		t.Errorf("cursor deltaLink = %q, want the DeltaInit link", delta)
 	}
 	if want := pinned.Add(-anchorWindow); !api.initAfter.Equal(want) {
@@ -242,7 +250,7 @@ func TestSyncIncrementalResumesDeltaAndAdvancesCursor(t *testing.T) {
 	if api.seenDelta != "https://graph/delta?token=d1" {
 		t.Errorf("resumed deltaLink = %q, want the stored one", api.seenDelta)
 	}
-	if delta, _ := parseCursor(cur); delta != "https://graph/delta?token=d2" {
+	if delta, _ := parseCursor(cur); delta.DeltaLink != "https://graph/delta?token=d2" {
 		t.Errorf("cursor = %q, want advanced to token=d2", delta)
 	}
 }
@@ -272,7 +280,7 @@ func TestSyncDeltaGoneReAnchorsBounded(t *testing.T) {
 	if want := pinned.Add(-anchorWindow); !api.initAfter.Equal(want) {
 		t.Errorf("re-anchor bound = %v, want %v (now - anchorWindow)", api.initAfter, want)
 	}
-	if delta, _ := parseCursor(cur); delta != "https://graph/delta?token=fresh" {
+	if delta, _ := parseCursor(cur); delta.DeltaLink != "https://graph/delta?token=fresh" {
 		t.Errorf("cursor should re-anchor at the fresh deltaLink, got %q", delta)
 	}
 }
@@ -310,7 +318,7 @@ func TestSyncEmptyDeltaKeepsPriorWatermark(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
-	if delta, _ := parseCursor(cur); delta != "https://graph/delta?token=d1" {
+	if delta, _ := parseCursor(cur); delta.DeltaLink != "https://graph/delta?token=d1" {
 		t.Errorf("cursor = %q, want the prior watermark kept", delta)
 	}
 }

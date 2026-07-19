@@ -868,6 +868,26 @@ export const de = {
     ".txt .md .vtt .srt .json · nur Text · wir behalten nur deine Redeanteile",
   "ob.s2.dropSkipped":
     "{files} übersprungen — kein Textformat. Als .txt/.md konvertieren oder den Text direkt einfügen.",
+  "ob.s2.preferences": "Deine unverhandelbaren Regeln",
+  "ob.s2.preferencesPlaceholder":
+    "Zum Beispiel: Keine Gedankenstriche. Keine künstlichen ‚nicht dies, sondern das‘-Kontraste. Direkt schreiben. Mit meinem Vornamen enden.",
+  "ob.s2.pasteTitle": "Füge Texte ein, die wirklich von dir sind",
+  "ob.s2.pastePlaceholder":
+    "Füge mehrere gesendete Nachrichten, Posts oder einen längeren Text ein. Entferne alles, was nicht in deinen privaten Korpus gehört.",
+  "ob.s2.pasteRequired": "Füge zuerst etwas von deinem eigenen Text ein.",
+  "ob.s2.pastedLabel": "Onboarding-Text",
+  "ob.s2.sourceKind": "Art der Textquelle",
+  "ob.s2.addSource": "Zum Korpus hinzufügen",
+  "ob.s2.speakerLabel": "Dein Sprechername in Transkriptdateien",
+  "ob.s2.speakerPlaceholder":
+    "Nur für .vtt, .srt oder Transkript-JSON erforderlich",
+  "ob.s2.speakerRequired":
+    "Gib vor dem Upload deinen Sprechernamen an, damit wir nur deine Redeanteile behalten.",
+  "ob.s2.realMeter":
+    "{sources} echte Quellen · erster Build ab {starter} eigenen Wörtern",
+  "ob.s2.version": "Version {version} · {count} Korpuswörter",
+  "ob.s2.buildFailed":
+    "Der Build ist fehlgeschlagen. Dein Quellenkorpus ist sicher; versuch es erneut.",
   "ob.reg.spoken": "gesprochen",
   "ob.reg.written": "geschrieben",
   "ob.reg.casual": "locker",
@@ -915,7 +935,7 @@ export const de = {
     'Nie: Floskeln, Weichspülen, "ich hoffe, es geht Ihnen gut"',
   "ob.s2.sampleLabel": "Beispiel-Entwurf in deiner Stimme",
   "ob.s2.vpFootnote":
-    "Ein Anfang aus {count} Wörtern. Verbinde als Nächstes dein Postfach, und deine gesendete Post hebt das von gut → scharf — dann lernt es aus jeder E-Mail weiter.",
+    "Aus {count} echten, eigenen Wörtern gebaut. Verbinde als Nächstes dein Postfach, um sicheres Lernen aus gesendeter Post zu aktivieren.",
 
   "ob.s3.kick": "Schritt 3 von 4",
   "ob.s3.title": "Sieh, was du gebaut hast —",
@@ -1291,11 +1311,67 @@ export const de = {
   "settings.openCustomFields": "Benutzerdefinierte Felder öffnen",
   "settings.navAria": "Einstellungsbereiche",
   "settings.tab.account": "Konto",
+  "settings.tab.voice": "Meine Stimme",
   "settings.tab.ai": "KI & Autonomie",
   "settings.tab.data": "Datenmodell",
   "settings.tab.catalog": "Katalog",
   "settings.tab.privacy": "Datenschutz & Einwilligung",
   "settings.tab.audit": "Audit-Log",
+  "voice.title": "Meine Stimme",
+  "voice.sub":
+    "Dein privates Schreibprofil, seine Belege und die Steuerung des automatischen Lernens.",
+  "voice.loading": "Deine Stimme wird geladen…",
+  "voice.emptySub":
+    "Erstelle ein privates Profil und füge dann Texte im Onboarding oder hier hinzu.",
+  "voice.create": "Mein Stimmprofil erstellen",
+  "voice.status": "Status",
+  "voice.words": "Enthaltene Wörter",
+  "voice.wordsLower": "Wörter",
+  "voice.version": "Aktive Version",
+  "voice.versionNumber": "Version {version}",
+  "voice.lastBuild": "Letzter Build",
+  "voice.never": "Noch nicht erstellt",
+  "voice.automatic": "Aus meinen gesendeten E-Mails lernen",
+  "voice.automaticSub":
+    "Nur dein neu geschriebener Text wird behalten. Zitate, Header, Signaturen, Disclaimer und private Mails werden ausgeschlossen. Builds laufen gebündelt.",
+  "voice.preferences": "Feste Präferenzen",
+  "voice.preferencesSub":
+    "Diese Anweisungen gehören dir und stehen immer über abgeleiteten Merkmalen.",
+  "voice.preferencesPlaceholder":
+    "Zum Beispiel: keine Gedankenstriche; direkt schreiben; keine künstlichen Kontraste; mit Lars abschließen.",
+  "voice.save": "Präferenzen speichern",
+  "voice.derived": "Aus Belegen abgeleitetes Profil",
+  "voice.derivedSub":
+    "Wird aus einbezogenen Quellen neu erstellt. Änderungen deiner Präferenzen überschreiben es nicht.",
+  "voice.noProfile":
+    "Füge mindestens 800 selbst geschriebene Wörter für eine erste Stimme hinzu.",
+  "voice.rebuild": "Neue Version erstellen",
+  "voice.building": "Wird erstellt…",
+  "voice.buildMissing": "Der aktive Build konnte nicht fortgesetzt werden.",
+  "voice.sources": "Quellen",
+  "voice.sourcesSub":
+    "Sieh, was beigetragen hat, ändere das Gewicht oder schließe es vom nächsten Build aus.",
+  "voice.noSources": "Noch keine gespeicherten Quellen.",
+  "voice.manualSource": "In Meine Stimme hinzugefügter Text",
+  "voice.addPlaceholder":
+    "Füge einen weiteren repräsentativen eigenen Text ein…",
+  "voice.addSource": "Textquelle hinzufügen",
+  "voice.weightFor": "Gewicht für {source}",
+  "voice.include": "Einbeziehen",
+  "voice.exclude": "Ausschließen",
+  "voice.history": "Versionsverlauf",
+  "voice.historySub":
+    "Jeder Build ist unveränderlich. Ein Rollback erzeugt eine neue Vorwärtsversion.",
+  "voice.active": "Aktiv",
+  "voice.rollback": "Zurückrollen",
+  "voice.changes": "Letzte Lernänderungen",
+  "voice.changeVersion": "Version {from} → {to}",
+  "voice.clearTitle": "Stimmdaten löschen",
+  "voice.clearSub":
+    "Korpustexte, Lernsignale, Builds und abgeleitete Versionen dauerhaft löschen. Deine geschriebenen Präferenzen bleiben.",
+  "voice.clear": "Stimmdaten löschen",
+  "voice.clearConfirm":
+    "Dies löscht gespeicherte Texte und den abgeleiteten Verlauf dauerhaft und pausiert automatisches Lernen. Es kann nicht rückgängig gemacht werden.",
   "product.title": "Produkte",
   "product.settingsSub":
     "Rate-Card-Einträge, auf deren Grundlage Angebotspositionen einen Snapshot erstellen.",

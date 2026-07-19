@@ -4786,6 +4786,124 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /voice-profiles/{id}/corpus:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    delete:
+      tags: [Voice]
+      operationId: clearVoiceCorpus
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Permanently clear retained voice evidence and derived versions.
+      description: |
+        Removes corpus text, learning signals, builds, deltas, and immutable derived
+        versions for the calling user's profile. Human-authored personality preferences
+        remain, automatic learning is paused, and the profile returns to its unbuilt state.
+      responses:
+        '204': { description: Corpus and derived history permanently cleared. }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /voice-profiles/{id}/builds:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Voice]
+      operationId: createVoiceBuild
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Queue a durable voice-profile build over the current included corpus.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateVoiceBuildRequest' }
+      responses:
+        '202':
+          description: Build queued (or the already-active build returned idempotently).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceBuild' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /voice-profiles/{id}/builds/{buildId}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: buildId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Voice]
+      operationId: getVoiceBuild
+      summary: Poll one durable voice build.
+      responses:
+        '200':
+          description: Current build state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceBuild' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /voice-profiles/{id}/versions:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Voice]
+      operationId: listVoiceProfileVersions
+      summary: List immutable voice-profile versions, newest first.
+      responses:
+        '200':
+          description: Version history.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/VoiceProfileVersion' } }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /voice-profiles/{id}/versions/{profileVersion}/rollback:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: profileVersion
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    post:
+      tags: [Voice]
+      operationId: rollbackVoiceProfileVersion
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Restore an earlier artifact as a new forward version.
+      responses:
+        '201':
+          description: New active forward version.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceProfileVersion' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /voice-profiles/{id}/deltas:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Voice]
+      operationId: listVoiceProfileDeltas
+      summary: List explainable changes between completed profile versions.
+      responses:
+        '200':
+          description: Newest deltas first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/VoiceProfileDelta' } }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   # ------------------------------ /products ---------------------------------
   # The optional rate-card (B-E03.16, data-model §12.6): reusable priced
   # items an offer line SNAPSHOTS from. Data, not a configurator — no
@@ -7667,12 +7785,15 @@ components:
     EmailDraft:
       type: object
       description: A drafted email (never sent by drafting). Send via /activities/{id}/send-email (🟡).
-      required: [subject, body]
+      required: [subject, body, draft_ref, ai_generated]
       properties:
         subject: { type: string }
         body: { type: string }
         to: { type: array, items: { type: string, format: email } }
         in_reply_to_activity_id: { type: [string, 'null'], format: uuid }
+        draft_ref: { type: string, description: 'Opaque reference binding later send edits to this original draft.' }
+        voice_profile_version: { type: [integer, 'null'], description: 'Active personal voice version used, null for the universal baseline only.' }
+        ai_generated: { type: boolean }
 
     SendEmailRequest:
       type: object
@@ -7682,6 +7803,7 @@ components:
         body: { type: string, description: The (possibly edited) final body that is sent. }
         to: { type: array, items: { type: string, format: email } }
         cc: { type: array, items: { type: string, format: email } }
+        draft_ref: { type: [string, 'null'], description: 'Reference returned by the draft operation; enables private edit learning.' }
         consent_purpose:
           type: string
           description: |
@@ -9349,7 +9471,7 @@ components:
         A user's/team's voice DNA. `voice_profile_md` is machine-DERIVED (versioned by
         `profile_version`, rewritten wholesale on rebuild); `personality_md` is human-AUTHORED
         free text a rebuild never touches.
-      required: [id, scope, status, voice_profile_md, profile_version, personality_md, created_at]
+      required: [id, scope, status, voice_profile_md, profile_version, personality_md, auto_learning_enabled, active_source_hash, created_at]
       properties:
         id: { type: string, format: uuid }
         owner_id: { type: [string, 'null'], format: uuid, description: 'null = workspace/team profile.' }
@@ -9359,6 +9481,9 @@ components:
         voice_profile_md: { type: string, description: 'The derived artifact (Identity · stats · signature moves · patterns · rules · vocabulary · anti-patterns · register notes · few-shot examples).' }
         profile_version: { type: integer, description: 'Bumps on every derived rebuild; 0 = never built.' }
         personality_md: { type: string }
+        auto_learning_enabled: { type: boolean, description: 'Opt in to batched refreshes from safe own-authored capture sources.' }
+        active_source_hash: { type: string, description: 'Fingerprint of the source snapshot used by the active version.' }
+        last_built_at: { type: [string, 'null'], format: date-time }
         version: { type: integer }
         created_at: { type: string, format: date-time }
         updated_at: { type: [string, 'null'], format: date-time }
@@ -9374,11 +9499,12 @@ components:
       required: [personality_md]
       properties:
         personality_md: { type: string }
+        auto_learning_enabled: { type: [boolean, 'null'] }
 
     VoiceCorpusSource:
       type: object
       description: One corpus manifest row. The ingested text itself is builder-internal and never echoed back.
-      required: [id, kind, register, weight, source_label, source_ref, word_count, excluded, created_at]
+      required: [id, kind, register, weight, source_label, source_ref, word_count, excluded, origin, extractor_version, created_at]
       properties:
         id: { type: string, format: uuid }
         kind: { type: string, enum: [post, transcript, email, chat, longform, voice_memo] }
@@ -9388,6 +9514,10 @@ components:
         source_ref: { type: string, description: 'The source natural key ingest is idempotent on.' }
         word_count: { type: integer }
         excluded: { type: boolean }
+        origin: { type: string, enum: [manual, capture, draft_signal] }
+        exclusion_reason: { type: [string, 'null'] }
+        extractor_version: { type: integer }
+        occurred_at: { type: [string, 'null'], format: date-time }
         created_at: { type: string, format: date-time }
         updated_at: { type: [string, 'null'], format: date-time }
 
@@ -9410,6 +9540,7 @@ components:
       properties:
         excluded: { type: [boolean, 'null'] }
         weight: { type: [number, 'null'] }
+        exclusion_reason: { type: [string, 'null'], description: 'Required by the UI when a source is excluded; cleared when re-included.' }
 
     VoiceCorpusSummary:
       type: object
@@ -9424,6 +9555,59 @@ components:
           description: Word totals per register (spoken/written/casual/formal mix).
           additionalProperties: { type: integer }
         source_count: { type: integer }
+
+    CreateVoiceBuildRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, enum: [onboarding, manual] }
+
+    VoiceBuild:
+      type: object
+      required: [id, voice_profile_id, reason, status, stage, source_hash, source_word_count, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        voice_profile_id: { type: string, format: uuid }
+        reason: { type: string, enum: [onboarding, manual, automatic] }
+        status: { type: string, enum: [queued, running, succeeded, failed] }
+        stage: { type: string }
+        source_hash: { type: string }
+        source_word_count: { type: integer }
+        result_version: { type: [integer, 'null'] }
+        failure_detail: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+        started_at: { type: [string, 'null'], format: date-time }
+        finished_at: { type: [string, 'null'], format: date-time }
+
+    VoiceProfileVersion:
+      type: object
+      required: [id, voice_profile_id, profile_version, voice_profile_md, profile, stats, builder_version, source_hash, source_word_count, reason, active, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        voice_profile_id: { type: string, format: uuid }
+        profile_version: { type: integer }
+        voice_profile_md: { type: string }
+        profile: { type: object, additionalProperties: true }
+        stats: { type: object, additionalProperties: true }
+        model_ref: { type: [string, 'null'] }
+        builder_version: { type: integer }
+        source_hash: { type: string }
+        source_word_count: { type: integer }
+        reason: { type: string, enum: [onboarding, manual, automatic, rollback] }
+        predecessor_version: { type: [integer, 'null'] }
+        active: { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    VoiceProfileDelta:
+      type: object
+      required: [id, voice_profile_id, from_version, to_version, summary, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        voice_profile_id: { type: string, format: uuid }
+        from_version: { type: integer }
+        to_version: { type: integer }
+        summary: { type: object, additionalProperties: true }
+        created_at: { type: string, format: date-time }
 
     # ---- Offers / Angebote (B-E03.16–.20; data-model §12.6) ----
     Product:

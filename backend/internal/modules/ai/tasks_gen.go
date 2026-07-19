@@ -25,6 +25,8 @@ const (
 	TaskSiteFactExtract Task = "site_fact_extract"
 	TaskSummarize       Task = "summarize"
 	TaskTranscript      Task = "transcript"
+	// TaskVoiceBuild is the durable evidence-grounded personal writing-profile build lane
+	TaskVoiceBuild Task = "voice_build"
 )
 
 // Tier is a capability tier (§1.1); ai-routing.yaml binds each to a
@@ -41,7 +43,7 @@ const (
 // TaskContractHash is the sha256 of api/ai-tasks.yaml at generation
 // time: a build fingerprint the cert runner can compare against a
 // freshly hashed contract file to catch a stale generated table.
-const TaskContractHash = "46334e40cabc3451b0742b27bb8bb014f619cb54bd2c5741c942f719e5c880ba"
+const TaskContractHash = "66d65b5ca79788081f44c489bebdfb223253a256908f618d1eff6f35ed78907d"
 
 // AllTasks returns every contract task, sorted — the completeness
 // check a certification run walks to prove it covers every routed
@@ -62,6 +64,7 @@ func AllTasks() []Task {
 		TaskSiteFactExtract,
 		TaskSummarize,
 		TaskTranscript,
+		TaskVoiceBuild,
 	}
 }
 
@@ -82,6 +85,7 @@ var taskLadders = map[Task][]Tier{
 	TaskSiteFactExtract: {TierCheapCloud, TierPremium},
 	TaskSummarize:       {TierCheapCloud, TierPremium},
 	TaskTranscript:      {TierCheapCloud, TierPremium},
+	TaskVoiceBuild:      {TierPremium, TierCheapCloud},
 }
 
 // degradeTo is the one-tier-down move economy mode applies at 80–100%
@@ -106,6 +110,7 @@ var nonInteractive = map[Task]bool{
 	TaskEnrich:          true,
 	TaskSiteExtract:     true,
 	TaskSiteFactExtract: true,
+	TaskVoiceBuild:      true,
 }
 
 // knownTiers is the routing config's tier-name validation set: the

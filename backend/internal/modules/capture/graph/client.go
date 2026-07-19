@@ -97,6 +97,11 @@ type API interface {
 	// message ids added/changed since plus the advanced deltaLink;
 	// ErrDeltaGone if Graph no longer honors the link.
 	Delta(ctx context.Context, accessToken, deltaLink string) (ids []string, newDeltaLink string, err error)
+	// SentDeltaInit/SentDelta maintain an independent sentitems watermark;
+	// sent mail is required for per-user voice learning and cannot share the
+	// Inbox delta cursor.
+	SentDeltaInit(ctx context.Context, accessToken string, after time.Time) (ids []string, deltaLink string, err error)
+	SentDelta(ctx context.Context, accessToken, deltaLink string) (ids []string, newDeltaLink string, err error)
 	// GetMIME fetches one message as its RFC822 bytes (the /$value stream).
 	GetMIME(ctx context.Context, accessToken, msgID string) (rfc822 []byte, err error)
 	// EstimateAfter returns the provider-side count of messages received on
@@ -215,11 +220,20 @@ func (a *httpAPI) DeltaInit(ctx context.Context, accessToken string, after time.
 	return a.deltaWalk(ctx, accessToken, a.base+"/me/mailFolders/inbox/messages/delta?"+q.Encode())
 }
 
+func (a *httpAPI) SentDeltaInit(ctx context.Context, accessToken string, after time.Time) ([]string, string, error) {
+	q := url.Values{paramFilter: {"sentDateTime ge " + after.UTC().Format(time.RFC3339)}}
+	return a.deltaWalk(ctx, accessToken, a.base+"/me/mailFolders/sentitems/messages/delta?"+q.Encode())
+}
+
 func (a *httpAPI) Delta(ctx context.Context, accessToken, deltaLink string) ([]string, string, error) {
 	if err := a.sameAPIOrigin(deltaLink); err != nil {
 		return nil, "", err
 	}
 	return a.deltaWalk(ctx, accessToken, deltaLink)
+}
+
+func (a *httpAPI) SentDelta(ctx context.Context, accessToken, deltaLink string) ([]string, string, error) {
+	return a.Delta(ctx, accessToken, deltaLink)
 }
 
 // deltaWalk follows a delta round from startURL through every nextLink until

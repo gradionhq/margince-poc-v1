@@ -24,7 +24,7 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 **AI runtime contract + certification (four phases, one arc)** — the AI
 task/tier vocabulary is now a compiled contract:
-`backend/api/ai-tasks.yaml` (14 tasks, 4 tiers, ladders + budget
+`backend/api/ai-tasks.yaml` (15 tasks, 4 tiers, ladders + budget
 posture) generates `tasks_gen.go` and `config/ai-routing.schema.json`
 via `tools/gen-aitasks` (drift-gated, like `crm.yaml`) — editing routing
 POLICY is a rebuild; binding a tier to a provider/model stays runtime
@@ -46,6 +46,23 @@ cache-off repeats, spec §5 verdict math, and committed JSON records —
 `make e2e-ai TASK=x MODEL=prov:model` certifies any binding;
 `make e2e-ai-report` prints the matrix. Boot warns loudly on unbound
 ladders; `/readyz` names the AI state.
+
+**Personal voice profile — real onboarding, drafting, and continuous learning
+(2026-07-19, worktree)** — the simulated second cold-start step is replaced by
+a persisted owner-private profile flow: real source ingestion and speaker
+filtering, deterministic stylometry, strict evidence-backed model builds through
+River, immutable versions/deltas/rollback, and an 800-word provisional starter
+floor. One compose-owned email drafter now binds the active version, records its
+provenance, and mechanically enforces bilingual anti-AI rules. Opted-in sent
+mail grows the corpus only from stripped own-authored text (Graph Sent Items,
+IMAP `\Sent`, Gmail direction filtering); a daily fleet pass batches refreshes
+weekly or after 2,000 new words across ten messages. Settings → My voice exposes
+preferences, pause/resume, source weights/exclusions, rebuild, history,
+rollback, deltas, and permanent corpus clearing. Edited sent drafts become
+private learning signals. Migration 0102 applied and reverse/reapply verified;
+the real-Postgres lane passes with 0 skips and the frontend has 527/527 tests
+green. Upstream spec reconciliation remains for the starter threshold,
+automatic activation policy, and closed voice event catalog.
 
 **Email ingestion — from fragment to nightly, every-user pipeline
 (ADR-0063, 2026-07-19)** — capture was operationally fragile (one 429
@@ -385,9 +402,9 @@ Open work, roughly in priority order:
   JSON, ready to `go:embed`), a nightly scheduled lane, deeper corpora
   for the tasks that have only starters, and the §6 upstream spec notes
   (contract file location, verdict rules, served-identity vocabulary)
-  to reconcile in `margince-foundation`. Seven tasks in the contract
-  (`enrich`, `capture_classify`, `deal_health`, `draft_reply`,
-  `nl_search`, `summarize`, `transcript`) have no production call site
+  to reconcile in `margince-foundation`. Six tasks in the contract
+  (`enrich`, `capture_classify`, `deal_health`, `nl_search`, `summarize`,
+  `transcript`) have no production call site
   yet — their starter scenarios are documented placeholders.
 
 - **Cold-start + company-context refresh** — the rollout and PR boundaries are

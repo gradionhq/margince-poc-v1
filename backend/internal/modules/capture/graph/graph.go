@@ -77,8 +77,9 @@ type authState struct {
 // the mailbox address the watermark belongs to — mirroring the Gmail cursor
 // shape so anything that routes on sync_cursor->>'email' works unchanged.
 type cursorState struct {
-	DeltaLink string `json:"delta_link"`
-	Email     string `json:"email"`
+	DeltaLink     string `json:"delta_link"`
+	SentDeltaLink string `json:"sent_delta_link"`
+	Email         string `json:"email"`
 }
 
 // authPayload is the connect request the transport hands to Authenticate:
@@ -167,10 +168,15 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, cursor connec
 		// overwriting the watermark (which would drop everything in between).
 		return nil, err
 	}
-	ids, nextDelta, err := c.selectMessages(ctx, access, start)
+	inboxIDs, nextDelta, err := c.selectMessages(ctx, access, start.DeltaLink, false)
 	if err != nil {
 		return nil, err
 	}
+	sentIDs, nextSentDelta, err := c.selectMessages(ctx, access, start.SentDeltaLink, true)
+	if err != nil {
+		return nil, err
+	}
+	ids := appendUnique(inboxIDs, sentIDs)
 
 	for _, id := range ids {
 		raw, err := c.api.GetMIME(ctx, access, id)
@@ -191,20 +197,36 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, cursor connec
 	}
 
 	if nextDelta == "" {
-		nextDelta = start // provider closed the round without a new link; keep the prior watermark
+		nextDelta = start.DeltaLink // provider closed the round without a new link; keep the prior watermark
 	}
-	return marshalCursor(nextDelta, owner), nil
+	if nextSentDelta == "" {
+		nextSentDelta = start.SentDeltaLink
+	}
+	return marshalCursor(nextDelta, nextSentDelta, owner), nil
 }
 
 // selectMessages resolves which message ids to pull and the deltaLink to
 // advance to, choosing the initial-anchor or the incremental path and folding
 // the stale-cursor fallback into one place.
-func (c *Connector) selectMessages(ctx context.Context, access, start string) ([]string, string, error) {
+func (c *Connector) selectMessages(ctx context.Context, access, start string, sent bool) ([]string, string, error) {
 	if start == "" {
+		if sent {
+			return c.api.SentDeltaInit(ctx, access, c.now().Add(-anchorWindow))
+		}
 		return c.api.DeltaInit(ctx, access, c.now().Add(-anchorWindow))
 	}
-	ids, next, err := c.api.Delta(ctx, access, start)
+	var ids []string
+	var next string
+	var err error
+	if sent {
+		ids, next, err = c.api.SentDelta(ctx, access, start)
+	} else {
+		ids, next, err = c.api.Delta(ctx, access, start)
+	}
 	if errors.Is(err, ErrDeltaGone) {
+		if sent {
+			return c.api.SentDeltaInit(ctx, access, c.now().Add(-anchorWindow))
+		}
 		return c.api.DeltaInit(ctx, access, c.now().Add(-anchorWindow))
 	}
 	if err != nil {
@@ -272,21 +294,36 @@ func (c *Connector) HealthCheck(ctx context.Context, auth connector.Auth) error 
 // is an error, not a silent re-anchor — the caller stops rather than
 // re-anchor and overwrite the watermark (which would drop everything in
 // between).
-func parseCursor(cur connector.Cursor) (string, error) {
+func parseCursor(cur connector.Cursor) (cursorState, error) {
 	if len(cur) == 0 {
-		return "", nil
+		return cursorState{}, nil
 	}
 	var cs cursorState
 	if err := json.Unmarshal(cur, &cs); err != nil {
-		return "", fmt.Errorf("graph: unreadable sync cursor: %w", err)
+		return cursorState{}, fmt.Errorf("graph: unreadable sync cursor: %w", err)
 	}
-	return cs.DeltaLink, nil
+	return cs, nil
 }
 
-func marshalCursor(deltaLink, email string) connector.Cursor {
+func marshalCursor(deltaLink, sentDeltaLink, email string) connector.Cursor {
 	// cursorState has only string fields, so Marshal cannot fail here.
-	b, _ := json.Marshal(cursorState{DeltaLink: deltaLink, Email: email}) //nolint:errchkjson // string-only struct never errors
+	b, _ := json.Marshal(cursorState{DeltaLink: deltaLink, SentDeltaLink: sentDeltaLink, Email: email}) //nolint:errchkjson // string-only struct never errors
 	return b
+}
+
+func appendUnique(groups ...[]string) []string {
+	seen := map[string]bool{}
+	var result []string
+	for _, group := range groups {
+		for _, id := range group {
+			if id == "" || seen[id] {
+				continue
+			}
+			seen[id] = true
+			result = append(result, id)
+		}
+	}
+	return result
 }
 
 func scopeStrings(scopes []principal.Scope) []string {

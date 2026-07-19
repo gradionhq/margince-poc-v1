@@ -123,6 +123,9 @@ type Server struct {
 	// the response is written — a separate instance from dealsHandlers'
 	// own store, the same split offerDrafter itself already uses.
 	dealsStore *deals.Store
+	// voiceDrafter is the one compose-owned drafting path shared by HTTP
+	// and the governed tool registry. WithVoiceDraft upgrades its model lane.
+	voiceDrafter *voiceDrafter
 	// toolRegistry backs ListAgentTools — the same *agents.Registry the MCP transport uses.
 	toolRegistry *agents.Registry
 
@@ -307,6 +310,7 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 // newServer assembles the module handler sets. Every cross-module edge
 // is injected HERE, never as a sibling import (ADR-0054).
 func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH dealsHandlers) Server {
+	voiceDraft := buildVoiceDrafter(pool, nil)
 	return Server{
 		authHandlers: authH,
 		// The fieldcatalog seam: customfields' catalog read makes the
@@ -323,7 +327,9 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 			WithPublicBooking(people.NewStore(pool), bookingConsentAdapter{store: consent.NewStore(pool)}).
 			// The RFC 8058 unsubscribe linker (B-E11.32): consent mints the
 			// preference token behind the List-Unsubscribe URL.
-			WithUnsubscribe(preferenceLinkAdapter{store: consent.NewStore(pool)}),
+			WithUnsubscribe(preferenceLinkAdapter{store: consent.NewStore(pool)}).
+			WithDrafter(voiceDraft).
+			WithDraftFeedback(voiceDraft),
 		approvalsHandlers: approvalsHandlersWithEffects(pool),
 		searchHandlers:    search.NewHandlers(pool),
 		// DSR fulfillment executes privacy's erase path — injected here so
@@ -377,6 +383,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		log:                          log,
 		dealsStore:                   deals.NewStore(pool),
 		toolRegistry:                 NewRegistry(pool),
+		voiceDrafter:                 voiceDraft,
 	}
 }
 
@@ -386,7 +393,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 // staging, and live-authority gate — one gate, two transports.
 func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) http.Handler {
 	gate := auth.NewGate(identitySvc)
-	registry := newRegistry(pool, gate)
+	registry := newAgentRegistry(pool, gate, srv.voiceDrafter)
 	provider := NewProvider(pool)
 	staging := approvalsAdapter{svc: approvals.NewService(pool)}
 	// Wrap order: the generated router applies the slice left-to-right

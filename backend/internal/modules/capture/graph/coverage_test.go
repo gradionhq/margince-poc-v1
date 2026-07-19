@@ -69,6 +69,12 @@ func fullStub(t *testing.T, overrides map[string]http.HandlerFunc) *serveMuxWith
 			"@odata.deltaLink": s.srv.URL + "/me/mailFolders/inbox/messages/delta?%24deltatoken=d1",
 		})
 	})
+	reg("/me/mailFolders/sentitems/messages/delta", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]any{
+			"value":            []map[string]any{},
+			"@odata.deltaLink": s.srv.URL + "/me/mailFolders/sentitems/messages/delta?%24deltatoken=s1",
+		})
+	})
 	reg("/me/messages/m1/$value", func(w http.ResponseWriter, _ *http.Request) {
 		//craft:ignore swallowed-errors test stub write; a short write surfaces as the client-side assertion failure
 		_, _ = w.Write(rawMsg("m1@x", "a@acme.com"))
@@ -105,7 +111,7 @@ func TestAuthenticateThenInitialSyncThroughRealClient(t *testing.T) {
 	if len(sink.recs) != 1 || sink.recs[0].Source != "graph:m1@x" {
 		t.Fatalf("want one graph:m1@x record, got %+v", sink.recs)
 	}
-	if delta, _ := parseCursor(cur); delta == "" {
+	if delta, _ := parseCursor(cur); delta.DeltaLink == "" {
 		t.Error("cursor deltaLink should be anchored after the initial sync")
 	}
 }

@@ -43,6 +43,8 @@ type ModelPath struct {
 	SiteFactExtract completer    // the deep read's page-parallel fact lane (fast tier)
 	BriefRank       completer    // the Morning-Brief L2 re-order (B-E05.2)
 	OfferDraft      completer    // the offer regenerate-from-signal drafting call
+	DraftReply      completer    // personal email drafting with the anti-AI gate
+	VoiceBuild      completer    // the versioned personal voice-profile builder
 	// CaptureClassify is the §2.8 batched mail-label lane (ADR-0063) —
 	// the highest-volume, cheapest task, routed L-S with the C-C solo
 	// re-ask riding the same ladder.
@@ -68,6 +70,8 @@ func NewModelPath(cfg ai.RoutingConfig, pool *pgxpool.Pool, capturePayloads bool
 		SiteFactExtract: routerBrain{router: router, task: ai.TaskSiteFactExtract},
 		BriefRank:       routerBrain{router: router, task: ai.TaskBriefRanking},
 		OfferDraft:      routerBrain{router: router, task: ai.TaskOfferDraft},
+		DraftReply:      routerBrain{router: router, task: ai.TaskDraftReply},
+		VoiceBuild:      routerBrain{router: router, task: ai.TaskVoiceBuild},
 		CaptureClassify: routerBrain{router: router, task: ai.TaskCaptureClassify},
 		SignatureEnrich: routerBrain{router: router, task: ai.TaskEnrich},
 		Embedder:        router,
@@ -98,6 +102,8 @@ func NewLocalModelPath(cfg ai.RoutingConfig, opts ...ai.LocalOption) (ModelPath,
 		SiteFactExtract: routerBrain{router: router, task: ai.TaskSiteFactExtract},
 		BriefRank:       routerBrain{router: router, task: ai.TaskBriefRanking},
 		OfferDraft:      routerBrain{router: router, task: ai.TaskOfferDraft},
+		DraftReply:      routerBrain{router: router, task: ai.TaskDraftReply},
+		VoiceBuild:      routerBrain{router: router, task: ai.TaskVoiceBuild},
 		CaptureClassify: routerBrain{router: router, task: ai.TaskCaptureClassify},
 		SignatureEnrich: routerBrain{router: router, task: ai.TaskEnrich},
 		Embedder:        router,

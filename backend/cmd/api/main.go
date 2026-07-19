@@ -195,6 +195,12 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	opts = append(opts, deepRead)
 
+	voiceBuild, err := voiceBuildOption(pool, logger)
+	if err != nil {
+		return err
+	}
+	opts = append(opts, voiceBuild)
+
 	srv := &http.Server{
 		Addr:              cfg.addr,
 		Handler:           compose.New(pool, logger, opts...),

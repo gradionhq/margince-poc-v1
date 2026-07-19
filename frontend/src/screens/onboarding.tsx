@@ -7,30 +7,25 @@ import {
 import {
   ArrowLeft,
   ArrowRight,
-  AudioLines,
   Bot,
   Check,
   CheckCircle2,
   Circle,
-  FileText,
   GitBranch,
   Info,
   Lock,
   Mail,
-  MessageCircle,
-  Mic,
   RotateCcw,
-  Share2,
   ShieldCheck,
   SkipForward,
   Sparkles,
-  Star,
   UploadCloud,
   User,
 } from "lucide-react";
 import {
   type ChangeEvent,
   type ReactNode,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -73,6 +68,7 @@ const STEPS = [
 const VOICE_TARGET = 30000;
 
 type CompanyProfile = components["schemas"]["CompanyProfile"];
+type VoiceProfile = components["schemas"]["VoiceProfile"];
 type ColdField = components["schemas"]["ColdStartField"];
 type ColdReadback = components["schemas"]["ColdStartReadback"];
 
@@ -294,11 +290,19 @@ export function OnboardingScreen() {
   const connectOutcome =
     route.id === "connect" && route.id2 ? route.id2 : undefined;
   const [voiceBuilt, setVoiceBuilt] = useState(false);
+  const markVoiceBuilt = useCallback(() => setVoiceBuilt(true), []);
+  const voiceProfile = useOwnVoiceProfile();
   // Company-step state lives HERE, not in the step component: stepping back
   // and forward must not destroy what the user typed.
   const [draft, setDraft] = useState<CompanyDraft>(EMPTY_DRAFT);
   const [saveAttempted, setSaveAttempted] = useState(false);
   const [companySaved, setCompanySaved] = useState(false);
+
+  useEffect(() => {
+    if ((voiceProfile.data?.profile_version ?? 0) > 0) {
+      setVoiceBuilt(true);
+    }
+  }, [voiceProfile.data?.profile_version]);
 
   const norm = useMemo(
     () => normalizeUrl(draft.values.website),
@@ -450,7 +454,7 @@ export function OnboardingScreen() {
             missingRequired={saveAttempted ? missingRequired : []}
           />
         )}
-        {step === 1 && <VoiceStep onBuilt={() => setVoiceBuilt(true)} />}
+        {step === 1 && <VoiceStep onBuilt={markVoiceBuilt} />}
         {step === 2 && (
           <ResultsStep voiceBuilt={voiceBuilt} profileSaved={companySaved} />
         )}
@@ -863,163 +867,267 @@ function ReadFailure({ message }: Readonly<{ message: string }>) {
 
 // ---- step 2: voice ---------------------------------------------------------
 
-type Source = {
-  id: string;
-  icon: ReactNode;
-  label: MessageKey;
-  hint: MessageKey;
-  reg: "spoken" | "written" | "casual";
-  words: number;
-  locked?: boolean;
-  star?: boolean;
-};
-
-const SOURCES: Source[] = [
-  {
-    id: "emails",
-    icon: <Mail aria-hidden />,
-    label: "ob.src.emails",
-    hint: "ob.src.emailsHint",
-    reg: "written",
-    words: 18000,
-    locked: true,
-  },
-  {
-    id: "transcripts",
-    icon: <Mic aria-hidden />,
-    label: "ob.src.transcripts",
-    hint: "ob.src.transcriptsHint",
-    reg: "spoken",
-    words: 6000,
-    star: true,
-  },
-  {
-    id: "posts",
-    icon: <Share2 aria-hidden />,
-    label: "ob.src.posts",
-    hint: "ob.src.postsHint",
-    reg: "written",
-    words: 3200,
-  },
-  {
-    id: "longform",
-    icon: <FileText aria-hidden />,
-    label: "ob.src.longform",
-    hint: "ob.src.longformHint",
-    reg: "written",
-    words: 2400,
-  },
-  {
-    id: "chat",
-    icon: <MessageCircle aria-hidden />,
-    label: "ob.src.chat",
-    hint: "ob.src.chatHint",
-    reg: "casual",
-    words: 1800,
-  },
-  {
-    id: "memos",
-    icon: <AudioLines aria-hidden />,
-    label: "ob.src.memos",
-    hint: "ob.src.memosHint",
-    reg: "spoken",
-    words: 1200,
-  },
-];
-
-// The accepted corpus formats, mirroring the contract's format enum
-// (crm.yaml IngestVoiceCorpusSourceRequest.format: txt/md/vtt/srt/json).
 const ACCEPTED_CORPUS_FILE = /\.(txt|md|vtt|srt|json)$/i;
 const ACCEPTED_CORPUS_ATTR = ".txt,.md,.vtt,.srt,.json";
+const STARTER_VOICE_WORDS = 800;
+
+function useOwnVoiceProfile() {
+  return useQuery({
+    queryKey: ["voice-profiles", "mine"],
+    queryFn: async (): Promise<VoiceProfile | null> => {
+      const { data, error } = await api.GET("/voice-profiles", {
+        params: { query: { limit: 1 } },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data.data[0] ?? null;
+    },
+  });
+}
+
+function corpusFormat(name: string): "txt" | "md" | "vtt" | "srt" | "json" {
+  const extension = name.split(".").pop()?.toLowerCase();
+  if (
+    extension === "md" ||
+    extension === "vtt" ||
+    extension === "srt" ||
+    extension === "json"
+  ) {
+    return extension;
+  }
+  return "txt";
+}
+
+async function ingestCorpusFile(
+  profile: VoiceProfile,
+  file: File,
+  speakerLabel: string,
+  unsupportedMessage: string,
+  speakerRequiredMessage: string,
+) {
+  if (!ACCEPTED_CORPUS_FILE.test(file.name)) {
+    throw new Error(unsupportedMessage);
+  }
+  const format = corpusFormat(file.name);
+  const transcript = format === "vtt" || format === "srt" || format === "json";
+  if (transcript && speakerLabel.trim() === "") {
+    throw new Error(speakerRequiredMessage);
+  }
+  const { error } = await api.POST("/voice-profiles/{id}/sources", {
+    params: { path: { id: profile.id } },
+    body: {
+      kind: transcript ? "transcript" : "longform",
+      source_label: file.name,
+      source_ref: `upload:${file.name}:${file.size}:${file.lastModified}`,
+      content: await file.text(),
+      format,
+      speaker_label: transcript ? speakerLabel.trim() : null,
+    },
+  });
+  if (error) {
+    throw new Error(problemMessage(error));
+  }
+}
 
 function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
   const t = useT();
-  const [optedIn, setOptedIn] = useState(false);
-  const [added, setAdded] = useState<Set<string>>(new Set());
-  const [uploads, setUploads] = useState<{ name: string; words: number }[]>([]);
-  const [skipped, setSkipped] = useState<string[]>([]);
-  const [built, setBuilt] = useState(false);
-  const [building, setBuilding] = useState(false);
+  const queryClient = useQueryClient();
+  const profileQuery = useOwnVoiceProfile();
+  const profile = profileQuery.data;
+  const [optedIn, setOptedIn] = useState(
+    profile !== null && profile !== undefined,
+  );
+  const [paste, setPaste] = useState("");
+  const [pasteKind, setPasteKind] = useState<"email" | "post" | "longform">(
+    "email",
+  );
+  const [speakerLabel, setSpeakerLabel] = useState("");
+  const [preferences, setPreferences] = useState("");
+  const [buildID, setBuildID] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const uploadedWords = uploads.reduce((sum, u) => sum + u.words, 0);
-  const corpus = useMemo(() => {
-    let spoken = 0;
-    let written = 0;
-    for (const s of SOURCES) {
-      if (added.has(s.id)) {
-        if (s.reg === "spoken") {
-          spoken += s.words;
-        } else {
-          written += s.words;
-        }
+  useEffect(() => {
+    if (profile) {
+      setOptedIn(true);
+      setPreferences(profile.personality_md);
+      if (profile.profile_version > 0) {
+        onBuilt();
       }
     }
-    spoken += uploadedWords;
-    const total = spoken + written;
-    return { total, spoken, written, sources: added.size + uploads.length };
-  }, [added, uploadedWords, uploads.length]);
+  }, [onBuilt, profile]);
 
-  const toggle = (s: Source) => {
-    if (s.locked) {
-      return;
+  const ensureProfile = async (): Promise<VoiceProfile> => {
+    if (profile) {
+      return profile;
     }
-    setAdded((prev) => {
-      const next = new Set(prev);
-      if (next.has(s.id)) {
-        next.delete(s.id);
-      } else {
-        next.add(s.id);
-      }
-      return next;
+    const { data, error } = await api.POST("/voice-profiles", {
+      body: { scope: "user", personality_md: preferences.trim() || null },
     });
-  };
-
-  const onFiles = (e: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
-    const rejected: string[] = [];
-    for (const file of files) {
-      // V1 corpus is text only (features/09 §B1.1): the meter counts the
-      // real words of what was read — never an estimate. Binary documents
-      // (.docx/.pdf) are refused; deferred: B-E07.5c (server-side extraction).
-      if (!ACCEPTED_CORPUS_FILE.test(file.name)) {
-        rejected.push(file.name);
-        continue;
-      }
-      file.text().then((text) => {
-        const words = text.split(/\s+/).filter(Boolean).length;
-        setUploads((prev) => [...prev, { name: file.name, words }]);
-      });
+    if (error) {
+      throw new Error(problemMessage(error));
     }
-    setSkipped(rejected);
-    e.target.value = "";
+    queryClient.setQueryData(["voice-profiles", "mine"], data);
+    return data;
   };
 
-  const quality = corpusQuality(corpus.total);
-
-  // The modelling beat must die with the step: a timer surviving unmount
-  // would flip the parent's voiceBuilt after the user navigated away and
-  // make step 4 claim a voice that was never built.
-  const buildTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(
-    () => () => {
-      if (buildTimer.current !== null) {
-        globalThis.clearTimeout(buildTimer.current);
+  const sourceQuery = useQuery({
+    queryKey: ["voice-sources", profile?.id],
+    enabled: profile !== null && profile !== undefined,
+    queryFn: async () => {
+      if (!profile) {
+        throw new Error("voice profile unavailable");
       }
+      const { data, error } = await api.GET("/voice-profiles/{id}/sources", {
+        params: { path: { id: profile.id } },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
     },
-    [],
+  });
+
+  const refreshVoice = useCallback(
+    async (id: string) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["voice-sources", id] }),
+        queryClient.invalidateQueries({ queryKey: ["voice-profiles", "mine"] }),
+      ]);
+    },
+    [queryClient],
   );
 
-  const build = () => {
-    setBuilding(true);
-    // A short modelling beat, then the starter-voice card. This is a starter
-    // preview built from the corpus you selected — it sharpens for real once
-    // sent email is ingested at connect (see the footnote copy).
-    buildTimer.current = globalThis.setTimeout(() => {
-      setBuilding(false);
-      setBuilt(true);
-      onBuilt();
-    }, 1100);
+  const ingestPaste = useMutation({
+    mutationFn: async () => {
+      const current = await ensureProfile();
+      const text = paste.trim();
+      if (text === "") {
+        throw new Error(t("ob.s2.pasteRequired"));
+      }
+      const { error } = await api.POST("/voice-profiles/{id}/sources", {
+        params: { path: { id: current.id } },
+        body: {
+          kind: pasteKind,
+          register: pasteKind === "email" ? "written" : null,
+          source_label: t("ob.s2.pastedLabel"),
+          content: text,
+          format: "txt",
+        },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      setPaste("");
+      await refreshVoice(current.id);
+    },
+  });
+
+  const ingestFiles = useMutation({
+    mutationFn: async (files: File[]) => {
+      const current = await ensureProfile();
+      for (const file of files) {
+        await ingestCorpusFile(
+          current,
+          file,
+          speakerLabel,
+          t("ob.s2.dropSkipped", { files: file.name }),
+          t("ob.s2.speakerRequired"),
+        );
+      }
+      await refreshVoice(current.id);
+    },
+  });
+
+  const savePreferences = async (current: VoiceProfile) => {
+    if (preferences.trim() === current.personality_md) {
+      return current;
+    }
+    const { data, error } = await api.PATCH("/voice-profiles/{id}", {
+      params: {
+        path: { id: current.id },
+        header: { "If-Match": String(current.version ?? 1) },
+      },
+      body: {
+        personality_md: preferences.trim(),
+        auto_learning_enabled: current.auto_learning_enabled,
+      },
+    });
+    if (error) {
+      throw new Error(problemMessage(error));
+    }
+    queryClient.setQueryData(["voice-profiles", "mine"], data);
+    return data;
+  };
+
+  const startBuild = useMutation({
+    mutationFn: async () => {
+      const current = await savePreferences(await ensureProfile());
+      const { data, error } = await api.POST("/voice-profiles/{id}/builds", {
+        params: { path: { id: current.id } },
+        body: { reason: "onboarding" },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      setBuildID(data.id);
+      return data;
+    },
+  });
+
+  const buildQuery = useQuery({
+    queryKey: ["voice-build", profile?.id, buildID],
+    enabled: profile !== null && profile !== undefined && buildID !== null,
+    queryFn: async () => {
+      if (!profile || !buildID) {
+        throw new Error("voice build unavailable");
+      }
+      const { data, error } = await api.GET(
+        "/voice-profiles/{id}/builds/{buildId}",
+        { params: { path: { id: profile.id, buildId: buildID } } },
+      );
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+    refetchInterval: (query) => {
+      const state = query.state.data?.status;
+      return state === "queued" || state === "running" ? 1200 : false;
+    },
+  });
+
+  useEffect(() => {
+    if (buildQuery.data?.status === "succeeded" && profile) {
+      refreshVoice(profile.id)
+        .then(onBuilt)
+        .catch((error: Error) => setMessage(error.message));
+    }
+    if (buildQuery.data?.status === "failed") {
+      setMessage(buildQuery.data.failure_detail ?? t("ob.s2.buildFailed"));
+    }
+  }, [buildQuery.data, onBuilt, profile, refreshVoice, t]);
+
+  const summary = sourceQuery.data?.summary;
+  const total = summary?.total_words ?? 0;
+  const quality = corpusQuality(total);
+  const building =
+    startBuild.isPending ||
+    buildQuery.data?.status === "queued" ||
+    buildQuery.data?.status === "running";
+  const currentProfile = profileQuery.data;
+  const built = (currentProfile?.profile_version ?? 0) > 0;
+
+  const onFiles = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (files.length > 0) {
+      setMessage(null);
+      ingestFiles.mutate(files, {
+        onError: (error) => setMessage(error.message),
+      });
+    }
   };
 
   return (
@@ -1057,65 +1165,76 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
       </div>
 
       <div className={`voice-body ${optedIn ? "optedin" : ""}`}>
-        <div className="srcgrid">
-          {SOURCES.map((s) => {
-            const on = added.has(s.id);
-            let mark: ReactNode = null;
-            if (s.locked) {
-              mark = (
-                <span className="star">
-                  <Lock aria-hidden />
-                </span>
-              );
-            } else if (s.star) {
-              mark = (
-                <span className="star">
-                  <Star aria-hidden />
-                </span>
-              );
-            }
-            let words: ReactNode = null;
-            if (s.locked) {
-              words = (
-                <span className="added-w muted">
-                  {t("ob.s2.lockedWords", { count: s.words.toLocaleString() })}
-                </span>
-              );
-            } else if (on) {
-              words = (
-                <span className="added-w">
-                  {t("ob.s2.addedWords", { count: s.words.toLocaleString() })}
-                </span>
-              );
-            }
-            return (
-              <button
-                key={s.id}
-                type="button"
-                className={`src ${on ? "added" : ""} ${s.locked ? "locked" : ""}`}
-                onClick={() => toggle(s)}
-              >
-                {mark}
-                <span className="si">{s.icon}</span>
-                <span className="sb">
-                  <span className="st">
-                    {t(s.label)}
-                    <span className={`reg ${s.reg}`}>
-                      {t(`ob.reg.${s.reg}`)}
-                    </span>
-                  </span>
-                  <span className="sh">{t(s.hint)}</span>
-                  {words}
-                </span>
-              </button>
-            );
-          })}
+        <div
+          className="card"
+          style={{ padding: "var(--space-4)", marginBottom: "var(--space-3)" }}
+        >
+          <label className="seclabel" htmlFor="voice-preferences">
+            {t("ob.s2.preferences")}
+          </label>
+          <textarea
+            id="voice-preferences"
+            className="voice-textarea"
+            value={preferences}
+            onChange={(event) => setPreferences(event.target.value)}
+            placeholder={t("ob.s2.preferencesPlaceholder")}
+          />
         </div>
 
+        <div
+          className="card"
+          style={{ padding: "var(--space-4)", marginBottom: "var(--space-3)" }}
+        >
+          <label className="seclabel" htmlFor="voice-paste">
+            {t("ob.s2.pasteTitle")}
+          </label>
+          <div className="voice-input-row">
+            <select
+              value={pasteKind}
+              onChange={(event) =>
+                setPasteKind(event.target.value as typeof pasteKind)
+              }
+              aria-label={t("ob.s2.sourceKind")}
+            >
+              <option value="email">{t("ob.src.emails")}</option>
+              <option value="post">{t("ob.src.posts")}</option>
+              <option value="longform">{t("ob.src.longform")}</option>
+            </select>
+            <Button
+              small
+              disabled={ingestPaste.isPending}
+              onClick={() =>
+                ingestPaste.mutate(undefined, {
+                  onError: (error) => setMessage(error.message),
+                })
+              }
+            >
+              <Check aria-hidden /> {t("ob.s2.addSource")}
+            </Button>
+          </div>
+          <textarea
+            id="voice-paste"
+            className="voice-textarea"
+            value={paste}
+            onChange={(event) => setPaste(event.target.value)}
+            placeholder={t("ob.s2.pastePlaceholder")}
+          />
+        </div>
+
+        <label className="seclabel" htmlFor="voice-speaker">
+          {t("ob.s2.speakerLabel")}
+        </label>
+        <TextInput
+          id="voice-speaker"
+          value={speakerLabel}
+          onChange={(event) => setSpeakerLabel(event.target.value)}
+          placeholder={t("ob.s2.speakerPlaceholder")}
+        />
         <button
           type="button"
           className="dropzone"
           onClick={() => fileRef.current?.click()}
+          disabled={ingestFiles.isPending}
         >
           <span className="dz-ic">
             <UploadCloud aria-hidden />
@@ -1131,26 +1250,23 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
           accept={ACCEPTED_CORPUS_ATTR}
           onChange={onFiles}
         />
-        {uploads.length > 0 && (
+
+        {sourceQuery.data?.data && sourceQuery.data.data.length > 0 && (
           <ul className="vp-list" style={{ marginTop: 10 }}>
-            {uploads.map((u) => (
-              <li key={`${u.name}-${u.words}`}>
-                <Check aria-hidden /> {u.name} · {u.words.toLocaleString()}
+            {sourceQuery.data.data.map((source) => (
+              <li key={source.id}>
+                <Check aria-hidden /> {source.source_label} ·{" "}
+                {source.word_count.toLocaleString()}
               </li>
             ))}
           </ul>
-        )}
-        {skipped.length > 0 && (
-          <output className="ob-sub" style={{ display: "block", marginTop: 8 }}>
-            {t("ob.s2.dropSkipped", { files: skipped.join(", ") })}
-          </output>
         )}
 
         <div className="meter">
           <div className="meter-top">
             <span>
               {t("ob.s2.words", {
-                count: corpus.total.toLocaleString(),
+                count: total.toLocaleString(),
                 target: VOICE_TARGET.toLocaleString(),
               })}
             </span>
@@ -1159,40 +1275,48 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
           <div className="meterbar">
             <span
               style={{
-                width: `${Math.min(100, (corpus.total / VOICE_TARGET) * 100)}%`,
+                width: `${Math.min(100, (total / VOICE_TARGET) * 100)}%`,
               }}
             />
           </div>
-          {corpus.total > 0 && (
+          {summary && total > 0 && (
             <div className="regmix">
-              {t("ob.s2.mix", {
-                spoken: Math.round((corpus.spoken / corpus.total) * 100),
-                written: Math.round((corpus.written / corpus.total) * 100),
-                sources: corpus.sources,
+              {t("ob.s2.realMeter", {
+                sources: summary.source_count,
+                starter: STARTER_VOICE_WORDS.toLocaleString(),
               })}
             </div>
           )}
-          <p className="spoken-hint">
-            <Mic aria-hidden /> {t("ob.s2.spokenHint")}
-          </p>
         </div>
 
         <div className="email-callout">
           <Mail aria-hidden />
           <div>{t("ob.s2.emailCallout")}</div>
         </div>
+        {message && (
+          <output
+            className="readfail warn"
+            style={{ display: "block", marginTop: "var(--space-3)" }}
+          >
+            {message}
+          </output>
+        )}
 
         {!built && (
           <Button
             variant="primary"
             style={{ marginTop: 18 }}
-            disabled={corpus.total < 300 || building}
-            onClick={build}
+            disabled={total < STARTER_VOICE_WORDS || building}
+            onClick={() =>
+              startBuild.mutate(undefined, {
+                onError: (error) => setMessage(error.message),
+              })
+            }
           >
             {building ? (
               <>
                 <span className="ob-spinner" />{" "}
-                {t("ob.s2.modelling", { count: corpus.total.toLocaleString() })}
+                {t("ob.s2.modelling", { count: total.toLocaleString() })}
               </>
             ) : (
               <>
@@ -1202,7 +1326,7 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
           </Button>
         )}
 
-        {built && (
+        {built && currentProfile && (
           <div className="voiceout">
             <div className="card" style={{ padding: 16 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1211,47 +1335,20 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
                   {t("ob.s2.starterVoice")}
                 </span>
                 <span style={{ marginLeft: "auto" }} className="t-small">
-                  {t("ob.s2.vpMeta", {
-                    count: corpus.total.toLocaleString(),
-                    sources: corpus.sources,
+                  {t("ob.s2.version", {
+                    version: currentProfile.profile_version,
+                    count: total.toLocaleString(),
                   })}
                 </span>
               </div>
-              <p style={{ marginTop: 10, lineHeight: 1.55 }}>
-                <b>{t("ob.s2.vpLead")}</b> {t("ob.s2.vpRest")}
-              </p>
-              <div className="seclabel" style={{ margin: "14px 0 6px" }}>
-                {t("ob.s2.movesLabel")}
-              </div>
-              <ul className="vp-list">
-                <li>
-                  <Check aria-hidden /> {t("ob.s2.move1")}
-                </li>
-                <li>
-                  <Check aria-hidden /> {t("ob.s2.move2")}
-                </li>
-                <li>
-                  <Check aria-hidden /> {t("ob.s2.move3")}
-                </li>
-                <li className="no">
-                  <Circle aria-hidden /> {t("ob.s2.moveNever")}
-                </li>
-              </ul>
-              <div className="seclabel" style={{ margin: "16px 0 6px" }}>
-                {t("ob.s2.sampleLabel")}
-              </div>
-              <div className="draftbox">
-                {t("ob.s3.draftSample", {
-                  company: t("ob.s3.exampleProspect"),
-                })}
-              </div>
+              <pre className="voice-profile-preview">
+                {currentProfile.voice_profile_md}
+              </pre>
               <p
                 className="t-small"
                 style={{ marginTop: 11, fontStyle: "italic" }}
               >
-                {t("ob.s2.vpFootnote", {
-                  count: corpus.total.toLocaleString(),
-                })}
+                {t("ob.s2.vpFootnote", { count: total.toLocaleString() })}
               </p>
             </div>
           </div>

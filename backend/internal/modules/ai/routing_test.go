@@ -4,6 +4,7 @@
 package ai
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -212,22 +213,7 @@ func TestUnboundLadderWarnings(t *testing.T) {
 		{
 			name:  "ladder with zero bound rungs warns naming the task and its ladder",
 			tiers: map[Tier]ProviderConfig{},
-			want: []string{
-				"task agent_loop: no bound tier on ladder [cheap_cloud premium]; calls will be refused",
-				"task brief_ranking: no bound tier on ladder [premium cheap_cloud]; calls will be refused",
-				"task capture_classify: no bound tier on ladder [local_small cheap_cloud]; calls will be refused",
-				"task cert_judge: no bound tier on ladder [premium cheap_cloud]; calls will be refused",
-				"task cold_start: no bound tier on ladder [cheap_cloud premium]; calls will be refused",
-				"task deal_health: no bound tier on ladder [cheap_cloud premium]; calls will be refused",
-				"task draft_reply: no bound tier on ladder [cheap_cloud premium]; calls will be refused",
-				"task enrich: no bound tier on ladder [local_small cheap_cloud]; calls will be refused",
-				"task nl_search: no bound tier on ladder [cheap_cloud premium]; calls will be refused",
-				"task offer_draft: no bound tier on ladder [cheap_cloud premium]; calls will be refused",
-				"task site_extract: no bound tier on ladder [premium]; calls will be refused",
-				"task site_fact_extract: no bound tier on ladder [cheap_cloud premium]; calls will be refused",
-				"task summarize: no bound tier on ladder [cheap_cloud premium]; calls will be refused",
-				"task transcript: no bound tier on ladder [cheap_cloud premium]; calls will be refused",
-			},
+			want:  everyUnboundTaskWarning(),
 		},
 	}
 	for _, tc := range cases {
@@ -244,6 +230,15 @@ func TestUnboundLadderWarnings(t *testing.T) {
 			}
 		})
 	}
+}
+
+func everyUnboundTaskWarning() []string {
+	tasks := AllTasks()
+	warnings := make([]string, 0, len(tasks))
+	for _, task := range tasks {
+		warnings = append(warnings, fmt.Sprintf("task %s: no bound tier on ladder %v; calls will be refused", task, TaskLadder(task)))
+	}
+	return warnings
 }
 
 func TestParseRoutingSovereignAllLocalIsValid(t *testing.T) {

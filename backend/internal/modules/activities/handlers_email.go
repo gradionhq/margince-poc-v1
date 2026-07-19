@@ -25,6 +25,38 @@ type ConsentGate interface {
 	RequireGrantedForEmails(ctx context.Context, recipients []string, purposeKey string) error
 }
 
+// DraftResult carries generated copy and the profile provenance needed for
+// later learning from the sent edit.
+type DraftResult struct {
+	Subject             string
+	Body                string
+	DraftRef            string
+	VoiceProfileVersion *int
+	AIGenerated         bool
+}
+
+// DraftFeedback records the final text for a previously generated draft.
+type DraftFeedback interface {
+	RecordSentDraft(context.Context, string, string) error
+}
+
+// DraftComposer is the compose-owned, voice-aware email drafting seam.
+type DraftComposer interface {
+	DraftEmail(context.Context, string, string) (DraftResult, error)
+}
+
+// WithDrafter returns handlers using the shared drafting orchestrator.
+func (h Handlers) WithDrafter(drafter DraftComposer) Handlers {
+	h.drafter = drafter
+	return h
+}
+
+// WithDraftFeedback returns handlers that capture the sent version of drafts.
+func (h Handlers) WithDraftFeedback(feedback DraftFeedback) Handlers {
+	h.draftFeedback = feedback
+	return h
+}
+
 // WithConsent returns handlers whose send path consults the given
 // authority. Compose calls this; the zero Handlers value keeps sends
 // suppressed.
@@ -46,32 +78,52 @@ func (h Handlers) DraftEmail(w http.ResponseWriter, r *http.Request, id crmcontr
 		return
 	}
 
-	// A deterministic draft over the activity's own context. The
-	// model-backed voice draft rides the router once the API role wires
-	// a model path; drafting is 🟢 and never sends either way.
+	topic := ""
+	if activity.Subject != nil {
+		topic = *activity.Subject
+	}
+	intent := ""
+	if req.Intent != nil {
+		intent = *req.Intent
+	}
+	result := defaultDraft(topic, intent)
+	if h.drafter != nil {
+		result, err = h.drafter.DraftEmail(r.Context(), topic, intent)
+	}
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+
+	replyTo := openapi_types.UUID(ids.UUID(id))
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.EmailDraft{
+		Subject:             result.Subject,
+		Body:                result.Body,
+		DraftRef:            result.DraftRef,
+		InReplyToActivityId: &replyTo,
+		VoiceProfileVersion: result.VoiceProfileVersion,
+		AiGenerated:         result.AIGenerated,
+	})
+}
+
+func defaultDraft(topic, intent string) DraftResult {
 	subject := "Re: follow-up"
-	if activity.Subject != nil && *activity.Subject != "" {
-		subject = "Re: " + *activity.Subject
+	if topic != "" {
+		subject = "Re: " + topic
 	}
 	var body strings.Builder
-	body.WriteString("Hi,\n\nfollowing up on ")
-	if activity.Subject != nil && *activity.Subject != "" {
-		fmt.Fprintf(&body, "%q", *activity.Subject)
+	body.WriteString("Hi,\n\nFollowing up on ")
+	if topic != "" {
+		fmt.Fprintf(&body, "%q", topic)
 	} else {
 		body.WriteString("our last conversation")
 	}
 	body.WriteString(".")
-	if req.Intent != nil && strings.TrimSpace(*req.Intent) != "" {
-		body.WriteString("\n\n" + strings.TrimSpace(*req.Intent))
+	if strings.TrimSpace(intent) != "" {
+		body.WriteString("\n\n" + strings.TrimSpace(intent))
 	}
 	body.WriteString("\n\nBest regards")
-
-	replyTo := openapi_types.UUID(ids.UUID(id))
-	httperr.WriteJSON(w, http.StatusOK, crmcontracts.EmailDraft{
-		Subject:             subject,
-		Body:                body.String(),
-		InReplyToActivityId: &replyTo,
-	})
+	return DraftResult{Subject: subject, Body: body.String(), DraftRef: ids.NewV7().String()}
 }
 
 func (h Handlers) SendEmail(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.SendEmailParams) {
@@ -128,6 +180,13 @@ func (h Handlers) SendEmail(w http.ResponseWriter, r *http.Request, id crmcontra
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
+	}
+	if req.DraftRef != nil && h.draftFeedback != nil {
+		if err := h.draftFeedback.RecordSentDraft(r.Context(), *req.DraftRef, req.Body); err != nil {
+			// Delivery is already committed. Do not misreport a successful send
+			// as failed because optional learning could not be recorded.
+			w.Header().Set("X-Margince-Voice-Learning", "failed")
+		}
 	}
 	if listUnsubscribe != "" {
 		w.Header().Set("List-Unsubscribe", listUnsubscribe)

@@ -94,7 +94,10 @@ func offerDraftOptions(pool *pgxpool.Pool, modelPath *compose.ModelPath) []compo
 		return nil
 	}
 	retriever := search.NewRetriever(search.NewStore(pool), modelPath.Embedder)
-	return []compose.Option{compose.WithOfferDraft(modelPath.OfferDraft, retriever)}
+	return []compose.Option{
+		compose.WithOfferDraft(modelPath.OfferDraft, retriever),
+		compose.WithVoiceDraft(modelPath.DraftReply),
+	}
 }
 
 // deepReadOption wires the deep-read transport over an insert-only River
@@ -106,4 +109,14 @@ func deepReadOption(pool *pgxpool.Pool, logger *slog.Logger) (compose.Option, er
 		return nil, err
 	}
 	return compose.WithDeepRead(inserter), nil
+}
+
+// voiceBuildOption gives the HTTP start operation an insert-only River
+// client. The worker process owns model execution and terminal status.
+func voiceBuildOption(pool *pgxpool.Pool, logger *slog.Logger) (compose.Option, error) {
+	inserter, err := jobs.NewInserter(pool, logger)
+	if err != nil {
+		return nil, err
+	}
+	return compose.WithVoiceBuild(inserter), nil
 }

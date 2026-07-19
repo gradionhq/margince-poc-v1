@@ -840,6 +840,22 @@ func (stubs) UpdateVoiceProfile(w nethttp.ResponseWriter, r *nethttp.Request, id
 	httperr.NotImplemented(w, r, "UpdateVoiceProfile")
 }
 
+func (stubs) CreateVoiceBuild(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "CreateVoiceBuild")
+}
+
+func (stubs) GetVoiceBuild(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, buildId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "GetVoiceBuild")
+}
+
+func (stubs) ClearVoiceCorpus(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ClearVoiceCorpus")
+}
+
+func (stubs) ListVoiceProfileDeltas(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ListVoiceProfileDeltas")
+}
+
 func (stubs) ListVoiceCorpusSources(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "ListVoiceCorpusSources")
 }
@@ -850,4 +866,12 @@ func (stubs) IngestVoiceCorpusSource(w nethttp.ResponseWriter, r *nethttp.Reques
 
 func (stubs) UpdateVoiceCorpusSource(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, sourceId openapi_types.UUID) {
 	httperr.NotImplemented(w, r, "UpdateVoiceCorpusSource")
+}
+
+func (stubs) ListVoiceProfileVersions(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ListVoiceProfileVersions")
+}
+
+func (stubs) RollbackVoiceProfileVersion(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, profileVersion int) {
+	httperr.NotImplemented(w, r, "RollbackVoiceProfileVersion")
 }

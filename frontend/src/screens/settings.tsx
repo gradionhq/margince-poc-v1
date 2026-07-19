@@ -5,6 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import {
+  AudioLines,
   Building2,
   ChevronDown,
   Database,
@@ -52,6 +53,7 @@ import { CreateAction, type CreateField, CreateRecordModal } from "./create";
 import { EditAction } from "./edit";
 import { EntityRef } from "./entityref";
 import { ConsentPurposesCard, PrivacyInboxCard } from "./privacy";
+import { VoiceSettingsCard } from "./voice-settings";
 import "./settings.css";
 
 // Settings governance surface (B-EP09.13b): renders FROM the live seams —
@@ -69,6 +71,7 @@ import "./settings.css";
 // (#/settings/<id>), so a tab is linkable and the palette can deep-link one.
 const SETTINGS_TABS = [
   { id: "account", icon: Building2 },
+  { id: "voice", icon: AudioLines },
   { id: "ai", icon: Sparkles },
   { id: "data", icon: Database },
   { id: "catalog", icon: Package },
@@ -82,6 +85,8 @@ function tabContent(id: SettingsTabId): ReactNode {
   switch (id) {
     case "account":
       return <IdentityCard />;
+    case "voice":
+      return <VoiceSettingsCard />;
     case "ai":
       return (
         <>

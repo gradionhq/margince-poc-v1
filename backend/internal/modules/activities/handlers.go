@@ -38,6 +38,10 @@ type Handlers struct {
 	// extractor is the staged AI-extraction seam (RD-T10); nil falls back to
 	// extraction.NoOpExtractor (WithExtractor wires a real one).
 	extractor extraction.Extractor
+	// drafter is the compose-owned shared drafting path. Nil keeps a
+	// deterministic offline fallback for module-level use and tests.
+	drafter       DraftComposer
+	draftFeedback DraftFeedback
 }
 
 func NewHandlers(pool *pgxpool.Pool) Handlers {

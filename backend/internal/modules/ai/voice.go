@@ -34,6 +34,21 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+const (
+	voiceFieldAutoLearning    = "auto_learning_enabled"
+	voiceFieldExcluded        = "excluded"
+	voiceFieldExclusionReason = "exclusion_reason"
+	voiceFieldOutcome         = "outcome"
+	voiceFieldProfileID       = "voice_profile_id"
+	voiceFieldProfileVersion  = "profile_version"
+	voiceFieldReason          = "reason"
+	voiceFieldStatus          = "status"
+	voiceBuildReasonManual    = "manual"
+	voiceBuildStatusRunning   = "running"
+	voiceOutcomeDrafted       = "drafted"
+	voiceSourceOriginManual   = "manual"
+)
+
 // VoiceStore owns the voice_profile and voice_corpus_source tables
 // (tableownership: this module). The profile half lives here; the
 // corpus-source half (ingest, manifest, meter) is voicesources.go.
@@ -52,17 +67,20 @@ type VoiceProfile struct {
 	// note: voice_profile is not in the kernel entity vocabulary (no
 	// VoiceProfileKind), so its own id stays untyped; OwnerID names the
 	// owning app_user and carries the typed user id.
-	ID             ids.UUID
-	OwnerID        *ids.UserID
-	Scope          string
-	ModelRef       *string
-	Status         string
-	VoiceProfileMD string
-	ProfileVersion int
-	PersonalityMD  string
-	Version        int64
-	CreatedAt      time.Time
-	UpdatedAt      *time.Time
+	ID               ids.UUID
+	OwnerID          *ids.UserID
+	Scope            string
+	ModelRef         *string
+	Status           string
+	VoiceProfileMD   string
+	ProfileVersion   int
+	PersonalityMD    string
+	AutoLearning     bool
+	ActiveSourceHash string
+	LastBuiltAt      *time.Time
+	Version          int64
+	CreatedAt        time.Time
+	UpdatedAt        *time.Time
 }
 
 // VoiceProfilePage is one keyset page, newest first.
@@ -79,12 +97,13 @@ type CreateVoiceProfileInput struct {
 	PersonalityMD string
 }
 
-const voiceProfileColumns = `id, owner_id, scope, model_ref, status, voice_profile_md, profile_version, personality_md, version, created_at, updated_at`
+const voiceProfileColumns = `id, owner_id, scope, model_ref, status, voice_profile_md, profile_version, personality_md, auto_learning_enabled, active_source_hash, last_built_at, version, created_at, updated_at`
 
 func scanVoiceProfile(row pgx.Row) (VoiceProfile, error) {
 	var p VoiceProfile
 	err := row.Scan(&p.ID, &p.OwnerID, &p.Scope, &p.ModelRef, &p.Status, &p.VoiceProfileMD,
-		&p.ProfileVersion, &p.PersonalityMD, &p.Version, &p.CreatedAt, &p.UpdatedAt)
+		&p.ProfileVersion, &p.PersonalityMD, &p.AutoLearning, &p.ActiveSourceHash, &p.LastBuiltAt,
+		&p.Version, &p.CreatedAt, &p.UpdatedAt)
 	return p, err
 }
 
@@ -103,6 +122,13 @@ func (s *VoiceStore) ListProfiles(ctx context.Context, cursor *string, limit *in
 	}
 	if scope != "" {
 		where += " AND " + scope
+	}
+	// Personal voice artifacts are private even when a manager's row scope
+	// reaches the owning user. Team/workspace profiles retain normal scope.
+	if actor, ok := principal.Actor(ctx); ok && actor.UserID != ids.Nil {
+		where += fmt.Sprintf(" AND (scope <> 'user' OR owner_id = $%d)", arg(actor.UserID))
+	} else {
+		where += " AND scope <> 'user'"
 	}
 	if cursor != nil && *cursor != "" {
 		c, err := storekit.DecodeCursor(*cursor)
@@ -151,6 +177,9 @@ func (s *VoiceStore) GetProfile(ctx context.Context, id ids.UUID) (VoiceProfile,
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var err error
 		p, err = s.visibleProfile(ctx, tx, id)
+		if err == nil && ownerOnly(ctx, p) != nil {
+			err = apperrors.ErrNotFound
+		}
 		return err
 	})
 	if err != nil {
@@ -239,7 +268,7 @@ func (s *VoiceStore) CreateProfile(ctx context.Context, in CreateVoiceProfileInp
 			return err
 		}
 		_, err = storekit.Audit(ctx, tx, "create", "voice_profile", p.ID, nil, map[string]any{
-			"scope": p.Scope, "status": p.Status,
+			"scope": p.Scope, voiceFieldStatus: p.Status,
 		})
 		return err
 	})
@@ -252,7 +281,7 @@ func (s *VoiceStore) CreateProfile(ctx context.Context, in CreateVoiceProfileInp
 // UpdateProfile edits the HUMAN-authored personality_md under If-Match.
 // It deliberately cannot touch voice_profile_md/profile_version — that
 // is SetDerivedProfile's half of the §B0.2 split.
-func (s *VoiceStore) UpdateProfile(ctx context.Context, id ids.UUID, personalityMD string, ifVersion *int64) (VoiceProfile, error) {
+func (s *VoiceStore) UpdateProfile(ctx context.Context, id ids.UUID, personalityMD string, autoLearning *bool, ifVersion *int64) (VoiceProfile, error) {
 	if err := auth.Require(ctx, "voice_profile", principal.ActionUpdate); err != nil {
 		return VoiceProfile{}, err
 	}
@@ -274,16 +303,18 @@ func (s *VoiceStore) UpdateProfile(ctx context.Context, id ids.UUID, personality
 			return apperrors.ErrVersionSkew
 		}
 		p, err = scanVoiceProfile(tx.QueryRow(ctx, storekit.SQLf(`
-			UPDATE voice_profile SET personality_md = $2, version = version + 1, updated_at = $3
+			UPDATE voice_profile SET personality_md = $2,
+			  auto_learning_enabled = coalesce($3, auto_learning_enabled),
+			  version = version + 1, updated_at = $4
 			WHERE id = $1
 			RETURNING %s`, voiceProfileColumns),
-			id, personalityMD, s.now().UTC()))
+			id, personalityMD, autoLearning, s.now().UTC()))
 		if err != nil {
 			return err
 		}
 		_, err = storekit.Audit(ctx, tx, "update", "voice_profile", id,
-			map[string]any{"personality_md": before.PersonalityMD},
-			map[string]any{"personality_md": p.PersonalityMD})
+			map[string]any{"personality_md": before.PersonalityMD, voiceFieldAutoLearning: before.AutoLearning},
+			map[string]any{"personality_md": p.PersonalityMD, voiceFieldAutoLearning: p.AutoLearning})
 		return err
 	})
 	if err != nil {
@@ -334,8 +365,8 @@ func (s *VoiceStore) SetDerivedProfile(ctx context.Context, id ids.UUID, voicePr
 			return err
 		}
 		_, err = storekit.Audit(ctx, tx, "update", "voice_profile", id,
-			map[string]any{"profile_version": before.ProfileVersion, "status": before.Status},
-			map[string]any{"profile_version": p.ProfileVersion, "status": p.Status})
+			map[string]any{voiceFieldProfileVersion: before.ProfileVersion, voiceFieldStatus: before.Status},
+			map[string]any{voiceFieldProfileVersion: p.ProfileVersion, voiceFieldStatus: p.Status})
 		return err
 	})
 	if err != nil {
@@ -360,7 +391,23 @@ func (s *VoiceStore) ArchiveProfile(ctx context.Context, id ids.UUID) error {
 			return err
 		}
 		_, err = storekit.Audit(ctx, tx, "archive", "voice_profile", id,
-			map[string]any{"scope": before.Scope, "status": before.Status, "profile_version": before.ProfileVersion}, nil)
+			map[string]any{"scope": before.Scope, voiceFieldStatus: before.Status, voiceFieldProfileVersion: before.ProfileVersion}, nil)
 		return err
 	})
+}
+
+// ActiveVoiceForUser returns the active artifact for drafting without ever
+// exposing corpus content.
+func (s *VoiceStore) ActiveVoiceForUser(ctx context.Context, user ids.UUID) (VoiceProfile, error) {
+	var profile VoiceProfile
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		var err error
+		profile, err = scanVoiceProfile(tx.QueryRow(ctx, storekit.SQLf(
+			`SELECT %s FROM voice_profile WHERE owner_id = $1 AND scope = 'user' AND archived_at IS NULL`, voiceProfileColumns), user))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return apperrors.ErrNotFound
+		}
+		return err
+	})
+	return profile, err
 }

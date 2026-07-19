@@ -851,6 +851,26 @@ export const en = {
     ".txt .md .vtt .srt .json · text only · we keep only your turns",
   "ob.s2.dropSkipped":
     "Skipped {files} — not a text format. Convert to .txt/.md or paste the text instead.",
+  "ob.s2.preferences": "Your non-negotiables",
+  "ob.s2.preferencesPlaceholder":
+    "For example: No em dashes. No fake ‘not this, but that’ contrasts. Be direct. Sign off with my first name.",
+  "ob.s2.pasteTitle": "Paste writing that is genuinely yours",
+  "ob.s2.pastePlaceholder":
+    "Paste several sent messages, posts, or a longer piece. Remove anything you do not want in your private corpus.",
+  "ob.s2.pasteRequired": "Paste some of your own writing first.",
+  "ob.s2.pastedLabel": "Onboarding paste",
+  "ob.s2.sourceKind": "Writing source type",
+  "ob.s2.addSource": "Add to corpus",
+  "ob.s2.speakerLabel": "Your speaker name in transcript files",
+  "ob.s2.speakerPlaceholder":
+    "Required only for .vtt, .srt, or transcript JSON",
+  "ob.s2.speakerRequired":
+    "Name your speaker label before uploading a transcript so we keep only your turns.",
+  "ob.s2.realMeter":
+    "{sources} real sources · starter build unlocks at {starter} own-authored words",
+  "ob.s2.version": "Version {version} · {count} corpus words",
+  "ob.s2.buildFailed":
+    "The build failed. Your source corpus is safe; try again.",
   "ob.reg.spoken": "spoken",
   "ob.reg.written": "written",
   "ob.reg.casual": "casual",
@@ -896,7 +916,7 @@ export const en = {
     'Never: corporate filler, hedging, "I hope this finds you well"',
   "ob.s2.sampleLabel": "Sample draft in your voice",
   "ob.s2.vpFootnote":
-    "A starter from {count} words. Connect your inbox next and your sent email pushes this from good → sharp — then it keeps learning from every email you send.",
+    "Built from {count} real own-authored words. Connect your inbox next to opt in to safe learning from sent mail.",
 
   "ob.s3.kick": "Step 3 of 4",
   "ob.s3.title": "Look what you've built —",
@@ -1265,11 +1285,67 @@ export const en = {
   "settings.openCustomFields": "Open custom fields",
   "settings.navAria": "Settings sections",
   "settings.tab.account": "Account",
+  "settings.tab.voice": "My voice",
   "settings.tab.ai": "AI & autonomy",
   "settings.tab.data": "Data model",
   "settings.tab.catalog": "Catalog",
   "settings.tab.privacy": "Privacy & consent",
   "settings.tab.audit": "Audit log",
+  "voice.title": "My voice",
+  "voice.sub":
+    "Your private writing profile, its evidence, and automatic learning controls.",
+  "voice.loading": "Loading your voice…",
+  "voice.emptySub":
+    "Create a private profile, then add writing in onboarding or here.",
+  "voice.create": "Create my voice profile",
+  "voice.status": "Status",
+  "voice.words": "Included words",
+  "voice.wordsLower": "words",
+  "voice.version": "Active version",
+  "voice.versionNumber": "Version {version}",
+  "voice.lastBuild": "Last build",
+  "voice.never": "Not built yet",
+  "voice.automatic": "Learn from my sent email",
+  "voice.automaticSub":
+    "Only your new authored text is retained. Quotes, headers, signatures, disclaimers, and personal mail are excluded. Rebuilds are batched.",
+  "voice.preferences": "Hard preferences",
+  "voice.preferencesSub":
+    "These instructions are yours and always outrank inferred traits.",
+  "voice.preferencesPlaceholder":
+    "For example: no em dashes; be direct; never use fake contrasts; sign off with Lars.",
+  "voice.save": "Save preferences",
+  "voice.derived": "Evidence-derived profile",
+  "voice.derivedSub":
+    "This is rebuilt from included sources. Editing your preferences never overwrites it.",
+  "voice.noProfile":
+    "Add at least 800 own-authored words to build a starter voice.",
+  "voice.rebuild": "Build a new version",
+  "voice.building": "Building…",
+  "voice.buildMissing": "The active build could not be resumed.",
+  "voice.sources": "Sources",
+  "voice.sourcesSub":
+    "Inspect what contributed, change its influence, or exclude it from the next build.",
+  "voice.noSources": "No retained sources yet.",
+  "voice.manualSource": "Writing added in My voice",
+  "voice.addPlaceholder":
+    "Paste another representative piece of your own writing…",
+  "voice.addSource": "Add writing source",
+  "voice.weightFor": "Weight for {source}",
+  "voice.include": "Include",
+  "voice.exclude": "Exclude",
+  "voice.history": "Version history",
+  "voice.historySub":
+    "Every build is immutable. Rollback creates a new forward version.",
+  "voice.active": "Active",
+  "voice.rollback": "Roll back",
+  "voice.changes": "Recent learning changes",
+  "voice.changeVersion": "Version {from} → {to}",
+  "voice.clearTitle": "Clear voice data",
+  "voice.clearSub":
+    "Permanently remove corpus text, learning signals, builds, and derived versions. Your written preferences remain.",
+  "voice.clear": "Clear voice data",
+  "voice.clearConfirm":
+    "This permanently removes retained writing and derived history, and pauses automatic learning. It cannot be undone.",
   "product.title": "Products",
   "product.settingsSub": "Rate-card entries that offer lines snapshot from.",
   "product.open": "Open products",

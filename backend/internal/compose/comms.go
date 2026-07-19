@@ -23,8 +23,9 @@ import (
 )
 
 type commsAdapter struct {
-	store *activities.Store
-	gate  activities.ConsentGate
+	store   *activities.Store
+	gate    activities.ConsentGate
+	drafter activities.DraftComposer
 }
 
 var _ agents.Comms = commsAdapter{}
@@ -36,9 +37,6 @@ var _ agents.Comms = commsAdapter{}
 var _ automation.Comms = commsAdapter{}
 
 func (c commsAdapter) DraftEmail(ctx context.Context, anchor ids.UUID, intent string) (string, string, error) {
-	// The deterministic draft over the anchor's own context — the same
-	// rule the HTTP handler applies; the model-backed voice draft rides
-	// the router once the drafting lane is wired.
 	activity, err := c.store.GetActivity(ctx, ids.From[ids.ActivityKind](anchor), storekit.LiveOnly)
 	if err != nil {
 		return "", "", err
@@ -46,6 +44,10 @@ func (c commsAdapter) DraftEmail(ctx context.Context, anchor ids.UUID, intent st
 	topic := ""
 	if activity.Subject != nil {
 		topic = *activity.Subject
+	}
+	if c.drafter != nil {
+		draft, err := c.drafter.DraftEmail(ctx, topic, intent)
+		return draft.Subject, draft.Body, err
 	}
 	subject, body := deterministicDraft(topic, intent)
 	return subject, body, nil

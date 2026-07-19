@@ -29,10 +29,10 @@ import (
 // seam, which identity implements — injected here so platform/auth never
 // imports a module (ADR-0054 §5).
 func NewRegistry(pool *pgxpool.Pool) *agents.Registry {
-	return newRegistry(pool, auth.NewGate(identity.NewService(pool)))
+	return newAgentRegistry(pool, auth.NewGate(identity.NewService(pool)), buildVoiceDrafter(pool, nil))
 }
 
-func newRegistry(pool *pgxpool.Pool, gate *auth.Gate) *agents.Registry {
+func newAgentRegistry(pool *pgxpool.Pool, gate *auth.Gate, drafters ...activities.DraftComposer) *agents.Registry {
 	provider := NewProvider(pool)
 	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate)
 	agents.RegisterCoreTools(registry, provider, provider, provider, fieldOwnership{pool: pool})
@@ -43,9 +43,14 @@ func newRegistry(pool *pgxpool.Pool, gate *auth.Gate) *agents.Registry {
 	// The pipeline-risk intents: the candidate set rides the deals
 	// module's row-scoped list, the drafts land through the provider.
 	agents.RegisterSlippingTools(registry, slippingLister(pool), followUpDrafter(provider))
+	var drafter activities.DraftComposer
+	if len(drafters) > 0 {
+		drafter = drafters[0]
+	}
 	agents.RegisterCommsTools(registry, commsAdapter{
-		store: activities.NewStore(pool),
-		gate:  consent.NewGate(consent.NewStore(pool)),
+		store:   activities.NewStore(pool),
+		gate:    consent.NewGate(consent.NewStore(pool)),
+		drafter: drafter,
 	})
 	return registry
 }

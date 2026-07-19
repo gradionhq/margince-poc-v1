@@ -11,6 +11,8 @@ package ai
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"strings"
 	"time"
@@ -35,17 +37,22 @@ const maxCorpusSourceBytes = 1 << 20
 type VoiceCorpusSource struct {
 	// note: neither voice_corpus_source nor its parent voice_profile is a
 	// kernel entity kind, so both ids stay untyped (rule 7 kernel gap).
-	ID          ids.UUID
-	ProfileID   ids.UUID
-	Kind        string
-	Register    string
-	Weight      float64
-	SourceLabel string
-	SourceRef   string
-	WordCount   int
-	Excluded    bool
-	CreatedAt   time.Time
-	UpdatedAt   *time.Time
+	ID               ids.UUID
+	ProfileID        ids.UUID
+	Kind             string
+	Register         string
+	Weight           float64
+	SourceLabel      string
+	SourceRef        string
+	WordCount        int
+	Excluded         bool
+	Origin           string
+	ExclusionReason  *string
+	ContentHash      string
+	ExtractorVersion int
+	OccurredAt       *time.Time
+	CreatedAt        time.Time
+	UpdatedAt        *time.Time
 }
 
 // CorpusSummary is the live word-count + register-mix meter over the
@@ -60,41 +67,50 @@ type CorpusSummary struct {
 
 // IngestSourceInput is one corpus source in its raw declared format.
 type IngestSourceInput struct {
-	Kind         string
-	Register     string // empty → DefaultRegister(kind)
-	Weight       float64
-	SourceLabel  string
-	SourceRef    string // empty → SourceRefForContent
-	Format       string // empty → txt
-	SpeakerLabel string
-	Content      string
+	Kind             string
+	Register         string // empty → DefaultRegister(kind)
+	Weight           float64
+	SourceLabel      string
+	SourceRef        string // empty → SourceRefForContent
+	Format           string // empty → txt
+	SpeakerLabel     string
+	Content          string
+	Origin           string
+	OccurredAt       *time.Time
+	ExtractorVersion int
 }
 
 // UpdateSourceInput carries the manifest PATCH subset; nil = unchanged.
 type UpdateSourceInput struct {
-	Excluded *bool
-	Weight   *float64
+	Excluded        *bool
+	Weight          *float64
+	ExclusionReason *string
 }
 
-const voiceSourceColumns = `id, voice_profile_id, kind, register, weight, source_label, source_ref, word_count, excluded, created_at, updated_at`
+const voiceSourceColumns = `id, voice_profile_id, kind, register, weight, source_label, source_ref, word_count, excluded, origin, exclusion_reason, content_hash, extractor_version, occurred_at, created_at, updated_at`
 
 func scanVoiceSource(row pgx.Row) (VoiceCorpusSource, error) {
 	var s VoiceCorpusSource
 	err := row.Scan(&s.ID, &s.ProfileID, &s.Kind, &s.Register, &s.Weight, &s.SourceLabel,
-		&s.SourceRef, &s.WordCount, &s.Excluded, &s.CreatedAt, &s.UpdatedAt)
+		&s.SourceRef, &s.WordCount, &s.Excluded, &s.Origin, &s.ExclusionReason, &s.ContentHash,
+		&s.ExtractorVersion, &s.OccurredAt, &s.CreatedAt, &s.UpdatedAt)
 	return s, err
 }
 
 // preparedSource is one validated, normalized, speaker-filtered source,
 // ready to persist.
 type preparedSource struct {
-	Kind      string
-	Register  string
-	Weight    float64
-	Label     string
-	SourceRef string
-	Text      string
-	Words     int
+	Kind             string
+	Register         string
+	Weight           float64
+	Label            string
+	SourceRef        string
+	Text             string
+	Words            int
+	Origin           string
+	OccurredAt       *time.Time
+	ExtractorVersion int
+	ContentHash      string
 }
 
 // prepareSource runs the pure half of the §B1 pipeline: field
@@ -159,10 +175,28 @@ func prepareSource(in IngestSourceInput) (preparedSource, error) {
 	if sourceRef == "" {
 		sourceRef = SourceRefForContent(in.Content)
 	}
+	origin := in.Origin
+	if origin == "" {
+		origin = voiceSourceOriginManual
+	}
+	switch origin {
+	case voiceSourceOriginManual, "capture", "draft_signal":
+	default:
+		return preparedSource{}, &CorpusIngestError{Field: "origin", Reason: "must be manual, capture, or draft_signal"}
+	}
+	extractorVersion := in.ExtractorVersion
+	if extractorVersion == 0 {
+		extractorVersion = 1
+	}
+	if extractorVersion < 1 {
+		return preparedSource{}, &CorpusIngestError{Field: "extractor_version", Reason: "must be positive"}
+	}
+	hash := sha256.Sum256([]byte(text))
 	return preparedSource{
 		Kind: in.Kind, Register: register, Weight: weight,
 		Label: in.SourceLabel, SourceRef: sourceRef,
-		Text: text, Words: WordCount(text),
+		Text: text, Words: WordCount(text), Origin: origin, OccurredAt: in.OccurredAt,
+		ExtractorVersion: extractorVersion, ContentHash: hex.EncodeToString(hash[:]),
 	}, nil
 }
 
@@ -191,12 +225,16 @@ func (s *VoiceStore) IngestSource(ctx context.Context, profileID ids.UUID, in In
 		if err := ownerOnly(ctx, p); err != nil {
 			return err
 		}
+		if err := tx.QueryRow(ctx, `SELECT id FROM voice_profile WHERE id = $1 FOR UPDATE`, profileID).Scan(&p.ID); err != nil {
+			return err
+		}
 		var inserted bool
 		row := tx.QueryRow(ctx, storekit.SQLf(`
 			INSERT INTO voice_corpus_source
-			  (workspace_id, voice_profile_id, kind, register, weight, source_label, source_ref, content, word_count)
+			  (workspace_id, voice_profile_id, kind, register, weight, source_label, source_ref, content, word_count,
+			   origin, content_hash, extractor_version, occurred_at)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        $1, $2, $3, $4, $5, $6, $7, $8)
+			        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 			ON CONFLICT (workspace_id, voice_profile_id, source_ref) DO UPDATE SET
 			  kind = EXCLUDED.kind,
 			  register = EXCLUDED.register,
@@ -204,14 +242,21 @@ func (s *VoiceStore) IngestSource(ctx context.Context, profileID ids.UUID, in In
 			  source_label = EXCLUDED.source_label,
 			  content = EXCLUDED.content,
 			  word_count = EXCLUDED.word_count,
+			  origin = EXCLUDED.origin,
+			  content_hash = EXCLUDED.content_hash,
+			  extractor_version = EXCLUDED.extractor_version,
+			  occurred_at = EXCLUDED.occurred_at,
 			  excluded = false,
-			  updated_at = $9
+			  exclusion_reason = NULL,
+			  updated_at = $13
 			RETURNING %s, (xmax = 0)`, voiceSourceColumns),
 			profileID, prepared.Kind, prepared.Register, prepared.Weight, prepared.Label,
-			prepared.SourceRef, prepared.Text, prepared.Words, s.now().UTC())
+			prepared.SourceRef, prepared.Text, prepared.Words, prepared.Origin, prepared.ContentHash,
+			prepared.ExtractorVersion, prepared.OccurredAt, s.now().UTC())
 		if err := row.Scan(&source.ID, &source.ProfileID, &source.Kind, &source.Register, &source.Weight,
 			&source.SourceLabel, &source.SourceRef, &source.WordCount, &source.Excluded,
-			&source.CreatedAt, &source.UpdatedAt, &inserted); err != nil {
+			&source.Origin, &source.ExclusionReason, &source.ContentHash, &source.ExtractorVersion,
+			&source.OccurredAt, &source.CreatedAt, &source.UpdatedAt, &inserted); err != nil {
 			return err
 		}
 		action := "create"
@@ -219,9 +264,12 @@ func (s *VoiceStore) IngestSource(ctx context.Context, profileID ids.UUID, in In
 			action = "update"
 		}
 		if _, err := storekit.Audit(ctx, tx, action, "voice_corpus_source", source.ID, nil, map[string]any{
-			"voice_profile_id": profileID, "kind": source.Kind, "register": source.Register,
+			voiceFieldProfileID: profileID, "kind": source.Kind, "register": source.Register,
 			"source_ref": source.SourceRef, "word_count": source.WordCount,
 		}); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE voice_profile SET status = CASE WHEN profile_version = 0 THEN 'building' ELSE 'stale' END, updated_at = $2 WHERE id = $1`, profileID, s.now().UTC()); err != nil {
 			return err
 		}
 		summary, err = corpusSummary(ctx, tx, profileID)
@@ -297,6 +345,9 @@ func (s *VoiceStore) UpdateSource(ctx context.Context, profileID, sourceID ids.U
 		if err := ownerOnly(ctx, p); err != nil {
 			return err
 		}
+		if err := tx.QueryRow(ctx, `SELECT id FROM voice_profile WHERE id = $1 FOR UPDATE`, profileID).Scan(&p.ID); err != nil {
+			return err
+		}
 		before, err := scanVoiceSource(tx.QueryRow(ctx, storekit.SQLf(
 			`SELECT %s FROM voice_corpus_source WHERE id = $1 AND voice_profile_id = $2`,
 			voiceSourceColumns), sourceID, profileID))
@@ -310,16 +361,20 @@ func (s *VoiceStore) UpdateSource(ctx context.Context, profileID, sourceID ids.U
 			UPDATE voice_corpus_source SET
 			  excluded = coalesce($3, excluded),
 			  weight = coalesce($4, weight),
-			  updated_at = $5
+			  exclusion_reason = CASE WHEN coalesce($3, excluded) THEN coalesce($5, exclusion_reason) ELSE NULL END,
+			  updated_at = $6
 			WHERE id = $1 AND voice_profile_id = $2
 			RETURNING %s`, voiceSourceColumns),
-			sourceID, profileID, in.Excluded, in.Weight, s.now().UTC()))
+			sourceID, profileID, in.Excluded, in.Weight, in.ExclusionReason, s.now().UTC()))
 		if err != nil {
 			return err
 		}
 		if _, err := storekit.Audit(ctx, tx, "update", "voice_corpus_source", sourceID,
-			map[string]any{"excluded": before.Excluded, "weight": before.Weight},
-			map[string]any{"excluded": source.Excluded, "weight": source.Weight}); err != nil {
+			map[string]any{voiceFieldExcluded: before.Excluded, "weight": before.Weight, voiceFieldExclusionReason: before.ExclusionReason},
+			map[string]any{voiceFieldExcluded: source.Excluded, "weight": source.Weight, voiceFieldExclusionReason: source.ExclusionReason}); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE voice_profile SET status = CASE WHEN profile_version = 0 THEN 'building' ELSE 'stale' END, updated_at = $2 WHERE id = $1`, profileID, s.now().UTC()); err != nil {
 			return err
 		}
 		summary, err = corpusSummary(ctx, tx, profileID)
@@ -329,6 +384,47 @@ func (s *VoiceStore) UpdateSource(ctx context.Context, profileID, sourceID ids.U
 		return VoiceCorpusSource{}, CorpusSummary{}, err
 	}
 	return source, summary, nil
+}
+
+// ClearCorpus is the privacy action distinct from archive: it permanently
+// removes raw evidence and every machine-derived artifact, keeps the human's
+// explicit preferences, and pauses future mailbox learning.
+func (s *VoiceStore) ClearCorpus(ctx context.Context, profileID ids.UUID) error {
+	if err := auth.Require(ctx, "voice_profile", principal.ActionDelete); err != nil {
+		return err
+	}
+	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		profile, err := s.visibleProfile(ctx, tx, profileID)
+		if err != nil {
+			return err
+		}
+		if err := ownerOnly(ctx, profile); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx, `SELECT id FROM voice_profile WHERE id = $1 FOR UPDATE`, profileID).Scan(&profile.ID); err != nil {
+			return err
+		}
+		for _, table := range []string{
+			"voice_learning_signal", "voice_profile_delta", "voice_profile_version", "voice_build", "voice_corpus_source",
+		} {
+			if _, err := tx.Exec(ctx, `DELETE FROM `+table+` WHERE voice_profile_id = $1`, profileID); err != nil {
+				return err
+			}
+		}
+		now := s.now().UTC()
+		if _, err := tx.Exec(ctx, `
+			UPDATE voice_profile SET voice_profile_md = '', profile_version = 0,
+			  model_ref = NULL, status = 'building', auto_learning_enabled = false,
+			  active_source_hash = '', last_built_at = NULL,
+			  version = version + 1, updated_at = $2
+			WHERE id = $1`, profileID, now); err != nil {
+			return err
+		}
+		_, err = storekit.Audit(ctx, tx, "update", "voice_profile", profileID,
+			map[string]any{voiceFieldProfileVersion: profile.ProfileVersion},
+			map[string]any{voiceFieldProfileVersion: 0, voiceFieldAutoLearning: false})
+		return err
+	})
 }
 
 // corpusSummary computes the meter over the non-excluded manifest.

@@ -31,6 +31,14 @@ type Sink struct {
 	exclusions ExclusionRules
 	ensurer    CounterpartyEnsurer
 	freemail   *FreemailList
+	observer   Observer
+}
+
+// Observer receives a normalized record after its core write commits.
+// It must be idempotent: replays call it again even when the activity already
+// existed, allowing a failed derived pipeline to recover safely.
+type Observer interface {
+	ObserveCapture(context.Context, connector.NormalizedRecord, datasource.EntityRef) error
 }
 
 // fieldSourceSystem is the shared audit/event key for the originating
@@ -76,6 +84,13 @@ func (s *Sink) WithStager(stager MergeStager) *Sink {
 func (s *Sink) WithExclusions(rules ExclusionRules) *Sink {
 	c := *s
 	c.exclusions = rules
+	return &c
+}
+
+// WithObserver attaches a post-commit derived-data observer.
+func (s *Sink) WithObserver(observer Observer) *Sink {
+	c := *s
+	c.observer = observer
 	return &c
 }
 
@@ -170,6 +185,11 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 			Summary:        fmt.Sprintf("Captured %s/%s duplicates an existing lead", rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID),
 		}); err != nil {
 			return datasource.EntityRef{}, fmt.Errorf("capture: staging the dedupe merge: %w", err)
+		}
+	}
+	if _, ok := rec.Fields.(ActivityFields); ok && s.observer != nil {
+		if err := s.observer.ObserveCapture(ctx, rec, ref); err != nil {
+			return datasource.EntityRef{}, fmt.Errorf("capture: observing committed record: %w", err)
 		}
 	}
 	return ref, nil

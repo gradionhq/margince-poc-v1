@@ -32,20 +32,25 @@ import (
 // creates a task) — while the lead-score recompute is a formula
 // obligation (formulas-and-rules §3 — "recomputed on each captured
 // signal") and fires always.
-func NewWorkflowEngine(pool *pgxpool.Pool) *automation.WorkflowEngine {
+func NewWorkflowEngine(pool *pgxpool.Pool, drafters ...activities.DraftComposer) *automation.WorkflowEngine {
 	// identity.Service implements shared/ports/authz.Resolver — the
 	// match-time owner-permission gate's (gate.go) authority source. The
 	// engine depends only on the port; this is the one place a concrete
 	// identity is injected (ADR-0054 §8), same as platform/auth.NewGate.
 	engine := automation.NewWorkflowEngine(pool, identity.NewService(pool))
 	peopleStore := people.NewStore(pool)
+	var drafter activities.DraftComposer
+	if len(drafters) > 0 {
+		drafter = drafters[0]
+	}
 	ex := automation.Executors{
 		Provider:  NewProvider(pool),
 		Approvals: automationApprovalsAdapter{svc: approvals.NewService(pool)},
 		Lists:     listsAdapter{store: collections.NewStore(pool)},
 		Comms: commsAdapter{
-			store: activities.NewStore(pool),
-			gate:  consent.NewGate(consent.NewStore(pool)),
+			store:   activities.NewStore(pool),
+			gate:    consent.NewGate(consent.NewStore(pool)),
+			drafter: drafter,
 		},
 		// Notifier stays nil: this repo wires no notification transport
 		// (no notification table, the inbox is approvals-only) — a

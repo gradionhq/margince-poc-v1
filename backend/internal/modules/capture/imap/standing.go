@@ -56,6 +56,11 @@ type imapCursor struct {
 	// account switched to another mailbox re-anchors instead of reusing
 	// UIDs from a different sequence.
 	Mailbox string `json:"mailbox,omitempty"`
+	// Sent has an independent mailbox generation and watermark. Inbox and
+	// Sent can roll over or advance without invalidating one another.
+	SentMailbox     string `json:"sent_mailbox,omitempty"`
+	SentUIDValidity uint32 `json:"sent_uidvalidity,omitempty"`
+	SentLastUID     uint32 `json:"sent_last_uid,omitempty"`
 }
 
 func parseIMAPCursor(cur connector.Cursor) (imapCursor, error) {
@@ -186,6 +191,10 @@ func (c *Connector) syncStanding(ctx context.Context, auth connector.Auth, curso
 		// forever — refuse rather than sync unbounded.
 		return nil, fmt.Errorf("imap: arming the read deadline: %w", errors.Join(ErrUnreachable, err))
 	}
+	cur, err = c.syncSent(ctx, client, creds, cur, sink, st)
+	if err != nil {
+		return nil, err
+	}
 
 	selData, err := client.Select(creds.Mailbox, &imapv2.SelectOptions{ReadOnly: true}).Wait()
 	if err != nil {
@@ -202,9 +211,11 @@ func (c *Connector) syncStanding(ctx context.Context, auth connector.Auth, curso
 		if err != nil {
 			return nil, err
 		}
-		return marshalIMAPCursor(imapCursor{
-			UIDValidity: selData.UIDValidity, LastUID: maxUID, Email: creds.Email, Mailbox: creds.Mailbox,
-		}), nil
+		cur.UIDValidity = selData.UIDValidity
+		cur.LastUID = maxUID
+		cur.Email = creds.Email
+		cur.Mailbox = creds.Mailbox
+		return marshalIMAPCursor(cur), nil
 	}
 
 	cur, err = c.syncIncremental(ctx, client, creds, cur, sink, st)
@@ -215,6 +226,61 @@ func (c *Connector) syncStanding(ctx context.Context, auth connector.Auth, curso
 	cur.Email = creds.Email
 	cur.Mailbox = creds.Mailbox
 	return marshalIMAPCursor(cur), nil
+}
+
+// syncSent discovers the RFC 6154 \Sent mailbox and advances its independent
+// cursor before the normal Inbox pass. A server without a Sent special-use
+// folder keeps timeline capture working but contributes no unsafe guessed
+// folder to voice learning.
+func (c *Connector) syncSent(ctx context.Context, client *imapclient.Client, creds Credentials, cur imapCursor, sink connector.Sink, st *syncState) (imapCursor, error) {
+	mailbox, err := discoverSentMailbox(client)
+	if err != nil {
+		return cur, fmt.Errorf("imap: discovering sent mailbox: %w", errors.Join(ErrUnreachable, err))
+	}
+	if mailbox == "" || mailbox == creds.Mailbox {
+		return cur, nil
+	}
+	selected, err := client.Select(mailbox, &imapv2.SelectOptions{ReadOnly: true}).Wait()
+	if err != nil {
+		return cur, fmt.Errorf("imap: selecting sent mailbox %q: %w", mailbox, ErrUnreachable)
+	}
+	sent := imapCursor{
+		UIDValidity: cur.SentUIDValidity, LastUID: cur.SentLastUID,
+		Email: cur.Email, Mailbox: cur.SentMailbox,
+	}
+	if sent.Email != creds.Email || sent.Mailbox != mailbox || sent.UIDValidity != selected.UIDValidity || sent.LastUID == 0 {
+		maxUID, err := c.pullWindow(ctx, client, selected, creds.MaxMessages, sink, st)
+		if err != nil {
+			return cur, err
+		}
+		cur.SentMailbox = mailbox
+		cur.SentUIDValidity = selected.UIDValidity
+		cur.SentLastUID = maxUID
+		return cur, nil
+	}
+	sentCreds := creds
+	sentCreds.Mailbox = mailbox
+	sent, err = c.syncIncremental(ctx, client, sentCreds, sent, sink, st)
+	if err != nil {
+		return cur, err
+	}
+	cur.SentMailbox = mailbox
+	cur.SentUIDValidity = selected.UIDValidity
+	cur.SentLastUID = sent.LastUID
+	return cur, nil
+}
+
+func discoverSentMailbox(client *imapclient.Client) (string, error) {
+	mailboxes, err := client.List("", "*", &imapv2.ListOptions{ReturnSpecialUse: true}).Collect()
+	if err != nil {
+		return "", err
+	}
+	for _, mailbox := range mailboxes {
+		if slices.Contains(mailbox.Attrs, imapv2.MailboxAttrSent) {
+			return mailbox.Mailbox, nil
+		}
+	}
+	return "", nil
 }
 
 // syncIncremental pulls above the watermark: enumerate first (UIDs only, no
