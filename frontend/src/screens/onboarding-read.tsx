@@ -12,7 +12,8 @@ import {
 } from "lucide-react";
 import type { components } from "../api/schema";
 import { Button } from "../design-system/atoms";
-import { useT } from "../i18n";
+import { formatDateTime } from "../format/format";
+import { useLocale, useT } from "../i18n";
 import { coldFieldLabel } from "./common";
 
 type CompanySiteRead = components["schemas"]["CompanySiteRead"];
@@ -48,6 +49,7 @@ export function ReadCompanyStep(props: ReadCompanyStepProps) {
   const running =
     props.pending ||
     props.read?.status === "queued" ||
+    props.read?.status === "deferred" ||
     props.read?.status === "reading";
   const terminal = props.read ? terminalStatuses.has(props.read.status) : false;
 
@@ -201,6 +203,7 @@ function ReadProgress({
   refreshing,
 }: Readonly<{ read: CompanySiteRead; refreshing: boolean }>) {
   const t = useT();
+  const { locale } = useLocale();
   const fetchedPages = read.pages.filter((page) => page.status === "fetched");
   const skippedPages = read.pages.filter((page) => page.status !== "fetched");
   const findings = read.profile_fields.length + read.facts.length;
@@ -218,14 +221,33 @@ function ReadProgress({
             {t("ob.readingHost", { host: new URL(read.root_url).hostname })}
           </h2>
         </div>
-        {(refreshing ||
-          read.status === "reading" ||
-          read.status === "queued") && (
-          <span className="reading-live">
-            <span className="ob-spinner" /> {t("ob.live")}
-          </span>
-        )}
+        {read.status !== "deferred" &&
+          (refreshing ||
+            read.status === "reading" ||
+            read.status === "queued") && (
+            <span className="reading-live">
+              <span className="ob-spinner" /> {t("ob.live")}
+            </span>
+          )}
       </div>
+
+      {read.status === "deferred" && (
+        <p className="read-deferral">
+          {read.status_detail}
+          {read.next_attempt_at && (
+            <>
+              {" "}
+              {t("deepread.resumesAt", {
+                when: formatDateTime(
+                  read.next_attempt_at,
+                  locale,
+                  "Europe/Berlin",
+                ),
+              })}
+            </>
+          )}
+        </p>
+      )}
 
       <div className="read-phases">
         <Phase

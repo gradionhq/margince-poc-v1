@@ -556,7 +556,10 @@ export function OnboardingScreen() {
     },
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      return status === "queued" || status === "reading" ? 800 : false;
+      if (status === "queued" || status === "reading") {
+        return 800;
+      }
+      return status === "deferred" ? 60_000 : false;
     },
   });
 

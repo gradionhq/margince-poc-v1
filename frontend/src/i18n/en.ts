@@ -812,6 +812,7 @@ export const en = {
   "ob.live": "Live",
   "ob.readingHost": "Understanding {host}",
   "ob.readStatus.queued": "Queued",
+  "ob.readStatus.deferred": "Waiting for AI budget",
   "ob.readStatus.reading": "Reading now",
   "ob.readStatus.ready": "Ready to review",
   "ob.readStatus.partial": "Partial read",

@@ -29,9 +29,10 @@ calls return a typed next-window deferral before any provider attempt or
 `ai_call` trace; interactive calls retain the local-small degraded path.
 Website reads persist that decision as `deferred` with safe status detail and
 `next_attempt_at`, retain progressive findings, keep their one in-flight slot,
-and snooze the same River job without consuming an attempt. The API exposes the
-state on both onboarding and organization read surfaces; migration 0103 and the
-real-Postgres lane prove join-before-due, resume-when-due, and reverse/reapply.
+and snooze the same River job without consuming an attempt. Both onboarding and
+organization read surfaces show the safe deferral reason and automatic-resume
+time; migration 0103 and the real-Postgres lane prove join-before-due,
+resume-when-due, and reverse/reapply.
 
 **Cold-start company context — durable knowledge and five-step setup (Phases 1–4)** —
 the installation's anchor organization is now the normal company record with a
