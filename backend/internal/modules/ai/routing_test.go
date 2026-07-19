@@ -46,6 +46,78 @@ profile: eu_hosted
 	}
 }
 
+// TestParseRoutingSetsDeterministicSourceHash pins the routing half of the
+// spec §4 config-snapshot key: the same yaml bytes always produce the same
+// digest (Router.installConfigSnapshot relies on this for the ON CONFLICT
+// DO NOTHING dimension row to actually collapse), and a change to the
+// bytes must change the digest — an operator swapping providers must
+// produce a NEW config-snapshot row, not silently reuse the old one's hash.
+func TestParseRoutingSetsDeterministicSourceHash(t *testing.T) {
+	cfg := []byte("profile: eu_hosted\ntiers:\n  cheap_cloud: {provider: fake}\nembeddings: {provider: fake}\n")
+	first, err := ParseRouting(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := ParseRouting(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.sourceHash == "" {
+		t.Fatal("sourceHash must be set on a successfully parsed config")
+	}
+	if first.sourceHash != second.sourceHash {
+		t.Fatalf("identical bytes produced different hashes: %q vs %q", first.sourceHash, second.sourceHash)
+	}
+	changed := []byte("profile: eu_hosted\ntiers:\n  cheap_cloud: {provider: fake, model: other}\nembeddings: {provider: fake}\n")
+	third, err := ParseRouting(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third.sourceHash == first.sourceHash {
+		t.Fatal("a changed routing config must produce a different sourceHash")
+	}
+}
+
+// TestTaskLadderReportsTheRoutingTableAndNeverAliasesIt covers the aicert
+// runner's dependency on TaskLadder: it must report exactly the routing
+// table's rungs for a known task, empty for an unknown one (no panic on
+// a bad key), and hand back a copy a caller can mutate freely without
+// corrupting taskLadders for the next call.
+func TestTaskLadderReportsTheRoutingTableAndNeverAliasesIt(t *testing.T) {
+	got := TaskLadder(TaskSiteExtract)
+	want := []Tier{TierPremium}
+	if len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("TaskLadder(TaskSiteExtract) = %v, want %v", got, want)
+	}
+	got[0] = TierLocalSmall
+	again := TaskLadder(TaskSiteExtract)
+	if again[0] != TierPremium {
+		t.Fatalf("mutating a returned ladder corrupted the package table: got %v on the next call", again)
+	}
+	if unknown := TaskLadder(Task("not_a_real_task")); unknown != nil {
+		t.Fatalf("an unknown task should report a nil ladder, got %v", unknown)
+	}
+}
+
+// TestProviderIsLocalMatchesTheUnexportedSet pins ProviderIsLocal (the
+// aicert cert lane's cloud-only-latency-cap dependency) to exactly the
+// same providers TestLocalOnlyMatchesLocalProvidersForEveryProvider
+// already binds localProviders to — one invariant, one exported reader.
+func TestProviderIsLocalMatchesTheUnexportedSet(t *testing.T) {
+	local := []string{providerOllama, providerVLLM, ProviderFake}
+	for _, p := range local {
+		if !ProviderIsLocal(p) {
+			t.Errorf("ProviderIsLocal(%q) = false, want true", p)
+		}
+	}
+	cloud := []string{providerAnthropic, providerOpenAI, providerGemini, providerOpenAICompatible}
+	for _, p := range cloud {
+		if ProviderIsLocal(p) {
+			t.Errorf("ProviderIsLocal(%q) = true, want false", p)
+		}
+	}
+}
+
 // A cloud provider on any tier or the embeddings lane is refused under the
 // sovereign profile — zero egress by construction (spec §3.6).
 func TestSovereignRefusesOpenAICompatible(t *testing.T) {
@@ -101,6 +173,76 @@ func TestLocalOnlyMatchesLocalProvidersForEveryProvider(t *testing.T) {
 		if got, want := client.Caps().LocalOnly, localProviders[name]; got != want {
 			t.Fatalf("%s: Caps().LocalOnly=%v but localProviders=%v — encodings disagree", name, got, want)
 		}
+	}
+}
+
+// UnboundLadderWarnings is boot-loud, not boot-fatal: a task with no
+// bound rung anywhere on its ladder gets one warning naming the task and
+// the ladder it can't reach; a task with at least one bound rung
+// (fallback or primary) is silent.
+func TestUnboundLadderWarnings(t *testing.T) {
+	allTiers := map[Tier]ProviderConfig{
+		TierLocalSmall: {Provider: "fake"},
+		TierCheapCloud: {Provider: "fake"},
+		TierPremium:    {Provider: "fake"},
+		TierLocalLarge: {Provider: "fake"},
+	}
+	cases := []struct {
+		name  string
+		tiers map[Tier]ProviderConfig
+		want  []string
+	}{
+		{
+			name:  "fully bound config warns about nothing",
+			tiers: allTiers,
+			want:  nil,
+		},
+		{
+			name: "one unbound rung but another bound on the same ladder stays silent",
+			// TaskAgentLoop's ladder is {cheap_cloud, premium}: cheap_cloud is
+			// missing but premium is bound, so the task still has a route.
+			tiers: map[Tier]ProviderConfig{
+				TierPremium: {Provider: "fake"},
+			},
+			want: []string{
+				"task capture_classify: no bound tier on ladder [local_small cheap_cloud]; calls will be refused",
+				"task enrich: no bound tier on ladder [local_small cheap_cloud]; calls will be refused",
+			},
+		},
+		{
+			name:  "ladder with zero bound rungs warns naming the task and its ladder",
+			tiers: map[Tier]ProviderConfig{},
+			want: []string{
+				"task agent_loop: no bound tier on ladder [cheap_cloud premium]; calls will be refused",
+				"task brief_ranking: no bound tier on ladder [premium cheap_cloud]; calls will be refused",
+				"task capture_classify: no bound tier on ladder [local_small cheap_cloud]; calls will be refused",
+				"task cert_judge: no bound tier on ladder [premium cheap_cloud]; calls will be refused",
+				"task cold_start: no bound tier on ladder [cheap_cloud premium]; calls will be refused",
+				"task deal_health: no bound tier on ladder [cheap_cloud premium]; calls will be refused",
+				"task draft_reply: no bound tier on ladder [cheap_cloud premium]; calls will be refused",
+				"task enrich: no bound tier on ladder [local_small cheap_cloud]; calls will be refused",
+				"task nl_search: no bound tier on ladder [cheap_cloud premium]; calls will be refused",
+				"task offer_draft: no bound tier on ladder [cheap_cloud premium]; calls will be refused",
+				"task site_extract: no bound tier on ladder [premium]; calls will be refused",
+				"task site_fact_extract: no bound tier on ladder [cheap_cloud premium]; calls will be refused",
+				"task summarize: no bound tier on ladder [cheap_cloud premium]; calls will be refused",
+				"task transcript: no bound tier on ladder [cheap_cloud premium]; calls will be refused",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := RoutingConfig{Tiers: tc.tiers}
+			got := cfg.UnboundLadderWarnings()
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %d warnings, want %d:\ngot:  %v\nwant: %v", len(got), len(tc.want), got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("warning %d: got %q, want %q", i, got[i], tc.want[i])
+				}
+			}
+		})
 	}
 }
 

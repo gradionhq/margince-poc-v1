@@ -1,0 +1,31 @@
+# ai-tasks.yaml — the AI task contract (spec §1, ai-operational-spec §1.2).
+# Compiled into the binary by tools/gen-aitasks (make gen); tier→model binding
+# is config/ai-routing.yaml. Editing THIS file changes routing policy for every
+# deployment and requires make gen + a rebuild.
+tiers: [local_small, cheap_cloud, premium, local_large]
+
+tasks:
+  capture_classify: {ladder: [local_small, cheap_cloud], on_budget_exhausted: queue}
+  enrich:           {ladder: [local_small, cheap_cloud], on_budget_exhausted: queue}
+  summarize:        {ladder: [cheap_cloud, premium], on_budget_exhausted: degrade}
+  draft_reply:      {ladder: [cheap_cloud, premium], on_budget_exhausted: degrade}
+  nl_search:        {ladder: [cheap_cloud, premium], on_budget_exhausted: degrade}
+  cold_start:       {ladder: [cheap_cloud, premium], on_budget_exhausted: degrade}
+  transcript:       {ladder: [cheap_cloud, premium], on_budget_exhausted: degrade}
+  deal_health:      {ladder: [cheap_cloud, premium], on_budget_exhausted: degrade}
+  brief_ranking:    {ladder: [premium, cheap_cloud], on_budget_exhausted: queue,
+                     doc: "the one Premium-frontier default (§1.2 RATIFY): genuinely multi-hop reasoning"}
+  agent_loop:       {ladder: [cheap_cloud, premium], on_budget_exhausted: queue}
+  offer_draft:      {ladder: [cheap_cloud, premium], on_budget_exhausted: degrade}
+  site_extract:     {ladder: [premium], on_budget_exhausted: queue,
+                     doc: "premium-only BY CONTRACT: the no-guess gate demands verbatim quotes cheap tiers paraphrase; no fallback rung"}
+  site_fact_extract: {ladder: [cheap_cloud, premium], on_budget_exhausted: queue,
+                     doc: "the deep read's page-parallel fact lane: tiny snippet-id-cited records a fast cheap tier serves reliably — its latency IS the read time, so the fast tier leads"}
+  cert_judge:       {ladder: [premium, cheap_cloud], on_budget_exhausted: queue,
+                     doc: "the aicert quality judge — pinned to its own router in the cert lane, never the candidate's binding"}
+
+degrade_to:
+  premium: cheap_cloud
+  cheap_cloud: local_small
+  local_large: local_small
+  local_small: local_small

@@ -84,6 +84,7 @@ func (c *anthropicClient) Complete(ctx context.Context, req model.Request) (mode
 	//craft:ignore swallowed-errors best-effort close of a response body already read to completion — the decode result decides the outcome
 	defer func() { _ = body.Close() }()
 	var out struct {
+		Model   string `json:"model"`
 		Content []struct {
 			Type  string          `json:"type"`
 			Text  string          `json:"text"`
@@ -115,6 +116,7 @@ func (c *anthropicClient) Complete(ctx context.Context, req model.Request) (mode
 		Text:         text.String(),
 		InputTokens:  out.Usage.InputTokens,
 		OutputTokens: out.Usage.OutputTokens,
+		ServedModel:  out.Model,
 	}, nil
 }
 
@@ -144,6 +146,7 @@ func (c *anthropicClient) completeStreamed(ctx context.Context, req model.Reques
 		var ev struct {
 			Type    string `json:"type"`
 			Message struct {
+				Model string `json:"model"`
 				Usage struct {
 					InputTokens int `json:"input_tokens"`
 				} `json:"usage"`
@@ -163,6 +166,7 @@ func (c *anthropicClient) completeStreamed(ctx context.Context, req model.Reques
 		switch ev.Type {
 		case "message_start":
 			resp.InputTokens = ev.Message.Usage.InputTokens
+			resp.ServedModel = ev.Message.Model
 		case "content_block_delta":
 			text.WriteString(ev.Delta.Text)
 			text.WriteString(ev.Delta.PartialJSON)

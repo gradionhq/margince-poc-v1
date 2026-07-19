@@ -160,6 +160,7 @@ func TestAnthropicCompleteSendsStrippedPayload(t *testing.T) {
 		gotKey = r.Header.Get("X-Api-Key")
 		gotVersion = r.Header.Get("Anthropic-Version")
 		if err := json.NewEncoder(w).Encode(map[string]any{
+			"model":   "claude-served-x",
 			"content": []map[string]any{{"type": "text", "text": "hello"}},
 			"usage":   map[string]int{"input_tokens": 12, "output_tokens": 3},
 		}); err != nil {
@@ -180,6 +181,9 @@ func TestAnthropicCompleteSendsStrippedPayload(t *testing.T) {
 	}
 	if resp.Text != "hello" || resp.InputTokens != 12 || resp.OutputTokens != 3 {
 		t.Fatalf("response mapping wrong: %+v", resp)
+	}
+	if resp.ServedModel != "claude-served-x" {
+		t.Fatalf("ServedModel not decoded from the response's own model field: %q", resp.ServedModel)
 	}
 	if gotKey != "test-key" || gotVersion != anthropicAPIVersion {
 		t.Fatalf("auth headers wrong: key=%q version=%q", gotKey, gotVersion)
@@ -259,6 +263,42 @@ func TestAnthropicStreamYieldsDeltas(t *testing.T) {
 	}
 	if got.String() != "Hello" {
 		t.Fatalf("stream text mismatch: %q", got.String())
+	}
+}
+
+// A large completion rides the SSE wire (completeStreamed); the served model
+// identity arrives on message_start, before any content — the assembled
+// Response must carry it through just as the non-streaming path does.
+func TestAnthropicStreamedCompleteSetsServedModelFromMessageStart(t *testing.T) {
+	client := newAnthropicForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, strings.Join([]string{
+			`event: message_start`,
+			`data: {"type":"message_start","message":{"model":"claude-served-stream"}}`,
+			``,
+			`event: content_block_delta`,
+			`data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"hi"}}`,
+			``,
+			`event: message_delta`,
+			`data: {"type":"message_delta","usage":{"output_tokens":1}}`,
+			``,
+			`event: message_stop`,
+			`data: {"type":"message_stop"}`,
+			``,
+		}, "\n"))
+	})
+	resp, err := client.Complete(context.Background(), model.Request{
+		MaxTokens: streamedCompleteThreshold + 1,
+		Messages:  []model.Message{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Text != "hi" {
+		t.Fatalf("streamed text mismatch: %q", resp.Text)
+	}
+	if resp.ServedModel != "claude-served-stream" {
+		t.Fatalf("ServedModel not decoded from message_start: %q", resp.ServedModel)
 	}
 }
 

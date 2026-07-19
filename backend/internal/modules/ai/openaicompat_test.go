@@ -60,6 +60,24 @@ func TestOpenAICompatSurfacesHTTPErrorWithoutEchoingRequest(t *testing.T) {
 	}
 }
 
+// The generic OpenAI-compatible wire's "model" field is merely echoed back
+// from the request by the server, never independently confirmed — the
+// adapter still decodes it into ServedModel (the router tags it "echo" to
+// keep that distinction honest, rather than treating it as "response").
+func TestOpenAICompatCompleteDecodesEchoedModelField(t *testing.T) {
+	c := &openAICompatClient{
+		http: &http.Client{}, defaultModel: "m",
+		baseURL: newJSONServer(t, `{"model":"mistral-echoed","choices":[{"message":{"content":"ok"}}]}`),
+	}
+	resp, err := c.Complete(context.Background(), model.Request{Messages: []model.Message{{Role: "user", Content: "hi"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.ServedModel != "mistral-echoed" {
+		t.Fatalf("ServedModel not decoded from the echoed model field: %q", resp.ServedModel)
+	}
+}
+
 func TestOpenAICompatEmptyChoicesIsAnError(t *testing.T) {
 	c := &openAICompatClient{http: &http.Client{}, defaultModel: "m", baseURL: newJSONServer(t, `{"choices":[]}`)}
 	if _, err := c.Complete(context.Background(), model.Request{Messages: []model.Message{{Role: "user", Content: "hi"}}}); err == nil || !strings.Contains(err.Error(), "no choices") {

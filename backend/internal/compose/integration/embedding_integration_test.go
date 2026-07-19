@@ -16,6 +16,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
@@ -23,23 +24,37 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
+// fakeEmbedder wires fake through the router (compose.NewLocalModelPath),
+// the same seam production's Embedder lane rides, and hands back the
+// wrapped search.Embedder — fake itself stays available for .Calls()
+// assertions since it is the exact instance serving every call.
+func fakeEmbedder(t *testing.T, fake *ai.FakeClient) search.Embedder {
+	t.Helper()
+	modelPath, err := compose.NewLocalModelPath(ai.FakeRoutingConfig(), ai.WithFakeClient(fake), ai.WithoutResultCache())
+	if err != nil {
+		t.Fatalf("NewLocalModelPath: %v", err)
+	}
+	return modelPath.Embedder
+}
+
 func TestEmbeddingUpsertReusesUnchangedText(t *testing.T) {
 	e := setupSearch(t)
 	fake := ai.NewFakeClient()
+	embedder := fakeEmbedder(t, fake)
 	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Vector Person', 'manual', 'human:x')`)
 
-	fresh, err := e.store.UpsertEmbedding(e.Admin(), "person", personID, "Vector Person", fake)
+	fresh, err := e.store.UpsertEmbedding(e.Admin(), "person", personID, "Vector Person", embedder)
 	if err != nil || !fresh {
 		t.Fatalf("first upsert fresh=%v err=%v", fresh, err)
 	}
-	fresh, err = e.store.UpsertEmbedding(e.Admin(), "person", personID, "Vector Person", fake)
+	fresh, err = e.store.UpsertEmbedding(e.Admin(), "person", personID, "Vector Person", embedder)
 	if err != nil || fresh {
 		t.Fatalf("unchanged text recomputed: fresh=%v err=%v", fresh, err)
 	}
 	if calls := len(fake.Calls()); calls != 1 {
 		t.Fatalf("embedder called %d times for unchanged text, want 1", calls)
 	}
-	fresh, err = e.store.UpsertEmbedding(e.Admin(), "person", personID, "Vector Person renamed", fake)
+	fresh, err = e.store.UpsertEmbedding(e.Admin(), "person", personID, "Vector Person renamed", embedder)
 	if err != nil || !fresh {
 		t.Fatalf("changed text not re-embedded: fresh=%v err=%v", fresh, err)
 	}
@@ -48,17 +63,21 @@ func TestEmbeddingUpsertReusesUnchangedText(t *testing.T) {
 func TestSimilarityRankingAndRowScope(t *testing.T) {
 	e := setupSearch(t)
 	fake := ai.NewFakeClient()
+	embedder := fakeEmbedder(t, fake)
 
 	shared := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Anke Schulz', 'manual', 'human:x')`)
 	foreign := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by) VALUES ($1, $2, 'Bernd Kruse', $3, 'manual', 'human:x')`, e.Rep3)
 	for id, text := range map[ids.UUID]string{shared: "Anke Schulz", foreign: "Bernd Kruse"} {
-		if _, err := e.store.UpsertEmbedding(e.Admin(), "person", id, text, fake); err != nil {
+		if _, err := e.store.UpsertEmbedding(e.Admin(), "person", id, text, embedder); err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	// The fake embeds identical text to the identical vector, so the
-	// exact-text query must rank its entity first with similarity ~1.
+	// exact-text query must rank its entity first with similarity ~1. This
+	// is the test's own oracle for "what vector would identical text
+	// produce" — not the AI call under test (that's the embedder above) —
+	// so it stays a direct, offline call to the fake's deterministic hash.
 	queryVec, err := fake.Embed(context.Background(), model.EmbedRequest{Inputs: []string{"Anke Schulz"}})
 	if err != nil {
 		t.Fatal(err)
@@ -86,6 +105,7 @@ func TestSimilarityRankingAndRowScope(t *testing.T) {
 func TestHybridRRFAgreementWins(t *testing.T) {
 	e := setupSearch(t)
 	fake := ai.NewFakeClient()
+	embedder := fakeEmbedder(t, fake)
 
 	agree := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Solar Grid', 'manual', 'human:x')`)
 	lexOnly := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Solar Panels', 'manual', 'human:x')`)
@@ -99,12 +119,12 @@ func TestHybridRRFAgreementWins(t *testing.T) {
 		vecOnly: "solar grid",
 		lexOnly: "completely different topic",
 	} {
-		if _, err := e.store.UpsertEmbedding(e.Admin(), "person", id, text, fake); err != nil {
+		if _, err := e.store.UpsertEmbedding(e.Admin(), "person", id, text, embedder); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	hits, err := e.store.HybridSearch(e.Admin(), "solar grid", fake, 10)
+	hits, err := e.store.HybridSearch(e.Admin(), "solar grid", embedder, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +146,7 @@ func TestHybridRRFAgreementWins(t *testing.T) {
 func TestEmbedGenMaintainsRowsFromEvents(t *testing.T) {
 	e := setupSearch(t)
 	fake := ai.NewFakeClient()
-	gen := search.NewEmbedGen(e.store, fake)
+	gen := search.NewEmbedGen(e.store, fakeEmbedder(t, fake))
 
 	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Event Driven', 'manual', 'human:x')`)
 	env := kevents.Envelope{

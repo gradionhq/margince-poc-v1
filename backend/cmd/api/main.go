@@ -174,17 +174,20 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		opts = append(opts, busReady)
 	}
 
-	coldStart, err := coldStartOptions(cfg.routingPath, cfg.fakeBrain, pool, deployCfg.AI.CapturePayloads, logger)
+	// ONE resolution point: coldStartOptions, offerDraftOptions and the
+	// /readyz AI line all consume the same *compose.ModelPath rather than
+	// each running their own copy of the declared-routing/--ai-fake/
+	// neither switch (and, with it, their own Router, cache and budget).
+	modelPath, aiState, err := resolveModelPath(cfg.routingPath, cfg.fakeBrain, pool, deployCfg.AI.CapturePayloads, logger)
 	if err != nil {
 		return err
 	}
-	opts = append(opts, coldStart...)
-
-	offerDraft, err := offerDraftOptions(cfg.routingPath, cfg.fakeBrain, pool, deployCfg.AI.CapturePayloads, logger)
-	if err != nil {
-		return err
+	opts = append(opts, coldStartOptions(modelPath)...)
+	opts = append(opts, offerDraftOptions(pool, modelPath)...)
+	opts = append(opts, compose.WithAIState(aiState))
+	if modelPath != nil {
+		opts = append(opts, compose.WithAIMetrics(modelPath.WriteMetrics))
 	}
-	opts = append(opts, offerDraft...)
 
 	deepRead, err := deepReadOption(pool, logger)
 	if err != nil {

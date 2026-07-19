@@ -53,7 +53,17 @@ func setupWithOfferDraft(t *testing.T) (*env, *ai.FakeClient) {
 	t.Cleanup(pool.Close)
 	retriever := search.NewRetriever(search.NewStore(pool), nil)
 	fake := ai.NewFakeClient()
-	return setupWithOptions(t, compose.WithOfferDraft(fake, retriever)), fake
+	// The OfferDraft lane rides the DB-less router (ai.WithFakeClient swaps
+	// in this scripted fake) instead of handing fake straight to
+	// WithOfferDraft, so this suite's --ai-fake path exercises the same
+	// routing/budget/secret-stripping pipeline production's OfferDraft
+	// lane does. WithoutResultCache keeps every scripted candidate reaching
+	// the fake — callers script it AFTER seeding deal context, per test.
+	modelPath, err := compose.NewLocalModelPath(ai.FakeRoutingConfig(), ai.WithFakeClient(fake), ai.WithoutResultCache())
+	if err != nil {
+		t.Fatalf("NewLocalModelPath: %v", err)
+	}
+	return setupWithOptions(t, compose.WithOfferDraft(modelPath.OfferDraft, retriever)), fake
 }
 
 // seedDealContextActivity logs one activity linked to the deal — "the

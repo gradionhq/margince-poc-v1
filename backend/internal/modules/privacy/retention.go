@@ -32,6 +32,21 @@ import (
 // instead of one giant transaction.
 const retentionBatch = 200
 
+// embedCallRetention bounds how long an embedding-kind ai_call trace row
+// survives (spec §4), in days. Unlike the retention_policy rows above,
+// this is a fixed operational cap, not an admin-editable per-workspace
+// setting: ai_call carries no subject content (it is telemetry — routing,
+// spend, and identity facts, never a customer's data), so its age-out is
+// engine-owned hygiene, the same footing as commercialCorrespondenceFloor
+// below rather than a §3.4 storage-limitation policy. Only the embedding
+// kind is aged because its volume is different in kind, not in risk:
+// every indexed record emits embed rows on every re-index, and past the
+// spend ledger's monthly close they answer no question a completion row
+// doesn't. Completion rows ARE the certification substrate (attempt
+// ladders, served identity, config lineage) and stay until a spec
+// retention rule says otherwise.
+const embedCallRetention = 90
+
 // RetentionService drives the evaluator; the worker ticks it nightly.
 type RetentionService struct {
 	pool   *pgxpool.Pool
@@ -196,7 +211,56 @@ func (s *RetentionService) evaluateWorkspace(ctx context.Context) error {
 			}
 		}
 	}
+	return s.evaluateEmbedCallRetention(ctx)
+}
+
+// evaluateEmbedCallRetention erases over-age embedding-kind ai_call trace
+// rows, batched and audited one record per transaction like every other
+// retention action — but driven by the fixed embedCallRetention cap
+// instead of a workspace's retention_policy rows, since these rows are
+// engine telemetry, not a policy-configurable domain record.
+func (s *RetentionService) evaluateEmbedCallRetention(ctx context.Context) error {
+	var due []ids.UUID
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			SELECT id FROM ai_call
+			WHERE kind = 'embedding' AND occurred_at < now() - make_interval(days => $1)
+			LIMIT $2`, embedCallRetention, retentionBatch)
+		if err != nil {
+			return err
+		}
+		due, err = pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("retention ai_call/embedding: select: %w", err)
+	}
+	for _, id := range due {
+		if err := s.eraseEmbedCall(ctx, id); err != nil {
+			return fmt.Errorf("retention ai_call/embedding on %s: %w", id, err)
+		}
+	}
 	return nil
+}
+
+// eraseEmbedCall deletes one over-age embedding-kind ai_call row outright
+// — unlike activity/erase there is no metadata half left to keep: the
+// embedding trace row IS the content being aged out.
+func (s *RetentionService) eraseEmbedCall(ctx context.Context, id ids.UUID) error {
+	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `DELETE FROM ai_call WHERE id = $1`, id); err != nil {
+			return err
+		}
+		auditID, err := storekit.AuditWithEvidence(ctx, tx, actionErase, "ai_call", id, nil, nil, map[string]any{
+			"retention_action": actionErase, "retain_days": embedCallRetention,
+		})
+		if err != nil {
+			return err
+		}
+		return storekit.Emit(ctx, tx, auditID, "retention.applied", "ai_call", id, map[string]any{
+			evidenceKeyAction: actionErase,
+		})
+	})
 }
 
 // apply runs ONE action on ONE record in one audited transaction.
@@ -289,7 +353,7 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 			return err
 		}
 		return storekit.Emit(ctx, tx, auditID, "retention.applied", pol.ObjectType, id, map[string]any{
-			"action": pol.Action, "policy": pol.ID,
+			evidenceKeyAction: pol.Action, "policy": pol.ID,
 		})
 	})
 }

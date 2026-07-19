@@ -135,6 +135,7 @@ type Server struct {
 	// and /metrics still reports the single honest total exactly once.
 	// nil means an AI-less role reports no AI counters at all.
 	aiMetrics func(io.Writer)
+	aiState   string // the /readyz AI line (aistate.go); never a readiness gate
 }
 
 var _ crmcontracts.ServerInterface = Server{}
@@ -415,7 +416,7 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH auth
 	// other operational edges are unauthenticated by design.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", httpserver.Healthz)
-	mux.HandleFunc("/readyz", httpserver.Readyz(srv.readinessChecks(pool.Ping)...))
+	mux.HandleFunc("/readyz", httpserver.Readyz(srv.aiStateOrDefault(), srv.readinessChecks(pool.Ping)...))
 	mux.HandleFunc("/metrics", httpserver.Metrics(pool,
 		func(ctx context.Context) (int64, error) { return events.OutboxBacklog(ctx, pool) },
 		events.PublishedTotal,

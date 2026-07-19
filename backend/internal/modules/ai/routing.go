@@ -5,6 +5,8 @@ package ai
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 
@@ -30,6 +32,14 @@ type RoutingConfig struct {
 	Tiers      map[Tier]ProviderConfig `yaml:"tiers"`
 	Embeddings ProviderConfig          `yaml:"embeddings"`
 	Profile    Profile                 `yaml:"profile"`
+	// sourceHash is the sha256 digest of the raw yaml bytes this config was
+	// parsed from (spec §4) — the routing half of the ai_call_config
+	// dimension key, alongside the generated TaskContractHash. Set by
+	// ParseRouting so every caller (LoadRoutingFile, a direct ParseRouting
+	// call in a test) gets the same deterministic digest for the same
+	// bytes. Zero value "" on a config built by struct literal (FakeRoutingConfig,
+	// most unit-test configs) rather than parsed from yaml.
+	sourceHash string
 }
 
 // LoadRoutingFile reads and validates a deployment's routing config.
@@ -53,15 +63,24 @@ func ParseRouting(raw []byte) (RoutingConfig, error) {
 	if err := cfg.validate(); err != nil {
 		return RoutingConfig{}, err
 	}
+	sum := sha256.Sum256(raw)
+	cfg.sourceHash = hex.EncodeToString(sum[:])
 	return cfg, nil
-}
-
-var knownTiers = map[Tier]bool{
-	TierLocalSmall: true, TierCheapCloud: true, TierPremium: true, TierLocalLarge: true,
 }
 
 // localProviders can serve the sovereign zero-egress profile.
 var localProviders = map[string]bool{providerOllama: true, providerVLLM: true, ProviderFake: true}
+
+// ProviderIsLocal reports whether provider names same-host inference
+// rather than a network-hosted vendor — the one exported spelling of
+// this package's own localProviders set, so a caller outside it (the
+// aicert cert lane's cloud-only P95 latency cap) never re-encodes the
+// same "which providers are local" invariant as a second, driftable
+// copy this package's own conformance test (
+// TestLocalOnlyMatchesLocalProvidersForEveryProvider) cannot see.
+func ProviderIsLocal(provider string) bool {
+	return localProviders[provider]
+}
 
 func (cfg RoutingConfig) validate() error {
 	switch cfg.Profile {
@@ -94,6 +113,49 @@ func (cfg RoutingConfig) validate() error {
 		return fmt.Errorf("ai: routing config: profile sovereign forbids cloud provider %q on the embeddings lane", cfg.Embeddings.Provider)
 	}
 	return nil
+}
+
+// UnboundLadderWarnings reports every task whose entire fallback ladder
+// has no bound tier in cfg.Tiers: a call for that task has nowhere to
+// route and is refused outright, not merely degraded. This is not a
+// startup error — a deployment legitimately narrows to only the
+// workloads it actually runs — but it must be loud: an operator should
+// read the gap off the boot log, not discover it from a refused call at
+// 3am. AllTasks()'s sorted order keeps the result deterministic.
+func (cfg RoutingConfig) UnboundLadderWarnings() []string {
+	var warnings []string
+	for _, task := range AllTasks() {
+		ladder := taskLadders[task]
+		bound := false
+		for _, tier := range ladder {
+			if _, ok := cfg.Tiers[tier]; ok {
+				bound = true
+				break
+			}
+		}
+		if bound {
+			continue
+		}
+		names := make([]string, len(ladder))
+		for i, tier := range ladder {
+			names[i] = string(tier)
+		}
+		warnings = append(warnings, fmt.Sprintf("task %s: no bound tier on ladder %v; calls will be refused", task, names))
+	}
+	return warnings
+}
+
+// TaskLadder reports task's routing fallback ladder — primary tier
+// first, then the rungs a call walks on provider error or schema-
+// validation failure. taskLadders (tasks_gen.go) is otherwise private to
+// this package; this is the smallest export that lets a caller outside
+// it (the aicert certification runner, compose/aicert) learn which tiers
+// a MODEL= override must rebind for the task under test, without
+// duplicating the routing table this package alone owns. The returned
+// slice is a copy — a caller mutating it cannot corrupt the package's
+// own table.
+func TaskLadder(task Task) []Tier {
+	return append([]Tier(nil), taskLadders[task]...)
 }
 
 // buildClients turns validated bindings into live Clients via

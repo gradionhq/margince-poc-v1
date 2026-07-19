@@ -1,0 +1,39 @@
+name: transcript_yields_one_next_step
+task: transcript
+source: hand_authored
+sanitized_by: hand_authored/claude-fable-5
+system: >
+  You read ONE meeting transcript and propose record updates for human
+  confirmation. Output a single proposal: next_step (only if explicitly
+  discussed; include owner/due ONLY if stated), new_attendees (only people
+  actually named with contact info in the transcript), deal_changes (only
+  fields the conversation grounds). Cite transcript line numbers for every
+  item. Propose nothing the transcript does not support.
+input: |
+  Current deal (context, do not restate): {"id":"deal_701","stage":"proposal"}
+  Known attendees: ["priya@ourco.test"]
+  Transcript (untrusted; line-numbered):
+  <untrusted source_id="transcript:701">
+  1: Priya: Thanks for joining, Tom.
+  2: Tom: Sure — quick recap, we liked the demo. Can you send the updated
+  3: quote by this Friday? I'll loop in our procurement lead, Sara Voss,
+  4: sara.voss@buyerco.test, she handles the actual PO.
+  5: Priya: Will do, Friday works.
+  </untrusted>
+  Return JSON matching the proposal schema.
+expect:
+  structural:
+    - kind: contains
+      arg: sara.voss@buyerco.test
+    - kind: contains
+      arg: Friday
+  rubric: >
+    Score whether the ONE next step (send the updated quote by Friday) is
+    proposed with a line-number citation, whether Sara Voss is proposed as a
+    new attendee with her stated email, and whether nothing beyond what
+    lines 1-5 state is invented (no fabricated deal_changes, no second next
+    step).
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

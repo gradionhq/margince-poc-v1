@@ -47,11 +47,14 @@ var offerDraftPerms = principal.Permissions{
 
 // newOfferDrafterFixture wires an offerDrafter over the harness pool: the
 // search module's retriever (the retrieval seam decision this task made —
-// no bespoke context store) and a fresh, per-test FakeClient so each
-// test's assertions about what was scripted/recorded stay independent.
-func newOfferDrafterFixture(e *integration.Env, brain *ai.FakeClient) offerDrafter {
+// no bespoke context store) and a fresh, per-test FakeClient, ridden
+// through the router (fakeModelPath) on the same OfferDraft lane
+// production wires (compose.WithOfferDraft(modelPath.OfferDraft, …)) so
+// each test's assertions about what was scripted/recorded stay
+// independent.
+func newOfferDrafterFixture(t *testing.T, e *integration.Env, brain *ai.FakeClient) offerDrafter {
 	return offerDrafter{
-		brain:   brain,
+		brain:   fakeModelPath(t, brain).OfferDraft,
 		deals:   e.Deals,
 		context: search.NewRetriever(search.NewStore(e.Pool), nil),
 	}
@@ -143,7 +146,7 @@ func TestDraftOfferLinesStagesGroundedLinesAndDiscloses(t *testing.T) {
 		 "evidence_snippet":"we'd want a kickoff workshop","source_id":"` + workshopSource + `",
 		 "conversation_price_minor":20000}
 	]}`)
-	drafter := newOfferDrafterFixture(e, fake)
+	drafter := newOfferDrafterFixture(t, e, fake)
 
 	result, err := drafter.DraftOfferLines(ctx, offerID)
 	if err != nil {
@@ -206,7 +209,7 @@ func TestDraftOfferLinesDropsUngroundedCandidateAsHonestEmpty(t *testing.T) {
 		 "evidence_snippet":"this text never appears in the deal's context","source_id":"` + source + `",
 		 "conversation_price_minor":50000}
 	]}`)
-	drafter := newOfferDrafterFixture(e, fake)
+	drafter := newOfferDrafterFixture(t, e, fake)
 
 	result, err := drafter.DraftOfferLines(ctx, offerID)
 	if err != nil {
@@ -245,7 +248,7 @@ func TestDraftOfferLinesGroundsPriceOnTheRateCardWhenNoConversationPrice(t *test
 		 "evidence_snippet":"ongoing onboarding support for their new hires","source_id":"` + source + `",
 		 "product_id":"` + product.Id.String() + `"}
 	]}`)
-	drafter := newOfferDrafterFixture(e, fake)
+	drafter := newOfferDrafterFixture(t, e, fake)
 
 	result, err := drafter.DraftOfferLines(ctx, offerID)
 	if err != nil {
@@ -289,7 +292,7 @@ func TestDraftOfferLinesNeverGroundsARateCardPriceInAMismatchedCurrency(t *testi
 		 "evidence_snippet":"ongoing onboarding support for their new hires","source_id":"` + source + `",
 		 "product_id":"` + product.Id.String() + `"}
 	]}`)
-	drafter := newOfferDrafterFixture(e, fake)
+	drafter := newOfferDrafterFixture(t, e, fake)
 
 	result, err := drafter.DraftOfferLines(ctx, offerID)
 	if err != nil {
@@ -357,7 +360,7 @@ func TestDraftOfferLinesNeverGuessesAnUngroundedPrice(t *testing.T) {
 		{"description":"Custom integration","quantity":"1","tax_rate":"19.00",
 		 "evidence_snippet":"custom integration with their internal tools","source_id":"` + source + `"}
 	]}`)
-	drafter := newOfferDrafterFixture(e, fake)
+	drafter := newOfferDrafterFixture(t, e, fake)
 
 	result, err := drafter.DraftOfferLines(ctx, offerID)
 	if err != nil {
@@ -395,7 +398,7 @@ func TestDraftOfferLinesDropsStoreInvalidQuantityWithoutErroringTheBatch(t *test
 		{"description":"Onboarding (zero quantity)","quantity":"0","tax_rate":"19.00",
 		 "evidence_snippet":"onboarding session","source_id":"` + source + `"}
 	]}`)
-	drafter := newOfferDrafterFixture(e, fake)
+	drafter := newOfferDrafterFixture(t, e, fake)
 
 	result, err := drafter.DraftOfferLines(ctx, offerID)
 	if err != nil {
@@ -418,7 +421,7 @@ func TestDraftOfferLinesStripsSecretsBeforeTheModelCall(t *testing.T) {
 		"Internal note: our vendor API key is "+secret+" — do not share with the client.")
 
 	fake := ai.NewFakeClient().Script(`{"lines":[]}`)
-	drafter := newOfferDrafterFixture(e, fake)
+	drafter := newOfferDrafterFixture(t, e, fake)
 
 	if _, err := drafter.DraftOfferLines(ctx, offerID); err != nil {
 		t.Fatalf("draft offer lines: %v", err)
