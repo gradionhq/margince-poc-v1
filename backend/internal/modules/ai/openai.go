@@ -93,6 +93,9 @@ type openaiOptions struct {
 
 type openaiResponse struct {
 	ID string `json:"id"`
+	// Model is the Responses API's served-identity field: the specific model
+	// that generated this response.
+	Model string `json:"model"`
 	// Status is the terminal response state: "completed" is the only success;
 	// "failed" carries Error, "incomplete" carries IncompleteDetails (e.g.
 	// max_output_tokens, content_filter). Anything else must surface as an
@@ -161,6 +164,7 @@ func (c *openaiClient) Complete(ctx context.Context, req model.Request) (model.R
 		OutputTokens:    out.Usage.OutputTokens,
 		CachedTokens:    out.Usage.InputTokenDetails.CachedTokens,
 		ReasoningTokens: out.Usage.OutputTokenDetails.ReasoningTokens,
+		ServedModel:     out.Model,
 	}
 	if out.ID != "" {
 		if meta, err := json.Marshal(map[string]string{"response_id": out.ID}); err == nil {

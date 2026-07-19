@@ -51,6 +51,7 @@ type ollamaToolWire struct {
 }
 
 type ollamaChatEvent struct {
+	Model   string `json:"model"`
 	Message struct {
 		Content string `json:"content"`
 	} `json:"message"`
@@ -74,6 +75,7 @@ func (c *ollamaClient) Complete(ctx context.Context, req model.Request) (model.R
 		Text:         out.Message.Content,
 		InputTokens:  out.PromptEvalCount,
 		OutputTokens: out.EvalCount,
+		ServedModel:  out.Model,
 	}, nil
 }
 

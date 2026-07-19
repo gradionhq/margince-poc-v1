@@ -370,9 +370,24 @@ func selectModelPath(routingPath string, fake, capturePayloads bool, pool *pgxpo
 		if err != nil {
 			return compose.ModelPath{}, err
 		}
+		// A task whose whole fallback ladder has no bound tier is not a
+		// boot error (a deployment may legitimately not run every
+		// workload), but it must be loud: log it now, not discover it
+		// from a refused call.
+		for _, w := range cfg.UnboundLadderWarnings() {
+			log.Warn(w)
+		}
 		return compose.NewModelPath(cfg, pool, capturePayloads, log)
 	case fake:
-		return compose.FakeModelPath(ai.NewFakeClient()), nil
+		// A real ModelPath over ai.FakeRoutingConfig() rather than
+		// FakeModelPath's direct client wiring: the worker always has a
+		// pool, so --ai-fake safely rides the real Router (tiering, the
+		// budget guardrail, metering, call tracing) with only the
+		// provider swapped for the deterministic fake. capturePayloads
+		// still names the deployment's own posture — cmd/api's
+		// resolveModelPath honors it on this same arm, and two process
+		// roles must never disagree on whether content capture is on.
+		return compose.NewModelPath(ai.FakeRoutingConfig(), pool, capturePayloads, log)
 	default:
 		return compose.ModelPath{}, nil
 	}

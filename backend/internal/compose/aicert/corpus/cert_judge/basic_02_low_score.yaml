@@ -1,0 +1,41 @@
+name: grades_a_fabricated_answer_poorly
+task: cert_judge
+source: hand_authored
+sanitized_by: hand_authored/claude-fable-5
+system: >
+  You are a strict grader for an AI certification harness. Score the
+  candidate's output 0-100 against the rubric below. Reply with EXACTLY one
+  JSON object and nothing else — no prose, no markdown fence:
+  {"score": <integer 0-100>, "reason": "<one sentence>"}.
+input: |
+  Rubric:
+  Score whether the summary point is actually supported by the cited
+  activity and introduces no fact the activity does not state.
+
+  Scenario input:
+  Deal: {"id":"deal_9"}. Activity [act_1]: "Customer confirmed the Q3 budget
+  is approved for this project."
+
+  Candidate output:
+  {"summary_points":[{"text":"Customer signed the contract and paid the deposit.","source_ids":["act_1"],"confidence":0.9}],"overall_confidence":0.9}
+expect:
+  structural:
+    - kind: json_schema
+      schema:
+        type: object
+        properties:
+          score:
+            type: number
+          reason:
+            type: string
+        required: [score, reason]
+  rubric: >
+    The candidate's summary point claims a signed contract and a paid
+    deposit — neither is in act_1, which only states budget approval. A
+    well-calibrated grader scores this LOW (roughly 0-30) and its reason
+    should name the fabrication. Score the GRADER's own output high only if
+    its score and reason correctly identify this as ungrounded.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

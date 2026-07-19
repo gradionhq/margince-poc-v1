@@ -1,4 +1,4 @@
--- 0087: per-call AI metadata (closes foundation AIRT-SCHEMA-N-1). One row
+-- 0088: per-call AI metadata (closes foundation AIRT-SCHEMA-N-1). One row
 -- per completion terminal — served call, cache hit, or failure — written
 -- from the router's single choke point beside the ai_usage meter. Like
 -- ai_usage these are telemetry counters, not domain records: no

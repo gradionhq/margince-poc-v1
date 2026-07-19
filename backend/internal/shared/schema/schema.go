@@ -40,24 +40,34 @@ func (n Node) Describe(desc string) Node {
 	return n
 }
 
+// The four Node.Type values this package's vocabulary spans — shared with
+// validate.go's ValidateJSON so the builder and the validator never drift
+// on the type-name strings they switch over.
+const (
+	typeObject = "object"
+	typeArray  = "array"
+	typeString = "string"
+	typeNumber = "number"
+)
+
 // String is a JSON string leaf.
-func String() Node { return Node{Type: "string"} }
+func String() Node { return Node{Type: typeString} }
 
 // Number is a JSON number leaf (integer or float).
-func Number() Node { return Node{Type: "number"} }
+func Number() Node { return Node{Type: typeNumber} }
 
 // Array is a list whose every item matches items.
-func Array(items Node) Node { return Node{Type: "array", Items: &items} }
+func Array(items Node) Node { return Node{Type: typeArray, Items: &items} }
 
 // Enum is a string leaf constrained to one of values (JSON Schema `enum`).
 // All supported providers constrain generation to the given set.
-func Enum(values ...string) Node { return Node{Type: "string", Enum: values} }
+func Enum(values ...string) Node { return Node{Type: typeString, Enum: values} }
 
 // Object is a closed object: props are its properties and required names the
 // ones that must be present (typically all of them, for extraction).
 func Object(props map[string]Node, required ...string) Node {
 	closed := false
-	return Node{Type: "object", AdditionalProperties: &closed, Properties: props, Required: required}
+	return Node{Type: typeObject, AdditionalProperties: &closed, Properties: props, Required: required}
 }
 
 // Must renders a node to the wire bytes for ResponseSchema. It panics only on

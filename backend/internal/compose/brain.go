@@ -74,22 +74,61 @@ func NewModelPath(cfg ai.RoutingConfig, pool *pgxpool.Pool, capturePayloads bool
 	}, nil
 }
 
+// NewLocalModelPath builds a ModelPath over the DB-less local router
+// (ai.NewLocalRouter) instead of NewModelPath's Postgres-backed one —
+// the same lane set, wired the same way, for a caller with no pool (the
+// compose integration suites' offline fixtures, which need the named
+// ModelPath lanes rather than a bare *ai.Router). The aicert lane's
+// candidate/judge routers go through NewLocalRouterForCert instead —
+// they drive an arbitrary corpus task, including the judge-only
+// cert_judge, so they need the router itself, not one of ModelPath's
+// fixed named completers. opts ride straight through to NewLocalRouter,
+// so a caller wires a call recorder, disables the result cache, or pins
+// a static budget exactly as it would calling the router constructor
+// directly.
+func NewLocalModelPath(cfg ai.RoutingConfig, opts ...ai.LocalOption) (ModelPath, error) {
+	router, err := ai.NewLocalRouter(cfg, opts...)
+	if err != nil {
+		return ModelPath{}, err
+	}
+	return ModelPath{
+		Agent:           agentBrain{router: router},
+		ColdStart:       routerBrain{router: router, task: ai.TaskColdStart},
+		SiteExtract:     routerBrain{router: router, task: ai.TaskSiteExtract},
+		SiteFactExtract: routerBrain{router: router, task: ai.TaskSiteFactExtract},
+		BriefRank:       routerBrain{router: router, task: ai.TaskBriefRanking},
+		OfferDraft:      routerBrain{router: router, task: ai.TaskOfferDraft},
+		CaptureClassify: routerBrain{router: router, task: ai.TaskCaptureClassify},
+		SignatureEnrich: routerBrain{router: router, task: ai.TaskEnrich},
+		Embedder:        router,
+	}, nil
+}
+
+// NewLocalRouterForCert builds the DB-less local router the aicert
+// certification lane (compose/aicert) drives directly. ModelPath's own
+// lanes (ColdStart, SiteExtract, ...) are fixed, named workloads; the
+// cert lane must complete an arbitrary corpus task — any ai.Task,
+// including the judge-only cert_judge — on two independently
+// configured routers (the candidate, optionally MODEL=-overridden on
+// just its own task's ladder; the judge, always the unmodified config),
+// so it needs the router itself, not one of ModelPath's named
+// completers. This thin passthrough exists so the raw ai.NewLocalRouter
+// construction stays inside this file — the one seam
+// arch_test.go's TestNoModelClientOutsideTheGate enforces — rather than
+// aicert becoming a second, ungated construction site.
+func NewLocalRouterForCert(cfg ai.RoutingConfig, opts ...ai.LocalOption) (*ai.Router, error) {
+	return ai.NewLocalRouter(cfg, opts...)
+}
+
 // WriteMetrics renders the model path's underlying router's AI call
 // counters (margince_ai_calls_total et al.) for the /metrics endpoint.
-// Nil-safe for the fake path (FakeModelPath's Agent is a fakeBrain, not an
-// agentBrain, so it writes nothing rather than panicking).
+// Nil-safe for a ModelPath built with a nil Agent (no model path
+// configured), so a role that never wired one writes nothing rather than
+// panicking.
 func (p ModelPath) WriteMetrics(w io.Writer) {
 	if r, ok := p.Agent.(agentBrain); ok {
 		r.router.WriteMetrics(w)
 	}
-}
-
-// FakeModelPath drives every lane with one offline fake — the dev/test
-// path behind an explicit flag, never a silent default. The Agent lane
-// wraps the fake in fakeBrain to satisfy runner.Brain's Meta return; the
-// direct-call lanes take the fake directly through the completer seam.
-func FakeModelPath(client *ai.FakeClient) ModelPath {
-	return ModelPath{Agent: fakeBrain{client: client}, ColdStart: client, SiteExtract: client, SiteFactExtract: client, BriefRank: client, OfferDraft: client, CaptureClassify: client, SignatureEnrich: client, Embedder: client}
 }
 
 // routerBrain adapts the tiered router into the 2-return completer seam
@@ -116,17 +155,6 @@ type agentBrain struct {
 func (b agentBrain) Complete(ctx context.Context, req model.Request) (model.Response, runner.Meta, error) {
 	resp, info, err := b.router.Complete(ctx, ai.TaskAgentLoop, req)
 	return resp, runner.Meta{ModelID: info.ModelID, Tier: string(info.Tier)}, err
-}
-
-// fakeBrain wraps the offline fake into runner.Brain for the Agent lane:
-// ai.FakeClient cannot return runner.Meta (the ai module must not import
-// runner — that inverts the module DAG), so compose supplies the adapter
-// and stamps a fixed "fake" identity.
-type fakeBrain struct{ client *ai.FakeClient }
-
-func (b fakeBrain) Complete(ctx context.Context, req model.Request) (model.Response, runner.Meta, error) {
-	resp, err := b.client.Complete(ctx, req)
-	return resp, runner.Meta{ModelID: "fake", Tier: "fake"}, err
 }
 
 // CompleteValidated exposes the §5.2 structured-output pipeline

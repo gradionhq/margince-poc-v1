@@ -34,7 +34,7 @@ func TestOpenAICompleteMapsResponsesAPIUsageAndReasoning(t *testing.T) {
 		}
 		body = readBody(t, r.Body)
 		// Leading reasoning item BEFORE the message — the parser must walk output[].
-		_, _ = w.Write([]byte(`{"id":"resp_1","status":"completed","output":[
+		_, _ = w.Write([]byte(`{"id":"resp_1","model":"gpt-5-served","status":"completed","output":[
 			{"type":"reasoning","summary":[]},
 			{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}],
 			"usage":{"input_tokens":10,"output_tokens":5,
@@ -50,6 +50,9 @@ func TestOpenAICompleteMapsResponsesAPIUsageAndReasoning(t *testing.T) {
 	}
 	if resp.Text != "hi" || resp.ReasoningTokens != 4 || resp.CachedTokens != 6 {
 		t.Fatalf("mapping wrong: %+v", resp)
+	}
+	if resp.ServedModel != "gpt-5-served" {
+		t.Fatalf("ServedModel not decoded from the response's own model field: %q", resp.ServedModel)
 	}
 	if resp.InputTokens != 10 || resp.OutputTokens != 5 {
 		t.Fatalf("token mapping wrong: %+v", resp)

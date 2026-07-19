@@ -67,7 +67,7 @@ func (m *callMetrics) WritePrometheus(w io.Writer) {
 	tokIn, tokOut := m.tokIn, m.tokOut
 	m.mu.Unlock()
 
-	writeCounterFamily(w, "margince_ai_calls_total", "AI completion terminals since process start.", calls)
+	writeCounterFamily(w, "margince_ai_calls_total", "AI call terminals (completion or embedding) since process start.", calls)
 	writeCounterFamily(w, "margince_ai_call_errors_total", "AI completion failures since process start.", errs)
 	_, _ = fmt.Fprintf(w, "# HELP margince_ai_tokens_total AI tokens billed since process start.\n")
 	_, _ = fmt.Fprintf(w, "# TYPE margince_ai_tokens_total counter\n")

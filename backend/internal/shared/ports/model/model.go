@@ -119,6 +119,12 @@ type Response struct {
 	// ProviderMetadata carries vendor-only outputs namespaced by provider key
 	// (e.g. {"openai":{"response_id":"…"}} for session logging).
 	ProviderMetadata map[string]json.RawMessage
+	// ServedModel is the provider-reported identity of the model that actually
+	// answered — read off the wire response, never fabricated by an adapter. It
+	// is empty when the provider reports none (the routing layer then falls
+	// back to the configured tier binding, which may differ from what actually
+	// served if the vendor silently substitutes a model).
+	ServedModel string
 }
 
 // TokenStream delivers incremental completion tokens; Close releases the

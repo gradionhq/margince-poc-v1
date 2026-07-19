@@ -193,7 +193,15 @@ func TestAssembleContextFixedDepthWalk(t *testing.T) {
 		e.seed(t, `INSERT INTO activity_link (id, workspace_id, activity_id, entity_type, person_id) VALUES ($1, $2, $3, 'person', $4)`, activityID, personID)
 	}
 
-	retriever := search.NewRetriever(e.store, ai.NewFakeClient())
+	// AssembleContext never calls the embedder (it's Search's seam), but
+	// the retriever's constructor still wants one — riding it through the
+	// router (rather than handing the raw fake straight to NewRetriever)
+	// keeps every compose-level fake wired the one way.
+	modelPath, err := compose.NewLocalModelPath(ai.FakeRoutingConfig(), ai.WithFakeClient(ai.NewFakeClient()), ai.WithoutResultCache())
+	if err != nil {
+		t.Fatalf("NewLocalModelPath: %v", err)
+	}
+	retriever := search.NewRetriever(e.store, modelPath.Embedder)
 	assembled, err := retriever.AssembleContext(e.Admin(),
 		datasource.EntityRef{Type: datasource.EntityDeal, ID: dealID}, retrieval.AssembleOptions{MaxItems: 5})
 	if err != nil {

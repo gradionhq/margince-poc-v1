@@ -9,12 +9,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// WithAIMetrics sets this role's /metrics AI renderer. coldStartOptions
-// and offerDraftOptions each call this once for their own ModelPath, but
-// every path's Router shares the one process-wide counter collector
-// (ai/metrics.go), so each registration renders the identical total —
-// last-wins is correct here, and it keeps the exposition to one AI
-// metric family instance instead of a duplicate per registered surface.
+// WithAIMetrics sets this role's /metrics AI renderer. A process resolves
+// one ModelPath and registers this exactly once over it, so /metrics
+// exposes one AI metric family instance for the process's one Router.
 func WithAIMetrics(write func(io.Writer)) Option {
 	return func(s *Server, _ *pgxpool.Pool) {
 		s.aiMetrics = write

@@ -100,7 +100,11 @@ type geminiOptions struct {
 }
 
 type geminiResponse struct {
-	Candidates []struct {
+	// ModelVersion is Gemini's served-identity field: the specific model
+	// version that generated the response, which can differ from the alias
+	// requested (e.g. a "-latest" alias resolving to a dated version).
+	ModelVersion string `json:"modelVersion"` //nolint:tagliatelle // Google's wire format (camelCase)
+	Candidates   []struct {
 		Content geminiContent `json:"content"`
 		// FinishReason names why generation stopped; "STOP" is the only clean
 		// finish. SAFETY / MAX_TOKENS / RECITATION / … must surface as errors —
@@ -160,6 +164,7 @@ func (c *geminiClient) Complete(ctx context.Context, req model.Request) (model.R
 		OutputTokens:    out.UsageMetadata.CandidatesTokenCount + out.UsageMetadata.ThoughtsTokenCount,
 		CachedTokens:    out.UsageMetadata.CachedContentTokenCount,
 		ReasoningTokens: out.UsageMetadata.ThoughtsTokenCount,
+		ServedModel:     out.ModelVersion,
 	}
 	if len(signatures) > 0 {
 		if meta, err := json.Marshal(map[string][]string{"thought_signatures": signatures}); err == nil {

@@ -22,8 +22,22 @@ import (
 type FakeClient struct {
 	mu        sync.Mutex
 	scripted  []string
+	steps     []FakeStep
 	calls     []FakeCall
 	embedDims int
+}
+
+// FakeStep is one scripted Complete outcome beyond what Script's bare
+// text covers: Err (when set) fails the call instead of answering it —
+// the offline equivalent of a real provider's transient error, for a
+// test that must force one ladder rung to fail so the router falls
+// through to the next bound tier — and ServedModel (when set) overrides
+// Complete's default "fake" identity literal, for a test that must prove
+// two different rungs answered as two different served models.
+type FakeStep struct {
+	Text        string
+	ServedModel string
+	Err         error
 }
 
 // FakeCall is one recorded model invocation: the exact bytes that would
@@ -54,6 +68,18 @@ func (f *FakeClient) Script(texts ...string) *FakeClient {
 	return f
 }
 
+// ScriptSteps queues full Complete outcomes, consumed in order ahead of
+// any bare text queued via Script — for a test that needs more than a
+// scripted answer (a scripted failure, or an explicit served-model
+// identity) on a specific call. Applies to Complete only: Stream still
+// consumes Script's plain-text queue.
+func (f *FakeClient) ScriptSteps(steps ...FakeStep) *FakeClient {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.steps = append(f.steps, steps...)
+	return f
+}
+
 // Calls returns a copy of every recorded invocation.
 func (f *FakeClient) Calls() []FakeCall {
 	f.mu.Lock()
@@ -66,14 +92,27 @@ func (f *FakeClient) Complete(ctx context.Context, req model.Request) (model.Res
 	if err != nil {
 		return model.Response{}, err
 	}
-	text := f.nextText(payload)
+	step := f.nextStep(payload)
 	f.record(FakeCall{Op: "complete", Model: req.Model, Payload: payload, Report: report})
+	if step.Err != nil {
+		return model.Response{}, step.Err
+	}
+	// ServedModel defaults to the literal "fake": the fake client IS the
+	// wire, so this is exactly as honest as a real adapter's
+	// provider-reported field. A scripted FakeStep.ServedModel overrides
+	// it — only a test proving something served-identity-sensitive needs
+	// to set this explicitly.
+	servedModel := step.ServedModel
+	if servedModel == "" {
+		servedModel = "fake"
+	}
 	return model.Response{
-		Text: text,
+		Text: step.Text,
 		// Rough 4-bytes-per-token estimate — enough for metering and
 		// budget tests to see plausible, deterministic numbers.
 		InputTokens:  len(payload) / 4,
-		OutputTokens: len(text) / 4,
+		OutputTokens: len(step.Text) / 4,
+		ServedModel:  servedModel,
 	}, nil
 }
 
@@ -121,6 +160,28 @@ func (f *FakeClient) nextText(payload []byte) string {
 	h := fnv.New64a()
 	_, _ = h.Write(payload) // fnv never errors
 	return fmt.Sprintf("fake-completion:%016x", h.Sum64())
+}
+
+// nextStep pops the next queued FakeStep for Complete, falling back to a
+// bare-text step from Script's queue (or the deterministic payload-hash
+// fallback, once both queues run dry) unlocked by the same rules
+// nextText already applies to Stream.
+func (f *FakeClient) nextStep(payload []byte) FakeStep {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.steps) > 0 {
+		step := f.steps[0]
+		f.steps = f.steps[1:]
+		return step
+	}
+	if len(f.scripted) > 0 {
+		text := f.scripted[0]
+		f.scripted = f.scripted[1:]
+		return FakeStep{Text: text}
+	}
+	h := fnv.New64a()
+	_, _ = h.Write(payload) // fnv never errors
+	return FakeStep{Text: fmt.Sprintf("fake-completion:%016x", h.Sum64())}
 }
 
 // fakeWire mirrors the shape a real adapter marshals, so stripper

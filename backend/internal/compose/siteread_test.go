@@ -42,7 +42,7 @@ func TestExtractReadsTheImpressumForLegalFacts(t *testing.T) {
 	}
 	// Call order is deterministic (seed first, then the found probe), so the
 	// scripted queue addresses each page's extraction in turn.
-	brain := ai.NewFakeClient().Script(
+	fake := ai.NewFakeClient().Script(
 		`{"fields":[
 			{"field":"icp","value":"RevOps leaders","evidence_snippet":"Built for RevOps leaders","confidence":0.8},
 			{"field":"legal_name","value":"Acme (guessed)","evidence_snippet":"Acme builds robots.","confidence":0.95}]}`,
@@ -50,9 +50,9 @@ func TestExtractReadsTheImpressumForLegalFacts(t *testing.T) {
 			{"field":"legal_name","value":"Acme Robotics GmbH","evidence_snippet":"Acme Robotics GmbH","confidence":0.7},
 			{"field":"register_vat","value":"DE811234567","evidence_snippet":"USt-IdNr. DE811234567","confidence":0.9}]}`,
 	)
-	x := evidenceExtractor{fetch: fetch, brain: brain}
+	x := evidenceExtractor{fetch: fetch, brain: fakeModelPath(t, fake).ColdStart}
 
-	fields, err := x.extract(context.Background(), "https://acme.example", coldStartFieldValid)
+	fields, err := x.extract(fakeWorkspaceCtx(), "https://acme.example", coldStartFieldValid)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,17 +80,17 @@ func TestExtractReadsTheImpressumForLegalFacts(t *testing.T) {
 func TestExtractWithoutAnImpressumStaysASinglePageRead(t *testing.T) {
 	home := strings.Repeat("Acme builds robots. ", 10)
 	fetch := hostPages{"https://acme.example": home}
-	brain := ai.NewFakeClient().Script(
+	fake := ai.NewFakeClient().Script(
 		`{"fields":[{"field":"icp","value":"x","evidence_snippet":"Acme builds robots.","confidence":0.8}]}`,
 	)
-	x := evidenceExtractor{fetch: fetch, brain: brain}
+	x := evidenceExtractor{fetch: fetch, brain: fakeModelPath(t, fake).ColdStart}
 
-	fields, err := x.extract(context.Background(), "https://acme.example", coldStartFieldValid)
+	fields, err := x.extract(fakeWorkspaceCtx(), "https://acme.example", coldStartFieldValid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(fields) != 1 || len(brain.Calls()) != 1 {
-		t.Fatalf("fields=%d model calls=%d, want 1/1 — a missing legal page must not cost a second call", len(fields), len(brain.Calls()))
+	if len(fields) != 1 || len(fake.Calls()) != 1 {
+		t.Fatalf("fields=%d model calls=%d, want 1/1 — a missing legal page must not cost a second call", len(fields), len(fake.Calls()))
 	}
 }
 
@@ -102,15 +102,15 @@ func TestExtractSkipsAProbeServingTheSamePage(t *testing.T) {
 		"https://acme.example":           home,
 		"https://acme.example/impressum": home,
 	}
-	brain := ai.NewFakeClient().Script(
+	fake := ai.NewFakeClient().Script(
 		`{"fields":[{"field":"icp","value":"x","evidence_snippet":"Acme builds robots.","confidence":0.8}]}`,
 	)
-	x := evidenceExtractor{fetch: fetch, brain: brain}
+	x := evidenceExtractor{fetch: fetch, brain: fakeModelPath(t, fake).ColdStart}
 
-	if _, err := x.extract(context.Background(), "https://acme.example", coldStartFieldValid); err != nil {
+	if _, err := x.extract(fakeWorkspaceCtx(), "https://acme.example", coldStartFieldValid); err != nil {
 		t.Fatal(err)
 	}
-	if calls := len(brain.Calls()); calls != 1 {
+	if calls := len(fake.Calls()); calls != 1 {
 		t.Fatalf("model called %d times, want 1 — the duplicate page must be skipped", calls)
 	}
 }
@@ -121,19 +121,19 @@ func TestExtractOffersDisplayNameToTheModel(t *testing.T) {
 	// display_name, and a grounded one survives the gate.
 	home := strings.Repeat("Filler text. ", 10) + "Acme — robots for the mid-market."
 	fetch := hostPages{"https://acme.example": home}
-	brain := ai.NewFakeClient().Script(
+	fake := ai.NewFakeClient().Script(
 		`{"fields":[{"field":"display_name","value":"Acme","evidence_snippet":"Acme — robots for the mid-market.","confidence":0.9}]}`,
 	)
-	x := evidenceExtractor{fetch: fetch, brain: brain}
+	x := evidenceExtractor{fetch: fetch, brain: fakeModelPath(t, fake).ColdStart}
 
-	fields, err := x.extract(context.Background(), "https://acme.example", coldStartFieldValid)
+	fields, err := x.extract(fakeWorkspaceCtx(), "https://acme.example", coldStartFieldValid)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(fields) != 1 || fields[0].Field != string(crmcontracts.ColdStartFieldFieldDisplayName) {
 		t.Fatalf("fields = %+v, want the grounded display_name", fields)
 	}
-	if !strings.Contains(string(brain.Calls()[0].Payload), "display_name") {
+	if !strings.Contains(string(fake.Calls()[0].Payload), "display_name") {
 		t.Fatal("the extraction prompt never offered display_name to the model")
 	}
 }
@@ -161,6 +161,10 @@ func TestExtractSurfacesALegalPageModelFailure(t *testing.T) {
 		"https://acme.example":           home,
 		"https://acme.example/impressum": impressum,
 	}
+	// failsAfter injects a per-call failure the router's fake wiring has no
+	// seam for (ai.WithFakeClient hands the router a *FakeClient directly,
+	// not an arbitrary completer): this test's subject is evidenceExtractor's
+	// OWN error propagation, not routing, so it stays directly on the fake.
 	brain := &failsAfter{
 		inner: ai.NewFakeClient().Script(
 			`{"fields":[{"field":"icp","value":"x","evidence_snippet":"Acme builds robots.","confidence":0.8}]}`,
@@ -185,15 +189,15 @@ func TestExtractNeverProbesFromAPathHostedSeed(t *testing.T) {
 		// The attacker-controlled root impressum: reachable, never fetched.
 		"https://sites.example/impressum": strings.Repeat("Evil Corp Ltd. ", 10),
 	}
-	brain := ai.NewFakeClient().Script(
+	fake := ai.NewFakeClient().Script(
 		`{"fields":[{"field":"icp","value":"x","evidence_snippet":"Company page text.","confidence":0.8}]}`,
 	)
-	x := evidenceExtractor{fetch: fetch, brain: brain}
+	x := evidenceExtractor{fetch: fetch, brain: fakeModelPath(t, fake).ColdStart}
 
-	if _, err := x.extract(context.Background(), seed, coldStartFieldValid); err != nil {
+	if _, err := x.extract(fakeWorkspaceCtx(), seed, coldStartFieldValid); err != nil {
 		t.Fatal(err)
 	}
-	if calls := len(brain.Calls()); calls != 1 {
+	if calls := len(fake.Calls()); calls != 1 {
 		t.Fatalf("model called %d times for a path-hosted seed, want 1 — the root probe must not fire", calls)
 	}
 }

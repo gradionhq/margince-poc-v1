@@ -61,6 +61,12 @@ type openAICompatJSONSchema struct {
 }
 
 type openAICompatChatResponse struct {
+	// Model is the wire's echoed model field: this generic surface merely
+	// reflects back the requested model id rather than confirming what
+	// actually generated the completion (unlike the native adapters' own
+	// served-identity fields) — the router's servedSource map tags it "echo"
+	// accordingly, never "response".
+	Model   string `json:"model"`
 	Choices []struct {
 		Message struct {
 			Content string `json:"content"`
@@ -90,6 +96,7 @@ func (c *openAICompatClient) Complete(ctx context.Context, req model.Request) (m
 		Text:         out.Choices[0].Message.Content,
 		InputTokens:  out.Usage.PromptTokens,
 		OutputTokens: out.Usage.CompletionTokens,
+		ServedModel:  out.Model,
 	}, nil
 }
 
