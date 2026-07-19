@@ -313,8 +313,8 @@ func (s *Store) BeginSiteRead(ctx context.Context, readID ids.UUID, reclaimAfter
 		err := tx.QueryRow(ctx, `
 			UPDATE site_read SET status = 'running', started_at = now(), updated_at = now()
 			WHERE id = $1 AND (status = 'queued' OR
-			  (status = 'running' AND started_at < now() - $2::interval))
-			RETURNING organization_id, target_kind, seed_url, requested_by`, readID, reclaimAfter.String()).
+			  (status = 'running' AND started_at < now() - ($2 * interval '1 microsecond')))
+			RETURNING organization_id, target_kind, seed_url, requested_by`, readID, reclaimAfter.Microseconds()).
 			Scan(&claim.OrganizationID, &claim.TargetKind, &claim.SeedURL, &claim.RequestedBy)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound

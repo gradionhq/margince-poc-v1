@@ -72,7 +72,10 @@ func (s *Service) Stage(ctx context.Context, in StageInput) (ids.ApprovalID, err
 // cannot both observe no pending row and create duplicates.
 func (s *Service) stageOrJoinPendingInTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.ApprovalID, error) {
 	var id ids.ApprovalID
-	wsID, _ := principal.WorkspaceID(ctx)
+	wsID, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		return ids.ApprovalID{}, errors.New("crmapprovals: no workspace bound to context")
+	}
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended(
 			'approval_pending:' || $1::text || ':' || $2 || ':' || $3::text || ':' || $4, 0))`,
 		wsID, in.Kind, in.TargetID, in.DiffHash); err != nil {
