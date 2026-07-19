@@ -20,9 +20,16 @@ import (
 )
 
 // defaultRunMaxTokens bounds a candidate completion when a scenario
-// names no caps.max_tokens — generous enough for any V1 task's answer,
-// small enough that a runaway completion still terminates.
-const defaultRunMaxTokens = 2048
+// names no caps.max_tokens. It carries the same thinking headroom
+// judgeMaxTokens does: a reasoning model (Gemini 2.5, o-series) spends
+// output tokens on internal thinking BEFORE its answer, and that
+// thinking counts against maxOutputTokens — a tight cap starves the
+// answer into a MAX_TOKENS stop with zero visible text. The failure is
+// worst on the premium rung, where a heavier-thinking model (e.g.
+// gemini-2.5-pro) an escalation lands on can burn a small cap entirely
+// on thought. Generous enough for any V1 task's answer plus that
+// thinking, still small enough that a runaway completion terminates.
+const defaultRunMaxTokens = 8192
 
 // judgeMaxTokens bounds the judge's own reply. The verdict is one line
 // of JSON, but reasoning models (Gemini 2.5, o-series) spend output
