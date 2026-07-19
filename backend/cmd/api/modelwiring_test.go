@@ -72,6 +72,9 @@ func TestResolveModelPathFakeArmBindsEveryLane(t *testing.T) {
 	if modelPath.BriefRank == nil {
 		t.Error("BriefRank lane is nil")
 	}
+	if modelPath.DraftReply == nil {
+		t.Error("DraftReply lane is nil")
+	}
 	if modelPath.OfferDraft == nil {
 		t.Error("OfferDraft lane is nil")
 	}
@@ -113,7 +116,7 @@ func TestResolveModelPathRoutingFileArmSurfacesLoadError(t *testing.T) {
 
 // TestColdStartOptionsRespectsResolvedPath proves coldStartOptions is a
 // pure consumer of the resolved path now: nil in, nil out (the 501
-// posture); a bound path in, the cold-start/scrape/brief trio out.
+// posture); a bound path in, the cold-start/scrape/brief/reply set out.
 func TestColdStartOptionsRespectsResolvedPath(t *testing.T) {
 	if got := coldStartOptions(nil); got != nil {
 		t.Fatalf("coldStartOptions(nil) = %d options, want 0", len(got))
@@ -122,8 +125,8 @@ func TestColdStartOptionsRespectsResolvedPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveModelPath: %v", err)
 	}
-	if got := coldStartOptions(modelPath); len(got) != 3 {
-		t.Fatalf("coldStartOptions(bound path) = %d options, want 3 (cold-start, scrape, brief)", len(got))
+	if got := coldStartOptions(modelPath); len(got) != 4 {
+		t.Fatalf("coldStartOptions(bound path) = %d options, want 4 (cold-start, scrape, brief, reply draft)", len(got))
 	}
 }
 

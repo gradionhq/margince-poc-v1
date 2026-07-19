@@ -197,7 +197,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	var background sync.WaitGroup
 	if modelPath.Agent != nil {
 		grounding := search.NewRetriever(search.NewStore(pool), modelPath.Embedder)
-		svc := compose.NewRunnerService(pool, modelPath.Agent, grounding, logger)
+		svc := compose.NewRunnerService(pool, modelPath.Agent, modelPath.DraftReply, grounding, logger)
 		_, _ = fmt.Fprintf(stdout, "worker running the Surface-B scheduler every %s\n", cfg.runnerInterval)
 		background.Go(func() { runScheduler(ctx, svc, cfg.runnerInterval, logger) })
 		background.Go(func() { runResumeSubscriber(ctx, rdb, svc, logger) })
@@ -229,7 +229,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	defer stopJobs()
 
-	workflows := compose.NewWorkflowEngine(pool)
+	workflows := compose.NewWorkflowEngineWithReplyDraft(pool, modelPath.DraftReply)
 	_, _ = fmt.Fprintln(stdout, "worker dispatching workflows (cg:workflows)")
 	background.Go(func() { runSubscriber(ctx, rdb, "cg:workflows", workflows.HandleEvent, logger) })
 

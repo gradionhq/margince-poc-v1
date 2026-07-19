@@ -60,6 +60,17 @@ type Request struct {
 	Messages  []Message
 	Tools     []ToolDef
 	MaxTokens int
+	// ContextScopes and ContextFingerprint bind a compose-selected company
+	// context view to this request. They are routing/cache/trace metadata, not
+	// provider wire fields: the compose provider renders the actual values as a
+	// delimited user-data message, while the AI router uses these fields to make
+	// stale-context cache hits impossible and the call trace inspectable.
+	ContextScopes      []string
+	ContextFingerprint string
+	// IncludeCompanyContext opts into a task policy explicitly marked
+	// conditional. Compose consumes and clears the flag before routing; it
+	// cannot select scopes or bypass a policy-none declaration.
+	IncludeCompanyContext bool
 	// ResponseSchema, when non-nil, is a JSON Schema the completion must
 	// conform to. Providers with schema-constrained decoding enforce it at
 	// GENERATION so a weak model cannot emit the wrong shape — Ollama via

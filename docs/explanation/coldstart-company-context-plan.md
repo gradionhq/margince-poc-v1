@@ -64,7 +64,8 @@ The plan began with a read-side reuse gap: profile fields were assembled only fo
 `GET /company`, facts had no production read consumer, and no bounded service
 could supply governed company knowledge to later product calls. Phase 1 closed
 that substrate gap with the typed, scoped `GET /company/context` read model.
-Product-wide model-call injection remains Phase 3 work.
+Phase 3 closes the model-call reuse gap for the current context-sensitive
+surfaces through one compose-owned provider and an exhaustive policy registry.
 
 The contract mismatches recorded during planning now have explicit outcomes:
 
@@ -399,7 +400,7 @@ prove zero pre-confirm domain rows, stale/replayed rejection, transactional
 rollback, accept-subset, mixed provenance, and lead separation. The five-step UI
 that consumes this API remains Phase 4.
 
-### Phase 3 — Context-aware product calls
+### Phase 3 — Context-aware product calls (implementation complete)
 
 1. Add the central provider and exhaustive per-task policy registry.
 2. Integrate in this order: agent loop, reply/draft surfaces, offer drafting,
@@ -410,6 +411,32 @@ that consumes this API remains Phase 4.
 
 Exit gate: every AI task declares `none` or bounded scopes; prompt snapshots prove
 the correct data/instruction separation; no stale cache survives a profile edit.
+
+The Phase 3 implementation adds a closed policy for every registered AI task,
+with bounded views for the governed agent loop, reply drafting, offer drafting,
+natural-language search, conditional summaries, and policy `none` everywhere
+company data would contaminate the task. The provider reads the typed Phase 1
+context at the shared model-path boundary, escapes it into a distinct
+`<company_context_data>` user-data block, and never promotes stored values into
+system instructions.
+
+The current executable consumers are the agent loop, offer drafting, and the
+activity-anchored reply draft. HTTP, governed tools, and workflow actions share
+one reply path; model or schema failure degrades to the deterministic draft and
+never sends. Natural-language query expansion and voice-profile generation have
+declared policies but no ratified executable consumer in the current product, so
+this phase does not invent a route, task, or write path for them. Morning-brief
+ranking, extraction, classification, enrichment, embeddings, and deal health
+remain context-free as ratified.
+
+Each routed call records its selected scopes and exact context fingerprint.
+The fingerprint participates in the result-cache identity, so an edit changes
+both the trace and cache key even when a bounded prompt happens to render the
+same visible subset. Unit and real-Postgres tests cover task exhaustiveness,
+budgets, conditional opt-in, delimiter escaping, policy-none isolation,
+miss/hit/edit/miss cache behavior, trace persistence, reply transport reuse, and
+deterministic fallback. Provider-specific quality-lift comparisons remain a
+rollout prerequisite before enabling the future voice or search consumers.
 
 ### Phase 4 — Five-step onboarding UI
 

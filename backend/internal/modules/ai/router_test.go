@@ -295,22 +295,27 @@ func TestRouterRequiresWorkspaceContext(t *testing.T) {
 	}
 }
 
-// Two calls differing only in the explicit model override or the response
-// schema shape different completions — serving one from the other's cache
-// entry hands the caller an answer shaped by the wrong schema/model.
-func TestRouterCacheKeyDistinguishesModelAndResponseSchema(t *testing.T) {
+// Two calls differing only in one completion-shaping binding must never share
+// a cache entry — especially a company-context edit whose prompt happened to
+// remain byte-identical after bounded rendering.
+func TestRouterCacheKeyDistinguishesEveryExternalBinding(t *testing.T) {
 	base := model.Request{Messages: []model.Message{{Role: "user", Content: "same prompt"}}}
 	withModel := base
 	withModel.Model = "other-model"
 	withSchema := base
 	withSchema.ResponseSchema = []byte(`{"type":"object"}`)
+	withContext := base
+	withContext.ContextScopes = []string{"identity"}
+	withContext.ContextFingerprint = strings.Repeat("a", 64)
 
 	wsID := ids.New[ids.WorkspaceKind]()
 	baseKey, err := cacheKey(wsID, TaskSummarize, base)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, req := range map[string]model.Request{"model override": withModel, "response schema": withSchema} {
+	for name, req := range map[string]model.Request{
+		"model override": withModel, "response schema": withSchema, "company context": withContext,
+	} {
 		key, err := cacheKey(wsID, TaskSummarize, req)
 		if err != nil {
 			t.Fatal(err)

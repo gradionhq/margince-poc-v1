@@ -48,11 +48,11 @@ type RunnerService struct {
 // every other agent surface dispatches through — the two-directions
 // invariant is a property of this constructor: there is no other
 // registry to hand it.
-func NewRunnerService(pool *pgxpool.Pool, brain runner.Brain, retriever retrieval.Retriever, log *slog.Logger) *RunnerService {
+func NewRunnerService(pool *pgxpool.Pool, brain runner.Brain, draftBrain completer, retriever retrieval.Retriever, log *slog.Logger) *RunnerService {
 	return &RunnerService{
 		pool:      pool,
 		store:     runner.NewStore(pool),
-		runner:    runner.New(NewRegistry(pool), brain),
+		runner:    runner.New(registryWithDraftBrain(pool, draftBrain), brain),
 		identity:  identity.NewService(pool),
 		retriever: retriever,
 		log:       log,

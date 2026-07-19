@@ -123,6 +123,9 @@ type Server struct {
 	// the response is written — a separate instance from dealsHandlers'
 	// own store, the same split offerDrafter itself already uses.
 	dealsStore *deals.Store
+	// replyDrafter is the shared HTTP/REST-agent reply path. Nil preserves
+	// the activities module's deterministic floor.
+	replyDrafter activities.EmailDrafter
 	// toolRegistry backs ListAgentTools — the same *agents.Registry the MCP transport uses.
 	toolRegistry *agents.Registry
 
@@ -386,7 +389,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 // staging, and live-authority gate — one gate, two transports.
 func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) http.Handler {
 	gate := auth.NewGate(identitySvc)
-	registry := newRegistry(pool, gate)
+	registry := registryWithGate(pool, gate, srv.replyDrafter)
 	provider := NewProvider(pool)
 	staging := approvalsAdapter{svc: approvals.NewService(pool)}
 	// Wrap order: the generated router applies the slice left-to-right
