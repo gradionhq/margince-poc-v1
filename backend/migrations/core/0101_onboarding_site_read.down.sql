@@ -1,3 +1,4 @@
+-- 0101 rollback: restore site_read to its organization-bound shape.
 DROP INDEX uq_site_read_onboarding_inflight;
 DROP INDEX uq_site_read_org_inflight;
 

@@ -1,4 +1,4 @@
--- 0100: one operational site-read dossier serves both unbound onboarding
+-- 0101: one operational site-read dossier serves both unbound onboarding
 -- and enrichment of an existing organization. The dossier owns draft
 -- findings and their version/hash; confirmed company truth still lands only
 -- in organization/profile/fact tables after a human confirmation.
