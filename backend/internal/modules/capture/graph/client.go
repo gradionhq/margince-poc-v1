@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/modules/capture/oauthflow"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
@@ -114,13 +115,10 @@ type OAuthConfig struct {
 	TokenURL     string
 }
 
-type httpOAuth struct {
-	client *http.Client
-	cfg    OAuthConfig
-}
-
 // NewOAuth builds the OAuth client, applying Microsoft's default endpoints
-// (for the configured tenant) when the config leaves them empty.
+// (for the configured tenant) when the config leaves them empty. The
+// handshake itself is the shared oauthflow; only Microsoft's tenant-scoped
+// endpoints, consent parameters, and this package's sentinels differ.
 //
 //nolint:ireturn // returns the OAuth seam by design — the connector holds it as an interface so tests substitute a stub
 func NewOAuth(cfg OAuthConfig) OAuth {
@@ -134,96 +132,20 @@ func NewOAuth(cfg OAuthConfig) OAuth {
 	if cfg.TokenURL == "" {
 		cfg.TokenURL = fmt.Sprintf(msTokenURLFormat, url.PathEscape(tenant))
 	}
-	return &httpOAuth{client: boundedHTTPClient(), cfg: cfg}
-}
-
-func (o *httpOAuth) AuthCodeURL(state, redirectURI string) string {
-	q := url.Values{
-		paramClientID:   {o.cfg.ClientID},
-		"redirect_uri":  {redirectURI},
-		"response_type": {"code"},
-		"response_mode": {"query"},
-		paramScope:      {strings.Join(o.cfg.Scopes, " ")},
-		"state":         {state},
-	}
-	return o.cfg.AuthURL + "?" + q.Encode()
-}
-
-// tokenResponse is the subset of Microsoft's token endpoint payload we read.
-type tokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-}
-
-func (o *httpOAuth) Exchange(ctx context.Context, code, redirectURI string) (string, error) {
-	tok, err := o.token(ctx, url.Values{
-		"grant_type":    {"authorization_code"},
-		"code":          {code},
-		"redirect_uri":  {redirectURI},
-		paramScope:      {strings.Join(o.cfg.Scopes, " ")},
-		paramClientID:   {o.cfg.ClientID},
-		"client_secret": {o.cfg.ClientSecret},
+	return oauthflow.New(oauthflow.Config{
+		Provider:     "graph",
+		ClientID:     cfg.ClientID,
+		ClientSecret: cfg.ClientSecret,
+		Scopes:       cfg.Scopes,
+		AuthURL:      cfg.AuthURL,
+		TokenURL:     cfg.TokenURL,
+		// Microsoft returns the code on the query (not fragment); the v2
+		// endpoint requires the scope in every token form for a refresh token.
+		AuthParams:        map[string]string{"response_mode": "query"},
+		ScopeInTokenForms: true,
+		AuthRejected:      ErrAuthRejected,
+		Unreachable:       ErrUnreachable,
 	})
-	if err != nil {
-		return "", err
-	}
-	if tok.RefreshToken == "" {
-		// No refresh token means the consent did not grant offline_access —
-		// we cannot sync later, so treat it as a rejected authorization.
-		return "", fmt.Errorf("graph: consent returned no refresh token: %w", ErrAuthRejected)
-	}
-	return tok.RefreshToken, nil
-}
-
-// AccessToken redeems the stored refresh token for a short-lived access
-// token. Microsoft also issues a rotated refresh token on each redemption;
-// the original stays valid for its own fixed lifetime, so the stored one
-// keeps working and the rotation is not persisted.
-func (o *httpOAuth) AccessToken(ctx context.Context, refreshToken string) (string, error) {
-	tok, err := o.token(ctx, url.Values{
-		"grant_type":    {"refresh_token"},
-		"refresh_token": {refreshToken},
-		paramScope:      {strings.Join(o.cfg.Scopes, " ")},
-		paramClientID:   {o.cfg.ClientID},
-		"client_secret": {o.cfg.ClientSecret},
-	})
-	if err != nil {
-		return "", err
-	}
-	if tok.AccessToken == "" {
-		return "", fmt.Errorf("graph: token refresh returned no access token: %w", ErrAuthRejected)
-	}
-	return tok.AccessToken, nil
-}
-
-// token posts the form to the token endpoint and decodes the response. A 4xx
-// is an authorization problem (ErrAuthRejected); anything else reaching or
-// reading Microsoft is ErrUnreachable. Microsoft's raw body never reaches the
-// caller.
-func (o *httpOAuth) token(ctx context.Context, form url.Values) (tokenResponse, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.cfg.TokenURL, strings.NewReader(form.Encode()))
-	if err != nil {
-		return tokenResponse{}, fmt.Errorf("graph: building token request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := o.client.Do(req)
-	if err != nil {
-		return tokenResponse{}, fmt.Errorf("graph: token endpoint: %w", ErrUnreachable)
-	}
-	//craft:ignore swallowed-errors best-effort close of the token response body — the exchange result is already read below
-	defer func() { _ = resp.Body.Close() }()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
-		return tokenResponse{}, ErrAuthRejected
-	}
-	if resp.StatusCode != http.StatusOK {
-		return tokenResponse{}, ErrUnreachable
-	}
-	var tok tokenResponse
-	if err := json.Unmarshal(body, &tok); err != nil {
-		return tokenResponse{}, fmt.Errorf("graph: decoding token response: %w", ErrUnreachable)
-	}
-	return tok, nil
 }
 
 type httpAPI struct {
