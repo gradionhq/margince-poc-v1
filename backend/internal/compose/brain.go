@@ -98,6 +98,8 @@ func NewLocalModelPath(cfg ai.RoutingConfig, opts ...ai.LocalOption) (ModelPath,
 		SiteFactExtract: routerBrain{router: router, task: ai.TaskSiteFactExtract},
 		BriefRank:       routerBrain{router: router, task: ai.TaskBriefRanking},
 		OfferDraft:      routerBrain{router: router, task: ai.TaskOfferDraft},
+		CaptureClassify: routerBrain{router: router, task: ai.TaskCaptureClassify},
+		SignatureEnrich: routerBrain{router: router, task: ai.TaskEnrich},
 		Embedder:        router,
 	}, nil
 }

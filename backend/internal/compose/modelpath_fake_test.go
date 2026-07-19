@@ -20,11 +20,11 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// fakeModelPath builds a ModelPath over fake via the router (not
-// compose.FakeModelPath's now-deleted direct wiring), so a test's
-// scripted responses are served through the exact seam production code
-// uses. WithoutResultCache is always on: a scripted sequence of distinct
-// responses must never collapse onto one cached answer.
+// fakeModelPath builds a ModelPath over fake via the router — never a
+// direct client wiring — so a test's scripted responses are served
+// through the exact seam production code uses. WithoutResultCache is
+// always on: a scripted sequence of distinct responses must never
+// collapse onto one cached answer.
 func fakeModelPath(t *testing.T, fake *ai.FakeClient) ModelPath {
 	t.Helper()
 	mp, err := NewLocalModelPath(ai.FakeRoutingConfig(), ai.WithFakeClient(fake), ai.WithoutResultCache())
