@@ -123,6 +123,13 @@ func (w *siteDeepReadWorker) Timeout(*river.Job[SiteDeepReadArgs]) time.Duration
 	return budget
 }
 
+// reclaimAfter leaves a terminal-write grace beyond River's work timeout.
+// A replacement worker may reclaim only after the prior worker has exceeded
+// both its configured crawl budget and the time reserved to close the dossier.
+func (w *siteDeepReadWorker) reclaimAfter() time.Duration {
+	return w.Timeout(nil) + time.Minute
+}
+
 func (w *siteDeepReadWorker) Work(ctx context.Context, job *river.Job[SiteDeepReadArgs]) error {
 	return w.run(ctx, job.Args)
 }
@@ -150,7 +157,7 @@ func deepReadWorkerCtx(ctx context.Context, args SiteDeepReadArgs) context.Conte
 func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) error {
 	ctx = deepReadWorkerCtx(ctx, args)
 
-	claim, err := w.people.BeginSiteRead(ctx, args.SiteReadID)
+	claim, err := w.people.BeginSiteRead(ctx, args.SiteReadID, w.reclaimAfter())
 	if err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
 			// The CAS miss: the read is no longer queued — a rival replica
@@ -330,14 +337,16 @@ func (w *siteDeepReadWorker) stage(ctx context.Context, readID ids.UUID, claim p
 		return ids.ApprovalID{}, err
 	}
 	digest := sha256.Sum256(proposedChange)
-	return w.approvals.Stage(ctx, approvals.StageInput{
+	approvalID, err := w.approvals.Stage(ctx, approvals.StageInput{
 		Kind:           deepReadProposalKind,
 		ProposedChange: proposedChange,
 		DiffHash:       hex.EncodeToString(digest[:]),
 		TargetType:     enrichTargetType,
 		TargetID:       *claim.OrganizationID,
 		Summary:        fmt.Sprintf("Deep site read of %s: %d fields, %d facts from %d pages", claim.SeedURL, len(mergedFields), len(mergedFacts), pagesRead),
+		JoinPending:    true,
 	})
+	return approvalID, err
 }
 
 // stageSiteLead records ONE published person as a thin "site_lead"
@@ -352,7 +361,9 @@ func (w *siteDeepReadWorker) stageSiteLead(ctx context.Context, readID ids.UUID,
 	if err != nil {
 		return ids.ApprovalID{}, err
 	}
-	return w.approvals.Stage(ctx, in)
+	in.JoinPending = true
+	approvalID, err := w.approvals.Stage(ctx, in)
+	return approvalID, err
 }
 
 func siteLeadStageInput(readID, organizationID ids.UUID, seedURL string, person sitePerson) (approvals.StageInput, error) {

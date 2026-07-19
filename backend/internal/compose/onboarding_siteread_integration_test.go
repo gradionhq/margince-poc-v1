@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -43,7 +44,7 @@ func finishOnboardingDraft(t *testing.T, e *integration.Env, read people.SiteRea
 	t.Helper()
 	if _, err := e.People.BeginSiteRead(deepReadWorkerCtx(context.Background(), SiteDeepReadArgs{
 		WorkspaceID: e.WS, SiteReadID: read.ID, SeedURL: read.SeedURL, RequestedBy: read.RequestedBy,
-	}), read.ID); err != nil {
+	}), read.ID, 10*time.Minute); err != nil {
 		t.Fatalf("begin onboarding read: %v", err)
 	}
 	fields := []people.DeepReadField{

@@ -237,6 +237,53 @@ func TestDeepReadCrawlsExtractsStagesOneDeepReadProposalAndFinishesDone(t *testi
 	}
 }
 
+func TestDeepReadConcurrentStagingJoinsThePendingProposal(t *testing.T) {
+	e := integration.Setup(t)
+	org := insertOrg(t, e, e.Rep1, "acme.example", "")
+	worker, _ := newDeepReadTestWorker(e, acmeDeepSite(), acmeDeepBrain())
+	ctx := deepReadWorkerCtx(context.Background(), SiteDeepReadArgs{
+		WorkspaceID: e.WS,
+		RequestedBy: "human:" + e.Rep1.String(),
+	})
+	readID := ids.NewV7()
+	claim := people.SiteReadClaim{OrganizationID: &org, SeedURL: seedURL}
+	facts := []people.DeepReadFact{{
+		Category: "offering", Field: "service", Value: "Implementation",
+		ValueKey: "implementation", EvidenceSnippet: "Guided implementation", SourceURL: seedURL, Confidence: 0.9,
+	}}
+	type result struct {
+		id  ids.ApprovalID
+		err error
+	}
+	ready := make(chan struct{}, 2)
+	start := make(chan struct{})
+	results := make(chan result, 2)
+	for range 2 {
+		go func() {
+			ready <- struct{}{}
+			<-start
+			id, err := worker.stage(ctx, readID, claim, nil, facts, 1)
+			results <- result{id: id, err: err}
+		}()
+	}
+	<-ready
+	<-ready
+	close(start)
+	first, second := <-results, <-results
+	if first.err != nil || second.err != nil {
+		t.Fatalf("concurrent staging errors = %v, %v", first.err, second.err)
+	}
+	if first.id != second.id {
+		t.Fatalf("concurrent staging returned %s and %s, want the same pending proposal", first.id, second.id)
+	}
+	if n := deepReadApprovals(t, e); n != 1 {
+		t.Fatalf("concurrent staging created %d deepread approvals, want 1", n)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM event_outbox WHERE envelope->>'type' = 'approval.requested'`); n != 1 {
+		t.Fatalf("concurrent staging emitted %d approval.requested events, want 1", n)
+	}
+}
+
 func TestDeepReadApplyFailureLeavesTheApprovedProposalUnconsumed(t *testing.T) {
 	e := integration.Setup(t)
 	org := insertOrg(t, e, e.Rep1, "acme.example", "")
@@ -664,7 +711,7 @@ func TestDeepReadFinishSurvivesACancelledWorkContext(t *testing.T) {
 	// The dossier is picked up (queued → running), then the work context dies
 	// — exactly the shape the live incident hit mid-extraction.
 	workCtx, cancel := context.WithCancel(deepReadWorkerCtx(context.Background(), args))
-	if _, err := worker.people.BeginSiteRead(workCtx, read.ID); err != nil {
+	if _, err := worker.people.BeginSiteRead(workCtx, read.ID, worker.reclaimAfter()); err != nil {
 		t.Fatalf("begin: %v", err)
 	}
 	cancel()

@@ -301,7 +301,10 @@ func (s *Store) UpdateSiteReadDraft(ctx context.Context, readID ids.UUID, facts 
 // transaction (RLS) still scopes the write to the job's tenant. The
 // guarded WHERE is the CAS: a read someone else already began (or that no
 // longer exists) is ErrNotFound.
-func (s *Store) BeginSiteRead(ctx context.Context, readID ids.UUID) (SiteReadClaim, error) {
+func (s *Store) BeginSiteRead(ctx context.Context, readID ids.UUID, reclaimAfter time.Duration) (SiteReadClaim, error) {
+	if reclaimAfter <= 0 {
+		return SiteReadClaim{}, errors.New("people: site-read reclaim interval must be positive")
+	}
 	var claim SiteReadClaim
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		// RETURNING hands the worker the CLAIMED row's own identity: the crawl
@@ -310,8 +313,8 @@ func (s *Store) BeginSiteRead(ctx context.Context, readID ids.UUID) (SiteReadCla
 		err := tx.QueryRow(ctx, `
 			UPDATE site_read SET status = 'running', started_at = now(), updated_at = now()
 			WHERE id = $1 AND (status = 'queued' OR
-			  (status = 'running' AND started_at < now() - interval '10 minutes'))
-			RETURNING organization_id, target_kind, seed_url, requested_by`, readID).
+			  (status = 'running' AND started_at < now() - $2::interval))
+			RETURNING organization_id, target_kind, seed_url, requested_by`, readID, reclaimAfter.String()).
 			Scan(&claim.OrganizationID, &claim.TargetKind, &claim.SeedURL, &claim.RequestedBy)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound

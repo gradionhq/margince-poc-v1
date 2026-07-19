@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -89,14 +90,14 @@ func TestSiteReadWorkerAdvancesTheDossierThroughGuardedTransitions(t *testing.T)
 	// The pickup is a CAS: the first Begin flips queued → running and hands
 	// back the claimed row's own identity; a second worker claiming the same
 	// read is told there is nothing to begin.
-	claim, err := store.BeginSiteRead(worker, read.ID)
+	claim, err := store.BeginSiteRead(worker, read.ID, 10*time.Minute)
 	if err != nil {
 		t.Fatalf("BeginSiteRead: %v", err)
 	}
 	if claim.OrganizationID == nil || claim.SeedURL != read.SeedURL || *claim.OrganizationID != org.UUID {
 		t.Fatalf("the claim reports %q/%s, want the dossier's own seed and org", claim.SeedURL, claim.OrganizationID)
 	}
-	if _, err := store.BeginSiteRead(worker, read.ID); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := store.BeginSiteRead(worker, read.ID, 10*time.Minute); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("second BeginSiteRead → %v, want ErrNotFound (the read is no longer queued)", err)
 	}
 	running, err := store.GetSiteRead(human, org, read.ID)
@@ -168,7 +169,7 @@ func TestSiteReadWorkerReclaimsAStaleRunningDossier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.BeginSiteRead(worker, read.ID); err != nil {
+	if _, err := store.BeginSiteRead(worker, read.ID, 20*time.Minute); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -178,7 +179,17 @@ func TestSiteReadWorkerReclaimsAStaleRunningDossier(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	claim, err := store.BeginSiteRead(worker, read.ID)
+	if _, err := store.BeginSiteRead(worker, read.ID, 20*time.Minute); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("reclaim before configured timeout: %v, want ErrNotFound", err)
+	}
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `UPDATE site_read
+			SET started_at = now() - interval '21 minutes' WHERE id = $1`, read.ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	claim, err := store.BeginSiteRead(worker, read.ID, 20*time.Minute)
 	if err != nil {
 		t.Fatalf("reclaim stale running dossier: %v", err)
 	}

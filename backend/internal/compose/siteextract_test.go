@@ -170,8 +170,13 @@ func TestCrawlAndExtractStreamsDeterministicallyAndFiresProfileOnce(t *testing.T
 		if len(extraction.merged.facts) != pages {
 			t.Fatalf("facts = %d, want one per catalog page (%d)", len(extraction.merged.facts), pages)
 		}
-		if len(published) < 2 || published[len(published)-1] != pages {
-			t.Fatalf("progressive drafts = %v, want multiple snapshots ending at %d facts", published, pages)
+		if len(published) != pages {
+			t.Fatalf("progressive drafts = %v, want %d snapshots", published, pages)
+		}
+		for i, got := range published {
+			if got != i+1 {
+				t.Fatalf("progressive drafts = %v, want counts 1..%d", published, pages)
+			}
 		}
 		// Commit-ordered merge: fact order follows the crawl's page order,
 		// whatever order the concurrent calls completed in.

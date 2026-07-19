@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -60,6 +61,7 @@ const profileTriggerPages = 12
 func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtractor, seedURL string, onPage func(done int), onDraft func(pageFactsResult)) (siteCrawl, siteExtraction, error) {
 	var out siteExtraction
 	var results []pageFactsResult
+	var published pageFactsResult
 	var failed []error
 	var mu sync.Mutex
 	report := progressReporter(onPage)
@@ -109,7 +111,11 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 				if onDraft != nil {
 					snapshot := append([]pageFactsResult(nil), results...)
 					sort.Slice(snapshot, func(i, j int) bool { return snapshot[i].url < snapshot[j].url })
-					onDraft(mergePageResults(snapshot))
+					merged := mergePageResults(snapshot)
+					if !slices.Equal(merged.facts, published.facts) || !slices.Equal(merged.people, published.people) {
+						onDraft(merged)
+						published = merged
+					}
 				}
 			}
 			mu.Unlock()

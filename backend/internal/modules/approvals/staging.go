@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -32,6 +33,10 @@ type StageInput struct {
 	TargetID      ids.UUID
 	TargetVersion *int64
 	Summary       string
+	// JoinPending collapses an identical live proposal under an atomic
+	// transaction lock. It is for at-least-once worker paths whose retries
+	// must return the existing approval instead of multiplying inbox rows.
+	JoinPending bool
 	// Announce is an optional kind-specific domain event (e.g.
 	// coldstart.read_back_proposed) emitted in the SAME transaction as
 	// approval.requested, linked to the same audit row.
@@ -51,10 +56,39 @@ func (s *Service) Stage(ctx context.Context, in StageInput) (ids.ApprovalID, err
 	var id ids.ApprovalID
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var err error
-		id, err = s.StageInTx(ctx, tx, in)
+		if in.JoinPending {
+			id, err = s.stageOrJoinPendingInTx(ctx, tx, in)
+		} else {
+			id, err = s.StageInTx(ctx, tx, in)
+		}
 		return err
 	})
 	return id, err
+}
+
+// stageOrJoinPendingInTx serializes one proposal identity and returns its live
+// pending approval when another worker already staged it. The transaction
+// lock covers the empty-set case that a row lock cannot protect, so replicas
+// cannot both observe no pending row and create duplicates.
+func (s *Service) stageOrJoinPendingInTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.ApprovalID, error) {
+	var id ids.ApprovalID
+	wsID, _ := principal.WorkspaceID(ctx)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended(
+			'approval_pending:' || $1::text || ':' || $2 || ':' || $3::text || ':' || $4, 0))`,
+		wsID, in.Kind, in.TargetID, in.DiffHash); err != nil {
+		return ids.ApprovalID{}, fmt.Errorf("lock pending approval identity: %w", err)
+	}
+	err := tx.QueryRow(ctx, `SELECT id FROM approval
+			WHERE workspace_id = $1 AND kind = $2 AND target_entity_id = $3 AND diff_hash = $4
+			  AND status = 'pending' AND expires_at > now()
+			ORDER BY created_at DESC LIMIT 1`, wsID, in.Kind, in.TargetID, in.DiffHash).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return ids.ApprovalID{}, fmt.Errorf("find pending approval identity: %w", err)
+	}
+	return s.StageInTx(ctx, tx, in)
 }
 
 // StageInTx records a proposal through a caller-owned transaction. Compose
