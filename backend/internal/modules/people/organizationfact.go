@@ -28,6 +28,8 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+const auditKeyFacts = "facts"
+
 // OrganizationFactFields is the closed category/field vocabulary,
 // mirroring the org_fact_field_vocab CHECK so a bad staged payload reads
 // as an actionable error, not a constraint 500. Confirmed profile fields stay
@@ -162,6 +164,15 @@ func validDeepReadFact(f DeepReadFact) error {
 // under the human-precedence guard — in ONE transaction with one audit
 // row and one organization.updated event carrying both deltas.
 func (s *Store) ApplyDeepRead(ctx context.Context, in DeepReadProposal) error {
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		return s.ApplyDeepReadTx(ctx, tx, in)
+	})
+}
+
+// ApplyDeepReadTx applies an accepted proposal through a caller-owned
+// transaction. Compose pairs it with approval redemption so consuming the
+// authority object and changing the organization are one commit.
+func (s *Store) ApplyDeepReadTx(ctx context.Context, tx pgx.Tx, in DeepReadProposal) error {
 	if err := auth.Require(ctx, "organization", principal.ActionUpdate); err != nil {
 		return err
 	}
@@ -183,36 +194,34 @@ func (s *Store) ApplyDeepRead(ctx context.Context, in DeepReadProposal) error {
 		fields = append(fields, ColdStartFieldInput(f))
 	}
 
-	return s.tx(ctx, func(tx pgx.Tx) error {
-		wsID := workspaceID(ctx)
-		// The target is a KNOWN row; row-scope is re-checked here so a
-		// leaked org id buys nothing (existence-hiding 404).
-		if err := auth.EnsureVisible(ctx, tx, "organization", in.OrganizationID.UUID); err != nil {
-			return err
-		}
-		appliedFields, err := applyEvidenceFields(ctx, tx, wsID, in.OrganizationID, companySourceSiteRead, by, fields)
-		if err != nil {
-			return err
-		}
-		appliedFacts, err := upsertOrganizationFacts(ctx, tx, wsID, in, by)
-		if err != nil {
-			return err
-		}
-		auditID, err := storekit.Audit(ctx, tx, "update", "organization", in.OrganizationID.UUID, nil, map[string]any{
-			auditKeySource: companySourceSiteRead, auditKeySourceURL: in.SourceURL,
-			auditKeyFields: appliedFields, "facts": appliedFacts,
-		})
-		if err != nil {
-			return fmt.Errorf("audit deepread apply: %w", err)
-		}
-		if err := storekit.Emit(ctx, tx, auditID, "organization.updated", "organization", in.OrganizationID.UUID, map[string]any{
-			eventKeyDelta:  map[string]any{auditKeyFields: appliedFields, "facts": appliedFacts},
-			auditKeySource: companySourceSiteRead, auditKeySourceURL: in.SourceURL,
-		}); err != nil {
-			return fmt.Errorf("emit organization.updated: %w", err)
-		}
-		return nil
+	wsID := workspaceID(ctx)
+	// The target is a KNOWN row; row-scope is re-checked here so a
+	// leaked org id buys nothing (existence-hiding 404).
+	if err := auth.EnsureVisible(ctx, tx, "organization", in.OrganizationID.UUID); err != nil {
+		return err
+	}
+	appliedFields, err := applyEvidenceFields(ctx, tx, wsID, in.OrganizationID, companySourceSiteRead, by, fields)
+	if err != nil {
+		return err
+	}
+	appliedFacts, err := upsertOrganizationFacts(ctx, tx, wsID, in, by)
+	if err != nil {
+		return err
+	}
+	auditID, err := storekit.Audit(ctx, tx, "update", "organization", in.OrganizationID.UUID, nil, map[string]any{
+		auditKeySource: companySourceSiteRead, auditKeySourceURL: in.SourceURL,
+		auditKeyFields: appliedFields, auditKeyFacts: appliedFacts,
 	})
+	if err != nil {
+		return fmt.Errorf("audit deepread apply: %w", err)
+	}
+	if err := storekit.Emit(ctx, tx, auditID, "organization.updated", "organization", in.OrganizationID.UUID, map[string]any{
+		eventKeyDelta:  map[string]any{auditKeyFields: appliedFields, auditKeyFacts: appliedFacts},
+		auditKeySource: companySourceSiteRead, auditKeySourceURL: in.SourceURL,
+	}); err != nil {
+		return fmt.Errorf("emit organization.updated: %w", err)
+	}
+	return nil
 }
 
 // upsertOrganizationFacts lands the category facts, refreshing an

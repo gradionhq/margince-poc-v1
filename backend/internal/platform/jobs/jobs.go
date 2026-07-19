@@ -71,6 +71,16 @@ func (r *Runner) Enqueue(ctx context.Context, args river.JobArgs, opts *river.In
 	return nil
 }
 
+// EnqueueTx inserts a job through the caller's transaction. It is used when a
+// durable work request and the operational row the worker will claim must
+// either both commit or both disappear.
+func (r *Runner) EnqueueTx(ctx context.Context, tx pgx.Tx, args river.JobArgs, opts *river.InsertOpts) error {
+	if _, err := r.client.InsertTx(ctx, tx, args, opts); err != nil {
+		return fmt.Errorf("jobs: enqueue %s transactionally: %w", args.Kind(), err)
+	}
+	return nil
+}
+
 // Start begins working the configured queues and returns once startup
 // completes; the client keeps running until Stop. Leadership is elected
 // cluster-wide, so periodic jobs fire exactly once across all replicas.

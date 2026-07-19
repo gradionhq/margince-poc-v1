@@ -13,6 +13,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -56,9 +58,10 @@ const profileTriggerPages = 12
 // is first). The read's wall clock becomes ~max(crawl, slowest lane)
 // instead of their sum. onPage (may be nil) fires serially with the
 // extracted-page count.
-func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtractor, seedURL string, onPage func(done int)) (siteCrawl, siteExtraction, error) {
+func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtractor, seedURL string, onPage func(done int), onDraft func(pageFactsResult)) (siteCrawl, siteExtraction, error) {
 	var out siteExtraction
 	var results []pageFactsResult
+	var published pageFactsResult
 	var failed []error
 	var mu sync.Mutex
 	report := progressReporter(onPage)
@@ -73,10 +76,7 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 	var profileErr error
 	fireProfile := func() {
 		profileOnce.Do(func() {
-			committedMu.Lock()
-			snapshot := make([]crawlPage, len(committed))
-			copy(snapshot, committed)
-			committedMu.Unlock()
+			snapshot := snapshotCrawlPages(&committedMu, &committed)
 			profileWg.Add(1)
 			go func() {
 				defer profileWg.Done()
@@ -108,6 +108,15 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 				}
 			} else {
 				results = append(results, res)
+				if onDraft != nil {
+					snapshot := append([]pageFactsResult(nil), results...)
+					sort.Slice(snapshot, func(i, j int) bool { return snapshot[i].url < snapshot[j].url })
+					merged := mergePageResults(snapshot)
+					if !slices.Equal(merged.facts, published.facts) || !slices.Equal(merged.people, published.people) {
+						onDraft(merged)
+						published = merged
+					}
+				}
 			}
 			mu.Unlock()
 			report()
@@ -133,6 +142,12 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 	out.merged = mergeInCommitOrder(crawl, results)
 	out.err = errors.Join(failed...)
 	return crawl, out, nil
+}
+
+func snapshotCrawlPages(mu *sync.Mutex, pages *[]crawlPage) []crawlPage {
+	mu.Lock()
+	defer mu.Unlock()
+	return append([]crawlPage(nil), (*pages)...)
 }
 
 // progressReporter serializes the progress callback: it fires from the

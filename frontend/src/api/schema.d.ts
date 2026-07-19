@@ -1640,6 +1640,72 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/company/site-reads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start an optional progressive website read before the anchor company exists.
+         * @description Creates only an unbound operational dossier and queues the shared deep-read engine in the
+         *     same transaction. No organization, profile field, fact, lead, or domain row is created.
+         *     Repeating the same URL while its read is active joins the existing dossier.
+         */
+        post: operations["startCompanySiteRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/company/site-reads/{readId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                readId: string;
+            };
+            cookie?: never;
+        };
+        /** Read the latest progressive onboarding dossier and its grounded draft findings. */
+        get: operations["getCompanySiteRead"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/company/site-reads/{readId}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                readId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm a selected onboarding draft into the anchor company atomically.
+         * @description Applies only the submitted profile and selected fact keys. The draft version and proposal
+         *     hash bind confirmation to the exact inspected proposal; a stale confirmation returns 409.
+         *     Unchanged values retain website evidence, edits become human assertions, and published people
+         *     remain separate site-lead proposals rather than becoming contacts or company-context rows.
+         */
+        post: operations["confirmCompanySiteRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/connectors/imap/connect": {
         parameters: {
             query?: never;
@@ -5990,6 +6056,83 @@ export interface components {
             fingerprint: string;
             /** Format: date-time */
             generated_at: string;
+        };
+        StartCompanySiteReadRequest: {
+            /**
+             * Format: uri
+             * @description Public company website to read.
+             */
+            url: string;
+        };
+        CompanySiteReadPage: {
+            /** Format: uri */
+            url: string;
+            /** @enum {string} */
+            status: "fetched" | "skipped" | "failed";
+            /** @enum {string|null} */
+            kind?: "home" | "impressum" | "about" | "team" | "services" | "products" | "contact" | "other" | null;
+            /** @description Stable human-readable reason when skipped or failed. */
+            reason?: string | null;
+        };
+        CompanySiteReadFact: {
+            /** @enum {string} */
+            category: "company" | "offering" | "market" | "signal";
+            /** @enum {string} */
+            field: "founded_year" | "employee_range" | "phone" | "contact_email" | "location" | "service" | "product" | "capability" | "served_industry" | "company_size" | "geography" | "language" | "certification" | "partner" | "named_customer" | "technology" | "quantified_outcome";
+            value: string;
+            value_key: string;
+            evidence_snippet: string;
+            /** Format: uri */
+            evidence_url: string;
+            confidence: number;
+        };
+        CompanySiteReadPerson: {
+            name: string;
+            role: string;
+            /** Format: email */
+            published_email?: string | null;
+            /** Format: uri */
+            linkedin_url?: string | null;
+            evidence_snippet: string;
+            /** Format: uri */
+            evidence_url: string;
+            /**
+             * @description People never enter company context or contact records through company confirmation.
+             * @enum {string}
+             */
+            disposition?: "separate_lead_proposal";
+        };
+        CompanySiteRead: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            target_kind: "onboarding";
+            /** Format: uuid */
+            organization_id?: string | null;
+            /** Format: uri */
+            root_url: string;
+            /** @enum {string} */
+            status: "queued" | "reading" | "ready" | "partial" | "failed" | "confirmed" | "abandoned";
+            /** @enum {string|null} */
+            phase?: "crawling" | "extracting" | null;
+            pages_read?: number;
+            pages: components["schemas"]["CompanySiteReadPage"][];
+            profile_fields: components["schemas"]["ColdStartField"][];
+            facts: components["schemas"]["CompanySiteReadFact"][];
+            people: components["schemas"]["CompanySiteReadPerson"][];
+            warnings: string[];
+            draft_version: number;
+            proposal_hash: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        ConfirmCompanySiteReadRequest: {
+            draft_version: number;
+            proposal_hash: string;
+            profile: components["schemas"]["CompanyProfileInput"];
+            selected_fact_keys: string[];
         };
         /** @description Optional override. With no body the org's own domain is read. */
         EnrichCompanyRequest: {
@@ -11144,6 +11287,112 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    startCompanySiteRead: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartCompanySiteReadRequest"];
+            };
+        };
+        responses: {
+            /** @description Read accepted; poll the returned dossier while extraction progresses. */
+            202: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanySiteRead"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getCompanySiteRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                readId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current read state, coverage, findings, omissions, and separately staged people. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanySiteRead"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    confirmCompanySiteRead: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                readId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmCompanySiteReadRequest"];
+            };
+        };
+        responses: {
+            /** @description Confirmed anchor company profile and accepted facts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyProfile"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
         };
     };

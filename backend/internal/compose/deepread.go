@@ -123,6 +123,13 @@ func (w *siteDeepReadWorker) Timeout(*river.Job[SiteDeepReadArgs]) time.Duration
 	return budget
 }
 
+// reclaimAfter leaves a terminal-write grace beyond River's work timeout.
+// A replacement worker may reclaim only after the prior worker has exceeded
+// both its configured crawl budget and the time reserved to close the dossier.
+func (w *siteDeepReadWorker) reclaimAfter() time.Duration {
+	return w.Timeout(nil) + time.Minute
+}
+
 func (w *siteDeepReadWorker) Work(ctx context.Context, job *river.Job[SiteDeepReadArgs]) error {
 	return w.run(ctx, job.Args)
 }
@@ -150,7 +157,7 @@ func deepReadWorkerCtx(ctx context.Context, args SiteDeepReadArgs) context.Conte
 func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) error {
 	ctx = deepReadWorkerCtx(ctx, args)
 
-	claim, err := w.people.BeginSiteRead(ctx, args.SiteReadID)
+	claim, err := w.people.BeginSiteRead(ctx, args.SiteReadID, w.reclaimAfter())
 	if err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
 			// The CAS miss: the read is no longer queued — a rival replica
@@ -171,12 +178,8 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 	// as pages commit, so the crawl's slow tail hides behind extraction.
 	// The crawler owns the wall clock (caps.Wall); a seed page that
 	// cannot be read at all is a failed read, not an empty one.
-	progress := func(pagesDone int) {
-		if err := w.people.UpdateSiteReadProgress(ctx, args.SiteReadID, "extracting", pagesDone); err != nil {
-			w.log.WarnContext(ctx, "site read progress update failed", "read", args.SiteReadID.String(), "err", err)
-		}
-	}
-	crawl, extraction, err := crawlAndExtract(ctx, w.crawler, w.extract, claim.SeedURL, progress)
+	progress, publishDraft := w.progressiveCallbacks(ctx, args.SiteReadID)
+	crawl, extraction, err := crawlAndExtract(ctx, w.crawler, w.extract, claim.SeedURL, progress, publishDraft)
 	if err != nil {
 		return w.fail(ctx, args.SiteReadID, fmt.Errorf("site deep read %s: %w", args.SiteReadID, err))
 	}
@@ -209,13 +212,85 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 			"read", args.SiteReadID.String(), "err", extraction.err)
 	}
 
-	proposalIDs, err := w.stageProposals(ctx, args.SiteReadID, claim, mergedFields, extraction.merged.facts, extraction.merged.people, len(readPages))
+	var proposalIDs []ids.UUID
+	if claim.OrganizationID != nil {
+		proposalIDs, err = w.stageProposals(ctx, args.SiteReadID, claim, mergedFields, extraction.merged.facts, extraction.merged.people, len(readPages))
+		if err != nil {
+			return w.fail(ctx, args.SiteReadID, fmt.Errorf("site deep read %s: %w", args.SiteReadID, err))
+		}
+	}
+	warnings := make([]string, 0, 2)
+	if legalConflict {
+		warnings = append(warnings, legalWarningMultipleEntities)
+	}
+	if extraction.err != nil {
+		warnings = append(warnings, "Some pages could not be extracted; the grounded findings that completed are still available.")
+	}
+	draftFields := deepReadFields(mergedFields)
+	draftPeople := siteReadPeople(extraction.merged.people)
+	proposalHash, err := siteReadProposalHash(draftFields, extraction.merged.facts, draftPeople)
 	if err != nil {
-		return w.fail(ctx, args.SiteReadID, fmt.Errorf("site deep read %s: %w", args.SiteReadID, err))
+		return w.fail(ctx, args.SiteReadID, fmt.Errorf("site deep read %s: hashing the draft: %w", args.SiteReadID, err))
 	}
 	// Zero surviving findings is an honest empty read — done, fact_count 0,
 	// no proposal — not an error: the site simply evidenced nothing.
-	return w.finish(ctx, args.SiteReadID, status, readPages, crawl, factCount, proposalIDs)
+	return w.finish(ctx, args.SiteReadID, status, readPages, crawl, factCount, proposalIDs,
+		draftFields, extraction.merged.facts, draftPeople, warnings, proposalHash)
+}
+
+func (w *siteDeepReadWorker) progressiveCallbacks(ctx context.Context, readID ids.UUID) (func(int), func(pageFactsResult)) {
+	progress := func(pagesDone int) {
+		if err := w.people.UpdateSiteReadProgress(ctx, readID, "extracting", pagesDone); err != nil {
+			w.log.WarnContext(ctx, "site read progress update failed", "read", readID.String(), "err", err)
+		}
+	}
+	publishDraft := func(partial pageFactsResult) {
+		found := siteReadPeople(partial.people)
+		hash, err := siteReadProposalHash(nil, partial.facts, found)
+		if err != nil {
+			w.log.WarnContext(ctx, "site read progressive draft hash failed", "read", readID.String(), "err", err)
+			return
+		}
+		if err := w.people.UpdateSiteReadDraft(ctx, readID, partial.facts, found, hash); err != nil {
+			w.log.WarnContext(ctx, "site read progressive draft update failed", "read", readID.String(), "err", err)
+		}
+	}
+	return progress, publishDraft
+}
+
+func deepReadFields(fields []evidencedField) []people.DeepReadField {
+	out := make([]people.DeepReadField, len(fields))
+	for i, field := range fields {
+		out[i] = people.DeepReadField{
+			Field: field.Field, Value: field.Value, EvidenceSnippet: field.EvidenceSnippet,
+			SourceURL: field.SourceURL, Confidence: field.Confidence,
+		}
+	}
+	return out
+}
+
+func siteReadPeople(found []sitePerson) []people.SiteReadPerson {
+	out := make([]people.SiteReadPerson, len(found))
+	for i, person := range found {
+		out[i] = people.SiteReadPerson{
+			Name: person.Name, Role: person.Role, PublishedEmail: person.PublishedEmail,
+			LinkedinURL: person.LinkedinURL, EvidenceSnippet: person.EvidenceSnippet, SourceURL: person.SourceURL,
+		}
+	}
+	return out
+}
+
+func siteReadProposalHash(fields []people.DeepReadField, facts []people.DeepReadFact, found []people.SiteReadPerson) (string, error) {
+	raw, err := json.Marshal(struct {
+		Fields []people.DeepReadField  `json:"fields"`
+		Facts  []people.DeepReadFact   `json:"facts"`
+		People []people.SiteReadPerson `json:"people"`
+	}{Fields: fields, Facts: facts, People: found})
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(raw)
+	return hex.EncodeToString(digest[:]), nil
 }
 
 // stageProposals stages everything the read evidenced: the ONE deepread
@@ -247,18 +322,12 @@ func (w *siteDeepReadWorker) stageProposals(ctx context.Context, readID ids.UUID
 // plus the dossier id, so the accept effect links the landed facts back
 // to the read that evidenced them.
 func (w *siteDeepReadWorker) stage(ctx context.Context, readID ids.UUID, claim people.SiteReadClaim, mergedFields []evidencedField, mergedFacts []people.DeepReadFact, pagesRead int) (ids.ApprovalID, error) {
-	fields := make([]people.DeepReadField, len(mergedFields))
-	for i, f := range mergedFields {
-		fields[i] = people.DeepReadField{
-			Field:           f.Field,
-			Value:           f.Value,
-			EvidenceSnippet: f.EvidenceSnippet,
-			SourceURL:       f.SourceURL,
-			Confidence:      f.Confidence,
-		}
+	if claim.OrganizationID == nil {
+		return ids.ApprovalID{}, errors.New("site deep read: an unbound onboarding draft cannot stage an organization approval")
 	}
+	fields := deepReadFields(mergedFields)
 	proposedChange, err := json.Marshal(people.DeepReadProposal{
-		OrganizationID: ids.From[ids.OrganizationKind](claim.OrganizationID),
+		OrganizationID: ids.From[ids.OrganizationKind](*claim.OrganizationID),
 		SourceURL:      claim.SeedURL,
 		SiteReadID:     readID,
 		Fields:         fields,
@@ -268,14 +337,16 @@ func (w *siteDeepReadWorker) stage(ctx context.Context, readID ids.UUID, claim p
 		return ids.ApprovalID{}, err
 	}
 	digest := sha256.Sum256(proposedChange)
-	return w.approvals.Stage(ctx, approvals.StageInput{
+	approvalID, err := w.approvals.Stage(ctx, approvals.StageInput{
 		Kind:           deepReadProposalKind,
 		ProposedChange: proposedChange,
 		DiffHash:       hex.EncodeToString(digest[:]),
 		TargetType:     enrichTargetType,
-		TargetID:       claim.OrganizationID,
+		TargetID:       *claim.OrganizationID,
 		Summary:        fmt.Sprintf("Deep site read of %s: %d fields, %d facts from %d pages", claim.SeedURL, len(mergedFields), len(mergedFacts), pagesRead),
+		JoinPending:    true,
 	})
+	return approvalID, err
 }
 
 // stageSiteLead records ONE published person as a thin "site_lead"
@@ -283,8 +354,21 @@ func (w *siteDeepReadWorker) stage(ctx context.Context, readID ids.UUID, claim p
 // person is decided on their own — accepting the CTO does not accept the
 // whole roster.
 func (w *siteDeepReadWorker) stageSiteLead(ctx context.Context, readID ids.UUID, claim people.SiteReadClaim, person sitePerson) (ids.ApprovalID, error) {
+	if claim.OrganizationID == nil {
+		return ids.ApprovalID{}, errors.New("site deep read: an unbound onboarding draft cannot stage a lead proposal")
+	}
+	in, err := siteLeadStageInput(readID, *claim.OrganizationID, claim.SeedURL, person)
+	if err != nil {
+		return ids.ApprovalID{}, err
+	}
+	in.JoinPending = true
+	approvalID, err := w.approvals.Stage(ctx, in)
+	return approvalID, err
+}
+
+func siteLeadStageInput(readID, organizationID ids.UUID, seedURL string, person sitePerson) (approvals.StageInput, error) {
 	proposedChange, err := json.Marshal(siteLeadProposal{
-		OrganizationID:  claim.OrganizationID,
+		OrganizationID:  organizationID,
 		SiteReadID:      readID,
 		Name:            person.Name,
 		Role:            person.Role,
@@ -294,17 +378,17 @@ func (w *siteDeepReadWorker) stageSiteLead(ctx context.Context, readID ids.UUID,
 		SourceURL:       person.SourceURL,
 	})
 	if err != nil {
-		return ids.ApprovalID{}, err
+		return approvals.StageInput{}, err
 	}
 	digest := sha256.Sum256(proposedChange)
-	return w.approvals.Stage(ctx, approvals.StageInput{
+	return approvals.StageInput{
 		Kind:           siteLeadProposalKind,
 		ProposedChange: proposedChange,
 		DiffHash:       hex.EncodeToString(digest[:]),
 		TargetType:     enrichTargetType,
-		TargetID:       claim.OrganizationID,
-		Summary:        fmt.Sprintf("Lead from %s: %s — %s", claim.SeedURL, person.Name, person.Role),
-	})
+		TargetID:       organizationID,
+		Summary:        fmt.Sprintf("Lead from %s: %s — %s", seedURL, person.Name, person.Role),
+	}, nil
 }
 
 // finish records the crawl report on the dossier in one terminal write.
@@ -319,13 +403,18 @@ func terminalCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 }
 
-func (w *siteDeepReadWorker) finish(ctx context.Context, readID ids.UUID, status string, readPages []crawlPage, crawl siteCrawl, factCount int, proposalIDs []ids.UUID) error {
+func (w *siteDeepReadWorker) finish(ctx context.Context, readID ids.UUID, status string, readPages []crawlPage, crawl siteCrawl, factCount int, proposalIDs []ids.UUID, fields []people.DeepReadField, facts []people.DeepReadFact, found []people.SiteReadPerson, warnings []string, proposalHash string) error {
 	in := people.FinishSiteReadInput{
-		Status:      status,
-		Pages:       make([]people.SiteReadPage, 0, len(readPages)),
-		Skipped:     make([]people.SiteReadSkip, 0, len(crawl.Skipped)),
-		FactCount:   factCount,
-		ProposalIDs: proposalIDs,
+		Status:        status,
+		Pages:         make([]people.SiteReadPage, 0, len(readPages)),
+		Skipped:       make([]people.SiteReadSkip, 0, len(crawl.Skipped)),
+		FactCount:     factCount,
+		ProposalIDs:   proposalIDs,
+		ProfileFields: fields,
+		Facts:         facts,
+		People:        found,
+		Warnings:      warnings,
+		ProposalHash:  proposalHash,
 	}
 	for _, p := range readPages {
 		in.Pages = append(in.Pages, people.SiteReadPage{URL: p.URL, Kind: string(p.Kind)})

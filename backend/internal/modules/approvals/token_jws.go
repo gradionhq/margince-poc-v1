@@ -65,7 +65,7 @@ func (s *Service) MintApprovalToken(ctx context.Context, approvalID ids.Approval
 		if err != nil {
 			return err
 		}
-		if a.Status != "approved" {
+		if a.Status != approvalStatusApproved {
 			return fmt.Errorf("approval %s is %s, not approved: %w", approvalID, a.Status, apperrors.ErrApprovalTokenInvalid)
 		}
 		claims := ApprovalTokenClaims{
