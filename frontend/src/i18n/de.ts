@@ -791,18 +791,67 @@ export const de = {
   "stage.semLost": "Verloren",
 
   "ob.title": "Margince einrichten",
+  "ob.read": "Einlesen",
+  "ob.confirm": "Bestätigen",
   "ob.company": "Firma",
   "ob.voice": "Stimme",
   "ob.results": "Ergebnisse",
   "ob.connect": "Verbinden",
   "ob.url": "Website",
+  "ob.urlScheme": "https://",
   "ob.next": "Weiter",
   "ob.back": "Zurück",
   "ob.finish": "In den Workspace",
   "ob.skipStep": "Schritt überspringen",
+  "ob.restoring": "Deine Einrichtung wird wiederhergestellt…",
+  "ob.stateConflict":
+    "Diese Einrichtung wurde in einem anderen Tab geändert. Wir haben den gespeicherten Stand neu geladen, damit nichts still überschrieben wird.",
+  "ob.stateSaveFailed":
+    "Wir konnten deinen Einrichtungsfortschritt nicht speichern. Bitte versuche es erneut.",
+  "ob.readKick": "Schritt 1 von 5 · Firmenkontext",
+  "ob.readTitle": "Lass Margince dein Geschäft verstehen.",
+  "ob.readSub":
+    "Starte mit deiner öffentlichen Website für eine belegte Analyse, oder trage die drei Grundlagen selbst ein. Beide Wege erzeugen denselben nützlichen Firmenkontext.",
+  "ob.readChoice": "Wähle, wie du deine Firma beschreiben möchtest",
+  "ob.readWebsite": "Meine Website einlesen",
+  "ob.readWebsiteSub":
+    "Wir prüfen die relevanten Seiten und zeigen jede Aussage vor dem Speichern.",
+  "ob.readManual": "Selbst eingeben",
+  "ob.readManualSub":
+    "Firmenname, Angebot und Idealkunde. Ohne KI oder externe Anfrage.",
+  "ob.readTrustTitle": "Öffentlich, begrenzt und erst nach Prüfung. ",
+  "ob.readTrustBody": "Nichts wird zu Firmendaten, bevor du es bestätigst.",
+  "ob.continueManual": "Manuell fortfahren",
+  "ob.reviewFindings": "Ergebnisse prüfen",
+  "ob.live": "Live",
+  "ob.readingHost": "Wir verstehen {host}",
+  "ob.readStatus.queued": "Eingeplant",
+  "ob.readStatus.reading": "Wird gelesen",
+  "ob.readStatus.ready": "Bereit zur Prüfung",
+  "ob.readStatus.partial": "Teilweise gelesen",
+  "ob.readStatus.failed": "Manuelle Eingabe nötig",
+  "ob.readStatus.confirmed": "Bestätigt",
+  "ob.readStatus.abandoned": "Beendet",
+  "ob.phaseDiscover": "Seiten entdecken",
+  "ob.phaseExtract": "Belegte Fakten extrahieren",
+  "ob.phaseReady": "Prüfung vorbereiten",
+  "ob.pagesRead": "Seiten gelesen",
+  "ob.profileFindings": "Profil-Ergebnisse",
+  "ob.usefulFacts": "nützliche Fakten",
+  "ob.coverageDetails": "Abdeckung und ehrliche Auslassungen",
+  "ob.confirmWebsite":
+    "Aus {count} öffentlichen Seiten belegt. Änderungen werden deine Aussage; unveränderte Werte behalten ihre Belege.",
+  "ob.confirmManual":
+    "Manuelle Einrichtung — deine Antworten werden als menschliche Angaben gespeichert.",
+  "ob.factsTitle": "Nützliche wiederholbare Fakten",
+  "ob.factsSub":
+    "Wähle, welche Produkte, Fähigkeiten, Märkte und Belege Teil des Firmenkontexts werden.",
+  "ob.nowUnderstands": "Margince versteht jetzt",
+  "ob.contextReady":
+    "Dieser Kontext steht relevanten Entwürfen, Suche, Agenten und Voice DNA bereit — inklusive Herkunft.",
 
-  "ob.s1.kick": "Schritt 1 von 4",
-  "ob.s1.title": "Deine Firma",
+  "ob.s1.kick": "Schritt 2 von 5 · bestätigen",
+  "ob.s1.title": "Mach daraus eindeutig deine Firma.",
   "ob.s1.sub":
     "Trag das hier ein, oder füg deine Website ein — dann füllen wir aus, was wir von dort zitieren können. Gespeichert wird erst, wenn du weitergehst.",
   "ob.s1.urlPlaceholder": "deinefirma.de",
@@ -853,7 +902,7 @@ export const de = {
   "ob.field.industry": "Branche",
   "ob.field.history": "Firmengeschichte",
 
-  "ob.s2.kick": "Schritt 2 von 4 · optional",
+  "ob.s2.kick": "Schritt 3 von 5 · optional",
   "ob.s2.title": "Jetzt lernen wir,",
   "ob.s2.titleEm": "wie du wirklich schreibst.",
   "ob.s2.sub":
@@ -917,7 +966,7 @@ export const de = {
   "ob.s2.vpFootnote":
     "Ein Anfang aus {count} Wörtern. Verbinde als Nächstes dein Postfach, und deine gesendete Post hebt das von gut → scharf — dann lernt es aus jeder E-Mail weiter.",
 
-  "ob.s3.kick": "Schritt 3 von 4",
+  "ob.s3.kick": "Schritt 4 von 5",
   "ob.s3.title": "Sieh, was du gebaut hast —",
   "ob.s3.titleEm": "ganz ohne Anbindung.",
   "ob.s3.sub":
@@ -952,7 +1001,7 @@ export const de = {
     "Noch immer nichts verbunden. Du bestimmst, wann sich das ändert.",
   "ob.s3.cta": "Postfach verbinden",
 
-  "ob.s4.kick": "Schritt 4 von 4 · der letzte Schritt",
+  "ob.s4.kick": "Schritt 5 von 5 · der letzte Schritt",
   "ob.s4.title": "Bereit,",
   "ob.s4.titleEm": "es zum Leben zu erwecken?",
   "ob.s4.sub":

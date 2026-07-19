@@ -492,6 +492,14 @@ func (stubs) SendOffer(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontr
 	httperr.NotImplemented(w, r, "SendOffer")
 }
 
+func (stubs) GetOnboardingState(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetOnboardingState")
+}
+
+func (stubs) PutOnboardingState(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.PutOnboardingStateParams) {
+	httperr.NotImplemented(w, r, "PutOnboardingState")
+}
+
 func (stubs) ListOrganizations(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListOrganizationsParams) {
 	httperr.NotImplemented(w, r, "ListOrganizations")
 }

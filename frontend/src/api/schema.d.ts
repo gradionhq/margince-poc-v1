@@ -1580,6 +1580,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/onboarding/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the acting user's resumable onboarding state.
+         * @description Returns only wizard orchestration state. Confirmed company data, website-read findings,
+         *     voice artifacts, and connector grants remain in their owning resources. A user with no
+         *     persisted state receives 404; the client starts from the server-derived creator/member path.
+         */
+        get: operations["getOnboardingState"];
+        /**
+         * Create or replace the acting user's resumable onboarding state.
+         * @description `expected_version=0` creates the state. Later writes must supply the version last read;
+         *     a stale concurrent tab receives 409 and must reload before retrying. The server derives
+         *     creator/member path from anchor-company existence and rejects creator advancement beyond
+         *     Confirm until the minimum company profile exists.
+         */
+        put: operations["putOnboardingState"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/company": {
         parameters: {
             query?: never;
@@ -5921,6 +5950,68 @@ export interface components {
          */
         ColdStartReadback: {
             fields: components["schemas"]["ColdStartField"][];
+        };
+        /**
+         * @description Partial human-editable company input retained while the wizard is unfinished. Every field
+         *     is optional here because this is not confirmed company truth; confirmation uses the stricter
+         *     CompanyProfileInput or ConfirmCompanySiteReadRequest contract.
+         */
+        OnboardingCompanyDraft: {
+            display_name?: string | null;
+            offer_summary?: string | null;
+            icp?: string | null;
+            value_proposition?: string | null;
+            usp?: string | null;
+            customer_pains?: string | null;
+            desired_outcomes?: string | null;
+            buying_center?: string | null;
+            buying_intents?: string | null;
+            common_objections?: string | null;
+            sales_motion?: string | null;
+            legal_name?: string | null;
+            registered_address?: string | null;
+            register_vat?: string | null;
+            industry?: string | null;
+            history?: string | null;
+        };
+        PutOnboardingStateRequest: {
+            /** @description Zero creates; otherwise the version last read. */
+            expected_version: number;
+            /** @enum {string} */
+            step: "read" | "confirm" | "voice" | "results" | "connect" | "complete";
+            /** @enum {string|null} */
+            source_mode: "website" | "manual" | null;
+            /** Format: uri */
+            website_url?: string | null;
+            /** Format: uuid */
+            site_read_id?: string | null;
+            company_draft: components["schemas"]["OnboardingCompanyDraft"];
+            selected_fact_keys: string[];
+            voice_skipped: boolean;
+            connect_skipped: boolean;
+        };
+        OnboardingState: {
+            /** @enum {string} */
+            readonly path: "creator" | "member";
+            /** @enum {string} */
+            step: "read" | "confirm" | "voice" | "results" | "connect" | "complete";
+            /** @enum {string|null} */
+            source_mode: "website" | "manual" | null;
+            /** Format: uri */
+            website_url?: string | null;
+            /** Format: uuid */
+            site_read_id?: string | null;
+            company_draft: components["schemas"]["OnboardingCompanyDraft"];
+            selected_fact_keys: string[];
+            voice_skipped: boolean;
+            connect_skipped: boolean;
+            readonly version: number;
+            /** Format: date-time */
+            readonly completed_at?: string | null;
+            /** Format: date-time */
+            readonly created_at: string;
+            /** Format: date-time */
+            readonly updated_at: string;
         };
         /**
          * @description The installation's own company. The flat properties remain compatibility aliases for the
@@ -11204,6 +11295,67 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+        };
+    };
+    getOnboardingState: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The acting user's current onboarding state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingState"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    putOnboardingState: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutOnboardingStateRequest"];
+            };
+        };
+        responses: {
+            /** @description Persisted onboarding state with its new optimistic version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingState"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
         };
     };
     getCompany: {

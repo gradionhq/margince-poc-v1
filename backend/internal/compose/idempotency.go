@@ -54,6 +54,7 @@ const idempotencyKeyHeader = "Idempotency-Key"
 var idempotentOperations = map[string]bool{
 	"POST /v1/company/site-reads":                  true,
 	"POST /v1/company/site-reads/{readId}/confirm": true,
+	"PUT /v1/onboarding/state":                     true,
 	"POST /v1/people":                              true,
 	"PATCH /v1/people/{id}":                        true,
 	"POST /v1/people/{id}/merge":                   true,

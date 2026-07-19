@@ -22,7 +22,7 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
-**Cold-start company context — durable knowledge reused safely (Phases 1–3)** —
+**Cold-start company context — durable knowledge and five-step setup (Phases 1–4)** —
 the installation's anchor organization is now the normal company record with a
 governed, typed context view over canonical identity, confirmed profile fields,
 and evidence-bearing facts. Website reading is optional: the progressive
@@ -35,10 +35,17 @@ brief ranking, and deal health explicitly receive none. AI traces store scopes
 plus context fingerprint and cache keys bind the fingerprint, preventing stale
 answers after a company edit. Reply drafting is shared across HTTP, governed
 tools, and workflows and falls back deterministically without sending. The
-ratified five-step Read · Confirm · Voice · Results · Connect UI remains the next
-phase; current task contracts contain no executable voice-build or natural-
-language-search product consumer, so those policy declarations remain dormant
-until their surfaces are ratified.
+five-step Read · Confirm · Voice · Results · Connect UI now presents website and
+manual entry as equal paths, progressively reveals grounded website evidence,
+supports accept-subset confirmation, and ends with a real confirmed-data reveal.
+Per-human server state survives reload/OAuth returns with creator/member routing,
+optimistic conflicts, RLS, audit, and the identity-stream
+`onboarding.state_changed` event; manual setup needs only company name, offer,
+and ideal customer and makes zero external request. Phase 5 remains: settings
+refresh/conflict resolution, observability, capability rollout, and existing-
+installation backfill. Current task contracts contain no executable voice-build
+or natural-language-search consumer, so those declarations remain dormant until
+their surfaces are ratified.
 
 **AI runtime contract + certification (four phases, one arc)** — the AI
 task/tier vocabulary is now a compiled contract:

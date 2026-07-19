@@ -54,6 +54,7 @@ var tableOwners = map[string]string{
 	"record_grant":             "internal/modules/identity",
 	"oauth_client":             "internal/modules/identity",
 	"oauth_authorization_code": "internal/modules/identity",
+	"onboarding_wizard_state":  "internal/modules/identity",
 	// people
 	"person":                     "internal/modules/people",
 	"person_email":               "internal/modules/people",

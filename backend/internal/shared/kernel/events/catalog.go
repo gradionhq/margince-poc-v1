@@ -115,9 +115,10 @@ var catalog = map[string]struct {
 	// §5.6a: the access-revocation cascade (B-EP03.10) — user, role and
 	// passport are identity-owned facts, so all three ride the identity
 	// stream rather than gaining per-entity streams of their own.
-	"user.deactivated": {"identity", 1},
-	"role.changed":     {"identity", 1},
-	"passport.revoked": {"identity", 1},
+	"user.deactivated":         {"identity", 1},
+	"role.changed":             {"identity", 1},
+	"passport.revoked":         {"identity", 1},
+	"onboarding.state_changed": {"identity", 1},
 }
 
 // pipelineEventTypes are the capture-pipeline events that may ride the bus

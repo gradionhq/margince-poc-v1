@@ -137,6 +137,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/voice-profiles/{id}/sources":             {Op: "ingestVoiceCorpusSource", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"PUT /v1/company":                                  {Op: "putCompany", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"PUT /v1/offer-templates/{id}":                     {Op: "updateOfferTemplate", Access: "tool", Tool: "update_record", RecordType: "offer_template", Tier: "green"},
+	"PUT /v1/onboarding/state":                         {Op: "putOnboardingState", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"PUT /v1/organizations/{id}/partner":               {Op: "upsertPartner", Access: "tool", Tool: "update_record", RecordType: "partner", Tier: "green"},
 	"PUT /v1/public/preferences/{token}":               {Op: "updatePreferences", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 }
