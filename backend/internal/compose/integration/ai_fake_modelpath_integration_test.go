@@ -72,6 +72,9 @@ func TestAIFakeModelPathBindsEveryLane(t *testing.T) {
 	if modelPath.BriefRank == nil {
 		t.Error("BriefRank lane is nil")
 	}
+	if modelPath.DraftReply == nil {
+		t.Error("DraftReply lane is nil")
+	}
 	if modelPath.OfferDraft == nil {
 		t.Error("OfferDraft lane is nil")
 	}

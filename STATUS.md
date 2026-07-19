@@ -22,6 +22,24 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**Cold-start company context — durable knowledge reused safely (Phases 1–3)** —
+the installation's anchor organization is now the normal company record with a
+governed, typed context view over canonical identity, confirmed profile fields,
+and evidence-bearing facts. Website reading is optional: the progressive
+onboarding dossier persists no company data before confirmation, supports a
+bound accept-subset, preserves web versus human provenance, and produces the
+same company shape as manual entry. The model path now owns one exhaustive
+per-task context policy: agent, reply, and offer drafting receive bounded scopes
+as escaped user data; extraction, classification, enrichment, embeddings,
+brief ranking, and deal health explicitly receive none. AI traces store scopes
+plus context fingerprint and cache keys bind the fingerprint, preventing stale
+answers after a company edit. Reply drafting is shared across HTTP, governed
+tools, and workflows and falls back deterministically without sending. The
+ratified five-step Read · Confirm · Voice · Results · Connect UI remains the next
+phase; current task contracts contain no executable voice-build or natural-
+language-search product consumer, so those policy declarations remain dormant
+until their surfaces are ratified.
+
 **AI runtime contract + certification (four phases, one arc)** — the AI
 task/tier vocabulary is now a compiled contract:
 `backend/api/ai-tasks.yaml` (14 tasks, 4 tiers, ladders + budget

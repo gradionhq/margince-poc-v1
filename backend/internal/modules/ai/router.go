@@ -182,7 +182,11 @@ func (r *Router) serveAttempt(ctx context.Context, lc *logicalCall, task Task, l
 	// built and are not traced (no RLS-writable row exists yet, and no
 	// route was attempted).
 	start := r.now()
-	trace := Call{Task: task, Kind: callKindCompletion, RequestFingerprint: key, AttemptReason: reason, CacheOff: r.cacheOff}
+	trace := Call{
+		Task: task, Kind: callKindCompletion, RequestFingerprint: key,
+		ContextScopes: append([]string(nil), req.ContextScopes...), ContextFingerprint: req.ContextFingerprint,
+		AttemptReason: reason, CacheOff: r.cacheOff,
+	}
 	if cid, ok := principal.CorrelationID(ctx); ok {
 		trace.CorrelationID = &cid
 	}
@@ -359,8 +363,8 @@ func embedTokenEstimate(inputs []string) int {
 }
 
 // cacheKey covers EVERY completion-shaping input (model override, system,
-// messages, tools, max tokens, response schema, attachments, and provider
-// options) via a collision-resistant digest,
+// messages, tools, max tokens, response schema, attachments, provider
+// options, and company-context binding) via a collision-resistant digest,
 // prefixed with the plaintext workspace id: a hash collision may spoil a cache
 // hit but can never cross a tenant boundary, because the workspace segment is
 // compared literally (and re-checked against the stored entry on read).
@@ -369,15 +373,17 @@ func embedTokenEstimate(inputs []string) int {
 // reasoning/thinking knob) collide, and the second is served the first's answer.
 func cacheKey(wsID ids.WorkspaceID, task Task, req model.Request) (string, error) {
 	material, err := json.Marshal(struct {
-		Model           string                     `json:"model"`
-		System          string                     `json:"system"`
-		Messages        []model.Message            `json:"messages"`
-		Tools           []model.ToolDef            `json:"tools"`
-		MaxTokens       int                        `json:"max_tokens"`
-		ResponseSchema  json.RawMessage            `json:"response_schema"`
-		Attachments     []model.Attachment         `json:"attachments"`
-		ProviderOptions map[string]json.RawMessage `json:"provider_options"`
-	}{req.Model, req.System, req.Messages, req.Tools, req.MaxTokens, req.ResponseSchema, req.Attachments, req.ProviderOptions})
+		Model              string                     `json:"model"`
+		System             string                     `json:"system"`
+		Messages           []model.Message            `json:"messages"`
+		Tools              []model.ToolDef            `json:"tools"`
+		MaxTokens          int                        `json:"max_tokens"`
+		ResponseSchema     json.RawMessage            `json:"response_schema"`
+		Attachments        []model.Attachment         `json:"attachments"`
+		ProviderOptions    map[string]json.RawMessage `json:"provider_options"`
+		ContextScopes      []string                   `json:"context_scopes"`
+		ContextFingerprint string                     `json:"context_fingerprint"`
+	}{req.Model, req.System, req.Messages, req.Tools, req.MaxTokens, req.ResponseSchema, req.Attachments, req.ProviderOptions, req.ContextScopes, req.ContextFingerprint})
 	if err != nil {
 		// A ProviderOptions namespace carrying invalid JSON would otherwise
 		// marshal to nil and collapse every such request onto one cache key —

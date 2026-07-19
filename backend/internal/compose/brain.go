@@ -18,6 +18,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
@@ -42,6 +43,7 @@ type ModelPath struct {
 	SiteExtract     completer    // the deep read's profile lane (one premium-first call)
 	SiteFactExtract completer    // the deep read's page-parallel fact lane (fast tier)
 	BriefRank       completer    // the Morning-Brief L2 re-order (B-E05.2)
+	DraftReply      completer    // activity-anchored email reply drafting
 	OfferDraft      completer    // the offer regenerate-from-signal drafting call
 	// CaptureClassify is the §2.8 batched mail-label lane (ADR-0063) —
 	// the highest-volume, cheapest task, routed L-S with the C-C solo
@@ -61,17 +63,7 @@ func NewModelPath(cfg ai.RoutingConfig, pool *pgxpool.Pool, capturePayloads bool
 	if err != nil {
 		return ModelPath{}, err
 	}
-	return ModelPath{
-		Agent:           agentBrain{router: router},
-		ColdStart:       routerBrain{router: router, task: ai.TaskColdStart},
-		SiteExtract:     routerBrain{router: router, task: ai.TaskSiteExtract},
-		SiteFactExtract: routerBrain{router: router, task: ai.TaskSiteFactExtract},
-		BriefRank:       routerBrain{router: router, task: ai.TaskBriefRanking},
-		OfferDraft:      routerBrain{router: router, task: ai.TaskOfferDraft},
-		CaptureClassify: routerBrain{router: router, task: ai.TaskCaptureClassify},
-		SignatureEnrich: routerBrain{router: router, task: ai.TaskEnrich},
-		Embedder:        router,
-	}, nil
+	return modelPathForRouter(router, newCompanyContextProvider(people.NewStore(pool))), nil
 }
 
 // NewLocalModelPath builds a ModelPath over the DB-less local router
@@ -91,17 +83,25 @@ func NewLocalModelPath(cfg ai.RoutingConfig, opts ...ai.LocalOption) (ModelPath,
 	if err != nil {
 		return ModelPath{}, err
 	}
+	return modelPathForRouter(router, newCompanyContextProvider(nil)), nil
+}
+
+func modelPathForRouter(router *ai.Router, companyContext *companyContextProvider) ModelPath {
+	brain := func(task ai.Task) routerBrain {
+		return routerBrain{router: router, task: task, companyContext: companyContext}
+	}
 	return ModelPath{
-		Agent:           agentBrain{router: router},
-		ColdStart:       routerBrain{router: router, task: ai.TaskColdStart},
-		SiteExtract:     routerBrain{router: router, task: ai.TaskSiteExtract},
-		SiteFactExtract: routerBrain{router: router, task: ai.TaskSiteFactExtract},
-		BriefRank:       routerBrain{router: router, task: ai.TaskBriefRanking},
-		OfferDraft:      routerBrain{router: router, task: ai.TaskOfferDraft},
-		CaptureClassify: routerBrain{router: router, task: ai.TaskCaptureClassify},
-		SignatureEnrich: routerBrain{router: router, task: ai.TaskEnrich},
+		Agent:           agentBrain{router: router, companyContext: companyContext},
+		ColdStart:       brain(ai.TaskColdStart),
+		SiteExtract:     brain(ai.TaskSiteExtract),
+		SiteFactExtract: brain(ai.TaskSiteFactExtract),
+		BriefRank:       brain(ai.TaskBriefRanking),
+		DraftReply:      brain(ai.TaskDraftReply),
+		OfferDraft:      brain(ai.TaskOfferDraft),
+		CaptureClassify: brain(ai.TaskCaptureClassify),
+		SignatureEnrich: brain(ai.TaskEnrich),
 		Embedder:        router,
-	}, nil
+	}
 }
 
 // NewLocalRouterForCert builds the DB-less local router the aicert
@@ -134,12 +134,17 @@ func (p ModelPath) WriteMetrics(w io.Writer) {
 // routerBrain adapts the tiered router into the 2-return completer seam
 // the direct-call lanes use, under a fixed task label.
 type routerBrain struct {
-	router *ai.Router
-	task   ai.Task
+	router         *ai.Router
+	task           ai.Task
+	companyContext *companyContextProvider
 }
 
 func (b routerBrain) Complete(ctx context.Context, req model.Request) (model.Response, error) {
-	resp, _, err := b.router.Complete(ctx, b.task, req)
+	prepared, err := b.companyContext.Prepare(ctx, b.task, req)
+	if err != nil {
+		return model.Response{}, err
+	}
+	resp, _, err := b.router.Complete(ctx, b.task, prepared)
 	return resp, err
 }
 
@@ -149,11 +154,16 @@ func (b routerBrain) Complete(ctx context.Context, req model.Request) (model.Res
 // model (RUNNER-AC-4). The runner lane is the only consumer that needs
 // this — the direct-call lanes use routerBrain.
 type agentBrain struct {
-	router *ai.Router
+	router         *ai.Router
+	companyContext *companyContextProvider
 }
 
 func (b agentBrain) Complete(ctx context.Context, req model.Request) (model.Response, runner.Meta, error) {
-	resp, info, err := b.router.Complete(ctx, ai.TaskAgentLoop, req)
+	prepared, err := b.companyContext.Prepare(ctx, ai.TaskAgentLoop, req)
+	if err != nil {
+		return model.Response{}, runner.Meta{}, err
+	}
+	resp, info, err := b.router.Complete(ctx, ai.TaskAgentLoop, prepared)
 	return resp, runner.Meta{ModelID: info.ModelID, Tier: string(info.Tier)}, err
 }
 
@@ -161,6 +171,10 @@ func (b agentBrain) Complete(ctx context.Context, req model.Request) (model.Resp
 // (validate → retry with feedback → escalate a tier) on the lane's own
 // task label.
 func (b routerBrain) CompleteValidated(ctx context.Context, req model.Request, validate ai.Validator) (model.Response, error) {
-	resp, _, err := b.router.CompleteStructured(ctx, b.task, req, validate)
+	prepared, err := b.companyContext.Prepare(ctx, b.task, req)
+	if err != nil {
+		return model.Response{}, err
+	}
+	resp, _, err := b.router.CompleteStructured(ctx, b.task, prepared, validate)
 	return resp, err
 }

@@ -14,6 +14,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,8 +32,18 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/retrieval"
 )
+
+type integrationReplyBrain struct {
+	response string
+	err      error
+}
+
+func (b integrationReplyBrain) Complete(context.Context, model.Request) (model.Response, error) {
+	return model.Response{Text: b.response}, b.err
+}
 
 func TestCommsAdapterSharesTheGovernedPaths(t *testing.T) {
 	e := integration.Setup(t)
@@ -58,6 +71,32 @@ func TestCommsAdapterSharesTheGovernedPaths(t *testing.T) {
 	}
 	if subject != "Re: Pricing question" || body == "" {
 		t.Fatalf("draft = %q / %q", subject, body)
+	}
+
+	adapter.draft = replyDrafter{
+		brain: integrationReplyBrain{response: `{"subject":"Re: Your pricing question","body":"The discount is confirmed for review."}`},
+		store: adapter.store,
+		log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	subject, body, err = adapter.DraftEmail(ctx, anchorID, "confirm the discount")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subject != "Re: Your pricing question" || body != "The discount is confirmed for review." {
+		t.Fatalf("model draft = %q / %q", subject, body)
+	}
+
+	adapter.draft = replyDrafter{
+		brain: integrationReplyBrain{err: errors.New("provider unavailable")},
+		store: adapter.store,
+		log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	subject, body, err = adapter.DraftEmail(ctx, anchorID, "confirm the discount")
+	if err != nil {
+		t.Fatalf("fallback draft: %v", err)
+	}
+	if subject != "Re: Pricing question" || !strings.Contains(body, "confirm the discount") {
+		t.Fatalf("fallback draft = %q / %q", subject, body)
 	}
 
 	// The consent default is deny: sending through the MCP seam refuses
