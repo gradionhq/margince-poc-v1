@@ -67,6 +67,9 @@ const STEPS = [
 ] as const;
 
 const VOICE_TARGET = 30000;
+// The facts endpoint accepts at most this many selected keys; preselecting
+// more than the API takes would make the default state unsubmittable.
+const MAX_SELECTED_FACTS = 100;
 
 type CompanyProfile = components["schemas"]["CompanyProfile"];
 type ColdField = components["schemas"]["ColdStartField"];
@@ -742,7 +745,12 @@ function OnboardingCoordinator() {
     // both a partner and a named customer — and the API takes a SET of
     // keys, so the selection folds the repeats rather than sending a
     // duplicate it would reject.
-    setSelectedFactKeys([...new Set(read.facts.map((fact) => fact.value_key))]);
+    setSelectedFactKeys(
+      [...new Set(read.facts.map((fact) => fact.value_key))].slice(
+        0,
+        MAX_SELECTED_FACTS,
+      ),
+    );
   }, [siteRead.data]);
 
   const go = (next: number, persist = true) => {
@@ -975,7 +983,12 @@ function OnboardingCoordinator() {
             }}
             onChooseManual={() => {
               setSourceMode("manual");
-              persistState(0, { sourceMode: "manual", siteReadID: null });
+              setSelectedFactKeys([]);
+              persistState(0, {
+                sourceMode: "manual",
+                siteReadID: null,
+                selectedFactKeys: [],
+              });
             }}
             onStart={() => startRead.mutate()}
             onContinue={() => {
@@ -1355,12 +1368,15 @@ function CompanyStep({
           <div className="fact-grid">
             {read.facts.map((fact) => {
               const selected = selectedFactKeys.includes(fact.value_key);
+              const selectionFull =
+                !selected && selectedFactKeys.length >= MAX_SELECTED_FACTS;
               return (
                 <button
                   key={`${fact.field}:${fact.value_key}`}
                   type="button"
                   className={`fact-card ${selected ? "selected" : ""}`}
                   aria-pressed={selected}
+                  disabled={selectionFull}
                   onClick={() =>
                     setSelectedFactKeys(
                       selected

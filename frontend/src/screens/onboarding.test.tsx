@@ -108,6 +108,15 @@ const readyRead = {
   updated_at: "2026-07-19T08:00:01Z",
 } as const satisfies CompanySiteRead;
 
+const manyFactsRead = {
+  ...readyRead,
+  facts: Array.from({ length: 101 }, (_, index) => ({
+    ...readyRead.facts[0],
+    value: `Fact ${index}`,
+    value_key: `founded_year:fact-${index}`,
+  })),
+} satisfies CompanySiteRead;
+
 type StubOptions = {
   company?: typeof savedProfile | null;
   state?: Record<string, unknown> | null;
@@ -316,6 +325,59 @@ describe("the optional website path", () => {
       (screen.getByLabelText(/Register \/ VAT ID/) as HTMLInputElement).value,
     ).toBe("HRB 12345 · DE123456789");
     expect(screen.getByText(/founded year/i)).toBeTruthy();
+  });
+
+  it("caps the default fact selection at the server limit", async () => {
+    const calls = stubApi({ read: manyFactsRead });
+    render(<OnboardingScreen />);
+
+    await readWebsite();
+
+    await waitFor(async () => {
+      const stateWrites = calls.filter(
+        (request) =>
+          request.url.includes("/onboarding/state") && request.method === "PUT",
+      );
+      const body = (await stateWrites.at(-1)?.clone().json()) as Record<
+        string,
+        unknown
+      >;
+      expect(body.selected_fact_keys).toHaveLength(100);
+    });
+    expect(
+      (
+        screen.getByRole("button", {
+          name: /Fact 100/,
+          hidden: true,
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+  });
+
+  it("clears website fact selections when switching to manual entry", async () => {
+    const calls = stubApi();
+    render(<OnboardingScreen />);
+
+    await readWebsite();
+    await userEvent.click(screen.getByRole("button", { name: "Back" }));
+    await userEvent.click(
+      screen
+        .getAllByRole("button", { name: /Tell me instead/ })
+        .at(-1) as HTMLElement,
+    );
+
+    await waitFor(async () => {
+      const stateWrites = calls.filter(
+        (request) =>
+          request.url.includes("/onboarding/state") && request.method === "PUT",
+      );
+      const body = (await stateWrites.at(-1)?.clone().json()) as Record<
+        string,
+        unknown
+      >;
+      expect(body.source_mode).toBe("manual");
+      expect(body.selected_fact_keys).toEqual([]);
+    });
   });
 
   it("keeps manual entry available when the read cannot start", async () => {
