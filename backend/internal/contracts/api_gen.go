@@ -2640,6 +2640,75 @@ func (e OmittedExtractionFieldReason) Valid() bool {
 	}
 }
 
+// Defines values for OnboardingStatePath.
+const (
+	Creator OnboardingStatePath = "creator"
+	Member  OnboardingStatePath = "member"
+)
+
+// Valid indicates whether the value is a known member of the OnboardingStatePath enum.
+func (e OnboardingStatePath) Valid() bool {
+	switch e {
+	case Creator:
+		return true
+	case Member:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OnboardingStateSourceMode.
+const (
+	OnboardingStateSourceModeLessThannil OnboardingStateSourceMode = "<nil>"
+	OnboardingStateSourceModeManual      OnboardingStateSourceMode = "manual"
+	OnboardingStateSourceModeWebsite     OnboardingStateSourceMode = "website"
+)
+
+// Valid indicates whether the value is a known member of the OnboardingStateSourceMode enum.
+func (e OnboardingStateSourceMode) Valid() bool {
+	switch e {
+	case OnboardingStateSourceModeLessThannil:
+		return true
+	case OnboardingStateSourceModeManual:
+		return true
+	case OnboardingStateSourceModeWebsite:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OnboardingStateStep.
+const (
+	OnboardingStateStepComplete OnboardingStateStep = "complete"
+	OnboardingStateStepConfirm  OnboardingStateStep = "confirm"
+	OnboardingStateStepConnect  OnboardingStateStep = "connect"
+	OnboardingStateStepRead     OnboardingStateStep = "read"
+	OnboardingStateStepResults  OnboardingStateStep = "results"
+	OnboardingStateStepVoice    OnboardingStateStep = "voice"
+)
+
+// Valid indicates whether the value is a known member of the OnboardingStateStep enum.
+func (e OnboardingStateStep) Valid() bool {
+	switch e {
+	case OnboardingStateStepComplete:
+		return true
+	case OnboardingStateStepConfirm:
+		return true
+	case OnboardingStateStepConnect:
+		return true
+	case OnboardingStateStepRead:
+		return true
+	case OnboardingStateStepResults:
+		return true
+	case OnboardingStateStepVoice:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for OrganizationClassification.
 const (
 	OrganizationClassificationAgency      OrganizationClassification = "agency"
@@ -3060,6 +3129,57 @@ func (e PromoteLeadRequestTrigger) Valid() bool {
 	case MeetingBooked:
 		return true
 	case MeetingHeld:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PutOnboardingStateRequestSourceMode.
+const (
+	PutOnboardingStateRequestSourceModeLessThannil PutOnboardingStateRequestSourceMode = "<nil>"
+	PutOnboardingStateRequestSourceModeManual      PutOnboardingStateRequestSourceMode = "manual"
+	PutOnboardingStateRequestSourceModeWebsite     PutOnboardingStateRequestSourceMode = "website"
+)
+
+// Valid indicates whether the value is a known member of the PutOnboardingStateRequestSourceMode enum.
+func (e PutOnboardingStateRequestSourceMode) Valid() bool {
+	switch e {
+	case PutOnboardingStateRequestSourceModeLessThannil:
+		return true
+	case PutOnboardingStateRequestSourceModeManual:
+		return true
+	case PutOnboardingStateRequestSourceModeWebsite:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PutOnboardingStateRequestStep.
+const (
+	PutOnboardingStateRequestStepComplete PutOnboardingStateRequestStep = "complete"
+	PutOnboardingStateRequestStepConfirm  PutOnboardingStateRequestStep = "confirm"
+	PutOnboardingStateRequestStepConnect  PutOnboardingStateRequestStep = "connect"
+	PutOnboardingStateRequestStepRead     PutOnboardingStateRequestStep = "read"
+	PutOnboardingStateRequestStepResults  PutOnboardingStateRequestStep = "results"
+	PutOnboardingStateRequestStepVoice    PutOnboardingStateRequestStep = "voice"
+)
+
+// Valid indicates whether the value is a known member of the PutOnboardingStateRequestStep enum.
+func (e PutOnboardingStateRequestStep) Valid() bool {
+	switch e {
+	case PutOnboardingStateRequestStepComplete:
+		return true
+	case PutOnboardingStateRequestStepConfirm:
+		return true
+	case PutOnboardingStateRequestStepConnect:
+		return true
+	case PutOnboardingStateRequestStepRead:
+		return true
+	case PutOnboardingStateRequestStepResults:
+		return true
+	case PutOnboardingStateRequestStepVoice:
 		return true
 	default:
 		return false
@@ -7425,6 +7545,57 @@ type OmittedExtractionField struct {
 // OmittedExtractionFieldReason defines model for OmittedExtractionField.Reason.
 type OmittedExtractionFieldReason string
 
+// OnboardingCompanyDraft Partial human-editable company input retained while the wizard is unfinished. Every field
+// is optional here because this is not confirmed company truth; confirmation uses the stricter
+// CompanyProfileInput or ConfirmCompanySiteReadRequest contract.
+type OnboardingCompanyDraft struct {
+	BuyingCenter      *string `json:"buying_center,omitempty"`
+	BuyingIntents     *string `json:"buying_intents,omitempty"`
+	CommonObjections  *string `json:"common_objections,omitempty"`
+	CustomerPains     *string `json:"customer_pains,omitempty"`
+	DesiredOutcomes   *string `json:"desired_outcomes,omitempty"`
+	DisplayName       *string `json:"display_name,omitempty"`
+	History           *string `json:"history,omitempty"`
+	Icp               *string `json:"icp,omitempty"`
+	Industry          *string `json:"industry,omitempty"`
+	LegalName         *string `json:"legal_name,omitempty"`
+	OfferSummary      *string `json:"offer_summary,omitempty"`
+	RegisterVat       *string `json:"register_vat,omitempty"`
+	RegisteredAddress *string `json:"registered_address,omitempty"`
+	SalesMotion       *string `json:"sales_motion,omitempty"`
+	Usp               *string `json:"usp,omitempty"`
+	ValueProposition  *string `json:"value_proposition,omitempty"`
+}
+
+// OnboardingState defines model for OnboardingState.
+type OnboardingState struct {
+	// CompanyDraft Partial human-editable company input retained while the wizard is unfinished. Every field
+	// is optional here because this is not confirmed company truth; confirmation uses the stricter
+	// CompanyProfileInput or ConfirmCompanySiteReadRequest contract.
+	CompanyDraft     OnboardingCompanyDraft     `json:"company_draft"`
+	CompletedAt      *time.Time                 `json:"completed_at,omitempty"`
+	ConnectSkipped   bool                       `json:"connect_skipped"`
+	CreatedAt        *time.Time                 `json:"created_at,omitempty"`
+	Path             *OnboardingStatePath       `json:"path,omitempty"`
+	SelectedFactKeys []string                   `json:"selected_fact_keys"`
+	SiteReadId       *openapi_types.UUID        `json:"site_read_id,omitempty"`
+	SourceMode       *OnboardingStateSourceMode `json:"source_mode"`
+	Step             OnboardingStateStep        `json:"step"`
+	UpdatedAt        *time.Time                 `json:"updated_at,omitempty"`
+	Version          *int                       `json:"version,omitempty"`
+	VoiceSkipped     bool                       `json:"voice_skipped"`
+	WebsiteUrl       *string                    `json:"website_url,omitempty"`
+}
+
+// OnboardingStatePath defines model for OnboardingState.Path.
+type OnboardingStatePath string
+
+// OnboardingStateSourceMode defines model for OnboardingState.SourceMode.
+type OnboardingStateSourceMode string
+
+// OnboardingStateStep defines model for OnboardingState.Step.
+type OnboardingStateStep string
+
 // Organization A company. Mirrors the `organization` table.
 type Organization struct {
 	// Address Structured postal address.
@@ -7895,6 +8066,30 @@ type PromoteLeadResponse struct {
 	// Person A contact. Mirrors the `person` table.
 	Person Person `json:"person"`
 }
+
+// PutOnboardingStateRequest defines model for PutOnboardingStateRequest.
+type PutOnboardingStateRequest struct {
+	// CompanyDraft Partial human-editable company input retained while the wizard is unfinished. Every field
+	// is optional here because this is not confirmed company truth; confirmation uses the stricter
+	// CompanyProfileInput or ConfirmCompanySiteReadRequest contract.
+	CompanyDraft   OnboardingCompanyDraft `json:"company_draft"`
+	ConnectSkipped bool                   `json:"connect_skipped"`
+
+	// ExpectedVersion Zero creates; otherwise the version last read.
+	ExpectedVersion  int                                  `json:"expected_version"`
+	SelectedFactKeys []string                             `json:"selected_fact_keys"`
+	SiteReadId       *openapi_types.UUID                  `json:"site_read_id,omitempty"`
+	SourceMode       *PutOnboardingStateRequestSourceMode `json:"source_mode"`
+	Step             PutOnboardingStateRequestStep        `json:"step"`
+	VoiceSkipped     bool                                 `json:"voice_skipped"`
+	WebsiteUrl       *string                              `json:"website_url,omitempty"`
+}
+
+// PutOnboardingStateRequestSourceMode defines model for PutOnboardingStateRequest.SourceMode.
+type PutOnboardingStateRequestSourceMode string
+
+// PutOnboardingStateRequestStep defines model for PutOnboardingStateRequest.Step.
+type PutOnboardingStateRequestStep string
 
 // Quota A per-owner or per-team revenue target for one period (RD-DDL-2). Exactly one of
 // owner_id/team_id is non-null (CHECK constraint) — never both, never neither;
@@ -10016,6 +10211,18 @@ type SendOfferParams struct {
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
+// PutOnboardingStateParams defines parameters for PutOnboardingState.
+type PutOnboardingStateParams struct {
+	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
 // ListOrganizationsParams defines parameters for ListOrganizations.
 type ListOrganizationsParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
@@ -10988,6 +11195,9 @@ type UpdateOfferLineItemJSONRequestBody = UpdateOfferLineItemRequest
 
 // RejectOfferJSONRequestBody defines body for RejectOffer for application/json ContentType.
 type RejectOfferJSONRequestBody = RejectOfferRequest
+
+// PutOnboardingStateJSONRequestBody defines body for PutOnboardingState for application/json ContentType.
+type PutOnboardingStateJSONRequestBody = PutOnboardingStateRequest
 
 // CreateOrganizationJSONRequestBody defines body for CreateOrganization for application/json ContentType.
 type CreateOrganizationJSONRequestBody = CreateOrganizationRequest
@@ -16289,6 +16499,12 @@ type ServerInterface interface {
 	// Send a draft offer (🟡 — leaves the workspace; freezes FX + buyer/issuer snapshot).
 	// (POST /offers/{id}/send)
 	SendOffer(w http.ResponseWriter, r *http.Request, id Id, params SendOfferParams)
+	// Get the acting user's resumable onboarding state.
+	// (GET /onboarding/state)
+	GetOnboardingState(w http.ResponseWriter, r *http.Request)
+	// Create or replace the acting user's resumable onboarding state.
+	// (PUT /onboarding/state)
+	PutOnboardingState(w http.ResponseWriter, r *http.Request, params PutOnboardingStateParams)
 	// List organizations (live by default; cursor-paginated).
 	// (GET /organizations)
 	ListOrganizations(w http.ResponseWriter, r *http.Request, params ListOrganizationsParams)
@@ -17270,6 +17486,18 @@ func (_ Unimplemented) RenderOffer(w http.ResponseWriter, r *http.Request, id Id
 // Send a draft offer (🟡 — leaves the workspace; freezes FX + buyer/issuer snapshot).
 // (POST /offers/{id}/send)
 func (_ Unimplemented) SendOffer(w http.ResponseWriter, r *http.Request, id Id, params SendOfferParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get the acting user's resumable onboarding state.
+// (GET /onboarding/state)
+func (_ Unimplemented) GetOnboardingState(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Create or replace the acting user's resumable onboarding state.
+// (PUT /onboarding/state)
+func (_ Unimplemented) PutOnboardingState(w http.ResponseWriter, r *http.Request, params PutOnboardingStateParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -23468,6 +23696,75 @@ func (siw *ServerInterfaceWrapper) SendOffer(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// GetOnboardingState operation middleware
+func (siw *ServerInterfaceWrapper) GetOnboardingState(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOnboardingState(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutOnboardingState operation middleware
+func (siw *ServerInterfaceWrapper) PutOnboardingState(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PutOnboardingStateParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutOnboardingState(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListOrganizations operation middleware
 func (siw *ServerInterfaceWrapper) ListOrganizations(w http.ResponseWriter, r *http.Request) {
 
@@ -28515,6 +28812,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/offers/{id}/send", wrapper.SendOffer)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/onboarding/state", wrapper.GetOnboardingState)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/onboarding/state", wrapper.PutOnboardingState)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations", wrapper.ListOrganizations)

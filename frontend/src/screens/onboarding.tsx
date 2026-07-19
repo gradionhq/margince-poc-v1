@@ -51,20 +51,12 @@ import { Wordmark } from "./auth";
 import { BackfillPanel } from "./backfill";
 import { coldFieldLabel, problemMessage } from "./common";
 import { confidenceLevel } from "./inbox";
+import { ReadCompanyStep } from "./onboarding-read";
 import "./onboarding.css";
 
-// Onboarding funnel (B-EP09.9) — a faithful build of the design source of truth
-// (spec design/mockups/index.html) against the Ledger-Green tokens. Four steps,
-// rail-less: Company · Voice · Results · Connect. FD-13: mailbox connect is the
-// LAST step (value before permission). Step 1 is the company form: it is always
-// fully visible and hand-fillable, and the website read-back
-// (POST /coldstart/preview — writes nothing, stages nothing) is an optional
-// accelerant that PRE-FILLS it. Confirm-first (🟡) is honoured by the form
-// itself: the unsaved form is the staged state, and Save is the human's
-// confirmation. Step 4 runs a REAL IMAP capture through the backend connector.
-
 const STEPS = [
-  { key: "company", label: "ob.company" },
+  { key: "read", label: "ob.read" },
+  { key: "confirm", label: "ob.confirm" },
   { key: "voice", label: "ob.voice" },
   { key: "results", label: "ob.results" },
   { key: "connect", label: "ob.connect" },
@@ -75,6 +67,10 @@ const VOICE_TARGET = 30000;
 type CompanyProfile = components["schemas"]["CompanyProfile"];
 type ColdField = components["schemas"]["ColdStartField"];
 type ColdReadback = components["schemas"]["ColdStartReadback"];
+type CompanySiteRead = components["schemas"]["CompanySiteRead"];
+type OnboardingState = components["schemas"]["OnboardingState"];
+type PutOnboardingState = components["schemas"]["PutOnboardingStateRequest"];
+type SourceMode = "website" | "manual";
 
 // The company form, grouped as it reads: who the company IS, then how it sells.
 // Identity fields are one-liners; positioning fields are prose (textareas).
@@ -264,6 +260,101 @@ function stepState(index: number, current: number): "done" | "active" | "" {
   return "";
 }
 
+function optionalDraftValue(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed === "" ? null : value;
+}
+
+function onboardingDraftPayload(values: CompanyForm) {
+  return {
+    display_name: optionalDraftValue(values.display_name),
+    offer_summary: optionalDraftValue(values.offer_summary),
+    icp: optionalDraftValue(values.icp),
+    value_proposition: optionalDraftValue(values.value_proposition),
+    usp: optionalDraftValue(values.usp),
+    customer_pains: optionalDraftValue(values.customer_pains),
+    desired_outcomes: optionalDraftValue(values.desired_outcomes),
+    buying_center: optionalDraftValue(values.buying_center),
+    buying_intents: optionalDraftValue(values.buying_intents),
+    common_objections: optionalDraftValue(values.common_objections),
+    sales_motion: optionalDraftValue(values.sales_motion),
+    legal_name: optionalDraftValue(values.legal_name),
+    registered_address: optionalDraftValue(values.registered_address),
+    register_vat: optionalDraftValue(values.register_vat),
+    industry: optionalDraftValue(values.industry),
+    history: optionalDraftValue(values.history),
+  };
+}
+
+function formFromWizardState(state: OnboardingState): CompanyForm {
+  return {
+    ...EMPTY_FORM,
+    ...Object.fromEntries(
+      Object.entries(state.company_draft).map(([key, value]) => [
+        key,
+        value ?? "",
+      ]),
+    ),
+    website: state.website_url ?? "",
+  };
+}
+
+class WizardStateWriteError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+async function writeWizardState(body: PutOnboardingState) {
+  const { data, error, response } = await api.PUT("/onboarding/state", {
+    params: { header: { "Idempotency-Key": crypto.randomUUID() } },
+    body,
+  });
+  if (error) {
+    throw new WizardStateWriteError(response.status, problemMessage(error));
+  }
+  return data;
+}
+
+function wizardStateBody(input: {
+  expectedVersion: number;
+  nextStep: number;
+  mode: SourceMode | null;
+  readID: string | null;
+  norm: { ok: boolean; full: string };
+  values: CompanyForm;
+  factKeys: string[];
+  skippedVoice: boolean;
+  skippedConnect: boolean;
+}): PutOnboardingState {
+  const websiteMode = input.mode === "website";
+  return {
+    expected_version: input.expectedVersion,
+    step: STEPS[input.nextStep]?.key ?? "complete",
+    source_mode: input.mode,
+    website_url: websiteMode && input.norm.ok ? input.norm.full : null,
+    site_read_id: websiteMode ? input.readID : null,
+    company_draft: onboardingDraftPayload(input.values),
+    selected_fact_keys: input.factKeys,
+    voice_skipped: input.skippedVoice,
+    connect_skipped: input.skippedConnect,
+  };
+}
+
+function restoredWizardStep(
+  state: OnboardingState,
+  routeID: string | undefined,
+): number | null {
+  if (routeID === "connect") {
+    return null;
+  }
+  const index = STEPS.findIndex((candidate) => candidate.key === state.step);
+  return index >= 0 ? index : null;
+}
+
 // The pinned CorpusMeterVersion=1 bands (features/09 §B1.4):
 // thin < 8k · good ≥ 8k · rich ≥ 20k · sharp ≥ 30k.
 function corpusQuality(total: number): { cls: string; key: MessageKey } {
@@ -282,15 +373,14 @@ function corpusQuality(total: number): { cls: string; key: MessageKey } {
   return { cls: "sharp", key: "ob.s2.qualSharp" };
 }
 
+// The coordinator mirrors the six server states directly; keeping the finite
+// branches together makes Back/skip/OAuth transitions reviewable as one machine.
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: splitting the state machine would hide cross-step invariants
 export function OnboardingScreen() {
   const t = useT();
   const queryClient = useQueryClient();
   const route = useRoute();
-  // The OAuth-return deep link (#/onboarding/connect/{outcome}) resumes the
-  // wizard on the connect step — no client state survives the redirect, and
-  // none needs to: earlier-step completion is server-derived below (the
-  // company query seeds step 1, the voice flag step 2).
-  const [step, setStep] = useState(route.id === "connect" ? 3 : 0);
+  const [step, setStep] = useState(route.id === "connect" ? 4 : 0);
   const connectOutcome =
     route.id === "connect" && route.id2 ? route.id2 : undefined;
   const [voiceBuilt, setVoiceBuilt] = useState(false);
@@ -299,34 +389,146 @@ export function OnboardingScreen() {
   const [draft, setDraft] = useState<CompanyDraft>(EMPTY_DRAFT);
   const [saveAttempted, setSaveAttempted] = useState(false);
   const [companySaved, setCompanySaved] = useState(false);
+  const [sourceMode, setSourceMode] = useState<SourceMode | null>(null);
+  const [siteReadID, setSiteReadID] = useState<string | null>(null);
+  const [selectedFactKeys, setSelectedFactKeys] = useState<string[]>([]);
+  const [voiceSkipped, setVoiceSkipped] = useState(false);
+  const [connectSkipped, setConnectSkipped] = useState(false);
+  const [stateConflict, setStateConflict] = useState<string | null>(null);
 
   const norm = useMemo(
     () => normalizeUrl(draft.values.website),
     [draft.values.website],
   );
 
-  // A returning admin edits rather than retypes.
   const existing = useCompany(true);
+  const wizardState = useQuery({
+    queryKey: ["onboarding-state"],
+    queryFn: async (): Promise<OnboardingState | null> => {
+      const { data, error, response } = await api.GET("/onboarding/state");
+      if (error) {
+        if (response.status === 404) {
+          return null;
+        }
+        throw new Error(problemMessage(error));
+      }
+      if (
+        !data.company_draft ||
+        !Array.isArray(data.selected_fact_keys) ||
+        typeof data.version !== "number"
+      ) {
+        return null;
+      }
+      return data;
+    },
+  });
 
-  // Seed once: after the first paint of the loaded profile the form belongs to
-  // the human, and a re-render must not overwrite their typing.
+  const stateVersion = useRef(0);
+  const statePath = useRef<"creator" | "member">("creator");
+  const persistQueue = useRef<Promise<boolean>>(Promise.resolve(true));
   const seeded = useRef(false);
+
+  const persistState = (
+    nextStep: number,
+    overrides: Partial<{
+      sourceMode: SourceMode | null;
+      siteReadID: string | null;
+      selectedFactKeys: string[];
+      voiceSkipped: boolean;
+      connectSkipped: boolean;
+    }> = {},
+  ) => {
+    const mode = overrides.sourceMode ?? sourceMode;
+    const readID = overrides.siteReadID ?? siteReadID;
+    const factKeys = overrides.selectedFactKeys ?? selectedFactKeys;
+    const skippedVoice = overrides.voiceSkipped ?? voiceSkipped;
+    const skippedConnect = overrides.connectSkipped ?? connectSkipped;
+    const values = draft.values;
+    persistQueue.current = persistQueue.current.then(async () => {
+      try {
+        const data = await writeWizardState(
+          wizardStateBody({
+            expectedVersion: stateVersion.current,
+            nextStep,
+            mode,
+            readID,
+            norm,
+            values,
+            factKeys,
+            skippedVoice,
+            skippedConnect,
+          }),
+        );
+        stateVersion.current = data.version;
+        statePath.current = data.path;
+        queryClient.setQueryData(["onboarding-state"], data);
+        setStateConflict(null);
+        return true;
+      } catch (error) {
+        if (error instanceof WizardStateWriteError && error.status === 409) {
+          setStateConflict(t("ob.stateConflict"));
+          seeded.current = false;
+          await queryClient.invalidateQueries({
+            queryKey: ["onboarding-state"],
+          });
+          return false;
+        }
+        setStateConflict(
+          error instanceof Error ? error.message : t("ob.stateSaveFailed"),
+        );
+        return false;
+      }
+    });
+    return persistQueue.current;
+  };
+
   useEffect(() => {
-    if (seeded.current || !existing.data) {
+    if (seeded.current || existing.isPending || wizardState.isPending) {
       return;
     }
     seeded.current = true;
-    setDraft({
-      values: formFromProfile(existing.data),
-      grounded: {},
-      edited: new Set(),
-    });
-    setCompanySaved(true);
-  }, [existing.data]);
+    const saved = wizardState.data;
+    if (saved) {
+      stateVersion.current = saved.version;
+      statePath.current = saved.path;
+      setSourceMode(saved.source_mode ?? null);
+      setSiteReadID(saved.site_read_id ?? null);
+      setSelectedFactKeys(saved.selected_fact_keys);
+      setVoiceSkipped(saved.voice_skipped);
+      setConnectSkipped(saved.connect_skipped);
+      setDraft({
+        values: formFromWizardState(saved),
+        grounded: {},
+        edited: new Set(),
+      });
+      const restored = restoredWizardStep(saved, route.id);
+      if (restored !== null) {
+        setStep(restored);
+      }
+    } else if (existing.data) {
+      statePath.current = "member";
+      setDraft({
+        values: formFromProfile(existing.data),
+        grounded: {},
+        edited: new Set(),
+      });
+      if (route.id !== "connect") {
+        setStep(2);
+      }
+    }
+    setCompanySaved(Boolean(existing.data));
+  }, [
+    existing.data,
+    existing.isPending,
+    route.id,
+    wizardState.data,
+    wizardState.isPending,
+  ]);
 
-  const read = useMutation({
-    mutationFn: async (): Promise<ColdReadback> => {
-      const { data, error } = await api.POST("/coldstart/preview", {
+  const startRead = useMutation({
+    mutationFn: async (): Promise<CompanySiteRead> => {
+      const { data, error } = await api.POST("/company/site-reads", {
+        params: { header: { "Idempotency-Key": crypto.randomUUID() } },
         body: { url: norm.full },
       });
       if (error) {
@@ -335,17 +537,46 @@ export function OnboardingScreen() {
       return data;
     },
     onSuccess: (data) => {
-      // Nothing was written or staged: the read-back only pre-fills the form
-      // the human is already looking at. Each filled field keeps its evidence
-      // + confidence until the human edits it.
-      setDraft((prev) => prefill(prev, data.fields));
-      globalThis.scrollTo({ top: 0, behavior: "smooth" });
+      setSiteReadID(data.id);
+      persistState(0, { sourceMode: "website", siteReadID: data.id });
     },
   });
 
-  const go = (next: number) => {
+  const siteRead = useQuery({
+    queryKey: ["company-site-read", siteReadID],
+    enabled: siteReadID !== null,
+    queryFn: async (): Promise<CompanySiteRead> => {
+      const { data, error } = await api.GET("/company/site-reads/{readId}", {
+        params: { path: { readId: siteReadID ?? "" } },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === "queued" || status === "reading" ? 800 : false;
+    },
+  });
+
+  const appliedReadVersion = useRef(0);
+  useEffect(() => {
+    const read = siteRead.data;
+    if (!read || read.draft_version <= appliedReadVersion.current) {
+      return;
+    }
+    appliedReadVersion.current = read.draft_version;
+    setDraft((prev) => prefill(prev, read.profile_fields));
+    setSelectedFactKeys(read.facts.map((fact) => fact.value_key));
+  }, [siteRead.data]);
+
+  const go = (next: number, persist = true) => {
     if (next < 0 || next >= STEPS.length) {
       return;
+    }
+    if (persist) {
+      persistState(next);
     }
     setStep(next);
     globalThis.scrollTo({ top: 0, behavior: "smooth" });
@@ -366,22 +597,38 @@ export function OnboardingScreen() {
       };
     });
 
-  // Save IS the confirmation: PUT /company writes the form the human read and
-  // approved. Nothing was staged, so there is nothing to approve elsewhere.
   const save = useMutation({
     mutationFn: async (): Promise<CompanyProfile> => {
-      const { data, error } = await api.PUT("/company", {
-        body: {
-          ...draft.values,
-          display_name: draft.values.display_name.trim(),
-          offer_summary: draft.values.offer_summary.trim(),
-          icp: draft.values.icp.trim(),
-          legal_name: draft.values.legal_name.trim(),
-          registered_address: draft.values.registered_address.trim(),
-          register_vat: draft.values.register_vat.trim(),
-          industry: draft.values.industry.trim(),
-        },
-      });
+      const profile = {
+        ...draft.values,
+        display_name: draft.values.display_name.trim(),
+        offer_summary: draft.values.offer_summary.trim(),
+        icp: draft.values.icp.trim(),
+        legal_name: draft.values.legal_name.trim(),
+        registered_address: draft.values.registered_address.trim(),
+        register_vat: draft.values.register_vat.trim(),
+        industry: draft.values.industry.trim(),
+      };
+      const readyRead =
+        sourceMode === "website" &&
+        siteRead.data &&
+        (siteRead.data.status === "ready" ||
+          siteRead.data.status === "partial");
+      const result = readyRead
+        ? await api.POST("/company/site-reads/{readId}/confirm", {
+            params: {
+              path: { readId: siteRead.data.id },
+              header: { "Idempotency-Key": crypto.randomUUID() },
+            },
+            body: {
+              draft_version: siteRead.data.draft_version,
+              proposal_hash: siteRead.data.proposal_hash,
+              profile,
+              selected_fact_keys: selectedFactKeys,
+            },
+          })
+        : await api.PUT("/company", { body: profile });
+      const { data, error } = result;
       if (error) {
         throw new Error(problemMessage(error));
       }
@@ -396,7 +643,7 @@ export function OnboardingScreen() {
       // The server owns the stored shape (a full URL is reduced to its bare
       // domain) — show what was actually saved, not what was typed.
       setDraft((prev) => ({ ...prev, values: formFromProfile(profile) }));
-      go(1);
+      go(2);
     },
   });
 
@@ -413,25 +660,45 @@ export function OnboardingScreen() {
     save.mutate();
   };
 
+  const memberPath = statePath.current === "member";
+  const visibleSteps = memberPath
+    ? STEPS.filter(
+        (candidate) => candidate.key === "voice" || candidate.key === "connect",
+      )
+    : STEPS;
+  const finishOnboarding = async (skipped: boolean) => {
+    setConnectSkipped(skipped);
+    const persisted = await persistState(STEPS.length, {
+      connectSkipped: skipped,
+    });
+    if (!persisted) {
+      return;
+    }
+    navigate({ screen: "home" });
+  };
+
   return (
     <div className="ob-page">
       <div className="ob-top">
         <Wordmark alt={t("auth.title")} className="ob-wordmark" />
         <nav className="stepper" aria-label={t("ob.title")}>
-          {STEPS.map((s, i) => {
-            const state = stepState(i, step);
+          {visibleSteps.map((s, i) => {
+            const actualIndex = STEPS.findIndex(
+              (candidate) => candidate.key === s.key,
+            );
+            const state = stepState(actualIndex, step);
             return (
               <span key={s.key} style={{ display: "contents" }}>
                 <span
                   className={`sdot ${state}`}
-                  aria-current={i === step ? "step" : undefined}
+                  aria-current={actualIndex === step ? "step" : undefined}
                 >
                   <span className="n">
-                    {i < step ? <Check aria-hidden /> : i + 1}
+                    {actualIndex < step ? <Check aria-hidden /> : i + 1}
                   </span>
                   <span className="step">{t(s.label)}</span>
                 </span>
-                {i < STEPS.length - 1 && <span className="sline" />}
+                {i < visibleSteps.length - 1 && <span className="sline" />}
               </span>
             );
           })}
@@ -439,28 +706,88 @@ export function OnboardingScreen() {
       </div>
 
       <div className="wiz">
+        {(wizardState.isPending || existing.isPending) && (
+          <div className="ob-state-loading" role="status">
+            <span className="ob-spinner" /> {t("ob.restoring")}
+          </div>
+        )}
+        {stateConflict && (
+          <div className="readfail warn" role="alert">
+            <Info aria-hidden /> <p>{stateConflict}</p>
+          </div>
+        )}
         {step === 0 && (
+          <ReadCompanyStep
+            mode={sourceMode}
+            website={draft.values.website}
+            norm={norm}
+            read={siteRead.data ?? startRead.data ?? null}
+            pending={startRead.isPending}
+            refreshing={siteRead.isFetching}
+            error={
+              startRead.isError
+                ? startRead.error.message
+                : siteRead.isError
+                  ? siteRead.error.message
+                  : null
+            }
+            onWebsiteChange={(value) => setField("website", value)}
+            onChooseWebsite={() => {
+              setSourceMode("website");
+              persistState(0, { sourceMode: "website" });
+            }}
+            onChooseManual={() => {
+              setSourceMode("manual");
+              persistState(1, { sourceMode: "manual", siteReadID: null });
+              go(1, false);
+            }}
+            onStart={() => startRead.mutate()}
+            onContinue={() => {
+              persistState(1, { sourceMode: "website", selectedFactKeys });
+              go(1, false);
+            }}
+          />
+        )}
+        {step === 1 && (
           <CompanyStep
             draft={draft}
             setField={setField}
-            norm={norm}
-            read={read}
             saved={companySaved}
             saveError={save.isError ? save.error.message : null}
             missingRequired={saveAttempted ? missingRequired : []}
+            read={siteRead.data ?? null}
+            selectedFactKeys={selectedFactKeys}
+            setSelectedFactKeys={(keys) => {
+              setSelectedFactKeys(keys);
+              persistState(1, { selectedFactKeys: keys });
+            }}
+            onFieldBlur={() => persistState(1)}
           />
         )}
-        {step === 1 && <VoiceStep onBuilt={() => setVoiceBuilt(true)} />}
-        {step === 2 && (
-          <ResultsStep voiceBuilt={voiceBuilt} profileSaved={companySaved} />
+        {step === 2 && <VoiceStep onBuilt={() => setVoiceBuilt(true)} />}
+        {step === 3 && (
+          <ResultsStep
+            voiceBuilt={voiceBuilt}
+            profileSaved={companySaved}
+            profile={existing.data ?? undefined}
+          />
         )}
-        {step === 3 && <ConnectStep outcome={connectOutcome} />}
+        {step === 4 && (
+          <ConnectStep outcome={connectOutcome} onComplete={finishOnboarding} />
+        )}
 
         <Footer
           step={step}
           go={go}
           onSaveCompany={saveCompany}
           savePending={save.isPending}
+          memberPath={memberPath}
+          onSkipVoice={() => {
+            setVoiceSkipped(true);
+            const next = memberPath ? 4 : 3;
+            persistState(next, { voiceSkipped: true });
+            go(next, false);
+          }}
         />
       </div>
     </div>
@@ -474,26 +801,38 @@ function Footer({
   go,
   onSaveCompany,
   savePending,
+  memberPath,
+  onSkipVoice,
 }: Readonly<{
   step: number;
-  go: (n: number) => void;
+  go: (n: number, persist?: boolean) => void;
   onSaveCompany: () => void;
   savePending: boolean;
+  memberPath: boolean;
+  onSkipVoice: () => void;
 }>) {
   const t = useT();
+  let backTarget: number | null = step - 1;
+  if (memberPath && step === 2) {
+    backTarget = null;
+  } else if (memberPath && step === 4) {
+    backTarget = 2;
+  }
   return (
     <div className="wiz-foot">
-      {step > 0 ? (
-        <button type="button" className="wiz-back" onClick={() => go(step - 1)}>
+      {backTarget !== null && backTarget >= 0 ? (
+        <button
+          type="button"
+          className="wiz-back"
+          onClick={() => go(backTarget)}
+        >
           <ArrowLeft aria-hidden /> {t("ob.back")}
         </button>
       ) : (
         <span />
       )}
       <span className="grow" />
-      {/* Continue on the company step SAVES it — there is no way past step 1
-          with an unsaved company, and no way to save a nameless one. */}
-      {step === 0 && (
+      {step === 1 && (
         <Button
           variant="primary"
           disabled={savePending}
@@ -510,22 +849,18 @@ function Footer({
           )}
         </Button>
       )}
-      {step === 1 && (
+      {step === 2 && (
         <>
-          <button
-            type="button"
-            className="wiz-later"
-            onClick={() => go(step + 1)}
-          >
+          <button type="button" className="wiz-later" onClick={onSkipVoice}>
             {t("ob.skipStep")}
           </button>
-          <Button variant="primary" onClick={() => go(step + 1)}>
+          <Button variant="primary" onClick={() => go(memberPath ? 4 : 3)}>
             {t("ob.next")} <ArrowRight aria-hidden />
           </Button>
         </>
       )}
-      {step === 2 && (
-        <Button variant="primary" onClick={() => go(3)}>
+      {step === 3 && (
+        <Button variant="primary" onClick={() => go(4)}>
           {t("ob.s3.cta")} <ArrowRight aria-hidden />
         </Button>
       )}
@@ -538,19 +873,23 @@ function Footer({
 function CompanyStep({
   draft,
   setField,
-  norm,
   read,
   saved,
   saveError,
   missingRequired,
+  selectedFactKeys,
+  setSelectedFactKeys,
+  onFieldBlur,
 }: Readonly<{
   draft: CompanyDraft;
   setField: (field: CompanyFieldName, value: string) => void;
-  norm: { ok: boolean; host: string; full: string };
-  read: UseMutationResult<ColdReadback, Error, void>;
+  read: CompanySiteRead | null;
   saved: boolean;
   saveError: string | null;
   missingRequired: readonly CompanyFieldName[];
+  selectedFactKeys: readonly string[];
+  setSelectedFactKeys: (keys: string[]) => void;
+  onFieldBlur: () => void;
 }>) {
   const t = useT();
   const grounded = Object.keys(draft.grounded).length > 0;
@@ -561,23 +900,16 @@ function CompanyStep({
       <h1 className="ttl">{t("ob.s1.title")}</h1>
       <p className="ob-sub">{t("ob.s1.sub")}</p>
 
-      <WebsiteReadBar
-        website={draft.values.website}
-        setWebsite={(v) => setField("website", v)}
-        norm={norm}
-        read={read}
-        anyGrounded={grounded}
-      />
-
-      {!grounded && !read.isError && (
-        <div className="trust-row">
-          <span className="trustpill">
-            <ShieldCheck aria-hidden /> {t("ob.trustPublic")}
-          </span>
-        </div>
-      )}
-
-      {read.isError && <ReadFailure message={read.error.message} />}
+      <div className="confirm-origin">
+        <ShieldCheck aria-hidden />
+        <span>
+          {read
+            ? t("ob.confirmWebsite", {
+                count: read.pages_read ?? read.pages.length,
+              })
+            : t("ob.confirmManual")}
+        </span>
+      </div>
 
       {grounded && (
         <div className="omit">
@@ -585,6 +917,44 @@ function CompanyStep({
           <div>
             <div className="l">{t("ob.s1.omitLabel")}</div>
             <p>{t("ob.s1.omitBody")}</p>
+          </div>
+        </div>
+      )}
+
+      {read && read.facts.length > 0 && (
+        <div className="confirm-facts">
+          <div className="seclabel">{t("ob.factsTitle")}</div>
+          <p className="ob-sub">{t("ob.factsSub")}</p>
+          <div className="fact-grid">
+            {read.facts.map((fact) => {
+              const selected = selectedFactKeys.includes(fact.value_key);
+              return (
+                <button
+                  key={fact.value_key}
+                  type="button"
+                  className={`fact-card ${selected ? "selected" : ""}`}
+                  aria-pressed={selected}
+                  onClick={() =>
+                    setSelectedFactKeys(
+                      selected
+                        ? selectedFactKeys.filter(
+                            (key) => key !== fact.value_key,
+                          )
+                        : [...selectedFactKeys, fact.value_key],
+                    )
+                  }
+                >
+                  <span className="fact-check">
+                    {selected ? <Check aria-hidden /> : <Circle aria-hidden />}
+                  </span>
+                  <span>
+                    <b>{coldFieldLabel(fact.field, t)}</b>
+                    <span>{fact.value}</span>
+                    <small>{fact.evidence_snippet}</small>
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
@@ -639,6 +1009,7 @@ function CompanyStep({
               missingRequired.includes(field) ? t("ob.s1.fieldRequired") : null
             }
             onChange={(v) => setField(field, v)}
+            onBlur={onFieldBlur}
           />
         ))}
 
@@ -656,6 +1027,7 @@ function CompanyStep({
             }
             multiline
             onChange={(v) => setField(field, v)}
+            onBlur={onFieldBlur}
           />
         ))}
       </div>
@@ -666,7 +1038,7 @@ function CompanyStep({
 // The website field, with the optional read-back action on it: the company's
 // website is a form value like any other — reading it is a shortcut into the
 // form below, never a step of its own.
-function WebsiteReadBar({
+export function WebsiteReadBar({
   website,
   setWebsite,
   norm,
@@ -769,6 +1141,7 @@ function CompanyFormField({
   error,
   multiline,
   onChange,
+  onBlur,
 }: Readonly<{
   field: CompanyFieldName;
   value: string;
@@ -778,6 +1151,7 @@ function CompanyFormField({
   error: string | null;
   multiline?: boolean;
   onChange: (v: string) => void;
+  onBlur: () => void;
 }>) {
   const t = useT();
   const id = `co-${field}`;
@@ -807,6 +1181,7 @@ function CompanyFormField({
           required={required}
           aria-invalid={error ? true : undefined}
           onChange={(e) => onChange(e.target.value)}
+          onBlur={onBlur}
         />
       ) : (
         <TextInput
@@ -815,6 +1190,7 @@ function CompanyFormField({
           required={required}
           aria-invalid={error ? true : undefined}
           onChange={(e) => onChange(e.target.value)}
+          onBlur={onBlur}
         />
       )}
       {grounded && (
@@ -836,7 +1212,7 @@ function CompanyFormField({
   );
 }
 
-function ReadFailure({ message }: Readonly<{ message: string }>) {
+export function ReadFailure({ message }: Readonly<{ message: string }>) {
   const t = useT();
   return (
     <div className="readfail warn">
@@ -1266,7 +1642,12 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
 function ResultsStep({
   voiceBuilt,
   profileSaved,
-}: Readonly<{ voiceBuilt: boolean; profileSaved: boolean }>) {
+  profile,
+}: Readonly<{
+  voiceBuilt: boolean;
+  profileSaved: boolean;
+  profile?: CompanyProfile;
+}>) {
   const t = useT();
   // The cards tell the truth about what the funnel actually did: a skipped
   // voice step gets the honest "starter voice" card, not a claim that drafts
@@ -1289,6 +1670,17 @@ function ResultsStep({
       body: "ob.s3.cardDraftBody",
     },
   ];
+  const understood = [
+    { label: t("ob.field.offer_summary"), value: profile?.offer_summary },
+    { label: t("ob.field.icp"), value: profile?.icp },
+    {
+      label: t("ob.field.value_proposition"),
+      value: profile?.value_proposition,
+    },
+    { label: t("ob.field.buying_center"), value: profile?.buying_center },
+  ].filter((item): item is { label: string; value: string } =>
+    Boolean(item.value),
+  );
   return (
     <section className="ob-panel">
       <div className="kick">{t("ob.s3.kick")}</div>
@@ -1300,6 +1692,30 @@ function ResultsStep({
       <p className="ob-sub">
         {t(voiceBuilt ? "ob.s3.sub" : "ob.s3.subNoVoice")}
       </p>
+      {profile && understood.length > 0 && (
+        <div className="understanding-reveal">
+          <div className="understanding-brand">
+            <span>
+              <CheckCircle2 aria-hidden />
+            </span>
+            <div>
+              <small>{t("ob.nowUnderstands")}</small>
+              <h2>{profile.display_name}</h2>
+            </div>
+          </div>
+          <div className="understanding-grid">
+            {understood.map((item) => (
+              <div key={item.label}>
+                <small>{item.label}</small>
+                <p>{item.value}</p>
+              </div>
+            ))}
+          </div>
+          <p className="understanding-note">
+            <Sparkles aria-hidden /> {t("ob.contextReady")}
+          </p>
+        </div>
+      )}
       <div className="rcards">
         {cards.map((c) => (
           <div key={c.title} className="rcard">
@@ -1313,12 +1729,6 @@ function ResultsStep({
           </div>
         ))}
       </div>
-      <div className="draftbox" style={{ marginTop: 12 }}>
-        {t("ob.s3.draftSample", { company: t("ob.s3.exampleProspect") })}
-      </div>
-      <p className="t-small" style={{ marginTop: 8, fontStyle: "italic" }}>
-        {t("ob.s3.exampleTag")}
-      </p>
       <div className="omit" style={{ marginTop: 16, borderStyle: "solid" }}>
         <GitBranch aria-hidden />
         <div>
@@ -1343,7 +1753,13 @@ type ConnectResult = {
   contacts: number;
 };
 
-function ConnectStep({ outcome }: { outcome?: string }) {
+function ConnectStep({
+  outcome,
+  onComplete,
+}: Readonly<{
+  outcome?: string;
+  onComplete: (skipped: boolean) => Promise<void>;
+}>) {
   const t = useT();
   // Returning from the Google consent lands here with an outcome in the
   // route; the Google tab is then the one that explains what happened.
@@ -1391,9 +1807,13 @@ function ConnectStep({ outcome }: { outcome?: string }) {
           </button>
         </div>
 
-        {provider === "google" && <GoogleConnectPanel outcome={outcome} />}
-        {provider === "microsoft" && <MicrosoftConnectPanel />}
-        {provider === "imap" && <ImapConnectPanel />}
+        {provider === "google" && (
+          <GoogleConnectPanel outcome={outcome} onComplete={onComplete} />
+        )}
+        {provider === "microsoft" && (
+          <MicrosoftConnectPanel onComplete={onComplete} />
+        )}
+        {provider === "imap" && <ImapConnectPanel onComplete={onComplete} />}
 
         <div className="scopes">
           {scopes.map((s) => (
@@ -1430,7 +1850,13 @@ function ConnectWarn({ title, body }: { title: string; body: string }) {
 // Google: the server mints the consent URL (and the signed state + CSRF
 // cookie that guard the callback); the browser just goes. The return deep
 // link lands back here with the outcome in the route.
-function GoogleConnectPanel({ outcome }: { outcome?: string }) {
+function GoogleConnectPanel({
+  outcome,
+  onComplete,
+}: Readonly<{
+  outcome?: string;
+  onComplete: (skipped: boolean) => Promise<void>;
+}>) {
   const t = useT();
   const google = useMutation({
     mutationFn: async () => {
@@ -1499,7 +1925,7 @@ function GoogleConnectPanel({ outcome }: { outcome?: string }) {
         <Button
           variant="primary"
           style={{ marginTop: "var(--space-4)" }}
-          onClick={() => navigate({ screen: "home" })}
+          onClick={() => void onComplete(false)}
         >
           {t("ob.s4.enterCrm")} <ArrowRight aria-hidden />
         </Button>
@@ -1549,7 +1975,7 @@ function GoogleConnectPanel({ outcome }: { outcome?: string }) {
             </>
           )}
         </Button>
-        <Button onClick={() => navigate({ screen: "home" })}>
+        <Button onClick={() => void onComplete(true)}>
           <SkipForward aria-hidden /> {t("ob.s4.skipLater")}
         </Button>
       </div>
@@ -1557,7 +1983,9 @@ function GoogleConnectPanel({ outcome }: { outcome?: string }) {
   );
 }
 
-function MicrosoftConnectPanel() {
+function MicrosoftConnectPanel({
+  onComplete,
+}: Readonly<{ onComplete: (skipped: boolean) => Promise<void> }>) {
   const t = useT();
   return (
     <>
@@ -1565,7 +1993,7 @@ function MicrosoftConnectPanel() {
         {t("ob.s4.oauthSoon")}
       </p>
       <div className="connect-acts">
-        <Button onClick={() => navigate({ screen: "home" })}>
+        <Button onClick={() => void onComplete(true)}>
           <SkipForward aria-hidden /> {t("ob.s4.skipLater")}
         </Button>
       </div>
@@ -1574,7 +2002,9 @@ function MicrosoftConnectPanel() {
 }
 
 // IMAP: the one-shot pull, exactly as before — the form is the consent.
-function ImapConnectPanel() {
+function ImapConnectPanel({
+  onComplete,
+}: Readonly<{ onComplete: (skipped: boolean) => Promise<void> }>) {
   const t = useT();
   const [host, setHostVal] = useState("imap.gmail.com");
   const [email, setEmail] = useState("");
@@ -1650,7 +2080,7 @@ function ImapConnectPanel() {
         <Button
           variant="primary"
           style={{ marginTop: "var(--space-4)" }}
-          onClick={() => navigate({ screen: "home" })}
+          onClick={() => void onComplete(false)}
         >
           {t("ob.s4.enterCrm")} <ArrowRight aria-hidden />
         </Button>
@@ -1747,7 +2177,7 @@ function ImapConnectPanel() {
             </>
           )}
         </Button>
-        <Button onClick={() => navigate({ screen: "home" })}>
+        <Button onClick={() => void onComplete(true)}>
           <SkipForward aria-hidden /> {t("ob.s4.skipLater")}
         </Button>
       </div>

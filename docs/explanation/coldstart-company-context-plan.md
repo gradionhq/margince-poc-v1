@@ -438,7 +438,7 @@ miss/hit/edit/miss cache behavior, trace persistence, reply transport reuse, and
 deterministic fallback. Provider-specific quality-lift comparisons remain a
 rollout prerequisite before enabling the future voice or search consumers.
 
-### Phase 4 — Five-step onboarding UI
+### Phase 4 — Five-step onboarding UI (completed)
 
 1. Split Read and Confirm into separate route/state-machine steps.
 2. Build the website/manual choice, live read state, grouped review, targeted

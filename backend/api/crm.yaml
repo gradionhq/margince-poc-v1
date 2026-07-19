@@ -2967,6 +2967,52 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
 
+  # ------------------------- onboarding state ------------------------------
+  /onboarding/state:
+    get:
+      tags: [Identity]
+      operationId: getOnboardingState
+      summary: Get the acting user's resumable onboarding state.
+      description: |
+        Returns only wizard orchestration state. Confirmed company data, website-read findings,
+        voice artifacts, and connector grants remain in their owning resources. A user with no
+        persisted state receives 404; the client starts from the server-derived creator/member path.
+      responses:
+        '200':
+          description: The acting user's current onboarding state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OnboardingState' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Identity]
+      operationId: putOnboardingState
+      summary: Create or replace the acting user's resumable onboarding state.
+      description: |
+        `expected_version=0` creates the state. Later writes must supply the version last read;
+        a stale concurrent tab receives 409 and must reload before retrying. The server derives
+        creator/member path from anchor-company existence and rejects creator advancement beyond
+        Confirm until the minimum company profile exists.
+      x-agent-access: human-only
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PutOnboardingStateRequest' }
+      responses:
+        '200':
+          description: Persisted onboarding state with its new optimistic version.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OnboardingState' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   # ----------------------------- /company -----------------------------------
   /company:
     get:
@@ -8667,6 +8713,70 @@ components:
         fields:
           type: array
           items: { $ref: '#/components/schemas/ColdStartField' }
+
+    OnboardingCompanyDraft:
+      type: object
+      additionalProperties: false
+      description: |
+        Partial human-editable company input retained while the wizard is unfinished. Every field
+        is optional here because this is not confirmed company truth; confirmation uses the stricter
+        CompanyProfileInput or ConfirmCompanySiteReadRequest contract.
+      properties:
+        display_name: { type: [string, 'null'] }
+        offer_summary: { type: [string, 'null'] }
+        icp: { type: [string, 'null'] }
+        value_proposition: { type: [string, 'null'] }
+        usp: { type: [string, 'null'] }
+        customer_pains: { type: [string, 'null'] }
+        desired_outcomes: { type: [string, 'null'] }
+        buying_center: { type: [string, 'null'] }
+        buying_intents: { type: [string, 'null'] }
+        common_objections: { type: [string, 'null'] }
+        sales_motion: { type: [string, 'null'] }
+        legal_name: { type: [string, 'null'] }
+        registered_address: { type: [string, 'null'] }
+        register_vat: { type: [string, 'null'] }
+        industry: { type: [string, 'null'] }
+        history: { type: [string, 'null'] }
+
+    PutOnboardingStateRequest:
+      type: object
+      additionalProperties: false
+      required: [expected_version, step, source_mode, company_draft, selected_fact_keys, voice_skipped, connect_skipped]
+      properties:
+        expected_version: { type: integer, minimum: 0, description: Zero creates; otherwise the version last read. }
+        step: { type: string, enum: [read, confirm, voice, results, connect, complete] }
+        source_mode: { type: [string, 'null'], enum: [website, manual, null] }
+        website_url: { type: [string, 'null'], format: uri }
+        site_read_id: { type: [string, 'null'], format: uuid }
+        company_draft: { $ref: '#/components/schemas/OnboardingCompanyDraft' }
+        selected_fact_keys:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+        voice_skipped: { type: boolean }
+        connect_skipped: { type: boolean }
+
+    OnboardingState:
+      type: object
+      required: [path, step, source_mode, company_draft, selected_fact_keys, voice_skipped, connect_skipped, version, created_at, updated_at]
+      properties:
+        path: { type: string, enum: [creator, member], readOnly: true }
+        step: { type: string, enum: [read, confirm, voice, results, connect, complete] }
+        source_mode: { type: [string, 'null'], enum: [website, manual, null] }
+        website_url: { type: [string, 'null'], format: uri }
+        site_read_id: { type: [string, 'null'], format: uuid }
+        company_draft: { $ref: '#/components/schemas/OnboardingCompanyDraft' }
+        selected_fact_keys:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+        voice_skipped: { type: boolean }
+        connect_skipped: { type: boolean }
+        version: { type: integer, minimum: 1, readOnly: true }
+        completed_at: { type: [string, 'null'], format: date-time, readOnly: true }
+        created_at: { type: string, format: date-time, readOnly: true }
+        updated_at: { type: string, format: date-time, readOnly: true }
 
     CompanyProfile:
       type: object
