@@ -2977,12 +2977,16 @@ paths:
         Returns only wizard orchestration state. Confirmed company data, website-read findings,
         voice artifacts, and connector grants remain in their owning resources. A user with no
         persisted state receives 404; the client starts from the server-derived creator/member path.
+      x-agent-access: human-only
+      security:
+        - cookieAuth: []
       responses:
         '200':
           description: The acting user's current onboarding state.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/OnboardingState' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
     put:
       tags: [Identity]
@@ -3009,6 +3013,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/OnboardingState' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }

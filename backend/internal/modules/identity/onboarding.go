@@ -99,8 +99,7 @@ type OnboardingState struct {
 	UpdatedAt        time.Time
 }
 
-// PutOnboardingStateInput carries a versioned wizard checkpoint plus the
-// compose-derived company state used to enforce creator/member progression.
+// PutOnboardingStateInput carries a versioned wizard checkpoint.
 type PutOnboardingStateInput struct {
 	ExpectedVersion  int64
 	Step             string
@@ -111,9 +110,12 @@ type PutOnboardingStateInput struct {
 	SelectedFactKeys []string
 	VoiceSkipped     bool
 	ConnectSkipped   bool
-	CompanyExists    bool
-	CompanyComplete  bool
 }
+
+// OnboardingCompanyStateReader resolves the anchor-company state inside the
+// checkpoint transaction. Compose supplies the people-owned implementation so
+// creator/member routing cannot race a concurrent company save.
+type OnboardingCompanyStateReader func(context.Context, pgx.Tx) (exists, complete bool, err error)
 
 // InvalidOnboardingStateError identifies one client-correctable checkpoint field.
 type InvalidOnboardingStateError struct {
@@ -173,7 +175,11 @@ func (s *OnboardingStore) Get(ctx context.Context) (OnboardingState, error) {
 }
 
 // Put creates or version-advances the authenticated human's checkpoint.
-func (s *OnboardingStore) Put(ctx context.Context, in PutOnboardingStateInput) (OnboardingState, error) {
+func (s *OnboardingStore) Put(
+	ctx context.Context,
+	in PutOnboardingStateInput,
+	readCompanyState OnboardingCompanyStateReader,
+) (OnboardingState, error) {
 	actor, err := onboardingActor(ctx, true)
 	if err != nil {
 		return OnboardingState{}, err
@@ -185,17 +191,21 @@ func (s *OnboardingStore) Put(ctx context.Context, in PutOnboardingStateInput) (
 
 	var state OnboardingState
 	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		companyExists, companyComplete, err := readCompanyState(ctx, tx)
+		if err != nil {
+			return err
+		}
 		if in.ExpectedVersion == 0 {
 			path := OnboardingPathCreator
-			if in.CompanyExists {
+			if companyExists {
 				path = OnboardingPathMember
 			}
-			if err := validateOnboardingAdvance(path, in.Step, in.CompanyComplete); err != nil {
+			if err := validateOnboardingAdvance(path, in.Step, companyComplete); err != nil {
 				return err
 			}
 			return s.createOnboardingState(ctx, tx, actor, path, in, draft, &state)
 		}
-		return s.updateOnboardingState(ctx, tx, actor, in, draft, &state)
+		return s.updateOnboardingState(ctx, tx, actor, in, draft, companyComplete, &state)
 	})
 	return state, err
 }
@@ -311,6 +321,7 @@ func (s *OnboardingStore) updateOnboardingState(
 	actor principal.Principal,
 	in PutOnboardingStateInput,
 	draft []byte,
+	companyComplete bool,
 	out *OnboardingState,
 ) error {
 	var current OnboardingState
@@ -331,7 +342,7 @@ func (s *OnboardingStore) updateOnboardingState(
 	if current.Step == OnboardingStepComplete {
 		return apperrors.ErrConflict
 	}
-	if err := validateOnboardingAdvance(current.Path, in.Step, in.CompanyComplete); err != nil {
+	if err := validateOnboardingAdvance(current.Path, in.Step, companyComplete); err != nil {
 		return err
 	}
 	completed := in.Step == OnboardingStepComplete

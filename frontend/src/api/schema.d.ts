@@ -11315,6 +11315,7 @@ export interface operations {
                     "application/json": components["schemas"]["OnboardingState"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
         };
     };
@@ -11351,6 +11352,7 @@ export interface operations {
                     "application/json": components["schemas"]["OnboardingState"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];

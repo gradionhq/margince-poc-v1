@@ -885,7 +885,7 @@ export const en = {
   "ob.field.industry": "Industry",
   "ob.field.history": "Company history",
 
-  "ob.s2.kick": "Step 2 of 4 · optional",
+  "ob.s2.kick": "Step 3 of 5 · optional",
   "ob.s2.title": "Now let's learn",
   "ob.s2.titleEm": "how you really write.",
   "ob.s2.sub":
@@ -947,7 +947,7 @@ export const en = {
   "ob.s2.vpFootnote":
     "A starter from {count} words. Connect your inbox next and your sent email pushes this from good → sharp — then it keeps learning from every email you send.",
 
-  "ob.s3.kick": "Step 3 of 4",
+  "ob.s3.kick": "Step 4 of 5",
   "ob.s3.title": "Look what you've built —",
   "ob.s3.titleEm": "with nothing connected.",
   "ob.s3.sub":
@@ -981,7 +981,7 @@ export const en = {
     "Still nothing connected. You're in control of when that changes.",
   "ob.s3.cta": "Connect my inbox",
 
-  "ob.s4.kick": "Step 4 of 4 · the last step",
+  "ob.s4.kick": "Step 5 of 5 · the last step",
   "ob.s4.title": "Ready to",
   "ob.s4.titleEm": "bring it to life?",
   "ob.s4.sub":

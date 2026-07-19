@@ -902,7 +902,7 @@ export const de = {
   "ob.field.industry": "Branche",
   "ob.field.history": "Firmengeschichte",
 
-  "ob.s2.kick": "Schritt 2 von 4 · optional",
+  "ob.s2.kick": "Schritt 3 von 5 · optional",
   "ob.s2.title": "Jetzt lernen wir,",
   "ob.s2.titleEm": "wie du wirklich schreibst.",
   "ob.s2.sub":
@@ -966,7 +966,7 @@ export const de = {
   "ob.s2.vpFootnote":
     "Ein Anfang aus {count} Wörtern. Verbinde als Nächstes dein Postfach, und deine gesendete Post hebt das von gut → scharf — dann lernt es aus jeder E-Mail weiter.",
 
-  "ob.s3.kick": "Schritt 3 von 4",
+  "ob.s3.kick": "Schritt 4 von 5",
   "ob.s3.title": "Sieh, was du gebaut hast —",
   "ob.s3.titleEm": "ganz ohne Anbindung.",
   "ob.s3.sub":
@@ -1001,7 +1001,7 @@ export const de = {
     "Noch immer nichts verbunden. Du bestimmst, wann sich das ändert.",
   "ob.s3.cta": "Postfach verbinden",
 
-  "ob.s4.kick": "Schritt 4 von 4 · der letzte Schritt",
+  "ob.s4.kick": "Schritt 5 von 5 · der letzte Schritt",
   "ob.s4.title": "Bereit,",
   "ob.s4.titleEm": "es zum Leben zu erwecken?",
   "ob.s4.sub":

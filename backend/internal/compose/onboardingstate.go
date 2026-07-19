@@ -13,7 +13,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
-	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -43,13 +42,6 @@ func (h onboardingStateHandlers) PutOnboardingState(
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	company, companyErr := h.company.GetCompany(r.Context())
-	companyExists := companyErr == nil
-	if companyErr != nil && !errors.Is(companyErr, apperrors.ErrNotFound) {
-		httperr.Write(w, r, companyErr)
-		return
-	}
-
 	in := identity.PutOnboardingStateInput{
 		ExpectedVersion:  int64(req.ExpectedVersion),
 		Step:             string(req.Step),
@@ -57,8 +49,6 @@ func (h onboardingStateHandlers) PutOnboardingState(
 		SelectedFactKeys: copyOnboardingFactKeys(req.SelectedFactKeys),
 		VoiceSkipped:     req.VoiceSkipped,
 		ConnectSkipped:   req.ConnectSkipped,
-		CompanyExists:    companyExists,
-		CompanyComplete:  companyExists && company.MinimumComplete,
 	}
 	if req.SourceMode != nil {
 		mode := string(*req.SourceMode)
@@ -73,7 +63,7 @@ func (h onboardingStateHandlers) PutOnboardingState(
 		in.SiteReadID = &readID
 	}
 
-	state, err := h.state.Put(r.Context(), in)
+	state, err := h.state.Put(r.Context(), in, h.company.OnboardingCompanyState)
 	if err != nil {
 		var invalid *identity.InvalidOnboardingStateError
 		if errors.As(err, &invalid) {
