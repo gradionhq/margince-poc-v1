@@ -353,6 +353,20 @@ tooling and gate suite the baseline needs. Merged so far:
 
 Open work, roughly in priority order:
 
+- **Cold-start + company-context refresh** — the rollout and PR boundaries are
+  mapped in
+  [docs/explanation/coldstart-company-context-plan.md](docs/explanation/coldstart-company-context-plan.md).
+  Foundation PR #1104 is merged at `f97ef6b` with `g1-deterministic` and
+  `llm-advisory` green; ADR-0065/A111 now pins the anchor/profile/fact/site-read
+  schema, optional three-field manual path, reusable deep-read wire, typed
+  context policy, progressive budgets/events, and five-step UI. Phase 1 is
+  locally complete on `agent/coldstart-company-context-phase1`, with `make check`,
+  the zero-skip integration lane, and a migration reverse/reapply cycle green;
+  its PR is the next merge candidate and must wait for every required GitHub
+  quality gate. It adds the typed,
+  provenance-bearing `CompanyContext` read substrate and reconcile profile/fact
+  vocabulary without duplicating the already-built anchor/deep-read stores.
+
 - **Email ingestion — deferred pieces of ADR-0063** (the pipeline is
   live; these were scoped out, not missed):
   - **Graph webhook (PR-7b)** — the connector is poll-only; the

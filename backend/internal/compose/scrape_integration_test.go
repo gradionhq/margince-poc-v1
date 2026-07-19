@@ -204,12 +204,10 @@ func TestScrapeAcceptFillsOnlyEmptyFields(t *testing.T) {
 	if profileRows != 2 || capturedBy != "agent:scrape" {
 		t.Fatalf("evidence rows = %d captured_by=%q, want 2 as agent:scrape", profileRows, capturedBy)
 	}
-	// An enrichment's evidence is labelled 'scrape', not the table's
-	// 'coldstart' default: the row says which engine wrote it, so a later
-	// reader can tell "read from OUR site at onboarding" from "scraped off a
-	// customer's".
-	if source != "scrape" {
-		t.Fatalf("evidence source = %q, want scrape", source)
+	// All accepted website evidence uses the one site_read source vocabulary;
+	// captured_by and the source URL identify the executing agent and dossier.
+	if source != "site_read" {
+		t.Fatalf("evidence source = %q, want site_read", source)
 	}
 
 	// Exactly-once: the approval is consumed and a re-decide is refused.

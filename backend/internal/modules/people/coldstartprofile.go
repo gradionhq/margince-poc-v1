@@ -9,7 +9,7 @@ package people
 // set, and keep every value's verbatim evidence queryable
 // (organization_profile_field, 0037). One transaction, one audit row,
 // one organization event; captured_by comes from the executing
-// principal (agent:coldstart), source is coldstart.
+// principal (agent:coldstart), source is site_read.
 
 import (
 	"context"
@@ -94,7 +94,7 @@ func applyColdStartTx(ctx context.Context, tx pgx.Tx, in ApplyColdStartProfileIn
 	if err != nil {
 		return ids.OrganizationID{}, err
 	}
-	applied, err := applyEvidenceFields(ctx, tx, wsID, orgID, "coldstart", by, in.Fields)
+	applied, err := applyEvidenceFields(ctx, tx, wsID, orgID, companySourceSiteRead, by, in.Fields)
 	if err != nil {
 		return ids.OrganizationID{}, err
 	}
@@ -104,15 +104,15 @@ func applyColdStartTx(ctx context.Context, tx pgx.Tx, in ApplyColdStartProfileIn
 		action, eventType = "create", "organization.created"
 	}
 	auditID, err := storekit.Audit(ctx, tx, action, "organization", orgID.UUID, nil, map[string]any{
-		"source": "coldstart", "source_url": in.SourceURL, "fields": applied,
+		auditKeySource: companySourceSiteRead, auditKeySourceURL: in.SourceURL, auditKeyFields: applied,
 	})
 	if err != nil {
 		return ids.OrganizationID{}, fmt.Errorf("audit coldstart apply: %w", err)
 	}
-	payload := map[string]any{"delta": applied, "source": "coldstart", "source_url": in.SourceURL}
+	payload := map[string]any{eventKeyDelta: applied, auditKeySource: companySourceSiteRead, auditKeySourceURL: in.SourceURL}
 	if created {
 		payload = map[string]any{"display_name": fieldValue(in.Fields, "legal_name"), "primary_domain": host,
-			"source": "coldstart", "captured_by": by}
+			auditKeySource: companySourceSiteRead, "captured_by": by}
 	}
 	if err := storekit.Emit(ctx, tx, auditID, eventType, "organization", orgID.UUID, payload); err != nil {
 		return ids.OrganizationID{}, fmt.Errorf("emit %s: %w", eventType, err)

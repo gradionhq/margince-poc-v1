@@ -6,7 +6,7 @@
 package integration
 
 // The company form over the real wire: the 404 that IS the onboarding signal,
-// the identity block's field-by-field 422s, the website's normalisation to a
+// the semantic minimum's field-by-field 422s, the website's normalisation to a
 // bare domain, and the human-only posture that lets an agent propose the
 // company but never make it true. The store's own write shape is proved in
 // compose/company_integration_test.go; this suite owns the transport.
@@ -25,8 +25,10 @@ type companyProfileDTO struct {
 	RegisteredAddress *string `json:"registered_address"`
 	RegisterVat       *string `json:"register_vat"`
 	Industry          *string `json:"industry"`
+	OfferSummary      *string `json:"offer_summary"`
 	Icp               *string `json:"icp"`
 	Usp               *string `json:"usp"`
+	MinimumComplete   bool    `json:"minimum_complete"`
 }
 
 // companyProblem is the RFC 7807 body this surface answers: the sentinel code
@@ -42,6 +44,20 @@ type companyProblem struct {
 	} `json:"details"`
 }
 
+type companyContextDTO struct {
+	OrganizationID string `json:"organization_id"`
+	SchemaVersion  int    `json:"schema_version"`
+	Fingerprint    string `json:"fingerprint"`
+	Scopes         []struct {
+		Scope string `json:"scope"`
+		Items []struct {
+			Key    string `json:"key"`
+			Value  string `json:"value"`
+			Source string `json:"source"`
+		} `json:"items"`
+	} `json:"scopes"`
+}
+
 // orAbsent renders an optional wire field for a failure message: its value, or
 // the fact that the field was absent — never a pointer address.
 func orAbsent(value *string) string {
@@ -55,11 +71,9 @@ func orAbsent(value *string) string {
 // the base a test perturbs one field of, so a 422 can only be about that field.
 func wellFormedCompany() anyMap {
 	return anyMap{
-		"display_name":       "Acme GmbH",
-		"legal_name":         "Acme Gesellschaft mit beschränkter Haftung",
-		"registered_address": "Torstraße 1, 10119 Berlin",
-		"register_vat":       "DE123456789",
-		"industry":           "B2B SaaS",
+		"display_name":  "Acme GmbH",
+		"offer_summary": "Revenue operations software",
+		"icp":           "RevOps at SaaS scale-ups",
 	}
 }
 
@@ -75,7 +89,6 @@ func TestCompanyIs404UntilAHumanSavesItOverHTTP(t *testing.T) {
 
 	body := wellFormedCompany()
 	body["website"] = "https://www.acme.example/about"
-	body["icp"] = "RevOps at SaaS scale-ups"
 	var saved companyProfileDTO
 	if status := e.call(t, "PUT", "/v1/company", body, nil, &saved); status != http.StatusOK {
 		t.Fatalf("PUT /company → %d, want 200", status)
@@ -96,6 +109,9 @@ func TestCompanyIs404UntilAHumanSavesItOverHTTP(t *testing.T) {
 	if got.Icp == nil || *got.Icp != "RevOps at SaaS scale-ups" {
 		t.Fatalf("saved icp did not round-trip: %s", orAbsent(got.Icp))
 	}
+	if got.OfferSummary == nil || *got.OfferSummary != "Revenue operations software" || !got.MinimumComplete {
+		t.Fatalf("semantic minimum did not round-trip as complete: %+v", got)
+	}
 	// A field nobody filled is ABSENT on the wire, never the empty answer the
 	// form would render as a value someone chose.
 	if got.Usp != nil {
@@ -103,14 +119,14 @@ func TestCompanyIs404UntilAHumanSavesItOverHTTP(t *testing.T) {
 	}
 }
 
-// The identity block is what the installation IS: each required field, missing
+// The semantic minimum is what later context consumers need: each required field, missing
 // or whitespace-only, is a 422 that NAMES that field — the human is told which
 // answer is missing rather than left to guess.
 func TestCompanyRequiredFieldsAreNamedIndividually(t *testing.T) {
 	e := setup(t)
 	e.bootstrapWorkspace(t)
 
-	required := []string{"display_name", "legal_name", "registered_address", "register_vat", "industry"}
+	required := []string{"display_name", "offer_summary", "icp"}
 	cases := []struct {
 		name    string
 		missing bool
@@ -161,6 +177,9 @@ func TestCompanyWebsiteIsOptionalAndNormalised(t *testing.T) {
 	if typed.Website != nil {
 		t.Fatalf("no website was typed, yet one came back: %q", *typed.Website)
 	}
+	if typed.LegalName != nil || typed.RegisteredAddress != nil || typed.RegisterVat != nil {
+		t.Fatalf("manual setup invented optional legal details: %+v", typed)
+	}
 
 	var problem companyProblem
 	body := wellFormedCompany()
@@ -191,17 +210,17 @@ func TestCompanySavingTwiceUpdatesTheAnchorOverHTTP(t *testing.T) {
 	e.bootstrapWorkspace(t)
 
 	first := wellFormedCompany()
-	first["icp"] = "RevOps at SaaS scale-ups"
 	first["usp"] = "Evidence, not guesses"
+	first["industry"] = "B2B SaaS"
 	var saved companyProfileDTO
 	if status := e.call(t, "PUT", "/v1/company", first, nil, &saved); status != http.StatusOK {
 		t.Fatalf("first save → %d", status)
 	}
 
-	// Second save: a new name, icp cleared, usp not mentioned at all.
+	// Second save: a new name, USP cleared, industry not mentioned at all.
 	second := wellFormedCompany()
 	second["display_name"] = "Acme SE"
-	second["icp"] = ""
+	second["usp"] = ""
 	var again companyProfileDTO
 	if status := e.call(t, "PUT", "/v1/company", second, nil, &again); status != http.StatusOK {
 		t.Fatalf("second save → %d", status)
@@ -212,11 +231,11 @@ func TestCompanySavingTwiceUpdatesTheAnchorOverHTTP(t *testing.T) {
 	if again.DisplayName != "Acme SE" {
 		t.Fatalf("the second save did not update the name: %q", again.DisplayName)
 	}
-	if again.Icp != nil {
-		t.Fatalf("an optional field sent empty is still present: %q", *again.Icp)
+	if again.Usp != nil {
+		t.Fatalf("an optional field sent empty is still present: %q", *again.Usp)
 	}
-	if again.Usp == nil || *again.Usp != "Evidence, not guesses" {
-		t.Fatalf("an omitted field was not left as it was: %s, want the first save's value", orAbsent(again.Usp))
+	if again.Industry == nil || *again.Industry != "B2B SaaS" {
+		t.Fatalf("an omitted field was not left as it was: %s, want the first save's value", orAbsent(again.Industry))
 	}
 
 	// The customer-record surface still holds exactly the one organization: the
@@ -231,6 +250,40 @@ func TestCompanySavingTwiceUpdatesTheAnchorOverHTTP(t *testing.T) {
 	}
 	if len(orgs.Data) != 1 || orgs.Data[0].ID != saved.OrganizationID {
 		t.Fatalf("saving twice left %d organizations, want the one anchor", len(orgs.Data))
+	}
+}
+
+func TestCompanyContextScopesAreBoundedOverHTTP(t *testing.T) {
+	e := setup(t)
+	e.bootstrapWorkspace(t)
+
+	var saved companyProfileDTO
+	if status := e.call(t, "PUT", "/v1/company", wellFormedCompany(), nil, &saved); status != http.StatusOK {
+		t.Fatalf("save company → %d", status)
+	}
+	var context companyContextDTO
+	if status := e.call(t, "GET", "/v1/company/context?scopes=offer,positioning", nil, nil, &context); status != http.StatusOK {
+		t.Fatalf("GET scoped company context → %d", status)
+	}
+	if context.OrganizationID != saved.OrganizationID || context.SchemaVersion != 1 || len(context.Fingerprint) != 64 {
+		t.Fatalf("context metadata = %+v", context)
+	}
+	if len(context.Scopes) != 2 || context.Scopes[0].Scope != "positioning" || context.Scopes[1].Scope != "offer" {
+		t.Fatalf("context scopes = %+v, want canonical positioning then offer", context.Scopes)
+	}
+	if len(context.Scopes[0].Items) != 1 || context.Scopes[0].Items[0].Key != "icp" || context.Scopes[0].Items[0].Source != "human" {
+		t.Fatalf("positioning items = %+v, want human-provenance ICP", context.Scopes[0].Items)
+	}
+	if len(context.Scopes[1].Items) != 1 || context.Scopes[1].Items[0].Key != "offer_summary" {
+		t.Fatalf("offer items = %+v, want offer summary", context.Scopes[1].Items)
+	}
+
+	var problem companyProblem
+	if status := e.call(t, "GET", "/v1/company/context?scopes=everything", nil, nil, &problem); status != http.StatusUnprocessableEntity {
+		t.Fatalf("unknown context scope → %d, want 422", status)
+	}
+	if len(problem.Details.Errors) != 1 || problem.Details.Errors[0].Field != "scopes" {
+		t.Fatalf("invalid-scope problem names %+v, want scopes", problem.Details.Errors)
 	}
 }
 

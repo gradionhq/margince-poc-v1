@@ -1600,7 +1600,7 @@ export interface paths {
          * Save the installation's own company — the human's confirm-first write.
          * @description Creates the anchor organization on first save (marking it `is_anchor`) and updates it on every
          *     later one. This is a HUMAN write: every field is stamped
-         *     `captured_by=human:<user id>`, `source=manual`, whether it was typed from scratch or accepted
+         *     `captured_by=human:<user id>`, `source=human`, whether it was typed from scratch or accepted
          *     from a /coldstart/preview read-back — once a human has looked at a value and saved it, it is
          *     theirs, and a later agent read-back will not overwrite it.
          *
@@ -1609,6 +1609,30 @@ export interface paths {
          *     a website. Fields omitted from the body are left untouched; fields sent empty are cleared.
          */
         put: operations["putCompany"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/company/context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The deterministic, typed context assembled from the anchor company.
+         * @description Reads confirmed company identity, profile fields and accepted repeatable facts under the
+         *     caller's normal organization row scope. The requested scopes bound the result; raw crawl
+         *     pages and individual people never enter this read model. Ordering and fingerprinting are
+         *     deterministic so downstream model calls can bind cache entries and traces to the exact
+         *     company knowledge they used.
+         */
+        get: operations["getCompanyContext"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -5784,7 +5808,7 @@ export interface components {
          */
         ColdStartField: {
             /** @enum {string} */
-            field: "icp" | "buying_center" | "value_proposition" | "usp" | "buying_intents" | "legal_name" | "registered_address" | "register_vat" | "industry" | "history" | "display_name";
+            field: "display_name" | "offer_summary" | "icp" | "value_proposition" | "usp" | "customer_pains" | "desired_outcomes" | "buying_center" | "buying_intents" | "common_objections" | "sales_motion" | "legal_name" | "registered_address" | "register_vat" | "industry" | "history";
             value: string;
             /** @description Verbatim source text (from the page, the pasted text, or the user's own words) — non-empty or the field is absent. */
             evidence_snippet: string;
@@ -5833,9 +5857,11 @@ export interface components {
             fields: components["schemas"]["ColdStartField"][];
         };
         /**
-         * @description The installation's own company. `display_name` is the only field the form requires — a company
-         *     that will not say its VAT ID is still a company. Every other field is nullable and stays null
-         *     until someone fills it, by hand or from a read-back.
+         * @description The installation's own company. The flat properties remain compatibility aliases for the
+         *     existing form; `fields` and `facts` are the provenance-bearing source records used by new
+         *     clients and by CompanyContext. New onboarding considers the profile minimum-complete when
+         *     display_name, offer_summary and icp are confirmed. Existing installations may remain
+         *     incomplete until their next edit; reads never fabricate the missing values.
          */
         CompanyProfile: {
             /**
@@ -5854,43 +5880,116 @@ export interface components {
             /** @description VAT ID / commercial register entry (e.g. DE123456789, HRB 12345 B). */
             register_vat?: string | null;
             industry?: string | null;
+            /** @description Plain-language summary of what the company sells or delivers. */
+            offer_summary?: string | null;
             /** @description Ideal customer profile — who this company sells to. */
             icp?: string | null;
             value_proposition?: string | null;
             usp?: string | null;
+            customer_pains?: string | null;
+            desired_outcomes?: string | null;
             /** @description The roles that decide on a purchase. */
             buying_center?: string | null;
             buying_intents?: string | null;
+            common_objections?: string | null;
+            sales_motion?: string | null;
             /** @description Company background. */
             history?: string | null;
+            fields?: components["schemas"]["CompanyProfileField"][];
+            facts?: components["schemas"]["OrganizationFact"][];
+            /** @description True when display_name */
+            minimum_complete?: boolean;
             /** Format: date-time */
             updated_at?: string;
         };
         /**
-         * @description The company form's body. The identity block is REQUIRED — an installation that will not say who
-         *     it legally is cannot invoice, cannot meet its GoBD retention duties, and leaves every downstream
-         *     feature guessing. A read-back fills what it can quote; whatever it cannot, the human types. The
-         *     positioning fields are optional: they can be discovered later, the legal facts cannot.
-         *
-         *     Among the optional fields, an omitted one is left as it was and one sent empty is cleared.
+         * @description The company form's body. New onboarding requires the semantic minimum: display_name,
+         *     offer_summary and icp. The OpenAPI wire keeps only display_name structurally required so clients
+         *     can be upgraded independently: clients that submit the former five-field legal identity block
+         *     still succeed, while the current UI and server-created onboarding flow enforce the semantic
+         *     minimum. Legal/registration fields are optional until a feature with a real
+         *     jurisdictional or invoicing need asks for them. An omitted optional field is unchanged and one
+         *     sent empty is cleared.
          */
         CompanyProfileInput: {
             display_name: string;
             /** @description The registered legal entity. */
-            legal_name: string;
+            legal_name?: string | null;
             /** @description The registered address as one formatted line. */
-            registered_address: string;
+            registered_address?: string | null;
             /** @description VAT ID / commercial register entry (e.g. DE123456789, HRB 12345 B). */
-            register_vat: string;
-            industry: string;
+            register_vat?: string | null;
+            industry?: string | null;
             /** @description The company's own domain or full URL; stored as the bare domain. */
             website?: string | null;
+            offer_summary?: string | null;
             icp?: string | null;
             value_proposition?: string | null;
             usp?: string | null;
+            customer_pains?: string | null;
+            desired_outcomes?: string | null;
             buying_center?: string | null;
             buying_intents?: string | null;
+            common_objections?: string | null;
+            sales_motion?: string | null;
             history?: string | null;
+        };
+        CompanyProfileField: {
+            /** @enum {string} */
+            field: "display_name" | "offer_summary" | "icp" | "value_proposition" | "usp" | "customer_pains" | "desired_outcomes" | "buying_center" | "buying_intents" | "common_objections" | "sales_motion" | "legal_name" | "registered_address" | "register_vat" | "industry" | "history";
+            value: string;
+            /** @enum {string} */
+            source: "human" | "site_read" | "connector" | "migration";
+            readonly captured_by: string;
+            evidence_snippet?: string | null;
+            /** Format: uri */
+            source_url?: string | null;
+            confidence?: number | null;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        OrganizationFact: {
+            /** @enum {string} */
+            category: "company" | "offering" | "market" | "signal";
+            /** @enum {string} */
+            field: "founded_year" | "employee_range" | "phone" | "contact_email" | "location" | "service" | "product" | "capability" | "served_industry" | "company_size" | "geography" | "language" | "certification" | "partner" | "named_customer" | "technology" | "quantified_outcome";
+            value: string;
+            value_key: string;
+            /** @enum {string} */
+            source: "human" | "site_read" | "connector" | "migration";
+            readonly captured_by: string;
+            evidence_snippet?: string | null;
+            /** Format: uri */
+            source_url?: string | null;
+            confidence?: number | null;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        CompanyContextItem: {
+            key: string;
+            value: string;
+            /** @enum {string} */
+            source: "human" | "site_read" | "connector" | "migration";
+            readonly captured_by: string;
+            /** Format: uri */
+            source_url?: string | null;
+            confidence?: number | null;
+        };
+        CompanyContextScope: {
+            /** @enum {string} */
+            scope: "identity" | "positioning" | "sales" | "offer" | "market" | "proof" | "administrative";
+            items: components["schemas"]["CompanyContextItem"][];
+        };
+        CompanyContext: {
+            /** Format: uuid */
+            organization_id: string;
+            /** @enum {integer} */
+            schema_version: 1;
+            scopes: components["schemas"]["CompanyContextScope"][];
+            /** @description Deterministic SHA-256 digest of the selected confirmed values and accepted facts. */
+            fingerprint: string;
+            /** Format: date-time */
+            generated_at: string;
         };
         /** @description Optional override. With no body the org's own domain is read. */
         EnrichCompanyRequest: {
@@ -11018,6 +11117,33 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getCompanyContext: {
+        parameters: {
+            query?: {
+                /** @description Comma-separated context scopes. Omit for the bounded default set. */
+                scopes?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The selected company-context scopes and their provenance-bearing values. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyContext"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
         };
     };

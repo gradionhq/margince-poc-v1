@@ -216,6 +216,10 @@ func (stubs) PutCompany(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "PutCompany")
 }
 
+func (stubs) GetCompanyContext(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetCompanyContextParams) {
+	httperr.NotImplemented(w, r, "GetCompanyContext")
+}
+
 func (stubs) ListConnectors(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ListConnectors")
 }
