@@ -34,6 +34,54 @@ type Config struct {
 	Email          Email           `yaml:"email"`
 	AI             AIConfig        `yaml:"ai"`
 	Capture        Capture         `yaml:"capture"`
+	CompanyContext CompanyContext  `yaml:"company_context"`
+}
+
+// CompanyContextRollout is the ordered deployment capability for company
+// knowledge. The empty YAML value resolves to onboarding so an upgrade keeps
+// today's behavior until an operator deliberately stages it backward.
+type CompanyContextRollout string
+
+const (
+	// CompanyContextOff disables context reads, task injection, and onboarding.
+	CompanyContextOff CompanyContextRollout = "off"
+	// CompanyContextRead enables the canonical read model and settings surface.
+	CompanyContextRead CompanyContextRollout = "read"
+	// CompanyContextTasks additionally enables declared AI task injection.
+	CompanyContextTasks CompanyContextRollout = "tasks"
+	// CompanyContextOnboarding additionally enables the first-run experience.
+	CompanyContextOnboarding CompanyContextRollout = "onboarding"
+)
+
+// CompanyContext configures the operator-controlled company-context rollout.
+type CompanyContext struct {
+	Rollout CompanyContextRollout `yaml:"rollout"`
+}
+
+// EffectiveRollout applies the compiled-in default without mutating the
+// decoded configuration.
+func (c CompanyContext) EffectiveRollout() CompanyContextRollout {
+	if c.Rollout == "" {
+		return CompanyContextOnboarding
+	}
+	return c.Rollout
+}
+
+// ReadEnabled reports whether typed reads, refresh, and settings are active.
+func (c CompanyContext) ReadEnabled() bool {
+	stage := c.EffectiveRollout()
+	return stage == CompanyContextRead || stage == CompanyContextTasks || stage == CompanyContextOnboarding
+}
+
+// TasksEnabled reports whether declared model tasks may receive company data.
+func (c CompanyContext) TasksEnabled() bool {
+	stage := c.EffectiveRollout()
+	return stage == CompanyContextTasks || stage == CompanyContextOnboarding
+}
+
+// OnboardingEnabled reports whether the five-step first-run surface is active.
+func (c CompanyContext) OnboardingEnabled() bool {
+	return c.EffectiveRollout() == CompanyContextOnboarding
 }
 
 // Capture is the deployment's mail-capture pipeline tuning (ADR-0063).
@@ -226,6 +274,11 @@ func (c Config) validate() error {
 	}
 	if err := c.Seeds.validate(); err != nil {
 		return err
+	}
+	switch c.CompanyContext.EffectiveRollout() {
+	case CompanyContextOff, CompanyContextRead, CompanyContextTasks, CompanyContextOnboarding:
+	default:
+		return fmt.Errorf("deployconfig: company_context.rollout %q is not off, read, tasks, or onboarding", c.CompanyContext.Rollout)
 	}
 	if c.Email.Enabled {
 		return c.Email.validate()

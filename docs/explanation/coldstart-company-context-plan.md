@@ -455,7 +455,7 @@ Exit gate: a new installation can finish manually with zero egress; a normal sit
 produces progressive recognition and a confirmed context; no path presents
 guessed facts or traps the user.
 
-### Phase 5 — Refresh, observability, and rollout
+### Phase 5 — Refresh, observability, and rollout (completed)
 
 1. Add “Company context” settings and “Refresh from website,” including explicit
    conflict resolution against human-held values.
@@ -469,6 +469,17 @@ guessed facts or traps the user.
 
 Exit gate: existing customers retain their data and provenance, context-enabled
 tasks are observable and reversible, and the old quick-read UI can be removed.
+
+The settings surface now edits the canonical anchor directly and starts a fresh,
+version-bound website dossier for refresh. Every proposed value is classified as
+new, unchanged, a machine change, or a human conflict; human conflicts require an
+explicit keep, accept, or custom-value decision inside the confirmation
+transaction. `company_context.rollout` provides the ordered
+`off < read < tasks < onboarding` kill switch. Migration 0105 assembles missing
+profile evidence rows from existing anchor columns without crawling or replacing
+existing provenance, and adds durable first-grounded and per-call context-cost
+measurements. Existing dossier timestamps, source mode, page/fact counts, audit
+deltas, and confirmation timestamps supply the remaining rollout measures.
 
 ## Likely implementation seams
 

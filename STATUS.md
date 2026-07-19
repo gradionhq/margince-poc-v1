@@ -34,7 +34,7 @@ organization read surfaces show the safe deferral reason and automatic-resume
 time; migration 0104 and the real-Postgres lane prove join-before-due,
 resume-when-due, and reverse/reapply.
 
-**Cold-start company context — durable knowledge and five-step setup (Phases 1–4)** —
+**Cold-start company context — durable knowledge, setup, and refresh (Phases 1–5)** —
 the installation's anchor organization is now the normal company record with a
 governed, typed context view over canonical identity, confirmed profile fields,
 and evidence-bearing facts. Website reading is optional: the progressive
@@ -53,11 +53,18 @@ supports accept-subset confirmation, and ends with a real confirmed-data reveal.
 Per-human server state survives reload/OAuth returns with creator/member routing,
 optimistic conflicts, RLS, audit, and the identity-stream
 `onboarding.state_changed` event; manual setup needs only company name, offer,
-and ideal customer and makes zero external request. Phase 5 remains: settings
-refresh/conflict resolution, observability, capability rollout, and existing-
-installation backfill. `voice_build` is now a compiled background task but has
-no product consumer until the voice storage and lifecycle surface lands;
-natural-language search remains dormant until its surface is ratified.
+and ideal customer and makes zero external request. Company settings expose the
+same canonical anchor with provenance-aware editing and website refresh. Refresh
+classifies new, unchanged, machine-changed, and human-conflicting proposals;
+human values require an explicit keep, accept, or custom decision in the same
+version-bound confirmation transaction. An ordered `off < read < tasks < onboarding`
+server capability makes every layer reversible without deleting data. Existing
+installations receive insert-missing-only profile provenance rows without website
+egress, while first-grounded/confirmation timing, extraction coverage, correction
+audits, and exact per-call context byte/token estimates make rollout observable.
+`voice_build` is now a compiled background task but has no product consumer until
+the voice storage and lifecycle surface lands; natural-language search remains
+dormant until its surface is ratified.
 
 **AI runtime contract + certification (four phases, one arc)** — the AI
 task/tier vocabulary is now a compiled contract:

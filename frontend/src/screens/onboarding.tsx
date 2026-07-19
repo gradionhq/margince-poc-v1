@@ -50,6 +50,10 @@ import type { MessageKey } from "../i18n/en";
 import { Wordmark } from "./auth";
 import { BackfillPanel } from "./backfill";
 import { coldFieldLabel, problemMessage } from "./common";
+import {
+  ManualCompanySetup,
+  useCompanyContextCapabilities,
+} from "./company-context";
 import { confidenceLevel } from "./inbox";
 import { ReadCompanyStep } from "./onboarding-read";
 import "./onboarding.css";
@@ -375,8 +379,16 @@ function corpusQuality(total: number): { cls: string; key: MessageKey } {
 
 // The coordinator mirrors the six server states directly; keeping the finite
 // branches together makes Back/skip/OAuth transitions reviewable as one machine.
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: splitting the state machine would hide cross-step invariants
 export function OnboardingScreen() {
+  const capabilities = useCompanyContextCapabilities();
+  if (capabilities.data && !capabilities.data.onboarding_enabled) {
+    return <ManualCompanySetup />;
+  }
+  return <OnboardingCoordinator />;
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: splitting the state machine would hide cross-step invariants
+function OnboardingCoordinator() {
   const t = useT();
   const queryClient = useQueryClient();
   const route = useRoute();
@@ -628,6 +640,7 @@ export function OnboardingScreen() {
               proposal_hash: siteRead.data.proposal_hash,
               profile,
               selected_fact_keys: selectedFactKeys,
+              resolutions: [],
             },
           })
         : await api.PUT("/company", { body: profile });

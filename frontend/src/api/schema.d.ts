@@ -1645,6 +1645,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/company/context/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the effective server-side company-context rollout capability.
+         * @description The UI follows this authenticated response instead of inferring deployment configuration.
+         */
+        get: operations["getCompanyContextCapabilities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/company/context": {
         parameters: {
             query?: never;
@@ -1725,8 +1745,9 @@ export interface paths {
          * Confirm a selected onboarding draft into the anchor company atomically.
          * @description Applies only the submitted profile and selected fact keys. The draft version and proposal
          *     hash bind confirmation to the exact inspected proposal; a stale confirmation returns 409.
-         *     Unchanged values retain website evidence, edits become human assertions, and published people
-         *     remain separate site-lead proposals rather than becoming contacts or company-context rows.
+         *     Every human-held collision requires an explicit keyed resolution. Unchanged values retain
+         *     website evidence, edits become human assertions, and published people remain separate
+         *     site-lead proposals rather than becoming contacts or company-context rows.
          */
         post: operations["confirmCompanySiteRead"];
         delete?: never;
@@ -6148,6 +6169,13 @@ export interface components {
             /** Format: date-time */
             generated_at: string;
         };
+        CompanyContextCapabilities: {
+            /** @enum {string} */
+            rollout: "off" | "read" | "tasks" | "onboarding";
+            read_enabled: boolean;
+            tasks_enabled: boolean;
+            onboarding_enabled: boolean;
+        };
         StartCompanySiteReadRequest: {
             /**
              * Format: uri
@@ -6176,6 +6204,25 @@ export interface components {
             /** Format: uri */
             evidence_url: string;
             confidence: number;
+        };
+        CompanySiteReadComparison: {
+            /** @description Stable profile-field key or fact selection key. */
+            key: string;
+            /** @enum {string} */
+            value_kind: "profile_field" | "fact";
+            /** @enum {string} */
+            classification: "new" | "machine_change" | "human_conflict" | "unchanged";
+            current_value: string | null;
+            /** @enum {string|null} */
+            current_source: "human" | "site_read" | "connector" | "migration" | null;
+            proposed_value: string;
+        };
+        CompanySiteReadResolution: {
+            key: string;
+            /** @enum {string} */
+            action: "keep_current" | "accept_proposal" | "use_value";
+            /** @description Required and non-blank only for use_value; forbidden for other actions. */
+            value?: string | null;
         };
         CompanySiteReadPerson: {
             name: string;
@@ -6216,6 +6263,8 @@ export interface components {
             pages: components["schemas"]["CompanySiteReadPage"][];
             profile_fields: components["schemas"]["ColdStartField"][];
             facts: components["schemas"]["CompanySiteReadFact"][];
+            /** @description Version-bound comparison against current confirmed company truth. */
+            comparisons: components["schemas"]["CompanySiteReadComparison"][];
             people: components["schemas"]["CompanySiteReadPerson"][];
             warnings: string[];
             draft_version: number;
@@ -6230,6 +6279,8 @@ export interface components {
             proposal_hash: string;
             profile: components["schemas"]["CompanyProfileInput"];
             selected_fact_keys: string[];
+            /** @description Exactly one keyed resolution for every human_conflict comparison. Omitted is equivalent to an empty array for existing clients and succeeds only when no human conflict exists. */
+            resolutions?: components["schemas"]["CompanySiteReadResolution"][];
         };
         /** @description Optional override. With no body the org's own domain is read. */
         EnrichCompanyRequest: {
@@ -11425,6 +11476,27 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    getCompanyContextCapabilities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Effective ordered rollout stage and its derived capabilities. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyContextCapabilities"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
         };
     };
     getCompanyContext: {

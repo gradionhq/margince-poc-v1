@@ -198,6 +198,13 @@ seeded alongside on first run; both are gitignored. `--config` reaches
 **both** the api and worker, so a posture like `ai.capture_payloads` applies
 to every role. Delete `config/margince.yaml` and re-run `make dev` to reset.
 
+`company_context.rollout` is the ordered server-side company-context capability:
+`off` disables context reads, injection, and the new onboarding surface; `read`
+enables the canonical read model and Company Context settings; `tasks` also
+injects bounded context into declared AI tasks; `onboarding` additionally enables
+the five-step first-run flow. The default is `onboarding`. Moving backward is a
+reversible operational kill switch and never deletes confirmed company data.
+
 Model credentials (BYOK cloud tiers) are configured in
 `ai-routing.yaml`, not through binary flags. The annotated reference is
 [`config/ai-routing.example.yaml`](../../config/ai-routing.example.yaml)

@@ -68,6 +68,7 @@ const reading = {
     },
   ],
   facts: [],
+  comparisons: [],
   people: [],
   warnings: [],
   draft_version: 2,

@@ -51,6 +51,7 @@ func finishOnboardingDraft(t *testing.T, e *integration.Env, read people.SiteRea
 		{Field: "display_name", Value: "Acme", EvidenceSnippet: "Acme builds onboarding software.", SourceURL: seedURL, Confidence: 0.96},
 		{Field: "offer_summary", Value: "Employee onboarding software", EvidenceSnippet: "Employee onboarding software for growing teams.", SourceURL: seedURL, Confidence: 0.91},
 		{Field: "icp", Value: "Growing RevOps teams", EvidenceSnippet: "Built for growing RevOps teams.", SourceURL: seedURL, Confidence: 0.88},
+		{Field: "registered_address", Value: "Website Road 2", EvidenceSnippet: "Visit us at Website Road 2.", SourceURL: seedURL, Confidence: 0.93},
 	}
 	facts := []people.DeepReadFact{
 		{Category: "offering", Field: "service", Value: "Implementation — guided CRM rollout", ValueKey: "implementation", EvidenceSnippet: "Guided CRM rollout", SourceURL: seedURL, Confidence: 0.9},
@@ -138,7 +139,7 @@ func TestOnboardingSiteReadTransportStartsPollsAndConfirmsTheDraft(t *testing.T)
 		t.Fatal(err)
 	}
 	if dossier.Status != crmcontracts.CompanySiteReadStatusPartial || len(dossier.Pages) != 3 ||
-		len(dossier.ProfileFields) != 3 || len(dossier.Facts) != 2 || len(dossier.People) != 1 ||
+		len(dossier.ProfileFields) != 4 || len(dossier.Facts) != 2 || len(dossier.People) != 1 ||
 		dossier.People[0].PublishedEmail == nil || dossier.People[0].LinkedinUrl == nil {
 		t.Fatalf("polled dossier lost progressive findings: %+v", dossier)
 	}
@@ -325,6 +326,102 @@ func TestOnboardingSiteReadConfirmsSelectedDataAndKeepsPeopleSeparate(t *testing
 	}, nil)
 	if !errors.Is(err, apperrors.ErrConflict) {
 		t.Fatalf("replayed confirmation = %v, want conflict", err)
+	}
+}
+
+func TestCompanySiteReadRefreshRequiresConflictDecisionsAndPreservesProvenance(t *testing.T) {
+	e := integration.Setup(t)
+	human := e.As(e.Rep1, nil, integration.AdminPerms)
+	humanOffer, humanICP, humanAddress := "Human-authored advisory", "Human-authored finance teams", "Human Road 1"
+	if _, err := e.People.SaveCompany(human, people.SaveCompanyInput{
+		DisplayName: "Acme",
+		Fields: map[string]*string{
+			"offer_summary":      &humanOffer,
+			"icp":                &humanICP,
+			"registered_address": &humanAddress,
+		},
+	}); err != nil {
+		t.Fatalf("seed human company: %v", err)
+	}
+	ready := onboardingDraft(t, e)
+	engine := &deepReadEngine{people: e.People, approvals: approvals.NewService(e.Pool)}
+
+	_, comparisons, err := e.People.GetCompanySiteRead(human, ready.ID)
+	if err != nil {
+		t.Fatalf("compare refresh: %v", err)
+	}
+	conflicts := map[string]bool{}
+	for _, comparison := range comparisons {
+		if comparison.Classification == "human_conflict" {
+			conflicts[comparison.Key] = true
+		}
+	}
+	if !conflicts["offer_summary"] || !conflicts["icp"] || !conflicts["registered_address"] {
+		t.Fatalf("human conflicts = %v, want offer_summary, icp, and registered_address", conflicts)
+	}
+
+	proposedOffer, proposedICP, proposedAddress := "Employee onboarding software", "Growing RevOps teams", "Website Road 2"
+	base := people.ConfirmCompanySiteReadInput{
+		ReadID: ready.ID, DraftVersion: ready.DraftVersion, ProposalHash: ready.ProposalHash,
+		DisplayName: "Acme",
+		Fields: map[string]*string{
+			"offer_summary":      &proposedOffer,
+			"icp":                &proposedICP,
+			"registered_address": &proposedAddress,
+		},
+	}
+	if _, err := e.People.ConfirmCompanySiteRead(human, base, engine.stageOnboardingPeople); err == nil {
+		t.Fatal("refresh committed without resolving its human conflicts")
+	} else {
+		var invalid *people.InvalidSiteReadResolutionError
+		if !errors.As(err, &invalid) {
+			t.Fatalf("unresolved refresh = %v, want InvalidSiteReadResolutionError", err)
+		}
+	}
+	unchanged, err := e.People.GetCompany(human)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.Fields["offer_summary"] != humanOffer || unchanged.Fields["icp"] != humanICP ||
+		unchanged.Fields["registered_address"] != humanAddress {
+		t.Fatalf("failed refresh changed company truth: %+v", unchanged.Fields)
+	}
+
+	customOffer := "Human-reviewed onboarding advisory"
+	base.Resolutions = []people.SiteReadResolution{
+		{Key: "offer_summary", Action: "use_value", Value: &customOffer},
+		{Key: "icp", Action: "accept_proposal"},
+		{Key: "registered_address", Action: "accept_proposal"},
+	}
+	confirmed, err := e.People.ConfirmCompanySiteRead(human, base, engine.stageOnboardingPeople)
+	if err != nil {
+		t.Fatalf("confirm resolved refresh: %v", err)
+	}
+	sources := map[string]string{}
+	for _, field := range confirmed.ProfileFields {
+		sources[field.Field] = field.Source
+	}
+	if confirmed.Fields["offer_summary"] != customOffer || sources["offer_summary"] != "human" {
+		t.Fatalf("custom offer = %q/%q, want human-reviewed human value",
+			confirmed.Fields["offer_summary"], sources["offer_summary"])
+	}
+	if confirmed.Fields["icp"] != proposedICP || sources["icp"] != "site_read" {
+		t.Fatalf("accepted ICP = %q/%q, want proposed site_read value",
+			confirmed.Fields["icp"], sources["icp"])
+	}
+	if confirmed.Fields["registered_address"] != proposedAddress || sources["registered_address"] != "site_read" {
+		t.Fatalf("accepted address = %q/%q, want proposed site_read value",
+			confirmed.Fields["registered_address"], sources["registered_address"])
+	}
+	var storedAddress string
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `SELECT address_line1 FROM organization WHERE id = $1`,
+			confirmed.OrganizationID).Scan(&storedAddress)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if storedAddress != proposedAddress {
+		t.Fatalf("anchor address_line1 = %q, want %q", storedAddress, proposedAddress)
 	}
 }
 

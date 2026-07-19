@@ -53,21 +53,23 @@ type Call struct {
 	AttemptReason string
 	// Kind distinguishes a chat-ladder attempt from an embed-lane call —
 	// callKindCompletion or callKindEmbedding.
-	Kind               string
-	CorrelationID      *ids.UUID
-	Task               Task
-	Tier               Tier
-	Provider           string
-	ModelID            string
-	RequestFingerprint string
-	ContextScopes      []string
-	ContextFingerprint string
-	TokensIn           int
-	TokensOut          int
-	ReasoningTokens    int
-	CachedTokens       int
-	LatencyMS          int64
-	CacheHit           bool
+	Kind                  string
+	CorrelationID         *ids.UUID
+	Task                  Task
+	Tier                  Tier
+	Provider              string
+	ModelID               string
+	RequestFingerprint    string
+	ContextScopes         []string
+	ContextFingerprint    string
+	ContextBytes          int
+	ContextTokensEstimate int
+	TokensIn              int
+	TokensOut             int
+	ReasoningTokens       int
+	CachedTokens          int
+	LatencyMS             int64
+	CacheHit              bool
 	// CacheOff records that the serving Router had the result cache
 	// disabled (ai.WithoutResultCache — the cert lane and scripted tests
 	// that must observe every repeat call, not a collapsed cache hit).
@@ -186,17 +188,18 @@ func (m *CallMeter) Record(ctx context.Context, attempts []Call) error {
 				INSERT INTO ai_call (
 				  workspace_id, correlation_id, task, tier, provider, model_id,
 				  request_fingerprint, context_scopes, context_fingerprint,
+				  context_bytes, context_tokens_estimate,
 				  tokens_in, tokens_out, reasoning_tokens,
 				  cached_tokens, latency_ms, cache_hit, degraded, error_sentinel, agent_run_id,
 				  logical_call_id, attempt, is_terminal, attempt_reason, kind,
 				  served_model, served_identity_source, cache_off, config_hash, estimated_cost_microusd)
 				VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-				  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NULLIF($16,''),$17,
-				  $18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
+				  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NULLIF($18,''),$19,
+				  $20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
 				RETURNING id`,
 				c.CorrelationID, string(c.Task), string(c.Tier), c.Provider, c.ModelID,
 				c.RequestFingerprint, contextScopes, c.ContextFingerprint,
-				c.TokensIn, c.TokensOut, c.ReasoningTokens,
+				c.ContextBytes, c.ContextTokensEstimate, c.TokensIn, c.TokensOut, c.ReasoningTokens,
 				c.CachedTokens, c.LatencyMS, c.CacheHit, c.Degraded, c.ErrorSentinel, c.AgentRunID,
 				c.LogicalCallID, c.Attempt, c.IsTerminal, c.AttemptReason, kind,
 				c.ServedModel, servedSource, c.CacheOff, c.ConfigHash, c.EstimatedCostMicroUSD,

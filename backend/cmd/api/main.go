@@ -182,6 +182,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+	modelPath.SetCompanyContextEnabled(deployCfg.CompanyContext.TasksEnabled())
 	opts = append(opts, coldStartOptions(modelPath)...)
 	opts = append(opts, offerDraftOptions(pool, modelPath)...)
 	opts = append(opts, compose.WithAIState(aiState))
@@ -194,6 +195,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	opts = append(opts, deepRead)
+	opts = append(opts, compose.WithCompanyContextRollout(string(deployCfg.CompanyContext.EffectiveRollout())))
 
 	srv := &http.Server{
 		Addr:              cfg.addr,

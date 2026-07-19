@@ -367,7 +367,8 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// The installation's own company (the 0083 anchor). Its own store
 		// instance, like every other people-backed shadow here: the company
 		// form's write shape is people's, the transport is compose's.
-		companyHandlers: companyHandlers{store: people.NewStore(pool)},
+		companyHandlers:  companyHandlers{store: people.NewStore(pool), rollout: companyContextRolloutOnboarding},
+		siteReadHandlers: siteReadHandlers{companyContextRollout: companyContextRolloutOnboarding},
 		onboardingStateHandlers: onboardingStateHandlers{
 			state: identity.NewOnboardingStore(pool), company: people.NewStore(pool),
 		},

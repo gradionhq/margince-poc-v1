@@ -194,16 +194,18 @@ func requestedBy(ctx context.Context) string {
 func WithDeepRead(inserter *jobs.Runner) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		engine := &deepReadEngine{people: people.NewStore(pool), approvals: approvals.NewService(pool), enqueue: inserter}
-		s.siteReadHandlers = siteReadHandlers{engine: engine, start: engine.start, report: engine.report}
+		rollout := s.companyContextRollout
+		s.siteReadHandlers = siteReadHandlers{engine: engine, start: engine.start, report: engine.report, companyContextRollout: rollout}
 	}
 }
 
 // siteReadHandlers shadows the generated DeepReadCompany / GetSiteRead stubs.
 // Both fields nil until WithDeepRead wires the engine.
 type siteReadHandlers struct {
-	engine *deepReadEngine
-	start  func(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
-	report func(w http.ResponseWriter, r *http.Request, id, readID openapi_types.UUID)
+	engine                *deepReadEngine
+	start                 func(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	report                func(w http.ResponseWriter, r *http.Request, id, readID openapi_types.UUID)
+	companyContextRollout string
 }
 
 func (h siteReadHandlers) DeepReadCompany(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {

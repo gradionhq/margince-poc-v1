@@ -67,6 +67,10 @@ type Request struct {
 	// stale-context cache hits impossible and the call trace inspectable.
 	ContextScopes      []string
 	ContextFingerprint string
+	// ContextBytes and ContextTokensEstimate describe only the final delimited
+	// company-context block. They are trace metadata, never provider inputs.
+	ContextBytes          int
+	ContextTokensEstimate int
 	// IncludeCompanyContext opts into a task policy explicitly marked
 	// conditional. Compose consumes and clears the flag before routing; it
 	// cannot select scopes or bypass a policy-none declaration.

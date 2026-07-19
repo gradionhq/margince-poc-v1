@@ -27,13 +27,18 @@ const (
 // ConfirmCompanySiteReadInput is the inspected onboarding draft plus the
 // human's selected profile and fact subset.
 type ConfirmCompanySiteReadInput struct {
-	ReadID           ids.UUID
-	DraftVersion     int
-	ProposalHash     string
-	DisplayName      string
-	Website          *string
-	Fields           map[string]*string
-	SelectedFactKeys []string
+	ReadID                 ids.UUID
+	DraftVersion           int
+	ProposalHash           string
+	DisplayName            string
+	Website                *string
+	Fields                 map[string]*string
+	SelectedFactKeys       []string
+	Resolutions            []SiteReadResolution
+	skipProfileFields      map[string]bool
+	overwriteProfileFields map[string]bool
+	overwriteFactKeys      map[string]bool
+	humanFactEdits         []resolvedHumanFact
 }
 
 // StageSiteReadPeople stages the dossier's published people after the anchor
@@ -80,11 +85,22 @@ func (s *Store) confirmCompanySiteReadTx(
 	by string,
 	stagePeople StageSiteReadPeople,
 ) (Company, error) {
+	if err := lockCompanyState(ctx, tx); err != nil {
+		return Company{}, err
+	}
 	read, err := lockOnboardingSiteRead(ctx, tx, in.ReadID)
 	if err != nil {
 		return Company{}, err
 	}
 	if err := validateSiteReadConfirmation(read, in); err != nil {
+		return Company{}, err
+	}
+	current, err := readAnchorForComparison(ctx, tx)
+	if err != nil {
+		return Company{}, err
+	}
+	in, err = resolveSiteReadConflicts(read, current, in)
+	if err != nil {
 		return Company{}, err
 	}
 
@@ -127,8 +143,8 @@ func applySiteReadConfirmation(
 		return siteReadConfirmation{}, err
 	}
 	siteFields, humanFields := splitConfirmedProfile(read.ProfileFields, in)
-	appliedSite, err := applyEvidenceFields(ctx, tx, workspaceID(ctx), orgID,
-		companySourceSiteRead, companySiteReadCapturedBy, siteFields)
+	appliedSite, err := applyEvidenceFieldsWithOverwrite(ctx, tx, workspaceID(ctx), orgID,
+		companySourceSiteRead, companySiteReadCapturedBy, siteFields, in.overwriteProfileFields)
 	if err != nil {
 		return siteReadConfirmation{}, err
 	}
@@ -141,10 +157,15 @@ func applySiteReadConfirmation(
 			return siteReadConfirmation{}, err
 		}
 	}
-	appliedFacts, err := applySelectedSiteReadFacts(ctx, tx, orgID, read, in.SelectedFactKeys)
+	appliedFacts, err := applySelectedSiteReadFacts(ctx, tx, orgID, read, in.SelectedFactKeys, in.overwriteFactKeys)
 	if err != nil {
 		return siteReadConfirmation{}, err
 	}
+	humanFacts, err := applyResolvedHumanFacts(ctx, tx, orgID, by, in.humanFactEdits)
+	if err != nil {
+		return siteReadConfirmation{}, err
+	}
+	appliedFacts = append(appliedFacts, humanFacts...)
 	return siteReadConfirmation{
 		organizationID: orgID,
 		created:        created,
@@ -160,10 +181,23 @@ func applySelectedSiteReadFacts(
 	orgID ids.OrganizationID,
 	read SiteRead,
 	selectedKeys []string,
+	overwriteKeys map[string]bool,
 ) ([]map[string]any, error) {
 	selectedFacts, err := selectSiteReadFacts(read.Facts, selectedKeys)
 	if err != nil {
 		return nil, err
+	}
+	for _, fact := range selectedFacts {
+		if !overwriteKeys[SiteReadFactKey(fact)] {
+			continue
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM organization_fact
+			WHERE workspace_id = $1 AND organization_id = $2 AND category = $3
+			  AND field = $4 AND value_key = $5 AND source = 'human'`,
+			workspaceID(ctx), orgID, fact.Category, fact.Field, fact.ValueKey); err != nil {
+			return nil, fmt.Errorf("replace accepted human organization fact %s.%s: %w",
+				fact.Category, fact.Field, err)
+		}
 	}
 	return upsertOrganizationFacts(ctx, tx, workspaceID(ctx), DeepReadProposal{
 		OrganizationID: orgID,
@@ -249,6 +283,9 @@ func splitConfirmedProfile(proposed []DeepReadField, in ConfirmCompanySiteReadIn
 	siteFields := make([]ColdStartFieldInput, 0, len(values))
 	humanFields := make(map[string]*string, len(values))
 	for field, value := range values {
+		if in.skipProfileFields[field] {
+			continue
+		}
 		if value == nil {
 			continue
 		}

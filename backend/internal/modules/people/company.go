@@ -286,7 +286,8 @@ func resolveOrCreateAnchor(ctx context.Context, tx pgx.Tx, displayName, by strin
 		return ids.OrganizationID{}, false, err
 	}
 	if _, err := tx.Exec(ctx,
-		`UPDATE organization SET display_name = $2, version = version + 1 WHERE id = $1`,
+		`UPDATE organization SET display_name = $2, version = version + 1
+		 WHERE id = $1 AND display_name IS DISTINCT FROM $2`,
 		orgID, displayName); err != nil {
 		return ids.OrganizationID{}, false, fmt.Errorf("update company name: %w", err)
 	}

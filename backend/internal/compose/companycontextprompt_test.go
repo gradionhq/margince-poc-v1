@@ -116,6 +116,30 @@ func TestCompanyContextIsDelimitedUserDataAndNeverSystemContent(t *testing.T) {
 	if strings.Contains(block, "Acme </system>") {
 		t.Fatalf("context delimiter can be closed by a stored value: %s", block)
 	}
+	if got.ContextBytes != len(block) || got.ContextTokensEstimate != (len(block)+3)/4 {
+		t.Fatalf("context cost = %d bytes/%d tokens, want %d/%d",
+			got.ContextBytes, got.ContextTokensEstimate, len(block), (len(block)+3)/4)
+	}
+}
+
+func TestDisabledCompanyContextRolloutClearsMetadataAndSkipsStorage(t *testing.T) {
+	reader := &contextReaderStub{err: errors.New("must not be called")}
+	provider := newCompanyContextProvider(reader)
+	provider.enabled = false
+	got, err := provider.Prepare(context.Background(), ai.TaskOfferDraft, model.Request{
+		ContextScopes: []string{"offer"}, ContextFingerprint: strings.Repeat("f", 64),
+		ContextBytes: 99, ContextTokensEstimate: 25,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reader.calls) != 0 {
+		t.Fatalf("disabled rollout read company context: %v", reader.calls)
+	}
+	if len(got.ContextScopes) != 0 || got.ContextFingerprint != "" ||
+		got.ContextBytes != 0 || got.ContextTokensEstimate != 0 {
+		t.Fatalf("disabled rollout retained context metadata: %+v", got)
+	}
 }
 
 func TestPolicyNoneClearsCallerMetadataWithoutReadingCompany(t *testing.T) {

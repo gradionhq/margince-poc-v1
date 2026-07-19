@@ -189,6 +189,7 @@ func (r *Router) serveAttempt(ctx context.Context, lc *logicalCall, task Task, l
 	trace := Call{
 		Task: task, Kind: callKindCompletion, RequestFingerprint: key,
 		ContextScopes: append([]string(nil), req.ContextScopes...), ContextFingerprint: req.ContextFingerprint,
+		ContextBytes: req.ContextBytes, ContextTokensEstimate: req.ContextTokensEstimate,
 		AttemptReason: reason, CacheOff: r.cacheOff,
 	}
 	if cid, ok := principal.CorrelationID(ctx); ok {
