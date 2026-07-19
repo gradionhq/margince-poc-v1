@@ -142,6 +142,22 @@ func TestDisabledCompanyContextRolloutClearsMetadataAndSkipsStorage(t *testing.T
 	}
 }
 
+func TestModelPathCompanyContextSwitchIsNilSafeAndReachesTheAgentProvider(t *testing.T) {
+	var path *ModelPath
+	path.SetCompanyContextEnabled(false)
+
+	provider := newCompanyContextProvider(nil)
+	path = &ModelPath{Agent: agentBrain{companyContext: provider}}
+	path.SetCompanyContextEnabled(false)
+	if provider.enabled {
+		t.Fatal("company-context provider remained enabled")
+	}
+	path.SetCompanyContextEnabled(true)
+	if !provider.enabled {
+		t.Fatal("company-context provider remained disabled")
+	}
+}
+
 func TestPolicyNoneClearsCallerMetadataWithoutReadingCompany(t *testing.T) {
 	reader := &contextReaderStub{err: errors.New("must not be called")}
 	provider := newCompanyContextProvider(reader)
