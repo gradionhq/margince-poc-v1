@@ -42,11 +42,11 @@ type scriptedClassifyBrain struct {
 func (s *scriptedClassifyBrain) Complete(_ context.Context, req model.Request) (model.Response, error) {
 	s.calls++
 	if s.budgetOut {
-		return model.Response{}, ai.ErrBudgetExhausted
+		return model.Response{}, ai.ErrBudgetDeferred
 	}
 	idPattern := regexpMustIDs(req.Messages[0].Content)
 	if s.budgetOnSolo && len(idPattern) == 1 {
-		return model.Response{}, ai.ErrBudgetExhausted
+		return model.Response{}, ai.ErrBudgetDeferred
 	}
 	results := make([]map[string]any, 0, len(idPattern))
 	for _, id := range idPattern {

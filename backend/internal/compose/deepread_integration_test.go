@@ -27,6 +27,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -39,7 +40,16 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
+
+type budgetDeferringBrain struct {
+	next time.Time
+}
+
+func (b budgetDeferringBrain) Complete(context.Context, model.Request) (model.Response, error) {
+	return model.Response{}, &ai.BudgetDeferralError{Task: ai.TaskSiteExtract, NextAttemptAt: b.next}
+}
 
 // acmeDeepSite is a two-page site: the landing page and an Impressum the
 // well-known probe finds. Every other probe 404s like a real site.
@@ -404,6 +414,30 @@ func TestDeepReadOnABrainlessWorkerFailsTheReadActionably(t *testing.T) {
 	}
 	if failed.Status != "failed" {
 		t.Fatalf("dossier = %+v, want failed — never queued forever behind a worker that cannot extract", failed)
+	}
+}
+
+func TestDeepReadBudgetDeferralSnoozesTheDurableJob(t *testing.T) {
+	e := integration.Setup(t)
+	org := insertOrg(t, e, e.Rep1, "acme.example", "")
+	now := time.Date(2026, time.July, 19, 10, 0, 0, 0, time.UTC)
+	next := time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC)
+	worker, _ := newDeepReadTestWorker(e, acmeDeepSite(), budgetDeferringBrain{next: next})
+	worker.now = func() time.Time { return now }
+	read, args := startDeepRead(t, e, org)
+
+	err := worker.Work(context.Background(), &river.Job[SiteDeepReadArgs]{Args: args})
+	var snooze *river.JobSnoozeError
+	if !errors.As(err, &snooze) || snooze.Duration != next.Sub(now) {
+		t.Fatalf("Work error = %v, want snooze for %s", err, next.Sub(now))
+	}
+	deferred, getErr := e.People.GetSiteRead(e.As(e.Rep1, nil, integration.AdminPerms), orgIDOf(org), read.ID)
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if deferred.Status != "deferred" || deferred.StatusCode == nil || *deferred.StatusCode != "budget_deferred" ||
+		deferred.NextAttemptAt == nil || !deferred.NextAttemptAt.Equal(next) || deferred.FinishedAt != nil {
+		t.Fatalf("dossier after budget deferral = %+v", deferred)
 	}
 }
 

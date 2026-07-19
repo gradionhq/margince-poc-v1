@@ -25,6 +25,18 @@ const (
 	TaskSiteFactExtract Task = "site_fact_extract"
 	TaskSummarize       Task = "summarize"
 	TaskTranscript      Task = "transcript"
+	// TaskVoiceBuild is owner-requested or automatic durable Voice DNA candidate build; own-authored corpus only, CompanyContext none (ADR-0066)
+	TaskVoiceBuild Task = "voice_build"
+)
+
+// ExecutionMode distinguishes request-bound work from work carried by a
+// durable background job. Budget exhaustion degrades the former and
+// defers the latter.
+type ExecutionMode string
+
+const (
+	ExecutionModeInteractive ExecutionMode = "interactive"
+	ExecutionModeBackground  ExecutionMode = "background"
 )
 
 // Tier is a capability tier (§1.1); ai-routing.yaml binds each to a
@@ -41,7 +53,7 @@ const (
 // TaskContractHash is the sha256 of api/ai-tasks.yaml at generation
 // time: a build fingerprint the cert runner can compare against a
 // freshly hashed contract file to catch a stale generated table.
-const TaskContractHash = "46334e40cabc3451b0742b27bb8bb014f619cb54bd2c5741c942f719e5c880ba"
+const TaskContractHash = "23781fc79297d36f3080bb24b2dbd39a2297ad8093bbaaec9be2067dbac019f8"
 
 // AllTasks returns every contract task, sorted — the completeness
 // check a certification run walks to prove it covers every routed
@@ -62,6 +74,7 @@ func AllTasks() []Task {
 		TaskSiteFactExtract,
 		TaskSummarize,
 		TaskTranscript,
+		TaskVoiceBuild,
 	}
 }
 
@@ -82,6 +95,7 @@ var taskLadders = map[Task][]Tier{
 	TaskSiteFactExtract: {TierCheapCloud, TierPremium},
 	TaskSummarize:       {TierCheapCloud, TierPremium},
 	TaskTranscript:      {TierCheapCloud, TierPremium},
+	TaskVoiceBuild:      {TierCheapCloud, TierPremium},
 }
 
 // degradeTo is the one-tier-down move economy mode applies at 80–100%
@@ -93,19 +107,24 @@ var degradeTo = map[Tier]Tier{
 	TierLocalLarge: TierLocalSmall,
 }
 
-// nonInteractive marks the tasks that queue rather than degrade when
-// the budget is exhausted (§1.3 ≥100%): nothing is waiting on them
-// interactively, so next-cycle budget beats reduced quality. Derived
-// from on_budget_exhausted == "queue"; the "degrade" tasks are simply
-// absent (a missing key reads as false).
-var nonInteractive = map[Task]bool{
-	TaskAgentLoop:       true,
-	TaskBriefRanking:    true,
-	TaskCaptureClassify: true,
-	TaskCertJudge:       true,
-	TaskEnrich:          true,
-	TaskSiteExtract:     true,
-	TaskSiteFactExtract: true,
+// taskExecutionModes is the scheduling contract compiled from
+// execution_mode. Every task is present by construction.
+var taskExecutionModes = map[Task]ExecutionMode{
+	TaskAgentLoop:       ExecutionModeBackground,
+	TaskBriefRanking:    ExecutionModeBackground,
+	TaskCaptureClassify: ExecutionModeBackground,
+	TaskCertJudge:       ExecutionModeBackground,
+	TaskColdStart:       ExecutionModeInteractive,
+	TaskDealHealth:      ExecutionModeInteractive,
+	TaskDraftReply:      ExecutionModeInteractive,
+	TaskEnrich:          ExecutionModeBackground,
+	TaskNlSearch:        ExecutionModeInteractive,
+	TaskOfferDraft:      ExecutionModeInteractive,
+	TaskSiteExtract:     ExecutionModeBackground,
+	TaskSiteFactExtract: ExecutionModeBackground,
+	TaskSummarize:       ExecutionModeInteractive,
+	TaskTranscript:      ExecutionModeInteractive,
+	TaskVoiceBuild:      ExecutionModeBackground,
 }
 
 // knownTiers is the routing config's tier-name validation set: the

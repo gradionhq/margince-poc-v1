@@ -206,7 +206,7 @@ func TestSignatureEnrichAbsorbsModelFailures(t *testing.T) {
 	})
 
 	t.Run("a budget stop ends the pass cleanly", func(t *testing.T) {
-		brain := &faultyEnrichBrain{err: ai.ErrBudgetExhausted}
+		brain := &faultyEnrichBrain{err: ai.ErrBudgetDeferred}
 		enricher := NewCaptureEnricher(e.Pool, brain, slog.New(slog.DiscardHandler))
 		if err := enricher.Run(context.Background()); err != nil {
 			t.Fatalf("a budget stop must not be an error: %v", err)

@@ -22,6 +22,17 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**Durable AI budget deferral** — the compiled task contract now distinguishes
+interactive from background work and includes the ratified `voice_build` task
+with CompanyContext explicitly disabled. At the monthly hard cap, background
+calls return a typed next-window deferral before any provider attempt or
+`ai_call` trace; interactive calls retain the local-small degraded path.
+Website reads persist that decision as `deferred` with safe status detail and
+`next_attempt_at`, retain progressive findings, keep their one in-flight slot,
+and snooze the same River job without consuming an attempt. The API exposes the
+state on both onboarding and organization read surfaces; migration 0103 and the
+real-Postgres lane prove join-before-due, resume-when-due, and reverse/reapply.
+
 **Cold-start company context — durable knowledge and five-step setup (Phases 1–4)** —
 the installation's anchor organization is now the normal company record with a
 governed, typed context view over canonical identity, confirmed profile fields,
@@ -43,13 +54,13 @@ optimistic conflicts, RLS, audit, and the identity-stream
 `onboarding.state_changed` event; manual setup needs only company name, offer,
 and ideal customer and makes zero external request. Phase 5 remains: settings
 refresh/conflict resolution, observability, capability rollout, and existing-
-installation backfill. Current task contracts contain no executable voice-build
-or natural-language-search consumer, so those declarations remain dormant until
-their surfaces are ratified.
+installation backfill. `voice_build` is now a compiled background task but has
+no product consumer until the voice storage and lifecycle surface lands;
+natural-language search remains dormant until its surface is ratified.
 
 **AI runtime contract + certification (four phases, one arc)** — the AI
 task/tier vocabulary is now a compiled contract:
-`backend/api/ai-tasks.yaml` (14 tasks, 4 tiers, ladders + budget
+`backend/api/ai-tasks.yaml` (15 tasks, 4 tiers, execution modes, ladders + budget
 posture) generates `tasks_gen.go` and `config/ai-routing.schema.json`
 via `tools/gen-aitasks` (drift-gated, like `crm.yaml`) — editing routing
 POLICY is a rebuild; binding a tier to a provider/model stays runtime

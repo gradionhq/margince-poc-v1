@@ -85,6 +85,7 @@ type siteDeepReadWorker struct {
 	approvals *approvals.Service
 	log       *slog.Logger
 	caps      CrawlCaps
+	now       func() time.Time
 }
 
 // newSiteDeepReadWorker assembles the worker-role deep read over one
@@ -102,6 +103,7 @@ func newSiteDeepReadWorker(pool *pgxpool.Pool, brain, factBrain completer, log *
 		approvals: approvals.NewService(pool),
 		log:       log,
 		caps:      caps,
+		now:       time.Now,
 	}
 }
 
@@ -128,10 +130,6 @@ func (w *siteDeepReadWorker) Timeout(*river.Job[SiteDeepReadArgs]) time.Duration
 // both its configured crawl budget and the time reserved to close the dossier.
 func (w *siteDeepReadWorker) reclaimAfter() time.Duration {
 	return w.Timeout(nil) + time.Minute
-}
-
-func (w *siteDeepReadWorker) Work(ctx context.Context, job *river.Job[SiteDeepReadArgs]) error {
-	return w.run(ctx, job.Args)
 }
 
 // run is the whole deep read, River-agnostic so tests drive it directly.
@@ -181,7 +179,13 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 	progress, publishDraft := w.progressiveCallbacks(ctx, args.SiteReadID)
 	crawl, extraction, err := crawlAndExtract(ctx, w.crawler, w.extract, claim.SeedURL, progress, publishDraft)
 	if err != nil {
+		if deferred, deferErr := w.deferForBudget(ctx, args.SiteReadID, err); deferred {
+			return deferErr
+		}
 		return w.fail(ctx, args.SiteReadID, fmt.Errorf("site deep read %s: %w", args.SiteReadID, err))
+	}
+	if deferred, deferErr := w.deferForBudget(ctx, args.SiteReadID, extraction.err); deferred {
+		return deferErr
 	}
 	mergedFields, legalConflict, legalDrops := applyLegalGate(extraction.fields, extraction.merged.entities, pageKindsOf(crawl.Pages), extraction.legalCensusIncomplete)
 	w.extract.reportDrops(ctx, laneLegal, legalDrops)

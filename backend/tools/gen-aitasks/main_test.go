@@ -14,20 +14,19 @@ const minimalContract = `
 tiers: [alpha, beta]
 
 tasks:
-  foo: {ladder: [alpha, beta], on_budget_exhausted: queue}
-  bar: {ladder: [beta, alpha], on_budget_exhausted: degrade}
+  foo: {ladder: [alpha, beta], execution_mode: background, on_budget_exhausted: queue}
+  bar: {ladder: [beta, alpha], execution_mode: interactive, on_budget_exhausted: degrade}
 
 degrade_to:
   beta: alpha
   alpha: alpha
 `
 
-// TestEmitGoProducesTaskConstantsLaddersAndNonInteractiveDerivation is the
+// TestEmitGoProducesTaskConstantsLaddersAndExecutionModes is the
 // Step 1 mechanical property: feeding a minimal contract to emitGo
 // produces the constant, the ladder literal, and the derived
-// nonInteractive membership (on_budget_exhausted == "queue") — the shape
-// tasks_gen.go must have for the real 13-task contract.
-func TestEmitGoProducesTaskConstantsLaddersAndNonInteractiveDerivation(t *testing.T) {
+// execution-mode table — the shape tasks_gen.go must have for the real contract.
+func TestEmitGoProducesTaskConstantsLaddersAndExecutionModes(t *testing.T) {
 	c, err := parseContract([]byte(minimalContract))
 	if err != nil {
 		t.Fatalf("parseContract: %v", err)
@@ -44,11 +43,11 @@ func TestEmitGoProducesTaskConstantsLaddersAndNonInteractiveDerivation(t *testin
 	if !strings.Contains(out, "TaskFoo: {TierAlpha, TierBeta}") {
 		t.Errorf("generated source missing the foo ladder literal:\n%s", out)
 	}
-	if !strings.Contains(out, "TaskFoo: true") {
-		t.Errorf("generated source does not derive TaskFoo as nonInteractive (on_budget_exhausted: queue):\n%s", out)
+	if !strings.Contains(out, "TaskFoo: ExecutionModeBackground") {
+		t.Errorf("generated source does not emit TaskFoo as background:\n%s", out)
 	}
-	if strings.Contains(out, "TaskBar: true") {
-		t.Errorf("generated source wrongly derives TaskBar as nonInteractive (on_budget_exhausted: degrade):\n%s", out)
+	if !strings.Contains(out, "TaskBar: ExecutionModeInteractive") {
+		t.Errorf("generated source does not emit TaskBar as interactive:\n%s", out)
 	}
 	if !strings.Contains(out, `const TaskContractHash = "deadbeef"`) {
 		t.Errorf("generated source missing TaskContractHash:\n%s", out)
@@ -64,7 +63,7 @@ func TestParseContractRejectsUnknownLadderTier(t *testing.T) {
 tiers: [alpha]
 
 tasks:
-  foo: {ladder: [alpha, gamma], on_budget_exhausted: queue}
+  foo: {ladder: [alpha, gamma], execution_mode: background, on_budget_exhausted: queue}
 
 degrade_to:
   alpha: alpha
@@ -86,7 +85,7 @@ func TestParseContractRejectsUnknownDegradeToTier(t *testing.T) {
 tiers: [alpha]
 
 tasks:
-  foo: {ladder: [alpha], on_budget_exhausted: queue}
+  foo: {ladder: [alpha], execution_mode: background, on_budget_exhausted: queue}
 
 degrade_to:
   alpha: gamma

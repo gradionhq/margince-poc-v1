@@ -542,10 +542,12 @@ export const de = {
   "deepread.unavailable":
     "Website-Lesen ist auf diesem Server nicht eingerichtet.",
   "deepread.statusQueued": "In Warteschlange",
+  "deepread.statusDeferred": "Wartet auf KI-Budget",
   "deepread.statusRunning": "Liest…",
   "deepread.statusDone": "Fertig",
   "deepread.statusPartial": "Früh beendet",
   "deepread.statusFailed": "Fehlgeschlagen",
+  "deepread.resumesAt": "Wird automatisch am {when} fortgesetzt.",
   "deepread.pagesSoFar.one": "{count} Seite gelesen",
   "deepread.pagesSoFar.other": "{count} Seiten gelesen",
   "deepread.stoppedEarly": "Früh beendet: {reason}",

@@ -168,6 +168,9 @@ const runningRead = {
   organization_id: "o-1",
   seed_url: "https://brandt.example",
   status: "running",
+  status_code: null,
+  status_detail: null,
+  next_attempt_at: null,
   pages: [
     { url: "https://brandt.example/", kind: "home" },
     { url: "https://brandt.example/team", kind: "team" },
@@ -276,6 +279,31 @@ describe("company-360 deep read", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("shows a budget deferral as an automatic resume, not a failed read", async () => {
+    const { calls } = stubDeepRead({
+      report: () =>
+        jsonResponse({
+          ...runningRead,
+          status: "deferred",
+          status_code: "budget_deferred",
+          status_detail:
+            "AI budget reached its current limit. This website read will resume automatically.",
+          next_attempt_at: "2026-08-01T00:00:00Z",
+        }),
+    });
+    render(<CompanyScreen id="o-1" />);
+    await startDeepRead(calls);
+
+    await waitFor(() =>
+      expect(screen.getByText("Waiting for AI budget")).toBeTruthy(),
+    );
+    expect(
+      screen.getByText(/This website read will resume automatically/),
+    ).toBeTruthy();
+    expect(screen.getByText(/Resumes automatically/)).toBeTruthy();
+    expect(screen.queryByText("Failed")).toBeNull();
   });
 
   it("a partial report says it stopped early and names every skip reason", async () => {

@@ -8951,13 +8951,16 @@ components:
 
     CompanySiteRead:
       type: object
-      required: [id, target_kind, root_url, status, pages, profile_fields, facts, people, warnings, draft_version, proposal_hash, created_at, updated_at]
+      required: [id, target_kind, root_url, status, status_code, status_detail, next_attempt_at, pages, profile_fields, facts, people, warnings, draft_version, proposal_hash, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         target_kind: { type: string, enum: [onboarding] }
         organization_id: { type: [string, 'null'], format: uuid }
         root_url: { type: string, format: uri }
-        status: { type: string, enum: [queued, reading, ready, partial, failed, confirmed, abandoned] }
+        status: { type: string, enum: [queued, deferred, reading, ready, partial, failed, confirmed, abandoned] }
+        status_code: { type: [string, 'null'], enum: [null, budget_deferred] }
+        status_detail: { type: [string, 'null'], description: Safe guidance only; never provider payload, prompt, SQL, or stack data. }
+        next_attempt_at: { type: [string, 'null'], format: date-time }
         phase: { type: [string, 'null'], enum: [crawling, extracting] }
         pages_read: { type: integer, minimum: 0 }
         pages:
@@ -9004,7 +9007,7 @@ components:
       required: [read_id, status]
       properties:
         read_id: { type: string, format: uuid }
-        status: { type: string, enum: [queued, running], description: 'running when the request joined a read already in flight.' }
+        status: { type: string, enum: [queued, deferred, running], description: 'The joined dossier state when a read is already in flight.' }
 
     SiteReadPage:
       type: object
@@ -9032,12 +9035,15 @@ components:
         early (`partial` + `stopped_reason`), and the 🟡 proposals the findings staged. The report is
         the transparency surface — a crawl that silently dropped pages would read as "covered
         everything" when it did not.
-      required: [read_id, organization_id, seed_url, status, pages, skipped, proposal_ids, created_at]
+      required: [read_id, organization_id, seed_url, status, status_code, status_detail, next_attempt_at, pages, skipped, proposal_ids, created_at]
       properties:
         read_id: { type: string, format: uuid }
         organization_id: { type: string, format: uuid }
         seed_url: { type: string, format: uri }
-        status: { type: string, enum: [queued, running, done, partial, failed] }
+        status: { type: string, enum: [queued, deferred, running, done, partial, failed] }
+        status_code: { type: [string, 'null'], enum: [null, budget_deferred] }
+        status_detail: { type: [string, 'null'], description: Safe guidance only; never provider payload, prompt, SQL, or stack data. }
+        next_attempt_at: { type: [string, 'null'], format: date-time }
         pages:
           type: array
           items: { $ref: '#/components/schemas/SiteReadPage' }

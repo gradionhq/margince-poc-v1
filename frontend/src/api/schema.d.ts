@@ -6203,7 +6203,13 @@ export interface components {
             /** Format: uri */
             root_url: string;
             /** @enum {string} */
-            status: "queued" | "reading" | "ready" | "partial" | "failed" | "confirmed" | "abandoned";
+            status: "queued" | "deferred" | "reading" | "ready" | "partial" | "failed" | "confirmed" | "abandoned";
+            /** @enum {string|null} */
+            status_code: null | "budget_deferred";
+            /** @description Safe guidance only; never provider payload */
+            status_detail: string | null;
+            /** Format: date-time */
+            next_attempt_at: string | null;
             /** @enum {string|null} */
             phase?: "crawling" | "extracting" | null;
             pages_read?: number;
@@ -6238,10 +6244,10 @@ export interface components {
             /** Format: uuid */
             read_id: string;
             /**
-             * @description running when the request joined a read already in flight.
+             * @description The joined dossier state when a read is already in flight.
              * @enum {string}
              */
-            status: "queued" | "running";
+            status: "queued" | "deferred" | "running";
         };
         /** @description One page the crawl fetched. */
         SiteReadPage: {
@@ -6271,7 +6277,13 @@ export interface components {
             /** Format: uri */
             seed_url: string;
             /** @enum {string} */
-            status: "queued" | "running" | "done" | "partial" | "failed";
+            status: "queued" | "deferred" | "running" | "done" | "partial" | "failed";
+            /** @enum {string|null} */
+            status_code: null | "budget_deferred";
+            /** @description Safe guidance only; never provider payload */
+            status_detail: string | null;
+            /** Format: date-time */
+            next_attempt_at: string | null;
             pages: components["schemas"]["SiteReadPage"][];
             skipped: components["schemas"]["SiteReadSkip"][];
             /**

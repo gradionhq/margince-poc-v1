@@ -22,6 +22,7 @@ import (
 )
 
 const (
+	siteReadStatusDeferred    = "deferred"
 	siteReadWireStatusFailed  = "failed"
 	siteReadWireStatusPartial = "partial"
 )
@@ -184,7 +185,7 @@ func companySiteRead(read people.SiteRead) crmcontracts.CompanySiteRead {
 		found = append(found, out)
 	}
 	status := map[string]string{
-		"queued": "queued", "running": "reading", "done": "ready",
+		"queued": "queued", siteReadStatusDeferred: siteReadStatusDeferred, "running": "reading", "done": "ready",
 		siteReadWireStatusPartial: siteReadWireStatusPartial,
 		siteReadWireStatusFailed:  siteReadWireStatusFailed,
 	}[read.Status]
@@ -197,6 +198,11 @@ func companySiteRead(read people.SiteRead) crmcontracts.CompanySiteRead {
 		ProfileFields: fields, Facts: facts, People: found, Warnings: read.Warnings,
 		DraftVersion: read.DraftVersion, ProposalHash: read.ProposalHash,
 		CreatedAt: read.CreatedAt, UpdatedAt: read.UpdatedAt, PagesRead: &read.PagesRead,
+		StatusDetail: read.StatusDetail, NextAttemptAt: read.NextAttemptAt,
+	}
+	if read.StatusCode != nil {
+		code := crmcontracts.CompanySiteReadStatusCode(*read.StatusCode)
+		out.StatusCode = &code
 	}
 	if read.OrganizationID != nil {
 		id := openapi_types.UUID(read.OrganizationID.UUID)

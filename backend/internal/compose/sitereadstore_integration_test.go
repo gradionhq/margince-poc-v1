@@ -7,7 +7,7 @@ package compose
 
 // The deep-read dossier: a human's start creates the queued row, a second
 // start while one is in flight JOINS it (uq_site_read_inflight), the
-// worker advances it queued → running → terminal through guarded CAS
+// worker advances it queued → running → deferred or terminal through guarded CAS
 // updates, and every read of it is scoped to the organization the caller
 // can see.
 
@@ -156,6 +156,66 @@ func TestSiteReadWorkerAdvancesTheDossierThroughGuardedTransitions(t *testing.T)
 	}
 	if joined || again.ID == read.ID {
 		t.Fatalf("a start after the read finished joined the finished dossier (id %s, joined %t)", again.ID, joined)
+	}
+}
+
+func TestSiteReadBudgetDeferralKeepsProgressAndJoinsUntilDue(t *testing.T) {
+	e := integration.Setup(t)
+	store := people.NewStore(e.Pool)
+	human := e.As(e.Rep1, nil, integration.AdminPerms)
+	worker := siteReadWorkerCtx(e)
+	org := siteReadOrg(e.SeedOrg(t, "Acme", &e.Rep1))
+	read, _, err := store.StartSiteRead(human, org, "https://acme.example", "human:"+e.Rep1.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.BeginSiteRead(worker, read.ID, 10*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateSiteReadProgress(worker, read.ID, "extracting", 2); err != nil {
+		t.Fatal(err)
+	}
+	next := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Second)
+	if err := store.DeferSiteRead(worker, read.ID, next); err != nil {
+		t.Fatal(err)
+	}
+
+	deferred, err := store.GetSiteRead(human, org, read.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deferred.Status != "deferred" || deferred.StatusCode == nil || *deferred.StatusCode != "budget_deferred" ||
+		deferred.StatusDetail == nil || deferred.NextAttemptAt == nil || !deferred.NextAttemptAt.Equal(next) {
+		t.Fatalf("deferred dossier = %+v", deferred)
+	}
+	if deferred.PagesRead != 2 || deferred.FinishedAt != nil {
+		t.Fatalf("deferral discarded progress or became terminal: %+v", deferred)
+	}
+	joined, didJoin, err := store.StartSiteRead(human, org, read.SeedURL, "human:"+e.Rep2.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !didJoin || joined.ID != read.ID {
+		t.Fatalf("start during deferral = (%s, %t), want join %s", joined.ID, didJoin, read.ID)
+	}
+	if _, err := store.BeginSiteRead(worker, read.ID, 10*time.Minute); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("claim before next_attempt_at: %v, want ErrNotFound", err)
+	}
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `UPDATE site_read SET next_attempt_at = now() - interval '1 second' WHERE id = $1`, read.ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.BeginSiteRead(worker, read.ID, 10*time.Minute); err != nil {
+		t.Fatalf("claim due deferred read: %v", err)
+	}
+	resumed, err := store.GetSiteRead(human, org, read.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.Status != "running" || resumed.StatusCode != nil || resumed.StatusDetail != nil || resumed.NextAttemptAt != nil || resumed.PagesRead != 2 {
+		t.Fatalf("resumed dossier = %+v", resumed)
 	}
 }
 
