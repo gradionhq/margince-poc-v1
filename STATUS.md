@@ -362,7 +362,7 @@ Open work, roughly in priority order:
   context policy, progressive budgets/events, and five-step UI. Phase 1 is
   locally complete on `agent/coldstart-company-context-phase1`, with `make check`,
   the zero-skip integration lane, and a migration reverse/reapply cycle green;
-  its PR is the next merge candidate and must wait for every required GitHub
+  PR #127 is the next merge candidate and must wait for every required GitHub
   quality gate. It adds the typed,
   provenance-bearing `CompanyContext` read substrate and reconcile profile/fact
   vocabulary without duplicating the already-built anchor/deep-read stores.
