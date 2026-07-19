@@ -1,4 +1,4 @@
--- 0103: budget exhaustion is durable scheduling state for website reads,
+-- 0104: budget exhaustion is durable scheduling state for website reads,
 -- never a terminal crawl failure. Deferred reads keep their dossier and own
 -- the next eligible attempt boundary.
 
