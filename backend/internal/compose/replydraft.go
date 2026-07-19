@@ -78,6 +78,9 @@ func newReplyDrafter(pool *pgxpool.Pool, brain completer, log *slog.Logger) repl
 // the model lane, and falls back deterministically if the model is unavailable.
 func WithReplyDraft(brain completer) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
+		if brain == nil {
+			return
+		}
 		drafter := newReplyDrafter(pool, brain, s.log)
 		s.replyDrafter = drafter
 		s.activitiesHandlers = s.WithEmailDrafter(drafter)

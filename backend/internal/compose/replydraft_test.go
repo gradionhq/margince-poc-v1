@@ -73,3 +73,15 @@ func TestReplyDraftCompleterErrorIsReturnedToFallbackBoundary(t *testing.T) {
 		t.Fatalf("complete error = %v, want %v", err, want)
 	}
 }
+
+func TestWithReplyDraftLeavesFallbackWiringWhenBrainIsAbsent(t *testing.T) {
+	server := Server{}
+	WithReplyDraft(nil)(&server, nil)
+
+	if server.replyDrafter != nil {
+		t.Fatalf("replyDrafter = %T, want nil", server.replyDrafter)
+	}
+	if server.toolRegistry != nil {
+		t.Fatal("toolRegistry was replaced without a configured reply model")
+	}
+}
