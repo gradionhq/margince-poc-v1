@@ -16,11 +16,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
@@ -82,6 +84,9 @@ func configuredSeed(seeds deployconfig.Seeds, dealsH dealsHandlers) func(context
 			return err
 		}
 		if err := seedConsent(ctx, tx, seeds.ConsentPurposes); err != nil {
+			return err
+		}
+		if err := ai.SeedWorkspaceDefaultsTx(ctx, tx, time.Now().UTC()); err != nil {
 			return err
 		}
 		if seeds.StarterAutomations == nil || *seeds.StarterAutomations {
