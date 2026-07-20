@@ -351,3 +351,17 @@
     align-items: flex-start;
   }
 }
+
+/* Grouped settings nav: a per-group label above the group's tabs. */
+.set-nav-group + .set-nav-group {
+  margin-top: var(--space-3);
+}
+.set-nav-grouplabel {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  padding: 0 var(--space-2);
+  margin-bottom: var(--space-1);
+}

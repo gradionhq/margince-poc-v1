@@ -4743,7 +4743,7 @@ paths:
       operationId: listVoiceProfiles
       security: [ { cookieAuth: [] } ]
       x-agent-access: human-only
-      summary: List the calling user's live voice profile (zero or one in V1).
+      summary: List the calling user's live Voice DNA (zero or one in V1).
       responses:
         '200':
           description: The caller's profile, when one exists.
@@ -4760,7 +4760,7 @@ paths:
       operationId: createVoiceProfile
       security: [ { cookieAuth: [] } ]
       x-agent-access: human-only
-      summary: Create the calling user's one personal voice profile.
+      summary: Create the calling user's one personal Voice DNA.
       description: The profile starts collecting with an empty derived artifact. A second live profile is 409.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -4786,10 +4786,10 @@ paths:
       operationId: getVoiceProfile
       security: [ { cookieAuth: [] } ]
       x-agent-access: human-only
-      summary: Read the calling user's voice profile and active derived artifact.
+      summary: Read the calling user's Voice DNA and active derived artifact.
       responses:
         '200':
-          description: The voice profile.
+          description: The Voice DNA.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/VoiceProfile' }
@@ -4822,7 +4822,7 @@ paths:
       operationId: deleteVoiceProfile
       security: [ { cookieAuth: [] } ]
       x-agent-access: human-only
-      summary: Archive the calling user's voice profile and stop its use in drafts.
+      summary: Archive the calling user's Voice DNA and stop its use in drafts.
       parameters:
         - $ref: '#/components/parameters/IfMatch'
       responses:

@@ -17765,16 +17765,16 @@ type ServerInterface interface {
 	// Update a saved view's name or query state.
 	// (PATCH /views/{id})
 	UpdateSavedView(w http.ResponseWriter, r *http.Request, id Id, params UpdateSavedViewParams)
-	// List the calling user's live voice profile (zero or one in V1).
+	// List the calling user's live Voice DNA (zero or one in V1).
 	// (GET /voice-profiles)
 	ListVoiceProfiles(w http.ResponseWriter, r *http.Request)
-	// Create the calling user's one personal voice profile.
+	// Create the calling user's one personal Voice DNA.
 	// (POST /voice-profiles)
 	CreateVoiceProfile(w http.ResponseWriter, r *http.Request, params CreateVoiceProfileParams)
-	// Archive the calling user's voice profile and stop its use in drafts.
+	// Archive the calling user's Voice DNA and stop its use in drafts.
 	// (DELETE /voice-profiles/{id})
 	DeleteVoiceProfile(w http.ResponseWriter, r *http.Request, id Id, params DeleteVoiceProfileParams)
-	// Read the calling user's voice profile and active derived artifact.
+	// Read the calling user's Voice DNA and active derived artifact.
 	// (GET /voice-profiles/{id})
 	GetVoiceProfile(w http.ResponseWriter, r *http.Request, id Id)
 	// Replace human-authored preferences or enable/disable automatic improvement.
@@ -19058,25 +19058,25 @@ func (_ Unimplemented) UpdateSavedView(w http.ResponseWriter, r *http.Request, i
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// List the calling user's live voice profile (zero or one in V1).
+// List the calling user's live Voice DNA (zero or one in V1).
 // (GET /voice-profiles)
 func (_ Unimplemented) ListVoiceProfiles(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Create the calling user's one personal voice profile.
+// Create the calling user's one personal Voice DNA.
 // (POST /voice-profiles)
 func (_ Unimplemented) CreateVoiceProfile(w http.ResponseWriter, r *http.Request, params CreateVoiceProfileParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Archive the calling user's voice profile and stop its use in drafts.
+// Archive the calling user's Voice DNA and stop its use in drafts.
 // (DELETE /voice-profiles/{id})
 func (_ Unimplemented) DeleteVoiceProfile(w http.ResponseWriter, r *http.Request, id Id, params DeleteVoiceProfileParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Read the calling user's voice profile and active derived artifact.
+// Read the calling user's Voice DNA and active derived artifact.
 // (GET /voice-profiles/{id})
 func (_ Unimplemented) GetVoiceProfile(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
