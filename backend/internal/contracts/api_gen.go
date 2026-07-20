@@ -11895,6 +11895,9 @@ type ListUsersParams struct {
 
 	// Q Case-insensitive match over display_name/email.
 	Q *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// IncludeInactive Admin management view — include deactivated/suspended members. Honored only for an admin caller.
+	IncludeInactive *bool `form:"include_inactive,omitempty" json:"include_inactive,omitempty"`
 }
 
 // ListSavedViewsParams defines parameters for ListSavedViews.
@@ -29189,6 +29192,19 @@ func (siw *ServerInterfaceWrapper) ListUsers(w http.ResponseWriter, r *http.Requ
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "include_inactive" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_inactive", r.URL.Query(), &params.IncludeInactive, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_inactive"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_inactive", Err: err})
 		}
 		return
 	}

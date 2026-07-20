@@ -13881,6 +13881,8 @@ export interface operations {
                 limit?: components["parameters"]["Limit"];
                 /** @description Case-insensitive match over display_name/email. */
                 q?: string;
+                /** @description Admin management view — include deactivated/suspended members. Honored only for an admin caller. */
+                include_inactive?: boolean;
             };
             header?: never;
             path?: never;

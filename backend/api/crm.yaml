@@ -4699,6 +4699,10 @@ paths:
           in: query
           schema: { type: string }
           description: Case-insensitive match over display_name/email.
+        - name: include_inactive
+          in: query
+          schema: { type: boolean, default: false }
+          description: Admin management view — include deactivated/suspended members. Honored only for an admin caller.
       responses:
         '200':
           description: A page of workspace members.
