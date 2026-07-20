@@ -1324,63 +1324,103 @@ const SOURCES: Source[] = [
 const ACCEPTED_CORPUS_FILE = /\.(txt|md|vtt|srt|json)$/i;
 const ACCEPTED_CORPUS_ATTR = ".txt,.md,.vtt,.srt,.json";
 
+type VoicePiece = {
+  ref: string;
+  label: string;
+  words: number;
+  content: string;
+  register: components["schemas"]["IngestVoiceCorpusSourceRequest"]["register"];
+  kind: components["schemas"]["IngestVoiceCorpusSourceRequest"]["kind"];
+};
+
+// The corpus meter is honest: it counts only the real words the owner uploaded
+// or pasted here (the build ingests exactly these). Presets below are examples
+// of what will feed the voice once connected — never fabricated word counts.
+// 800 mirrors the server's build floor ("at least 800 eligible own-authored
+// words"): gating the button here turns that 422 into a clear, up-front ask.
+const VOICE_MIN_WORDS = 800;
+const PASTE_REF = "onboarding:paste";
+
 function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
   const t = useT();
   const [optedIn, setOptedIn] = useState(false);
-  const [added, setAdded] = useState<Set<string>>(new Set());
-  const [uploads, setUploads] = useState<{ name: string; words: number }[]>([]);
+  const [pieces, setPieces] = useState<VoicePiece[]>([]);
+  const [paste, setPaste] = useState("");
   const [skipped, setSkipped] = useState<string[]>([]);
   const [built, setBuilt] = useState(false);
   const [building, setBuilding] = useState(false);
+  const [deferred, setDeferred] = useState(false);
+  const [buildError, setBuildError] = useState<string | null>(null);
+  const [derived, setDerived] = useState<
+    components["schemas"]["VoiceProfile"] | null
+  >(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const uploadedWords = uploads.reduce((sum, u) => sum + u.words, 0);
+  // A build in flight must not write state after the step unmounts — the parent
+  // would otherwise flip voiceBuilt for a user who navigated away and make
+  // step 4 claim a voice. One ref gates every post-await setState.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const pasteWords = paste.trim() ? paste.trim().split(/\s+/).length : 0;
   const corpus = useMemo(() => {
     let spoken = 0;
     let written = 0;
-    for (const s of SOURCES) {
-      if (added.has(s.id)) {
-        if (s.reg === "spoken") {
-          spoken += s.words;
-        } else {
-          written += s.words;
-        }
-      }
-    }
-    spoken += uploadedWords;
-    const total = spoken + written;
-    return { total, spoken, written, sources: added.size + uploads.length };
-  }, [added, uploadedWords, uploads.length]);
-
-  const toggle = (s: Source) => {
-    if (s.locked) {
-      return;
-    }
-    setAdded((prev) => {
-      const next = new Set(prev);
-      if (next.has(s.id)) {
-        next.delete(s.id);
+    for (const p of pieces) {
+      if (p.register === "spoken") {
+        spoken += p.words;
       } else {
-        next.add(s.id);
+        written += p.words;
       }
-      return next;
-    });
-  };
+    }
+    written += pasteWords;
+    const total = spoken + written;
+    return {
+      total,
+      spoken,
+      written,
+      sources: pieces.length + (pasteWords > 0 ? 1 : 0),
+    };
+  }, [pieces, pasteWords]);
 
   const onFiles = (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     const rejected: string[] = [];
     for (const file of files) {
-      // V1 corpus is text only (features/09 §B1.1): the meter counts the
-      // real words of what was read — never an estimate. Binary documents
-      // (.docx/.pdf) are refused; deferred: B-E07.5c (server-side extraction).
+      // V1 corpus is text only (features/09 §B1.1): the meter counts the real
+      // words of what was read — never an estimate — and the text is KEPT so
+      // the real build can ingest it. Binary documents (.docx/.pdf) are
+      // refused; deferred: B-E07.5c (server-side extraction).
       if (!ACCEPTED_CORPUS_FILE.test(file.name)) {
         rejected.push(file.name);
         continue;
       }
       file.text().then((text) => {
+        if (!mounted.current) {
+          return;
+        }
         const words = text.split(/\s+/).filter(Boolean).length;
-        setUploads((prev) => [...prev, { name: file.name, words }]);
+        if (words === 0) {
+          return;
+        }
+        const spoken = /\.(vtt|srt)$/i.test(file.name);
+        const ref = `onboarding:upload:${file.name}`;
+        setPieces((prev) => [
+          ...prev.filter((p) => p.ref !== ref),
+          {
+            ref,
+            label: file.name,
+            words,
+            content: text,
+            register: spoken ? "spoken" : "general",
+            kind: spoken ? "transcript" : "document",
+          },
+        ]);
       });
     }
     setSkipped(rejected);
@@ -1388,31 +1428,149 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
   };
 
   const quality = corpusQuality(corpus.total);
+  const canBuild = corpus.total >= VOICE_MIN_WORDS && !building;
 
-  // The modelling beat must die with the step: a timer surviving unmount
-  // would flip the parent's voiceBuilt after the user navigated away and
-  // make step 4 claim a voice that was never built.
-  const buildTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(
-    () => () => {
-      if (buildTimer.current !== null) {
-        globalThis.clearTimeout(buildTimer.current);
+  async function ingest(profileId: string, piece: VoicePiece) {
+    const { error } = await api.POST("/voice-profiles/{id}/sources", {
+      params: { path: { id: profileId } },
+      body: {
+        kind: piece.kind,
+        register: piece.register,
+        weight: 1,
+        source_label: piece.label,
+        source_ref: piece.ref,
+        format: "text",
+        content: piece.content,
+      },
+    });
+    if (error) {
+      throw new Error(problemMessage(error));
+    }
+  }
+
+  // The build runs on the background worker; poll its durable row until a
+  // terminal state. `deferred` = the monthly AI budget snoozed it — an honest
+  // "still coming", not a failure; the worker keeps the durable build.
+  async function pollBuild(
+    profileId: string,
+    buildId: string,
+  ): Promise<{ status: string; detail?: string | null }> {
+    for (let attempt = 0; attempt < 40 && mounted.current; attempt++) {
+      const { data, error } = await api.GET(
+        "/voice-profiles/{id}/builds/{buildId}",
+        { params: { path: { id: profileId, buildId } } },
+      );
+      if (error) {
+        throw new Error(problemMessage(error));
       }
-    },
-    [],
-  );
+      if (
+        data.status === "succeeded" ||
+        data.status === "failed" ||
+        data.status === "deferred"
+      ) {
+        return { status: data.status, detail: data.status_detail };
+      }
+      await new Promise((resolve) => {
+        globalThis.setTimeout(resolve, 1200);
+      });
+    }
+    return { status: "deferred" };
+  }
 
-  const build = () => {
+  // Reuse the owner's single profile (listVoiceProfiles caps at one) or mint it.
+  async function ensureProfileId(): Promise<string> {
+    const list = await api.GET("/voice-profiles");
+    if (list.error) {
+      throw new Error(problemMessage(list.error));
+    }
+    const existing = list.data.data[0]?.id;
+    if (existing) {
+      return existing;
+    }
+    const created = await api.POST("/voice-profiles", {
+      body: { personality_md: "" },
+    });
+    if (created.error) {
+      throw new Error(problemMessage(created.error));
+    }
+    if (!created.data.id) {
+      throw new Error(t("ob.s2.failedBody"));
+    }
+    return created.data.id;
+  }
+
+  async function ingestCorpus(profileId: string) {
+    for (const piece of pieces) {
+      await ingest(profileId, piece);
+    }
+    if (pasteWords > 0) {
+      await ingest(profileId, {
+        ref: PASTE_REF,
+        label: t("ob.s2.pasteSource"),
+        words: pasteWords,
+        content: paste,
+        register: "general",
+        kind: "other",
+      });
+    }
+  }
+
+  async function startBuild(profileId: string): Promise<string> {
+    const build = await api.POST("/voice-profiles/{id}/builds", {
+      params: { path: { id: profileId } },
+      body: { reason: "onboarding" },
+    });
+    if (build.error) {
+      throw new Error(problemMessage(build.error));
+    }
+    return build.data.id;
+  }
+
+  // A succeeded build has an active derived artifact to show; a deferred build
+  // is honestly "still coming"; a failed build surfaces its safe status detail.
+  async function applyOutcome(
+    profileId: string,
+    outcome: { status: string; detail?: string | null },
+  ) {
+    if (outcome.status === "failed") {
+      setBuildError(outcome.detail ?? t("ob.s2.failedBody"));
+      return;
+    }
+    if (outcome.status === "deferred") {
+      setDeferred(true);
+    } else {
+      const profile = await api.GET("/voice-profiles/{id}", {
+        params: { path: { id: profileId } },
+      });
+      if (!mounted.current) {
+        return;
+      }
+      setDerived(profile.data ?? null);
+    }
+    setBuilt(true);
+    onBuilt();
+  }
+
+  async function runBuild() {
     setBuilding(true);
-    // A short modelling beat, then the starter-voice card. This is a starter
-    // preview built from the corpus you selected — it sharpens for real once
-    // sent email is ingested at connect (see the footnote copy).
-    buildTimer.current = globalThis.setTimeout(() => {
-      setBuilding(false);
-      setBuilt(true);
-      onBuilt();
-    }, 1100);
-  };
+    setBuildError(null);
+    try {
+      const profileId = await ensureProfileId();
+      await ingestCorpus(profileId);
+      const outcome = await pollBuild(profileId, await startBuild(profileId));
+      if (mounted.current) {
+        await applyOutcome(profileId, outcome);
+      }
+    } catch (err) {
+      if (mounted.current) {
+        setBuildError(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      if (mounted.current) {
+        setBuilding(false);
+      }
+    }
+  }
 
   return (
     <section className="ob-panel">
@@ -1450,58 +1608,24 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
 
       <div className={`voice-body ${optedIn ? "optedin" : ""}`}>
         <div className="srcgrid">
-          {SOURCES.map((s) => {
-            const on = added.has(s.id);
-            let mark: ReactNode = null;
-            if (s.locked) {
-              mark = (
-                <span className="star">
-                  <Lock aria-hidden />
+          {SOURCES.map((s) => (
+            <div key={s.id} className="src locked">
+              <span className="star">
+                {s.star ? <Star aria-hidden /> : <Lock aria-hidden />}
+              </span>
+              <span className="si">{s.icon}</span>
+              <span className="sb">
+                <span className="st">
+                  {t(s.label)}
+                  <span className={`reg ${s.reg}`}>{t(`ob.reg.${s.reg}`)}</span>
                 </span>
-              );
-            } else if (s.star) {
-              mark = (
-                <span className="star">
-                  <Star aria-hidden />
-                </span>
-              );
-            }
-            let words: ReactNode = null;
-            if (s.locked) {
-              words = (
+                <span className="sh">{t(s.hint)}</span>
                 <span className="added-w muted">
-                  {t("ob.s2.lockedWords", { count: s.words.toLocaleString() })}
+                  {t("ob.s2.whenConnected")}
                 </span>
-              );
-            } else if (on) {
-              words = (
-                <span className="added-w">
-                  {t("ob.s2.addedWords", { count: s.words.toLocaleString() })}
-                </span>
-              );
-            }
-            return (
-              <button
-                key={s.id}
-                type="button"
-                className={`src ${on ? "added" : ""} ${s.locked ? "locked" : ""}`}
-                onClick={() => toggle(s)}
-              >
-                {mark}
-                <span className="si">{s.icon}</span>
-                <span className="sb">
-                  <span className="st">
-                    {t(s.label)}
-                    <span className={`reg ${s.reg}`}>
-                      {t(`ob.reg.${s.reg}`)}
-                    </span>
-                  </span>
-                  <span className="sh">{t(s.hint)}</span>
-                  {words}
-                </span>
-              </button>
-            );
-          })}
+              </span>
+            </div>
+          ))}
         </div>
 
         <button
@@ -1523,15 +1647,29 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
           accept={ACCEPTED_CORPUS_ATTR}
           onChange={onFiles}
         />
-        {uploads.length > 0 && (
+        {pieces.length > 0 && (
           <ul className="vp-list" style={{ marginTop: 10 }}>
-            {uploads.map((u) => (
-              <li key={`${u.name}-${u.words}`}>
-                <Check aria-hidden /> {u.name} · {u.words.toLocaleString()}
+            {pieces.map((p) => (
+              <li key={p.ref}>
+                <Check aria-hidden /> {p.label} · {p.words.toLocaleString()}
               </li>
             ))}
           </ul>
         )}
+
+        <div className="field" style={{ marginTop: "var(--space-3)" }}>
+          <label className="t-label" htmlFor="voice-paste">
+            {t("ob.s2.pasteLabel")}
+          </label>
+          <textarea
+            id="voice-paste"
+            className="textarea"
+            rows={5}
+            placeholder={t("ob.s2.pastePlaceholder")}
+            value={paste}
+            onChange={(e) => setPaste(e.target.value)}
+          />
+        </div>
         {skipped.length > 0 && (
           <output className="ob-sub" style={{ display: "block", marginTop: 8 }}>
             {t("ob.s2.dropSkipped", { files: skipped.join(", ") })}
@@ -1574,17 +1712,28 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
           <div>{t("ob.s2.emailCallout")}</div>
         </div>
 
+        {buildError && (
+          <div className="voiceout">
+            <div className="card" style={{ padding: "var(--space-4)" }}>
+              <b>{t("ob.s2.failedTitle")}</b>
+              <p style={{ marginTop: "var(--space-2)", lineHeight: 1.55 }}>
+                {buildError}
+              </p>
+            </div>
+          </div>
+        )}
+
         {!built && (
           <Button
             variant="primary"
             style={{ marginTop: 18 }}
-            disabled={corpus.total < 300 || building}
-            onClick={build}
+            disabled={!canBuild}
+            onClick={runBuild}
           >
             {building ? (
               <>
                 <span className="ob-spinner" />{" "}
-                {t("ob.s2.modelling", { count: corpus.total.toLocaleString() })}
+                {t("ob.s2.building", { count: corpus.total.toLocaleString() })}
               </>
             ) : (
               <>
@@ -1594,13 +1743,36 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
           </Button>
         )}
 
-        {built && (
+        {!built &&
+          !building &&
+          corpus.total > 0 &&
+          corpus.total < VOICE_MIN_WORDS && (
+            <p className="t-small" style={{ marginTop: "var(--space-2)" }}>
+              {t("ob.s2.minWords", { min: VOICE_MIN_WORDS.toLocaleString() })}
+            </p>
+          )}
+
+        {built && deferred && (
           <div className="voiceout">
-            <div className="card" style={{ padding: 16 }}>
+            <div className="card" style={{ padding: "var(--space-4)" }}>
+              <span className="provenance provenance-human">
+                <Sparkles aria-hidden style={{ width: 13, height: 13 }} />{" "}
+                {t("ob.s2.deferredTitle")}
+              </span>
+              <p style={{ marginTop: "var(--space-3)", lineHeight: 1.55 }}>
+                {t("ob.s2.deferredBody")}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {built && !deferred && (
+          <div className="voiceout">
+            <div className="card" style={{ padding: "var(--space-4)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span className="provenance provenance-human">
                   <User aria-hidden style={{ width: 13, height: 13 }} />{" "}
-                  {t("ob.s2.starterVoice")}
+                  {t("ob.s2.builtTitle")}
                 </span>
                 <span style={{ marginLeft: "auto" }} className="t-small">
                   {t("ob.s2.vpMeta", {
@@ -1609,34 +1781,21 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
                   })}
                 </span>
               </div>
-              <p style={{ marginTop: 10, lineHeight: 1.55 }}>
-                <b>{t("ob.s2.vpLead")}</b> {t("ob.s2.vpRest")}
-              </p>
-              <div className="seclabel" style={{ margin: "14px 0 6px" }}>
-                {t("ob.s2.movesLabel")}
-              </div>
-              <ul className="vp-list">
-                <li>
-                  <Check aria-hidden /> {t("ob.s2.move1")}
-                </li>
-                <li>
-                  <Check aria-hidden /> {t("ob.s2.move2")}
-                </li>
-                <li>
-                  <Check aria-hidden /> {t("ob.s2.move3")}
-                </li>
-                <li className="no">
-                  <Circle aria-hidden /> {t("ob.s2.moveNever")}
-                </li>
-              </ul>
-              <div className="seclabel" style={{ margin: "16px 0 6px" }}>
-                {t("ob.s2.sampleLabel")}
-              </div>
-              <div className="draftbox">
-                {t("ob.s3.draftSample", {
-                  company: t("ob.s3.exampleProspect"),
-                })}
-              </div>
+              {derived?.voice_profile_md ? (
+                <p
+                  style={{
+                    marginTop: "var(--space-3)",
+                    lineHeight: 1.55,
+                    whiteSpace: "pre-wrap",
+                  }}
+                >
+                  {derived.voice_profile_md}
+                </p>
+              ) : (
+                <p style={{ marginTop: "var(--space-3)", lineHeight: 1.55 }}>
+                  {t("ob.s2.builtEmpty")}
+                </p>
+              )}
               <p
                 className="t-small"
                 style={{ marginTop: 11, fontStyle: "italic" }}
