@@ -17,9 +17,11 @@ CREATE TABLE ai_model_rate (
   cache_write_per_mtok_microusd  bigint NOT NULL DEFAULT 0 CHECK (cache_write_per_mtok_microusd >= 0),
   effective_date date NOT NULL,           -- fx_rate semantics: latest row on-or-before the call day wins
   created_at     timestamptz NOT NULL DEFAULT now(),
+  -- The UNIQUE constraint's backing btree (workspace_id, provider, model_id,
+  -- effective_date) also serves the as-of-date lookup (filter the first three,
+  -- order by effective_date) — no separate lookup index needed.
   CONSTRAINT ai_model_rate_key UNIQUE (workspace_id, provider, model_id, effective_date)
 );
-CREATE INDEX idx_ai_model_rate_lookup ON ai_model_rate (workspace_id, provider, model_id, effective_date);
 
 -- Tenant table => RLS, same deny-on-unset policy as every other
 -- (the coverage fitness test refuses a workspace_id table without it).
