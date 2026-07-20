@@ -1,0 +1,30 @@
+/* Admin member management layout. Colour inherits from the design tokens so the
+   purity gate stays satisfied; only structure lives here. */
+.users-invite {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin-bottom: var(--space-3);
+}
+
+.users-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.users-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--borderSubtle);
+}
+
+.users-who {
+  display: flex;
+  flex-direction: column;
+  margin-right: auto;
+}
