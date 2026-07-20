@@ -207,6 +207,67 @@ export function Modal({
   );
 }
 
+// The attainment band the server computes (met ≥ 100, accent 60–99,
+// behind < 60). The ring and any echoing Badge take this verbatim — the
+// client never recomputes it from a raw percentage.
+export type AttainmentBand = "met" | "accent" | "behind";
+
+const BAND_STROKE: Record<AttainmentBand, string> = {
+  met: "var(--online)",
+  accent: "var(--accent)",
+  behind: "var(--away)",
+};
+
+// AttainmentRing (RD-PARAM-4): an SVG progress ring whose arc length reflects
+// `pct` (the server's raw, uncapped attainment percentage) capped at a full
+// circle, and whose colour is the server-computed `band` — never re-derived
+// here from `pct`. Pure and prop-driven: no fetch, so Storybook and tests
+// render it directly. The centred figure is the real rounded percentage
+// (which can read past 100%) above a caption slot.
+export function AttainmentRing({
+  pct,
+  band,
+  caption,
+}: Readonly<{
+  pct: number;
+  band: AttainmentBand;
+  caption: string;
+}>) {
+  const radius = 68;
+  const circumference = 2 * Math.PI * radius;
+  const fraction = Math.min(pct / 100, 1);
+  const offset = circumference * (1 - fraction);
+  return (
+    <div className="ring">
+      <svg width={160} height={160} viewBox="0 0 160 160" aria-hidden="true">
+        <circle
+          cx={80}
+          cy={80}
+          r={radius}
+          fill="none"
+          stroke="var(--bgCard)"
+          strokeWidth={14}
+        />
+        <circle
+          cx={80}
+          cy={80}
+          r={radius}
+          fill="none"
+          stroke={BAND_STROKE[band]}
+          strokeWidth={14}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+        />
+      </svg>
+      <div className="ring-center">
+        <span className="ring-pct t-mono">{Math.round(pct)}%</span>
+        <span className="ring-lbl">{caption}</span>
+      </div>
+    </div>
+  );
+}
+
 export function DataTable<Row>({
   columns,
   rows,

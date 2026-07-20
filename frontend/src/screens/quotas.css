@@ -1,0 +1,205 @@
+/* Quotas & attainment view. The two-column grid collapses to one column on
+ * narrow viewports; colours read tokens only. */
+
+.qgrid {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 880px) {
+  .qgrid {
+    grid-template-columns: 1fr;
+  }
+}
+.colstack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* quota selector list */
+.quota-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+.quota-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  cursor: pointer;
+  transition:
+    border-color 0.12s,
+    background 0.12s;
+}
+.quota-row:hover {
+  border-color: var(--borderStrong);
+}
+.quota-row.active {
+  border-color: var(--accent);
+  background: var(--accentLight);
+}
+.quota-row-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.quota-row-name {
+  font-weight: 600;
+  color: var(--textPrimary);
+}
+.quota-row-target {
+  color: var(--textPrimary);
+}
+.quota-row-sub {
+  display: block;
+  margin-top: 3px;
+}
+
+/* attainment card: ring beside the numbers, wrapping on narrow widths */
+.attain-card {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.attain-body {
+  flex: 1;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.attain-numbers {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.attain-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.attain-row .k {
+  font-size: 13px;
+  color: var(--textSecondary);
+}
+.attain-row .k.strong {
+  color: var(--textPrimary);
+  font-weight: 600;
+}
+.attain-row .v {
+  font-size: 18px;
+  color: var(--textPrimary);
+}
+.attain-div {
+  height: 1px;
+  background: var(--borderSubtle);
+}
+.attain-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.computed-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-family: var(--f-mono);
+  color: var(--teal);
+  background: var(--tealLight);
+  border-radius: var(--r-full);
+  padding: 3px 9px;
+}
+.pace-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--textSecondary);
+}
+.pace-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--r-full);
+  flex: none;
+}
+.explain-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--textSecondary);
+  background: var(--bgCard);
+  border-radius: var(--r-sm);
+  padding: 12px 14px;
+  line-height: 1.6;
+}
+
+/* contributing deals footer */
+.quota-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 4px 2px;
+  border-top: 2px solid var(--borderSubtle);
+  margin-top: 6px;
+}
+.quota-foot .k {
+  font-weight: 600;
+  color: var(--textPrimary);
+}
+.quota-foot .v {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--textPrimary);
+}
+
+/* right rail */
+.rail-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+.rail-div {
+  height: 1px;
+  background: var(--borderSubtle);
+  margin: 14px 0;
+}
+
+/* attainment refusal / honest error card (no ring drawn) */
+.attain-refusal {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.attain-refusal b {
+  color: var(--textPrimary);
+  font-weight: 600;
+}
+
+.quota-side {
+  border: 0;
+  padding: 0;
+}
+.quota-side-choices {
+  display: flex;
+  gap: var(--space-4);
+  margin-top: var(--space-2);
+}
+.quota-side-choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}

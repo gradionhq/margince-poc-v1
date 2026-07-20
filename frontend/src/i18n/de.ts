@@ -1554,4 +1554,69 @@ export const de = {
 
   "countdown.minutesSeconds": "{minutes}m {seconds}s",
   "countdown.expired": "Abgelaufen",
+
+  // Quotas & Zielerreichung (RD-T06): menschlich gesetzte Umsatzziele mit
+  // serverseitig berechneter Zielerreichung, im Reports-Segment „Quotas“.
+  "quotas.tab": "Quotas",
+  "quotas.sub": "Umsatzziele — menschlich gesetzt, Zielerreichung berechnet",
+  "quotas.role.owner": "Individuelle Quota",
+  "quotas.role.team": "Team-Quota",
+  "quotas.periodRange": "{start} – {end}",
+  "quotas.empty.title": "Keine Quota gesetzt",
+  "quotas.empty.body":
+    "Eine Quota ist ein Ziel, das ein Mensch setzt — Inhaber oder Team, Zeitraum, Betrag. Wir raten es nicht. Setzen Sie ein Ziel, um die Zielerreichung aus gewonnenen Deals zu verfolgen.",
+  "quotas.empty.cta": "Ziel setzen",
+  "quotas.attained": "erreicht",
+  "quotas.closedWon": "Gewonnen in diesem Zeitraum",
+  "quotas.target": "Ziel",
+  "quotas.gap": "Abstand zum Ziel",
+  "quotas.baseCurrencyNote":
+    "Beträge in der Basiswährung des Workspace ({currency}).",
+  "quotas.pace.ahead":
+    "Vor dem Plan — {pct}% erreicht bei {pace}% des Zeitraums.",
+  "quotas.pace.behind":
+    "Hinter dem Plan — {pct}% erreicht bei {pace}% des Zeitraums.",
+  "quotas.pace.met": "Ziel erreicht — {pct}% erreicht.",
+  "quotas.computed": "serverseitig berechnet",
+  "quotas.contributing.title": "Was zur Zielerreichung zählt",
+  "quotas.contributing.subtitle": "gewonnene Deals · Basiswert im Zeitraum",
+  "quotas.contributing.deal": "Deal",
+  "quotas.contributing.amount": "Gezählter Betrag",
+  "quotas.contributing.total": "Gezählte Summe",
+  "quotas.contributing.caption":
+    "Basiswährung · offene / verlorene / ausgeschlossene Deals ausgenommen",
+  "quotas.explain.formula":
+    "Zielerreichung = Σ(Basiswert gewonnener Deals) ÷ Ziel, auf den Cent",
+  "quotas.explain.closedWon": "gewonnen = {sum} ({count} Deals im Zeitraum)",
+  "quotas.explain.target": "Ziel = {target} (menschlich gesetzt)",
+  "quotas.explain.result": "Zielerreichung = {sum} ÷ {target} = {pct}%",
+  "quotas.explain.exclusions":
+    "offene / verlorene / ausgeschlossene Deals ausgenommen; nur sauberer Kern",
+  "quotas.scopeNote.title": "Was diese Quota bewusst ist",
+  "quotas.scopeNote.flag": "gekennzeichnet, nicht verborgen",
+  "quotas.scopeNote.body":
+    "Das Ziel ist menschlich gesetzt — die KI erfindet keine Quota-Zahl. Die Zielerreichung wird aus dem Basiswert gewonnener Deals berechnet und ist vollständig auditierbar. Es gibt kein KI-gesetztes Ziel, kein Forecast-zu-Quota und keine Provisions-Engine.",
+  "quotas.target.title": "Ziel des Zeitraums",
+  "quotas.target.new": "Ziel setzen",
+  "quotas.target.edit": "Ziel bearbeiten",
+  "quotas.target.save": "Ziel speichern",
+  "quotas.target.note":
+    "Das Bearbeiten schreibt einen menschlich getippten Wert und protokolliert die Änderung. Die Zielerreichung wird neu berechnet.",
+  "quotas.target.sideFixed":
+    "Die Inhaber-/Team-Seite einer Quota ist fest — zum Wechseln archivieren und neu anlegen.",
+  "quotas.side.label": "Zugewiesen an",
+  "quotas.side.owner": "Inhaber",
+  "quotas.side.team": "Team",
+  "quotas.owner": "Inhaber",
+  "quotas.team": "Team",
+  "quotas.periodStart": "Zeitraum-Beginn",
+  "quotas.periodEnd": "Zeitraum-Ende",
+  "quotas.amount": "Zielbetrag",
+  "quotas.currency": "Währung",
+  "quotas.err.targetZero": "Diese Quota hat noch kein Ziel",
+  "quotas.err.computeFailed": "Zielerreichung konnte nicht berechnet werden",
+  "quotas.err.ownerXorTeam": "Wählen Sie genau eines: Inhaber oder Team.",
+  "quotas.archive.title": "Quota archivieren",
+  "quotas.archive.confirm":
+    "Das Archivieren entfernt diese Quota aus der Liste und stoppt die Verfolgung der Zielerreichung. Archivierte Quotas können nicht bearbeitet werden.",
 } as const satisfies Record<MessageKey, string>;

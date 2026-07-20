@@ -12,6 +12,7 @@ import {
 import { formatMoney } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import { problemMessage, QueryGate } from "./common";
+import { QuotasView } from "./quotas";
 
 // Reports (B-EP09.12c, D-11): a picker over three reports — deals-by-stage
 // (unweighted next to weighted, unchanged since B-EP09.12c), forecast
@@ -32,6 +33,11 @@ type StageAgg = {
 };
 
 type ReportKey = "deals-by-stage" | "forecast" | "open-deals-per-company";
+
+// The Reports picker adds the human-set quotas surface alongside the three
+// deal reports. Quotas runs its own query lifecycle (no /reports/{report}
+// call), so the report machinery below is gated off while it is active.
+type Segment = ReportKey | "quotas";
 
 const REPORT_GROUP_BY: Record<ReportKey, string> = {
   "deals-by-stage": "stage_id",
@@ -96,10 +102,15 @@ export function ReportsScreen() {
   const t = useT();
   const { locale } = useLocale();
   const [explain, setExplain] = useState(false);
-  const [report, setReport] = useState<ReportKey>("deals-by-stage");
+  const [segment, setSegment] = useState<Segment>("deals-by-stage");
+  // The report machinery needs a valid ReportKey; while "quotas" is active the
+  // report/pipeline queries are disabled, so this fallback key is inert.
+  const report: ReportKey = segment === "quotas" ? "deals-by-stage" : segment;
+  const reportActive = segment !== "quotas";
 
   const pipelineQuery = useQuery({
     queryKey: ["pipelines"],
+    enabled: reportActive,
     queryFn: async () => {
       const { data, error } = await api.GET("/pipelines", {
         params: { query: {} },
@@ -113,6 +124,7 @@ export function ReportsScreen() {
 
   const reportQuery = useQuery({
     queryKey: ["report", report],
+    enabled: reportActive,
     queryFn: async () => {
       const { data, error } = await api.POST("/reports/{report}", {
         params: { path: { report } },
@@ -157,23 +169,50 @@ export function ReportsScreen() {
     },
   });
 
-  return (
-    <div className="wrap narrow">
-      <SectionHeader title={t("nav.reports")} sub={t("reports.sub")} />
+  // Header + segment picker are shared by both the report bodies and the
+  // quotas surface; factored so the report body below stays at one depth
+  // (quotas takes an early return rather than nesting the whole report tree).
+  const header = (
+    <>
+      <SectionHeader
+        title={t("nav.reports")}
+        sub={segment === "quotas" ? t("quotas.sub") : t("reports.sub")}
+      />
       <div className="filter-tabs">
         <SegmentedControl
           options={
-            ["deals-by-stage", "forecast", "open-deals-per-company"] as const
+            [
+              "deals-by-stage",
+              "forecast",
+              "open-deals-per-company",
+              "quotas",
+            ] as const
           }
-          value={report}
-          onChange={setReport}
+          value={segment}
+          onChange={setSegment}
           labels={{
             "deals-by-stage": t("reports.reportDeals"),
             forecast: t("reports.reportForecast"),
             "open-deals-per-company": t("reports.reportOpenByCompany"),
+            quotas: t("quotas.tab"),
           }}
         />
       </div>
+    </>
+  );
+
+  if (segment === "quotas") {
+    return (
+      <div className="wrap narrow">
+        {header}
+        <QuotasView />
+      </div>
+    );
+  }
+
+  return (
+    <div className="wrap narrow">
+      {header}
       <QueryGate query={reportQuery}>
         {(report_) => {
           let body: ReactNode;

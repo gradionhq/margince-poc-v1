@@ -1524,6 +1524,72 @@ export const en = {
 
   "countdown.minutesSeconds": "{minutes}m {seconds}s",
   "countdown.expired": "Expired",
+
+  // Quotas & attainment (RD-T06): human-set revenue targets with
+  // server-computed attainment, surfaced under the Reports "Quotas" segment.
+  "quotas.tab": "Quotas",
+  "quotas.sub": "revenue targets — human-set, attainment computed",
+  "quotas.role.owner": "Individual quota",
+  "quotas.role.team": "Team quota",
+  "quotas.periodRange": "{start} – {end}",
+  "quotas.empty.title": "No quota set",
+  "quotas.empty.body":
+    "A quota is a target a human sets — owner or team, period, amount. We don't guess one for you. Set a target to start tracking attainment from closed-won deals.",
+  "quotas.empty.cta": "Set a target",
+  "quotas.attained": "attained",
+  "quotas.closedWon": "Closed-won this period",
+  "quotas.target": "Target",
+  "quotas.gap": "Gap to target",
+  "quotas.baseCurrencyNote":
+    "Figures in the workspace base currency ({currency}).",
+  "quotas.pace.ahead":
+    "Ahead of pace — {pct}% attained vs {pace}% of period elapsed.",
+  "quotas.pace.behind":
+    "Behind pace — {pct}% attained vs {pace}% of period elapsed.",
+  "quotas.pace.met": "Target met — {pct}% attained.",
+  "quotas.computed": "computed server-side",
+  "quotas.contributing.title": "What counts toward attainment",
+  "quotas.contributing.subtitle": "closed-won deals · base value in the period",
+  "quotas.contributing.deal": "Deal",
+  "quotas.contributing.amount": "Counted amount",
+  "quotas.contributing.total": "Counted total",
+  "quotas.contributing.caption":
+    "Base currency · open / lost / omitted deals excluded",
+  "quotas.explain.formula":
+    "attainment = Σ(closed-won base value) ÷ target, to the cent",
+  "quotas.explain.closedWon":
+    "closed-won = {sum} ({count} deals in the period)",
+  "quotas.explain.target": "target = {target} (human-set)",
+  "quotas.explain.result": "attainment = {sum} ÷ {target} = {pct}%",
+  "quotas.explain.exclusions":
+    "open / lost / omitted deals are excluded; clean-core only",
+  "quotas.scopeNote.title": "What this quota deliberately is",
+  "quotas.scopeNote.flag": "flagged, not hidden",
+  "quotas.scopeNote.body":
+    "The target is human-set — the AI never invents a quota number. Attainment is computed from closed-won base value and is fully auditable. There is no AI-set goal, no forecast-to-quota auto-fill, and no comp/commission engine yet.",
+  "quotas.target.title": "Period target",
+  "quotas.target.new": "Set a target",
+  "quotas.target.edit": "Edit target",
+  "quotas.target.save": "Save target",
+  "quotas.target.note":
+    "Editing writes a human-typed value and logs the change. Attainment recomputes against it.",
+  "quotas.target.sideFixed":
+    "A quota's owner/team side is fixed — switch it by archiving and recreating.",
+  "quotas.side.label": "Assigned to",
+  "quotas.side.owner": "Owner",
+  "quotas.side.team": "Team",
+  "quotas.owner": "Owner",
+  "quotas.team": "Team",
+  "quotas.periodStart": "Period start",
+  "quotas.periodEnd": "Period end",
+  "quotas.amount": "Target amount",
+  "quotas.currency": "Currency",
+  "quotas.err.targetZero": "This quota has no target yet",
+  "quotas.err.computeFailed": "Attainment couldn't be computed",
+  "quotas.err.ownerXorTeam": "Choose exactly one of owner or team.",
+  "quotas.archive.title": "Archive quota",
+  "quotas.archive.confirm":
+    "Archiving drops this quota from the list and stops tracking its attainment. Archived quotas can't be edited.",
 } as const;
 
 export type MessageKey = keyof typeof en;
