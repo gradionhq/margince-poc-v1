@@ -23,10 +23,12 @@ import (
 // (ADR-0067); an operator who disagrees corrects it the same fx_rate-style
 // way as any other rate row, by adding a new effective-dated row.
 //
-// Idempotent (ON CONFLICT ... DO NOTHING on the table's
-// (workspace_id, provider, model_id, effective_date) uniqueness): a rerun,
-// or an existing workspace that also received 0108's backfill migration
-// for the same effective_date, never double-inserts.
+// This is the single application point for the SeedModelRates price sheet —
+// every workspace gets its rates here at provisioning, and SeedModelRates
+// stays the one place to edit a rate (no hand-mirrored migration copy to
+// keep in sync). Idempotent (ON CONFLICT ... DO NOTHING on the table's
+// (workspace_id, provider, model_id, effective_date) uniqueness): a rerun
+// never double-inserts.
 func SeedWorkspaceDefaultsTx(ctx context.Context, tx pgx.Tx, now time.Time) error {
 	wsID := storekit.MustWorkspace(ctx)
 	for _, r := range SeedModelRates(now) {
