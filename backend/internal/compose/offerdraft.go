@@ -258,7 +258,7 @@ func (d offerDrafter) draftCandidates(ctx context.Context, dealContext []dealCon
 			Role:    "user",
 			Content: fmt.Sprintf("<untrusted>%s\n%s</untrusted>", renderContextBlock(dealContext), renderCatalogBlock(catalog)),
 		}},
-		MaxTokens:      2048,
+		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		SecretStripper: ai.NewSecretStripper(),
 	}
 
