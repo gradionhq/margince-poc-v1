@@ -79,6 +79,11 @@ type CallPage struct {
 	Items      []CallSummary
 	NextCursor string
 	HasMore    bool
+	// Tasks is the workspace's COMPLETE terminal-task set (sorted), carried on
+	// every page as filter metadata so the trace dropdown offers every task,
+	// not just the ones on the current page. Independent of the page's cursor
+	// and task filter.
+	Tasks []string
 }
 
 // The payload existence check keeps list reads independent of captured
@@ -147,6 +152,7 @@ func (s *CallReadStore) ListCalls(
 	}
 
 	items := make([]CallSummary, 0, n+1)
+	tasks := []string{}
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, storekit.SQLf(
 			`SELECT %s FROM ai_call c WHERE %s ORDER BY c.occurred_at DESC, c.id DESC LIMIT %d`,
@@ -163,12 +169,24 @@ func (s *CallReadStore) ListCalls(
 			}
 			items = append(items, item)
 		}
-		return rows.Err()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		// The complete terminal-task set for the filter dropdown, computed in
+		// the SAME tx (one round-trip): array_agg over EVERY terminal row, so
+		// it is independent of this page's cursor and task filter — the
+		// dropdown stays complete no matter what is on screen. is_terminal
+		// matches this list's own universe, so no option filters to nothing.
+		return tx.QueryRow(ctx,
+			`SELECT COALESCE(array_agg(DISTINCT task ORDER BY task), '{}') FROM ai_call WHERE is_terminal`,
+		).Scan(&tasks)
 	})
 	if err != nil {
 		return CallPage{}, err
 	}
-	return finishCallPage(items, n), nil
+	page := finishCallPage(items, n)
+	page.Tasks = tasks
+	return page, nil
 }
 
 func scanCallDetail(row rowScanner) (CallDetail, ids.UUID, error) {

@@ -56,6 +56,14 @@ func seedAiCallTrace(t *testing.T, e *env) seededAiCalls {
 		1, true, "", base.Add(-2*time.Hour)); err != nil {
 		t.Fatalf("seed older call: %v", err)
 	}
+	// A task whose ONLY row is non-terminal (an in-flight first attempt) must
+	// never reach the trace filter's task set — the list is terminal-only, so
+	// the option would filter to an empty page.
+	if _, err := e.owner.Exec(context.Background(), insert, ids.NewV7(), workspaceID,
+		"draft_reply", "inflight", 10, 0, 50, "provider_unavailable", ids.NewV7(),
+		1, false, "", base.Add(-3*time.Hour)); err != nil {
+		t.Fatalf("seed non-terminal-only call: %v", err)
+	}
 	if _, err := e.owner.Exec(context.Background(), `
 		INSERT INTO ai_call_payload (workspace_id, ai_call_id, request_payload, response_payload)
 		VALUES ($1, $2, $3, $4)`, workspaceID, newest,
@@ -89,6 +97,12 @@ func TestAiCallsListPagesTerminalCallsNewestFirst(t *testing.T) {
 	}
 	if !first.PayloadCaptureEnabled {
 		t.Fatal("payload_capture_enabled = false, want true")
+	}
+	// The filter option set is complete regardless of page size (this is a
+	// limit=1 page) AND terminal-only: it carries capture_classify and enrich
+	// sorted, but NOT draft_reply, whose only row is a non-terminal attempt.
+	if len(first.Tasks) != 2 || first.Tasks[0] != "capture_classify" || first.Tasks[1] != "enrich" {
+		t.Fatalf("first page tasks = %v, want [capture_classify enrich]", first.Tasks)
 	}
 
 	for task, wantID := range map[string]ids.UUID{

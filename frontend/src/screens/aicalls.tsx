@@ -139,7 +139,10 @@ export function AiCallsCard() {
   });
   const calls = query.data?.pages.flatMap((page) => page.data) ?? [];
   const captureEnabled = query.data?.pages[0]?.payload_capture_enabled ?? false;
-  const tasks = [...new Set(calls.map((call) => call.task))].sort();
+  // The filter options are the server's complete task set (carried on every
+  // page), NOT the tasks on the loaded rows: deriving them from `calls` would
+  // collapse the dropdown to the one selected task once a filter is applied.
+  const tasks = query.data?.pages[0]?.tasks ?? [];
 
   return (
     <section className="card" style={{ marginBottom: "var(--space-4)" }}>

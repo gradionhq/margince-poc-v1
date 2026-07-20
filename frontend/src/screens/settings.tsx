@@ -93,16 +93,7 @@ function tabContent(id: SettingsTabId): ReactNode {
     case "company":
       return <CompanyContextCard />;
     case "ai":
-      return (
-        <>
-          <AiUsageCard />
-          <AiCallsCard />
-          <AutonomyCard />
-          <PassportCard />
-          <AgentToolsCard />
-          <AutomationsLinkCard />
-        </>
-      );
+      return <AiSettingsTab />;
     case "data":
       return <CustomFieldsLinkCard />;
     case "catalog":
@@ -157,6 +148,27 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
         <div className="set-content">{tabContent(active.id)}</div>
       </div>
     </div>
+  );
+}
+
+// The AI & autonomy tab. AiUsageCard (GET /ai/usage) and AiCallsCard
+// (GET /ai/calls) require the automation Update grant server-side, so they
+// are rendered only for admin/ops — a rep/manager would otherwise hit a
+// 403 error box on a tab they can otherwise use. This mirrors the
+// EconomyBanner's canConfigureAutomations guard on the same /ai/usage seam;
+// the server stays the RBAC authority regardless.
+function AiSettingsTab() {
+  const me = useMe();
+  const canSeeRuntime = canConfigureAutomations(me.data?.roles);
+  return (
+    <>
+      {canSeeRuntime && <AiUsageCard />}
+      {canSeeRuntime && <AiCallsCard />}
+      <AutonomyCard />
+      <PassportCard />
+      <AgentToolsCard />
+      <AutomationsLinkCard />
+    </>
   );
 }
 

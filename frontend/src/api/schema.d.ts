@@ -3956,7 +3956,7 @@ export interface components {
         AiCallAttempt: {
             attempt: number;
             is_terminal: boolean;
-            /** @description Why this attempt ran; empty on the first. */
+            /** @description Why this attempt ran — one of provider_error, schema_invalid, budget_degrade; empty for an ordinary first attempt, though budget_degrade can appear on attempt 1 when the budget guardrail demotes the ladder. */
             attempt_reason: string;
             error_sentinel?: string | null;
             tokens_in: number;
@@ -3993,6 +3993,8 @@ export interface components {
             page: components["schemas"]["PageInfo"];
             /** @description The deployment's ai.capture_payloads posture. */
             payload_capture_enabled: boolean;
+            /** @description Every task with at least one terminal call, sorted — the complete filter option set (matches the terminal-only list), independent of the current page. */
+            tasks: string[];
         };
         /**
          * @description One bounded personal-mail exclusion rule (RC-2; capture.md CAP-DDL-3). A matching message
