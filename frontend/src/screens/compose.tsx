@@ -1,13 +1,20 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
 import { api } from "../api/client";
+import { Button, TextInput } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import {
   RecordPicker,
   type RecordPickerCandidate,
 } from "../design-system/recordpicker";
 import { useT } from "../i18n";
-import { problemMessage } from "./common";
+import {
+  isConsentNotGranted,
+  ProblemError,
+  problemMessage,
+  throwProblem,
+} from "./common";
+import { useConsentPurposes } from "./consent";
 import "./compose.css";
 
 // The composer surface for the three already-routed ops (draftEmail /
@@ -125,6 +132,255 @@ export function RelinkModal({
           {t("compose.relinkReplace")}
         </label>
         <p className="t-caption">{t("compose.relinkReplaceHint")}</p>
+      </div>
+    </ConfirmModal>
+  );
+}
+
+// A freeform email-chip input: typed address + Enter/comma (or blur) adds a
+// chip, ✕ removes it. No client-side email regex beyond type=email — the
+// server is the authority (422 on a malformed address), so this never rejects
+// what the backend might accept.
+function RecipientField({
+  label,
+  values,
+  onChange,
+}: Readonly<{
+  label: string;
+  values: string[];
+  onChange: (next: string[]) => void;
+}>) {
+  const [draft, setDraft] = useState("");
+  const add = () => {
+    const value = draft.trim();
+    if (value && !values.includes(value)) onChange([...values, value]);
+    setDraft("");
+  };
+  return (
+    <div className="recipient-field">
+      <span className="t-caption">{label}</span>
+      <ul className="chips">
+        {values.map((value) => (
+          <li key={value}>
+            {value}{" "}
+            <button
+              type="button"
+              aria-label={`remove ${value}`}
+              onClick={() =>
+                onChange(values.filter((other) => other !== value))
+              }
+            >
+              ×
+            </button>
+          </li>
+        ))}
+      </ul>
+      <TextInput
+        type="email"
+        aria-label={label}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === ",") {
+            event.preventDefault();
+            add();
+          }
+        }}
+        onBlur={add}
+      />
+    </div>
+  );
+}
+
+// The 🟡 confirm-first composer (draftEmail + sendEmail). Draft with AI fills
+// the fields; the human edits and confirms; the human's own click IS the
+// approval (ADR-0055), so the human REST path sends no X-Approval-Token and no
+// Idempotency-Key — that plumbing is the agent/passport path. The 409
+// consent gate is the whole reason this surface exists: the default-deny
+// suppression (A22/ADR-0011) has never been visible to a user before.
+export function ComposeModal({
+  activityId,
+  entityType,
+  entityId,
+  personId,
+  open,
+  onClose,
+}: Readonly<{
+  activityId: string;
+  entityType: RelinkKind;
+  entityId: string;
+  personId?: string;
+  open: boolean;
+  onClose: () => void;
+}>) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const purposes = useConsentPurposes();
+  const [to, setTo] = useState<string[]>([]);
+  const [cc, setCc] = useState<string[]>([]);
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [intent, setIntent] = useState("");
+  const [purpose, setPurpose] = useState("");
+  // Two honest non-error outcomes, kept OUT of react-query's error channel so
+  // the form stays usable: the model / mailer simply isn't configured (501).
+  const [draftUnavailable, setDraftUnavailable] = useState(false);
+  const [sendUnavailable, setSendUnavailable] = useState(false);
+
+  const draft = useMutation({
+    mutationFn: async () => {
+      setDraftUnavailable(false);
+      const { data, error, response } = await api.POST(
+        "/activities/{id}/draft-email",
+        {
+          params: { path: { id: activityId } },
+          body: intent.trim() ? { intent: intent.trim() } : {},
+        },
+      );
+      if (response.status === 501) return { available: false as const };
+      if (error) throw new Error(problemMessage(error));
+      return { available: true as const, draft: data };
+    },
+    onSuccess: (result) => {
+      if (!result.available) {
+        setDraftUnavailable(true);
+        return;
+      }
+      const drafted = result.draft;
+      // Never clobber a field the user already edited.
+      if (!subject) setSubject(drafted.subject);
+      if (!body) setBody(drafted.body);
+      if (to.length === 0 && drafted.to?.length) setTo(drafted.to);
+    },
+  });
+
+  const send = useMutation({
+    mutationFn: async () => {
+      setSendUnavailable(false);
+      const { data, error, response } = await api.POST(
+        "/activities/{id}/send-email",
+        {
+          params: { path: { id: activityId } },
+          // No X-Approval-Token, no Idempotency-Key: the human's own click IS
+          // the approval on the REST path (ADR-0055).
+          body: {
+            subject,
+            body,
+            to,
+            cc: cc.length ? cc : undefined,
+            consent_purpose: purpose,
+          },
+        },
+      );
+      if (response.status === 501) return { sent: false as const };
+      if (error) throwProblem(error);
+      return { sent: true as const, activity: data };
+    },
+    onSuccess: (result) => {
+      if (!result.sent) {
+        setSendUnavailable(true);
+        return;
+      }
+      queryClient.invalidateQueries({
+        queryKey: ["activities", entityType, entityId],
+      });
+      onClose();
+    },
+  });
+
+  // The consent gate is a distinct product state, not a generic failure: keep
+  // it out of the modal's inline error so the form stays open with pointed
+  // default-deny copy instead of a raw server detail.
+  const blockedByConsent =
+    send.error instanceof ProblemError &&
+    isConsentNotGranted(send.error.problem);
+  const sendError =
+    send.isError && !blockedByConsent ? send.error.message : null;
+  const canSend =
+    to.length > 0 &&
+    subject.trim() !== "" &&
+    body.trim() !== "" &&
+    purpose !== "";
+
+  return (
+    <ConfirmModal
+      open={open}
+      onClose={onClose}
+      title={t("compose.sendConfirmTitle")}
+      tier="confirm"
+      confirmLabel={t("compose.send")}
+      confirmDisabled={!canSend}
+      onConfirm={() => send.mutate()}
+      pending={send.isPending}
+      error={sendError}
+    >
+      <div className="compose-fields">
+        <div className="compose-draftbar">
+          <TextInput
+            placeholder={t("compose.intent")}
+            value={intent}
+            onChange={(event) => setIntent(event.target.value)}
+          />
+          <Button
+            small
+            onClick={() => draft.mutate()}
+            disabled={draft.isPending}
+          >
+            {draft.isPending ? t("compose.drafting") : t("compose.draftWithAi")}
+          </Button>
+        </div>
+        {draftUnavailable && (
+          <p className="t-caption">{t("compose.draftUnavailable")}</p>
+        )}
+
+        <RecipientField label={t("compose.to")} values={to} onChange={setTo} />
+        <RecipientField label={t("compose.cc")} values={cc} onChange={setCc} />
+        <TextInput
+          placeholder={t("compose.subject")}
+          value={subject}
+          onChange={(event) => setSubject(event.target.value)}
+        />
+        <textarea
+          className="compose-body"
+          placeholder={t("compose.body")}
+          value={body}
+          onChange={(event) => setBody(event.target.value)}
+        />
+
+        <label className="t-body compose-check">
+          {t("compose.purpose")}
+          <select
+            value={purpose}
+            onChange={(event) => setPurpose(event.target.value)}
+          >
+            <option value="">—</option>
+            {purposes.data?.data.map((option) => (
+              <option key={option.id} value={option.key}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="t-caption">{t("compose.purposeHint")}</p>
+
+        {to.length === 0 && (
+          <p className="t-caption">{t("compose.emptyRecipients")}</p>
+        )}
+        {sendUnavailable && (
+          <p className="t-caption">{t("compose.sendUnavailable")}</p>
+        )}
+        {blockedByConsent && (
+          <div className="compose-consent-block" role="alert">
+            <p className="t-body" style={{ color: "var(--danger)" }}>
+              {t("compose.consentBlocked")}
+            </p>
+            {personId && (
+              <a href={`#/contacts/${personId}`} className="link-button">
+                {t("compose.consentGoto")}
+              </a>
+            )}
+          </div>
+        )}
       </div>
     </ConfirmModal>
   );

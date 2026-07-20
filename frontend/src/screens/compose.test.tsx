@@ -11,7 +11,7 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
-import { RelinkModal } from "./compose";
+import { ComposeModal, RelinkModal } from "./compose";
 
 type Activity = components["schemas"]["Activity"];
 
@@ -19,6 +19,19 @@ function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "Content-Type": "application/json" },
+  });
+}
+
+// A 501 answer carries no JSON body (the mailer/model is simply not wired), so
+// the composer must branch on the raw status, not on a parsed problem.
+function emptyResponse(status: number) {
+  return new Response(null, { status });
+}
+
+function problemResponse(body: unknown, status: number) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/problem+json" },
   });
 }
 
@@ -203,5 +216,179 @@ describe("RelinkModal", () => {
       await screen.findByRole("button", { name: "Jane Doe" }),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Some email" })).toBeNull();
+  });
+});
+
+// Fills the four Send preconditions (To, subject, body, purpose) so a test can
+// then exercise the send outcome under study.
+async function fillSendableForm() {
+  await userEvent.type(screen.getByLabelText("To"), "a@x.com");
+  await userEvent.tab();
+  await userEvent.type(screen.getByPlaceholderText("Subject"), "Hi there");
+  await userEvent.type(screen.getByPlaceholderText("Body"), "Body content");
+  // The purpose <option> value is the ConsentPurpose.key the wire sends.
+  await userEvent.selectOptions(screen.getByRole("combobox"), "transactional");
+}
+
+describe("ComposeModal", () => {
+  it("fills To/Subject/Body from the AI draft", async () => {
+    stubRoutes({
+      "POST /activities/act-1/draft-email": () =>
+        jsonResponse({
+          subject: "Re: Q3 numbers",
+          body: "Thanks for the note.",
+          to: ["buyer@acme.test"],
+        }),
+    });
+    render(
+      <ComposeModal
+        activityId="act-1"
+        entityType="person"
+        entityId="p-1"
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+
+    // getByDisplayValue reads the field's current value without a DOM cast.
+    expect(await screen.findByDisplayValue("Re: Q3 numbers")).toBeTruthy();
+    expect(screen.getByDisplayValue("Thanks for the note.")).toBeTruthy();
+    // EmailDraft.to prefills the recipient chips.
+    expect(screen.getByText("buyer@acme.test")).toBeTruthy();
+  });
+
+  it("shows an unavailable note on a 501 draft, keeping the form usable", async () => {
+    stubRoutes({
+      "POST /activities/act-1/draft-email": () => emptyResponse(501),
+    });
+    render(
+      <ComposeModal
+        activityId="act-1"
+        entityType="person"
+        entityId="p-1"
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+
+    expect(await screen.findByText(/AI drafting is unavailable/i)).toBeTruthy();
+    // Manual composing still works — Send is present.
+    expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
+  });
+
+  it("keeps Send disabled until To, subject, body, and purpose are set", async () => {
+    stubRoutes();
+    render(
+      <ComposeModal
+        activityId="act-1"
+        entityType="person"
+        entityId="p-1"
+        open
+        onClose={vi.fn()}
+      />,
+    );
+    await screen.findByRole("combobox");
+
+    expect(
+      screen.getByRole("button", { name: "Send" }).hasAttribute("disabled"),
+    ).toBe(true);
+    await fillSendableForm();
+    expect(
+      screen.getByRole("button", { name: "Send" }).hasAttribute("disabled"),
+    ).toBe(false);
+  });
+
+  it("sends the edited email with no approval token or idempotency key", async () => {
+    const onClose = vi.fn();
+    const sent = stubRoutes({
+      "POST /activities/act-1/send-email": () => jsonResponse(activity202, 202),
+    });
+    render(
+      <ComposeModal
+        activityId="act-1"
+        entityType="person"
+        entityId="p-1"
+        open
+        onClose={onClose}
+      />,
+    );
+    await screen.findByRole("combobox");
+    await fillSendableForm();
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    const req = sent.find((r) => r.key === "POST /activities/act-1/send-email");
+    expect(req?.body).toEqual({
+      subject: "Hi there",
+      body: "Body content",
+      to: ["a@x.com"],
+      consent_purpose: "transactional",
+    });
+    // ADR-0055: the human click is the approval — neither header rides along.
+    expect(req?.headers.get("X-Approval-Token")).toBeNull();
+    expect(req?.headers.get("Idempotency-Key")).toBeNull();
+  });
+
+  it("surfaces the default-deny consent gate on 409 without closing", async () => {
+    const onClose = vi.fn();
+    stubRoutes({
+      "POST /activities/act-1/send-email": () =>
+        problemResponse(
+          {
+            code: "consent_not_granted",
+            detail: "suppressed",
+            title: "Conflict",
+          },
+          409,
+        ),
+    });
+    render(
+      <ComposeModal
+        activityId="act-1"
+        entityType="person"
+        entityId="p-1"
+        personId="p-1"
+        open
+        onClose={onClose}
+      />,
+    );
+    await screen.findByRole("combobox");
+    await fillSendableForm();
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByText(/has not granted consent/i)).toBeTruthy();
+    // The gate points at the consent surface, and the modal stays open.
+    expect(screen.getByRole("link", { name: "Review consent" })).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("shows a sending-unavailable note on a 501 send, not an error", async () => {
+    const onClose = vi.fn();
+    stubRoutes({
+      "POST /activities/act-1/send-email": () => emptyResponse(501),
+    });
+    render(
+      <ComposeModal
+        activityId="act-1"
+        entityType="person"
+        entityId="p-1"
+        open
+        onClose={onClose}
+      />,
+    );
+    await screen.findByRole("combobox");
+    await fillSendableForm();
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByText(/Sending is unavailable/i)).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
   });
 });
