@@ -1,6 +1,6 @@
 import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 import { Calculator, Server } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import {
@@ -153,9 +153,10 @@ export function AttainmentNumbers({
 // verbatim: the counted total is closed_won_minor (never the client sum of
 // contributing_deals, though the contract guarantees they're equal).
 function ExplainBox({
+  id,
   attainment,
   locale,
-}: Readonly<{ attainment: QuotaAttainment; locale: Locale }>) {
+}: Readonly<{ id: string; attainment: QuotaAttainment; locale: Locale }>) {
   const t = useT();
   const currency = attainment.currency;
   const sum = formatMoney(attainment.closed_won_minor, currency, locale);
@@ -163,7 +164,7 @@ function ExplainBox({
   const pct = Math.round(attainment.attainment_pct);
   const count = attainment.contributing_deals.length;
   return (
-    <div className="explain-box">
+    <div className="explain-box" id={id}>
       <span>{t("quotas.explain.formula")}</span>
       <span>{t("quotas.explain.closedWon", { sum, count })}</span>
       <span>{t("quotas.explain.target", { target })}</span>
@@ -179,6 +180,7 @@ function AttainmentCard({
 }: Readonly<{ attainment: QuotaAttainment; locale: Locale }>) {
   const t = useT();
   const [showExplain, setShowExplain] = useState(false);
+  const explainId = useId();
   return (
     <Card className="attain-card">
       <AttainmentRing
@@ -190,7 +192,12 @@ function AttainmentCard({
         <AttainmentNumbers attainment={attainment} locale={locale} />
         <PaceLine attainment={attainment} />
         <div className="attain-meta">
-          <Button small onClick={() => setShowExplain((value) => !value)}>
+          <Button
+            small
+            aria-expanded={showExplain}
+            aria-controls={explainId}
+            onClick={() => setShowExplain((value) => !value)}
+          >
             <Calculator aria-hidden style={{ width: 13, height: 13 }} />
             {t("explain.open")}
           </Button>
@@ -199,7 +206,9 @@ function AttainmentCard({
             {t("quotas.computed")}
           </span>
         </div>
-        {showExplain && <ExplainBox attainment={attainment} locale={locale} />}
+        {showExplain && (
+          <ExplainBox id={explainId} attainment={attainment} locale={locale} />
+        )}
         <p className="t-caption">
           {t("quotas.baseCurrencyNote", { currency: attainment.currency })}
         </p>

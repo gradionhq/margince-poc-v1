@@ -357,9 +357,11 @@ describe("QuotasView", () => {
     });
     mount(<QuotasView />);
     await userEvent.click(await screen.findByTestId("quota-create"));
-    fireEvent.change(await screen.findByRole("combobox"), {
-      target: { value: "u1" },
-    });
+    const subjectSelect = await screen.findByRole("combobox");
+    // Wait for the roster-fetched option to render — setting .value before the
+    // matching <option> exists silently no-ops (leaving canSubmit false).
+    await screen.findByRole("option", { name: "Riya Patel" });
+    fireEvent.change(subjectSelect, { target: { value: "u1" } });
     const dateInputs = document.querySelectorAll('input[type="date"]');
     fireEvent.change(dateInputs[0], { target: { value: "2026-07-01" } });
     fireEvent.change(dateInputs[1], { target: { value: "2026-09-30" } });

@@ -250,6 +250,7 @@ function SetTargetModal({
             inputMode="numeric"
             value={amount}
             required
+            placeholder={t("quotas.amountHint")}
             onChange={(event) => setAmount(event.target.value)}
           />
         </div>
@@ -325,6 +326,7 @@ export function EditTargetAction({
   label,
   quota,
 }: Readonly<{ label: string; quota: Quota }>) {
+  const t = useT();
   return (
     <EditAction<Quota>
       label={label}
@@ -346,6 +348,7 @@ export function EditTargetAction({
           label: "quotas.amount",
           type: "text",
           required: true,
+          placeholder: t("quotas.amountHint"),
           // The record carries integer minor units; the field edits whole
           // euros, so echo minor→euro on prefill and parse euro→minor on save.
           toInput: (raw) =>

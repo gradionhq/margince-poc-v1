@@ -1582,6 +1582,7 @@ export const en = {
   "quotas.team": "Team",
   "quotas.pickOwner": "Select an owner…",
   "quotas.pickTeam": "Select a team…",
+  "quotas.amountHint": "Whole euros — no decimals",
   "quotas.periodStart": "Period start",
   "quotas.periodEnd": "Period end",
   "quotas.amount": "Target amount",
