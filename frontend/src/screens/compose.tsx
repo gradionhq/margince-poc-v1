@@ -419,8 +419,8 @@ export function ComposeModal({
 
 // The per-row action cluster the 360 timelines mount in each entry's action
 // slot. Reply opens the composer (email rows only — you don't reply to a
-// note); Relink opens the relink dialog for any row that already carries a
-// typed link (a freshly hand-logged note with no links has nothing to move).
+// note); Relink opens the relink dialog on every row (any timeline activity is
+// already linked to this entity, so it can be re-associated to the right one).
 // It owns the two open states so the timeline mapper stays presentational.
 export function TimelineActions({
   activity,
@@ -436,9 +436,12 @@ export function TimelineActions({
   const t = useT();
   const [reply, setReply] = useState(false);
   const [relink, setRelink] = useState(false);
+  // Reply only makes sense on an email. Relink is always available: an activity
+  // shown on a 360 timeline is, by construction, already linked to the entity
+  // whose timeline renders it, so re-associating it to the right record is
+  // always meaningful — and the Activity list payload does not carry `links` to
+  // gate on regardless.
   const canReply = activity.kind === "email";
-  const canRelink = (activity.links?.length ?? 0) >= 1;
-  if (!canReply && !canRelink) return null;
   return (
     <>
       {canReply && (
@@ -446,11 +449,9 @@ export function TimelineActions({
           {t("compose.reply")}
         </Button>
       )}
-      {canRelink && (
-        <Button small onClick={() => setRelink(true)}>
-          {t("compose.relink")}
-        </Button>
-      )}
+      <Button small onClick={() => setRelink(true)}>
+        {t("compose.relink")}
+      </Button>
       {reply && (
         <ComposeModal
           activityId={activity.id}
