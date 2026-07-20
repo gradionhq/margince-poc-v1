@@ -90,6 +90,20 @@ func TestAiCallsListPagesTerminalCallsNewestFirst(t *testing.T) {
 	if !first.PayloadCaptureEnabled {
 		t.Fatal("payload_capture_enabled = false, want true")
 	}
+
+	for task, wantID := range map[string]ids.UUID{
+		"capture_classify": seeded.newest,
+		"enrich":           seeded.older,
+	} {
+		var filtered crmcontracts.AiCallListResponse
+		path := "/v1/ai/calls?task=" + url.QueryEscape(task)
+		if status := e.call(t, http.MethodGet, path, nil, nil, &filtered); status != http.StatusOK {
+			t.Fatalf("task %s status = %d", task, status)
+		}
+		if len(filtered.Data) != 1 || ids.UUID(filtered.Data[0].Id) != wantID {
+			t.Fatalf("task %s data = %+v", task, filtered.Data)
+		}
+	}
 }
 
 func TestAiCallDetailCarriesLadderAndPayload(t *testing.T) {

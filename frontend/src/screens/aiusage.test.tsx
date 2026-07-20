@@ -102,3 +102,8 @@ it("distinguishes an empty window and exposes a denied problem detail", async ()
     expect(screen.getByText("automation-config grant required")).toBeTruthy(),
   );
 });
+
+it("surfaces an unknown budget band", async () => {
+  mount({ budget: { ...budget, band: "future-band" }, days: [] });
+  expect(await screen.findByText("unknown budget state")).toBeTruthy();
+});

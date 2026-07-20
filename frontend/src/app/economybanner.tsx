@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { Badge, Button } from "../design-system/atoms";
 import { useT } from "../i18n";
@@ -14,7 +14,11 @@ export function EconomyBanner() {
   const t = useT();
   const me = useMe();
   const enabled = canConfigureAutomations(me.data?.roles);
-  const [dismissedBand, setDismissedBand] = useState<string | null>(null);
+  const previousBand = useRef<string | undefined>(undefined);
+  const [occurrence, setOccurrence] = useState(0);
+  const [dismissedOccurrence, setDismissedOccurrence] = useState<string | null>(
+    null,
+  );
   const query = useQuery({
     queryKey: ["ai-usage-band"],
     enabled,
@@ -30,13 +34,20 @@ export function EconomyBanner() {
     },
   });
   const band = query.data?.budget?.band;
+  useEffect(() => {
+    if (band !== previousBand.current) {
+      previousBand.current = band;
+      setOccurrence((value) => value + 1);
+    }
+  }, [band]);
+  const occurrenceKey = band ? `${band}:${occurrence}` : null;
   // The banner is advisory; errors stay on the accountable Settings card.
   if (
     !enabled ||
     query.isError ||
     !band ||
     band === "normal" ||
-    dismissedBand === band
+    dismissedOccurrence === occurrenceKey
   ) {
     return null;
   }
@@ -52,13 +63,17 @@ export function EconomyBanner() {
       }}
     >
       <Badge tone={bandTone(band)}>
-        {band === "queued" ? t("aibanner.queued") : t("aibanner.degraded")}
+        {band === "queued"
+          ? t("aibanner.queued")
+          : band === "degraded"
+            ? t("aibanner.degraded")
+            : t("aibanner.unknown")}
       </Badge>
       <a href="#/settings/ai">{t("aibanner.link")}</a>
       <Button
         small
         aria-label={t("aibanner.dismiss")}
-        onClick={() => setDismissedBand(band)}
+        onClick={() => setDismissedOccurrence(occurrenceKey)}
       >
         ×
       </Button>

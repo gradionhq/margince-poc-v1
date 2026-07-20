@@ -102,6 +102,18 @@ func scanCallSummary(row rowScanner) (CallSummary, error) {
 	return summary, err
 }
 
+func finishCallPage(items []CallSummary, limit int) CallPage {
+	page := CallPage{Items: items}
+	if len(page.Items) <= limit {
+		return page
+	}
+	page.Items = page.Items[:limit]
+	last := page.Items[len(page.Items)-1]
+	page.NextCursor = storekit.EncodeCursor(last.OccurredAt, last.ID)
+	page.HasMore = true
+	return page
+}
+
 // ListCalls returns terminal attempts newest-first. Retry siblings remain
 // available through the detail ladder, not as duplicate list entries.
 func (s *CallReadStore) ListCalls(
@@ -134,7 +146,7 @@ func (s *CallReadStore) ListCalls(
 		)
 	}
 
-	var page CallPage
+	items := make([]CallSummary, 0, n+1)
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, storekit.SQLf(
 			`SELECT %s FROM ai_call c WHERE %s ORDER BY c.occurred_at DESC, c.id DESC LIMIT %d`,
@@ -149,20 +161,35 @@ func (s *CallReadStore) ListCalls(
 			if err != nil {
 				return err
 			}
-			page.Items = append(page.Items, item)
+			items = append(items, item)
 		}
 		return rows.Err()
 	})
 	if err != nil {
 		return CallPage{}, err
 	}
-	if len(page.Items) > n {
-		page.Items = page.Items[:n]
-		last := page.Items[len(page.Items)-1]
-		page.NextCursor = storekit.EncodeCursor(last.OccurredAt, last.ID)
-		page.HasMore = true
+	return finishCallPage(items, n), nil
+}
+
+func scanCallDetail(row rowScanner) (CallDetail, ids.UUID, error) {
+	var detail CallDetail
+	var logicalID ids.UUID
+	var requestPayload, responsePayload []byte
+	err := row.Scan(&detail.ID, &detail.OccurredAt, &detail.Task, &detail.Tier,
+		&detail.Provider, &detail.ModelID, &detail.ServedModel, &detail.Attempt,
+		&detail.TokensIn, &detail.TokensOut, &detail.ReasoningTokens,
+		&detail.CachedTokens, &detail.LatencyMS, &detail.CacheHit, &detail.Degraded,
+		&detail.ErrorSentinel, &detail.HasPayload, &detail.CorrelationID,
+		&detail.AgentRunID, &detail.ServedIdentitySource, &detail.ConfigHash,
+		&detail.ContextScopes, &detail.ContextFingerprint, &logicalID,
+		&requestPayload, &responsePayload)
+	if err != nil {
+		return CallDetail{}, ids.UUID{}, err
 	}
-	return page, nil
+	if requestPayload != nil && responsePayload != nil {
+		detail.Payload = &Payload{Request: requestPayload, Response: responsePayload}
+	}
+	return detail, logicalID, nil
 }
 
 // GetCall returns a terminal call and its complete attempt ladder. RLS
@@ -182,25 +209,14 @@ func (s *CallReadStore) GetCall(ctx context.Context, id ids.UUID) (CallDetail, e
 			 WHERE c.is_terminal AND c.id = $1`, callSummaryColumns,
 		), id)
 		var logicalID ids.UUID
-		var requestPayload, responsePayload []byte
-		err := row.Scan(&detail.ID, &detail.OccurredAt, &detail.Task, &detail.Tier,
-			&detail.Provider, &detail.ModelID, &detail.ServedModel, &detail.Attempt,
-			&detail.TokensIn, &detail.TokensOut, &detail.ReasoningTokens,
-			&detail.CachedTokens, &detail.LatencyMS, &detail.CacheHit, &detail.Degraded,
-			&detail.ErrorSentinel, &detail.HasPayload, &detail.CorrelationID,
-			&detail.AgentRunID, &detail.ServedIdentitySource, &detail.ConfigHash,
-			&detail.ContextScopes, &detail.ContextFingerprint, &logicalID,
-			&requestPayload, &responsePayload)
+		var err error
+		detail, logicalID, err = scanCallDetail(row)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
 		}
 		if err != nil {
 			return err
 		}
-		if requestPayload != nil && responsePayload != nil {
-			detail.Payload = &Payload{Request: requestPayload, Response: responsePayload}
-		}
-
 		rows, err := tx.Query(ctx, `
 			SELECT attempt, is_terminal, attempt_reason, error_sentinel,
 				tokens_in, tokens_out, latency_ms, occurred_at

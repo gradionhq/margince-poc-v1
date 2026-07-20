@@ -1427,6 +1427,7 @@ export const en = {
   "aiusage.band.normal": "normal",
   "aiusage.band.degraded": "economy mode",
   "aiusage.band.queued": "budget reached — background AI queued",
+  "aiusage.band.unknown": "unknown budget state",
   "aiusage.col.task": "Task",
   "aiusage.col.tier": "Tier",
   "aiusage.col.calls": "Calls",
@@ -1443,6 +1444,7 @@ export const en = {
 
   "aibanner.degraded": "AI running in economy mode.",
   "aibanner.queued": "AI budget reached — background AI is queued.",
+  "aibanner.unknown": "AI budget status is not recognized.",
   "aibanner.link": "View usage",
   "aibanner.dismiss": "Dismiss",
 
@@ -1481,6 +1483,8 @@ export const en = {
   "aiexport.copy": "Copy YAML",
   "aiexport.copied": "Copied",
   "aiexport.download": "Download .yaml",
+  "aiexport.copyFailed": "Copy failed — use the preview or download instead.",
+  "aiexport.close": "Close",
 
   "countdown.minutesSeconds": "{minutes}m {seconds}s",
   "countdown.expired": "Expired",

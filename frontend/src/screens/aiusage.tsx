@@ -17,9 +17,9 @@ type UsageTask = AiUsage["days"][number]["tasks"][number];
 type Month = { from: string; to: string };
 
 export function bandTone(band: string): "warn" | "danger" | undefined {
+  if (band === "normal") return undefined;
   if (band === "degraded") return "warn";
-  if (band === "queued") return "danger";
-  return undefined;
+  return "danger";
 }
 
 function bandLabel(
@@ -28,7 +28,8 @@ function bandLabel(
 ) {
   if (band === "degraded") return t("aiusage.band.degraded");
   if (band === "queued") return t("aiusage.band.queued");
-  return t("aiusage.band.normal");
+  if (band === "normal") return t("aiusage.band.normal");
+  return t("aiusage.band.unknown");
 }
 
 function adjacentMonth(month: Month | null, offset: number): Month {

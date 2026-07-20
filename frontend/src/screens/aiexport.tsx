@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { components } from "../api/schema";
 import { Badge, Button, TextInput } from "../design-system/atoms";
 import { useT } from "../i18n";
@@ -76,14 +76,30 @@ export function ExportScenarioDialog({
 }: Readonly<{ call: AiCallDetail; onClose: () => void }>) {
   const t = useT();
   const defaultName = `${call.task}_run_${call.occurred_at.slice(0, 10).replaceAll("-", "")}`;
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const [name, setName] = useState(defaultName);
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+  const [acknowledged, setAcknowledged] = useState(false);
   const yaml = scenarioYaml(call, name);
 
+  useEffect(() => {
+    dialogRef.current?.showModal();
+  }, []);
+
   async function copyYaml() {
-    if (!navigator.clipboard) return;
-    await navigator.clipboard.writeText(yaml);
-    setCopied(true);
+    if (!navigator.clipboard) {
+      setCopyFailed(true);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(yaml);
+      setCopied(true);
+      setCopyFailed(false);
+    } catch {
+      setCopied(false);
+      setCopyFailed(true);
+    }
   }
 
   function downloadYaml() {
@@ -98,7 +114,7 @@ export function ExportScenarioDialog({
   }
 
   return (
-    <dialog open aria-label={t("aiexport.title")}>
+    <dialog ref={dialogRef} aria-label={t("aiexport.title")} onClose={onClose}>
       <h2>{t("aiexport.title")}</h2>
       <label htmlFor="cert-scenario-name">
         {t("aiexport.nameLabel")}
@@ -109,7 +125,14 @@ export function ExportScenarioDialog({
         />
       </label>
       <p>
-        <Badge tone="warn">{t("aiexport.checklist")}</Badge>
+        <label>
+          <input
+            type="checkbox"
+            checked={acknowledged}
+            onChange={(event) => setAcknowledged(event.target.checked)}
+          />
+          <Badge tone="warn">{t("aiexport.checklist")}</Badge>
+        </label>
       </p>
       <pre className="t-mono" style={{ maxHeight: 320, overflow: "auto" }}>
         {yaml}
@@ -118,12 +141,17 @@ export function ExportScenarioDialog({
         {JSON.stringify(call.payload?.response, null, 2)}
       </pre>
       <div style={{ display: "flex", gap: "var(--space-2)" }}>
-        <Button onClick={() => void copyYaml()}>
+        <Button disabled={!acknowledged} onClick={() => void copyYaml()}>
           {copied ? t("aiexport.copied") : t("aiexport.copy")}
         </Button>
-        <Button onClick={downloadYaml}>{t("aiexport.download")}</Button>
-        <Button onClick={onClose}>×</Button>
+        <Button disabled={!acknowledged} onClick={downloadYaml}>
+          {t("aiexport.download")}
+        </Button>
+        <Button aria-label={t("aiexport.close")} onClick={onClose}>
+          ×
+        </Button>
       </div>
+      {copyFailed && <p role="alert">{t("aiexport.copyFailed")}</p>}
     </dialog>
   );
 }

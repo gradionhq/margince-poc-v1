@@ -6,7 +6,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
 import { EconomyBanner } from "./economybanner";
 
-function mount(roles: string[], band: string) {
+function mount(roles: string[], readBand: string | (() => string)) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const path = new URL(
       input instanceof Request ? input.url : String(input),
@@ -17,7 +17,14 @@ function mount(roles: string[], band: string) {
           user: { id: "u1", email: "a@example.test", display_name: "A" },
           roles,
         }
-      : { days: [], budget: { monthly_tokens: 100, spent_tokens: 80, band } };
+      : {
+          days: [],
+          budget: {
+            monthly_tokens: 100,
+            spent_tokens: 80,
+            band: typeof readBand === "function" ? readBand() : readBand,
+          },
+        };
     return new Response(JSON.stringify(body), {
       headers: { "Content-Type": "application/json" },
     });
@@ -33,7 +40,7 @@ function mount(roles: string[], band: string) {
       </LocaleProvider>
     </QueryClientProvider>,
   );
-  return fetchMock;
+  return { client, fetchMock };
 }
 
 afterEach(() => {
@@ -42,7 +49,7 @@ afterEach(() => {
 });
 
 it("does not probe usage for a non-admin", async () => {
-  const fetchMock = mount(["rep"], "degraded");
+  const { fetchMock } = mount(["rep"], "degraded");
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
   expect(
     fetchMock.mock.calls.some(([input]) => String(input).includes("/ai/usage")),
@@ -63,7 +70,34 @@ it("shows queued while normal stays silent", async () => {
     await screen.findByText("AI budget reached — background AI is queued."),
   ).toBeTruthy();
   cleanup();
-  const fetchMock = mount(["admin"], "normal");
+  const { fetchMock } = mount(["admin"], "normal");
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
   expect(screen.queryByRole("status")).toBeNull();
+});
+
+it("shows a recurring band as a new occurrence", async () => {
+  let band = "degraded";
+  const { client } = mount(["admin"], () => band);
+  expect(await screen.findByText("AI running in economy mode.")).toBeTruthy();
+  await userEvent.click(screen.getByLabelText("Dismiss"));
+  expect(screen.queryByRole("status")).toBeNull();
+
+  band = "normal";
+  await client.refetchQueries({ queryKey: ["ai-usage-band"] });
+  await waitFor(() =>
+    expect(
+      client.getQueryData<{ budget: { band: string } }>(["ai-usage-band"])
+        ?.budget.band,
+    ).toBe("normal"),
+  );
+  band = "degraded";
+  await client.refetchQueries({ queryKey: ["ai-usage-band"] });
+  expect(await screen.findByText("AI running in economy mode.")).toBeTruthy();
+});
+
+it("surfaces an unknown budget band", async () => {
+  mount(["admin"], "future-band");
+  expect(
+    await screen.findByText("AI budget status is not recognized."),
+  ).toBeTruthy();
 });

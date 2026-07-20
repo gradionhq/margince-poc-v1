@@ -1455,6 +1455,7 @@ export const de = {
   "aiusage.band.normal": "normal",
   "aiusage.band.degraded": "Sparmodus",
   "aiusage.band.queued": "Budget erreicht — Hintergrund-KI wartet",
+  "aiusage.band.unknown": "Unbekannter Budgetstatus",
   "aiusage.col.task": "Aufgabe",
   "aiusage.col.tier": "Stufe",
   "aiusage.col.calls": "Aufrufe",
@@ -1471,6 +1472,7 @@ export const de = {
 
   "aibanner.degraded": "KI läuft im Sparmodus.",
   "aibanner.queued": "KI-Budget erreicht — Hintergrund-KI wartet.",
+  "aibanner.unknown": "Der KI-Budgetstatus ist unbekannt.",
   "aibanner.link": "Nutzung anzeigen",
   "aibanner.dismiss": "Schließen",
 
@@ -1509,6 +1511,9 @@ export const de = {
   "aiexport.copy": "YAML kopieren",
   "aiexport.copied": "Kopiert",
   "aiexport.download": ".yaml herunterladen",
+  "aiexport.copyFailed":
+    "Kopieren fehlgeschlagen — Vorschau verwenden oder Datei herunterladen.",
+  "aiexport.close": "Schließen",
 
   "countdown.minutesSeconds": "{minutes}m {seconds}s",
   "countdown.expired": "Abgelaufen",
