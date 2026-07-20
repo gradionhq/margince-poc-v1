@@ -90,7 +90,7 @@ export function ExportScenarioDialog({
       <pre className="t-mono" style={{ maxHeight: 180, overflow: "auto" }}>
         {JSON.stringify(call.payload?.response, null, 2)}
       </pre>
-      <div style={{ display: "flex", gap: 8 }}>
+      <div style={{ display: "flex", gap: "var(--space-2)" }}>
         <Button onClick={() => void copyYaml()}>
           {copied ? t("aiexport.copied") : t("aiexport.copy")}
         </Button>

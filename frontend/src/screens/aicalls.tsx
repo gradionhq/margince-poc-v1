@@ -129,7 +129,7 @@ export function AiCallsCard() {
   const tasks = [...new Set(calls.map((call) => call.task))].sort();
 
   return (
-    <section className="card" style={{ marginBottom: 14 }}>
+    <section className="card" style={{ marginBottom: "var(--space-4)" }}>
       <SectionHeader title={t("aicalls.title")} sub={t("aicalls.sub")} />
       <QueryStates query={query}>
         <select
@@ -208,7 +208,7 @@ function FragmentRow({
         <td>{when}</td>
         <td>
           {call.task}
-          <div style={{ display: "flex", gap: 4 }}>
+          <div style={{ display: "flex", gap: "var(--space-1)" }}>
             {call.cache_hit && <Badge>{t("aicalls.badge.cacheHit")}</Badge>}
             {call.degraded && (
               <Badge tone="warn">{t("aicalls.badge.degraded")}</Badge>

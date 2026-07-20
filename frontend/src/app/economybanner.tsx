@@ -47,7 +47,7 @@ export function EconomyBanner() {
       style={{
         borderRadius: 0,
         display: "flex",
-        gap: 10,
+        gap: "var(--space-3)",
         alignItems: "center",
       }}
     >

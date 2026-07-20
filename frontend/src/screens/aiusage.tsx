@@ -94,7 +94,7 @@ export function AiUsageCard() {
   });
 
   return (
-    <section className="card" style={{ marginBottom: 14 }}>
+    <section className="card" style={{ marginBottom: "var(--space-4)" }}>
       <SectionHeader title={t("aiusage.title")} sub={t("aiusage.sub")} />
       <QueryGate query={query}>
         {(data) => {
@@ -119,7 +119,7 @@ export function AiUsageCard() {
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
-                  gap: 12,
+                  gap: "var(--space-3)",
                 }}
               >
                 <div style={{ flex: 1 }}>
@@ -138,7 +138,13 @@ export function AiUsageCard() {
                   {bandLabel(data.budget.band, t)}
                 </Badge>
               </div>
-              <div style={{ display: "flex", gap: 8, margin: "12px 0" }}>
+              <div
+                style={{
+                  display: "flex",
+                  gap: "var(--space-2)",
+                  margin: "var(--space-3) 0",
+                }}
+              >
                 <Button
                   small
                   aria-label={t("aiusage.prevMonth")}
