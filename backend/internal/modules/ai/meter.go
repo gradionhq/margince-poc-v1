@@ -27,6 +27,13 @@ type Usage struct {
 	// provider reports neither.
 	CachedTokens    int
 	ReasoningTokens int
+	// CacheWriteTokens is the cache-creation bucket a native provider reports
+	// (e.g. Anthropic's cache_creation_input_tokens) — disjoint from
+	// CachedTokens (a read), already counted inside TokensIn, 0 when the
+	// provider reports none. The pricer (pricing.go) is its only reader
+	// today; Record does not yet persist it (that wiring is a separate
+	// change).
+	CacheWriteTokens int
 }
 
 // usageStore is what the router needs from metering; the interface

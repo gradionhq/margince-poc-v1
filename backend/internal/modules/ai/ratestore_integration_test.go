@@ -1,0 +1,348 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+//go:build integration
+
+package ai
+
+// ADR-0067 phase 1's real-Postgres proof: RateFor's as-of-date resolution
+// across a rate change, CostReport's unpriced counting and free-by-
+// construction exclusions (cache_hit, zero-usage), a row-by-row
+// cross-check of the aggregate SQL against PriceCall on identical fixture
+// data, and cross-workspace invisibility carried by RLS alone (this
+// package's stores add no workspace_id filter of their own — the GUC
+// transaction is the only gate).
+
+import (
+	"context"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+)
+
+type rateEnv struct {
+	owner *pgx.Conn
+	store *RateStore
+}
+
+func setupRateStore(t *testing.T) *rateEnv {
+	t.Helper()
+	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
+	appDSN := os.Getenv("MARGINCE_TEST_APP_DSN")
+	if ownerDSN == "" || appDSN == "" {
+		t.Fatal("MARGINCE_TEST_DSN / MARGINCE_TEST_APP_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
+	}
+	ctx := context.Background()
+	owner, err := pgx.Connect(ctx, ownerDSN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := owner.Close(context.Background()); err != nil {
+			t.Errorf("closing owner connection: %v", err)
+		}
+	})
+
+	pool, err := database.NewPool(ctx, appDSN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+
+	return &rateEnv{owner: owner, store: NewRateStore(pool)}
+}
+
+// seedWorkspace inserts one throwaway workspace and returns a context
+// carrying its workspace GUC — every store call in this file rides that
+// GUC transaction exactly like production code, RLS included.
+func (e *rateEnv) seedWorkspace(ctx context.Context, t *testing.T) (ids.UUID, context.Context) {
+	t.Helper()
+	ws := ids.NewV7()
+	if _, err := e.owner.Exec(ctx,
+		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'RatePricing', $2, 'EUR')`,
+		ws, "rp-"+ws.String()); err != nil {
+		t.Fatal(err)
+	}
+	return ws, principal.WithWorkspaceID(context.Background(), ws)
+}
+
+// insertRate seeds one ai_model_rate row directly on the owner
+// connection — this task builds no insert path of its own (that is a
+// later task's job, per the brief), so fixtures write the row the same
+// way any other seed fixture in this repo writes tenant data it doesn't
+// own an insert helper for yet.
+func (e *rateEnv) insertRate(ctx context.Context, t *testing.T, ws ids.UUID, r ModelRate) {
+	t.Helper()
+	if _, err := e.owner.Exec(ctx, `
+		INSERT INTO ai_model_rate (workspace_id, provider, model_id, input_per_mtok_microusd,
+		  output_per_mtok_microusd, cache_read_per_mtok_microusd, cache_write_per_mtok_microusd, effective_date)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		ws, r.Provider, r.ModelID, r.InputPerMTokMicroUSD, r.OutputPerMTokMicroUSD,
+		r.CacheReadPerMTokMicroUSD, r.CacheWritePerMTokMicroUSD, r.EffectiveDate); err != nil {
+		t.Fatalf("insert rate %+v: %v", r, err)
+	}
+}
+
+// callFixture is one ai_call row's pricing-relevant columns; every other
+// column (tier, latency, kind, …) takes its schema default.
+type callFixture struct {
+	task                                                Task
+	provider, model                                     string
+	tokensIn, tokensOut, cachedTokens, cacheWriteTokens int
+	cacheHit                                            bool
+	occurredAt                                          time.Time
+}
+
+func (e *rateEnv) insertCall(ctx context.Context, t *testing.T, ws ids.UUID, c callFixture) {
+	t.Helper()
+	// logical_call_id has carried NOT NULL since 0100 (one row per attempt,
+	// grouped by logical call) with no schema default — a fixture that
+	// wants a single-attempt logical call mints its own id, the same as a
+	// pre-0100 row backfilled to logical_call_id = id.
+	if _, err := e.owner.Exec(ctx, `
+		INSERT INTO ai_call (workspace_id, task, provider, model_id, request_fingerprint,
+		  tokens_in, tokens_out, cached_tokens, cache_write_tokens, cache_hit, occurred_at, logical_call_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+		ws, string(c.task), c.provider, c.model, "fp-"+ids.NewV7().String(),
+		c.tokensIn, c.tokensOut, c.cachedTokens, c.cacheWriteTokens, c.cacheHit, c.occurredAt, ids.NewV7()); err != nil {
+		t.Fatalf("insert call %+v: %v", c, err)
+	}
+}
+
+func TestRateForResolvesEffectiveDateAcrossARateChange(t *testing.T) {
+	e := setupRateStore(t)
+	ctx := context.Background()
+	ws, wsCtx := e.seedWorkspace(ctx, t)
+
+	jan1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	jun1 := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	e.insertRate(ctx, t, ws, ModelRate{
+		Provider: providerAnthropic, ModelID: "claude-test-model",
+		InputPerMTokMicroUSD: 1_000_000, OutputPerMTokMicroUSD: 1_000_000, EffectiveDate: jan1,
+	})
+	e.insertRate(ctx, t, ws, ModelRate{
+		Provider: providerAnthropic, ModelID: "claude-test-model",
+		InputPerMTokMicroUSD: 2_000_000, OutputPerMTokMicroUSD: 2_000_000, EffectiveDate: jun1,
+	})
+
+	t.Run("before either rate exists → unpriced", func(t *testing.T) {
+		got, err := e.store.RateFor(wsCtx, providerAnthropic, "claude-test-model", time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != nil {
+			t.Fatalf("got %+v, want nil (no rate effective yet)", got)
+		}
+	})
+
+	t.Run("between the two rates → the first one still applies", func(t *testing.T) {
+		got, err := e.store.RateFor(wsCtx, providerAnthropic, "claude-test-model", time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got == nil || got.InputPerMTokMicroUSD != 1_000_000 {
+			t.Fatalf("got %+v, want the jan1 rate (1_000_000)", got)
+		}
+	})
+
+	t.Run("on or after the rate change → the new rate applies", func(t *testing.T) {
+		got, err := e.store.RateFor(wsCtx, providerAnthropic, "claude-test-model", time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got == nil || got.InputPerMTokMicroUSD != 2_000_000 {
+			t.Fatalf("got %+v, want the jun1 rate (2_000_000)", got)
+		}
+	})
+
+	t.Run("unknown model → unpriced, never an error", func(t *testing.T) {
+		got, err := e.store.RateFor(wsCtx, providerAnthropic, "no-such-model", jun1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != nil {
+			t.Fatalf("got %+v, want nil", got)
+		}
+	})
+}
+
+// costReportFixture is the pricing shape TestCostReportPricesTheWindowAndCountsUnpriced
+// exercises: one rate and a window's worth of ai_call rows spanning every
+// free/priced/unpriced/out-of-window case the report must distinguish.
+type costReportFixture struct {
+	rate                                  ModelRate
+	from, to                              time.Time
+	priced, unpriced, cacheHit, zeroUsage callFixture
+	pricedNoCache, outsideWindow          callFixture
+}
+
+// buildCostReportFixture constructs the fixture set: a Feb-2026 window,
+// one rate for "claude-test-model", and the six calls
+// TestCostReportPricesTheWindowAndCountsUnpriced asserts over.
+func buildCostReportFixture() costReportFixture {
+	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	inWindow := from.Add(24 * time.Hour)
+	return costReportFixture{
+		rate: ModelRate{
+			Provider: providerAnthropic, ModelID: "claude-test-model",
+			InputPerMTokMicroUSD: 5_000_000, OutputPerMTokMicroUSD: 25_000_000,
+			CacheReadPerMTokMicroUSD: 500_000, CacheWritePerMTokMicroUSD: 6_250_000,
+			EffectiveDate: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		},
+		from: from, to: to,
+		// priced: rate matches, real usage, no cache hit.
+		priced: callFixture{
+			task: TaskSummarize, provider: providerAnthropic, model: "claude-test-model",
+			tokensIn: 700, cachedTokens: 400, cacheWriteTokens: 200, tokensOut: 50,
+			occurredAt: inWindow,
+		},
+		// unpriced: same task, no rate row for this model.
+		unpriced: callFixture{
+			task: TaskSummarize, provider: providerAnthropic, model: "no-rate-model",
+			tokensIn: 100, tokensOut: 50, occurredAt: inWindow.Add(time.Hour),
+		},
+		// free by construction: cache_hit — must not count as unpriced
+		// despite having no rate lookup performed for it either.
+		cacheHit: callFixture{
+			task: TaskSummarize, provider: providerAnthropic, model: "no-rate-model",
+			tokensIn: 700, tokensOut: 50, cacheHit: true, occurredAt: inWindow.Add(2 * time.Hour),
+		},
+		// free by construction: zero provider usage (failed before the call).
+		zeroUsage: callFixture{
+			task: TaskSummarize, provider: providerAnthropic, model: "no-rate-model",
+			occurredAt: inWindow.Add(3 * time.Hour),
+		},
+		// a second, uncached priced row under a different task.
+		pricedNoCache: callFixture{
+			task: TaskEnrich, provider: providerAnthropic, model: "claude-test-model",
+			tokensIn: 200, tokensOut: 20, occurredAt: inWindow.Add(4 * time.Hour),
+		},
+		// outside the window: must not be counted at all.
+		outsideWindow: callFixture{
+			task: TaskSummarize, provider: providerAnthropic, model: "claude-test-model",
+			tokensIn: 700, cachedTokens: 400, cacheWriteTokens: 200, tokensOut: 50,
+			occurredAt: to.Add(time.Hour),
+		},
+	}
+}
+
+func TestCostReportPricesTheWindowAndCountsUnpriced(t *testing.T) {
+	e := setupRateStore(t)
+	ctx := context.Background()
+	ws, wsCtx := e.seedWorkspace(ctx, t)
+
+	f := buildCostReportFixture()
+	e.insertRate(ctx, t, ws, f.rate)
+	for _, c := range []callFixture{f.priced, f.unpriced, f.cacheHit, f.zeroUsage, f.pricedNoCache, f.outsideWindow} {
+		e.insertCall(ctx, t, ws, c)
+	}
+
+	report, err := e.store.CostReport(wsCtx, f.from, f.to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byTask := make(map[Task]TaskCost, len(report))
+	for _, tc := range report {
+		byTask[tc.Task] = tc
+	}
+
+	// Row-by-row cross-check: the aggregate SQL's arithmetic must equal
+	// summing PriceCall over exactly the priced (non-free) rows, per the
+	// same rate.
+	wantSummarizeCost := PriceCall(Usage{
+		TokensIn: f.priced.tokensIn, CachedTokens: f.priced.cachedTokens,
+		CacheWriteTokens: f.priced.cacheWriteTokens, TokensOut: f.priced.tokensOut,
+	}, f.rate)
+	wantEnrichCost := PriceCall(Usage{TokensIn: f.pricedNoCache.tokensIn, TokensOut: f.pricedNoCache.tokensOut}, f.rate)
+
+	summarize, ok := byTask[TaskSummarize]
+	if !ok {
+		t.Fatal("no TaskCost line for summarize")
+	}
+	if summarize.CostMicroUSD != wantSummarizeCost {
+		t.Errorf("summarize cost = %d, want %d (PriceCall cross-check)", summarize.CostMicroUSD, wantSummarizeCost)
+	}
+	if summarize.UnpricedCalls != 1 {
+		t.Errorf("summarize unpriced_calls = %d, want 1 (only the no-rate-model, real-usage, non-cache-hit row)", summarize.UnpricedCalls)
+	}
+
+	enrich, ok := byTask[TaskEnrich]
+	if !ok {
+		t.Fatal("no TaskCost line for enrich")
+	}
+	if enrich.CostMicroUSD != wantEnrichCost {
+		t.Errorf("enrich cost = %d, want %d (PriceCall cross-check)", enrich.CostMicroUSD, wantEnrichCost)
+	}
+	if enrich.UnpricedCalls != 0 {
+		t.Errorf("enrich unpriced_calls = %d, want 0", enrich.UnpricedCalls)
+	}
+}
+
+func TestRateAndCallVisibilityIsScopedByWorkspaceRLS(t *testing.T) {
+	e := setupRateStore(t)
+	ctx := context.Background()
+	_, ctxA := e.seedWorkspace(ctx, t)
+	wsB, ctxB := e.seedWorkspace(ctx, t)
+
+	day := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	e.insertRate(ctx, t, wsB, ModelRate{
+		Provider: providerAnthropic, ModelID: "shared-model-name",
+		InputPerMTokMicroUSD: 9_000_000, OutputPerMTokMicroUSD: 9_000_000, EffectiveDate: day,
+	})
+	e.insertCall(ctx, t, wsB, callFixture{
+		task: TaskSummarize, provider: providerAnthropic, model: "shared-model-name",
+		tokensIn: 100, tokensOut: 50, occurredAt: day.Add(24 * time.Hour),
+	})
+
+	// Workspace A's context must never see workspace B's rate row — same
+	// provider/model, RLS is the only thing standing between them.
+	got, err := e.store.RateFor(ctxA, providerAnthropic, "shared-model-name", day.Add(24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != nil {
+		t.Fatalf("workspace A saw workspace B's rate: %+v", got)
+	}
+
+	// And workspace A's CostReport over the same window must not pick up
+	// workspace B's call.
+	report, err := e.store.CostReport(ctxA, day, day.Add(48*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range report {
+		if tc.Task == TaskSummarize {
+			t.Fatalf("workspace A's cost report saw workspace B's call: %+v", tc)
+		}
+	}
+
+	// Sanity: workspace B's own context DOES see it (proves the isolation
+	// above is RLS working, not a fixture that silently inserted nothing).
+	gotB, err := e.store.RateFor(ctxB, providerAnthropic, "shared-model-name", day.Add(24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotB == nil {
+		t.Fatal("workspace B could not see its own rate row")
+	}
+	reportB, err := e.store.CostReport(ctxB, day, day.Add(48*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, tc := range reportB {
+		if tc.Task == TaskSummarize {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("workspace B's own cost report did not see its own call")
+	}
+}
