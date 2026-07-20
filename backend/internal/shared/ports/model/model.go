@@ -117,7 +117,14 @@ type ToolDef struct {
 }
 
 type Response struct {
-	Text        string
+	Text string
+	// InputTokens is the TOTAL prompt tokens billed, cache reads AND cache
+	// writes INCLUDED — every adapter must normalize to this. OpenAI and
+	// Gemini already report an inclusive total on the wire; Anthropic reports
+	// input_tokens EXCLUSIVE of both cache buckets, so its adapter adds
+	// CachedTokens and CacheWriteTokens back in. This keeps InputTokens a
+	// true prompt-cost figure on every provider (a pricer values it as one
+	// number, never re-deriving it from the itemized buckets below).
 	InputTokens int
 	// OutputTokens is the TOTAL billed output, reasoning/thinking tokens
 	// INCLUDED — every adapter must normalize to this (Gemini reports them
@@ -131,6 +138,11 @@ type Response struct {
 	// with no such figure leaves them 0.
 	CachedTokens    int
 	ReasoningTokens int
+	// CacheWriteTokens is cache-creation (write) tokens, disjoint from
+	// CachedTokens (which is the cache-READ subset) — both are already
+	// counted inside InputTokens above, so this is a breakdown, never
+	// additive on its own. 0 when the provider reports none.
+	CacheWriteTokens int
 	// ProviderMetadata carries vendor-only outputs namespaced by provider key
 	// (e.g. {"openai":{"response_id":"…"}} for session logging).
 	ProviderMetadata map[string]json.RawMessage

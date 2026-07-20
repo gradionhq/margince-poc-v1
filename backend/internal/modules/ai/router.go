@@ -231,6 +231,7 @@ func (r *Router) serveAttempt(ctx context.Context, lc *logicalCall, task Task, l
 	trace.Tier = tier
 	trace.TokensIn, trace.TokensOut = out.InputTokens, out.OutputTokens
 	trace.ReasoningTokens, trace.CachedTokens = out.ReasoningTokens, out.CachedTokens
+	trace.CacheWriteTokens = out.CacheWriteTokens
 	if ladderErr != nil {
 		return model.Response{}, RouteInfo{}, ladderErr
 	}
@@ -263,6 +264,19 @@ func (r *Router) Embed(ctx context.Context, req model.EmbedRequest) (model.Embed
 	start := r.now()
 	res, err := r.embedder.Embed(ctx, req)
 	trace := Call{Task: TaskEmbeddings, Tier: TierEmbedLane, Kind: callKindEmbedding, CacheOff: r.cacheOff, LatencyMS: r.now().Sub(start).Milliseconds()}
+	if err == nil {
+		// Stamp the SAME token estimate the meter records below onto the
+		// trace row too — embeddings are input-only (no output, no cache
+		// buckets), so TokensOut/cache fields stay 0. Without this, ai_call
+		// carries tokens_in=0 while ai_usage carries the real estimate for
+		// the identical call; CostReport treats a zero-usage row as free by
+		// construction (a call that failed before reaching the provider),
+		// so a paid embedding model priced to a silent $0 despite a
+		// nonzero token line — cost is transparency, never a silent 0. A
+		// failed call (err != nil) legitimately never reached the
+		// provider, so it keeps TokensIn at 0 and reads free, same as today.
+		trace.TokensIn = embedTokenEstimate(req.Inputs)
+	}
 	if cid, ok := principal.CorrelationID(ctx); ok {
 		trace.CorrelationID = &cid
 	}
@@ -280,7 +294,7 @@ func (r *Router) Embed(ctx context.Context, req model.EmbedRequest) (model.Embed
 	if err != nil {
 		return model.Embeddings{}, err
 	}
-	if err := r.meter.Record(ctx, Usage{Task: TaskEmbeddings, Tier: TierEmbedLane, TokensIn: embedTokenEstimate(req.Inputs)}); err != nil {
+	if err := r.meter.Record(ctx, Usage{Task: TaskEmbeddings, Tier: TierEmbedLane, TokensIn: trace.TokensIn}); err != nil {
 		return model.Embeddings{}, fmt.Errorf("ai: call served but metering failed: %w", err)
 	}
 	return res, nil

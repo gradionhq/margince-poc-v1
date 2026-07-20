@@ -6865,7 +6865,7 @@ components:
         winner_id: { type: [string, 'null'], format: uuid, description: 'Required for merge: the surviving record — must be one of the pair.' }
     AiUsage:
       type: object
-      description: 'AI usage + budget (AIRT-WIRE-1): the AIRT-PARAM-33 meter aggregated per day × task × tier, plus the budget band. Token-denominated; cost_minor is the estimate at the configured tier''s rate (0 when local).'
+      description: 'AI usage + budget (AIRT-WIRE-1): the AIRT-PARAM-33 meter aggregated per day × task × tier, plus the budget band. Token-denominated; cost_est_minor is computed on read from the workspace''s ai_model_rate price sheet as of each call''s day (ADR-0067, price-on-read) — omitted, never a fabricated 0, when a task line''s window carries no priced call.'
       required: [days, budget]
       properties:
         days:
@@ -6887,7 +6887,7 @@ components:
                     cached_hits: { type: integer }
                     tokens_in: { type: integer }
                     tokens_out: { type: integer }
-                    cost_est_minor: { type: integer }
+                    cost_est_minor: { type: integer, description: 'USD minor units (cents), estimated on read from ai_model_rate at each call''s day (ADR-0067). Omitted, not 0, when none of this line''s calls priced.' }
         budget:
           type: object
           required: [monthly_tokens, spent_tokens, band]
@@ -6896,7 +6896,7 @@ components:
             spent_tokens: { type: integer, description: 'Calendar-month tokens_in + tokens_out.' }
             band: { type: string, enum: [normal, degraded, queued], description: '< 80% / 80–100% soft-degrade / ≥ 100% non-interactive queued (AIRT-PARAM-9..11).' }
             band_since: { type: [string, 'null'], format: date-time }
-            currency: { type: string }
+            currency: { type: string, description: 'ISO-4217 of cost_est_minor — always USD in phase 1 (ADR-0067).' }
     AiCallSummary:
       type: object
       description: One terminal model call from the ai_call trace (AIRT-SCHEMA-2).
