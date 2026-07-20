@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { X } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
@@ -141,8 +142,8 @@ export function RelinkModal({
 }
 
 // A freeform email-chip input: typed address + Enter/comma (or blur) adds a
-// chip, ✕ removes it. No client-side email regex beyond type=email — the
-// server is the authority (422 on a malformed address), so this never rejects
+// chip, the X icon removes it. No client-side email regex beyond type=email —
+// the server is the authority (422 on a malformed address), so this never rejects
 // what the backend might accept.
 function RecipientField({
   label,
@@ -174,7 +175,7 @@ function RecipientField({
                 onChange(values.filter((other) => other !== value))
               }
             >
-              ×
+              <X size={14} aria-hidden />
             </button>
           </li>
         ))}
@@ -365,7 +366,7 @@ export function ComposeModal({
           onChange={(event) => setSubject(event.target.value)}
         />
         <textarea
-          className="compose-body"
+          className="textarea compose-body"
           placeholder={t("compose.body")}
           value={body}
           onChange={(event) => setBody(event.target.value)}
@@ -374,6 +375,8 @@ export function ComposeModal({
         <label className="t-body compose-check">
           {t("compose.purpose")}
           <select
+            className="input"
+            aria-label={t("compose.purpose")}
             value={purpose}
             onChange={(event) => setPurpose(event.target.value)}
           >
@@ -395,8 +398,8 @@ export function ComposeModal({
         )}
         {blockedByConsent && (
           <div className="compose-consent-block" role="alert">
-            <p className="t-body" style={{ fontWeight: 600 }}>
-              {t("compose.consentBlockedTitle")}
+            <p className="t-body">
+              <strong>{t("compose.consentBlockedTitle")}</strong>
             </p>
             <p className="t-body" style={{ color: "var(--danger)" }}>
               {t("compose.consentBlocked")}
@@ -408,7 +411,7 @@ export function ComposeModal({
             )}
           </div>
         )}
-        <p className="t-caption compose-caution">{t("compose.sendBody")}</p>
+        <p className="t-caption">{t("compose.sendBody")}</p>
       </div>
     </ConfirmModal>
   );

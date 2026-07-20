@@ -23,16 +23,12 @@
   flex: 1;
 }
 
+/* Border, radius, padding, fill, and focus ring come from the shared .textarea
+ * atom; this only sets the composer's size and resize affordance. */
 .compose-body {
   width: 100%;
   min-height: 120px;
   resize: vertical;
-  padding: 8px 10px;
-  border: 1px solid var(--borderSubtle);
-  border-radius: 8px;
-  background: var(--bgCard);
-  color: var(--textPrimary);
-  font: inherit;
 }
 
 .recipient-field {
@@ -53,7 +49,7 @@
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--r-full);
   background: var(--bgHover);
   color: var(--textContent);
 }
@@ -71,6 +67,6 @@
   flex-direction: column;
   gap: 6px;
   padding: 10px;
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   background: var(--dangerBg);
 }
