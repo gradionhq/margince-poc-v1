@@ -104,9 +104,13 @@ func SeedModelRates(effective time.Time) []ModelRate {
 		rate(providerAnthropic, "claude-haiku-4-5-20251001", 1_000_000, 5_000_000, 100_000, 1_250_000),
 
 		// Gemini (verified 2026-07-20): cache read = 0.1x input; Gemini's
-		// implicit context caching carries no separate write charge.
-		rate(providerGemini, "gemini-2.5-pro", 1_250_000, 10_000_000, 125_000, 0),
-		rate(providerGemini, "gemini-2.5-flash", 300_000, 2_500_000, 30_000, 0),
+		// implicit context caching carries no separate write charge. Prices
+		// are config/ai-routing.example.yaml's default bindings — premium
+		// (gemini-3.5-flash) and cheap_cloud (gemini-3.1-flash-lite). Both
+		// carry a >200k-token tier Gemini charges at a higher rate; the
+		// sub-200k sheet price is seeded here as the common case.
+		rate(providerGemini, "gemini-3.5-flash", 1_500_000, 9_000_000, 150_000, 0),
+		rate(providerGemini, "gemini-3.1-flash-lite", 250_000, 1_500_000, 25_000, 0),
 
 		// OpenAI: config/ai-routing.example.yaml's commented cheap_cloud
 		// binding names "gpt-5-mini", which no longer appears on OpenAI's

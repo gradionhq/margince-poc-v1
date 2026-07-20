@@ -635,6 +635,41 @@ export const de = {
   "log.save": "Erfassen",
   "log.saving": "Wird erfasst…",
 
+  "compose.reply": "Antworten",
+  "compose.relink": "Neu verknüpfen",
+  "compose.draftWithAi": "Mit KI entwerfen",
+  "compose.drafting": "Wird entworfen…",
+  "compose.intent": 'Entwurf steuern (optional), z. B. "höfliche Nachfrage"',
+  "compose.to": "An",
+  "compose.cc": "Cc",
+  "compose.subject": "Betreff",
+  "compose.body": "Nachricht",
+  "compose.purpose": "Einwilligungszweck",
+  "compose.purposeHint":
+    "Der Versand ist nur erlaubt, wenn jeder Empfänger für diesen Zweck eingewilligt hat.",
+  "compose.send": "Senden",
+  "compose.sendConfirmTitle": "Diese E-Mail senden?",
+  "compose.sendBody":
+    "Sie senden diese E-Mail jetzt. Dies ist eine ausgehende, unwiderrufliche Aktion.",
+  "compose.consentBlockedTitle": "Versand blockiert — keine Einwilligung",
+  "compose.consentBlocked":
+    "Ein Empfänger hat für diesen Zweck nicht eingewilligt, daher wurde der Versand unterdrückt (Standard-Ablehnung).",
+  "compose.consentGoto": "Einwilligung prüfen",
+  "compose.draftUnavailable":
+    "KI-Entwurf ist nicht verfügbar (das Modell ist nicht konfiguriert). Sie können die E-Mail weiterhin selbst schreiben.",
+  "compose.sendUnavailable":
+    "Versand ist nicht verfügbar (kein Mailer konfiguriert).",
+  "compose.relinkTitle": "Diese Aktivität neu verknüpfen",
+  "compose.relinkTarget": "Person, Organisation, Deal oder Lead suchen",
+  "compose.relinkReplace": "Verschieben statt zusätzlich verknüpfen",
+  "compose.relinkReplaceHint":
+    "Ersetzt die bestehende Verknüpfung desselben Typs, statt eine weitere hinzuzufügen.",
+  "compose.relinkConfirm": "Neu verknüpfen",
+  "compose.emptyRecipients": "Fügen Sie mindestens einen Empfänger hinzu.",
+  "compose.removeRecipient": "{recipient} entfernen",
+  "compose.actionFailed":
+    "Die Anfrage ist fehlgeschlagen. Bitte erneut versuchen.",
+
   "tasks.overdue": "Überfällig",
   "tasks.today": "Heute",
   "tasks.upcoming": "Demnächst",
@@ -937,8 +972,7 @@ export const de = {
   "ob.src.chatHint": "Nachrichten, die du gesendet hast",
   "ob.src.memos": "Sprachmemos",
   "ob.src.memosHint": "Sprich 2 Minuten frei — wird transkribiert",
-  "ob.s2.lockedWords": "+{count} Wörter, wenn verbunden",
-  "ob.s2.addedWords": "+{count} Wörter",
+  "ob.s2.whenConnected": "lernt daraus, sobald verbunden",
   "ob.s2.words": "{count} / {target} Wörter",
   "ob.s2.qualStart": "füg ein paar Quellen hinzu",
   "ob.s2.qualThin": "dünn — leg ein, zwei Transkripte nach",
@@ -950,24 +984,27 @@ export const de = {
   "ob.s2.spokenHint":
     "Eine Handvoll Gesprächstranskripte schlägt 30 LinkedIn-Posts — Gesprochenes trägt deinen echten Rhythmus. Bei Transkripten behalten wir nur deine Redeanteile.",
   "ob.s2.emailCallout":
-    "Deine gesendeten E-Mails sind deine reichste Stimmquelle. Diese Ausgangsstimme wird deutlich schärfer, sobald du dein Postfach verbindest (der letzte Schritt), und lernt dann aus jeder E-Mail weiter, die du sendest.",
-  "ob.s2.build": "Mein Stimmprofil bauen",
-  "ob.s2.modelling": "Modelliere deine Stimme aus {count} Wörtern…",
-  "ob.s2.starterVoice": "deine erste Stimme",
-  "ob.s2.vpMeta": "{count} Wörter · {sources} Quellen · gut",
-  "ob.s2.vpLead": "Direkt, warm, aus der Praxis.",
-  "ob.s2.vpRest":
-    "Kurze Aussagesätze mit gelegentlichem langen Anlauf. Belegt Meinungen mit konkreten Zahlen und Namen statt Abstraktionen. Kaum Floskeln.",
-  "ob.s2.movesLabel": "Deine Handschrift",
-  "ob.s2.move1": "Eröffnet mit einer klaren Aussage oder einer harten Zahl",
-  "ob.s2.move2":
-    "Belegt sie mit einem konkreten, erlebten Beispiel — Namen, Zahlen",
-  "ob.s2.move3": "Endet mit einem direkten nächsten Schritt oder einer Frage",
-  "ob.s2.moveNever":
-    'Nie: Floskeln, Weichspülen, "ich hoffe, es geht Ihnen gut"',
-  "ob.s2.sampleLabel": "Beispiel-Entwurf in deiner Stimme",
+    "Deine gesendeten E-Mails sind deine reichste Stimmquelle. Diese erste Voice DNA wird deutlich schärfer, sobald du dein Postfach verbindest (der letzte Schritt), und lernt dann aus jeder E-Mail weiter, die du sendest.",
+  "ob.s2.pasteLabel": "Oder Schreibproben einfügen",
+  "ob.s2.pastePlaceholder":
+    "Füg ein paar E-Mails, Posts oder irgendetwas ein, das du selbst geschrieben hast…",
+  "ob.s2.pasteSource": "Eingefügter Text",
+  "ob.s2.build": "Meine Voice DNA bauen",
+  "ob.s2.building": "Baue deine Voice DNA aus {count} Wörtern…",
+  "ob.s2.minWords":
+    "Füg mindestens {min} Wörter in deiner eigenen Stimme hinzu, um eine erste Voice DNA zu bauen.",
+  "ob.s2.vpMeta": "{count} Wörter · {sources} Quellen",
+  "ob.s2.builtTitle": "Deine Voice DNA",
+  "ob.s2.builtEmpty":
+    "Deine Voice DNA wird gebaut — sie erscheint gleich hier und in den Einstellungen.",
+  "ob.s2.deferredTitle": "Deine Voice DNA wird gebaut",
+  "ob.s2.deferredBody":
+    "Sie ist in der Warteschlange und gleich fertig — du kannst weitermachen. Sie schärft sich automatisch, sobald du im letzten Schritt dein Postfach verbindest.",
+  "ob.s2.failedTitle": "Wir konnten sie gerade nicht bauen",
+  "ob.s2.failedBody":
+    "Beim Bauen deiner Voice DNA ist etwas schiefgegangen. Versuch es noch mal, oder überspring es und bau sie später in den Einstellungen.",
   "ob.s2.vpFootnote":
-    "Ein Anfang aus {count} Wörtern. Verbinde als Nächstes dein Postfach, und deine gesendete Post hebt das von gut → scharf — dann lernt es aus jeder E-Mail weiter.",
+    "Aus {count} Wörtern gebaut. Verbinde als Nächstes dein Postfach, und deine gesendete Post schärft das weiter — dann lernt es aus jeder E-Mail weiter.",
 
   "ob.s3.kick": "Schritt 4 von 5",
   "ob.s3.title": "Sieh, was du gebaut hast —",
