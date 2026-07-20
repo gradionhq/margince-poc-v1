@@ -5565,7 +5565,7 @@ type AiCall struct {
 type AiCallAttempt struct {
 	Attempt int `json:"attempt"`
 
-	// AttemptReason Why this attempt ran; empty on the first.
+	// AttemptReason Why this attempt ran — one of provider_error, schema_invalid, budget_degrade; empty for an ordinary first attempt, though budget_degrade can appear on attempt 1 when the budget guardrail demotes the ladder.
 	AttemptReason string    `json:"attempt_reason"`
 	ErrorSentinel *string   `json:"error_sentinel,omitempty"`
 	IsTerminal    bool      `json:"is_terminal"`

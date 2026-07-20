@@ -122,9 +122,23 @@ export function AiCallsCard() {
     },
     getNextPageParam: (last) => last.page.next_cursor ?? null,
   });
+  // The filter options come from a SEPARATE unfiltered query, not from the
+  // filtered `calls` above: deriving them from the filtered result collapses
+  // the dropdown to the one selected task, stranding every other option once
+  // a filter is picked. This keeps the full option set stable across filters.
+  const taskOptions = useQuery({
+    queryKey: ["ai-call-task-options"],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/ai/calls", {
+        params: { query: {} },
+      });
+      if (error) throw new Error(problemMessage(error));
+      return [...new Set(data.data.map((call) => call.task))].sort();
+    },
+  });
   const calls = query.data?.pages.flatMap((page) => page.data) ?? [];
   const captureEnabled = query.data?.pages[0]?.payload_capture_enabled ?? false;
-  const tasks = [...new Set(calls.map((call) => call.task))].sort();
+  const tasks = taskOptions.data ?? [];
 
   return (
     <section className="card" style={{ marginBottom: "var(--space-4)" }}>

@@ -6926,7 +6926,7 @@ components:
       properties:
         attempt: { type: integer }
         is_terminal: { type: boolean }
-        attempt_reason: { type: string, description: 'Why this attempt ran; empty on the first.' }
+        attempt_reason: { type: string, description: 'Why this attempt ran — one of provider_error, schema_invalid, budget_degrade; empty for an ordinary first attempt, though budget_degrade can appear on attempt 1 when the budget guardrail demotes the ladder.' }
         error_sentinel: { type: [string, 'null'] }
         tokens_in: { type: integer }
         tokens_out: { type: integer }
