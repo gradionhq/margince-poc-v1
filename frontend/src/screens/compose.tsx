@@ -242,11 +242,12 @@ export function ComposeModal({
         },
       );
       if (response.status === 501) return { available: false as const };
-      // Success is the real 2xx, never merely the absence of an error body:
-      // openapi-fetch reports a falsy `error` for a bodiless non-2xx (a gateway
-      // 502/503/504), which would otherwise fall through as a fabricated draft
-      // and crash the fill on undefined fields.
-      if (!response.ok) {
+      // Success is the real 2xx WITH a draft body, never merely the absence of
+      // an error: openapi-fetch reports a falsy `error` (and undefined `data`)
+      // for a bodiless non-2xx (a gateway 502/503/504), which would otherwise
+      // fall through as a fabricated draft and crash the fill on undefined
+      // fields. Requiring `data` here also re-narrows it for the fill below.
+      if (!response.ok || !data) {
         throw new Error(
           problemMessage(error || { title: t("compose.actionFailed") }),
         );
