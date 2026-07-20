@@ -183,6 +183,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	modelPath.SetCompanyContextEnabled(deployCfg.CompanyContext.TasksEnabled())
+	opts = append(opts, compose.WithAiPayloadCaptureFlag(deployCfg.AI.CapturePayloads))
 	opts = append(opts, coldStartOptions(modelPath)...)
 	opts = append(opts, offerDraftOptions(pool, modelPath)...)
 	opts = append(opts, compose.WithAIState(aiState))

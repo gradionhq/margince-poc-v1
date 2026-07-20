@@ -70,7 +70,8 @@ func New(pool, log, opts...) http.Handler {
 
 ## The workspace-bootstrap seed (one transaction)
 
-`workspaceSeed` is the hook `identity` runs when a workspace is bootstrapped (`POST /v1/workspaces`). It
+`workspaceSeed` is the hook `identity` runs when the installation bootstraps its singleton
+organization from `margince.yaml` on first boot (A107/ADR-0061 — no request creates a workspace). It
 seeds **every module's per-workspace defaults in ONE transaction** — they stand or fall together — yet
 identity imports none of those modules, because the hook is injected here:
 
@@ -97,6 +98,11 @@ backed by the provider module's store — so neither module names the other. The
 | signals | people's relationship-strength | `signalStrength{people: people.NewStore(pool)}` adapter |
 | imap connect | capture's connector registry (vault under `WithKeyvault`) | `imapConnectHandlers{registry: NewCaptureRegistry(pool, vault)}` |
 | filtered export | collections' saved-view/list source | `filteredExportHandlers{collections: collections.NewStore(pool)}` |
+| every model consumer | ai's tiered router (routing, budget, metering, secret-stripping) | the `Brain` seam (`brain.go`) — Surface-B, retrieval embed, cold-start all ride one router |
+| AI task prompts | people's company context (scope-filtered, fingerprinted) | `companycontextprompt.go` (+ the `company_context.rollout` kill switch, `WithCompanyContextRollout`) |
+| reply drafting | activities' evidence + ai's model path + the voice profile | `replydraft.go` (`WithReplyDraft`) |
+| deep read | people's site reads + ai's budget deferral (River re-schedule) | `deepreadtransport.go`, `deepreadbudget.go` (`WithDeepRead`) |
+| onboarding wizard | identity's wizard state + people's company/site-read surface | `onboardingstate.go`, `onboardingsitereadtransport.go` |
 
 The shape to copy: *a small consumer-side interface + a compose adapter struct that satisfies it from
 the provider's store.*
@@ -104,8 +110,12 @@ the provider's store.*
 ## Per-role `Option`s, and "declare absence by omission"
 
 An `Option func(*Server, *pgxpool.Pool)` customizes the wiring for one process role; everything not
-optioned keeps its safe default. The current options: `WithBusReady`, `WithBlobstore`, `WithKeyvault`,
-`WithPublicBaseURL`, `WithColdStart`, `WithScrape`, `WithBrief`.
+optioned keeps its safe default. The current options (grep `func With` in `internal/compose/` for the
+live list): infra — `WithBusReady`, `WithBlobstore`, `WithKeyvault`, `WithSchemaPool`,
+`WithPublicBaseURL`, `WithPasswordReset`; AI lanes — `WithColdStart`, `WithScrape`,
+`WithExtractor`, `WithBrief`, `WithAIMetrics`, `WithAIState`, `WithDeepRead`, `WithReplyDraft`,
+`WithOfferDraft`, `WithCompanyContextRollout`; capture — `WithCaptureBackfill`, `WithGmailCapture`,
+`WithGmailPush`, `WithGraphCapture`.
 
 The important rule: **a capability whose infra a role wasn't given leaves its endpoints as the generated
 501 stub rather than nil-derefing at request time.** No `WithBlobstore` → the `/attachments` endpoints
@@ -136,4 +146,6 @@ Each binary composes only what its role needs, all through this one layer:
 | The MCP registry | `internal/compose/registry.go` |
 | The REST admission middleware | `internal/compose/agentgate.go`, `idempotency.go` |
 | Background wiring | `internal/compose/{jobs,runnerservice,workflows,capture}.go` |
+| The AI orchestration group | `internal/compose/{brain,companycontextprompt,companycontextrollout,replydraft,deepreadtransport,deepreadbudget,onboardingstate}.go` |
+| The AI certification lane | `internal/compose/aicert/` (corpus, runner, records; report tool in `aicert/reportcmd`) |
 | Generated (never edit) | `internal/compose/{stubs_gen,agentpolicy_gen}.go` |

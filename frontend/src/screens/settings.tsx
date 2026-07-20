@@ -39,6 +39,8 @@ import {
 } from "../design-system/trust";
 import { formatDate, formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
+import { AiCallsCard } from "./aicalls";
+import { AiUsageCard } from "./aiusage";
 import { ActorTag } from "./audit";
 import {
   canConfigureAutomations,
@@ -93,6 +95,8 @@ function tabContent(id: SettingsTabId): ReactNode {
     case "ai":
       return (
         <>
+          <AiUsageCard />
+          <AiCallsCard />
           <AutonomyCard />
           <PassportCard />
           <AgentToolsCard />

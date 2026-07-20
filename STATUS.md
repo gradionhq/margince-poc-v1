@@ -22,6 +22,15 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**AI runtime observability UI** — Settings → AI now leads with the
+live usage/budget meter and a keyset-paged call trace over the existing
+`ai_call`/`ai_call_payload` records. Admins see economy/queued shell advisories;
+trace detail exposes the configured-versus-served identity, attempt ladder,
+context provenance, and honest capture-off/no-payload/payload states. Captured
+runs export client-side as explicitly unreviewed certification-scenario YAML.
+The implementation checklist, manual verification guide, and upstream P3
+findings live in `.tmp/ai-observability-ui/`.
+
 **Durable AI budget deferral** — the compiled task contract now distinguishes
 interactive from background work and includes the ratified `voice_build` task
 with CompanyContext explicitly disabled. At the monthly hard cap, background
@@ -452,15 +461,18 @@ Open work, roughly in priority order:
   `nl_search`, `summarize`, `transcript`) have no production call site
   yet — their starter scenarios are documented placeholders.
 
-- **Cold-start + company-context refresh** — Phases 1–4 are merged; the rollout
-  and PR boundaries are mapped in
-  [docs/explanation/coldstart-company-context-plan.md](docs/explanation/coldstart-company-context-plan.md).
-  Foundation PR #1104 is merged at `f97ef6b` with `g1-deterministic` and
-  `llm-advisory` green; ADR-0065/A111 pins the anchor/profile/fact/site-read
-  schema, optional three-field manual path, reusable deep-read wire, typed
-  context policy, progressive budgets/events, and five-step UI. The remaining
-  Phase 5 work is settings refresh/conflict resolution, observability,
-  capability rollout, and existing-installation backfill.
+- **Cold-start + company-context refresh** — all phases (0–5) are delivered;
+  the executed state is explained in
+  [docs/explanation/company-context.md](docs/explanation/company-context.md)
+  (the phase plan lives in git history as
+  `docs/explanation/coldstart-company-context-plan.md`).
+  Upstream, foundation PR #1104 is merged at `f97ef6b`; ADR-0065/A111 pins the
+  anchor/profile/fact/site-read schema, the optional three-field manual path,
+  the reusable deep-read wire, the typed context policy, progressive
+  budgets/events, and the five-step UI. Downstream, the phases landed as PRs
+  #127 (read substrate), #128 (onboarding dossier), #130/#131 (task injection +
+  five-step wizard), and #132/#133 (budget deferral + refresh/rollout) — all
+  merged; the per-phase delivery narrative is in those PRs.
 
 - **Email ingestion — deferred pieces of ADR-0063** (the pipeline is
   live; these were scoped out, not missed):

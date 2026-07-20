@@ -182,7 +182,8 @@ The enumerable set of `<entity>.<verb>` types, each mapped to its stream + paylo
   (per-tenant streams would explode key count).
 - **Family routing:** a type whose entity segment isn't itself a stream rides its family — e.g.
   `consent.*` / `retention.*` → the `person` stream; `offer.*` / `pipeline.*` / `stage.*` → `deal`;
-  `signal.*` → `capture`; `user.deactivated` / `role.changed` / `passport.revoked` → `identity`.
+  `signal.*` → `capture`; `user.deactivated` / `role.changed` / `passport.revoked` /
+  `onboarding.state_changed` → `identity`.
 - **`StreamFor(type)`** routes; an unknown type is a programming error surfaced *before* the outbox
   write (an unroutable row would wedge the relay forever). **`VersionOf(type)`** is the single source
   of the payload version, so a future v2 bump happens in one place.
