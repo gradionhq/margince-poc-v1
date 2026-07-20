@@ -394,6 +394,54 @@ describe("ComposeModal", () => {
     expect(await screen.findByText(/Sending is unavailable/i)).toBeTruthy();
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it("does not report a send on a bodiless non-2xx (gateway 5xx)", async () => {
+    const onClose = vi.fn();
+    // openapi-fetch yields a falsy error for a bodiless response; success must
+    // be the real 202, so an empty 503 stays an error and keeps the modal open
+    // rather than falsely confirming an irreversible send.
+    stubRoutes({
+      "POST /activities/act-1/send-email": () => emptyResponse(503),
+    });
+    render(
+      <ComposeModal
+        activityId="act-1"
+        entityType="person"
+        entityId="p-1"
+        open
+        onClose={onClose}
+      />,
+    );
+    await screen.findByRole("combobox");
+    await fillSendableForm();
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByText(/The request failed/i)).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("shows a draft error on a bodiless non-2xx without crashing the fill", async () => {
+    // The old !error success path would fabricate an undefined draft and crash
+    // onSuccess reading its fields; a bodiless 502 must surface an error only.
+    stubRoutes({
+      "POST /activities/act-1/draft-email": () => emptyResponse(502),
+    });
+    render(
+      <ComposeModal
+        activityId="act-1"
+        entityType="person"
+        entityId="p-1"
+        open
+        onClose={vi.fn()}
+      />,
+    );
+    await screen.findByRole("combobox");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+
+    expect(await screen.findByText(/The request failed/i)).toBeTruthy();
+  });
 });
 
 describe("TimelineActions", () => {

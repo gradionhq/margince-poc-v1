@@ -666,7 +666,9 @@ export const de = {
     "Ersetzt die bestehende Verknüpfung desselben Typs, statt eine weitere hinzuzufügen.",
   "compose.relinkConfirm": "Neu verknüpfen",
   "compose.emptyRecipients": "Fügen Sie mindestens einen Empfänger hinzu.",
-  "compose.addRecipient": "Empfänger hinzufügen",
+  "compose.removeRecipient": "{recipient} entfernen",
+  "compose.actionFailed":
+    "Die Anfrage ist fehlgeschlagen. Bitte erneut versuchen.",
 
   "tasks.overdue": "Überfällig",
   "tasks.today": "Heute",

@@ -653,7 +653,8 @@ export const en = {
     "Replaces the existing link of the same type rather than adding another.",
   "compose.relinkConfirm": "Relink",
   "compose.emptyRecipients": "Add at least one recipient.",
-  "compose.addRecipient": "Add recipient",
+  "compose.removeRecipient": "Remove {recipient}",
+  "compose.actionFailed": "The request failed. Please try again.",
 
   "tasks.overdue": "Overdue",
   "tasks.today": "Today",

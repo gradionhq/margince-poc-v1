@@ -153,6 +153,7 @@ function RecipientField({
   values: string[];
   onChange: (next: string[]) => void;
 }>) {
+  const t = useT();
   const [draft, setDraft] = useState("");
   const add = () => {
     const value = draft.trim();
@@ -168,7 +169,7 @@ function RecipientField({
             {value}{" "}
             <button
               type="button"
-              aria-label={`remove ${value}`}
+              aria-label={t("compose.removeRecipient", { recipient: value })}
               onClick={() =>
                 onChange(values.filter((other) => other !== value))
               }
@@ -241,7 +242,15 @@ export function ComposeModal({
         },
       );
       if (response.status === 501) return { available: false as const };
-      if (error) throw new Error(problemMessage(error));
+      // Success is the real 2xx, never merely the absence of an error body:
+      // openapi-fetch reports a falsy `error` for a bodiless non-2xx (a gateway
+      // 502/503/504), which would otherwise fall through as a fabricated draft
+      // and crash the fill on undefined fields.
+      if (!response.ok) {
+        throw new Error(
+          problemMessage(error || { title: t("compose.actionFailed") }),
+        );
+      }
       return { available: true as const, draft: data };
     },
     onSuccess: (result) => {
@@ -276,7 +285,13 @@ export function ComposeModal({
         },
       );
       if (response.status === 501) return { sent: false as const };
-      if (error) throwProblem(error);
+      // Only a real 202 is a send. openapi-fetch returns a falsy `error` for a
+      // bodiless non-2xx (a gateway 502/503/504); inferring success from
+      // `!error` would close the modal reporting an irreversible send that
+      // never left the building. Gate on the status, not the error body.
+      if (!response.ok) {
+        throwProblem(error || { title: t("compose.actionFailed") });
+      }
       return { sent: true as const, activity: data };
     },
     onSuccess: (result) => {
@@ -335,6 +350,11 @@ export function ComposeModal({
         {draftUnavailable && (
           <p className="t-caption">{t("compose.draftUnavailable")}</p>
         )}
+        {draft.isError && !draftUnavailable && (
+          <p className="t-caption" style={{ color: "var(--danger)" }}>
+            {draft.error?.message}
+          </p>
+        )}
 
         <RecipientField label={t("compose.to")} values={to} onChange={setTo} />
         <RecipientField label={t("compose.cc")} values={cc} onChange={setCc} />
@@ -374,6 +394,9 @@ export function ComposeModal({
         )}
         {blockedByConsent && (
           <div className="compose-consent-block" role="alert">
+            <p className="t-body" style={{ fontWeight: 600 }}>
+              {t("compose.consentBlockedTitle")}
+            </p>
             <p className="t-body" style={{ color: "var(--danger)" }}>
               {t("compose.consentBlocked")}
             </p>
@@ -384,6 +407,7 @@ export function ComposeModal({
             )}
           </div>
         )}
+        <p className="t-caption compose-caution">{t("compose.sendBody")}</p>
       </div>
     </ConfirmModal>
   );
