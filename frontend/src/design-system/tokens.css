@@ -31,6 +31,10 @@
 
   --online: #22c55e;
   --teal: #0e7490;
+  /* Readable teal text for a chip on the --tealLight fill. Split from --teal
+   * (a fill/accent) so the dark theme can lift the text without shifting the
+   * pill fills that read --teal. */
+  --tealText: #0e7490;
   /* low-alpha teal fill — the read-access pill's tint, tonally distinct from
    * the emerald --accentLight the write pill uses (record-share safety split,
    * mirrors share.html's read/write pill colours). Derived from --teal. */
@@ -126,6 +130,9 @@
   /* higher alpha so the teal read-pill fill stays legible on the darker card
    * surface (same light→dark bump --accentLight makes). --teal is unthemed. */
   --tealLight: rgba(14, 116, 144, 0.28);
+  /* Lifted teal text: the light --tealText (#0e7490) is dark-on-dark on the
+   * --tealLight fill over a dark card, below AA — brighten it for dark. */
+  --tealText: #5cb6cf;
 
   --aiText: #9ba0f0;
   --textMeta: #8fa099;

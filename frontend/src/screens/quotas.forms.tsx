@@ -203,7 +203,9 @@ function SetTargetModal({
             required
             onChange={(event) => setSubjectId(event.target.value)}
           >
-            <option value="" />
+            <option value="" disabled>
+              {side === "owner" ? t("quotas.pickOwner") : t("quotas.pickTeam")}
+            </option>
             {(roster.data ?? []).map((entry) => (
               <option key={entry.id} value={entry.id}>
                 {subjectLabel(entry)}
@@ -261,6 +263,7 @@ function SetTargetModal({
             type="text"
             value={currency}
             required
+            maxLength={3}
             onChange={(event) => setCurrency(event.target.value)}
           />
         </div>

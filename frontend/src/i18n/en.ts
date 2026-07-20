@@ -1580,6 +1580,8 @@ export const en = {
   "quotas.side.team": "Team",
   "quotas.owner": "Owner",
   "quotas.team": "Team",
+  "quotas.pickOwner": "Select an owner…",
+  "quotas.pickTeam": "Select a team…",
   "quotas.periodStart": "Period start",
   "quotas.periodEnd": "Period end",
   "quotas.amount": "Target amount",

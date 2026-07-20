@@ -114,12 +114,24 @@
 .computed-chip {
   display: inline-flex;
   align-items: center;
+  gap: 5px;
   font-size: 11px;
   font-family: var(--f-mono);
-  color: var(--teal);
+  color: var(--tealText);
   background: var(--tealLight);
   border-radius: var(--r-full);
   padding: 3px 9px;
+}
+.computed-chip svg {
+  width: 11px;
+  height: 11px;
+}
+
+/* Money column + its footer total share the card's right edge so the figures
+ * line up with the total they sum to. */
+.quota-contrib .table th:last-child,
+.quota-contrib .table td:last-child {
+  text-align: right;
 }
 .pace-line {
   display: flex;
@@ -202,4 +214,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+.quota-side-choice input {
+  accent-color: var(--accent);
 }

@@ -483,5 +483,5 @@ select.input {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-weight: 600;
-  color: var(--textTertiary);
+  color: var(--textMeta);
 }

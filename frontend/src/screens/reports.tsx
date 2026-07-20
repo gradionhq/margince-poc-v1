@@ -149,7 +149,7 @@ export function ReportsScreen() {
   const derivationUrl = reportQuery.data?.derivation_url ?? null;
   const derivationQuery = useQuery({
     queryKey: ["derivation", derivationUrl],
-    enabled: explain && derivationUrl != null,
+    enabled: reportActive && explain && derivationUrl != null,
     queryFn: async () => {
       // parsed carries by/agg PLUS every equality predicate from the handle
       // (group-key values + plan filters). The endpoint treats each extra key

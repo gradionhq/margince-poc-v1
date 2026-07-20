@@ -1609,6 +1609,8 @@ export const de = {
   "quotas.side.team": "Team",
   "quotas.owner": "Inhaber",
   "quotas.team": "Team",
+  "quotas.pickOwner": "Inhaber auswählen…",
+  "quotas.pickTeam": "Team auswählen…",
   "quotas.periodStart": "Zeitraum-Beginn",
   "quotas.periodEnd": "Zeitraum-Ende",
   "quotas.amount": "Zielbetrag",

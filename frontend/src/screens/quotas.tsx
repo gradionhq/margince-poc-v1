@@ -1,4 +1,5 @@
 import { type UseQueryResult, useQuery } from "@tanstack/react-query";
+import { Calculator, Server } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
@@ -58,7 +59,8 @@ function useAttainment(quotaId: string) {
         params: { path: { id: quotaId } },
       });
       if (error) {
-        // throwProblem keeps the RFC 7807 body so the code is branchable.
+        // ProblemError carries the RFC 7807 body so the section can branch on
+        // its `code` (target-zero vs computation-failed) rather than a message.
         throw new ProblemError(error);
       }
       return data;
@@ -115,7 +117,8 @@ export function AttainmentNumbers({
   const t = useT();
   const currency = attainment.currency;
   const gap = attainment.gap_minor;
-  const gapText = (gap >= 0 ? "+" : "") + formatMoney(gap, currency, locale);
+  const overTarget = gap >= 0;
+  const gapText = (overTarget ? "+" : "") + formatMoney(gap, currency, locale);
   return (
     <div className="attain-numbers">
       <div className="attain-row">
@@ -133,7 +136,14 @@ export function AttainmentNumbers({
       </div>
       <div className="attain-row">
         <span className="k">{t("quotas.gap")}</span>
-        <span className="v t-mono">{gapText}</span>
+        {/* A gap at/over target reads positive (green); short of target stays
+            neutral — sign alone shouldn't be the only cue (a11y). */}
+        <span
+          className="v t-mono"
+          style={overTarget ? { color: "var(--online)" } : undefined}
+        >
+          {gapText}
+        </span>
       </div>
     </div>
   );
@@ -181,9 +191,13 @@ function AttainmentCard({
         <PaceLine attainment={attainment} />
         <div className="attain-meta">
           <Button small onClick={() => setShowExplain((value) => !value)}>
+            <Calculator aria-hidden style={{ width: 13, height: 13 }} />
             {t("explain.open")}
           </Button>
-          <span className="computed-chip">{t("quotas.computed")}</span>
+          <span className="computed-chip">
+            <Server aria-hidden />
+            {t("quotas.computed")}
+          </span>
         </div>
         {showExplain && <ExplainBox attainment={attainment} locale={locale} />}
         <p className="t-caption">
@@ -210,28 +224,30 @@ export function ContributingDeals({
         <h2>{t("quotas.contributing.title")}</h2>
         <span className="sub">{t("quotas.contributing.subtitle")}</span>
       </div>
-      <DataTable
-        columns={[
-          {
-            key: "deal",
-            header: t("quotas.contributing.deal"),
-            render: (row: QuotaAttainment["contributing_deals"][number]) => (
-              <EntityRef kind="deal" id={row.deal_id} />
-            ),
-          },
-          {
-            key: "amount",
-            header: t("quotas.contributing.amount"),
-            render: (row: QuotaAttainment["contributing_deals"][number]) => (
-              <span className="t-mono">
-                {formatMoney(row.base_value_minor, currency, locale)}
-              </span>
-            ),
-          },
-        ]}
-        rows={attainment.contributing_deals}
-        rowKey={(row) => row.deal_id}
-      />
+      <div className="quota-contrib">
+        <DataTable
+          columns={[
+            {
+              key: "deal",
+              header: t("quotas.contributing.deal"),
+              render: (row: QuotaAttainment["contributing_deals"][number]) => (
+                <EntityRef kind="deal" id={row.deal_id} />
+              ),
+            },
+            {
+              key: "amount",
+              header: t("quotas.contributing.amount"),
+              render: (row: QuotaAttainment["contributing_deals"][number]) => (
+                <span className="t-mono">
+                  {formatMoney(row.base_value_minor, currency, locale)}
+                </span>
+              ),
+            },
+          ]}
+          rows={attainment.contributing_deals}
+          rowKey={(row) => row.deal_id}
+        />
+      </div>
       <div className="quota-foot">
         <span className="k">{t("quotas.contributing.total")}</span>
         <span className="v t-mono">
@@ -437,8 +453,13 @@ function EmptyQuota({
   const t = useT();
   return (
     <EmptyState>
-      <b>{t("quotas.empty.title")}</b>
-      <p className="t-caption" style={{ margin: "8px 0 14px" }}>
+      <b style={{ color: "var(--textPrimary)", fontSize: 14 }}>
+        {t("quotas.empty.title")}
+      </b>
+      <p
+        className="t-caption"
+        style={{ margin: "8px auto 14px", maxWidth: "42ch" }}
+      >
         {t("quotas.empty.body")}
       </p>
       <SetTargetAction label={t("quotas.empty.cta")} onCreated={onCreated} />
