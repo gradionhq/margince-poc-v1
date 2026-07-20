@@ -1,2 +1,2 @@
 # old-contract-git-blob new-contract-git-blob reason
-5522b3bba0481102794d373fdfe31656d91555ad 95e58cde768646d23b40aeb702f9112e0ed87a78 ratified-adr-0066-progressive-voice-lifecycle
+7a3feb6d5df3eb999522789f57b211b5010d6602 d09dc2db87e7f7015419f18836496ade85507c1d ratified-adr-0066-progressive-voice-lifecycle
