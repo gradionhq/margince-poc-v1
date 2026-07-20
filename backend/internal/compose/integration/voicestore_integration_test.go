@@ -529,3 +529,46 @@ func TestVoiceDraftRejectionIsIdempotentAndTerminalSafe(t *testing.T) {
 		t.Fatalf("accepted draft rejection = %v, want ErrConflict", err)
 	}
 }
+
+// Clearing the corpus must erase a qualifying learning signal (edited_sent with
+// human-authored final text) without tripping voice_learning_signal_qualifies_check.
+// The scrub nulls final_text, and the CHECK requires final_text NOT NULL while
+// qualifies_as_source stays true — so the clear has to drop the qualifying flag
+// in the same UPDATE, or the whole erase fails the constraint.
+func TestVoiceClearCorpusScrubsQualifyingLearningSignal(t *testing.T) {
+	e := Setup(t)
+	ownerDB := SchemaPool(t)
+	voice := ai.NewVoiceStore(e.Pool)
+	owner := e.As(e.Rep1, []ids.UUID{e.Team1}, voiceRepPerms)
+	profile, err := voice.CreateProfile(owner, ai.CreateVoiceProfileInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	qualHash := sha256.Sum256([]byte("reply:edited-sent-1"))
+	if _, err := ownerDB.Exec(context.Background(), `
+		INSERT INTO voice_learning_signal
+		  (workspace_id, voice_profile_id, draft_ref_hash, outcome, final_text,
+		   final_captured_by, qualifies_as_source, retention_until, source, captured_by)
+		VALUES ($1, $2, $3, 'edited_sent', 'the human-authored final text',
+		        'human:ada', true, $4, 'system', 'system')`,
+		e.WS, profile.ID, qualHash[:], time.Now().Add(24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := voice.ClearCorpus(owner, profile.ID, &profile.Version); err != nil {
+		t.Fatalf("clearing a corpus that has a qualifying learning signal: %v", err)
+	}
+
+	var qualifies bool
+	var finalText *string
+	if err := ownerDB.QueryRow(context.Background(), `
+		SELECT qualifies_as_source, final_text FROM voice_learning_signal
+		WHERE workspace_id = $1 AND voice_profile_id = $2`,
+		e.WS, profile.ID).Scan(&qualifies, &finalText); err != nil {
+		t.Fatal(err)
+	}
+	if qualifies || finalText != nil {
+		t.Fatalf("clear left the signal qualifying/text intact: qualifies=%v final_text=%v", qualifies, finalText)
+	}
+}

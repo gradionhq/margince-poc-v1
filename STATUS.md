@@ -461,7 +461,7 @@ Open work, roughly in priority order:
   contract is implemented on `feat/voice-profile-lifecycle`: durable builds,
   immutable versions, candidate deltas, apply/reject/rollback, corpus clear,
   source-driven staleness, learning summaries, and the seven Voice-stream
-  events. Migration 0106 preserves a legacy built profile as its first active
+  events. Migration 0107 preserves a legacy built profile as its first active
   immutable version and quarantines obsolete team-scoped rows. Local merge and
   real-Postgres gates are being completed before the PR; the next PR is the
   structured Voice builder, followed by canonical reply usage/learning and the

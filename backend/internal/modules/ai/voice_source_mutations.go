@@ -234,7 +234,7 @@ func (s *VoiceStore) ClearCorpus(ctx context.Context, profileID ids.UUID, ifVers
 		}
 		if _, err := tx.Exec(ctx, `
 			UPDATE voice_learning_signal SET profile_version = NULL,
-			  generated_original = NULL, final_text = NULL,
+			  generated_original = NULL, final_text = NULL, qualifies_as_source = false,
 			  content_erased_at = $2, archived_at = coalesce(archived_at, $2),
 			  version = version + 1, updated_at = $2
 			WHERE voice_profile_id = $1`, profileID, now); err != nil {
