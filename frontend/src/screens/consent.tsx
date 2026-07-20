@@ -47,7 +47,7 @@ function usePersonConsent(personId: string) {
 // Same cache key settings.tsx's ConsentPurposesCard uses, so the two
 // surfaces share one fetch. No pagination — the endpoint hardcodes
 // has_more:false, so there is no second page to walk.
-function useConsentPurposes() {
+export function useConsentPurposes() {
   return useQuery({
     queryKey: ["consent-purposes"],
     queryFn: async () => {

@@ -162,9 +162,15 @@
 }
 .timeline li {
   display: flex;
+  align-items: center;
   gap: 10px;
   padding: 10px 0;
   border-bottom: 1px solid var(--borderSubtle);
+}
+.timeline .tl-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
 }
 .timeline li:last-child {
   border-bottom: 0;

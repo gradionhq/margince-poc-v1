@@ -31,6 +31,7 @@ import {
   QueryGate,
   throwProblem,
 } from "./common";
+import { TimelineActions } from "./compose";
 import { RecordContextPanel } from "./context";
 import { CreateAction, type CreateField, type FormRows } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
@@ -931,7 +932,13 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
             badges={<CompanyActionBadges org={org} />}
             timeline={
               timelineQuery.isSuccess
-                ? activityTimeline(timelineQuery.data.data)
+                ? activityTimeline(timelineQuery.data.data, (activity) => (
+                    <TimelineActions
+                      activity={activity}
+                      entityType="organization"
+                      entityId={id}
+                    />
+                  ))
                 : []
             }
           >
