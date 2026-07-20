@@ -142,6 +142,57 @@ func TestWireAiUsageReportsPartialCostWhenSomeCallsAreUnpriced(t *testing.T) {
 	}
 }
 
+// TestAttachDayCostAttachesPerTierNotBroadcastAcrossTiers proves the
+// double-counting fix: when one task ran on two tiers the same day,
+// CostReport now returns one DayCost line per (day, task, tier) and
+// attachDayCost must attach each line to its own tier row only — never
+// broadcast a shared task total onto every tier row, which is exactly
+// what let a client double-count by summing cost_est_minor across rows.
+func TestAttachDayCostAttachesPerTierNotBroadcastAcrossTiers(t *testing.T) {
+	day := time.Date(2026, time.July, 16, 0, 0, 0, 0, time.UTC)
+	days := []DayUsage{{
+		Day: day,
+		Tasks: []TaskUsage{
+			{Task: "summarize", Tier: "cheap_cloud", Calls: 2},
+			{Task: "summarize", Tier: "premium", Calls: 1},
+		},
+	}}
+	costs := []DayCost{
+		{Day: day, Task: "summarize", Tier: "cheap_cloud", CostMicroUSD: 10_000},
+		{Day: day, Task: "summarize", Tier: "premium", CostMicroUSD: 90_000},
+	}
+
+	attachDayCost(days, costs)
+
+	cheap := days[0].Tasks[0]
+	premium := days[0].Tasks[1]
+	if cheap.CostEstMicroUSD != 10_000 {
+		t.Fatalf("cheap_cloud cost = %d, want 10_000 (its own tier's cost, not the broadcast task total)", cheap.CostEstMicroUSD)
+	}
+	if premium.CostEstMicroUSD != 90_000 {
+		t.Fatalf("premium cost = %d, want 90_000 (its own tier's cost, not the broadcast task total)", premium.CostEstMicroUSD)
+	}
+	if sum := cheap.CostEstMicroUSD + premium.CostEstMicroUSD; sum != 100_000 {
+		t.Fatalf("summing the task's tier rows = %d, want 100_000 (the true task-day total, no duplication)", sum)
+	}
+}
+
+// TestAttachDayCostSkipsARowWithNoMatchingCostLine proves the merge
+// leaves a wire row's cost fields at their zero value when CostReport
+// has no line for that exact (day, task, tier) — e.g. a genuinely free
+// day (no ai_call rows at all): no panic, no cross-tier leakage.
+func TestAttachDayCostSkipsARowWithNoMatchingCostLine(t *testing.T) {
+	day := time.Date(2026, time.July, 16, 0, 0, 0, 0, time.UTC)
+	days := []DayUsage{{
+		Day:   day,
+		Tasks: []TaskUsage{{Task: "summarize", Tier: "premium", Calls: 1}},
+	}}
+	attachDayCost(days, nil)
+	if got := days[0].Tasks[0].CostEstMicroUSD; got != 0 {
+		t.Fatalf("cost = %d, want 0 (no cost line for this row)", got)
+	}
+}
+
 // The aliased CachedHits pointer must be per-line, not the loop
 // variable's address reused across lines.
 func TestWireAiUsageCachedHitsAreNotAliased(t *testing.T) {

@@ -24,13 +24,13 @@ import (
 // TaskUsage is one (task, tier) aggregate line of a usage day.
 //
 // CostEstMicroUSD and UnpricedCalls carry RateStore.CostReport's
-// (day, task) line merged onto every tier row of that task (ADR-0067
-// price-on-read): CostReport prices per calendar day + task, one grain
-// coarser than this line's day + task + tier, so a task split across
-// tiers on the same day shows its shared task-day total on each tier
-// row rather than a fabricated per-tier split. UnpricedCalls never rides
-// the wire (AIRT-WIRE-1 has no contract field for it) — the handler
-// reads it only to decide whether to omit a misleading zero cost.
+// matching (day, task, tier) line (ADR-0067 price-on-read): CostReport
+// prices at exactly this line's grain, so each tier row gets only its
+// own tier's cost — summing CostEstMicroUSD across a task's tier rows
+// for the same day equals that task's true day total, never a
+// duplicated broadcast. UnpricedCalls never rides the wire (AIRT-WIRE-1
+// has no contract field for it) — the handler reads it only to decide
+// whether to omit a misleading zero cost.
 type TaskUsage struct {
 	Task            string
 	Tier            string
@@ -160,10 +160,10 @@ func (m *Meter) usageDays(ctx context.Context, from, to time.Time) ([]DayUsage, 
 }
 
 // mergeDayCost prices [from, to)'s ai_call rows via rates.CostReport
-// (ADR-0067, price-on-read) and attaches each (day, task) line's cost
-// onto every tier row of that task/day in days, in place — the one join
-// between token counts and priced cost, so the handler stays a pure
-// wire mapping with no money computation of its own.
+// (ADR-0067, price-on-read) and attaches each (day, task, tier) line's
+// cost onto its one matching row in days — the one join between token
+// counts and priced cost, so the handler stays a pure wire mapping with
+// no money computation of its own.
 func mergeDayCost(ctx context.Context, rates *RateStore, days []DayUsage, from, to time.Time) error {
 	// CostReport is [from, to) half-open on occurred_at, while usageDays
 	// treats to as an inclusive calendar day (day <= to::date) — widen the
@@ -176,26 +176,44 @@ func mergeDayCost(ctx context.Context, rates *RateStore, days []DayUsage, from, 
 	if err != nil {
 		return err
 	}
-	type dayTaskKey struct {
-		day  string
-		task string
-	}
-	costByDayTask := make(map[dayTaskKey]DayCost, len(costs))
+	attachDayCost(days, costs)
+	return nil
+}
+
+// dayTaskTierKey is the (calendar day, task, tier) grain shared by a
+// DayCost line and a wire TaskUsage row — CostReport's grouping now
+// matches AIRT-WIRE-1's own grain exactly (both day × task × tier), so
+// attachDayCost is a plain 1:1 lookup, never a broadcast.
+type dayTaskTierKey struct {
+	day, task, tier string
+}
+
+func dayCostKey(day time.Time, task, tier string) dayTaskTierKey {
+	return dayTaskTierKey{day: day.UTC().Format(time.DateOnly), task: task, tier: tier}
+}
+
+// attachDayCost attaches each cost line onto its one matching
+// (day, task, tier) row in days, in place. Pulled out of mergeDayCost as
+// a pure function (no ctx, no RateStore) so the merge itself — the part
+// that used to broadcast a task's shared cost onto every tier row and
+// double-count — is unit-testable without a database.
+func attachDayCost(days []DayUsage, costs []DayCost) {
+	costByKey := make(map[dayTaskTierKey]DayCost, len(costs))
 	for _, c := range costs {
-		costByDayTask[dayTaskKey{day: c.Day.UTC().Format(time.DateOnly), task: string(c.Task)}] = c
+		costByKey[dayCostKey(c.Day, string(c.Task), string(c.Tier))] = c
 	}
 	for i := range days {
-		dayKey := days[i].Day.UTC().Format(time.DateOnly)
-		for j := range days[i].Tasks {
-			cost, ok := costByDayTask[dayTaskKey{day: dayKey, task: days[i].Tasks[j].Task}]
+		day := days[i].Day
+		tasks := days[i].Tasks
+		for j := range tasks {
+			cost, ok := costByKey[dayCostKey(day, tasks[j].Task, tasks[j].Tier)]
 			if !ok {
 				continue
 			}
-			days[i].Tasks[j].CostEstMicroUSD = cost.CostMicroUSD
-			days[i].Tasks[j].UnpricedCalls = cost.UnpricedCalls
+			tasks[j].CostEstMicroUSD = cost.CostMicroUSD
+			tasks[j].UnpricedCalls = cost.UnpricedCalls
 		}
 	}
-	return nil
 }
 
 // UsageWindow answers the AIRT-WIRE-1 defaults for an unbounded query:

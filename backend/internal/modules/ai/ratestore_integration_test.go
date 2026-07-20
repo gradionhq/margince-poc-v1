@@ -90,9 +90,10 @@ func (e *rateEnv) insertRate(ctx context.Context, t *testing.T, ws ids.UUID, r M
 }
 
 // callFixture is one ai_call row's pricing-relevant columns; every other
-// column (tier, latency, kind, …) takes its schema default.
+// column (latency, kind, …) takes its schema default.
 type callFixture struct {
 	task                                                Task
+	tier                                                Tier
 	provider, model                                     string
 	tokensIn, tokensOut, cachedTokens, cacheWriteTokens int
 	cacheHit                                            bool
@@ -106,10 +107,10 @@ func (e *rateEnv) insertCall(ctx context.Context, t *testing.T, ws ids.UUID, c c
 	// wants a single-attempt logical call mints its own id, the same as a
 	// pre-0100 row backfilled to logical_call_id = id.
 	if _, err := e.owner.Exec(ctx, `
-		INSERT INTO ai_call (workspace_id, task, provider, model_id, request_fingerprint,
+		INSERT INTO ai_call (workspace_id, task, tier, provider, model_id, request_fingerprint,
 		  tokens_in, tokens_out, cached_tokens, cache_write_tokens, cache_hit, occurred_at, logical_call_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-		ws, string(c.task), c.provider, c.model, "fp-"+ids.NewV7().String(),
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+		ws, string(c.task), string(c.tier), c.provider, c.model, "fp-"+ids.NewV7().String(),
 		c.tokensIn, c.tokensOut, c.cachedTokens, c.cacheWriteTokens, c.cacheHit, c.occurredAt, ids.NewV7()); err != nil {
 		t.Fatalf("insert call %+v: %v", c, err)
 	}
@@ -338,6 +339,76 @@ func TestCostReportGroupsByCalendarDay(t *testing.T) {
 	}
 	if got, ok := byDay["2026-02-06"]; !ok || got.CostMicroUSD != want2 {
 		t.Errorf("day2 = %+v, want cost %d", got, want2)
+	}
+}
+
+// TestCostReportGroupsByTierNotJustTask proves the double-counting fix
+// (AIRT-WIRE-1's wire rows are per day × task × TIER, and a client sums
+// cost_est_minor across rows): when the same task runs on two tiers the
+// same day, CostReport must return one line PER TIER — each priced only
+// from its own tier's calls — rather than one task-day total that a
+// caller would broadcast onto both tier rows and double-count.
+func TestCostReportGroupsByTierNotJustTask(t *testing.T) {
+	e := setupRateStore(t)
+	ctx := context.Background()
+	ws, wsCtx := e.seedWorkspace(ctx, t)
+
+	rate := ModelRate{
+		Provider: providerAnthropic, ModelID: "claude-test-model",
+		InputPerMTokMicroUSD: 5_000_000, OutputPerMTokMicroUSD: 25_000_000,
+		EffectiveDate: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+	e.insertRate(ctx, t, ws, rate)
+
+	day := time.Date(2026, 4, 10, 9, 0, 0, 0, time.UTC)
+	cheapCall := callFixture{
+		task: TaskSummarize, tier: TierCheapCloud, provider: providerAnthropic, model: "claude-test-model",
+		tokensIn: 100, tokensOut: 10, occurredAt: day,
+	}
+	premiumCall := callFixture{
+		task: TaskSummarize, tier: TierPremium, provider: providerAnthropic, model: "claude-test-model",
+		tokensIn: 900, tokensOut: 90, occurredAt: day.Add(time.Hour),
+	}
+	e.insertCall(ctx, t, ws, cheapCall)
+	e.insertCall(ctx, t, ws, premiumCall)
+
+	report, err := e.store.CostReport(wsCtx, time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var summarizeLines []DayCost
+	for _, dc := range report {
+		if dc.Task == TaskSummarize {
+			summarizeLines = append(summarizeLines, dc)
+		}
+	}
+	if len(summarizeLines) != 2 {
+		t.Fatalf("got %d summarize lines, want 2 (one per tier) — %+v", len(summarizeLines), summarizeLines)
+	}
+
+	byTier := make(map[Tier]DayCost, len(summarizeLines))
+	for _, dc := range summarizeLines {
+		byTier[dc.Tier] = dc
+	}
+	wantCheap := PriceCall(Usage{TokensIn: cheapCall.tokensIn, TokensOut: cheapCall.tokensOut}, rate)
+	wantPremium := PriceCall(Usage{TokensIn: premiumCall.tokensIn, TokensOut: premiumCall.tokensOut}, rate)
+
+	cheap, ok := byTier[TierCheapCloud]
+	if !ok || cheap.CostMicroUSD != wantCheap {
+		t.Fatalf("cheap_cloud line = %+v, want cost %d", cheap, wantCheap)
+	}
+	premium, ok := byTier[TierPremium]
+	if !ok || premium.CostMicroUSD != wantPremium {
+		t.Fatalf("premium line = %+v, want cost %d", premium, wantPremium)
+	}
+
+	// The whole point of the fix: summing the two tier rows equals the
+	// true task-day total — no duplication from broadcasting one row's
+	// cost onto the other.
+	wantTotal := wantCheap + wantPremium
+	if got := cheap.CostMicroUSD + premium.CostMicroUSD; got != wantTotal {
+		t.Fatalf("summed tier costs = %d, want %d (the true task-day total, no double-counting)", got, wantTotal)
 	}
 }
 

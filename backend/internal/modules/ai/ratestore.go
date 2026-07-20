@@ -57,26 +57,28 @@ func (s *RateStore) RateFor(ctx context.Context, provider, modelID string, day t
 }
 
 // CostReport prices the [from, to) window's ai_call rows against their
-// as-of-date rate and sums per (calendar day, task) — THE one money
-// computation that runs at read time (price-on-read: the
+// as-of-date rate and sums per (calendar day, task, tier) — THE one
+// money computation that runs at read time (price-on-read: the
 // router/meter/adapters never compute a cost). One SQL statement: a
 // LATERAL join picks each row's as-of-date rate (RateFor's same
 // resolution, inlined so the whole window prices in one query instead of
 // one round-trip per call), the four-bucket arithmetic mirrors PriceCall
 // exactly (same floor, same truncating /1000000), and GROUP BY the
-// call's UTC calendar day + task rolls the window up to AIRT-WIRE-1's
-// /ai/usage grain — day-grained, not window-total, so the report can
-// attach cost onto its existing day × task × tier rows without a second
-// money computation living in the handler.
+// call's UTC calendar day + task + tier rolls the window up to exactly
+// AIRT-WIRE-1's /ai/usage grain — one report line per wire row, so the
+// handler attaches each line to its one matching (day, task, tier) row
+// instead of broadcasting a shared task total across every tier that
+// task ran on (which double-counts whenever a client sums cost_est_minor
+// across rows).
 //
 // Two kinds of row spend nothing and are never counted unpriced, because
 // they are free BY CONSTRUCTION, not merely unrated: a cache_hit (served
 // from the router's result cache, no provider call happened) and a row
 // with zero provider usage (tokens_in = 0 AND tokens_out = 0 — a call
 // that failed before the provider was ever reached). Every other row
-// with no matching rate row counts into its (day, task)'s UnpricedCalls —
-// visible, never a silent 0 (global constraint: cost is transparency,
-// never a gate).
+// with no matching rate row counts into its (day, task, tier)'s
+// UnpricedCalls — visible, never a silent 0 (global constraint: cost is
+// transparency, never a gate).
 func (s *RateStore) CostReport(ctx context.Context, from, to time.Time) ([]DayCost, error) {
 	var report []DayCost
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
@@ -84,6 +86,7 @@ func (s *RateStore) CostReport(ctx context.Context, from, to time.Time) ([]DayCo
 			SELECT
 			  ac.occurred_at::date AS day,
 			  ac.task,
+			  ac.tier,
 			  COALESCE(SUM(
 			    CASE
 			      WHEN ac.cache_hit OR (ac.tokens_in = 0 AND ac.tokens_out = 0) THEN 0
@@ -110,8 +113,8 @@ func (s *RateStore) CostReport(ctx context.Context, from, to time.Time) ([]DayCo
 			  LIMIT 1
 			) r ON true
 			WHERE ac.occurred_at >= $1 AND ac.occurred_at < $2
-			GROUP BY ac.occurred_at::date, ac.task
-			ORDER BY day, ac.task`,
+			GROUP BY ac.occurred_at::date, ac.task, ac.tier
+			ORDER BY day, ac.task, ac.tier`,
 			from, to)
 		if err != nil {
 			return err
@@ -119,11 +122,12 @@ func (s *RateStore) CostReport(ctx context.Context, from, to time.Time) ([]DayCo
 		defer rows.Close()
 		for rows.Next() {
 			var dc DayCost
-			var task string
-			if err := rows.Scan(&dc.Day, &task, &dc.CostMicroUSD, &dc.UnpricedCalls); err != nil {
+			var task, tier string
+			if err := rows.Scan(&dc.Day, &task, &tier, &dc.CostMicroUSD, &dc.UnpricedCalls); err != nil {
 				return err
 			}
 			dc.Task = Task(task)
+			dc.Tier = Tier(tier)
 			report = append(report, dc)
 		}
 		return rows.Err()
