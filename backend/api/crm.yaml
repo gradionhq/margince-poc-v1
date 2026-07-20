@@ -4706,6 +4706,112 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/UserListResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Identity]
+      operationId: inviteUser
+      summary: Invite a new member. Admin-only, human-only.
+      description: |
+        Creates an active member with the chosen system role and no password, then issues a
+        single-use set-password token. When an email sender is configured the invite link is
+        mailed to the new address; otherwise the member sets a password through the standard
+        account-recovery flow. Admin-only (`role: admin`); an agent may never provision a human.
+        Emits `user.invited`.
+      x-agent-access: human-only
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InviteUserRequest' }
+      responses:
+        '201':
+          description: The invited member.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: A member with this email already exists.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /users/{id}/role:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Identity]
+      operationId: changeUserRole
+      summary: Set a member's system role. Admin-only, human-only.
+      description: |
+        Replaces the member's role assignments with the one target system role and emits
+        `role.changed` so effective-permission caches never serve a stale grant. Admin-only.
+      x-agent-access: human-only
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChangeUserRoleRequest' }
+      responses:
+        '200':
+          description: The updated member.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /users/{id}/deactivate:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Identity]
+      operationId: deactivateUser
+      summary: Deactivate a member and revoke their live access. Admin-only, human-only.
+      description: |
+        Flips the member to `deactivated` and hard-revokes every live session and passport they
+        bound, in one transaction; per-call re-auth already refuses a deactivated principal, and
+        `user.deactivated` lets caches drop access without polling. Idempotent. Admin-only.
+      x-agent-access: human-only
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeactivateUserRequest' }
+      responses:
+        '200':
+          description: The deactivated member.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /users/{id}/reactivate:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Identity]
+      operationId: reactivateUser
+      summary: Reactivate a deactivated member. Admin-only, human-only.
+      description: |
+        Returns a `deactivated` member to `active`; they may sign in again (existing sessions
+        stay revoked and are re-minted on the next login). Idempotent on an already-active member.
+        Emits `user.reactivated`. Admin-only.
+      x-agent-access: human-only
+      responses:
+        '200':
+          description: The reactivated member.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /teams:
     get:
@@ -8613,6 +8719,26 @@ components:
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         archived_at: { type: [string, 'null'], format: date-time }
+
+    InviteUserRequest:
+      type: object
+      description: Admin-supplied details for a new member. No password — the invite issues a set-password token.
+      required: [email, display_name, role]
+      properties:
+        email: { type: string, format: email }
+        display_name: { type: string, minLength: 1, maxLength: 255 }
+        role: { type: string, enum: [admin, manager, rep, read_only, ops] }
+
+    ChangeUserRoleRequest:
+      type: object
+      required: [role]
+      properties:
+        role: { type: string, enum: [admin, manager, rep, read_only, ops] }
+
+    DeactivateUserRequest:
+      type: object
+      properties:
+        reason: { type: string, maxLength: 500, description: Optional operator note that rides the user.deactivated event. }
 
     Team:
       type: object

@@ -13,6 +13,7 @@ package identity
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -63,6 +65,27 @@ const listUsersFilteredQuery = `
 func scanUser(r pgx.Row) (userRow, error) {
 	var u userRow
 	err := r.Scan(&u.ID, &u.WorkspaceID, &u.Email, &u.DisplayName, &u.Status, &u.IsAgent, &u.CreatedAt)
+	return u, err
+}
+
+const getUserQuery = `SELECT ` + userColumns + ` FROM app_user WHERE id = $1 AND archived_at IS NULL`
+
+// GetUser reads one member by id regardless of status (RLS-scoped to the
+// caller's workspace) — the read the admin write handlers return after a
+// mutation. ErrNotFound when absent or archived.
+func (s *Service) GetUser(ctx context.Context, userID ids.UserID) (userRow, error) {
+	var u userRow
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		row, scanErr := scanUser(tx.QueryRow(ctx, getUserQuery, userID))
+		if errors.Is(scanErr, pgx.ErrNoRows) {
+			return apperrors.ErrNotFound
+		}
+		if scanErr != nil {
+			return scanErr
+		}
+		u = row
+		return nil
+	})
 	return u, err
 }
 
