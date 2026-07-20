@@ -144,4 +144,77 @@ describe("UsersAdminCard", () => {
       ).toBe(true),
     );
   });
+
+  it("sets a member's role through the role seam", async () => {
+    const calls: { method: string; url: string; body?: unknown }[] = [];
+    vi.stubGlobal("fetch", backend(calls));
+    render(<UsersAdminCard />);
+    await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
+
+    const active = screen.getByText("Ada Active").closest("li") as HTMLElement;
+    await userEvent.selectOptions(
+      within(active).getByLabelText(/set role for ada active/i),
+      "manager",
+    );
+
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (c) =>
+            c.method === "PATCH" &&
+            c.url.includes("/users/u-active/role") &&
+            (c.body as { role?: string })?.role === "manager",
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it("reactivates a deactivated member", async () => {
+    const calls: { method: string; url: string; body?: unknown }[] = [];
+    vi.stubGlobal("fetch", backend(calls));
+    render(<UsersAdminCard />);
+    await waitFor(() => expect(screen.getByText("Otto Off")).toBeTruthy());
+
+    const off = screen.getByText("Otto Off").closest("li") as HTMLElement;
+    await userEvent.click(within(off).getByText("Reactivate"));
+
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (c) =>
+            c.method === "POST" && c.url.includes("/users/u-off/reactivate"),
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it("surfaces a failed invite as an inline error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const req =
+          input instanceof Request ? input : new Request(String(input), init);
+        if (req.url.includes("/users") && req.method === "GET") {
+          return jsonResponse(ROSTER);
+        }
+        return jsonResponse(
+          { title: "Conflict", detail: "That email already exists." },
+          409,
+        );
+      }),
+    );
+    render(<UsersAdminCard />);
+    await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
+
+    await userEvent.type(
+      screen.getByPlaceholderText("name@company.com"),
+      "dupe@acme.test",
+    );
+    await userEvent.type(screen.getByPlaceholderText("Full name"), "Dupe");
+    await userEvent.click(screen.getByRole("button", { name: /invite/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/already exists/i)).toBeTruthy(),
+    );
+  });
 });
