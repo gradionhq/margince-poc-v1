@@ -22,7 +22,7 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
-**AI runtime observability UI (in flight)** — Settings → AI now leads with the
+**AI runtime observability UI** — Settings → AI now leads with the
 live usage/budget meter and a keyset-paged call trace over the existing
 `ai_call`/`ai_call_payload` records. Admins see economy/queued shell advisories;
 trace detail exposes the configured-versus-served identity, attempt ladder,
