@@ -63,7 +63,7 @@ tiers:
   # .env.local (dev) or the process environment (prod); the api reads it at boot.
   cheap_cloud:
     provider: gemini
-    model: gemini-2.5-flash
+    model: gemini-3.1-flash-lite
 
   # premium serves the deep site read's extraction FIRST (site_extract is
   # premium-first in tasks.go): the evidence gate demands verbatim quotes,
@@ -74,7 +74,7 @@ tiers:
   # with the pinned E2E quality floor: `make -C backend e2e-siteread`.
   premium:
     provider: gemini
-    model: gemini-2.5-pro
+    model: gemini-3.5-flash
 
   # local_large is typically bound on sovereign deployments only, e.g. a
   # vLLM server fronting a large open-weights model:
