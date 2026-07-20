@@ -2757,11 +2757,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List the calling user's live voice profile (zero or one in V1). */
+        /** List the calling user's live Voice DNA (zero or one in V1). */
         get: operations["listVoiceProfiles"];
         put?: never;
         /**
-         * Create the calling user's one personal voice profile.
+         * Create the calling user's one personal Voice DNA.
          * @description The profile starts collecting with an empty derived artifact. A second live profile is 409.
          */
         post: operations["createVoiceProfile"];
@@ -2781,11 +2781,11 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Read the calling user's voice profile and active derived artifact. */
+        /** Read the calling user's Voice DNA and active derived artifact. */
         get: operations["getVoiceProfile"];
         put?: never;
         post?: never;
-        /** Archive the calling user's voice profile and stop its use in drafts. */
+        /** Archive the calling user's Voice DNA and stop its use in drafts. */
         delete: operations["deleteVoiceProfile"];
         options?: never;
         head?: never;
@@ -13911,7 +13911,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The voice profile. */
+            /** @description The Voice DNA. */
             200: {
                 headers: {
                     [name: string]: unknown;
