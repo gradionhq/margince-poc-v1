@@ -49,11 +49,24 @@ func buildRequest(sc Scenario) model.Request {
 		messages = append(messages, model.Message{Role: turn.Role, Content: turn.Text})
 	}
 	messages = append(messages, model.Message{Role: "user", Content: sc.Input})
-	maxTokens := sc.Expect.Caps.MaxTokens
-	if maxTokens <= 0 {
-		maxTokens = defaultRunMaxTokens
+	return model.Request{System: sc.System, Messages: messages, MaxTokens: runMaxOutputTokens(sc.Expect.Caps.MaxTokens)}
+}
+
+// runMaxOutputTokens is the maxOutputTokens a candidate completion is
+// handed. A scenario's caps.max_tokens is the ANSWER-output budget
+// checkCaps grades the generated answer against — never the raw ceiling
+// given to the model. A reasoning model spends output tokens on internal
+// thinking BEFORE its answer, and that thinking counts against
+// maxOutputTokens, so handing it the bare cap starves the answer into a
+// MAX_TOKENS stop with zero visible text. The no-cap default already
+// carries this reasoning headroom; the explicit-cap path must layer the
+// same headroom ON TOP of the answer budget, so the model can think AND
+// still emit its (capped) answer.
+func runMaxOutputTokens(answerCap int) int {
+	if answerCap <= 0 {
+		return defaultRunMaxTokens
 	}
-	return model.Request{System: sc.System, Messages: messages, MaxTokens: maxTokens}
+	return answerCap + defaultRunMaxTokens
 }
 
 // judgeRequest builds the judge's own completion request: the rubric,
@@ -173,9 +186,17 @@ func cloudServed(provider string) bool {
 // silently.
 func checkCaps(caps Caps, term ai.Call) (ok bool, failures []string) {
 	if caps.MaxTokens > 0 {
-		total := term.TokensIn + term.TokensOut
-		if total > caps.MaxTokens {
-			failures = append(failures, fmt.Sprintf("max_tokens cap %d exceeded: %d tokens", caps.MaxTokens, total))
+		// caps.max_tokens budgets the model's ANSWER — the reply it
+		// generates — never the scenario's fixed input (which the model
+		// cannot shrink) nor the internal thinking a reasoning model spends
+		// before answering (that thinking is not the answer the cap governs;
+		// see runMaxOutputTokens and ai.ReasoningOutputMaxTokens). Grade the
+		// answer alone, so a rich-input scenario with a tight OUTPUT cap
+		// tests what it means to — did the model draft within budget — rather
+		// than failing on input size a bigger prompt would always blow.
+		answer := term.TokensOut - term.ReasoningTokens
+		if answer > caps.MaxTokens {
+			failures = append(failures, fmt.Sprintf("max_tokens cap %d exceeded: %d answer tokens", caps.MaxTokens, answer))
 		}
 	}
 	if caps.P95LatencyMS > 0 && cloudServed(term.Provider) && term.LatencyMS > caps.P95LatencyMS {
