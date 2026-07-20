@@ -139,4 +139,28 @@ describe("RecordView + timeline", () => {
     expect(screen.getByText("agent: capture")).toBeTruthy();
     expect(screen.getByText("typed by you")).toBeTruthy();
   });
+
+  it("renders a timeline entry's action slot when present", () => {
+    render(
+      <RecordView
+        name="Acme"
+        zone="UTC"
+        timeline={[
+          {
+            id: "a1",
+            kind: "email",
+            title: "Re: Q3",
+            atIso: "2026-07-01T00:00:00Z",
+            provenance: { kind: "human" },
+            actions: (
+              <button type="button" key="reply">
+                Reply
+              </button>
+            ),
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Reply" })).toBeTruthy();
+  });
 });

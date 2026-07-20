@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
@@ -281,13 +282,17 @@ function timelineKind(kind: string): TimelineEntry["kind"] {
   return "note";
 }
 
-export function activityTimeline(activities: Activity[]): TimelineEntry[] {
+export function activityTimeline(
+  activities: Activity[],
+  renderActions?: (activity: Activity) => ReactNode,
+): TimelineEntry[] {
   return activities.map((activity) => ({
     id: activity.id,
     kind: timelineKind(activity.kind),
     title: activity.subject ?? activity.kind,
     atIso: activity.occurred_at,
     provenance: provenanceOf(activity.captured_by),
+    actions: renderActions?.(activity),
   }));
 }
 

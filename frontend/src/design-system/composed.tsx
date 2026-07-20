@@ -209,6 +209,9 @@ export type TimelineEntry = {
   title: string;
   atIso: string;
   provenance: Provenance;
+  // A right-aligned per-row action slot (Reply / Relink). Absent on rows with
+  // no affordance, which render exactly as before.
+  actions?: ReactNode;
 };
 
 const TIMELINE_ICON = {
@@ -262,6 +265,9 @@ export function RecordView({
                     <ProvenanceTag provenance={entry.provenance} />
                   </span>
                 </span>
+                {entry.actions && (
+                  <span className="tl-actions">{entry.actions}</span>
+                )}
               </li>
             );
           })}
