@@ -1,0 +1,72 @@
+/* Composer modal layout only — the modal chrome, inputs, and picker come from
+ * confirmmodal / atoms / recordpicker. Tokens only (ds-purity). */
+
+.compose-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.compose-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.compose-draftbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.compose-draftbar .input {
+  flex: 1;
+}
+
+/* Border, radius, padding, fill, and focus ring come from the shared .textarea
+ * atom; this only sets the composer's size and resize affordance. */
+.compose-body {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+}
+
+.recipient-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.recipient-field .chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.recipient-field .chips li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+  background: var(--bgHover);
+  color: var(--textContent);
+}
+.recipient-field .chips button {
+  border: 0;
+  background: none;
+  color: var(--textMeta);
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+}
+
+.compose-consent-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: var(--r-sm);
+  background: var(--dangerBg);
+}

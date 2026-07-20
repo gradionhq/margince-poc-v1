@@ -635,6 +635,41 @@ export const de = {
   "log.save": "Erfassen",
   "log.saving": "Wird erfasst…",
 
+  "compose.reply": "Antworten",
+  "compose.relink": "Neu verknüpfen",
+  "compose.draftWithAi": "Mit KI entwerfen",
+  "compose.drafting": "Wird entworfen…",
+  "compose.intent": 'Entwurf steuern (optional), z. B. "höfliche Nachfrage"',
+  "compose.to": "An",
+  "compose.cc": "Cc",
+  "compose.subject": "Betreff",
+  "compose.body": "Nachricht",
+  "compose.purpose": "Einwilligungszweck",
+  "compose.purposeHint":
+    "Der Versand ist nur erlaubt, wenn jeder Empfänger für diesen Zweck eingewilligt hat.",
+  "compose.send": "Senden",
+  "compose.sendConfirmTitle": "Diese E-Mail senden?",
+  "compose.sendBody":
+    "Sie senden diese E-Mail jetzt. Dies ist eine ausgehende, unwiderrufliche Aktion.",
+  "compose.consentBlockedTitle": "Versand blockiert — keine Einwilligung",
+  "compose.consentBlocked":
+    "Ein Empfänger hat für diesen Zweck nicht eingewilligt, daher wurde der Versand unterdrückt (Standard-Ablehnung).",
+  "compose.consentGoto": "Einwilligung prüfen",
+  "compose.draftUnavailable":
+    "KI-Entwurf ist nicht verfügbar (das Modell ist nicht konfiguriert). Sie können die E-Mail weiterhin selbst schreiben.",
+  "compose.sendUnavailable":
+    "Versand ist nicht verfügbar (kein Mailer konfiguriert).",
+  "compose.relinkTitle": "Diese Aktivität neu verknüpfen",
+  "compose.relinkTarget": "Person, Organisation, Deal oder Lead suchen",
+  "compose.relinkReplace": "Verschieben statt zusätzlich verknüpfen",
+  "compose.relinkReplaceHint":
+    "Ersetzt die bestehende Verknüpfung desselben Typs, statt eine weitere hinzuzufügen.",
+  "compose.relinkConfirm": "Neu verknüpfen",
+  "compose.emptyRecipients": "Fügen Sie mindestens einen Empfänger hinzu.",
+  "compose.removeRecipient": "{recipient} entfernen",
+  "compose.actionFailed":
+    "Die Anfrage ist fehlgeschlagen. Bitte erneut versuchen.",
+
   "tasks.overdue": "Überfällig",
   "tasks.today": "Heute",
   "tasks.upcoming": "Demnächst",

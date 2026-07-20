@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
@@ -20,6 +21,7 @@ import {
   QueryGate,
   throwProblem,
 } from "./common";
+import { TimelineActions } from "./compose";
 import { ConsentSection } from "./consent";
 import { RecordContextPanel } from "./context";
 import { CreateAction, type CreateField, type FormRows } from "./create";
@@ -281,13 +283,17 @@ function timelineKind(kind: string): TimelineEntry["kind"] {
   return "note";
 }
 
-export function activityTimeline(activities: Activity[]): TimelineEntry[] {
+export function activityTimeline(
+  activities: Activity[],
+  renderActions?: (activity: Activity) => ReactNode,
+): TimelineEntry[] {
   return activities.map((activity) => ({
     id: activity.id,
     kind: timelineKind(activity.kind),
     title: activity.subject ?? activity.kind,
     atIso: activity.occurred_at,
     provenance: provenanceOf(activity.captured_by),
+    actions: renderActions?.(activity),
   }));
 }
 
@@ -505,7 +511,14 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
             }
             timeline={
               timelineQuery.isSuccess
-                ? activityTimeline(timelineQuery.data.data)
+                ? activityTimeline(timelineQuery.data.data, (activity) => (
+                    <TimelineActions
+                      activity={activity}
+                      entityType="person"
+                      entityId={id}
+                      personId={id}
+                    />
+                  ))
                 : []
             }
           >

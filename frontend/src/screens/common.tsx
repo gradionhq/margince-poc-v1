@@ -326,6 +326,17 @@ export function isAlreadyDecided(problem: unknown): boolean {
   return record.code === "already_decided";
 }
 
+// A 409 whose code names the consent suppression gate: the send's recipients
+// have no active `granted` person_consent for the purpose it falls under
+// (default-deny per purpose, A22/ADR-0011). Distinguished from RBAC (403) and
+// validation (422) so the composer can point the user at the consent surface
+// rather than showing a raw server detail.
+export function isConsentNotGranted(problem: unknown): boolean {
+  if (!problem || typeof problem !== "object") return false;
+  const record = problem as Record<string, unknown>;
+  return record.code === "consent_not_granted";
+}
+
 // The cold-start / enrichment field vocabulary (compose/enrichextract.go)
 // rendered as human labels; an unmapped field falls back to its key with the
 // underscores spaced out — readable, never raw snake_case.

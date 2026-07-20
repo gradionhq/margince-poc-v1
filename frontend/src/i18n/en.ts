@@ -622,6 +622,40 @@ export const en = {
   "log.save": "Log",
   "log.saving": "Logging…",
 
+  "compose.reply": "Reply",
+  "compose.relink": "Relink",
+  "compose.draftWithAi": "Draft with AI",
+  "compose.drafting": "Drafting…",
+  "compose.intent": 'Steer the draft (optional), e.g. "polite follow-up"',
+  "compose.to": "To",
+  "compose.cc": "Cc",
+  "compose.subject": "Subject",
+  "compose.body": "Body",
+  "compose.purpose": "Consent purpose",
+  "compose.purposeHint":
+    "The send is allowed only if every recipient has granted consent for this purpose.",
+  "compose.send": "Send",
+  "compose.sendConfirmTitle": "Send this email?",
+  "compose.sendBody":
+    "You are sending this email now. This is an outbound, irreversible action.",
+  "compose.consentBlockedTitle": "Send blocked — no consent",
+  "compose.consentBlocked":
+    "A recipient has not granted consent for this purpose, so the send was suppressed (default-deny).",
+  "compose.consentGoto": "Review consent",
+  "compose.draftUnavailable":
+    "AI drafting is unavailable (the model is not configured). You can still write the email yourself.",
+  "compose.sendUnavailable":
+    "Sending is unavailable (no mailer is configured).",
+  "compose.relinkTitle": "Relink this activity",
+  "compose.relinkTarget": "Search a person, organization, deal, or lead",
+  "compose.relinkReplace": "Move instead of also-link",
+  "compose.relinkReplaceHint":
+    "Replaces the existing link of the same type rather than adding another.",
+  "compose.relinkConfirm": "Relink",
+  "compose.emptyRecipients": "Add at least one recipient.",
+  "compose.removeRecipient": "Remove {recipient}",
+  "compose.actionFailed": "The request failed. Please try again.",
+
   "tasks.overdue": "Overdue",
   "tasks.today": "Today",
   "tasks.upcoming": "Upcoming",
