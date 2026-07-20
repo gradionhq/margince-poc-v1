@@ -920,8 +920,7 @@ export const en = {
   "ob.src.chatHint": "Messages you sent",
   "ob.src.memos": "Voice memos",
   "ob.src.memosHint": "Record a 2-min monologue — transcribed",
-  "ob.s2.lockedWords": "+{count} words when connected",
-  "ob.s2.addedWords": "+{count} words",
+  "ob.s2.whenConnected": "learns from this once connected",
   "ob.s2.words": "{count} / {target} words",
   "ob.s2.qualStart": "add a few sources to start",
   "ob.s2.qualThin": "thin — add a transcript or two",
@@ -932,23 +931,25 @@ export const en = {
   "ob.s2.spokenHint":
     "A handful of call transcripts beats 30 LinkedIn posts — spoken sources carry your real cadence. For transcripts we keep only your turns.",
   "ob.s2.emailCallout":
-    "Your sent emails are your richest voice source. This starter voice gets much sharper the moment you connect your inbox (the last step), then keeps learning from every email you send.",
-  "ob.s2.build": "Build my voice profile",
-  "ob.s2.modelling": "Modelling your voice from {count} words…",
-  "ob.s2.starterVoice": "your starter voice",
-  "ob.s2.vpMeta": "{count} words · {sources} sources · good",
-  "ob.s2.vpLead": "Direct, warm, straight from the work.",
-  "ob.s2.vpRest":
-    "Short declarative sentences with the occasional long build-up. Backs opinions with specific numbers and names, not abstractions. Low on corporate filler.",
-  "ob.s2.movesLabel": "Signature moves",
-  "ob.s2.move1": "Opens with a blunt claim or a hard number",
-  "ob.s2.move2": "Backs it with a specific, lived example — names, figures",
-  "ob.s2.move3": "Ends with a direct next step or a question",
-  "ob.s2.moveNever":
-    'Never: corporate filler, hedging, "I hope this finds you well"',
-  "ob.s2.sampleLabel": "Sample draft in your voice",
+    "Your sent emails are your richest voice source. This first Voice DNA gets much sharper the moment you connect your inbox (the last step), then keeps learning from every email you send.",
+  "ob.s2.pasteLabel": "Or paste writing samples",
+  "ob.s2.pastePlaceholder":
+    "Paste a few emails, posts, or anything you've written in your own words…",
+  "ob.s2.pasteSource": "Pasted writing",
+  "ob.s2.build": "Build my Voice DNA",
+  "ob.s2.building": "Building your Voice DNA from {count} words…",
+  "ob.s2.vpMeta": "{count} words · {sources} sources",
+  "ob.s2.builtTitle": "Your Voice DNA",
+  "ob.s2.builtEmpty":
+    "Your Voice DNA is building — it'll appear here and in Settings shortly.",
+  "ob.s2.deferredTitle": "Building your Voice DNA",
+  "ob.s2.deferredBody":
+    "It's queued and will be ready shortly — you can move on. It sharpens automatically once you connect your inbox in the last step.",
+  "ob.s2.failedTitle": "We couldn't build it just now",
+  "ob.s2.failedBody":
+    "Something went wrong building your Voice DNA. Try again, or skip and build it later in Settings.",
   "ob.s2.vpFootnote":
-    "A starter from {count} words. Connect your inbox next and your sent email pushes this from good → sharp — then it keeps learning from every email you send.",
+    "Built from {count} words. Connect your inbox next and your sent email pushes this sharper — then it keeps learning from every email you send.",
 
   "ob.s3.kick": "Step 4 of 5",
   "ob.s3.title": "Look what you've built —",
