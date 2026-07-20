@@ -1,0 +1,26 @@
+/* Cert-scenario export dialog. The body is a form-stack; these classes add
+   the PII callout and the code-preview surfaces the shared atoms don't cover. */
+
+/* PII acknowledgment: a warn-toned callout (not a bare badge) so the gate
+   before copy/download reads as the deliberate review step it is. */
+.aiexport-callout {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  padding: var(--space-3);
+  border: 1px solid var(--warnBorder);
+  border-radius: var(--r-sm);
+  background: var(--warnBg);
+  color: var(--warn);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.aiexport-callout input {
+  margin-top: 2px;
+  flex: none;
+}
+
+.aiexport-error {
+  color: var(--danger);
+  font-size: 13px;
+}

@@ -1485,6 +1485,8 @@ export const en = {
   "aiexport.download": "Download .yaml",
   "aiexport.copyFailed": "Copy failed — use the preview or download instead.",
   "aiexport.close": "Close",
+  "aiexport.previewLabel": "Scenario preview",
+  "aiexport.responseLabel": "Model response",
 
   "countdown.minutesSeconds": "{minutes}m {seconds}s",
   "countdown.expired": "Expired",

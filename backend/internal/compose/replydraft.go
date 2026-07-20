@@ -23,10 +23,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
-const (
-	replyActivityMaxRunes = 12_000
-	replyDraftMaxTokens   = 1_000
-)
+const replyActivityMaxRunes = 12_000
 
 const replyDraftSystem = `Draft a professional email reply on behalf of the CRM user's company.
 Return ONLY a JSON object: {"subject":"...","body":"..."}.
@@ -121,7 +118,7 @@ func (d replyDrafter) complete(ctx context.Context, activity replyActivityData) 
 			Role:    chatRoleUser,
 			Content: "<activity_data>" + string(payload) + "</activity_data>",
 		}},
-		MaxTokens:      replyDraftMaxTokens,
+		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		ResponseSchema: replyDraftSchema,
 		SecretStripper: ai.NewSecretStripper(),
 	}

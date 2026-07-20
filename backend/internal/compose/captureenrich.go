@@ -118,7 +118,7 @@ func (e *CaptureEnricher) enrichOne(ctx context.Context, cand people.SignatureCa
 	req := model.Request{
 		System:         signatureEnrichSystem,
 		Messages:       []model.Message{{Role: chatRoleUser, Content: prompt.String()}},
-		MaxTokens:      512,
+		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		ResponseSchema: signatureEnrichSchema(),
 		SecretStripper: ai.NewSecretStripper(),
 	}
