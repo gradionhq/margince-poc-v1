@@ -55,7 +55,10 @@ func TestWireAiUsageCarriesEveryCounterAndTheBand(t *testing.T) {
 	days := []DayUsage{{
 		Day: day,
 		Tasks: []TaskUsage{
-			{Task: "capture_classify", Tier: "local_small", Calls: 4, CachedHits: 1, TokensIn: 900, TokensOut: 120},
+			{
+				Task: "capture_classify", Tier: "local_small", Calls: 4, CachedHits: 1, TokensIn: 900, TokensOut: 120,
+				CostEstMicroUSD: 32_500, UnpricedCalls: 0,
+			},
 			{Task: "enrich", Tier: "cheap_cloud", Calls: 2, TokensIn: 300, TokensOut: 80},
 		},
 	}}
@@ -72,15 +75,70 @@ func TestWireAiUsageCarriesEveryCounterAndTheBand(t *testing.T) {
 		first.Calls != 4 || *first.CachedHits != 1 || first.TokensIn != 900 || first.TokensOut != 120 {
 		t.Fatalf("first task line dropped a counter: %+v", first)
 	}
-	if first.CostEstMinor != nil {
-		t.Fatalf("no cost rates are configured — cost_est_minor must be omitted, got %d", *first.CostEstMinor)
+	// A priced rate (32_500 micro-USD = 3 cents, truncating) reports its
+	// cost even though this line's UnpricedCalls is 0.
+	if first.CostEstMinor == nil || *first.CostEstMinor != 3 {
+		t.Fatalf("cost_est_minor = %v, want 3 (32_500 microUSD / 10_000)", first.CostEstMinor)
+	}
+	// The second line carries no cost data at all (CostEstMicroUSD and
+	// UnpricedCalls both zero-value, the "genuinely free" reading, not
+	// "entirely unpriced") — cost_est_minor reports the honest 0.
+	second := wire.Days[0].Tasks[1]
+	if second.CostEstMinor == nil || *second.CostEstMinor != 0 {
+		t.Fatalf("cost_est_minor = %v, want 0 (zero cost, zero unpriced calls — genuinely free, not unpriced)", second.CostEstMinor)
 	}
 	if wire.Budget.MonthlyTokens != 12_000_000 || wire.Budget.SpentTokens != 1_400 ||
 		string(wire.Budget.Band) != BandNormal {
 		t.Fatalf("budget block mismatch: %+v", wire.Budget)
 	}
+	if wire.Budget.Currency == nil || *wire.Budget.Currency != "USD" {
+		t.Fatalf("budget.currency = %v, want USD", wire.Budget.Currency)
+	}
 	if wire.Budget.BandSince != nil {
 		t.Fatalf("band transitions are not tracked — band_since must be omitted")
+	}
+}
+
+// TestWireAiUsageOmitsCostForAnEntirelyUnpricedTask proves the
+// price-on-read honesty rule (ADR-0067, global constraint "cost is
+// transparency, never a gate"): a task line whose window cost is 0
+// because every one of its calls lacked a matching rate row — not
+// because the calls were free — must omit cost_est_minor rather than
+// report a fabricated 0.
+func TestWireAiUsageOmitsCostForAnEntirelyUnpricedTask(t *testing.T) {
+	days := []DayUsage{{
+		Day: time.Date(2026, time.July, 16, 0, 0, 0, 0, time.UTC),
+		Tasks: []TaskUsage{
+			{
+				Task: "summarize", Tier: "premium", Calls: 3, TokensIn: 500, TokensOut: 100,
+				CostEstMicroUSD: 0, UnpricedCalls: 3,
+			},
+		},
+	}}
+	wire := wireAiUsage(days, BudgetStatus{})
+	if got := wire.Days[0].Tasks[0].CostEstMinor; got != nil {
+		t.Fatalf("cost_est_minor = %d, want omitted (nil) — every call in this task/day was unpriced", *got)
+	}
+}
+
+// TestWireAiUsageReportsPartialCostWhenSomeCallsAreUnpriced proves the
+// other half of the rule: a task line with a real, non-zero priced total
+// reports it even when some of the same window's calls had no rate — a
+// partial dollar figure is honest, a fabricated 0 is not.
+func TestWireAiUsageReportsPartialCostWhenSomeCallsAreUnpriced(t *testing.T) {
+	days := []DayUsage{{
+		Day: time.Date(2026, time.July, 16, 0, 0, 0, 0, time.UTC),
+		Tasks: []TaskUsage{
+			{
+				Task: "summarize", Tier: "premium", Calls: 3, TokensIn: 500, TokensOut: 100,
+				CostEstMicroUSD: 50_000, UnpricedCalls: 1,
+			},
+		},
+	}}
+	wire := wireAiUsage(days, BudgetStatus{})
+	got := wire.Days[0].Tasks[0].CostEstMinor
+	if got == nil || *got != 5 {
+		t.Fatalf("cost_est_minor = %v, want 5 (50_000 microUSD / 10_000) despite 1 unpriced call in the same line", got)
 	}
 }
 

@@ -248,9 +248,13 @@ func TestCostReportPricesTheWindowAndCountsUnpriced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	byTask := make(map[Task]TaskCost, len(report))
-	for _, tc := range report {
-		byTask[tc.Task] = tc
+	// Every fixture call lands on the same calendar day (inWindow ± a few
+	// hours), so CostReport's (day, task) grouping collapses to one line
+	// per task here — the day dimension is proven separately by
+	// TestCostReportGroupsByCalendarDay below.
+	byTask := make(map[Task]DayCost, len(report))
+	for _, dc := range report {
+		byTask[dc.Task] = dc
 	}
 
 	// Row-by-row cross-check: the aggregate SQL's arithmetic must equal
@@ -264,7 +268,7 @@ func TestCostReportPricesTheWindowAndCountsUnpriced(t *testing.T) {
 
 	summarize, ok := byTask[TaskSummarize]
 	if !ok {
-		t.Fatal("no TaskCost line for summarize")
+		t.Fatal("no DayCost line for summarize")
 	}
 	if summarize.CostMicroUSD != wantSummarizeCost {
 		t.Errorf("summarize cost = %d, want %d (PriceCall cross-check)", summarize.CostMicroUSD, wantSummarizeCost)
@@ -272,16 +276,68 @@ func TestCostReportPricesTheWindowAndCountsUnpriced(t *testing.T) {
 	if summarize.UnpricedCalls != 1 {
 		t.Errorf("summarize unpriced_calls = %d, want 1 (only the no-rate-model, real-usage, non-cache-hit row)", summarize.UnpricedCalls)
 	}
+	if summarize.Day.Format(time.DateOnly) != f.priced.occurredAt.Format(time.DateOnly) {
+		t.Errorf("summarize day = %s, want %s", summarize.Day.Format(time.DateOnly), f.priced.occurredAt.Format(time.DateOnly))
+	}
 
 	enrich, ok := byTask[TaskEnrich]
 	if !ok {
-		t.Fatal("no TaskCost line for enrich")
+		t.Fatal("no DayCost line for enrich")
 	}
 	if enrich.CostMicroUSD != wantEnrichCost {
 		t.Errorf("enrich cost = %d, want %d (PriceCall cross-check)", enrich.CostMicroUSD, wantEnrichCost)
 	}
 	if enrich.UnpricedCalls != 0 {
 		t.Errorf("enrich unpriced_calls = %d, want 0", enrich.UnpricedCalls)
+	}
+}
+
+// TestCostReportGroupsByCalendarDay proves the grouping's other
+// dimension: two calls for the same task and rate on different days
+// price into two separate DayCost lines, never one window total — the
+// grain AIRT-WIRE-1's /ai/usage merge (usage.go) depends on to attach
+// cost onto the right day's task row.
+func TestCostReportGroupsByCalendarDay(t *testing.T) {
+	e := setupRateStore(t)
+	ctx := context.Background()
+	ws, wsCtx := e.seedWorkspace(ctx, t)
+
+	rate := ModelRate{
+		Provider: providerAnthropic, ModelID: "claude-test-model",
+		InputPerMTokMicroUSD: 5_000_000, OutputPerMTokMicroUSD: 25_000_000,
+		EffectiveDate: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+	e.insertRate(ctx, t, ws, rate)
+
+	day1 := time.Date(2026, 2, 5, 10, 0, 0, 0, time.UTC)
+	day2 := time.Date(2026, 2, 6, 10, 0, 0, 0, time.UTC)
+	e.insertCall(ctx, t, ws, callFixture{
+		task: TaskSummarize, provider: providerAnthropic, model: "claude-test-model",
+		tokensIn: 100, tokensOut: 10, occurredAt: day1,
+	})
+	e.insertCall(ctx, t, ws, callFixture{
+		task: TaskSummarize, provider: providerAnthropic, model: "claude-test-model",
+		tokensIn: 300, tokensOut: 30, occurredAt: day2,
+	})
+
+	report, err := e.store.CostReport(wsCtx, time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report) != 2 {
+		t.Fatalf("report has %d lines, want 2 (one per day)", len(report))
+	}
+	byDay := make(map[string]DayCost, len(report))
+	for _, dc := range report {
+		byDay[dc.Day.Format(time.DateOnly)] = dc
+	}
+	want1 := PriceCall(Usage{TokensIn: 100, TokensOut: 10}, rate)
+	want2 := PriceCall(Usage{TokensIn: 300, TokensOut: 30}, rate)
+	if got, ok := byDay["2026-02-05"]; !ok || got.CostMicroUSD != want1 {
+		t.Errorf("day1 = %+v, want cost %d", got, want1)
+	}
+	if got, ok := byDay["2026-02-06"]; !ok || got.CostMicroUSD != want2 {
+		t.Errorf("day2 = %+v, want cost %d", got, want2)
 	}
 }
 

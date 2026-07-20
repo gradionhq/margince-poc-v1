@@ -5503,13 +5503,15 @@ type AgentToolListResponse struct {
 	Data []AgentTool `json:"data"`
 }
 
-// AiUsage AI usage + budget (AIRT-WIRE-1): the AIRT-PARAM-33 meter aggregated per day × task × tier, plus the budget band. Token-denominated; cost_minor is the estimate at the configured tier's rate (0 when local).
+// AiUsage AI usage + budget (AIRT-WIRE-1): the AIRT-PARAM-33 meter aggregated per day × task × tier, plus the budget band. Token-denominated; cost_est_minor is computed on read from the workspace's ai_model_rate price sheet as of each call's day (ADR-0067, price-on-read) — omitted, never a fabricated 0, when a task line's window carries no priced call.
 type AiUsage struct {
 	Budget struct {
 		// Band < 80% / 80–100% soft-degrade / ≥ 100% non-interactive queued (AIRT-PARAM-9..11).
 		Band      AiUsageBudgetBand `json:"band"`
 		BandSince *time.Time        `json:"band_since,omitempty"`
-		Currency  *string           `json:"currency,omitempty"`
+
+		// Currency ISO-4217 of cost_est_minor — always USD in phase 1 (ADR-0067).
+		Currency *string `json:"currency,omitempty"`
 
 		// MonthlyTokens seats × base × safety factor (AIRT-PARAM-8).
 		MonthlyTokens int `json:"monthly_tokens"`
@@ -5520,8 +5522,10 @@ type AiUsage struct {
 	Days []struct {
 		Date  openapi_types.Date `json:"date"`
 		Tasks []struct {
-			CachedHits   *int `json:"cached_hits,omitempty"`
-			Calls        int  `json:"calls"`
+			CachedHits *int `json:"cached_hits,omitempty"`
+			Calls      int  `json:"calls"`
+
+			// CostEstMinor USD minor units (cents), estimated on read from ai_model_rate at each call's day (ADR-0067). Omitted, not 0, when none of this line's calls priced.
 			CostEstMinor *int `json:"cost_est_minor,omitempty"`
 
 			// Task capture_classify, enrich, summarize, …

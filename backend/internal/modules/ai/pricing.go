@@ -47,12 +47,15 @@ func PriceCall(u Usage, r ModelRate) int64 {
 	return total / 1_000_000
 }
 
-// TaskCost is one task's computed window cost (CostReport's per-task
-// line): the priced total plus how many of the window's calls had no
-// matching rate row and so contributed nothing to it — unpriced is
-// always a visible count, never a silent 0 (global constraint: cost is
-// transparency, never a gate).
-type TaskCost struct {
+// DayCost is one (calendar day, task) computed cost line (CostReport's
+// grouping grain): the priced total for that day's calls plus how many
+// of them had no matching rate row and so contributed nothing to it —
+// unpriced is always a visible count, never a silent 0 (global
+// constraint: cost is transparency, never a gate). Day-grained so
+// AIRT-WIRE-1's /ai/usage report — itself day × task × tier — can attach
+// cost onto its existing rows without a second money computation.
+type DayCost struct {
+	Day           time.Time
 	Task          Task
 	CostMicroUSD  int64
 	UnpricedCalls int64
