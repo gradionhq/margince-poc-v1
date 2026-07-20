@@ -117,10 +117,24 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
+      # Cache the compiled gate binaries. `make tools` compiles golangci-lint,
+      # go-arch-lint, govulncheck, and oasdiff from source into ~/go/bin — ~75s
+      # that setup-go's module/build cache does not cover (it caches ~/go/pkg/mod
+      # and ~/.cache/go-build, not installed binaries). The four pinned versions
+      # live in backend/Makefile, so keying on its hash rebuilds only when a
+      # version bump changes that file; a hit skips the compile entirely.
+      - name: Cache the gate binaries
+        id: gate-binaries
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ~/go/bin
+          key: gate-binaries-${{ runner.os }}-${{ hashFiles('backend/Makefile') }}
       # Install the pinned gate binaries (golangci-lint, go-arch-lint, oasdiff) so
       # `make check` runs golangci and the oasdiff contract gate itself — one run
       # of every gate, instead of the golangci-lint-action + per-gate steps that
-      # `make check` then re-ran as its prerequisites.
+      # `make check` then re-ran as its prerequisites. On a cache hit `go install
+      # ...@version` finds each binary already current and skips the compile, so
+      # the step is near-instant; the PATH export runs regardless.
       - name: Install the pinned gate binaries
         working-directory: .
         run: |
