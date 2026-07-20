@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { LocaleProvider } from "../i18n";
 import {
   canManageCustomFields,
+  isConsentNotGranted,
   problemExistingId,
   throwProblem,
 } from "./common";
@@ -84,6 +85,15 @@ describe("CreateAction dedupe link", () => {
     );
     await userEvent.click(screen.getByText("View existing record"));
     await waitFor(() => expect(window.location.hash).toBe("#/contacts/01ABC"));
+  });
+});
+
+describe("isConsentNotGranted", () => {
+  it("detects the consent gate 409 code", () => {
+    expect(isConsentNotGranted({ code: "consent_not_granted" })).toBe(true);
+    expect(isConsentNotGranted({ code: "version_skew" })).toBe(false);
+    expect(isConsentNotGranted(null)).toBe(false);
+    expect(isConsentNotGranted("nope")).toBe(false);
   });
 });
 
