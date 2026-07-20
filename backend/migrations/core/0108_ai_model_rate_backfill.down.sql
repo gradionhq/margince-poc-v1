@@ -12,7 +12,9 @@ WHERE effective_date = DATE '2026-07-20'
     ('gemini', 'gemini-2.5-pro'),
     ('gemini', 'gemini-2.5-flash'),
     ('openai', 'gpt-5-mini'),
+    ('gemini', 'gemini-embedding-001'),
     ('ollama', 'gemma3'),
     ('vllm', 'google/gemma-3-12b-it'),
+    ('ollama', 'bge-m3'),
     ('fake', '')
   );

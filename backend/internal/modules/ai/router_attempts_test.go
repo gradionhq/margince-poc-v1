@@ -169,6 +169,77 @@ func TestEmbedRecordsOneTerminalEmbeddingCall(t *testing.T) {
 	}
 }
 
+// TestEmbedTraceTokensMatchMeteredUsage proves the I1 fix: the embed
+// lane's ai_call trace row carries the SAME token estimate the meter
+// records for the identical call, instead of a hardcoded 0. Before the
+// fix, CostReport treated a zero-usage trace as free-by-construction (the
+// "call failed before reaching the provider" case), so a paid embedding
+// model priced to a silent $0 even though ai_usage showed real tokens —
+// this test pins the trace and the meter to the same nonzero number so
+// that misreading can't recur.
+func TestEmbedTraceTokensMatchMeteredUsage(t *testing.T) {
+	fcs := &fakeCallStore{}
+	meter := &memMeter{}
+	embedder := NewFakeClient()
+	r := assembleRouter(
+		map[Tier]model.Client{}, embedder, ProfileEUHosted, meter, DefaultMonthlyTokens, fcs,
+		map[Tier]routeMeta{TierEmbedLane: {provider: "gemini", model: "gemini-embedding-001"}},
+		false, nil,
+	)
+	inputs := []string{"a fairly long note to embed, long enough to estimate a nonzero token count"}
+	if _, err := r.Embed(wsCtx(), model.EmbedRequest{Inputs: inputs}); err != nil {
+		t.Fatalf("embed: %v", err)
+	}
+	wantTokens := embedTokenEstimate(inputs)
+	if wantTokens == 0 {
+		t.Fatal("test fixture input estimates to 0 tokens — fixture bug, strengthen the input")
+	}
+
+	if len(fcs.recorded) != 1 {
+		t.Fatalf("want exactly 1 recorded call, got %d: %+v", len(fcs.recorded), fcs.recorded)
+	}
+	trace := fcs.recorded[0]
+	if trace.TokensIn != wantTokens {
+		t.Fatalf("trace.TokensIn = %d, want %d (embedTokenEstimate) — the trace row must not read zero-usage while the meter charges real tokens", trace.TokensIn, wantTokens)
+	}
+	if trace.TokensOut != 0 || trace.CachedTokens != 0 || trace.CacheWriteTokens != 0 {
+		t.Fatalf("embed trace must stay input-only, got %+v", trace)
+	}
+
+	if len(meter.records) != 1 {
+		t.Fatalf("want exactly 1 metered usage record, got %d: %+v", len(meter.records), meter.records)
+	}
+	if meter.records[0].TokensIn != trace.TokensIn {
+		t.Fatalf("meter TokensIn = %d, trace TokensIn = %d — the two must agree on what the call cost", meter.records[0].TokensIn, trace.TokensIn)
+	}
+}
+
+// TestEmbedTraceStaysZeroUsageOnFailure proves the failure path is
+// untouched by the fix: a call that never reached the provider still
+// traces as free-by-construction (tokens_in=0), the same as before —
+// only a SUCCESSFUL embed call gets the token estimate stamped onto its
+// trace.
+func TestEmbedTraceStaysZeroUsageOnFailure(t *testing.T) {
+	fcs := &fakeCallStore{}
+	r := assembleRouter(
+		// stubClient.Embed always errors regardless of its resp/err fields
+		// (router_tracing_test.go) — exactly the "never reaches the
+		// provider" case this test needs.
+		map[Tier]model.Client{}, stubClient{}, ProfileEUHosted, &memMeter{}, DefaultMonthlyTokens, fcs,
+		map[Tier]routeMeta{TierEmbedLane: {provider: "gemini", model: "gemini-embedding-001"}},
+		false, nil,
+	)
+	if _, err := r.Embed(wsCtx(), model.EmbedRequest{Inputs: []string{"note that never reaches the provider"}}); err == nil {
+		t.Fatal("expected the embed call to fail")
+	}
+	if len(fcs.recorded) != 1 {
+		t.Fatalf("want exactly 1 recorded call, got %d: %+v", len(fcs.recorded), fcs.recorded)
+	}
+	if got := fcs.recorded[0].TokensIn; got != 0 {
+		t.Fatalf("a failed embed call must trace as zero-usage (free by construction), got TokensIn=%d", got)
+	}
+}
+
 // TestMetricsCountOneCallPerLogicalCallNotPerAttempt is the Prometheus half
 // of the grain change: margince_ai_calls_total must bump once per served-or-
 // failed decision, not once per ladder rung it took to get there — a

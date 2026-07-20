@@ -120,6 +120,16 @@ func SeedModelRates(effective time.Time) []ModelRate {
 		// the reported cost.
 		rate(providerOpenAI, "gpt-5-mini", 750_000, 4_500_000, 75_000, 0),
 
+		// Gemini embeddings: config/ai-routing.example.yaml's default
+		// embeddings binding (`{ provider: gemini, model:
+		// gemini-embedding-001 }`). Embeddings have no output and no cache
+		// — only the input rate is nonzero. NEEDS OPERATOR CONFIRMATION:
+		// gemini-embedding-001 is priced here at $0.15/MTok input (verified
+		// 2026-07-20 against https://ai.google.dev/gemini-api/docs/pricing);
+		// an operator relying on this cost should reconfirm against the
+		// live sheet the same way the gpt-5-mini row above asks for.
+		rate(providerGemini, "gemini-embedding-001", 150_000, 0, 0, 0),
+
 		// Local/offline providers: explicit zero rows so a local deployment
 		// prices as an honest 0, never "unpriced". Keyed on each provider's
 		// own unbound-tier default model id (selectbrain.go) — an operator
@@ -127,6 +137,13 @@ func SeedModelRates(effective time.Time) []ModelRate {
 		// same fx_rate-style way they'd correct any other price.
 		rate(providerOllama, defaultOllamaModel, 0, 0, 0, 0),
 		rate(providerVLLM, defaultVLLMModel, 0, 0, 0, 0),
+		// bge-m3 is the local embedding model config/ai-routing.example.yaml
+		// names for a fully-local embedder (`{ provider: ollama, model:
+		// bge-m3 }`, ADR-0012's local-embed alternative) — a distinct model
+		// id from defaultOllamaModel above (that one is the unbound CHAT
+		// tier's default, gemma3, which is not an embedding model), so it
+		// needs its own explicit zero row.
+		rate(providerOllama, "bge-m3", 0, 0, 0, 0),
 		// The offline fake provider carries no model id of its own — a
 		// binding that omits `model:` (the common case: `{provider: fake}`)
 		// resolves to model_id "" (routeMeta.model = cfg.Model, unmodified).

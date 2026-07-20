@@ -32,8 +32,10 @@ CROSS JOIN (VALUES
   ('gemini',    'gemini-2.5-pro',            1250000::bigint, 10000000::bigint, 125000::bigint,       0::bigint),
   ('gemini',    'gemini-2.5-flash',           300000::bigint,  2500000::bigint,  30000::bigint,       0::bigint),
   ('openai',    'gpt-5-mini',                 750000::bigint,  4500000::bigint,  75000::bigint,       0::bigint),
+  ('gemini',    'gemini-embedding-001',       150000::bigint,        0::bigint,      0::bigint,       0::bigint),
   ('ollama',    'gemma3',                           0::bigint,        0::bigint,      0::bigint,       0::bigint),
   ('vllm',      'google/gemma-3-12b-it',            0::bigint,        0::bigint,      0::bigint,       0::bigint),
+  ('ollama',    'bge-m3',                           0::bigint,        0::bigint,      0::bigint,       0::bigint),
   ('fake',      '',                                 0::bigint,        0::bigint,      0::bigint,       0::bigint)
 ) AS v(provider, model_id, input_microusd, output_microusd, cache_read_microusd, cache_write_microusd)
 ON CONFLICT (workspace_id, provider, model_id, effective_date) DO NOTHING;

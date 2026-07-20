@@ -412,6 +412,76 @@ func TestCostReportGroupsByTierNotJustTask(t *testing.T) {
 	}
 }
 
+// TestCostReportPricesEmbeddingCallsHonestly is the integration proof for
+// the I1 fix (router.go's Embed now stamps the meter's token estimate
+// onto the trace row instead of leaving it 0): a genuinely paid
+// embedding call — tokens_in > 0, tokens_out = 0, exactly the shape
+// router.Embed traces post-fix — must price against its rate like any
+// other call, never fall into the free-by-construction exemption (that
+// exemption is reserved for tokens_in = 0 AND tokens_out = 0, the "never
+// reached the provider" case). It also proves the honest-0 side: a local
+// embed model's seeded all-zero rate prices to 0 AND does not count as
+// unpriced (a rate row exists — it is just $0), while a genuinely unrated
+// model still counts unpriced. Rates come from the real SeedModelRates
+// sheet, not hand-rolled fixture rates, so this also proves the seed rows
+// this fix added (gemini-embedding-001, ollama/bge-m3) actually resolve.
+func TestCostReportPricesEmbeddingCallsHonestly(t *testing.T) {
+	e := setupRateStore(t)
+	ctx := context.Background()
+	ws, wsCtx := e.seedWorkspace(ctx, t)
+
+	effective := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
+	for _, r := range SeedModelRates(effective) {
+		e.insertRate(ctx, t, ws, r)
+	}
+
+	day := time.Date(2026, 8, 1, 9, 0, 0, 0, time.UTC)
+	from := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC)
+
+	// Paid embedding call: gemini-embedding-001 has a seeded nonzero input
+	// rate. tokens_out stays 0 — embeddings have no output.
+	e.insertCall(ctx, t, ws, callFixture{
+		task: TaskEmbeddings, tier: TierEmbedLane, provider: providerGemini, model: "gemini-embedding-001",
+		tokensIn: 10_000, occurredAt: day,
+	})
+	// Local/offline embedding call: bge-m3 has a seeded ALL-ZERO rate — it
+	// must price to 0 but must NOT count as unpriced (a rate row exists).
+	e.insertCall(ctx, t, ws, callFixture{
+		task: TaskEmbeddings, tier: TierEmbedLane, provider: providerOllama, model: "bge-m3",
+		tokensIn: 10_000, occurredAt: day.Add(time.Hour),
+	})
+	// Unrated embedding call: no seed row for this model at all — must
+	// come back unpriced, never a silent 0.
+	e.insertCall(ctx, t, ws, callFixture{
+		task: TaskEmbeddings, tier: TierEmbedLane, provider: providerGemini, model: "gemini-embedding-999-unreleased",
+		tokensIn: 10_000, occurredAt: day.Add(2 * time.Hour),
+	})
+
+	report, err := e.store.CostReport(wsCtx, from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report) != 1 {
+		t.Fatalf("report has %d lines, want 1 (all three calls share day+task+tier): %+v", len(report), report)
+	}
+	line := report[0]
+	if line.Task != TaskEmbeddings || line.Tier != TierEmbedLane {
+		t.Fatalf("unexpected report line: %+v", line)
+	}
+
+	wantGeminiCost := PriceCall(Usage{TokensIn: 10_000}, ModelRate{InputPerMTokMicroUSD: 150_000})
+	if wantGeminiCost <= 0 {
+		t.Fatal("test fixture bug: expected gemini-embedding-001's priced cost to be > 0")
+	}
+	if line.CostMicroUSD != wantGeminiCost {
+		t.Errorf("cost_microusd = %d, want %d (gemini-embedding-001's real rate — before the I1 fix this read 0, a silent misleading free)", line.CostMicroUSD, wantGeminiCost)
+	}
+	if line.UnpricedCalls != 1 {
+		t.Errorf("unpriced_calls = %d, want 1 (only the model with no seed rate at all — bge-m3's zero rate is a REAL price, not unpriced)", line.UnpricedCalls)
+	}
+}
+
 func TestRateAndCallVisibilityIsScopedByWorkspaceRLS(t *testing.T) {
 	e := setupRateStore(t)
 	ctx := context.Background()
