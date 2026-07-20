@@ -1386,6 +1386,47 @@ export const de = {
   "settings.tab.catalog": "Katalog",
   "settings.tab.privacy": "Datenschutz & Einwilligung",
   "settings.tab.audit": "Audit-Log",
+  "settings.tab.voice": "Voice DNA",
+  "settings.group.you": "Deine Einstellungen",
+  "settings.group.org": "Organisation",
+  "settings.voice.title": "Voice DNA",
+  "settings.voice.intro":
+    "Deine persönliche Schreibstimme. Sie prägt Entwürfe, die für dich gemacht werden, bleibt privat und lernt nur aus Quellen, die du hinzufügst.",
+  "settings.voice.emptyTitle": "Noch keine Voice DNA",
+  "settings.voice.emptyBody":
+    "Füg unten ein paar Schreibproben hinzu und bau deine Voice DNA — oder mach es beim Onboarding.",
+  "settings.voice.status.collecting": "Sammelt",
+  "settings.voice.status.ready": "Bereit",
+  "settings.voice.status.stale": "Neuaufbau nötig",
+  "settings.voice.bandThin": "dünn",
+  "settings.voice.bandGood": "gut",
+  "settings.voice.bandRich": "dicht",
+  "settings.voice.bandSharp": "scharf",
+  "settings.voice.version": "Version {n}",
+  "settings.voice.derivedLabel": "Deine abgeleitete Stimme",
+  "settings.voice.derivedEmpty":
+    "Noch nicht gebaut — füg Proben hinzu und bau, um deine abgeleitete Stimme zu sehen.",
+  "settings.voice.personalityLabel": "Deine Vorgaben",
+  "settings.voice.personalityPlaceholder":
+    "Notizen dazu, wie du klingen willst — genau so behalten, wie du sie schreibst; das Modell überschreibt das nie.",
+  "settings.voice.savePreferences": "Vorgaben speichern",
+  "settings.voice.corpusLabel": "Schreibproben",
+  "settings.voice.corpusEmpty": "Noch keine Proben.",
+  "settings.voice.excluded": "ausgeschlossen",
+  "settings.voice.removeSource": "Probe entfernen",
+  "settings.voice.pastedLabel": "Eingefügter Text",
+  "settings.voice.addPlaceholder":
+    "Füg eine E-Mail, einen Post oder etwas Geschriebenes ein…",
+  "settings.voice.addSource": "Probe hinzufügen",
+  "settings.voice.building": "Baue…",
+  "settings.voice.rebuild": "Voice DNA neu bauen",
+  "settings.voice.buildStatus.succeeded": "Voice DNA aktualisiert.",
+  "settings.voice.buildStatus.failed":
+    "Der Aufbau ist nicht fertig geworden — versuch es noch mal.",
+  "settings.voice.buildStatus.deferred":
+    "In der Warteschlange — sie wird gleich fertig und aktualisiert sich automatisch.",
+  "settings.voice.buildStatus.pending":
+    "Wird noch gebaut — das kann einen Moment dauern; es aktualisiert sich hier, sobald es fertig ist.",
   "settings.companyKicker": "Firmenwissen",
   "settings.companyTitle": "Was Margince über dein Unternehmen weiß",
   "settings.companySub":
