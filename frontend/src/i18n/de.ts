@@ -1388,6 +1388,8 @@ export const de = {
     "Der Aufbau ist nicht fertig geworden — versuch es noch mal.",
   "settings.voice.buildStatus.deferred":
     "In der Warteschlange — sie wird gleich fertig und aktualisiert sich automatisch.",
+  "settings.voice.buildStatus.pending":
+    "Wird noch gebaut — das kann einen Moment dauern; es aktualisiert sich hier, sobald es fertig ist.",
   "settings.companyKicker": "Firmenwissen",
   "settings.companyTitle": "Was Margince über dein Unternehmen weiß",
   "settings.companySub":

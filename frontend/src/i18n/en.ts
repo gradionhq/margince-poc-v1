@@ -1361,6 +1361,8 @@ export const en = {
   "settings.voice.buildStatus.failed": "The build didn't finish — try again.",
   "settings.voice.buildStatus.deferred":
     "Queued — it'll finish shortly and update automatically.",
+  "settings.voice.buildStatus.pending":
+    "Still building — this can take a moment; it'll update here when it's done.",
   "settings.companyKicker": "Company intelligence",
   "settings.companyTitle": "What Margince knows about your company",
   "settings.companySub":

@@ -310,12 +310,14 @@ function BuildControls({
 }: Readonly<{ profile: VoiceProfile; onBuilt: () => void }>) {
   const t = useT();
   const [status, setStatus] = useState<
-    "succeeded" | "failed" | "deferred" | null
+    "succeeded" | "failed" | "deferred" | "pending" | null
   >(null);
   const [error, setError] = useState<string | null>(null);
 
   const build = useMutation({
-    mutationFn: async (): Promise<"succeeded" | "failed" | "deferred"> => {
+    mutationFn: async (): Promise<
+      "succeeded" | "failed" | "deferred" | "pending"
+    > => {
       const created = await api.POST("/voice-profiles/{id}/builds", {
         params: { path: { id: profile.id as string } },
         body: { reason: "manual" },
@@ -343,7 +345,9 @@ function BuildControls({
           globalThis.setTimeout(resolve, 1500);
         });
       }
-      return "deferred";
+      // Still queued/running after the poll budget — honestly "pending", not
+      // "deferred" (which specifically means the AI budget snoozed it).
+      return "pending";
     },
     onSuccess: (finalStatus) => {
       setStatus(finalStatus);
