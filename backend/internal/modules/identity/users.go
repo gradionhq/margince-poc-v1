@@ -24,6 +24,13 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// userStatusActive is the app_user.status an invited/reactivated member holds;
+// userAuditKeyStatus is the audit before/after image key for that column.
+const (
+	userStatusActive   = "active"
+	userAuditKeyStatus = "status"
+)
+
 // InviteUserInput carries the admin-supplied details for a new member. No
 // password is set here — the invite issues a single-use set-password token.
 type InviteUserInput struct {
@@ -83,12 +90,12 @@ func (s *Service) InviteUser(ctx context.Context, actor Identity, in InviteUserI
 			return err
 		}
 		auditID, err := storekit.Audit(ctx, tx, "create", "user", newUserID.UUID,
-			nil, map[string]any{"email": in.Email, "role": in.Role, "status": "active"})
+			nil, map[string]any{"email": in.Email, "role": in.Role, userAuditKeyStatus: userStatusActive})
 		if err != nil {
 			return err
 		}
 		return storekit.Emit(ctx, tx, auditID, "user.invited", "user", newUserID.UUID,
-			map[string]any{"user_id": newUserID, "role": in.Role, "by": actor.UserID})
+			map[string]any{onboardingAuditUserID: newUserID, "role": in.Role, "by": actor.UserID})
 	})
 	if err != nil {
 		return ids.UserID{}, "", err
@@ -115,7 +122,7 @@ func (s *Service) ReactivateUser(ctx context.Context, actor Identity, userID ids
 		if err != nil {
 			return err
 		}
-		if status == "active" {
+		if status == userStatusActive {
 			return nil
 		}
 		if _, err := tx.Exec(ctx,
@@ -123,12 +130,12 @@ func (s *Service) ReactivateUser(ctx context.Context, actor Identity, userID ids
 			return err
 		}
 		auditID, err := storekit.Audit(ctx, tx, "update", "user", userID.UUID,
-			map[string]any{"status": status}, map[string]any{"status": "active"})
+			map[string]any{userAuditKeyStatus: status}, map[string]any{userAuditKeyStatus: userStatusActive})
 		if err != nil {
 			return err
 		}
 		return storekit.Emit(ctx, tx, auditID, "user.reactivated", "user", userID.UUID,
-			map[string]any{"user_id": userID, "by": actor.UserID})
+			map[string]any{onboardingAuditUserID: userID, "by": actor.UserID})
 	})
 }
 
@@ -206,7 +213,7 @@ func (s *Service) DeactivateUser(ctx context.Context, actor Identity, in Deactiv
 			return err
 		}
 		auditID, err := storekit.Audit(ctx, tx, "update", "user", in.UserID.UUID,
-			map[string]any{"status": status}, map[string]any{"status": "deactivated"})
+			map[string]any{userAuditKeyStatus: status}, map[string]any{userAuditKeyStatus: "deactivated"})
 		if err != nil {
 			return err
 		}
