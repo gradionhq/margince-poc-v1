@@ -238,7 +238,7 @@ export function AttainmentRing({
   const fraction = Math.min(pct / 100, 1);
   const offset = circumference * (1 - fraction);
   return (
-    <div className="ring">
+    <div className="attain-ring">
       <svg width={160} height={160} viewBox="0 0 160 160" aria-hidden="true">
         <circle
           cx={80}
@@ -260,9 +260,9 @@ export function AttainmentRing({
           strokeDashoffset={offset}
         />
       </svg>
-      <div className="ring-center">
-        <span className="ring-pct t-mono">{Math.round(pct)}%</span>
-        <span className="ring-lbl">{caption}</span>
+      <div className="attain-ring-center">
+        <span className="attain-ring-pct t-mono">{Math.round(pct)}%</span>
+        <span className="attain-ring-lbl">{caption}</span>
       </div>
     </div>
   );

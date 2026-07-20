@@ -10,6 +10,7 @@ import { ArchiveAction } from "./archive";
 import { ProblemError, throwProblem } from "./common";
 import { EditAction } from "./edit";
 import { useRoster } from "./entityref";
+import "./quotas.css";
 
 // The quota target write surface: create (owner-XOR-team side picker), edit
 // (reassign within the fixed side), and archive. Split out of quotas.tsx so
@@ -112,7 +113,9 @@ function SetTargetModal({
           period_start: periodStart,
           period_end: periodEnd,
           target_minor: parseEuroMinor(amount),
-          currency: currency.trim(),
+          // Currency is a 3-letter uppercase code on the wire (^[A-Z]{3}$);
+          // normalise a lowercase entry rather than bounce it off the server.
+          currency: currency.trim().toUpperCase(),
         },
       });
       if (error) throwProblem(error);
@@ -369,7 +372,7 @@ export function EditTargetAction({
             period_start: String(values.period_start),
             period_end: String(values.period_end),
             target_minor: parseEuroMinor(String(values.amount ?? "")),
-            currency: String(values.currency),
+            currency: String(values.currency).trim().toUpperCase(),
           },
         });
         if (error) throwProblem(error);
