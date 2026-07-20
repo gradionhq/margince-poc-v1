@@ -11,7 +11,7 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
-import { ComposeModal, RelinkModal } from "./compose";
+import { ComposeModal, RelinkModal, TimelineActions } from "./compose";
 
 type Activity = components["schemas"]["Activity"];
 
@@ -390,5 +390,71 @@ describe("ComposeModal", () => {
 
     expect(await screen.findByText(/Sending is unavailable/i)).toBeTruthy();
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe("TimelineActions", () => {
+  const emailLinked: Activity = {
+    ...activity202,
+    id: "a1",
+    kind: "email",
+    links: [{ entity_type: "deal", entity_id: "d1" }],
+  };
+  const noteLinked: Activity = {
+    ...activity202,
+    id: "a2",
+    kind: "note",
+    links: [{ entity_type: "deal", entity_id: "d1" }],
+  };
+  const noteBare: Activity = {
+    ...activity202,
+    id: "a3",
+    kind: "note",
+    links: [],
+  };
+
+  it("offers Reply on email rows and Relink on linked rows", () => {
+    stubRoutes();
+    render(
+      <TimelineActions
+        activity={emailLinked}
+        entityType="deal"
+        entityId="d1"
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Reply" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Relink" })).toBeTruthy();
+  });
+
+  it("offers Relink but not Reply on a linked non-email row", () => {
+    stubRoutes();
+    render(
+      <TimelineActions activity={noteLinked} entityType="deal" entityId="d1" />,
+    );
+    expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Relink" })).toBeTruthy();
+  });
+
+  it("renders nothing for a bare note with no links", () => {
+    stubRoutes();
+    render(
+      <TimelineActions activity={noteBare} entityType="deal" entityId="d1" />,
+    );
+    expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Relink" })).toBeNull();
+  });
+
+  it("opens the composer when Reply is clicked", async () => {
+    stubRoutes();
+    render(
+      <TimelineActions
+        activity={emailLinked}
+        entityType="deal"
+        entityId="d1"
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Reply" }));
+    // The ConfirmModal titled "Send this email?" mounts only once Reply opens it.
+    expect(await screen.findByText("Send this email?")).toBeTruthy();
   });
 });

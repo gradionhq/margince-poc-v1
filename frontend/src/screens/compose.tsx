@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
 import { api } from "../api/client";
+import type { components } from "../api/schema";
 import { Button, TextInput } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import {
@@ -21,6 +22,8 @@ import "./compose.css";
 // sendEmail / relinkActivity): a human's edit-then-confirm reply, and a
 // mis-captured activity's relink. Pure frontend — every op is live, audited,
 // and typed on the backend; this file only calls them.
+
+type Activity = components["schemas"]["Activity"];
 
 // The four link targets a relink can point at (relinkActivity's entity_type
 // enum). Reused by ComposeModal and TimelineActions so the whole surface
@@ -383,5 +386,62 @@ export function ComposeModal({
         )}
       </div>
     </ConfirmModal>
+  );
+}
+
+// The per-row action cluster the 360 timelines mount in each entry's action
+// slot. Reply opens the composer (email rows only — you don't reply to a
+// note); Relink opens the relink dialog for any row that already carries a
+// typed link (a freshly hand-logged note with no links has nothing to move).
+// It owns the two open states so the timeline mapper stays presentational.
+export function TimelineActions({
+  activity,
+  entityType,
+  entityId,
+  personId,
+}: Readonly<{
+  activity: Activity;
+  entityType: RelinkKind;
+  entityId: string;
+  personId?: string;
+}>) {
+  const t = useT();
+  const [reply, setReply] = useState(false);
+  const [relink, setRelink] = useState(false);
+  const canReply = activity.kind === "email";
+  const canRelink = (activity.links?.length ?? 0) >= 1;
+  if (!canReply && !canRelink) return null;
+  return (
+    <>
+      {canReply && (
+        <Button small onClick={() => setReply(true)}>
+          {t("compose.reply")}
+        </Button>
+      )}
+      {canRelink && (
+        <Button small onClick={() => setRelink(true)}>
+          {t("compose.relink")}
+        </Button>
+      )}
+      {reply && (
+        <ComposeModal
+          activityId={activity.id}
+          entityType={entityType}
+          entityId={entityId}
+          personId={personId}
+          open={reply}
+          onClose={() => setReply(false)}
+        />
+      )}
+      {relink && (
+        <RelinkModal
+          activityId={activity.id}
+          entityType={entityType}
+          entityId={entityId}
+          open={relink}
+          onClose={() => setRelink(false)}
+        />
+      )}
+    </>
   );
 }

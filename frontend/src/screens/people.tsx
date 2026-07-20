@@ -21,6 +21,7 @@ import {
   QueryGate,
   throwProblem,
 } from "./common";
+import { TimelineActions } from "./compose";
 import { ConsentSection } from "./consent";
 import { RecordContextPanel } from "./context";
 import { CreateAction, type CreateField, type FormRows } from "./create";
@@ -510,7 +511,14 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
             }
             timeline={
               timelineQuery.isSuccess
-                ? activityTimeline(timelineQuery.data.data)
+                ? activityTimeline(timelineQuery.data.data, (activity) => (
+                    <TimelineActions
+                      activity={activity}
+                      entityType="person"
+                      entityId={id}
+                      personId={id}
+                    />
+                  ))
                 : []
             }
           >
