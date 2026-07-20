@@ -938,6 +938,8 @@ export const en = {
   "ob.s2.pasteSource": "Pasted writing",
   "ob.s2.build": "Build my Voice DNA",
   "ob.s2.building": "Building your Voice DNA from {count} words…",
+  "ob.s2.minWords":
+    "Add at least {min} words in your own voice to build a first Voice DNA.",
   "ob.s2.vpMeta": "{count} words · {sources} sources",
   "ob.s2.builtTitle": "Your Voice DNA",
   "ob.s2.builtEmpty":

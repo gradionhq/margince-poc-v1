@@ -956,6 +956,8 @@ export const de = {
   "ob.s2.pasteSource": "Eingefügter Text",
   "ob.s2.build": "Meine Voice DNA bauen",
   "ob.s2.building": "Baue deine Voice DNA aus {count} Wörtern…",
+  "ob.s2.minWords":
+    "Füg mindestens {min} Wörter in deiner eigenen Stimme hinzu, um eine erste Voice DNA zu bauen.",
   "ob.s2.vpMeta": "{count} Wörter · {sources} Quellen",
   "ob.s2.builtTitle": "Deine Voice DNA",
   "ob.s2.builtEmpty":

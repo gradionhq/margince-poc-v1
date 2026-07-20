@@ -1336,7 +1336,9 @@ type VoicePiece = {
 // The corpus meter is honest: it counts only the real words the owner uploaded
 // or pasted here (the build ingests exactly these). Presets below are examples
 // of what will feed the voice once connected — never fabricated word counts.
-const VOICE_MIN_WORDS = 300;
+// 800 mirrors the server's build floor ("at least 800 eligible own-authored
+// words"): gating the button here turns that 422 into a clear, up-front ask.
+const VOICE_MIN_WORDS = 800;
 const PASTE_REF = "onboarding:paste";
 
 function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
@@ -1740,6 +1742,15 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
             )}
           </Button>
         )}
+
+        {!built &&
+          !building &&
+          corpus.total > 0 &&
+          corpus.total < VOICE_MIN_WORDS && (
+            <p className="t-small" style={{ marginTop: "var(--space-2)" }}>
+              {t("ob.s2.minWords", { min: VOICE_MIN_WORDS.toLocaleString() })}
+            </p>
+          )}
 
         {built && deferred && (
           <div className="voiceout">
