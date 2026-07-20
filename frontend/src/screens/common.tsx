@@ -55,6 +55,7 @@ export function consumeAuthExitNotice(): "signed-out" | null {
 export function useMe() {
   return useQuery({
     queryKey: ["me"],
+    staleTime: 5 * 60_000,
     retry: false,
     queryFn: async () => {
       const result = await api.GET("/me").catch(() => null);
