@@ -71,6 +71,25 @@ func TestCloudServedNamesOnlyNetworkHostedVendors(t *testing.T) {
 	}
 }
 
+func TestBuildRequestGivesReasoningHeadroomAboveAnExplicitCap(t *testing.T) {
+	t.Run("no cap uses the default reasoning ceiling", func(t *testing.T) {
+		got := buildRequest(Scenario{Input: "draft it"}).MaxTokens
+		if got != defaultRunMaxTokens {
+			t.Fatalf("no-cap MaxTokens = %d, want %d", got, defaultRunMaxTokens)
+		}
+	})
+	t.Run("an explicit answer cap adds reasoning headroom on top", func(t *testing.T) {
+		// A reasoning model spends output tokens on thinking before its
+		// answer, so the request must budget room to think ABOVE the answer
+		// cap checkCaps grades against; the bare cap starves the answer to a
+		// MAX_TOKENS stop with zero text.
+		got := buildRequest(Scenario{Input: "draft it", Expect: Expectations{Caps: Caps{MaxTokens: 300}}}).MaxTokens
+		if want := 300 + defaultRunMaxTokens; got != want {
+			t.Fatalf("capped MaxTokens = %d, want %d (answer budget + reasoning headroom)", got, want)
+		}
+	})
+}
+
 func TestCheckCapsGatesTokensAndCloudOnlyLatency(t *testing.T) {
 	t.Run("within every cap", func(t *testing.T) {
 		ok, failures := checkCaps(Caps{MaxTokens: 100, P95LatencyMS: 5000}, ai.Call{TokensIn: 30, TokensOut: 30, LatencyMS: 1000, Provider: "anthropic"})
@@ -78,10 +97,21 @@ func TestCheckCapsGatesTokensAndCloudOnlyLatency(t *testing.T) {
 			t.Fatalf("want ok with no failures, got ok=%v failures=%v", ok, failures)
 		}
 	})
-	t.Run("max_tokens exceeded", func(t *testing.T) {
-		ok, failures := checkCaps(Caps{MaxTokens: 50}, ai.Call{TokensIn: 40, TokensOut: 40, Provider: "anthropic"})
+	t.Run("max_tokens exceeded by the answer", func(t *testing.T) {
+		// The answer (output minus reasoning) over budget fails the cap.
+		ok, failures := checkCaps(Caps{MaxTokens: 50}, ai.Call{TokensOut: 60, Provider: "anthropic"})
 		if ok || len(failures) != 1 {
 			t.Fatalf("want one max_tokens failure, got ok=%v failures=%v", ok, failures)
+		}
+	})
+	t.Run("input and reasoning tokens do not count against the answer cap", func(t *testing.T) {
+		// The offer_draft rich-context / tight-output case: a large fixed
+		// input and heavy internal thinking, but a small answer. The cap
+		// budgets the ANSWER, so a good concise draft passes regardless of
+		// how big the scenario's input is or how hard the model thought.
+		ok, failures := checkCaps(Caps{MaxTokens: 300}, ai.Call{TokensIn: 468, TokensOut: 700, ReasoningTokens: 450, Provider: "gemini"})
+		if !ok || len(failures) != 0 {
+			t.Fatalf("a small answer under a large input+reasoning must pass, got ok=%v failures=%v", ok, failures)
 		}
 	})
 	t.Run("p95 latency exceeded on a cloud provider", func(t *testing.T) {
