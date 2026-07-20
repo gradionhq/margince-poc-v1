@@ -63,8 +63,18 @@ test: ## Unit tests (the root fitness tests run uncached)
 test-integration: ## Integration lane: real Postgres, fails loudly without it (never skips). Parallel — each package on its own throwaway clone db.
 	@bash ../scripts/test-integration-parallel.sh
 
-e2e-siteread: ## Deep-read quality floor vs the real gradion.com (paid: real model + network; opt-in). Judge a model with MARGINCE_E2E_MODEL=provider:model (+ its BYOK key) or MARGINCE_AI_ROUTING.
-	$(GO) test -tags e2e_llm ./internal/compose/ -run TestSiteReadE2E -v -count=1 -timeout 20m
+# The paid BYOK e2e targets below (e2e-siteread, e2e-ai) call a real cloud model,
+# so they need the provider key (GEMINI_API_KEY, ANTHROPIC_API_KEY, …). `make dev`
+# gets it by sourcing repo-root .env.local (scripts/dev.sh); these targets do the
+# same, so they run against the same local binding out of the box instead of
+# failing with "provider … needs an api key". Absent file → no-op (the offline
+# fake / MARGINCE_E2E_MODEL path still works); the file wins over an inline env
+# var, matching dev.sh. cwd is backend/, so .env.local is one level up.
+ENV_LOCAL      := $(CURDIR)/../.env.local
+LOAD_ENV_LOCAL := set -a; [ -f $(ENV_LOCAL) ] && . $(ENV_LOCAL); set +a;
+
+e2e-siteread: ## Deep-read quality floor vs the real gradion.com (paid: real model + network; opt-in). BYOK key auto-loaded from .env.local; judge a model with MARGINCE_E2E_MODEL=provider:model or MARGINCE_AI_ROUTING.
+	$(LOAD_ENV_LOCAL) $(GO) test -tags e2e_llm ./internal/compose/ -run TestSiteReadE2E -v -count=1 -timeout 20m
 
 # TestE2ECertify has no MARGINCE_E2E_MODEL-style fallback of its own — it
 # hard-fails without a routing file — so, unlike e2e-siteread, e2e-ai
@@ -88,8 +98,8 @@ ifeq ($(TRACE),1)
 override TRACE := $(CURDIR)/../.tmp/aicert
 endif
 
-e2e-ai: ## Certify AI tasks vs the local binding (paid: real model + network; opt-in). Payload trace ON by default (TRACE= to disable). TASK=x MODEL=prov:model RUNS=3 MARGINCE_AI_ROUTING=path
-	MARGINCE_AICERT=1 MARGINCE_AI_ROUTING=$(MARGINCE_AI_ROUTING) MARGINCE_AICERT_TASK=$(TASK) MARGINCE_AICERT_MODEL=$(MODEL) MARGINCE_AICERT_RUNS=$(RUNS) MARGINCE_AICERT_TRACE=$(TRACE) \
+e2e-ai: ## Certify AI tasks vs the local binding (paid: real model + network; opt-in). BYOK key auto-loaded from .env.local. Payload trace ON by default (TRACE= to disable). TASK=x MODEL=prov:model RUNS=3 MARGINCE_AI_ROUTING=path
+	$(LOAD_ENV_LOCAL) MARGINCE_AICERT=1 MARGINCE_AI_ROUTING=$(MARGINCE_AI_ROUTING) MARGINCE_AICERT_TASK=$(TASK) MARGINCE_AICERT_MODEL=$(MODEL) MARGINCE_AICERT_RUNS=$(RUNS) MARGINCE_AICERT_TRACE=$(TRACE) \
 	  $(GO) test -tags e2e_llm ./internal/compose/aicert/ -run TestE2ECertify -v -count=1 -timeout 30m
 
 e2e-ai-report: ## Print the certification matrix (task x provider x model) from the committed records under internal/compose/aicert/records/.

@@ -69,6 +69,7 @@ function mount(captureEnabled = true, withPayload = true) {
             data: [summary],
             page: { has_more: false },
             payload_capture_enabled: captureEnabled,
+            tasks: [summary.task],
           };
       return new Response(JSON.stringify(body), {
         headers: { "Content-Type": "application/json" },

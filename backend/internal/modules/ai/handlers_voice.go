@@ -32,14 +32,21 @@ type Handlers struct {
 	budget          BudgetPolicy
 	calls           *CallReadStore
 	capturePayloads bool
+	// rates is the ADR-0067 price sheet the usage read prices ai_call
+	// against at read time (price-on-read) — same pool, RLS scoped like
+	// every other tenant read.
+	rates *RateStore
 }
 
 // NewHandlers wires the module's stores onto one pool; budget is the
 // compose-injected seat-derived policy the usage read prices against.
+// rates is the ADR-0067 price sheet the usage read prices ai_call
+// against at read time (price-on-read) — the same pool, RLS scoped like
+// every other tenant read.
 func NewHandlers(pool *pgxpool.Pool, budget BudgetPolicy) Handlers {
 	return Handlers{
 		voice: NewVoiceStore(pool), meter: NewMeter(pool), budget: budget,
-		calls: NewCallReadStore(pool),
+		calls: NewCallReadStore(pool), rates: NewRateStore(pool),
 	}
 }
 

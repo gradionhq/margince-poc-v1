@@ -22,6 +22,24 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**AI cost pricing base (phase 1/2, price-on-read)** — every model call is now
+priceable in US dollars without any money logic on the write path. The router,
+meter and adapters collect four token buckets (`tokens_in` pinned
+cache-inclusive, plus `cached_tokens`, the new `cache_write_tokens`, and
+`tokens_out`); cost is computed only on read by joining each `ai_call` row to
+the `ai_model_rate` row effective on its day (an fx_rate-style, effective-dated,
+per-(provider, model) sheet — new table, FORCE RLS, seeded per workspace with
+explicit all-zero rows for local providers so local reads an honest 0). One
+four-bucket formula lives in two agreeing places (`PriceCall` and the
+`CostReport` SQL). `/ai/usage` now serves per-(day, task, tier)
+`cost_est_minor` in USD minor units with `currency: "USD"`; a call with no rate
+row for its day is counted unpriced, never a silent 0. The cert lane prices its
+runs with the same formula and records four-bucket token means. Cost stays
+display-only — the budget guardrail is untouched and token-denominated
+(ADR-0067/A113, spec PR margince-foundation#1111). **Phase 2 (deferred, own
+plan):** a history-data estimator + pre-flight estimate API (the backfill-preview
+money figure, "what would N messages cost") over these accumulated rows.
+
 **AI runtime observability UI** — Settings → AI now leads with the
 live usage/budget meter and a keyset-paged call trace over the existing
 `ai_call`/`ai_call_payload` records. Admins see economy/queued shell advisories;

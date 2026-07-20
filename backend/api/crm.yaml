@@ -7127,7 +7127,7 @@ components:
         winner_id: { type: [string, 'null'], format: uuid, description: 'Required for merge: the surviving record — must be one of the pair.' }
     AiUsage:
       type: object
-      description: 'AI usage + budget (AIRT-WIRE-1): the AIRT-PARAM-33 meter aggregated per day × task × tier, plus the budget band. Token-denominated; cost_minor is the estimate at the configured tier''s rate (0 when local).'
+      description: 'AI usage + budget (AIRT-WIRE-1): the AIRT-PARAM-33 meter aggregated per day × task × tier, plus the budget band. Token-denominated; cost_est_minor is computed on read from the workspace''s ai_model_rate price sheet as of each call''s day (ADR-0067, price-on-read) — omitted, never a fabricated 0, when a task line''s window carries no priced call.'
       required: [days, budget]
       properties:
         days:
@@ -7149,7 +7149,7 @@ components:
                     cached_hits: { type: integer }
                     tokens_in: { type: integer }
                     tokens_out: { type: integer }
-                    cost_est_minor: { type: integer }
+                    cost_est_minor: { type: integer, description: 'USD minor units (cents), estimated on read from ai_model_rate at each call''s day (ADR-0067). Omitted, not 0, when none of this line''s calls priced.' }
         budget:
           type: object
           required: [monthly_tokens, spent_tokens, band]
@@ -7158,7 +7158,7 @@ components:
             spent_tokens: { type: integer, description: 'Calendar-month tokens_in + tokens_out.' }
             band: { type: string, enum: [normal, degraded, queued], description: '< 80% / 80–100% soft-degrade / ≥ 100% non-interactive queued (AIRT-PARAM-9..11).' }
             band_since: { type: [string, 'null'], format: date-time }
-            currency: { type: string }
+            currency: { type: string, description: 'ISO-4217 of cost_est_minor — always USD in phase 1 (ADR-0067).' }
     AiCallSummary:
       type: object
       description: One terminal model call from the ai_call trace (AIRT-SCHEMA-2).
@@ -7188,7 +7188,7 @@ components:
       properties:
         attempt: { type: integer }
         is_terminal: { type: boolean }
-        attempt_reason: { type: string, description: 'Why this attempt ran; empty on the first.' }
+        attempt_reason: { type: string, description: 'Why this attempt ran — one of provider_error, schema_invalid, budget_degrade; empty for an ordinary first attempt, though budget_degrade can appear on attempt 1 when the budget guardrail demotes the ladder.' }
         error_sentinel: { type: [string, 'null'] }
         tokens_in: { type: integer }
         tokens_out: { type: integer }
@@ -7220,11 +7220,12 @@ components:
                 response: { description: 'The captured response text (JSON string).' }
     AiCallListResponse:
       type: object
-      required: [data, page, payload_capture_enabled]
+      required: [data, page, payload_capture_enabled, tasks]
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/AiCallSummary' } }
         page: { $ref: '#/components/schemas/PageInfo' }
         payload_capture_enabled: { type: boolean, description: 'The deployment''s ai.capture_payloads posture.' }
+        tasks: { type: array, items: { type: string }, description: 'Every task with at least one terminal call, sorted — the complete filter option set (matches the terminal-only list), independent of the current page.' }
     CaptureExclusionRule:
       type: object
       description: |

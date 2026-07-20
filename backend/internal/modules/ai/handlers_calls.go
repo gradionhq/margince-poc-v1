@@ -39,6 +39,7 @@ func (h Handlers) ListAiCalls(
 		Data:                  data,
 		Page:                  crmcontracts.PageInfo{HasMore: page.HasMore},
 		PayloadCaptureEnabled: h.capturePayloads,
+		Tasks:                 page.Tasks,
 	}
 	if page.NextCursor != "" {
 		response.Page.NextCursor = &page.NextCursor

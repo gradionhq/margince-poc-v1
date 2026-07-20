@@ -98,6 +98,35 @@ describe("SettingsScreen RBAC surfaces", () => {
     expect(screen.getByRole("img", { name: "Masked value" })).toBeTruthy();
     expect(screen.queryByText(/mgp_/)).toBeNull();
   });
+
+  it("hides the admin-only AI usage & call-trace cards from a non-admin on the AI tab", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.endsWith("/v1/me")) {
+          return jsonResponse({
+            user: { email: "rep@acme.test" },
+            roles: ["rep"],
+            teams: [],
+          });
+        }
+        return jsonResponse({
+          data: [],
+          page: { next_cursor: null, has_more: false },
+        });
+      }),
+    );
+    render(<SettingsScreen tab="ai" />);
+    // A card the whole tab shares still renders for a rep...
+    await waitFor(() =>
+      expect(screen.getByText("Autonomy tiers")).toBeTruthy(),
+    );
+    // ...but the two cards whose endpoints require the automation grant are
+    // absent, so a rep never hits a 403 error box (GET /ai/usage, /ai/calls).
+    expect(screen.queryByText("AI usage & budget")).toBeNull();
+    expect(screen.queryByText("AI call trace")).toBeNull();
+  });
 });
 
 // AS-2: the per-row Revoke kill-switch. A dedicated backend so the DELETE

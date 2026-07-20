@@ -57,6 +57,11 @@ func TestOpenAICompleteMapsResponsesAPIUsageAndReasoning(t *testing.T) {
 	if resp.InputTokens != 10 || resp.OutputTokens != 5 {
 		t.Fatalf("token mapping wrong: %+v", resp)
 	}
+	// OpenAI's input_tokens is already cache-inclusive (no separate cache-write
+	// bucket on the wire), so CacheWriteTokens must stay at its zero-value.
+	if resp.CacheWriteTokens != 0 {
+		t.Fatalf("CacheWriteTokens = %d, want 0 (OpenAI reports no cache-write bucket)", resp.CacheWriteTokens)
+	}
 	if !bytes.Contains(body, []byte(`"effort":"low"`)) {
 		t.Fatalf("reasoning effort not on wire: %s", body)
 	}

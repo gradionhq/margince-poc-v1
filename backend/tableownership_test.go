@@ -120,6 +120,7 @@ var tableOwners = map[string]string{
 	"ai_call":               "internal/modules/ai",
 	"ai_call_payload":       "internal/modules/ai",
 	"ai_call_config":        "internal/modules/ai",
+	"ai_model_rate":         "internal/modules/ai",
 	// agents (incl. the runner subpackage)
 	"agent_run":  "internal/modules/agents",
 	"runner_job": "internal/modules/agents",

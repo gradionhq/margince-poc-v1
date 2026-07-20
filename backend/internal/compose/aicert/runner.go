@@ -21,8 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
-	"sort"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
@@ -196,7 +194,8 @@ func certifyTask(ctx context.Context, task ai.Task, scenarios []Scenario, baseCf
 	}
 
 	reliability := float64(acc.passed) / float64(len(acc.allResults))
-	return buildRecord(task, taskVerdict, reliability, acc.allResults, acc.latencies, acc.tokensTotal,
+	return buildRecord(task, taskVerdict, reliability, acc.allResults, acc.latencies,
+		acc.tokensInTotal, acc.tokensOutTotal, acc.cachedTokensTotal, acc.cacheWriteTokensTotal,
 		acc.provider, acc.servedModel, acc.identitySource, acc.judgeServedModel, acc.selfJudgedEveryRun, baseCfg), nil
 }
 
@@ -209,9 +208,15 @@ func certifyTask(ctx context.Context, task ai.Task, scenarios []Scenario, baseCf
 // than let it certify "task x provider x model" over scores partly
 // produced by another model.
 type taskAccumulation struct {
-	allResults                                              []RunResult
-	latencies                                               []int64
-	tokensTotal                                             int
+	allResults []RunResult
+	latencies  []int64
+	// tokensInTotal/tokensOutTotal/cachedTokensTotal/cacheWriteTokensTotal
+	// are the pooled per-bucket sums across every run. buildRecord derives
+	// MeanTokens from tokensInTotal+tokensOutTotal (an exact sum, so it
+	// matches this package's pre-bucketed MeanTokens arithmetic bit for
+	// bit) and each MeanBucket from its own total, independently.
+	tokensInTotal, tokensOutTotal                           int
+	cachedTokensTotal, cacheWriteTokensTotal                int
 	passed                                                  int
 	provider, servedModel, identitySource, judgeServedModel string
 	selfJudgedEveryRun                                      bool
@@ -230,7 +235,10 @@ func (acc *taskAccumulation) addRun(task ai.Task, sc Scenario, runIndex int, out
 	}
 	acc.allResults = append(acc.allResults, outcome.RunResult)
 	acc.latencies = append(acc.latencies, outcome.LatencyMS)
-	acc.tokensTotal += outcome.Tokens
+	acc.tokensInTotal += outcome.TokensIn
+	acc.tokensOutTotal += outcome.TokensOut
+	acc.cachedTokensTotal += outcome.CachedTokens
+	acc.cacheWriteTokensTotal += outcome.CacheWriteTokens
 	acc.provider, acc.servedModel, acc.identitySource = outcome.Provider, outcome.ServedModel, outcome.ServedIdentitySource
 	acc.identitySet = true
 	acc.judgeServedModel = outcome.JudgeServedModel
@@ -332,11 +340,14 @@ func runOnce(ctx context.Context, candidate *ai.Router, candidateRec *traceRecor
 
 	return runOutcome{
 		RunResult: RunResult{
-			Output:    output,
-			LatencyMS: term.LatencyMS,
-			Tokens:    term.TokensIn + term.TokensOut,
-			HardPass:  structuralOK && capsOK,
-			Score:     score,
+			Output:           output,
+			LatencyMS:        term.LatencyMS,
+			TokensIn:         term.TokensIn,
+			TokensOut:        term.TokensOut,
+			CachedTokens:     term.CachedTokens,
+			CacheWriteTokens: term.CacheWriteTokens,
+			HardPass:         structuralOK && capsOK,
+			Score:            score,
 		},
 		Provider:             term.Provider,
 		ServedModel:          term.ServedModel,
@@ -387,67 +398,7 @@ func worstVerdict(a, b string) string {
 	return b
 }
 
-// buildRecord folds one task's pooled runs (across every scenario, every
-// repeat) and its already-folded taskVerdict into the on-disk Record
-// shape. Score/latency percentiles are computed directly here (not via
-// Verdict, which is scoped to one scenario's odd-N run set and would
-// panic on a multi-scenario task's pooled, possibly-even count).
-func buildRecord(task ai.Task, taskVerdict string, reliability float64, results []RunResult, latencies []int64, tokensTotal int,
-	provider, servedModel, identitySource, judgeServedModel string, selfJudgedEveryRun bool, baseCfg ai.RoutingConfig,
-) Record {
-	scores := make([]int, len(results))
-	for i, r := range results {
-		scores[i] = r.Score
-	}
-	sort.Ints(scores)
-
-	sortedLatencies := append([]int64(nil), latencies...)
-	sort.Slice(sortedLatencies, func(i, j int) bool { return sortedLatencies[i] < sortedLatencies[j] })
-
-	meanTokens := 0
-	if len(results) > 0 {
-		meanTokens = tokensTotal / len(results)
-	}
-
-	return Record{
-		Task:          string(task),
-		Provider:      provider,
-		ServedModel:   servedModel,
-		EnvClass:      string(baseCfg.Profile),
-		PromptVersion: promptVersionV1,
-		CorpusVersion: corpusVersionV1,
-		Verdict:       taskVerdict,
-		Runs:          len(results),
-		Reliability:   reliability,
-		ScoreP50:      scores[len(scores)/2],
-		ScoreMin:      scores[0],
-		LatencyP50:    percentile(sortedLatencies, 0.50),
-		LatencyP95:    percentile(sortedLatencies, 0.95),
-		MeanTokens:    meanTokens,
-		// EstCostMicroUSD stays 0: no cost model prices ai.Call yet
-		// (ai.Call.EstimatedCostMicroUSD's own doc: "nil until a cost model
-		// prices the call") — an honest zero, not a fabricated estimate.
-		EstCostMicroUSD:      0,
-		JudgeServedModel:     judgeServedModel,
-		SelfJudged:           selfJudgedEveryRun,
-		ServedIdentitySource: identitySource,
-		RanAt:                nowFunc().UTC().Format(time.RFC3339),
-	}
-}
-
-// percentile returns the nearest-rank pth percentile (p in [0,1]) of
-// sorted, which must already be sorted ascending.
-func percentile(sorted []int64, p float64) int64 {
-	n := len(sorted)
-	if n == 0 {
-		return 0
-	}
-	idx := int(math.Ceil(p*float64(n))) - 1
-	if idx < 0 {
-		idx = 0
-	}
-	if idx >= n {
-		idx = n - 1
-	}
-	return sorted[idx]
-}
+// buildRecord, seedRateFor, and percentile live in record.go alongside the
+// Record type they build — that file already owns "the on-disk Record
+// shape," so folding pooled run stats into one is that same concern, not
+// this file's own "drive the routers" one.

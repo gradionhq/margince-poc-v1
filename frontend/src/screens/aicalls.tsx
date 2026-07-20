@@ -13,6 +13,12 @@ import { useLocale, useT } from "../i18n";
 import { ExportScenarioDialog } from "./aiexport";
 import { problemMessage, QueryStates } from "./common";
 
+// A string response is shown verbatim (real newlines); an object is
+// pretty-printed. Either way the .code-block surface wraps and scrolls it.
+function payloadText(value: unknown): string {
+  return typeof value === "string" ? value : JSON.stringify(value, null, 2);
+}
+
 export function CallDetailPanel({
   id,
   captureEnabled,
@@ -71,23 +77,32 @@ export function CallDetailPanel({
             <p>{t("aicalls.payload.none")}</p>
           ) : (
             <>
-              <h3>{t("aicalls.detail.request")}</h3>
-              <pre
-                className="t-mono"
-                style={{ maxHeight: 260, overflow: "auto" }}
+              <div
+                className="form-stack"
+                style={{ marginTop: "var(--space-3)" }}
               >
-                {JSON.stringify(query.data.payload.request, null, 2)}
-              </pre>
-              <h3>{t("aicalls.detail.response")}</h3>
-              <pre
-                className="t-mono"
-                style={{ maxHeight: 260, overflow: "auto" }}
-              >
-                {JSON.stringify(query.data.payload.response, null, 2)}
-              </pre>
-              <Button small onClick={() => setExporting(true)}>
-                {t("aiexport.button")}
-              </Button>
+                <div className="field">
+                  <span className="code-label">
+                    {t("aicalls.detail.request")}
+                  </span>
+                  <pre className="code-block">
+                    {payloadText(query.data.payload.request)}
+                  </pre>
+                </div>
+                <div className="field">
+                  <span className="code-label">
+                    {t("aicalls.detail.response")}
+                  </span>
+                  <pre className="code-block">
+                    {payloadText(query.data.payload.response)}
+                  </pre>
+                </div>
+                <div>
+                  <Button small onClick={() => setExporting(true)}>
+                    {t("aiexport.button")}
+                  </Button>
+                </div>
+              </div>
               {exporting && (
                 <ExportScenarioDialog
                   call={query.data}
@@ -124,7 +139,10 @@ export function AiCallsCard() {
   });
   const calls = query.data?.pages.flatMap((page) => page.data) ?? [];
   const captureEnabled = query.data?.pages[0]?.payload_capture_enabled ?? false;
-  const tasks = [...new Set(calls.map((call) => call.task))].sort();
+  // The filter options are the server's complete task set (carried on every
+  // page), NOT the tasks on the loaded rows: deriving them from `calls` would
+  // collapse the dropdown to the one selected task once a filter is applied.
+  const tasks = query.data?.pages[0]?.tasks ?? [];
 
   return (
     <section className="card" style={{ marginBottom: "var(--space-4)" }}>
