@@ -32,8 +32,6 @@ const (
 	// profile in their first passages, and prefill time on this call is
 	// on the read's critical path.
 	profileExcerptBudgetRunes = 18_000
-	// profileMaxTokens bounds the call's output: 11 compact field records.
-	profileMaxTokens = 1024
 	// profileImpressumExcerptRunes caps ONE legal page's excerpt share:
 	// every legal page must be represented (the trio quotes from them),
 	// but a site with many impressum-classified pages must not inflate
@@ -139,7 +137,7 @@ func (x evidenceExtractor) extractProfile(ctx context.Context, pages []crawlPage
 	req := model.Request{
 		System:         profileSystem,
 		Messages:       []model.Message{{Role: chatRoleUser, Content: idx.renderNumbered()}},
-		MaxTokens:      profileMaxTokens,
+		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		ResponseSchema: profileSchema(idx.ids()),
 		SecretStripper: ai.NewSecretStripper(),
 	}

@@ -15,6 +15,14 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
+// capturedMessage is the ai_call_payload wire shape of one request
+// message: model.Message with the lowercase JSON keys every payload
+// reader expects (the trace UI and the cert-scenario export).
+type capturedMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
 // buildPayload assembles the Layer-3 capture: the request's semantic
 // content (system + messages) run through the SAME secret-stripper that
 // guards egress, and the model's response text — both as JSON. The
@@ -29,14 +37,18 @@ func (r *Router) buildPayload(ctx context.Context, req model.Request, resp model
 	// individually under the field cap.
 	budget := captureBudget{remaining: maxCapturedRequestRunes}
 	system := budget.take(req.System)
-	msgs := make([]model.Message, len(req.Messages))
+	// model.Message carries no JSON tags, so marshaling it directly emits
+	// "Role"/"Content" — out of step with the lowercase "system"/"messages"
+	// envelope keys and with every reader of ai_call_payload (the trace UI
+	// and the cert-scenario export both key on lowercase role/content). Map
+	// to a locally-tagged shape so the stored document is uniformly lowercase.
+	msgs := make([]capturedMessage, len(req.Messages))
 	for i, m := range req.Messages {
-		m.Content = budget.take(m.Content)
-		msgs[i] = m
+		msgs[i] = capturedMessage{Role: m.Role, Content: budget.take(m.Content)}
 	}
 	reqDoc, err := json.Marshal(struct {
-		System   string          `json:"system"`
-		Messages []model.Message `json:"messages"`
+		System   string            `json:"system"`
+		Messages []capturedMessage `json:"messages"`
 	}{system, msgs})
 	if err != nil {
 		return nil, fmt.Errorf("ai: marshal capture request: %w", err)
