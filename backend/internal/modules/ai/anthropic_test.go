@@ -305,7 +305,7 @@ func TestAnthropicStreamedCompleteSetsServedModelFromMessageStart(t *testing.T) 
 // Anthropic reports input_tokens EXCLUSIVE of both cache buckets (unlike
 // OpenAI/Gemini, which already report a cache-inclusive prompt total), so the
 // adapter must add all three to land on the port's pinned cache-inclusive
-// InputTokens contract (AIRT-PARAM-41/47).
+// InputTokens contract (AIRT-PARAM-47).
 func TestAnthropicCompleteNormalizesCacheInclusiveInputTokens(t *testing.T) {
 	client := newAnthropicForTest(t, func(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewEncoder(w).Encode(map[string]any{
@@ -324,7 +324,7 @@ func TestAnthropicCompleteNormalizesCacheInclusiveInputTokens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.InputTokens != 700 { // 100 + 400 + 200: cache-inclusive per AIRT-PARAM-41
+	if got.InputTokens != 700 { // 100 + 400 + 200: cache-inclusive per AIRT-PARAM-47
 		t.Fatalf("InputTokens = %d, want 700", got.InputTokens)
 	}
 	if got.CachedTokens != 400 || got.CacheWriteTokens != 200 {
@@ -363,7 +363,7 @@ func TestAnthropicStreamedCompleteNormalizesCacheInclusiveInputTokens(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.InputTokens != 700 { // 100 + 400 + 200: cache-inclusive per AIRT-PARAM-41
+	if got.InputTokens != 700 { // 100 + 400 + 200: cache-inclusive per AIRT-PARAM-47
 		t.Fatalf("InputTokens = %d, want 700", got.InputTokens)
 	}
 	if got.CachedTokens != 400 || got.CacheWriteTokens != 200 {
