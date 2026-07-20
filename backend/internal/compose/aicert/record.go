@@ -7,10 +7,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
+
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 )
 
 // Record is one task×provider×model×environment certification outcome —
@@ -20,25 +24,34 @@ import (
 // produces the same Record byte-for-byte except for whatever the caller
 // puts in RanAt.
 type Record struct {
-	Task                 string  `json:"task"`
-	Provider             string  `json:"provider"`
-	ServedModel          string  `json:"served_model"`
-	EnvClass             string  `json:"env_class"`
-	PromptVersion        string  `json:"prompt_version"`
-	CorpusVersion        string  `json:"corpus_version"`
-	Verdict              string  `json:"verdict"`
-	Runs                 int     `json:"runs"`
-	Reliability          float64 `json:"reliability"`
-	ScoreP50             int     `json:"score_p50"`
-	ScoreMin             int     `json:"score_min"`
-	LatencyP50           int64   `json:"latency_p50"`
-	LatencyP95           int64   `json:"latency_p95"`
-	MeanTokens           int     `json:"mean_tokens"`
-	EstCostMicroUSD      int64   `json:"est_cost_microusd"`
-	JudgeServedModel     string  `json:"judge_served_model"`
-	SelfJudged           bool    `json:"self_judged"`
-	ServedIdentitySource string  `json:"served_identity_source"`
-	RanAt                string  `json:"ran_at"`
+	Task          string  `json:"task"`
+	Provider      string  `json:"provider"`
+	ServedModel   string  `json:"served_model"`
+	EnvClass      string  `json:"env_class"`
+	PromptVersion string  `json:"prompt_version"`
+	CorpusVersion string  `json:"corpus_version"`
+	Verdict       string  `json:"verdict"`
+	Runs          int     `json:"runs"`
+	Reliability   float64 `json:"reliability"`
+	ScoreP50      int     `json:"score_p50"`
+	ScoreMin      int     `json:"score_min"`
+	LatencyP50    int64   `json:"latency_p50"`
+	LatencyP95    int64   `json:"latency_p95"`
+	MeanTokens    int     `json:"mean_tokens"`
+	// MeanTokensIn/MeanTokensOut/MeanCachedTokens/MeanCacheWriteTokens are
+	// the four-bucket baseline (ADR-0067 phase 2): the pooled run set's
+	// per-bucket mean, each bucket's own truncating integer division —
+	// independent of MeanTokens (kept for compat), which divides the exact
+	// summed total instead, so the two need not add up bucket-for-bucket.
+	MeanTokensIn         int    `json:"mean_tokens_in"`
+	MeanTokensOut        int    `json:"mean_tokens_out"`
+	MeanCachedTokens     int    `json:"mean_cached_tokens"`
+	MeanCacheWriteTokens int    `json:"mean_cache_write_tokens"`
+	EstCostMicroUSD      int64  `json:"est_cost_microusd"`
+	JudgeServedModel     string `json:"judge_served_model"`
+	SelfJudged           bool   `json:"self_judged"`
+	ServedIdentitySource string `json:"served_identity_source"`
+	RanAt                string `json:"ran_at"`
 }
 
 // sanitizeForPath maps a raw identifier (a provider name, or a served-model
@@ -131,4 +144,117 @@ func LoadRecords(dir string) ([]Record, error) {
 		return a.EnvClass < b.EnvClass
 	})
 	return records, nil
+}
+
+// buildRecord folds one task's pooled runs (across every scenario, every
+// repeat) and its already-folded taskVerdict into the on-disk Record
+// shape. Score/latency percentiles are computed directly here (not via
+// Verdict, which is scoped to one scenario's odd-N run set and would
+// panic on a multi-scenario task's pooled, possibly-even count).
+func buildRecord(task ai.Task, taskVerdict string, reliability float64, results []RunResult, latencies []int64,
+	tokensInTotal, tokensOutTotal, cachedTokensTotal, cacheWriteTokensTotal int,
+	provider, servedModel, identitySource, judgeServedModel string, selfJudgedEveryRun bool, baseCfg ai.RoutingConfig,
+) Record {
+	scores := make([]int, len(results))
+	for i, r := range results {
+		scores[i] = r.Score
+	}
+	sort.Ints(scores)
+
+	sortedLatencies := append([]int64(nil), latencies...)
+	sort.Slice(sortedLatencies, func(i, j int) bool { return sortedLatencies[i] < sortedLatencies[j] })
+
+	n := len(results)
+	meanTokens, meanTokensIn, meanTokensOut, meanCachedTokens, meanCacheWriteTokens := 0, 0, 0, 0, 0
+	if n > 0 {
+		// meanTokens divides the exact summed total (tokensInTotal +
+		// tokensOutTotal, an exact sum of two exact sums) — bit-for-bit the
+		// same value this field held before the per-bucket split existed.
+		// Each mean bucket below divides its OWN total independently, so it
+		// need not add back up to meanTokens after truncation.
+		meanTokens = (tokensInTotal + tokensOutTotal) / n
+		meanTokensIn = tokensInTotal / n
+		meanTokensOut = tokensOutTotal / n
+		meanCachedTokens = cachedTokensTotal / n
+		meanCacheWriteTokens = cacheWriteTokensTotal / n
+	}
+
+	// ranAt is captured once and reused for both RanAt and the pricing
+	// snapshot date so buildRecord never calls nowFunc twice — the record's
+	// timestamp and the rate sheet it priced against are always the same
+	// instant.
+	ranAt := nowFunc().UTC()
+	estCostMicroUSD := int64(0)
+	usage := ai.Usage{
+		TokensIn: meanTokensIn, TokensOut: meanTokensOut,
+		CachedTokens: meanCachedTokens, CacheWriteTokens: meanCacheWriteTokens,
+	}
+	if rate, ok := seedRateFor(provider, servedModel, ranAt); ok {
+		estCostMicroUSD = ai.PriceCall(usage, rate)
+	}
+
+	return Record{
+		Task:                 string(task),
+		Provider:             provider,
+		ServedModel:          servedModel,
+		EnvClass:             string(baseCfg.Profile),
+		PromptVersion:        promptVersionV1,
+		CorpusVersion:        corpusVersionV1,
+		Verdict:              taskVerdict,
+		Runs:                 n,
+		Reliability:          reliability,
+		ScoreP50:             scores[len(scores)/2],
+		ScoreMin:             scores[0],
+		LatencyP50:           percentile(sortedLatencies, 0.50),
+		LatencyP95:           percentile(sortedLatencies, 0.95),
+		MeanTokens:           meanTokens,
+		MeanTokensIn:         meanTokensIn,
+		MeanTokensOut:        meanTokensOut,
+		MeanCachedTokens:     meanCachedTokens,
+		MeanCacheWriteTokens: meanCacheWriteTokens,
+		// EstCostMicroUSD prices the pooled per-bucket means against the
+		// cert lane's in-memory seed rate sheet (ai.SeedModelRates): the
+		// cert lane runs outside any DB workspace tx, so there is no
+		// ai_model_rate table to read RateStore.RateFor's own way — this is
+		// the closest analogue available here. No matching (provider,
+		// served model) row keeps it an honest 0, exactly like an unpriced
+		// RateStore.RateFor call (price-on-read; never fabricate a price).
+		EstCostMicroUSD:      estCostMicroUSD,
+		JudgeServedModel:     judgeServedModel,
+		SelfJudged:           selfJudgedEveryRun,
+		ServedIdentitySource: identitySource,
+		RanAt:                ranAt.Format(time.RFC3339),
+	}
+}
+
+// seedRateFor resolves the exact (provider, servedModel) rate row from
+// ai.SeedModelRates(day) — an exact-key lookup, not RateStore.RateFor's
+// as-of-date walk, because every row SeedModelRates returns for one day
+// carries that same single EffectiveDate. False means no rate is seeded
+// for this exact provider/model pair: the call is unpriced, never priced
+// at a fabricated 0.
+func seedRateFor(provider, servedModel string, day time.Time) (ai.ModelRate, bool) {
+	for _, r := range ai.SeedModelRates(day) {
+		if r.Provider == provider && r.ModelID == servedModel {
+			return r, true
+		}
+	}
+	return ai.ModelRate{}, false
+}
+
+// percentile returns the nearest-rank pth percentile (p in [0,1]) of
+// sorted, which must already be sorted ascending.
+func percentile(sorted []int64, p float64) int64 {
+	n := len(sorted)
+	if n == 0 {
+		return 0
+	}
+	idx := int(math.Ceil(p*float64(n))) - 1
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= n {
+		idx = n - 1
+	}
+	return sorted[idx]
 }
