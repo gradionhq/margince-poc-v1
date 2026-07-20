@@ -3991,6 +3991,8 @@ export interface components {
             page: components["schemas"]["PageInfo"];
             /** @description The deployment's ai.capture_payloads posture. */
             payload_capture_enabled: boolean;
+            /** @description Every task with at least one terminal call, sorted — the complete filter option set (matches the terminal-only list), independent of the current page. */
+            tasks: string[];
         };
         /**
          * @description One bounded personal-mail exclusion rule (RC-2; capture.md CAP-DDL-3). A matching message

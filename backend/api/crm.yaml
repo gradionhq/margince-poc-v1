@@ -6958,11 +6958,12 @@ components:
                 response: { description: 'The captured response text (JSON string).' }
     AiCallListResponse:
       type: object
-      required: [data, page, payload_capture_enabled]
+      required: [data, page, payload_capture_enabled, tasks]
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/AiCallSummary' } }
         page: { $ref: '#/components/schemas/PageInfo' }
         payload_capture_enabled: { type: boolean, description: 'The deployment''s ai.capture_payloads posture.' }
+        tasks: { type: array, items: { type: string }, description: 'Every task with at least one terminal call, sorted — the complete filter option set (matches the terminal-only list), independent of the current page.' }
     CaptureExclusionRule:
       type: object
       description: |
