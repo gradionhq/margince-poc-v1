@@ -156,11 +156,15 @@ export function Modal({
   open,
   onClose,
   labelledBy,
+  size = "default",
   children,
 }: Readonly<{
   open: boolean;
   onClose: () => void;
   labelledBy: string;
+  // "wide" roomier variant for content-dense dialogs (code/YAML previews);
+  // "default" keeps the compact form width every confirm/create modal uses.
+  size?: "default" | "wide";
   children: ReactNode;
 }>) {
   useEffect(() => {
@@ -195,7 +199,7 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
-        className="modal"
+        className={size === "wide" ? "modal modal-wide" : "modal"}
       >
         {children}
       </div>

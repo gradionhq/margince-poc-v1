@@ -1514,6 +1514,8 @@ export const de = {
   "aiexport.copyFailed":
     "Kopieren fehlgeschlagen — Vorschau verwenden oder Datei herunterladen.",
   "aiexport.close": "Schließen",
+  "aiexport.previewLabel": "Szenariovorschau",
+  "aiexport.responseLabel": "Modellantwort",
 
   "countdown.minutesSeconds": "{minutes}m {seconds}s",
   "countdown.expired": "Abgelaufen",

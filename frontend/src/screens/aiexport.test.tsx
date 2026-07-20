@@ -22,19 +22,9 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
-  Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal");
   Reflect.deleteProperty(URL, "createObjectURL");
   Reflect.deleteProperty(URL, "revokeObjectURL");
 });
-
-function installDialogModal() {
-  Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
-    configurable: true,
-    value: vi.fn(function showModal(this: HTMLDialogElement) {
-      this.open = true;
-    }),
-  });
-}
 
 it("builds an explicitly unreviewed corpus scaffold with safe block scalars", () => {
   const yaml = scenarioYaml(call, "My Run!");
@@ -48,7 +38,6 @@ it("builds an explicitly unreviewed corpus scaffold with safe block scalars", ()
 });
 
 it("requires PII acknowledgment before copying or downloading", async () => {
-  installDialogModal();
   const writeText = vi.fn(async () => undefined);
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
@@ -83,7 +72,6 @@ it("requires PII acknowledgment before copying or downloading", async () => {
 });
 
 it("surfaces clipboard rejection", async () => {
-  installDialogModal();
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
     value: {

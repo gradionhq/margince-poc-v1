@@ -91,3 +91,31 @@
 .t-mono {
   font-family: var(--f-mono);
 }
+
+/* Code / payload preview surface (AI observability: the call-trace panel and
+   the cert-scenario export). Wraps long single-line JSON/YAML and scrolls in
+   place rather than widening its container. */
+.code-block {
+  margin: 0;
+  max-height: 300px;
+  overflow: auto;
+  padding: var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  background: var(--bgCard);
+  color: var(--textContent);
+  font-family: var(--f-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* Small uppercase label sitting above a code-block or preview section. */
+.code-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--textMeta);
+}
