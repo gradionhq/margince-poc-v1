@@ -28,8 +28,8 @@ import (
 type voiceProfileWire struct {
 	ID             string  `json:"id"`
 	OwnerID        *string `json:"owner_id"`
-	Scope          string  `json:"scope"`
 	Status         string  `json:"status"`
+	Maturity       string  `json:"maturity"`
 	VoiceProfileMD string  `json:"voice_profile_md"`
 	ProfileVersion int     `json:"profile_version"`
 	PersonalityMD  string  `json:"personality_md"`
@@ -43,13 +43,15 @@ type voiceSourceWire struct {
 	Weight    float64 `json:"weight"`
 	SourceRef string  `json:"source_ref"`
 	WordCount int     `json:"word_count"`
-	Excluded  bool    `json:"excluded"`
+	Included  bool    `json:"included"`
+	Version   int     `json:"version"`
 }
 
 type voiceSummaryWire struct {
 	TotalWords    int            `json:"total_words"`
 	TargetWords   int            `json:"target_words"`
 	QualityBand   string         `json:"quality_band"`
+	Maturity      string         `json:"maturity"`
 	RegisterWords map[string]int `json:"register_words"`
 	SourceCount   int            `json:"source_count"`
 }
@@ -57,6 +59,17 @@ type voiceSummaryWire struct {
 type voiceIngestResponse struct {
 	Source  voiceSourceWire  `json:"source"`
 	Summary voiceSummaryWire `json:"summary"`
+}
+
+type voiceBuildWire struct {
+	ID            string `json:"id"`
+	ProfileID     string `json:"profile_id"`
+	Reason        string `json:"reason"`
+	Status        string `json:"status"`
+	SourceHash    string `json:"source_hash"`
+	SourceCount   int    `json:"source_count"`
+	ResultVersion *int   `json:"result_version"`
+	Version       int    `json:"version"`
 }
 
 // The both-sided fixture: Ada owns 8 + 7 + 5 = 20 words, Klaus's turn
@@ -78,15 +91,15 @@ and follow up on Friday.</v>
 `
 
 // createVoiceProfile is the shared first step: one caller-owned user
-// profile, asserted to land building and unbuilt.
+// profile, asserted to land collecting and unbuilt.
 func createVoiceProfile(t *testing.T, e *env) voiceProfileWire {
 	t.Helper()
 	var created voiceProfileWire
 	if status := e.call(t, "POST", "/v1/voice-profiles", anyMap{}, nil, &created); status != http.StatusCreated {
 		t.Fatalf("create → %d", status)
 	}
-	if created.Scope != "user" || created.Status != "building" || created.ProfileVersion != 0 || created.OwnerID == nil {
-		t.Fatalf("created profile = %+v, want a building, unbuilt, caller-owned user profile", created)
+	if created.Status != "collecting" || created.Maturity != "collecting" || created.ProfileVersion != 0 || created.OwnerID == nil {
+		t.Fatalf("created profile = %+v, want a collecting, unbuilt, caller-owned profile", created)
 	}
 	return created
 }
@@ -116,8 +129,8 @@ func TestVoiceProfileLifecycle(t *testing.T) {
 		t.Fatalf("personality edit touched the derived half: %+v", edited)
 	}
 
-	// Archive: 204, then the profile and its corpus read as absent.
-	if status := e.call(t, "DELETE", base, nil, nil, nil); status != http.StatusNoContent {
+	// Archive returns the terminal representation, then reads are absent.
+	if status := e.call(t, "DELETE", base, nil, map[string]string{"If-Match": "2"}, nil); status != http.StatusOK {
 		t.Fatalf("archive → %d", status)
 	}
 	if status := e.call(t, "GET", base, nil, nil, nil); status != http.StatusNotFound {
@@ -131,6 +144,16 @@ func TestVoiceProfileLifecycle(t *testing.T) {
 // ingest posts one corpus source and asserts the 201.
 func ingest(t *testing.T, e *env, base string, body anyMap) voiceIngestResponse {
 	t.Helper()
+	kind, _ := body["kind"].(string)
+	if _, ok := body["register"]; !ok {
+		body["register"] = map[string]string{
+			"email": "email", "linkedin": "social", "proposal": "long_form",
+			"transcript": "spoken", "document": "long_form", "other": "general",
+		}[kind]
+	}
+	if _, ok := body["format"]; !ok {
+		body["format"] = "text"
+	}
 	var resp voiceIngestResponse
 	if status := e.call(t, "POST", base+"/sources", body, nil, &resp); status != http.StatusCreated {
 		t.Fatalf("ingest %v → %d", body["source_ref"], status)
@@ -144,13 +167,13 @@ func TestVoiceCorpusIngestAndMeter(t *testing.T) {
 	created := createVoiceProfile(t, e)
 	base := "/v1/voice-profiles/" + created.ID
 
-	// A pasted post: register defaults to written, words counted.
+	// A pasted post: social register, words counted.
 	post := ingest(t, e, base, anyMap{
-		"kind": "post", "source_label": "LinkedIn posts", "source_ref": "post-2026-06",
+		"kind": "linkedin", "source_label": "LinkedIn posts", "source_ref": "post-2026-06",
 		"content": "Shipping beats planning. We shipped the audit story this week and it landed.",
 	})
-	if post.Source.Register != "written" || post.Source.WordCount != 13 {
-		t.Fatalf("post ingested as %+v, want register=written word_count=13", post.Source)
+	if post.Source.Register != "social" || post.Source.WordCount != 13 {
+		t.Fatalf("post ingested as %+v, want register=social word_count=13", post.Source)
 	}
 	if post.Summary.QualityBand != "thin" || post.Summary.SourceCount != 1 {
 		t.Fatalf("summary after one post = %+v", post.Summary)
@@ -160,19 +183,19 @@ func TestVoiceCorpusIngestAndMeter(t *testing.T) {
 	// owner's 20 words enter — zero other-party text (§B1.2).
 	transcript := ingest(t, e, base, anyMap{
 		"kind": "transcript", "source_label": "Discovery call", "source_ref": "call-77",
-		"format": "vtt", "speaker_label": "Ada Admin", "content": voiceTestVTT,
+		"format": "transcript", "speaker_label": "Ada Admin", "content": voiceTestVTT,
 	})
 	if transcript.Source.Register != "spoken" || transcript.Source.WordCount != 20 {
 		t.Fatalf("transcript ingested as %+v, want register=spoken word_count=20 (owner turns only)", transcript.Source)
 	}
-	if transcript.Summary.RegisterWords["spoken"] != 20 || transcript.Summary.RegisterWords["written"] != 13 {
-		t.Fatalf("register mix = %v, want spoken:20 written:13", transcript.Summary.RegisterWords)
+	if transcript.Summary.RegisterWords["spoken"] != 20 || transcript.Summary.RegisterWords["social"] != 13 {
+		t.Fatalf("register mix = %v, want spoken:20 social:13", transcript.Summary.RegisterWords)
 	}
 
 	// Idempotency: re-ingesting source_ref post-2026-06 replaces the row
 	// — same source count, new word count, no double-counted meter.
 	reingested := ingest(t, e, base, anyMap{
-		"kind": "post", "source_label": "LinkedIn posts", "source_ref": "post-2026-06",
+		"kind": "linkedin", "source_label": "LinkedIn posts", "source_ref": "post-2026-06",
 		"content": "Five clean words replace thirteen.",
 	})
 	if reingested.Source.ID != post.Source.ID || reingested.Source.WordCount != 5 {
@@ -185,7 +208,7 @@ func TestVoiceCorpusIngestAndMeter(t *testing.T) {
 	// A rich enough source moves the band; the boundary logic itself is
 	// unit-tested — here the wire meter reflects the stored corpus.
 	bulk := ingest(t, e, base, anyMap{
-		"kind": "longform", "source_label": "Blog archive", "source_ref": "blog-dump",
+		"kind": "document", "source_label": "Blog archive", "source_ref": "blog-dump",
 		"content": strings.Repeat("wort ", 8500),
 	})
 	if bulk.Summary.QualityBand != "good" || bulk.Summary.TotalWords != 8525 {
@@ -195,11 +218,11 @@ func TestVoiceCorpusIngestAndMeter(t *testing.T) {
 	// Excluding a source pulls it from the meter (manifest opt-out).
 	var excluded voiceIngestResponse
 	if status := e.call(t, "PATCH", base+"/sources/"+bulk.Source.ID, anyMap{
-		"excluded": true,
+		"included": false,
 	}, nil, &excluded); status != http.StatusOK {
 		t.Fatalf("exclude → %d", status)
 	}
-	if !excluded.Source.Excluded || excluded.Summary.TotalWords != 25 || excluded.Summary.QualityBand != "thin" {
+	if excluded.Source.Included || excluded.Summary.TotalWords != 25 || excluded.Summary.QualityBand != "thin" {
 		t.Fatalf("after exclude: source=%+v summary=%+v, want the meter back at 25/thin", excluded.Source, excluded.Summary)
 	}
 
@@ -214,6 +237,48 @@ func TestVoiceCorpusIngestAndMeter(t *testing.T) {
 	}
 	if len(manifest.Data) != 3 || manifest.Summary.SourceCount != 2 {
 		t.Fatalf("manifest rows=%d meterSources=%d, want 3 rows / 2 counted", len(manifest.Data), manifest.Summary.SourceCount)
+	}
+}
+
+func TestVoiceBuildQueuesOnlyAtTheProvisionalThreshold(t *testing.T) {
+	e := setup(t)
+	e.bootstrapWorkspace(t)
+	created := createVoiceProfile(t, e)
+	base := "/v1/voice-profiles/" + created.ID
+
+	ingest(t, e, base, anyMap{
+		"kind": "document", "source_label": "Working sample", "source_ref": "threshold",
+		"content": strings.Repeat("word ", 799),
+	})
+	if status := e.call(t, "POST", base+"/builds", anyMap{"reason": "onboarding"}, nil, nil); status != http.StatusUnprocessableEntity {
+		t.Fatalf("build below 800 words → %d, want 422", status)
+	}
+
+	ingest(t, e, base, anyMap{
+		"kind": "document", "source_label": "Working sample", "source_ref": "threshold",
+		"content": strings.Repeat("word ", 800),
+	})
+	var queued voiceBuildWire
+	if status := e.call(t, "POST", base+"/builds", anyMap{"reason": "onboarding"}, nil, &queued); status != http.StatusAccepted {
+		t.Fatalf("build at 800 words → %d, want 202", status)
+	}
+	if queued.ProfileID != created.ID || queued.Status != "queued" || queued.SourceCount != 1 || queued.SourceHash == "" || queued.ResultVersion != nil {
+		t.Fatalf("queued build = %+v", queued)
+	}
+
+	var replay voiceBuildWire
+	if status := e.call(t, "POST", base+"/builds", anyMap{"reason": "manual"}, nil, &replay); status != http.StatusAccepted {
+		t.Fatalf("active-build replay → %d, want 202", status)
+	}
+	if replay.ID != queued.ID {
+		t.Fatalf("active-build replay id = %s, want %s", replay.ID, queued.ID)
+	}
+	var polled voiceBuildWire
+	if status := e.call(t, "GET", base+"/builds/"+queued.ID, nil, nil, &polled); status != http.StatusOK {
+		t.Fatalf("poll build → %d", status)
+	}
+	if polled.ID != queued.ID || polled.Version != 1 {
+		t.Fatalf("polled build = %+v", polled)
 	}
 }
 
@@ -232,7 +297,7 @@ func TestVoiceBinaryDocumentIngestIsRefusedWith422(t *testing.T) {
 			Detail string `json:"detail"`
 		}
 		if status := e.call(t, "POST", "/v1/voice-profiles/"+created.ID+"/sources", anyMap{
-			"kind": "post", "source_label": "office upload", "source_ref": "bin-" + format,
+			"kind": "document", "register": "long_form", "source_label": "office upload", "source_ref": "bin-" + format,
 			"format": format, "content": "opaque binary payload",
 		}, nil, &problem); status != http.StatusUnprocessableEntity {
 			t.Fatalf("%s ingest → %d, want 422", format, status)
@@ -263,8 +328,8 @@ func TestVoiceTranscriptIngestRequiresTheOwnersSpeakerLabel(t *testing.T) {
 	created := createVoiceProfile(t, e)
 
 	if status := e.call(t, "POST", "/v1/voice-profiles/"+created.ID+"/sources", anyMap{
-		"kind": "transcript", "source_label": "Unattributed", "source_ref": "call-78",
-		"format": "vtt", "content": voiceTestVTT,
+		"kind": "transcript", "register": "spoken", "source_label": "Unattributed", "source_ref": "call-78",
+		"format": "transcript", "content": voiceTestVTT,
 	}, nil, nil); status != 422 {
 		t.Fatalf("labelled transcript without speaker_label → %d, want 422", status)
 	}

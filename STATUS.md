@@ -457,6 +457,16 @@ tooling and gate suite the baseline needs. Merged so far:
 
 Open work, roughly in priority order:
 
+- **Progressive Voice lifecycle** — ADR-0066's owner-private, human-only
+  contract is implemented on `feat/voice-profile-lifecycle`: durable builds,
+  immutable versions, candidate deltas, apply/reject/rollback, corpus clear,
+  source-driven staleness, learning summaries, and the seven Voice-stream
+  events. Migration 0107 preserves a legacy built profile as its first active
+  immutable version and quarantines obsolete team-scoped rows. Local merge and
+  real-Postgres gates are being completed before the PR; the next PR is the
+  structured Voice builder, followed by canonical reply usage/learning and the
+  settings/onboarding surface.
+
 - **aicert follow-ups** (from the certification arc): the
   trace-extraction pipeline (scenarios from production `ai_call` rows
   with a real pseudonymizer — `extracted:` provenance is refused until
