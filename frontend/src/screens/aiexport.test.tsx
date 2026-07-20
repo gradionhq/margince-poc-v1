@@ -13,7 +13,7 @@ it("builds an explicitly unreviewed corpus scaffold with safe block scalars", ()
       },
       response: "ok",
     },
-  } as AiCallDetail;
+  } satisfies AiCallDetail;
   const yaml = scenarioYaml(call, "My Run!");
   expect(yaml).toContain("name: my_run");
   expect(yaml).toContain("task: capture_classify");

@@ -6940,7 +6940,7 @@ components:
           properties:
             correlation_id: { type: [string, 'null'], format: uuid }
             agent_run_id: { type: [string, 'null'], format: uuid }
-            served_identity_source: { type: string, description: 'configured | provider-reported.' }
+            served_identity_source: { type: string, description: 'response | echo | configured.' }
             config_hash: { type: [string, 'null'], description: 'Routing/prompt config identity of this call.' }
             context_scopes: { type: array, items: { type: string }, description: 'Company-context scopes injected into the request.' }
             context_fingerprint: { type: string }

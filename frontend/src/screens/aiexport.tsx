@@ -3,12 +3,39 @@ import type { components } from "../api/schema";
 import { Badge, Button, TextInput } from "../design-system/atoms";
 import { useT } from "../i18n";
 
-export type AiCallDetail = components["schemas"]["AiCall"];
+export type AiCallDetail = Pick<
+  components["schemas"]["AiCall"],
+  "task" | "occurred_at" | "payload"
+>;
 
 type CapturedRequest = {
   system?: string;
   messages?: { role: string; content: string }[];
 };
+
+function capturedRequest(value: unknown): CapturedRequest {
+  if (typeof value !== "object" || value === null) return {};
+  const system =
+    "system" in value && typeof value.system === "string"
+      ? value.system
+      : undefined;
+  const messages: CapturedRequest["messages"] = [];
+  if ("messages" in value && Array.isArray(value.messages)) {
+    for (const message of value.messages) {
+      if (
+        typeof message === "object" &&
+        message !== null &&
+        "role" in message &&
+        typeof message.role === "string" &&
+        "content" in message &&
+        typeof message.content === "string"
+      ) {
+        messages.push({ role: message.role, content: message.content });
+      }
+    }
+  }
+  return { system, messages };
+}
 
 function blockScalar(text: string): string {
   const body = text
@@ -26,7 +53,7 @@ function scenarioSlug(name: string): string {
 }
 
 export function scenarioYaml(call: AiCallDetail, name: string): string {
-  const request = (call.payload?.request ?? {}) as CapturedRequest;
+  const request = capturedRequest(call.payload?.request);
   const input = (request.messages ?? [])
     .map((message) => `${message.role}: ${message.content}`)
     .join("\n");

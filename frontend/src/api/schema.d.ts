@@ -3968,7 +3968,7 @@ export interface components {
             correlation_id?: string | null;
             /** Format: uuid */
             agent_run_id?: string | null;
-            /** @description configured | provider-reported. */
+            /** @description response | echo | configured. */
             served_identity_source: string;
             /** @description Routing/prompt config identity of this call. */
             config_hash?: string | null;

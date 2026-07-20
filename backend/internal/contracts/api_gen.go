@@ -5548,7 +5548,7 @@ type AiCall struct {
 	Provider        string `json:"provider"`
 	ReasoningTokens int    `json:"reasoning_tokens"`
 
-	// ServedIdentitySource configured | provider-reported.
+	// ServedIdentitySource response | echo | configured.
 	ServedIdentitySource string `json:"served_identity_source"`
 
 	// ServedModel What the provider reported serving.

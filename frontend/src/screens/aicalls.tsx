@@ -13,8 +13,6 @@ import { useLocale, useT } from "../i18n";
 import { ExportScenarioDialog } from "./aiexport";
 import { problemMessage, QueryStates } from "./common";
 
-type AiCall = components["schemas"]["AiCall"];
-
 export function CallDetailPanel({
   id,
   captureEnabled,
@@ -92,7 +90,7 @@ export function CallDetailPanel({
               </Button>
               {exporting && (
                 <ExportScenarioDialog
-                  call={query.data as AiCall}
+                  call={query.data}
                   onClose={() => setExporting(false)}
                 />
               )}

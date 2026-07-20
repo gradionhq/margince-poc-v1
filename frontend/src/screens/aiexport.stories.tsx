@@ -12,7 +12,7 @@ const call = {
     },
     response: "commitment",
   },
-} as AiCallDetail;
+} satisfies AiCallDetail;
 const meta: Meta<typeof ExportScenarioDialog> = {
   title: "screens/ai-export",
   component: ExportScenarioDialog,
