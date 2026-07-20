@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import { Ban, Check, Clock, Minus, X } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import {
@@ -84,7 +84,7 @@ function DetailLine({
   color,
 }: Readonly<{ label: string; value: string; color?: string }>) {
   return (
-    <p className="t-small" style={{ marginTop: 2, color }}>
+    <p className="t-small" style={{ marginTop: "var(--space-1)", color }}>
       <span className="t-label">{label}</span> {value}
     </p>
   );
@@ -94,11 +94,11 @@ function RunRow({ run }: Readonly<{ run: AutomationRun }>) {
   const t = useT();
   const { locale } = useLocale();
   return (
-    <li className="card card-inset" style={{ marginTop: 8 }}>
+    <li className="card card-inset" style={{ marginTop: "var(--space-2)" }}>
       <div
         style={{
           display: "flex",
-          gap: 8,
+          gap: "var(--space-2)",
           alignItems: "center",
           flexWrap: "wrap",
         }}
@@ -215,7 +215,7 @@ export function AutomationRuns({
   return (
     <section
       className="card card-inset"
-      style={{ marginTop: 10 }}
+      style={{ marginTop: "var(--space-3)" }}
       data-testid="automation-runs"
     >
       <SectionHeader title={t("auto.runs.title")} />
@@ -223,8 +223,8 @@ export function AutomationRuns({
         style={{
           display: "flex",
           flexWrap: "wrap",
-          gap: 6,
-          marginBottom: 10,
+          gap: "var(--space-2)",
+          marginBottom: "var(--space-3)",
         }}
       >
         {FILTER_OPTIONS.map((option) => {
@@ -243,6 +243,129 @@ export function AutomationRuns({
         })}
       </div>
       <QueryStates query={query}>{body}</QueryStates>
+    </section>
+  );
+}
+
+type AutomationPreviewResult = components["schemas"]["AutomationPreview"];
+
+// The three offered windows. Kept as a typed tuple so the segmented control
+// and its labels can never drift apart, and each value is a valid 1..90 the
+// server accepts (the 422 branch below stays a defensive honesty guard, not a
+// path the UI can normally reach).
+const WINDOWS = [7, 30, 90] as const;
+type Window = (typeof WINDOWS)[number];
+
+const WINDOW_LABELS: Record<Window, MessageKey> = {
+  7: "auto.preview.window7",
+  30: "auto.preview.window30",
+  90: "auto.preview.window90",
+};
+
+// AU-1: the dry-run blast-radius panel over POST /automations/{id}/preview.
+// A pure 🟢 read (no writes) modelled as a mutation because it POSTs a body
+// and re-runs on demand — fired on open (the panel only mounts when open) and
+// on every window change.
+export function AutomationPreview({
+  automationId,
+}: Readonly<{ automationId: string }>) {
+  const t = useT();
+  const [windowDays, setWindowDays] = useState<Window>(30);
+
+  const preview = useMutation({
+    mutationFn: async (days: Window): Promise<AutomationPreviewResult> => {
+      const { data, error } = await api.POST("/automations/{id}/preview", {
+        params: { path: { id: automationId } },
+        body: { window_days: days },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+  });
+
+  // Re-estimate whenever the window changes — including the first mount, which
+  // is the panel's open. `mutate` is referentially stable across renders, so
+  // this keys purely on the selected window.
+  const { mutate } = preview;
+  useEffect(() => {
+    mutate(windowDays);
+  }, [windowDays, mutate]);
+
+  const result = preview.data;
+  const hidden = result?.excluded_by_permission ?? 0;
+
+  let body: ReactNode;
+  if (preview.isPending) {
+    body = <p className="t-small">{t("auto.preview.estimating")}</p>;
+  } else if (preview.isError) {
+    // covers the 404 (foreign id) and 422 (window out of range) branches —
+    // the server's RFC 7807 detail reads verbatim rather than a generic error.
+    body = (
+      <p className="t-small" style={{ color: "var(--danger)" }}>
+        {preview.error instanceof Error ? preview.error.message : null}
+      </p>
+    );
+  } else if (result) {
+    body = (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "var(--space-1)",
+        }}
+      >
+        <p className="t-body">
+          {t("auto.preview.matchesNow", { n: result.matches_now })}
+        </p>
+        <p className="t-small">
+          {result.would_have_fired == null
+            ? t("auto.preview.notComputable")
+            : t("auto.preview.wouldFire", {
+                n: result.would_have_fired,
+                days: result.window_days,
+              })}
+        </p>
+        {hidden > 0 && (
+          <p className="t-small">{t("auto.preview.hidden", { n: hidden })}</p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <section
+      className="card card-inset"
+      style={{ marginTop: "var(--space-3)" }}
+      data-testid="automation-preview"
+    >
+      <SectionHeader title={t("auto.preview.title")} />
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "var(--space-2)",
+          marginBottom: "var(--space-3)",
+        }}
+      >
+        <span className="t-label">{t("auto.preview.window")}</span>
+        {WINDOWS.map((days) => (
+          <Button
+            key={days}
+            small
+            variant={days === windowDays ? "primary" : "ghost"}
+            aria-pressed={days === windowDays}
+            onClick={() => setWindowDays(days)}
+          >
+            {t(WINDOW_LABELS[days])}
+          </Button>
+        ))}
+      </div>
+      {body}
+      <p className="t-caption" style={{ marginTop: "var(--space-3)" }}>
+        {t("auto.preview.explainer")}
+      </p>
     </section>
   );
 }

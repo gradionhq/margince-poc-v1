@@ -12,7 +12,11 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
-import { AutomationRuns, OutcomeBadge } from "./automationdetail";
+import {
+  AutomationPreview,
+  AutomationRuns,
+  OutcomeBadge,
+} from "./automationdetail";
 
 type AutomationRun = components["schemas"]["AutomationRun"];
 
@@ -197,6 +201,165 @@ describe("AutomationRuns", () => {
     render(<AutomationRuns automationId="au-1" />);
     await waitFor(() =>
       expect(screen.getByText("automation not found")).toBeTruthy(),
+    );
+  });
+});
+
+type PreviewBody = { window_days: number };
+
+// A POST stub that records the request bodies and answers from the requested
+// window, so the tests can assert both what was sent and what rendered.
+function previewBackend(
+  responder: (body: PreviewBody) => Response,
+  bodies: PreviewBody[],
+) {
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = input instanceof Request ? input : null;
+    const raw: unknown = request
+      ? await request.json()
+      : JSON.parse(String(init?.body));
+    const body = raw as PreviewBody;
+    bodies.push(body);
+    return responder(body);
+  });
+}
+
+describe("AutomationPreview", () => {
+  it("posts window_days:30 on open and shows matches-now + would-fire", async () => {
+    const bodies: PreviewBody[] = [];
+    vi.stubGlobal(
+      "fetch",
+      previewBackend(
+        (body) =>
+          jsonResponse({
+            matches_now: 12,
+            would_have_fired: 34,
+            window_days: body.window_days,
+          }),
+        bodies,
+      ),
+    );
+    render(<AutomationPreview automationId="au-1" />);
+    await waitFor(() => expect(screen.getByText("12 match now")).toBeTruthy());
+    expect(screen.getByText("~34 would fire / 30d")).toBeTruthy();
+    expect(bodies).toEqual([{ window_days: 30 }]);
+  });
+
+  it("re-posts with the chosen window when a window button is clicked", async () => {
+    const bodies: PreviewBody[] = [];
+    vi.stubGlobal(
+      "fetch",
+      previewBackend(
+        (body) =>
+          jsonResponse({
+            matches_now: body.window_days === 7 ? 3 : 12,
+            would_have_fired: body.window_days === 7 ? 5 : 34,
+            window_days: body.window_days,
+          }),
+        bodies,
+      ),
+    );
+    render(<AutomationPreview automationId="au-1" />);
+    await waitFor(() => expect(screen.getByText("12 match now")).toBeTruthy());
+    await userEvent.click(screen.getByRole("button", { name: "7d" }));
+    await waitFor(() =>
+      expect(screen.getByText("~5 would fire / 7d")).toBeTruthy(),
+    );
+    expect(bodies).toContainEqual({ window_days: 7 });
+  });
+
+  it("reads null would_have_fired as not-computable, never a fabricated 0", async () => {
+    vi.stubGlobal(
+      "fetch",
+      previewBackend(
+        (body) =>
+          jsonResponse({
+            matches_now: 5,
+            would_have_fired: null,
+            window_days: body.window_days,
+          }),
+        [],
+      ),
+    );
+    render(<AutomationPreview automationId="au-1" />);
+    await waitFor(() =>
+      expect(screen.getByText("Trailing estimate not computable")).toBeTruthy(),
+    );
+    expect(screen.queryByText(/would fire/)).toBeNull();
+  });
+
+  it("omits the hidden line at 0 and shows it above 0", async () => {
+    vi.stubGlobal(
+      "fetch",
+      previewBackend(
+        (body) =>
+          jsonResponse({
+            matches_now: 5,
+            would_have_fired: 5,
+            window_days: body.window_days,
+            excluded_by_permission: 0,
+          }),
+        [],
+      ),
+    );
+    const zero = render(<AutomationPreview automationId="au-1" />);
+    await waitFor(() => expect(screen.getByText("5 match now")).toBeTruthy());
+    expect(screen.queryByText(/hidden/)).toBeNull();
+    zero.unmount();
+
+    vi.stubGlobal(
+      "fetch",
+      previewBackend(
+        (body) =>
+          jsonResponse({
+            matches_now: 5,
+            would_have_fired: 5,
+            window_days: body.window_days,
+            excluded_by_permission: 2,
+          }),
+        [],
+      ),
+    );
+    render(<AutomationPreview automationId="au-1" />);
+    await waitFor(() =>
+      expect(screen.getByText("2 hidden — no access")).toBeTruthy(),
+    );
+  });
+
+  it("surfaces the 422 window-validation detail honestly", async () => {
+    vi.stubGlobal(
+      "fetch",
+      previewBackend(
+        () => jsonResponse({ detail: "window_days must be 1..90" }, 422),
+        [],
+      ),
+    );
+    render(<AutomationPreview automationId="au-1" />);
+    await waitFor(() =>
+      expect(screen.getByText("window_days must be 1..90")).toBeTruthy(),
+    );
+  });
+
+  it("always shows the no-side-effects explainer", async () => {
+    vi.stubGlobal(
+      "fetch",
+      previewBackend(
+        (body) =>
+          jsonResponse({
+            matches_now: 1,
+            would_have_fired: 1,
+            window_days: body.window_days,
+          }),
+        [],
+      ),
+    );
+    render(<AutomationPreview automationId="au-1" />);
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "A read-only dry run — no records are changed and nothing is sent.",
+        ),
+      ).toBeTruthy(),
     );
   });
 });
