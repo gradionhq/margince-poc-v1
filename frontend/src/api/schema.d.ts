@@ -3890,7 +3890,7 @@ export interface components {
              */
             winner_id?: string | null;
         };
-        /** @description AI usage + budget (AIRT-WIRE-1): the AIRT-PARAM-33 meter aggregated per day × task × tier, plus the budget band. Token-denominated; cost_minor is the estimate at the configured tier's rate (0 when local). */
+        /** @description AI usage + budget (AIRT-WIRE-1): the AIRT-PARAM-33 meter aggregated per day × task × tier, plus the budget band. Token-denominated; cost_est_minor is computed on read from the workspace's ai_model_rate price sheet as of each call's day (ADR-0067, price-on-read) — omitted, never a fabricated 0, when a task line's window carries no priced call. */
         AiUsage: {
             days: {
                 /** Format: date */
@@ -3904,6 +3904,7 @@ export interface components {
                     cached_hits?: number;
                     tokens_in: number;
                     tokens_out: number;
+                    /** @description USD minor units (cents), estimated on read from ai_model_rate at each call's day (ADR-0067). Omitted, not 0, when none of this line's calls priced. */
                     cost_est_minor?: number;
                 }[];
             }[];
@@ -3919,6 +3920,7 @@ export interface components {
                 band: "normal" | "degraded" | "queued";
                 /** Format: date-time */
                 band_since?: string | null;
+                /** @description ISO-4217 of cost_est_minor — always USD in phase 1 (ADR-0067). */
                 currency?: string;
             };
         };
