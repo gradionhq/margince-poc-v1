@@ -4731,41 +4731,39 @@ paths:
               schema: { $ref: '#/components/schemas/TeamListResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
-  # --------------------------- /voice-profiles ------------------------------
-  # Voice DNA (E07, B-E07.4/.5a): the derived voice_profile_md artifact +
-  # per-source corpus manifest. Corpus sources ride the parent
-  # (/voice-profiles/{id}/sources) — §12.5 gives them no standalone CRUD.
+  # =========================================================================
+  # VOICE — owner-private Voice DNA management (ADR-0066).
+  # The V1 surface is per-user and human-only. Draft generation may consume the
+  # active artifact internally, but an agent cannot browse or alter the human's
+  # corpus, learning signals, candidates, or identity preferences.
+  # =========================================================================
   /voice-profiles:
     get:
       tags: [Voice]
       operationId: listVoiceProfiles
-      summary: List the voice profiles visible to the caller.
-      parameters:
-        - $ref: '#/components/parameters/Cursor'
-        - $ref: '#/components/parameters/Limit'
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: List the calling user's live voice profile (zero or one in V1).
       responses:
         '200':
-          description: Voice profiles.
+          description: The caller's profile, when one exists.
           content:
             application/json:
               schema:
                 type: object
-                required: [data, page]
+                required: [data]
                 properties:
-                  data: { type: array, items: { $ref: '#/components/schemas/VoiceProfile' } }
-                  page: { $ref: '#/components/schemas/PageInfo' }
+                  data: { type: array, maxItems: 1, items: { $ref: '#/components/schemas/VoiceProfile' } }
         '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [Voice]
       operationId: createVoiceProfile
-      security: [ { cookieAuth: [] } ]   # human session only — a voice is the human's identity asset
+      security: [ { cookieAuth: [] } ]
       x-agent-access: human-only
-      summary: Create a voice profile (status=building, empty derived artifact).
-      description: |
-        A `user`-scope profile is owned by the caller — one live profile per user (409 on a second).
-        `personality_md` is the human-authored identity half; the derived `voice_profile_md` is
-        written only by the profile builder and arrives empty here.
+      summary: Create the calling user's one personal voice profile.
+      description: The profile starts collecting with an empty derived artifact. A second live profile is 409.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -4773,19 +4771,22 @@ paths:
             schema: { $ref: '#/components/schemas/CreateVoiceProfileRequest' }
       responses:
         '201':
-          description: Created (building).
+          description: Created.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/VoiceProfile' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
+
   /voice-profiles/{id}:
     parameters:
       - $ref: '#/components/parameters/Id'
     get:
       tags: [Voice]
       operationId: getVoiceProfile
-      summary: Read one voice profile (derived artifact + human identity).
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Read the calling user's voice profile and active derived artifact.
       responses:
         '200':
           description: The voice profile.
@@ -4796,13 +4797,10 @@ paths:
     patch:
       tags: [Voice]
       operationId: updateVoiceProfile
-      security: [ { cookieAuth: [] } ]   # human session only — see createVoiceProfile
+      security: [ { cookieAuth: [] } ]
       x-agent-access: human-only
-      summary: Edit the human-authored personality_md (never the derived artifact).
-      description: |
-        The PATCH surface deliberately carries ONLY `personality_md`: the derived
-        `voice_profile_md` + its `profile_version` are written by the rebuild path alone, so the
-        human-authored/machine-derived split (features/09 §B0.2) is enforced by the contract shape.
+      summary: Replace human-authored preferences or enable/disable automatic improvement.
+      description: The derived artifact and its version are never writable through this operation.
       parameters:
         - $ref: '#/components/parameters/IfMatch'
       requestBody:
@@ -4822,45 +4820,57 @@ paths:
     delete:
       tags: [Voice]
       operationId: deleteVoiceProfile
-      security: [ { cookieAuth: [] } ]   # human session only — see createVoiceProfile
+      security: [ { cookieAuth: [] } ]
       x-agent-access: human-only
-      summary: Archive a voice profile (soft; its corpus stops being read).
+      summary: Archive the calling user's voice profile and stop its use in drafts.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
       responses:
-        '204': { description: Archived. }
+        '200':
+          description: Archived profile; no longer used for drafting.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceProfile' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
   /voice-profiles/{id}/sources:
     parameters:
       - $ref: '#/components/parameters/Id'
     get:
       tags: [Voice]
       operationId: listVoiceCorpusSources
-      summary: The corpus manifest — every ingested source plus the live word/register meter.
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: List the owner's corpus manifest and live meter; source text is never returned.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
       responses:
         '200':
-          description: Manifest rows + meter summary.
+          description: Manifest and meter.
           content:
             application/json:
               schema:
                 type: object
-                required: [data, summary]
+                required: [data, summary, page]
                 properties:
                   data: { type: array, items: { $ref: '#/components/schemas/VoiceCorpusSource' } }
                   summary: { $ref: '#/components/schemas/VoiceCorpusSummary' }
+                  page: { $ref: '#/components/schemas/PageInfo' }
         '404': { $ref: '#/components/responses/NotFound' }
     post:
       tags: [Voice]
       operationId: ingestVoiceCorpusSource
-      security: [ { cookieAuth: [] } ]   # human session only — the corpus is consented personal material
+      security: [ { cookieAuth: [] } ]
       x-agent-access: human-only
-      summary: Ingest one corpus source (idempotent on source_ref).
+      summary: Ingest or replace one manual own-authored text source.
       description: |
-        Accepts the source text (`.txt`/`.md` as-is; `.vtt`/`.srt`/transcript-JSON are parsed and
-        SPEAKER-FILTERED to `speaker_label` — only the owner's own turns enter, features/09 §B1.2),
-        tags its register (explicit or defaulted by kind), counts the REAL words of the ingested
-        text (never an estimate), and upserts by `source_ref` — re-ingesting a source replaces its
-        row, it never double-counts the meter. The V1 corpus is text only (features/09 §B1.1):
-        binary documents (`.docx`/`.pdf`) are refused with a 422 — convert or paste the text
-        instead. Server-side binary extraction is deferred to B-E07.5c.
+        Idempotent on `source_ref`. Transcript inputs are speaker-filtered to the supplied owner label;
+        other speakers contribute zero words. V1 accepts text/transcript formats only, never binary
+        documents. Ingest updates the meter and marks a built profile stale but makes no model call.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -4868,7 +4878,7 @@ paths:
             schema: { $ref: '#/components/schemas/IngestVoiceCorpusSourceRequest' }
       responses:
         '201':
-          description: Ingested (created or replaced).
+          description: Created or replaced.
           content:
             application/json:
               schema:
@@ -4879,6 +4889,7 @@ paths:
                   summary: { $ref: '#/components/schemas/VoiceCorpusSummary' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
+
   /voice-profiles/{id}/sources/{sourceId}:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -4889,9 +4900,11 @@ paths:
     patch:
       tags: [Voice]
       operationId: updateVoiceCorpusSource
-      security: [ { cookieAuth: [] } ]   # human session only — see ingestVoiceCorpusSource
+      security: [ { cookieAuth: [] } ]
       x-agent-access: human-only
-      summary: Flip a source's manifest opt-out (excluded) or its weight.
+      summary: Exclude/re-include a source or change its weight without rebuilding inline.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
       requestBody:
         required: true
         content:
@@ -4899,7 +4912,7 @@ paths:
             schema: { $ref: '#/components/schemas/UpdateVoiceCorpusSourceRequest' }
       responses:
         '200':
-          description: Updated manifest row + refreshed meter.
+          description: Updated source and meter.
           content:
             application/json:
               schema:
@@ -4910,6 +4923,249 @@ paths:
                   summary: { $ref: '#/components/schemas/VoiceCorpusSummary' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Voice]
+      operationId: deleteVoiceCorpusSource
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Permanently remove one retained source and mark any active artifact stale.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Archived source manifest; retained content has been scrubbed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceCorpusSource' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /voice-profiles/{id}/corpus/clear:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Voice]
+      operationId: clearVoiceCorpus
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Permanently clear retained corpus, learning content, builds, deltas, and derived versions.
+      description: Human preferences remain; automatic improvement turns off; the profile returns to collecting.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Corpus and derived history cleared; human-authored preferences remain.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceProfile' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /voice-profiles/{id}/builds:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Voice]
+      operationId: createVoiceBuild
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Queue a durable build over the current included corpus.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateVoiceBuildRequest' }
+      responses:
+        '202':
+          description: Queued, or the already-active build returned idempotently.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceBuild' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /voice-profiles/{id}/builds/{buildId}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: buildId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Voice]
+      operationId: getVoiceBuild
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Poll a durable build, including budget-deferred state.
+      responses:
+        '200':
+          description: Build state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceBuild' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /voice-profiles/{id}/versions:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Voice]
+      operationId: listVoiceProfileVersions
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: List immutable active, superseded, rejected, and candidate versions newest first.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Version history.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/VoiceProfileVersion' } }
+                  page: { $ref: '#/components/schemas/PageInfo' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /voice-profiles/{id}/versions/{profileVersion}/apply:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/VoiceProfileVersionNumber'
+    post:
+      tags: [Voice]
+      operationId: applyVoiceProfileVersion
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Explicitly activate a candidate version that awaited owner review.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Activated version.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceProfileVersion' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /voice-profiles/{id}/versions/{profileVersion}/reject:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/VoiceProfileVersionNumber'
+    post:
+      tags: [Voice]
+      operationId: rejectVoiceProfileVersion
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Reject a candidate; the last known-good remains active.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Rejected candidate.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceProfileVersion' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /voice-profiles/{id}/versions/{profileVersion}/rollback:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/VoiceProfileVersionNumber'
+    post:
+      tags: [Voice]
+      operationId: rollbackVoiceProfileVersion
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Restore an earlier artifact byte-for-byte as a new forward active version.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: New active forward version.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceProfileVersion' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /voice-profiles/{id}/deltas:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Voice]
+      operationId: listVoiceProfileDeltas
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: List typed, explainable changes between completed versions.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Newest deltas first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/VoiceProfileDelta' } }
+                  page: { $ref: '#/components/schemas/PageInfo' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /voice-profiles/{id}/learning:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Voice]
+      operationId: getVoiceLearningSummary
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Read privacy-safe aggregate draft outcomes and qualifying transformations.
+      responses:
+        '200':
+          description: Aggregate only; generated originals and final text are never returned.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceLearningSummary' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /voice-profiles/{id}/draft-rejections:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Voice]
+      operationId: rejectVoiceDraft
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Record that the owner rejected a bound generated draft; generated text never becomes corpus.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RejectVoiceDraftRequest' }
+      responses:
+        '200':
+          description: Rejection recorded, or already recorded; updated aggregate returned.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceLearningSummary' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # =========================================================================
 
   # ------------------------------ /products ---------------------------------
   # The optional rate-card (B-E03.16, data-model §12.6): reusable priced
@@ -6529,6 +6785,12 @@ components:
       required: true
       schema: { type: string, format: uuid }
       description: Opaque resource id (UUID; ordering semantics are not exposed).
+    VoiceProfileVersionNumber:
+      name: profileVersion
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+      description: Immutable Voice DNA artifact version number within one profile.
     Cursor:
       name: cursor
       in: query
@@ -9642,88 +9904,297 @@ components:
         reason: { type: [string, 'null'], description: 'For failed/blocked/skipped: why (e.g. "provider error", "approval expired", "Passport no longer permits send") — from automation_run.detail.' }
         audit_id: { type: [string, 'null'], description: 'Link into the audit_log row for this run.' }
 
-    # ---- Voice DNA (E07, B-E07.4/.5a; data-model §12.5 + features/09 §B0.2) ----
+    # ---- Voice DNA ----
     VoiceProfile:
       type: object
-      description: |
-        A user's/team's voice DNA. `voice_profile_md` is machine-DERIVED (versioned by
-        `profile_version`, rewritten wholesale on rebuild); `personality_md` is human-AUTHORED
-        free text a rebuild never touches.
-      required: [id, scope, status, voice_profile_md, profile_version, personality_md, created_at]
+      description: The calling owner's live personal Voice DNA control record and active derived artifact.
+      required:
+        - id
+        - owner_id
+        - status
+        - maturity
+        - quality_band
+        - voice_profile_md
+        - profile_version
+        - personality_md
+        - auto_learning_enabled
+        - active_source_hash
+        - candidate_version
+        - last_built_at
+        - source
+        - captured_by
+        - version
+        - created_at
+        - updated_at
+        - archived_at
       properties:
         id: { type: string, format: uuid }
-        owner_id: { type: [string, 'null'], format: uuid, description: 'null = workspace/team profile.' }
-        scope: { type: string, enum: [user, team, workspace] }
-        model_ref: { type: [string, 'null'], description: Derived style descriptor / embedding ref. }
-        status: { type: string, enum: [building, ready, stale] }
-        voice_profile_md: { type: string, description: 'The derived artifact (Identity · stats · signature moves · patterns · rules · vocabulary · anti-patterns · register notes · few-shot examples).' }
-        profile_version: { type: integer, description: 'Bumps on every derived rebuild; 0 = never built.' }
-        personality_md: { type: string }
-        version: { type: integer }
+        owner_id: { type: string, format: uuid, readOnly: true }
+        status: { type: string, enum: [collecting, ready, stale] }
+        maturity: { type: string, enum: [collecting, provisional, building], readOnly: true }
+        quality_band: { type: string, enum: [thin, good, rich, sharp], readOnly: true }
+        voice_profile_md: { type: string, readOnly: true, description: Active derived Voice DNA artifact; empty while collecting. }
+        profile_version: { type: integer, minimum: 0, readOnly: true, description: Zero means no active artifact yet. }
+        personality_md: { type: string, description: Owner-authored preferences; model output never overwrites this field. }
+        auto_learning_enabled: { type: boolean, default: false, description: Explicit owner opt-in; defaults off. }
+        active_source_hash: { type: [string, 'null'], readOnly: true }
+        candidate_version: { type: [integer, 'null'], minimum: 1, readOnly: true }
+        last_built_at: { type: [string, 'null'], format: date-time, readOnly: true }
+        source: { type: string }
+        captured_by: { type: string, readOnly: true }
+        version: { type: integer, minimum: 1 }
         created_at: { type: string, format: date-time }
-        updated_at: { type: [string, 'null'], format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
 
     CreateVoiceProfileRequest:
       type: object
       properties:
-        scope: { type: [string, 'null'], enum: [user, team, workspace, null], description: 'Defaults to user (owned by the caller).' }
-        personality_md: { type: [string, 'null'] }
+        personality_md: { type: string, maxLength: 20000, default: '' }
 
     UpdateVoiceProfileRequest:
       type: object
-      required: [personality_md]
+      minProperties: 1
       properties:
-        personality_md: { type: string }
+        personality_md: { type: string, maxLength: 20000 }
+        auto_learning_enabled: { type: boolean }
 
     VoiceCorpusSource:
       type: object
-      description: One corpus manifest row. The ingested text itself is builder-internal and never echoed back.
-      required: [id, kind, register, weight, source_label, source_ref, word_count, excluded, created_at]
+      description: Privacy-safe source manifest. Retained source text is deliberately not returned.
+      required: [id, origin, kind, register, weight, source_label, source_ref, word_count, included, exclusion_reason, extractor_version, occurred_at, retention_until, content_erased_at, source, captured_by, version, created_at, updated_at, archived_at]
       properties:
         id: { type: string, format: uuid }
-        kind: { type: string, enum: [post, transcript, email, chat, longform, voice_memo] }
-        register: { type: string, enum: [spoken, written, casual, formal] }
-        weight: { type: number }
+        origin: { type: string, enum: [manual, capture, draft_signal] }
+        kind: { type: string, enum: [email, linkedin, proposal, transcript, document, other] }
+        register: { type: string, enum: [email, social, long_form, spoken, general] }
+        weight: { type: number, minimum: 0, maximum: 2 }
         source_label: { type: string }
-        source_ref: { type: string, description: 'The source natural key ingest is idempotent on.' }
-        word_count: { type: integer }
-        excluded: { type: boolean }
+        source_ref: { type: string, description: Stable owner-scoped natural key; not raw content. }
+        word_count: { type: integer, minimum: 0 }
+        included: { type: boolean }
+        exclusion_reason: { type: [string, 'null'] }
+        extractor_version: { type: string }
+        occurred_at: { type: string, format: date-time }
+        retention_until: { type: [string, 'null'], format: date-time }
+        content_erased_at: { type: [string, 'null'], format: date-time, readOnly: true }
+        source: { type: string }
+        captured_by: { type: string, readOnly: true }
+        version: { type: integer, minimum: 1 }
         created_at: { type: string, format: date-time }
-        updated_at: { type: [string, 'null'], format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
 
     IngestVoiceCorpusSourceRequest:
       type: object
-      required: [kind, source_label, content]
+      required: [kind, register, source_label, source_ref, format, content]
       properties:
-        kind: { type: string, enum: [post, transcript, email, chat, longform, voice_memo] }
-        register: { type: [string, 'null'], enum: [spoken, written, casual, formal, null], description: 'Defaults by kind: transcript/voice_memo→spoken, chat→casual, post/longform/email→written.' }
-        weight: { type: [number, 'null'], description: '0.1–5.0; defaults to 1.0.' }
-        source_label: { type: string }
-        source_ref: { type: [string, 'null'], description: 'Natural key (message id, upload name…); defaults to a hash of the content.' }
-        format: { type: [string, 'null'], enum: [txt, md, vtt, srt, json, null], description: 'Defaults to txt. vtt/srt/json are transcript formats and require speaker_label when turns are speaker-labelled.' }
-        speaker_label: { type: [string, 'null'], description: 'The owner''s label in a transcript; only matching turns are ingested (features/09 §B1.2).' }
-        content: { type: string, description: The raw source text in the declared format. }
+        kind: { type: string, enum: [email, linkedin, proposal, transcript, document, other] }
+        register: { type: string, enum: [email, social, long_form, spoken, general] }
+        weight: { type: number, minimum: 0, maximum: 2, default: 1 }
+        source_label: { type: string, minLength: 1, maxLength: 255 }
+        source_ref: { type: string, minLength: 1, maxLength: 512 }
+        format: { type: string, enum: [text, transcript] }
+        speaker_label: { type: [string, 'null'], description: Required for transcript format; only this speaker is retained. }
+        occurred_at: { type: [string, 'null'], format: date-time }
+        content: { type: string, minLength: 1, maxLength: 1000000, writeOnly: true }
 
     UpdateVoiceCorpusSourceRequest:
       type: object
-      description: Any subset; omit a field to leave it unchanged.
+      minProperties: 1
       properties:
-        excluded: { type: [boolean, 'null'] }
-        weight: { type: [number, 'null'] }
+        included: { type: boolean }
+        weight: { type: number, minimum: 0, maximum: 2 }
 
     VoiceCorpusSummary:
       type: object
-      description: The live word-count + register-mix meter over the non-excluded manifest (features/09 §B1.4).
-      required: [total_words, target_words, quality_band, register_words, source_count]
+      required: [total_words, target_words, maturity, quality_band, source_count, register_words]
       properties:
-        total_words: { type: integer }
-        target_words: { type: integer, description: 'The ~30k corpus target the meter fills toward.' }
+        total_words: { type: integer, minimum: 0 }
+        target_words: { type: integer, const: 30000 }
+        maturity: { type: string, enum: [collecting, provisional, building] }
         quality_band: { type: string, enum: [thin, good, rich, sharp] }
+        source_count: { type: integer, minimum: 0 }
         register_words:
           type: object
-          description: Word totals per register (spoken/written/casual/formal mix).
-          additionalProperties: { type: integer }
-        source_count: { type: integer }
+          additionalProperties: { type: integer, minimum: 0 }
+
+    CreateVoiceBuildRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, enum: [onboarding, manual] }
+
+    VoiceBuild:
+      type: object
+      required: [id, profile_id, reason, status, stage, source_hash, source_count, result_version, candidate_action, status_code, status_detail, next_attempt_at, version, created_at, started_at, completed_at, updated_at, archived_at]
+      properties:
+        id: { type: string, format: uuid }
+        profile_id: { type: string, format: uuid }
+        reason: { type: string, enum: [onboarding, manual, automatic] }
+        status: { type: string, enum: [queued, deferred, running, succeeded, failed] }
+        stage: { type: [string, 'null'], enum: [null, snapshot, extract, evaluate, activate] }
+        source_hash: { type: string }
+        source_count: { type: integer, minimum: 0 }
+        result_version: { type: [integer, 'null'], minimum: 1 }
+        candidate_action: { type: string, enum: [none, auto_activated, review_required], default: none }
+        status_code: { type: [string, 'null'], enum: [null, budget_deferred, model_unavailable, invalid_output, quality_regression, material_drift, internal] }
+        status_detail: { type: [string, 'null'], description: Safe operator guidance; never provider payload, prompt, SQL, or stack data. }
+        next_attempt_at: { type: [string, 'null'], format: date-time }
+        version: { type: integer, minimum: 1 }
+        created_at: { type: string, format: date-time }
+        started_at: { type: [string, 'null'], format: date-time }
+        completed_at: { type: [string, 'null'], format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+
+    VoiceProfileEvaluation:
+      type: object
+      required:
+        - held_out_prompts
+        - repeats_per_prompt
+        - anti_ai_hard_failures
+        - structured_output_valid
+        - corpus_citations_valid
+        - active_median_voice_score
+        - identity_word_jaccard
+        - signature_set_jaccard
+        - removed_avoid_rules
+        - removed_register_rules
+        - classification
+        - passed
+      properties:
+        held_out_prompts: { type: integer, const: 5 }
+        repeats_per_prompt: { type: integer, const: 3 }
+        active_median_voice_score: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        candidate_median_voice_score: { type: number, minimum: 0, maximum: 1 }
+        anti_ai_hard_failures: { type: integer, minimum: 0 }
+        structured_output_valid: { type: boolean }
+        corpus_citations_valid: { type: boolean }
+        identity_word_jaccard: { type: number, minimum: 0, maximum: 1 }
+        signature_set_jaccard: { type: number, minimum: 0, maximum: 1 }
+        removed_avoid_rules: { type: integer, minimum: 0 }
+        removed_register_rules: { type: integer, minimum: 0 }
+        classification: { type: string, enum: [routine, material] }
+        passed: { type: boolean }
+
+    VoiceProfileVersion:
+      type: object
+      required:
+        - profile_id
+        - id
+        - profile_version
+        - status
+        - voice_profile_md
+        - profile_json
+        - stats_json
+        - source_hash
+        - source_count
+        - reason
+        - predecessor_version
+        - activation_policy_version
+        - model_provider
+        - model_name
+        - builder_version
+        - source
+        - captured_by
+        - evaluation
+        - review_reasons
+        - version
+        - created_at
+        - updated_at
+        - archived_at
+        - activated_at
+      properties:
+        id: { type: string, format: uuid }
+        profile_id: { type: string, format: uuid }
+        profile_version: { type: integer, minimum: 1 }
+        status: { type: string, enum: [candidate, active, superseded, rejected] }
+        voice_profile_md: { type: string }
+        profile_json: { type: object, additionalProperties: true }
+        stats_json: { type: object, additionalProperties: true }
+        source_hash: { type: string }
+        source_count: { type: integer, minimum: 0 }
+        reason: { type: string, enum: [onboarding, manual, automatic, rollback] }
+        predecessor_version: { type: [integer, 'null'], minimum: 1 }
+        model_provider: { type: string }
+        model_name: { type: string }
+        builder_version: { type: string }
+        source: { type: string }
+        captured_by: { type: string, readOnly: true }
+        activation_policy_version: { type: string }
+        evaluation: { $ref: '#/components/schemas/VoiceProfileEvaluation' }
+        review_reasons: { type: array, items: { type: string } }
+        version: { type: integer, minimum: 1, description: Row concurrency version; distinct from the immutable artifact's profile_version. }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+        activated_at: { type: [string, 'null'], format: date-time }
+
+    VoiceProfileDelta:
+      type: object
+      required:
+        - id
+        - profile_id
+        - from_version
+        - to_version
+        - classification
+        - activation_outcome
+        - words_added
+        - sources_added
+        - sources_excluded
+        - identity_word_jaccard
+        - signature_set_jaccard
+        - avoid_rules_added
+        - avoid_rules_removed
+        - register_rules_removed
+        - created_at
+        - updated_at
+        - archived_at
+      properties:
+        id: { type: string, format: uuid }
+        profile_id: { type: string, format: uuid }
+        from_version: { type: [integer, 'null'], minimum: 1 }
+        to_version: { type: integer, minimum: 1 }
+        classification: { type: string, enum: [routine, material] }
+        activation_outcome: { type: string, enum: [auto_activated, review_required, manually_activated, rejected, rollback] }
+        words_added: { type: integer }
+        sources_added: { type: integer, minimum: 0 }
+        sources_excluded: { type: integer, minimum: 0 }
+        identity_word_jaccard: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        signature_set_jaccard: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        avoid_rules_added: { type: integer, minimum: 0 }
+        avoid_rules_removed: { type: integer, minimum: 0 }
+        register_rules_removed: { type: integer, minimum: 0 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+
+    VoiceLearningTransformation:
+      type: object
+      required: [key, observation_count, description]
+      properties:
+        key: { type: string }
+        observation_count: { type: integer, minimum: 5 }
+        description: { type: string, description: Aggregate transformation description; never copied user text. }
+
+    VoiceLearningSummary:
+      type: object
+      required: [drafted, accepted, edited_sent, rejected, qualifying_source_count, qualifying_words, transformations]
+      properties:
+        drafted: { type: integer, minimum: 0 }
+        accepted: { type: integer, minimum: 0 }
+        edited_sent: { type: integer, minimum: 0 }
+        rejected: { type: integer, minimum: 0 }
+        qualifying_source_count: { type: integer, minimum: 0 }
+        qualifying_words: { type: integer, minimum: 0 }
+        transformations: { type: array, items: { $ref: '#/components/schemas/VoiceLearningTransformation' } }
+
+    RejectVoiceDraftRequest:
+      type: object
+      required: [draft_ref]
+      properties:
+        draft_ref: { type: string, minLength: 1 }
 
     # ---- Offers / Angebote (B-E03.16–.20; data-model §12.6) ----
     Product:

@@ -13,13 +13,28 @@ import (
 // (03-architecture §3.4: the same bus Dispact rides).
 const StreamPrefix = "gw:events:crm:"
 
-// streamEntities are the ten V1 per-entity-type streams: the nine of
-// events.md §4.1 plus the §5.6a identity/access-revocation stream.
+const (
+	personStreamEntity       = "person"
+	organizationStreamEntity = "organization"
+	dealStreamEntity         = "deal"
+	leadStreamEntity         = "lead"
+	activityStreamEntity     = "activity"
+	approvalStreamEntity     = "approval"
+	captureStreamEntity      = "capture"
+	coldstartStreamEntity    = "coldstart"
+	auditStreamEntity        = "audit"
+	identityStreamEntity     = "identity"
+	voiceStreamEntity        = "voice"
+)
+
+// streamEntities are the V1 family streams from events.md. Voice is a
+// dedicated owner-private lifecycle stream; workspace remains an envelope
+// field, never a per-tenant stream.
 // Workspace is a field inside the envelope, never a stream —
 // per-tenant streams would explode key count at multi-tenant scale.
 var streamEntities = []string{
-	"person", "organization", "deal", "lead", "activity",
-	"approval", "capture", "coldstart", "audit", "identity",
+	personStreamEntity, organizationStreamEntity, dealStreamEntity, leadStreamEntity, activityStreamEntity,
+	approvalStreamEntity, captureStreamEntity, coldstartStreamEntity, auditStreamEntity, identityStreamEntity, voiceStreamEntity,
 }
 
 // Streams returns the full stream key set, sorted, for the subscriber
@@ -48,77 +63,85 @@ var catalog = map[string]struct {
 	stream  string
 	version int
 }{
-	"person.created":    {"person", 1},
-	"person.updated":    {"person", 1},
-	"person.archived":   {"person", 1},
-	"person.merged":     {"person", 1},
-	"person.restored":   {"person", 1},
-	"consent.changed":   {"person", 1},
-	"retention.applied": {"person", 1},
+	"person.created":    {personStreamEntity, 1},
+	"person.updated":    {personStreamEntity, 1},
+	"person.archived":   {personStreamEntity, 1},
+	"person.merged":     {personStreamEntity, 1},
+	"person.restored":   {personStreamEntity, 1},
+	"consent.changed":   {personStreamEntity, 1},
+	"retention.applied": {personStreamEntity, 1},
 
-	"organization.created":  {"organization", 1},
-	"organization.updated":  {"organization", 1},
-	"organization.archived": {"organization", 1},
-	"organization.merged":   {"organization", 1},
+	"organization.created":  {organizationStreamEntity, 1},
+	"organization.updated":  {organizationStreamEntity, 1},
+	"organization.archived": {organizationStreamEntity, 1},
+	"organization.merged":   {organizationStreamEntity, 1},
 
-	"deal.created":       {"deal", 1},
-	"pipeline.created":   {"deal", 1},
-	"pipeline.updated":   {"deal", 1},
-	"pipeline.archived":  {"deal", 1},
-	"stage.created":      {"deal", 1},
-	"stage.updated":      {"deal", 1},
-	"stage.archived":     {"deal", 1},
-	"deal.updated":       {"deal", 1},
-	"deal.stage_changed": {"deal", 1},
-	"deal.owner_changed": {"deal", 1},
-	"deal.archived":      {"deal", 1},
-	"deal.restored":      {"deal", 1},
-	"offer.created":      {"deal", 1},
-	"offer.sent":         {"deal", 1},
-	"offer.accepted":     {"deal", 1},
-	"offer.rejected":     {"deal", 1},
-	"offer.superseded":   {"deal", 1},
+	"deal.created":       {dealStreamEntity, 1},
+	"pipeline.created":   {dealStreamEntity, 1},
+	"pipeline.updated":   {dealStreamEntity, 1},
+	"pipeline.archived":  {dealStreamEntity, 1},
+	"stage.created":      {dealStreamEntity, 1},
+	"stage.updated":      {dealStreamEntity, 1},
+	"stage.archived":     {dealStreamEntity, 1},
+	"deal.updated":       {dealStreamEntity, 1},
+	"deal.stage_changed": {dealStreamEntity, 1},
+	"deal.owner_changed": {dealStreamEntity, 1},
+	"deal.archived":      {dealStreamEntity, 1},
+	"deal.restored":      {dealStreamEntity, 1},
+	"offer.created":      {dealStreamEntity, 1},
+	"offer.sent":         {dealStreamEntity, 1},
+	"offer.accepted":     {dealStreamEntity, 1},
+	"offer.rejected":     {dealStreamEntity, 1},
+	"offer.superseded":   {dealStreamEntity, 1},
 
-	"lead.created":      {"lead", 1},
-	"lead.updated":      {"lead", 1},
-	"lead.promoted":     {"lead", 1},
-	"lead.disqualified": {"lead", 1},
+	"lead.created":      {leadStreamEntity, 1},
+	"lead.updated":      {leadStreamEntity, 1},
+	"lead.promoted":     {leadStreamEntity, 1},
+	"lead.disqualified": {leadStreamEntity, 1},
 
-	"activity.captured": {"activity", 1},
-	"activity.updated":  {"activity", 1},
-	"activity.archived": {"activity", 1},
+	"activity.captured": {activityStreamEntity, 1},
+	"activity.updated":  {activityStreamEntity, 1},
+	"activity.archived": {activityStreamEntity, 1},
 	// §5.11: a thread-matched inbound is an activity-family fact, emitted
 	// by capture alongside activity.captured (EVT-SEM-14 — idempotent per
 	// reply; a duplicate inbound for the same reply does not re-emit).
-	"engagement.reply": {"activity", 1},
+	"engagement.reply": {activityStreamEntity, 1},
 
-	"approval.requested": {"approval", 1},
-	"approval.decided":   {"approval", 1},
+	"approval.requested": {approvalStreamEntity, 1},
+	"approval.decided":   {approvalStreamEntity, 1},
 
-	"capture.received":   {"capture", 1},
-	"capture.normalized": {"capture", 1},
-	"capture.failed":     {"capture", 1},
-	"capture.skipped":    {"capture", 1},
+	"capture.received":   {captureStreamEntity, 1},
+	"capture.normalized": {captureStreamEntity, 1},
+	"capture.failed":     {captureStreamEntity, 1},
+	"capture.skipped":    {captureStreamEntity, 1},
 
 	// §5.11: signal is not one of the nine stream entities — the
 	// detection lifecycle rides the capture stream (events.md §5.11
 	// stream-routing rule).
-	"signal.detected": {"capture", 1},
-	"signal.resolved": {"capture", 1},
+	"signal.detected": {captureStreamEntity, 1},
+	"signal.resolved": {captureStreamEntity, 1},
 
-	"coldstart.read_back_proposed": {"coldstart", 1},
-	"coldstart.accepted":           {"coldstart", 1},
-	"coldstart.rejected":           {"coldstart", 1},
+	"coldstart.read_back_proposed": {coldstartStreamEntity, 1},
+	"coldstart.accepted":           {coldstartStreamEntity, 1},
+	"coldstart.rejected":           {coldstartStreamEntity, 1},
 
-	"audit.appended": {"audit", 1},
+	"audit.appended": {auditStreamEntity, 1},
 
 	// §5.6a: the access-revocation cascade (B-EP03.10) — user, role and
 	// passport are identity-owned facts, so all three ride the identity
 	// stream rather than gaining per-entity streams of their own.
-	"user.deactivated":         {"identity", 1},
-	"role.changed":             {"identity", 1},
-	"passport.revoked":         {"identity", 1},
-	"onboarding.state_changed": {"identity", 1},
+	"user.deactivated":         {identityStreamEntity, 1},
+	"role.changed":             {identityStreamEntity, 1},
+	"passport.revoked":         {identityStreamEntity, 1},
+	"onboarding.state_changed": {identityStreamEntity, 1},
+
+	"voice.profile_created":        {voiceStreamEntity, 1},
+	"voice.profile_updated":        {voiceStreamEntity, 1},
+	"voice.profile_archived":       {voiceStreamEntity, 1},
+	"voice.corpus_changed":         {voiceStreamEntity, 1},
+	"voice.build_changed":          {voiceStreamEntity, 1},
+	"voice.version_changed":        {voiceStreamEntity, 1},
+	"voice.draft_outcome_recorded": {voiceStreamEntity, 1},
 }
 
 // pipelineEventTypes are the capture-pipeline events that may ride the bus
@@ -198,11 +221,11 @@ func Groups() []Group {
 		return keys
 	}
 	return []Group{
-		{Name: "cg:context-graph", Streams: forEntities("person", "organization", "deal", "activity", "lead")},
-		{Name: "cg:overnight-agent", Streams: forEntities("activity", "deal", "lead", "approval")},
+		{Name: "cg:context-graph", Streams: forEntities(personStreamEntity, organizationStreamEntity, dealStreamEntity, activityStreamEntity, leadStreamEntity)},
+		{Name: "cg:overnight-agent", Streams: forEntities(activityStreamEntity, dealStreamEntity, leadStreamEntity, approvalStreamEntity)},
 		{Name: "cg:workflows", Streams: all},
-		{Name: "cg:capture", Streams: forEntities("capture")},
-		{Name: "cg:flow-bridge", Streams: forEntities("person", "deal", "activity")},
+		{Name: "cg:capture", Streams: forEntities(captureStreamEntity)},
+		{Name: "cg:flow-bridge", Streams: forEntities(personStreamEntity, dealStreamEntity, activityStreamEntity)},
 		{Name: "cg:read-model", Streams: all},
 		{Name: "cg:audit-stream", Streams: all},
 	}

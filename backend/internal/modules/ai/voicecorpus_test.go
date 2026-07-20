@@ -42,11 +42,11 @@ func TestQualityBandsFollowTheVersionedMeterThresholds(t *testing.T) {
 func TestDefaultRegisterTagsEachSourceKind(t *testing.T) {
 	cases := map[string]string{
 		"transcript": "spoken",
-		"voice_memo": "spoken",
-		"chat":       "casual",
-		"post":       "written",
-		"longform":   "written",
-		"email":      "written",
+		"email":      "email",
+		"linkedin":   "social",
+		"proposal":   "long_form",
+		"document":   "long_form",
+		"other":      "general",
 	}
 	for kind, want := range cases {
 		if got := DefaultRegister(kind); got != want {
@@ -131,12 +131,12 @@ func TestIngestWordCountIsTheRealCountOfTheExtractedText(t *testing.T) {
 		in   IngestSourceInput
 		want int
 	}{
-		{"txt post", IngestSourceInput{
-			Kind: "post", SourceLabel: "post", Format: "txt",
+		{"txt LinkedIn post", IngestSourceInput{
+			Kind: "linkedin", SourceLabel: "post", Format: "text",
 			Content: "Shipping beats planning, every single quarter.",
 		}, 6},
-		{"md longform", IngestSourceInput{
-			Kind: "longform", SourceLabel: "blog", Format: "md",
+		{"text document", IngestSourceInput{
+			Kind: "document", SourceLabel: "blog", Format: "text",
 			Content: "# Audit story\n\nLead with the number, close with the ask.",
 		}, 11},
 		{"vtt transcript counts only the owner's turns", IngestSourceInput{
@@ -155,7 +155,7 @@ func TestIngestWordCountIsTheRealCountOfTheExtractedText(t *testing.T) {
 		// Whitespace padding inflates the byte size ~40× without adding a
 		// word; a size-derived number would move, the real count must not.
 		{"count follows words, not bytes", IngestSourceInput{
-			Kind: "post", SourceLabel: "padded post", Format: "txt",
+			Kind: "linkedin", SourceLabel: "padded post", Format: "text",
 			Content: "three real words" + strings.Repeat(" ", 600),
 		}, 3},
 	}

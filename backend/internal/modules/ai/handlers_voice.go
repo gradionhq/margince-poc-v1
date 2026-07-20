@@ -9,8 +9,10 @@ package ai
 // `voice_profile` RBAC object and the row-scope clause.
 
 import (
+	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -49,36 +51,34 @@ func NewHandlers(pool *pgxpool.Pool, budget BudgetPolicy) Handlers {
 }
 
 // ListVoiceProfiles implements (GET /voice-profiles).
-func (h Handlers) ListVoiceProfiles(w http.ResponseWriter, r *http.Request, params crmcontracts.ListVoiceProfilesParams) {
-	page, err := h.voice.ListProfiles(r.Context(), params.Cursor, params.Limit)
+func (h Handlers) ListVoiceProfiles(w http.ResponseWriter, r *http.Request) {
+	page, err := h.voice.ListProfiles(r.Context(), nil, nil)
 	if err != nil {
 		writeVoiceErr(w, r, err)
 		return
 	}
 	data := make([]crmcontracts.VoiceProfile, 0, len(page.Items))
 	for _, p := range page.Items {
-		data = append(data, wireVoiceProfile(p))
+		wire, err := h.wireVoiceProfile(r.Context(), p)
+		if err != nil {
+			writeVoiceErr(w, r, err)
+			return
+		}
+		data = append(data, wire)
 	}
 	resp := struct {
 		Data []crmcontracts.VoiceProfile `json:"data"`
-		Page crmcontracts.PageInfo       `json:"page"`
-	}{Data: data, Page: crmcontracts.PageInfo{HasMore: page.HasMore}}
-	if page.NextCursor != "" {
-		resp.Page.NextCursor = &page.NextCursor
-	}
+	}{Data: data}
 	httperr.WriteJSON(w, http.StatusOK, resp)
 }
 
 // CreateVoiceProfile implements (POST /voice-profiles).
-func (h Handlers) CreateVoiceProfile(w http.ResponseWriter, r *http.Request) {
+func (h Handlers) CreateVoiceProfile(w http.ResponseWriter, r *http.Request, _ crmcontracts.CreateVoiceProfileParams) {
 	var req crmcontracts.CreateVoiceProfileRequest
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
 	in := CreateVoiceProfileInput{}
-	if req.Scope != nil {
-		in.Scope = string(*req.Scope)
-	}
 	if req.PersonalityMd != nil {
 		in.PersonalityMD = *req.PersonalityMd
 	}
@@ -87,7 +87,7 @@ func (h Handlers) CreateVoiceProfile(w http.ResponseWriter, r *http.Request) {
 		writeVoiceErr(w, r, err)
 		return
 	}
-	httperr.WriteJSON(w, http.StatusCreated, wireVoiceProfile(created))
+	h.writeVoiceProfile(w, r, http.StatusCreated, created)
 }
 
 // GetVoiceProfile implements (GET /voice-profiles/{id}).
@@ -97,7 +97,7 @@ func (h Handlers) GetVoiceProfile(w http.ResponseWriter, r *http.Request, id crm
 		writeVoiceErr(w, r, err)
 		return
 	}
-	httperr.WriteJSON(w, http.StatusOK, wireVoiceProfile(p))
+	h.writeVoiceProfile(w, r, http.StatusOK, p)
 }
 
 // UpdateVoiceProfile implements (PATCH /voice-profiles/{id}): the
@@ -111,26 +111,33 @@ func (h Handlers) UpdateVoiceProfile(w http.ResponseWriter, r *http.Request, id 
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	updated, err := h.voice.UpdateProfile(r.Context(), ids.UUID(id), req.PersonalityMd, ifVersion)
+	updated, err := h.voice.UpdateProfile(r.Context(), ids.UUID(id), UpdateVoiceProfileInput{
+		PersonalityMD: req.PersonalityMd, AutoLearningEnabled: req.AutoLearningEnabled, IfVersion: ifVersion,
+	})
 	if err != nil {
 		writeVoiceErr(w, r, err)
 		return
 	}
-	httperr.WriteJSON(w, http.StatusOK, wireVoiceProfile(updated))
+	h.writeVoiceProfile(w, r, http.StatusOK, updated)
 }
 
 // DeleteVoiceProfile implements (DELETE /voice-profiles/{id}): soft archive.
-func (h Handlers) DeleteVoiceProfile(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	if err := h.voice.ArchiveProfile(r.Context(), ids.UUID(id)); err != nil {
+func (h Handlers) DeleteVoiceProfile(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.DeleteVoiceProfileParams) {
+	ifVersion, ok := httperr.IfMatchVersion(w, r)
+	if !ok {
+		return
+	}
+	archived, err := h.voice.ArchiveProfile(r.Context(), ids.UUID(id), ifVersion)
+	if err != nil {
 		writeVoiceErr(w, r, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	h.writeVoiceProfile(w, r, http.StatusOK, archived)
 }
 
 // ListVoiceCorpusSources implements (GET /voice-profiles/{id}/sources):
 // the manifest + the live word/register meter.
-func (h Handlers) ListVoiceCorpusSources(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+func (h Handlers) ListVoiceCorpusSources(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.ListVoiceCorpusSourcesParams) {
 	sources, summary, err := h.voice.ListSources(r.Context(), ids.UUID(id))
 	if err != nil {
 		writeVoiceErr(w, r, err)
@@ -143,11 +150,12 @@ func (h Handlers) ListVoiceCorpusSources(w http.ResponseWriter, r *http.Request,
 	httperr.WriteJSON(w, http.StatusOK, struct {
 		Data    []crmcontracts.VoiceCorpusSource `json:"data"`
 		Summary crmcontracts.VoiceCorpusSummary  `json:"summary"`
-	}{Data: data, Summary: wireCorpusSummary(summary)})
+		Page    crmcontracts.PageInfo            `json:"page"`
+	}{Data: data, Summary: wireCorpusSummary(summary), Page: crmcontracts.PageInfo{HasMore: false}})
 }
 
 // IngestVoiceCorpusSource implements (POST /voice-profiles/{id}/sources).
-func (h Handlers) IngestVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+func (h Handlers) IngestVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.IngestVoiceCorpusSourceParams) {
 	var req crmcontracts.IngestVoiceCorpusSourceRequest
 	if !httperr.Decode(w, r, &req) {
 		return
@@ -155,23 +163,20 @@ func (h Handlers) IngestVoiceCorpusSource(w http.ResponseWriter, r *http.Request
 	in := IngestSourceInput{
 		Kind:        string(req.Kind),
 		SourceLabel: req.SourceLabel,
-		Content:     req.Content,
+		Register:    string(req.Register),
+		SourceRef:   req.SourceRef,
+		Format:      string(req.Format),
 	}
-	if req.Register != nil {
-		in.Register = string(*req.Register)
+	if req.Content != nil {
+		in.Content = *req.Content
 	}
 	if req.Weight != nil {
 		in.Weight = float64(*req.Weight)
 	}
-	if req.SourceRef != nil {
-		in.SourceRef = *req.SourceRef
-	}
-	if req.Format != nil {
-		in.Format = string(*req.Format)
-	}
 	if req.SpeakerLabel != nil {
 		in.SpeakerLabel = *req.SpeakerLabel
 	}
+	in.OccurredAt = req.OccurredAt
 	source, summary, err := h.voice.IngestSource(r.Context(), ids.UUID(id), in)
 	if err != nil {
 		writeVoiceErr(w, r, err)
@@ -181,12 +186,16 @@ func (h Handlers) IngestVoiceCorpusSource(w http.ResponseWriter, r *http.Request
 }
 
 // UpdateVoiceCorpusSource implements (PATCH /voice-profiles/{id}/sources/{sourceId}).
-func (h Handlers) UpdateVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, sourceID openapi_types.UUID) {
+func (h Handlers) UpdateVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, sourceID openapi_types.UUID, _ crmcontracts.UpdateVoiceCorpusSourceParams) {
+	ifVersion, ok := httperr.IfMatchVersion(w, r)
+	if !ok {
+		return
+	}
 	var req crmcontracts.UpdateVoiceCorpusSourceRequest
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	in := UpdateSourceInput{Excluded: req.Excluded}
+	in := UpdateSourceInput{Included: req.Included, IfVersion: ifVersion}
 	if req.Weight != nil {
 		weight := float64(*req.Weight)
 		in.Weight = &weight
@@ -199,6 +208,20 @@ func (h Handlers) UpdateVoiceCorpusSource(w http.ResponseWriter, r *http.Request
 	httperr.WriteJSON(w, http.StatusOK, wireSourceWithSummary(source, summary))
 }
 
+// DeleteVoiceCorpusSource implements (DELETE /voice-profiles/{id}/sources/{sourceId}).
+func (h Handlers) DeleteVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, sourceID openapi_types.UUID, _ crmcontracts.DeleteVoiceCorpusSourceParams) {
+	ifVersion, ok := httperr.IfMatchVersion(w, r)
+	if !ok {
+		return
+	}
+	removed, err := h.voice.DeleteSource(r.Context(), ids.UUID(id), ids.UUID(sourceID), ifVersion)
+	if err != nil {
+		writeVoiceErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, wireVoiceSource(removed))
+}
+
 func writeVoiceErr(w http.ResponseWriter, r *http.Request, err error) {
 	var ingest *CorpusIngestError
 	if errors.As(err, &ingest) {
@@ -208,39 +231,77 @@ func writeVoiceErr(w http.ResponseWriter, r *http.Request, err error) {
 	httperr.Write(w, r, err)
 }
 
-func wireVoiceProfile(p VoiceProfile) crmcontracts.VoiceProfile {
+func (h Handlers) wireVoiceProfile(ctx context.Context, p VoiceProfile) (crmcontracts.VoiceProfile, error) {
+	summary, candidateVersion, err := h.voice.ProfilePresentation(ctx, p.ID)
+	if err != nil {
+		return crmcontracts.VoiceProfile{}, err
+	}
 	version := int(p.Version)
+	profileVersion := p.ProfileVersion
+	voiceProfileMD := p.VoiceProfileMD
+	maturity := crmcontracts.VoiceProfileMaturity(summary.Maturity)
+	qualityBand := crmcontracts.VoiceProfileQualityBand(summary.QualityBand)
+	updatedAt := p.CreatedAt
+	if p.UpdatedAt != nil {
+		updatedAt = *p.UpdatedAt
+	}
 	wire := crmcontracts.VoiceProfile{
-		Id:             openapi_types.UUID(p.ID),
-		Scope:          crmcontracts.VoiceProfileScope(p.Scope),
-		Status:         crmcontracts.VoiceProfileStatus(p.Status),
-		VoiceProfileMd: p.VoiceProfileMD,
-		ProfileVersion: p.ProfileVersion,
-		PersonalityMd:  p.PersonalityMD,
-		ModelRef:       p.ModelRef,
-		Version:        &version,
-		CreatedAt:      p.CreatedAt,
-		UpdatedAt:      p.UpdatedAt,
+		Id:                  openapi_types.UUID(p.ID),
+		Status:              crmcontracts.VoiceProfileStatus(p.Status),
+		VoiceProfileMd:      &voiceProfileMD,
+		ProfileVersion:      &profileVersion,
+		PersonalityMd:       p.PersonalityMD,
+		AutoLearningEnabled: p.AutoLearningEnabled,
+		ActiveSourceHash:    p.ActiveSourceHash,
+		CandidateVersion:    candidateVersion,
+		LastBuiltAt:         p.LastBuiltAt,
+		Maturity:            &maturity,
+		QualityBand:         &qualityBand,
+		Source:              p.Source,
+		CapturedBy:          &p.CapturedBy,
+		Version:             version,
+		CreatedAt:           p.CreatedAt,
+		UpdatedAt:           updatedAt,
+		ArchivedAt:          p.ArchivedAt,
 	}
 	if p.OwnerID != nil {
 		owner := openapi_types.UUID(p.OwnerID.UUID)
 		wire.OwnerId = &owner
 	}
-	return wire
+	return wire, nil
+}
+
+func (h Handlers) writeVoiceProfile(w http.ResponseWriter, r *http.Request, status int, p VoiceProfile) {
+	wire, err := h.wireVoiceProfile(r.Context(), p)
+	if err != nil {
+		writeVoiceErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, status, wire)
 }
 
 func wireVoiceSource(s VoiceCorpusSource) crmcontracts.VoiceCorpusSource {
 	return crmcontracts.VoiceCorpusSource{
-		Id:          openapi_types.UUID(s.ID),
-		Kind:        crmcontracts.VoiceCorpusSourceKind(s.Kind),
-		Register:    crmcontracts.VoiceCorpusSourceRegister(s.Register),
-		Weight:      float32(s.Weight),
-		SourceLabel: s.SourceLabel,
-		SourceRef:   s.SourceRef,
-		WordCount:   s.WordCount,
-		Excluded:    s.Excluded,
-		CreatedAt:   s.CreatedAt,
-		UpdatedAt:   s.UpdatedAt,
+		Id:               openapi_types.UUID(s.ID),
+		Kind:             crmcontracts.VoiceCorpusSourceKind(s.Kind),
+		Register:         crmcontracts.VoiceCorpusSourceRegister(s.Register),
+		Weight:           float32(s.Weight),
+		SourceLabel:      s.SourceLabel,
+		SourceRef:        s.SourceRef,
+		WordCount:        s.WordCount,
+		Origin:           crmcontracts.VoiceCorpusSourceOrigin(s.Origin),
+		Included:         !s.Excluded,
+		ExclusionReason:  s.ExclusionReason,
+		ExtractorVersion: s.ExtractorVersion,
+		OccurredAt:       s.OccurredAt,
+		RetentionUntil:   s.RetentionUntil,
+		ContentErasedAt:  s.ContentErasedAt,
+		Source:           s.Source,
+		CapturedBy:       &s.CapturedBy,
+		Version:          int(s.Version),
+		CreatedAt:        s.CreatedAt,
+		UpdatedAt:        updatedAt(s.CreatedAt, s.UpdatedAt),
+		ArchivedAt:       s.ArchivedAt,
 	}
 }
 
@@ -249,9 +310,17 @@ func wireCorpusSummary(sum CorpusSummary) crmcontracts.VoiceCorpusSummary {
 		TotalWords:    sum.TotalWords,
 		TargetWords:   sum.TargetWords,
 		QualityBand:   crmcontracts.VoiceCorpusSummaryQualityBand(sum.QualityBand),
+		Maturity:      crmcontracts.VoiceCorpusSummaryMaturity(sum.Maturity),
 		RegisterWords: sum.RegisterWords,
 		SourceCount:   sum.SourceCount,
 	}
+}
+
+func updatedAt(created time.Time, updated *time.Time) time.Time {
+	if updated != nil {
+		return *updated
+	}
+	return created
 }
 
 // sourceWithSummary is the ingest/patch response pair: the touched

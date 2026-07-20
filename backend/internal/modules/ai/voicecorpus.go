@@ -39,6 +39,20 @@ const (
 	BandSharp = "sharp"
 )
 
+// Maturity is the honest build-eligibility axis from ADR-0066. It is
+// deliberately independent from corpus quality: an 800-word profile can be
+// useful and provisional while its quality band remains thin.
+func Maturity(totalWords int) string {
+	switch {
+	case totalWords < 800:
+		return voiceMaturityCollecting
+	case totalWords < 4000:
+		return voiceMaturityProvisional
+	default:
+		return voiceMaturityBuilding
+	}
+}
+
 // QualityBand places a corpus word total in its §B1.4 band.
 func QualityBand(totalWords int) string {
 	switch {
@@ -64,18 +78,20 @@ func (e *CorpusIngestError) Error() string {
 	return fmt.Sprintf("voice corpus %s: %s", e.Field, e.Reason)
 }
 
-// DefaultRegister tags a source kind with its natural register
-// (features/09 §B1.1): transcripts and voice memos are spoken word, chat
-// is casual, and posts/long-form/email are written prose. An explicit
-// register from the caller overrides.
+// DefaultRegister tags the closed ADR-0066 source vocabulary. An explicit
+// register from the caller remains authoritative.
 func DefaultRegister(kind string) string {
 	switch kind {
-	case "transcript", "voice_memo":
-		return "spoken"
-	case "chat":
-		return "casual"
+	case voiceSourceKindTranscript:
+		return voiceRegisterSpoken
+	case voiceSourceKindEmail:
+		return voiceRegisterEmail
+	case voiceSourceKindLinkedIn:
+		return voiceRegisterSocial
+	case voiceSourceKindProposal, voiceSourceKindDocument:
+		return voiceRegisterLongForm
 	default:
-		return "written"
+		return voiceRegisterGeneral
 	}
 }
 
@@ -96,14 +112,6 @@ func SourceRefForContent(content string) string {
 type speakerTurn struct {
 	Speaker string
 	Text    string
-}
-
-// conversationalKinds are the source kinds that record a CONVERSATION —
-// where a counterparty's (a data subject's) words could ride in. Their
-// ingest demands a speaker-attributed format + label so the §B1.2
-// filter can actually run; this table's Art. 17 posture rests on it.
-var conversationalKinds = map[string]bool{
-	"transcript": true, "voice_memo": true, "chat": true,
 }
 
 // NormalizeCorpusText turns one raw source in the declared format into
@@ -134,8 +142,10 @@ func NormalizeCorpusText(format, content, speakerLabel string, requireAttributio
 		// The V1 corpus is text only (ADR-0058, features/09 §B1.1): a
 		// binary document (.docx/.pdf) has no honest word count without
 		// real extraction, so it is refused, never estimated from bytes.
-		return "", &CorpusIngestError{Field: "format",
-			Reason: "the corpus is text only — must be one of txt, md, vtt, srt, json; convert a binary document or paste its text"}
+		return "", &CorpusIngestError{
+			Field:  voiceKeyFormat,
+			Reason: "the corpus is text only — must be one of txt, md, vtt, srt, json; convert a binary document or paste its text",
+		}
 	}
 	return filterOwnTurns(turns, speakerLabel, requireAttribution)
 }
@@ -153,7 +163,7 @@ func filterOwnTurns(turns []speakerTurn, speakerLabel string, requireAttribution
 	if !labelled {
 		if requireAttribution {
 			return "", &CorpusIngestError{
-				Field:  "content",
+				Field:  voiceKeyContent,
 				Reason: "a conversational source needs speaker-attributed turns; an unlabelled transcript cannot be filtered to the owner's own words",
 			}
 		}
@@ -164,7 +174,7 @@ func filterOwnTurns(turns []speakerTurn, speakerLabel string, requireAttribution
 	}
 	if strings.TrimSpace(speakerLabel) == "" {
 		return "", &CorpusIngestError{
-			Field:  "speaker_label",
+			Field:  voiceKeySpeakerLabel,
 			Reason: "this transcript attributes its turns to speakers; name the owner's label so only their own words are modeled",
 		}
 	}
@@ -325,7 +335,7 @@ func parseTranscriptJSON(content string) ([]speakerTurn, error) {
 		turns = append(turns, speakerTurn{Speaker: item.Speaker, Text: strings.TrimSpace(item.Text)})
 	}
 	if len(turns) == 0 {
-		return nil, &CorpusIngestError{Field: "content", Reason: "no transcript turns found — expected an array of {speaker, text} objects, optionally under segments/turns/messages/entries"}
+		return nil, &CorpusIngestError{Field: voiceKeyContent, Reason: "no transcript turns found — expected an array of {speaker, text} objects, optionally under segments/turns/messages/entries"}
 	}
 	return turns, nil
 }
@@ -337,7 +347,7 @@ func decodeTranscriptItems(content string) ([]transcriptItem, error) {
 	}
 	var wrapper map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(content), &wrapper); err != nil {
-		return nil, &CorpusIngestError{Field: "content", Reason: "not valid JSON"}
+		return nil, &CorpusIngestError{Field: voiceKeyContent, Reason: "not valid JSON"}
 	}
 	for _, key := range []string{"segments", "turns", "messages", "entries"} {
 		raw, ok := wrapper[key]
@@ -345,9 +355,9 @@ func decodeTranscriptItems(content string) ([]transcriptItem, error) {
 			continue
 		}
 		if err := json.Unmarshal(raw, &items); err != nil {
-			return nil, &CorpusIngestError{Field: "content", Reason: fmt.Sprintf("%q is not an array of transcript turns", key)}
+			return nil, &CorpusIngestError{Field: voiceKeyContent, Reason: fmt.Sprintf("%q is not an array of transcript turns", key)}
 		}
 		return items, nil
 	}
-	return nil, &CorpusIngestError{Field: "content", Reason: "no transcript turns found — expected an array of {speaker, text} objects, optionally under segments/turns/messages/entries"}
+	return nil, &CorpusIngestError{Field: voiceKeyContent, Reason: "no transcript turns found — expected an array of {speaker, text} objects, optionally under segments/turns/messages/entries"}
 }

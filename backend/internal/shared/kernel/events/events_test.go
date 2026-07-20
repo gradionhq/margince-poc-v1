@@ -29,9 +29,10 @@ func TestStreamsMatchSpecList(t *testing.T) {
 		"gw:events:crm:lead",
 		"gw:events:crm:organization",
 		"gw:events:crm:person",
+		"gw:events:crm:voice",
 	}
 	if got := Streams(); !reflect.DeepEqual(got, want) {
-		t.Errorf("Streams() = %v, want the events.md §4.1 + §5.6a streams %v", got, want)
+		t.Errorf("Streams() = %v, want the events.md stream set %v", got, want)
 	}
 }
 
@@ -52,7 +53,10 @@ func TestCatalogTypesObeyNamingConvention(t *testing.T) {
 		"received": true, "normalized": true, "skipped": true,
 		"read_back_proposed": true, "detected": true, "resolved": true,
 		"deactivated": true, "revoked": true,
-		"state_changed": true,
+		"state_changed":   true,
+		"profile_created": true, "profile_updated": true, "profile_archived": true,
+		"corpus_changed": true, "build_changed": true, "version_changed": true,
+		"draft_outcome_recorded": true,
 		// engagement.reply is the §5.11 spec-pinned type name (EVT-SEM-14):
 		// "reply" is the noun naming the fact, not a verb — the contract
 		// wins over the tense convention (P3).
@@ -92,6 +96,8 @@ func TestStreamForRoutesFamiliesWithoutOwnStream(t *testing.T) {
 		"role.changed":             "gw:events:crm:identity",
 		"passport.revoked":         "gw:events:crm:identity",
 		"onboarding.state_changed": "gw:events:crm:identity",
+		"voice.profile_created":    "gw:events:crm:voice",
+		"voice.version_changed":    "gw:events:crm:voice",
 	} {
 		if got, err := StreamFor(typ); err != nil || got != want {
 			t.Errorf("StreamFor(%q) = %q, %v; want %q", typ, got, err, want)
