@@ -56,6 +56,8 @@ jobs:
       e2e: ${{ steps.filter.outputs.e2e }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
         id: filter
         with:
@@ -88,6 +90,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          persist-credentials: false
           fetch-depth: 0
       - name: Every PR commit is signed off (DCO)
         working-directory: .
@@ -109,6 +112,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          persist-credentials: false
           # The contract-breaking gate and the strict lint's
           # new-from-merge-base both diff against origin/main — a shallow
           # checkout has no base ref and would silently disarm them.
@@ -120,15 +124,17 @@ jobs:
       # Cache the compiled gate binaries. `make tools` compiles golangci-lint,
       # go-arch-lint, govulncheck, and oasdiff from source into ~/go/bin — ~75s
       # that setup-go's module/build cache does not cover (it caches ~/go/pkg/mod
-      # and ~/.cache/go-build, not installed binaries). The four pinned versions
-      # live in backend/Makefile, so keying on its hash rebuilds only when a
-      # version bump changes that file; a hit skips the compile entirely.
+      # and ~/.cache/go-build, not installed binaries). The pinned versions live
+      # in backend/Makefile and the Go toolchain version — which `go install`
+      # embeds in every binary, so a bump makes it reject and recompile the
+      # cached tools — lives in backend/go.mod, so the key hashes both: a change
+      # to either reseeds, otherwise a hit skips the compile. arch is in the key
+      # so a binary built for one runner CPU is never restored onto another.
       - name: Cache the gate binaries
-        id: gate-binaries
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: ~/go/bin
-          key: gate-binaries-${{ runner.os }}-${{ hashFiles('backend/Makefile') }}
+          key: gate-binaries-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/go.mod', 'backend/Makefile') }}
       # Install the pinned gate binaries (golangci-lint, go-arch-lint, oasdiff) so
       # `make check` runs golangci and the oasdiff contract gate itself — one run
       # of every gate, instead of the golangci-lint-action + per-gate steps that
@@ -162,6 +168,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: backend/go.mod
@@ -179,6 +187,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: backend/go.mod
@@ -189,11 +199,15 @@ jobs:
 
   integration:
     name: integration (RLS + erasure + HTTP e2e)
-    # Fail fast: the ~3-minute real-Postgres lane only starts once the ~2-minute
-    # deterministic gate is green — a broken build never reaches it. A failed
-    # (or skipped) deterministic-gates auto-skips this job; both are backend-gated
-    # so they skip together on non-backend PRs.
-    needs: [changes, deterministic-gates]
+    # Runs in parallel with deterministic-gates, not behind it. The real-Postgres
+    # lane is the longest job in the pipeline, so gating it on the build gate
+    # serialized the two slowest jobs and dominated PR wall-clock. Starting both
+    # at once trades a wasted lane on the rare broken-build PR for ~3 minutes off
+    # every green one. Still backend-gated like deterministic-gates, so the two
+    # skip together on non-backend PRs; a broken build is still caught, by
+    # deterministic-gates itself, and sonarcloud gates the scan on that result
+    # directly (below) so a red build never posts a green coverage check.
+    needs: [changes]
     if: needs.changes.outputs.backend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     services:
@@ -265,6 +279,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: backend/go.mod
@@ -297,12 +313,14 @@ jobs:
     # upstream just means that area produced no coverage artifact — the scan
     # proceeds without it (that area has no new code to measure).
     #
-    # deterministic-gates stays in the gate on purpose: when the build/lint
-    # actually FAILS, integration is skipped (a needed job failed), which reads
-    # the same as an area-skip through `result`. Gating on deterministic-gates
-    # too means a real failure (result == 'failure') skips the scan — so it
-    # never posts a green check over a broken build; the PR is already red, so
-    # nothing that wasn't already blocked is blocked.
+    # deterministic-gates is gated directly, not just transitively. Now that
+    # integration runs in parallel with the build gate rather than behind it, a
+    # failed build no longer skips integration — it can still go green on its
+    # own. Requiring deterministic-gates.result to be success-or-skipped here is
+    # therefore what keeps the scan from posting a green "SonarCloud Code
+    # Analysis" check over a broken build (result == 'failure' fails this
+    # condition, so the scan is skipped); the PR is already red, so nothing that
+    # wasn't already blocked is blocked.
     needs: [deterministic-gates, integration, frontend]
     if: >-
       !cancelled()
@@ -320,6 +338,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          persist-credentials: false
           # Full history so SonarCloud can attribute blame / compute new code.
           fetch-depth: 0
       # Coverage the integration + frontend jobs already produced. Each download
