@@ -2022,6 +2022,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ai/calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The AI call trace — every terminal model call, newest first.
+         * @description Terminal attempts from the AIRT-SCHEMA-2 call record (`ai_call`), keyset-paginated
+         *     newest-first. The admin trace view reads this; the same automation-config grant
+         *     that admits `getAiUsage` admits it. `payload_capture_enabled` reports the
+         *     deployment's `ai.capture_payloads` posture so a client can distinguish
+         *     "capture is off" from "this call has no payload".
+         */
+        get: operations["listAiCalls"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/calls/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * One call — attempt ladder, routing identity, context provenance, captured payload.
+         * @description The full trace of one terminal call: its non-terminal retry siblings (shared
+         *     `logical_call_id`), the configured-vs-served model identity, the injected company-context
+         *     scopes, and — when `ai.capture_payloads` captured it — the post-secret-stripper
+         *     request/response payload verbatim.
+         */
+        get: operations["getAiCall"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dedupe/candidates": {
         parameters: {
             query?: never;
@@ -3871,6 +3921,76 @@ export interface components {
                 band_since?: string | null;
                 currency?: string;
             };
+        };
+        /** @description One terminal model call from the ai_call trace (AIRT-SCHEMA-2). */
+        AiCallSummary: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            occurred_at: string;
+            task: string;
+            /** @description Empty when the call failed before routing. */
+            tier: string;
+            provider: string;
+            /** @description The configured binding. */
+            model_id: string;
+            /** @description What the provider reported serving. */
+            served_model: string;
+            /** @description The attempt number of this terminal attempt: 1 = first try succeeded/failed terminally, >1 = retries happened. */
+            calls_attempted: number;
+            tokens_in: number;
+            tokens_out: number;
+            reasoning_tokens: number;
+            cached_tokens: number;
+            latency_ms: number;
+            cache_hit: boolean;
+            degraded: boolean;
+            /** @description Stable failure code; null on success. */
+            error_sentinel?: string | null;
+            /** @description A captured payload row exists for this call. */
+            has_payload: boolean;
+        };
+        /** @description One attempt (terminal or not) within a logical call. */
+        AiCallAttempt: {
+            attempt: number;
+            is_terminal: boolean;
+            /** @description Why this attempt ran; empty on the first. */
+            attempt_reason: string;
+            error_sentinel?: string | null;
+            tokens_in: number;
+            tokens_out: number;
+            latency_ms: number;
+            /** Format: date-time */
+            occurred_at: string;
+        };
+        AiCall: components["schemas"]["AiCallSummary"] & {
+            /** Format: uuid */
+            correlation_id?: string | null;
+            /** Format: uuid */
+            agent_run_id?: string | null;
+            /** @description response | echo | configured. */
+            served_identity_source: string;
+            /** @description Routing/prompt config identity of this call. */
+            config_hash?: string | null;
+            /** @description Company-context scopes injected into the request. */
+            context_scopes: string[];
+            context_fingerprint: string;
+            /** @description The full attempt ladder for this logical call, oldest first (includes the terminal attempt). */
+            attempts: components["schemas"]["AiCallAttempt"][];
+            payload_captured: boolean;
+            /** @description Present only when payload_captured. Post-secret-stripper content (AIRT-AC-4); rune-capped with a visible truncation marker. */
+            payload?: {
+                /** @description The captured request: {"system": string, "messages": [{role, content}]}. */
+                request: unknown;
+                /** @description The captured response text (JSON string). */
+                response: unknown;
+            } | null;
+        };
+        AiCallListResponse: {
+            data: components["schemas"]["AiCallSummary"][];
+            page: components["schemas"]["PageInfo"];
+            /** @description The deployment's ai.capture_payloads posture. */
+            payload_capture_enabled: boolean;
         };
         /**
          * @description One bounded personal-mail exclusion rule (RC-2; capture.md CAP-DDL-3). A matching message
@@ -11983,6 +12103,71 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["PermissionDenied"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    listAiCalls: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+                /** @description Filter to one task (capture_classify, enrich, …). */
+                task?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of terminal calls. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiCallListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getAiCall: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The call. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiCall"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            404: components["responses"]["NotFound"];
         };
     };
     listDedupeCandidates: {

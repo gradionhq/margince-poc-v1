@@ -1,4 +1,4 @@
--- Scoped to exactly the rows 0108.up.sql inserted: the fixed backfill
+-- Scoped to exactly the rows 0111.up.sql inserted: the fixed backfill
 -- effective_date AND the backfill's own (provider, model_id) set — never
 -- a bare effective_date match, which could also catch a workspace
 -- freshly bootstrapped (via ai.SeedWorkspaceDefaultsTx) on the same

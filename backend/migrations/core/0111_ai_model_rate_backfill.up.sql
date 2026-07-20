@@ -1,7 +1,7 @@
--- 0108: ai_model_rate backfill for existing workspaces (ADR-0067). 0107
+-- 0111: ai_model_rate backfill for existing workspaces (ADR-0067). 0110
 -- created the table, and ai.SeedWorkspaceDefaultsTx now seeds it for
 -- every NEWLY bootstrapped workspace inside the boot transaction — but a
--- workspace that already existed when 0107 shipped got no rate rows at
+-- workspace that already existed when 0110 shipped got no rate rows at
 -- all, so every ai_call it already logged (and every one it logs before
 -- an operator adds a rate by hand) prices as UNPRICED forever. This
 -- migration lands the exact same starting price sheet for those

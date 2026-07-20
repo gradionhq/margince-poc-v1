@@ -1,4 +1,4 @@
--- 0106: cache-write token capture (ADR-0067 / AIRT-PARAM-47). Anthropic bills
+-- 0109: cache-write token capture (ADR-0067 / AIRT-PARAM-47). Anthropic bills
 -- cache creation separately from input; the meter must itemize it so the
 -- read-side pricer can price it. No cost columns: cost is computed on read.
 ALTER TABLE ai_call  ADD COLUMN cache_write_tokens bigint NOT NULL DEFAULT 0;

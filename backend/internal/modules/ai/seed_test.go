@@ -4,7 +4,7 @@
 package ai
 
 // TestBackfillMigrationMatchesSeedModelRates is the drift guard the brief
-// calls for: 0108_ai_model_rate_backfill.up.sql is a hand-written SQL
+// calls for: 0111_ai_model_rate_backfill.up.sql is a hand-written SQL
 // mirror of SeedModelRates (a migration can't call Go code), so nothing
 // stops the two from drifting the moment either one is edited alone. This
 // test parses the migration's literal VALUES tuples and asserts they are
@@ -24,9 +24,9 @@ import (
 
 // backfillMigrationPath is relative to this package directory
 // (backend/internal/modules/ai) up to backend/migrations/core.
-const backfillMigrationPath = "../../../migrations/core/0108_ai_model_rate_backfill.up.sql"
+const backfillMigrationPath = "../../../migrations/core/0111_ai_model_rate_backfill.up.sql"
 
-// backfillEffectiveDate is the fixed historical date 0108 hard-codes —
+// backfillEffectiveDate is the fixed historical date 0111 hard-codes —
 // duplicated here (not imported) because a migration's SQL literal has no
 // Go symbol to reference. The live seed path (SeedWorkspaceDefaultsTx,
 // called with the real bootstrap "now") is covered separately by the
@@ -81,7 +81,7 @@ func TestBackfillMigrationMatchesSeedModelRates(t *testing.T) {
 	want := SeedModelRates(backfillEffectiveDate)
 
 	if len(migrated) != len(want) {
-		t.Fatalf("0108 backfill migration carries %d rows, SeedModelRates(%s) carries %d — the migration is a hand mirror that must match row-for-row",
+		t.Fatalf("0111 backfill migration carries %d rows, SeedModelRates(%s) carries %d — the migration is a hand mirror that must match row-for-row",
 			len(migrated), backfillEffectiveDate.Format("2006-01-02"), len(want))
 	}
 
@@ -97,16 +97,16 @@ func TestBackfillMigrationMatchesSeedModelRates(t *testing.T) {
 	for key, wantRate := range wantByKey {
 		gotRate, ok := migratedByKey[key]
 		if !ok {
-			t.Errorf("SeedModelRates row %s/%s is missing from the 0108 backfill migration", wantRate.Provider, wantRate.ModelID)
+			t.Errorf("SeedModelRates row %s/%s is missing from the 0111 backfill migration", wantRate.Provider, wantRate.ModelID)
 			continue
 		}
 		if gotRate != wantRate {
-			t.Errorf("0108 backfill row %s/%s = %+v, want %+v (SeedModelRates)", wantRate.Provider, wantRate.ModelID, gotRate, wantRate)
+			t.Errorf("0111 backfill row %s/%s = %+v, want %+v (SeedModelRates)", wantRate.Provider, wantRate.ModelID, gotRate, wantRate)
 		}
 	}
 	for key, gotRate := range migratedByKey {
 		if _, ok := wantByKey[key]; !ok {
-			t.Errorf("0108 backfill migration carries %s/%s, which SeedModelRates does not produce", gotRate.Provider, gotRate.ModelID)
+			t.Errorf("0111 backfill migration carries %s/%s, which SeedModelRates does not produce", gotRate.Provider, gotRate.ModelID)
 		}
 	}
 }
