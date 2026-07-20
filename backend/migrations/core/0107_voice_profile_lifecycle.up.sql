@@ -1,4 +1,4 @@
--- 0105: Ratify ADR-0066's owner-private, progressive Voice DNA lifecycle.
+-- 0107: Ratify ADR-0066's owner-private, progressive Voice DNA lifecycle.
 -- Existing profile/corpus rows are preserved and translated into the closed
 -- V1 vocabulary before the stricter constraints are installed.
 

@@ -156,7 +156,50 @@ func TestVoiceLifecycleHTTPRoundTrip(t *testing.T) {
 	e.bootstrapWorkspace(t)
 	created := createVoiceProfile(t, e)
 	base := "/v1/voice-profiles/" + created.ID
+	removable := ingest(t, e, base, anyMap{
+		"kind": "email", "source_label": "Removable sample", "source_ref": "remove-me",
+		"content": "This source proves permanent removal through the governed HTTP lifecycle.",
+	})
+	var removed voiceSourceWire
+	if status := e.call(t, "DELETE", base+"/sources/"+removable.Source.ID, nil,
+		map[string]string{"If-Match": strconv.Itoa(removable.Source.Version)}, &removed); status != http.StatusOK {
+		t.Fatalf("delete corpus source → %d", status)
+	}
+	if removed.ID != removable.Source.ID || removed.Version != removable.Source.Version+1 {
+		t.Fatalf("removed source = %+v, want archived version of %+v", removed, removable.Source)
+	}
 	workspaceID, ownerID := seedVoiceLifecycleHistory(t, e, created.ID)
+
+	if status := e.call(t, "GET", base+"/versions?cursor=not-a-cursor", nil, nil, nil); status != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid version cursor → %d, want 422", status)
+	}
+	if status := e.call(t, "GET", base+"/deltas?cursor=not-a-cursor", nil, nil, nil); status != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid delta cursor → %d, want 422", status)
+	}
+	if status := e.call(t, "POST", base+"/versions/2/apply", nil,
+		map[string]string{"If-Match": "not-a-version"}, nil); status != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid apply If-Match → %d, want 422", status)
+	}
+	if status := e.call(t, "POST", base+"/versions/2/reject", nil,
+		map[string]string{"If-Match": "0"}, nil); status != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid reject If-Match → %d, want 422", status)
+	}
+	if status := e.call(t, "POST", base+"/corpus/clear", nil,
+		map[string]string{"If-Match": "invalid"}, nil); status != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid clear If-Match → %d, want 422", status)
+	}
+	if status := e.call(t, "GET", base+"/builds/"+ids.NewV7().String(), nil, nil, nil); status != http.StatusNotFound {
+		t.Fatalf("unknown build → %d, want 404", status)
+	}
+	if status := e.call(t, "POST", base+"/versions/99/rollback", nil, nil, nil); status != http.StatusNotFound {
+		t.Fatalf("unknown rollback version → %d, want 404", status)
+	}
+	if status := e.call(t, "GET", "/v1/voice-profiles/"+ids.NewV7().String()+"/learning", nil, nil, nil); status != http.StatusNotFound {
+		t.Fatalf("unknown learning profile → %d, want 404", status)
+	}
+	if status := e.call(t, "POST", base+"/draft-rejections", anyMap{"draft_ref": ""}, nil, nil); status != http.StatusUnprocessableEntity {
+		t.Fatalf("empty draft reference → %d, want 422", status)
+	}
 
 	var firstPage voiceVersionPageWire
 	if status := e.call(t, "GET", base+"/versions?limit=1", nil, nil, &firstPage); status != http.StatusOK {

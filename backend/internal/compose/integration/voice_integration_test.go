@@ -44,6 +44,7 @@ type voiceSourceWire struct {
 	SourceRef string  `json:"source_ref"`
 	WordCount int     `json:"word_count"`
 	Included  bool    `json:"included"`
+	Version   int     `json:"version"`
 }
 
 type voiceSummaryWire struct {

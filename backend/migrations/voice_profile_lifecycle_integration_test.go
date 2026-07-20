@@ -59,7 +59,7 @@ func TestVoiceProfileLifecycleUpgradePreservesBuiltProfile(t *testing.T) {
 	}
 
 	if _, err := dbmigrate.Up(ctx, conn, core); err != nil {
-		t.Fatalf("applying 0105 over legacy Voice data: %v", err)
+		t.Fatalf("applying 0107 over legacy Voice data: %v", err)
 	}
 
 	contentDigest := sha256.Sum256([]byte(corpusContent))
@@ -81,18 +81,18 @@ func migrateToBeforeVoiceLifecycle(t *testing.T, conn *pgx.Conn) dbmigrate.Names
 	}
 	voiceLifecycleIndex := -1
 	for i, migration := range core.Migrations {
-		if migration.Version == "0105" {
+		if migration.Version == "0107" {
 			voiceLifecycleIndex = i
 			break
 		}
 	}
 	if voiceLifecycleIndex < 0 {
-		t.Fatal("core migrations contain no 0105 — the Voice lifecycle migration is missing")
+		t.Fatal("core migrations contain no 0107 — the Voice lifecycle migration is missing")
 	}
 
 	before := dbmigrate.Namespace{Name: core.Name, Migrations: core.Migrations[:voiceLifecycleIndex]}
 	if _, err := dbmigrate.Up(context.Background(), conn, before); err != nil {
-		t.Fatalf("migrating to pre-0105: %v", err)
+		t.Fatalf("migrating to pre-0107: %v", err)
 	}
 	return core
 }
