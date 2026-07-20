@@ -24,8 +24,10 @@ import (
 // content into list responses.
 type CallReadStore struct{ pool *pgxpool.Pool }
 
+// NewCallReadStore constructs the RLS-bound AI trace read store.
 func NewCallReadStore(pool *pgxpool.Pool) *CallReadStore { return &CallReadStore{pool: pool} }
 
+// CallSummary is one terminal attempt in the newest-first trace list.
 type CallSummary struct {
 	ID              ids.UUID
 	OccurredAt      time.Time
@@ -46,6 +48,7 @@ type CallSummary struct {
 	HasPayload      bool
 }
 
+// CallAttempt is one rung in a logical call's oldest-first attempt ladder.
 type CallAttempt struct {
 	Attempt       int
 	IsTerminal    bool
@@ -57,6 +60,8 @@ type CallAttempt struct {
 	OccurredAt    time.Time
 }
 
+// CallDetail joins a terminal summary to routing, context, attempts, and
+// optional captured payload content.
 type CallDetail struct {
 	CallSummary
 	CorrelationID        *ids.UUID
@@ -69,6 +74,7 @@ type CallDetail struct {
 	Payload              *Payload
 }
 
+// CallPage is one keyset-paginated window of terminal call summaries.
 type CallPage struct {
 	Items      []CallSummary
 	NextCursor string

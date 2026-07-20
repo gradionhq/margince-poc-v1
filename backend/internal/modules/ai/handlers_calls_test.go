@@ -26,8 +26,11 @@ func TestWireAiCallDetailMapsPayloadAndAttempts(t *testing.T) {
 		ContextFingerprint:   "abc",
 		Attempts: []CallAttempt{
 			{Attempt: 1, TokensIn: 100, OccurredAt: time.Date(2026, 7, 20, 9, 59, 0, 0, time.UTC)},
-			{Attempt: 2, IsTerminal: true, AttemptReason: "retry_on_5xx", TokensIn: 100,
-				TokensOut: 20, LatencyMS: 900, OccurredAt: time.Date(2026, 7, 20, 10, 0, 0, 0, time.UTC)},
+			{
+				Attempt: 2, IsTerminal: true, AttemptReason: "retry_on_5xx", TokensIn: 100,
+				TokensOut: 20, LatencyMS: 900,
+				OccurredAt: time.Date(2026, 7, 20, 10, 0, 0, 0, time.UTC),
+			},
 		},
 		Payload: &Payload{
 			Request:  json.RawMessage(`{"system":"s","messages":[]}`),
