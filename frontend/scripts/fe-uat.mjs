@@ -51,7 +51,11 @@ for (const f of changed) {
   if (!f.startsWith("frontend/src/")) continue;
   if (/\.stories\.[tj]sx?$/.test(f)) {
     storyFiles.add(f);
-  } else if (/\.[tj]sx?$/.test(f) && !/\.(test|stories)\./.test(f)) {
+  } else if (
+    /\.[tj]sx$/.test(f) &&
+    !/\.d\.ts$/.test(f) &&
+    !/\.(test|stories)\./.test(f)
+  ) {
     const story = f.replace(/\.[tj]sx?$/, ".stories.tsx");
     if (existsSync(join(repoRoot, story))) storyFiles.add(story);
     else missing.push({ component: f });
