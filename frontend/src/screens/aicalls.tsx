@@ -43,6 +43,11 @@ export function CallDetailPanel({
             })}
           </p>
           <p>
+            {t("aicalls.detail.source", {
+              source: query.data.served_identity_source,
+            })}
+          </p>
+          <p>
             {query.data.context_scopes.length > 0
               ? t("aicalls.detail.context", {
                   scopes: query.data.context_scopes.join(", "),

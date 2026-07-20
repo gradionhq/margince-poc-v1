@@ -45,6 +45,11 @@ function adjacentMonth(month: Month | null, offset: number): Month {
   };
 }
 
+function isCurrentMonth(month: Month | null): boolean {
+  if (month === null) return true;
+  return month.from.slice(0, 7) >= new Date().toISOString().slice(0, 7);
+}
+
 function aggregate(days: AiUsage["days"]): UsageTask[] {
   const rows = new Map<string, UsageTask>();
   for (const day of days) {
@@ -144,7 +149,7 @@ export function AiUsageCard() {
                 <Button
                   small
                   aria-label={t("aiusage.nextMonth")}
-                  disabled={month === null}
+                  disabled={isCurrentMonth(month)}
                   onClick={() => setMonth(adjacentMonth(month, 1))}
                 >
                   ›

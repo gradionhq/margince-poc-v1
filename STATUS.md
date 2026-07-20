@@ -22,6 +22,15 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**AI runtime observability UI (in flight)** — Settings → AI now leads with the
+live usage/budget meter and a keyset-paged call trace over the existing
+`ai_call`/`ai_call_payload` records. Admins see economy/queued shell advisories;
+trace detail exposes the configured-versus-served identity, attempt ladder,
+context provenance, and honest capture-off/no-payload/payload states. Captured
+runs export client-side as explicitly unreviewed certification-scenario YAML.
+The implementation checklist, manual verification guide, and upstream P3
+findings live in `.tmp/ai-observability-ui/`.
+
 **Durable AI budget deferral** — the compiled task contract now distinguishes
 interactive from background work and includes the ratified `voice_build` task
 with CompanyContext explicitly disabled. At the monthly hard cap, background

@@ -1491,6 +1491,7 @@ export const de = {
   "aicalls.empty": "Noch keine KI-Aufrufe aufgezeichnet.",
   "aicalls.detail.identity":
     "{served} über {provider} bereitgestellt (konfiguriert: {configured})",
+  "aicalls.detail.source": "Quelle der Modellidentität: {source}",
   "aicalls.detail.context": "Eingebetteter Kontext: {scopes}",
   "aicalls.detail.contextNone": "Kein Unternehmenskontext eingebettet",
   "aicalls.detail.attempts": "Versuche",

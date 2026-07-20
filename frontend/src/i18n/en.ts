@@ -1463,6 +1463,7 @@ export const en = {
   "aicalls.empty": "No AI calls recorded yet.",
   "aicalls.detail.identity":
     "Served {served} via {provider} (configured: {configured})",
+  "aicalls.detail.source": "Served identity source: {source}",
   "aicalls.detail.context": "Injected context: {scopes}",
   "aicalls.detail.contextNone": "No company context injected",
   "aicalls.detail.attempts": "Attempts",
