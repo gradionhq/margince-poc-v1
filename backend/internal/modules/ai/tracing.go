@@ -129,7 +129,7 @@ func (r *Router) attemptLadder(ctx context.Context, lc *logicalCall, base Call, 
 			}
 			continue
 		}
-		if meterErr := r.meter.Record(ctx, Usage{Task: task, Tier: t, TokensIn: out.InputTokens, TokensOut: out.OutputTokens, CachedTokens: out.CachedTokens, ReasoningTokens: out.ReasoningTokens}); meterErr != nil {
+		if meterErr := r.meter.Record(ctx, Usage{Task: task, Tier: t, TokensIn: out.InputTokens, TokensOut: out.OutputTokens, CachedTokens: out.CachedTokens, ReasoningTokens: out.ReasoningTokens, CacheWriteTokens: out.CacheWriteTokens}); meterErr != nil {
 			// Return the served response and tier even though the call fails:
 			// provider tokens were spent, and the trace must bill them to the
 			// tier that answered. errMeteringFailed keeps classifyError from

@@ -231,6 +231,7 @@ func (r *Router) serveAttempt(ctx context.Context, lc *logicalCall, task Task, l
 	trace.Tier = tier
 	trace.TokensIn, trace.TokensOut = out.InputTokens, out.OutputTokens
 	trace.ReasoningTokens, trace.CachedTokens = out.ReasoningTokens, out.CachedTokens
+	trace.CacheWriteTokens = out.CacheWriteTokens
 	if ladderErr != nil {
 		return model.Response{}, RouteInfo{}, ladderErr
 	}

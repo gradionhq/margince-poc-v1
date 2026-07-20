@@ -55,6 +55,18 @@ type stubMeter struct{}
 func (stubMeter) Record(context.Context, Usage) error        { return nil }
 func (stubMeter) MonthTokens(context.Context) (int64, error) { return 0, nil }
 
+// capturingMeter records every Usage it is asked to meter, mirroring how
+// fakeCallStore captures []Call — the seam TestCompleteCarriesCacheWriteTokens
+// asserts against.
+type capturingMeter struct{ recorded []Usage }
+
+func (m *capturingMeter) Record(_ context.Context, u Usage) error {
+	m.recorded = append(m.recorded, u)
+	return nil
+}
+
+func (m *capturingMeter) MonthTokens(context.Context) (int64, error) { return 0, nil }
+
 type unlimitedBudget struct{}
 
 func (unlimitedBudget) MonthlyTokenBudget(context.Context, ids.WorkspaceID) (int64, error) {
@@ -85,6 +97,32 @@ func TestCompleteRecordsServedCall(t *testing.T) {
 	got := fcs.recorded[0]
 	if got.Provider != "openai" || got.ModelID != "gpt-x" || got.TokensIn != 10 || got.TokensOut != 5 || got.ErrorSentinel != "" || got.CacheHit {
 		t.Fatalf("served call recorded wrong: %+v", got)
+	}
+}
+
+// TestCompleteCarriesCacheWriteTokens: an adapter that reports cache-creation
+// (write) tokens on its response must see that bucket land in BOTH the
+// flushed ai_call trace row and the ai_usage aggregate Record call — the
+// pricer's fourth bucket (ADR-0067) is worthless if either write path drops
+// it on the floor.
+func TestCompleteCarriesCacheWriteTokens(t *testing.T) {
+	fcs := &fakeCallStore{}
+	cm := &capturingMeter{}
+	r := assembleRouter(
+		map[Tier]model.Client{TierCheapCloud: stubClient{resp: model.Response{Text: "hi", InputTokens: 210, OutputTokens: 5, CacheWriteTokens: 200}}},
+		nil, ProfileCloudFrontier, cm, unlimitedBudget{}, fcs,
+		map[Tier]routeMeta{TierCheapCloud: {provider: "anthropic", model: "claude-x"}},
+		false, nil,
+	)
+	r.now = func() time.Time { return time.Unix(0, 0) }
+	if _, _, err := r.serveCompletion(wsCtx(), TaskColdStart, []Tier{TierCheapCloud}, model.Request{}); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	if len(fcs.recorded) != 1 || fcs.recorded[0].CacheWriteTokens != 200 {
+		t.Fatalf("flushed ai_call trace lost cache-write tokens: %+v", fcs.recorded)
+	}
+	if len(cm.recorded) != 1 || cm.recorded[0].CacheWriteTokens != 200 {
+		t.Fatalf("recorded ai_usage did not carry cache-write tokens: %+v", cm.recorded)
 	}
 }
 
