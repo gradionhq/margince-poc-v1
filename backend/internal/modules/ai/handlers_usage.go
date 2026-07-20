@@ -4,9 +4,12 @@
 package ai
 
 // The AIRT-WIRE-1 transport slice: GET /ai/usage serves the meter's
-// day × task × tier aggregates plus the budget band. Token-denominated
-// only — no cost estimation is configured, so cost_est_minor and
-// currency are honestly omitted rather than invented.
+// day × task × tier aggregates plus the budget band and, per ADR-0067
+// (price-on-read), each task line's estimated cost — priced at read
+// time from the workspace's ai_model_rate sheet, never computed by the
+// router/meter/adapters. A task line with no matching rate for any of
+// its window's calls omits cost_est_minor rather than reporting a
+// fabricated 0 (global constraint: cost is transparency, never a gate).
 
 import (
 	"net/http"
@@ -46,7 +49,7 @@ func (h Handlers) GetAiUsage(w http.ResponseWriter, r *http.Request, params crmc
 		})
 		return
 	}
-	days, budget, err := h.meter.UsageReport(r.Context(), h.budget, from, to)
+	days, budget, err := h.meter.UsageReport(r.Context(), h.budget, h.rates, from, to)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
@@ -75,6 +78,10 @@ type aiUsageTask = struct {
 	TokensOut int    `json:"tokens_out"`
 }
 
+// microUSDPerMinor converts ADR-0067's micro-USD price grain to wire
+// minor units (USD cents): 1 cent = $0.01 = 1e4 micro-USD.
+const microUSDPerMinor = 10_000
+
 func wireAiUsage(days []DayUsage, budget BudgetStatus) crmcontracts.AiUsage {
 	out := crmcontracts.AiUsage{Days: make([]aiUsageDay, 0, len(days))}
 	for _, day := range days {
@@ -84,19 +91,34 @@ func wireAiUsage(days []DayUsage, budget BudgetStatus) crmcontracts.AiUsage {
 		}
 		for _, task := range day.Tasks {
 			cached := task.CachedHits
-			wireDay.Tasks = append(wireDay.Tasks, aiUsageTask{
+			wireTask := aiUsageTask{
 				Task:       task.Task,
 				Tier:       task.Tier,
 				Calls:      task.Calls,
 				CachedHits: &cached,
 				TokensIn:   task.TokensIn,
 				TokensOut:  task.TokensOut,
-			})
+			}
+			// A task line that is ENTIRELY unpriced (every window call
+			// lacking a rate row, so the summed cost is exactly 0 with no
+			// priced call behind it) omits cost_est_minor rather than
+			// reporting a fabricated 0 — the same "unpriced, not free"
+			// distinction CostReport draws (price-on-read, ADR-0067). A
+			// line with any priced cost reports it even if some of its
+			// calls were unpriced: the number is a real, if partial, dollar
+			// total, not an invented one.
+			if task.CostEstMicroUSD > 0 || task.UnpricedCalls == 0 {
+				minor := int(task.CostEstMicroUSD / microUSDPerMinor)
+				wireTask.CostEstMinor = &minor
+			}
+			wireDay.Tasks = append(wireDay.Tasks, wireTask)
 		}
 		out.Days = append(out.Days, wireDay)
 	}
 	out.Budget.MonthlyTokens = int(budget.MonthlyTokens)
 	out.Budget.SpentTokens = int(budget.SpentTokens)
 	out.Budget.Band = crmcontracts.AiUsageBudgetBand(budget.Band)
+	currency := "USD"
+	out.Budget.Currency = &currency
 	return out
 }

@@ -48,6 +48,12 @@ func TestGeminiCompleteMapsNativeWireAndUsage(t *testing.T) {
 	if resp.Text != "answer" || resp.InputTokens != 10 || resp.OutputTokens != 9 || resp.CachedTokens != 6 || resp.ReasoningTokens != 4 {
 		t.Fatalf("mapping wrong: %+v", resp)
 	}
+	// Gemini's promptTokenCount is already cache-inclusive (no separate
+	// cache-write bucket on the wire), so CacheWriteTokens must stay at its
+	// zero-value.
+	if resp.CacheWriteTokens != 0 {
+		t.Fatalf("CacheWriteTokens = %d, want 0 (Gemini reports no cache-write bucket)", resp.CacheWriteTokens)
+	}
 	if resp.ServedModel != "gemini-x-001" {
 		t.Fatalf("ServedModel not decoded from modelVersion: %q", resp.ServedModel)
 	}

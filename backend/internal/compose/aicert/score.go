@@ -24,10 +24,19 @@ const (
 type RunResult struct {
 	Output    string
 	LatencyMS int64
-	Tokens    int
-	Degraded  bool
-	HardPass  bool
-	Score     int
+	// TokensIn/TokensOut/CachedTokens/CacheWriteTokens are the terminal
+	// attempt's own four token buckets, carried through unsummed (ai.Call's
+	// contract: TokensIn is cache-inclusive, CachedTokens/CacheWriteTokens
+	// are the itemized subsets already counted inside it) so buildRecord can
+	// price the run against ai.PriceCall's per-bucket rate arithmetic
+	// instead of a pre-collapsed total.
+	TokensIn         int
+	TokensOut        int
+	CachedTokens     int
+	CacheWriteTokens int
+	Degraded         bool
+	HardPass         bool
+	Score            int
 }
 
 // Verdict folds N runs of one scenario into a certification outcome per

@@ -92,8 +92,15 @@ func (c *anthropicClient) Complete(ctx context.Context, req model.Request) (mode
 			Input json.RawMessage `json:"input"`
 		} `json:"content"`
 		Usage struct {
-			InputTokens  int `json:"input_tokens"`
-			OutputTokens int `json:"output_tokens"`
+			InputTokens int `json:"input_tokens"`
+			// CacheReadInputTokens / CacheCreationInputTokens: Anthropic reports
+			// input_tokens EXCLUSIVE of both cache buckets (unlike OpenAI/Gemini,
+			// which already report a cache-inclusive prompt total) — normalizing
+			// below adds them back so model.Response.InputTokens lands on the
+			// port's pinned cache-inclusive contract.
+			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+			OutputTokens             int `json:"output_tokens"`
 		} `json:"usage"`
 	}
 	if err := json.NewDecoder(body).Decode(&out); err != nil {
@@ -113,10 +120,12 @@ func (c *anthropicClient) Complete(ctx context.Context, req model.Request) (mode
 		}
 	}
 	return model.Response{
-		Text:         text.String(),
-		InputTokens:  out.Usage.InputTokens,
-		OutputTokens: out.Usage.OutputTokens,
-		ServedModel:  out.Model,
+		Text:             text.String(),
+		InputTokens:      out.Usage.InputTokens + out.Usage.CacheReadInputTokens + out.Usage.CacheCreationInputTokens,
+		OutputTokens:     out.Usage.OutputTokens,
+		CachedTokens:     out.Usage.CacheReadInputTokens,
+		CacheWriteTokens: out.Usage.CacheCreationInputTokens,
+		ServedModel:      out.Model,
 	}, nil
 }
 
@@ -149,6 +158,12 @@ func (c *anthropicClient) completeStreamed(ctx context.Context, req model.Reques
 				Model string `json:"model"`
 				Usage struct {
 					InputTokens int `json:"input_tokens"`
+					// Same cache-inclusive normalization as the non-streaming path
+					// (see the Complete usage struct above): Anthropic's
+					// message_start usage also reports input_tokens exclusive of
+					// both cache buckets.
+					CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+					CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 				} `json:"usage"`
 			} `json:"message"`
 			Delta struct {
@@ -165,7 +180,9 @@ func (c *anthropicClient) completeStreamed(ctx context.Context, req model.Reques
 		}
 		switch ev.Type {
 		case "message_start":
-			resp.InputTokens = ev.Message.Usage.InputTokens
+			resp.InputTokens = ev.Message.Usage.InputTokens + ev.Message.Usage.CacheReadInputTokens + ev.Message.Usage.CacheCreationInputTokens
+			resp.CachedTokens = ev.Message.Usage.CacheReadInputTokens
+			resp.CacheWriteTokens = ev.Message.Usage.CacheCreationInputTokens
 			resp.ServedModel = ev.Message.Model
 		case "content_block_delta":
 			text.WriteString(ev.Delta.Text)
