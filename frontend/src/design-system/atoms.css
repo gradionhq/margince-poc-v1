@@ -132,6 +132,11 @@
   max-height: calc(100dvh - 40px);
   overflow-y: auto;
 }
+/* Roomier variant for content-dense dialogs (e.g. the cert-scenario export's
+   YAML + response previews) that read cramped at the compact form width. */
+.modal-wide {
+  width: min(720px, calc(100vw - 40px));
+}
 .modal .actions {
   display: flex;
   justify-content: flex-end;

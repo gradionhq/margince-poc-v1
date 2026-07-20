@@ -365,7 +365,7 @@ func (x evidenceExtractor) extractFields(ctx context.Context, sourceLabel, sourc
 			Role:    "user",
 			Content: fmt.Sprintf("%s:\n<untrusted>%s</untrusted>", sourceLabel, sourceText),
 		}},
-		MaxTokens:      2048,
+		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		ResponseSchema: companyFactsSchema,
 		SecretStripper: ai.NewSecretStripper(),
 	}

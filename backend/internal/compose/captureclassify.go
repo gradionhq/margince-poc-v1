@@ -191,7 +191,7 @@ func (c *CaptureClassifier) ask(ctx context.Context, batch []unlabeledMessage) (
 	req := model.Request{
 		System:         classifySystem,
 		Messages:       []model.Message{{Role: chatRoleUser, Content: prompt.String()}},
-		MaxTokens:      1024,
+		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		ResponseSchema: classifySchema(),
 		SecretStripper: ai.NewSecretStripper(),
 	}

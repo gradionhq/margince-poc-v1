@@ -27,10 +27,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/schema"
 )
 
-// pageFactsMaxTokens bounds one page call's output: a dense catalog page
-// yields a few dozen 30-token records.
-const pageFactsMaxTokens = 1024
-
 // pageMenu is what one page kind is asked for: the fact fields it may
 // answer, and whether its call carries the people or legal-entity lanes.
 type pageMenu struct {
@@ -215,7 +211,7 @@ func (x evidenceExtractor) extractPageFacts(ctx context.Context, page crawlPage)
 			Role:    chatRoleUser,
 			Content: "Page " + page.URL + ":\n" + idx.renderNumbered(),
 		}},
-		MaxTokens:      pageFactsMaxTokens,
+		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		ResponseSchema: pageFactsSchema(menu, idx.ids()),
 		SecretStripper: ai.NewSecretStripper(),
 	}
