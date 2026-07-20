@@ -3537,6 +3537,57 @@ paths:
         '403': { $ref: '#/components/responses/PermissionDenied' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /ai/calls:
+    get:
+      tags: [AI]
+      operationId: listAiCalls
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: The AI call trace — every terminal model call, newest first.
+      description: |
+        Terminal attempts from the AIRT-SCHEMA-2 call record (`ai_call`), keyset-paginated
+        newest-first. The admin trace view reads this; the same automation-config grant
+        that admits `getAiUsage` admits it. `payload_capture_enabled` reports the
+        deployment's `ai.capture_payloads` posture so a client can distinguish
+        "capture is off" from "this call has no payload".
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - { name: task, in: query, schema: { type: string }, description: 'Filter to one task (capture_classify, enrich, …).' }
+      responses:
+        '200':
+          description: One page of terminal calls.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiCallListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /ai/calls/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [AI]
+      operationId: getAiCall
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: One call — attempt ladder, routing identity, context provenance, captured payload.
+      description: |
+        The full trace of one terminal call: its non-terminal retry siblings (shared
+        `logical_call_id`), the configured-vs-served model identity, the injected company-context
+        scopes, and — when `ai.capture_payloads` captured it — the post-secret-stripper
+        request/response payload verbatim.
+      responses:
+        '200':
+          description: The call.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiCall' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
 
   # ------------------ /dedupe (DH-EXT-1/2, ADR-0062) ------------------------
   # The dedupe review queue over dedupe_candidate (DH-DDL-1): confidence-
@@ -6846,6 +6897,72 @@ components:
             band: { type: string, enum: [normal, degraded, queued], description: '< 80% / 80–100% soft-degrade / ≥ 100% non-interactive queued (AIRT-PARAM-9..11).' }
             band_since: { type: [string, 'null'], format: date-time }
             currency: { type: string }
+    AiCallSummary:
+      type: object
+      description: One terminal model call from the ai_call trace (AIRT-SCHEMA-2).
+      required: [id, occurred_at, task, tier, provider, model_id, served_model, calls_attempted, tokens_in, tokens_out, reasoning_tokens, cached_tokens, latency_ms, cache_hit, degraded, has_payload]
+      properties:
+        id: { type: string, format: uuid }
+        occurred_at: { type: string, format: date-time }
+        task: { type: string }
+        tier: { type: string, description: 'Empty when the call failed before routing.' }
+        provider: { type: string }
+        model_id: { type: string, description: 'The configured binding.' }
+        served_model: { type: string, description: 'What the provider reported serving.' }
+        calls_attempted: { type: integer, description: 'The attempt number of this terminal attempt: 1 = first try succeeded/failed terminally, >1 = retries happened.' }
+        tokens_in: { type: integer }
+        tokens_out: { type: integer }
+        reasoning_tokens: { type: integer }
+        cached_tokens: { type: integer }
+        latency_ms: { type: integer }
+        cache_hit: { type: boolean }
+        degraded: { type: boolean }
+        error_sentinel: { type: [string, 'null'], description: 'Stable failure code; null on success.' }
+        has_payload: { type: boolean, description: 'A captured payload row exists for this call.' }
+    AiCallAttempt:
+      type: object
+      description: One attempt (terminal or not) within a logical call.
+      required: [attempt, is_terminal, attempt_reason, tokens_in, tokens_out, latency_ms, occurred_at]
+      properties:
+        attempt: { type: integer }
+        is_terminal: { type: boolean }
+        attempt_reason: { type: string, description: 'Why this attempt ran; empty on the first.' }
+        error_sentinel: { type: [string, 'null'] }
+        tokens_in: { type: integer }
+        tokens_out: { type: integer }
+        latency_ms: { type: integer }
+        occurred_at: { type: string, format: date-time }
+    AiCall:
+      allOf:
+        - $ref: '#/components/schemas/AiCallSummary'
+        - type: object
+          required: [served_identity_source, context_scopes, context_fingerprint, attempts, payload_captured]
+          properties:
+            correlation_id: { type: [string, 'null'], format: uuid }
+            agent_run_id: { type: [string, 'null'], format: uuid }
+            served_identity_source: { type: string, description: 'response | echo | configured.' }
+            config_hash: { type: [string, 'null'], description: 'Routing/prompt config identity of this call.' }
+            context_scopes: { type: array, items: { type: string }, description: 'Company-context scopes injected into the request.' }
+            context_fingerprint: { type: string }
+            attempts:
+              type: array
+              items: { $ref: '#/components/schemas/AiCallAttempt' }
+              description: 'The full attempt ladder for this logical call, oldest first (includes the terminal attempt).'
+            payload_captured: { type: boolean }
+            payload:
+              type: [object, 'null']
+              description: 'Present only when payload_captured. Post-secret-stripper content (AIRT-AC-4); rune-capped with a visible truncation marker.'
+              required: [request, response]
+              properties:
+                request: { description: 'The captured request: {"system": string, "messages": [{role, content}]}.' }
+                response: { description: 'The captured response text (JSON string).' }
+    AiCallListResponse:
+      type: object
+      required: [data, page, payload_capture_enabled]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/AiCallSummary' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+        payload_capture_enabled: { type: boolean, description: 'The deployment''s ai.capture_payloads posture.' }
     CaptureExclusionRule:
       type: object
       description: |

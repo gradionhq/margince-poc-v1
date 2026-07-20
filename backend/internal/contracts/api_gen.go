@@ -5503,6 +5503,120 @@ type AgentToolListResponse struct {
 	Data []AgentTool `json:"data"`
 }
 
+// AiCall defines model for AiCall.
+type AiCall struct {
+	AgentRunId *openapi_types.UUID `json:"agent_run_id,omitempty"`
+
+	// Attempts The full attempt ladder for this logical call, oldest first (includes the terminal attempt).
+	Attempts     []AiCallAttempt `json:"attempts"`
+	CacheHit     bool            `json:"cache_hit"`
+	CachedTokens int             `json:"cached_tokens"`
+
+	// CallsAttempted The attempt number of this terminal attempt: 1 = first try succeeded/failed terminally, >1 = retries happened.
+	CallsAttempted int `json:"calls_attempted"`
+
+	// ConfigHash Routing/prompt config identity of this call.
+	ConfigHash         *string `json:"config_hash,omitempty"`
+	ContextFingerprint string  `json:"context_fingerprint"`
+
+	// ContextScopes Company-context scopes injected into the request.
+	ContextScopes []string            `json:"context_scopes"`
+	CorrelationId *openapi_types.UUID `json:"correlation_id,omitempty"`
+	Degraded      bool                `json:"degraded"`
+
+	// ErrorSentinel Stable failure code; null on success.
+	ErrorSentinel *string `json:"error_sentinel,omitempty"`
+
+	// HasPayload A captured payload row exists for this call.
+	HasPayload bool               `json:"has_payload"`
+	Id         openapi_types.UUID `json:"id"`
+	LatencyMs  int                `json:"latency_ms"`
+
+	// ModelId The configured binding.
+	ModelId    string    `json:"model_id"`
+	OccurredAt time.Time `json:"occurred_at"`
+
+	// Payload Present only when payload_captured. Post-secret-stripper content (AIRT-AC-4); rune-capped with a visible truncation marker.
+	Payload *struct {
+		// Request The captured request: {"system": string, "messages": [{role, content}]}.
+		Request interface{} `json:"request"`
+
+		// Response The captured response text (JSON string).
+		Response interface{} `json:"response"`
+	} `json:"payload,omitempty"`
+	PayloadCaptured bool   `json:"payload_captured"`
+	Provider        string `json:"provider"`
+	ReasoningTokens int    `json:"reasoning_tokens"`
+
+	// ServedIdentitySource response | echo | configured.
+	ServedIdentitySource string `json:"served_identity_source"`
+
+	// ServedModel What the provider reported serving.
+	ServedModel string `json:"served_model"`
+	Task        string `json:"task"`
+
+	// Tier Empty when the call failed before routing.
+	Tier      string `json:"tier"`
+	TokensIn  int    `json:"tokens_in"`
+	TokensOut int    `json:"tokens_out"`
+}
+
+// AiCallAttempt One attempt (terminal or not) within a logical call.
+type AiCallAttempt struct {
+	Attempt int `json:"attempt"`
+
+	// AttemptReason Why this attempt ran; empty on the first.
+	AttemptReason string    `json:"attempt_reason"`
+	ErrorSentinel *string   `json:"error_sentinel,omitempty"`
+	IsTerminal    bool      `json:"is_terminal"`
+	LatencyMs     int       `json:"latency_ms"`
+	OccurredAt    time.Time `json:"occurred_at"`
+	TokensIn      int       `json:"tokens_in"`
+	TokensOut     int       `json:"tokens_out"`
+}
+
+// AiCallListResponse defines model for AiCallListResponse.
+type AiCallListResponse struct {
+	Data []AiCallSummary `json:"data"`
+	Page PageInfo        `json:"page"`
+
+	// PayloadCaptureEnabled The deployment's ai.capture_payloads posture.
+	PayloadCaptureEnabled bool `json:"payload_capture_enabled"`
+}
+
+// AiCallSummary One terminal model call from the ai_call trace (AIRT-SCHEMA-2).
+type AiCallSummary struct {
+	CacheHit     bool `json:"cache_hit"`
+	CachedTokens int  `json:"cached_tokens"`
+
+	// CallsAttempted The attempt number of this terminal attempt: 1 = first try succeeded/failed terminally, >1 = retries happened.
+	CallsAttempted int  `json:"calls_attempted"`
+	Degraded       bool `json:"degraded"`
+
+	// ErrorSentinel Stable failure code; null on success.
+	ErrorSentinel *string `json:"error_sentinel,omitempty"`
+
+	// HasPayload A captured payload row exists for this call.
+	HasPayload bool               `json:"has_payload"`
+	Id         openapi_types.UUID `json:"id"`
+	LatencyMs  int                `json:"latency_ms"`
+
+	// ModelId The configured binding.
+	ModelId         string    `json:"model_id"`
+	OccurredAt      time.Time `json:"occurred_at"`
+	Provider        string    `json:"provider"`
+	ReasoningTokens int       `json:"reasoning_tokens"`
+
+	// ServedModel What the provider reported serving.
+	ServedModel string `json:"served_model"`
+	Task        string `json:"task"`
+
+	// Tier Empty when the call failed before routing.
+	Tier      string `json:"tier"`
+	TokensIn  int    `json:"tokens_in"`
+	TokensOut int    `json:"tokens_out"`
+}
+
 // AiUsage AI usage + budget (AIRT-WIRE-1): the AIRT-PARAM-33 meter aggregated per day × task × tier, plus the budget band. Token-denominated; cost_minor is the estimate at the configured tier's rate (0 when local).
 type AiUsage struct {
 	Budget struct {
@@ -9551,6 +9665,25 @@ type SendEmailParams struct {
 	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
 	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
 	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
+}
+
+// ListAiCallsParams defines parameters for ListAiCalls.
+type ListAiCallsParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Task Filter to one task (capture_classify, enrich, …).
+	Task *string `form:"task,omitempty" json:"task,omitempty"`
 }
 
 // GetAiUsageParams defines parameters for GetAiUsage.
@@ -16396,6 +16529,12 @@ type ServerInterface interface {
 	// The governed tool surface (registry metadata) for the operator UI.
 	// (GET /agent-tools)
 	ListAgentTools(w http.ResponseWriter, r *http.Request)
+	// The AI call trace — every terminal model call, newest first.
+	// (GET /ai/calls)
+	ListAiCalls(w http.ResponseWriter, r *http.Request, params ListAiCallsParams)
+	// One call — attempt ladder, routing identity, context provenance, captured payload.
+	// (GET /ai/calls/{id})
+	GetAiCall(w http.ResponseWriter, r *http.Request, id Id)
 	// AI usage + budget — the spend is never invisible.
 	// (GET /ai/usage)
 	GetAiUsage(w http.ResponseWriter, r *http.Request, params GetAiUsageParams)
@@ -17059,6 +17198,18 @@ func (_ Unimplemented) SendEmail(w http.ResponseWriter, r *http.Request, id Id, 
 // The governed tool surface (registry metadata) for the operator UI.
 // (GET /agent-tools)
 func (_ Unimplemented) ListAgentTools(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The AI call trace — every terminal model call, newest first.
+// (GET /ai/calls)
+func (_ Unimplemented) ListAiCalls(w http.ResponseWriter, r *http.Request, params ListAiCallsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// One call — attempt ladder, routing identity, context provenance, captured payload.
+// (GET /ai/calls/{id})
+func (_ Unimplemented) GetAiCall(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -18802,6 +18953,103 @@ func (siw *ServerInterfaceWrapper) ListAgentTools(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListAgentTools(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAiCalls operation middleware
+func (siw *ServerInterfaceWrapper) ListAiCalls(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAiCallsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "task" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "task", r.URL.Query(), &params.Task, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "task"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "task", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAiCalls(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAiCall operation middleware
+func (siw *ServerInterfaceWrapper) GetAiCall(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAiCall(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -28730,6 +28978,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/agent-tools", wrapper.ListAgentTools)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/ai/calls", wrapper.ListAiCalls)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/ai/calls/{id}", wrapper.GetAiCall)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/ai/usage", wrapper.GetAiUsage)
