@@ -284,6 +284,14 @@ func WithBrief(brain completer) Option {
 	}
 }
 
+// WithAiPayloadCaptureFlag mirrors the model-path capture posture onto
+// the trace read so clients can explain why payload content is absent.
+func WithAiPayloadCaptureFlag(enabled bool) Option {
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.voiceHandlers = s.voiceHandlers.WithPayloadCaptureFlag(enabled)
+	}
+}
+
 // New wires the modules and returns the ready http.Handler: contract
 // routes under /v1, health probe, session middleware, panic recovery.
 func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
