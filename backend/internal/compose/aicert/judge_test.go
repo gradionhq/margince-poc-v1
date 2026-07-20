@@ -79,10 +79,10 @@ func TestBuildRequestGivesReasoningHeadroomAboveAnExplicitCap(t *testing.T) {
 		}
 	})
 	t.Run("an explicit answer cap adds reasoning headroom on top", func(t *testing.T) {
-		// The bug this guards: sending the bare answer cap as maxOutputTokens
-		// let a reasoning model burn it all on thinking and stop at MAX_TOKENS
-		// with zero answer. The model must get room to think ABOVE the answer
-		// budget checkCaps later grades against.
+		// A reasoning model spends output tokens on thinking before its
+		// answer, so the request must budget room to think ABOVE the answer
+		// cap checkCaps grades against; the bare cap starves the answer to a
+		// MAX_TOKENS stop with zero text.
 		got := buildRequest(Scenario{Input: "draft it", Expect: Expectations{Caps: Caps{MaxTokens: 300}}}).MaxTokens
 		if want := 300 + defaultRunMaxTokens; got != want {
 			t.Fatalf("capped MaxTokens = %d, want %d (answer budget + reasoning headroom)", got, want)
