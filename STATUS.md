@@ -598,29 +598,37 @@ Open work, roughly in priority order:
 
 - **Overlay branch 1b — the review-deferred hardening** (from PR #91's
   three-lens review; the branch itself ships read + poller sync with the
-  human `/v1` surface seam-backed). **In flight:** the **deletion/archive
-  feed** is implemented on branch `fix/overlay-deletion-feed` (local commit
-  `9b8fc80`, gates + integration green, not yet pushed) — `Incumbent.Deletions`
-  + HubSpot `?archived=true` + `MirrorStore.PurgeRecord` (row + assoc +
-  visibility, no tombstone) + `ReconcileDeletions` on its own
-  `overlay_deletion_watermark` + the `mirror.deleted` event, run after the
-  modified sweep. Contract-first blocker: it lands after the upstream spec pin
-  (foundation branch `spec/overlay-deletion-feed`: `mirror.deleted` +
-  EVT-SEM-13 + OVA-AC-5) merges. Still open in 1b: budget-pace the initial backfill and
-  honor `Retry-After`/ADR-0063-style backoff on a failing connection
-  (today a failed connection re-sweeps hot every tick); one budget meter
-  per deployment, not per process/consumer (combined spend can exceed
-  the HubSpot quota N×); composite keyset watermark (a >10k
-  same-timestamp block wedges the sweep — disclosed in reconcile.go);
-  the webhook-as-signal lane returns only WITH portal-id→workspace
-  binding in the HMAC basis (the unmounted receiver was deleted, not
-  fixed); a reconnect flow (Connect today refuses a workspace with any
-  connection row) that clears the workspace's teardown tombstones as
-  part of establishing the new connection — until then re-ingest of
-  once-purged records is deliberately blocked; live force-fresh read-through (`NewOverlayProvider` still
-  wires `inc: nil`); and the contract question of nullable
-  `pipeline_id`/`stage_id` on overlay deals (zero-UUID today, keys in
-  `raw`) to reconcile upstream.
+  human `/v1` surface seam-backed). **Landed (2026-07-21):**
+  - **Deletion/archive feed** — MERGED #159 (`fc95b15`). `Incumbent.Deletions`
+    + HubSpot `?archived=true` + `MirrorStore.PurgeRecord` (row + assoc +
+    visibility + atomic `mirror.deleted` emit, no tombstone) + full-scan
+    `ReconcileDeletions` (no watermark — the archived feed is unordered) +
+    purge indexes + `/metrics` counter. Spec pin: foundation #1123.
+  - **Visibility concurrency + ambiguity** — MERGED #160 (`078a388`). One
+    per-workspace visibility advisory lock (`lockWorkspaceVisibility`) taken
+    by every visibility mutator; distinct-owner-set ambiguity + late-ambiguity
+    revoke; GUC-unset fails closed.
+
+  Still open in 1b (the next branches, roughly in priority order):
+  - **A3 budget metering + live freshness** — wire a live per-workspace
+    incumbent into the force-fresh read path (`NewOverlayProvider` still wires
+    `inc: nil` at compose/overlay.go — FreshnessReader needs a per-request
+    `resolveIncumbent(ctx)` reading the connection + vault + building the
+    adapter, reusing jobs_overlay's factory); atomic reserve-before-`inc.Get`
+    (review #56); meter in the HTTP transport (not per-record-count);
+    token-bucket burst limiter; one budget meter per deployment, not
+    per-process (shared PG/Redis state) — combined spend can exceed the
+    HubSpot quota N×. Branch `fix/overlay-budget-metering` started.
+  - **A4 reconcile robustness** — budget-pace/`Retry-After` backoff on a
+    failing connection (today it re-sweeps hot every tick); composite keyset
+    watermark (a >10k same-timestamp block wedges the sweep — disclosed in
+    reconcile.go).
+  - **A5 disconnect-race fencing**; **A7 assoc/backfill fidelity**;
+    **webhook-as-signal** (only WITH portal-id→workspace binding in the HMAC
+    basis — the unmounted receiver was deleted, not fixed); a **reconnect flow**
+    (Connect refuses a workspace with any connection row) that clears teardown
+    tombstones. The nullable `pipeline_id`/`stage_id` overlay-deal contract
+    question is reconciled upstream (foundation #1124, merged).
 
 - **Overlay evaluation-window SPA read-subset UX** (partly landed) — the
   overlay mirror serves only a read subset (get-by-id, `q`, cursor,
