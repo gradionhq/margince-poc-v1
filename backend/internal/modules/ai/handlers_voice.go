@@ -36,6 +36,10 @@ type Handlers struct {
 	// against at read time (price-on-read) — same pool, RLS scoped like
 	// every other tenant read.
 	rates *RateStore
+	// publicProfile is the minimal anonymous login-presence view. NewHandlers
+	// starts honest-unconfigured; the API composition root replaces it from
+	// the same routing decision that builds the model path.
+	publicProfile PublicProfile
 }
 
 // NewHandlers wires the module's stores onto one pool; budget is the
@@ -47,6 +51,7 @@ func NewHandlers(pool *pgxpool.Pool, budget BudgetPolicy) Handlers {
 	return Handlers{
 		voice: NewVoiceStore(pool), meter: NewMeter(pool), budget: budget,
 		calls: NewCallReadStore(pool), rates: NewRateStore(pool),
+		publicProfile: NewPublicProfile("unconfigured", RoutingConfig{}),
 	}
 }
 

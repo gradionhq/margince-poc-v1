@@ -33,12 +33,12 @@ import (
 // AI-unconfigured deployment is a legitimate, ready one (aistate.go);
 // coldStartOptions/offerDraftOptions/writeAIMetrics all treat nil as
 // "this role wires no AI surfaces" rather than panicking.
-func resolveModelPath(routingPath string, fakeBrain bool, pool *pgxpool.Pool, capturePayloads bool, log *slog.Logger) (*compose.ModelPath, string, error) {
+func resolveModelPath(routingPath string, fakeBrain bool, pool *pgxpool.Pool, capturePayloads bool, log *slog.Logger) (*compose.ModelPath, string, ai.PublicProfile, error) {
 	switch {
 	case routingPath != "":
 		cfg, err := ai.LoadRoutingFile(routingPath)
 		if err != nil {
-			return nil, "", err
+			return nil, "", ai.PublicProfile{}, err
 		}
 		// A task whose whole fallback ladder has no bound tier is not a
 		// boot error (a deployment may legitimately not run every
@@ -49,17 +49,18 @@ func resolveModelPath(routingPath string, fakeBrain bool, pool *pgxpool.Pool, ca
 		}
 		modelPath, err := compose.NewModelPath(cfg, pool, capturePayloads, log)
 		if err != nil {
-			return nil, "", err
+			return nil, "", ai.PublicProfile{}, err
 		}
-		return &modelPath, compose.AIStateConfigured, nil
+		return &modelPath, compose.AIStateConfigured, ai.NewPublicProfile(compose.AIStateConfigured, cfg), nil
 	case fakeBrain:
-		modelPath, err := compose.NewModelPath(ai.FakeRoutingConfig(), pool, capturePayloads, log)
+		cfg := ai.FakeRoutingConfig()
+		modelPath, err := compose.NewModelPath(cfg, pool, capturePayloads, log)
 		if err != nil {
-			return nil, "", err
+			return nil, "", ai.PublicProfile{}, err
 		}
-		return &modelPath, compose.AIStateFake, nil
+		return &modelPath, compose.AIStateFake, ai.NewPublicProfile(compose.AIStateFake, cfg), nil
 	default:
-		return nil, compose.AIStateUnconfigured, nil
+		return nil, compose.AIStateUnconfigured, ai.NewPublicProfile(compose.AIStateUnconfigured, ai.RoutingConfig{}), nil
 	}
 }
 

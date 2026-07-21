@@ -255,7 +255,15 @@ function AuthedApp({
     }
     return (
       <RaillessFrame>
-        <AuthScreen onAuthed={() => me.refetch()} notice={notice} />
+        <AuthScreen
+          onAuthed={async () => {
+            const result = await me.refetch();
+            if (result.error) {
+              throw result.error;
+            }
+          }}
+          notice={notice}
+        />
       </RaillessFrame>
     );
   }

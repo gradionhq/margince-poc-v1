@@ -3,7 +3,11 @@
 
 package compose
 
-import "github.com/jackc/pgx/v5/pgxpool"
+import (
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
+)
 
 // AI state strings /readyz reports (ai-operational-spec §2): the runtime
 // is one of these at any time, and — unlike every other ReadyCheck this
@@ -16,12 +20,20 @@ const (
 	AIStateUnconfigured = "unconfigured" // neither wired
 )
 
-// WithAIState sets the /readyz AI visibility line. cmd computes it from
-// the same declared-routing/--ai-fake/neither switch that decides
-// whether coldStartOptions/offerDraftOptions light up, so the probe
-// never disagrees with what the process actually wired.
+// WithAIState sets only the /readyz AI visibility line. It carries no routing
+// configuration from which the anonymous profile could be derived; callers
+// that own that configuration use WithAssistantProfile instead.
 func WithAIState(state string) Option {
 	return func(s *Server, _ *pgxpool.Pool) { s.aiState = state }
+}
+
+// WithAssistantProfile binds both public login posture and the operational
+// readiness line from the process's one routing decision.
+func WithAssistantProfile(state string, profile ai.PublicProfile) Option {
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.aiState = state
+		s.voiceHandlers = s.WithPublicProfile(profile)
+	}
 }
 
 // aiStateOrDefault is what /readyz reports: a role that never calls

@@ -21,6 +21,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/assistant/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Minimal public identity and configuration posture for the Margince AI presence.
+         * @description Anonymous login-presence metadata. `configured` means the deployment loaded and
+         *     constructed its declared bindings at boot; it is not a provider health check and must
+         *     never render as online/running/healthy. Provider keys are distinct and sorted, with the
+         *     development fake omitted. This surface discloses no organization data, model ids,
+         *     routes, tiers, endpoints, keys/key-presence, budgets, usage, errors, or bootstrap state.
+         */
+        get: operations["getAssistantProfile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/capabilities": {
         parameters: {
             query?: never;
@@ -6117,6 +6141,18 @@ export interface components {
             /** Format: date-time */
             archived_at?: string | null;
         };
+        AssistantProfile: {
+            /** @enum {string} */
+            name: "Margince";
+            /** @enum {string} */
+            kind: "ai";
+            /** @enum {string} */
+            state: "configured" | "unconfigured" | "development";
+            /** @enum {string} */
+            inference_mode: "cloud" | "local" | "hybrid" | "none" | "development";
+            /** @description Distinct configured provider keys, sorted; fake is never returned. */
+            providers: ("anthropic" | "gemini" | "ollama" | "openai" | "openai_compatible" | "vllm")[];
+        };
         AuthCapabilities: {
             /** @description Email + password login is enabled. */
             password: boolean;
@@ -8613,6 +8649,26 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    getAssistantProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The safe public AI identity and routing posture. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantProfile"];
+                };
+            };
         };
     };
     getAuthCapabilities: {

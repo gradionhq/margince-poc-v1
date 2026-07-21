@@ -178,6 +178,26 @@ paths:
   # its first admin are created at API boot from the deployment configuration file
   # (`margince.yaml`), atomically, under the singleton-organization invariant. The former
   # unauthenticated `POST /workspaces` (ADR-0043 §4) is superseded by ADR-0043 Amendment 2.
+  /assistant/profile:
+    get:
+      tags: [AI]
+      operationId: getAssistantProfile
+      security: []
+      x-agent-access: human-only
+      summary: Minimal public identity and configuration posture for the Margince AI presence.
+      description: |
+        Anonymous login-presence metadata. `configured` means the deployment loaded and
+        constructed its declared bindings at boot; it is not a provider health check and must
+        never render as online/running/healthy. Provider keys are distinct and sorted, with the
+        development fake omitted. This surface discloses no organization data, model ids,
+        routes, tiers, endpoints, keys/key-presence, budgets, usage, errors, or bootstrap state.
+      responses:
+        '200':
+          description: The safe public AI identity and routing posture.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssistantProfile' }
+
   /auth/capabilities:
     get:
       tags: [Identity]
@@ -8960,6 +8980,21 @@ components:
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         archived_at: { type: [string, 'null'], format: date-time }
+
+    AssistantProfile:
+      type: object
+      additionalProperties: false
+      required: [name, kind, state, inference_mode, providers]
+      properties:
+        name: { type: string, enum: [Margince] }
+        kind: { type: string, enum: [ai] }
+        state: { type: string, enum: [configured, unconfigured, development] }
+        inference_mode: { type: string, enum: [cloud, local, hybrid, none, development] }
+        providers:
+          type: array
+          uniqueItems: true
+          description: Distinct configured provider keys, sorted; fake is never returned.
+          items: { type: string, enum: [anthropic, gemini, ollama, openai, openai_compatible, vllm] }
 
     AuthCapabilities:
       type: object

@@ -39,6 +39,13 @@ const render = (ui: ReactNode) => {
 function stubApi(
   capabilities: { password: boolean; password_reset: boolean },
   respond: (request: Request) => Response | Promise<Response>,
+  profile: Response = ok(200, {
+    name: "Margince",
+    kind: "ai",
+    state: "unconfigured",
+    inference_mode: "none",
+    providers: [],
+  }),
 ) {
   const calls: Request[] = [];
   vi.stubGlobal(
@@ -50,6 +57,9 @@ function stubApi(
           JSON.stringify({ ...capabilities, oidc_providers: [] }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
+      }
+      if (new URL(request.url).pathname.endsWith("/assistant/profile")) {
+        return profile;
       }
       calls.push(request);
       return respond(request);
@@ -65,6 +75,46 @@ const ok = (status: number, body?: unknown) =>
   });
 
 describe("AuthScreen login", () => {
+  it("introduces Margince as AI and renders the configured routing posture without claiming health", async () => {
+    stubApi(
+      { password: true, password_reset: false },
+      () => ok(200),
+      ok(200, {
+        name: "Margince",
+        kind: "ai",
+        state: "configured",
+        inference_mode: "hybrid",
+        providers: ["anthropic", "ollama"],
+      }),
+    );
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    expect(screen.getByText("Margince · AI system")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "I can only use your context after Margince verifies that it's you.",
+      ),
+    ).toBeTruthy();
+    expect(await screen.findByText("Configured")).toBeTruthy();
+    expect(
+      screen.getByText("Anthropic + Ollama · hybrid routing"),
+    ).toBeTruthy();
+    expect(screen.queryByText(/online|running|healthy/i)).toBeNull();
+  });
+
+  it("keeps login available when the optional assistant profile fails", async () => {
+    stubApi(
+      { password: true, password_reset: false },
+      () => ok(200),
+      ok(500, { title: "unavailable" }),
+    );
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    expect(await screen.findByLabelText("Email address")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeTruthy();
+    expect(screen.queryByText("Configured")).toBeNull();
+  });
+
   it("is a login form — no signup mode, no workspace field, Enter submits, no tenant header", async () => {
     const calls = stubApi({ password: true, password_reset: false }, () =>
       ok(200, { user: {}, roles: [], teams: [] }),
@@ -89,6 +139,32 @@ describe("AuthScreen login", () => {
     const request = calls[0];
     expect(String(request?.url)).toContain("/v1/auth/login");
     expect(request?.headers.has("X-Workspace-Slug")).toBe(false);
+  });
+
+  it("does not show success until the authenticated session probe succeeds", async () => {
+    stubApi({ password: true, password_reset: false }, () =>
+      ok(200, { user: {}, roles: [], teams: [] }),
+    );
+    const probe = vi.fn().mockRejectedValue(new Error("session rejected"));
+    const { container } = render(<AuthScreen onAuthed={probe} />);
+
+    await userEvent.type(
+      screen.getByLabelText("Email address"),
+      "ada@example.com",
+    );
+    await userEvent.type(
+      screen.getByLabelText("Password"),
+      "correct-horse-battery{enter}",
+    );
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Margince couldn't be reached",
+    );
+    expect(probe).toHaveBeenCalledOnce();
+    expect(
+      container.querySelector<HTMLElement>(".auth-experience")?.dataset
+        .authPhase,
+    ).toBe("error");
   });
 
   it("answers bad credentials with the one non-enumerating message, keeps the email, clears the password", async () => {

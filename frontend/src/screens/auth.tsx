@@ -15,16 +15,17 @@ import wordmarkWhite from "../assets/wordmark-white.png";
 import { Button } from "../design-system/atoms";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
+import { AuthExperience, type AuthPhase } from "./auth-core";
 import { problemMessage } from "./common";
 import "./auth.css";
 
 // The default unauthenticated screen is LOGIN, not setup or signup
 // (A107/ADR-0061): one installation serves one organization, provisioned at
 // API boot from the deployment file — the browser never creates a tenant and
-// never selects one. A single centered column, a real <form> (Enter submits),
-// and only the authentication methods the capabilities probe reports as
-// operational: the forgot-password flow renders exactly when the server can
-// complete it.
+// never selects one. The Margince Core introduces the AI beside a real <form>
+// (Enter submits), and only the authentication methods the capabilities probe
+// reports as operational render: the forgot-password flow appears exactly when
+// the server can complete it.
 
 // AuthNotice is the boundary's transient context for the login screen: a
 // deliberate sign-out or an expired session — informational, never danger
@@ -61,12 +62,13 @@ function resetTokenFromLocation(): string | null {
 export function AuthScreen({
   onAuthed,
   notice = null,
-}: Readonly<{ onAuthed: () => void; notice?: AuthNotice }>) {
+}: Readonly<{ onAuthed: () => void | Promise<void>; notice?: AuthNotice }>) {
   const t = useT();
   const [view, setView] = useState<View>(() => {
     const token = resetTokenFromLocation();
     return token ? { kind: "reset", token } : { kind: "login" };
   });
+  const [authPhase, setAuthPhase] = useState<AuthPhase>("idle");
   usePageTitle(t("auth.pageTitle"));
 
   // The anonymous capability probe drives what the screen offers — a dead
@@ -86,60 +88,83 @@ export function AuthScreen({
   });
   const resetAvailable = capabilities.data?.password_reset === true;
 
+  // This query is presentation-only and deliberately independent of auth:
+  // profile latency or failure hides the live runtime line but can never
+  // disable or delay the credential form.
+  const assistantProfile = useQuery({
+    queryKey: ["assistant-profile"],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/assistant/profile");
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+    staleTime: Number.POSITIVE_INFINITY,
+    retry: false,
+  });
+
+  const setLoginView = () => {
+    setAuthPhase("idle");
+    setView({ kind: "login" });
+  };
+
   return (
-    <div className="auth-page">
-      <main className="auth-column">
-        <Wordmark alt={t("auth.title")} />
-        {view.kind === "login" && (
-          <>
-            {notice && (
-              <p className="auth-notice" role="status">
-                {t(
-                  notice === "signed-out"
-                    ? "auth.noticeSignedOut"
-                    : "auth.noticeSessionExpired",
-                )}
-              </p>
-            )}
-            <LoginForm
-              onAuthed={onAuthed}
-              resetAvailable={resetAvailable}
-              onForgot={() => setView({ kind: "forgot" })}
-            />
-          </>
-        )}
-        {view.kind === "forgot" && (
-          <ForgotForm
-            onSent={(email) => setView({ kind: "forgot-sent", email })}
-            onBack={() => setView({ kind: "login" })}
+    <AuthExperience
+      profile={assistantProfile.data}
+      phase={view.kind === "login" ? authPhase : "quiet"}
+    >
+      <Wordmark alt={t("auth.title")} />
+      {view.kind === "login" && (
+        <>
+          {notice && (
+            <p className="auth-notice" role="status">
+              {t(
+                notice === "signed-out"
+                  ? "auth.noticeSignedOut"
+                  : "auth.noticeSessionExpired",
+              )}
+            </p>
+          )}
+          <LoginForm
+            onAuthed={onAuthed}
+            onPhase={setAuthPhase}
+            resetAvailable={resetAvailable}
+            onForgot={() => setView({ kind: "forgot" })}
           />
-        )}
-        {view.kind === "forgot-sent" && (
-          <Notice
-            title={t("auth.forgotSentTitle")}
-            body={t("auth.forgotSentBody")}
-            action={t("auth.backToLogin")}
-            onAction={() => setView({ kind: "login" })}
-          />
-        )}
-        {view.kind === "reset" && (
-          <ResetForm
-            token={view.token}
-            onDone={() => setView({ kind: "reset-done" })}
-            onRestart={() => setView({ kind: "forgot" })}
-          />
-        )}
-        {view.kind === "reset-done" && (
-          <Notice
-            title={t("auth.resetDoneTitle")}
-            body={t("auth.resetDoneBody")}
-            action={t("auth.backToLogin")}
-            onAction={() => setView({ kind: "login" })}
-          />
-        )}
-        <LocaleFooter />
-      </main>
-    </div>
+        </>
+      )}
+      {view.kind === "forgot" && (
+        <ForgotForm
+          onSent={(email) => setView({ kind: "forgot-sent", email })}
+          onBack={setLoginView}
+        />
+      )}
+      {view.kind === "forgot-sent" && (
+        <Notice
+          title={t("auth.forgotSentTitle")}
+          body={t("auth.forgotSentBody")}
+          action={t("auth.backToLogin")}
+          onAction={setLoginView}
+        />
+      )}
+      {view.kind === "reset" && (
+        <ResetForm
+          token={view.token}
+          onDone={() => setView({ kind: "reset-done" })}
+          onRestart={() => setView({ kind: "forgot" })}
+        />
+      )}
+      {view.kind === "reset-done" && (
+        <Notice
+          title={t("auth.resetDoneTitle")}
+          body={t("auth.resetDoneBody")}
+          action={t("auth.backToLogin")}
+          onAction={setLoginView}
+        />
+      )}
+      <LocaleFooter />
+    </AuthExperience>
   );
 }
 
@@ -154,32 +179,30 @@ export function AvailabilityScreen({
   const t = useT();
   usePageTitle(t("auth.pageTitle"));
   return (
-    <div className="auth-page">
-      <main className="auth-column">
-        <Wordmark alt={t("auth.title")} />
-        <section className="auth-card" role="alert">
-          <h1>
-            {t(
-              kind === "connection"
-                ? "auth.connectionTitle"
-                : "auth.unavailableTitle",
-            )}
-          </h1>
-          <p className="card-sub">
-            {t(
-              kind === "connection"
-                ? "auth.connectionBody"
-                : "auth.unavailableBody",
-            )}
-          </p>
-          <div className="auth-actions">
-            <Button variant="primary" onClick={onRetry}>
-              {t("auth.retry")}
-            </Button>
-          </div>
-        </section>
-      </main>
-    </div>
+    <AuthExperience phase="unavailable">
+      <Wordmark alt={t("auth.title")} />
+      <section className="auth-card" role="alert">
+        <h1>
+          {t(
+            kind === "connection"
+              ? "auth.connectionTitle"
+              : "auth.unavailableTitle",
+          )}
+        </h1>
+        <p className="card-sub">
+          {t(
+            kind === "connection"
+              ? "auth.connectionBody"
+              : "auth.unavailableBody",
+          )}
+        </p>
+        <div className="auth-actions">
+          <Button variant="primary" onClick={onRetry}>
+            {t("auth.retry")}
+          </Button>
+        </div>
+      </section>
+    </AuthExperience>
   );
 }
 
@@ -268,10 +291,12 @@ function loginErrorKey(error: unknown): MessageKey {
 
 function LoginForm({
   onAuthed,
+  onPhase,
   resetAvailable,
   onForgot,
 }: Readonly<{
-  onAuthed: () => void;
+  onAuthed: () => void | Promise<void>;
+  onPhase: (phase: AuthPhase) => void;
   resetAvailable: boolean;
   onForgot: () => void;
 }>) {
@@ -307,10 +332,14 @@ function LoginForm({
         if (response.status >= 500) throw new LoginError("unreachable");
         throw new Error(problemMessage(error));
       }
+      // The login response only says the credential exchange succeeded. The
+      // session is real when the app's authenticated /me probe accepts the
+      // resulting cookie; keep the Core in its signing-in state until then.
+      await onAuthed();
       return data;
     },
     onSuccess: () => {
-      onAuthed();
+      onPhase("success");
       // Restore the originally requested route (§8.5): a deep link the
       // user followed stays; only a bare entry lands on home.
       const hash = globalThis.location?.hash ?? "";
@@ -319,6 +348,7 @@ function LoginForm({
       }
     },
     onError: (error) => {
+      onPhase("error");
       if (error instanceof LoginError && error.failure === "credentials") {
         // A rejected credential clears the password (§9.2); the email
         // stays for the retry.
@@ -334,6 +364,7 @@ function LoginForm({
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (ready && !login.isPending) {
+      onPhase("signing-in");
       login.mutate();
     }
   };
@@ -341,6 +372,7 @@ function LoginForm({
   return (
     <form className="auth-card" onSubmit={submit}>
       <h1>{t("auth.loginTitle")}</h1>
+      <p className="card-sub">{t("auth.loginSub")}</p>
       <div className="auth-fields">
         <Field id={emailId} label={t("auth.email")}>
           <input

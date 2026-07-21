@@ -84,6 +84,10 @@ func (stubs) RejectApproval(w nethttp.ResponseWriter, r *nethttp.Request, id crm
 	httperr.NotImplemented(w, r, "RejectApproval")
 }
 
+func (stubs) GetAssistantProfile(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetAssistantProfile")
+}
+
 func (stubs) ListAttachments(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListAttachmentsParams) {
 	httperr.NotImplemented(w, r, "ListAttachments")
 }
