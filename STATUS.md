@@ -688,14 +688,16 @@ Open work, roughly in priority order:
     cross-process meter (PG/Redis) so `/overlay/budget` reflects the worker
     poller; **and the force-fresh CALLER** (the surface that invokes the now-live
     Freshness verb) — without it A3's live read is latent infra.
-  - **A4 reconcile robustness** — budget-pace/`Retry-After` backoff on a
-    failing connection (today it re-sweeps hot every tick, no per-connection
-    error/backoff state — mirror capture's `sync_state` pattern; likely a
-    migration + poller error taxonomy + due-filtering in DueOverlayConnections);
-    composite keyset watermark (a >10k same-timestamp block wedges the sweep —
-    disclosed in reconcile.go; the seam can't signal mode-switch, an
-    upstream-tracked spike). Branch `fix/overlay-reconcile-robustness` created,
-    not yet implemented.
+  - **A4 reconcile robustness** — the **failing-connection backoff is DONE in
+    this PR**: `overlay_sync_state` sidecar + `RecordSweepFailure`/`Success`
+    (classify + 2min·2^n-cap-4h jittered ladder + rate-limit floor) +
+    `DueOverlayConnections` due-gate + `reconcileConnection` distinguishing
+    connection-level (abort+backoff) from per-object (log+skip) failures. Still
+    open (**A4b**): the composite keyset watermark for a >10k same-timestamp
+    block (the seam can't signal mode-switch — an upstream spike); atomic
+    ingest+`mirror.conflict` in one row-locked tx; propagate aggregate/`ctx.Err()`
+    to handlers.go's 503 path; derive sync staleness (`syncstatus.go` never
+    marks stale).
   - **A5 disconnect-race fencing**; **A7 assoc/backfill fidelity**;
     **webhook-as-signal** (only WITH portal-id→workspace binding in the HMAC
     basis — the unmounted receiver was deleted, not fixed); a **reconnect flow**
