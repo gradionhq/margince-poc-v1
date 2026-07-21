@@ -86,10 +86,18 @@ seed goes through the public API — same audit trail, same events as real
 traffic — and is idempotent; `make seed-reset` wipes the demo workspace for
 a clean re-seed.
 
+`make dev` is always safe to re-run: it sweeps first — every margince
+api/worker/vite on the machine is killed (including one another checkout left
+behind), anything holding `:8080`/`:5173` is evicted, and leftover
+`margince_dev_*` databases are dropped. One stack, always the same ports, and
+no chance the browser is talking to an api from an older branch. `make dev-stop`
+is the mirror: bare, it stops every stack.
+
 **Isolate a second stack.** `make dev DEV_SLUG=<slug>` gives a private
 `margince_dev_<slug>` database on slug-derived ports so a second worktree
 runs concurrently without colliding; `make dev-stop DEV_SLUG=<slug> [DROP=1]`
-tears it down (`DROP=1` also drops the database).
+tears it down (`DROP=1` also drops the database). The sweep spares a running
+slugged stack — but the next bare `make dev` will not.
 
 **Verify** the whole thing end to end (admin login over `/v1`, seeded people
 visible, frontend production build — fails loudly on the first broken step).

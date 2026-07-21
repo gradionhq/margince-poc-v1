@@ -34,6 +34,7 @@ drop=0
 [[ "${3:-}" == "--drop" ]] && drop=1
 
 cd "$(git rev-parse --show-toplevel)"
+repo_root="$PWD"
 
 # This repo's dev connection surface (overridable). OWNER_DSN runs migrations;
 # APP_DSN is the non-superuser role the api connects as (RLS binds it).
@@ -96,12 +97,119 @@ wait_ready() { # url timeout_s — only a 2xx counts as ready (a 401/500/503 is 
   return 1
 }
 
+# A stack that outlives the shell that started it is the worst failure mode this
+# script has: an api from an earlier branch keeps answering while Vite serves the
+# code you just wrote, and the app breaks in ways that look exactly like your bug.
+# So a bare `make dev` does not merely check its own two ports — it claims the
+# machine: every margince server process, every recorded stack, and every
+# leftover per-slug database goes, and the one stack that remains is this one on
+# :8080 / :5173 against `margince`. `DEV_SLUG` keeps its escape hatch (it sweeps
+# nothing, so an isolated env survives until the next bare `make dev`).
+
+kill_pids() { # pid… — TERM, then KILL whatever is still standing
+  local pids=("$@") alive=()
+  [[ ${#pids[@]} -gt 0 ]] || return 0
+  kill "${pids[@]}" 2>/dev/null || true
+  for _ in $(seq 1 10); do
+    alive=()
+    for p in "${pids[@]}"; do kill -0 "$p" 2>/dev/null && alive+=("$p"); done
+    [[ ${#alive[@]} -eq 0 ]] && return 0
+    sleep 0.5
+  done
+  kill -9 "${alive[@]}" 2>/dev/null || true
+}
+
+# Margince server processes anywhere on this machine, not just this checkout: a
+# second worktree's api on :8081 owns a different database and is exactly the
+# ghost this sweep exists to remove. Matched on the binary name AND a margince
+# connection string, so an unrelated program called `api` is never touched.
+margince_server_pids() {
+  local pid cmd
+  for pid in $(pgrep -f 'bin/(api|worker)|exe/(api|worker)' 2>/dev/null || true); do
+    [[ "$pid" == "$$" ]] && continue
+    cmd=$(ps -o command= -p "$pid" 2>/dev/null || true)
+    [[ "$cmd" == *margince* ]] && echo "$pid"
+  done
+}
+
+# Vite resolves out of <repo>/frontend/node_modules, so its command line carries
+# the worktree path — that is what distinguishes our dev server from any other
+# Vite project the developer happens to be running.
+vite_pids() {
+  local pid cmd
+  for pid in $(pgrep -f 'vite' 2>/dev/null || true); do
+    [[ "$pid" == "$$" ]] && continue
+    cmd=$(ps -o command= -p "$pid" 2>/dev/null || true)
+    [[ "$cmd" == *"$repo_root"* ]] && echo "$pid"
+  done
+}
+
+sweep_stacks() { # kill every margince dev stack: recorded, orphaned, or foreign
+  local victims=() pids p port state_file
+  local BACKEND_PID FE_PID WORKER_PID API_PORT FE_PORT
+  # 1. Every stack this script ever recorded — its own pids and its own ports.
+  #    The locals above shadow what the state file sets, so sourcing one cannot
+  #    leak a stale pid into the rest of the run.
+  for state_file in .tmp/dev/*/env; do
+    [[ -f "$state_file" ]] || continue
+    BACKEND_PID=''; FE_PID=''; WORKER_PID=''; API_PORT=''; FE_PORT=''
+    # shellcheck disable=SC1090
+    . "$state_file"
+    victims+=("$BACKEND_PID" "$FE_PID" "$WORKER_PID")
+    for port in "$API_PORT" "$FE_PORT"; do
+      [[ -n "$port" ]] || continue
+      for p in $(lsof -ti "tcp:${port}" 2>/dev/null || true); do victims+=("$p"); done
+    done
+  done
+  # 2. Orphans whose state file is gone, and stacks from other checkouts.
+  for p in $(margince_server_pids) $(vite_pids); do victims+=("$p"); done
+  # 3. Anything at all holding the ports this stack is about to bind — a foreign
+  #    process on :8080 loses the port rather than silently shadowing the api.
+  for port in "$api_port" "$fe_port"; do
+    for p in $(lsof -ti "tcp:${port}" 2>/dev/null || true); do victims+=("$p"); done
+  done
+
+  # Deduplicate: the same pid legitimately arrives from several sources.
+  pids=$(printf '%s\n' "${victims[@]+"${victims[@]}"}" | grep -E '^[0-9]+$' | sort -u || true)
+  if [[ -n "$pids" ]]; then
+    # shellcheck disable=SC2086
+    kill_pids $pids
+    echo "dev: swept $(printf '%s\n' $pids | wc -l | tr -d ' ') stray process(es) from earlier stacks"
+  fi
+  rm -rf .tmp/dev/*
+}
+
+drop_stray_dev_dbs() { # every margince_dev_<slug> database an isolated env left behind
+  local strays
+  strays=$(psql_owner postgres -tAc \
+    "SELECT datname FROM pg_database WHERE datname LIKE 'margince\\_dev\\_%'" 2>/dev/null | tr -d '\r' || true)
+  [[ -n "$strays" ]] || return 0
+  while read -r stray; do
+    [[ -n "$stray" ]] || continue
+    # WITH (FORCE) terminates a connection the just-killed process has not
+    # finished closing; the shared `margince` and the test lane's
+    # margince_test* / margince_it_* namespaces never match this pattern.
+    # </dev/null is load-bearing: psql_owner runs `docker compose exec -T`,
+    # which would otherwise swallow the rest of this loop's input and drop
+    # exactly one database however many are stray.
+    psql_owner postgres -c "DROP DATABASE IF EXISTS \"${stray}\" WITH (FORCE)" >/dev/null 2>&1 </dev/null || true
+    echo "dev: dropped stray database ${stray}"
+  done <<<"$strays"
+}
+
 case "$cmd" in
 up)
-  # Refuse if either port is already bound — otherwise a second `up` would fail
-  # to bind silently and wait_ready would get a false "ready" from the OLD
-  # server. (Vite in particular would auto-increment off a taken port without
-  # --strictPort, landing on a port we never poll.) Stop it first.
+  if [[ -z "$slug" ]]; then
+    # Bare `make dev` is the exclusive stack: clear the machine first, so the
+    # ports below are free by construction and the browser can only be talking
+    # to the api this command starts.
+    sweep_stacks
+    drop_stray_dev_dbs
+  fi
+  # Belt and braces after the sweep, and the only guard a slugged env gets: a
+  # bound port must stop the boot, because binding would fail silently and
+  # wait_ready would then read "ready" off the OLD server. (Vite without
+  # --strictPort would not even fail — it would walk to a port we never poll.)
   for _p in "$api_port" "$fe_port"; do
     if lsof -ti "tcp:${_p}" >/dev/null 2>&1; then
       echo "FAIL: port :${_p} already in use — is $label already running? (make dev-stop${slug:+ DEV_SLUG=$slug})" >&2
@@ -332,6 +440,18 @@ up)
   ;;
 
 stop)
+  if [[ -z "$slug" ]]; then
+    # The mirror of `up`: bare dev-stop clears the machine, so `make dev-stop`
+    # is a promise you can trust before starting anything else. Stray databases
+    # are left alone unless DROP=1 asks for them — stopping is not deleting.
+    sweep_stacks
+    echo "stopped every dev stack (freed :$api_port :$fe_port)"
+    if [[ "$drop" == "1" ]]; then
+      drop_stray_dev_dbs
+      echo "note: the shared 'margince' database is kept — DROP=1 only removes the per-slug ones" >&2
+    fi
+    exit 0
+  fi
   if [[ -f "$state" ]]; then
     # shellcheck disable=SC1090
     . "$state"
