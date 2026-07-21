@@ -239,7 +239,8 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 	// Zero surviving findings is an honest empty read — done, fact_count 0,
 	// no proposal — not an error: the site simply evidenced nothing.
 	return w.finish(ctx, args.SiteReadID, status, readPages, crawl, factCount, proposalIDs,
-		draftFields, extraction.merged.facts, draftPeople, warnings, proposalHash)
+		draftFields, extraction.merged.facts, draftPeople, siteReadLegalEntities(extraction.merged.entities),
+		warnings, proposalHash)
 }
 
 func (w *siteDeepReadWorker) progressiveCallbacks(ctx context.Context, readID ids.UUID) (func(string, int), func(pageFactsResult)) {
@@ -395,6 +396,24 @@ func siteLeadStageInput(readID, organizationID ids.UUID, seedURL string, person 
 	}, nil
 }
 
+// siteReadLegalEntities projects the gated census onto the dossier shape.
+// The abstention refuses to APPLY a legal identity it cannot attribute; it
+// never had a reason to forget the identities it read, and the confirm
+// step turns them into the choice only a human can make.
+func siteReadLegalEntities(entities []corpusLegalEntity) []people.SiteReadLegalEntity {
+	out := make([]people.SiteReadLegalEntity, 0, len(entities))
+	for _, e := range entities {
+		out = append(out, people.SiteReadLegalEntity{
+			Name:              e.Name,
+			RegisteredAddress: e.RegisteredAddress,
+			RegisterNumber:    e.RegisterNumber,
+			EvidenceSnippet:   e.EvidenceSnippet,
+			SourceURL:         e.SourceURL,
+		})
+	}
+	return out
+}
+
 // finish records the crawl report on the dossier in one terminal write.
 // terminalCtx derives the context for a terminal dossier write: the work
 // context's VALUES (principal, workspace — WithWorkspaceTx reads the tenant
@@ -407,7 +426,7 @@ func terminalCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 }
 
-func (w *siteDeepReadWorker) finish(ctx context.Context, readID ids.UUID, status string, readPages []crawlPage, crawl siteCrawl, factCount int, proposalIDs []ids.UUID, fields []people.DeepReadField, facts []people.DeepReadFact, found []people.SiteReadPerson, warnings []string, proposalHash string) error {
+func (w *siteDeepReadWorker) finish(ctx context.Context, readID ids.UUID, status string, readPages []crawlPage, crawl siteCrawl, factCount int, proposalIDs []ids.UUID, fields []people.DeepReadField, facts []people.DeepReadFact, found []people.SiteReadPerson, entities []people.SiteReadLegalEntity, warnings []string, proposalHash string) error {
 	in := people.FinishSiteReadInput{
 		Status:        status,
 		Pages:         make([]people.SiteReadPage, 0, len(readPages)),
@@ -417,6 +436,7 @@ func (w *siteDeepReadWorker) finish(ctx context.Context, readID ids.UUID, status
 		ProfileFields: fields,
 		Facts:         facts,
 		People:        found,
+		LegalEntities: entities,
 		Warnings:      warnings,
 		ProposalHash:  proposalHash,
 	}

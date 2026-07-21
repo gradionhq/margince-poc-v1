@@ -1484,8 +1484,83 @@
   gap: 14px;
   margin-top: 18px;
 }
+/* The legal-entity choice sits at the top of the identity group: it is a
+   question, not a field, and answering it fills the three fields under it. */
+.legal-choice {
+  margin-bottom: 18px;
+}
+.legal-choice .l {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--textPrimary);
+}
+.legal-choice .ob-sub {
+  margin-top: 3px;
+}
+.legal-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+  margin-top: 12px;
+}
+.legal-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px;
+  color: var(--textPrimary);
+  text-align: left;
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
+  cursor: pointer;
+}
+.legal-card.selected {
+  border-color: var(--accent);
+  background: var(--accentLight);
+}
+.legal-card b,
+.legal-card span span,
+.legal-card small {
+  display: block;
+}
+.legal-card b {
+  font-size: 12px;
+}
+.legal-card span span {
+  margin-top: 4px;
+  color: var(--textSecondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.legal-card small {
+  margin-top: 5px;
+  color: var(--textTertiary);
+  font-size: 10px;
+}
+@media (max-width: 720px) {
+  .legal-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .confirm-facts {
   margin-top: 26px;
+  padding-top: 18px;
+  border-top: 1px solid var(--borderSubtle);
+}
+.confirm-facts > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
+}
+.confirm-facts > summary::marker {
+  color: var(--textTertiary);
+}
+.facts-count {
+  color: var(--textTertiary);
+  font-size: 11px;
 }
 .fact-grid {
   display: grid;

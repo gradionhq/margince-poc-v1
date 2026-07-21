@@ -6867,22 +6867,25 @@ type CompanyProfileInput struct {
 // CompanySiteRead defines model for CompanySiteRead.
 type CompanySiteRead struct {
 	// Comparisons Version-bound comparison against current confirmed company truth.
-	Comparisons    []CompanySiteReadComparison `json:"comparisons"`
-	CreatedAt      time.Time                   `json:"created_at"`
-	DraftVersion   int                         `json:"draft_version"`
-	Facts          []CompanySiteReadFact       `json:"facts"`
-	Id             openapi_types.UUID          `json:"id"`
-	NextAttemptAt  *time.Time                  `json:"next_attempt_at"`
-	OrganizationId *openapi_types.UUID         `json:"organization_id,omitempty"`
-	Pages          []CompanySiteReadPage       `json:"pages"`
-	PagesRead      *int                        `json:"pages_read,omitempty"`
-	People         []CompanySiteReadPerson     `json:"people"`
-	Phase          *CompanySiteReadPhase       `json:"phase,omitempty"`
-	ProfileFields  []ColdStartField            `json:"profile_fields"`
-	ProposalHash   string                      `json:"proposal_hash"`
-	RootUrl        string                      `json:"root_url"`
-	Status         CompanySiteReadStatus       `json:"status"`
-	StatusCode     *CompanySiteReadStatusCode  `json:"status_code"`
+	Comparisons  []CompanySiteReadComparison `json:"comparisons"`
+	CreatedAt    time.Time                   `json:"created_at"`
+	DraftVersion int                         `json:"draft_version"`
+	Facts        []CompanySiteReadFact       `json:"facts"`
+	Id           openapi_types.UUID          `json:"id"`
+
+	// LegalEntities Every legal entity the site's legal notice states, with the identity details printed alongside it. A group publishes several; the read does not guess which one the installation belongs to, so it offers them and the human chooses. Empty when the site names none.
+	LegalEntities  *[]CompanySiteReadLegalEntity `json:"legal_entities,omitempty"`
+	NextAttemptAt  *time.Time                    `json:"next_attempt_at"`
+	OrganizationId *openapi_types.UUID           `json:"organization_id,omitempty"`
+	Pages          []CompanySiteReadPage         `json:"pages"`
+	PagesRead      *int                          `json:"pages_read,omitempty"`
+	People         []CompanySiteReadPerson       `json:"people"`
+	Phase          *CompanySiteReadPhase         `json:"phase,omitempty"`
+	ProfileFields  []ColdStartField              `json:"profile_fields"`
+	ProposalHash   string                        `json:"proposal_hash"`
+	RootUrl        string                        `json:"root_url"`
+	Status         CompanySiteReadStatus         `json:"status"`
+	StatusCode     *CompanySiteReadStatusCode    `json:"status_code"`
 
 	// StatusDetail Safe guidance only; never provider payload
 	StatusDetail *string                   `json:"status_detail"`
@@ -6940,6 +6943,21 @@ type CompanySiteReadFactCategory string
 
 // CompanySiteReadFactField defines model for CompanySiteReadFact.Field.
 type CompanySiteReadFactField string
+
+// CompanySiteReadLegalEntity defines model for CompanySiteReadLegalEntity.
+type CompanySiteReadLegalEntity struct {
+	EvidenceSnippet *string `json:"evidence_snippet,omitempty"`
+
+	// Name The entity's registered name exactly as the legal notice prints it.
+	Name string `json:"name"`
+
+	// RegisterNumber Its registration, VAT, UID or tax number as printed; absent when the page states none for this entity.
+	RegisterNumber *string `json:"register_number,omitempty"`
+
+	// RegisteredAddress Its registered address as printed; absent when the page states none for this entity.
+	RegisteredAddress *string `json:"registered_address,omitempty"`
+	SourceUrl         string  `json:"source_url"`
+}
 
 // CompanySiteReadPage defines model for CompanySiteReadPage.
 type CompanySiteReadPage struct {

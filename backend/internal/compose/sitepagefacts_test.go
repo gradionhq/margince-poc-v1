@@ -217,3 +217,110 @@ func TestZeroedStatOnlyJudgesMeasurements(t *testing.T) {
 		}
 	}
 }
+
+// A legal notice states one block per entity. Everything printed inside
+// that block — the address, the register number — is what the confirm
+// step later offers as a choice, so it carries the same no-guess rule as
+// every other value: on the page, or absent.
+func TestGatePageEntitiesKeepsThePrintedBlock(t *testing.T) {
+	page, menu, idx := pageFixture(crmcontracts.SiteReadPageKindImpressum, seedURL+"/imprint",
+		"Imprint. Acme Robotics GmbH, Deliusstrasse 7, 24114 Kiel, Germany. Registergericht HRB 12345. "+
+			"Acme Pte. Ltd., 77 High Street, Singapore (179433). Business Profile: 201629357M.")
+	reply := `{"facts":[],"entities":[
+		{"n":"Acme Robotics GmbH","a":"Deliusstrasse 7, 24114 Kiel, Germany","r":"HRB 12345","e":"s0"},
+		{"n":"Acme Pte. Ltd.","a":"77 High Street, Singapore 179433","r":"201629357M","e":"s0"}]}`
+	res, _ := gatePageEntities2(t, reply, page, menu, idx)
+	if len(res) != 2 {
+		t.Fatalf("both entities must survive: %+v", res)
+	}
+	if res[0].RegisteredAddress != "Deliusstrasse 7, 24114 Kiel, Germany" || res[0].RegisterNumber != "HRB 12345" {
+		t.Errorf("the first block lost its details: %+v", res[0])
+	}
+	// The page prints "Singapore (179433)" and the model answered
+	// "Singapore 179433": the same address with its punctuation
+	// rearranged, which must not cost the human the field.
+	if res[1].RegisteredAddress != "77 High Street, Singapore 179433" {
+		t.Errorf("punctuation drift dropped a printed address: %+v", res[1])
+	}
+}
+
+func TestGatePageEntitiesRefusesDetailsThePageNeverPrinted(t *testing.T) {
+	page, menu, idx := pageFixture(crmcontracts.SiteReadPageKindImpressum, seedURL+"/imprint",
+		"Imprint. Acme Robotics GmbH, Kiel, Germany. This notice states no register number at all.")
+	reply := `{"facts":[],"entities":[
+		{"n":"Acme Robotics GmbH","a":"Baker Street 221B, London","r":"HRB 99999","e":"s0"}]}`
+	res, dropped := gatePageEntities2(t, reply, page, menu, idx)
+	if len(res) != 1 {
+		t.Fatalf("the entity itself is printed and must survive: %+v", res)
+	}
+	if res[0].RegisteredAddress != "" || res[0].RegisterNumber != "" {
+		t.Errorf("an invented address or register number reached the block: %+v", res[0])
+	}
+	reasons := dropReasons(dropped)
+	if reasons[fieldRegisteredAddress] != dropValueNotInSnippet || reasons[fieldRegisterVat] != dropValueNotInSnippet {
+		t.Errorf("both inventions must be REPORTED, not dropped in silence: %+v", dropped)
+	}
+}
+
+// gatePageEntities2 runs the entity lane and returns its drops.
+func gatePageEntities2(t *testing.T, reply string, page crawlPage, menu pageMenu, idx snippetIndex) ([]corpusLegalEntity, []droppedFinding) {
+	t.Helper()
+	res, dropped := gatePageFacts(reply, page, menu, idx)
+	return res.entities, dropped
+}
+
+// A register number is a legal identity. A model that answers with part of
+// one — or with a number printed for a DIFFERENT company on the same
+// notice — must not have it accepted: the value would be offered as the
+// selected entity's identifier and confirmed into the CRM as fact.
+func TestGroundedDetailRefusesPartialAndForeignIdentifiers(t *testing.T) {
+	block := normalizeEvidence("Acme GmbH, Deliusstrasse 7, 24114 Kiel. Registergericht HRB 123456.")
+	for _, tc := range []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{"printed verbatim", "HRB 123456", "HRB 123456"},
+		{"punctuation rearranged", "Deliusstrasse 7 24114 Kiel", "Deliusstrasse 7 24114 Kiel"},
+		{"truncated identifier", "1234", ""},
+		{"identifier with an extra digit", "HRB 1234567", ""},
+		{"a street the block never printed", "Baker Street 221B, Kiel", ""},
+		// Both tokens ARE in the block — "24114" from the postcode, "HRB"
+		// from the register line — but never together. A set test would
+		// vouch for this invented identifier.
+		{"recombined from unrelated tokens", "HRB 24114", ""},
+		{"printed tokens in the wrong order", "123456 HRB", ""},
+		{"nothing claimed", "", ""},
+	} {
+		if got := groundedDetail(block, tc.value); got != tc.want {
+			t.Errorf("%s: groundedDetail(%q) = %q, want %q", tc.name, tc.value, got, tc.want)
+		}
+	}
+}
+
+// Details are judged against the cited block, so a sibling company's
+// address elsewhere on the same legal page cannot attach to this entity.
+// The blocks below are long enough that the passage packer keeps them
+// apart — which is exactly the condition under which this scoping can
+// protect anything, and the honest limit of it.
+func TestGatePageEntitiesRefusesASiblingBlocksAddress(t *testing.T) {
+	german := "Acme GmbH, Deliusstrasse 7, 24114 Kiel, Germany. " + strings.Repeat("Vertreten durch die Geschaeftsfuehrung. ", 8)
+	singapore := "Acme Pte. Ltd., 77 High Street, Singapore. " + strings.Repeat("Business registration details follow here. ", 8)
+	page, menu, idx := pageFixture(crmcontracts.SiteReadPageKindImpressum, seedURL+"/imprint",
+		german+"\n"+singapore)
+	if len(idx.refs) < 2 {
+		t.Fatalf("fixture must split into separate blocks, got %d", len(idx.refs))
+	}
+	// s0 is the German block; the Singapore address belongs to another.
+	reply := `{"facts":[],"entities":[{"n":"Acme GmbH","a":"77 High Street, Singapore","r":"","e":"s0"}]}`
+	res, dropped := gatePageEntities2(t, reply, page, menu, idx)
+	if len(res) != 1 {
+		t.Fatalf("the entity is printed and survives: %+v", res)
+	}
+	if res[0].RegisteredAddress != "" {
+		t.Errorf("a sibling block's address must not become this entity's: %+v", res[0])
+	}
+	if dropReasons(dropped)[fieldRegisteredAddress] != dropValueNotInSnippet {
+		t.Errorf("the cross-block grab must be reported: %+v", dropped)
+	}
+}

@@ -21,7 +21,7 @@
 # APP_DSN (this repo's dev role DSNs; overridable), so this script carries no
 # secret literal beyond the shared dev defaults.
 #
-#   scripts/dev.sh up   [slug]            # spin infra + db + api + FE
+#   scripts/dev.sh up   [slug] [--fresh]  # spin infra + db + api + FE
 #   scripts/dev.sh stop [slug] [--drop]   # stop servers; --drop also drops the db
 set -euo pipefail
 # Runtime state under .tmp/dev/ (logs, pids) — keep everything this script
@@ -31,7 +31,11 @@ umask 077
 cmd="${1:-}"
 slug="${2:-}"
 drop=0
-[[ "${3:-}" == "--drop" ]] && drop=1
+fresh=0
+case "${3:-}" in
+  --drop) drop=1 ;;
+  --fresh) fresh=1 ;;
+esac
 
 cd "$(git rev-parse --show-toplevel)"
 repo_root="$PWD"
@@ -258,6 +262,25 @@ up)
     # silently, and leave the databases to reappear the moment infra starts.
     if [[ -z "$slug" ]]; then
       drop_stray_dev_dbs
+    fi
+    # --fresh means "the install a first customer gets": drop the database
+    # and let the migrations and the bootstrap rebuild it. Deliberately not
+    # the default — a restart to pick up a backend change must not cost the
+    # records you were half-way through creating.
+    if [[ "$fresh" == "1" ]]; then
+      # psql_owner always talks to the COMPOSE Postgres, while the migration
+      # below connects through OWNER_DSN. Point that elsewhere and --fresh
+      # would erase one database and migrate another; refuse rather than
+      # rebuild something the caller never named.
+      if [[ "$OWNER_DSN" != "postgres://margince_owner:dev@localhost:55432/margince" ]]; then
+        # The DSN itself is never echoed: it carries a password, and this
+        # branch exists precisely because the caller supplied a real one.
+        echo "FAIL: --fresh rebuilds the compose Postgres, but OWNER_DSN points somewhere else — drop that database yourself, then run make dev" >&2
+        exit 1
+      fi
+      psql_owner postgres -c "DROP DATABASE IF EXISTS \"${db}\" WITH (FORCE)" </dev/null
+      psql_owner postgres -c "CREATE DATABASE \"${db}\"" </dev/null
+      psql_owner "$db" -v ON_ERROR_STOP=1 <scripts/db-init.sql
     fi
     # The base `margince` db already exists (db-up + db-init); only a slugged
     # env needs its own database created.

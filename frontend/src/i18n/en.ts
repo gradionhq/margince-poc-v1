@@ -842,17 +842,14 @@ export const en = {
   "ob.stateSaveFailed":
     "We couldn't save your setup progress. Please try again.",
   "ob.readKick": "Step 1 of 5 · company context",
-  "ob.readTitle": "Let Margince understand your business.",
-  "ob.readSub":
-    "Start with your public website for a grounded read, or enter the three essentials yourself. Both paths create the same useful company context.",
+  "ob.readTitle": "Your company",
+  "ob.readSub": "Read it from your website, or type it in.",
   "ob.readChoice": "Choose how to describe your company",
   "ob.readWebsite": "Read my website",
-  "ob.readWebsiteSub":
-    "We inspect the useful pages and show every claim before saving.",
+  "ob.readWebsiteSub": "You review every claim before it saves.",
   "ob.readManual": "Enter it myself",
-  "ob.readManualSub":
-    "Company name, what you sell, and who you sell to. No AI or external request.",
-  "ob.readTrustTitle": "Public, bounded, and review-first. ",
+  "ob.readManualSub": "No AI, no external request.",
+  "ob.readTrustTitle": "Public pages only. ",
   "ob.readTrustBody": "Nothing becomes company data until you confirm it.",
   "ob.continueManual": "Continue manually",
   "ob.reviewFindings": "Review what we found",
@@ -877,17 +874,20 @@ export const en = {
     "Grounded in {count} public pages. Edit anything; untouched values keep their evidence.",
   "ob.confirmManual":
     "Manual setup — your answers are stored as human assertions.",
-  "ob.factsTitle": "Useful repeatable facts",
-  "ob.factsSub":
-    "Choose which products, capabilities, markets, and proof points become company context.",
+  "ob.legalTitle": "Which of these is your company?",
+  "ob.legalSub":
+    "Your legal notice names several. Pick yours and its details fill in below.",
+  "ob.factsTitle": "Facts from your site",
+  "ob.factsSelected": "{selected} of {total} selected",
+  "ob.factsSub": "Untick anything that should not become company context.",
   "ob.nowUnderstands": "Margince now understands",
   "ob.contextReady":
     "This context is ready for relevant drafts, search, agents, and Voice DNA — with provenance attached.",
 
   "ob.s1.kick": "Step 2 of 5 · confirm",
-  "ob.s1.title": "Make this unmistakably yours.",
+  "ob.s1.title": "Check your company details",
   "ob.s1.sub":
-    "Type this in, or paste your website and we'll fill what we can quote from it. Nothing is saved until you continue.",
+    "Only what your site actually states is filled in. Correct anything that is wrong.",
   "ob.s1.urlPlaceholder": "yourcompany.com",
   "ob.s1.identityLabel": "Company details",
   "ob.s1.positioningLabel": "What you sell, and to whom",

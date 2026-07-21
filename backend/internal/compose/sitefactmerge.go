@@ -181,5 +181,6 @@ func mergePageResults(results []pageFactsResult) pageFactsResult {
 		out.entities = append(out.entities, res.entities...)
 	}
 	out.facts = capFacts(out.facts)
+	out.entities = dedupeLegalEntities(out.entities)
 	return out
 }

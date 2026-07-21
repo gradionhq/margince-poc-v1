@@ -70,6 +70,16 @@ const VOICE_TARGET = 30000;
 
 type CompanyProfile = components["schemas"]["CompanyProfile"];
 type ColdField = components["schemas"]["ColdStartField"];
+// The legal trio the entity picker owns: filled from one census entry, and
+// cleared together when a different site is read.
+const LEGAL_FIELDS = [
+  "legal_name",
+  "registered_address",
+  "register_vat",
+] as const satisfies readonly CompanyFieldName[];
+
+type CompanySiteReadLegalEntity =
+  components["schemas"]["CompanySiteReadLegalEntity"];
 type ColdReadback = components["schemas"]["ColdStartReadback"];
 type CompanySiteRead = components["schemas"]["CompanySiteRead"];
 type OnboardingState = components["schemas"]["OnboardingState"];
@@ -537,6 +547,10 @@ function OnboardingCoordinator() {
     wizardState.isPending,
   ]);
 
+  // Which dossier version the form has already absorbed. Reset when a new
+  // read starts, because draft_version counts within ONE dossier.
+  const appliedReadVersion = useRef(0);
+
   const startRead = useMutation({
     mutationFn: async (): Promise<CompanySiteRead> => {
       const { data, error } = await api.POST("/company/site-reads", {
@@ -550,7 +564,28 @@ function OnboardingCoordinator() {
     },
     onSuccess: (data) => {
       setSiteReadID(data.id);
-      persistState(0, { sourceMode: "website", siteReadID: data.id });
+      // Starting a read replaces the previous site's findings, so nothing
+      // of it may survive: the fact selection goes, the legal trio the
+      // entity picker filled goes (prefill would leave it, since picking
+      // marks those fields as yours), and the applied-version counter
+      // resets because draft_version counts within ONE dossier — a new
+      // read can open at a version the old one already passed.
+      appliedReadVersion.current = 0;
+      setSelectedFactKeys([]);
+      setDraft((prev) => {
+        const values = { ...prev.values };
+        const edited = new Set(prev.edited);
+        for (const field of LEGAL_FIELDS) {
+          values[field] = "";
+          edited.delete(field);
+        }
+        return { ...prev, values, edited };
+      });
+      persistState(0, {
+        sourceMode: "website",
+        siteReadID: data.id,
+        selectedFactKeys: [],
+      });
     },
   });
 
@@ -575,7 +610,6 @@ function OnboardingCoordinator() {
     },
   });
 
-  const appliedReadVersion = useRef(0);
   useEffect(() => {
     const read = siteRead.data;
     if (!read || read.draft_version <= appliedReadVersion.current) {
@@ -600,6 +634,32 @@ function OnboardingCoordinator() {
     setStep(next);
     globalThis.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  // Choosing a legal entity fills the three fields from the block the legal
+  // notice printed — the whole point of offering the choice. They are marked
+  // as YOUR input, not as read-from-site, because that is what the server
+  // records: the multi-entity abstention strips the legal trio from the
+  // read's own fields, and confirmation trusts evidence only from those. A
+  // label claiming provenance the database does not hold would be worse than
+  // no label at all. A field the notice left blank is cleared rather than
+  // left holding the previous entity's value.
+  const setLegalEntity = (entity: CompanySiteReadLegalEntity) =>
+    setDraft((prev) => {
+      const grounded = { ...prev.grounded };
+      const edited = new Set(prev.edited);
+      const values = { ...prev.values };
+      const applied: Array<[ColdField["field"], string]> = [
+        ["legal_name", entity.name],
+        ["registered_address", entity.registered_address ?? ""],
+        ["register_vat", entity.register_number ?? ""],
+      ];
+      for (const [field, value] of applied) {
+        values[field] = value;
+        delete grounded[field];
+        edited.add(field);
+      }
+      return { values, grounded, edited };
+    });
 
   const setField = (field: CompanyFieldName, value: string) =>
     setDraft((prev) => {
@@ -776,6 +836,7 @@ function OnboardingCoordinator() {
             saveError={save.isError ? save.error.message : null}
             missingRequired={saveAttempted ? missingRequired : []}
             read={siteRead.data ?? null}
+            onPickEntity={setLegalEntity}
             selectedFactKeys={selectedFactKeys}
             setSelectedFactKeys={(keys) => {
               setSelectedFactKeys(keys);
@@ -899,10 +960,12 @@ function CompanyStep({
   missingRequired,
   selectedFactKeys,
   setSelectedFactKeys,
+  onPickEntity,
   onFieldBlur,
 }: Readonly<{
   draft: CompanyDraft;
   setField: (field: CompanyFieldName, value: string) => void;
+  onPickEntity: (entity: CompanySiteReadLegalEntity) => void;
   read: CompanySiteRead | null;
   saved: boolean;
   saveError: string | null;
@@ -912,7 +975,6 @@ function CompanyStep({
   onFieldBlur: () => void;
 }>) {
   const t = useT();
-  const grounded = Object.keys(draft.grounded).length > 0;
 
   return (
     <section className="ob-panel">
@@ -930,54 +992,6 @@ function CompanyStep({
             : t("ob.confirmManual")}
         </span>
       </div>
-
-      {grounded && (
-        <div className="omit">
-          <Info aria-hidden />
-          <div>
-            <div className="l">{t("ob.s1.omitLabel")}</div>
-            <p>{t("ob.s1.omitBody")}</p>
-          </div>
-        </div>
-      )}
-
-      {read && read.facts.length > 0 && (
-        <div className="confirm-facts">
-          <div className="seclabel">{t("ob.factsTitle")}</div>
-          <p className="ob-sub">{t("ob.factsSub")}</p>
-          <div className="fact-grid">
-            {read.facts.map((fact) => {
-              const selected = selectedFactKeys.includes(fact.value_key);
-              return (
-                <button
-                  key={`${fact.field}:${fact.value_key}`}
-                  type="button"
-                  className={`fact-card ${selected ? "selected" : ""}`}
-                  aria-pressed={selected}
-                  onClick={() =>
-                    setSelectedFactKeys(
-                      selected
-                        ? selectedFactKeys.filter(
-                            (key) => key !== fact.value_key,
-                          )
-                        : [...selectedFactKeys, fact.value_key],
-                    )
-                  }
-                >
-                  <span className="fact-check">
-                    {selected ? <Check aria-hidden /> : <Circle aria-hidden />}
-                  </span>
-                  <span>
-                    <b>{coldFieldLabel(fact.field, t)}</b>
-                    <span>{fact.value}</span>
-                    <small>{fact.evidence_snippet}</small>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       {saved && (
         <p className="ob-sub" style={{ margin: "14px 0 0" }}>
@@ -1017,6 +1031,7 @@ function CompanyStep({
           pattern), not by per-field margins. */}
       <div className="form-stack ob-companyform">
         <p className="form-divider t-label">{t("ob.s1.identityLabel")}</p>
+        <LegalEntityChoice read={read} draft={draft} onPick={onPickEntity} />
         {IDENTITY_FIELDS.map((field) => (
           <CompanyFormField
             key={field}
@@ -1051,6 +1066,56 @@ function CompanyStep({
           />
         ))}
       </div>
+
+      {read && read.facts.length > 0 && (
+        <details className="confirm-facts">
+          {/* Collapsed by default: a hundred evidence cards between the form
+              and the Continue button turns a review into a scroll. The
+              summary states what is selected, which is the only thing a
+              human needs unless they want to change it. */}
+          <summary>
+            <span className="seclabel">{t("ob.factsTitle")}</span>
+            <span className="facts-count">
+              {t("ob.factsSelected", {
+                selected: selectedFactKeys.length,
+                total: read.facts.length,
+              })}
+            </span>
+          </summary>
+          <p className="ob-sub">{t("ob.factsSub")}</p>
+          <div className="fact-grid">
+            {read.facts.map((fact) => {
+              const selected = selectedFactKeys.includes(fact.value_key);
+              return (
+                <button
+                  key={`${fact.field}:${fact.value_key}`}
+                  type="button"
+                  className={`fact-card ${selected ? "selected" : ""}`}
+                  aria-pressed={selected}
+                  onClick={() =>
+                    setSelectedFactKeys(
+                      selected
+                        ? selectedFactKeys.filter(
+                            (key) => key !== fact.value_key,
+                          )
+                        : [...selectedFactKeys, fact.value_key],
+                    )
+                  }
+                >
+                  <span className="fact-check">
+                    {selected ? <Check aria-hidden /> : <Circle aria-hidden />}
+                  </span>
+                  <span>
+                    <b>{coldFieldLabel(fact.field, t)}</b>
+                    <span>{fact.value}</span>
+                    <small>{fact.evidence_snippet}</small>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </details>
+      )}
     </section>
   );
 }
@@ -1058,6 +1123,64 @@ function CompanyStep({
 // The website field, with the optional read-back action on it: the company's
 // website is a form value like any other — reading it is a shortcut into the
 // form below, never a step of its own.
+// The legal-entity choice. A group's imprint states one block per company
+// — registered name, address, register number — and the read refuses to
+// guess which of them the installation belongs to, because picking wrong
+// writes another company's legal identity into this one's CRM. So it
+// offers what it read and the human answers in one click, instead of
+// retyping five lines the page already printed.
+//
+// One entity needs no question: the read already filled the fields.
+function LegalEntityChoice({
+  read,
+  draft,
+  onPick,
+}: Readonly<{
+  read: CompanySiteRead | null;
+  draft: CompanyDraft;
+  onPick: (entity: CompanySiteReadLegalEntity) => void;
+}>) {
+  const t = useT();
+  const entities = read?.legal_entities ?? [];
+  if (entities.length < 2) {
+    return null;
+  }
+  const chosen = draft.values.legal_name.trim();
+  return (
+    <div className="legal-choice">
+      <div className="l">{t("ob.legalTitle")}</div>
+      <p className="ob-sub">{t("ob.legalSub")}</p>
+      <div className="legal-grid">
+        {entities.map((entity) => {
+          const selected = chosen !== "" && chosen === entity.name;
+          return (
+            <button
+              key={`${entity.name}-${entity.source_url}`}
+              type="button"
+              className={`legal-card ${selected ? "selected" : ""}`}
+              aria-pressed={selected}
+              onClick={() => onPick(entity)}
+            >
+              <span className="fact-check">
+                {selected ? <Check aria-hidden /> : <Circle aria-hidden />}
+              </span>
+              <span>
+                <b>{entity.name}</b>
+                {entity.registered_address ? (
+                  <span>{entity.registered_address}</span>
+                ) : null}
+                {entity.register_number ? (
+                  <small>{entity.register_number}</small>
+                ) : null}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function WebsiteReadBar({
   website,
   setWebsite,

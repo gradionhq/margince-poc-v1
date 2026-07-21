@@ -72,8 +72,11 @@ type DebugExtraction struct {
 
 // DebugLegalEntity is one entity a legal page names.
 type DebugLegalEntity struct {
-	Name      string `json:"name"`
-	SourceURL string `json:"source_url"`
+	Name              string `json:"name"`
+	RegisteredAddress string `json:"registered_address,omitempty"`
+	RegisterNumber    string `json:"register_number,omitempty"`
+	EvidenceSnippet   string `json:"evidence_snippet,omitempty"`
+	SourceURL         string `json:"source_url"`
 }
 
 // DebugDrop is one gate rejection: what the model claimed on which
