@@ -26,6 +26,18 @@ type unitRule struct {
 	// count (absorbs batching + solo re-asks), else the summed served calls (one
 	// enrich call per person, one embed call per entity).
 	observedDenom func(slices []ai.ServedTaskTotal, labeled int64) int64
+	// denomIsCalls says whether observedDenom is a COUNT OF CALLS (Σcalls) rather
+	// than a count of some other unit. It decides how a partly-unpriced mix
+	// re-weights: when the denominator is call-based (enrich per person, embed
+	// per entity — one call per unit), the priced slices' share of the cost is
+	// their share of the calls, so pricedDenom scales by pricedCalls/Σcalls.
+	// When it is NOT call-based (classify's denominator is labeled MESSAGES, and
+	// one call is a variable-size batch), that call-fraction reweight overquotes:
+	// a 10-message priced batch and a 1-message unpriced retry are 1 call each,
+	// so a 50/50 call split would double the per-message cost. For those tasks
+	// the priced cost is spread across the FULL observed denominator and the
+	// unpriced share falls to $0 (already flagged heuristic) — no reweight.
+	denomIsCalls bool
 	// floor is the per-UNIT token means for the cold-start work-shape floor,
 	// derived from the real prompt shape (the constants + rationale in floor.go).
 	// Non-zero for every backfill task (asserted by the fitness test).
@@ -42,6 +54,7 @@ var backfillUnitRules = map[ai.Task]unitRule{
 			return scanned * y.Captured / y.Scanned, true // messages
 		},
 		observedDenom: func(_ []ai.ServedTaskTotal, labeled int64) int64 { return labeled },
+		denomIsCalls:  false, // labeled MESSAGES, not calls: a call is a variable-size batch
 		// Per message: the truncated body plus the batch system/schema prompt
 		// amortized across the batch; one short verdict out.
 		floor: ai.Usage{
@@ -63,6 +76,7 @@ var backfillUnitRules = map[ai.Task]unitRule{
 			return scanned * y.PeopleCreated / y.Scanned, true // persons
 		},
 		observedDenom: func(slices []ai.ServedTaskTotal, _ int64) int64 { return sumSliceCalls(slices) },
+		denomIsCalls:  true, // one enrich call per person
 		// Per person: the trailing signature lines plus the extraction prompt in,
 		// a small field bundle out.
 		floor: ai.Usage{
@@ -81,6 +95,7 @@ var backfillUnitRules = map[ai.Task]unitRule{
 			return scanned * (y.Captured + y.PeopleCreated + y.OrganizationsCreated) / y.Scanned, true // entities
 		},
 		observedDenom: func(slices []ai.ServedTaskTotal, _ int64) int64 { return sumSliceCalls(slices) },
+		denomIsCalls:  true, // one embed call per entity
 		// Per entity: input-only — no output, no cache.
 		floor: ai.Usage{TokensIn: embedItemTokens},
 	},

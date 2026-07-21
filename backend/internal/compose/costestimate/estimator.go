@@ -18,9 +18,11 @@ package costestimate
 // Either falling to its floor marks the whole estimate heuristic. Nothing priced
 // ⇒ HasCost=false and the wire suppresses the cost field — a fabricated or
 // silently-zero cost is the worst failure a consent-before-spend number can have
-// (cost is transparency, never a gate: ADR-0020, NEVER-4). This is the only
-// money-aware code in the tree; the ai / capture / activities reads it composes
-// never import one another.
+// (cost is transparency, never a gate: ADR-0020, NEVER-4). The monetary formula
+// itself lives in ai.PriceCall (the ai module owns price-on-read); this package
+// is the cross-module projection layer that PRICES the backfill preview by
+// composing the ai / capture / activities reads with it — reads that never
+// import one another.
 
 import (
 	"context"
@@ -223,9 +225,20 @@ func (e *Estimator) priceObserved(ctx context.Context, task ai.Task, slices []ai
 	}
 
 	if pricedCalls > 0 {
-		// Units attributable to the PRICED mix, floored ≥ 1 so pricedCalls > 0
-		// never divides by zero.
-		pricedDenom := max(denom*pricedCalls/max(sumCalls, 1), 1)
+		// The observed denominator the priced cost is spread over. For a
+		// call-based denominator (enrich per person, embed per entity) the priced
+		// slices' share of the work IS their share of the calls, so scale by
+		// pricedCalls/Σcalls — floored ≥ 1 so pricedCalls > 0 never divides by
+		// zero. For a NON-call denominator (classify counts labeled MESSAGES, and
+		// one call is a variable-size batch) that reweight overquotes — a
+		// 10-message priced batch and a 1-message unpriced retry are 1 call each,
+		// so a 50/50 call split would double the per-message cost. There the
+		// priced cost is spread over the full denominator and the unpriced share
+		// falls to $0 (already flagged heuristic).
+		pricedDenom := denom
+		if backfillUnitRules[task].denomIsCalls {
+			pricedDenom = max(denom*pricedCalls/max(sumCalls, 1), 1)
+		}
 		costMicro = pricedCost * units / pricedDenom
 	}
 	return costMicro, inputTokens, priced, heuristic, nil

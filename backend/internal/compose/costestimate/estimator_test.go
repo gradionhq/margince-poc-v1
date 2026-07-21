@@ -322,17 +322,23 @@ func TestEstimatePricedDenomFlooredAtOne(t *testing.T) {
 		Task: ai.TaskEnrich, Tier: ai.TierLocalSmall, Provider: "ollama", ModelID: "gemma3",
 		TokensIn: 300, TokensOut: 40, Calls: 1,
 	}
-	// A huge unpriced slice at the same task drives sumCalls up so that
-	// denom(=Σcalls)×pricedCalls/sumCalls truncates toward 0 before the floor.
+	// A huge GENUINELY-unpriced slice at the same task drives sumCalls up so that
+	// denom(=Σcalls)×pricedCalls/sumCalls truncates toward 0 before the floor. It
+	// is served on cheap_cloud, whose CURRENT binding (gemini/flash) has NO rate,
+	// so effectiveModel reprices it at an unrated model — it must not fall back to
+	// the priced local head, which would make it priced and defeat the guard.
 	unpriced := ai.ServedTaskTotal{
-		Task: ai.TaskEnrich, Tier: ai.TierLocalSmall, Provider: "custom", ModelID: "no-rate",
+		Task: ai.TaskEnrich, Tier: ai.TierCheapCloud, Provider: "gemini", ModelID: "old-flash",
 		TokensIn: 9_000, TokensOut: 900, Calls: 999,
 	}
 	ladder := fakeLadder{
-		tiers:   map[ai.Tier]ai.ModelRef{ai.TierLocalSmall: {Provider: "ollama", Model: "gemma3"}},
+		tiers: map[ai.Tier]ai.ModelRef{
+			ai.TierLocalSmall: {Provider: "ollama", Model: "gemma3"}, // the priced head
+			ai.TierCheapCloud: {Provider: "gemini", Model: "flash"},  // bound but UNRATED
+		},
 		ladders: defaultLadders(),
 	}
-	rates := fakeRates{rateKey("ollama", "gemma3"): pricedRate} // "custom/no-rate" unpriced
+	rates := fakeRates{rateKey("ollama", "gemma3"): pricedRate} // gemini/flash unrated → the cloud slice is truly unpriced
 	totals := &fakeTotals{rows: []ai.ServedTaskTotal{priced, unpriced}}
 	// enrich denom = Σcalls = 1000; pricedCalls = 1; 1000×1/1000 = 1 → floored ≥1.
 	e := estimatorFor(totals, rates, ladder, fakeLabels(0), fakeYields{Scanned: 100, Captured: 100, PeopleCreated: 50})
@@ -343,6 +349,61 @@ func TestEstimatePricedDenomFlooredAtOne(t *testing.T) {
 	}
 	if got.Quality != QualityHeuristic {
 		t.Fatalf("Quality = %s, want heuristic (an unpriced slice is in the mix)", got.Quality)
+	}
+}
+
+// classify's denominator is labeled MESSAGES, not calls — a call is a
+// variable-size batch (a 10-message batch and a 1-message retry are 1 call
+// each). So a partly-unpriced classify mix must NOT re-weight the priced cost by
+// call fraction: doing so overquotes (a priced 10-message batch + an unpriced
+// 1-message retry split 50/50 on calls would double the per-message cost). The
+// priced cost spreads over the full labeled denominator; the unpriced share
+// falls to $0. Here the priced classify figure must match the all-priced formula
+// (pricedCost × units / denom), never the doubled call-reweighted value.
+func TestEstimateClassifyUnpricedSliceDoesNotOverquote(t *testing.T) {
+	const scanned = 100
+	const labeled = 10 // classify denom = labeled MESSAGES
+	// A priced batch call (10 messages priced in one call) and an unpriced solo
+	// retry (1 call) — 1 priced call of 2, a 50/50 call split.
+	pricedBatch := ai.ServedTaskTotal{
+		Task: ai.TaskCaptureClassify, Tier: ai.TierCheapCloud, Provider: "gemini", ModelID: "flash",
+		TokensIn: 1_000_000, TokensOut: 100_000, Calls: 1,
+	}
+	unpricedRetry := ai.ServedTaskTotal{
+		Task: ai.TaskCaptureClassify, Tier: ai.TierLocalSmall, Provider: "ollama", ModelID: "gemma3",
+		TokensIn: 5_000, TokensOut: 500, Calls: 1,
+	}
+	ladder := fakeLadder{
+		tiers: map[ai.Tier]ai.ModelRef{
+			ai.TierLocalSmall: {Provider: "ollama", Model: "gemma3"}, // bound but UNRATED
+			ai.TierCheapCloud: {Provider: "gemini", Model: "flash"},  // the priced batch model
+		},
+		ladders: defaultLadders(),
+	}
+	rates := fakeRates{rateKey("gemini", "flash"): pricedRate} // gemma3 unrated → the retry is unpriced
+	totals := &fakeTotals{rows: []ai.ServedTaskTotal{pricedBatch, unpricedRetry}}
+	// enrich/embeddings have no slices and no rated head here, so they add no cost.
+	e := estimatorFor(totals, rates, ladder, fakeLabels(labeled), fakeYields{Scanned: scanned, Captured: scanned})
+
+	got := mustEstimate(t, e, scanned)
+
+	// classify units = scanned × captured/scanned = 100. The priced cost spreads
+	// over the FULL labeled denominator (10) — the same figure an all-priced
+	// classify would produce — NOT the call-reweighted denominator of 5 that
+	// would double it.
+	allPricedMicro := ai.PriceCall(usageOf(pricedBatch), *pricedRate) * 100 / labeled
+	overquotedMicro := ai.PriceCall(usageOf(pricedBatch), *pricedRate) * 100 / (labeled / 2)
+	if !got.HasCost {
+		t.Fatal("HasCost = false, want true (the flash batch priced)")
+	}
+	if got.Quality != QualityHeuristic {
+		t.Fatalf("Quality = %s, want heuristic (an unpriced classify slice is in the mix)", got.Quality)
+	}
+	if got.CostMinor != allPricedMicro/microsPerMinor {
+		t.Fatalf("CostMinor = %d, want %d (priced cost over the full labeled denom, not call-reweighted)", got.CostMinor, allPricedMicro/microsPerMinor)
+	}
+	if got.CostMinor == overquotedMicro/microsPerMinor {
+		t.Fatalf("CostMinor = %d equals the ~doubled call-reweighted figure — classify overquoted the unpriced mix", got.CostMinor)
 	}
 }
 
