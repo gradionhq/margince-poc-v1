@@ -690,7 +690,8 @@ Open work, roughly in priority order:
     Freshness verb) — without it A3's live read is latent infra.
   - **A4 reconcile robustness** — the **failing-connection backoff is DONE in
     this PR**: `overlay_sync_state` sidecar + `RecordSweepFailure`/`Success`
-    (classify + 2min·2^n-cap-4h jittered ladder + rate-limit floor) +
+    (classify + a 2min·2^n ladder capped at 4h *before* ±20% jitter, so
+    ~4h48m effective + rate-limit floor) +
     `DueOverlayConnections` due-gate + `reconcileConnection` distinguishing
     connection-level (abort+backoff) from per-object (log+skip) failures. Still
     open (**A4b**): the composite keyset watermark for a >10k same-timestamp
