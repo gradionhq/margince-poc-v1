@@ -241,9 +241,9 @@ describe("AutomationPreview", () => {
     );
     render(<AutomationPreview automationId="au-1" />);
     await waitFor(() =>
-      expect(screen.getByText("12 matching now")).toBeTruthy(),
+      expect(screen.getByText("Matches now: 12")).toBeTruthy(),
     );
-    expect(screen.getByText("~34 would fire / 30d")).toBeTruthy();
+    expect(screen.getByText("Would fire: ~34 / 30d")).toBeTruthy();
     expect(bodies).toEqual([{ window_days: 30 }]);
   });
 
@@ -263,11 +263,11 @@ describe("AutomationPreview", () => {
     );
     render(<AutomationPreview automationId="au-1" />);
     await waitFor(() =>
-      expect(screen.getByText("12 matching now")).toBeTruthy(),
+      expect(screen.getByText("Matches now: 12")).toBeTruthy(),
     );
     await userEvent.click(screen.getByRole("button", { name: "7d" }));
     await waitFor(() =>
-      expect(screen.getByText("~5 would fire / 7d")).toBeTruthy(),
+      expect(screen.getByText("Would fire: ~5 / 7d")).toBeTruthy(),
     );
     expect(bodies).toContainEqual({ window_days: 7 });
   });
@@ -289,7 +289,7 @@ describe("AutomationPreview", () => {
     await waitFor(() =>
       expect(screen.getByText("Trailing estimate not computable")).toBeTruthy(),
     );
-    expect(screen.queryByText(/would fire/)).toBeNull();
+    expect(screen.queryByText(/Would fire/)).toBeNull();
   });
 
   it("omits the hidden line at 0 and shows it above 0", async () => {
@@ -308,7 +308,7 @@ describe("AutomationPreview", () => {
     );
     const zero = render(<AutomationPreview automationId="au-1" />);
     await waitFor(() =>
-      expect(screen.getByText("5 matching now")).toBeTruthy(),
+      expect(screen.getByText("Matches now: 5")).toBeTruthy(),
     );
     expect(screen.queryByText(/hidden/)).toBeNull();
     zero.unmount();
@@ -332,7 +332,7 @@ describe("AutomationPreview", () => {
     );
   });
 
-  it("shows the estimating state while the preview POST is in flight", async () => {
+  it("shows a loading state before the estimate resolves, then the result", async () => {
     let release: (r: Response) => void = () => {};
     const inFlight = new Promise<Response>((resolve) => {
       release = resolve;
@@ -342,12 +342,14 @@ describe("AutomationPreview", () => {
       vi.fn(() => inFlight),
     );
     render(<AutomationPreview automationId="au-1" />);
-    await waitFor(() => expect(screen.getByText("Estimating…")).toBeTruthy());
+    // while pending the result is not painted (QueryStates renders its
+    // skeleton) — never an empty first frame nor a fabricated figure.
+    expect(screen.queryByText(/Matches now/)).toBeNull();
     release(
       jsonResponse({ matches_now: 1, would_have_fired: 1, window_days: 30 }),
     );
     await waitFor(() =>
-      expect(screen.getByText("1 matching now")).toBeTruthy(),
+      expect(screen.getByText("Matches now: 1")).toBeTruthy(),
     );
   });
 
@@ -386,7 +388,7 @@ describe("AutomationPreview", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() =>
-      expect(screen.getByText("7 matching now")).toBeTruthy(),
+      expect(screen.getByText("Matches now: 7")).toBeTruthy(),
     );
   });
 

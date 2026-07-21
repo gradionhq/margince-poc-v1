@@ -329,6 +329,7 @@ export function AutomationRow({
         automationId={automation.id}
         runsOpen={runsOpen}
         previewOpen={previewOpen}
+        canConfigure={canConfigure}
       />
       {editing && entry && (
         <AutomationForm

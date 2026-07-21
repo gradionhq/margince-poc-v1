@@ -1301,9 +1301,8 @@ export const de = {
   "auto.preview.window7": "7 T",
   "auto.preview.window30": "30 T",
   "auto.preview.window90": "90 T",
-  "auto.preview.estimating": "Wird geschätzt…",
-  "auto.preview.matchesNow": "{n} treffen jetzt zu",
-  "auto.preview.wouldFire": "~{n} würden auslösen / {days} T",
+  "auto.preview.matchesNow": "Treffer jetzt: {n}",
+  "auto.preview.wouldFire": "Würde auslösen: ~{n} / {days} T",
   "auto.preview.notComputable": "Rückblickende Schätzung nicht möglich",
   "auto.preview.hidden": "{n} ausgeblendet – kein Zugriff",
   "auto.preview.explainer":

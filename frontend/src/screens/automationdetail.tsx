@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-import { useInfiniteQuery, useMutation } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Ban, Check, Clock, Minus, X } from "lucide-react";
-import { type ReactElement, type ReactNode, useEffect, useState } from "react";
+import { type ReactElement, type ReactNode, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import {
@@ -112,9 +112,13 @@ function RunRow({ run }: Readonly<{ run: AutomationRun }>) {
         }}
       >
         <OutcomeBadge outcome={run.outcome} />
-        <span className="t-small" title={run.occurred_at}>
+        <time
+          className="t-small"
+          dateTime={run.occurred_at}
+          title={run.occurred_at}
+        >
           {formatDateTime(run.occurred_at, locale, zone)}
-        </span>
+        </time>
         <AutonomyDot tier={run.tier === "green" ? "auto" : "confirm"} />
         {run.approval_required && (
           <span className="t-caption">{t("auto.runs.needsApproval")}</span>
@@ -281,13 +285,17 @@ export function AutomationPreview({
   const t = useT();
   const [windowDays, setWindowDays] = useState<WindowOption>("30");
 
-  const preview = useMutation({
-    mutationFn: async (
-      days: WindowOption,
-    ): Promise<AutomationPreviewResult> => {
+  // A preview is a pure read keyed on the selected window — so it is a query,
+  // not a mutation. useQuery refetches when the window changes, dedupes React
+  // StrictMode's double-mount (one in-flight request per key), starts in the
+  // pending state (no empty first frame), and routes loading/error/retry
+  // through the shared QueryStates — the same recovery the runs panel gets.
+  const query = useQuery({
+    queryKey: ["automation-preview", automationId, windowDays],
+    queryFn: async (): Promise<AutomationPreviewResult> => {
       const { data, error } = await api.POST("/automations/{id}/preview", {
         params: { path: { id: automationId } },
-        body: { window_days: Number(days) },
+        body: { window_days: Number(windowDays) },
       });
       if (error) {
         throw new Error(problemMessage(error));
@@ -296,15 +304,7 @@ export function AutomationPreview({
     },
   });
 
-  // Re-estimate whenever the window changes — including the first mount, which
-  // is the panel's open. `mutate` is referentially stable across renders, so
-  // this keys purely on the selected window.
-  const { mutate } = preview;
-  useEffect(() => {
-    mutate(windowDays);
-  }, [windowDays, mutate]);
-
-  const result = preview.data;
+  const result = query.data;
   const hidden = result?.excluded_by_permission ?? 0;
 
   // SegmentedControl takes resolved label strings (not i18n keys); build them
@@ -314,59 +314,6 @@ export function AutomationPreview({
     "30": t(WINDOW_LABELS["30"]),
     "90": t(WINDOW_LABELS["90"]),
   };
-
-  let body: ReactNode;
-  if (preview.isPending) {
-    body = <p className="t-small">{t("auto.preview.estimating")}</p>;
-  } else if (preview.isError) {
-    // covers the 404 (foreign id) and 422 (window out of range) branches —
-    // the server's RFC 7807 detail reads verbatim rather than a generic error.
-    // A retry re-runs the current window: the sibling runs panel (QueryStates)
-    // offers the same recovery, and a transient POST failure must not strand
-    // the operator with only the window control as an escape hatch.
-    body = (
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--space-1)",
-          alignItems: "flex-start",
-        }}
-      >
-        <p className="t-small" style={{ color: "var(--danger)" }}>
-          {preview.error instanceof Error ? preview.error.message : null}
-        </p>
-        <Button small onClick={() => mutate(windowDays)}>
-          {t("common.retry")}
-        </Button>
-      </div>
-    );
-  } else if (result) {
-    body = (
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--space-1)",
-        }}
-      >
-        <p className="t-body">
-          {t("auto.preview.matchesNow", { n: result.matches_now })}
-        </p>
-        <p className="t-small">
-          {result.would_have_fired == null
-            ? t("auto.preview.notComputable")
-            : t("auto.preview.wouldFire", {
-                n: result.would_have_fired,
-                days: result.window_days,
-              })}
-        </p>
-        {hidden > 0 && (
-          <p className="t-small">{t("auto.preview.hidden", { n: hidden })}</p>
-        )}
-      </div>
-    );
-  }
 
   return (
     <section
@@ -389,9 +336,41 @@ export function AutomationPreview({
           value={windowDays}
           onChange={setWindowDays}
           labels={windowLabels}
+          label={t("auto.preview.window")}
         />
       </div>
-      {body}
+      {/* Polite live region: announce when the estimate resolves or the window
+          result changes, without stealing focus from the control. */}
+      <div aria-live="polite">
+        <QueryStates query={query}>
+          {result && (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "var(--space-1)",
+              }}
+            >
+              <p className="t-body">
+                {t("auto.preview.matchesNow", { n: result.matches_now })}
+              </p>
+              <p className="t-small">
+                {result.would_have_fired == null
+                  ? t("auto.preview.notComputable")
+                  : t("auto.preview.wouldFire", {
+                      n: result.would_have_fired,
+                      days: result.window_days,
+                    })}
+              </p>
+              {hidden > 0 && (
+                <p className="t-small">
+                  {t("auto.preview.hidden", { n: hidden })}
+                </p>
+              )}
+            </div>
+          )}
+        </QueryStates>
+      </div>
       <p className="t-caption" style={{ marginTop: "var(--space-3)" }}>
         {t("auto.preview.explainer")}
       </p>
@@ -402,15 +381,25 @@ export function AutomationPreview({
 // The two expandable panels the automation row mounts below its header. Kept as
 // one component so the row owns only the open/close toggles, not the panels'
 // conditional rendering — each panel still mounts lazily, only while open.
+//
+// `canConfigure` gates the panels themselves, not only the toggle buttons: if a
+// live `/me` refresh drops the caller's admin/ops role while a panel is open,
+// the read surface (and its polling) disappears with the buttons. The server's
+// RBAC gate is still the real boundary — this keeps the UI honest about it.
 export function AutomationInspectors({
   automationId,
   runsOpen,
   previewOpen,
+  canConfigure,
 }: Readonly<{
   automationId: string;
   runsOpen: boolean;
   previewOpen: boolean;
+  canConfigure: boolean;
 }>) {
+  if (!canConfigure) {
+    return null;
+  }
   return (
     <>
       {runsOpen && <AutomationRuns automationId={automationId} />}
