@@ -90,6 +90,27 @@ afterEach(() => {
 });
 
 describe("UsersAdminCard", () => {
+  it("shows an admin-only notice and no roster to a non-admin", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const req =
+          input instanceof Request ? input : new Request(String(input), init);
+        if (req.url.endsWith("/v1/me")) {
+          return jsonResponse({
+            user: { email: "rep@acme.test" },
+            roles: ["rep"],
+            teams: [],
+          });
+        }
+        return jsonResponse(ROSTER);
+      }),
+    );
+    render(<UsersAdminCard />);
+    await waitFor(() => expect(screen.getByText(/admins only/i)).toBeTruthy());
+    expect(screen.queryByText("Ada Active")).toBeNull();
+  });
+
   it("renders the include-inactive roster with per-status actions", async () => {
     vi.stubGlobal("fetch", backend([]));
     render(<UsersAdminCard />);
