@@ -13,6 +13,7 @@ package identity
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -29,6 +31,10 @@ type ListUsersInput struct {
 	Q      *string
 	Cursor *string
 	Limit  *int
+	// IncludeInactive widens the roster to deactivated/suspended members —
+	// the admin management view; the default active-only roster serves the
+	// share/assignee pickers. The server gates the widened view to admins.
+	IncludeInactive bool
 }
 
 type userRow struct {
@@ -60,18 +66,62 @@ const listUsersFilteredQuery = `
 	ORDER BY created_at, id
 	LIMIT $4`
 
+// The admin management roster: every non-archived member regardless of status,
+// so a deactivated member is visible to reactivate.
+const listUsersAllQuery = `
+	SELECT ` + userColumns + `
+	FROM app_user
+	WHERE archived_at IS NULL
+	  AND ($1::timestamptz IS NULL OR (created_at, id) > ($1, $2))
+	ORDER BY created_at, id
+	LIMIT $3`
+
+const listUsersAllFilteredQuery = `
+	SELECT ` + userColumns + `
+	FROM app_user
+	WHERE archived_at IS NULL
+	  AND (display_name ILIKE $1 OR email ILIKE $1)
+	  AND ($2::timestamptz IS NULL OR (created_at, id) > ($2, $3))
+	ORDER BY created_at, id
+	LIMIT $4`
+
 func scanUser(r pgx.Row) (userRow, error) {
 	var u userRow
 	err := r.Scan(&u.ID, &u.WorkspaceID, &u.Email, &u.DisplayName, &u.Status, &u.IsAgent, &u.CreatedAt)
 	return u, err
 }
 
+const getUserQuery = `SELECT ` + userColumns + ` FROM app_user WHERE id = $1 AND archived_at IS NULL`
+
+// GetUser reads one member by id regardless of status (RLS-scoped to the
+// caller's workspace) — the read the admin write handlers return after a
+// mutation. ErrNotFound when absent or archived.
+func (s *Service) GetUser(ctx context.Context, userID ids.UserID) (userRow, error) {
+	var u userRow
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		row, scanErr := scanUser(tx.QueryRow(ctx, getUserQuery, userID))
+		if errors.Is(scanErr, pgx.ErrNoRows) {
+			return apperrors.ErrNotFound
+		}
+		if scanErr != nil {
+			return scanErr
+		}
+		u = row
+		return nil
+	})
+	return u, err
+}
+
 // ListUsers returns one keyset page of the caller's workspace's active
 // members (row-scoped by RLS), optionally filtered by in.Q.
 func (s *Service) ListUsers(ctx context.Context, in ListUsersInput) ([]userRow, storekit.Page, error) {
+	plain, filtered := listUsersQuery, listUsersFilteredQuery
+	if in.IncludeInactive {
+		plain, filtered = listUsersAllQuery, listUsersAllFilteredQuery
+	}
 	return listRosterPage(ctx, s.pool, in.Q, in.Cursor, in.Limit, rosterQuery[userRow]{
-		plain:     listUsersQuery,
-		filtered:  listUsersFilteredQuery,
+		plain:     plain,
+		filtered:  filtered,
 		scan:      scanUser,
 		cursorKey: func(u userRow) (time.Time, ids.UUID) { return u.CreatedAt, u.ID },
 	})

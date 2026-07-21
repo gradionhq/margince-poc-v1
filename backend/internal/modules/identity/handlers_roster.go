@@ -15,10 +15,19 @@ import (
 
 // ListUsers serves one keyset page of the workspace member roster.
 func (h Handlers) ListUsers(w http.ResponseWriter, r *http.Request, params crmcontracts.ListUsersParams) {
+	// The widened admin management view is honored only for an admin caller;
+	// everyone else gets the active-only roster the share/assignee pickers use.
+	includeInactive := false
+	if params.IncludeInactive != nil && *params.IncludeInactive {
+		if actor, ok := identityFrom(r.Context()); ok && actor.hasRole("admin") {
+			includeInactive = true
+		}
+	}
 	rows, page, err := h.svc.ListUsers(r.Context(), ListUsersInput{
-		Q:      params.Q,
-		Cursor: params.Cursor,
-		Limit:  params.Limit,
+		Q:               params.Q,
+		Cursor:          params.Cursor,
+		Limit:           params.Limit,
+		IncludeInactive: includeInactive,
 	})
 	if err != nil {
 		httperr.Write(w, r, err)
