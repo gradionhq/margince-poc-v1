@@ -75,10 +75,11 @@ It boots **cold**: the organization and admin seat the api bootstraps from
 customer sees, so onboarding and empty states are what you develop against
 by default.
 
-**Log in.** Open http://localhost:5173 for the web UI (people, the deal
-board, the timeline) — the Vite dev server; it proxies `/v1` to the api on
-:8080. Sign in as `admin@demo.test` / `demo-password-123` (dev-only
-credentials, from `config/margince.yaml`).
+**Log in.** Open **http://localhost:8080** — that is the app, always. The
+dev server proxies `/v1` (and the probes) to the api behind it on :18080, so
+the one port serves both the UI and the contract. Sign in as
+`admin@demo.test` / `demo-password-123` (dev-only credentials, from
+`config/margince.yaml`).
 
 **Skip the cold start** with `make seed-dev` against a running stack: demo
 people, organizations, and deals plus the two rep seats and FX rates. The
@@ -88,7 +89,7 @@ a clean re-seed.
 
 `make dev` is always safe to re-run: it sweeps first — every margince
 api/worker/vite on the machine is killed (including one another checkout left
-behind), anything holding `:8080`/`:5173` is evicted, and leftover
+behind), anything holding `:8080` is evicted, and leftover
 `margince_dev_*` databases are dropped. One stack, always the same ports, and
 no chance the browser is talking to an api from an older branch. `make dev-stop`
 is the mirror: bare, it stops every stack.

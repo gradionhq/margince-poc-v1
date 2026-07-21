@@ -2,7 +2,7 @@
 # One-command local dev stack on the ONE shared infra: Postgres + Redis, the api
 # (cmd/api), the background worker (cmd/worker — outbox relay + Surface-B runner),
 # and the Vite dev server — so the SPA runs in a real browser against a live api.
-# Bare `make dev` uses the shared `margince` database on :8080/:5173;
+# Bare `make dev` serves the app on :8080 (the api behind it on :18080);
 # `make dev DEV_SLUG=<slug>` gives an isolated `margince_dev_<slug>` database on
 # slug-derived ports, so two worktrees can run concurrently without colliding on
 # the database or the host ports.
@@ -65,8 +65,13 @@ else
   db="margince_dev_${slug}"
   hash=$(printf '%s' "$slug" | cksum | awk '{print $1 % 1000}')
 fi
-api_port=$(( 8080 + hash ))
-fe_port=$(( 5173 + hash ))
+# :8080 is THE port — the app, the thing a human opens, always and only.
+# The api sits behind it on 18080 and the app's dev server proxies /v1 and
+# the probes through, so `curl localhost:8080/v1/...` still answers and
+# nobody has to remember which of two ports serves what. The two ranges
+# (8080.. and 18080..) cannot collide however the slug hashes.
+fe_port=$(( 8080 + hash ))
+api_port=$(( 18080 + hash ))
 
 # Swap the database segment of each base DSN — no credential literal here.
 owner_prefix="${OWNER_DSN%/*}"          # scheme://user:pass@host:port
@@ -103,7 +108,7 @@ wait_ready() { # url timeout_s — only a 2xx counts as ready (a 401/500/503 is 
 # So a bare `make dev` does not merely check its own two ports — it claims the
 # machine: every margince server process, every recorded stack, and every
 # leftover per-slug database goes, and the one stack that remains is this one on
-# :8080 / :5173 against `margince`. `DEV_SLUG` keeps its escape hatch (it sweeps
+# :8080 against `margince`. `DEV_SLUG` keeps its escape hatch (it sweeps
 # nothing, so an isolated env survives until the next bare `make dev`).
 
 kill_pids() { # pid… — TERM, then KILL whatever is still standing
@@ -421,8 +426,10 @@ up)
 
   if wait_ready "http://localhost:${fe_port}/" 90; then
     echo "$label ready"
-    echo "  api      http://localhost:${api_port}"
-    echo "  frontend http://localhost:${fe_port}"
+    echo ""
+    echo "  OPEN     http://localhost:${fe_port}"
+    echo ""
+    echo "  api      http://localhost:${api_port}  (also proxied at :${fe_port}/v1)"
     # The only seat on a cold start is the bootstrap admin, and the deployment
     # config is where it is defined — read the address back from that file
     # rather than restating it, so an edited config prints the truth.

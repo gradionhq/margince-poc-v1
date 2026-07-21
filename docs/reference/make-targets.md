@@ -11,7 +11,7 @@ common backend targets and adds the frontend lane. In `backend/`, `make`
 |---|---|
 | `help` | List targets (the default goal) |
 | `install` | One-shot fresh-worktree setup (frontend deps + Go gate binaries + git hooks). The factory's `worktree-init` runs this by name |
-| `dev` | Full local stack: db-up + migrate + `cmd/api` + `cmd/worker` (always on: the outbox relay + Surface-B runner) + the Vite SPA, on `http://localhost:5173` (api `:8080`). **Sweeps first** (bare invocation): kills every margince api/worker/vite on the machine — recorded, orphaned, or from another checkout — evicts anything holding `:8080`/`:5173`, and drops stray `margince_dev_*` databases, so one stack runs and it is always on `:8080`. Boots **cold** — the organization + admin bootstrapped from `config/margince.yaml` and nothing else, so onboarding and empty states are the default; `make seed-dev` adds the demo records on top. Returns when ready; the servers run in the background. `DEV_SLUG=<slug>` gives an isolated `margince_dev_<slug>` on slug-derived ports (two worktrees at once). Activates real AI routing only when every cloud provider bound in `config/ai-routing.yaml` has its BYOK key in the environment / `.env.local` (else the offline fake) |
+| `dev` | Full local stack: db-up + migrate + `cmd/api` + `cmd/worker` (always on: the outbox relay + Surface-B runner) + the app on `http://localhost:8080` (the api behind it on `:18080`, proxied through). **Sweeps first** (bare invocation): kills every margince api/worker/vite on the machine — recorded, orphaned, or from another checkout — evicts anything holding `:8080`, and drops stray `margince_dev_*` databases, so one stack runs and the app is always on `:8080`. Boots **cold** — the organization + admin bootstrapped from `config/margince.yaml` and nothing else, so onboarding and empty states are the default; `make seed-dev` adds the demo records on top. Returns when ready; the servers run in the background. `DEV_SLUG=<slug>` gives an isolated `margince_dev_<slug>` on slug-derived ports (two worktrees at once). Activates real AI routing only when every cloud provider bound in `config/ai-routing.yaml` has its BYOK key in the environment / `.env.local` (else the offline fake) |
 | `dev-stop` | `make dev-stop [DEV_SLUG=<slug>] [DROP=1]` — bare, it stops **every** dev stack on the machine and frees the ports (the mirror of what `dev` sweeps); with `DEV_SLUG` just that one. `DROP=1` also drops the per-slug `margince_dev_*` databases — never the shared `margince` |
 | `mcp-inspector` | `make mcp-inspector TOKEN=mgp_… [DEV_SLUG=<slug>] [WORKSPACE=<slug>]` — build `cmd/mcp` and open the MCP Inspector over stdio against the running `make dev` stack. Token comes from `TOKEN=` or `MARGINCE_PASSPORT_TOKEN` in `.env.local`; the DSN is read from the running stack (so `DEV_SLUG` just works). Token + DSN pass through the environment only, never argv |
 | `db-up` / `infra-up` | Start the dev Postgres 16 (pgvector, port 55432) and Redis 7 (port 56379) containers, create the app role (`infra-up` is an alias) |
@@ -105,8 +105,8 @@ worktree's: the ONE shared infra (Postgres/Redis on `55432`/`56379`), but a
 private database `margince_dev_<slug>` and api/FE ports derived
 deterministically from the slug (the FE's `/v1` proxy follows the api via
 `BACKEND_PORT`). Logs + stop handle live under `.tmp/dev/<slug>/`. Bare
-`make dev` uses the shared `margince` database on the base `:8080`/`:5173`
-ports. Stop either with `make dev-stop [DEV_SLUG=<slug>] [DROP=1]`.
+`make dev` uses the shared `margince` database with the app on the base
+`:8080`. Stop either with `make dev-stop [DEV_SLUG=<slug>] [DROP=1]`.
 
 A slugged stack is the one thing `make dev`'s sweep does not perform — it
 sweeps nothing itself, so it can start alongside the base stack. But the next

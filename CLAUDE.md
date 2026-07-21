@@ -76,7 +76,7 @@ make check-fe           # frontend half (biome + vitest + tsc + build)
 make test-integration   # real-Postgres lane: RLS gates + HTTP end-to-end (needs db-up).
                         # Parallel — each package on its own throwaway clone db; ends
                         # with `OK: integration passed with 0 skips`, never skips silently
-make dev                # full local stack: db + api (:8080) + worker + Vite SPA (:5173)
+make dev                # full local stack: the app on :8080 (api behind it on :18080)
                         # (worker = cmd/worker, always on: outbox relay + Surface-B runner)
                         # (DEV_SLUG=x → isolated margince_dev_<slug> on slug-derived ports)
 make dev-stop           # stop the stack (add DEV_SLUG=x [DROP=1] for an isolated env)
@@ -86,9 +86,9 @@ make dev-stop           # stop the stack (add DEV_SLUG=x [DROP=1] for an isolate
 
 **`make dev` enforces this itself — it sweeps before it starts.** A bare
 `make dev` kills every margince api/worker/vite on the machine (recorded,
-orphaned, or from another checkout), evicts whatever holds :8080/:5173, drops
+orphaned, or from another checkout), evicts whatever holds :8080, drops
 every leftover `margince_dev_*` database, and only then boots ONE stack on
-:8080 / :5173 against `margince`. So `make dev` is always safe to run; you no
+:8080 against `margince`. So `make dev` is always safe to run; you no
 longer stop the old stack by hand.
 
 The failure it removes is the one that does NOT announce itself: an `api`

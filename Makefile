@@ -75,12 +75,13 @@ infra-down:
 ## dev — the full local COLD-START stack in a real browser: Postgres + Redis, the api, the
 ## background worker (cmd/worker — outbox relay + Surface-B runner, always on),
 ## and the Vite dev server, so the SPA runs against a live api on http://localhost:8080
-## (FE on :5173). Bare `make dev` uses the shared `margince` database; `make dev
+## (the app on :8080, api behind it on :18080). Bare `make dev` uses the shared
+## `margince` database; `make dev
 ## DEV_SLUG=<slug>` gives an isolated margince_dev_<slug> on slug-derived ports,
 ## so two worktrees run concurrently without colliding. A bare `make dev` first
 ## SWEEPS: every margince api/worker/vite on the machine is killed, whatever
-## holds :8080/:5173 is evicted, and stray margince_dev_* databases are dropped,
-## so exactly one stack runs and it is always on :8080. Boots COLD: the
+## holds :8080 is evicted, and stray margince_dev_* databases are dropped,
+## so exactly one stack runs and the app is ALWAYS on :8080. Boots COLD: the
 ## organization + admin the api bootstraps from config/margince.yaml and no
 ## other data, so onboarding and empty states are the default view — run
 ## `make seed-dev` on top when you want the demo records. Reads an optional

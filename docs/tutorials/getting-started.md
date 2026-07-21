@@ -41,7 +41,7 @@ make dev
 ```
 
 `make dev` brings up the infra, re-runs db-up + migrate, and boots `cmd/api`
-on `:8080` with the app-role DSN (plus the Vite SPA on `:5173`). By default
+with the app-role DSN, behind the app on `:8080`. By default
 the outbox relay runs inline in the api process, so this one command is a
 complete install; it returns when ready and the servers run in the
 background — stop them with `make dev-stop`.
@@ -56,8 +56,8 @@ bootstrap screen or endpoint: no request creates a workspace.
 
 ## 4. Log in
 
-Open <http://localhost:5173> — the Vite/React web UI (it proxies `/v1` to
-the api on :8080) — and log in with the seeded admin (`admin@demo.test` /
+Open <http://localhost:8080> — the web UI, and the only URL you need (it
+proxies `/v1` through to the api behind it) — and log in with the seeded admin (`admin@demo.test` /
 `demo-password-123`, from the example config). First login lands in the
 **five-step onboarding wizard** (Read · Confirm · Voice · Results ·
 Connect): let Margince read a company website or enter the three required
