@@ -4192,11 +4192,16 @@ export interface components {
             window: "none" | "3m" | "6m" | "12m";
             /** @description Provider-side message count for the window (Gmail resultSizeEstimate / Graph $count). */
             estimated_messages: number;
-            /** @description Projected classify+enrich tokens for that count. */
+            /** @description The estimator's input-anchored token figure across classify+enrich+embeddings for that count; absent on estimator fault (ADR-0068). */
             estimated_ai_tokens?: number;
-            /** @description Projected cost in minor currency units at the configured tier's rate; 0 when inference is local. */
+            /** @description USD minor units, estimated from observed ai_call history priced per served model at current ai_model_rate; absent when no rate applies (ADR-0068). */
             estimated_cost_minor?: number;
-            /** @description ISO-4217, e.g. EUR. */
+            /**
+             * @description observed = priced from this workspace's ai_call history; heuristic = cold-start work-shape floor or a defaulted ratio.
+             * @enum {string}
+             */
+            estimate_quality?: "observed" | "heuristic";
+            /** @description ISO-4217; "USD" in v1. */
             currency?: string;
             /** Format: date-time */
             computed_at: string;

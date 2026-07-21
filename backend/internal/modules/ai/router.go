@@ -98,10 +98,7 @@ func NewRouter(cfg RoutingConfig, meter *Meter, budget BudgetPolicy, calls callS
 	if err != nil {
 		return nil, err
 	}
-	meta := make(map[Tier]routeMeta, len(cfg.Tiers))
-	for tier, binding := range cfg.Tiers {
-		meta[tier] = routeMeta{provider: binding.Provider, model: binding.Model}
-	}
+	meta := embedInclusiveMeta(cfg)
 	router := assembleRouter(clients, embedder, cfg.Profile, meter, budget, calls, meta, capturePayloads, log)
 	router.installConfigSnapshot(cfg.sourceHash)
 	return router, nil

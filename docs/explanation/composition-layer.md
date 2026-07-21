@@ -148,4 +148,5 @@ Each binary composes only what its role needs, all through this one layer:
 | Background wiring | `internal/compose/{jobs,runnerservice,workflows,capture}.go` |
 | The AI orchestration group | `internal/compose/{brain,companycontextprompt,companycontextrollout,replydraft,deepreadtransport,deepreadbudget,onboardingstate}.go` |
 | The AI certification lane | `internal/compose/aicert/` (corpus, runner, records; report tool in `aicert/reportcmd`) |
+| The AI cost pre-flight estimator | `internal/compose/costestimate/` (backfill preview cost; reads `ai` + `activities` + `capture`, prices with `ai.PriceCall`; ADR-0068) |
 | Generated (never edit) | `internal/compose/{stubs_gen,agentpolicy_gen}.go` |

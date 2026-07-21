@@ -22,6 +22,28 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**AI cost pre-flight estimation — the cost hand-off is complete (ADR-0068/A114,
+phase 2 of 2).** Phase 1 priced actuals (`/ai/usage`); phase 2 fills the backfill
+preview's money figure. For N messages the preview now shows a data-driven priced
+cost, factored per task into per-unit cost (from `ai_call` served rows grouped by
+`(task, tier, provider, model_id)` over a 7-day window, priced with phase-1's
+`PriceCall`) × expected units (from `capture_backfill` yields), **priced at the model
+that will run** — served-if-bound, else the slice's own tier's current binding keyed on
+`ai_call.tier` (never the ladder head), so a rebind re-prices instantly. Classify counts
+per labeled message (`activity.capture_labeled_at`), enrich per person, embeddings per
+entity. Unpriced ⇒ cost **suppressed** (never a silent 0); a new additive
+`estimate_quality` (`observed`|`heuristic`) labels the source; cold-start uses a priced
+work-shape floor (retiring `estTokensPerMessage = 900`). Pure read + `compose/costestimate`
+plus one additive index migration (`0111`, indexing the synchronous
+`activity.capture_labeled_at` count); cost stays transparency, never a gate. A latent embed-lane gap
+was fixed in passing (`routeMeta[TierEmbedLane]` was never populated → embed `ai_call` rows
+carried empty provider/model; now folded in at both router constructors). **Two follow-ups:**
+`capture_backfill.people_created`/`organizations_created` are not yet written by the backfill
+loop, so enrich currently floors (honest `heuristic`) instead of pricing per-person (also
+leaves the backfill *status* payload's people/org counts at 0); and the FE consent screen
+renders cost only when `> 0` and ignores `estimate_quality`, so an honest `$0` and the
+quality signal don't yet reach the human.
+
 **Voice DNA end to end, and the settings surface it needed (#134, #143, #145,
 #147)** — ADR-0066's owner-private, human-only Voice lifecycle is merged
 (migration 0107): durable builds, immutable versions, candidate deltas,
