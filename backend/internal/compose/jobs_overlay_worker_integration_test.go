@@ -117,6 +117,53 @@ func TestResolveOverlayIncumbentBuildsALiveAdapterFromTheVault(t *testing.T) {
 	}
 }
 
+// authFailingIncumbent is a fake whose owners-directory fetch fails with a
+// connection-level auth error (the first incumbent call a sweep makes),
+// standing in for a revoked/insufficient HubSpot token. Every other method
+// delegates to the embedded fake (unused by this test's path).
+type authFailingIncumbent struct{ *fake.Adapter }
+
+func (authFailingIncumbent) Owners(context.Context) ([]overlay.OwnerRef, error) {
+	return nil, apperrors.ErrPermissionDenied
+}
+
+// TestWorkerBacksOffAConnectionLevelFailure proves the branch-1b backoff
+// end to end through the poller: a sweep that fails at the connection level
+// (auth here) records a backoff, so DueOverlayConnections stops selecting
+// that workspace on the next tick — no more re-sweeping a dead connection
+// hot. Work itself returns nil (a single connection's failure never aborts
+// the fleet pass).
+func TestWorkerBacksOffAConnectionLevelFailure(t *testing.T) {
+	e := integration.Setup(t)
+	vault := keyvault.NewMemory()
+	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
+	if _, err := overlay.NewService(e.Pool, vault, ms).
+		Connect(overlayAdminCtx(e.WS, e.Rep1), overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+
+	w := &overlayReconcileWorker{
+		pool: e.Pool, vault: vault, ms: ms,
+		meter:        overlay.NewMeter(overlay.DefaultMeterConfig()),
+		log:          slog.New(slog.DiscardHandler),
+		newIncumbent: func(_, _ string) overlay.Incumbent { return authFailingIncumbent{Adapter: fake.New()} },
+	}
+	if err := w.Work(e.Admin(), nil); err != nil {
+		t.Fatalf("Work must not error on a single connection's failure: %v", err)
+	}
+
+	// The workspace is now backed off — no longer due.
+	due, err := overlay.DueOverlayConnections(e.Admin(), e.Pool)
+	if err != nil {
+		t.Fatalf("DueOverlayConnections: %v", err)
+	}
+	for _, d := range due {
+		if d.Workspace.UUID == e.WS {
+			t.Fatal("the workspace must be backed off after a connection-level sweep failure, but it is still due")
+		}
+	}
+}
+
 // TestReconcileConnectionBackfillsAndSeedsViaFakeIncumbent proves the
 // §6.2 sweep end to end against a fake incumbent (the seam the factory
 // injection now enables — before it, reconcileConnection hardcoded a real

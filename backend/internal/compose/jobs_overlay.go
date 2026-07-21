@@ -5,14 +5,18 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	"github.com/gradionhq/margince/backend/internal/modules/overlay/hubspot"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -87,12 +91,42 @@ func (w *overlayReconcileWorker) Work(ctx context.Context, _ *river.Job[OverlayR
 	due, enumErr := overlay.DueOverlayConnections(ctx, w.pool)
 	for _, d := range due {
 		wsCtx := reconcileWorkerCtx(ctx, d.Workspace)
-		if err := reconcileConnection(wsCtx, w.vault, w.ms, w.meter, w.log, d, w.newIncumbent); err != nil {
+		err := reconcileConnection(wsCtx, w.vault, w.ms, w.meter, w.log, d, w.newIncumbent)
+		// Record the sweep outcome so a connection-level failure backs the
+		// next sweep off (overlay_sync_state), instead of re-sweeping a
+		// revoked/rate-limited/unreachable connection hot every tick; one
+		// clean sweep resets the backoff. Only the periodic poller schedules
+		// backoff — the on-demand /overlay/reconcile handler returns its
+		// error to the admin without touching the schedule.
+		if err != nil {
 			w.log.WarnContext(wsCtx, "overlay reconcile: sweeping this workspace's connection failed",
 				"workspace", d.Workspace.String(), "err", err)
+			if recErr := w.ms.RecordSweepFailure(wsCtx, err, time.Now()); recErr != nil {
+				w.log.WarnContext(wsCtx, "overlay reconcile: recording the sweep-failure backoff failed",
+					"workspace", d.Workspace.String(), "err", recErr)
+			}
+			continue
+		}
+		if recErr := w.ms.RecordSweepSuccess(wsCtx, time.Now()); recErr != nil {
+			w.log.WarnContext(wsCtx, "overlay reconcile: resetting the sweep backoff after success failed",
+				"workspace", d.Workspace.String(), "err", recErr)
 		}
 	}
 	return enumErr
+}
+
+// isConnectionLevelIncumbentError reports whether err is a WHOLE-connection
+// incumbent health failure — a rate limit, an auth rejection, or an
+// unreachable incumbent — as opposed to one object class's mapping/data
+// defect. Only connection-level failures abort the sweep and back the
+// connection off; a per-object failure is logged and the sweep moves on, so
+// one bad object never quarantines a whole workspace. It lives in compose,
+// not overlay, because it names hubspot.ErrUnreachable, which the overlay
+// package cannot import without a cycle.
+func isConnectionLevelIncumbentError(err error) bool {
+	return errors.Is(err, apperrors.ErrIncumbentBudgetExhausted) ||
+		errors.Is(err, apperrors.ErrPermissionDenied) ||
+		errors.Is(err, hubspot.ErrUnreachable)
 }
 
 // reconcileConnection builds a live incumbent adapter over d's vaulted
@@ -110,10 +144,13 @@ func (w *overlayReconcileWorker) Work(ctx context.Context, _ *river.Job[OverlayR
 // calling admin's own principal for the on-demand one) — reconcileConnection
 // itself makes no assumption about which. A per-object-class failure
 // (unreadable watermark, a failed sweep page, a failed watermark save)
-// is logged and skipped, never aborting the rest of the classes; only an
-// unsupported incumbent or a failed vault resolution — both mean there is
-// no adapter to sweep ANYTHING with — stop this connection's sweep
-// entirely and return an error to the caller.
+// is logged and skipped, never aborting the rest of the classes. A
+// CONNECTION-level failure — an unsupported incumbent, a failed vault
+// resolution, or an incumbent call that comes back rate-limited / auth-
+// rejected / unreachable (isConnectionLevelIncumbentError) — stops the
+// sweep and returns an error, which the periodic caller records as a
+// backoff (overlay_sync_state) so a dead or throttled connection is not
+// re-swept hot every tick.
 func reconcileConnection(ctx context.Context, vault keyvault.Vault, ms *overlay.MirrorStore, meter *overlay.Meter, log *slog.Logger, d overlay.DueOverlayConnection, newIncumbent func(region, token string) overlay.Incumbent) error {
 	if d.Incumbent != "hubspot" {
 		// Branch 1 wires only HubSpot (design.md §2 D2/D3) — a connection
@@ -148,6 +185,15 @@ func reconcileConnection(ctx context.Context, vault keyvault.Vault, ms *overlay.
 	// sweep below — an unseeded mapping is a fail-closed-eventually gap
 	// (the NEXT sweep retries), never a reason to stop syncing records.
 	if owners, err := inc.Owners(ctx); err != nil {
+		// The owners fetch is the sweep's first incumbent call. A
+		// connection-level failure here (auth revoked, rate-limited,
+		// unreachable) means every later call fails too, so abort and let
+		// the caller back the connection off rather than hammering it. A
+		// non-connection-level error stays best-effort (seeding is; the
+		// record sweep can still proceed).
+		if isConnectionLevelIncumbentError(err) {
+			return fmt.Errorf("overlay reconcile: owners directory fetch failed: %w", err)
+		}
 		log.WarnContext(ctx, "overlay reconcile: fetching the owners directory to seed mirror_user_map failed",
 			"workspace", d.Workspace.String(), "err", err)
 	} else if err := ms.SeedUserMap(ctx, d.Incumbent, owners); err != nil {
@@ -166,12 +212,21 @@ func reconcileConnection(ctx context.Context, vault keyvault.Vault, ms *overlay.
 	// mapping is a fail-closed-eventually gap (the NEXT sweep tries
 	// again), not a reason to stop syncing records this tick.
 	if err := ms.RevalidateEmailMappings(ctx, inc); err != nil {
+		if isConnectionLevelIncumbentError(err) {
+			return fmt.Errorf("overlay reconcile: email-mapping revalidation failed: %w", err)
+		}
 		log.WarnContext(ctx, "overlay reconcile: periodic email-mapping revalidation failed",
 			"workspace", d.Workspace.String(), "err", err)
 	}
 
 	for _, objectClass := range overlayObjectClasses {
-		sweepObjectClass(ctx, inc, ms, meter, log, d.Workspace.String(), objectClass)
+		// A connection-level failure sweeping any class aborts the whole
+		// sweep (the caller backs the connection off); a per-object failure
+		// was already logged inside sweepObjectClass and skips only that
+		// class, so the loop moves on.
+		if err := sweepObjectClass(ctx, inc, ms, meter, log, d.Workspace.String(), objectClass); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -186,7 +241,13 @@ func reconcileConnection(ctx context.Context, vault keyvault.Vault, ms *overlay.
 // stringified id, for logging only. Extracted from reconcileConnection so
 // the per-class sequence reads as one unit and the connection-level loop
 // stays short.
-func sweepObjectClass(ctx context.Context, inc overlay.Incumbent, ms *overlay.MirrorStore, meter *overlay.Meter, log *slog.Logger, workspace, objectClass string) {
+// It returns a non-nil error ONLY for a connection-level incumbent failure
+// (isConnectionLevelIncumbentError) — the signal reconcileConnection
+// propagates to abort the sweep and back the connection off. A per-object
+// failure (a mapping/data defect, a DB read/write blip) is logged and skips
+// the rest of THIS class with a nil return, so the connection-level loop
+// moves on to the next class.
+func sweepObjectClass(ctx context.Context, inc overlay.Incumbent, ms *overlay.MirrorStore, meter *overlay.Meter, log *slog.Logger, workspace, objectClass string) error {
 	// Initial full load before the incremental sweep: Backfill lists the
 	// object class id-cursor style AND fetches its associations (design.md
 	// §4.4), checkpointing overlay_backfill_cursor so SyncStatus's
@@ -196,21 +257,30 @@ func sweepObjectClass(ctx context.Context, inc overlay.Incumbent, ms *overlay.Mi
 	// on-demand through POST /overlay/reconcile) does the load, the rest
 	// ride the watermark.
 	if err := overlay.Backfill(ctx, inc, ms, objectClass); err != nil {
+		if isConnectionLevelIncumbentError(err) {
+			return err
+		}
 		log.WarnContext(ctx, "overlay reconcile: backfill pass failed, skipping this object class this tick",
 			"workspace", workspace, "object_class", objectClass, "err", err)
-		return
+		return nil
 	}
 	since, err := ms.LoadReconcileWatermark(ctx, objectClass)
 	if err != nil {
+		// A watermark read is a local DB call, not an incumbent one — a blip
+		// here is not a connection-level failure, so skip this class rather
+		// than back the whole connection off.
 		log.WarnContext(ctx, "overlay reconcile: loading the persisted watermark failed, skipping this object class",
 			"workspace", workspace, "object_class", objectClass, "err", err)
-		return
+		return nil
 	}
 	newWatermark, err := overlay.Reconcile(ctx, inc, ms, meter, objectClass, since)
 	if err != nil {
+		if isConnectionLevelIncumbentError(err) {
+			return err
+		}
 		log.WarnContext(ctx, "overlay reconcile sweep failed",
 			"workspace", workspace, "object_class", objectClass, "err", err)
-		return
+		return nil
 	}
 	if newWatermark.After(since) {
 		if err := ms.SaveReconcileWatermark(ctx, objectClass, newWatermark); err != nil {
@@ -227,11 +297,14 @@ func sweepObjectClass(ctx context.Context, inc overlay.Incumbent, ms *overlay.Mi
 	// Modified/Search feed, so the two do not fight over the same row. The
 	// sweep full-scans the archived feed each pass and purges idempotently
 	// (ReconcileDeletions' own doc explains why a watermark would be unsound
-	// over HubSpot's unordered archived feed). A failure is logged and skips
-	// only this class's deletion pass this tick.
+	// over HubSpot's unordered archived feed).
 	if err := overlay.ReconcileDeletions(ctx, inc, ms, meter, objectClass); err != nil {
+		if isConnectionLevelIncumbentError(err) {
+			return err
+		}
 		log.WarnContext(ctx, "overlay reconcile: deletion sweep failed",
 			"workspace", workspace, "object_class", objectClass, "err", err)
-		return
+		return nil
 	}
+	return nil
 }

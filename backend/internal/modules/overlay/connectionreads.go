@@ -63,14 +63,23 @@ func DueOverlayConnections(ctx context.Context, pool *pgxpool.Pool) ([]DueOverla
 		ws := ids.From[ids.WorkspaceKind](wsID)
 		err := database.WithWorkspaceTx(wsCtx, pool, func(tx pgx.Tx) error {
 			var incumbent, region, ref string
+			// The LEFT JOIN + next_sweep_at gate is the backoff (branch-1b):
+			// a workspace whose last sweep failed carries an overlay_sync_state
+			// row with a future next_sweep_at, so it is NOT selected until due
+			// — no more re-sweeping a revoked/rate-limited/unreachable
+			// connection hot every tick. No row (never swept, or reset by a
+			// success) is due immediately (COALESCE to now()).
 			scanErr := tx.QueryRow(wsCtx, `
-				SELECT incumbent, region, credential_ref FROM incumbent_connection
-				WHERE status = $1`, statusActive).Scan(&incumbent, &region, &ref)
+				SELECT c.incumbent, c.region, c.credential_ref
+				FROM incumbent_connection c
+				LEFT JOIN overlay_sync_state s ON s.workspace_id = c.workspace_id
+				WHERE c.status = $1 AND COALESCE(s.next_sweep_at, now()) <= now()`,
+				statusActive).Scan(&incumbent, &region, &ref)
 			if errors.Is(scanErr, pgx.ErrNoRows) {
-				// x_sor_mode='overlay' with no active connection row is a
-				// transient state (mid-teardown, or a row inserted but not
-				// yet committed) — the poller simply has nothing to sweep
-				// for this workspace this tick, not an error.
+				// Either x_sor_mode='overlay' with no active connection row (a
+				// transient mid-teardown state), or an active connection that
+				// is backed off and not yet due — in both cases the poller has
+				// nothing to sweep for this workspace this tick, not an error.
 				return nil
 			}
 			if scanErr != nil {
