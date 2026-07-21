@@ -30,11 +30,6 @@ import (
 // The CAP-PARAM-4 window set. "none" is expressed by never starting a run.
 var backfillWindows = map[int]bool{3: true, 6: true, 12: true}
 
-// estTokensPerMessage projects the classify+enrich spend per captured
-// message for the preview (truncated body + schema overhead, amortized).
-// An estimate, labeled as such — actual spend is metered per task.
-const estTokensPerMessage = 900
-
 // ErrWindowInvalid marks a window outside the offered set (422).
 var ErrWindowInvalid = errors.New("capture: the backfill window is not in the offered set")
 
@@ -83,12 +78,13 @@ func (r *Registry) connectionForUser(ctx context.Context, tx pgx.Tx, provider st
 	return id, err
 }
 
-// EstimateBackfill previews a window's scope: the provider-side message
-// count plus the projected AI tokens. The consent number (preview before
-// spend, ADR-0020).
-func (r *Registry) EstimateBackfill(ctx context.Context, provider string, userID ids.UserID, windowMonths int) (messages, tokens int, err error) {
+// EstimateBackfill previews a window's scope: the provider-side message count
+// newer than the window boundary. The consent number (preview before spend,
+// ADR-0020). Pricing the projected spend is the estimator's job now (ADR-0068),
+// so this returns the raw message count only.
+func (r *Registry) EstimateBackfill(ctx context.Context, provider string, userID ids.UserID, windowMonths int) (messages int, err error) {
 	if !backfillWindows[windowMonths] {
-		return 0, 0, fmt.Errorf("%w: %d months", ErrWindowInvalid, windowMonths)
+		return 0, fmt.Errorf("%w: %d months", ErrWindowInvalid, windowMonths)
 	}
 	var connID ids.UUID
 	var name string
@@ -105,25 +101,25 @@ func (r *Registry) EstimateBackfill(ctx context.Context, provider string, userID
 			Scan(&name, &credentialRef, &authBytes)
 	})
 	if err != nil {
-		return 0, 0, err
+		return 0, err
 	}
 	c, err := r.connector(name)
 	if err != nil {
-		return 0, 0, err
+		return 0, err
 	}
 	bf, ok := c.(connector.Backfiller)
 	if !ok {
-		return 0, 0, ErrBackfillUnsupported
+		return 0, ErrBackfillUnsupported
 	}
 	auth, err := r.resolveCredential(ctx, credentialRef, authBytes)
 	if err != nil {
-		return 0, 0, err
+		return 0, err
 	}
 	messages, err = bf.EstimateBackfill(ctx, auth, r.now().AddDate(0, -windowMonths, 0))
 	if err != nil {
-		return 0, 0, err
+		return 0, err
 	}
-	return messages, messages * estTokensPerMessage, nil
+	return messages, nil
 }
 
 // StartBackfill creates the run (widen-only versus any prior) and returns
