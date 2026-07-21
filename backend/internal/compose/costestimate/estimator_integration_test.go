@@ -158,18 +158,20 @@ type callRow struct {
 	tier                                                ai.Tier
 	provider, model                                     string
 	tokensIn, tokensOut, cachedTokens, cacheWriteTokens int
+	errorSentinel                                       string // "" ⇒ NULL (a clean served row)
 }
 
-// insertCall seeds one served ai_call row (occurred_at inWindow, no cache hit,
-// no error sentinel — the served-row shape).
+// insertCall seeds one served ai_call row (occurred_at inWindow, no cache hit).
+// errorSentinel defaults to NULL; set it to 'metering_failed' to seed a call the
+// model served (tokens spent) whose only failure was the meter write.
 func (e *estEnv) insertCall(t *testing.T, ws ids.UUID, c callRow) {
 	t.Helper()
 	if _, err := e.owner.Exec(context.Background(), `
 		INSERT INTO ai_call (workspace_id, task, tier, provider, model_id, request_fingerprint,
-		  tokens_in, tokens_out, cached_tokens, cache_write_tokens, cache_hit, occurred_at, logical_call_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,false,$11,$12)`,
+		  tokens_in, tokens_out, cached_tokens, cache_write_tokens, cache_hit, occurred_at, logical_call_id, error_sentinel)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,false,$11,$12,NULLIF($13,''))`,
 		ws, string(c.task), string(c.tier), c.provider, c.model, "fp-"+ids.NewV7().String(),
-		c.tokensIn, c.tokensOut, c.cachedTokens, c.cacheWriteTokens, inWindow, ids.NewV7()); err != nil {
+		c.tokensIn, c.tokensOut, c.cachedTokens, c.cacheWriteTokens, inWindow, ids.NewV7(), c.errorSentinel); err != nil {
 		t.Fatalf("insert call %+v: %v", c, err)
 	}
 }
@@ -330,12 +332,49 @@ func TestEstimatorExcludesRatelessModelAndFlagsHeuristic(t *testing.T) {
 	if !got.HasCost {
 		t.Fatal("HasCost = false, want true (the local-model slice priced)")
 	}
-	// Cost reflects ONLY the priced local slice: units = 100; denom = labeled = 2;
-	// pricedCalls = 1, sumCalls = 2 → pricedDenom = max(2×1/2,1) = 1.
+	// Cost reflects ONLY the priced local slice, spread over the FULL labeled
+	// denominator — classify counts labeled MESSAGES, not calls, so a partly
+	// unpriced mix is NOT call-reweighted (that would overquote): units = 100;
+	// denom = labeled = 2; pricedDenom = 2; the unpriced cloud share falls to $0.
 	wantMicro := ai.PriceCall(ai.Usage{TokensIn: 1_000_000},
-		ai.ModelRate{InputPerMTokMicroUSD: 1_000_000}) * 100 / 1
+		ai.ModelRate{InputPerMTokMicroUSD: 1_000_000}) * 100 / 2
 	if got.CostMinor != wantMicro/microsPerMinor {
 		t.Fatalf("CostMinor = %d, want %d (only the priced local slice)", got.CostMinor, wantMicro/microsPerMinor)
+	}
+}
+
+// TestEstimatorCountsMeteringFailedRows: a call whose meter write failed
+// (error_sentinel='metering_failed') was still SERVED — the model answered and
+// spent provider tokens (only the metering-DB write failed, callstore.go's
+// errMeteringFailed). Excluding it would understate the next preview, so the
+// served-row filter must count it. Here the ONLY classify slice is a
+// metering_failed row: if it were dropped, classify would fall to the cheap
+// work-shape floor and the cost would be a tiny floor figure instead of the
+// large observed one this asserts.
+func TestEstimatorCountsMeteringFailedRows(t *testing.T) {
+	e := setupEstimator(t)
+	ws, wsCtx := e.seedWorkspace(t)
+	user := e.seedUser(t, ws)
+	connID := e.seedConnection(t, ws, user, "gmail")
+	e.seedBackfill(t, ws, connID, 6, 100, 100, 0, 0)
+
+	e.insertRate(t, ws, "cloud-model", 1_000_000, 0)
+	e.insertCall(t, ws, callRow{task: ai.TaskCaptureClassify, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "cloud-model", tokensIn: 2_000_000, tokensOut: 0, errorSentinel: "metering_failed"})
+	e.insertLabeledActivity(t, ws)
+
+	got, err := e.newEstimator().EstimateBackfill(wsCtx, "gmail", user, 100)
+	if err != nil {
+		t.Fatalf("EstimateBackfill: %v", err)
+	}
+	// The metering_failed slice is counted: units = 100, denom = labeled = 1,
+	// pricedDenom = 1 (single priced classify slice). A dropped row would floor.
+	wantMicro := ai.PriceCall(ai.Usage{TokensIn: 2_000_000},
+		ai.ModelRate{InputPerMTokMicroUSD: 1_000_000}) * 100 / 1
+	if !got.HasCost {
+		t.Fatal("HasCost = false, want true (the metering_failed slice still spent tokens)")
+	}
+	if got.CostMinor != wantMicro/microsPerMinor {
+		t.Fatalf("CostMinor = %d, want %d — the metering_failed slice was dropped and classify fell to the floor", got.CostMinor, wantMicro/microsPerMinor)
 	}
 }
 

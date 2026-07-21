@@ -18,8 +18,13 @@ import (
 // on the model that ACTUALLY ran. The cost estimator prices each slice at the
 // model that will run it and scales it by expected units.
 //
-// "Served" is the phase-1 filter: NOT cache_hit AND error_sentinel IS NULL AND
-// tokens_in > 0 — a cache hit, a failed attempt, or a zero-token row is not a
+// "Served" means the provider actually ran the model and spent tokens: NOT
+// cache_hit AND tokens_in > 0 AND the terminal was not a provider failure. A
+// success (error_sentinel IS NULL) qualifies, and so does 'metering_failed' —
+// that terminal marks a call the model ANSWERED (tokens were spent) where only
+// the usage-meter write failed (see callstore.go's errMeteringFailed), so
+// excluding it would understate the per-unit cost. A cache hit, a zero-token
+// row, or a genuine provider error (which spent nothing billable here) is not a
 // billable model invocation and must not skew the per-unit cost.
 type ServedTaskTotal struct {
 	Task     Task
@@ -47,7 +52,8 @@ func (s *CallReadStore) ServedTaskTotals(ctx context.Context, tasks []Task, sinc
 		       sum(tokens_in), sum(cached_tokens), sum(cache_write_tokens),
 		       sum(tokens_out), count(*)
 		FROM ai_call
-		WHERE occurred_at >= $1 AND NOT cache_hit AND error_sentinel IS NULL
+		WHERE occurred_at >= $1 AND NOT cache_hit
+		      AND (error_sentinel IS NULL OR error_sentinel = 'metering_failed')
 		      AND tokens_in > 0 AND task = ANY($2)
 		GROUP BY task, tier, provider, model_id`
 
