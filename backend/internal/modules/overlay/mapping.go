@@ -6,10 +6,21 @@ package overlay
 import (
 	"fmt"
 	"math/big"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 )
+
+// decimalAmountPattern accepts only a plain or scientific DECIMAL amount —
+// an optional sign, digits with an optional fraction (or a leading-dot
+// fraction), and an optional base-10 exponent. It exists to fence
+// big.Rat.SetString, which is far more permissive than a HubSpot amount
+// ever is: SetString would otherwise accept rationals ("1/2"), hex/binary
+// prefixes ("0x10"), and digit-group underscores ("1_000") and silently
+// coin money from them. Anything this does not match is rejected before
+// conversion.
+var decimalAmountPattern = regexp.MustCompile(`^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$`)
 
 // TargetKind names the shape of an incumbent-CRM property's landing spot
 // in the mirror. A 1:1 flat projector can express none of these on its
@@ -142,6 +153,9 @@ func transformAmountToMinor(v any) (any, error) {
 // rounding half away from zero. It works on big.Rat so no binary float
 // error is ever introduced, and rejects a value that overflows int64.
 func decimalStringToMinor(s string, scale int64) (int64, error) {
+	if !decimalAmountPattern.MatchString(s) {
+		return 0, fmt.Errorf("not a decimal amount")
+	}
 	r, ok := new(big.Rat).SetString(s)
 	if !ok {
 		return 0, fmt.Errorf("not a finite decimal amount")

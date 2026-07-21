@@ -35,24 +35,6 @@ import (
 // which needs it). It fails loudly rather than skipping: a missing DSN
 // means the dependency (`make db-up`) was never provisioned, and a
 // silently skipped test looks exactly like a passing one.
-// overlayAdminObjectGrants is the object-capability set the overlay
-// integration fixtures bind for an admin actor: full CRUD on
-// overlay_connection (Connect/Disconnect are admin/ops-only) plus Read on
-// every mirrored entity type. The entity-Read grants are required now that
-// the overlay Provider object-gates its reads like the native stores —
-// without them the fixture actor would be denied the very mirror rows the
-// read tests assert on. RowScope stays all; overlay row scope is the
-// store's mirror_visibility deny-join, not the RBAC owner predicate.
-func overlayAdminObjectGrants() map[string]principal.ObjectGrant {
-	grants := map[string]principal.ObjectGrant{
-		overlayConnectionObject: {Create: true, Read: true, Update: true, Delete: true},
-	}
-	for _, obj := range []string{"person", "organization", "deal", "lead", "activity"} {
-		grants[obj] = principal.ObjectGrant{Read: true}
-	}
-	return grants
-}
-
 func testWorkspaceCtx(t *testing.T) (context.Context, *pgxpool.Pool, ids.UUID) {
 	t.Helper()
 	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
@@ -109,6 +91,27 @@ func testWorkspaceCtx(t *testing.T) (context.Context, *pgxpool.Pool, ids.UUID) {
 		},
 	})
 	return opCtx, pool, ws
+}
+
+// overlayAdminObjectGrants is the object-capability set the overlay
+// integration fixtures bind for an admin actor: full CRUD on
+// overlay_connection (Connect/Disconnect are admin/ops-only) plus Read on
+// every mirrored entity type. The entity-Read grants are required now that
+// the overlay Provider object-gates its reads like the native stores —
+// without them the fixture actor would be denied the very mirror rows the
+// read tests assert on. The mirrored-entity set is derived from
+// knownEntityTypes (the provider's own list), so a new mirrored type can
+// never silently lack its fixture grant. RowScope stays all; overlay row
+// scope is the store's mirror_visibility deny-join, not the RBAC owner
+// predicate.
+func overlayAdminObjectGrants() map[string]principal.ObjectGrant {
+	grants := map[string]principal.ObjectGrant{
+		overlayConnectionObject: {Create: true, Read: true, Update: true, Delete: true},
+	}
+	for _, et := range knownEntityTypes {
+		grants[string(et)] = principal.ObjectGrant{Read: true}
+	}
+	return grants
 }
 
 // testWorkspaceCtxAsUser seeds one more human app_user into ws (an

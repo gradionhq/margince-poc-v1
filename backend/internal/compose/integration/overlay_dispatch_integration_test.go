@@ -141,8 +141,16 @@ func seedOverlayModeWorkspace(t *testing.T) (ws, user ids.UUID) {
 func overlayActorCtx(ws, user ids.UUID) context.Context {
 	ctx := principal.WithWorkspaceID(context.Background(), ws)
 	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
+	// A normal overlay reader carries the same object-capability grants a
+	// native reader does — the overlay Provider object-gates its reads like
+	// the native stores. Overlay ROW visibility is the mirror_visibility
+	// deny-join (HubSpot-owner mapping), independent of RBAC row scope, so an
+	// unmapped actor still sees zero rows (existence-hiding) despite these
+	// grants: the object gate must pass for the row-scope test to be the one
+	// that actually runs.
 	return principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalHuman, ID: "human:" + user.String(), UserID: user,
+		Permissions: AdminPerms,
 	})
 }
 

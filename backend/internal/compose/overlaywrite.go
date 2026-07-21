@@ -27,6 +27,22 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
+// The backing MCP tool verbs (agentPolicy.Tool values) of the operations
+// the overlay Provider declares unsupported, plus the "tool" access class.
+// Named as constants both for legibility and because these strings recur
+// across the generated policy table.
+const (
+	toolCreateRecord   = "create_record"
+	toolUpdateRecord   = "update_record"
+	toolArchiveRecord  = "archive_record"
+	toolDisqualifyLead = "disqualify_lead"
+	toolAdvanceDeal    = "advance_deal"
+	toolMergeRecords   = "merge_records"
+	toolPromoteLead    = "promote_lead"
+	toolLogActivity    = "log_activity"
+	accessTool         = "tool"
+)
+
 // overlaySoRWriteTools are the backing MCP tool verbs of the operations the
 // overlay Provider declares unsupported (its Create/Update/AdvanceDeal/
 // Archive/Merge/PromoteLead seam). A mutating route whose generated policy
@@ -35,14 +51,14 @@ import (
 // email, book meeting, relink) and human-only governance are deliberately
 // ABSENT — they are not SoR record writes and remain available in overlay.
 var overlaySoRWriteTools = map[string]bool{
-	"create_record":   true,
-	"update_record":   true,
-	"archive_record":  true,
-	"disqualify_lead": true,
-	"advance_deal":    true,
-	"merge_records":   true,
-	"promote_lead":    true,
-	"log_activity":    true,
+	toolCreateRecord:   true,
+	toolUpdateRecord:   true,
+	toolArchiveRecord:  true,
+	toolDisqualifyLead: true,
+	toolAdvanceDeal:    true,
+	toolMergeRecords:   true,
+	toolPromoteLead:    true,
+	toolLogActivity:    true,
 }
 
 // overlayModeChecker resolves whether the request's workspace is in overlay
@@ -75,7 +91,7 @@ func overlayWriteGuard(mode overlayModeChecker) func(http.Handler) http.Handler 
 			}
 			pattern := chi.RouteContext(r.Context()).RoutePattern()
 			pol, known := agentPolicies[r.Method+" "+pattern]
-			if !known || pol.Access != "tool" || !overlaySoRWriteTools[pol.Tool] {
+			if !known || pol.Access != accessTool || !overlaySoRWriteTools[pol.Tool] {
 				next.ServeHTTP(w, r)
 				return
 			}

@@ -8570,7 +8570,7 @@ type OverlayBudgetBand string
 type OverlayConnectRequest struct {
 	Incumbent OverlayConnectRequestIncumbent `json:"incumbent"`
 
-	// PrivateAppToken Sealed into the vault; never echoed.
+	// PrivateAppToken Sealed into the vault; never echoed. An empty value is rejected (422); a real credential is required to connect.
 	PrivateAppToken string `json:"privateAppToken"`
 	Region          string `json:"region"`
 }

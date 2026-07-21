@@ -15,6 +15,7 @@ import (
 // A zero or negative interval must be a boot error, never a silent default.
 func TestParseWorkerFlagsRejectsNonPositiveIntervals(t *testing.T) {
 	base := []string{"--dsn", "postgres://localhost/x"}
+	// Strict scheduling PERIODS: both zero and negative are boot errors.
 	for _, flag := range []string{
 		"--runner-interval",
 		"--retention-interval",
@@ -23,7 +24,6 @@ func TestParseWorkerFlagsRejectsNonPositiveIntervals(t *testing.T) {
 		"--time-scan-interval",
 		"--gmail-sync-interval",
 		"--gmail-watch-interval",
-		"--gmail-watch-renew-within",
 		"--overlay-reconcile-interval",
 	} {
 		for _, bad := range []string{"0", "-1s"} {
@@ -34,6 +34,18 @@ func TestParseWorkerFlagsRejectsNonPositiveIntervals(t *testing.T) {
 				t.Errorf("parseWorkerFlags(%s=%s): error %q should name the offending flag", flag, bad, err)
 			}
 		}
+	}
+	// gmail-watch-renew-within is a renewal THRESHOLD, not a period: zero is
+	// valid (renew already-expired watches), negative is not.
+	if _, err := parseWorkerFlags(append(append([]string{}, base...), "--gmail-watch-renew-within=0")); err != nil {
+		t.Errorf("parseWorkerFlags(--gmail-watch-renew-within=0): want acceptance, got %v", err)
+	}
+	if _, err := parseWorkerFlags(append(append([]string{}, base...), "--gmail-watch-renew-within=-1s")); err == nil {
+		t.Error("parseWorkerFlags(--gmail-watch-renew-within=-1s): want a boot error, got nil")
+	}
+	// A negative overlay backfill limit is rejected; zero (uncapped) is fine.
+	if _, err := parseWorkerFlags(append(append([]string{}, base...), "--overlay-backfill-limit=-1")); err == nil {
+		t.Error("parseWorkerFlags(--overlay-backfill-limit=-1): want a boot error, got nil")
 	}
 }
 

@@ -4426,7 +4426,7 @@ export interface components {
             /** @enum {string} */
             incumbent: "hubspot";
             region: string;
-            /** @description Sealed into the vault; never echoed. */
+            /** @description Sealed into the vault; never echoed. An empty value is rejected (422); a real credential is required to connect. */
             privateAppToken: string;
         };
         /** @description Per-object mirror sync health — freshness state and backfill completeness (design.md §4.7). */

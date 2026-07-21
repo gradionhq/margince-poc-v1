@@ -338,7 +338,13 @@ func TestApplyAmountToMinorRejectsNonFiniteAndOverflow(t *testing.T) {
 			{From: []string{"amount"}, To: "amount_minor", Kind: overlay.TargetColumn, Transform: "amount_to_minor"},
 		},
 	}
-	for _, bad := range []string{"NaN", "Inf", "-Inf", "not-a-number", "99999999999999999999999999"} {
+	// Non-finite, non-numeric, overflow, AND the big.Rat forms that are not
+	// HubSpot decimals (rationals, hex/binary prefixes, digit underscores)
+	// must all be rejected — never silently coined into money.
+	for _, bad := range []string{
+		"NaN", "Inf", "-Inf", "not-a-number", "99999999999999999999999999",
+		"1/2", "0x10", "0b101", "1_000",
+	} {
 		if _, _, err := overlay.Apply(m, map[string]any{"amount": bad}); err == nil {
 			t.Errorf("Apply(amount=%q): want an error, got none", bad)
 		}

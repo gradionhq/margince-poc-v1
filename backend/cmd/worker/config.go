@@ -101,8 +101,8 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	if err := overlayBackfillLimitFromEnv(&cfg.overlayBackfillLimit); err != nil {
 		return workerConfig{}, err
 	}
-	if cfg.deepReadMaxPages < 0 || cfg.deepReadMaxBytes < 0 || cfg.deepReadWall < 0 {
-		return workerConfig{}, errors.New("worker: the deep-read caps must be zero (default) or positive")
+	if cfg.deepReadMaxPages < 0 || cfg.deepReadMaxBytes < 0 || cfg.deepReadWall < 0 || cfg.overlayBackfillLimit < 0 {
+		return workerConfig{}, errors.New("worker: the deep-read caps and the overlay backfill limit must be zero (default/uncapped) or positive")
 	}
 	if err := validateSchedulerIntervals(cfg); err != nil {
 		return workerConfig{}, err
@@ -110,13 +110,17 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	return cfg, nil
 }
 
-// validateSchedulerIntervals rejects a non-positive value for any interval
+// validateSchedulerIntervals rejects a non-positive value for any duration
 // that becomes a time.Ticker period or a River periodic schedule: a
 // time.Ticker panics on a non-positive duration, and a non-positive River
-// interval continuously reschedules its maintenance job. These are all
-// clocks, never caps — none has a documented zero-means-unset meaning
-// (that belongs to the deep-read caps and the backfill limit, validated
-// above), so zero and negative are boot errors, never silent defaults.
+// interval continuously reschedules its maintenance job. These are strictly
+// scheduling PERIODS. Two duration flags are deliberately NOT in this set:
+// gmail-watch-renew-within is a renewal THRESHOLD (a lead time —
+// time.Now().Add(within) in DueWatches), so zero validly means "renew
+// missing or already-expired watches" and is checked separately (negative
+// only); and the deep-read / backfill caps are counts with a documented
+// zero-means-default meaning, validated above. Zero and negative here are
+// boot errors, never silent defaults.
 func validateSchedulerIntervals(cfg workerConfig) error {
 	intervals := []struct {
 		flag string
@@ -129,13 +133,17 @@ func validateSchedulerIntervals(cfg workerConfig) error {
 		{"time-scan-interval", cfg.timeScanInterval},
 		{"gmail-sync-interval", cfg.gmailSyncInterval},
 		{"gmail-watch-interval", cfg.gmailWatchInterval},
-		{"gmail-watch-renew-within", cfg.gmailWatchRenew},
 		{"overlay-reconcile-interval", cfg.overlayInterval},
 	}
 	for _, iv := range intervals {
 		if iv.d <= 0 {
 			return fmt.Errorf("worker: --%s must be a positive duration, got %s", iv.flag, iv.d)
 		}
+	}
+	// A renewal lead time may be zero (renew already-expired watches) but
+	// never negative (renew in the past is nonsensical).
+	if cfg.gmailWatchRenew < 0 {
+		return fmt.Errorf("worker: --gmail-watch-renew-within must be zero or positive, got %s", cfg.gmailWatchRenew)
 	}
 	return nil
 }
