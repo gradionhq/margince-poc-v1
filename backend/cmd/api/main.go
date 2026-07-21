@@ -188,6 +188,11 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	opts = append(opts, compose.WithAIState(aiState))
 	if modelPath != nil {
 		opts = append(opts, compose.WithAIMetrics(modelPath.WriteMetrics))
+		// The backfill preview's cost pre-flight (ADR-0068) prices observed
+		// history at this role's live tier bindings; self-gates to a no-op when
+		// the backfill surface isn't wired. Appended after baseComposeOptions'
+		// WithCaptureBackfill so the shared registry is already set.
+		opts = append(opts, compose.WithBackfillEstimator(modelPath.Router()))
 	}
 
 	deepRead, err := deepReadOption(pool, logger)
