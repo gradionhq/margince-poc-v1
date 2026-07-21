@@ -131,31 +131,53 @@ func ensureOrgDomainsUnclaimedExcept(ctx context.Context, tx pgx.Tx, self ids.Or
 	return nil
 }
 
-// readLiveDomains returns the org's live domains as a lookup set and as
-// audit-before rows in one pass.
-func readLiveDomains(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (map[string]bool, []map[string]any, error) {
+// readLiveDomains returns the org's live domains as a lookup set, the
+// audit-before rows, and the current primary domain (or "") in one pass.
+func readLiveDomains(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (live map[string]bool, before []map[string]any, currentPrimary string, err error) {
 	rows, err := tx.Query(ctx,
 		`SELECT domain, is_primary FROM organization_domain
 		 WHERE organization_id = $1 AND archived_at IS NULL`, orgID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("read current domains: %w", err)
+		return nil, nil, "", fmt.Errorf("read current domains: %w", err)
 	}
 	defer rows.Close()
-	live := map[string]bool{}
-	before := []map[string]any{}
+	live = map[string]bool{}
 	for rows.Next() {
 		var domain string
 		var isPrimary bool
 		if err := rows.Scan(&domain, &isPrimary); err != nil {
-			return nil, nil, fmt.Errorf("scan current domain: %w", err)
+			return nil, nil, "", fmt.Errorf("scan current domain: %w", err)
 		}
 		live[domain] = true
+		if isPrimary {
+			currentPrimary = domain
+		}
 		before = append(before, map[string]any{"domain": domain, "is_primary": isPrimary})
 	}
 	if err := rows.Err(); err != nil {
-		return nil, nil, fmt.Errorf("read current domains: %w", err)
+		return nil, nil, "", fmt.Errorf("read current domains: %w", err)
 	}
-	return live, before, nil
+	return live, before, currentPrimary, nil
+}
+
+// dedupeDomains collapses domains that normalize to the same host (parse
+// already normalized them), OR-ing is_primary. A replace-set that names the
+// same host twice then reconciles once instead of self-colliding on
+// uq_org_domain with a misleading ownership 409.
+func dedupeDomains(domains []OrgDomainInput) []OrgDomainInput {
+	at := map[string]int{}
+	out := make([]OrgDomainInput, 0, len(domains))
+	for _, d := range domains {
+		if i, ok := at[d.Domain]; ok {
+			if d.IsPrimary {
+				out[i].IsPrimary = true
+			}
+			continue
+		}
+		at[d.Domain] = len(out)
+		out = append(out, d)
+	}
+	return out
 }
 
 // singleDesiredPrimary returns the one domain marked primary, or "" for
@@ -183,7 +205,7 @@ func singleDesiredPrimary(desired []OrgDomainInput) (string, error) {
 // adds reuse insertOrgDomains so the uniqueness→409 mapping stays one
 // spelling. Callers validate the domains (parse + unclaimed) first.
 func reconcileOrgDomains(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, orgID ids.OrganizationID, by string, desired []OrgDomainInput) ([]map[string]any, error) {
-	live, before, err := readLiveDomains(ctx, tx, orgID)
+	live, before, currentPrimary, err := readLiveDomains(ctx, tx, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -192,12 +214,15 @@ func reconcileOrgDomains(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, o
 		return nil, err
 	}
 
-	// Clear every current primary first so setting the new one never races
-	// the unique index against a still-primary row.
-	if _, err := tx.Exec(ctx,
-		`UPDATE organization_domain SET is_primary = false
-		 WHERE organization_id = $1 AND archived_at IS NULL AND is_primary`, orgID); err != nil {
-		return nil, fmt.Errorf("clear domain primaries: %w", err)
+	// The primary only moves when it actually changes — a no-op re-submit
+	// must not touch the row. Clearing before setting keeps the transient
+	// state from racing uq_org_domain_primary against a still-primary row.
+	if primary != currentPrimary {
+		if _, err := tx.Exec(ctx,
+			`UPDATE organization_domain SET is_primary = false
+			 WHERE organization_id = $1 AND archived_at IS NULL AND is_primary`, orgID); err != nil {
+			return nil, fmt.Errorf("clear domain primaries: %w", err)
+		}
 	}
 
 	desiredSet := map[string]bool{}
@@ -216,7 +241,7 @@ func reconcileOrgDomains(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, o
 			return nil, err
 		}
 	}
-	if primary != "" {
+	if primary != "" && primary != currentPrimary {
 		if _, err := tx.Exec(ctx,
 			`UPDATE organization_domain SET is_primary = true
 			 WHERE organization_id = $1 AND domain = lower($2) AND archived_at IS NULL`,

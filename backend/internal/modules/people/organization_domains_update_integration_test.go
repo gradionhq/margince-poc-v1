@@ -164,6 +164,58 @@ func TestUpdateOrganizationDomainConflictIsTyped409(t *testing.T) {
 	}
 }
 
+func TestUpdateOrganizationClearsAllDomains(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	org, err := e.store.CreateOrganization(ctx, CreateOrganizationInput{
+		DisplayName: "Clear GmbH", Source: "manual",
+		Domains: []OrgDomainInput{{Domain: "clear.test", IsPrimary: true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	orgID := ids.From[ids.OrganizationKind](ids.UUID(org.Id))
+
+	// An explicit empty replace-set clears every domain (not "untouched").
+	if _, err := e.store.UpdateOrganization(ctx, orgID, UpdateOrganizationInput{
+		Domains: &[]OrgDomainInput{},
+	}); err != nil {
+		t.Fatalf("clear-all update: %v", err)
+	}
+	if live := liveDomainsOf(ctx, t, e, orgID); len(live) != 0 {
+		t.Fatalf("clear-all left %+v, want none", live)
+	}
+}
+
+func TestUpdateOrganizationDeduplicatesDomainInput(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	org, err := e.store.CreateOrganization(ctx, CreateOrganizationInput{
+		DisplayName: "Dup GmbH", Source: "manual",
+		Domains: []OrgDomainInput{{Domain: "dup.test", IsPrimary: true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	orgID := ids.From[ids.OrganizationKind](ids.UUID(org.Id))
+
+	// The same host named twice (here also via its www form, which normalizes
+	// to the same domain) must reconcile to one row — not self-collide on
+	// uq_org_domain with a misleading ownership 409.
+	if _, err := e.store.UpdateOrganization(ctx, orgID, UpdateOrganizationInput{
+		Domains: &[]OrgDomainInput{
+			{Domain: "dup.test", IsPrimary: true},
+			{Domain: "www.dup.test", IsPrimary: false},
+		},
+	}); err != nil {
+		t.Fatalf("self-duplicate replace-set must dedupe, not conflict: %v", err)
+	}
+	live := liveDomainsOf(ctx, t, e, orgID)
+	if len(live) != 1 || !live["dup.test"] {
+		t.Fatalf("dedupe left %+v, want {dup.test:true}", live)
+	}
+}
+
 func TestUpdateOrganizationKeepingOwnDomainIsNoFalseConflict(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.as()

@@ -204,6 +204,9 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.OrganizationID, i
 			if err := parseOrgDomains(*in.Domains); err != nil {
 				return err
 			}
+			// Collapse hosts that normalize to the same domain so the probe,
+			// reconcile, and audit-after all see one row per host.
+			*in.Domains = dedupeDomains(*in.Domains)
 			if err := ensureOrgDomainsUnclaimedExcept(ctx, tx, id, *in.Domains); err != nil {
 				return err
 			}

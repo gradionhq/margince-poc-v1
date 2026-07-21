@@ -80,7 +80,10 @@ func (s *Store) ListOrganizationFacts(ctx context.Context, id ids.OrganizationID
 			fact.Source = crmcontracts.OrganizationFactSource(source)
 			out = append(out, fact)
 		}
-		return rows.Err()
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("iterate organization facts: %w", err)
+		}
+		return nil
 	})
 	return out, err
 }
@@ -121,7 +124,10 @@ func (s *Store) ListOrganizationProfileFields(ctx context.Context, id ids.Organi
 			pf.Source = crmcontracts.CompanyProfileFieldSource(source)
 			out = append(out, pf)
 		}
-		return rows.Err()
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("iterate organization profile fields: %w", err)
+		}
+		return nil
 	})
 	return out, err
 }

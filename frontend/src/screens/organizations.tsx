@@ -146,13 +146,34 @@ function asSizeBand(
 // update the field is omitted so the stored set stays untouched (never
 // silently cleared).
 function mapDomainRows(rows: FormRows): CreateOrganizationRequest["domains"] {
-  const domains = (rows.domains ?? [])
+  const domains = mapDomainRowsReplaceSet(rows);
+  return domains.length > 0 ? domains : undefined;
+}
+
+type DomainPatch = NonNullable<UpdateOrganizationRequest["domains"]>;
+
+// The edit-patch form of the repeatable domains field: always the concrete
+// desired set (possibly empty), so a caller can send [] to clear every domain.
+// Blank rows drop; the primary radio ("true"/"") becomes the boolean flag.
+function mapDomainRowsReplaceSet(rows: FormRows): DomainPatch {
+  return (rows.domains ?? [])
     .filter((row) => (row.domain ?? "").trim().length > 0)
     .map((row) => ({
       domain: row.domain.trim().toLowerCase(),
       is_primary: row.is_primary === "true",
     }));
-  return domains.length > 0 ? domains : undefined;
+}
+
+// Order-independent set equality: an edit that leaves the domains untouched
+// omits the field (sparse PATCH), while any real change — including clearing
+// to empty — sends the replace-set.
+function sameDomainSet(a: DomainPatch, b: DomainPatch): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  const key = (d: DomainPatch[number]) => `${d.domain}:${d.is_primary ? 1 : 0}`;
+  const seen = new Set(a.map(key));
+  return b.every((d) => seen.has(key(d)));
 }
 
 // Builds the create-company request body: `domains[]` rows carry
@@ -173,18 +194,30 @@ export function mapOrgBody(
 }
 
 // Builds the PATCH body: the scalar UpdateOrganizationRequest fields plus the
-// domains replace-set from the edit modal's repeatable rows.
+// domains replace-set from the edit modal's repeatable rows. Domains are sent
+// only when the set actually changed from `currentDomains` — an untouched edit
+// omits the field (sparse PATCH), and clearing every row sends [] (clear all),
+// the two cases the contract's "absent = untouched" vs "[] = clear" distinguish.
 export function mapOrgUpdate(
   values: Record<string, unknown>,
   rows: FormRows,
+  currentDomains: Organization["domains"] = [],
 ): UpdateOrganizationRequest {
-  return {
+  const desired = mapDomainRowsReplaceSet(rows);
+  const current: DomainPatch = (currentDomains ?? []).map((domain) => ({
+    domain: domain.domain,
+    is_primary: domain.is_primary,
+  }));
+  const body: UpdateOrganizationRequest = {
     display_name: stringField(values.display_name).trim() || undefined,
     legal_name: stringField(values.legal_name).trim() || undefined,
     industry: stringField(values.industry).trim() || undefined,
     size_band: asSizeBand(stringField(values.size_band)),
-    domains: mapDomainRows(rows),
   };
+  if (!sameDomainSet(desired, current)) {
+    body.domains = desired;
+  }
+  return body;
 }
 
 const companyCreateFields: CreateField[] = [
@@ -902,6 +935,42 @@ const FACT_CATEGORY_LABELS: Record<OrganizationFact["category"], MessageKey> = {
   signal: "org.factCategory.signal",
 };
 
+// One fact row: value plus its trust signals — provenance always, confidence
+// whenever graded, and the evidence snippet — the same "confidence is never
+// hidden" convention as ProfileFieldRow.
+function FactRow({ fact }: Readonly<{ fact: OrganizationFact }>) {
+  const t = useT();
+  const level = confidenceLevel(fact.confidence);
+  return (
+    <div>
+      <dt>{coldFieldLabel(fact.field, t)}</dt>
+      <dd>
+        <div>{fact.value}</div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            flexWrap: "wrap",
+            marginTop: 4,
+          }}
+        >
+          <ProvenanceTag provenance={provenanceOf(fact.captured_by)} />
+          {level && <ConfidenceMeter level={level} />}
+          {fact.evidence_snippet && (
+            <EvidenceChip
+              evidence={{
+                snippet: fact.evidence_snippet,
+                source: fact.source_url ?? "",
+              }}
+            />
+          )}
+        </div>
+      </dd>
+    </div>
+  );
+}
+
 function FactsCard({ orgId }: Readonly<{ orgId: string }>) {
   const t = useT();
   const factsQuery = useQuery({
@@ -917,9 +986,20 @@ function FactsCard({ orgId }: Readonly<{ orgId: string }>) {
     },
   });
 
-  // Facts are supplementary: while the read is in flight, or if it has nothing
-  // to show, the card stays absent rather than flashing a skeleton or an empty
-  // shell next to the profile card that already owns the region's states.
+  // A read that failed is surfaced, never swallowed as "no facts" — an empty
+  // read and a 404/network error must stay distinguishable and retryable.
+  if (factsQuery.isError) {
+    return (
+      <section className="card" style={{ marginBottom: 16 }}>
+        <SectionHeader title={t("org.facts")} sub={t("org.evidenceOrOmit")} />
+        <QueryStates query={factsQuery}>{null}</QueryStates>
+      </section>
+    );
+  }
+
+  // Otherwise facts are supplementary: while the read is in flight, or if it
+  // has nothing to show, the card stays absent rather than flashing a skeleton
+  // or an empty shell next to the profile card that owns the region's states.
   const facts = factsQuery.data;
   if (!facts || facts.length === 0) {
     return null;
@@ -938,20 +1018,7 @@ function FactsCard({ orgId }: Readonly<{ orgId: string }>) {
             <span className="t-label">{t(FACT_CATEGORY_LABELS[category])}</span>
             <dl className="firmo">
               {group.map((fact) => (
-                <div key={fact.value_key}>
-                  <dt>{coldFieldLabel(fact.field, t)}</dt>
-                  <dd>
-                    {fact.value}
-                    {fact.evidence_snippet && (
-                      <EvidenceChip
-                        evidence={{
-                          snippet: fact.evidence_snippet,
-                          source: fact.source_url ?? "",
-                        }}
-                      />
-                    )}
-                  </dd>
-                </div>
+                <FactRow key={`${fact.field}:${fact.value_key}`} fact={fact} />
               ))}
             </dl>
           </div>
@@ -1014,7 +1081,7 @@ function CompanyActionBadges({ org }: Readonly<{ org: Organization }>) {
                   ...ifMatch(org.version),
                 },
                 body: {
-                  ...mapOrgUpdate(values, rows ?? {}),
+                  ...mapOrgUpdate(values, rows ?? {}, org.domains),
                   ...cf.toBody(values),
                 },
               });

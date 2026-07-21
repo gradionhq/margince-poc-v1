@@ -13,7 +13,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { CompaniesScreen, CompanyScreen } from "./organizations";
+import { CompaniesScreen, CompanyScreen, mapOrgUpdate } from "./organizations";
 
 // Company-360 enrichment (EP05 scrapeCompany): one click stages a 🟡
 // evidence-backed proposal — human field labels, per-field confidence +
@@ -589,6 +589,52 @@ describe("CompanyScreen — edit domains round-trip (B7)", () => {
     expect(patchBody).toMatchObject({
       domains: [{ domain: "brandt.example", is_primary: false }],
     });
+  });
+});
+
+// B7 unit: the PATCH mapping sends `domains` only when the set actually
+// changed — untouched edits stay sparse (omit), and removing every row sends
+// the empty replace-set (`[]` = clear all), the two cases the API distinguishes.
+describe("mapOrgUpdate — domains change detection (P1)", () => {
+  const dom = (domain: string, isPrimary: boolean) => ({
+    id: "00000000-0000-0000-0000-000000000000",
+    domain,
+    is_primary: isPrimary,
+    source: "manual",
+    captured_by: "human:x",
+  });
+
+  it("omits domains when the set is unchanged", () => {
+    const body = mapOrgUpdate(
+      { display_name: "X" },
+      { domains: [{ domain: "a.test", is_primary: "true" }] },
+      [dom("a.test", true)],
+    );
+    expect(body).not.toHaveProperty("domains");
+  });
+
+  it("sends [] when every domain row is removed (clear all)", () => {
+    const body = mapOrgUpdate({ display_name: "X" }, { domains: [] }, [
+      dom("a.test", true),
+    ]);
+    expect(body.domains).toEqual([]);
+  });
+
+  it("sends the new set when a domain is added", () => {
+    const body = mapOrgUpdate(
+      { display_name: "X" },
+      {
+        domains: [
+          { domain: "a.test", is_primary: "true" },
+          { domain: "b.test", is_primary: "" },
+        ],
+      },
+      [dom("a.test", true)],
+    );
+    expect(body.domains).toEqual([
+      { domain: "a.test", is_primary: true },
+      { domain: "b.test", is_primary: false },
+    ]);
   });
 });
 

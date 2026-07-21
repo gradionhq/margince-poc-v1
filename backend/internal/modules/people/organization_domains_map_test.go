@@ -41,6 +41,32 @@ func TestOrganizationUpdateInputMapsDomains(t *testing.T) {
 	if in2 := organizationUpdateInput(crmcontracts.UpdateOrganizationRequest{}, nil); in2.Domains != nil {
 		t.Fatalf("absent domains must stay nil (untouched), got %+v", in2.Domains)
 	}
+
+	// An explicitly-present empty array is the "clear all" replace-set — a
+	// non-nil empty slice, distinct from absent/nil.
+	empty := organizationUpdateInput(crmcontracts.UpdateOrganizationRequest{
+		Domains: &[]struct {
+			Domain    string `json:"domain"`
+			IsPrimary *bool  `json:"is_primary,omitempty"`
+		}{},
+	}, nil)
+	if empty.Domains == nil || len(*empty.Domains) != 0 {
+		t.Fatalf("empty domains array must map to a non-nil empty slice (clear-all), got %+v", empty.Domains)
+	}
+}
+
+func TestDedupeDomains(t *testing.T) {
+	got := dedupeDomains([]OrgDomainInput{
+		{Domain: "acme.test", IsPrimary: false},
+		{Domain: "acme.test", IsPrimary: true},
+		{Domain: "b.test"},
+	})
+	if len(got) != 2 {
+		t.Fatalf("dedupe collapsed to %d rows, want 2: %+v", len(got), got)
+	}
+	if got[0].Domain != "acme.test" || !got[0].IsPrimary {
+		t.Fatalf("collapsed acme.test must keep primary=true (OR of occurrences): %+v", got[0])
+	}
 }
 
 func TestSingleDesiredPrimary(t *testing.T) {

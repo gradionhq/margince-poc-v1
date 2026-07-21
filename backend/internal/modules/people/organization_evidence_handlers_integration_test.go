@@ -82,6 +82,20 @@ func TestListOrganizationProfileFieldsHandler(t *testing.T) {
 		t.Fatalf("profile-fields handler returned %d fields, want 2", len(fields.Data))
 	}
 
+	// Org with no profile fields → 200 with an empty array, never null.
+	empty, err := e.store.CreateOrganization(ctx, CreateOrganizationInput{DisplayName: "Bare GmbH", Source: "manual"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec = httptest.NewRecorder()
+	h.ListOrganizationProfileFields(rec, req, empty.Id)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("empty profile-fields status = %d, want 200", rec.Code)
+	}
+	if body := rec.Body.String(); body != `{"data":[]}`+"\n" && body != `{"data":[]}` {
+		t.Fatalf("empty profile-fields body = %q, want an empty data array (never null)", body)
+	}
+
 	rec = httptest.NewRecorder()
 	h.ListOrganizationProfileFields(rec, req, crmcontracts.Id(ids.NewV7()))
 	if rec.Code != http.StatusNotFound {
