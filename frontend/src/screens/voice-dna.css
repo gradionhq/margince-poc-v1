@@ -1,0 +1,19 @@
+/* Voice DNA settings card — a few structural helpers; colour inherits so the
+   design-token purity gate stays satisfied. */
+.vdna-label {
+  font-weight: 600;
+  margin-bottom: var(--space-1);
+}
+
+.vdna-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.vdna-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}

@@ -1395,6 +1395,46 @@ export const en = {
   "settings.tab.catalog": "Catalog",
   "settings.tab.privacy": "Privacy & consent",
   "settings.tab.audit": "Audit log",
+  "settings.tab.voice": "Voice DNA",
+  "settings.group.you": "Your settings",
+  "settings.group.org": "Organization",
+  "settings.voice.title": "Voice DNA",
+  "settings.voice.intro":
+    "Your personal writing voice. It shapes drafts made for you, stays private to you, and only learns from sources you add.",
+  "settings.voice.emptyTitle": "No Voice DNA yet",
+  "settings.voice.emptyBody":
+    "Add a few writing samples below and build your Voice DNA — or do it during onboarding.",
+  "settings.voice.status.collecting": "Collecting",
+  "settings.voice.status.ready": "Ready",
+  "settings.voice.status.stale": "Needs a rebuild",
+  "settings.voice.bandThin": "thin",
+  "settings.voice.bandGood": "good",
+  "settings.voice.bandRich": "rich",
+  "settings.voice.bandSharp": "sharp",
+  "settings.voice.version": "version {n}",
+  "settings.voice.derivedLabel": "Your derived voice",
+  "settings.voice.derivedEmpty":
+    "Not built yet — add samples and build to see your derived voice.",
+  "settings.voice.personalityLabel": "Your preferences",
+  "settings.voice.personalityPlaceholder":
+    "Notes on how you want to sound — kept exactly as you write them; the model never overwrites this.",
+  "settings.voice.savePreferences": "Save preferences",
+  "settings.voice.corpusLabel": "Writing samples",
+  "settings.voice.corpusEmpty": "No samples yet.",
+  "settings.voice.excluded": "excluded",
+  "settings.voice.removeSource": "Remove sample",
+  "settings.voice.pastedLabel": "Pasted writing",
+  "settings.voice.addPlaceholder":
+    "Paste an email, post, or anything you've written…",
+  "settings.voice.addSource": "Add sample",
+  "settings.voice.building": "Building…",
+  "settings.voice.rebuild": "Rebuild Voice DNA",
+  "settings.voice.buildStatus.succeeded": "Voice DNA updated.",
+  "settings.voice.buildStatus.failed": "The build didn't finish — try again.",
+  "settings.voice.buildStatus.deferred":
+    "Queued — it'll finish shortly and update automatically.",
+  "settings.voice.buildStatus.pending":
+    "Still building — this can take a moment; it'll update here when it's done.",
   "settings.companyKicker": "Company intelligence",
   "settings.companyTitle": "What Margince knows about your company",
   "settings.companySub":
