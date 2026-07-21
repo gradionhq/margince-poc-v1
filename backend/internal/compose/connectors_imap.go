@@ -59,8 +59,14 @@ func (h connectorHandlers) connectIMAP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// The shared decoder bounds the body (1 MiB), rejects trailing/noncanonical
+	// input, and answers malformed JSON itself — so a decode failure is handled,
+	// never conflated with the credential check below.
 	var req crmcontracts.ConnectConnectorRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Imap == nil || req.Imap.Secret == nil {
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	if req.Imap == nil || req.Imap.Secret == nil || req.Imap.Host == "" || req.Imap.Username == "" {
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusUnprocessableEntity,
 			Code:   "imap_credentials_required",
