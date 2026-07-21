@@ -269,12 +269,18 @@ export function QueryGate<Data>({
 }
 
 // captured_by is server-stamped "human:<uuid> | agent:<id> | connector:<name>".
+// The tag shows the bare id — never the doubled "agent: agent:<id>" the old
+// reassembly produced — and a connector reads as a connector, not an agent.
 export function provenanceOf(capturedBy: string | undefined): Provenance {
   if (!capturedBy || capturedBy.startsWith("human:")) {
     return { kind: "human" };
   }
   const [source, name] = capturedBy.split(":", 2);
-  return { kind: "agent", agent: name ? `${source}:${name}` : source };
+  const label = name ?? source;
+  if (source === "connector") {
+    return { kind: "connector", connector: label };
+  }
+  return { kind: "agent", agent: label };
 }
 
 // RFC 7807 bodies carry the honest detail; surface it instead of a generic

@@ -28,6 +28,7 @@ export const de = {
   "trust.save": "Speichern",
   "trust.typedByYou": "von dir eingetragen",
   "trust.agentTag": "Agent: {agent}",
+  "trust.connectorTag": "über {connector}",
   "trust.dismissed": "Vorschlag verworfen.",
   "trust.stagedProposal": "vorgemerkter Vorschlag",
   "trust.resolvedValue": "übernommener Wert",

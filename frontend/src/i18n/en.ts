@@ -25,6 +25,7 @@ export const en = {
   "trust.save": "Save",
   "trust.typedByYou": "typed by you",
   "trust.agentTag": "agent: {agent}",
+  "trust.connectorTag": "via {connector}",
   "trust.dismissed": "Suggestion dismissed.",
   "trust.stagedProposal": "staged proposal",
   "trust.resolvedValue": "resolved value",
