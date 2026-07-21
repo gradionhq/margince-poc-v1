@@ -6,12 +6,15 @@ import {
   Globe2,
   Info,
   PenLine,
-  RotateCcw,
   ShieldCheck,
-  Sparkles,
 } from "lucide-react";
+import type { ReactNode } from "react";
 import type { components } from "../api/schema";
 import { Button } from "../design-system/atoms";
+import {
+  MarginceCoreScene,
+  type MarginceCoreState,
+} from "../design-system/margince-core";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { coldFieldLabel } from "./common";
@@ -26,6 +29,7 @@ type ReadCompanyStepProps = Readonly<{
   pending: boolean;
   refreshing: boolean;
   error: string | null;
+  manualContent?: ReactNode;
   onWebsiteChange: (value: string) => void;
   onChooseWebsite: () => void;
   onChooseManual: () => void;
@@ -40,10 +44,49 @@ const terminalStatuses = new Set<CompanySiteRead["status"]>([
   "confirmed",
   "abandoned",
 ]);
+const successfulStatuses = new Set<CompanySiteRead["status"]>([
+  "ready",
+  "confirmed",
+]);
+const failedStatuses = new Set<CompanySiteRead["status"]>([
+  "failed",
+  "abandoned",
+]);
+const manualFallbackStatuses = new Set<CompanySiteRead["status"]>([
+  "queued",
+  "reading",
+  "deferred",
+]);
 
-// The website arm deliberately renders every progressive server state in one
-// place so the user never loses the manual escape or confirmation boundary.
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: explicit server-state branches are the trust surface
+function presenceState(
+  props: ReadCompanyStepProps,
+  running: boolean,
+): MarginceCoreState {
+  if (
+    props.mode === "website" &&
+    (props.error || props.read?.status === "failed")
+  ) {
+    return "error";
+  }
+  if (running && props.read?.status !== "deferred") {
+    return "working";
+  }
+  if (props.read?.status === "deferred") {
+    return "quiet";
+  }
+  if (
+    props.read?.status === "ready" ||
+    props.read?.status === "partial" ||
+    props.read?.status === "confirmed"
+  ) {
+    return "success";
+  }
+  return props.mode ? "listening" : "idle";
+}
+
+// The Core owns conversation and honest progress. Dense evidence stays directly
+// below it, where quotes and controls remain readable instead of being squeezed
+// into a decorative shape.
 export function ReadCompanyStep(props: ReadCompanyStepProps) {
   const t = useT();
   const running =
@@ -55,255 +98,299 @@ export function ReadCompanyStep(props: ReadCompanyStepProps) {
 
   return (
     <section className="ob-panel ob-read-panel">
-      <div className="read-hero-mark" aria-hidden>
-        <Sparkles />
-      </div>
-      <div className="kick">{t("ob.readKick")}</div>
-      <h1 className="ttl">{t("ob.readTitle")}</h1>
-      <p className="ob-sub read-intro">{t("ob.readSub")}</p>
+      <MarginceCoreScene
+        state={presenceState(props, running)}
+        className="ob-core-scene"
+      >
+        {props.mode === null && (
+          <CoreIntroduction
+            onWebsite={props.onChooseWebsite}
+            onManual={props.onChooseManual}
+          />
+        )}
+        {props.mode === "manual" && props.manualContent}
+        {props.mode === "website" && !props.read && !props.error && (
+          <WebsitePrompt {...props} running={running} />
+        )}
+        {props.mode === "website" && props.error && (
+          <CoreFailure detail={props.error} onManual={props.onChooseManual} />
+        )}
+        {props.mode === "website" && props.read && (
+          <CoreReadProgress
+            read={props.read}
+            refreshing={props.refreshing}
+            onManual={props.onChooseManual}
+          />
+        )}
+      </MarginceCoreScene>
 
-      <fieldset className="read-paths">
-        <legend className="seclabel">{t("ob.readChoice")}</legend>
-        <button
-          type="button"
-          className={`read-path ${props.mode === "website" ? "selected" : ""}`}
-          aria-pressed={props.mode === "website"}
-          onClick={props.onChooseWebsite}
-        >
-          <span className="read-path-icon website">
-            <Globe2 aria-hidden />
-          </span>
-          <span>
-            <b>{t("ob.readWebsite")}</b>
-            <small>{t("ob.readWebsiteSub")}</small>
-          </span>
-          <ArrowRight aria-hidden />
-        </button>
-        <button
-          type="button"
-          className={`read-path ${props.mode === "manual" ? "selected" : ""}`}
-          aria-pressed={props.mode === "manual"}
-          onClick={props.onChooseManual}
-        >
-          <span className="read-path-icon manual">
-            <PenLine aria-hidden />
-          </span>
-          <span>
-            <b>{t("ob.readManual")}</b>
-            <small>{t("ob.readManualSub")}</small>
-          </span>
-          <ArrowRight aria-hidden />
-        </button>
-      </fieldset>
+      {props.read && <ReadEvidence read={props.read} />}
 
-      {props.mode === "website" && (
-        <div className="read-workspace">
-          <div
-            className={`urlbar ${props.website && !props.norm.ok ? "invalid" : ""}`}
-          >
-            <span className="glyph">{t("ob.urlScheme")}</span>
-            <input
-              value={props.website}
-              aria-label={t("ob.url")}
-              placeholder={t("ob.s1.urlPlaceholder")}
-              disabled={running}
-              onChange={(event) => props.onWebsiteChange(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && props.norm.ok && !running) {
-                  props.onStart();
-                }
-              }}
-            />
+      {props.mode === "website" &&
+        (terminal || (props.read?.profile_fields.length ?? 0) > 0) && (
+          <div className="read-actions">
+            <button
+              type="button"
+              className="wiz-later"
+              onClick={props.onChooseManual}
+            >
+              {t("ob.continueManual")}
+            </button>
             <Button
               variant="primary"
-              disabled={!props.norm.ok || running}
-              onClick={props.onStart}
+              disabled={(props.read?.profile_fields.length ?? 0) === 0}
+              onClick={props.onContinue}
             >
-              {running ? (
-                <>
-                  <span className="ob-spinner" /> {t("ob.reading")}
-                </>
-              ) : props.read ? (
-                <>
-                  <RotateCcw aria-hidden /> {t("ob.readAgain")}
-                </>
-              ) : (
-                <>
-                  <FileSearch aria-hidden /> {t("ob.readGo")}
-                </>
-              )}
+              {t("ob.reviewFindings")} <ArrowRight aria-hidden />
             </Button>
           </div>
-          <div className={`urlnote ${props.norm.ok ? "ok" : ""}`}>
-            {props.norm.ok && (
-              <>
-                <Check aria-hidden />{" "}
-                {t("ob.urlWillRead", { host: props.norm.host })}
-              </>
-            )}
-          </div>
-
-          {props.error && (
-            <div className="readfail warn" role="alert">
-              <RotateCcw aria-hidden />
-              <div>
-                <div className="rft">{t("ob.failTitle")}</div>
-                <p className="rfp">{props.error}</p>
-                <button
-                  type="button"
-                  className="wiz-later"
-                  onClick={props.onChooseManual}
-                >
-                  {t("ob.continueManual")}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {props.read && (
-            <ReadProgress read={props.read} refreshing={props.refreshing} />
-          )}
-
-          {(terminal || (props.read?.profile_fields.length ?? 0) > 0) && (
-            <div className="read-actions">
-              <button
-                type="button"
-                className="wiz-later"
-                onClick={props.onChooseManual}
-              >
-                {t("ob.continueManual")}
-              </button>
-              <Button
-                variant="primary"
-                disabled={(props.read?.profile_fields.length ?? 0) === 0}
-                onClick={props.onContinue}
-              >
-                {t("ob.reviewFindings")} <ArrowRight aria-hidden />
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {!props.mode && (
-        <div className="read-trust">
-          <ShieldCheck aria-hidden />
-          <span>
-            <b>{t("ob.readTrustTitle")}</b>
-            {t("ob.readTrustBody")}
-          </span>
-        </div>
-      )}
+        )}
     </section>
   );
 }
 
-function ReadProgress({
+function CoreIntroduction({
+  onWebsite,
+  onManual,
+}: Readonly<{ onWebsite: () => void; onManual: () => void }>) {
+  const t = useT();
+  return (
+    <div className="ob-core-dialog">
+      <div className="ob-core-kicker">{t("ob.readKick")}</div>
+      <h1>{t("ob.coreIntroTitle")}</h1>
+      <p>{t("ob.coreIntroBody")}</p>
+      <div className="ob-core-choices">
+        <button type="button" onClick={onWebsite}>
+          <Globe2 aria-hidden />
+          <span>
+            <b>{t("ob.readWebsite")}</b>
+            <small>{t("ob.readWebsiteSub")}</small>
+          </span>
+        </button>
+        <button type="button" onClick={onManual}>
+          <PenLine aria-hidden />
+          <span>
+            <b>{t("ob.readManual")}</b>
+            <small>{t("ob.readManualSub")}</small>
+          </span>
+        </button>
+      </div>
+      <p className="ob-core-trust">
+        <ShieldCheck aria-hidden />
+        <span>
+          <b>{t("ob.readTrustTitle")}</b>
+          {t("ob.readTrustBody")}
+        </span>
+      </p>
+    </div>
+  );
+}
+
+function WebsitePrompt(
+  props: ReadCompanyStepProps & Readonly<{ running: boolean }>,
+) {
+  const t = useT();
+  return (
+    <div className="ob-core-dialog">
+      <div className="ob-core-kicker">{t("ob.coreLegalKicker")}</div>
+      <h1>{t("ob.coreWebsiteTitle")}</h1>
+      <p>{t("ob.coreWebsiteBody")}</p>
+      <div
+        className={`ob-core-url ${props.website && !props.norm.ok ? "invalid" : ""}`}
+      >
+        <span>{t("ob.urlScheme")}</span>
+        <input
+          value={props.website}
+          aria-label={t("ob.url")}
+          placeholder={t("ob.s1.urlPlaceholder")}
+          disabled={props.running}
+          onChange={(event) => props.onWebsiteChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && props.norm.ok && !props.running) {
+              props.onStart();
+            }
+          }}
+        />
+      </div>
+      {props.norm.ok && (
+        <p className="ob-core-url-note">
+          <Check aria-hidden /> {t("ob.urlWillRead", { host: props.norm.host })}
+        </p>
+      )}
+      <Button
+        variant="primary"
+        disabled={!props.norm.ok || props.running}
+        onClick={props.onStart}
+      >
+        <FileSearch aria-hidden /> {t("ob.readGo")}
+      </Button>
+      <button
+        type="button"
+        className="ob-core-link"
+        onClick={props.onChooseManual}
+      >
+        {t("ob.continueManual")}
+      </button>
+    </div>
+  );
+}
+
+function CoreFailure({
+  detail,
+  onManual,
+}: Readonly<{ detail: string; onManual: () => void }>) {
+  const t = useT();
+  return (
+    <div className="ob-core-dialog" role="alert">
+      <div className="ob-core-kicker">{t("ob.readStatus.failed")}</div>
+      <h1>{t("ob.failTitle")}</h1>
+      <p>{t("ob.coreFailedBody")}</p>
+      <p className="ob-core-detail">{detail}</p>
+      <button type="button" className="ob-core-link" onClick={onManual}>
+        {t("ob.continueManual")}
+      </button>
+    </div>
+  );
+}
+
+function CoreReadProgress({
   read,
   refreshing,
-}: Readonly<{ read: CompanySiteRead; refreshing: boolean }>) {
+  onManual,
+}: Readonly<{
+  read: CompanySiteRead;
+  refreshing: boolean;
+  onManual: () => void;
+}>) {
   const t = useT();
   const { locale } = useLocale();
   const fetchedPages = read.pages.filter((page) => page.status === "fetched");
-  const skippedPages = read.pages.filter((page) => page.status !== "fetched");
-  const findings = read.profile_fields.length + read.facts.length;
-  // The page LIST lands only with the finished read; pages_read is the
-  // counter the worker advances as each page commits. Reading the list
-  // while the read is still running shows a frozen 0 for the whole crawl,
-  // so prefer the live counter until the terminal write supersedes it.
+  const legalEntities = read.legal_entities ?? [];
   const pagesRead = terminalStatuses.has(read.status)
     ? fetchedPages.length
     : (read.pages_read ?? fetchedPages.length);
-  const activePhase =
-    read.phase ?? (read.status === "queued" ? "crawling" : null);
+  const findings = read.profile_fields.length + read.facts.length;
+  const host = new URL(read.root_url).hostname;
+  const phase = read.phase ?? (read.status === "queued" ? "crawling" : null);
+
+  let title = t("ob.corePreparing", { host });
+  let body = t("ob.coreLegalReadingBody");
+  if (read.status === "deferred") {
+    title = t("ob.coreDeferredBody");
+    body = read.status_detail ?? t("ob.coreDeferredBody");
+  } else if (failedStatuses.has(read.status)) {
+    title = t("ob.failTitle");
+    body = t("ob.coreFailedBody");
+  } else if (successfulStatuses.has(read.status)) {
+    title = t("ob.coreReady", { count: findings });
+    body = t("ob.coreReadyBody");
+  } else if (read.status === "partial") {
+    title = t("ob.corePartial", { count: findings });
+    body = t("ob.coreReadyBody");
+  } else if (phase === "extracting") {
+    title = t("ob.coreBusinessReading");
+    body = t("ob.coreBusinessReadingBody");
+  } else if (phase === "crawling") {
+    title = t("ob.coreLegalReading", { host });
+  }
 
   return (
-    <div className="read-progress" aria-live="polite">
-      <div className="read-progress-head">
-        <div>
-          <span className={`read-status ${read.status}`}>
-            {t(`ob.readStatus.${read.status}`)}
-          </span>
-          <h2>
-            {t("ob.readingHost", { host: new URL(read.root_url).hostname })}
-          </h2>
-        </div>
-        {read.status !== "deferred" &&
-          (refreshing ||
-            read.status === "reading" ||
-            read.status === "queued") && (
-            <span className="reading-live">
-              <span className="ob-spinner" /> {t("ob.live")}
-            </span>
-          )}
+    <div className="ob-core-dialog" aria-live="polite">
+      <div className="ob-core-kicker">
+        {refreshing && read.status !== "deferred" && (
+          <span className="ob-core-live" aria-hidden />
+        )}
+        {t(`ob.readStatus.${read.status}`)}
       </div>
-
-      {read.status === "deferred" && (
-        <p className="read-deferral">
-          {read.status_detail}
-          {read.next_attempt_at && (
-            <>
-              {" "}
-              {t("deepread.resumesAt", {
-                when: formatDateTime(
-                  read.next_attempt_at,
-                  locale,
-                  "Europe/Berlin",
-                ),
-              })}
-            </>
-          )}
+      <h1>{title}</h1>
+      <p>{body}</p>
+      {read.status === "deferred" && read.next_attempt_at && (
+        <p className="ob-core-detail">
+          {t("deepread.resumesAt", {
+            when: formatDateTime(read.next_attempt_at, locale, "Europe/Berlin"),
+          })}
         </p>
       )}
-
-      <div className="read-phases">
-        <Phase
-          label={t("ob.phaseDiscover")}
-          done={read.pages.length > 0}
-          active={activePhase === "crawling"}
-        />
-        <Phase
-          label={t("ob.phaseExtract")}
-          done={findings > 0}
-          active={activePhase === "extracting"}
-        />
-        <Phase
-          label={t("ob.phaseReady")}
-          done={terminalStatuses.has(read.status)}
-          active={false}
-        />
+      <div className="ob-core-metrics">
+        <span>
+          <b>{pagesRead}</b> {t("ob.pagesRead")}
+        </span>
+        <span>
+          <b>{legalEntities.length}</b> {t("ob.legalEntitiesFound")}
+        </span>
+        <span>
+          <b>{read.profile_fields.length}</b> {t("ob.profileFindings")}
+        </span>
+        <span>
+          <b>{read.facts.length}</b> {t("ob.usefulFacts")}
+        </span>
       </div>
-
-      <div className="read-metrics">
-        <div>
-          <b>{pagesRead}</b>
-          <span>{t("ob.pagesRead")}</span>
-        </div>
-        <div>
-          <b>{read.profile_fields.length}</b>
-          <span>{t("ob.profileFindings")}</span>
-        </div>
-        <div>
-          <b>{read.facts.length}</b>
-          <span>{t("ob.usefulFacts")}</span>
-        </div>
-      </div>
-
-      {read.profile_fields.length > 0 && (
-        <div className="finding-grid">
-          {read.profile_fields.map((field) => (
-            <article key={field.field} className="finding-card">
-              <div className="finding-label">
-                <Check aria-hidden /> {coldFieldLabel(field.field, t)}
-                <span>{Math.round(field.confidence * 100)}%</span>
-              </div>
-              <strong>{field.value}</strong>
-              <blockquote>“{field.evidence_snippet}”</blockquote>
-            </article>
-          ))}
-        </div>
+      {manualFallbackStatuses.has(read.status) && (
+        <button type="button" className="ob-core-link" onClick={onManual}>
+          {t("ob.readManual")}
+        </button>
       )}
+    </div>
+  );
+}
 
+function ReadEvidence({ read }: Readonly<{ read: CompanySiteRead }>) {
+  const t = useT();
+  const legalEntities = read.legal_entities ?? [];
+  const skippedPages = read.pages.filter((page) => page.status !== "fetched");
+  if (
+    legalEntities.length === 0 &&
+    read.profile_fields.length === 0 &&
+    skippedPages.length === 0 &&
+    read.warnings.length === 0
+  ) {
+    return null;
+  }
+  return (
+    <div className="core-findings">
+      {legalEntities.length > 0 && (
+        <section className="legal-preview">
+          <h2>{t("ob.legalFoundTitle")}</h2>
+          <p>{t("ob.legalFoundBody")}</p>
+          <div className="legal-preview-grid">
+            {legalEntities.map((entity) => (
+              <article
+                key={`${entity.name}:${entity.register_number ?? ""}:${entity.source_url}`}
+                className="legal-preview-card"
+              >
+                <div className="finding-label">
+                  <ShieldCheck aria-hidden /> {t("ob.legalEntity")}
+                </div>
+                <strong>{entity.name}</strong>
+                {entity.registered_address && (
+                  <span>{entity.registered_address}</span>
+                )}
+                {entity.register_number && (
+                  <small>{entity.register_number}</small>
+                )}
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+      {read.profile_fields.length > 0 && (
+        <>
+          <h2>{t("ob.coreFindingsTitle")}</h2>
+          <p>{t("ob.coreFindingsBody")}</p>
+          <div className="finding-grid">
+            {read.profile_fields.map((field) => (
+              <article key={field.field} className="finding-card">
+                <div className="finding-label">
+                  <Check aria-hidden /> {coldFieldLabel(field.field, t)}
+                  <span>{Math.round(field.confidence * 100)}%</span>
+                </div>
+                <strong>{field.value}</strong>
+                <blockquote>“{field.evidence_snippet}”</blockquote>
+              </article>
+            ))}
+          </div>
+        </>
+      )}
       {(skippedPages.length > 0 || read.warnings.length > 0) && (
         <details className="read-coverage">
           <summary>
@@ -323,21 +410,6 @@ function ReadProgress({
           </ul>
         </details>
       )}
-    </div>
-  );
-}
-
-function Phase({
-  label,
-  done,
-  active,
-}: Readonly<{ label: string; done: boolean; active: boolean }>) {
-  return (
-    <div
-      className={`read-phase ${done ? "done" : ""} ${active ? "active" : ""}`}
-    >
-      <span>{done ? <Check aria-hidden /> : <Circle aria-hidden />}</span>
-      <b>{label}</b>
     </div>
   );
 }

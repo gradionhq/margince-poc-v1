@@ -215,6 +215,59 @@ func TestResolveSiteReadConflictsRejectsInvalidResolutionValues(t *testing.T) {
 	}
 }
 
+func TestSplitConfirmedProfileKeepsSelectedLegalEntityWebsiteGrounding(t *testing.T) {
+	legalName := "NFQ Solutions GmbH"
+	address := "Deliusstraße 7, 24114 Kiel, Germany"
+	vat := "DE346175276"
+	in := ConfirmCompanySiteReadInput{
+		DisplayName: "Gradion",
+		Fields: map[string]*string{
+			fieldLegalName:         &legalName,
+			fieldRegisteredAddress: &address,
+			fieldRegisterVat:       &vat,
+		},
+	}
+	entities := []SiteReadLegalEntity{
+		{Name: "Gradion Pte. Ltd.", SourceURL: "https://gradion.com/imprint"},
+		{
+			Name: "NFQ Solutions GmbH", RegisteredAddress: address, RegisterNumber: vat,
+			EvidenceSnippet: "NFQ Solutions GmbH, Deliusstraße 7, VAT DE346175276",
+			SourceURL:       "https://gradion.com/de/imprint",
+		},
+	}
+
+	site, human := splitConfirmedProfile(nil, entities, in)
+	if len(human) != 1 || human[fieldDisplayName] == nil {
+		t.Fatalf("human fields = %#v, want only display_name", human)
+	}
+	if len(site) != 3 {
+		t.Fatalf("site fields = %#v, want the three selected legal fields", site)
+	}
+	for _, field := range site {
+		if field.SourceURL != "https://gradion.com/de/imprint" || field.EvidenceSnippet == "" {
+			t.Fatalf("site field lost legal-page evidence: %#v", field)
+		}
+	}
+}
+
+func TestSplitConfirmedProfileDoesNotGroundMixedOrAmbiguousLegalBlocks(t *testing.T) {
+	name := "Acme GmbH"
+	register := "HRB 2"
+	address := "Address from the other entity"
+	in := ConfirmCompanySiteReadInput{Fields: map[string]*string{
+		fieldLegalName: &name, fieldRegisteredAddress: &address, fieldRegisterVat: &register,
+	}}
+	entities := []SiteReadLegalEntity{
+		{Name: name, RegisteredAddress: address, RegisterNumber: "HRB 1", SourceURL: "https://acme.test/imprint"},
+		{Name: name, RegisteredAddress: "Second address", RegisterNumber: register, SourceURL: "https://acme.test/imprint"},
+	}
+
+	site, human := splitConfirmedProfile(nil, entities, in)
+	if len(site) != 0 || len(human) != 4 {
+		t.Fatalf("mixed identity produced site fields %#v and human fields %#v", site, human)
+	}
+}
+
 func TestApplyResolvedHumanFactsWritesAuditableValues(t *testing.T) {
 	ctx := principal.WithWorkspaceID(context.Background(), ids.NewV7())
 	tx := &recordingSiteReadTx{}

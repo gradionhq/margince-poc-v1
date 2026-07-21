@@ -52,6 +52,24 @@ const readyRead = {
       confidence: 0.9,
     },
     {
+      field: "registered_address",
+      value: "Hauptstrasse 1, 10115 Berlin",
+      evidence_snippet:
+        "Gradion GmbH, Hauptstrasse 1, 10115 Berlin, HRB 12345, DE123456789",
+      source_kind: "url",
+      source_url: "https://gradion.com/impressum",
+      confidence: 1,
+    },
+    {
+      field: "register_vat",
+      value: "HRB 12345 · DE123456789",
+      evidence_snippet:
+        "Gradion GmbH, Hauptstrasse 1, 10115 Berlin, HRB 12345, DE123456789",
+      source_kind: "url",
+      source_url: "https://gradion.com/impressum",
+      confidence: 1,
+    },
+    {
       field: "icp",
       value: "Mid-market manufacturers",
       evidence_snippet: "We serve mid-market manufacturers",
@@ -69,6 +87,16 @@ const readyRead = {
       evidence_snippet: "Founded in 2021",
       evidence_url: "https://gradion.com/about",
       confidence: 0.88,
+    },
+  ],
+  legal_entities: [
+    {
+      name: "Gradion GmbH",
+      registered_address: "Hauptstrasse 1, 10115 Berlin",
+      register_number: "HRB 12345 · DE123456789",
+      evidence_snippet:
+        "Gradion GmbH, Hauptstrasse 1, 10115 Berlin, HRB 12345, DE123456789",
+      source_url: "https://gradion.com/impressum",
     },
   ],
   comparisons: [],
@@ -179,21 +207,42 @@ function render(ui: ReactNode) {
 
 async function chooseManual() {
   await userEvent.click(
-    await screen.findByRole("button", { name: /Enter it myself/ }),
+    await screen.findByRole("button", { name: /Tell me yourself/ }),
   );
-  await screen.findByLabelText(/Company name/);
+  await screen.findByRole("textbox", {
+    name: /What name do customers know your company by/,
+  });
 }
 
-async function fillRequired() {
-  await userEvent.type(screen.getByLabelText(/Company name/), "Gradion");
-  await userEvent.type(
-    screen.getByLabelText(/What do you sell\?/),
-    "Revenue software for manufacturers",
+async function answerManual(value: string) {
+  await userEvent.type(screen.getByRole("textbox"), value);
+  await userEvent.click(screen.getByRole("button", { name: /Next question/ }));
+}
+
+async function skipManual() {
+  await userEvent.click(screen.getByRole("button", { name: /Add later/ }));
+}
+
+async function completeManualInterview() {
+  await answerManual("Gradion");
+  await answerManual("Gradion GmbH");
+  await answerManual("Hauptstrasse 1, 10115 Berlin");
+  await answerManual("HRB 12345 · DE123456789");
+  await answerManual("Revenue software");
+  await skipManual();
+  await answerManual("Revenue software for manufacturers");
+  await skipManual();
+  await skipManual();
+  await answerManual("Mid-market manufacturers");
+  await skipManual();
+  await skipManual();
+  await skipManual();
+  await skipManual();
+  await skipManual();
+  await userEvent.click(
+    screen.getByRole("button", { name: /Review my answers/ }),
   );
-  await userEvent.type(
-    screen.getByLabelText(/Ideal customer/),
-    "Mid-market manufacturers",
-  );
+  await screen.findByLabelText(/Company name/);
 }
 
 async function readWebsite() {
@@ -209,9 +258,9 @@ async function readWebsite() {
       .getAllByRole("button", { name: /Read my website/ })
       .at(-1) as HTMLElement,
   );
-  await screen.findByText("Gradion GmbH");
+  await screen.findByText("Legal entities I found");
   await userEvent.click(
-    screen.getByRole("button", { name: /Review what we found/ }),
+    screen.getByRole("button", { name: /Review what I found/ }),
   );
   await screen.findByLabelText(/Company name/);
 }
@@ -241,7 +290,7 @@ describe("the optional website path", () => {
       await screen.findByRole("button", { name: /Read my website/ }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: /Enter it myself/ }),
+      screen.getByRole("button", { name: /Tell me yourself/ }),
     ).toBeTruthy();
     expect(screen.queryByLabelText(/Company name/)).toBeNull();
   });
@@ -260,6 +309,12 @@ describe("the optional website path", () => {
       (screen.getByLabelText(/Ideal customer/) as HTMLTextAreaElement).value,
     ).toBe("Mid-market manufacturers");
     expect(screen.getByText(/© 2026 Gradion GmbH/)).toBeTruthy();
+    expect(
+      (screen.getByLabelText(/Registered address/) as HTMLInputElement).value,
+    ).toBe("Hauptstrasse 1, 10115 Berlin");
+    expect(
+      (screen.getByLabelText(/Register \/ VAT ID/) as HTMLInputElement).value,
+    ).toBe("HRB 12345 · DE123456789");
     expect(screen.getByText(/founded year/i)).toBeTruthy();
   });
 
@@ -286,9 +341,13 @@ describe("the optional website path", () => {
       await screen.findByText("site blocked automated access"),
     ).toBeTruthy();
     await userEvent.click(
-      screen.getByRole("button", { name: /Continue manually/ }),
+      screen.getByRole("button", { name: /Tell me instead/ }),
     );
-    expect(await screen.findByLabelText(/Company name/)).toBeTruthy();
+    expect(
+      await screen.findByRole("textbox", {
+        name: /What name do customers know your company by/,
+      }),
+    ).toBeTruthy();
   });
 
   it("shows a deferred read as scheduled work and keeps the manual path available", async () => {
@@ -320,10 +379,10 @@ describe("the optional website path", () => {
         .at(-1) as HTMLElement,
     );
 
-    expect(await screen.findByText("Waiting for AI budget")).toBeTruthy();
+    expect(await screen.findByText("I'm waiting for AI budget")).toBeTruthy();
     expect(screen.getByText(/Resumes automatically/)).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: /Enter it myself/ }),
+      screen.getByRole("button", { name: /Tell me yourself/ }),
     ).toBeTruthy();
   });
 });
@@ -333,7 +392,7 @@ describe("the mandatory company minimum", () => {
     const calls = stubApi();
     render(<OnboardingScreen />);
     await chooseManual();
-    await fillRequired();
+    await completeManualInterview();
 
     await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
 
@@ -344,6 +403,9 @@ describe("the mandatory company minimum", () => {
       .clone()
       .json()) as Record<string, string>;
     expect(body.display_name).toBe("Gradion");
+    expect(body.legal_name).toBe("Gradion GmbH");
+    expect(body.registered_address).toBe("Hauptstrasse 1, 10115 Berlin");
+    expect(body.register_vat).toBe("HRB 12345 · DE123456789");
     expect(body.offer_summary).toBe("Revenue software for manufacturers");
     expect(body.icp).toBe("Mid-market manufacturers");
     expect(calls.some((request) => request.url.includes("site-reads"))).toBe(
@@ -351,30 +413,47 @@ describe("the mandatory company minimum", () => {
     );
   });
 
-  it("blocks an empty form and names exactly the three required fields", async () => {
+  it("starts with legal identity and does not advance without the required company name", async () => {
     const calls = stubApi();
     render(<OnboardingScreen />);
     await chooseManual();
 
-    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
-
+    expect(screen.getByText("Your legal organization")).toBeTruthy();
     expect(
-      screen.getByText(
-        "Fill these in before you continue: Company name, What do you sell?, Ideal customer",
-      ),
-    ).toBeTruthy();
+      (
+        screen.getByRole("button", {
+          name: /Next question/,
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
     expect(requestTo(calls, "/company", "PUT")).toBeUndefined();
-    expect(
-      (screen.getByLabelText(/Registered legal name/) as HTMLInputElement)
-        .required,
-    ).toBe(false);
   });
 
   it("treats whitespace as missing and keeps a failed save editable", async () => {
-    stubApi({ saveError: { detail: "database unavailable", status: 503 } });
+    stubApi({
+      state: {
+        path: "creator",
+        step: "confirm",
+        source_mode: "manual",
+        website_url: null,
+        site_read_id: null,
+        company_draft: {
+          display_name: "Gradion",
+          offer_summary: "Revenue software for manufacturers",
+          icp: "Mid-market manufacturers",
+        },
+        selected_fact_keys: [],
+        voice_skipped: false,
+        connect_skipped: false,
+        version: 4,
+        completed_at: null,
+        created_at: "2026-07-19T08:00:00Z",
+        updated_at: "2026-07-19T08:02:00Z",
+      },
+      saveError: { detail: "database unavailable", status: 503 },
+    });
     render(<OnboardingScreen />);
-    await chooseManual();
-    await fillRequired();
+    await screen.findByLabelText(/Company name/);
     await userEvent.clear(screen.getByLabelText(/What do you sell\?/));
     await userEvent.type(screen.getByLabelText(/What do you sell\?/), "   ");
     await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
@@ -443,14 +522,14 @@ describe("later optional steps remain honest", () => {
     stubApi();
     render(<OnboardingScreen />);
     await chooseManual();
-    await fillRequired();
+    await completeManualInterview();
     await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
     await userEvent.click(
       await screen.findByRole("button", { name: "Skip this step" }),
     );
 
     expect(screen.getByText(/You skipped the voice step/)).toBeTruthy();
-    expect(screen.getByText("Margince now understands")).toBeTruthy();
+    expect(screen.getByText("I now understand")).toBeTruthy();
     expect(screen.queryByText(/Nordwind Robotics/)).toBeNull();
   });
 
@@ -458,7 +537,7 @@ describe("later optional steps remain honest", () => {
     const calls = stubApi();
     render(<OnboardingScreen />);
     await chooseManual();
-    await fillRequired();
+    await completeManualInterview();
     await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
     await userEvent.click(
       await screen.findByRole("button", { name: "Skip this step" }),

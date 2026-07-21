@@ -71,6 +71,26 @@ detail is judged against the entity's own cited block, by whole contiguous
 tokens, so a truncated identifier (`1234` against `HRB 123456`), a sibling
 block's address, and one recombined from unrelated tokens (`HRB 24114`) are all
 refused.
+**Legal-first Margince Core onboarding** — the post-login company setup now
+continues the Core presence introduced at authentication instead of falling back
+to a conventional form. The Core first explains why organization context is
+needed, then offers either a website-assisted read or a one-question-at-a-time
+manual interview. Both paths lead with the legal identity (display and legal
+name, registered address, register/VAT/UID details, industry and history), then
+cover the offer and products, ICP and buying center, customer pains and outcomes,
+and sales signals and motion using the existing onboarding contract fields. Live
+website phases, page and finding counts, budget deferral, partial coverage and
+failures are spoken inside the Core; cited evidence and final human confirmation
+remain outside where dense details are legible. The orbital presence is now a
+reusable design-system component for smaller product surfaces. English/German
+copy, reduced-motion behavior, Storybook states, and the full frontend suite
+cover the flow. The deep crawler probes legacy `impressum.html` pages, keeps
+the richest locale variant of each legal entity without collapsing distinct
+register numbers, and preserves website evidence when an administrator chooses
+one entity from a multi-company imprint. A live cold-start browser pass against
+`gradion.com` read 40 pages, presented five legal entities plus ten profile
+fields and 100 cited facts, and persisted the selected name, address, VAT ID,
+offer, ICP, positioning, pains, outcomes, history, industry, and sales motion.
 
 **AI cost pre-flight estimation — the cost hand-off is complete (ADR-0068/A114,
 phase 2 of 2).** Phase 1 priced actuals (`/ai/usage`); phase 2 fills the backfill

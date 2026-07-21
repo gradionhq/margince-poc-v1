@@ -142,7 +142,7 @@ func applySiteReadConfirmation(
 	if err != nil {
 		return siteReadConfirmation{}, err
 	}
-	siteFields, humanFields := splitConfirmedProfile(read.ProfileFields, in)
+	siteFields, humanFields := splitConfirmedProfile(read.ProfileFields, read.LegalEntities, in)
 	appliedSite, err := applyEvidenceFieldsWithOverwrite(ctx, tx, workspaceID(ctx), orgID,
 		companySourceSiteRead, companySiteReadCapturedBy, siteFields, in.overwriteProfileFields)
 	if err != nil {
@@ -269,10 +269,15 @@ func lockOnboardingSiteRead(ctx context.Context, tx pgx.Tx, readID ids.UUID) (Si
 	return read, nil
 }
 
-func splitConfirmedProfile(proposed []DeepReadField, in ConfirmCompanySiteReadInput) ([]ColdStartFieldInput, map[string]*string) {
+func splitConfirmedProfile(proposed []DeepReadField, legalEntities []SiteReadLegalEntity, in ConfirmCompanySiteReadInput) ([]ColdStartFieldInput, map[string]*string) {
 	byField := make(map[string]DeepReadField, len(proposed))
 	for _, field := range proposed {
 		byField[field.Field] = field
+	}
+	for _, field := range selectedLegalEntityFields(legalEntities, in) {
+		if _, alreadyProposed := byField[field.Field]; !alreadyProposed {
+			byField[field.Field] = field
+		}
 	}
 	values := make(map[string]*string, len(in.Fields)+1)
 	for field, value := range in.Fields {
@@ -298,6 +303,64 @@ func splitConfirmedProfile(proposed []DeepReadField, in ConfirmCompanySiteReadIn
 		humanFields[field] = value
 	}
 	return siteFields, humanFields
+}
+
+// selectedLegalEntityFields preserves the website provenance of the legal
+// block a human selected. The selection decides which entity belongs to this
+// installation; it does not turn the entity's printed address and register
+// number into claims typed by that human. Every non-blank submitted detail
+// must match one and only one stored block, so mixed or edited identities keep
+// the normal human provenance.
+func selectedLegalEntityFields(entities []SiteReadLegalEntity, in ConfirmCompanySiteReadInput) []DeepReadField {
+	legalName := strings.TrimSpace(pointerValue(in.Fields[fieldLegalName]))
+	if legalName == "" {
+		return nil
+	}
+	address := strings.TrimSpace(pointerValue(in.Fields[fieldRegisteredAddress]))
+	register := strings.TrimSpace(pointerValue(in.Fields[fieldRegisterVat]))
+	var selected *SiteReadLegalEntity
+	for i := range entities {
+		entity := &entities[i]
+		if strings.TrimSpace(entity.Name) != legalName ||
+			(address != "" && strings.TrimSpace(entity.RegisteredAddress) != address) ||
+			(register != "" && strings.TrimSpace(entity.RegisterNumber) != register) {
+			continue
+		}
+		if selected != nil {
+			return nil
+		}
+		selected = entity
+	}
+	if selected == nil {
+		return nil
+	}
+
+	fields := []DeepReadField{{
+		Field: fieldLegalName, Value: selected.Name, EvidenceSnippet: selected.EvidenceSnippet,
+		SourceURL: selected.SourceURL, Confidence: 1,
+	}}
+	for _, field := range []struct {
+		name  string
+		value string
+	}{
+		{name: fieldRegisteredAddress, value: selected.RegisteredAddress},
+		{name: fieldRegisterVat, value: selected.RegisterNumber},
+	} {
+		if strings.TrimSpace(field.value) != "" {
+			fields = append(fields, DeepReadField{
+				Field: field.name, Value: field.value, EvidenceSnippet: selected.EvidenceSnippet,
+				SourceURL: selected.SourceURL, Confidence: 1,
+			})
+		}
+	}
+	return fields
+}
+
+func pointerValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func selectSiteReadFacts(proposed []DeepReadFact, selected []string) ([]DeepReadFact, error) {

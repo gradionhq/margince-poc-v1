@@ -863,78 +863,169 @@ export const de = {
   "ob.readSub": "Von deiner Website lesen, oder selbst eintragen.",
   "ob.readChoice": "Wähle, wie du deine Firma beschreiben möchtest",
   "ob.readWebsite": "Meine Website einlesen",
-  "ob.readWebsiteSub": "Du prüfst jede Aussage vor dem Speichern.",
-  "ob.readManual": "Selbst eingeben",
-  "ob.readManualSub": "Ohne KI, ohne externe Anfrage.",
-  "ob.readTrustTitle": "Nur öffentliche Seiten. ",
-  "ob.readTrustBody": "Nichts wird zu Firmendaten, bevor du es bestätigst.",
-  "ob.continueManual": "Manuell fortfahren",
-  "ob.reviewFindings": "Ergebnisse prüfen",
+  "ob.readWebsiteSub": "Ich recherchiere; du bestätigst jedes Detail.",
+  "ob.readManual": "Erzähl es mir selbst",
+  "ob.readManualSub": "Ich frage dich Schritt für Schritt.",
+  "ob.readTrustTitle": "Ich lese nur öffentliche Seiten. ",
+  "ob.readTrustBody": "Ich speichere nichts, bevor du es bestätigst.",
+  "ob.coreIntroTitle": "Zuerst muss ich dein rechtliches Unternehmen kennen.",
+  "ob.coreIntroBody":
+    "Ich brauche rechtliche Identität, Anschrift und USt-IdNr./UID oder Registerdaten. Danach lerne ich, was ihr verkauft, wen ihr bedient und wie ihr Geschäft gewinnt.",
+  "ob.coreLegalKicker": "Ich beginne mit der rechtlichen Identität",
+  "ob.coreWebsiteTitle": "Welche Website soll ich lesen?",
+  "ob.coreWebsiteBody":
+    "Ich suche zuerst das Impressum und lese danach Produkte, Idealkunden, Positionierung und Vertriebsansatz.",
+  "ob.corePreparing": "Ich bereite das Einlesen von {host} vor",
+  "ob.coreLegalReading": "Ich lese die rechtliche Identität auf {host}",
+  "ob.coreLegalReadingBody":
+    "Ich suche Impressum, eingetragene Organisation, Anschrift sowie Register- oder USt-IdNr./UID. Was nicht genannt ist, bleibt leer.",
+  "ob.coreBusinessReading": "Ich lerne, wie das Geschäft funktioniert",
+  "ob.coreBusinessReadingBody":
+    "Ich verbinde Produkte, Kunden und Positionierung mit dem genauen öffentlichen Text, der sie belegt.",
+  "ob.coreReady": "Ich habe {count} belegte Firmendaten gefunden",
+  "ob.corePartial": "Ich habe {count} nützliche Angaben gefunden — mit Lücken",
+  "ob.coreReadyBody":
+    "Ich habe noch nichts gespeichert. Bitte prüfe zuerst die rechtliche Identität, danach Angebot und Idealkunden.",
+  "ob.coreDeferredBody": "Ich setze das Einlesen automatisch fort.",
+  "ob.coreFailedBody":
+    "Ich konnte auf dieser Seite nicht genug belegen und habe deshalb aufgehört, statt zu raten. Du kannst mir dieselben Angaben selbst geben.",
+  "ob.coreFindingsTitle": "Was ich gefunden habe und belegen kann",
+  "ob.coreFindingsBody":
+    "Ich hänge an jeden Wert den öffentlichen Wortlaut seiner Quelle. Was ich rechtlich nicht belegen kann, lasse ich leer.",
+  "ob.continueManual": "Erzähl es mir stattdessen",
+  "ob.reviewFindings": "Meine Ergebnisse prüfen",
   "ob.live": "Live",
-  "ob.readingHost": "Wir verstehen {host}",
-  "ob.readStatus.queued": "Eingeplant",
-  "ob.readStatus.deferred": "Wartet auf KI-Budget",
-  "ob.readStatus.reading": "Wird gelesen",
-  "ob.readStatus.ready": "Bereit zur Prüfung",
-  "ob.readStatus.partial": "Teilweise gelesen",
-  "ob.readStatus.failed": "Manuelle Eingabe nötig",
-  "ob.readStatus.confirmed": "Bestätigt",
-  "ob.readStatus.abandoned": "Beendet",
-  "ob.phaseDiscover": "Seiten entdecken",
-  "ob.phaseExtract": "Belegte Fakten extrahieren",
-  "ob.phaseReady": "Prüfung vorbereiten",
-  "ob.pagesRead": "Seiten gelesen",
-  "ob.profileFindings": "Profil-Ergebnisse",
-  "ob.usefulFacts": "nützliche Fakten",
-  "ob.coverageDetails": "Abdeckung und ehrliche Auslassungen",
+  "ob.readingHost": "Ich erschließe {host}",
+  "ob.readStatus.queued": "Ich bereite mich vor",
+  "ob.readStatus.deferred": "Ich warte auf KI-Budget",
+  "ob.readStatus.reading": "Ich lese gerade",
+  "ob.readStatus.ready": "Ich bin mit dem Lesen fertig",
+  "ob.readStatus.partial": "Ich bin fertig — mit einigen Lücken",
+  "ob.readStatus.failed": "Ich brauche deine Hilfe",
+  "ob.readStatus.confirmed": "Ich habe deine Auswahl gespeichert",
+  "ob.readStatus.abandoned": "Ich habe aufgehört",
+  "ob.phaseDiscover": "Ich entdecke Seiten",
+  "ob.phaseExtract": "Ich extrahiere belegte Fakten",
+  "ob.phaseReady": "Ich bereite deine Prüfung vor",
+  "ob.pagesRead": "Seiten, die ich gelesen habe",
+  "ob.legalEntitiesFound": "rechtliche Einheiten, die ich gefunden habe",
+  "ob.profileFindings": "Profildetails, die ich gefunden habe",
+  "ob.usefulFacts": "weitere Fakten, die ich gefunden habe",
+  "ob.coverageDetails": "Was ich abgedeckt und nicht lesen konnte",
+  "ob.legalFoundTitle": "Rechtliche Einheiten, die ich gefunden habe",
+  "ob.legalFoundBody":
+    "Ich halte jeden rechtlichen Block zusammen: eingetragener Name, Anschrift und Register- oder USt-IdNr./UID. Wenn die Website mehrere Einheiten nennt, wählst du deine in der Prüfung aus.",
+  "ob.legalEntity": "Rechtliche Einheit",
   "ob.confirmWebsite":
-    "Aus {count} öffentlichen Seiten belegt. Änderungen werden deine Aussage; unveränderte Werte behalten ihre Belege.",
+    "Ich habe diese Angaben mit {count} öffentlichen Seiten belegt. Änderungen werden deine Aussage; unveränderte Werte behalten ihre Belege.",
   "ob.confirmManual":
-    "Manuelle Einrichtung — deine Antworten werden als menschliche Angaben gespeichert.",
-  "ob.legalTitle": "Welches davon ist dein Unternehmen?",
+    "Du hast mir diese Angaben direkt gegeben, deshalb speichere ich sie als menschliche Aussagen.",
+  "ob.legalTitle": "Welche rechtliche Einheit soll ich verwenden?",
   "ob.legalSub":
-    "Dein Impressum nennt mehrere. Wähle deins — die Daten werden unten eingetragen.",
-  "ob.factsTitle": "Fakten von deiner Website",
+    "Ich habe mehrere Einheiten im Impressum gefunden. Wähle deine und ich trage ihre Daten ein.",
+  "ob.factsTitle": "Weitere Fakten, die ich gefunden habe",
   "ob.factsSelected": "{selected} von {total} ausgewählt",
   "ob.factsSub": "Wähle ab, was nicht Teil des Firmenkontexts werden soll.",
-  "ob.nowUnderstands": "Margince versteht jetzt",
+  "ob.nowUnderstands": "Ich verstehe jetzt",
   "ob.contextReady":
-    "Dieser Kontext steht relevanten Entwürfen, Suche, Agenten und Voice DNA bereit — inklusive Herkunft.",
+    "Ich kann diesen Kontext jetzt für relevante Entwürfe, Suche, Agenten und Voice DNA nutzen — inklusive Herkunft.",
 
   "ob.s1.kick": "Schritt 2 von 5 · bestätigen",
-  "ob.s1.title": "Unternehmensdaten prüfen",
+  "ob.s1.title": "Prüfe, was ich über dein Unternehmen gelernt habe",
   "ob.s1.sub":
-    "Ausgefüllt ist nur, was deine Website wirklich nennt. Korrigiere, was nicht stimmt.",
+    "Ich habe nur ausgefüllt, was ich auf deiner Website belegen konnte. Bitte korrigiere, was nicht stimmt.",
   "ob.s1.urlPlaceholder": "deinefirma.de",
-  "ob.s1.identityLabel": "Firmendaten",
-  "ob.s1.positioningLabel": "Was du verkaufst — und an wen",
+  "ob.s1.identityLabel": "Rechtliche Organisation",
+  "ob.s1.offerLabel": "Produkte und Angebot",
+  "ob.s1.customerLabel": "Idealkunde",
+  "ob.s1.salesLabel": "Positionierung und Vertriebskontext",
   "ob.s1.fieldRequired": "Pflichtfeld.",
   "ob.s1.requiredMissing": "Diese Felder fehlen noch: {fields}",
   "ob.s1.saving": "Wird gespeichert…",
   "ob.s1.saveFailed": "Deine Firma konnte nicht gespeichert werden",
   "ob.s1.savedNote":
     "In deinem Workspace gespeichert. Ändere hier etwas und geh weiter — dann wird erneut gespeichert.",
-  "ob.s1.omitLabel": "Nichts erfunden",
+  "ob.s1.omitLabel": "Ich habe nichts erfunden",
   "ob.s1.omitBody":
-    "Wir haben nur gefüllt, was wir von deiner Seite zitieren können. Den Rest schreibst du.",
+    "Ich habe nur gefüllt, was ich von deiner Seite zitieren kann. Was ich nicht belegen konnte, kannst du ergänzen.",
   "ob.readGo": "Meine Website einlesen",
   "ob.reading": "Wird gelesen…",
   "ob.readAgain": "Erneut einlesen",
-  "ob.trustPublic":
-    "Wir lesen nur deine öffentliche Website. Kein Login nötig.",
-  "ob.urlWillRead": "Wir lesen {host}",
+  "ob.trustPublic": "Ich lese nur deine öffentliche Website. Kein Login nötig.",
+  "ob.urlWillRead": "Ich lese {host}",
   "ob.urlInvalid":
     "Das sieht nicht nach einer Web-Adresse aus — versuch z. B. {example}",
   "ob.readFromSite": "von der Website gelesen",
-  "ob.failTitle": "Von dieser Seite ließ sich nicht genug lesen",
+  "ob.failTitle": "Ich konnte von dieser Website nicht genug lesen",
   "ob.failBody":
-    "Wir haben die Seite erreicht, aber zu wenig öffentliche Inhalte gefunden, um ein Profil zu belegen — also raten wir nicht. Es wurde nichts gespeichert.",
+    "Ich habe die Website erreicht, aber zu wenig öffentliche Inhalte gefunden, um ein Profil zu belegen. Deshalb rate ich nicht und habe nichts gespeichert.",
   "ob.failWhy1":
     "Die Seite rendert ihre Inhalte vielleicht per JavaScript, das wir im öffentlichen HTML nicht lesen",
   "ob.failWhy2":
     "Es kann eine Login-Wand, eine Platzhalterseite oder ein robots.txt-Verbot sein",
   "ob.failWhy3": "Oder es ist schlicht zu wenig Text vorhanden",
   "ob.tryAnother": "Andere URL versuchen",
+
+  "ob.manualChapterLegal": "Deine rechtliche Organisation",
+  "ob.manualChapterOffer": "Produkte und Angebot",
+  "ob.manualChapterCustomer": "Idealkunde",
+  "ob.manualChapterSales": "Wie du verkaufst",
+  "ob.manualNext": "Nächste Frage",
+  "ob.manualLater": "Später ergänzen",
+  "ob.manualReview": "Antworten prüfen",
+  "ob.manualRequired": "Erforderlich für ein nutzbares Firmenprofil",
+  "ob.manualOptional": "Optional — leer lassen und später ergänzen",
+  "ob.manual.display_name":
+    "Unter welchem Namen kennen Kunden dein Unternehmen?",
+  "ob.manual.display_nameHint":
+    "Nutze den vertrauten Firmen- oder Markennamen, der in Margince erscheinen soll.",
+  "ob.manual.legal_name":
+    "Wie lautet der vollständige eingetragene Firmenname?",
+  "ob.manual.legal_nameHint":
+    "Inklusive Rechtsform wie GmbH, AG, Ltd oder Inc. Ergänze ihn später, wenn das nicht zutrifft.",
+  "ob.manual.registered_address": "Wie lautet die eingetragene Anschrift?",
+  "ob.manual.registered_addressHint":
+    "Nutze die offizielle Anschrift aus Handelsregister oder Impressum.",
+  "ob.manual.register_vat": "Wie lauten Register- und USt-IdNr./UID?",
+  "ob.manual.register_vatHint":
+    "Trage die Kennungen exakt wie ausgegeben ein. Leer lassen, wenn keine zutrifft.",
+  "ob.manual.industry": "In welcher Branche ist das Unternehmen tätig?",
+  "ob.manual.industryHint":
+    "Wähle die Beschreibung, die deine Kunden sofort verstehen würden.",
+  "ob.manual.history": "Welche Firmengeschichte sollte Margince kennen?",
+  "ob.manual.historyHint":
+    "Zum Beispiel Gründungsjahr, Ursprung oder eine wichtige Veränderung des Geschäfts.",
+  "ob.manual.offer_summary": "Welche Produkte oder Leistungen verkauft ihr?",
+  "ob.manual.offer_summaryHint":
+    "Ein oder zwei konkrete Sätze genügen. Diese Erklärung nutzt Margince für euer Geschäft.",
+  "ob.manual.value_proposition": "Welches Ergebnis schafft das Angebot?",
+  "ob.manual.value_propositionHint":
+    "Erkläre den Kundennutzen, nicht nur die Produktfunktionen.",
+  "ob.manual.usp": "Warum entscheiden sich Kunden für euch?",
+  "ob.manual.uspHint":
+    "Nenne den wichtigsten echten Unterschied zu den Alternativen.",
+  "ob.manual.icp": "Wer ist euer Idealkunde?",
+  "ob.manual.icpHint":
+    "Beschreibe Unternehmen oder Personen mit dem größten Nutzen — Größe, Branche, Situation oder Region.",
+  "ob.manual.buying_center": "Wer prüft, kauft oder genehmigt den Kauf?",
+  "ob.manual.buying_centerHint":
+    "Nenne die typischen Rollen und wer am Ende entscheidet.",
+  "ob.manual.customer_pains":
+    "Mit welchen Problemen kommen diese Kunden zu euch?",
+  "ob.manual.customer_painsHint":
+    "Nutze die Probleme, wie Kunden sie selbst beschreiben würden.",
+  "ob.manual.desired_outcomes": "Was möchten sie erreichen?",
+  "ob.manual.desired_outcomesHint":
+    "Beschreibe die praktischen oder geschäftlichen Ergebnisse, die ihnen wichtig sind.",
+  "ob.manual.buying_intents": "Was signalisiert üblicherweise Kaufinteresse?",
+  "ob.manual.buying_intentsHint":
+    "Zum Beispiel eine neue Initiative, Einstellungen, eine Frist oder ein operatives Problem.",
+  "ob.manual.common_objections": "Welche Einwände hört ihr am häufigsten?",
+  "ob.manual.common_objectionsHint":
+    "Nenne Bedenken, die einen Kauf regelmäßig verzögern oder verhindern.",
+  "ob.manual.sales_motion": "Wie läuft ein typischer Verkauf ab?",
+  "ob.manual.sales_motionHint":
+    "Beschreibe den Weg vom ersten Gespräch zur Entscheidung, einschließlich Test oder Einkauf, wenn relevant.",
 
   "ob.field.display_name": "Firmenname",
   "ob.field.offer_summary": "Was verkaufst du?",

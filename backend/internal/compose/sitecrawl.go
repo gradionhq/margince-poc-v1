@@ -138,6 +138,7 @@ var wellKnownProbes = []struct {
 	kind crmcontracts.SiteReadPageKind
 }{
 	{"/impressum", crmcontracts.SiteReadPageKindImpressum},
+	{"/impressum.html", crmcontracts.SiteReadPageKindImpressum},
 	{"/imprint", crmcontracts.SiteReadPageKindImpressum},
 	{"/de/impressum", crmcontracts.SiteReadPageKindImpressum},
 	{"/legal-notice", crmcontracts.SiteReadPageKindImpressum},
