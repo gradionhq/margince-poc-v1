@@ -10,8 +10,9 @@ import {
   SectionHeader,
   TextInput,
 } from "../design-system/atoms";
+import { ConfirmModal } from "../design-system/confirmmodal";
 import { useT } from "../i18n";
-import { problemMessage, QueryGate } from "./common";
+import { problemMessage, QueryGate, useMe } from "./common";
 import "./users-admin.css";
 
 type User = components["schemas"]["User"];
@@ -19,12 +20,16 @@ type Role = components["schemas"]["ChangeUserRoleRequest"]["role"];
 
 const ROLES: readonly Role[] = ["admin", "manager", "rep", "read_only", "ops"];
 
-// Admin member management (org settings). The roster includes inactive members
-// (include_inactive, honored server-side only for an admin) so a deactivated
-// member can be reactivated. Every write is admin-only and re-checked server-side.
-function useMembers() {
+// Admin member management (org settings). Every user-management write is
+// admin-only server-side, so the whole card is admin-only here — an ops seat in
+// the Organization group would otherwise see controls that only 403. The roster
+// includes inactive members (include_inactive, honored server-side only for an
+// admin) so a deactivated member can be reactivated. First page only in V1;
+// larger member lists paginate in a follow-up.
+function useMembers(enabled: boolean) {
   return useQuery({
     queryKey: ["users-admin"],
+    enabled,
     queryFn: async (): Promise<User[]> => {
       const { data, error } = await api.GET("/users", {
         params: { query: { include_inactive: true } },
@@ -39,26 +44,36 @@ function useMembers() {
 
 export function UsersAdminCard() {
   const t = useT();
-  const members = useMembers();
+  const me = useMe();
+  const isAdmin = (me.data?.roles ?? []).includes("admin");
+  const members = useMembers(isAdmin);
   return (
     <section className="card">
       <SectionHeader title={t("users.title")} sub={t("users.sub")} />
-      <InviteForm />
-      <QueryGate query={members}>
-        {(list) =>
-          list.length === 0 ? (
-            <EmptyState>
-              <p className="t-small">{t("users.empty")}</p>
-            </EmptyState>
-          ) : (
-            <ul className="users-list" style={{ marginTop: "var(--space-3)" }}>
-              {list.map((u) => (
-                <MemberRow key={u.id} member={u} />
-              ))}
-            </ul>
-          )
-        }
-      </QueryGate>
+      {isAdmin ? (
+        <>
+          <InviteForm />
+          <QueryGate query={members}>
+            {(list) =>
+              list.length === 0 ? (
+                <EmptyState>
+                  <p className="t-small">{t("users.empty")}</p>
+                </EmptyState>
+              ) : (
+                <ul className="users-list">
+                  {list.map((u) => (
+                    <MemberRow key={u.id} member={u} />
+                  ))}
+                </ul>
+              )
+            }
+          </QueryGate>
+        </>
+      ) : (
+        <EmptyState>
+          <p className="t-small">{t("users.adminOnly")}</p>
+        </EmptyState>
+      )}
     </section>
   );
 }
@@ -94,14 +109,24 @@ function InviteForm() {
     email.trim().length > 0 && name.trim().length > 0 && !invite.isPending;
 
   return (
-    <div className="users-invite">
+    <form
+      className="users-invite"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (canInvite) {
+          invite.mutate();
+        }
+      }}
+    >
       <TextInput
+        aria-label={t("users.emailLabel")}
         placeholder={t("users.emailPlaceholder")}
         type="email"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
       />
       <TextInput
+        aria-label={t("users.nameLabel")}
         placeholder={t("users.namePlaceholder")}
         value={name}
         onChange={(e) => setName(e.target.value)}
@@ -118,20 +143,15 @@ function InviteForm() {
           </option>
         ))}
       </select>
-      <Button
-        variant="primary"
-        small
-        disabled={!canInvite}
-        onClick={() => invite.mutate()}
-      >
+      <Button variant="primary" small type="submit" disabled={!canInvite}>
         <UserPlus aria-hidden /> {t("users.invite")}
       </Button>
       {error && (
-        <p className="t-small" style={{ flexBasis: "100%" }}>
+        <p className="t-small" role="alert" style={{ flexBasis: "100%" }}>
           {error}
         </p>
       )}
-    </div>
+    </form>
   );
 }
 
@@ -139,6 +159,7 @@ function MemberRow({ member }: Readonly<{ member: User }>) {
   const t = useT();
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
+  const [confirmOff, setConfirmOff] = useState(false);
   const refresh = () => {
     setError(null);
     qc.invalidateQueries({ queryKey: ["users-admin"] });
@@ -168,7 +189,10 @@ function MemberRow({ member }: Readonly<{ member: User }>) {
         throw new Error(problemMessage(err));
       }
     },
-    onSuccess: refresh,
+    onSuccess: () => {
+      setConfirmOff(false);
+      refresh();
+    },
     onError,
   });
 
@@ -187,7 +211,6 @@ function MemberRow({ member }: Readonly<{ member: User }>) {
 
   const pending =
     setRole.isPending || deactivate.isPending || reactivate.isPending;
-  const active = member.status === "active";
 
   return (
     <li className="users-row">
@@ -195,13 +218,15 @@ function MemberRow({ member }: Readonly<{ member: User }>) {
         <b>{member.display_name}</b>
         <span className="t-small">{member.email}</span>
       </span>
-      <Badge tone={active ? "success" : "warn"}>
+      <Badge tone={member.status === "active" ? "success" : "warn"}>
         {t(`users.status.${member.status}`)}
       </Badge>
+      {/* Controlled at "" so the label always resets — re-selecting the same
+          role after a failed change still fires onChange. */}
       <select
         className="input"
         aria-label={t("users.setRoleFor", { name: member.display_name })}
-        defaultValue=""
+        value=""
         disabled={pending}
         onChange={(e) => {
           if (e.target.value) {
@@ -216,20 +241,32 @@ function MemberRow({ member }: Readonly<{ member: User }>) {
           </option>
         ))}
       </select>
-      {active ? (
-        <Button small disabled={pending} onClick={() => deactivate.mutate()}>
+      {member.status === "active" && (
+        <Button small disabled={pending} onClick={() => setConfirmOff(true)}>
           {t("users.deactivate")}
         </Button>
-      ) : (
+      )}
+      {member.status === "deactivated" && (
         <Button small disabled={pending} onClick={() => reactivate.mutate()}>
           {t("users.reactivate")}
         </Button>
       )}
       {error && (
-        <span className="t-small" style={{ flexBasis: "100%" }}>
+        <span className="t-small" role="alert" style={{ flexBasis: "100%" }}>
           {error}
         </span>
       )}
+      <ConfirmModal
+        open={confirmOff}
+        onClose={() => setConfirmOff(false)}
+        title={t("users.deactivateConfirmTitle", { name: member.display_name })}
+        confirmLabel={t("users.deactivate")}
+        confirmVariant="danger"
+        pending={deactivate.isPending}
+        onConfirm={() => deactivate.mutate()}
+      >
+        <p className="t-small">{t("users.deactivateConfirmBody")}</p>
+      </ConfirmModal>
     </li>
   );
 }

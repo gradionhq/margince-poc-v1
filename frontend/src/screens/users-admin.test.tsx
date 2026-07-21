@@ -52,6 +52,13 @@ function backend(calls: { method: string; url: string; body?: unknown }[]) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const req =
       input instanceof Request ? input : new Request(String(input), init);
+    if (req.url.endsWith("/v1/me")) {
+      return jsonResponse({
+        user: { email: "admin@acme.test" },
+        roles: ["admin"],
+        teams: [],
+      });
+    }
     if (req.url.includes("/users") && req.method === "GET") {
       return jsonResponse(ROSTER);
     }
@@ -134,6 +141,11 @@ describe("UsersAdminCard", () => {
 
     const active = screen.getByText("Ada Active").closest("li") as HTMLElement;
     await userEvent.click(within(active).getByText("Deactivate"));
+    // Deactivation is destructive (revokes sessions/passports): confirm first.
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: /deactivate/i }),
+    );
 
     await waitFor(() =>
       expect(
@@ -194,6 +206,13 @@ describe("UsersAdminCard", () => {
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const req =
           input instanceof Request ? input : new Request(String(input), init);
+        if (req.url.endsWith("/v1/me")) {
+          return jsonResponse({
+            user: { email: "admin@acme.test" },
+            roles: ["admin"],
+            teams: [],
+          });
+        }
         if (req.url.includes("/users") && req.method === "GET") {
           return jsonResponse(ROSTER);
         }

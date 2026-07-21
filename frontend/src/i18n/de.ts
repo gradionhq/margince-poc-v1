@@ -1432,8 +1432,14 @@ export const de = {
   "users.sub":
     "Mitglieder einladen, Rollen setzen und Zugriff deaktivieren. Nur für Admins.",
   "users.empty": "Noch keine Mitglieder.",
+  "users.adminOnly": "Mitglieder verwalten können nur Admins.",
+  "users.emailLabel": "E-Mail des neuen Mitglieds",
+  "users.nameLabel": "Vollständiger Name des neuen Mitglieds",
   "users.emailPlaceholder": "name@firma.de",
   "users.namePlaceholder": "Vollständiger Name",
+  "users.deactivateConfirmTitle": "{name} deaktivieren?",
+  "users.deactivateConfirmBody":
+    "Sie werden überall abgemeldet und ihre Agent-Pässe sofort widerrufen. Du kannst sie später reaktivieren, aber sie müssen sich neu anmelden.",
   "users.roleLabel": "Rolle für das neue Mitglied",
   "users.invite": "Einladen",
   "users.setRole": "Rolle setzen…",

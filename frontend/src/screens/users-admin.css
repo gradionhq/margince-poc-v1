@@ -8,6 +8,14 @@
   margin-bottom: var(--space-3);
 }
 
+/* Keep the invite fields compact so the row wraps rather than each control
+   taking a full line (the shared .input is width:100% by default). */
+.users-invite .input {
+  flex: 1 1 12rem;
+  min-width: 8rem;
+  width: auto;
+}
+
 .users-list {
   list-style: none;
   padding: 0;
@@ -23,8 +31,15 @@
   border-top: 1px solid var(--borderSubtle);
 }
 
+/* Let a long name/email shrink and wrap instead of forcing the row wider than
+   its card (notably at 390px). */
 .users-who {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   margin-right: auto;
+}
+
+.users-who .t-small {
+  overflow-wrap: anywhere;
 }

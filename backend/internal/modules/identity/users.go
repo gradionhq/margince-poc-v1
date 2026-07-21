@@ -27,9 +27,10 @@ import (
 // userStatusActive is the app_user.status an invited/reactivated member holds;
 // userAuditKeyStatus is the audit before/after image key for that column.
 const (
-	userStatusActive   = "active"
-	userAuditKeyStatus = "status"
-	roleAdmin          = "admin"
+	userStatusActive      = "active"
+	userStatusDeactivated = "deactivated"
+	userAuditKeyStatus    = "status"
+	roleAdmin             = "admin"
 )
 
 // InviteUserInput carries the admin-supplied details for a new member. No
@@ -125,6 +126,12 @@ func (s *Service) ReactivateUser(ctx context.Context, actor Identity, userID ids
 		}
 		if status == userStatusActive {
 			return nil
+		}
+		// Reactivation is the inverse of deactivation only — a 'suspended' member
+		// is held for a different reason (e.g. lockout) and must not be silently
+		// cleared by this path.
+		if status != userStatusDeactivated {
+			return apperrors.ErrConflict
 		}
 		if _, err := tx.Exec(ctx,
 			`UPDATE app_user SET status = 'active' WHERE id = $1`, userID); err != nil {
@@ -232,7 +239,7 @@ func (s *Service) DeactivateUser(ctx context.Context, actor Identity, in Deactiv
 		if err != nil {
 			return err
 		}
-		if status == "deactivated" {
+		if status == userStatusDeactivated {
 			return nil
 		}
 		// Never deactivate the last active admin — it would lock the whole
@@ -259,7 +266,7 @@ func (s *Service) DeactivateUser(ctx context.Context, actor Identity, in Deactiv
 			return err
 		}
 		auditID, err := storekit.Audit(ctx, tx, "update", "user", in.UserID.UUID,
-			map[string]any{userAuditKeyStatus: status}, map[string]any{userAuditKeyStatus: "deactivated"})
+			map[string]any{userAuditKeyStatus: status}, map[string]any{userAuditKeyStatus: userStatusDeactivated})
 		if err != nil {
 			return err
 		}

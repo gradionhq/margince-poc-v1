@@ -6,10 +6,12 @@ package identity
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
 // admin user administration (§5.6a): invite / change-role / deactivate /
@@ -27,9 +29,21 @@ func (h Handlers) InviteUser(w http.ResponseWriter, r *http.Request) {
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
+	// The contract's format/length constraints are not enforced by the binding —
+	// validate here so a malformed email or empty name can't create a member.
+	email, perr := values.ParseEmail(string(req.Email))
+	if perr != nil {
+		httperr.Write(w, r, httperr.Validation("email", "invalid_email", "a valid email address is required"))
+		return
+	}
+	name := strings.TrimSpace(req.DisplayName)
+	if name == "" || len(name) > 255 {
+		httperr.Write(w, r, httperr.Validation("display_name", "length", "a display name of 1–255 characters is required"))
+		return
+	}
 	userID, rawToken, err := h.svc.InviteUser(r.Context(), actor, InviteUserInput{
-		Email:       string(req.Email),
-		DisplayName: req.DisplayName,
+		Email:       email.String(),
+		DisplayName: name,
 		Role:        string(req.Role),
 	})
 	if err != nil {
@@ -66,6 +80,10 @@ func (h Handlers) DeactivateUser(w http.ResponseWriter, r *http.Request, id crmc
 	// The reason body is optional; an empty/absent body is a bare deactivate.
 	req := crmcontracts.DeactivateUserRequest{}
 	if r.ContentLength != 0 && !httperr.Decode(w, r, &req) {
+		return
+	}
+	if req.Reason != nil && len(*req.Reason) > 500 {
+		httperr.Write(w, r, httperr.Validation("reason", "length", "the reason must be 500 characters or fewer"))
 		return
 	}
 	if err := h.svc.DeactivateUser(r.Context(), actor, DeactivateUserInput{
