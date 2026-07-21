@@ -9513,6 +9513,16 @@ components:
           type: [string, 'null']
           description: Required and non-blank only for use_value; forbidden for other actions.
 
+    CompanySiteReadLegalEntity:
+      type: object
+      required: [name, source_url]
+      properties:
+        name: { type: string, description: "The entity's registered name exactly as the legal notice prints it." }
+        registered_address: { type: string, description: "Its registered address as printed; absent when the page states none for this entity." }
+        register_number: { type: string, description: "Its registration, VAT, UID or tax number as printed; absent when the page states none for this entity." }
+        evidence_snippet: { type: string }
+        source_url: { type: string, format: uri }
+
     CompanySiteReadPerson:
       type: object
       required: [name, role, evidence_snippet, evidence_url]
@@ -9555,6 +9565,14 @@ components:
         people:
           type: array
           items: { $ref: '#/components/schemas/CompanySiteReadPerson' }
+        legal_entities:
+          type: array
+          description: >
+            Every legal entity the site's legal notice states, with the identity
+            details printed alongside it. A group publishes several; the read does
+            not guess which one the installation belongs to, so it offers them and
+            the human chooses. Empty when the site names none.
+          items: { $ref: '#/components/schemas/CompanySiteReadLegalEntity' }
         warnings:
           type: array
           items: { type: string }

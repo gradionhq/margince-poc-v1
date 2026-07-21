@@ -187,6 +187,22 @@ func companySiteRead(read people.SiteRead, compared []people.SiteReadComparison)
 			EvidenceUrl: fact.SourceURL, Confidence: fact.Confidence,
 		})
 	}
+	entities := make([]crmcontracts.CompanySiteReadLegalEntity, 0, len(read.LegalEntities))
+	for _, entity := range read.LegalEntities {
+		wire := crmcontracts.CompanySiteReadLegalEntity{Name: entity.Name, SourceUrl: entity.SourceURL}
+		// The optional details stay ABSENT rather than empty: "the page did
+		// not state it" and "the page stated nothing" must not read alike.
+		if entity.RegisteredAddress != "" {
+			wire.RegisteredAddress = &entity.RegisteredAddress
+		}
+		if entity.RegisterNumber != "" {
+			wire.RegisterNumber = &entity.RegisterNumber
+		}
+		if entity.EvidenceSnippet != "" {
+			wire.EvidenceSnippet = &entity.EvidenceSnippet
+		}
+		entities = append(entities, wire)
+	}
 	found := make([]crmcontracts.CompanySiteReadPerson, 0, len(read.People))
 	for _, person := range read.People {
 		disposition := crmcontracts.CompanySiteReadPersonDisposition("separate_lead_proposal")
@@ -215,7 +231,8 @@ func companySiteRead(read people.SiteRead, compared []people.SiteReadComparison)
 	out := crmcontracts.CompanySiteRead{
 		Id: openapi_types.UUID(read.ID), TargetKind: crmcontracts.CompanySiteReadTargetKind("onboarding"),
 		RootUrl: read.SeedURL, Status: crmcontracts.CompanySiteReadStatus(status), Pages: pages,
-		ProfileFields: fields, Facts: facts, Comparisons: comparisons, People: found, Warnings: read.Warnings,
+		ProfileFields: fields, Facts: facts, Comparisons: comparisons, People: found,
+		LegalEntities: &entities, Warnings: read.Warnings,
 		DraftVersion: read.DraftVersion, ProposalHash: read.ProposalHash,
 		CreatedAt: read.CreatedAt, UpdatedAt: read.UpdatedAt, PagesRead: &read.PagesRead,
 		StatusDetail: read.StatusDetail, NextAttemptAt: read.NextAttemptAt,

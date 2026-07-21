@@ -846,17 +846,14 @@ export const de = {
   "ob.stateSaveFailed":
     "Wir konnten deinen Einrichtungsfortschritt nicht speichern. Bitte versuche es erneut.",
   "ob.readKick": "Schritt 1 von 5 · Firmenkontext",
-  "ob.readTitle": "Lass Margince dein Geschäft verstehen.",
-  "ob.readSub":
-    "Starte mit deiner öffentlichen Website für eine belegte Analyse, oder trage die drei Grundlagen selbst ein. Beide Wege erzeugen denselben nützlichen Firmenkontext.",
+  "ob.readTitle": "Dein Unternehmen",
+  "ob.readSub": "Von deiner Website lesen, oder selbst eintragen.",
   "ob.readChoice": "Wähle, wie du deine Firma beschreiben möchtest",
   "ob.readWebsite": "Meine Website einlesen",
-  "ob.readWebsiteSub":
-    "Wir prüfen die relevanten Seiten und zeigen jede Aussage vor dem Speichern.",
+  "ob.readWebsiteSub": "Du prüfst jede Aussage vor dem Speichern.",
   "ob.readManual": "Selbst eingeben",
-  "ob.readManualSub":
-    "Firmenname, Angebot und Idealkunde. Ohne KI oder externe Anfrage.",
-  "ob.readTrustTitle": "Öffentlich, begrenzt und erst nach Prüfung. ",
+  "ob.readManualSub": "Ohne KI, ohne externe Anfrage.",
+  "ob.readTrustTitle": "Nur öffentliche Seiten. ",
   "ob.readTrustBody": "Nichts wird zu Firmendaten, bevor du es bestätigst.",
   "ob.continueManual": "Manuell fortfahren",
   "ob.reviewFindings": "Ergebnisse prüfen",
@@ -881,17 +878,20 @@ export const de = {
     "Aus {count} öffentlichen Seiten belegt. Änderungen werden deine Aussage; unveränderte Werte behalten ihre Belege.",
   "ob.confirmManual":
     "Manuelle Einrichtung — deine Antworten werden als menschliche Angaben gespeichert.",
-  "ob.factsTitle": "Nützliche wiederholbare Fakten",
-  "ob.factsSub":
-    "Wähle, welche Produkte, Fähigkeiten, Märkte und Belege Teil des Firmenkontexts werden.",
+  "ob.legalTitle": "Welches davon ist dein Unternehmen?",
+  "ob.legalSub":
+    "Dein Impressum nennt mehrere. Wähle deins — die Daten werden unten eingetragen.",
+  "ob.factsTitle": "Fakten von deiner Website",
+  "ob.factsSelected": "{selected} von {total} ausgewählt",
+  "ob.factsSub": "Wähle ab, was nicht Teil des Firmenkontexts werden soll.",
   "ob.nowUnderstands": "Margince versteht jetzt",
   "ob.contextReady":
     "Dieser Kontext steht relevanten Entwürfen, Suche, Agenten und Voice DNA bereit — inklusive Herkunft.",
 
   "ob.s1.kick": "Schritt 2 von 5 · bestätigen",
-  "ob.s1.title": "Mach daraus eindeutig deine Firma.",
+  "ob.s1.title": "Unternehmensdaten prüfen",
   "ob.s1.sub":
-    "Trag das hier ein, oder füg deine Website ein — dann füllen wir aus, was wir von dort zitieren können. Gespeichert wird erst, wenn du weitergehst.",
+    "Ausgefüllt ist nur, was deine Website wirklich nennt. Korrigiere, was nicht stimmt.",
   "ob.s1.urlPlaceholder": "deinefirma.de",
   "ob.s1.identityLabel": "Firmendaten",
   "ob.s1.positioningLabel": "Was du verkaufst — und an wen",

@@ -57,6 +57,7 @@ type SiteRead struct {
 	ProposalIDs    []ids.UUID
 	RequestedBy    string
 	ProfileFields  []DeepReadField
+	LegalEntities  []SiteReadLegalEntity
 	Facts          []DeepReadFact
 	People         []SiteReadPerson
 	Warnings       []string
@@ -75,6 +76,19 @@ type SiteRead struct {
 	ConfirmedAt     *time.Time
 }
 
+// SiteReadLegalEntity is one legal entity a legal notice states, with the
+// identity details printed alongside it. A group publishes several, and
+// the read refuses to guess which one an installation belongs to — so it
+// keeps them all and the human picks. Address and register number are
+// empty when the page named the entity without them.
+type SiteReadLegalEntity struct {
+	Name              string `json:"name"`
+	RegisteredAddress string `json:"registered_address,omitempty"`
+	RegisterNumber    string `json:"register_number,omitempty"`
+	EvidenceSnippet   string `json:"evidence_snippet,omitempty"`
+	SourceURL         string `json:"source_url"`
+}
+
 // SiteReadPerson is one published person held in the operational dossier.
 // It never becomes a contact or lead as part of company confirmation; compose
 // stages each person separately after the anchor exists.
@@ -90,7 +104,7 @@ type SiteReadPerson struct {
 // siteReadColumns is the ONE column list every dossier read scans —
 // scanSiteRead pairs with it positionally.
 const siteReadColumns = `id, organization_id, target_kind, seed_url, status, status_code, status_detail, next_attempt_at, pages, skipped,
-	stopped_reason, fact_count, proposal_ids, requested_by, profile_fields, facts, people, warnings,
+	stopped_reason, fact_count, proposal_ids, requested_by, profile_fields, facts, people, legal_entities, warnings,
 	draft_version, proposal_hash, phase, pages_read, created_at, updated_at, started_at, first_grounded_at, finished_at, confirmed_at`
 
 // siteReadOrgKey names the audit payload's org reference once (the goconst
@@ -363,93 +377,6 @@ func (s *Store) DeferSiteRead(ctx context.Context, readID ids.UUID, nextAttemptA
 	})
 }
 
-// SiteReadClaim is what BeginSiteRead's CAS hands the worker: the claimed
-// dossier's own identity, so the crawl derives from the row, not the job.
-type SiteReadClaim struct {
-	OrganizationID *ids.UUID
-	TargetKind     string
-	SeedURL        string
-	RequestedBy    string
-}
-
-// FinishSiteReadInput is the worker's completed crawl report.
-type FinishSiteReadInput struct {
-	Status        string // done | partial | failed
-	Pages         []SiteReadPage
-	Skipped       []SiteReadSkip
-	StoppedReason *string
-	FactCount     int
-	ProposalIDs   []ids.UUID
-	ProfileFields []DeepReadField
-	Facts         []DeepReadFact
-	People        []SiteReadPerson
-	Warnings      []string
-	ProposalHash  string
-}
-
-// FinishSiteRead records the crawl's outcome in one guarded UPDATE from
-// running to a terminal status. No auth.Require, same as BeginSiteRead:
-// the worker runs under the job's workspace context, not a human
-// principal — the gate ran at StartSiteRead. A read that is not running
-// (already finished, or never begun) is ErrNotFound.
-func (s *Store) FinishSiteRead(ctx context.Context, readID ids.UUID, in FinishSiteReadInput) error {
-	if !finishedSiteReadStatuses[in.Status] {
-		return fmt.Errorf("people: %q is not a terminal site-read status (done|partial|failed)", in.Status)
-	}
-	if in.StoppedReason != nil && !siteReadStopReasons[*in.StoppedReason] {
-		return fmt.Errorf("people: %q is not a site-read stop reason (budget|page_cap|byte_cap|deadline)", *in.StoppedReason)
-	}
-	pages, err := marshalSiteReadList(in.Pages)
-	if err != nil {
-		return fmt.Errorf("people: site-read pages: %w", err)
-	}
-	skipped, err := marshalSiteReadList(in.Skipped)
-	if err != nil {
-		return fmt.Errorf("people: site-read skips: %w", err)
-	}
-	proposals := in.ProposalIDs
-	if proposals == nil {
-		proposals = []ids.UUID{} // the column is NOT NULL: no proposals is the empty set
-	}
-	profileFields, err := marshalSiteReadList(in.ProfileFields)
-	if err != nil {
-		return fmt.Errorf("people: site-read profile fields: %w", err)
-	}
-	facts, err := marshalSiteReadList(in.Facts)
-	if err != nil {
-		return fmt.Errorf("people: site-read facts: %w", err)
-	}
-	people, err := marshalSiteReadList(in.People)
-	if err != nil {
-		return fmt.Errorf("people: site-read people: %w", err)
-	}
-	warnings, err := marshalSiteReadList(in.Warnings)
-	if err != nil {
-		return fmt.Errorf("people: site-read warnings: %w", err)
-	}
-	grounded := len(in.ProfileFields) > 0 || len(in.Facts) > 0
-	return s.tx(ctx, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `
-			UPDATE site_read
-			SET status = $2, pages = $3, skipped = $4, stopped_reason = $5,
-			    fact_count = $6, proposal_ids = $7, profile_fields = $8, facts = $9,
-			    people = $10, warnings = $11, proposal_hash = $12,
-			    draft_version = draft_version + 1, pages_read = $13, phase = NULL,
-			    first_grounded_at = CASE WHEN $14 THEN COALESCE(first_grounded_at, now()) ELSE first_grounded_at END,
-			    finished_at = now(), updated_at = now()
-			WHERE id = $1 AND status = 'running'`,
-			readID, in.Status, pages, skipped, in.StoppedReason, in.FactCount, proposals,
-			profileFields, facts, people, warnings, in.ProposalHash, len(in.Pages), grounded)
-		if err != nil {
-			return fmt.Errorf("finish site read: %w", err)
-		}
-		if tag.RowsAffected() == 0 {
-			return apperrors.ErrNotFound
-		}
-		return nil
-	})
-}
-
 // marshalSiteReadList serializes a page/skip list for its jsonb column,
 // spelling an empty crawl as [] — the column's own vocabulary — never null.
 func marshalSiteReadList[T any](list []T) ([]byte, error) {
@@ -462,11 +389,11 @@ func marshalSiteReadList[T any](list []T) ([]byte, error) {
 // scanSiteRead reads one siteReadColumns row into the dossier shape.
 func scanSiteRead(row pgx.Row) (SiteRead, error) {
 	var sr SiteRead
-	var pagesRaw, skippedRaw, profileRaw, factsRaw, peopleRaw, warningsRaw []byte
+	var pagesRaw, skippedRaw, profileRaw, factsRaw, peopleRaw, entitiesRaw, warningsRaw []byte
 	if err := row.Scan(&sr.ID, &sr.OrganizationID, &sr.TargetKind, &sr.SeedURL, &sr.Status,
 		&sr.StatusCode, &sr.StatusDetail, &sr.NextAttemptAt, &pagesRaw, &skippedRaw,
 		&sr.StoppedReason, &sr.FactCount, &sr.ProposalIDs, &sr.RequestedBy,
-		&profileRaw, &factsRaw, &peopleRaw, &warningsRaw, &sr.DraftVersion, &sr.ProposalHash,
+		&profileRaw, &factsRaw, &peopleRaw, &entitiesRaw, &warningsRaw, &sr.DraftVersion, &sr.ProposalHash,
 		&sr.Phase, &sr.PagesRead, &sr.CreatedAt, &sr.UpdatedAt, &sr.StartedAt, &sr.FirstGroundedAt, &sr.FinishedAt, &sr.ConfirmedAt); err != nil {
 		return SiteRead{}, err
 	}
@@ -484,6 +411,9 @@ func scanSiteRead(row pgx.Row) (SiteRead, error) {
 	}
 	if err := json.Unmarshal(peopleRaw, &sr.People); err != nil {
 		return SiteRead{}, fmt.Errorf("site read %s carries unreadable people: %w", sr.ID, err)
+	}
+	if err := json.Unmarshal(entitiesRaw, &sr.LegalEntities); err != nil {
+		return SiteRead{}, fmt.Errorf("site read %s carries unreadable legal entities: %w", sr.ID, err)
 	}
 	if err := json.Unmarshal(warningsRaw, &sr.Warnings); err != nil {
 		return SiteRead{}, fmt.Errorf("site read %s carries unreadable warnings: %w", sr.ID, err)

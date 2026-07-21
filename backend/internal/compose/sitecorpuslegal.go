@@ -15,11 +15,62 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 )
 
-// corpusLegalEntity is one entity a legal page names — the census the
-// multi-entity abstention counts.
+// corpusLegalEntity is one entity a legal page names, with the identity
+// details printed alongside it. It is both the census the multi-entity
+// abstention counts AND, when that abstention fires, the choice offered to
+// the human: a group's imprint lists its subsidiaries in blocks — name,
+// registered address, registration or VAT number — and dropping all of it
+// because there were five leaves a person retyping what the page already
+// stated, which is the one thing this read exists to prevent.
 type corpusLegalEntity struct {
-	Name      string `json:"name"`
-	SourceURL string `json:"source_url"`
+	Name string `json:"name"`
+	// RegisteredAddress and RegisterNumber are empty when the page states
+	// the entity but not that detail — never guessed to fill the block.
+	RegisteredAddress string `json:"registered_address,omitempty"`
+	RegisterNumber    string `json:"register_number,omitempty"`
+	EvidenceSnippet   string `json:"evidence_snippet,omitempty"`
+	SourceURL         string `json:"source_url"`
+}
+
+// dedupeLegalEntities folds the census into the list a human is offered.
+// One entity reaches it several times: every locale of the legal page
+// states it, and a group's page labels each block with a market name
+// ("Gradion Singapur") above the entity that trades there. A register
+// number is the identity a registry issues, so blocks sharing one are the
+// same company however they are labelled; entities without one fall back
+// to their normalized name. The richest sighting wins, so a locale that
+// printed the address is not lost to one that omitted it.
+func dedupeLegalEntities(entities []corpusLegalEntity) []corpusLegalEntity {
+	index := map[string]int{}
+	var out []corpusLegalEntity
+	for _, entity := range entities {
+		key := normalizeEvidence(entity.RegisterNumber)
+		if key == "" {
+			key = normalizeEvidence(entity.Name)
+		}
+		at, seen := index[key]
+		if !seen {
+			index[key] = len(out)
+			out = append(out, entity)
+			continue
+		}
+		if legalEntityDetail(entity) > legalEntityDetail(out[at]) {
+			out[at] = entity
+		}
+	}
+	return out
+}
+
+// legalEntityDetail counts how much of an entity block was actually
+// printed — the tie-break when the same entity is seen twice.
+func legalEntityDetail(entity corpusLegalEntity) int {
+	filled := 0
+	for _, value := range []string{entity.RegisteredAddress, entity.RegisterNumber} {
+		if strings.TrimSpace(value) != "" {
+			filled++
+		}
+	}
+	return filled
 }
 
 // legalWarningMultipleEntities is the abstention's user-facing warning —

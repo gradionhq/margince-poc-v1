@@ -6649,6 +6649,17 @@ export interface components {
             /** @description Required and non-blank only for use_value; forbidden for other actions. */
             value?: string | null;
         };
+        CompanySiteReadLegalEntity: {
+            /** @description The entity's registered name exactly as the legal notice prints it. */
+            name: string;
+            /** @description Its registered address as printed; absent when the page states none for this entity. */
+            registered_address?: string;
+            /** @description Its registration, VAT, UID or tax number as printed; absent when the page states none for this entity. */
+            register_number?: string;
+            evidence_snippet?: string;
+            /** Format: uri */
+            source_url: string;
+        };
         CompanySiteReadPerson: {
             name: string;
             role: string;
@@ -6691,6 +6702,8 @@ export interface components {
             /** @description Version-bound comparison against current confirmed company truth. */
             comparisons: components["schemas"]["CompanySiteReadComparison"][];
             people: components["schemas"]["CompanySiteReadPerson"][];
+            /** @description Every legal entity the site's legal notice states, with the identity details printed alongside it. A group publishes several; the read does not guess which one the installation belongs to, so it offers them and the human chooses. Empty when the site names none. */
+            legal_entities?: components["schemas"]["CompanySiteReadLegalEntity"][];
             warnings: string[];
             draft_version: number;
             proposal_hash: string;

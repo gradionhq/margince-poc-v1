@@ -750,7 +750,7 @@ func TestDeepReadFinishSurvivesACancelledWorkContext(t *testing.T) {
 	}
 	cancel()
 
-	if err := worker.finish(workCtx, read.ID, "partial", nil, siteCrawl{}, 0, nil, nil, nil, nil, nil, ""); err != nil {
+	if err := worker.finish(workCtx, read.ID, "partial", nil, siteCrawl{}, 0, nil, nil, nil, nil, nil, nil, ""); err != nil {
 		t.Fatalf("finish under a cancelled work context: %v", err)
 	}
 
