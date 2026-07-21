@@ -41,11 +41,6 @@ type briefL2Ranker struct {
 	log   *slog.Logger
 }
 
-// briefL2MaxTokens bounds the re-order response: a permutation of at most
-// a handful of candidate ids is small, and the cap keeps a runaway model
-// from spending the run's whole budget on this advisory step.
-const briefL2MaxTokens = 1024
-
 // briefL2System instructs the model to re-rank the deterministic
 // candidates and return ONLY their own ids. The bounding step enforces
 // this regardless of what the model returns, so the prompt is guidance,
@@ -93,7 +88,7 @@ func (rk briefL2Ranker) askModel(ctx context.Context, candidates []BriefQueueIte
 	resp, err := rk.brain.Complete(ctx, model.Request{
 		System:         briefL2System,
 		Messages:       []model.Message{{Role: "user", Content: b.String()}},
-		MaxTokens:      briefL2MaxTokens,
+		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		SecretStripper: ai.NewSecretStripper(),
 	})
 	if err != nil {

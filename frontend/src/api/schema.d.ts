@@ -446,6 +446,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{id}/deep-read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read the company's WHOLE site in the background — a crawl that ends in staged 🟡 proposals.
+         * @description The deep read (founder ratification R2, the A102 crawl seam): discovers up to 12 pages of the
+         *     organization's own site — well-known paths, sitemap, same-registrable-domain nav links, every
+         *     one robots-checked and SSRF-guarded, discovery is deterministic code and NEVER model-chosen —
+         *     extracts each page through the shared evidence gate, and stages the merged findings as 🟡
+         *     approvals (one `deepread` bundle of company facts; one `site_lead` per person found on team
+         *     pages, published details only). NOTHING is written to real records until a human accepts.
+         *     Asynchronous: answers 202 with the read to poll; progress and the outcome (including what was
+         *     SKIPPED and why — robots, off-domain, page cap, model budget) are on the read report. Re-running
+         *     while a read is in flight answers the SAME read (idempotent per org+url). Budget-guarded: the
+         *     crawl stops early and reports `partial` when the model lane demotes to queue-or-local.
+         */
+        post: operations["deepReadCompany"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{id}/site-reads/{readId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                readId: string;
+            };
+            cookie?: never;
+        };
+        /** One deep read's progress and outcome — pages read, pages skipped and WHY, what got staged. */
+        get: operations["getSiteRead"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/{id}/strength": {
         parameters: {
             query?: never;
@@ -1499,6 +1552,210 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/coldstart/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read a company back from a website (or text) to PRE-FILL the company form. Stages nothing.
+         * @description The same extraction + no-guess gate as POST /coldstart, with no staging: the fields are returned
+         *     for a human to check and correct in the company form, and NOTHING is written or queued. Confirm-first
+         *     (🟡) is honoured by the form itself — the unsaved form IS the staged state, and PUT /company is the
+         *     human's confirmation. This is the read-back onboarding uses; POST /coldstart's approval-inbox
+         *     staging remains for callers that propose asynchronously, with no human at the screen.
+         *
+         *     Exactly one of `url`, `text` or `self_description`, as on /coldstart. Every field still carries a
+         *     non-empty `evidence_snippet` + `confidence`, or it is ABSENT — a field the source does not ground
+         *     is returned as an omission for the human to fill in by hand, never as a guess.
+         */
+        post: operations["coldStartPreview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/onboarding/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the acting user's resumable onboarding state.
+         * @description Returns only wizard orchestration state. Confirmed company data, website-read findings,
+         *     voice artifacts, and connector grants remain in their owning resources. A user with no
+         *     persisted state receives 404; the client starts from the server-derived creator/member path.
+         */
+        get: operations["getOnboardingState"];
+        /**
+         * Create or replace the acting user's resumable onboarding state.
+         * @description `expected_version=0` creates the state. Later writes must supply the version last read;
+         *     a stale concurrent tab receives 409 and must reload before retrying. The server derives
+         *     creator/member path from anchor-company existence and rejects creator advancement beyond
+         *     Confirm until the minimum company profile exists.
+         */
+        put: operations["putOnboardingState"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/company": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The installation's own company (the anchor organization).
+         * @description The company this installation belongs to — the spec's anchor organization, marked by
+         *     `organization.is_anchor` (0083; at most one live anchor per workspace). 404 until a human first
+         *     saves the company form: that 404 IS the "this installation has not described itself yet" signal,
+         *     and it is what onboarding gates on. Distinct from GET /organizations/{id}, which reads the
+         *     customer records.
+         */
+        get: operations["getCompany"];
+        /**
+         * Save the installation's own company — the human's confirm-first write.
+         * @description Creates the anchor organization on first save (marking it `is_anchor`) and updates it on every
+         *     later one. This is a HUMAN write: every field is stamped
+         *     `captured_by=human:<user id>`, `source=human`, whether it was typed from scratch or accepted
+         *     from a /coldstart/preview read-back — once a human has looked at a value and saved it, it is
+         *     theirs, and a later agent read-back will not overwrite it.
+         *
+         *     Unlike the cold-start accept path this never resolves a target by domain: the workspace names its
+         *     own anchor, so a company saved from pasted text or typed by hand works exactly like one read from
+         *     a website. Fields omitted from the body are left untouched; fields sent empty are cleared.
+         */
+        put: operations["putCompany"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/company/context/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the effective server-side company-context rollout capability.
+         * @description The UI follows this authenticated response instead of inferring deployment configuration.
+         */
+        get: operations["getCompanyContextCapabilities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/company/context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The deterministic, typed context assembled from the anchor company.
+         * @description Reads confirmed company identity, profile fields and accepted repeatable facts under the
+         *     caller's normal organization row scope. The requested scopes bound the result; raw crawl
+         *     pages and individual people never enter this read model. Ordering and fingerprinting are
+         *     deterministic so downstream model calls can bind cache entries and traces to the exact
+         *     company knowledge they used.
+         */
+        get: operations["getCompanyContext"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/company/site-reads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start an optional progressive website read before the anchor company exists.
+         * @description Creates only an unbound operational dossier and queues the shared deep-read engine in the
+         *     same transaction. No organization, profile field, fact, lead, or domain row is created.
+         *     Repeating the same URL while its read is active joins the existing dossier.
+         */
+        post: operations["startCompanySiteRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/company/site-reads/{readId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                readId: string;
+            };
+            cookie?: never;
+        };
+        /** Read the latest progressive onboarding dossier and its grounded draft findings. */
+        get: operations["getCompanySiteRead"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/company/site-reads/{readId}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                readId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm a selected onboarding draft into the anchor company atomically.
+         * @description Applies only the submitted profile and selected fact keys. The draft version and proposal
+         *     hash bind confirmation to the exact inspected proposal; a stale confirmation returns 409.
+         *     Every human-held collision requires an explicit keyed resolution. Unchanged values retain
+         *     website evidence, edits become human assertions, and published people remain separate
+         *     site-lead proposals rather than becoming contacts or company-context rows.
+         */
+        post: operations["confirmCompanySiteRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/connectors/imap/connect": {
         parameters: {
             query?: never;
@@ -1636,6 +1893,265 @@ export interface paths {
          *     they are real history; capture simply stops. Human-only.
          */
         post: operations["disconnectConnector"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connectors/{provider}/backfill/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
+                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
+                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
+                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 */
+                provider: components["parameters"]["CaptureProvider"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview a backfill window — the scope before the spend.
+         * @description Returns the provider-side message count for a CAP-PARAM-4 window plus the projected AI
+         *     token/cost estimate (ADR-0063; the ADR-0020 preview-before-spend obligation). MUST precede
+         *     `startConnectorBackfill` — the estimate is what the user consents to. Labeled an estimate:
+         *     actual spend is metered per task. Requires a `connected` connection; needs one provider
+         *     round-trip, so a provider outage surfaces honestly as 502.
+         */
+        post: operations["previewConnectorBackfill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connectors/{provider}/backfill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
+                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
+                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
+                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 */
+                provider: components["parameters"]["CaptureProvider"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Backfill progress — the activation read.
+         * @description The single-row progress read behind the activation screen (CAP-PARAM-2: < 150 ms, never
+         *     blocks on the pipeline). Every count is a persisted-row count; `updated_at` is the
+         *     staleness stamp a killed worker leaves honest. `state: none` when this connection has
+         *     never backfilled.
+         */
+        get: operations["getConnectorBackfillStatus"];
+        put?: never;
+        /**
+         * Start the bounded connect-time backfill.
+         * @description Creates the CAP-DDL-4 run and enqueues the resumable job (ADR-0063). Widen-only — a
+         *     re-invoke with a larger window re-scans only the delta (the capture key makes overlap a
+         *     no-op); a smaller window is refused (`409 window_narrowing`). One live run per connection
+         *     (`409 backfill_running`). This op commands the job; it never ingests (CAP-WIRE-N-1).
+         */
+        post: operations["startConnectorBackfill"];
+        /**
+         * Cancel a running backfill — captured rows are retained.
+         * @description Stops the job; everything already captured stays (real history). Incremental sync is
+         *     untouched. `409 not_running` when there is nothing to cancel.
+         */
+        delete: operations["cancelConnectorBackfill"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/digest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The calling user's morning digest — what capture did overnight.
+         * @description Reads the CAP-DDL-6 payload built by the nightly suite (CAP-WIRE-6): capture totals,
+         *     review counts (open dedupe candidates, pending 🟡 approvals, the classify summary), and
+         *     the connector health strip. `404 no_digest_yet` before the first nightly run — the
+         *     client renders the honest empty state. v1 delivery is in-app; email is delivery-only
+         *     later, same object.
+         */
+        get: operations["getMorningDigest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * AI usage + budget — the spend is never invisible.
+         * @description Per-day × task × tier usage from the metering record (AIRT-PARAM-33) plus the workspace
+         *     budget block: monthly token budget, spent, current band (AIRT-PARAM-9..11), and since
+         *     when. The admin economy-mode banner and the spend view read this (AIRT-WIRE-1; resolves
+         *     the former AIRT-WIRE-N-1 gap). Inference is the customer's own key (ADR-0020) — this is
+         *     their own bill made visible, never a Margince meter for resale.
+         */
+        get: operations["getAiUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The AI call trace — every terminal model call, newest first.
+         * @description Terminal attempts from the AIRT-SCHEMA-2 call record (`ai_call`), keyset-paginated
+         *     newest-first. The admin trace view reads this; the same automation-config grant
+         *     that admits `getAiUsage` admits it. `payload_capture_enabled` reports the
+         *     deployment's `ai.capture_payloads` posture so a client can distinguish
+         *     "capture is off" from "this call has no payload".
+         */
+        get: operations["listAiCalls"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/calls/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * One call — attempt ladder, routing identity, context provenance, captured payload.
+         * @description The full trace of one terminal call: its non-terminal retry siblings (shared
+         *     `logical_call_id`), the configured-vs-served model identity, the injected company-context
+         *     scopes, and — when `ai.capture_payloads` captured it — the post-secret-stripper
+         *     request/response payload verbatim.
+         */
+        get: operations["getAiCall"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dedupe/candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The dedupe review queue, confidence-sorted. */
+        get: operations["listDedupeCandidates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dedupe/candidates/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** One candidate with its full detection-time evidence. */
+        get: operations["getDedupeCandidate"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dedupe/candidates/{id}/disposition": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decide one pair — merge through the owner's verb, or dismiss forever.
+         * @description `merge` requires `winner_id` (one of the pair) and executes `mergePerson`/
+         *     `mergeOrganization` server-side — one merge in the system, no second verb.
+         *     `not_a_duplicate` flips the row and suppresses the pair from every future
+         *     sweep (AC-dedupe-7). `409 already_disposed`; `422` when `winner_id` is not
+         *     one of the pair.
+         */
+        post: operations["disposeDedupeCandidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dedupe/candidates/{id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-open a disposed pair.
+         * @description A dismissed pair re-opens (the suppression lifts). A merged pair needs the
+         *     merge verb's reversibility (PO-AC-M6) — `409 not_undoable` until the
+         *     survivor-side restore exists or when the survivor mutated since.
+         */
+        post: operations["undoDedupeDisposition"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2241,14 +2757,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List the voice profiles visible to the caller. */
+        /** List the calling user's live Voice DNA (zero or one in V1). */
         get: operations["listVoiceProfiles"];
         put?: never;
         /**
-         * Create a voice profile (status=building, empty derived artifact).
-         * @description A `user`-scope profile is owned by the caller — one live profile per user (409 on a second).
-         *     `personality_md` is the human-authored identity half; the derived `voice_profile_md` is
-         *     written only by the profile builder and arrives empty here.
+         * Create the calling user's one personal Voice DNA.
+         * @description The profile starts collecting with an empty derived artifact. A second live profile is 409.
          */
         post: operations["createVoiceProfile"];
         delete?: never;
@@ -2267,19 +2781,17 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Read one voice profile (derived artifact + human identity). */
+        /** Read the calling user's Voice DNA and active derived artifact. */
         get: operations["getVoiceProfile"];
         put?: never;
         post?: never;
-        /** Archive a voice profile (soft; its corpus stops being read). */
+        /** Archive the calling user's Voice DNA and stop its use in drafts. */
         delete: operations["deleteVoiceProfile"];
         options?: never;
         head?: never;
         /**
-         * Edit the human-authored personality_md (never the derived artifact).
-         * @description The PATCH surface deliberately carries ONLY `personality_md`: the derived
-         *     `voice_profile_md` + its `profile_version` are written by the rebuild path alone, so the
-         *     human-authored/machine-derived split (features/09 §B0.2) is enforced by the contract shape.
+         * Replace human-authored preferences or enable/disable automatic improvement.
+         * @description The derived artifact and its version are never writable through this operation.
          */
         patch: operations["updateVoiceProfile"];
         trace?: never;
@@ -2294,18 +2806,14 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** The corpus manifest — every ingested source plus the live word/register meter. */
+        /** List the owner's corpus manifest and live meter; source text is never returned. */
         get: operations["listVoiceCorpusSources"];
         put?: never;
         /**
-         * Ingest one corpus source (idempotent on source_ref).
-         * @description Accepts the source text (`.txt`/`.md` as-is; `.vtt`/`.srt`/transcript-JSON are parsed and
-         *     SPEAKER-FILTERED to `speaker_label` — only the owner's own turns enter, features/09 §B1.2),
-         *     tags its register (explicit or defaulted by kind), counts the REAL words of the ingested
-         *     text (never an estimate), and upserts by `source_ref` — re-ingesting a source replaces its
-         *     row, it never double-counts the meter. The V1 corpus is text only (features/09 §B1.1):
-         *     binary documents (`.docx`/`.pdf`) are refused with a 422 — convert or paste the text
-         *     instead. Server-side binary extraction is deferred to B-E07.5c.
+         * Ingest or replace one manual own-authored text source.
+         * @description Idempotent on `source_ref`. Transcript inputs are speaker-filtered to the supplied owner label;
+         *     other speakers contribute zero words. V1 accepts text/transcript formats only, never binary
+         *     documents. Ingest updates the meter and marks a built profile stale but makes no model call.
          */
         post: operations["ingestVoiceCorpusSource"];
         delete?: never;
@@ -2328,11 +2836,222 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
+        /** Permanently remove one retained source and mark any active artifact stale. */
+        delete: operations["deleteVoiceCorpusSource"];
+        options?: never;
+        head?: never;
+        /** Exclude/re-include a source or change its weight without rebuilding inline. */
+        patch: operations["updateVoiceCorpusSource"];
+        trace?: never;
+    };
+    "/voice-profiles/{id}/corpus/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Permanently clear retained corpus, learning content, builds, deltas, and derived versions.
+         * @description Human preferences remain; automatic improvement turns off; the profile returns to collecting.
+         */
+        post: operations["clearVoiceCorpus"];
         delete?: never;
         options?: never;
         head?: never;
-        /** Flip a source's manifest opt-out (excluded) or its weight. */
-        patch: operations["updateVoiceCorpusSource"];
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}/builds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Queue a durable build over the current included corpus. */
+        post: operations["createVoiceBuild"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}/builds/{buildId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                buildId: string;
+            };
+            cookie?: never;
+        };
+        /** Poll a durable build, including budget-deferred state. */
+        get: operations["getVoiceBuild"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** List immutable active, superseded, rejected, and candidate versions newest first. */
+        get: operations["listVoiceProfileVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}/versions/{profileVersion}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                /** @description Immutable Voice DNA artifact version number within one profile. */
+                profileVersion: components["parameters"]["VoiceProfileVersionNumber"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Explicitly activate a candidate version that awaited owner review. */
+        post: operations["applyVoiceProfileVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}/versions/{profileVersion}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                /** @description Immutable Voice DNA artifact version number within one profile. */
+                profileVersion: components["parameters"]["VoiceProfileVersionNumber"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject a candidate; the last known-good remains active. */
+        post: operations["rejectVoiceProfileVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}/versions/{profileVersion}/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                /** @description Immutable Voice DNA artifact version number within one profile. */
+                profileVersion: components["parameters"]["VoiceProfileVersionNumber"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore an earlier artifact byte-for-byte as a new forward active version. */
+        post: operations["rollbackVoiceProfileVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}/deltas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** List typed, explainable changes between completed versions. */
+        get: operations["listVoiceProfileDeltas"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}/learning": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Read privacy-safe aggregate draft outcomes and qualifying transformations. */
+        get: operations["getVoiceLearningSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}/draft-rejections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record that the owner rejected a bound generated draft; generated text never becomes corpus. */
+        post: operations["rejectVoiceDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/products": {
@@ -3181,6 +3900,20 @@ export interface components {
             watch_expires_at?: string | null;
             /** @description The granted provider scopes. */
             scopes: string[];
+            /**
+             * Format: date-time
+             * @description Last sync attempt (CAP-DDL-5); null before the first.
+             */
+            last_synced_at?: string | null;
+            /** @description rate_limited | unreachable | auth | history_gone | internal — class only, detail in system_log. */
+            last_sync_error_class?: string | null;
+            /**
+             * Format: date-time
+             * @description When the sweep will next pick this connection up (backoff-aware).
+             */
+            next_sync_due_at?: string | null;
+            /** @description Summary of the connection's backfill run; state `none` when never run. */
+            backfill?: components["schemas"]["BackfillStatus"];
             /** Format: date-time */
             readonly created_at?: string;
             /** Format: date-time */
@@ -3191,7 +3924,8 @@ export interface components {
         };
         /**
          * @description Connect input. OAuth providers (`gmail`/`gcal`/`graph`) need only an optional `redirect_uri`
-         *     (the app page to return to after consent). The secret is written to the vault, never echoed.
+         *     (the app page to return to after consent); `imap` supplies direct credentials. The secret is
+         *     written to the vault, never echoed.
          */
         ConnectConnectorRequest: {
             /**
@@ -3199,6 +3933,15 @@ export interface components {
              * @description App page to return to after OAuth consent (OAuth providers).
              */
             redirect_uri?: string;
+            /** @description Direct IMAP credentials (the `imap` provider only). */
+            imap?: {
+                host: string;
+                /** @default 993 */
+                port: number;
+                username: string;
+                /** @description IMAP password / app password — written to the vault, never returned. */
+                secret: string;
+            };
         };
         /** @description An OAuth redirect target (OAuth providers). */
         ConnectConnectorResponse: {
@@ -3209,6 +3952,252 @@ export interface components {
             authorize_url?: string | null;
             /** @description The established/updated connection (appears after the callback completes for OAuth). */
             connection?: components["schemas"]["CaptureConnection"];
+        };
+        BackfillPreviewRequest: {
+            /**
+             * @description The CAP-PARAM-4 window; default UI selection is 6m.
+             * @enum {string}
+             */
+            window: "none" | "3m" | "6m" | "12m";
+        };
+        /** @description The scope before the spend (ADR-0063/ADR-0020): what starting this window would touch and roughly cost. An estimate, labeled as such — actual spend is metered per task. */
+        BackfillPreview: {
+            /** @enum {string} */
+            window: "none" | "3m" | "6m" | "12m";
+            /** @description Provider-side message count for the window (Gmail resultSizeEstimate / Graph $count). */
+            estimated_messages: number;
+            /** @description Projected classify+enrich tokens for that count. */
+            estimated_ai_tokens?: number;
+            /** @description Projected cost in minor currency units at the configured tier's rate; 0 when inference is local. */
+            estimated_cost_minor?: number;
+            /** @description ISO-4217, e.g. EUR. */
+            currency?: string;
+            /** Format: date-time */
+            computed_at: string;
+        };
+        StartBackfillRequest: {
+            /**
+             * @description `none` is expressed by never calling this op. Widen-only versus a prior run.
+             * @enum {string}
+             */
+            window: "3m" | "6m" | "12m";
+        };
+        /** @description The CAP-DDL-4 single-row activation read: every count is a persisted-row count, never a fabricated counter (closes CAP-AC-OPEN-1). */
+        BackfillStatus: {
+            /** @enum {string} */
+            state: "none" | "queued" | "running" | "done" | "error" | "cancelled";
+            /** Format: uuid */
+            backfill_id?: string | null;
+            /** @enum {string|null} */
+            window?: "3m" | "6m" | "12m" | null;
+            /** @description The previewed count the user consented to — the progress fraction's denominator. */
+            estimated_messages?: number | null;
+            counts?: {
+                messages_scanned?: number;
+                captured?: number;
+                skipped?: number;
+                people_created?: number;
+                organizations_created?: number;
+                dedupe_candidates?: number;
+            };
+            /** Format: date-time */
+            started_at?: string | null;
+            /** Format: date-time */
+            completed_at?: string | null;
+            /**
+             * Format: date-time
+             * @description Staleness stamp — a killed worker leaves this honest ("last updated Xs ago").
+             */
+            updated_at?: string | null;
+            /** @description Error class only; detail lives in system_log (0078 rationale). */
+            last_error_class?: string | null;
+        };
+        /** @description The CAP-DDL-6 payload: what capture did overnight and what awaits the human (CAP-WIRE-6). */
+        MorningDigest: {
+            /** Format: date */
+            date: string;
+            /** Format: date-time */
+            generated_at: string;
+            capture: {
+                messages_synced?: number;
+                activities_created?: number;
+                people_created?: number;
+                organizations_created?: number;
+            };
+            review: {
+                /** @description Open DH-DDL-1 candidate pairs. */
+                dedupe_open?: number;
+                /** @description Pending 🟡 items (enrich, quarantine, merge). */
+                approvals_pending?: number;
+                classify?: {
+                    commitments?: number;
+                    meetings?: number;
+                    noise?: number;
+                };
+            };
+            connectors: {
+                /** @enum {string} */
+                provider?: "gmail" | "gcal" | "graph" | "imap";
+                /** @enum {string} */
+                status?: "connected" | "disconnected" | "error" | "reauth_required";
+                /** Format: date-time */
+                last_synced_at?: string | null;
+                last_sync_error_class?: string | null;
+            }[];
+        };
+        /** @description One DH-DDL-1 review-queue row: the canonical unordered pair, its confidence, and the detection-time evidence snapshot (DH-N-8). */
+        DedupeCandidate: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            entity_type: "person" | "organization";
+            /**
+             * Format: uuid
+             * @description Canonical ordering: left is the lower id — {A,B} and {B,A} are one row.
+             */
+            left_id: string;
+            /** Format: uuid */
+            right_id: string;
+            /** @description The PO-F-1/PO-F-2 fuzzy score at detection. */
+            confidence: number;
+            /** @description Per-field agree/collide snapshot captured at detection — what the queue renders (AC-dedupe-2/3); never re-derived against since-edited rows. */
+            evidence: {
+                /** @description full_name, org, domain, … */
+                field: string;
+                left_value: string | null;
+                right_value: string | null;
+                /** @description agree | collide | one_sided */
+                signal: string;
+                /** @description The field's contribution where scored (e.g. name_sim). */
+                score?: number | null;
+            }[];
+            /** @enum {string} */
+            status: "open" | "merged" | "not_a_duplicate";
+            /** Format: uuid */
+            disposed_by?: string | null;
+            /** Format: date-time */
+            disposed_at?: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        DedupeCandidateListResponse: {
+            data: components["schemas"]["DedupeCandidate"][];
+            page?: components["schemas"]["PageInfo"];
+        };
+        DedupeDispositionRequest: {
+            /** @enum {string} */
+            disposition: "merge" | "not_a_duplicate";
+            /**
+             * Format: uuid
+             * @description Required for merge: the surviving record — must be one of the pair.
+             */
+            winner_id?: string | null;
+        };
+        /** @description AI usage + budget (AIRT-WIRE-1): the AIRT-PARAM-33 meter aggregated per day × task × tier, plus the budget band. Token-denominated; cost_est_minor is computed on read from the workspace's ai_model_rate price sheet as of each call's day (ADR-0067, price-on-read) — omitted, never a fabricated 0, when a task line's window carries no priced call. */
+        AiUsage: {
+            days: {
+                /** Format: date */
+                date: string;
+                tasks: {
+                    /** @description capture_classify, enrich, summarize, … */
+                    task: string;
+                    /** @description local_small, cheap_cloud, premium, local_large. */
+                    tier: string;
+                    calls: number;
+                    cached_hits?: number;
+                    tokens_in: number;
+                    tokens_out: number;
+                    /** @description USD minor units (cents), estimated on read from ai_model_rate at each call's day (ADR-0067). Omitted, not 0, when none of this line's calls priced. */
+                    cost_est_minor?: number;
+                }[];
+            }[];
+            budget: {
+                /** @description seats × base × safety factor (AIRT-PARAM-8). */
+                monthly_tokens: number;
+                /** @description Calendar-month tokens_in + tokens_out. */
+                spent_tokens: number;
+                /**
+                 * @description < 80% / 80–100% soft-degrade / ≥ 100% non-interactive queued (AIRT-PARAM-9..11).
+                 * @enum {string}
+                 */
+                band: "normal" | "degraded" | "queued";
+                /** Format: date-time */
+                band_since?: string | null;
+                /** @description ISO-4217 of cost_est_minor — always USD in phase 1 (ADR-0067). */
+                currency?: string;
+            };
+        };
+        /** @description One terminal model call from the ai_call trace (AIRT-SCHEMA-2). */
+        AiCallSummary: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            occurred_at: string;
+            task: string;
+            /** @description Empty when the call failed before routing. */
+            tier: string;
+            provider: string;
+            /** @description The configured binding. */
+            model_id: string;
+            /** @description What the provider reported serving. */
+            served_model: string;
+            /** @description The attempt number of this terminal attempt: 1 = first try succeeded/failed terminally, >1 = retries happened. */
+            calls_attempted: number;
+            tokens_in: number;
+            tokens_out: number;
+            reasoning_tokens: number;
+            cached_tokens: number;
+            latency_ms: number;
+            cache_hit: boolean;
+            degraded: boolean;
+            /** @description Stable failure code; null on success. */
+            error_sentinel?: string | null;
+            /** @description A captured payload row exists for this call. */
+            has_payload: boolean;
+        };
+        /** @description One attempt (terminal or not) within a logical call. */
+        AiCallAttempt: {
+            attempt: number;
+            is_terminal: boolean;
+            /** @description Why this attempt ran — one of provider_error, schema_invalid, budget_degrade; empty for an ordinary first attempt, though budget_degrade can appear on attempt 1 when the budget guardrail demotes the ladder. */
+            attempt_reason: string;
+            error_sentinel?: string | null;
+            tokens_in: number;
+            tokens_out: number;
+            latency_ms: number;
+            /** Format: date-time */
+            occurred_at: string;
+        };
+        AiCall: components["schemas"]["AiCallSummary"] & {
+            /** Format: uuid */
+            correlation_id?: string | null;
+            /** Format: uuid */
+            agent_run_id?: string | null;
+            /** @description response | echo | configured. */
+            served_identity_source: string;
+            /** @description Routing/prompt config identity of this call. */
+            config_hash?: string | null;
+            /** @description Company-context scopes injected into the request. */
+            context_scopes: string[];
+            context_fingerprint: string;
+            /** @description The full attempt ladder for this logical call, oldest first (includes the terminal attempt). */
+            attempts: components["schemas"]["AiCallAttempt"][];
+            payload_captured: boolean;
+            /** @description Present only when payload_captured. Post-secret-stripper content (AIRT-AC-4); rune-capped with a visible truncation marker. */
+            payload?: {
+                /** @description The captured request: {"system": string, "messages": [{role, content}]}. */
+                request: unknown;
+                /** @description The captured response text (JSON string). */
+                response: unknown;
+            } | null;
+        };
+        AiCallListResponse: {
+            data: components["schemas"]["AiCallSummary"][];
+            page: components["schemas"]["PageInfo"];
+            /** @description The deployment's ai.capture_payloads posture. */
+            payload_capture_enabled: boolean;
+            /** @description Every task with at least one terminal call, sorted — the complete filter option set (matches the terminal-only list), independent of the current page. */
+            tasks: string[];
         };
         /**
          * @description One bounded personal-mail exclusion rule (RC-2; capture.md CAP-DDL-3). A matching message
@@ -5262,7 +6251,7 @@ export interface components {
          */
         ColdStartField: {
             /** @enum {string} */
-            field: "icp" | "buying_center" | "value_proposition" | "usp" | "buying_intents" | "legal_name" | "registered_address" | "register_vat" | "industry" | "history";
+            field: "display_name" | "offer_summary" | "icp" | "value_proposition" | "usp" | "customer_pains" | "desired_outcomes" | "buying_center" | "buying_intents" | "common_objections" | "sales_motion" | "legal_name" | "registered_address" | "register_vat" | "industry" | "history";
             value: string;
             /** @description Verbatim source text (from the page, the pasted text, or the user's own words) — non-empty or the field is absent. */
             evidence_snippet: string;
@@ -5303,6 +6292,323 @@ export interface components {
             /** Format: date-time */
             created_at?: string;
         };
+        /**
+         * @description An un-staged read-back: the evidenced fields only, for a human to check in the company form.
+         *     There is no proposal_id because there is no proposal — nothing was written or queued.
+         */
+        ColdStartReadback: {
+            fields: components["schemas"]["ColdStartField"][];
+        };
+        /**
+         * @description Partial human-editable company input retained while the wizard is unfinished. Every field
+         *     is optional here because this is not confirmed company truth; confirmation uses the stricter
+         *     CompanyProfileInput or ConfirmCompanySiteReadRequest contract.
+         */
+        OnboardingCompanyDraft: {
+            display_name?: string | null;
+            offer_summary?: string | null;
+            icp?: string | null;
+            value_proposition?: string | null;
+            usp?: string | null;
+            customer_pains?: string | null;
+            desired_outcomes?: string | null;
+            buying_center?: string | null;
+            buying_intents?: string | null;
+            common_objections?: string | null;
+            sales_motion?: string | null;
+            legal_name?: string | null;
+            registered_address?: string | null;
+            register_vat?: string | null;
+            industry?: string | null;
+            history?: string | null;
+        };
+        PutOnboardingStateRequest: {
+            /** @description Zero creates; otherwise the version last read. */
+            expected_version: number;
+            /** @enum {string} */
+            step: "read" | "confirm" | "voice" | "results" | "connect" | "complete";
+            /** @enum {string|null} */
+            source_mode: "website" | "manual" | null;
+            /** Format: uri */
+            website_url?: string | null;
+            /** Format: uuid */
+            site_read_id?: string | null;
+            company_draft: components["schemas"]["OnboardingCompanyDraft"];
+            selected_fact_keys: string[];
+            voice_skipped: boolean;
+            connect_skipped: boolean;
+        };
+        OnboardingState: {
+            /** @enum {string} */
+            readonly path: "creator" | "member";
+            /** @enum {string} */
+            step: "read" | "confirm" | "voice" | "results" | "connect" | "complete";
+            /** @enum {string|null} */
+            source_mode: "website" | "manual" | null;
+            /** Format: uri */
+            website_url?: string | null;
+            /** Format: uuid */
+            site_read_id?: string | null;
+            company_draft: components["schemas"]["OnboardingCompanyDraft"];
+            selected_fact_keys: string[];
+            voice_skipped: boolean;
+            connect_skipped: boolean;
+            readonly version: number;
+            /** Format: date-time */
+            readonly completed_at?: string | null;
+            /** Format: date-time */
+            readonly created_at: string;
+            /** Format: date-time */
+            readonly updated_at: string;
+        };
+        /**
+         * @description The installation's own company. The flat properties remain compatibility aliases for the
+         *     existing form; `fields` and `facts` are the provenance-bearing source records used by new
+         *     clients and by CompanyContext. New onboarding considers the profile minimum-complete when
+         *     display_name, offer_summary and icp are confirmed. Existing installations may remain
+         *     incomplete until their next edit; reads never fabricate the missing values.
+         */
+        CompanyProfile: {
+            /**
+             * Format: uuid
+             * @description The anchor organization this profile belongs to.
+             */
+            organization_id: string;
+            /** @description What the company is called day to day. */
+            display_name: string;
+            /** @description The company's own domain (acme.com) — stored as its primary domain, the same handle a read-back resolves organizations by. A full URL is accepted on write and reduced to its domain. */
+            website?: string | null;
+            /** @description The registered legal entity */
+            legal_name?: string | null;
+            /** @description The registered address as one formatted line. */
+            registered_address?: string | null;
+            /** @description VAT ID / commercial register entry (e.g. DE123456789, HRB 12345 B). */
+            register_vat?: string | null;
+            industry?: string | null;
+            /** @description Plain-language summary of what the company sells or delivers. */
+            offer_summary?: string | null;
+            /** @description Ideal customer profile — who this company sells to. */
+            icp?: string | null;
+            value_proposition?: string | null;
+            usp?: string | null;
+            customer_pains?: string | null;
+            desired_outcomes?: string | null;
+            /** @description The roles that decide on a purchase. */
+            buying_center?: string | null;
+            buying_intents?: string | null;
+            common_objections?: string | null;
+            sales_motion?: string | null;
+            /** @description Company background. */
+            history?: string | null;
+            fields?: components["schemas"]["CompanyProfileField"][];
+            facts?: components["schemas"]["OrganizationFact"][];
+            /** @description True when display_name */
+            minimum_complete?: boolean;
+            /** Format: date-time */
+            updated_at?: string;
+        };
+        /**
+         * @description The company form's body. New onboarding requires the semantic minimum: display_name,
+         *     offer_summary and icp. The OpenAPI wire keeps only display_name structurally required so clients
+         *     can be upgraded independently: clients that submit the former five-field legal identity block
+         *     still succeed, while the current UI and server-created onboarding flow enforce the semantic
+         *     minimum. Legal/registration fields are optional until a feature with a real
+         *     jurisdictional or invoicing need asks for them. An omitted optional field is unchanged and one
+         *     sent empty is cleared.
+         */
+        CompanyProfileInput: {
+            display_name: string;
+            /** @description The registered legal entity. */
+            legal_name?: string | null;
+            /** @description The registered address as one formatted line. */
+            registered_address?: string | null;
+            /** @description VAT ID / commercial register entry (e.g. DE123456789, HRB 12345 B). */
+            register_vat?: string | null;
+            industry?: string | null;
+            /** @description The company's own domain or full URL; stored as the bare domain. */
+            website?: string | null;
+            offer_summary?: string | null;
+            icp?: string | null;
+            value_proposition?: string | null;
+            usp?: string | null;
+            customer_pains?: string | null;
+            desired_outcomes?: string | null;
+            buying_center?: string | null;
+            buying_intents?: string | null;
+            common_objections?: string | null;
+            sales_motion?: string | null;
+            history?: string | null;
+        };
+        CompanyProfileField: {
+            /** @enum {string} */
+            field: "display_name" | "offer_summary" | "icp" | "value_proposition" | "usp" | "customer_pains" | "desired_outcomes" | "buying_center" | "buying_intents" | "common_objections" | "sales_motion" | "legal_name" | "registered_address" | "register_vat" | "industry" | "history";
+            value: string;
+            /** @enum {string} */
+            source: "human" | "site_read" | "connector" | "migration";
+            readonly captured_by: string;
+            evidence_snippet?: string | null;
+            /** Format: uri */
+            source_url?: string | null;
+            confidence?: number | null;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        OrganizationFact: {
+            /** @enum {string} */
+            category: "company" | "offering" | "market" | "signal";
+            /** @enum {string} */
+            field: "founded_year" | "employee_range" | "phone" | "contact_email" | "location" | "service" | "product" | "capability" | "served_industry" | "company_size" | "geography" | "language" | "certification" | "partner" | "named_customer" | "technology" | "quantified_outcome";
+            value: string;
+            value_key: string;
+            /** @enum {string} */
+            source: "human" | "site_read" | "connector" | "migration";
+            readonly captured_by: string;
+            evidence_snippet?: string | null;
+            /** Format: uri */
+            source_url?: string | null;
+            confidence?: number | null;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        CompanyContextItem: {
+            key: string;
+            value: string;
+            /** @enum {string} */
+            source: "human" | "site_read" | "connector" | "migration";
+            readonly captured_by: string;
+            /** Format: uri */
+            source_url?: string | null;
+            confidence?: number | null;
+        };
+        CompanyContextScope: {
+            /** @enum {string} */
+            scope: "identity" | "positioning" | "sales" | "offer" | "market" | "proof" | "administrative";
+            items: components["schemas"]["CompanyContextItem"][];
+        };
+        CompanyContext: {
+            /** Format: uuid */
+            organization_id: string;
+            /** @enum {integer} */
+            schema_version: 1;
+            scopes: components["schemas"]["CompanyContextScope"][];
+            /** @description Deterministic SHA-256 digest of the selected confirmed values and accepted facts. */
+            fingerprint: string;
+            /** Format: date-time */
+            generated_at: string;
+        };
+        CompanyContextCapabilities: {
+            /** @enum {string} */
+            rollout: "off" | "read" | "tasks" | "onboarding";
+            read_enabled: boolean;
+            tasks_enabled: boolean;
+            onboarding_enabled: boolean;
+        };
+        StartCompanySiteReadRequest: {
+            /**
+             * Format: uri
+             * @description Public company website to read.
+             */
+            url: string;
+        };
+        CompanySiteReadPage: {
+            /** Format: uri */
+            url: string;
+            /** @enum {string} */
+            status: "fetched" | "skipped" | "failed";
+            /** @enum {string|null} */
+            kind?: "home" | "impressum" | "about" | "team" | "services" | "products" | "contact" | "other" | null;
+            /** @description Stable human-readable reason when skipped or failed. */
+            reason?: string | null;
+        };
+        CompanySiteReadFact: {
+            /** @enum {string} */
+            category: "company" | "offering" | "market" | "signal";
+            /** @enum {string} */
+            field: "founded_year" | "employee_range" | "phone" | "contact_email" | "location" | "service" | "product" | "capability" | "served_industry" | "company_size" | "geography" | "language" | "certification" | "partner" | "named_customer" | "technology" | "quantified_outcome";
+            value: string;
+            value_key: string;
+            evidence_snippet: string;
+            /** Format: uri */
+            evidence_url: string;
+            confidence: number;
+        };
+        CompanySiteReadComparison: {
+            /** @description Stable profile-field key or fact selection key. */
+            key: string;
+            /** @enum {string} */
+            value_kind: "profile_field" | "fact";
+            /** @enum {string} */
+            classification: "new" | "machine_change" | "human_conflict" | "unchanged";
+            current_value: string | null;
+            /** @enum {string|null} */
+            current_source: "human" | "site_read" | "connector" | "migration" | null;
+            proposed_value: string;
+        };
+        CompanySiteReadResolution: {
+            key: string;
+            /** @enum {string} */
+            action: "keep_current" | "accept_proposal" | "use_value";
+            /** @description Required and non-blank only for use_value; forbidden for other actions. */
+            value?: string | null;
+        };
+        CompanySiteReadPerson: {
+            name: string;
+            role: string;
+            /** Format: email */
+            published_email?: string | null;
+            /** Format: uri */
+            linkedin_url?: string | null;
+            evidence_snippet: string;
+            /** Format: uri */
+            evidence_url: string;
+            /**
+             * @description People never enter company context or contact records through company confirmation.
+             * @enum {string}
+             */
+            disposition?: "separate_lead_proposal";
+        };
+        CompanySiteRead: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            target_kind: "onboarding";
+            /** Format: uuid */
+            organization_id?: string | null;
+            /** Format: uri */
+            root_url: string;
+            /** @enum {string} */
+            status: "queued" | "deferred" | "reading" | "ready" | "partial" | "failed" | "confirmed" | "abandoned";
+            /** @enum {string|null} */
+            status_code: null | "budget_deferred";
+            /** @description Safe guidance only; never provider payload */
+            status_detail: string | null;
+            /** Format: date-time */
+            next_attempt_at: string | null;
+            /** @enum {string|null} */
+            phase?: "crawling" | "extracting" | null;
+            pages_read?: number;
+            pages: components["schemas"]["CompanySiteReadPage"][];
+            profile_fields: components["schemas"]["ColdStartField"][];
+            facts: components["schemas"]["CompanySiteReadFact"][];
+            /** @description Version-bound comparison against current confirmed company truth. */
+            comparisons: components["schemas"]["CompanySiteReadComparison"][];
+            people: components["schemas"]["CompanySiteReadPerson"][];
+            warnings: string[];
+            draft_version: number;
+            proposal_hash: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        ConfirmCompanySiteReadRequest: {
+            draft_version: number;
+            proposal_hash: string;
+            profile: components["schemas"]["CompanyProfileInput"];
+            selected_fact_keys: string[];
+            /** @description Exactly one keyed resolution for every human_conflict comparison. Omitted is equivalent to an empty array for existing clients and succeeds only when no human conflict exists. */
+            resolutions?: components["schemas"]["CompanySiteReadResolution"][];
+        };
         /** @description Optional override. With no body the org's own domain is read. */
         EnrichCompanyRequest: {
             /**
@@ -5310,6 +6616,74 @@ export interface components {
              * @description Company URL to read instead of the org's domain.
              */
             url?: string;
+        };
+        /** @description The 202 handle for a queued deep read. */
+        SiteReadStarted: {
+            /** Format: uuid */
+            read_id: string;
+            /**
+             * @description The joined dossier state when a read is already in flight.
+             * @enum {string}
+             */
+            status: "queued" | "deferred" | "running";
+        };
+        /** @description One page the crawl fetched. */
+        SiteReadPage: {
+            /** Format: uri */
+            url: string;
+            /** @enum {string} */
+            kind: "home" | "impressum" | "about" | "team" | "services" | "products" | "contact" | "other";
+        };
+        /** @description One page the crawl deliberately did NOT read — honest degradation is reportable. */
+        SiteReadSkip: {
+            /** Format: uri */
+            url: string;
+            /** @enum {string} */
+            reason: "robots" | "off_domain" | "page_cap" | "byte_cap" | "unreadable";
+        };
+        /**
+         * @description One deep read's full account: what was read, what was skipped and why, whether the crawl ended
+         *     early (`partial` + `stopped_reason`), and the 🟡 proposals the findings staged. The report is
+         *     the transparency surface — a crawl that silently dropped pages would read as "covered
+         *     everything" when it did not.
+         */
+        SiteReadReport: {
+            /** Format: uuid */
+            read_id: string;
+            /** Format: uuid */
+            organization_id: string;
+            /** Format: uri */
+            seed_url: string;
+            /** @enum {string} */
+            status: "queued" | "deferred" | "running" | "done" | "partial" | "failed";
+            /** @enum {string|null} */
+            status_code: null | "budget_deferred";
+            /** @description Safe guidance only; never provider payload */
+            status_detail: string | null;
+            /** Format: date-time */
+            next_attempt_at: string | null;
+            pages: components["schemas"]["SiteReadPage"][];
+            skipped: components["schemas"]["SiteReadSkip"][];
+            /**
+             * @description Why the crawl ended early; null when it exhausted discovery.
+             * @enum {string|null}
+             */
+            stopped_reason?: "budget" | "page_cap" | "byte_cap" | "deadline" | null;
+            /** @description Evidenced fields staged in the deepread proposal. */
+            fact_count?: number;
+            /**
+             * @description Live position while status is running; null once terminal.
+             * @enum {string|null}
+             */
+            phase?: "crawling" | "extracting" | null;
+            /** @description Pages committed so far — live progress while running, final count once terminal. */
+            pages_read?: number;
+            /** @description The staged 🟡 approvals this read produced (the deepread bundle first, then one per site_lead). */
+            proposal_ids: string[];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            finished_at?: string | null;
         };
         /** @description A staged enrichment of one organization. Field shape is the read-back's (evidence-or-omit); NOTHING is written until accepted via /approvals, which fills only the org's empty fields. */
         EnrichmentProposal: {
@@ -5836,106 +7210,260 @@ export interface components {
             /** @description Link into the audit_log row for this run. */
             audit_id?: string | null;
         };
-        /**
-         * @description A user's/team's voice DNA. `voice_profile_md` is machine-DERIVED (versioned by
-         *     `profile_version`, rewritten wholesale on rebuild); `personality_md` is human-AUTHORED
-         *     free text a rebuild never touches.
-         */
+        /** @description The calling owner's live personal Voice DNA control record and active derived artifact. */
         VoiceProfile: {
             /** Format: uuid */
             id: string;
-            /**
-             * Format: uuid
-             * @description null = workspace/team profile.
-             */
-            owner_id?: string | null;
+            /** Format: uuid */
+            readonly owner_id: string;
             /** @enum {string} */
-            scope: "user" | "team" | "workspace";
-            /** @description Derived style descriptor / embedding ref. */
-            model_ref?: string | null;
+            status: "collecting" | "ready" | "stale";
             /** @enum {string} */
-            status: "building" | "ready" | "stale";
-            /** @description The derived artifact (Identity · stats · signature moves · patterns · rules · vocabulary · anti-patterns · register notes · few-shot examples). */
-            voice_profile_md: string;
-            /** @description Bumps on every derived rebuild; 0 = never built. */
-            profile_version: number;
+            readonly maturity: "collecting" | "provisional" | "building";
+            /** @enum {string} */
+            readonly quality_band: "thin" | "good" | "rich" | "sharp";
+            /** @description Active derived Voice DNA artifact; empty while collecting. */
+            readonly voice_profile_md: string;
+            /** @description Zero means no active artifact yet. */
+            readonly profile_version: number;
+            /** @description Owner-authored preferences; model output never overwrites this field. */
             personality_md: string;
-            version?: number;
+            /**
+             * @description Explicit owner opt-in; defaults off.
+             * @default false
+             */
+            auto_learning_enabled: boolean;
+            readonly active_source_hash: string | null;
+            readonly candidate_version: number | null;
+            /** Format: date-time */
+            readonly last_built_at: string | null;
+            source: string;
+            readonly captured_by: string;
+            version: number;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
-            updated_at?: string | null;
+            updated_at: string;
+            /** Format: date-time */
+            archived_at: string | null;
         };
         CreateVoiceProfileRequest: {
-            /**
-             * @description Defaults to user (owned by the caller).
-             * @enum {string|null}
-             */
-            scope?: "user" | "team" | "workspace" | null;
-            personality_md?: string | null;
-        };
-        UpdateVoiceProfileRequest: {
+            /** @default  */
             personality_md: string;
         };
-        /** @description One corpus manifest row. The ingested text itself is builder-internal and never echoed back. */
+        UpdateVoiceProfileRequest: {
+            personality_md?: string;
+            auto_learning_enabled?: boolean;
+        };
+        /** @description Privacy-safe source manifest. Retained source text is deliberately not returned. */
         VoiceCorpusSource: {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            kind: "post" | "transcript" | "email" | "chat" | "longform" | "voice_memo";
+            origin: "manual" | "capture" | "draft_signal";
             /** @enum {string} */
-            register: "spoken" | "written" | "casual" | "formal";
+            kind: "email" | "linkedin" | "proposal" | "transcript" | "document" | "other";
+            /** @enum {string} */
+            register: "email" | "social" | "long_form" | "spoken" | "general";
             weight: number;
             source_label: string;
-            /** @description The source natural key ingest is idempotent on. */
+            /** @description Stable owner-scoped natural key; not raw content. */
             source_ref: string;
             word_count: number;
-            excluded: boolean;
+            included: boolean;
+            exclusion_reason: string | null;
+            extractor_version: string;
+            /** Format: date-time */
+            occurred_at: string;
+            /** Format: date-time */
+            retention_until: string | null;
+            /** Format: date-time */
+            readonly content_erased_at: string | null;
+            source: string;
+            readonly captured_by: string;
+            version: number;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
-            updated_at?: string | null;
+            updated_at: string;
+            /** Format: date-time */
+            archived_at: string | null;
         };
         IngestVoiceCorpusSourceRequest: {
             /** @enum {string} */
-            kind: "post" | "transcript" | "email" | "chat" | "longform" | "voice_memo";
-            /**
-             * @description Defaults by kind: transcript/voice_memo→spoken, chat→casual, post/longform/email→written.
-             * @enum {string|null}
-             */
-            register?: "spoken" | "written" | "casual" | "formal" | null;
-            /** @description 0.1–5.0; defaults to 1.0. */
-            weight?: number | null;
+            kind: "email" | "linkedin" | "proposal" | "transcript" | "document" | "other";
+            /** @enum {string} */
+            register: "email" | "social" | "long_form" | "spoken" | "general";
+            /** @default 1 */
+            weight: number;
             source_label: string;
-            /** @description Natural key (message id, upload name…); defaults to a hash of the content. */
-            source_ref?: string | null;
-            /**
-             * @description Defaults to txt. vtt/srt/json are transcript formats and require speaker_label when turns are speaker-labelled.
-             * @enum {string|null}
-             */
-            format?: "txt" | "md" | "vtt" | "srt" | "json" | null;
-            /** @description The owner's label in a transcript; only matching turns are ingested (features/09 §B1.2). */
+            source_ref: string;
+            /** @enum {string} */
+            format: "text" | "transcript";
+            /** @description Required for transcript format; only this speaker is retained. */
             speaker_label?: string | null;
-            /** @description The raw source text in the declared format. */
+            /** Format: date-time */
+            occurred_at?: string | null;
             content: string;
         };
-        /** @description Any subset; omit a field to leave it unchanged. */
         UpdateVoiceCorpusSourceRequest: {
-            excluded?: boolean | null;
-            weight?: number | null;
+            included?: boolean;
+            weight?: number;
         };
-        /** @description The live word-count + register-mix meter over the non-excluded manifest (features/09 §B1.4). */
         VoiceCorpusSummary: {
             total_words: number;
-            /** @description The ~30k corpus target the meter fills toward. */
-            target_words: number;
+            /** @constant */
+            target_words: 30000;
+            /** @enum {string} */
+            maturity: "collecting" | "provisional" | "building";
             /** @enum {string} */
             quality_band: "thin" | "good" | "rich" | "sharp";
-            /** @description Word totals per register (spoken/written/casual/formal mix). */
+            source_count: number;
             register_words: {
                 [key: string]: number;
             };
+        };
+        CreateVoiceBuildRequest: {
+            /** @enum {string} */
+            reason: "onboarding" | "manual";
+        };
+        VoiceBuild: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            profile_id: string;
+            /** @enum {string} */
+            reason: "onboarding" | "manual" | "automatic";
+            /** @enum {string} */
+            status: "queued" | "deferred" | "running" | "succeeded" | "failed";
+            /** @enum {string|null} */
+            stage: null | "snapshot" | "extract" | "evaluate" | "activate";
+            source_hash: string;
             source_count: number;
+            result_version: number | null;
+            /**
+             * @default none
+             * @enum {string}
+             */
+            candidate_action: "none" | "auto_activated" | "review_required";
+            /** @enum {string|null} */
+            status_code: null | "budget_deferred" | "model_unavailable" | "invalid_output" | "quality_regression" | "material_drift" | "internal";
+            /** @description Safe operator guidance; never provider payload */
+            status_detail: string | null;
+            /** Format: date-time */
+            next_attempt_at: string | null;
+            version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            started_at: string | null;
+            /** Format: date-time */
+            completed_at: string | null;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            archived_at: string | null;
+        };
+        VoiceProfileEvaluation: {
+            /** @constant */
+            held_out_prompts: 5;
+            /** @constant */
+            repeats_per_prompt: 3;
+            active_median_voice_score: number | null;
+            candidate_median_voice_score?: number;
+            anti_ai_hard_failures: number;
+            structured_output_valid: boolean;
+            corpus_citations_valid: boolean;
+            identity_word_jaccard: number;
+            signature_set_jaccard: number;
+            removed_avoid_rules: number;
+            removed_register_rules: number;
+            /** @enum {string} */
+            classification: "routine" | "material";
+            passed: boolean;
+        };
+        VoiceProfileVersion: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            profile_id: string;
+            profile_version: number;
+            /** @enum {string} */
+            status: "candidate" | "active" | "superseded" | "rejected";
+            voice_profile_md: string;
+            profile_json: {
+                [key: string]: unknown;
+            };
+            stats_json: {
+                [key: string]: unknown;
+            };
+            source_hash: string;
+            source_count: number;
+            /** @enum {string} */
+            reason: "onboarding" | "manual" | "automatic" | "rollback";
+            predecessor_version: number | null;
+            model_provider: string;
+            model_name: string;
+            builder_version: string;
+            source: string;
+            readonly captured_by: string;
+            activation_policy_version: string;
+            evaluation: components["schemas"]["VoiceProfileEvaluation"];
+            review_reasons: string[];
+            /** @description Row concurrency version; distinct from the immutable artifact's profile_version. */
+            version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            archived_at: string | null;
+            /** Format: date-time */
+            activated_at: string | null;
+        };
+        VoiceProfileDelta: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            profile_id: string;
+            from_version: number | null;
+            to_version: number;
+            /** @enum {string} */
+            classification: "routine" | "material";
+            /** @enum {string} */
+            activation_outcome: "auto_activated" | "review_required" | "manually_activated" | "rejected" | "rollback";
+            words_added: number;
+            sources_added: number;
+            sources_excluded: number;
+            identity_word_jaccard: number | null;
+            signature_set_jaccard: number | null;
+            avoid_rules_added: number;
+            avoid_rules_removed: number;
+            register_rules_removed: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            archived_at: string | null;
+        };
+        VoiceLearningTransformation: {
+            key: string;
+            observation_count: number;
+            /** @description Aggregate transformation description; never copied user text. */
+            description: string;
+        };
+        VoiceLearningSummary: {
+            drafted: number;
+            accepted: number;
+            edited_sent: number;
+            rejected: number;
+            qualifying_source_count: number;
+            qualifying_words: number;
+            transformations: components["schemas"]["VoiceLearningTransformation"][];
+        };
+        RejectVoiceDraftRequest: {
+            draft_ref: string;
         };
         /** @description A rate-card entry. Mirrors the `product` table — data an offer line snapshots from, never a configurator. */
         Product: {
@@ -6680,6 +8208,8 @@ export interface components {
         CaptureProvider: "gmail" | "gcal" | "graph" | "imap";
         /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
         Id: string;
+        /** @description Immutable Voice DNA artifact version number within one profile. */
+        VoiceProfileVersionNumber: number;
         /**
          * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
          *     effective `sort` of the originating request (field + direction) plus the last row's keyset
@@ -7670,6 +9200,79 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+        };
+    };
+    deepReadCompany: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["EnrichCompanyRequest"];
+            };
+        };
+        responses: {
+            /** @description The crawl is queued; poll the read. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteReadStarted"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description No URL to read (no override, org has no domain). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The process role wired no model path or no job runner — declared absent, never a silent no-op. */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getSiteRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                readId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The read report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteReadReport"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
     getOrganizationStrength: {
@@ -10206,6 +11809,312 @@ export interface operations {
             };
         };
     };
+    coldStartPreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ColdStartRequest"];
+            };
+        };
+        responses: {
+            /** @description The evidenced fields, for the form to pre-fill. Nothing written, nothing staged. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColdStartReadback"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description URL unfetchable / read too little — honest degradation, zero fabricated fields. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getOnboardingState: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The acting user's current onboarding state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingState"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    putOnboardingState: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutOnboardingStateRequest"];
+            };
+        };
+        responses: {
+            /** @description Persisted onboarding state with its new optimistic version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingState"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getCompany: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The anchor organization's profile. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyProfile"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description No company saved yet — onboarding has not been completed. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    putCompany: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompanyProfileInput"];
+            };
+        };
+        responses: {
+            /** @description The saved company. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyProfile"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getCompanyContextCapabilities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Effective ordered rollout stage and its derived capabilities. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyContextCapabilities"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getCompanyContext: {
+        parameters: {
+            query?: {
+                /** @description Comma-separated context scopes. Omit for the bounded default set. */
+                scopes?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The selected company-context scopes and their provenance-bearing values. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyContext"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    startCompanySiteRead: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartCompanySiteReadRequest"];
+            };
+        };
+        responses: {
+            /** @description Read accepted; poll the returned dossier while extraction progresses. */
+            202: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanySiteRead"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getCompanySiteRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                readId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current read state, coverage, findings, omissions, and separately staged people. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanySiteRead"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    confirmCompanySiteRead: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                readId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmCompanySiteReadRequest"];
+            };
+        };
+        responses: {
+            /** @description Confirmed anchor company profile and accepted facts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyProfile"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
     connectImap: {
         parameters: {
             query?: never;
@@ -10364,6 +12273,370 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    previewConnectorBackfill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
+                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
+                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
+                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 */
+                provider: components["parameters"]["CaptureProvider"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BackfillPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description The window's estimated scope. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillPreview"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            /** @description Provider unreachable — the estimate needs the provider (`code: provider_unreachable`). */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getConnectorBackfillStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
+                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
+                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
+                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 */
+                provider: components["parameters"]["CaptureProvider"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current (or last) backfill state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    startConnectorBackfill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
+                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
+                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
+                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 */
+                provider: components["parameters"]["CaptureProvider"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartBackfillRequest"];
+            };
+        };
+        responses: {
+            /** @description Backfill queued. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    cancelConnectorBackfill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
+                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
+                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
+                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 */
+                provider: components["parameters"]["CaptureProvider"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cancellation accepted. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getMorningDigest: {
+        parameters: {
+            query?: {
+                /** @description A specific digest day; default: the latest generated. */
+                date?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The digest. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MorningDigest"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getAiUsage: {
+        parameters: {
+            query?: {
+                /** @description Default: first day of the current month. Must not be after `to`; the window is capped at 366 days (422 otherwise). */
+                from?: string;
+                /** @description Default: today. */
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Usage + budget. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiUsage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listAiCalls: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+                /** @description Filter to one task (capture_classify, enrich, …). */
+                task?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of terminal calls. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiCallListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getAiCall: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The call. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiCall"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listDedupeCandidates: {
+        parameters: {
+            query?: {
+                status?: "open" | "merged" | "not_a_duplicate";
+                entity_type?: "person" | "organization";
+                /** @description Opaque keyset cursor. */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of candidates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DedupeCandidateListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getDedupeCandidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The candidate. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DedupeCandidate"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    disposeDedupeCandidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DedupeDispositionRequest"];
+            };
+        };
+        responses: {
+            /** @description The disposed candidate. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DedupeCandidate"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    undoDedupeDisposition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The re-opened candidate. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DedupeCandidate"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     listCaptureExclusions: {
@@ -11568,28 +13841,14 @@ export interface operations {
     };
     listVoiceProfiles: {
         parameters: {
-            query?: {
-                /**
-                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
-                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
-                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
-                 *     together with a `sort` that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
-                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
-                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
-                 */
-                cursor?: components["parameters"]["Cursor"];
-                /** @description Max items in the page. */
-                limit?: components["parameters"]["Limit"];
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Voice profiles. */
+            /** @description The caller's profile, when one exists. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11597,18 +13856,27 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["VoiceProfile"][];
-                        page: components["schemas"]["PageInfo"];
                     };
                 };
             };
             401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
         };
     };
     createVoiceProfile: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -11618,7 +13886,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Created (building). */
+            /** @description Created. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -11643,7 +13911,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The voice profile. */
+            /** @description The Voice DNA. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11658,7 +13926,16 @@ export interface operations {
     deleteVoiceProfile: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
             path: {
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
                 id: components["parameters"]["Id"];
@@ -11667,14 +13944,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Archived. */
-            204: {
+            /** @description Archived profile; no longer used for drafting. */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["VoiceProfile"];
+                };
             };
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     updateVoiceProfile: {
@@ -11718,7 +13998,21 @@ export interface operations {
     };
     listVoiceCorpusSources: {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+            };
             header?: never;
             path: {
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
@@ -11728,7 +14022,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Manifest rows + meter summary. */
+            /** @description Manifest and meter. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11737,6 +14031,7 @@ export interface operations {
                     "application/json": {
                         data: components["schemas"]["VoiceCorpusSource"][];
                         summary: components["schemas"]["VoiceCorpusSummary"];
+                        page: components["schemas"]["PageInfo"];
                     };
                 };
             };
@@ -11746,7 +14041,18 @@ export interface operations {
     ingestVoiceCorpusSource: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
             path: {
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
                 id: components["parameters"]["Id"];
@@ -11759,7 +14065,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Ingested (created or replaced). */
+            /** @description Created or replaced. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -11775,10 +14081,54 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    deleteVoiceCorpusSource: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                sourceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archived source manifest; retained content has been scrubbed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceCorpusSource"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
     updateVoiceCorpusSource: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
             path: {
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
                 id: components["parameters"]["Id"];
@@ -11792,7 +14142,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Updated manifest row + refreshed meter. */
+            /** @description Updated source and meter. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11806,6 +14156,391 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    clearVoiceCorpus: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Corpus and derived history cleared; human-authored preferences remain. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceProfile"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    createVoiceBuild: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateVoiceBuildRequest"];
+            };
+        };
+        responses: {
+            /** @description Queued, or the already-active build returned idempotently. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceBuild"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getVoiceBuild: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                buildId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Build state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceBuild"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listVoiceProfileVersions: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Version history. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["VoiceProfileVersion"][];
+                        page: components["schemas"]["PageInfo"];
+                    };
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    applyVoiceProfileVersion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                /** @description Immutable Voice DNA artifact version number within one profile. */
+                profileVersion: components["parameters"]["VoiceProfileVersionNumber"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Activated version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceProfileVersion"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    rejectVoiceProfileVersion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                /** @description Immutable Voice DNA artifact version number within one profile. */
+                profileVersion: components["parameters"]["VoiceProfileVersionNumber"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rejected candidate. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceProfileVersion"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    rollbackVoiceProfileVersion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                /** @description Immutable Voice DNA artifact version number within one profile. */
+                profileVersion: components["parameters"]["VoiceProfileVersionNumber"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description New active forward version. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceProfileVersion"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    listVoiceProfileDeltas: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Newest deltas first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["VoiceProfileDelta"][];
+                        page: components["schemas"]["PageInfo"];
+                    };
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getVoiceLearningSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Aggregate only; generated originals and final text are never returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceLearningSummary"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    rejectVoiceDraft: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RejectVoiceDraftRequest"];
+            };
+        };
+        responses: {
+            /** @description Rejection recorded, or already recorded; updated aggregate returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceLearningSummary"];
+                };
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     listProducts: {

@@ -9,7 +9,7 @@ package people
 // set, and keep every value's verbatim evidence queryable
 // (organization_profile_field, 0037). One transaction, one audit row,
 // one organization event; captured_by comes from the executing
-// principal (agent:coldstart), source is coldstart.
+// principal (agent:coldstart), source is site_read.
 
 import (
 	"context"
@@ -94,7 +94,7 @@ func applyColdStartTx(ctx context.Context, tx pgx.Tx, in ApplyColdStartProfileIn
 	if err != nil {
 		return ids.OrganizationID{}, err
 	}
-	applied, err := applyEvidenceFields(ctx, tx, wsID, orgID, "coldstart", by, in.Fields)
+	applied, err := applyEvidenceFields(ctx, tx, wsID, orgID, companySourceSiteRead, by, in.Fields)
 	if err != nil {
 		return ids.OrganizationID{}, err
 	}
@@ -104,15 +104,15 @@ func applyColdStartTx(ctx context.Context, tx pgx.Tx, in ApplyColdStartProfileIn
 		action, eventType = "create", "organization.created"
 	}
 	auditID, err := storekit.Audit(ctx, tx, action, "organization", orgID.UUID, nil, map[string]any{
-		"source": "coldstart", "source_url": in.SourceURL, "fields": applied,
+		auditKeySource: companySourceSiteRead, auditKeySourceURL: in.SourceURL, auditKeyFields: applied,
 	})
 	if err != nil {
 		return ids.OrganizationID{}, fmt.Errorf("audit coldstart apply: %w", err)
 	}
-	payload := map[string]any{"delta": applied, "source": "coldstart", "source_url": in.SourceURL}
+	payload := map[string]any{eventKeyDelta: applied, auditKeySource: companySourceSiteRead, auditKeySourceURL: in.SourceURL}
 	if created {
 		payload = map[string]any{"display_name": fieldValue(in.Fields, "legal_name"), "primary_domain": host,
-			"source": "coldstart", "captured_by": by}
+			auditKeySource: companySourceSiteRead, "captured_by": by}
 	}
 	if err := storekit.Emit(ctx, tx, auditID, eventType, "organization", orgID.UUID, payload); err != nil {
 		return ids.OrganizationID{}, fmt.Errorf("emit %s: %w", eventType, err)
@@ -174,10 +174,23 @@ var coldStartColumns = map[string]string{
 // audit source. A re-accept refreshes an agent-captured row and never touches
 // one a human has since claimed.
 func applyEvidenceFields(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, orgID ids.OrganizationID, source, by string, fields []ColdStartFieldInput) (map[string]any, error) {
+	return applyEvidenceFieldsWithOverwrite(ctx, tx, wsID, orgID, source, by, fields, nil)
+}
+
+func applyEvidenceFieldsWithOverwrite(
+	ctx context.Context,
+	tx pgx.Tx,
+	wsID ids.WorkspaceID,
+	orgID ids.OrganizationID,
+	source string,
+	by string,
+	fields []ColdStartFieldInput,
+	overwrite map[string]bool,
+) (map[string]any, error) {
 	applied := map[string]any{}
 	for _, f := range fields {
 		if column, backed := columnBackedColdStartFields[f.Field]; backed {
-			filled, err := fillEmptyOrgColumn(ctx, tx, orgID, column, f.Value)
+			filled, err := writeOrgColumn(ctx, tx, orgID, column, f.Value, overwrite[f.Field])
 			if err != nil {
 				return nil, err
 			}
@@ -204,18 +217,42 @@ func applyEvidenceFields(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, o
 		// since claimed.
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO organization_profile_field
-			  (workspace_id, organization_id, field, value, evidence_snippet, source_url, confidence, captured_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			  (workspace_id, organization_id, field, value, evidence_snippet, source_url, confidence, source, captured_by)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 			ON CONFLICT (workspace_id, organization_id, field)
 			DO UPDATE SET value = EXCLUDED.value, evidence_snippet = EXCLUDED.evidence_snippet,
 			              source_url = EXCLUDED.source_url, confidence = EXCLUDED.confidence,
+			              source = EXCLUDED.source,
 			              captured_by = EXCLUDED.captured_by, captured_at = now()
-			WHERE organization_profile_field.captured_by NOT LIKE 'human:%'`,
-			wsID, orgID, f.Field, f.Value, f.EvidenceSnippet, f.SourceURL, f.Confidence, by); err != nil {
+			WHERE $10 OR organization_profile_field.captured_by NOT LIKE 'human:%'`,
+			wsID, orgID, f.Field, f.Value, f.EvidenceSnippet, f.SourceURL, f.Confidence, source, by, overwrite[f.Field]); err != nil {
 			return nil, fmt.Errorf("upsert profile field %s: %w", f.Field, err)
 		}
 	}
 	return applied, nil
+}
+
+func writeOrgColumn(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, column, value string, overwrite bool) (bool, error) {
+	if !overwrite {
+		return fillEmptyOrgColumn(ctx, tx, orgID, column, value)
+	}
+	queries := map[string]string{
+		"legal_name": `UPDATE organization SET legal_name = $2, updated_at = now()
+			WHERE id = $1 AND legal_name IS DISTINCT FROM $2`,
+		"industry": `UPDATE organization SET industry = $2, updated_at = now()
+			WHERE id = $1 AND industry IS DISTINCT FROM $2`,
+		"address": `UPDATE organization SET address_line1 = $2, updated_at = now()
+			WHERE id = $1 AND address_line1 IS DISTINCT FROM $2`,
+	}
+	query, ok := queries[column]
+	if !ok {
+		return false, fmt.Errorf("people: %q is not a coldstart-writable column", column)
+	}
+	tag, err := tx.Exec(ctx, query, orgID, value)
+	if err != nil {
+		return false, fmt.Errorf("replace %s: %w", column, err)
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
 func fillEmptyOrgColumn(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, column, value string) (bool, error) {

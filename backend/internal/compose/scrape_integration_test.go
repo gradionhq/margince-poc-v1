@@ -76,8 +76,8 @@ func insertOrg(t *testing.T, e *integration.Env, owner ids.UUID, domain, industr
 func TestScrapeStagesEnrichmentBoundToOrg(t *testing.T) {
 	e := integration.Setup(t)
 	orgID := insertOrg(t, e, e.Rep1, "acme.example", "")
-	brain := ai.NewFakeClient().Script(acmeExtraction)
-	engine := &scrapeEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, people: e.People, approvals: approvals.NewService(e.Pool)}
+	fake := ai.NewFakeClient().Script(acmeExtraction)
+	engine := &scrapeEngine{extract: evidenceExtractor{fetch: acmePage, brain: fakeModelPath(t, fake).ColdStart}, people: e.People, approvals: approvals.NewService(e.Pool)}
 
 	proposal, err := engine.Propose(e.As(e.Rep1, []ids.UUID{e.Team1}, scrapePerms), orgID, "")
 	if err != nil {
@@ -124,8 +124,8 @@ func TestScrapeHidesAnInvisibleOrg(t *testing.T) {
 	e := integration.Setup(t)
 	// Owned by rep3 (team2) — invisible to rep1 (team1) under team row-scope.
 	hidden := insertOrg(t, e, e.Rep3, "hidden.example", "")
-	brain := ai.NewFakeClient().Script(acmeExtraction)
-	engine := &scrapeEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, people: e.People, approvals: approvals.NewService(e.Pool)}
+	fake := ai.NewFakeClient().Script(acmeExtraction)
+	engine := &scrapeEngine{extract: evidenceExtractor{fetch: acmePage, brain: fakeModelPath(t, fake).ColdStart}, people: e.People, approvals: approvals.NewService(e.Pool)}
 
 	// Both the domain path and the override path must 404 an org the caller
 	// cannot see — existence-hiding, before any egress on their behalf.
@@ -147,7 +147,7 @@ func TestScrapeDegradesHonestly(t *testing.T) {
 	orgID := insertOrg(t, e, e.Rep1, "acme.example", "")
 	allHallucinated := ai.NewFakeClient().Script(
 		`{"fields":[{"field":"icp","value":"guessed","evidence_snippet":"nowhere on the page","confidence":0.9}]}`)
-	engine := &scrapeEngine{extract: evidenceExtractor{fetch: acmePage, brain: allHallucinated}, people: e.People, approvals: approvals.NewService(e.Pool)}
+	engine := &scrapeEngine{extract: evidenceExtractor{fetch: acmePage, brain: fakeModelPath(t, allHallucinated).ColdStart}, people: e.People, approvals: approvals.NewService(e.Pool)}
 	var unreadable *unreadableError
 	if _, err := engine.Propose(e.As(e.Rep1, []ids.UUID{e.Team1}, scrapePerms), orgID, ""); !errors.As(err, &unreadable) {
 		t.Fatalf("all-hallucinated extraction → %v, want unreadable", err)
@@ -164,11 +164,11 @@ func TestScrapeAcceptFillsOnlyEmptyFields(t *testing.T) {
 	e := integration.Setup(t)
 	// Human already set the industry; legal_name is empty.
 	orgID := insertOrg(t, e, e.Rep1, "acme.example", "Handcrafted Industry")
-	brain := ai.NewFakeClient().Script(acmeExtraction, acmeExtraction)
+	fake := ai.NewFakeClient().Script(acmeExtraction, acmeExtraction)
 
 	svc := approvals.NewService(e.Pool)
 	svc.WithEffect("enrich", scrapeAcceptEffect(svc, e.People))
-	engine := &scrapeEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, people: e.People, approvals: svc}
+	engine := &scrapeEngine{extract: evidenceExtractor{fetch: acmePage, brain: fakeModelPath(t, fake).ColdStart}, people: e.People, approvals: svc}
 
 	proposal, err := engine.Propose(e.As(e.Rep1, []ids.UUID{e.Team1}, scrapePerms), orgID, "")
 	if err != nil {
@@ -178,7 +178,7 @@ func TestScrapeAcceptFillsOnlyEmptyFields(t *testing.T) {
 		t.Fatalf("accept: %v", err)
 	}
 
-	var industry, capturedBy string
+	var industry, capturedBy, source string
 	var profileRows, orgs int
 	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(context.Background(),
@@ -189,8 +189,8 @@ func TestScrapeAcceptFillsOnlyEmptyFields(t *testing.T) {
 			return err
 		}
 		return tx.QueryRow(context.Background(),
-			`SELECT count(*), max(captured_by) FROM organization_profile_field WHERE organization_id = $1`,
-			orgID).Scan(&profileRows, &capturedBy)
+			`SELECT count(*), max(captured_by), max(source) FROM organization_profile_field WHERE organization_id = $1`,
+			orgID).Scan(&profileRows, &capturedBy, &source)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -203,6 +203,11 @@ func TestScrapeAcceptFillsOnlyEmptyFields(t *testing.T) {
 	}
 	if profileRows != 2 || capturedBy != "agent:scrape" {
 		t.Fatalf("evidence rows = %d captured_by=%q, want 2 as agent:scrape", profileRows, capturedBy)
+	}
+	// All accepted website evidence uses the one site_read source vocabulary;
+	// captured_by and the source URL identify the executing agent and dossier.
+	if source != "site_read" {
+		t.Fatalf("evidence source = %q, want site_read", source)
 	}
 
 	// Exactly-once: the approval is consumed and a re-decide is refused.

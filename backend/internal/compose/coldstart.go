@@ -47,95 +47,122 @@ func coldStartFieldValid(name string) bool {
 	return crmcontracts.ColdStartFieldField(name).Valid()
 }
 
-// Propose runs fetch → extract → no-guess validation → stage for the `url`
-// input and returns the contract proposal.
-func (e *coldStartEngine) Propose(ctx context.Context, rawURL string) (crmcontracts.ColdStartProposal, error) {
-	evidenced, err := e.extract.extract(ctx, rawURL, coldStartFieldValid)
-	if err != nil {
-		return crmcontracts.ColdStartProposal{}, err
-	}
-
-	fields := make([]crmcontracts.ColdStartField, len(evidenced))
-	for i, f := range evidenced {
-		fields[i] = crmcontracts.ColdStartField{
-			Field:           crmcontracts.ColdStartFieldField(f.Field),
-			Value:           f.Value,
-			EvidenceSnippet: f.EvidenceSnippet,
-			SourceKind:      crmcontracts.ColdStartFieldSourceKindUrl,
-			SourceUrl:       &f.SourceURL,
-			Confidence:      f.Confidence,
+// Readback runs fetch → extract → no-guess validation for whichever single
+// input the request carries, and returns the surviving evidenced fields. It
+// writes nothing and stages nothing: the caller decides what the read-back
+// becomes — a 🟡 approval nobody is waiting at (Propose), or the pre-fill of a
+// form the human confirms field by field (the preview transport).
+func (e *coldStartEngine) Readback(ctx context.Context, req crmcontracts.ColdStartRequest) ([]crmcontracts.ColdStartField, error) {
+	switch {
+	case req.Url != nil:
+		evidenced, err := e.extract.extract(ctx, *req.Url, coldStartFieldValid)
+		if err != nil {
+			return nil, err
 		}
+		fields := make([]crmcontracts.ColdStartField, len(evidenced))
+		for i, f := range evidenced {
+			fields[i] = crmcontracts.ColdStartField{
+				Field:           crmcontracts.ColdStartFieldField(f.Field),
+				Value:           f.Value,
+				EvidenceSnippet: f.EvidenceSnippet,
+				SourceKind:      crmcontracts.ColdStartFieldSourceKindUrl,
+				SourceUrl:       &f.SourceURL,
+				Confidence:      f.Confidence,
+			}
+		}
+		return fields, nil
+
+	case req.Text != nil:
+		// The pasted-text fallback: the SAME model+gate seam the url path uses
+		// after its fetch. Every surviving field cites the paste itself — no
+		// source_url, plus the char offset of its evidence for highlight-back.
+		evidenced, err := e.extract.extractGrounded(ctx, "Pasted company text", *req.Text, "", coldStartFieldValid)
+		if err != nil {
+			return nil, err
+		}
+		fields := make([]crmcontracts.ColdStartField, len(evidenced))
+		for i, f := range evidenced {
+			fields[i] = crmcontracts.ColdStartField{
+				Field:           crmcontracts.ColdStartFieldField(f.Field),
+				Value:           f.Value,
+				EvidenceSnippet: f.EvidenceSnippet,
+				SourceKind:      crmcontracts.ColdStartFieldSourceKindText,
+				EvidenceOffset:  runeOffset(*req.Text, f.EvidenceSnippet),
+				Confidence:      f.Confidence,
+			}
+		}
+		return fields, nil
+
+	default:
+		// Grounded in the user's own statement (B-E01.13): the same gate as
+		// every other kind, with the statement as the only admissible evidence
+		// — a field it does not support is ABSENT, and what survives cites the
+		// user's own words.
+		evidenced, err := e.extract.extractGrounded(ctx, "The user's own description of their business", *req.SelfDescription, "", coldStartFieldValid)
+		if err != nil {
+			return nil, err
+		}
+		fields := make([]crmcontracts.ColdStartField, len(evidenced))
+		for i, f := range evidenced {
+			fields[i] = crmcontracts.ColdStartField{
+				Field:           crmcontracts.ColdStartFieldField(f.Field),
+				Value:           f.Value,
+				EvidenceSnippet: f.EvidenceSnippet,
+				SourceKind:      crmcontracts.ColdStartFieldSourceKindSelfDescription,
+				Confidence:      f.Confidence,
+			}
+		}
+		return fields, nil
 	}
-	return e.stage(ctx, crmcontracts.ColdStartProposal{
-		SourceKind: crmcontracts.ColdStartProposalSourceKindUrl,
-		SourceUrl:  &rawURL,
-		Status:     "staged",
-		Fields:     fields,
-	}, "Cold-start read-back of "+rawURL, map[string]any{
-		"source_url":  rawURL,
-		"field_count": len(fields),
-	})
 }
 
-// ProposeText runs the pasted-text fallback: the SAME model+gate seam the url
-// path uses after its fetch, over the text the user supplied. Every surviving
-// field cites the paste itself — source_kind=text, no source_url, and the
-// char offset of its evidence within the paste for highlight-back.
-func (e *coldStartEngine) ProposeText(ctx context.Context, pasted string) (crmcontracts.ColdStartProposal, error) {
-	evidenced, err := e.extract.extractGrounded(ctx, "Pasted company text", pasted, "", coldStartFieldValid)
+// Propose is the staging path: a read-back nobody is watching becomes a 🟡
+// approval for a human to accept later, out of band.
+func (e *coldStartEngine) Propose(ctx context.Context, req crmcontracts.ColdStartRequest) (crmcontracts.ColdStartProposal, error) {
+	fields, err := e.Readback(ctx, req)
 	if err != nil {
 		return crmcontracts.ColdStartProposal{}, err
 	}
-
-	fields := make([]crmcontracts.ColdStartField, len(evidenced))
-	for i, f := range evidenced {
-		fields[i] = crmcontracts.ColdStartField{
-			Field:           crmcontracts.ColdStartFieldField(f.Field),
-			Value:           f.Value,
-			EvidenceSnippet: f.EvidenceSnippet,
-			SourceKind:      crmcontracts.ColdStartFieldSourceKindText,
-			EvidenceOffset:  runeOffset(pasted, f.EvidenceSnippet),
-			Confidence:      f.Confidence,
-		}
-	}
+	kind := coldStartProposalKind(req)
+	summary, announce := coldStartStagingNotice(req, kind, len(fields))
 	return e.stage(ctx, crmcontracts.ColdStartProposal{
-		SourceKind: crmcontracts.ColdStartProposalSourceKindText,
+		SourceKind: kind,
+		SourceUrl:  req.Url,
 		Status:     "staged",
 		Fields:     fields,
-	}, "Cold-start read-back of pasted text", map[string]any{
-		"source_kind": string(crmcontracts.ColdStartProposalSourceKindText),
-		"field_count": len(fields),
-	})
+	}, summary, announce)
 }
 
-// ProposeSelfDescription grounds fields in the user's own statement
-// (B-E01.13): the same gate as every other kind, with the statement as the
-// only admissible evidence — a field it does not support is ABSENT, and what
-// survives cites the user's own words (source_kind=self_description).
-func (e *coldStartEngine) ProposeSelfDescription(ctx context.Context, statement string) (crmcontracts.ColdStartProposal, error) {
-	evidenced, err := e.extract.extractGrounded(ctx, "The user's own description of their business", statement, "", coldStartFieldValid)
-	if err != nil {
-		return crmcontracts.ColdStartProposal{}, err
+// coldStartProposalKind names the single populated input on the wire.
+func coldStartProposalKind(req crmcontracts.ColdStartRequest) crmcontracts.ColdStartProposalSourceKind {
+	switch {
+	case req.Url != nil:
+		return crmcontracts.ColdStartProposalSourceKindUrl
+	case req.Text != nil:
+		return crmcontracts.ColdStartProposalSourceKindText
+	default:
+		return crmcontracts.ColdStartProposalSourceKindSelfDescription
 	}
+}
 
-	fields := make([]crmcontracts.ColdStartField, len(evidenced))
-	for i, f := range evidenced {
-		fields[i] = crmcontracts.ColdStartField{
-			Field:           crmcontracts.ColdStartFieldField(f.Field),
-			Value:           f.Value,
-			EvidenceSnippet: f.EvidenceSnippet,
-			SourceKind:      crmcontracts.ColdStartFieldSourceKindSelfDescription,
-			Confidence:      f.Confidence,
+// coldStartStagingNotice builds the approval's human summary and its announced
+// payload. The pasted text / statement is tenant data and never announced —
+// only its kind and how much it grounded.
+func coldStartStagingNotice(req crmcontracts.ColdStartRequest, kind crmcontracts.ColdStartProposalSourceKind, fieldCount int) (string, map[string]any) {
+	if req.Url != nil {
+		return "Cold-start read-back of " + *req.Url, map[string]any{
+			"source_url":  *req.Url,
+			"field_count": fieldCount,
 		}
 	}
-	return e.stage(ctx, crmcontracts.ColdStartProposal{
-		SourceKind: crmcontracts.ColdStartProposalSourceKindSelfDescription,
-		Status:     "staged",
-		Fields:     fields,
-	}, "Cold-start read-back of a self-description", map[string]any{
-		"source_kind": string(crmcontracts.ColdStartProposalSourceKindSelfDescription),
-		"field_count": len(fields),
-	})
+	subject := "pasted text"
+	if kind == crmcontracts.ColdStartProposalSourceKindSelfDescription {
+		subject = "a self-description"
+	}
+	return "Cold-start read-back of " + subject, map[string]any{
+		"source_kind": string(kind),
+		"field_count": fieldCount,
+	}
 }
 
 // stage lands the proposal as a pending "coldstart" approval — the staged row
@@ -182,16 +209,52 @@ func runeOffset(text, snippet string) *int {
 
 type coldstartHandlers struct{ engine *coldStartEngine }
 
+// ColdStartReadback stages the read-back as a 🟡 approval — the asynchronous
+// path, for a proposal no human is currently looking at.
 func (h coldstartHandlers) ColdStartReadback(w http.ResponseWriter, r *http.Request) {
+	req, ok := h.acceptColdStartRequest(w, r, "coldStartReadback")
+	if !ok {
+		return
+	}
+	proposal, err := h.engine.Propose(r.Context(), req)
+	if err != nil {
+		writeColdStartError(w, r, req, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, proposal)
+}
+
+// ColdStartPreview returns the read-back for the company form to pre-fill,
+// staging nothing: the human confirms in the form itself, and PUT /company is
+// the write. The extraction and the no-guess gate are identical to the staging
+// path — only what happens to the result differs.
+func (h coldstartHandlers) ColdStartPreview(w http.ResponseWriter, r *http.Request) {
+	req, ok := h.acceptColdStartRequest(w, r, "coldStartPreview")
+	if !ok {
+		return
+	}
+	fields, err := h.engine.Readback(r.Context(), req)
+	if err != nil {
+		writeColdStartError(w, r, req, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.ColdStartReadback{Fields: fields})
+}
+
+// acceptColdStartRequest decodes and validates the shared request shape for
+// both transports: the engine must be wired, exactly one input must be
+// populated, and that input must be well-formed. It writes the problem
+// response itself and reports whether the caller may proceed.
+func (h coldstartHandlers) acceptColdStartRequest(w http.ResponseWriter, r *http.Request, operation string) (crmcontracts.ColdStartRequest, bool) {
+	var req crmcontracts.ColdStartRequest
 	if h.engine == nil {
 		// The process role declared no model path (--routing); the operation
 		// stays an explicit 501, never a silent guess.
-		httperr.NotImplemented(w, r, "coldStartReadback (no model path configured)")
-		return
+		httperr.NotImplemented(w, r, operation+" (no model path configured)")
+		return req, false
 	}
-	var req crmcontracts.ColdStartRequest
 	if !httperr.Decode(w, r, &req) {
-		return
+		return req, false
 	}
 
 	populated := 0
@@ -207,55 +270,60 @@ func (h coldstartHandlers) ColdStartReadback(w http.ResponseWriter, r *http.Requ
 			Detail:  "provide exactly one of url, text or self_description",
 			Details: map[string]any{"populated_fields": populated},
 		})
-		return
+		return req, false
 	}
 
-	var proposal crmcontracts.ColdStartProposal
-	var err error
-	var unreadableDetail string
 	switch {
 	case req.Url != nil:
-		parsed, parseErr := url.Parse(*req.Url)
-		if parseErr != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		parsed, err := url.Parse(*req.Url)
+		if err != nil || (parsed.Scheme != schemeHTTP && parsed.Scheme != schemeHTTPS) || parsed.Host == "" {
 			httperr.Write(w, r, httperr.Validation("url", "invalid", "url must be an absolute http(s) URL"))
-			return
+			return req, false
 		}
-		unreadableDetail = "Couldn't read enough from this page. Retry or paste text."
-		proposal, err = h.engine.Propose(r.Context(), *req.Url)
 	case req.Text != nil:
 		if strings.TrimSpace(*req.Text) == "" {
 			httperr.Write(w, r, httperr.Validation("text", "empty", "text must not be empty"))
-			return
+			return req, false
 		}
-		unreadableDetail = "Couldn't ground any company fact in this text. Paste more of the page."
-		proposal, err = h.engine.ProposeText(r.Context(), *req.Text)
 	default:
 		if strings.TrimSpace(*req.SelfDescription) == "" {
 			httperr.Write(w, r, httperr.Validation("self_description", "empty", "self_description must not be empty"))
-			return
+			return req, false
 		}
-		unreadableDetail = "Couldn't ground any field in this description. Say more about your business."
-		proposal, err = h.engine.ProposeSelfDescription(r.Context(), *req.SelfDescription)
 	}
-	if err != nil {
-		var unreadable *unreadableError
-		if errors.As(err, &unreadable) {
-			// The client sees a generic 422; the real cause (SSRF refusal,
-			// timeout, thin input, empty gate) stays server-side.
-			slog.ErrorContext(r.Context(), "coldstart read-back unreadable",
-				"source_kind", coldStartInputKind(req), "err", unreadable.cause)
-			httperr.Write(w, r, &httperr.DetailedError{
-				Status:  http.StatusUnprocessableEntity,
-				Code:    "coldstart_unreadable",
-				Detail:  unreadableDetail,
-				Details: map[string]any{"populated_fields": 0},
-			})
-			return
-		}
+	return req, true
+}
+
+// writeColdStartError maps an extraction failure onto the honest 422. The
+// client sees a generic, actionable message; the real cause (SSRF refusal,
+// timeout, thin input, empty gate) stays server-side.
+func writeColdStartError(w http.ResponseWriter, r *http.Request, req crmcontracts.ColdStartRequest, err error) {
+	var unreadable *unreadableError
+	if !errors.As(err, &unreadable) {
 		httperr.Write(w, r, err)
 		return
 	}
-	httperr.WriteJSON(w, http.StatusOK, proposal)
+	slog.ErrorContext(r.Context(), "coldstart read-back unreadable",
+		"source_kind", coldStartInputKind(req), "err", unreadable.cause)
+	httperr.Write(w, r, &httperr.DetailedError{
+		Status:  http.StatusUnprocessableEntity,
+		Code:    "coldstart_unreadable",
+		Detail:  coldStartUnreadableDetail(req),
+		Details: map[string]any{"populated_fields": 0},
+	})
+}
+
+// coldStartUnreadableDetail says what to try next, in the terms of whatever
+// the user actually supplied.
+func coldStartUnreadableDetail(req crmcontracts.ColdStartRequest) string {
+	switch {
+	case req.Url != nil:
+		return "Couldn't read enough from this page. Retry or paste text."
+	case req.Text != nil:
+		return "Couldn't ground any company fact in this text. Paste more of the page."
+	default:
+		return "Couldn't ground any field in this description. Say more about your business."
+	}
 }
 
 // coldStartInputKind names the single populated input for the server log —

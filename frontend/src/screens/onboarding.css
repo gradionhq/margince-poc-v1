@@ -32,29 +32,17 @@
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--borderSubtle);
 }
+/* The real wordmark (the same <Wordmark> the auth screens render, so the
+   theme swap comes for free) — sized down for the top bar. */
 .ob-wordmark {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  font-family: var(--f-display);
-  font-weight: 700;
-  font-size: 17px;
-  letter-spacing: -0.02em;
-  color: var(--textPrimary);
-  text-decoration: none;
   flex: none;
 }
-.ob-wordmark .mk {
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  background: linear-gradient(150deg, var(--wsChipTop), var(--wsChipBottom));
-  color: var(--textOnAccent);
-  display: grid;
-  place-items: center;
-  font-size: 15px;
-  font-weight: 700;
-  box-shadow: var(--shadow-card);
+.ob-wordmark img {
+  width: 116px;
+  max-width: 40vw;
+  height: auto;
 }
 
 /* stepper */
@@ -107,28 +95,6 @@
   height: 1.5px;
   background: var(--borderSubtle);
 }
-.ob-skip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--textTertiary);
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  padding: 7px 12px;
-  border-radius: var(--r-sm);
-  text-decoration: none;
-}
-.ob-skip:hover {
-  background: var(--bgHover);
-  color: var(--textSecondary);
-}
-.ob-skip svg {
-  width: 15px;
-  height: 15px;
-}
-
 /* wizard column + panels */
 .wiz {
   max-width: 660px;
@@ -186,10 +152,6 @@
   width: 14px;
   height: 14px;
   flex: none;
-}
-.trustpill.brand {
-  color: var(--accent);
-  background: var(--accentLight);
 }
 .trust-row {
   display: flex;
@@ -462,80 +424,18 @@
   margin-top: 14px;
 }
 
-/* migrate affordance */
-.migrate {
+/* The company form rides the design-system atoms (.form-stack/.field/.input —
+   atoms.css owns their look); the only onboarding-specific rule is where the
+   form starts relative to the notices above it. */
+.ob-companyform {
+  margin-top: 22px;
+}
+/* The trust adornments ride the field label (a .t-label): read-from-site tag
+   right-aligned, everything vertically centered with the label text. */
+.ob-companyform .t-label {
   display: flex;
   align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-  margin-top: 26px;
-  padding: 15px 17px;
-  border: 1px dashed var(--borderStrong);
-  border-radius: var(--r-md);
-  background: var(--bgElevated);
-}
-.migrate .mig-l {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font-size: 13px;
-  color: var(--textSecondary);
-  flex: 1;
-  min-width: 220px;
-}
-.migrate .mig-l b {
-  color: var(--textPrimary);
-  font-weight: 600;
-}
-.migrate .mig-l svg {
-  width: 18px;
-  height: 18px;
-  color: var(--textTertiary);
-  flex: none;
-}
-
-/* step 2 confirm fields */
-.ob-field {
-  margin-top: 18px;
-}
-.ob-field label {
-  display: block;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-weight: 600;
-  color: var(--textTertiary);
-  margin-bottom: 6px;
-}
-.ob-field .askhint {
-  color: var(--accent);
-  text-transform: none;
-  letter-spacing: 0;
-  font-weight: 500;
-}
-.ob-in {
-  width: 100%;
-  border: 1px solid var(--borderStrong);
-  border-radius: var(--r-sm);
-  padding: 11px 13px;
-  font-family: var(--f-body);
-  font-size: 14px;
-  color: var(--textPrimary);
-  background: var(--bgElevated);
-  outline: 0;
-  line-height: 1.5;
-}
-.ob-in:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 4px var(--accentLight);
-}
-textarea.ob-in {
-  resize: vertical;
-  min-height: 84px;
-}
-.ob-in.askfill {
-  border-color: var(--accent);
-  background: var(--bgElevated);
+  gap: 7px;
 }
 
 /* step 3 voice corpus */
@@ -987,20 +887,15 @@ textarea.ob-in {
 .imap-form .full {
   grid-column: 1 / -1;
 }
-.imap-form .ob-field {
-  margin-top: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+/* The credential fields are design-system .field/.input; the label text here
+   is the label element's own child, so it takes the .t-label look via font
+   rules on the label itself. */
+.imap-form .field {
+  font-size: 12.5px;
   font-weight: 600;
-  color: var(--textTertiary);
+  color: var(--textMeta);
 }
-.imap-form .ob-in {
-  text-transform: none;
-  letter-spacing: normal;
+.imap-form .input {
   font-weight: 400;
 }
 .scopes {
@@ -1160,5 +1055,585 @@ textarea.ob-in {
   }
   .stepper .sdot span:last-child {
     display: none;
+  }
+}
+
+/* Backfill (ADR-0063): window picker → estimate card → live run view. */
+.backfill-setup,
+.backfill-run {
+  margin-top: var(--space-5);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  text-align: left;
+}
+.backfill-h {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-md);
+}
+.backfill-windows {
+  display: flex;
+  gap: var(--space-3);
+  margin: var(--space-3) 0;
+}
+.backfill-window {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.backfill-estimate {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  background: var(--color-surface-2);
+  border-radius: var(--radius-sm);
+}
+.backfill-estimate p {
+  margin: 0 0 var(--space-2);
+}
+.backfill-skip {
+  margin-top: var(--space-3);
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
+.backfill-error {
+  color: var(--color-danger);
+}
+.backfill-run progress {
+  width: 100%;
+  margin: var(--space-2) 0;
+}
+.backfill-skipped {
+  margin-top: var(--space-3);
+}
+
+/* Dedupe review queue (M4): evidence table + per-pair decision. */
+.dedupe-screen {
+  padding: var(--space-5);
+  max-width: 720px;
+}
+.dedupe-card {
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.dedupe-head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+.dedupe-evidence {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: var(--space-3);
+}
+.dedupe-evidence th,
+.dedupe-evidence td {
+  text-align: left;
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+.dedupe-evidence tr[data-signal="collide"] td {
+  color: var(--color-danger);
+}
+.dedupe-pick {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.dedupe-actions {
+  display: flex;
+  gap: var(--space-3);
+}
+.dedupe-error {
+  color: var(--color-danger);
+}
+.dedupe-undo {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
+
+/* Five-step company-context onboarding. */
+.ob-state-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 180px;
+  color: var(--textSecondary);
+}
+.read-hero-mark {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 18px;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--borderSubtle));
+  border-radius: 15px;
+  background: linear-gradient(145deg, var(--accentLight), var(--bgElevated));
+  box-shadow: 0 12px 30px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.read-hero-mark svg {
+  width: 22px;
+  height: 22px;
+}
+.read-intro {
+  max-width: 590px;
+  font-size: 15px;
+  line-height: 1.65;
+}
+.read-paths {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 26px;
+  padding: 0;
+  border: 0;
+}
+.read-paths legend {
+  grid-column: 1 / -1;
+  margin-bottom: 2px;
+}
+.read-path {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 18px;
+  text-align: left;
+  color: var(--textPrimary);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-lg);
+  background: var(--bgElevated);
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+.read-path:hover,
+.read-path.selected {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--borderSubtle));
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--accent) 9%, transparent);
+  transform: translateY(-2px);
+}
+.read-path > svg {
+  width: 16px;
+  color: var(--textTertiary);
+}
+.read-path b,
+.read-path small {
+  display: block;
+}
+.read-path b {
+  margin-bottom: 5px;
+  font-size: 14px;
+}
+.read-path small {
+  color: var(--textSecondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.read-path-icon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+}
+.read-path-icon svg {
+  width: 18px;
+}
+.read-path-icon.website {
+  color: var(--accent);
+  background: var(--accentLight);
+}
+.read-path-icon.manual {
+  color: var(--teal);
+  background: color-mix(in srgb, var(--teal) 11%, transparent);
+}
+.read-workspace {
+  margin-top: 18px;
+  padding-top: 20px;
+  border-top: 1px solid var(--borderSubtle);
+}
+.read-trust,
+.confirm-origin {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 22px;
+  padding: 12px 14px;
+  color: var(--textSecondary);
+  font-size: 12px;
+  line-height: 1.5;
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--bgElevated) 72%, transparent);
+}
+.read-trust svg,
+.confirm-origin svg {
+  width: 16px;
+  flex: none;
+  color: var(--online);
+}
+.read-progress {
+  margin-top: 18px;
+  overflow: hidden;
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-lg);
+  background: var(--bgElevated);
+  box-shadow: var(--shadow-pop);
+}
+.read-progress-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--borderSubtle);
+}
+.read-progress-head h2 {
+  margin: 7px 0 0;
+  font-family: var(--f-display);
+  font-size: 18px;
+}
+.read-status {
+  display: inline-flex;
+  padding: 3px 8px;
+  border-radius: var(--r-full);
+  color: var(--textSecondary);
+  background: var(--bgHover);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.read-status.ready,
+.read-status.confirmed {
+  color: var(--online);
+  background: color-mix(in srgb, var(--online) 11%, transparent);
+}
+.read-deferral {
+  margin: 0;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--borderSubtle);
+  color: var(--textSecondary);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.reading-live {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 650;
+}
+.read-phases {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--borderSubtle);
+}
+.read-phase {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--textTertiary);
+  font-size: 11px;
+}
+.read-phase span {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-full);
+  background: var(--bgHover);
+}
+.read-phase svg {
+  width: 11px;
+}
+.read-phase.done,
+.read-phase.active {
+  color: var(--textPrimary);
+}
+.read-phase.done span {
+  color: var(--textOnAccent);
+  background: var(--online);
+}
+.read-phase.active span {
+  color: var(--accent);
+  background: var(--accentLight);
+}
+.read-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--borderSubtle);
+}
+.read-metrics > div {
+  padding: 16px;
+  text-align: center;
+  background: var(--bgElevated);
+}
+.read-metrics b,
+.read-metrics span {
+  display: block;
+}
+.read-metrics b {
+  font-family: var(--f-display);
+  font-size: 22px;
+}
+.read-metrics span {
+  margin-top: 2px;
+  color: var(--textTertiary);
+  font-size: 10px;
+}
+.finding-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 18px;
+}
+.finding-card {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgPage);
+}
+.finding-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--textSecondary);
+  font-size: 10px;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+.finding-label svg {
+  width: 12px;
+  color: var(--online);
+}
+.finding-label span {
+  margin-left: auto;
+  color: var(--online);
+}
+.finding-card strong,
+.finding-card blockquote {
+  display: block;
+}
+.finding-card strong {
+  margin-top: 9px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.finding-card blockquote {
+  margin: 8px 0 0;
+  color: var(--textTertiary);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.read-coverage {
+  margin: 0 18px 18px;
+  padding: 11px 12px;
+  color: var(--textSecondary);
+  border-radius: var(--r-md);
+  background: var(--bgHover);
+  font-size: 11px;
+}
+.read-coverage summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+.read-coverage svg {
+  width: 13px;
+}
+.read-coverage ul {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.read-coverage li {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+.read-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 14px;
+  margin-top: 18px;
+}
+.confirm-facts {
+  margin-top: 26px;
+}
+.fact-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+  margin-top: 12px;
+}
+.fact-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px;
+  color: var(--textPrimary);
+  text-align: left;
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
+  cursor: pointer;
+}
+.fact-card.selected {
+  border-color: var(--accent);
+  background: var(--accentLight);
+}
+.fact-check svg {
+  width: 14px;
+  color: var(--accent);
+}
+.fact-card b,
+.fact-card span span,
+.fact-card small {
+  display: block;
+}
+.fact-card b {
+  font-size: 11px;
+}
+.fact-card span span {
+  margin-top: 3px;
+  font-size: 12px;
+}
+.fact-card small {
+  margin-top: 6px;
+  color: var(--textTertiary);
+  font-size: 9px;
+  line-height: 1.4;
+}
+.understanding-reveal {
+  margin: 24px 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--online) 35%, var(--borderSubtle));
+  border-radius: var(--r-lg);
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--online) 7%, var(--bgElevated)),
+    var(--bgElevated)
+  );
+  box-shadow: 0 20px 48px color-mix(in srgb, var(--online) 9%, transparent);
+}
+.understanding-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px;
+  border-bottom: 1px solid var(--borderSubtle);
+}
+.understanding-brand > span {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  color: var(--textOnAccent);
+  border-radius: 11px;
+  background: var(--online);
+}
+.understanding-brand svg {
+  width: 17px;
+}
+.understanding-brand small,
+.understanding-grid small {
+  color: var(--textTertiary);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.understanding-brand h2 {
+  margin: 2px 0 0;
+  font-family: var(--f-display);
+  font-size: 20px;
+}
+.understanding-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--borderSubtle);
+}
+.understanding-grid > div {
+  padding: 16px 20px;
+  background: color-mix(in srgb, var(--bgElevated) 96%, transparent);
+}
+.understanding-grid p {
+  margin: 5px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.understanding-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 14px 20px;
+  color: var(--online);
+  font-size: 11px;
+  font-weight: 600;
+}
+.understanding-note svg {
+  width: 14px;
+}
+
+@media (max-width: 720px) {
+  .read-paths,
+  .finding-grid,
+  .fact-grid,
+  .understanding-grid {
+    grid-template-columns: 1fr;
+  }
+  .read-phases {
+    grid-template-columns: 1fr;
+    gap: 9px;
+  }
+  .read-progress-head,
+  .read-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .read-actions .btn {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ob-panel,
+  .ob-spinner,
+  .read-path {
+    animation: none;
+    transition: none;
+  }
+  .read-path:hover,
+  .read-path.selected {
+    transform: none;
   }
 }

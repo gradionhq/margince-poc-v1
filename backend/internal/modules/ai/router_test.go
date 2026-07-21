@@ -8,6 +8,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -51,7 +52,7 @@ func wsContext(t *testing.T) context.Context {
 }
 
 func testRouter(clients map[Tier]model.Client, meter usageStore, spentBudget BudgetPolicy, profile Profile) *Router {
-	return newRouter(clients, NewFakeClient(), profile, meter, spentBudget)
+	return assembleRouter(clients, NewFakeClient(), profile, meter, spentBudget, nil, nil, false, nil)
 }
 
 func TestRouterRoutesTaskToPrimaryTierAndMeters(t *testing.T) {
@@ -135,12 +136,27 @@ func TestRouterSoftDegradeAtEightyPercent(t *testing.T) {
 	}
 }
 
-func TestRouterHardCapQueuesNonInteractive(t *testing.T) {
+func TestRouterHardCapDefersBackgroundWithoutAttemptOrTrace(t *testing.T) {
 	meter := &memMeter{spent: int64(DefaultMonthlyTokens) + 1}
-	r := testRouter(map[Tier]model.Client{TierLocalSmall: NewFakeClient()}, meter, DefaultMonthlyTokens, ProfileEUHosted)
+	client := NewFakeClient()
+	calls := &fakeCallStore{}
+	r := testRouter(map[Tier]model.Client{TierLocalSmall: client}, meter, DefaultMonthlyTokens, ProfileEUHosted)
+	r.calls = calls
+	r.now = func() time.Time { return time.Date(2026, time.July, 19, 9, 30, 0, 0, time.FixedZone("ICT", 7*60*60)) }
 	_, _, err := r.Complete(wsContext(t), TaskCaptureClassify, model.Request{Messages: []model.Message{{Role: "user", Content: "x"}}})
-	if !errors.Is(err, ErrBudgetExhausted) {
-		t.Fatalf("non-interactive task at hard cap must queue, got %v", err)
+	if !errors.Is(err, ErrBudgetDeferred) {
+		t.Fatalf("background task at hard cap must defer, got %v", err)
+	}
+	var deferral *BudgetDeferralError
+	if !errors.As(err, &deferral) {
+		t.Fatalf("budget error does not carry its retry boundary: %T", err)
+	}
+	wantNext := time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC)
+	if deferral.Task != TaskCaptureClassify || !deferral.NextAttemptAt.Equal(wantNext) {
+		t.Fatalf("deferral = %+v, want task %s at %s", deferral, TaskCaptureClassify, wantNext)
+	}
+	if len(client.Calls()) != 0 || len(calls.recorded) != 0 {
+		t.Fatalf("deferral made model/trace attempts: model=%d trace=%d", len(client.Calls()), len(calls.recorded))
 	}
 }
 
@@ -273,7 +289,7 @@ func TestRouterCacheIsWorkspaceScoped(t *testing.T) {
 func TestRouterEmbedStripsSecretsAndMeters(t *testing.T) {
 	meter := &memMeter{}
 	embedder := NewFakeClient()
-	r := newRouter(map[Tier]model.Client{}, embedder, ProfileEUHosted, meter, DefaultMonthlyTokens)
+	r := assembleRouter(map[Tier]model.Client{}, embedder, ProfileEUHosted, meter, DefaultMonthlyTokens, nil, nil, false, nil)
 	_, err := r.Embed(wsContext(t), model.EmbedRequest{Inputs: []string{"note with password=topsecretvalue in it"}})
 	if err != nil {
 		t.Fatal(err)
@@ -292,5 +308,36 @@ func TestRouterRequiresWorkspaceContext(t *testing.T) {
 	_, _, err := r.Complete(context.Background(), TaskSummarize, model.Request{})
 	if err == nil || !strings.Contains(err.Error(), "workspace context") {
 		t.Fatalf("workspace-less call must fail, got %v", err)
+	}
+}
+
+// Two calls differing only in one completion-shaping binding must never share
+// a cache entry — especially a company-context edit whose prompt happened to
+// remain byte-identical after bounded rendering.
+func TestRouterCacheKeyDistinguishesEveryExternalBinding(t *testing.T) {
+	base := model.Request{Messages: []model.Message{{Role: "user", Content: "same prompt"}}}
+	withModel := base
+	withModel.Model = "other-model"
+	withSchema := base
+	withSchema.ResponseSchema = []byte(`{"type":"object"}`)
+	withContext := base
+	withContext.ContextScopes = []string{"identity"}
+	withContext.ContextFingerprint = strings.Repeat("a", 64)
+
+	wsID := ids.New[ids.WorkspaceKind]()
+	baseKey, err := cacheKey(wsID, TaskSummarize, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, req := range map[string]model.Request{
+		"model override": withModel, "response schema": withSchema, "company context": withContext,
+	} {
+		key, err := cacheKey(wsID, TaskSummarize, req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if key == baseKey {
+			t.Fatalf("%s must change the cache key", name)
+		}
 	}
 }

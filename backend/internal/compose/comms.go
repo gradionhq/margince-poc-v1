@@ -11,7 +11,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
@@ -25,6 +24,7 @@ import (
 type commsAdapter struct {
 	store *activities.Store
 	gate  activities.ConsentGate
+	draft activities.EmailDrafter
 }
 
 var _ agents.Comms = commsAdapter{}
@@ -36,9 +36,9 @@ var _ agents.Comms = commsAdapter{}
 var _ automation.Comms = commsAdapter{}
 
 func (c commsAdapter) DraftEmail(ctx context.Context, anchor ids.UUID, intent string) (string, string, error) {
-	// The deterministic draft over the anchor's own context — the same
-	// rule the HTTP handler applies; the model-backed voice draft rides
-	// the router once the drafting lane is wired.
+	if c.draft != nil {
+		return c.draft.DraftEmail(ctx, anchor, intent)
+	}
 	activity, err := c.store.GetActivity(ctx, ids.From[ids.ActivityKind](anchor), storekit.LiveOnly)
 	if err != nil {
 		return "", "", err
@@ -47,33 +47,8 @@ func (c commsAdapter) DraftEmail(ctx context.Context, anchor ids.UUID, intent st
 	if activity.Subject != nil {
 		topic = *activity.Subject
 	}
-	subject, body := deterministicDraft(topic, intent)
+	subject, body := activities.DeterministicEmailDraft(topic, intent)
 	return subject, body, nil
-}
-
-// deterministicDraft is the ONE spelling of the deterministic follow-up
-// voice: draft_email (reply-anchored) and draft_follow_ups_for
-// (deal-anchored) both compose over it, so the two draft paths cannot
-// drift. The model-backed Voice-DNA draft replaces the body here once
-// the drafting lane rides the model router.
-func deterministicDraft(topic, intent string) (subject, body string) {
-	subject = "Re: follow-up"
-	if topic != "" {
-		subject = "Re: " + topic
-	}
-	var b strings.Builder
-	b.WriteString("Hi,\n\nfollowing up on ")
-	if topic != "" {
-		fmt.Fprintf(&b, "%q", topic)
-	} else {
-		b.WriteString("our last conversation")
-	}
-	b.WriteString(".")
-	if strings.TrimSpace(intent) != "" {
-		b.WriteString("\n\n" + strings.TrimSpace(intent))
-	}
-	b.WriteString("\n\nBest regards")
-	return subject, b.String()
 }
 
 func (c commsAdapter) SendEmail(ctx context.Context, anchor ids.UUID, in agents.SendEmailArgs) (json.RawMessage, error) {

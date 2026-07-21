@@ -56,6 +56,18 @@ func (stubs) ListAgentTools(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ListAgentTools")
 }
 
+func (stubs) ListAiCalls(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListAiCallsParams) {
+	httperr.NotImplemented(w, r, "ListAiCalls")
+}
+
+func (stubs) GetAiCall(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetAiCall")
+}
+
+func (stubs) GetAiUsage(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetAiUsageParams) {
+	httperr.NotImplemented(w, r, "GetAiUsage")
+}
+
 func (stubs) ListApprovals(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListApprovalsParams) {
 	httperr.NotImplemented(w, r, "ListApprovals")
 }
@@ -200,12 +212,60 @@ func (stubs) ColdStartReadback(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ColdStartReadback")
 }
 
+func (stubs) ColdStartPreview(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ColdStartPreview")
+}
+
+func (stubs) GetCompany(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetCompany")
+}
+
+func (stubs) PutCompany(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "PutCompany")
+}
+
+func (stubs) GetCompanyContext(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetCompanyContextParams) {
+	httperr.NotImplemented(w, r, "GetCompanyContext")
+}
+
+func (stubs) GetCompanyContextCapabilities(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetCompanyContextCapabilities")
+}
+
+func (stubs) StartCompanySiteRead(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.StartCompanySiteReadParams) {
+	httperr.NotImplemented(w, r, "StartCompanySiteRead")
+}
+
+func (stubs) GetCompanySiteRead(w nethttp.ResponseWriter, r *nethttp.Request, readId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "GetCompanySiteRead")
+}
+
+func (stubs) ConfirmCompanySiteRead(w nethttp.ResponseWriter, r *nethttp.Request, readId openapi_types.UUID, params crmcontracts.ConfirmCompanySiteReadParams) {
+	httperr.NotImplemented(w, r, "ConfirmCompanySiteRead")
+}
+
 func (stubs) ListConnectors(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ListConnectors")
 }
 
 func (stubs) ConnectImap(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ConnectImap")
+}
+
+func (stubs) CancelConnectorBackfill(w nethttp.ResponseWriter, r *nethttp.Request, provider crmcontracts.CaptureProvider) {
+	httperr.NotImplemented(w, r, "CancelConnectorBackfill")
+}
+
+func (stubs) GetConnectorBackfillStatus(w nethttp.ResponseWriter, r *nethttp.Request, provider crmcontracts.CaptureProvider) {
+	httperr.NotImplemented(w, r, "GetConnectorBackfillStatus")
+}
+
+func (stubs) StartConnectorBackfill(w nethttp.ResponseWriter, r *nethttp.Request, provider crmcontracts.CaptureProvider) {
+	httperr.NotImplemented(w, r, "StartConnectorBackfill")
+}
+
+func (stubs) PreviewConnectorBackfill(w nethttp.ResponseWriter, r *nethttp.Request, provider crmcontracts.CaptureProvider) {
+	httperr.NotImplemented(w, r, "PreviewConnectorBackfill")
 }
 
 func (stubs) ConnectorOAuthCallback(w nethttp.ResponseWriter, r *nethttp.Request, provider crmcontracts.CaptureProvider, params crmcontracts.ConnectorOAuthCallbackParams) {
@@ -294,6 +354,26 @@ func (stubs) CreateOffer(w nethttp.ResponseWriter, r *nethttp.Request, id crmcon
 
 func (stubs) ListDealStakeholders(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "ListDealStakeholders")
+}
+
+func (stubs) ListDedupeCandidates(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListDedupeCandidatesParams) {
+	httperr.NotImplemented(w, r, "ListDedupeCandidates")
+}
+
+func (stubs) GetDedupeCandidate(w nethttp.ResponseWriter, r *nethttp.Request, id openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "GetDedupeCandidate")
+}
+
+func (stubs) DisposeDedupeCandidate(w nethttp.ResponseWriter, r *nethttp.Request, id openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "DisposeDedupeCandidate")
+}
+
+func (stubs) UndoDedupeDisposition(w nethttp.ResponseWriter, r *nethttp.Request, id openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "UndoDedupeDisposition")
+}
+
+func (stubs) GetMorningDigest(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetMorningDigestParams) {
+	httperr.NotImplemented(w, r, "GetMorningDigest")
 }
 
 func (stubs) CreateFilteredExport(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -424,6 +504,14 @@ func (stubs) SendOffer(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontr
 	httperr.NotImplemented(w, r, "SendOffer")
 }
 
+func (stubs) GetOnboardingState(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetOnboardingState")
+}
+
+func (stubs) PutOnboardingState(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.PutOnboardingStateParams) {
+	httperr.NotImplemented(w, r, "PutOnboardingState")
+}
+
 func (stubs) ListOrganizations(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListOrganizationsParams) {
 	httperr.NotImplemented(w, r, "ListOrganizations")
 }
@@ -444,6 +532,10 @@ func (stubs) UpdateOrganization(w nethttp.ResponseWriter, r *nethttp.Request, id
 	httperr.NotImplemented(w, r, "UpdateOrganization")
 }
 
+func (stubs) DeepReadCompany(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "DeepReadCompany")
+}
+
 func (stubs) ScrapeCompany(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "ScrapeCompany")
 }
@@ -462,6 +554,10 @@ func (stubs) GetPartner(w nethttp.ResponseWriter, r *nethttp.Request, id crmcont
 
 func (stubs) UpsertPartner(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.UpsertPartnerParams) {
 	httperr.NotImplemented(w, r, "UpsertPartner")
+}
+
+func (stubs) GetSiteRead(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, readId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "GetSiteRead")
 }
 
 func (stubs) GetOrganizationStrength(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
@@ -744,15 +840,15 @@ func (stubs) UpdateSavedView(w nethttp.ResponseWriter, r *nethttp.Request, id cr
 	httperr.NotImplemented(w, r, "UpdateSavedView")
 }
 
-func (stubs) ListVoiceProfiles(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListVoiceProfilesParams) {
+func (stubs) ListVoiceProfiles(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ListVoiceProfiles")
 }
 
-func (stubs) CreateVoiceProfile(w nethttp.ResponseWriter, r *nethttp.Request) {
+func (stubs) CreateVoiceProfile(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.CreateVoiceProfileParams) {
 	httperr.NotImplemented(w, r, "CreateVoiceProfile")
 }
 
-func (stubs) DeleteVoiceProfile(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+func (stubs) DeleteVoiceProfile(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.DeleteVoiceProfileParams) {
 	httperr.NotImplemented(w, r, "DeleteVoiceProfile")
 }
 
@@ -764,14 +860,58 @@ func (stubs) UpdateVoiceProfile(w nethttp.ResponseWriter, r *nethttp.Request, id
 	httperr.NotImplemented(w, r, "UpdateVoiceProfile")
 }
 
-func (stubs) ListVoiceCorpusSources(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+func (stubs) CreateVoiceBuild(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.CreateVoiceBuildParams) {
+	httperr.NotImplemented(w, r, "CreateVoiceBuild")
+}
+
+func (stubs) GetVoiceBuild(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, buildId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "GetVoiceBuild")
+}
+
+func (stubs) ClearVoiceCorpus(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ClearVoiceCorpusParams) {
+	httperr.NotImplemented(w, r, "ClearVoiceCorpus")
+}
+
+func (stubs) ListVoiceProfileDeltas(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ListVoiceProfileDeltasParams) {
+	httperr.NotImplemented(w, r, "ListVoiceProfileDeltas")
+}
+
+func (stubs) RejectVoiceDraft(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.RejectVoiceDraftParams) {
+	httperr.NotImplemented(w, r, "RejectVoiceDraft")
+}
+
+func (stubs) GetVoiceLearningSummary(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetVoiceLearningSummary")
+}
+
+func (stubs) ListVoiceCorpusSources(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ListVoiceCorpusSourcesParams) {
 	httperr.NotImplemented(w, r, "ListVoiceCorpusSources")
 }
 
-func (stubs) IngestVoiceCorpusSource(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+func (stubs) IngestVoiceCorpusSource(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.IngestVoiceCorpusSourceParams) {
 	httperr.NotImplemented(w, r, "IngestVoiceCorpusSource")
 }
 
-func (stubs) UpdateVoiceCorpusSource(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, sourceId openapi_types.UUID) {
+func (stubs) DeleteVoiceCorpusSource(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, sourceId openapi_types.UUID, params crmcontracts.DeleteVoiceCorpusSourceParams) {
+	httperr.NotImplemented(w, r, "DeleteVoiceCorpusSource")
+}
+
+func (stubs) UpdateVoiceCorpusSource(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, sourceId openapi_types.UUID, params crmcontracts.UpdateVoiceCorpusSourceParams) {
 	httperr.NotImplemented(w, r, "UpdateVoiceCorpusSource")
+}
+
+func (stubs) ListVoiceProfileVersions(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ListVoiceProfileVersionsParams) {
+	httperr.NotImplemented(w, r, "ListVoiceProfileVersions")
+}
+
+func (stubs) ApplyVoiceProfileVersion(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, profileVersion crmcontracts.VoiceProfileVersionNumber, params crmcontracts.ApplyVoiceProfileVersionParams) {
+	httperr.NotImplemented(w, r, "ApplyVoiceProfileVersion")
+}
+
+func (stubs) RejectVoiceProfileVersion(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, profileVersion crmcontracts.VoiceProfileVersionNumber, params crmcontracts.RejectVoiceProfileVersionParams) {
+	httperr.NotImplemented(w, r, "RejectVoiceProfileVersion")
+}
+
+func (stubs) RollbackVoiceProfileVersion(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, profileVersion crmcontracts.VoiceProfileVersionNumber, params crmcontracts.RollbackVoiceProfileVersionParams) {
+	httperr.NotImplemented(w, r, "RollbackVoiceProfileVersion")
 }

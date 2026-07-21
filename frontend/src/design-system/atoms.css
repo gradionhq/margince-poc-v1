@@ -132,6 +132,11 @@
   max-height: calc(100dvh - 40px);
   overflow-y: auto;
 }
+/* Roomier variant for content-dense dialogs (e.g. the cert-scenario export's
+   YAML + response previews) that read cramped at the compact form width. */
+.modal-wide {
+  width: min(720px, calc(100vw - 40px));
+}
 .modal .actions {
   display: flex;
   justify-content: flex-end;
@@ -444,4 +449,39 @@ select.input {
 
 .table-scroll {
   overflow-x: auto;
+}
+
+/* AttainmentRing (quotas): the arc rotates so 0% starts at 12 o'clock; the
+ * band colour rides on the arc's stroke (set inline from the server band).
+ * The centred figure overlays the SVG. */
+.attain-ring {
+  position: relative;
+  width: 160px;
+  height: 160px;
+  flex: none;
+}
+.attain-ring svg {
+  transform: rotate(-90deg);
+}
+.attain-ring-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+.attain-ring-pct {
+  font-weight: 500;
+  font-size: 34px;
+  color: var(--textPrimary);
+  letter-spacing: -0.02em;
+}
+.attain-ring-lbl {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--textMeta);
 }

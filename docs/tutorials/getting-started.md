@@ -1,7 +1,7 @@
 # Getting started
 
 This tutorial takes you from a fresh clone to a running Margince
-instance with a bootstrapped workspace, using only the repository's
+instance with a bootstrapped organization, using only the repository's
 Makefile targets.
 
 ## Prerequisites
@@ -40,34 +40,44 @@ fork-owned custom namespace. Migrations are reversible; see
 make dev
 ```
 
-`make dev` brings up the infra, re-runs db-up + migrate, API-seeds the demo
-workspace, and boots `cmd/api` on `:8080` with the app-role DSN (plus the
-Vite SPA on `:5173`). By default the outbox relay runs inline in the api
-process, so this one command is a complete install; it returns when ready
-and the servers run in the background — stop them with `make dev-stop`.
+`make dev` brings up the infra, re-runs db-up + migrate, and boots `cmd/api`
+on `:8080` with the app-role DSN (plus the Vite SPA on `:5173`). By default
+the outbox relay runs inline in the api process, so this one command is a
+complete install; it returns when ready and the servers run in the
+background — stop them with `make dev-stop`.
 
-## 4. Bootstrap a workspace
+One installation serves one organization (A107/ADR-0061): on its first boot
+against the empty database, the api bootstraps the organization and admin
+user from the deployment config `config/margince.yaml`. `make dev` seeds
+that file (and the admin password file) from
+[`config/margince.example.yaml`](../../config/margince.example.yaml) on first
+run and then **leaves it** — edit it freely; delete it to reset. There is no
+bootstrap screen or endpoint: no request creates a workspace.
 
-Open <http://localhost:5173> — the Vite/React web UI (it proxies `/v1`
-to the api on :8080). The first screen lets you bootstrap a workspace
-(name, slug, your admin user). After login you have people, leads, the
-deal board, and the activity timeline.
+## 4. Log in
 
-Prefer the API? The same bootstrap is `POST /v1/workspaces`. A ready-made demo workspace already exists —
-`make dev` API-seeds `demo-workspace` (`admin@demo.test` / `demo-password-123`) on boot; `make seed-dev`
-re-runs the same idempotent seed if you need it.
+Open <http://localhost:5173> — the Vite/React web UI (it proxies `/v1` to
+the api on :8080) — and log in with the seeded admin (`admin@demo.test` /
+`demo-password-123`, from the example config). First login lands in the
+**five-step onboarding wizard** (Read · Confirm · Voice · Results ·
+Connect): let Margince read a company website or enter the three required
+fields by hand — it is resumable and skippable, and explained in
+[explanation/company-context.md](../explanation/company-context.md). After
+that you have people, leads, the deal board, and the activity timeline —
+`make dev` already API-seeded demo records on boot (`make seed-dev` re-runs
+the same idempotent seed).
 
-Then log in over the API and reuse the session. The `crm_session` cookie is `Secure`, so pull it out of
-the login response rather than relying on curl's jar; local calls also need the `X-Workspace-Slug`
-header (production resolves the workspace from the subdomain):
+Prefer the API? Log in and reuse the session. The `crm_session` cookie is `Secure`, so pull it out of
+the login response rather than relying on curl's jar; the server resolves its singleton organization
+itself — no header selects a tenant:
 
 ```sh
 SESSION=$(curl -sS -D - -o /dev/null http://localhost:8080/v1/auth/login \
-  -H 'X-Workspace-Slug: demo-workspace' -H 'Content-Type: application/json' \
+  -H 'Content-Type: application/json' \
   -d '{"email":"admin@demo.test","password":"demo-password-123"}' \
   | sed -n 's/^[Ss]et-[Cc]ookie: crm_session=\([^;]*\).*/\1/p' | tr -d '\r')
 
-curl http://localhost:8080/v1/me -H 'X-Workspace-Slug: demo-workspace' --cookie "crm_session=$SESSION"
+curl http://localhost:8080/v1/me --cookie "crm_session=$SESSION"
 ```
 
 (An agent uses a passport instead of a session — see [how-to/mint-a-passport.md](../how-to/mint-a-passport.md).)

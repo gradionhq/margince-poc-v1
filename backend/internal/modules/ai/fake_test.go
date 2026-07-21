@@ -26,6 +26,11 @@ func TestFakeClientScriptedAndDeterministic(t *testing.T) {
 	if first.Text != `{"answer":"scripted"}` {
 		t.Fatalf("scripted response not returned: %q", first.Text)
 	}
+	// The fake IS the wire: it sets ServedModel unconditionally, exactly as
+	// honest as a real adapter's provider-reported field.
+	if first.ServedModel != "fake" {
+		t.Fatalf("ServedModel not set to the fake literal: %q", first.ServedModel)
+	}
 
 	// Queue exhausted: the fallback is a pure function of the payload.
 	second, err := fake.Complete(ctx, req)

@@ -1,8 +1,12 @@
 # AGENTS.md — operating this repo
 
-Margince CRM implementation PoC (WP0 foundation + WP1 core spine), built
-from a separate spec repo (contract-first, P3: when this code
-and the spec disagree, the spec wins).
+Margince CRM implementation PoC (WP0 foundation + WP1 core spine), built from the
+sibling spec repo **`margince-foundation`** (contract-first, P3: when this code and
+the spec disagree, the spec wins). Its tree is `specs/` — `specs/subsystems/` holds
+the per-module chapters, `specs/contract/` the normative contract, `specs/adr/` the
+decisions; the ticket backlog is at that repo's root in `backlog/`. See
+[CLAUDE.md](CLAUDE.md#where-the-spec-is-read-before-building) for the full map.
+Don't edit the spec from here — raise discrepancies for upstream reconciliation.
 
 **Start at [STATUS.md](STATUS.md)** — progress, in-flight work, and the
 session-pickup point; update it at the end of every working session.
@@ -36,6 +40,36 @@ make dev                # full local stack: db + api (:8080) + worker + Vite SPA
 make dev-stop           # stop the stack (add DEV_SLUG=x [DROP=1] for an isolated env)
 ```
 
+### EXACTLY ONE dev stack at a time (non-negotiable)
+
+**Before starting a stack, stop every stack that is already running.** A second
+`make dev` refuses the port, but the far worse case is the one that does NOT
+fail: an `api` binary started from an earlier branch keeps serving :8080 happily
+while Vite hot-reloads the code you just wrote. The SPA then calls endpoints the
+running binary has never heard of, and the app fails in ways that look like your
+bug and are not — an old server is indistinguishable from a broken feature.
+
+```
+make dev-stop           # always FIRST — stops :8080 + :5173
+lsof -ti:8080,5173       # must print nothing before you start
+make dev                 # then, and only then, ONE stack
+```
+
+The api is a compiled binary: **Vite hot-reloads the frontend, the API does
+not.** Any backend change — a new endpoint, a migration, a handler fix — needs
+`make dev-stop && make dev`. Restarting is the only way your Go code reaches the
+browser.
+
+`DEV_SLUG=x` exists for running an isolated stack (its own database and ports)
+*alongside* someone else's — use it rather than killing a colleague's stack, and
+tear it down with `DEV_SLUG=x make dev-stop DROP=1` when done. It is not a
+licence to leave several running: know which stack the browser is talking to.
+
+This repo's working tree is often shared with parallel agent sessions that
+switch branches under you. Before you trust ANY manual test, confirm both:
+`git branch --show-current` is the branch you think it is, and the api on :8080
+was started after your last backend change.
+
 `check-q` (quiet), `check-go` (backend-only), `fe-typecheck`, `fe-uat`
 (change-scoped Storybook render gate), and `infra-up`/`infra-down` round out
 the golden-command set. Full table:
@@ -65,7 +99,12 @@ One installation serves one organization (A107/ADR-0061): the server
 resolves its singleton organization itself — no request selects a tenant:
 `curl http://localhost:8080/v1/me --cookie 'crm_session=…'`. First boot
 bootstraps the organization + admin from `margince.yaml` (`--config` /
-`MARGINCE_CONFIG`); `make dev` writes a demo one automatically.
+`MARGINCE_CONFIG`). `make dev` seeds a gitignored `config/margince.yaml`
+from `config/margince.example.yaml` on first run and then **leaves it**
+(the same create-if-missing / leave-if-exists pattern as
+`config/ai-routing.yaml`), so edits — org details, admin, or the
+`ai.capture_payloads` posture — persist across `make dev-stop` / `make dev`;
+delete it to reset.
 
 Operational surface: `/healthz` (dumb liveness), `/readyz` (dependency
 probes; 503 names the unready dependency), and `/metrics` (Prometheus
@@ -210,7 +249,8 @@ scope clauses in `platform/auth`): object denial →
 
 ## Craftsmanship
 
-Match architecture/15 (anti-tell catalog T1–T11). The rule under every rule:
+Match the spec's `specs/quality/craftsmanship.md` (anti-tell catalog T1–T11). The rule
+under every rule:
 **code that reads best to a human reads best to the next agent that edits it** —
 legibility is the product, not polish.
 

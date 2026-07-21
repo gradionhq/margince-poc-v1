@@ -11,6 +11,7 @@ package compose
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -21,7 +22,6 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
-	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
@@ -66,9 +66,13 @@ type Server struct {
 	reportHandlers
 	briefs.Handlers
 	coldstartHandlers
+	companyHandlers
+	onboardingStateHandlers
+	siteReadHandlers
 	scrapeHandlers
 	imapConnectHandlers
 	connectorHandlers
+	backfillHandlers
 	captureExclusionHandlers
 	filteredExportHandlers
 	orgRollupHandlers
@@ -76,6 +80,11 @@ type Server struct {
 	customfieldsHandlers
 	quotasHandlers
 	attachmentExtractionHandlers
+
+	// gmailPush is the Pub/Sub push webhook, injected by WithGmailPush only
+	// when a subscription token is configured — the route is absent
+	// otherwise, never open.
+	gmailPush *gmailPushHandler
 
 	// busReady is the /readyz bus probe, injected only by the process
 	// role that runs the inline relay — a split deployment's api answers
@@ -115,8 +124,22 @@ type Server struct {
 	// the response is written — a separate instance from dealsHandlers'
 	// own store, the same split offerDrafter itself already uses.
 	dealsStore *deals.Store
+	// replyDrafter is the shared HTTP/REST-agent reply path. Nil preserves
+	// the activities module's deterministic floor.
+	replyDrafter activities.EmailDrafter
 	// toolRegistry backs ListAgentTools — the same *agents.Registry the MCP transport uses.
 	toolRegistry *agents.Registry
+
+	// aiMetrics is the /metrics renderer for this role's AI surfaces, set
+	// by WithAIMetrics. coldStartOptions and offerDraftOptions each
+	// resolve the declared routing file into their own ModelPath — their
+	// own in-process *ai.Router — but every Router increments the SAME
+	// process-wide callMetrics collector (ai/metrics.go), so both
+	// registrations point at one shared renderer: last-wins is correct
+	// and /metrics still reports the single honest total exactly once.
+	// nil means an AI-less role reports no AI counters at all.
+	aiMetrics func(io.Writer)
+	aiState   string // the /readyz AI line (aistate.go); never a readiness gate
 }
 
 var _ crmcontracts.ServerInterface = Server{}
@@ -159,21 +182,6 @@ func WithBlobstore(store blobstore.Store) Option {
 		// Erasure must reach the attachment bytes, not only the rows, so the
 		// DSR erase path gets a blob-aware eraser (Art. 17).
 		s.consentHandlers = s.WithEraser(privacy.NewEraser(pool).WithBlobstore(store))
-	}
-}
-
-// WithKeyvault wires the secret store: it feeds the /readyz probe and backs
-// the capture connector-credential path (Authenticate seals the credential
-// bundle, Sync resolves it). Without it a role that persists or resolves
-// connector credentials declares that gap at wiring time rather than
-// nil-derefing at Authenticate — a capture-capable role must pass this or
-// fail to boot (enforced in cmd).
-func WithKeyvault(vault keyvault.Vault) Option {
-	return func(s *Server, pool *pgxpool.Pool) {
-		s.vault = vault
-		// Rebuild the capture registry with the vault so the connector-
-		// credential paths (Connect seals, Sync resolves) have their custodian.
-		s.imapConnectHandlers = imapConnectHandlers{registry: NewCaptureRegistry(pool, vault)}
 	}
 }
 
@@ -229,7 +237,7 @@ func WithPublicBaseURL(base string) Option {
 // WithColdStart enables the cold-start read-back over the given fetch
 // and model seams. Without it the operation stays an explicit 501 —
 // the api role must DECLARE its model path, never pick one silently.
-func WithColdStart(fetch PageFetcher, brain runner.Brain) Option {
+func WithColdStart(fetch PageFetcher, brain completer) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.coldstartHandlers = coldstartHandlers{engine: &coldStartEngine{
 			extract:   evidenceExtractor{fetch: fetch, brain: brain},
@@ -242,7 +250,7 @@ func WithColdStart(fetch PageFetcher, brain runner.Brain) Option {
 // fetch and model seams as the read-back. Without it the operation stays an
 // explicit 501 — the api role must DECLARE its model path, never pick one
 // silently.
-func WithScrape(fetch PageFetcher, brain runner.Brain) Option {
+func WithScrape(fetch PageFetcher, brain completer) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.scrapeHandlers = scrapeHandlers{engine: &scrapeEngine{
 			extract:   evidenceExtractor{fetch: fetch, brain: brain},
@@ -270,7 +278,7 @@ func WithExtractor(extractor extraction.Extractor) Option {
 // model lane. Without it the brief still serves fully on the deterministic
 // §10.1 composite — the L2 layer is advisory over that floor, never a
 // prerequisite for the home surface.
-func WithBrief(brain runner.Brain) Option {
+func WithBrief(brain completer) Option {
 	return func(s *Server, _ *pgxpool.Pool) {
 		s.WithL2Ranker(brain, s.log)
 	}
@@ -332,7 +340,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		signalsHandlers:    signals.NewHandlers(pool, signalStrength{people: people.NewStore(pool)}),
 		privacyHandlers:    privacy.NewHandlers(pool),
 		automationHandlers: automation.NewHandlers(pool),
-		voiceHandlers:      ai.NewHandlers(pool),
+		voiceHandlers:      ai.NewHandlers(pool, NewSeatBudget(pool)),
 		reportHandlers:     reportHandlers{engine: newReportEngine(pool)},
 		// The Morning Brief always serves on the deterministic §10.1 floor;
 		// the L2 re-order is opt-in via WithBrief (the api role's model path).
@@ -356,6 +364,14 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		},
 		orgRollupHandlers: orgRollupHandlers{pool: pool, now: time.Now},
 		strengthHandlers:  strengthHandlers{people: people.NewStore(pool), now: time.Now},
+		// The installation's own company (the 0083 anchor). Its own store
+		// instance, like every other people-backed shadow here: the company
+		// form's write shape is people's, the transport is compose's.
+		companyHandlers:  companyHandlers{store: people.NewStore(pool), rollout: companyContextRolloutOnboarding},
+		siteReadHandlers: siteReadHandlers{companyContextRollout: companyContextRolloutOnboarding},
+		onboardingStateHandlers: onboardingStateHandlers{
+			state: identity.NewOnboardingStore(pool), company: people.NewStore(pool),
+		},
 		// The schema-change pool is boot-optional; nil
 		// here means Create/SetOptions stay their generated 501 until the
 		// api role's WithSchemaPool rebuilds this over the real pool.
@@ -378,7 +394,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 // staging, and live-authority gate — one gate, two transports.
 func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) http.Handler {
 	gate := auth.NewGate(identitySvc)
-	registry := newRegistry(pool, gate)
+	registry := registryWithGate(pool, gate, srv.replyDrafter)
 	provider := NewProvider(pool)
 	staging := approvalsAdapter{svc: approvals.NewService(pool)}
 	// Wrap order: the generated router applies the slice left-to-right
@@ -408,10 +424,11 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH auth
 	// other operational edges are unauthenticated by design.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", httpserver.Healthz)
-	mux.HandleFunc("/readyz", httpserver.Readyz(srv.readinessChecks(pool.Ping)...))
+	mux.HandleFunc("/readyz", httpserver.Readyz(srv.aiStateOrDefault(), srv.readinessChecks(pool.Ping)...))
 	mux.HandleFunc("/metrics", httpserver.Metrics(pool,
 		func(ctx context.Context) (int64, error) { return events.OutboxBacklog(ctx, pool) },
-		events.PublishedTotal))
+		events.PublishedTotal,
+		srv.writeAIMetrics))
 	// The anonymous public edges sit between the session middleware (which
 	// lets /v1/public/ through without session or workspace) and the
 	// router: each resolves its own token/slug → tenant, throttles, and
@@ -427,6 +444,12 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH auth
 	mux.Handle("/oauth/", httpserver.Correlate(httpserver.AccessLog(log, authH.Middleware(authH.OAuthRouter()))))
 	mux.HandleFunc("/.well-known/oauth-authorization-server", identity.OAuthServerMetadata)
 	mux.HandleFunc("/.well-known/oauth-protected-resource", identity.ProtectedResourceMetadata)
+	// Provider push webhooks: unauthenticated by nature (the provider is the
+	// caller), each verified by its own mechanism inside the handler; mounted
+	// only when configured — the route is absent otherwise.
+	if srv.gmailPush != nil {
+		mux.Handle("/webhooks/gmail-push", httpserver.Correlate(httpserver.AccessLog(log, srv.gmailPush)))
+	}
 	return mux
 }
 

@@ -48,7 +48,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/signals"
@@ -128,7 +127,7 @@ type dealContextItem struct {
 // reads + the staged-line write + the rate-card lookup), and the
 // retrieval seam that serves the deal's captured context.
 type offerDrafter struct {
-	brain   runner.Brain
+	brain   completer
 	deals   *deals.Store
 	context retrieval.Retriever
 }
@@ -137,7 +136,7 @@ type offerDrafter struct {
 // given model lane and retrieval seam. Without it, regenerateOffer stays
 // the mechanical clone alone — draft_offer already auto-executes on that
 // path, this option only adds the evidence-gated staged lines on top.
-func WithOfferDraft(brain runner.Brain, retriever retrieval.Retriever) Option {
+func WithOfferDraft(brain completer, retriever retrieval.Retriever) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.offerDrafter = &offerDrafter{brain: brain, deals: deals.NewStore(pool), context: retriever}
 	}
@@ -259,7 +258,7 @@ func (d offerDrafter) draftCandidates(ctx context.Context, dealContext []dealCon
 			Role:    "user",
 			Content: fmt.Sprintf("<untrusted>%s\n%s</untrusted>", renderContextBlock(dealContext), renderCatalogBlock(catalog)),
 		}},
-		MaxTokens:      2048,
+		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		SecretStripper: ai.NewSecretStripper(),
 	}
 

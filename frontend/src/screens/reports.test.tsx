@@ -174,6 +174,20 @@ describe("ReportsScreen", () => {
     await waitFor(() => expect(screen.getByText("o1")).toBeTruthy());
   });
 
+  it("the Quotas segment renders the quota surface and skips the report run", async () => {
+    const runKeys: string[] = [];
+    vi.stubGlobal("fetch", reportsStub({ onRun: (key) => runKeys.push(key) }));
+    render(<ReportsScreen />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Quotas" }),
+    );
+    // QuotasView owns its own query lifecycle: GET /quotas falls through the
+    // stub to an empty page, so the honest "no quota set" empty state renders.
+    await waitFor(() => expect(screen.getByText("No quota set")).toBeTruthy());
+    // The shared /reports/{report} run is never issued for the quotas segment.
+    expect(runKeys).not.toContain("quotas");
+  });
+
   it("explain fetches the derivation and renders source rows, not raw JSON", async () => {
     const derivationUrls: string[] = [];
     vi.stubGlobal(

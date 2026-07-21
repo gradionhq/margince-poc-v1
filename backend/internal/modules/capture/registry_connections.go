@@ -33,6 +33,16 @@ type ConnectionView struct {
 	Cursor         []byte     // the incremental-sync watermark (jsonb bytes), or nil
 	WatchExpiresAt *time.Time // push/delta subscription renewal deadline, or nil
 	Scopes         []string   // the scopes frozen at grant time
+
+	// Sync health from the CAP-DDL-5 sidecar; all nil before the first sync
+	// (a connection with no sidecar row is simply due immediately).
+	LastSyncedAt   *time.Time
+	LastErrorClass *string
+	NextSyncDueAt  *time.Time
+
+	// Backfill is the newest CAP-DDL-4 run, nil when never started —
+	// the list surface's per-connection summary (contract state "none").
+	Backfill *BackfillRun
 }
 
 // Connections lists the CALLING human's own standing connections in the
@@ -46,21 +56,37 @@ func (r *Registry) Connections(ctx context.Context) ([]ConnectionView, error) {
 	var out []ConnectionView
 	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
-			SELECT id, provider, status, sync_cursor, watch_expires_at, scopes FROM capture_connection
-			WHERE user_id = $1 AND archived_at IS NULL
-			ORDER BY provider`, actor.UserID)
+			SELECT c.id, c.provider, c.status, c.sync_cursor, c.watch_expires_at, c.scopes,
+			       s.last_synced_at, s.last_error_class, s.next_sync_at
+			FROM capture_connection c
+			LEFT JOIN capture_sync_state s ON s.connection_id = c.id
+			WHERE c.user_id = $1 AND c.archived_at IS NULL
+			ORDER BY c.provider`, actor.UserID)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var v ConnectionView
-			if err := rows.Scan(&v.ID, &v.Provider, &v.Status, &v.Cursor, &v.WatchExpiresAt, &v.Scopes); err != nil {
+			if err := rows.Scan(&v.ID, &v.Provider, &v.Status, &v.Cursor, &v.WatchExpiresAt, &v.Scopes,
+				&v.LastSyncedAt, &v.LastErrorClass, &v.NextSyncDueAt); err != nil {
 				return err
 			}
 			out = append(out, v)
 		}
-		return rows.Err()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		// A user holds at most a handful of connections, so the per-row
+		// latest-run read stays a bounded loop, not an N-problem.
+		for i := range out {
+			run, err := latestBackfill(ctx, tx, out[i].ID)
+			if err != nil {
+				return err
+			}
+			out[i].Backfill = run
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("capture: listing connections: %w", err)
@@ -95,15 +121,22 @@ type DueConnection struct {
 	ID        ids.UUID
 }
 
-// DueConnections lists every connected connection for provider name across the
-// whole fleet, so the background poller can drive one SyncOnce per
-// connection. capture_connection is RLS-scoped, so this walks each
-// workspace under its own GUC. One workspace's failure does not starve the rest.
+// DueConnections lists every DUE connection for provider name across the
+// whole fleet, so the background dispatcher can enqueue one sync per
+// connection. Due means: live, in a syncable status, and past its
+// next_sync_at (ADR-0063 — the sidecar's backoff/pacing gate; a connection
+// with no sidecar row yet is due immediately). Status 'error' stays in the
+// scan — degraded connections are probed on their daily cadence, never
+// tombstoned; only 'disconnected' and 'reauth_required' park a row.
+// capture_connection is RLS-scoped, so this walks each workspace under its
+// own GUC. One workspace's failure does not starve the rest.
 func (r *Registry) DueConnections(ctx context.Context, name string) ([]DueConnection, error) {
 	return r.collectDue(ctx, func(ctx context.Context, tx pgx.Tx) ([]ids.UUID, error) {
 		rows, err := tx.Query(ctx, `
-			SELECT id FROM capture_connection
-			WHERE provider = $1 AND status = 'connected' AND archived_at IS NULL`, name)
+			SELECT c.id FROM capture_connection c
+			LEFT JOIN capture_sync_state s ON s.connection_id = c.id
+			WHERE c.provider = $1 AND c.status IN ('connected','error') AND c.archived_at IS NULL
+			  AND COALESCE(s.next_sync_at, now()) <= now()`, name)
 		if err != nil {
 			return nil, err
 		}

@@ -84,11 +84,21 @@ func setupRunner(t *testing.T) *runnerEnv {
 	}
 
 	brain := ai.NewFakeClient()
+	// The Agent lane rides the DB-less router (WithFakeClient swaps in this
+	// scripted fake) instead of the deleted FakeModelPath's direct client
+	// wiring, so the runner e2e exercises the same routing/budget/secret-
+	// stripping pipeline production's Agent lane does. WithoutResultCache
+	// keeps every scripted step reaching the fake — the tests below script
+	// a distinct response per reason-act step.
+	modelPath, err := compose.NewLocalModelPath(ai.FakeRoutingConfig(), ai.WithFakeClient(brain), ai.WithoutResultCache())
+	if err != nil {
+		t.Fatal(err)
+	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	return &runnerEnv{
 		env:        e,
 		pool:       pool,
-		svc:        compose.NewRunnerService(pool, brain, nil, logger),
+		svc:        compose.NewRunnerService(pool, modelPath.Agent, modelPath.DraftReply, nil, logger),
 		store:      runner.NewStore(pool),
 		brain:      brain,
 		wsID:       wsID,

@@ -4,6 +4,7 @@
 package ai
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -11,6 +12,22 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
+
+// streamMaxLineBytes caps one stream line — an SSE data line or an NDJSON
+// object (ollama). bufio.Scanner's 64KB default is too
+// small for real provider events — a structured-output echo or a thought
+// signature can exceed it, and ErrTooLong after the tokens were already paid
+// for is the worst failure shape. 4MiB comfortably covers every provider's
+// per-event maximum while still bounding a misbehaving stream.
+const streamMaxLineBytes = 4 * 1024 * 1024
+
+// streamLineScanner is the one way every adapter wraps a streaming response body:
+// line-split with the raised cap above.
+func streamLineScanner(body io.Reader) *bufio.Scanner {
+	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, 0, 64*1024), streamMaxLineBytes)
+	return scanner
+}
 
 // Message-role vocabulary shared across adapters — one spelling each so an
 // adapter can't drift "assistant" vs "assistants". roleModel is Gemini's

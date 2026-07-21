@@ -54,6 +54,7 @@ var tableOwners = map[string]string{
 	"record_grant":             "internal/modules/identity",
 	"oauth_client":             "internal/modules/identity",
 	"oauth_authorization_code": "internal/modules/identity",
+	"onboarding_wizard_state":  "internal/modules/identity",
 	// people
 	"person":                     "internal/modules/people",
 	"person_email":               "internal/modules/people",
@@ -65,6 +66,11 @@ var tableOwners = map[string]string{
 	"partner":                    "internal/modules/people",
 	"lead":                       "internal/modules/people",
 	"organization_profile_field": "internal/modules/people",
+	"person_profile_field":       "internal/modules/people",
+	"organization_fact":          "internal/modules/people",
+	"site_read":                  "internal/modules/people",
+	// DH-DDL-1: the pair verdicts live with the ONE dedupe implementation.
+	"dedupe_candidate": "internal/modules/people",
 	// deals (incl. the E03 offer engine: rate-card + versioned offers)
 	"deal":               "internal/modules/deals",
 	"pipeline":           "internal/modules/deals",
@@ -96,12 +102,25 @@ var tableOwners = map[string]string{
 	"raw_capture":            "internal/modules/capture",
 	"capture_connection":     "internal/modules/capture",
 	"capture_exclusion_rule": "internal/modules/capture",
+	"capture_sync_state":     "internal/modules/capture",
+	"capture_backfill":       "internal/modules/capture",
+	"workspace_email_domain": "internal/modules/capture",
+	"capture_digest":         "internal/modules/capture",
 	// search
 	"embedding": "internal/modules/search",
-	// ai (voice DNA: the derived profile artifact + corpus manifest)
-	"ai_usage":            "internal/modules/ai",
-	"voice_profile":       "internal/modules/ai",
-	"voice_corpus_source": "internal/modules/ai",
+	// ai (voice DNA: the derived profile artifact + corpus manifest;
+	// the tracing spine: per-call metadata + opt-in captured payload)
+	"ai_usage":              "internal/modules/ai",
+	"voice_profile":         "internal/modules/ai",
+	"voice_corpus_source":   "internal/modules/ai",
+	"voice_build":           "internal/modules/ai",
+	"voice_profile_version": "internal/modules/ai",
+	"voice_profile_delta":   "internal/modules/ai",
+	"voice_learning_signal": "internal/modules/ai",
+	"ai_call":               "internal/modules/ai",
+	"ai_call_payload":       "internal/modules/ai",
+	"ai_call_config":        "internal/modules/ai",
+	"ai_model_rate":         "internal/modules/ai",
 	// agents (incl. the runner subpackage)
 	"agent_run":  "internal/modules/agents",
 	"runner_job": "internal/modules/agents",
@@ -190,6 +209,8 @@ var crossStoreWrites = map[string]string{
 	"internal/modules/privacy:deal":             "retention archives over-age lost deals per its audited per-record transaction",
 	"internal/modules/privacy:embedding":        "erasure/retention purge the subject's vectors — a similarity probe must not reconstruct erased text",
 	"internal/modules/privacy:raw_capture":      "erasure purges raw provider payloads carrying the subject's identifiers in the single erasure transaction",
+	"internal/modules/privacy:ai_call_payload":  "erasure purges captured AI payloads mentioning the subject's identifiers, and retention ages every payload out at 365d — the special-category-adjacent content, deleted in the single erasure/per-record transaction while the ai_call metadata row survives",
+	"internal/modules/privacy:ai_call":          "retention erases embedding-kind ai_call trace rows past their fixed 90-day cap (spec §4) in the single erasure/per-record transaction — a fixed operational cap, not an admin-editable retention_policy row",
 	"internal/modules/privacy:field_provenance": "Art. 17 erasure deletes the subject's field-origin metadata in the single erasure transaction — provenance must not outlive the fields it annotates",
 
 	// direct audit_log/event_outbox writers: storekit.Audit stamps

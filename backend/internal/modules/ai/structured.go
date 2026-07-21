@@ -27,9 +27,19 @@ type Validator func(text string) error
 //	attempt 3: one tier escalated (ladder offset), error appended
 //
 // Every attempt is metered like any call — retries count against the
-// workspace budget by construction.
+// workspace budget by construction. All three attempts are ONE logical
+// call (spec §4): they share a LogicalCallID and are flushed together, so
+// a certification read sees the retry/escalation chain as the single
+// served-or-failed decision it is, not three unrelated ai_call rows.
 func (r *Router) CompleteStructured(ctx context.Context, task Task, req model.Request, validate Validator) (model.Response, RouteInfo, error) {
-	resp, info, err := r.Complete(ctx, task, req)
+	ladder, ok := taskLadders[task]
+	if !ok {
+		return model.Response{}, RouteInfo{}, fmt.Errorf("ai: unknown task %q", task)
+	}
+	lc := newLogicalCall()
+	defer r.flushDetached(ctx, lc)
+
+	resp, info, err := r.serveAttempt(ctx, lc, task, ladder, req, "")
 	if err != nil {
 		return model.Response{}, info, err
 	}
@@ -39,7 +49,7 @@ func (r *Router) CompleteStructured(ctx context.Context, task Task, req model.Re
 	}
 
 	retry := withValidatorFeedback(req, resp.Text, firstErr)
-	resp, info, err = r.Complete(ctx, task, retry)
+	resp, info, err = r.serveAttempt(ctx, lc, task, ladder, retry, attemptReasonSchemaInvalid)
 	if err != nil {
 		return model.Response{}, info, err
 	}
@@ -49,13 +59,14 @@ func (r *Router) CompleteStructured(ctx context.Context, task Task, req model.Re
 	}
 
 	escalated := withValidatorFeedback(req, resp.Text, secondErr)
-	resp, info, err = r.completeEscalated(ctx, task, escalated)
+	resp, info, err = r.completeEscalated(ctx, lc, task, escalated)
 	if err != nil {
 		return model.Response{}, info, err
 	}
 	if finalErr := validate(resp.Text); finalErr != nil {
 		return model.Response{}, info, fmt.Errorf(
-			"ai: %s output failed validation after retry and escalation: %w", task, finalErr)
+			"ai: %s output failed validation after retry and escalation: %w", task, finalErr,
+		)
 	}
 	return resp, info, nil
 }
@@ -66,7 +77,8 @@ func (r *Router) CompleteStructured(ctx context.Context, task Task, req model.Re
 // retry can never be served the cached invalid answer.
 func withValidatorFeedback(req model.Request, failedText string, cause error) model.Request {
 	out := req
-	out.Messages = append(append([]model.Message{}, req.Messages...),
+	out.Messages = append(
+		append([]model.Message{}, req.Messages...),
 		model.Message{Role: "assistant", Content: failedText},
 		model.Message{Role: "user", Content: "That output failed validation: " + cause.Error() +
 			"\nReturn ONLY the corrected output in the required format."},
@@ -74,13 +86,26 @@ func withValidatorFeedback(req model.Request, failedText string, cause error) mo
 	return out
 }
 
-// completeEscalated serves one call from the task's ladder with the
-// first rung dropped — "escalate one tier on second failure" (§5.2).
-// A single-rung ladder has nowhere to go; the default route answers.
-func (r *Router) completeEscalated(ctx context.Context, task Task, req model.Request) (model.Response, RouteInfo, error) {
+// completeEscalated serves one attempt from the task's ladder with the
+// first rung dropped — "escalate one tier on second failure" (§5.2) — as
+// the third attempt of lc's logical call. An escalation with nowhere to
+// go — a single-rung ladder, or no bound client on any remaining rung —
+// answers from the default route instead of failing a call the task's own
+// ladder could still serve.
+func (r *Router) completeEscalated(ctx context.Context, lc *logicalCall, task Task, req model.Request) (model.Response, RouteInfo, error) {
 	ladder, ok := taskLadders[task]
-	if !ok || len(ladder) < 2 {
-		return r.Complete(ctx, task, req)
+	if !ok || len(ladder) < 2 || !r.anyBound(ladder[1:]) {
+		return r.serveAttempt(ctx, lc, task, ladder, req, attemptReasonSchemaInvalid)
 	}
-	return r.complete(ctx, task, ladder[1:], req)
+	return r.serveAttempt(ctx, lc, task, ladder[1:], req, attemptReasonSchemaInvalid)
+}
+
+// anyBound reports whether at least one rung resolves to a bound client.
+func (r *Router) anyBound(ladder []Tier) bool {
+	for _, t := range ladder {
+		if _, ok := r.clients[t]; ok {
+			return true
+		}
+	}
+	return false
 }

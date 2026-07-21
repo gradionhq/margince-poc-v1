@@ -26,7 +26,7 @@ func scrapeAcceptEffect(svc *approvals.Service, store *people.Store) approvals.A
 	return func(ctx context.Context, approvalID ids.ApprovalID, proposedChange json.RawMessage, diffHash string) error {
 		// The single-use redemption IS the idempotency claim: whoever consumes
 		// the approval executes; anyone else finds it consumed.
-		if err := svc.Redeem(ctx, approvalID, "enrich", diffHash); err != nil {
+		if err := svc.Redeem(ctx, approvalID, enrichProposalKind, diffHash); err != nil {
 			return err
 		}
 		orgID, sourceURL, fields, err := people.UnmarshalEnrichment(proposedChange)

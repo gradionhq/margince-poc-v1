@@ -20,8 +20,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -129,6 +131,43 @@ func TestBootstrapSeedsFollowTheDeploymentConfiguration(t *testing.T) {
 		"email": "ops@configured.test", "password": "correct-horse-battery",
 	}, nil, nil); status != http.StatusOK {
 		t.Fatalf("configured admin login → %d", status)
+	}
+}
+
+// TestBootstrapSeedsTheAiModelRatePriceSheet proves the A107 boot path
+// (compose.EnsureInstallation → configuredSeed → ai.SeedWorkspaceDefaultsTx)
+// leaves a fresh workspace with the full starting price sheet
+// (ADR-0067): exactly len(SeedModelRates) rows, all scoped to the one
+// workspace the bootstrap created — never zero rows, which would leave
+// every one of that workspace's ai_call rows UNPRICED with no operator
+// action able to explain why.
+func TestBootstrapSeedsTheAiModelRatePriceSheet(t *testing.T) {
+	e := setup(t)
+	e.bootstrapWorkspace(t)
+	ctx := context.Background()
+
+	var wsID string
+	if err := e.owner.QueryRow(ctx, `SELECT id FROM workspace WHERE slug = $1`, e.slug).Scan(&wsID); err != nil {
+		t.Fatalf("workspace lookup: %v", err)
+	}
+
+	var total int
+	if err := e.owner.QueryRow(ctx, `SELECT count(*) FROM ai_model_rate WHERE workspace_id = $1`, wsID).Scan(&total); err != nil {
+		t.Fatal(err)
+	}
+	want := len(ai.SeedModelRates(time.Now().UTC()))
+	if total != want {
+		t.Fatalf("ai_model_rate rows for the bootstrapped workspace = %d, want %d (len(SeedModelRates))", total, want)
+	}
+
+	// Every seeded row belongs to the ONE workspace the bootstrap created
+	// — no cross-tenant leakage from a missing/blank workspace_id.
+	var other int
+	if err := e.owner.QueryRow(ctx, `SELECT count(*) FROM ai_model_rate WHERE workspace_id != $1`, wsID).Scan(&other); err != nil {
+		t.Fatal(err)
+	}
+	if other != 0 {
+		t.Fatalf("ai_model_rate carries %d rows outside the bootstrapped workspace, want 0", other)
 	}
 }
 

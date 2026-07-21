@@ -66,7 +66,17 @@ type anthropicResponseFormat struct {
 	Schema json.RawMessage `json:"schema"`
 }
 
+// streamedCompleteThreshold is the MaxTokens above which Complete rides
+// the SSE wire and accumulates: Anthropic (and intermediaries) drop a
+// non-streaming connection that stays silent for ~a minute, and a large
+// completion produces no bytes until it is done. Small calls keep the
+// simple wire.
+const streamedCompleteThreshold = 8192
+
 func (c *anthropicClient) Complete(ctx context.Context, req model.Request) (model.Response, error) {
+	if req.MaxTokens > streamedCompleteThreshold {
+		return c.completeStreamed(ctx, req)
+	}
 	body, err := c.post(ctx, req)
 	if err != nil {
 		return model.Response{}, err
@@ -74,6 +84,7 @@ func (c *anthropicClient) Complete(ctx context.Context, req model.Request) (mode
 	//craft:ignore swallowed-errors best-effort close of a response body already read to completion — the decode result decides the outcome
 	defer func() { _ = body.Close() }()
 	var out struct {
+		Model   string `json:"model"`
 		Content []struct {
 			Type  string          `json:"type"`
 			Text  string          `json:"text"`
@@ -81,8 +92,15 @@ func (c *anthropicClient) Complete(ctx context.Context, req model.Request) (mode
 			Input json.RawMessage `json:"input"`
 		} `json:"content"`
 		Usage struct {
-			InputTokens  int `json:"input_tokens"`
-			OutputTokens int `json:"output_tokens"`
+			InputTokens int `json:"input_tokens"`
+			// CacheReadInputTokens / CacheCreationInputTokens: Anthropic reports
+			// input_tokens EXCLUSIVE of both cache buckets (unlike OpenAI/Gemini,
+			// which already report a cache-inclusive prompt total) — normalizing
+			// below adds them back so model.Response.InputTokens lands on the
+			// port's pinned cache-inclusive contract.
+			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+			OutputTokens             int `json:"output_tokens"`
 		} `json:"usage"`
 	}
 	if err := json.NewDecoder(body).Decode(&out); err != nil {
@@ -102,10 +120,84 @@ func (c *anthropicClient) Complete(ctx context.Context, req model.Request) (mode
 		}
 	}
 	return model.Response{
-		Text:         text.String(),
-		InputTokens:  out.Usage.InputTokens,
-		OutputTokens: out.Usage.OutputTokens,
+		Text:             text.String(),
+		InputTokens:      out.Usage.InputTokens + out.Usage.CacheReadInputTokens + out.Usage.CacheCreationInputTokens,
+		OutputTokens:     out.Usage.OutputTokens,
+		CachedTokens:     out.Usage.CacheReadInputTokens,
+		CacheWriteTokens: out.Usage.CacheCreationInputTokens,
+		ServedModel:      out.Model,
 	}, nil
+}
+
+// completeStreamed is Complete over the SSE wire: text deltas (and
+// schema-constrained JSON deltas) accumulate into one response, and the
+// usage counts are read off the message_start / message_delta events so
+// metering stays exact.
+func (c *anthropicClient) completeStreamed(ctx context.Context, req model.Request) (model.Response, error) {
+	body, err := c.postStream(ctx, req)
+	if err != nil {
+		return model.Response{}, err
+	}
+	//craft:ignore swallowed-errors best-effort close of a stream already consumed to message_stop — the scan result decides the outcome
+	defer func() { _ = body.Close() }()
+
+	var text strings.Builder
+	var resp model.Response
+	scanner := streamLineScanner(body)
+	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return model.Response{}, err
+		}
+		data, isData := strings.CutPrefix(scanner.Text(), "data: ")
+		if !isData {
+			continue
+		}
+		var ev struct {
+			Type    string `json:"type"`
+			Message struct {
+				Model string `json:"model"`
+				Usage struct {
+					InputTokens int `json:"input_tokens"`
+					// Same cache-inclusive normalization as the non-streaming path
+					// (see the Complete usage struct above): Anthropic's
+					// message_start usage also reports input_tokens exclusive of
+					// both cache buckets.
+					CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+					CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+				} `json:"usage"`
+			} `json:"message"`
+			Delta struct {
+				Type        string `json:"type"`
+				Text        string `json:"text"`
+				PartialJSON string `json:"partial_json"`
+			} `json:"delta"`
+			Usage struct {
+				OutputTokens int `json:"output_tokens"`
+			} `json:"usage"`
+		}
+		if err := json.Unmarshal([]byte(data), &ev); err != nil {
+			return model.Response{}, fmt.Errorf("ai: anthropic: stream event: %w", err)
+		}
+		switch ev.Type {
+		case "message_start":
+			resp.InputTokens = ev.Message.Usage.InputTokens + ev.Message.Usage.CacheReadInputTokens + ev.Message.Usage.CacheCreationInputTokens
+			resp.CachedTokens = ev.Message.Usage.CacheReadInputTokens
+			resp.CacheWriteTokens = ev.Message.Usage.CacheCreationInputTokens
+			resp.ServedModel = ev.Message.Model
+		case "content_block_delta":
+			text.WriteString(ev.Delta.Text)
+			text.WriteString(ev.Delta.PartialJSON)
+		case "message_delta":
+			resp.OutputTokens = ev.Usage.OutputTokens
+		case "message_stop":
+			resp.Text = text.String()
+			return resp, nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return model.Response{}, fmt.Errorf("ai: anthropic: stream: %w", err)
+	}
+	return model.Response{}, fmt.Errorf("ai: anthropic: stream ended without message_stop")
 }
 
 func (c *anthropicClient) Stream(ctx context.Context, req model.Request) (model.TokenStream, error) {
@@ -113,7 +205,7 @@ func (c *anthropicClient) Stream(ctx context.Context, req model.Request) (model.
 	if err != nil {
 		return nil, err
 	}
-	return &anthropicStream{body: body, scanner: bufio.NewScanner(body)}, nil
+	return &anthropicStream{body: body, scanner: streamLineScanner(body)}, nil
 }
 
 // Embed is a different lane, not a chat-tier capability: Anthropic
@@ -222,8 +314,8 @@ func anthropicError(resp *http.Response) error {
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	if json.Unmarshal(raw, &apiErr) == nil && apiErr.Error.Type != "" {
+	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if readErr == nil && json.Unmarshal(raw, &apiErr) == nil && apiErr.Error.Type != "" {
 		return fmt.Errorf("ai: anthropic: %s: %s (http %d)", apiErr.Error.Type, apiErr.Error.Message, resp.StatusCode)
 	}
 	return fmt.Errorf("ai: anthropic: http %d", resp.StatusCode)

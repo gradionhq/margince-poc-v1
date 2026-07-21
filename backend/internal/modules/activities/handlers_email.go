@@ -33,6 +33,14 @@ func (h Handlers) WithConsent(gate ConsentGate) Handlers {
 	return h
 }
 
+// WithEmailDrafter returns handlers whose draft endpoint uses the injected
+// compose path. Drafting only proposes text; the send endpoint remains a
+// separate consent-gated operation.
+func (h Handlers) WithEmailDrafter(drafter EmailDrafter) Handlers {
+	h.emailDrafter = drafter
+	return h
+}
+
 func (h Handlers) DraftEmail(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
 	var req struct {
 		Intent *string `json:"intent"`
@@ -40,38 +48,61 @@ func (h Handlers) DraftEmail(w http.ResponseWriter, r *http.Request, id crmcontr
 	if r.ContentLength > 0 && !httperr.Decode(w, r, &req) {
 		return
 	}
-	activity, err := h.store.GetActivity(r.Context(), pathID[ids.ActivityKind](id), storekit.LiveOnly)
+	intent := ""
+	if req.Intent != nil {
+		intent = *req.Intent
+	}
+	subject, body, err := h.prepareEmailDraft(r.Context(), ids.UUID(id), intent)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
 	}
 
-	// A deterministic draft over the activity's own context. The
-	// model-backed voice draft rides the router once the API role wires
-	// a model path; drafting is 🟢 and never sends either way.
-	subject := "Re: follow-up"
-	if activity.Subject != nil && *activity.Subject != "" {
-		subject = "Re: " + *activity.Subject
-	}
-	var body strings.Builder
-	body.WriteString("Hi,\n\nfollowing up on ")
-	if activity.Subject != nil && *activity.Subject != "" {
-		fmt.Fprintf(&body, "%q", *activity.Subject)
-	} else {
-		body.WriteString("our last conversation")
-	}
-	body.WriteString(".")
-	if req.Intent != nil && strings.TrimSpace(*req.Intent) != "" {
-		body.WriteString("\n\n" + strings.TrimSpace(*req.Intent))
-	}
-	body.WriteString("\n\nBest regards")
-
 	replyTo := openapi_types.UUID(ids.UUID(id))
 	httperr.WriteJSON(w, http.StatusOK, crmcontracts.EmailDraft{
 		Subject:             subject,
-		Body:                body.String(),
+		Body:                body,
 		InReplyToActivityId: &replyTo,
 	})
+}
+
+func (h Handlers) prepareEmailDraft(ctx context.Context, anchor ids.UUID, intent string) (string, string, error) {
+	if h.emailDrafter != nil {
+		return h.emailDrafter.DraftEmail(ctx, anchor, intent)
+	}
+	activity, err := h.store.GetActivity(ctx, ids.From[ids.ActivityKind](anchor), storekit.LiveOnly)
+	if err != nil {
+		return "", "", err
+	}
+	topic := ""
+	if activity.Subject != nil {
+		topic = *activity.Subject
+	}
+	subject, body := DeterministicEmailDraft(topic, intent)
+	return subject, body, nil
+}
+
+// DeterministicEmailDraft is the shared no-model floor for every drafting
+// transport. Compose calls it when the model lane is absent or unavailable,
+// so HTTP, MCP, and automation cannot drift into different fallback text.
+func DeterministicEmailDraft(topic, intent string) (subject, body string) {
+	subject = "Re: follow-up"
+	if topic != "" {
+		subject = "Re: " + topic
+	}
+	var b strings.Builder
+	b.WriteString("Hi,\n\nfollowing up on ")
+	if topic != "" {
+		fmt.Fprintf(&b, "%q", topic)
+	} else {
+		b.WriteString("our last conversation")
+	}
+	b.WriteString(".")
+	if strings.TrimSpace(intent) != "" {
+		b.WriteString("\n\n" + strings.TrimSpace(intent))
+	}
+	b.WriteString("\n\nBest regards")
+	return subject, b.String()
 }
 
 func (h Handlers) SendEmail(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.SendEmailParams) {

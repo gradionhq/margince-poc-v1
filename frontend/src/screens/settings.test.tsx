@@ -98,6 +98,35 @@ describe("SettingsScreen RBAC surfaces", () => {
     expect(screen.getByRole("img", { name: "Masked value" })).toBeTruthy();
     expect(screen.queryByText(/mgp_/)).toBeNull();
   });
+
+  it("hides the admin-only AI usage & call-trace cards from a non-admin on the AI tab", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.endsWith("/v1/me")) {
+          return jsonResponse({
+            user: { email: "rep@acme.test" },
+            roles: ["rep"],
+            teams: [],
+          });
+        }
+        return jsonResponse({
+          data: [],
+          page: { next_cursor: null, has_more: false },
+        });
+      }),
+    );
+    render(<SettingsScreen tab="ai" />);
+    // A card the whole tab shares still renders for a rep...
+    await waitFor(() =>
+      expect(screen.getByText("Autonomy tiers")).toBeTruthy(),
+    );
+    // ...but the two cards whose endpoints require the automation grant are
+    // absent, so a rep never hits a 403 error box (GET /ai/usage, /ai/calls).
+    expect(screen.queryByText("AI usage & budget")).toBeNull();
+    expect(screen.queryByText("AI call trace")).toBeNull();
+  });
 });
 
 // AS-2: the per-row Revoke kill-switch. A dedicated backend so the DELETE
@@ -352,12 +381,24 @@ describe("PassportCard revoke (AS-2)", () => {
 });
 
 describe("SettingsScreen tab layout", () => {
-  it("shows a settings-sections nav with the six tabs, Account current by default", () => {
+  // The Organization group (company/data/catalog/privacy/audit) renders only
+  // for an admin/ops role; these layout assertions run as an admin so the org
+  // tabs are present. The rep-gating is covered by the RBAC-surfaces suite.
+  beforeEach(() => {
+    vi.stubGlobal("fetch", settingsBackend());
+  });
+
+  it("groups the nav into personal and organization tabs, Account current by default", async () => {
     render(<SettingsScreen />);
     const nav = screen.getByRole("navigation", { name: /settings sections/i });
     expect(nav).toBeTruthy();
+    // The organization tabs appear once the /me role probe resolves to admin.
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: /Data model/i })).toBeTruthy(),
+    );
     for (const label of [
       "Account",
+      "Voice DNA",
       "AI & autonomy",
       "Data model",
       "Catalog",
@@ -382,13 +423,19 @@ describe("SettingsScreen tab layout", () => {
     expect(screen.queryByText("Scout")).toBeNull();
   });
 
-  it("surfaces the custom-fields door on the Data model tab", () => {
+  it("surfaces the custom-fields door on the Data model tab", async () => {
     render(<SettingsScreen tab="data" />);
-    expect(screen.getByRole("link", { name: /custom fields/i })).toBeTruthy();
+    // Org tab: visible once /me resolves to an admin/ops role.
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: /custom fields/i })).toBeTruthy(),
+    );
   });
 
-  it("surfaces the Products and Offer-templates doors on the Catalog tab", () => {
+  it("surfaces the Products and Offer-templates doors on the Catalog tab", async () => {
     render(<SettingsScreen tab="catalog" />);
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: /products/i })).toBeTruthy(),
+    );
     expect(
       screen.getByRole("link", { name: /products/i }).getAttribute("href"),
     ).toBe("#/products");

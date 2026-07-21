@@ -15,18 +15,19 @@ shared  →  platform  →  modules  →  compose  →  cmd
 ```
 
 - **`internal/shared/`** — Tier-0 leaves, stdlib-only:
-  `kernel/{ids,events,provenance,principal}`, `apperrors` (the fixed
-  error-sentinel registry), and `ports/` (the frozen seam interfaces:
-  authz, datasource, mcp, connector, workflow, model, retrieval,
-  jurisdiction).
+  `kernel/{ids,events,provenance,principal,values,diffhash}`, `apperrors`
+  (the fixed error-sentinel registry), and `ports/` (the frozen seam
+  interfaces: authz, datasource, mcp, connector, workflow, model,
+  retrieval, extraction, fieldcatalog, jurisdiction).
 - **`internal/platform/`** — technical plumbing that owns no domain:
   `database` (pool + the RLS workspace-transaction contract) and
   `database/storekit` (the one spelling of the write shape), `auth` (the
   one admission point), `events` (outbox relay/subscriber/dedupe),
   `dbmigrate`, `httperr`, `httpserver`.
-- **`internal/modules/`** — the bounded capabilities (identity, people,
-  deals, activities, approvals, agents, ai, search, capture, consent,
-  privacy, collections, signals, and the `de` jurisdiction pack). A
+- **`internal/modules/`** — the seventeen bounded capabilities (identity,
+  people, deals, activities, approvals, agents, automation, ai, search,
+  capture, consent, privacy, collections, signals, customfields, quotas,
+  and the `de` jurisdiction pack). A
   module package starts flat (store + mapping + transport + provider in
   one package, ADR-0054 §3) and earns a subpackage only under the
   module growth policy —
@@ -43,6 +44,20 @@ shared  →  platform  →  modules  →  compose  →  cmd
   never durably own a business entity. How it boots and where every
   cross-module edge is wired: [composition-layer.md](composition-layer.md).
 - **`cmd/{api,worker,migrate,mcp}`** — thin process roles.
+
+`cmd/<role>` is reserved for those **four deployable process-role
+binaries** (ADR-0054/A69). A *developer/CI harness* binary — a tool a
+human or a `make` target runs, not a role that gets deployed — does not
+belong there: it lives **beside the package it serves** (e.g. the AI
+certification report tool at `internal/compose/aicert/reportcmd`, run by
+`make e2e-ai-report`) or in the separate `backend/tools/` module (the
+codegen chain). Two reasons: a harness under `cmd/<role>` would read as
+a fifth deployment role and blur A69's pinned count, and keeping the tool
+next to the code it imports (the `aicert` internals) means it moves and
+versions with that code. The rule of thumb: if it is composed through
+`internal/compose` and meant to run as a server/job, it earns a
+`cmd/<role>`; if it is tooling around one package, it stays with that
+package.
 
 The DAG is enforced three ways, and deliberately mechanically: depguard
 (golangci-lint), go-arch-lint, and the fitness tests in

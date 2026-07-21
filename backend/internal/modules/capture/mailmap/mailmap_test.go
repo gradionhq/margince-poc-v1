@@ -137,3 +137,74 @@ func TestParseFallsBackToHTMLWhenNoPlainPart(t *testing.T) {
 		t.Errorf("HTML should be tag-stripped into readable text: %q", fields.Body)
 	}
 }
+
+// The counterparty and thread identity feed the auto-create pipeline
+// (ADR-0063): who the mail was with, and which conversation it belongs to.
+func TestParseCarriesCounterpartyAndThreadKey(t *testing.T) {
+	t.Run("inbound counterparty is the sender, thread roots at its own id", func(t *testing.T) {
+		msg, err := Parse(inboundFixture(), "me@myco.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+		rec := msg.ToRecord("imap", inboundFixture())
+		cp := rec.Counterparty
+		if cp.Email != "alice@acme.com" || cp.DisplayName != "Alice Example" || cp.Domain != "acme.com" || cp.Direction != "inbound" {
+			t.Fatalf("counterparty = %+v", cp)
+		}
+		if rec.ThreadKey != "abc123@acme.com" {
+			t.Fatalf("a fresh message roots its own thread, got %q", rec.ThreadKey)
+		}
+	})
+
+	t.Run("a reply joins the References root, never the subject", func(t *testing.T) {
+		reply := crlf(
+			"From: me@myco.com",
+			"To: Alice Example <alice@acme.com>",
+			"Subject: Re: Quote request",
+			"Date: Wed, 04 Jun 2026 09:00:00 +0000",
+			"Message-ID: <def456@myco.com>",
+			"References: <abc123@acme.com> <mid1@acme.com>",
+			"In-Reply-To: <mid1@acme.com>",
+			"Content-Type: text/plain",
+			"",
+			"On it.",
+			"",
+		)
+		msg, err := Parse(reply, "me@myco.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+		rec := msg.ToRecord("imap", reply)
+		if rec.ThreadKey != "abc123@acme.com" {
+			t.Fatalf("thread key = %q, want the References ROOT", rec.ThreadKey)
+		}
+		if rec.Counterparty.Email != "alice@acme.com" || rec.Counterparty.Direction != "outbound" {
+			t.Fatalf("outbound counterparty = %+v, want the recipient", rec.Counterparty)
+		}
+		if rec.Counterparty.DisplayName != "Alice Example" {
+			t.Fatalf("display name = %q, want the recipient header name", rec.Counterparty.DisplayName)
+		}
+	})
+
+	t.Run("In-Reply-To alone still joins the thread", func(t *testing.T) {
+		reply := crlf(
+			"From: alice@acme.com",
+			"To: me@myco.com",
+			"Subject: Re: Quote request",
+			"Date: Wed, 04 Jun 2026 10:00:00 +0000",
+			"Message-ID: <ghi789@acme.com>",
+			"In-Reply-To: <abc123@acme.com>",
+			"Content-Type: text/plain",
+			"",
+			"Any update?",
+			"",
+		)
+		msg, err := Parse(reply, "me@myco.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if msg.ThreadKey() != "abc123@acme.com" {
+			t.Fatalf("thread key = %q, want the In-Reply-To id", msg.ThreadKey())
+		}
+	})
+}

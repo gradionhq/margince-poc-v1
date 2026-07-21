@@ -58,3 +58,309 @@
 .set-content {
   min-width: 0;
 }
+
+.company-context-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.company-context-hero {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+  padding: 28px;
+  border: 1px solid var(--accentMed);
+  border-radius: var(--r-lg);
+  background: linear-gradient(
+    135deg,
+    var(--accentLight),
+    var(--bgElevated) 58%
+  );
+  box-shadow: var(--shadow-sm);
+}
+
+.company-context-hero::after {
+  content: "";
+  position: absolute;
+  width: 180px;
+  height: 180px;
+  right: -60px;
+  bottom: -105px;
+  border-radius: 50%;
+  border: 30px solid var(--accentMed);
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.company-context-hero h2,
+.company-context-review h3 {
+  margin: 7px 0 6px;
+  color: var(--textPrimary);
+  letter-spacing: -0.025em;
+}
+
+.company-context-hero p {
+  max-width: 680px;
+  color: var(--textSecondary);
+  line-height: 1.55;
+}
+
+.company-context-kicker,
+.company-context-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.company-context-warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--warning);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.company-context-kicker svg,
+.company-context-saved svg,
+.company-context-warning svg,
+.company-context-trust svg,
+.company-context-actions svg {
+  width: 16px;
+  height: 16px;
+}
+
+.company-context-trust {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 14px;
+  color: var(--textSecondary);
+  background: var(--bgSubtle);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+}
+
+.company-context-trust svg,
+.company-context-trust strong {
+  color: var(--accent);
+}
+
+.company-context-trust strong {
+  margin-left: auto;
+}
+
+.company-context-form,
+.company-context-review {
+  padding: 22px;
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.company-context-form,
+.company-context-group {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.company-context-group {
+  padding-top: 18px;
+  border-top: 1px solid var(--borderSubtle);
+}
+
+.company-context-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 15px;
+}
+
+.company-context-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  color: var(--textSecondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.company-context-field:has(.textarea),
+.company-context-website {
+  grid-column: 1 / -1;
+}
+
+.company-context-field .textarea {
+  width: 100%;
+  min-height: 78px;
+}
+
+.company-context-field small {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 400;
+}
+
+.company-context-field small a {
+  color: var(--accent);
+}
+
+.company-context-website-row,
+.company-context-actions,
+.company-context-review-head,
+.company-context-comparison-title,
+.company-context-comparison-title > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.company-context-website-row .input {
+  flex: 1;
+}
+
+.company-context-actions {
+  justify-content: flex-end;
+  min-height: 36px;
+}
+
+.company-context-error {
+  margin-right: auto;
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.company-context-review-head {
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.company-context-coverage {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  color: var(--textMeta);
+  font-size: 11px;
+}
+
+.company-context-coverage strong {
+  color: var(--accent);
+  font-size: 24px;
+}
+
+.company-context-comparisons {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.company-context-comparison {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 15px;
+  border: 1px solid var(--borderSubtle);
+  border-left: 3px solid var(--accentMed);
+  border-radius: var(--r-md);
+  background: var(--bgSubtle);
+}
+
+.company-context-comparison.is-human_conflict {
+  border-left-color: var(--warning);
+}
+
+.company-context-comparison-title,
+.company-context-resolutions {
+  grid-column: 1 / -1;
+}
+
+.company-context-comparison-title {
+  justify-content: space-between;
+}
+
+.company-context-current,
+.company-context-proposed {
+  padding: 10px;
+  border-radius: var(--r-sm);
+  background: var(--bgElevated);
+}
+
+.company-context-current span,
+.company-context-proposed span {
+  color: var(--textMeta);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.company-context-current p,
+.company-context-proposed p {
+  margin-top: 5px;
+  color: var(--textPrimary);
+  line-height: 1.45;
+}
+
+.company-context-resolutions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--borderSubtle);
+}
+
+.company-context-resolutions label {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  color: var(--textSecondary);
+  font-size: 12px;
+}
+
+.company-context-resolutions .input {
+  flex: 1 1 240px;
+}
+
+@media (max-width: 760px) {
+  .company-context-fields,
+  .company-context-comparison {
+    grid-template-columns: 1fr;
+  }
+
+  .company-context-website-row,
+  .company-context-actions,
+  .company-context-review-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .company-context-coverage {
+    align-items: flex-start;
+  }
+}
+
+/* Grouped settings nav: a per-group label above the group's tabs. */
+.set-nav-group + .set-nav-group {
+  margin-top: var(--space-3);
+}
+.set-nav-grouplabel {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0 var(--space-2);
+  margin-bottom: var(--space-1);
+}

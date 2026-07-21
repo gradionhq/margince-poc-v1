@@ -1,0 +1,37 @@
+# config/margince.example.yaml — the dev deployment configuration (A107/ADR-0061).
+#
+# `make dev` copies this to config/margince.yaml on first run and then LEAVES it
+# — the same create-if-missing / leave-if-exists pattern as config/ai-routing.yaml
+# — so your edits persist across `make dev-stop` / `make dev`. To reset, delete
+# config/margince.yaml and re-run `make dev`.
+#
+# The api bootstraps the demo organization + admin from this file the first time
+# it boots against an empty database; an existing installation just reads it.
+version: 1
+
+organization:
+  name: Demo Workspace
+  base_currency: EUR
+  timezone: Europe/Berlin
+
+bootstrap_admin:
+  email: admin@demo.test
+  display_name: Demo Admin
+  # Read at boot (must be >=12 chars). `make dev` seeds the referenced file
+  # (config/margince-admin-password) with the demo password on first run; the
+  # path is relative to the repo root the api is launched from. These defaults
+  # match scripts/seed-dev.sh — change both together if you change them.
+  password_file: config/margince-admin-password
+
+# AI runtime posture (optional). Uncomment to turn on Layer-3 AI payload capture
+# (ai_call_payload) — OFF by default because it stores special-category-adjacent
+# content that then ages under the retention engine and the Art. 17 erasure
+# cascade. Honored by both the api and worker roles (both take --config).
+# ai:
+#   capture_payloads: true
+
+# Ordered company-context rollout (OPS-CFG-10). The default is onboarding;
+# moving backward disables reads/injection/surfaces but never deletes confirmed
+# company data. Stages include the prior stage: off < read < tasks < onboarding.
+company_context:
+  rollout: onboarding

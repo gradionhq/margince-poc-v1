@@ -116,6 +116,30 @@ type NormalizedRecord struct {
 	// for it. Kept off Fields on purpose: exclusion is a pipeline concern,
 	// not a domain column.
 	Match ExclusionAttrs
+
+	// Counterparty is the human on the other side of a captured message —
+	// the auto-create pipeline's input (ADR-0063). Zero for records that
+	// carry no counterparty (a lead import, a system activity); the
+	// resolver never runs for those.
+	Counterparty Counterparty
+
+	// ThreadKey is the provider's conversation identity (Gmail threadId /
+	// Graph conversationId / RFC822 References root) — the CAP-FORMULA-1
+	// reply-detection join key and activity.thread_key's source. Empty when
+	// the provider knows no thread.
+	ThreadKey string
+}
+
+// Counterparty names the non-owner participant of one captured message.
+// Email is authoritative; DisplayName is the header's human name (may be
+// empty or hostile — consumers must treat it as untrusted text); Domain is
+// the lowercased mail domain; Direction is the message's direction relative
+// to the mailbox owner (inbound | outbound).
+type Counterparty struct {
+	Email       string
+	DisplayName string
+	Domain      string
+	Direction   string
 }
 
 // ExclusionAttrs is the normalized, matchable face of a captured message
@@ -144,3 +168,32 @@ type (
 // ErrSkip marks a record a connector intentionally skipped (excluded or
 // out of scope); the sync loop counts it, never surfaces it as a failure.
 var ErrSkip = errors.New("connector: record intentionally skipped")
+
+// Backfiller is the OPTIONAL bounded-backfill seam (ADR-0063): a connector
+// implements it when its provider can enumerate a mailbox backward from a
+// date boundary. Like Watcher, it is separate from Connector so a provider
+// without a date-bounded listing simply is not a Backfiller; the backfill
+// engine type-asserts and refuses honestly. Backfill paging is disjoint from
+// Sync's cursor by construction — incremental moves forward from the
+// connect-time watermark while backfill pages backward on its own token, and
+// the capture key makes any overlap a no-op.
+type Backfiller interface {
+	// EstimateBackfill returns the provider-side message count newer than
+	// after — the scope shown before anything spends (the preview op's
+	// number). An estimate, labeled as such; providers round.
+	EstimateBackfill(ctx context.Context, auth Auth, after time.Time) (int, error)
+
+	// BackfillPage pulls ONE bounded page of messages newer than after,
+	// emitting each through the Sink. It performs provider I/O like Sync;
+	// the engine persists cursor and counters from the returned result.
+	BackfillPage(ctx context.Context, auth Auth, after time.Time, pageToken string, sink Sink) (BackfillPageResult, error)
+}
+
+// BackfillPageResult is one page's outcome: the token for the next page
+// ("" = the window is exhausted) and the page's tally.
+type BackfillPageResult struct {
+	NextToken string
+	Scanned   int
+	Captured  int
+	Skipped   int
+}

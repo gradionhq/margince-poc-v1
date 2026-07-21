@@ -514,6 +514,16 @@ export const de = {
   "home.factorMomentum": "Momentum",
   "home.factorWarmth": "Nähe",
 
+  "home.digest": "Über Nacht erfasst",
+  "home.digestFor": "Digest vom {date}",
+  "home.digestSynced": "E-Mails synchronisiert",
+  "home.digestPeople": "Personen angelegt",
+  "home.digestOrgs": "Firmen angelegt",
+  "home.digestApprovals": "Genehmigungen offen",
+  "home.digestDedupe": "Dubletten zu prüfen",
+  "home.digestClassify":
+    "Über Nacht einsortiert: {commitments} Zusagen · {meetings} Termine · {noise} Rauschen",
+
   "enrich.title": "Von der Website lesen",
   "enrich.sub":
     "belegt oder weggelassen — füllt nur leere Felder, und nur nach deiner Freigabe",
@@ -523,6 +533,47 @@ export const de = {
     "Vorgemerkt — noch nichts geschrieben. Übernimm es im Eingang; nur leere Felder werden gefüllt.",
   "enrich.toInbox": "Eingang öffnen",
   "enrich.from": "gelesen von {url}",
+
+  "deepread.title": "Ganze Website lesen",
+  "deepread.sub":
+    "Liest bis zu 12 Seiten der Firmenwebsite. Funde werden zur Prüfung vorgemerkt — nichts wird geschrieben, bis du übernimmst.",
+  "deepread.cta": "Ganze Website lesen",
+  "deepread.starting": "Startet…",
+  "deepread.unavailable":
+    "Website-Lesen ist auf diesem Server nicht eingerichtet.",
+  "deepread.statusQueued": "In Warteschlange",
+  "deepread.statusDeferred": "Wartet auf KI-Budget",
+  "deepread.statusRunning": "Liest…",
+  "deepread.statusDone": "Fertig",
+  "deepread.statusPartial": "Früh beendet",
+  "deepread.statusFailed": "Fehlgeschlagen",
+  "deepread.resumesAt": "Wird automatisch am {when} fortgesetzt.",
+  "deepread.pagesSoFar.one": "{count} Seite gelesen",
+  "deepread.pagesSoFar.other": "{count} Seiten gelesen",
+  "deepread.stoppedEarly": "Früh beendet: {reason}",
+  "deepread.stopBudget": "Modellbudget",
+  "deepread.stopPageCap": "Seitenlimit",
+  "deepread.stopByteCap": "Größenlimit",
+  "deepread.stopDeadline": "Zeitlimit",
+  "deepread.factCount.one": "{count} belegter Fakt vorgemerkt",
+  "deepread.factCount.other": "{count} belegte Fakten vorgemerkt",
+  "deepread.pagesRead": "Gelesene Seiten",
+  "deepread.skippedPages": "Übersprungene Seiten",
+  "deepread.skipRobots": "robots.txt",
+  "deepread.skipOffDomain": "außerhalb der Domain",
+  "deepread.skipPageCap": "Seitenlimit",
+  "deepread.skipByteCap": "Größenlimit",
+  "deepread.skipUnreadable": "nicht lesbar",
+  "deepread.proposals": "{count} Vorschläge warten auf deine Prüfung",
+  "deepread.proposalsOne": "1 Vorschlag wartet auf deine Prüfung",
+  "deepread.kindHome": "Startseite",
+  "deepread.kindImpressum": "Impressum",
+  "deepread.kindAbout": "Über uns",
+  "deepread.kindTeam": "Team",
+  "deepread.kindServices": "Leistungen",
+  "deepread.kindProducts": "Produkte",
+  "deepread.kindContact": "Kontakt",
+  "deepread.kindOther": "Sonstiges",
 
   "create.cancel": "Abbrechen",
   "create.save": "Anlegen",
@@ -583,6 +634,41 @@ export const de = {
   "log.dueAt": "Fällig am",
   "log.save": "Erfassen",
   "log.saving": "Wird erfasst…",
+
+  "compose.reply": "Antworten",
+  "compose.relink": "Neu verknüpfen",
+  "compose.draftWithAi": "Mit KI entwerfen",
+  "compose.drafting": "Wird entworfen…",
+  "compose.intent": 'Entwurf steuern (optional), z. B. "höfliche Nachfrage"',
+  "compose.to": "An",
+  "compose.cc": "Cc",
+  "compose.subject": "Betreff",
+  "compose.body": "Nachricht",
+  "compose.purpose": "Einwilligungszweck",
+  "compose.purposeHint":
+    "Der Versand ist nur erlaubt, wenn jeder Empfänger für diesen Zweck eingewilligt hat.",
+  "compose.send": "Senden",
+  "compose.sendConfirmTitle": "Diese E-Mail senden?",
+  "compose.sendBody":
+    "Sie senden diese E-Mail jetzt. Dies ist eine ausgehende, unwiderrufliche Aktion.",
+  "compose.consentBlockedTitle": "Versand blockiert — keine Einwilligung",
+  "compose.consentBlocked":
+    "Ein Empfänger hat für diesen Zweck nicht eingewilligt, daher wurde der Versand unterdrückt (Standard-Ablehnung).",
+  "compose.consentGoto": "Einwilligung prüfen",
+  "compose.draftUnavailable":
+    "KI-Entwurf ist nicht verfügbar (das Modell ist nicht konfiguriert). Sie können die E-Mail weiterhin selbst schreiben.",
+  "compose.sendUnavailable":
+    "Versand ist nicht verfügbar (kein Mailer konfiguriert).",
+  "compose.relinkTitle": "Diese Aktivität neu verknüpfen",
+  "compose.relinkTarget": "Person, Organisation, Deal oder Lead suchen",
+  "compose.relinkReplace": "Verschieben statt zusätzlich verknüpfen",
+  "compose.relinkReplaceHint":
+    "Ersetzt die bestehende Verknüpfung desselben Typs, statt eine weitere hinzuzufügen.",
+  "compose.relinkConfirm": "Neu verknüpfen",
+  "compose.emptyRecipients": "Fügen Sie mindestens einen Empfänger hinzu.",
+  "compose.removeRecipient": "{recipient} entfernen",
+  "compose.actionFailed":
+    "Die Anfrage ist fehlgeschlagen. Bitte erneut versuchen.",
 
   "tasks.overdue": "Überfällig",
   "tasks.today": "Heute",
@@ -741,48 +827,92 @@ export const de = {
   "stage.semWon": "Gewonnen",
   "stage.semLost": "Verloren",
 
-  "ob.title": "Willkommen bei Margince",
-  "ob.sub":
-    "erst der Nutzen — dein Postfach verbindest du zuletzt, nicht zuerst",
+  "ob.title": "Margince einrichten",
   "ob.read": "Einlesen",
   "ob.confirm": "Bestätigen",
+  "ob.company": "Firma",
   "ob.voice": "Stimme",
   "ob.results": "Ergebnisse",
   "ob.connect": "Verbinden",
   "ob.url": "Website",
+  "ob.urlScheme": "https://",
   "ob.next": "Weiter",
   "ob.back": "Zurück",
   "ob.finish": "In den Workspace",
   "ob.skipStep": "Schritt überspringen",
-  "ob.skipSetup": "Einrichtung überspringen",
-  "ob.skipSetupHint":
-    "Direkt in ein leeres CRM — die Einrichtung kannst du jederzeit in den Einstellungen nachholen",
+  "ob.restoring": "Deine Einrichtung wird wiederhergestellt…",
+  "ob.stateConflict":
+    "Diese Einrichtung wurde in einem anderen Tab geändert. Wir haben den gespeicherten Stand neu geladen, damit nichts still überschrieben wird.",
+  "ob.stateSaveFailed":
+    "Wir konnten deinen Einrichtungsfortschritt nicht speichern. Bitte versuche es erneut.",
+  "ob.readKick": "Schritt 1 von 5 · Firmenkontext",
+  "ob.readTitle": "Lass Margince dein Geschäft verstehen.",
+  "ob.readSub":
+    "Starte mit deiner öffentlichen Website für eine belegte Analyse, oder trage die drei Grundlagen selbst ein. Beide Wege erzeugen denselben nützlichen Firmenkontext.",
+  "ob.readChoice": "Wähle, wie du deine Firma beschreiben möchtest",
+  "ob.readWebsite": "Meine Website einlesen",
+  "ob.readWebsiteSub":
+    "Wir prüfen die relevanten Seiten und zeigen jede Aussage vor dem Speichern.",
+  "ob.readManual": "Selbst eingeben",
+  "ob.readManualSub":
+    "Firmenname, Angebot und Idealkunde. Ohne KI oder externe Anfrage.",
+  "ob.readTrustTitle": "Öffentlich, begrenzt und erst nach Prüfung. ",
+  "ob.readTrustBody": "Nichts wird zu Firmendaten, bevor du es bestätigst.",
+  "ob.continueManual": "Manuell fortfahren",
+  "ob.reviewFindings": "Ergebnisse prüfen",
+  "ob.live": "Live",
+  "ob.readingHost": "Wir verstehen {host}",
+  "ob.readStatus.queued": "Eingeplant",
+  "ob.readStatus.deferred": "Wartet auf KI-Budget",
+  "ob.readStatus.reading": "Wird gelesen",
+  "ob.readStatus.ready": "Bereit zur Prüfung",
+  "ob.readStatus.partial": "Teilweise gelesen",
+  "ob.readStatus.failed": "Manuelle Eingabe nötig",
+  "ob.readStatus.confirmed": "Bestätigt",
+  "ob.readStatus.abandoned": "Beendet",
+  "ob.phaseDiscover": "Seiten entdecken",
+  "ob.phaseExtract": "Belegte Fakten extrahieren",
+  "ob.phaseReady": "Prüfung vorbereiten",
+  "ob.pagesRead": "Seiten gelesen",
+  "ob.profileFindings": "Profil-Ergebnisse",
+  "ob.usefulFacts": "nützliche Fakten",
+  "ob.coverageDetails": "Abdeckung und ehrliche Auslassungen",
+  "ob.confirmWebsite":
+    "Aus {count} öffentlichen Seiten belegt. Änderungen werden deine Aussage; unveränderte Werte behalten ihre Belege.",
+  "ob.confirmManual":
+    "Manuelle Einrichtung — deine Antworten werden als menschliche Angaben gespeichert.",
+  "ob.factsTitle": "Nützliche wiederholbare Fakten",
+  "ob.factsSub":
+    "Wähle, welche Produkte, Fähigkeiten, Märkte und Belege Teil des Firmenkontexts werden.",
+  "ob.nowUnderstands": "Margince versteht jetzt",
+  "ob.contextReady":
+    "Dieser Kontext steht relevanten Entwürfen, Suche, Agenten und Voice DNA bereit — inklusive Herkunft.",
 
-  "ob.s1.kick": "Schritt 1 von 5 · dauert 2 Minuten",
-  "ob.s1.title": "Lass uns dein CRM einrichten.",
-  "ob.s1.titleEm": "Beginne mit deiner Website.",
+  "ob.s1.kick": "Schritt 2 von 5 · bestätigen",
+  "ob.s1.title": "Mach daraus eindeutig deine Firma.",
   "ob.s1.sub":
-    "Füg deine Firmen-URL ein und wir lesen dir dein Geschäft zurück — was du verkaufst, an wen, und warum du gewinnst. Kein Konto, kein Postfach, noch nichts verbunden.",
+    "Trag das hier ein, oder füg deine Website ein — dann füllen wir aus, was wir von dort zitieren können. Gespeichert wird erst, wenn du weitergehst.",
   "ob.s1.urlPlaceholder": "deinefirma.de",
-  "ob.readGo": "Mein Geschäft einlesen",
+  "ob.s1.identityLabel": "Firmendaten",
+  "ob.s1.positioningLabel": "Was du verkaufst — und an wen",
+  "ob.s1.fieldRequired": "Pflichtfeld.",
+  "ob.s1.requiredMissing": "Diese Felder fehlen noch: {fields}",
+  "ob.s1.saving": "Wird gespeichert…",
+  "ob.s1.saveFailed": "Deine Firma konnte nicht gespeichert werden",
+  "ob.s1.savedNote":
+    "In deinem Workspace gespeichert. Ändere hier etwas und geh weiter — dann wird erneut gespeichert.",
+  "ob.s1.omitLabel": "Nichts erfunden",
+  "ob.s1.omitBody":
+    "Wir haben nur gefüllt, was wir von deiner Seite zitieren können. Den Rest schreibst du.",
+  "ob.readGo": "Meine Website einlesen",
   "ob.reading": "Wird gelesen…",
   "ob.readAgain": "Erneut einlesen",
   "ob.trustPublic":
     "Wir lesen nur deine öffentliche Website. Kein Login nötig.",
-  "ob.trustAI":
-    "Läuft auf der eingebauten KI von Margince — kein API-Key, kein Modell-Setup.",
   "ob.urlWillRead": "Wir lesen {host}",
   "ob.urlInvalid":
     "Das sieht nicht nach einer Web-Adresse aus — versuch z. B. {example}",
-  "ob.migrateLead":
-    "Nutzt du schon ein anderes CRM? Importier stattdessen deine Daten — Kontakte, Firmen und offene Deals kommen mit.",
-  "ob.fromHubspot": "Aus HubSpot",
-  "ob.fromSalesforce": "Aus Salesforce",
-  "ob.readbackFrom": "{host} · das haben wir zurückgelesen",
   "ob.readFromSite": "von der Website gelesen",
-  "ob.omitLabel": "Wer kauft das",
-  "ob.omitBody":
-    "Das haben wir auf deiner Seite nicht gefunden — also raten wir nicht. Du ergänzt es im nächsten Schritt.",
   "ob.failTitle": "Von dieser Seite ließ sich nicht genug lesen",
   "ob.failBody":
     "Wir haben die Seite erreicht, aber zu wenig öffentliche Inhalte gefunden, um ein Profil zu belegen — also raten wir nicht. Es wurde nichts gespeichert.",
@@ -792,48 +922,38 @@ export const de = {
     "Es kann eine Login-Wand, eine Platzhalterseite oder ein robots.txt-Verbot sein",
   "ob.failWhy3": "Oder es ist schlicht zu wenig Text vorhanden",
   "ob.tryAnother": "Andere URL versuchen",
-  "ob.fillByHand": "Stattdessen von Hand ausfüllen",
 
+  "ob.field.display_name": "Firmenname",
+  "ob.field.offer_summary": "Was verkaufst du?",
   "ob.field.icp": "Idealkunde",
   "ob.field.buying_center": "Wer kauft",
   "ob.field.value_proposition": "Nutzenversprechen",
   "ob.field.usp": "Was dich unterscheidet",
+  "ob.field.customer_pains": "Kundenprobleme",
+  "ob.field.desired_outcomes": "Gewünschte Ergebnisse",
   "ob.field.buying_intents": "Kaufanlässe",
-  "ob.field.legal_name": "Firmenname",
+  "ob.field.common_objections": "Häufige Einwände",
+  "ob.field.sales_motion": "Vertriebsmodell",
+  "ob.field.legal_name": "Eingetragener Firmenname",
   "ob.field.registered_address": "Anschrift",
   "ob.field.register_vat": "Register / USt-ID",
   "ob.field.industry": "Branche",
   "ob.field.history": "Firmengeschichte",
 
-  "ob.s2.kick": "Schritt 2 von 5",
-  "ob.s2.title": "Haben wir's richtig verstanden?",
+  "ob.s2.kick": "Schritt 3 von 5 · optional",
+  "ob.s2.title": "Jetzt lernen wir,",
+  "ob.s2.titleEm": "wie du wirklich schreibst.",
   "ob.s2.sub":
-    "Korrigier unten, was nicht stimmt — mit Weiter wird das hier als von dir bestätigt in deinem Workspace gespeichert. Wer bei dir kauft, haben wir leer gelassen statt zu raten — sag's uns.",
-  "ob.s2.saving": "Wird gespeichert…",
-  "ob.s2.saveFailed": "Dein Profil konnte nicht gespeichert werden",
-  "ob.s2.savedNote":
-    "In deinem Workspace gespeichert. Spätere Änderungen machst du auf deiner Firmenseite — dieser Schritt speichert nicht erneut.",
-  "ob.s2.buyerLabel": "Wer kauft das?",
-  "ob.s2.buyerHint": "das konnten wir nicht lesen — jetzt du",
-  "ob.s2.buyerPlaceholder":
-    "z. B. Betriebsleiter, Werkleiter, Vertriebsleitung",
-  "ob.s2.nothingRead":
-    "Noch nichts eingelesen — geh zurück und lies deine Seite ein, oder füll es von Hand aus.",
-
-  "ob.s3.kick": "Schritt 3 von 5 · optional",
-  "ob.s3.title": "Jetzt lernen wir,",
-  "ob.s3.titleEm": "wie du wirklich schreibst.",
-  "ob.s3.sub":
     "Wir raten deinen Ton nicht aus zwei E-Mails. Gib uns einen echten Korpus — Posts, E-Mails und vor allem Gesprächstranskripte — und wir modellieren, wie du wirklich klingst: dein Rhythmus, deine typischen Wendungen, die Wörter, die du nutzt, und die, die du nie sagst. Ziel: ~30.000 Wörter. Alles bleibt in deinem Workspace.",
-  "ob.s3.optinTitle": "Warum jetzt — und warum optional.",
-  "ob.s3.optinBody":
-    "Du hast dein Geschäft zurückgelesen bekommen (Schritt 1) und siehst gleich einen echten Entwurf (Schritt 4). Dieser Schritt lässt diese Entwürfe unverkennbar nach dir klingen. Es ist der einzige Schritt, der eigene Inhalte verlangt — also ganz deine Entscheidung.",
-  "ob.s3.optinYes": "Ja, jetzt meine Stimme bauen",
-  "ob.s3.optinSkip": "Überspringen — später in den Einstellungen",
-  "ob.s3.dropTitle": "Dateien hierher ziehen, oder durchsuchen",
-  "ob.s3.dropFmt":
+  "ob.s2.optinTitle": "Warum jetzt — und warum optional.",
+  "ob.s2.optinBody":
+    "Du hast dein Geschäft zurückgelesen bekommen (Schritt 1) und siehst gleich einen echten Entwurf (Schritt 3). Dieser Schritt lässt diese Entwürfe unverkennbar nach dir klingen. Es ist der einzige Schritt, der eigene Inhalte verlangt — also ganz deine Entscheidung.",
+  "ob.s2.optinYes": "Ja, jetzt meine Stimme bauen",
+  "ob.s2.optinSkip": "Überspringen — später in den Einstellungen",
+  "ob.s2.dropTitle": "Dateien hierher ziehen, oder durchsuchen",
+  "ob.s2.dropFmt":
     ".txt .md .vtt .srt .json · nur Text · wir behalten nur deine Redeanteile",
-  "ob.s3.dropSkipped":
+  "ob.s2.dropSkipped":
     "{files} übersprungen — kein Textformat. Als .txt/.md konvertieren oder den Text direkt einfügen.",
   "ob.reg.spoken": "gesprochen",
   "ob.reg.written": "geschrieben",
@@ -852,109 +972,175 @@ export const de = {
   "ob.src.chatHint": "Nachrichten, die du gesendet hast",
   "ob.src.memos": "Sprachmemos",
   "ob.src.memosHint": "Sprich 2 Minuten frei — wird transkribiert",
-  "ob.s3.lockedWords": "+{count} Wörter, wenn verbunden",
-  "ob.s3.addedWords": "+{count} Wörter",
-  "ob.s3.words": "{count} / {target} Wörter",
-  "ob.s3.qualStart": "füg ein paar Quellen hinzu",
-  "ob.s3.qualThin": "dünn — leg ein, zwei Transkripte nach",
-  "ob.s3.qualGood": "gut — fast da",
-  "ob.s3.qualRich": "dicht — eine eigene Stimme nimmt Form an",
-  "ob.s3.qualSharp": "scharf — unverkennbar du",
-  "ob.s3.mix":
+  "ob.s2.whenConnected": "lernt daraus, sobald verbunden",
+  "ob.s2.words": "{count} / {target} Wörter",
+  "ob.s2.qualStart": "füg ein paar Quellen hinzu",
+  "ob.s2.qualThin": "dünn — leg ein, zwei Transkripte nach",
+  "ob.s2.qualGood": "gut — fast da",
+  "ob.s2.qualRich": "dicht — eine eigene Stimme nimmt Form an",
+  "ob.s2.qualSharp": "scharf — unverkennbar du",
+  "ob.s2.mix":
     "gesprochen {spoken}% · geschrieben {written}% · {sources} Quellen",
-  "ob.s3.spokenHint":
+  "ob.s2.spokenHint":
     "Eine Handvoll Gesprächstranskripte schlägt 30 LinkedIn-Posts — Gesprochenes trägt deinen echten Rhythmus. Bei Transkripten behalten wir nur deine Redeanteile.",
-  "ob.s3.emailCallout":
-    "Deine gesendeten E-Mails sind deine reichste Stimmquelle. Diese Ausgangsstimme wird deutlich schärfer, sobald du dein Postfach verbindest (der letzte Schritt), und lernt dann aus jeder E-Mail weiter, die du sendest.",
-  "ob.s3.build": "Mein Stimmprofil bauen",
-  "ob.s3.modelling": "Modelliere deine Stimme aus {count} Wörtern…",
-  "ob.s3.starterVoice": "deine erste Stimme",
-  "ob.s3.vpMeta": "{count} Wörter · {sources} Quellen · gut",
-  "ob.s3.vpLead": "Direkt, warm, aus der Praxis.",
-  "ob.s3.vpRest":
-    "Kurze Aussagesätze mit gelegentlichem langen Anlauf. Belegt Meinungen mit konkreten Zahlen und Namen statt Abstraktionen. Kaum Floskeln.",
-  "ob.s3.movesLabel": "Deine Handschrift",
-  "ob.s3.move1": "Eröffnet mit einer klaren Aussage oder einer harten Zahl",
-  "ob.s3.move2":
-    "Belegt sie mit einem konkreten, erlebten Beispiel — Namen, Zahlen",
-  "ob.s3.move3": "Endet mit einem direkten nächsten Schritt oder einer Frage",
-  "ob.s3.moveNever":
-    'Nie: Floskeln, Weichspülen, "ich hoffe, es geht Ihnen gut"',
-  "ob.s3.sampleLabel": "Beispiel-Entwurf in deiner Stimme",
-  "ob.s3.vpFootnote":
-    "Ein Anfang aus {count} Wörtern. Verbinde als Nächstes dein Postfach, und deine gesendete Post hebt das von gut → scharf — dann lernt es aus jeder E-Mail weiter.",
+  "ob.s2.emailCallout":
+    "Deine gesendeten E-Mails sind deine reichste Stimmquelle. Diese erste Voice DNA wird deutlich schärfer, sobald du dein Postfach verbindest (der letzte Schritt), und lernt dann aus jeder E-Mail weiter, die du sendest.",
+  "ob.s2.pasteLabel": "Oder Schreibproben einfügen",
+  "ob.s2.pastePlaceholder":
+    "Füg ein paar E-Mails, Posts oder irgendetwas ein, das du selbst geschrieben hast…",
+  "ob.s2.pasteSource": "Eingefügter Text",
+  "ob.s2.build": "Meine Voice DNA bauen",
+  "ob.s2.building": "Baue deine Voice DNA aus {count} Wörtern…",
+  "ob.s2.minWords":
+    "Füg mindestens {min} Wörter in deiner eigenen Stimme hinzu, um eine erste Voice DNA zu bauen.",
+  "ob.s2.vpMeta": "{count} Wörter · {sources} Quellen",
+  "ob.s2.builtTitle": "Deine Voice DNA",
+  "ob.s2.builtEmpty":
+    "Deine Voice DNA wird gebaut — sie erscheint gleich hier und in den Einstellungen.",
+  "ob.s2.deferredTitle": "Deine Voice DNA wird gebaut",
+  "ob.s2.deferredBody":
+    "Sie ist in der Warteschlange und gleich fertig — du kannst weitermachen. Sie schärft sich automatisch, sobald du im letzten Schritt dein Postfach verbindest.",
+  "ob.s2.failedTitle": "Wir konnten sie gerade nicht bauen",
+  "ob.s2.failedBody":
+    "Beim Bauen deiner Voice DNA ist etwas schiefgegangen. Versuch es noch mal, oder überspring es und bau sie später in den Einstellungen.",
+  "ob.s2.vpFootnote":
+    "Aus {count} Wörtern gebaut. Verbinde als Nächstes dein Postfach, und deine gesendete Post schärft das weiter — dann lernt es aus jeder E-Mail weiter.",
 
-  "ob.s4.kick": "Schritt 4 von 5",
-  "ob.s4.title": "Sieh, was du gebaut hast —",
-  "ob.s4.titleEm": "ganz ohne Anbindung.",
-  "ob.s4.sub":
+  "ob.s3.kick": "Schritt 4 von 5",
+  "ob.s3.title": "Sieh, was du gebaut hast —",
+  "ob.s3.titleEm": "ganz ohne Anbindung.",
+  "ob.s3.sub":
     "Dein Workspace kennt schon dein Geschäft und deine Stimme. Verbinde als Nächstes dein Postfach, und er füllt sich mit deinen echten Menschen, Firmen und Deals.",
-  "ob.s4.cardProfile": "Geschäftsprofil",
-  "ob.s4.cardProfileBody":
-    "Was wir von deiner Seite gelesen haben, ist bestätigt und auf deiner Firmenseite gespeichert — jedes Feld mit Quelle.",
-  "ob.s4.cardProfileSkippedBody":
+  "ob.s3.subNoVoice":
+    "Dein Workspace kennt schon dein Geschäft. Verbinde als Nächstes dein Postfach, und er füllt sich mit deinen echten Menschen, Firmen und Deals.",
+  "ob.s3.cardProfile": "Geschäftsprofil",
+  "ob.s3.cardProfileBody":
+    "Bestätigt und auf deiner Firmenseite gespeichert. Von deiner Seite gelesene Felder behalten ihre Quelle; der Rest steht in deinen eigenen Worten.",
+  "ob.s3.cardProfileSkippedBody":
     "Von deiner Seite gelesen, aber noch nicht gespeichert — du hast den Bestätigen-Schritt übersprungen. Geh zurück und bestätige, dann landet es auf deiner Firmenseite.",
-  "ob.s4.cardVoice": "Deine Schreibstimme",
-  "ob.s4.cardVoiceBody":
+  "ob.s3.cardVoice": "Deine Schreibstimme",
+  "ob.s3.cardVoiceBody":
     "Gebaut aus dem Korpus, den du uns gerade gegeben hast. Entwürfe klingen ab Tag eins nach dir.",
-  "ob.s4.cardVoiceSkippedBody":
+  "ob.s3.cardVoiceSkippedBody":
     "Du hast den Stimme-Schritt übersprungen — Entwürfe starten in einer neutralen Ausgangsstimme, bis du deine baust. Zwei Minuten, jederzeit, in den Einstellungen.",
-  "ob.s4.cardPipeline": "Vertriebs-Pipeline",
-  "ob.s4.cardPipelineBody":
+  "ob.s3.cardPipeline": "Vertriebs-Pipeline",
+  "ob.s3.cardPipelineBody":
     "Die Standard-B2B-Vorlage mit 7 Stufen, auf deine Branche vorgestimmt. Leer, bis du verbindest — dann füllen sich Deals aus deiner Post.",
-  "ob.s4.cardDraft": "Ein Beispiel-Entwurf, in deiner Stimme",
-  "ob.s4.cardDraftExample": "Ein Beispiel-Entwurf",
-  "ob.s4.cardDraftBody": "Sieh ihn unten.",
-  "ob.s4.exampleTag":
+  "ob.s3.cardDraft": "Ein Beispiel-Entwurf, in deiner Stimme",
+  "ob.s3.cardDraftExample": "Ein Beispiel-Entwurf",
+  "ob.s3.cardDraftBody": "Sieh ihn unten.",
+  "ob.s3.exampleTag":
     "Illustratives Beispiel — noch nicht aus deinen Daten geschrieben",
-  "ob.s4.draftSample":
+  "ob.s3.exampleProspect": "Nordwind Robotics",
+  "ob.s3.draftSample":
     "Betreff: Kurze Frage zu eurer Montagelinie\n\nHallo {{name}} — gesehen, dass {company} diskrete Montage im großen Stil fährt. Wir bringen Teams wie euch in 6 Wochen eine laufende Roboterzelle, ohne eure bestehenden SPS rauszureißen. 15 Minuten wert? Beste Grüße, Lars",
-  "ob.s4.originLabel": "Woher diese Pipeline kommt",
-  "ob.s4.originBody":
+  "ob.s3.originLabel": "Woher diese Pipeline kommt",
+  "ob.s3.originBody":
     "Keine Magie — es ist die Standard-B2B-Stufenvorlage, aus dem Schritt-1-Read auf deine Branche gestimmt. Sie ist gerade leer. Wenn du dein Postfach verbindest, liest Capture deine gesendete Post und Meetings und schlägt Deals in diese Stufen vor — jeder belegt und umkehrbar. Du gibst frei, was ein Deal wird.",
-  "ob.s4.stillNothing":
+  "ob.s3.stillNothing":
     "Noch immer nichts verbunden. Du bestimmst, wann sich das ändert.",
-  "ob.s4.cta": "Postfach verbinden",
+  "ob.s3.cta": "Postfach verbinden",
 
-  "ob.s5.kick": "Schritt 5 von 5 · der letzte Schritt",
-  "ob.s5.title": "Bereit,",
-  "ob.s5.titleEm": "es zum Leben zu erwecken?",
-  "ob.s5.sub":
+  "ob.s4.kick": "Schritt 5 von 5 · der letzte Schritt",
+  "ob.s4.title": "Bereit,",
+  "ob.s4.titleEm": "es zum Leben zu erwecken?",
+  "ob.s4.sub":
     "Das Hirn steht. Verbinde dein Postfach, und dein CRM füllt sich selbst — Menschen, Firmen und Deals werden automatisch erfasst, du tippst sie nie.",
-  "ob.s5.provGoogle": "Google",
-  "ob.s5.provMicrosoft": "Microsoft",
-  "ob.s5.provImap": "Beliebiges Postfach (IMAP)",
-  "ob.s5.googleBtn": "Mit Google fortfahren",
-  "ob.s5.msBtn": "Mit Microsoft fortfahren",
-  "ob.s5.oauthSoon":
-    "Ein-Klick-Anmeldung für Google & Microsoft kommt. Verbinde jetzt jedes Postfach über IMAP — eine echte, live Erfassung.",
-  "ob.s5.imapHost": "IMAP-Host",
-  "ob.s5.imapHostPlaceholder": "imap.gmail.com",
-  "ob.s5.imapEmail": "E-Mail",
-  "ob.s5.imapPassword": "App-Passwort", // NOSONAR: UI translation string, not a credential
-  "ob.s5.imapMailbox": "Postfach",
-  "ob.s5.imapMax": "Wie viele aktuelle E-Mails",
-  "ob.s5.imapHint":
+  "ob.s4.provGoogle": "Google",
+  "ob.s4.provMicrosoft": "Microsoft",
+  "ob.s4.provImap": "Beliebiges Postfach (IMAP)",
+  "ob.s4.googleBtn": "Mit Google fortfahren",
+  "ob.s4.msBtn": "Mit Microsoft fortfahren",
+  "ob.s4.googleHint":
+    "Nur Lesezugriff. Du bestätigst ihn auf Googles eigener Einwilligungsseite — und du kannst die Verbindung jederzeit wieder trennen.",
+  "ob.s4.googleOkTitle": "Gmail verbunden",
+  "ob.s4.googleOkBody":
+    "Die Erfassung läuft im Hintergrund — neue Mails erscheinen innerhalb von etwa einer Minute auf deiner Timeline und bleiben ab jetzt von selbst synchron.",
+  "ob.s4.googleLive": "Verbindung bestätigt — Hintergrund-Erfassung läuft",
+  "dedupe.title": "Mögliche Duplikate",
+  "dedupe.intro":
+    "Paare, die die Erfassung als vermutlich dieselbe Person oder Firma erkannt hat. Zusammenführen erhält die Historie beider Datensätze; Verwerfen bedeutet: nie wieder nach diesem Paar fragen.",
+  "dedupe.loading": "Prüf-Warteschlange wird geladen…",
+  "dedupe.empty": "Keine Duplikate offen — die Warteschlange ist leer.",
+  "dedupe.confidence": "Übereinstimmung:",
+  "dedupe.field": "Feld",
+  "dedupe.left": "Links behalten",
+  "dedupe.right": "Rechts behalten",
+  "dedupe.kindPerson": "Person",
+  "dedupe.kindOrganization": "Firma",
+  "dedupe.mergeCta": "In Auswahl zusammenführen",
+  "dedupe.notDuplicateCta": "Kein Duplikat",
+  "dedupe.decided": "Entscheidung gespeichert.",
+  "dedupe.undoCta": "Rückgängig",
+  "dedupe.undone": "Paar wieder geöffnet.",
+  "dedupe.dismissNote": "Ausblenden",
+  "backfill.title": "E-Mail-Verlauf importieren",
+  "backfill.intro":
+    "Wählen Sie, wie weit zurück importiert wird. Umfang und geschätzte Kosten sehen Sie vor dem Start — Sie können diesen Schritt auch überspringen.",
+  "backfill.windowLabel": "Import-Zeitraum",
+  "backfill.window3m": "3 Monate",
+  "backfill.window6m": "6 Monate",
+  "backfill.window12m": "12 Monate",
+  "backfill.previewCta": "Erst den Umfang zeigen",
+  "backfill.previewLoading": "Postfach wird gezählt…",
+  "backfill.estimateMessages": "Nachrichten in diesem Zeitraum:",
+  "backfill.estimateCost": "Geschätzte KI-Kosten:",
+  "backfill.estimateNote":
+    "Eine Schätzung, keine Rechnung — der tatsächliche Verbrauch wird laufend gemessen und angezeigt.",
+  "backfill.startCta": "Import starten",
+  "backfill.starting": "Wird gestartet…",
+  "backfill.skip": "Verlaufs-Import überspringen",
+  "backfill.skippedNote":
+    "Kein Verlauf importiert. Neue Mails werden ab jetzt trotzdem erfasst — der Import lässt sich später in den Einstellungen starten.",
+  "backfill.loading": "Import-Status wird geprüft…",
+  "backfill.statusUnavailable":
+    "Der Import-Status ist gerade nicht lesbar — die Erfassung selbst läuft weiter.",
+  "backfill.queuedTitle": "Import eingereiht",
+  "backfill.runningTitle": "E-Mail-Verlauf wird importiert",
+  "backfill.doneTitle": "Verlaufs-Import abgeschlossen",
+  "backfill.errorTitle": "Der Import hat ein Problem",
+  "backfill.cancelledTitle": "Import abgebrochen",
+  "backfill.progressLabel": "Import-Fortschritt",
+  "backfill.countScanned": "Durchsucht",
+  "backfill.countCaptured": "Erfasst",
+  "backfill.errorNote":
+    "Er versucht es selbstständig erneut; alles bisher Erfasste bleibt erhalten.",
+  "backfill.cancel": "Import stoppen",
+  "backfill.cancelledNote": "Gestoppt. Alles bisher Erfasste bleibt erhalten.",
+  "ob.s4.googleVerifying": "Verbindung wird geprüft…",
+  "ob.s4.googleDenied": "Du hast die Google-Einwilligung abgelehnt",
+  "ob.s4.googleFailed": "Die Google-Verbindung wurde nicht abgeschlossen",
+  "ob.s4.googleRetry":
+    "Es wurde nichts gespeichert. Versuch es jederzeit erneut — oder verbinde stattdessen über IMAP.",
+  "ob.s4.oauthSoon":
+    "Ein-Klick-Anmeldung für Microsoft kommt. Verbinde oben Google oder jedes Postfach über IMAP — beides ist echte, live Erfassung.",
+  "ob.s4.imapHost": "IMAP-Host",
+  "ob.s4.imapHostPlaceholder": "imap.gmail.com",
+  "ob.s4.imapEmail": "E-Mail",
+  "ob.s4.imapPassword": "App-Passwort", // NOSONAR: UI translation string, not a credential
+  "ob.s4.imapMailbox": "Postfach",
+  "ob.s4.imapMax": "Wie viele aktuelle E-Mails",
+  "ob.s4.imapHint":
     "Nutz ein App-spezifisches Passwort (Gmail: Konto → Sicherheit → App-Passwörter). Wir holen deine aktuelle Post einmalig, erfassen sie als Aktivitäten und speichern dein Passwort nie.",
-  "ob.s5.imapConnect": "Verbinden & erfassen",
-  "ob.s5.connecting": "Sichere Verbindung…",
-  "ob.s5.scope1Lead": "Wir lesen — wir müllen nichts voll.",
-  "ob.s5.scope1Rest":
+  "ob.s4.imapConnect": "Verbinden & erfassen",
+  "ob.s4.connecting": "Sichere Verbindung…",
+  "ob.s4.scope1Lead": "Wir lesen — wir müllen nichts voll.",
+  "ob.s4.scope1Rest":
     "Deine Post wird automatisch zu Kontakten, Firmen und Aktivitäten.",
-  "ob.s5.scope2Lead": "Wir senden nie etwas ohne deine Freigabe.",
-  "ob.s5.scope2Rest": "Entwürfe warten in deinem Freigabe-Eingang.",
-  "ob.s5.scope3Lead": "Deine Daten bleiben in deinem Workspace.",
-  "ob.s5.scope3Rest":
+  "ob.s4.scope2Lead": "Wir senden nie etwas ohne deine Freigabe.",
+  "ob.s4.scope2Rest": "Entwürfe warten in deinem Freigabe-Eingang.",
+  "ob.s4.scope3Lead": "Deine Daten bleiben in deinem Workspace.",
+  "ob.s4.scope3Rest":
     "Own-your-data — jederzeit alles exportieren oder löschen.",
-  "ob.s5.scope4Lead": "Trennung mit einem Klick.",
-  "ob.s5.scope4Rest": "Das CRM läuft weiter; es hört nur auf zu erfassen.",
-  "ob.s5.capturedTitle": "Dein Postfach ist live in deinem CRM",
-  "ob.s5.statCaptured": "erfasst",
-  "ob.s5.statContacts": "Kontakte",
-  "ob.s5.statSkipped": "übersprungen",
-  "ob.s5.enterCrm": "Ins CRM",
-  "ob.s5.connectFailed": "Dieses Postfach ließ sich nicht verbinden",
-  "ob.s5.skipLater": "Erstmal überspringen — später verbinden",
+  "ob.s4.scope4Lead": "Trennung mit einem Klick.",
+  "ob.s4.scope4Rest": "Das CRM läuft weiter; es hört nur auf zu erfassen.",
+  "ob.s4.capturedTitle": "Dein Postfach ist live in deinem CRM",
+  "ob.s4.statCaptured": "erfasst",
+  "ob.s4.statContacts": "Kontakte",
+  "ob.s4.statSkipped": "übersprungen",
+  "ob.s4.enterCrm": "Ins CRM",
+  "ob.s4.connectFailed": "Dieses Postfach ließ sich nicht verbinden",
+  "ob.s4.skipLater": "Erstmal überspringen — später verbinden",
 
   "auth.title": "Margince",
   "auth.checking": "Sitzung wird geprüft…",
@@ -1194,11 +1380,96 @@ export const de = {
   "settings.openCustomFields": "Benutzerdefinierte Felder öffnen",
   "settings.navAria": "Einstellungsbereiche",
   "settings.tab.account": "Konto",
+  "settings.tab.company": "Firmenkontext",
   "settings.tab.ai": "KI & Autonomie",
   "settings.tab.data": "Datenmodell",
   "settings.tab.catalog": "Katalog",
   "settings.tab.privacy": "Datenschutz & Einwilligung",
   "settings.tab.audit": "Audit-Log",
+  "settings.tab.voice": "Voice DNA",
+  "settings.group.you": "Deine Einstellungen",
+  "settings.group.org": "Organisation",
+  "settings.voice.title": "Voice DNA",
+  "settings.voice.intro":
+    "Deine persönliche Schreibstimme. Sie prägt Entwürfe, die für dich gemacht werden, bleibt privat und lernt nur aus Quellen, die du hinzufügst.",
+  "settings.voice.emptyTitle": "Noch keine Voice DNA",
+  "settings.voice.emptyBody":
+    "Füg unten ein paar Schreibproben hinzu und bau deine Voice DNA — oder mach es beim Onboarding.",
+  "settings.voice.status.collecting": "Sammelt",
+  "settings.voice.status.ready": "Bereit",
+  "settings.voice.status.stale": "Neuaufbau nötig",
+  "settings.voice.bandThin": "dünn",
+  "settings.voice.bandGood": "gut",
+  "settings.voice.bandRich": "dicht",
+  "settings.voice.bandSharp": "scharf",
+  "settings.voice.version": "Version {n}",
+  "settings.voice.derivedLabel": "Deine abgeleitete Stimme",
+  "settings.voice.derivedEmpty":
+    "Noch nicht gebaut — füg Proben hinzu und bau, um deine abgeleitete Stimme zu sehen.",
+  "settings.voice.personalityLabel": "Deine Vorgaben",
+  "settings.voice.personalityPlaceholder":
+    "Notizen dazu, wie du klingen willst — genau so behalten, wie du sie schreibst; das Modell überschreibt das nie.",
+  "settings.voice.savePreferences": "Vorgaben speichern",
+  "settings.voice.corpusLabel": "Schreibproben",
+  "settings.voice.corpusEmpty": "Noch keine Proben.",
+  "settings.voice.excluded": "ausgeschlossen",
+  "settings.voice.removeSource": "Probe entfernen",
+  "settings.voice.pastedLabel": "Eingefügter Text",
+  "settings.voice.addPlaceholder":
+    "Füg eine E-Mail, einen Post oder etwas Geschriebenes ein…",
+  "settings.voice.addSource": "Probe hinzufügen",
+  "settings.voice.building": "Baue…",
+  "settings.voice.rebuild": "Voice DNA neu bauen",
+  "settings.voice.buildStatus.succeeded": "Voice DNA aktualisiert.",
+  "settings.voice.buildStatus.failed":
+    "Der Aufbau ist nicht fertig geworden — versuch es noch mal.",
+  "settings.voice.buildStatus.deferred":
+    "In der Warteschlange — sie wird gleich fertig und aktualisiert sich automatisch.",
+  "settings.voice.buildStatus.pending":
+    "Wird noch gebaut — das kann einen Moment dauern; es aktualisiert sich hier, sobald es fertig ist.",
+  "settings.companyKicker": "Firmenwissen",
+  "settings.companyTitle": "Was Margince über dein Unternehmen weiß",
+  "settings.companySub":
+    "Halte den gemeinsamen Geschäftskontext für Entwürfe, Angebote, Suche und gesteuerte Agenten aktuell. Jede Aussage bleibt mit Quelle und Urheber verbunden.",
+  "settings.companyTrust":
+    "Nur bestätigtes Wissen — Website-Texte werden nie zu Anweisungen.",
+  "settings.companyConfirmed": "bestätigte Aussagen",
+  "settings.companyWebsite": "Öffentliche Unternehmenswebsite",
+  "settings.companyWebsiteRequired":
+    "Füge vor der Aktualisierung eine Unternehmenswebsite hinzu.",
+  "settings.companyRefresh": "Von Website aktualisieren",
+  "settings.companyEssentials": "Die drei Grundlagen",
+  "settings.companyPositioning": "Positionierung, Käufer und Vertrieb",
+  "settings.companyIdentity": "Identität und rechtliche Angaben",
+  "settings.companyViewSource": "Quelle ansehen",
+  "settings.companySave": "Firmenkontext speichern",
+  "settings.companySaved": "Gespeichert",
+  "settings.companyRefreshUnavailable":
+    "Diese Website-Aktualisierung ist nicht mehr verfügbar.",
+  "settings.companyRefreshStale":
+    "Der Website-Vorschlag hat sich geändert. Prüfe den neuen Vergleich vor dem Übernehmen.",
+  "settings.companyRefreshReview": "Website-Vergleich",
+  "settings.companyRefreshReady": "Änderungen prüfen",
+  "settings.companyRefreshReading": "Website wird gelesen und belegt…",
+  "settings.companyCoverage": "Seitenabdeckung",
+  "settings.companyResolveAll":
+    "Wähle für jeden Konflikt mit menschlichen Angaben eine Entscheidung.",
+  "settings.companyApplyRefresh": "Ausgewählte Änderungen übernehmen",
+  "settings.companySelectChange": "Diese Website-Änderung auswählen",
+  "settings.companyCurrent": "Aktuell bestätigter Wert",
+  "settings.companyWebsiteProposal": "Website-Vorschlag",
+  "settings.companyClass.new": "Neu",
+  "settings.companyClass.machine_change": "Website geändert",
+  "settings.companyClass.human_conflict": "Entscheidung nötig",
+  "settings.companyClass.unchanged": "Unverändert",
+  "settings.companyResolution.keep_current": "Aktuellen Wert behalten",
+  "settings.companyResolution.accept_proposal": "Website übernehmen",
+  "settings.companyResolution.use_value": "Meinen bearbeiteten Wert nutzen",
+  "settings.companyManualKicker": "Private, manuelle Einrichtung",
+  "settings.companyManualTitle": "Gib Margince die Grundlagen",
+  "settings.companyManualSub":
+    "Das Lesen der Website ist in dieser Rollout-Stufe nicht aktiviert. Diese drei Antworten reichen für einen nützlichen Firmenkontext — ohne Modellaufruf und ohne externe Anfrage.",
+  "settings.companyCreateWorkspace": "Firmenkontext erstellen",
   "product.title": "Produkte",
   "product.settingsSub":
     "Rate-Card-Einträge, auf deren Grundlage Angebotspositionen einen Snapshot erstellen.",
@@ -1255,6 +1526,143 @@ export const de = {
   "tools.scopedTo": "Erreichbar durch {label}",
   "tools.unreachable": "Bereich nicht gewährt",
 
+  "aiusage.title": "KI-Nutzung & Budget",
+  "aiusage.sub":
+    "Ihre eigene Rechnung sichtbar — nach Aufgabe und Stufe, in Tokens.",
+  "aiusage.budget": "{spent} von {budget} Tokens · {pct}%",
+  "aiusage.band.normal": "normal",
+  "aiusage.band.degraded": "Sparmodus",
+  "aiusage.band.queued": "Budget erreicht — Hintergrund-KI wartet",
+  "aiusage.band.unknown": "Unbekannter Budgetstatus",
+  "aiusage.col.task": "Aufgabe",
+  "aiusage.col.tier": "Stufe",
+  "aiusage.col.calls": "Aufrufe",
+  "aiusage.col.cached": "Aus Cache",
+  "aiusage.col.tokensIn": "Tokens ein",
+  "aiusage.col.tokensOut": "Tokens aus",
+  "aiusage.col.cost": "Geschätzte Kosten",
+  "aiusage.costNote": "Kosten sind Schätzungen zu den konfigurierten Tarifen.",
+  "aiusage.days.show": "Tage anzeigen",
+  "aiusage.days.hide": "Tage ausblenden",
+  "aiusage.empty": "Keine KI-Aufrufe in diesem Zeitraum.",
+  "aiusage.prevMonth": "Vorheriger Monat",
+  "aiusage.nextMonth": "Nächster Monat",
+
+  "aibanner.degraded": "KI läuft im Sparmodus.",
+  "aibanner.queued": "KI-Budget erreicht — Hintergrund-KI wartet.",
+  "aibanner.unknown": "Der KI-Budgetstatus ist unbekannt.",
+  "aibanner.link": "Nutzung anzeigen",
+  "aibanner.dismiss": "Schließen",
+
+  "aicalls.title": "KI-Aufrufprotokoll",
+  "aicalls.sub":
+    "Jeder Modellaufruf — Routing, Tokens, Wiederholungen und erfasste Nutzdaten.",
+  "aicalls.col.when": "Zeitpunkt",
+  "aicalls.col.task": "Aufgabe",
+  "aicalls.col.model": "Modell",
+  "aicalls.col.tokens": "Tokens",
+  "aicalls.col.latency": "Latenz",
+  "aicalls.ms": "{value} ms",
+  "aicalls.badge.cacheHit": "Cache-Treffer",
+  "aicalls.badge.degraded": "reduziert",
+  "aicalls.badge.retries": "Wiederholung ×{count}",
+  "aicalls.filter.all": "Alle Aufgaben",
+  "aicalls.loadMore": "Mehr laden",
+  "aicalls.empty": "Noch keine KI-Aufrufe aufgezeichnet.",
+  "aicalls.detail.identity":
+    "{served} über {provider} bereitgestellt (konfiguriert: {configured})",
+  "aicalls.detail.source": "Quelle der Modellidentität: {source}",
+  "aicalls.detail.context": "Eingebetteter Kontext: {scopes}",
+  "aicalls.detail.contextNone": "Kein Unternehmenskontext eingebettet",
+  "aicalls.detail.attempts": "Versuche",
+  "aicalls.detail.request": "Anfrage-Nutzdaten",
+  "aicalls.detail.response": "Antwort-Nutzdaten",
+  "aicalls.payload.off":
+    "Nutzdatenerfassung ist aus — ai.capture_payloads: true in margince.yaml aktiviert die Aufzeichnung von Anfrage und Antwort.",
+  "aicalls.payload.none": "Für diesen Aufruf wurden keine Nutzdaten erfasst.",
+
+  "aiexport.button": "Als Zertifizierungsszenario exportieren",
+  "aiexport.title": "Lauf als Zertifizierungsszenario exportieren",
+  "aiexport.nameLabel": "Szenarioname",
+  "aiexport.checklist":
+    "Geheimnisse wurden bei der Erfassung entfernt. Personenbezogene Daten NICHT — prüfen und entfernen Sie PII und ersetzen Sie anschließend sanitized_by, bevor Sie die Datei in den Korpus übernehmen.",
+  "aiexport.copy": "YAML kopieren",
+  "aiexport.copied": "Kopiert",
+  "aiexport.download": ".yaml herunterladen",
+  "aiexport.copyFailed":
+    "Kopieren fehlgeschlagen — Vorschau verwenden oder Datei herunterladen.",
+  "aiexport.close": "Schließen",
+  "aiexport.previewLabel": "Szenariovorschau",
+  "aiexport.responseLabel": "Modellantwort",
+
   "countdown.minutesSeconds": "{minutes}m {seconds}s",
   "countdown.expired": "Abgelaufen",
+
+  // Quotas & Zielerreichung (RD-T06): menschlich gesetzte Umsatzziele mit
+  // serverseitig berechneter Zielerreichung, im Reports-Segment „Quotas“.
+  "quotas.tab": "Quotas",
+  "quotas.sub": "Umsatzziele — menschlich gesetzt, Zielerreichung berechnet",
+  "quotas.role.owner": "Individuelle Quota",
+  "quotas.role.team": "Team-Quota",
+  "quotas.periodRange": "{start} – {end}",
+  "quotas.empty.title": "Keine Quota gesetzt",
+  "quotas.empty.body":
+    "Eine Quota ist ein Ziel, das ein Mensch setzt — Inhaber oder Team, Zeitraum, Betrag. Wir raten es nicht. Setzen Sie ein Ziel, um die Zielerreichung aus gewonnenen Deals zu verfolgen.",
+  "quotas.empty.cta": "Ziel setzen",
+  "quotas.attained": "erreicht",
+  "quotas.closedWon": "Gewonnen in diesem Zeitraum",
+  "quotas.target": "Ziel",
+  "quotas.gap": "Abstand zum Ziel",
+  "quotas.baseCurrencyNote":
+    "Beträge in der Basiswährung des Workspace ({currency}).",
+  "quotas.pace.ahead":
+    "Vor dem Plan — {pct}% erreicht bei {pace}% des Zeitraums.",
+  "quotas.pace.behind":
+    "Hinter dem Plan — {pct}% erreicht bei {pace}% des Zeitraums.",
+  "quotas.pace.met": "Ziel erreicht — {pct}% erreicht.",
+  "quotas.computed": "serverseitig berechnet",
+  "quotas.contributing.title": "Was zur Zielerreichung zählt",
+  "quotas.contributing.subtitle": "gewonnene Deals · Basiswert im Zeitraum",
+  "quotas.contributing.deal": "Deal",
+  "quotas.contributing.amount": "Gezählter Betrag",
+  "quotas.contributing.total": "Gezählte Summe",
+  "quotas.contributing.caption":
+    "Basiswährung · offene / verlorene / ausgeschlossene Deals ausgenommen",
+  "quotas.explain.formula":
+    "Zielerreichung = Σ(Basiswert gewonnener Deals) ÷ Ziel, auf den Cent",
+  "quotas.explain.closedWon": "gewonnen = {sum} ({count} Deals im Zeitraum)",
+  "quotas.explain.target": "Ziel = {target} (menschlich gesetzt)",
+  "quotas.explain.result": "Zielerreichung = {sum} ÷ {target} = {pct}%",
+  "quotas.explain.exclusions":
+    "offene / verlorene / ausgeschlossene Deals ausgenommen; nur sauberer Kern",
+  "quotas.scopeNote.title": "Was diese Quota bewusst ist",
+  "quotas.scopeNote.flag": "gekennzeichnet, nicht verborgen",
+  "quotas.scopeNote.body":
+    "Das Ziel ist menschlich gesetzt — die KI erfindet keine Quota-Zahl. Die Zielerreichung wird aus dem Basiswert gewonnener Deals berechnet und ist vollständig auditierbar. Es gibt kein KI-gesetztes Ziel, kein Forecast-zu-Quota und keine Provisions-Engine.",
+  "quotas.target.title": "Ziel des Zeitraums",
+  "quotas.target.new": "Ziel setzen",
+  "quotas.target.edit": "Ziel bearbeiten",
+  "quotas.target.save": "Ziel speichern",
+  "quotas.target.note":
+    "Das Bearbeiten schreibt einen menschlich getippten Wert und protokolliert die Änderung. Die Zielerreichung wird neu berechnet.",
+  "quotas.target.sideFixed":
+    "Die Inhaber-/Team-Seite einer Quota ist fest — zum Wechseln archivieren und neu anlegen.",
+  "quotas.side.label": "Zugewiesen an",
+  "quotas.side.owner": "Inhaber",
+  "quotas.side.team": "Team",
+  "quotas.owner": "Inhaber",
+  "quotas.team": "Team",
+  "quotas.pickOwner": "Inhaber auswählen…",
+  "quotas.pickTeam": "Team auswählen…",
+  "quotas.amountHint": "Ganze Euro — keine Dezimalstellen",
+  "quotas.periodStart": "Zeitraum-Beginn",
+  "quotas.periodEnd": "Zeitraum-Ende",
+  "quotas.amount": "Zielbetrag",
+  "quotas.currency": "Währung",
+  "quotas.err.targetZero": "Diese Quota hat noch kein Ziel",
+  "quotas.err.computeFailed": "Zielerreichung konnte nicht berechnet werden",
+  "quotas.err.ownerXorTeam": "Wählen Sie genau eines: Inhaber oder Team.",
+  "quotas.archive.title": "Quota archivieren",
+  "quotas.archive.confirm":
+    "Das Archivieren entfernt diese Quota aus der Liste und stoppt die Verfolgung der Zielerreichung. Archivierte Quotas können nicht bearbeitet werden.",
 } as const satisfies Record<MessageKey, string>;

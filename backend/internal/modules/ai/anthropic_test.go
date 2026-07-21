@@ -160,6 +160,7 @@ func TestAnthropicCompleteSendsStrippedPayload(t *testing.T) {
 		gotKey = r.Header.Get("X-Api-Key")
 		gotVersion = r.Header.Get("Anthropic-Version")
 		if err := json.NewEncoder(w).Encode(map[string]any{
+			"model":   "claude-served-x",
 			"content": []map[string]any{{"type": "text", "text": "hello"}},
 			"usage":   map[string]int{"input_tokens": 12, "output_tokens": 3},
 		}); err != nil {
@@ -180,6 +181,9 @@ func TestAnthropicCompleteSendsStrippedPayload(t *testing.T) {
 	}
 	if resp.Text != "hello" || resp.InputTokens != 12 || resp.OutputTokens != 3 {
 		t.Fatalf("response mapping wrong: %+v", resp)
+	}
+	if resp.ServedModel != "claude-served-x" {
+		t.Fatalf("ServedModel not decoded from the response's own model field: %q", resp.ServedModel)
 	}
 	if gotKey != "test-key" || gotVersion != anthropicAPIVersion {
 		t.Fatalf("auth headers wrong: key=%q version=%q", gotKey, gotVersion)
@@ -259,6 +263,111 @@ func TestAnthropicStreamYieldsDeltas(t *testing.T) {
 	}
 	if got.String() != "Hello" {
 		t.Fatalf("stream text mismatch: %q", got.String())
+	}
+}
+
+// A large completion rides the SSE wire (completeStreamed); the served model
+// identity arrives on message_start, before any content — the assembled
+// Response must carry it through just as the non-streaming path does.
+func TestAnthropicStreamedCompleteSetsServedModelFromMessageStart(t *testing.T) {
+	client := newAnthropicForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, strings.Join([]string{
+			`event: message_start`,
+			`data: {"type":"message_start","message":{"model":"claude-served-stream"}}`,
+			``,
+			`event: content_block_delta`,
+			`data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"hi"}}`,
+			``,
+			`event: message_delta`,
+			`data: {"type":"message_delta","usage":{"output_tokens":1}}`,
+			``,
+			`event: message_stop`,
+			`data: {"type":"message_stop"}`,
+			``,
+		}, "\n"))
+	})
+	resp, err := client.Complete(context.Background(), model.Request{
+		MaxTokens: streamedCompleteThreshold + 1,
+		Messages:  []model.Message{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Text != "hi" {
+		t.Fatalf("streamed text mismatch: %q", resp.Text)
+	}
+	if resp.ServedModel != "claude-served-stream" {
+		t.Fatalf("ServedModel not decoded from message_start: %q", resp.ServedModel)
+	}
+}
+
+// Anthropic reports input_tokens EXCLUSIVE of both cache buckets (unlike
+// OpenAI/Gemini, which already report a cache-inclusive prompt total), so the
+// adapter must add all three to land on the port's pinned cache-inclusive
+// InputTokens contract (AIRT-PARAM-47).
+func TestAnthropicCompleteNormalizesCacheInclusiveInputTokens(t *testing.T) {
+	client := newAnthropicForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"content": []map[string]any{{"type": "text", "text": "hi"}},
+			"usage": map[string]int{
+				"input_tokens":                100,
+				"output_tokens":               50,
+				"cache_read_input_tokens":     400,
+				"cache_creation_input_tokens": 200,
+			},
+		}); err != nil {
+			t.Errorf("encoding fixture response: %v", err)
+		}
+	})
+	got, err := client.Complete(context.Background(), model.Request{Messages: []model.Message{{Role: "user", Content: "hi"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.InputTokens != 700 { // 100 + 400 + 200: cache-inclusive per AIRT-PARAM-47
+		t.Fatalf("InputTokens = %d, want 700", got.InputTokens)
+	}
+	if got.CachedTokens != 400 || got.CacheWriteTokens != 200 {
+		t.Fatalf("cache buckets = %d/%d, want 400/200", got.CachedTokens, got.CacheWriteTokens)
+	}
+	if got.OutputTokens != 50 {
+		t.Fatalf("OutputTokens = %d, want 50", got.OutputTokens)
+	}
+}
+
+// The streamed-complete path (large MaxTokens rides SSE) reads usage off
+// message_start / message_delta rather than a single JSON body; the same
+// cache-inclusive normalization must apply there too.
+func TestAnthropicStreamedCompleteNormalizesCacheInclusiveInputTokens(t *testing.T) {
+	client := newAnthropicForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, strings.Join([]string{
+			`event: message_start`,
+			`data: {"type":"message_start","message":{"model":"claude-served-stream","usage":{"input_tokens":100,"cache_read_input_tokens":400,"cache_creation_input_tokens":200}}}`,
+			``,
+			`event: content_block_delta`,
+			`data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"hi"}}`,
+			``,
+			`event: message_delta`,
+			`data: {"type":"message_delta","usage":{"output_tokens":50}}`,
+			``,
+			`event: message_stop`,
+			`data: {"type":"message_stop"}`,
+			``,
+		}, "\n"))
+	})
+	got, err := client.Complete(context.Background(), model.Request{
+		MaxTokens: streamedCompleteThreshold + 1,
+		Messages:  []model.Message{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.InputTokens != 700 { // 100 + 400 + 200: cache-inclusive per AIRT-PARAM-47
+		t.Fatalf("InputTokens = %d, want 700", got.InputTokens)
+	}
+	if got.CachedTokens != 400 || got.CacheWriteTokens != 200 {
+		t.Fatalf("cache buckets = %d/%d, want 400/200", got.CachedTokens, got.CacheWriteTokens)
 	}
 }
 

@@ -51,6 +51,7 @@ type ollamaToolWire struct {
 }
 
 type ollamaChatEvent struct {
+	Model   string `json:"model"`
 	Message struct {
 		Content string `json:"content"`
 	} `json:"message"`
@@ -74,6 +75,7 @@ func (c *ollamaClient) Complete(ctx context.Context, req model.Request) (model.R
 		Text:         out.Message.Content,
 		InputTokens:  out.PromptEvalCount,
 		OutputTokens: out.EvalCount,
+		ServedModel:  out.Model,
 	}, nil
 }
 
@@ -82,7 +84,7 @@ func (c *ollamaClient) Stream(ctx context.Context, req model.Request) (model.Tok
 	if err != nil {
 		return nil, err
 	}
-	return &ollamaStream{body: body, scanner: bufio.NewScanner(body)}, nil
+	return &ollamaStream{body: body, scanner: streamLineScanner(body)}, nil
 }
 
 func (c *ollamaClient) Embed(ctx context.Context, req model.EmbedRequest) (model.Embeddings, error) {
@@ -177,7 +179,10 @@ func (c *ollamaClient) post(ctx context.Context, path string, payload []byte) (i
 	if resp.StatusCode != http.StatusOK {
 		//craft:ignore swallowed-errors best-effort close on the error path — the API status error is the answer
 		defer func() { _ = resp.Body.Close() }()
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if readErr != nil {
+			return nil, fmt.Errorf("ai: ollama: http %d", resp.StatusCode)
+		}
 		return nil, fmt.Errorf("ai: ollama: http %d: %s", resp.StatusCode, bytes.TrimSpace(raw))
 	}
 	return resp.Body, nil

@@ -44,29 +44,36 @@ Edit the tiers only to:
 
 ## 3. Start the stack
 
-`scripts/dev.sh` (`make dev`) only activates the real routing when
-`ANTHROPIC_API_KEY` is set; otherwise it uses the offline fake (which would also
-fake the *Ollama* call). A placeholder key flips it into real routing so the
-Ollama-bound `local_small` tier is actually exercised:
+`scripts/dev.sh` (`make dev`) scans `config/ai-routing.yaml` and activates the
+real routing only when **every bound cloud provider's key is set** (`anthropic`
+→ `ANTHROPIC_API_KEY`, `openai` → `OPENAI_API_KEY`, `gemini` →
+`GEMINI_API_KEY`, `openai_compatible` → `OPENAI_COMPATIBLE_API_KEY`); local
+providers (`ollama`/`vllm`/`fake`) need no key. If any key is missing it falls
+back to the offline fake — which would also fake the *Ollama* call.
+
+The shipped default routing binds **gemini** on `cheap_cloud` and `premium`, so
+out of the box you must either set `GEMINI_API_KEY`, or rebind those tiers to
+`ollama` too (§2) for a fully local, no-key stack:
 
 ```sh
-ANTHROPIC_API_KEY=ollama-not-used make dev   # look for: "using real Anthropic model"
+make dev   # look for: "dev: using config/ai-routing.yaml for the cold-start read-back (bound providers: …)"
 ```
 
-> The inline assignment avoids clobbering an existing `.env.local`; `make dev`
-> reads `ANTHROPIC_API_KEY` from the environment. (Persist it in `.env.local`
-> instead if you prefer — it is git-ignored.)
+> Persist keys in `.env.local` if you prefer — it is git-ignored and `make dev`
+> reads it.
 >
-> ⚠️ The placeholder is **not a valid Anthropic credential**. Enrich starts on
-> `local_small` (Ollama), so it stays local — but any flow that ladders up to a
-> still-Anthropic tier (the cold-start read-back runs `cheap_cloud` → `premium`)
-> will call Anthropic and fail. Rebind those tiers to Ollama first (§2) if you
-> exercise them.
+> ⚠️ Ladders can leave the box: enrich *starts* on `local_small` (Ollama)
+> but its ladder is `local_small` → `cheap_cloud`, so a provider error or
+> schema failure escalates to the cloud tier — and flows that start
+> cloud-bound (the cold-start read-back runs `cheap_cloud` → `premium`)
+> call it immediately. For a guaranteed-local run, rebind every tier you
+> exercise to Ollama (§2). And remember the all-or-nothing gate above: a
+> missing key for *any* bound cloud provider puts the whole stack on the
+> offline fake — Ollama included.
 
 `make dev` brings up the api on `:8080`, API-seeds the demo workspace on boot,
 and runs the Vite SPA on `:5173`. Open **http://localhost:5173** and log in
-with the seeded admin (`admin@demo.test` / `demo-password-123`, workspace
-`demo-workspace`).
+with the seeded admin (`admin@demo.test` / `demo-password-123`).
 Full first-run details:
 [tutorials/getting-started.md](../tutorials/getting-started.md).
 
@@ -92,7 +99,7 @@ the anti-hallucination guarantee, not a bug.
 
 | Symptom | Meaning / fix |
 |---|---|
-| Log says *"no ANTHROPIC_API_KEY … offline fake"* | The placeholder key wasn't picked up — check `.env.local`, restart `make dev`. |
+| Log says *"binds provider(s) whose key is not set … offline fake"* | A tier is still bound to a cloud provider whose key is missing — set the named key in `.env.local`, or rebind that tier to `ollama` in `config/ai-routing.yaml`, then restart `make dev`. |
 | *"Couldn't read enough from this company's site."* | The fetch failed: the offline fake is active (see above), a **403** from a bot-protected domain, or a genuinely thin page. Use a crawlable domain. |
 | *"no field survived the no-guess evidence gate"* | The model returned JSON but no `evidence_snippet` was verbatim on the page (or confidences ≤ 0). Expected for weak models / thin pages — try a content-rich page, or `mistral` over `gemma3`. |
 | A 500 mentioning *"cannot unmarshal … into … string"* | The model ignored the schema and emitted a wrong-typed field. Switch to `mistral`. |
@@ -100,6 +107,6 @@ the anti-hallucination guarantee, not a bug.
 
 Set `MARGINCE_LOG_LEVEL=debug` (in `.env.local` or via `--log-level`) for verbose
 model-runtime logs. Small local models are hit-or-miss against the strict
-evidence gate — a cloud model (real `ANTHROPIC_API_KEY`, tiers back on
-`anthropic`) grounds more reliably; Ollama is ideal for exercising the pipeline
-end to end.
+evidence gate — a cloud model (a real provider key, tiers on `gemini` /
+`anthropic` / `openai`) grounds more reliably; Ollama is ideal for exercising
+the pipeline end to end.

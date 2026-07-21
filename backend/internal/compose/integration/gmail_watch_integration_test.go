@@ -152,7 +152,6 @@ func TestGmailWatchJobRenewsOnSchedule(t *testing.T) {
 		ReconcileInterval: time.Hour,
 		TimeScanInterval:  time.Hour,
 		GmailRegistry:     registry,
-		GmailInterval:     time.Hour,
 		GmailWatch:        compose.GmailWatchConfig{Topic: gmailPushTopic, Interval: time.Hour, RenewWithin: 48 * time.Hour},
 	})
 	if err != nil {

@@ -9,29 +9,161 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
 import { OnboardingScreen } from "./onboarding";
 
-// Onboarding honesty pins: cold-start fields render HUMAN labels (never raw
-// snake_case keys), and the step-4 results tell the truth about a skipped
-// voice step — the neutral-starter copy, not "drafts sound like you", with
-// the canned sample draft visibly tagged as an illustrative example.
+type CompanySiteRead = components["schemas"]["CompanySiteRead"];
 
-afterEach(() => {
-  cleanup();
-  vi.unstubAllGlobals();
-  window.location.hash = "";
-});
+const savedProfile = {
+  organization_id: "018f3a1b-0000-7000-8000-0000000000a1",
+  display_name: "Gradion",
+  website: "gradion.com",
+  legal_name: "Gradion GmbH",
+  registered_address: "Hauptstrasse 1, 10115 Berlin",
+  register_vat: "DE123456789",
+  industry: "Robotics",
+  offer_summary: "Revenue software for manufacturers",
+  icp: "Mid-market manufacturers",
+};
 
-beforeEach(() => {
-  vi.stubGlobal("scrollTo", vi.fn());
-});
+const readyRead = {
+  id: "018f3a1b-0000-7000-8000-0000000000b2",
+  target_kind: "onboarding",
+  organization_id: null,
+  root_url: "https://gradion.com",
+  status: "ready",
+  status_code: null,
+  status_detail: null,
+  next_attempt_at: null,
+  phase: null,
+  pages_read: 2,
+  pages: [
+    { url: "https://gradion.com", status: "fetched", kind: "home" },
+    { url: "https://gradion.com/about", status: "fetched", kind: "about" },
+  ],
+  profile_fields: [
+    {
+      field: "legal_name",
+      value: "Gradion GmbH",
+      evidence_snippet: "© 2026 Gradion GmbH",
+      source_kind: "url",
+      source_url: "https://gradion.com",
+      confidence: 0.9,
+    },
+    {
+      field: "icp",
+      value: "Mid-market manufacturers",
+      evidence_snippet: "We serve mid-market manufacturers",
+      source_kind: "url",
+      source_url: "https://gradion.com/about",
+      confidence: 0.8,
+    },
+  ],
+  facts: [
+    {
+      category: "company",
+      field: "founded_year",
+      value: "2021",
+      value_key: "founded_year:2021",
+      evidence_snippet: "Founded in 2021",
+      evidence_url: "https://gradion.com/about",
+      confidence: 0.88,
+    },
+  ],
+  comparisons: [],
+  people: [],
+  warnings: [],
+  draft_version: 1,
+  proposal_hash: "proposal-1",
+  created_at: "2026-07-19T08:00:00Z",
+  updated_at: "2026-07-19T08:00:01Z",
+} as const satisfies CompanySiteRead;
+
+type StubOptions = {
+  company?: typeof savedProfile | null;
+  state?: Record<string, unknown> | null;
+  read?: CompanySiteRead;
+  readStartError?: { detail: string; status: number };
+  saveError?: { detail: string; status: number };
+  conflictOnce?: boolean;
+};
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function requestPath(request: Request) {
+  return new URL(request.url).pathname;
+}
+
+function stubApi(options: StubOptions = {}) {
+  const calls: Request[] = [];
+  let version = 0;
+  let conflictPending = options.conflictOnce ?? false;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (request: Request) => {
+      calls.push(request);
+      const path = requestPath(request);
+      if (path.endsWith("/onboarding/state") && request.method === "GET") {
+        return options.state
+          ? jsonResponse(options.state)
+          : jsonResponse({ detail: "not started" }, 404);
+      }
+      if (path.endsWith("/onboarding/state") && request.method === "PUT") {
+        if (conflictPending) {
+          conflictPending = false;
+          return jsonResponse({ detail: "state changed elsewhere" }, 409);
+        }
+        const body = (await request.clone().json()) as Record<string, unknown>;
+        version += 1;
+        return jsonResponse({
+          ...body,
+          path: "creator",
+          version,
+          completed_at:
+            body.step === "complete" ? "2026-07-19T08:03:00Z" : null,
+          created_at: "2026-07-19T08:00:00Z",
+          updated_at: "2026-07-19T08:01:00Z",
+        });
+      }
+      if (path.endsWith("/company/site-reads") && request.method === "POST") {
+        if (options.readStartError) {
+          return jsonResponse(
+            { detail: options.readStartError.detail },
+            options.readStartError.status,
+          );
+        }
+        return jsonResponse(options.read ?? readyRead, 202);
+      }
+      if (path.includes("/company/site-reads/") && path.endsWith("/confirm")) {
+        return jsonResponse(savedProfile);
+      }
+      if (path.includes("/company/site-reads/") && request.method === "GET") {
+        return jsonResponse(options.read ?? readyRead);
+      }
+      if (path.endsWith("/company") && request.method === "GET") {
+        return options.company
+          ? jsonResponse(options.company)
+          : jsonResponse({ detail: "no company yet" }, 404);
+      }
+      if (path.endsWith("/company") && request.method === "PUT") {
+        if (options.saveError) {
+          return jsonResponse(
+            { detail: options.saveError.detail },
+            options.saveError.status,
+          );
+        }
+        return jsonResponse(savedProfile);
+      }
+      throw new Error(`unstubbed request: ${request.method} ${request.url}`);
+    }),
+  );
+  return calls;
 }
 
 function render(ui: ReactNode) {
@@ -45,176 +177,307 @@ function render(ui: ReactNode) {
   );
 }
 
-const coldstart = {
-  proposal_id: "018f3a1b-0000-7000-8000-0000000000d0",
-  source_url: "https://gradion.com",
-  status: "staged",
-  fields: [
-    {
-      field: "legal_name",
-      value: "Gradion",
-      evidence_snippet: "© 2026 Gradion",
-      source_url: "https://gradion.com",
-      confidence: 0.9,
-    },
-    {
-      field: "registered_address",
-      value: "Munich",
-      evidence_snippet: "Europe Munich",
-      source_url: "https://gradion.com",
-      confidence: 0.8,
-    },
-  ],
-};
-
-async function readBusiness() {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => jsonResponse(coldstart)),
+async function chooseManual() {
+  await userEvent.click(
+    await screen.findByRole("button", { name: /Enter it myself/ }),
   );
-  render(<OnboardingScreen />);
+  await screen.findByLabelText(/Company name/);
+}
+
+async function fillRequired() {
+  await userEvent.type(screen.getByLabelText(/Company name/), "Gradion");
+  await userEvent.type(
+    screen.getByLabelText(/What do you sell\?/),
+    "Revenue software for manufacturers",
+  );
+  await userEvent.type(
+    screen.getByLabelText(/Ideal customer/),
+    "Mid-market manufacturers",
+  );
+}
+
+async function readWebsite() {
+  await userEvent.click(
+    await screen.findByRole("button", { name: /Read my website/ }),
+  );
   await userEvent.type(
     screen.getByRole("textbox", { name: "Website" }),
     "gradion.com",
   );
   await userEvent.click(
-    screen.getByRole("button", { name: /Read my business/ }),
+    screen
+      .getAllByRole("button", { name: /Read my website/ })
+      .at(-1) as HTMLElement,
   );
-  await waitFor(() => expect(screen.getByText("Company name")).toBeTruthy());
+  await screen.findByText("Gradion GmbH");
+  await userEvent.click(
+    screen.getByRole("button", { name: /Review what we found/ }),
+  );
+  await screen.findByLabelText(/Company name/);
 }
 
-describe("cold-start read-back labels", () => {
-  it("renders the human label for every returned field, never the raw key", async () => {
-    await readBusiness();
-    expect(screen.getByText("Company name")).toBeTruthy();
-    expect(screen.getByText("Registered address")).toBeTruthy();
-    expect(screen.queryByText("legal_name")).toBeNull();
-    expect(screen.queryByText("registered_address")).toBeNull();
-  });
+function requestTo(calls: Request[], path: string, method: string) {
+  return calls.find(
+    (request) => request.url.includes(path) && request.method === method,
+  );
+}
 
-  it("carries the same human labels into the editable confirm step", async () => {
-    await readBusiness();
-    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
-    expect(screen.getByLabelText(/Company name/)).toBeTruthy();
-    expect(screen.getByLabelText(/Registered address/)).toBeTruthy();
-  });
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  window.location.hash = "";
 });
 
-describe("confirm step saves the proposal", () => {
-  it("Continue approves the staged proposal with the user's edits and the hand-typed buying center", async () => {
-    await readBusiness();
-    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
-    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
-    const name = screen.getByLabelText(/Company name/);
-    await userEvent.clear(name);
-    await userEvent.type(name, "Gradion GmbH");
-    await userEvent.type(
-      screen.getByLabelText(/Who buys this/),
-      "Head of Operations",
-    );
-    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
-    await waitFor(() => {
-      const approve = fetchMock.mock.calls
-        .map((c) => c[0] as Request)
-        .find((r) => r.url.includes("/approvals/"));
-      expect(approve).toBeTruthy();
-    });
-    const approve = fetchMock.mock.calls
-      .map((c) => c[0] as Request)
-      .find((r) => r.url.includes("/approvals/")) as Request;
-    expect(approve.url).toContain(
-      `/v1/approvals/${coldstart.proposal_id}/approve`,
-    );
-    const body = (await approve.clone().json()) as {
-      edited_payload: {
-        source_url: string;
-        fields: { field: string; value: string; evidence_snippet: string }[];
-      };
-    };
-    expect(body.edited_payload.source_url).toBe(coldstart.source_url);
-    const edited = body.edited_payload.fields.find(
-      (f) => f.field === "legal_name",
-    );
-    // A human-corrected value must not carry the site's snippet as evidence.
-    expect(edited?.value).toBe("Gradion GmbH");
-    expect(edited?.evidence_snippet).toBe("");
-    const buyerField = body.edited_payload.fields.find(
-      (f) => f.field === "buying_center",
-    );
-    expect(buyerField?.value).toBe("Head of Operations");
-  });
-
-  it("an untouched confirm approves as staged, without an edited payload", async () => {
-    await readBusiness();
-    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
-    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
-    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
-    await waitFor(() => {
-      const approve = fetchMock.mock.calls
-        .map((c) => c[0] as Request)
-        .find((r) => r.url.includes("/approvals/"));
-      expect(approve).toBeTruthy();
-    });
-    const approve = fetchMock.mock.calls
-      .map((c) => c[0] as Request)
-      .find((r) => r.url.includes("/approvals/")) as Request;
-    const body = (await approve.clone().json()) as Record<string, unknown>;
-    expect(body.edited_payload).toBeUndefined();
-  });
-
-  it("a failed save stays on the confirm step and names the cause", async () => {
-    await readBusiness();
-    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
-    fetchMock.mockImplementation(async (req: Request) => {
-      if (req.url.includes("/approvals/")) {
-        return jsonResponse({ detail: "approval expired" }, 422);
-      }
-      return jsonResponse(coldstart);
-    });
-    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
-    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
-    expect(await screen.findByText("Couldn't save your profile")).toBeTruthy();
-    expect(screen.getByText("approval expired")).toBeTruthy();
-    // still on step 2 — the fields remain editable
-    expect(screen.getByLabelText(/Company name/)).toBeTruthy();
-  });
+beforeEach(() => {
+  vi.stubGlobal("scrollTo", vi.fn());
 });
 
-describe("connect step is skippable", () => {
-  it("the mailbox-connect step offers a skip beside the connect CTA that exits to home", async () => {
-    await readBusiness();
-    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
-    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Skip this step" }),
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: /Connect my inbox/ }),
-    );
-    const skip = screen.getByRole("button", {
-      name: /Skip for now — I'll connect later/,
-    });
-    await userEvent.click(skip);
-    expect(window.location.hash).toBe("#/home");
-  });
-});
+describe("the optional website path", () => {
+  it("offers an honest choice between website reading and manual entry", async () => {
+    stubApi();
+    render(<OnboardingScreen />);
 
-describe("step-4 honesty about the voice step", () => {
-  it("a skipped voice step gets the neutral-starter copy and the example tag — not 'sounds like you'", async () => {
-    await readBusiness();
-    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
-    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
-    // now on step 3 (voice) — skip it
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Skip this step" }),
-    );
-    expect(screen.getByText(/You skipped the voice step/)).toBeTruthy();
     expect(
-      screen.queryByText(/Drafts will sound like you from day one/),
-    ).toBeNull();
-    expect(screen.getByText("A sample draft")).toBeTruthy();
-    expect(
-      screen.getByText(/Illustrative example — not written from your data/),
+      await screen.findByRole("button", { name: /Read my website/ }),
     ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /Enter it myself/ }),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText(/Company name/)).toBeNull();
+  });
+
+  it("shows grounded findings, evidence and coverage before confirmation", async () => {
+    stubApi();
+    render(<OnboardingScreen />);
+
+    await readWebsite();
+
+    expect(
+      (screen.getByLabelText(/Registered legal name/) as HTMLInputElement)
+        .value,
+    ).toBe("Gradion GmbH");
+    expect(
+      (screen.getByLabelText(/Ideal customer/) as HTMLTextAreaElement).value,
+    ).toBe("Mid-market manufacturers");
+    expect(screen.getByText(/© 2026 Gradion GmbH/)).toBeTruthy();
+    expect(screen.getByText(/founded year/i)).toBeTruthy();
+  });
+
+  it("keeps manual entry available when the read cannot start", async () => {
+    stubApi({
+      readStartError: { detail: "site blocked automated access", status: 422 },
+    });
+    render(<OnboardingScreen />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Read my website/ }),
+    );
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Website" }),
+      "gradion.com",
+    );
+    await userEvent.click(
+      screen
+        .getAllByRole("button", { name: /Read my website/ })
+        .at(-1) as HTMLElement,
+    );
+
+    expect(
+      await screen.findByText("site blocked automated access"),
+    ).toBeTruthy();
+    await userEvent.click(
+      screen.getByRole("button", { name: /Continue manually/ }),
+    );
+    expect(await screen.findByLabelText(/Company name/)).toBeTruthy();
+  });
+
+  it("shows a deferred read as scheduled work and keeps the manual path available", async () => {
+    stubApi({
+      read: {
+        ...readyRead,
+        status: "deferred",
+        phase: null,
+        status_code: "budget_deferred",
+        status_detail:
+          "AI budget reached its current limit. This website read will resume automatically.",
+        next_attempt_at: "2026-08-01T00:00:00Z",
+        profile_fields: [],
+        facts: [],
+      },
+    });
+    render(<OnboardingScreen />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Read my website/ }),
+    );
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Website" }),
+      "gradion.com",
+    );
+    await userEvent.click(
+      screen
+        .getAllByRole("button", { name: /Read my website/ })
+        .at(-1) as HTMLElement,
+    );
+
+    expect(await screen.findByText("Waiting for AI budget")).toBeTruthy();
+    expect(screen.getByText(/Resumes automatically/)).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /Enter it myself/ }),
+    ).toBeTruthy();
+  });
+});
+
+describe("the mandatory company minimum", () => {
+  it("saves a manually entered company without requiring a website", async () => {
+    const calls = stubApi();
+    render(<OnboardingScreen />);
+    await chooseManual();
+    await fillRequired();
+
+    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
+
+    await waitFor(() =>
+      expect(requestTo(calls, "/company", "PUT")).toBeTruthy(),
+    );
+    const body = (await (requestTo(calls, "/company", "PUT") as Request)
+      .clone()
+      .json()) as Record<string, string>;
+    expect(body.display_name).toBe("Gradion");
+    expect(body.offer_summary).toBe("Revenue software for manufacturers");
+    expect(body.icp).toBe("Mid-market manufacturers");
+    expect(calls.some((request) => request.url.includes("site-reads"))).toBe(
+      false,
+    );
+  });
+
+  it("blocks an empty form and names exactly the three required fields", async () => {
+    const calls = stubApi();
+    render(<OnboardingScreen />);
+    await chooseManual();
+
+    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
+
+    expect(
+      screen.getByText(
+        "Fill these in before you continue: Company name, What do you sell?, Ideal customer",
+      ),
+    ).toBeTruthy();
+    expect(requestTo(calls, "/company", "PUT")).toBeUndefined();
+    expect(
+      (screen.getByLabelText(/Registered legal name/) as HTMLInputElement)
+        .required,
+    ).toBe(false);
+  });
+
+  it("treats whitespace as missing and keeps a failed save editable", async () => {
+    stubApi({ saveError: { detail: "database unavailable", status: 503 } });
+    render(<OnboardingScreen />);
+    await chooseManual();
+    await fillRequired();
+    await userEvent.clear(screen.getByLabelText(/What do you sell\?/));
+    await userEvent.type(screen.getByLabelText(/What do you sell\?/), "   ");
+    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
+    expect(
+      screen.getByText("Fill these in before you continue: What do you sell?"),
+    ).toBeTruthy();
+
+    await userEvent.clear(screen.getByLabelText(/What do you sell\?/));
+    await userEvent.type(
+      screen.getByLabelText(/What do you sell\?/),
+      "Revenue software",
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
+    expect(await screen.findByText("Couldn't save your company")).toBeTruthy();
+    expect(screen.getByText("database unavailable")).toBeTruthy();
+  });
+});
+
+describe("server-owned wizard state", () => {
+  it("restores an unfinished company draft at the exact saved step", async () => {
+    stubApi({
+      state: {
+        path: "creator",
+        step: "confirm",
+        source_mode: "manual",
+        website_url: null,
+        site_read_id: null,
+        company_draft: {
+          display_name: "Restored GmbH",
+          offer_summary: "Industrial automation",
+          icp: "Plant operators",
+        },
+        selected_fact_keys: [],
+        voice_skipped: false,
+        connect_skipped: false,
+        version: 4,
+        completed_at: null,
+        created_at: "2026-07-19T08:00:00Z",
+        updated_at: "2026-07-19T08:02:00Z",
+      },
+    });
+    render(<OnboardingScreen />);
+
+    expect(
+      ((await screen.findByLabelText(/Company name/)) as HTMLInputElement)
+        .value,
+    ).toBe("Restored GmbH");
+    expect(
+      (screen.getByLabelText(/Ideal customer/) as HTMLTextAreaElement).value,
+    ).toBe("Plant operators");
+  });
+
+  it("surfaces a stale-version conflict and reloads authoritative state", async () => {
+    stubApi({ conflictOnce: true });
+    render(<OnboardingScreen />);
+    await chooseManual();
+
+    expect((await screen.findByRole("alert")).textContent).toMatch(
+      /changed in another tab/i,
+    );
+  });
+});
+
+describe("later optional steps remain honest", () => {
+  it("shows confirmed understanding without fabricating a draft after voice is skipped", async () => {
+    stubApi();
+    render(<OnboardingScreen />);
+    await chooseManual();
+    await fillRequired();
+    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Skip this step" }),
+    );
+
+    expect(screen.getByText(/You skipped the voice step/)).toBeTruthy();
+    expect(screen.getByText("Margince now understands")).toBeTruthy();
+    expect(screen.queryByText(/Nordwind Robotics/)).toBeNull();
+  });
+
+  it("persists completion before a skipped inbox connection exits", async () => {
+    const calls = stubApi();
+    render(<OnboardingScreen />);
+    await chooseManual();
+    await fillRequired();
+    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Skip this step" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Connect my inbox/ }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Skip for now/ }));
+
+    await waitFor(() => expect(window.location.hash).toBe("#/home"));
+    const stateWrites = calls.filter(
+      (request) =>
+        request.url.includes("/onboarding/state") && request.method === "PUT",
+    );
+    const finalBody = (await stateWrites.at(-1)?.clone().json()) as Record<
+      string,
+      unknown
+    >;
+    expect(finalBody.step).toBe("complete");
+    expect(finalBody.connect_skipped).toBe(true);
   });
 });

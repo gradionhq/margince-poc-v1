@@ -4,6 +4,7 @@
 package ai
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -59,6 +60,24 @@ func TestOpenAICompatSurfacesHTTPErrorWithoutEchoingRequest(t *testing.T) {
 	}
 }
 
+// The generic OpenAI-compatible wire's "model" field is merely echoed back
+// from the request by the server, never independently confirmed — the
+// adapter still decodes it into ServedModel (the router tags it "echo" to
+// keep that distinction honest, rather than treating it as "response").
+func TestOpenAICompatCompleteDecodesEchoedModelField(t *testing.T) {
+	c := &openAICompatClient{
+		http: &http.Client{}, defaultModel: "m",
+		baseURL: newJSONServer(t, `{"model":"mistral-echoed","choices":[{"message":{"content":"ok"}}]}`),
+	}
+	resp, err := c.Complete(context.Background(), model.Request{Messages: []model.Message{{Role: "user", Content: "hi"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.ServedModel != "mistral-echoed" {
+		t.Fatalf("ServedModel not decoded from the echoed model field: %q", resp.ServedModel)
+	}
+}
+
 func TestOpenAICompatEmptyChoicesIsAnError(t *testing.T) {
 	c := &openAICompatClient{http: &http.Client{}, defaultModel: "m", baseURL: newJSONServer(t, `{"choices":[]}`)}
 	if _, err := c.Complete(context.Background(), model.Request{Messages: []model.Message{{Role: "user", Content: "hi"}}}); err == nil || !strings.Contains(err.Error(), "no choices") {
@@ -73,4 +92,39 @@ func newJSONServer(t *testing.T, body string) string {
 	}))
 	t.Cleanup(srv.Close)
 	return srv.URL
+}
+
+// vLLM emits its error at the TOP level ({"object":"error",type,message}), not
+// under OpenAI's nested {"error":{…}} — the operator must still see the
+// message, not a bare "http 400".
+func TestOpenAICompatErrorDecodesVLLMTopLevelShape(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"object":"error","type":"BadRequestError","message":"dimensions is not supported"}`))
+	}))
+	defer srv.Close()
+	client := &openAICompatClient{http: &http.Client{}, baseURL: srv.URL, localOnly: true, defaultModel: "m"}
+	_, err := client.Complete(context.Background(), model.Request{Messages: []model.Message{{Role: "user", Content: "q"}}})
+	if err == nil || !strings.Contains(err.Error(), "dimensions is not supported") || !strings.Contains(err.Error(), "BadRequestError") {
+		t.Fatalf("want vLLM's top-level type+message, got %v", err)
+	}
+}
+
+// The generic wire gives no way to know whether the server honors OpenAI's
+// `dimensions` matryoshka knob, and vLLM 400s on models that aren't MRL-trained
+// — the adapter must not put it on the wire even when the caller pins a width.
+func TestOpenAICompatEmbedOmitsDimensions(t *testing.T) {
+	var body []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body = readBody(t, r.Body)
+		_, _ = w.Write([]byte(`{"data":[{"embedding":[0.1,0.2]}]}`))
+	}))
+	defer srv.Close()
+	client := &openAICompatClient{http: &http.Client{}, baseURL: srv.URL, localOnly: true, defaultModel: "bge-m3"}
+	if _, err := client.Embed(context.Background(), model.EmbedRequest{Inputs: []string{"a"}, Dimensions: 1024}); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(body, []byte(`"dimensions"`)) {
+		t.Fatalf("dimensions must not reach an openai-compatible/vllm server: %s", body)
+	}
 }

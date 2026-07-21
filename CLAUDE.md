@@ -9,21 +9,41 @@ repo (see below); this code is built **from** that spec, contract-first.
 
 ## Where the spec is (read before building)
 
-The normative spec is a separate sibling repo; its key trees (paths
-relative to the spec repo root):
+The normative spec is the sibling repo **`margince-foundation`**; its key trees
+(paths relative to that repo's root):
 
-- **`spec/README.md`** — live status + reading order; the
-  "Continue here" block is the canonical spec-side pickup point.
-- **`spec/contract/`** — implementation source-of-truth:
-  `crm.yaml` (OpenAPI 3.1), `data-model.md`, `events.md`, `interfaces.md` (incl. the
-  §0 error-sentinel registry), `ai-operational-spec.md`, `formulas-and-rules.md`.
-- **`spec/architecture/`** — the build blueprint (`00`–`13`);
-  `11-conventions.md` is the style guide.
-- **`spec/product/build-backlog/`** — the 701-leaf V1 ticket
-  breakdown this repo is working through.
-- **`spec/decisions/`** — `DECISIONS.md` (locked) + `ADR-*.md`;
+- **`specs/README.md`** — what the spec tree is and the three rules that keep it
+  true (nobody edits downstream artifacts; upstream changes arrive only through a
+  spec change; versions pin).
+- **`specs/contract/`** — implementation source-of-truth:
+  `crm.yaml` (OpenAPI 3.1), `interfaces.md` (incl. the §0 error-sentinel registry),
+  `ai-operational-spec.md`, `formulas-and-rules.md`, `data-semantics.md`,
+  `seed-and-fixtures.md`.
+- **`specs/subsystems/`** — the per-capability chapters, one per bounded module
+  (`capture.md`, `people-and-organizations.md`, `deals-and-pipeline.md`, …). This is
+  where a module's behaviour, formulas, DDL pins, and ACs actually live — start here
+  when building a module.
+- **`specs/architecture/`** — the build blueprint, named (not numbered) files:
+  `architecture.md`, `data-model.md`, `code-organization.md`, `event-bus.md`,
+  `api-conventions.md`, `runtime-config.md`, `frontend.md`, …
+- **`specs/use-cases/`** — `UC-*.md`, the end-to-end stories with their acceptance
+  criteria and failure modes.
+- **`specs/quality/`** — `craftsmanship.md` (the anti-tell catalog T1–T11 the
+  Craftsmanship section below cites), `threat-model.md`, `testing.md`,
+  `acceptance-standards.md`, `quality-gates.md`.
+- **`specs/product/`** — `principles.md` (P1–Pn), `journeys.md`, `personas.md`, `scope.md`.
+- **`specs/adr/`** — `DECISIONS.md` (the locked index) + `ADR-*.md`;
   **ADR-0054/A69** mandates this repo's layout (amended 2026-07-04 —
   four `cmd/<role>` binaries + the §9 single-tx exception).
+- **`backlog/`** — at the spec repo **root**, not under `specs/` — the V1 ticket
+  breakdown, one directory per ticketed chapter. Not every chapter is ticketed:
+  `backlog/README.md` carries the ticketable / not-yet-ticketable tables and the
+  dispatch status.
+
+Two traps when reading the spec: `specs/spec/` is a dead stub (a stale
+`__pycache__`) — ignore it. And chapters carry `derives-from:` pins to older paths
+(e.g. `specs/spec/architecture/15-code-craftsmanship.md`); per `specs/README.md`
+rule 3 those resolve in **git history**, not the working tree — the content has moved.
 
 **Contract-first (principle P3): when this code and the spec disagree, the spec wins.**
 Product name **Margince** is locked; older docs say "Gradion CRM" — same product.
@@ -62,6 +82,36 @@ make dev                # full local stack: db + api (:8080) + worker + Vite SPA
 make dev-stop           # stop the stack (add DEV_SLUG=x [DROP=1] for an isolated env)
 ```
 
+### EXACTLY ONE dev stack at a time (non-negotiable)
+
+**Before starting a stack, stop every stack that is already running.** A second
+`make dev` refuses the port, but the far worse case is the one that does NOT
+fail: an `api` binary started from an earlier branch keeps serving :8080 happily
+while Vite hot-reloads the code you just wrote. The SPA then calls endpoints the
+running binary has never heard of, and the app fails in ways that look like your
+bug and are not — an old server is indistinguishable from a broken feature.
+
+```
+make dev-stop           # always FIRST — stops :8080 + :5173
+lsof -ti:8080,5173       # must print nothing before you start
+make dev                 # then, and only then, ONE stack
+```
+
+The api is a compiled binary: **Vite hot-reloads the frontend, the API does
+not.** Any backend change — a new endpoint, a migration, a handler fix — needs
+`make dev-stop && make dev`. Restarting is the only way your Go code reaches the
+browser.
+
+`DEV_SLUG=x` exists for running an isolated stack (its own database and ports)
+*alongside* someone else's — use it rather than killing a colleague's stack, and
+tear it down with `DEV_SLUG=x make dev-stop DROP=1` when done. It is not a
+licence to leave several running: know which stack the browser is talking to.
+
+This repo's working tree is often shared with parallel agent sessions that
+switch branches under you. Before you trust ANY manual test, confirm both:
+`git branch --show-current` is the branch you think it is, and the api on :8080
+was started after your last backend change.
+
 `check-q` (quiet), `check-go` (backend-only), `fe-typecheck`, `fe-uat`
 (change-scoped Storybook render gate), and `infra-up`/`infra-down` round out
 the golden-command set. Full table:
@@ -91,7 +141,12 @@ One installation serves one organization (A107/ADR-0061): the server
 resolves its singleton organization itself — no request selects a tenant:
 `curl http://localhost:8080/v1/me --cookie 'crm_session=…'`. First boot
 bootstraps the organization + admin from `margince.yaml` (`--config` /
-`MARGINCE_CONFIG`); `make dev` writes a demo one automatically.
+`MARGINCE_CONFIG`). `make dev` seeds a gitignored `config/margince.yaml`
+from `config/margince.example.yaml` on first run and then **leaves it**
+(the same create-if-missing / leave-if-exists pattern as
+`config/ai-routing.yaml`), so edits — org details, admin, or the
+`ai.capture_payloads` posture — persist across `make dev-stop` / `make dev`;
+delete it to reset.
 
 Operational surface: `/healthz` (dumb liveness), `/readyz` (dependency
 probes; 503 names the unready dependency), and `/metrics` (Prometheus
@@ -236,7 +291,8 @@ scope clauses in `platform/auth`): object denial →
 
 ## Craftsmanship
 
-Match architecture/15 (anti-tell catalog T1–T11). The rule under every rule:
+Match the spec's `specs/quality/craftsmanship.md` (anti-tell catalog T1–T11). The rule
+under every rule:
 **code that reads best to a human reads best to the next agent that edits it** —
 legibility is the product, not polish.
 

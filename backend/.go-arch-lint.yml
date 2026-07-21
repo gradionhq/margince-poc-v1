@@ -27,6 +27,11 @@ vendors:
   river:  { in: github.com/riverqueue/** }
   minio:  { in: github.com/minio/** }
   fpdf:   { in: github.com/go-pdf/** }
+  # unicode transforms for the PO-PARAM-JW-2 dedupe preprocessing (casefold+unaccent)
+  xtext:  { in: golang.org/x/text/** }
+  # webread's crawl mechanics: the html tokenizer (link harvest from raw HTML)
+  # and publicsuffix (same-registrable-domain fencing) — R2 crawl seam
+  xnet:   { in: golang.org/x/net/** }
 
 components:
   shared:      { in: internal/shared/** }
@@ -65,7 +70,8 @@ deps:
   platform:
     mayDependOn: [platform, contracts, migrations]
     # yaml: the deployment configuration file (deployconfig, A107/ADR-0061).
-    canUse: [pgx, chi, oapi, redis, river, minio, yaml]
+    # xnet: webread's crawl mechanics (html tokenizer + publicsuffix).
+    canUse: [pgx, chi, oapi, redis, river, minio, yaml, xnet]
   # Modules import shared + platform + contracts — NEVER a sibling; every
   # cross-module edge is injected by the composition layer.
   identity:
@@ -91,7 +97,7 @@ deps:
     canUse: [pgx, oapi]
   people:
     mayDependOn: [contracts, platform]
-    canUse: [pgx, oapi]
+    canUse: [pgx, oapi, xtext]
   privacy:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]
@@ -121,7 +127,14 @@ deps:
     canUse: [pgx, oapi]
   compose:
     mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, automation, ai, search, capture, consent, collections, signals, de, customfields, quotas, contracts, platform, migrations]
-    canUse: [pgx, chi, oapi, river]
+    # xtext: the evidence gate normalizes page text to NFC before matching
+    # (evidencematch.go) — Unicode normal forms need golang.org/x/text.
+    # yaml: aicert's corpus loader parses scenario files directly — the
+    # cert harness is a compose subpackage, not a config-loading path
+    # platform already owns, so it needs the same parser platform does.
+    # emersion: the in-memory IMAP server the standing-connect transport
+    # test drives; production compose reaches IMAP only through capture.
+    canUse: [pgx, chi, oapi, river, xtext, yaml, emersion]
   migrations:
     mayDependOn: [platform]
     canUse: [pgx]

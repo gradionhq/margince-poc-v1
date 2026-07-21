@@ -60,6 +60,21 @@ type Request struct {
 	Messages  []Message
 	Tools     []ToolDef
 	MaxTokens int
+	// ContextScopes and ContextFingerprint bind a compose-selected company
+	// context view to this request. They are routing/cache/trace metadata, not
+	// provider wire fields: the compose provider renders the actual values as a
+	// delimited user-data message, while the AI router uses these fields to make
+	// stale-context cache hits impossible and the call trace inspectable.
+	ContextScopes      []string
+	ContextFingerprint string
+	// ContextBytes and ContextTokensEstimate describe only the final delimited
+	// company-context block. They are trace metadata, never provider inputs.
+	ContextBytes          int
+	ContextTokensEstimate int
+	// IncludeCompanyContext opts into a task policy explicitly marked
+	// conditional. Compose consumes and clears the flag before routing; it
+	// cannot select scopes or bypass a policy-none declaration.
+	IncludeCompanyContext bool
 	// ResponseSchema, when non-nil, is a JSON Schema the completion must
 	// conform to. Providers with schema-constrained decoding enforce it at
 	// GENERATION so a weak model cannot emit the wrong shape — Ollama via
@@ -102,17 +117,41 @@ type ToolDef struct {
 }
 
 type Response struct {
-	Text         string
-	InputTokens  int
+	Text string
+	// InputTokens is the TOTAL prompt tokens billed, cache reads AND cache
+	// writes INCLUDED — every adapter must normalize to this. OpenAI and
+	// Gemini already report an inclusive total on the wire; Anthropic reports
+	// input_tokens EXCLUSIVE of both cache buckets, so its adapter adds
+	// CachedTokens and CacheWriteTokens back in. This keeps InputTokens a
+	// true prompt-cost figure on every provider (a pricer values it as one
+	// number, never re-deriving it from the itemized buckets below).
+	InputTokens int
+	// OutputTokens is the TOTAL billed output, reasoning/thinking tokens
+	// INCLUDED — every adapter must normalize to this (Gemini reports them
+	// separately; its adapter adds them back), so tokens_in+tokens_out is
+	// true spend on every provider and the budget bands can't be leaked past
+	// by thinking-heavy calls.
 	OutputTokens int
 	// CachedTokens / ReasoningTokens are the itemized usage a native provider
-	// returns (prompt-cache reads, reasoning/thinking tokens). Flat, alongside
-	// InputTokens/OutputTokens; an adapter with no such figure leaves them 0.
+	// returns (prompt-cache reads, reasoning/thinking tokens). ReasoningTokens
+	// is a breakdown WITHIN OutputTokens, never additive to it; an adapter
+	// with no such figure leaves them 0.
 	CachedTokens    int
 	ReasoningTokens int
+	// CacheWriteTokens is cache-creation (write) tokens, disjoint from
+	// CachedTokens (which is the cache-READ subset) — both are already
+	// counted inside InputTokens above, so this is a breakdown, never
+	// additive on its own. 0 when the provider reports none.
+	CacheWriteTokens int
 	// ProviderMetadata carries vendor-only outputs namespaced by provider key
 	// (e.g. {"openai":{"response_id":"…"}} for session logging).
 	ProviderMetadata map[string]json.RawMessage
+	// ServedModel is the provider-reported identity of the model that actually
+	// answered — read off the wire response, never fabricated by an adapter. It
+	// is empty when the provider reports none (the routing layer then falls
+	// back to the configured tier binding, which may differ from what actually
+	// served if the vendor silently substitutes a model).
+	ServedModel string
 }
 
 // TokenStream delivers incremental completion tokens; Close releases the

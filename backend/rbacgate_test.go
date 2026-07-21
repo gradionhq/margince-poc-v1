@@ -61,6 +61,8 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/approvals:MintApprovalToken":    "signs the approval JWS for a decision already admitted by Decide; crypto, not admission",
 	"internal/modules/approvals:VerifyApprovalToken":  "verifies the approval JWS presented back; the token is the authority being checked",
 	"internal/modules/approvals:Redeem":               "redeems a verified approval token: the token (minted for an admitted decision) is the authority",
+	"internal/modules/approvals:RedeemInTx":           "transactional form of Redeem: the already-admitted approval token is the authority; the caller supplies only the commit boundary",
+	"internal/modules/approvals:RedeemAndApply":       "atomic approval-effect boundary: Redeem performs the authority checks and the callback runs only inside that same transaction",
 
 	// Engine/system seams that never carry a human principal: the
 	// worker loop and cross-module effects run as the system actor, and
@@ -72,9 +74,15 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/agents/runner:EnqueueJob":              "agent-runner persistence driven by the worker loop under the system principal; admission happened at the tool gate that enqueued the run",
 	"internal/modules/agents/runner:ClaimDueJobs":            "agent-runner persistence driven by the worker loop under the system principal; admission happened at the tool gate that enqueued the run",
 	"internal/modules/agents/runner:FinishJob":               "agent-runner persistence driven by the worker loop under the system principal; admission happened at the tool gate that enqueued the run",
+	"internal/modules/people:BeginSiteRead":                  "worker-loop status transition (queued→running) under the job's workspace context, not a human principal; the human's authority was checked at StartSiteRead and RLS scopes the guarded CAS write",
+	"internal/modules/people:DeferSiteRead":                  "worker-loop scheduling transition (running→deferred) under the job's workspace context; the admitted durable job supplies the retry boundary and RLS scopes the guarded CAS write",
+	"internal/modules/people:FinishSiteRead":                 "worker-loop status transition (running→terminal) under the job's workspace context, not a human principal; the human's authority was checked at StartSiteRead and RLS scopes the guarded CAS write",
+	"internal/modules/people:UpdateSiteReadProgress":         "worker-loop progress hint on a still-running dossier, same seam as Begin/FinishSiteRead: no human principal, StartSiteRead held the gate, RLS scopes the guarded write",
+	"internal/modules/people:UpdateSiteReadDraft":            "worker-loop grounded-draft update on a still-running dossier, same seam as progress: admission happened at start and RLS scopes the versioned operational write",
 	"internal/modules/approvals:WithEffect":                  "composition-root wiring (registers the confirm effect); no data access",
 	"internal/modules/activities:WithBlobstore":              "composition-root wiring (injects the object store the attachment handlers use); no data access",
 	"internal/modules/approvals:Stage":                       "staging is invoked BY an admitted mutation (the 🟡 path of a gated store call); the staging row records that actor",
+	"internal/modules/approvals:StageInTx":                   "transactional form of Stage used by an admitted compose orchestration; it records the same actor and differs only in commit ownership",
 	"internal/modules/approvals:HasPendingFor":               "existence probe consumed by gated sibling flows (the sweep's duplicate check); returns no record data",
 	"internal/modules/approvals:HasPendingKind":              "existence probe consumed by gated sibling flows (the sweep's duplicate check); returns no record data",
 	"internal/modules/deals:SeedDefaultsTx":                  "workspace-provisioning seed invoked by the boot bootstrap under the system principal (the compose-injected edge)",
@@ -84,6 +92,10 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/customfields:ActiveColumns":            "called from inside a record store's own gated Get/List/Create/Update, whose object-level RBAC already ran; the column names/types it answers are workspace-visible schema (the same shape custom_field:read already exposes), not row data a second gate would need to narrow",
 	"internal/modules/people:WithFieldCatalog":               "composition-root wiring (injects the fieldcatalog reader the cf_* read/write paths use); no data access",
 	"internal/modules/deals:WithFieldCatalog":                "composition-root wiring (injects the fieldcatalog reader the cf_* read/write paths use); no data access",
+	"internal/modules/activities:UnlabeledCaptureEmails":     "classify-backlog read driven by the worker sweep under the workspace GUC, no human principal (ADR-0063); the rows were admitted at capture time and the labels route attention only",
+	"internal/modules/activities:SetCaptureLabel":            "classify verdict write driven by the worker sweep under the workspace GUC; a CAS on capture_label IS NULL that touches nothing but the two label columns — attention routing, not a record mutation (§3.2)",
+	"internal/modules/people:SignatureCandidates":            "enrich-backlog read driven by the worker sweep under the workspace GUC, no human principal (ADR-0063 §2.9); reads only connector-created rows still missing both fields",
+	"internal/modules/people:ApplySignatureFields":           "evidence-gated fill-only-empty write driven by the worker sweep under the workspace GUC (§2.9): NULL-predicate CAS on title, first-phone-only insert, PO-DDL-12 evidence rows — a human's answer is structurally untouchable (GATE-AI-4)",
 }
 
 // gateFnInfo is what the gate needs to know about one function name in a

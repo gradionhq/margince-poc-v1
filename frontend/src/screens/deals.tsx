@@ -34,6 +34,7 @@ import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
 import { problemMessage, QueryGate, throwProblem, useMe } from "./common";
+import { TimelineActions } from "./compose";
 import { RecordContextPanel } from "./context";
 import type { CreateField } from "./create";
 import { CreateAction } from "./create";
@@ -1427,7 +1428,13 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
               }
               timeline={
                 timelineQuery.isSuccess
-                  ? activityTimeline(timelineQuery.data.data)
+                  ? activityTimeline(timelineQuery.data.data, (activity) => (
+                      <TimelineActions
+                        activity={activity}
+                        entityType="deal"
+                        entityId={id}
+                      />
+                    ))
                   : []
               }
             >

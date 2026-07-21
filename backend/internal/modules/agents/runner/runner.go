@@ -31,11 +31,19 @@ type Invoker interface {
 	Specs() []mcp.ToolSpec
 }
 
+// Meta names the model identity a completion was served with — the
+// RUNNER-AC-4 replay evidence the trace step records.
+type Meta struct {
+	ModelID string
+	Tier    string
+}
+
 // Brain is one completion call. Compose adapts ai.Router into this so
 // the runner rides tiered routing, budget bands and secret-stripping
-// without importing a sibling module.
+// without importing a sibling module; Meta carries the served model
+// identity so the trace records what answered without re-calling it.
 type Brain interface {
-	Complete(ctx context.Context, req model.Request) (model.Response, error)
+	Complete(ctx context.Context, req model.Request) (model.Response, Meta, error)
 }
 
 // Budget bounds one run (architecture/07 §4). Both are HARD per-run
@@ -103,12 +111,19 @@ type Result struct {
 	OutputTokens  int
 }
 
-// Step is one trace entry: proposal → admission outcome → observation.
-// The ordered list is the §6 replayable record of what the run did.
+// Step is one trace entry: proposal → admission outcome → observation,
+// plus the model identity and per-step spend the run was served with. The
+// ordered list is the §6 replayable record — RUNNER-AC-4 requires it to
+// reconstruct model identity WITHOUT re-calling the model.
 type Step struct {
 	Tool        string
 	Args        json.RawMessage
 	Observation string
+	ModelID     string
+	Tier        string
+	TokensIn    int
+	TokensOut   int
+	Admission   string // "executed" | "refused" | "staged" | "rejected"
 }
 
 // Pending snapshots a run suspended on a 🟡 staging: the approval to
@@ -157,8 +172,12 @@ func (r *Runner) Resume(ctx context.Context, job Job, dec Decision) (Result, err
 
 	if !dec.Approved {
 		win.observe(dec.Pending.Tool, "the human REJECTED this proposed action; re-plan without it")
+		// A rejection is a human action, not a model call: ModelID/Tier stay
+		// empty and tokens zero — the trace records honestly that no model
+		// served this step.
 		carried.Steps = append(carried.Steps, Step{
 			Tool: dec.Pending.Tool, Args: dec.Pending.Args, Observation: "rejected by human",
+			Admission: "rejected",
 		})
 		return r.loop(ctx, job, win, carried)
 	}
@@ -169,14 +188,25 @@ func (r *Runner) Resume(ctx context.Context, job Job, dec Decision) (Result, err
 	}
 	out, err := r.tools.Invoke(ctx, dec.Pending.Tool, args)
 	observation := string(out)
+	admission := "executed"
 	if err != nil {
 		// Version skew, expiry, or any other redemption failure is an
 		// observation, not a crash: the model re-plans against current
-		// state (a re-staging is a fresh human decision).
+		// state (a re-staging is a fresh human decision). The step records
+		// "refused" — replay must never claim a mutation that the gate did
+		// not apply.
 		observation = "approved action could not be applied: " + err.Error()
+		admission = "refused"
 	}
 	win.observe(dec.Pending.Tool, observation)
-	carried.Steps = append(carried.Steps, Step{Tool: dec.Pending.Tool, Args: dec.Pending.Args, Observation: truncate(observation)})
+	// The approved staged call redeems here with no fresh model completion —
+	// the model identity was recorded on the step that proposed it before
+	// suspension, so this redemption step leaves ModelID/Tier empty and
+	// tokens zero rather than re-attributing a call that never happened.
+	carried.Steps = append(carried.Steps, Step{
+		Tool: dec.Pending.Tool, Args: dec.Pending.Args, Observation: truncate(observation),
+		Admission: admission,
+	})
 	return r.loop(ctx, job, win, carried)
 }
 
@@ -202,7 +232,7 @@ func (r *Runner) loop(ctx context.Context, job Job, win *window, acc Result) (Re
 		}
 		acc.StepsUsed++
 
-		resp, err := r.brain.Complete(ctx, win.asRequest(budget.MaxOutputTokens-acc.OutputTokens))
+		resp, meta, err := r.brain.Complete(ctx, win.asRequest(budget.MaxOutputTokens-acc.OutputTokens))
 		if err != nil {
 			return r.degrade(acc, "model call failed: "+err.Error()), nil
 		}
@@ -232,7 +262,11 @@ func (r *Runner) loop(ctx context.Context, job Job, win *window, acc Result) (Re
 			// 🟡 mid-loop: the proposal is durably staged; suspend, never
 			// block (§5). The snapshot makes the run resumable.
 			acc.Outcome = OutcomeAwaitingApproval
-			acc.Steps = append(acc.Steps, Step{Tool: step.Tool, Args: step.Args, Observation: "staged for approval " + staged.ApprovalID.String()})
+			acc.Steps = append(acc.Steps, Step{
+				Tool: step.Tool, Args: step.Args, Observation: "staged for approval " + staged.ApprovalID.String(),
+				ModelID: meta.ModelID, Tier: meta.Tier, TokensIn: resp.InputTokens, TokensOut: resp.OutputTokens,
+				Admission: "staged",
+			})
 			acc.Pending = &Pending{
 				ApprovalID:   staged.ApprovalID,
 				Tool:         step.Tool,
@@ -249,10 +283,18 @@ func (r *Runner) loop(ctx context.Context, job Job, win *window, acc Result) (Re
 			// the policy.
 			observation := "tool call refused: " + err.Error()
 			win.observe(step.Tool, observation)
-			acc.Steps = append(acc.Steps, Step{Tool: step.Tool, Args: step.Args, Observation: truncate(observation)})
+			acc.Steps = append(acc.Steps, Step{
+				Tool: step.Tool, Args: step.Args, Observation: truncate(observation),
+				ModelID: meta.ModelID, Tier: meta.Tier, TokensIn: resp.InputTokens, TokensOut: resp.OutputTokens,
+				Admission: "refused",
+			})
 		default:
 			win.observe(step.Tool, string(out))
-			acc.Steps = append(acc.Steps, Step{Tool: step.Tool, Args: step.Args, Observation: truncate(string(out))})
+			acc.Steps = append(acc.Steps, Step{
+				Tool: step.Tool, Args: step.Args, Observation: truncate(string(out)),
+				ModelID: meta.ModelID, Tier: meta.Tier, TokensIn: resp.InputTokens, TokensOut: resp.OutputTokens,
+				Admission: "executed",
+			})
 		}
 	}
 }

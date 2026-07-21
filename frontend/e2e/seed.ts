@@ -332,6 +332,31 @@ export async function mockApi(target: Page): Promise<void> {
         teams: [],
       });
     }
+    if (path === "/company/context/capabilities") {
+      return json({
+        rollout: "onboarding",
+        read_enabled: true,
+        tasks_enabled: true,
+        onboarding_enabled: true,
+      });
+    }
+    // The installation's own company. A described installation is the state
+    // every AC below assumes: the shell gates on this, and a 404 would (rightly)
+    // redirect them all into onboarding. Onboarding's own AC reaches the wizard
+    // by route regardless. Shaped as the contract's CompanyProfile — the generic
+    // list fallthrough is not a company, and the form would read display_name
+    // off it and crash.
+    if (path === "/company") {
+      return json({
+        organization_id: "o-self",
+        display_name: "Brandt Automotive GmbH",
+        legal_name: "Brandt Automotive GmbH",
+        registered_address: "Werkstraße 4, 70435 Stuttgart",
+        register_vat: "DE811234567",
+        industry: "Automotive",
+        website: "brandt.example",
+      });
+    }
     if (path === "/people" && method === "GET") {
       return json(page([anna]));
     }
@@ -422,6 +447,9 @@ export async function mockApi(target: Page): Promise<void> {
     }
     if (path === "/people/p-anna") {
       return json(anna);
+    }
+    if (path === "/people/p-anna/consent" && method === "GET") {
+      return json({ state: [], events: [] });
     }
     if (path === "/organizations" && method === "GET") {
       return json(page([brandt]));
@@ -680,6 +708,34 @@ export async function mockApi(target: Page): Promise<void> {
     // 360 open or the tool console doesn't crash on an undefined field.
     if (path.includes("/context")) {
       return json({ anchor: { type: "person", id: "x" }, sections: [] });
+    }
+    // The home digest card (CAP-WIRE-6): a MorningDigest, not the list
+    // envelope — the generic fallthrough below would 200 a page shape the
+    // card destructures and crashes on.
+    if (path === "/digest") {
+      return json({
+        date: "2026-07-13",
+        generated_at: "2026-07-13T05:00:00Z",
+        capture: {
+          messages_synced: 24,
+          activities_created: 18,
+          people_created: 3,
+          organizations_created: 1,
+        },
+        review: {
+          dedupe_open: 2,
+          approvals_pending: 1,
+          classify: { commitments: 4, meetings: 2, noise: 9 },
+        },
+        connectors: [
+          {
+            provider: "gmail",
+            status: "connected",
+            last_synced_at: "2026-07-13T04:55:00Z",
+            last_sync_error_class: null,
+          },
+        ],
+      });
     }
     if (path === "/agent-tools") {
       return json({

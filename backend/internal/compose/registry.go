@@ -29,10 +29,17 @@ import (
 // seam, which identity implements — injected here so platform/auth never
 // imports a module (ADR-0054 §5).
 func NewRegistry(pool *pgxpool.Pool) *agents.Registry {
-	return newRegistry(pool, auth.NewGate(identity.NewService(pool)))
+	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil)
 }
 
-func newRegistry(pool *pgxpool.Pool, gate *auth.Gate) *agents.Registry {
+func registryWithDraftBrain(pool *pgxpool.Pool, brain completer) *agents.Registry {
+	if brain == nil {
+		return NewRegistry(pool)
+	}
+	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), newReplyDrafter(pool, brain, nil))
+}
+
+func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.EmailDrafter) *agents.Registry {
 	provider := NewProvider(pool)
 	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate)
 	agents.RegisterCoreTools(registry, provider, provider, provider, fieldOwnership{pool: pool})
@@ -46,6 +53,7 @@ func newRegistry(pool *pgxpool.Pool, gate *auth.Gate) *agents.Registry {
 	agents.RegisterCommsTools(registry, commsAdapter{
 		store: activities.NewStore(pool),
 		gate:  consent.NewGate(consent.NewStore(pool)),
+		draft: drafter,
 	})
 	return registry
 }

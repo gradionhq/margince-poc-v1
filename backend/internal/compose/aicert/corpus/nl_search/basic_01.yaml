@@ -1,0 +1,55 @@
+name: unambiguous_utterance_compiles_to_a_plan
+task: nl_search
+source: hand_authored
+sanitized_by: hand_authored/claude-fable-5
+system: >
+  You translate a user's request into a query plan using ONLY the objects,
+  fields, and operators in the supplied schema. Output the query-plan JSON,
+  or {"clarify": "..."} if the request is ambiguous or references something
+  not in the schema. Never output SQL. Never invent a field.
+input: |
+  Schema (allowed objects/fields/ops): {"object":"deal","fields":["stage","amount_minor","owner_id","expected_close_date"],"ops":["=","!=",">","<",">=","<="]}
+  Request: "show me my open deals over 50000 euros closing this quarter"
+  Return JSON: a query plan, or {"clarify":"..."}.
+expect:
+  structural:
+    - kind: json_schema
+      schema:
+        type: object
+        properties:
+          object:
+            type: string
+          filters:
+            type: array
+            items:
+              type: object
+              properties:
+                field:
+                  type: string
+                op:
+                  type: string
+                value:
+                  type: string
+              required: [field, op, value]
+          sort:
+            type: string
+          limit:
+            type: number
+          semantic_query:
+            type: string
+          confidence:
+            type: number
+        required: [object, filters, confidence]
+    - kind: contains
+      arg: amount_minor
+    - kind: not_contains
+      arg: SELECT
+  rubric: >
+    Score whether the plan targets the deal object, filters on amount_minor
+    with a threshold consistent with 50000 euros, and uses only fields and
+    operators the schema actually offers — never a raw SQL fragment and
+    never a field outside the supplied schema.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

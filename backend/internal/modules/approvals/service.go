@@ -41,6 +41,11 @@ type Service struct {
 	effects map[string]ApprovedEffect
 }
 
+const (
+	approvalStatusApproved = "approved"
+	approvalKeyKind        = "kind"
+)
+
 // ApprovedEffect executes what an approved staging of its kind proposed.
 type ApprovedEffect func(ctx context.Context, approvalID ids.ApprovalID, proposedChange json.RawMessage, diffHash string) error
 

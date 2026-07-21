@@ -1,0 +1,28 @@
+name: ambiguous_utterance_asks_to_clarify
+task: nl_search
+source: hand_authored
+sanitized_by: hand_authored/claude-fable-5
+system: >
+  You translate a user's request into a query plan using ONLY the objects,
+  fields, and operators in the supplied schema. Output the query-plan JSON,
+  or {"clarify": "..."} if the request is ambiguous or references something
+  not in the schema. Never output SQL. Never invent a field.
+input: |
+  Schema (allowed objects/fields/ops): {"object":"deal","fields":["stage","amount_minor","owner_id","expected_close_date"],"ops":["=","!=",">","<",">=","<="]}
+  Request: "show me the important ones"
+  Return JSON: a query plan, or {"clarify":"..."}.
+expect:
+  structural:
+    - kind: contains
+      arg: clarify
+    - kind: not_contains
+      arg: SELECT
+  rubric: >
+    "The important ones" names no field or threshold the schema defines, so
+    the only honest answer is {"clarify":"..."} asking what "important"
+    means — never a confidently wrong guess at a filter. Score high only if
+    the reply clarifies rather than fabricating a plan.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

@@ -55,6 +55,7 @@ export function consumeAuthExitNotice(): "signed-out" | null {
 export function useMe() {
   return useQuery({
     queryKey: ["me"],
+    staleTime: 5 * 60_000,
     retry: false,
     queryFn: async () => {
       const result = await api.GET("/me").catch(() => null);
@@ -325,15 +326,34 @@ export function isAlreadyDecided(problem: unknown): boolean {
   return record.code === "already_decided";
 }
 
+// A 409 whose code names the consent suppression gate: the send's recipients
+// have no active `granted` person_consent for the purpose it falls under
+// (default-deny per purpose, A22/ADR-0011). Distinguished from RBAC (403) and
+// validation (422) so the composer can point the user at the consent surface
+// rather than showing a raw server detail.
+export function isConsentNotGranted(problem: unknown): boolean {
+  if (!problem || typeof problem !== "object") return false;
+  const record = problem as Record<string, unknown>;
+  return record.code === "consent_not_granted";
+}
+
 // The cold-start / enrichment field vocabulary (compose/enrichextract.go)
 // rendered as human labels; an unmapped field falls back to its key with the
 // underscores spaced out — readable, never raw snake_case.
 const COLD_FIELD_LABELS: Record<string, MessageKey> = {
+  // display_name is the company form's own field, not one a read-back can
+  // ground — it shares this map so both surfaces name it the same way.
+  display_name: "ob.field.display_name",
+  offer_summary: "ob.field.offer_summary",
   icp: "ob.field.icp",
   buying_center: "ob.field.buying_center",
   value_proposition: "ob.field.value_proposition",
   usp: "ob.field.usp",
+  customer_pains: "ob.field.customer_pains",
+  desired_outcomes: "ob.field.desired_outcomes",
   buying_intents: "ob.field.buying_intents",
+  common_objections: "ob.field.common_objections",
+  sales_motion: "ob.field.sales_motion",
   legal_name: "ob.field.legal_name",
   registered_address: "ob.field.registered_address",
   register_vat: "ob.field.register_vat",

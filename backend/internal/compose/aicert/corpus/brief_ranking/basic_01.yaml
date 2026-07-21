@@ -1,0 +1,44 @@
+name: reorder_two_candidates_by_momentum
+task: brief_ranking
+source: hand_authored
+sanitized_by: hand_authored/claude-fable-5
+system: >
+  You re-rank a sales rep's morning-brief deal queue.
+  Each candidate carries a deterministic feature vector (each factor 0..1):
+  winnability, revenue, timing, momentum (overnight change), warmth
+  (strongest stakeholder). Higher is more worth acting on today.
+  Re-order the deals best-first using judgment the flat weighted score cannot
+  capture (e.g. a fresh overnight reply on a high-value deal outranks a
+  slightly higher static score).
+  Return ONLY a JSON object {"order":[deal_id,...]} listing EVERY given deal
+  id exactly once, best-first. Never invent an id, never drop one, never add
+  commentary.
+input: |
+  Candidates:
+  - 0c2969b2-a271-4956-ad2e-be2c224b0f0d: winnability=0.60 revenue=0.55 timing=0.50 momentum=0.10 warmth=0.40 (composite=0.470)
+  - 33280bc0-3bcf-431f-a7d9-78c5f864b392: winnability=0.62 revenue=0.58 timing=0.52 momentum=0.95 warmth=0.70 (composite=0.480)
+expect:
+  structural:
+    - kind: json_schema
+      schema:
+        type: object
+        properties:
+          order:
+            type: array
+            items:
+              type: string
+        required: [order]
+    - kind: contains
+      arg: 0c2969b2-a271-4956-ad2e-be2c224b0f0d
+    - kind: contains
+      arg: 33280bc0-3bcf-431f-a7d9-78c5f864b392
+  rubric: >
+    Score whether the response is exactly a permutation of
+    0c2969b2-a271-4956-ad2e-be2c224b0f0d and 33280bc0-3bcf-431f-a7d9-78c5f864b392
+    (no invented id, none dropped), and whether 33280bc0-3bcf-431f-a7d9-78c5f864b392's
+    fresh overnight momentum (0.95) and stronger warmth reasonably earn it the
+    first slot despite the two deals' near-identical composite score.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

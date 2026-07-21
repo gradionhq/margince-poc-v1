@@ -33,6 +33,20 @@ import (
 // obligation (formulas-and-rules §3 — "recomputed on each captured
 // signal") and fires always.
 func NewWorkflowEngine(pool *pgxpool.Pool) *automation.WorkflowEngine {
+	return workflowEngineWithDrafter(pool, nil)
+}
+
+// NewWorkflowEngineWithReplyDraft adds the routed reply lane to draft_email
+// actions while preserving NewWorkflowEngine's deterministic default.
+func NewWorkflowEngineWithReplyDraft(pool *pgxpool.Pool, brain completer) *automation.WorkflowEngine {
+	if brain == nil {
+		return NewWorkflowEngine(pool)
+	}
+	drafter := newReplyDrafter(pool, brain, nil)
+	return workflowEngineWithDrafter(pool, drafter)
+}
+
+func workflowEngineWithDrafter(pool *pgxpool.Pool, drafter activities.EmailDrafter) *automation.WorkflowEngine {
 	// identity.Service implements shared/ports/authz.Resolver — the
 	// match-time owner-permission gate's (gate.go) authority source. The
 	// engine depends only on the port; this is the one place a concrete
@@ -46,6 +60,7 @@ func NewWorkflowEngine(pool *pgxpool.Pool) *automation.WorkflowEngine {
 		Comms: commsAdapter{
 			store: activities.NewStore(pool),
 			gate:  consent.NewGate(consent.NewStore(pool)),
+			draft: drafter,
 		},
 		// Notifier stays nil: this repo wires no notification transport
 		// (no notification table, the inbox is approvals-only) — a

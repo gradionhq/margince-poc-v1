@@ -1,4 +1,9 @@
-import { type UseMutationResult, useMutation } from "@tanstack/react-query";
+import {
+  type UseMutationResult,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   ArrowLeft,
   ArrowRight,
@@ -7,7 +12,6 @@ import {
   Check,
   CheckCircle2,
   Circle,
-  Database,
   FileText,
   GitBranch,
   Info,
@@ -15,7 +19,6 @@ import {
   Mail,
   MessageCircle,
   Mic,
-  Pencil,
   RotateCcw,
   Share2,
   ShieldCheck,
@@ -34,8 +37,9 @@ import {
   useState,
 } from "react";
 import { api } from "../api/client";
-import { navigate } from "../app/router";
-import { Button } from "../design-system/atoms";
+import type { components } from "../api/schema";
+import { navigate, useRoute } from "../app/router";
+import { Button, TextInput } from "../design-system/atoms";
 import {
   ConfidenceMeter,
   EvidenceChip,
@@ -43,17 +47,16 @@ import {
 } from "../design-system/trust";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
+import { Wordmark } from "./auth";
+import { BackfillPanel } from "./backfill";
 import { coldFieldLabel, problemMessage } from "./common";
+import {
+  ManualCompanySetup,
+  useCompanyContextCapabilities,
+} from "./company-context";
 import { confidenceLevel } from "./inbox";
+import { ReadCompanyStep } from "./onboarding-read";
 import "./onboarding.css";
-
-// Onboarding funnel (B-EP09.9) — a faithful build of the design source of truth
-// (spec design/mockups/index.html) against the Ledger-Green tokens. Five steps,
-// rail-less: Read · Confirm · Voice · Results · Connect. FD-13: mailbox connect
-// is the LAST step (value before permission). Step 1 drives the real /coldstart
-// read-back (every field carries evidence + confidence or it wasn't returned —
-// a failed read renders the honest "couldn't ground it" state, never a guess).
-// Step 5 runs a REAL IMAP capture through the backend connector.
 
 const STEPS = [
   { key: "read", label: "ob.read" },
@@ -65,20 +68,169 @@ const STEPS = [
 
 const VOICE_TARGET = 30000;
 
-type ColdField = {
-  field: string;
-  value: string;
-  evidence_snippet: string;
-  source_url: string;
-  confidence: number;
+type CompanyProfile = components["schemas"]["CompanyProfile"];
+type ColdField = components["schemas"]["ColdStartField"];
+type ColdReadback = components["schemas"]["ColdStartReadback"];
+type CompanySiteRead = components["schemas"]["CompanySiteRead"];
+type OnboardingState = components["schemas"]["OnboardingState"];
+type PutOnboardingState = components["schemas"]["PutOnboardingStateRequest"];
+type SourceMode = "website" | "manual";
+
+// The company form, grouped as it reads: who the company IS, then how it sells.
+// Identity fields are one-liners; positioning fields are prose (textareas).
+// website is absent here because it renders as the read bar at the top of the
+// group — one control for one value, not two.
+const IDENTITY_FIELDS = [
+  "display_name",
+  "legal_name",
+  "register_vat",
+  "registered_address",
+  "industry",
+] as const;
+const POSITIONING_FIELDS = [
+  "offer_summary",
+  "icp",
+  "value_proposition",
+  "usp",
+  "customer_pains",
+  "desired_outcomes",
+  "buying_center",
+  "buying_intents",
+  "common_objections",
+  "sales_motion",
+  "history",
+] as const;
+
+type CompanyFieldName =
+  | "website"
+  | (typeof IDENTITY_FIELDS)[number]
+  | (typeof POSITIONING_FIELDS)[number];
+type CompanyForm = Record<CompanyFieldName, string>;
+
+// The universal semantic minimum is enough to tell later product calls who the
+// company is, what it sells, and to whom. Legal and registry details stay
+// optional until a workflow with a real invoicing or jurisdictional need asks.
+const REQUIRED_FIELDS = [
+  "display_name",
+  "offer_summary",
+  "icp",
+] as const satisfies readonly CompanyFieldName[];
+
+// The read-back can only ground the contract's ColdStartField names —
+// website is always the human's to give.
+type Grounded = Partial<Record<ColdField["field"], ColdField>>;
+
+// One state object, because the three parts move together: typing a value
+// drops its site grounding (the value is the human's now) and marks it typed.
+type CompanyDraft = {
+  values: CompanyForm;
+  grounded: Grounded;
+  edited: ReadonlySet<CompanyFieldName>;
 };
-// The staged proposal IS the approval row (ADR-0036), so proposal_id is what
-// the confirm step approves.
-type ColdStart = {
-  proposal_id: string;
-  source_url: string;
-  fields: ColdField[];
+
+const EMPTY_FORM: CompanyForm = {
+  display_name: "",
+  website: "",
+  legal_name: "",
+  register_vat: "",
+  registered_address: "",
+  industry: "",
+  offer_summary: "",
+  icp: "",
+  value_proposition: "",
+  usp: "",
+  customer_pains: "",
+  desired_outcomes: "",
+  buying_center: "",
+  buying_intents: "",
+  common_objections: "",
+  sales_motion: "",
+  history: "",
 };
+
+const EMPTY_DRAFT: CompanyDraft = {
+  values: EMPTY_FORM,
+  grounded: {},
+  edited: new Set(),
+};
+
+function orEmpty(value: string | null | undefined): string {
+  return value ?? "";
+}
+
+function formFromProfile(p: CompanyProfile): CompanyForm {
+  return {
+    display_name: p.display_name,
+    website: orEmpty(p.website),
+    legal_name: orEmpty(p.legal_name),
+    register_vat: orEmpty(p.register_vat),
+    registered_address: orEmpty(p.registered_address),
+    industry: orEmpty(p.industry),
+    offer_summary: orEmpty(p.offer_summary),
+    icp: orEmpty(p.icp),
+    value_proposition: orEmpty(p.value_proposition),
+    usp: orEmpty(p.usp),
+    customer_pains: orEmpty(p.customer_pains),
+    desired_outcomes: orEmpty(p.desired_outcomes),
+    buying_center: orEmpty(p.buying_center),
+    buying_intents: orEmpty(p.buying_intents),
+    common_objections: orEmpty(p.common_objections),
+    sales_motion: orEmpty(p.sales_motion),
+    history: orEmpty(p.history),
+  };
+}
+
+// useCompany reads the installation's own company, or null when it has not
+// saved one yet: GET /company 404s until a human does, and that 404 IS the
+// onboarding signal — there is no separate "onboarded" flag that could drift
+// from the records it claims to describe. The app shell's gate and this form
+// share it, so one cache entry answers both and they cannot disagree.
+export function useCompany(enabled: boolean) {
+  return useQuery({
+    queryKey: ["company"],
+    enabled,
+    queryFn: async (): Promise<CompanyProfile | null> => {
+      const { data, error, response } = await api.GET("/company");
+      if (error) {
+        if (response.status === 404) {
+          return null;
+        }
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+  });
+}
+
+// Pre-fill never clobbers a HUMAN value, but each read replaces the MACHINE
+// ones wholesale: a value the site grounded and nobody edited belongs to the
+// previous read, and keeping it would leave site A's claims (and their
+// evidence) standing after the human reads site B. So machine-owned fields are
+// cleared first, then the new read fills what it can quote — a field the new
+// site does not ground goes back to empty for manual entry (the no-guess
+// gate), and a field the human typed or edited keeps their text throughout.
+function prefill(
+  draft: CompanyDraft,
+  fields: readonly ColdField[],
+): CompanyDraft {
+  const values = { ...draft.values };
+  const grounded: Grounded = { ...draft.grounded };
+  // Everything still in `grounded` is machine-owned by construction — typing
+  // into a field drops its grounding (setField) — so clearing the set is
+  // exactly "forget the previous read".
+  for (const field of Object.keys(grounded) as ColdField["field"][]) {
+    values[field] = "";
+    delete grounded[field];
+  }
+  for (const f of fields) {
+    if (values[f.field].trim() !== "") {
+      continue;
+    }
+    values[f.field] = f.value;
+    grounded[f.field] = f;
+  }
+  return { values, grounded, edited: draft.edited };
+}
 
 // URL normalization/validation (S-E01.1: scheme/host/dedupe, honest invalid).
 function normalizeUrl(raw: string): {
@@ -102,18 +254,6 @@ function normalizeUrl(raw: string): {
   return { ok: looksLikeHost, host, full: `https://${s}` };
 }
 
-// A display business name derived from the host (helios-robotics.de → "Helios
-// Robotics") — purely for the read-back header; never persisted.
-function deriveName(host: string): string {
-  const base = (host.split(".")[0] ?? "").replace(/[-_]+/g, " ").trim();
-  const titled = base
-    .split(" ")
-    .filter(Boolean)
-    .map((w) => w[0]?.toUpperCase() + w.slice(1))
-    .join(" ");
-  return titled || host;
-}
-
 function stepState(index: number, current: number): "done" | "active" | "" {
   if (index < current) {
     return "done";
@@ -124,213 +264,546 @@ function stepState(index: number, current: number): "done" | "active" | "" {
   return "";
 }
 
+function optionalDraftValue(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed === "" ? null : value;
+}
+
+function onboardingDraftPayload(values: CompanyForm) {
+  return {
+    display_name: optionalDraftValue(values.display_name),
+    offer_summary: optionalDraftValue(values.offer_summary),
+    icp: optionalDraftValue(values.icp),
+    value_proposition: optionalDraftValue(values.value_proposition),
+    usp: optionalDraftValue(values.usp),
+    customer_pains: optionalDraftValue(values.customer_pains),
+    desired_outcomes: optionalDraftValue(values.desired_outcomes),
+    buying_center: optionalDraftValue(values.buying_center),
+    buying_intents: optionalDraftValue(values.buying_intents),
+    common_objections: optionalDraftValue(values.common_objections),
+    sales_motion: optionalDraftValue(values.sales_motion),
+    legal_name: optionalDraftValue(values.legal_name),
+    registered_address: optionalDraftValue(values.registered_address),
+    register_vat: optionalDraftValue(values.register_vat),
+    industry: optionalDraftValue(values.industry),
+    history: optionalDraftValue(values.history),
+  };
+}
+
+function formFromWizardState(state: OnboardingState): CompanyForm {
+  return {
+    ...EMPTY_FORM,
+    ...Object.fromEntries(
+      Object.entries(state.company_draft).map(([key, value]) => [
+        key,
+        value ?? "",
+      ]),
+    ),
+    website: state.website_url ?? "",
+  };
+}
+
+class WizardStateWriteError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+async function writeWizardState(body: PutOnboardingState) {
+  const { data, error, response } = await api.PUT("/onboarding/state", {
+    params: { header: { "Idempotency-Key": crypto.randomUUID() } },
+    body,
+  });
+  if (error) {
+    throw new WizardStateWriteError(response.status, problemMessage(error));
+  }
+  return data;
+}
+
+function wizardStateBody(input: {
+  expectedVersion: number;
+  nextStep: number;
+  mode: SourceMode | null;
+  readID: string | null;
+  norm: { ok: boolean; full: string };
+  values: CompanyForm;
+  factKeys: string[];
+  skippedVoice: boolean;
+  skippedConnect: boolean;
+}): PutOnboardingState {
+  const websiteMode = input.mode === "website";
+  return {
+    expected_version: input.expectedVersion,
+    step: STEPS[input.nextStep]?.key ?? "complete",
+    source_mode: input.mode,
+    website_url: websiteMode && input.norm.ok ? input.norm.full : null,
+    site_read_id: websiteMode ? input.readID : null,
+    company_draft: onboardingDraftPayload(input.values),
+    selected_fact_keys: input.factKeys,
+    voice_skipped: input.skippedVoice,
+    connect_skipped: input.skippedConnect,
+  };
+}
+
+function restoredWizardStep(
+  state: OnboardingState,
+  routeID: string | undefined,
+): number | null {
+  if (routeID === "connect") {
+    return null;
+  }
+  const index = STEPS.findIndex((candidate) => candidate.key === state.step);
+  return index >= 0 ? index : null;
+}
+
 // The pinned CorpusMeterVersion=1 bands (features/09 §B1.4):
 // thin < 8k · good ≥ 8k · rich ≥ 20k · sharp ≥ 30k.
 function corpusQuality(total: number): { cls: string; key: MessageKey } {
   if (total === 0) {
-    return { cls: "", key: "ob.s3.qualStart" };
+    return { cls: "", key: "ob.s2.qualStart" };
   }
   if (total < 8000) {
-    return { cls: "thin", key: "ob.s3.qualThin" };
+    return { cls: "thin", key: "ob.s2.qualThin" };
   }
   if (total < 20000) {
-    return { cls: "good", key: "ob.s3.qualGood" };
+    return { cls: "good", key: "ob.s2.qualGood" };
   }
   if (total < VOICE_TARGET) {
-    return { cls: "rich", key: "ob.s3.qualRich" };
+    return { cls: "rich", key: "ob.s2.qualRich" };
   }
-  return { cls: "sharp", key: "ob.s3.qualSharp" };
+  return { cls: "sharp", key: "ob.s2.qualSharp" };
 }
 
+// The coordinator mirrors the six server states directly; keeping the finite
+// branches together makes Back/skip/OAuth transitions reviewable as one machine.
 export function OnboardingScreen() {
+  const capabilities = useCompanyContextCapabilities();
+  if (capabilities.data && !capabilities.data.onboarding_enabled) {
+    return <ManualCompanySetup />;
+  }
+  return <OnboardingCoordinator />;
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: splitting the state machine would hide cross-step invariants
+function OnboardingCoordinator() {
   const t = useT();
-  const [step, setStep] = useState(0);
-  const [url, setUrl] = useState("");
-  const [readData, setReadData] = useState<ColdStart | null>(null);
-  const [host, setHost] = useState("");
+  const queryClient = useQueryClient();
+  const route = useRoute();
+  const [step, setStep] = useState(route.id === "connect" ? 4 : 0);
+  const connectOutcome =
+    route.id === "connect" && route.id2 ? route.id2 : undefined;
   const [voiceBuilt, setVoiceBuilt] = useState(false);
-  // Confirm-step state lives HERE, not in the step component: stepping back
+  // Company-step state lives HERE, not in the step component: stepping back
   // and forward must not destroy what the user typed.
-  const [edits, setEdits] = useState<Record<string, string>>({});
-  const [buyer, setBuyer] = useState("");
-  const [profileSaved, setProfileSaved] = useState(false);
+  const [draft, setDraft] = useState<CompanyDraft>(EMPTY_DRAFT);
+  const [saveAttempted, setSaveAttempted] = useState(false);
+  const [companySaved, setCompanySaved] = useState(false);
+  const [sourceMode, setSourceMode] = useState<SourceMode | null>(null);
+  const [siteReadID, setSiteReadID] = useState<string | null>(null);
+  const [selectedFactKeys, setSelectedFactKeys] = useState<string[]>([]);
+  const [voiceSkipped, setVoiceSkipped] = useState(false);
+  const [connectSkipped, setConnectSkipped] = useState(false);
+  const [stateConflict, setStateConflict] = useState<string | null>(null);
 
-  const norm = useMemo(() => normalizeUrl(url), [url]);
-  const company = host ? deriveName(host) : "";
+  const norm = useMemo(
+    () => normalizeUrl(draft.values.website),
+    [draft.values.website],
+  );
 
-  const read = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await api.POST("/coldstart", {
+  const existing = useCompany(true);
+  const wizardState = useQuery({
+    queryKey: ["onboarding-state"],
+    queryFn: async (): Promise<OnboardingState | null> => {
+      const { data, error, response } = await api.GET("/onboarding/state");
+      if (error) {
+        if (response.status === 404) {
+          return null;
+        }
+        throw new Error(problemMessage(error));
+      }
+      if (
+        !data.company_draft ||
+        !Array.isArray(data.selected_fact_keys) ||
+        typeof data.version !== "number"
+      ) {
+        return null;
+      }
+      return data;
+    },
+  });
+
+  const stateVersion = useRef(0);
+  const statePath = useRef<"creator" | "member">("creator");
+  const persistQueue = useRef<Promise<boolean>>(Promise.resolve(true));
+  const seeded = useRef(false);
+
+  const persistState = (
+    nextStep: number,
+    overrides: Partial<{
+      sourceMode: SourceMode | null;
+      siteReadID: string | null;
+      selectedFactKeys: string[];
+      voiceSkipped: boolean;
+      connectSkipped: boolean;
+    }> = {},
+  ) => {
+    const mode = overrides.sourceMode ?? sourceMode;
+    const readID = overrides.siteReadID ?? siteReadID;
+    const factKeys = overrides.selectedFactKeys ?? selectedFactKeys;
+    const skippedVoice = overrides.voiceSkipped ?? voiceSkipped;
+    const skippedConnect = overrides.connectSkipped ?? connectSkipped;
+    const values = draft.values;
+    persistQueue.current = persistQueue.current.then(async () => {
+      try {
+        const data = await writeWizardState(
+          wizardStateBody({
+            expectedVersion: stateVersion.current,
+            nextStep,
+            mode,
+            readID,
+            norm,
+            values,
+            factKeys,
+            skippedVoice,
+            skippedConnect,
+          }),
+        );
+        stateVersion.current = data.version;
+        statePath.current = data.path;
+        queryClient.setQueryData(["onboarding-state"], data);
+        setStateConflict(null);
+        return true;
+      } catch (error) {
+        if (error instanceof WizardStateWriteError && error.status === 409) {
+          setStateConflict(t("ob.stateConflict"));
+          seeded.current = false;
+          await queryClient.invalidateQueries({
+            queryKey: ["onboarding-state"],
+          });
+          return false;
+        }
+        setStateConflict(
+          error instanceof Error ? error.message : t("ob.stateSaveFailed"),
+        );
+        return false;
+      }
+    });
+    return persistQueue.current;
+  };
+
+  useEffect(() => {
+    if (seeded.current || existing.isPending || wizardState.isPending) {
+      return;
+    }
+    seeded.current = true;
+    const saved = wizardState.data;
+    if (saved) {
+      stateVersion.current = saved.version;
+      statePath.current = saved.path;
+      setSourceMode(saved.source_mode ?? null);
+      setSiteReadID(saved.site_read_id ?? null);
+      setSelectedFactKeys(saved.selected_fact_keys);
+      setVoiceSkipped(saved.voice_skipped);
+      setConnectSkipped(saved.connect_skipped);
+      setDraft({
+        values: formFromWizardState(saved),
+        grounded: {},
+        edited: new Set(),
+      });
+      const restored = restoredWizardStep(saved, route.id);
+      if (restored !== null) {
+        setStep(restored);
+      }
+    } else if (existing.data) {
+      statePath.current = "member";
+      setDraft({
+        values: formFromProfile(existing.data),
+        grounded: {},
+        edited: new Set(),
+      });
+      if (route.id !== "connect") {
+        setStep(2);
+      }
+    }
+    setCompanySaved(Boolean(existing.data));
+  }, [
+    existing.data,
+    existing.isPending,
+    route.id,
+    wizardState.data,
+    wizardState.isPending,
+  ]);
+
+  const startRead = useMutation({
+    mutationFn: async (): Promise<CompanySiteRead> => {
+      const { data, error } = await api.POST("/company/site-reads", {
+        params: { header: { "Idempotency-Key": crypto.randomUUID() } },
         body: { url: norm.full },
       });
       if (error) {
         throw new Error(problemMessage(error));
       }
-      return data as ColdStart;
+      return data;
     },
     onSuccess: (data) => {
-      // Stay on step 1 and render the grounded read-back inline (evidence +
-      // confidence per field) — the trust moment. Continue advances to the
-      // editable confirm. Scroll the read-back into view. A re-read is a NEW
-      // proposal: edits and the saved flag belonged to the old one.
-      setReadData(data);
-      setHost(norm.host);
-      setEdits({});
-      setProfileSaved(false);
-      globalThis.scrollTo({ top: 0, behavior: "smooth" });
+      setSiteReadID(data.id);
+      persistState(0, { sourceMode: "website", siteReadID: data.id });
     },
   });
 
-  const go = (next: number) => {
+  const siteRead = useQuery({
+    queryKey: ["company-site-read", siteReadID],
+    enabled: siteReadID !== null,
+    queryFn: async (): Promise<CompanySiteRead> => {
+      const { data, error } = await api.GET("/company/site-reads/{readId}", {
+        params: { path: { readId: siteReadID ?? "" } },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      if (status === "queued" || status === "reading") {
+        return 800;
+      }
+      return status === "deferred" ? 60_000 : false;
+    },
+  });
+
+  const appliedReadVersion = useRef(0);
+  useEffect(() => {
+    const read = siteRead.data;
+    if (!read || read.draft_version <= appliedReadVersion.current) {
+      return;
+    }
+    appliedReadVersion.current = read.draft_version;
+    setDraft((prev) => prefill(prev, read.profile_fields));
+    setSelectedFactKeys(read.facts.map((fact) => fact.value_key));
+  }, [siteRead.data]);
+
+  const go = (next: number, persist = true) => {
     if (next < 0 || next >= STEPS.length) {
       return;
+    }
+    if (persist) {
+      persistState(next);
     }
     setStep(next);
     globalThis.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // Continue on the confirm step APPROVES the staged proposal — the write
-  // that puts the read-back (plus the user's corrections and the hand-typed
-  // buying center) onto the organization. An edit rides the ADR-0036 §4
-  // modify-then-approve arm; untouched fields approve as staged. The
-  // approval is single-use, so a back-and-forth second Continue (409
-  // already-decided) advances without pretending to re-save.
+  const setField = (field: CompanyFieldName, value: string) =>
+    setDraft((prev) => {
+      // Typing into a pre-filled field makes the value the human's assertion —
+      // it stops claiming the site's snippet as its evidence.
+      const grounded = { ...prev.grounded };
+      if (field in grounded) {
+        delete grounded[field as ColdField["field"]];
+      }
+      return {
+        values: { ...prev.values, [field]: value },
+        grounded,
+        edited: new Set(prev.edited).add(field),
+      };
+    });
+
   const save = useMutation({
-    mutationFn: async (): Promise<boolean> => {
-      if (!readData || profileSaved) {
-        return profileSaved;
-      }
-      const editedAny = readData.fields.some(
-        (f) => f.field in edits && edits[f.field] !== f.value,
-      );
-      const addedBuyer = buyer.trim() !== "";
-      const fields: ColdField[] = readData.fields.map((f) =>
-        f.field in edits && edits[f.field] !== f.value
-          ? // A human-corrected value is the human's assertion — it no longer
-            // claims the site's snippet as its evidence.
-            {
-              field: f.field,
-              value: edits[f.field],
-              evidence_snippet: "",
-              source_url: "",
-              confidence: 1,
-            }
-          : f,
-      );
-      if (addedBuyer) {
-        fields.push({
-          field: "buying_center",
-          value: buyer.trim(),
-          evidence_snippet: "",
-          source_url: "",
-          confidence: 1,
-        });
-      }
-      const { error, response } = await api.POST("/approvals/{id}/approve", {
-        params: { path: { id: readData.proposal_id } },
-        body:
-          editedAny || addedBuyer
-            ? {
-                edited_payload: {
-                  source_url: readData.source_url,
-                  fields,
-                },
-              }
-            : {},
-      });
+    mutationFn: async (): Promise<CompanyProfile> => {
+      const profile = {
+        ...draft.values,
+        display_name: draft.values.display_name.trim(),
+        offer_summary: draft.values.offer_summary.trim(),
+        icp: draft.values.icp.trim(),
+        legal_name: draft.values.legal_name.trim(),
+        registered_address: draft.values.registered_address.trim(),
+        register_vat: draft.values.register_vat.trim(),
+        industry: draft.values.industry.trim(),
+      };
+      const readyRead =
+        sourceMode === "website" &&
+        siteRead.data &&
+        (siteRead.data.status === "ready" ||
+          siteRead.data.status === "partial");
+      const result = readyRead
+        ? await api.POST("/company/site-reads/{readId}/confirm", {
+            params: {
+              path: { readId: siteRead.data.id },
+              header: { "Idempotency-Key": crypto.randomUUID() },
+            },
+            body: {
+              draft_version: siteRead.data.draft_version,
+              proposal_hash: siteRead.data.proposal_hash,
+              profile,
+              selected_fact_keys: selectedFactKeys,
+              resolutions: [],
+            },
+          })
+        : await api.PUT("/company", { body: profile });
+      const { data, error } = result;
       if (error) {
-        if (response.status === 409) {
-          // Already decided (a back-then-forward pass) — saved earlier.
-          return true;
-        }
         throw new Error(problemMessage(error));
       }
-      return true;
+      return data;
     },
-    onSuccess: (saved) => {
-      setProfileSaved(saved);
+    onSuccess: (profile) => {
+      setCompanySaved(true);
+      // The shell's onboarding gate reads the same ["company"] cache entry;
+      // stamp the save into it or the gate still sees "undescribed" and
+      // bounces the freshly saved workspace back here on the next navigation.
+      queryClient.setQueryData(["company"], profile);
+      // The server owns the stored shape (a full URL is reduced to its bare
+      // domain) — show what was actually saved, not what was typed.
+      setDraft((prev) => ({ ...prev, values: formFromProfile(profile) }));
       go(2);
     },
   });
 
+  // The company step is mandatory: every required field must carry a value
+  // before Continue will save, and there is no way past it that does not.
+  const missingRequired = REQUIRED_FIELDS.filter(
+    (field) => draft.values[field].trim() === "",
+  );
+  const saveCompany = () => {
+    setSaveAttempted(true);
+    if (missingRequired.length > 0) {
+      return;
+    }
+    save.mutate();
+  };
+
+  const memberPath = statePath.current === "member";
+  const visibleSteps = memberPath
+    ? STEPS.filter(
+        (candidate) => candidate.key === "voice" || candidate.key === "connect",
+      )
+    : STEPS;
+  const finishOnboarding = async (skipped: boolean) => {
+    setConnectSkipped(skipped);
+    const persisted = await persistState(STEPS.length, {
+      connectSkipped: skipped,
+    });
+    if (!persisted) {
+      return;
+    }
+    navigate({ screen: "home" });
+  };
+
   return (
     <div className="ob-page">
       <div className="ob-top">
-        <span className="ob-wordmark">
-          <span className="mk">M</span>
-          {t("auth.title")}
-        </span>
+        <Wordmark alt={t("auth.title")} className="ob-wordmark" />
         <nav className="stepper" aria-label={t("ob.title")}>
-          {STEPS.map((s, i) => {
-            const state = stepState(i, step);
+          {visibleSteps.map((s, i) => {
+            const actualIndex = STEPS.findIndex(
+              (candidate) => candidate.key === s.key,
+            );
+            const state = stepState(actualIndex, step);
             return (
               <span key={s.key} style={{ display: "contents" }}>
                 <span
                   className={`sdot ${state}`}
-                  aria-current={i === step ? "step" : undefined}
+                  aria-current={actualIndex === step ? "step" : undefined}
                 >
                   <span className="n">
-                    {i < step ? <Check aria-hidden /> : i + 1}
+                    {actualIndex < step ? <Check aria-hidden /> : i + 1}
                   </span>
                   <span className="step">{t(s.label)}</span>
                 </span>
-                {i < STEPS.length - 1 && <span className="sline" />}
+                {i < visibleSteps.length - 1 && <span className="sline" />}
               </span>
             );
           })}
         </nav>
-        <button
-          type="button"
-          className="ob-skip"
-          title={t("ob.skipSetupHint")}
-          onClick={() => navigate({ screen: "home" })}
-        >
-          <SkipForward aria-hidden /> {t("ob.skipSetup")}
-        </button>
       </div>
 
       <div className="wiz">
+        {(wizardState.isPending || existing.isPending) && (
+          <div className="ob-state-loading" role="status">
+            <span className="ob-spinner" /> {t("ob.restoring")}
+          </div>
+        )}
+        {stateConflict && (
+          <div className="readfail warn" role="alert">
+            <Info aria-hidden /> <p>{stateConflict}</p>
+          </div>
+        )}
         {step === 0 && (
-          <ReadStep
-            url={url}
-            setUrl={setUrl}
+          <ReadCompanyStep
+            mode={sourceMode}
+            website={draft.values.website}
             norm={norm}
-            read={read}
-            readData={readData}
-            company={company}
-            host={host}
-            onManual={() => go(1)}
+            read={siteRead.data ?? startRead.data ?? null}
+            pending={startRead.isPending}
+            refreshing={siteRead.isFetching}
+            error={
+              startRead.isError
+                ? startRead.error.message
+                : siteRead.isError
+                  ? siteRead.error.message
+                  : null
+            }
+            onWebsiteChange={(value) => setField("website", value)}
+            onChooseWebsite={() => {
+              setSourceMode("website");
+              persistState(0, { sourceMode: "website" });
+            }}
+            onChooseManual={() => {
+              setSourceMode("manual");
+              persistState(1, { sourceMode: "manual", siteReadID: null });
+              go(1, false);
+            }}
+            onStart={() => startRead.mutate()}
+            onContinue={() => {
+              persistState(1, { sourceMode: "website", selectedFactKeys });
+              go(1, false);
+            }}
           />
         )}
         {step === 1 && (
-          <ConfirmStep
-            readData={readData}
-            edits={edits}
-            setEdits={setEdits}
-            buyer={buyer}
-            setBuyer={setBuyer}
-            saved={profileSaved}
+          <CompanyStep
+            draft={draft}
+            setField={setField}
+            saved={companySaved}
             saveError={save.isError ? save.error.message : null}
+            missingRequired={saveAttempted ? missingRequired : []}
+            read={siteRead.data ?? null}
+            selectedFactKeys={selectedFactKeys}
+            setSelectedFactKeys={(keys) => {
+              setSelectedFactKeys(keys);
+              persistState(1, { selectedFactKeys: keys });
+            }}
+            onFieldBlur={() => persistState(1)}
           />
         )}
-        {step === 2 && (
-          <VoiceStep company={company} onBuilt={() => setVoiceBuilt(true)} />
-        )}
+        {step === 2 && <VoiceStep onBuilt={() => setVoiceBuilt(true)} />}
         {step === 3 && (
           <ResultsStep
-            company={company}
             voiceBuilt={voiceBuilt}
-            profileSaved={profileSaved}
+            profileSaved={companySaved}
+            profile={existing.data ?? undefined}
           />
         )}
-        {step === 4 && <ConnectStep />}
+        {step === 4 && (
+          <ConnectStep outcome={connectOutcome} onComplete={finishOnboarding} />
+        )}
 
         <Footer
           step={step}
-          canContinue={readData !== null}
           go={go}
-          onConfirm={() => save.mutate()}
-          confirmPending={save.isPending}
+          onSaveCompany={saveCompany}
+          savePending={save.isPending}
+          memberPath={memberPath}
+          onSkipVoice={() => {
+            setVoiceSkipped(true);
+            const next = memberPath ? 4 : 3;
+            persistState(next, { voiceSkipped: true });
+            go(next, false);
+          }}
         />
       </div>
     </div>
@@ -341,105 +814,261 @@ export function OnboardingScreen() {
 
 function Footer({
   step,
-  canContinue,
   go,
-  onConfirm,
-  confirmPending,
+  onSaveCompany,
+  savePending,
+  memberPath,
+  onSkipVoice,
 }: Readonly<{
   step: number;
-  canContinue: boolean;
-  go: (n: number) => void;
-  onConfirm: () => void;
-  confirmPending: boolean;
+  go: (n: number, persist?: boolean) => void;
+  onSaveCompany: () => void;
+  savePending: boolean;
+  memberPath: boolean;
+  onSkipVoice: () => void;
 }>) {
   const t = useT();
+  let backTarget: number | null = step - 1;
+  if (memberPath && step === 2) {
+    backTarget = null;
+  } else if (memberPath && step === 4) {
+    backTarget = 2;
+  }
   return (
     <div className="wiz-foot">
-      {step > 0 ? (
-        <button type="button" className="wiz-back" onClick={() => go(step - 1)}>
+      {backTarget !== null && backTarget >= 0 ? (
+        <button
+          type="button"
+          className="wiz-back"
+          onClick={() => go(backTarget)}
+        >
           <ArrowLeft aria-hidden /> {t("ob.back")}
         </button>
       ) : (
         <span />
       )}
       <span className="grow" />
-      {step === 0 && (
-        <Button variant="primary" disabled={!canContinue} onClick={() => go(1)}>
-          {t("ob.next")} <ArrowRight aria-hidden />
-        </Button>
-      )}
       {step === 1 && (
-        <>
-          <button
-            type="button"
-            className="wiz-later"
-            onClick={() => go(step + 1)}
-          >
-            {t("ob.skipStep")}
-          </button>
-          <Button
-            variant="primary"
-            disabled={confirmPending}
-            onClick={onConfirm}
-          >
-            {confirmPending ? (
-              <>
-                <span className="ob-spinner" /> {t("ob.s2.saving")}
-              </>
-            ) : (
-              <>
-                {t("ob.next")} <ArrowRight aria-hidden />
-              </>
-            )}
-          </Button>
-        </>
+        <Button
+          variant="primary"
+          disabled={savePending}
+          onClick={onSaveCompany}
+        >
+          {savePending ? (
+            <>
+              <span className="ob-spinner" /> {t("ob.s1.saving")}
+            </>
+          ) : (
+            <>
+              {t("ob.next")} <ArrowRight aria-hidden />
+            </>
+          )}
+        </Button>
       )}
       {step === 2 && (
         <>
-          <button
-            type="button"
-            className="wiz-later"
-            onClick={() => go(step + 1)}
-          >
+          <button type="button" className="wiz-later" onClick={onSkipVoice}>
             {t("ob.skipStep")}
           </button>
-          <Button variant="primary" onClick={() => go(step + 1)}>
+          <Button variant="primary" onClick={() => go(memberPath ? 4 : 3)}>
             {t("ob.next")} <ArrowRight aria-hidden />
           </Button>
         </>
       )}
       {step === 3 && (
         <Button variant="primary" onClick={() => go(4)}>
-          {t("ob.s4.cta")} <ArrowRight aria-hidden />
+          {t("ob.s3.cta")} <ArrowRight aria-hidden />
         </Button>
       )}
     </div>
   );
 }
 
-// ---- step 1: read ----------------------------------------------------------
+// ---- step 1: company -------------------------------------------------------
 
-function ReadStep({
-  url,
-  setUrl,
-  norm,
+function CompanyStep({
+  draft,
+  setField,
   read,
-  readData,
-  company,
-  host,
-  onManual,
+  saved,
+  saveError,
+  missingRequired,
+  selectedFactKeys,
+  setSelectedFactKeys,
+  onFieldBlur,
 }: Readonly<{
-  url: string;
-  setUrl: (v: string) => void;
-  norm: { ok: boolean; host: string; full: string };
-  read: UseMutationResult<ColdStart, Error, void>;
-  readData: ColdStart | null;
-  company: string;
-  host: string;
-  onManual: () => void;
+  draft: CompanyDraft;
+  setField: (field: CompanyFieldName, value: string) => void;
+  read: CompanySiteRead | null;
+  saved: boolean;
+  saveError: string | null;
+  missingRequired: readonly CompanyFieldName[];
+  selectedFactKeys: readonly string[];
+  setSelectedFactKeys: (keys: string[]) => void;
+  onFieldBlur: () => void;
 }>) {
   const t = useT();
-  const showInvalid = url.trim() !== "" && !norm.ok;
+  const grounded = Object.keys(draft.grounded).length > 0;
+
+  return (
+    <section className="ob-panel">
+      <div className="kick">{t("ob.s1.kick")}</div>
+      <h1 className="ttl">{t("ob.s1.title")}</h1>
+      <p className="ob-sub">{t("ob.s1.sub")}</p>
+
+      <div className="confirm-origin">
+        <ShieldCheck aria-hidden />
+        <span>
+          {read
+            ? t("ob.confirmWebsite", {
+                count: read.pages_read ?? read.pages.length,
+              })
+            : t("ob.confirmManual")}
+        </span>
+      </div>
+
+      {grounded && (
+        <div className="omit">
+          <Info aria-hidden />
+          <div>
+            <div className="l">{t("ob.s1.omitLabel")}</div>
+            <p>{t("ob.s1.omitBody")}</p>
+          </div>
+        </div>
+      )}
+
+      {read && read.facts.length > 0 && (
+        <div className="confirm-facts">
+          <div className="seclabel">{t("ob.factsTitle")}</div>
+          <p className="ob-sub">{t("ob.factsSub")}</p>
+          <div className="fact-grid">
+            {read.facts.map((fact) => {
+              const selected = selectedFactKeys.includes(fact.value_key);
+              return (
+                <button
+                  key={fact.value_key}
+                  type="button"
+                  className={`fact-card ${selected ? "selected" : ""}`}
+                  aria-pressed={selected}
+                  onClick={() =>
+                    setSelectedFactKeys(
+                      selected
+                        ? selectedFactKeys.filter(
+                            (key) => key !== fact.value_key,
+                          )
+                        : [...selectedFactKeys, fact.value_key],
+                    )
+                  }
+                >
+                  <span className="fact-check">
+                    {selected ? <Check aria-hidden /> : <Circle aria-hidden />}
+                  </span>
+                  <span>
+                    <b>{coldFieldLabel(fact.field, t)}</b>
+                    <span>{fact.value}</span>
+                    <small>{fact.evidence_snippet}</small>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {saved && (
+        <p className="ob-sub" style={{ margin: "14px 0 0" }}>
+          <CheckCircle2
+            aria-hidden
+            style={{ width: 14, height: 14, verticalAlign: "-2px" }}
+          />{" "}
+          {t("ob.s1.savedNote")}
+        </p>
+      )}
+
+      {saveError && (
+        <div className="readfail warn" style={{ marginTop: "var(--space-3)" }}>
+          <span className="rfi">
+            <Circle aria-hidden />
+          </span>
+          <div>
+            <div className="rft">{t("ob.s1.saveFailed")}</div>
+            <p className="rfp">{saveError}</p>
+          </div>
+        </div>
+      )}
+
+      {missingRequired.length > 0 && (
+        <div className="urlnote err" style={{ marginTop: "var(--space-3)" }}>
+          <Circle aria-hidden />{" "}
+          {t("ob.s1.requiredMissing", {
+            fields: missingRequired
+              .map((field) => coldFieldLabel(field, t))
+              .join(", "),
+          })}
+        </div>
+      )}
+
+      {/* One .form-stack carries the whole form at the house 8/12 rhythm; the
+          two groups are separated by labeled dividers (the create-form
+          pattern), not by per-field margins. */}
+      <div className="form-stack ob-companyform">
+        <p className="form-divider t-label">{t("ob.s1.identityLabel")}</p>
+        {IDENTITY_FIELDS.map((field) => (
+          <CompanyFormField
+            key={field}
+            field={field}
+            value={draft.values[field]}
+            grounded={groundingOf(draft, field)}
+            edited={draft.edited.has(field)}
+            required={isRequired(field)}
+            error={
+              missingRequired.includes(field) ? t("ob.s1.fieldRequired") : null
+            }
+            onChange={(v) => setField(field, v)}
+            onBlur={onFieldBlur}
+          />
+        ))}
+
+        <p className="form-divider t-label">{t("ob.s1.positioningLabel")}</p>
+        {POSITIONING_FIELDS.map((field) => (
+          <CompanyFormField
+            key={field}
+            field={field}
+            value={draft.values[field]}
+            grounded={groundingOf(draft, field)}
+            edited={draft.edited.has(field)}
+            required={isRequired(field)}
+            error={
+              missingRequired.includes(field) ? t("ob.s1.fieldRequired") : null
+            }
+            multiline
+            onChange={(v) => setField(field, v)}
+            onBlur={onFieldBlur}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// The website field, with the optional read-back action on it: the company's
+// website is a form value like any other — reading it is a shortcut into the
+// form below, never a step of its own.
+export function WebsiteReadBar({
+  website,
+  setWebsite,
+  norm,
+  read,
+  anyGrounded,
+}: Readonly<{
+  website: string;
+  setWebsite: (v: string) => void;
+  norm: { ok: boolean; host: string; full: string };
+  read: UseMutationResult<ColdReadback, Error, void>;
+  anyGrounded: boolean;
+}>) {
+  const t = useT();
+  const showInvalid = website.trim() !== "" && !norm.ok;
 
   let readButtonLabel: ReactNode;
   if (read.isPending) {
@@ -448,7 +1077,7 @@ function ReadStep({
         <span className="ob-spinner" /> {t("ob.reading")}
       </>
     );
-  } else if (readData) {
+  } else if (anyGrounded) {
     readButtonLabel = t("ob.readAgain");
   } else {
     readButtonLabel = (
@@ -466,21 +1095,15 @@ function ReadStep({
   }
 
   return (
-    <section className="ob-panel">
-      <div className="kick">{t("ob.s1.kick")}</div>
-      <h1 className="ttl">
-        {t("ob.s1.title")} <span className="em">{t("ob.s1.titleEm")}</span>
-      </h1>
-      <p className="ob-sub">{t("ob.s1.sub")}</p>
-
+    <>
       <div className={`urlbar ${showInvalid ? "invalid" : ""}`}>
         <span className="glyph">{"https://"}</span>
         <input
           type="text"
-          value={url}
+          value={website}
           aria-label={t("ob.url")}
           placeholder={t("ob.s1.urlPlaceholder")}
-          onChange={(e) => setUrl(e.target.value)}
+          onChange={(e) => setWebsite(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && norm.ok && !read.isPending) {
               read.mutate();
@@ -508,80 +1131,104 @@ function ReadStep({
           </>
         )}
       </div>
-
-      {!readData && !read.isError && (
-        <div className="trust-row">
-          <span className="trustpill">
-            <ShieldCheck aria-hidden /> {t("ob.trustPublic")}
-          </span>
-          <span className="trustpill brand">
-            <Sparkles aria-hidden /> {t("ob.trustAI")}
-          </span>
-        </div>
-      )}
-
-      {read.isError && (
-        <ReadFailure message={read.error.message} onManual={onManual} />
-      )}
-
-      {readData && (
-        <div className="rb">
-          <div className="nameback">
-            <span className="co-logo">{company.slice(0, 1)}</span>
-            <div>
-              <div className="nb-t">{company}</div>
-              <div className="nb-s">{t("ob.readbackFrom", { host })}</div>
-            </div>
-          </div>
-          {readData.fields.map((f) => {
-            const level = confidenceLevel(f.confidence);
-            return (
-              <div key={f.field} className="rfield">
-                <div className="rfhead">
-                  <span className="rflabel">{coldFieldLabel(f.field, t)}</span>
-                  {level && <ConfidenceMeter level={level} />}
-                  <span className="rfprov">
-                    <Bot aria-hidden /> {t("ob.readFromSite")}
-                  </span>
-                </div>
-                <div className="rfval">{f.value}</div>
-                <EvidenceChip
-                  evidence={{
-                    snippet: f.evidence_snippet,
-                    source: f.source_url,
-                  }}
-                />
-              </div>
-            );
-          })}
-          <div className="omit">
-            <Info aria-hidden />
-            <div>
-              <div className="l">{t("ob.omitLabel")}</div>
-              <p>{t("ob.omitBody")}</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {!readData && !read.isError && (
-        <div className="migrate">
-          <div className="mig-l">
-            <Database aria-hidden /> <span>{t("ob.migrateLead")}</span>
-          </div>
-        </div>
-      )}
-    </section>
+    </>
   );
 }
 
-function ReadFailure({
-  message,
-  onManual,
+// A field the read-back grounded and the human has not touched still carries
+// the site's evidence; anything else is the human's own.
+function groundingOf(
+  draft: CompanyDraft,
+  field: CompanyFieldName,
+): ColdField | null {
+  return draft.grounded[field as ColdField["field"]] ?? null;
+}
+
+function isRequired(field: CompanyFieldName): boolean {
+  return (REQUIRED_FIELDS as readonly CompanyFieldName[]).includes(field);
+}
+
+function CompanyFormField({
+  field,
+  value,
+  grounded,
+  edited,
+  required,
+  error,
+  multiline,
+  onChange,
+  onBlur,
 }: Readonly<{
-  message: string;
-  onManual: () => void;
+  field: CompanyFieldName;
+  value: string;
+  grounded: ColdField | null;
+  edited: boolean;
+  required: boolean;
+  error: string | null;
+  multiline?: boolean;
+  onChange: (v: string) => void;
+  onBlur: () => void;
 }>) {
+  const t = useT();
+  const id = `co-${field}`;
+  const level = grounded ? confidenceLevel(grounded.confidence) : null;
+  // The design-system field shape (create.tsx RecordFormBody is the reference):
+  // .field + .t-label + .input/.textarea. The trust adornments (confidence,
+  // read-from-site, typed-by-you) ride the label; the evidence chip sits under
+  // the control. Onboarding gets no bespoke input styling — the form must read
+  // as the same product as every other screen.
+  return (
+    <div className="field">
+      <label className="t-label" htmlFor={id}>
+        {coldFieldLabel(field, t)}
+        {required ? " *" : ""} {level && <ConfidenceMeter level={level} />}
+        {grounded && (
+          <span className="rfprov">
+            <Bot aria-hidden /> {t("ob.readFromSite")}
+          </span>
+        )}
+        {edited && <ProvenanceTag provenance={{ kind: "human" }} />}
+      </label>
+      {multiline ? (
+        <textarea
+          id={id}
+          className="textarea"
+          value={value}
+          required={required}
+          aria-invalid={error ? true : undefined}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={onBlur}
+        />
+      ) : (
+        <TextInput
+          id={id}
+          value={value}
+          required={required}
+          aria-invalid={error ? true : undefined}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={onBlur}
+        />
+      )}
+      {grounded && (
+        <EvidenceChip
+          evidence={{
+            snippet: grounded.evidence_snippet,
+            // source_url is carried only by url-sourced evidence; text and
+            // self-description evidence names its origin instead of linking.
+            source: grounded.source_url ?? t("ob.readFromSite"),
+          }}
+        />
+      )}
+      {error && (
+        <div className="urlnote err">
+          <Circle aria-hidden /> {error}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function ReadFailure({ message }: Readonly<{ message: string }>) {
   const t = useT();
   return (
     <div className="readfail warn">
@@ -601,112 +1248,12 @@ function ReadFailure({
             </li>
           ))}
         </ul>
-        <div className="rfacts">
-          <Button small onClick={onManual}>
-            <Pencil aria-hidden /> {t("ob.fillByHand")}
-          </Button>
-        </div>
       </div>
     </div>
   );
 }
 
-// ---- step 2: confirm -------------------------------------------------------
-
-function ConfirmStep({
-  readData,
-  edits,
-  setEdits,
-  buyer,
-  setBuyer,
-  saved,
-  saveError,
-}: Readonly<{
-  readData: ColdStart | null;
-  edits: Record<string, string>;
-  setEdits: (
-    up: (prev: Record<string, string>) => Record<string, string>,
-  ) => void;
-  buyer: string;
-  setBuyer: (v: string) => void;
-  saved: boolean;
-  saveError: string | null;
-}>) {
-  const t = useT();
-  return (
-    <section className="ob-panel">
-      <div className="kick">{t("ob.s2.kick")}</div>
-      <h1 className="ttl">{t("ob.s2.title")}</h1>
-      <p className="ob-sub">{t("ob.s2.sub")}</p>
-
-      {saved && (
-        <p className="ob-sub" style={{ marginBottom: 12 }}>
-          <CheckCircle2
-            aria-hidden
-            style={{ width: 14, height: 14, verticalAlign: "-2px" }}
-          />{" "}
-          {t("ob.s2.savedNote")}
-        </p>
-      )}
-
-      {saveError && (
-        <div className="readfail warn" style={{ marginBottom: 14 }}>
-          <span className="rfi">
-            <Circle aria-hidden />
-          </span>
-          <div>
-            <div className="rft">{t("ob.s2.saveFailed")}</div>
-            <p className="rfp">{saveError}</p>
-          </div>
-        </div>
-      )}
-
-      {readData && readData.fields.length > 0 ? (
-        <>
-          {readData.fields.map((f) => {
-            const dirty = f.field in edits;
-            const value = dirty ? edits[f.field] : f.value;
-            return (
-              <div key={f.field} className="ob-field">
-                <label htmlFor={`s2-${f.field}`}>
-                  {coldFieldLabel(f.field, t)}{" "}
-                  {dirty && <ProvenanceTag provenance={{ kind: "human" }} />}
-                </label>
-                <textarea
-                  id={`s2-${f.field}`}
-                  className="ob-in"
-                  value={value}
-                  onChange={(e) =>
-                    setEdits((prev) => ({ ...prev, [f.field]: e.target.value }))
-                  }
-                />
-              </div>
-            );
-          })}
-          <div className="ob-field">
-            <label htmlFor="s2-buyer">
-              {t("ob.s2.buyerLabel")}{" "}
-              <span className="askhint">· {t("ob.s2.buyerHint")}</span>
-            </label>
-            <input
-              id="s2-buyer"
-              className="ob-in askfill"
-              value={buyer}
-              placeholder={t("ob.s2.buyerPlaceholder")}
-              onChange={(e) => setBuyer(e.target.value)}
-            />
-          </div>
-        </>
-      ) : (
-        <p className="ob-sub" style={{ marginTop: 16 }}>
-          {t("ob.s2.nothingRead")}
-        </p>
-      )}
-    </section>
-  );
-}
-
-// ---- step 3: voice ---------------------------------------------------------
+// ---- step 2: voice ---------------------------------------------------------
 
 type Source = {
   id: string;
@@ -777,66 +1324,103 @@ const SOURCES: Source[] = [
 const ACCEPTED_CORPUS_FILE = /\.(txt|md|vtt|srt|json)$/i;
 const ACCEPTED_CORPUS_ATTR = ".txt,.md,.vtt,.srt,.json";
 
-function VoiceStep({
-  company,
-  onBuilt,
-}: Readonly<{ company: string; onBuilt: () => void }>) {
+type VoicePiece = {
+  ref: string;
+  label: string;
+  words: number;
+  content: string;
+  register: components["schemas"]["IngestVoiceCorpusSourceRequest"]["register"];
+  kind: components["schemas"]["IngestVoiceCorpusSourceRequest"]["kind"];
+};
+
+// The corpus meter is honest: it counts only the real words the owner uploaded
+// or pasted here (the build ingests exactly these). Presets below are examples
+// of what will feed the voice once connected — never fabricated word counts.
+// 800 mirrors the server's build floor ("at least 800 eligible own-authored
+// words"): gating the button here turns that 422 into a clear, up-front ask.
+const VOICE_MIN_WORDS = 800;
+const PASTE_REF = "onboarding:paste";
+
+function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
   const t = useT();
   const [optedIn, setOptedIn] = useState(false);
-  const [added, setAdded] = useState<Set<string>>(new Set());
-  const [uploads, setUploads] = useState<{ name: string; words: number }[]>([]);
+  const [pieces, setPieces] = useState<VoicePiece[]>([]);
+  const [paste, setPaste] = useState("");
   const [skipped, setSkipped] = useState<string[]>([]);
   const [built, setBuilt] = useState(false);
   const [building, setBuilding] = useState(false);
+  const [deferred, setDeferred] = useState(false);
+  const [buildError, setBuildError] = useState<string | null>(null);
+  const [derived, setDerived] = useState<
+    components["schemas"]["VoiceProfile"] | null
+  >(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const uploadedWords = uploads.reduce((sum, u) => sum + u.words, 0);
+  // A build in flight must not write state after the step unmounts — the parent
+  // would otherwise flip voiceBuilt for a user who navigated away and make
+  // step 4 claim a voice. One ref gates every post-await setState.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const pasteWords = paste.trim() ? paste.trim().split(/\s+/).length : 0;
   const corpus = useMemo(() => {
     let spoken = 0;
     let written = 0;
-    for (const s of SOURCES) {
-      if (added.has(s.id)) {
-        if (s.reg === "spoken") {
-          spoken += s.words;
-        } else {
-          written += s.words;
-        }
-      }
-    }
-    spoken += uploadedWords;
-    const total = spoken + written;
-    return { total, spoken, written, sources: added.size + uploads.length };
-  }, [added, uploadedWords, uploads.length]);
-
-  const toggle = (s: Source) => {
-    if (s.locked) {
-      return;
-    }
-    setAdded((prev) => {
-      const next = new Set(prev);
-      if (next.has(s.id)) {
-        next.delete(s.id);
+    for (const p of pieces) {
+      if (p.register === "spoken") {
+        spoken += p.words;
       } else {
-        next.add(s.id);
+        written += p.words;
       }
-      return next;
-    });
-  };
+    }
+    written += pasteWords;
+    const total = spoken + written;
+    return {
+      total,
+      spoken,
+      written,
+      sources: pieces.length + (pasteWords > 0 ? 1 : 0),
+    };
+  }, [pieces, pasteWords]);
 
   const onFiles = (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     const rejected: string[] = [];
     for (const file of files) {
-      // V1 corpus is text only (features/09 §B1.1): the meter counts the
-      // real words of what was read — never an estimate. Binary documents
-      // (.docx/.pdf) are refused; deferred: B-E07.5c (server-side extraction).
+      // V1 corpus is text only (features/09 §B1.1): the meter counts the real
+      // words of what was read — never an estimate — and the text is KEPT so
+      // the real build can ingest it. Binary documents (.docx/.pdf) are
+      // refused; deferred: B-E07.5c (server-side extraction).
       if (!ACCEPTED_CORPUS_FILE.test(file.name)) {
         rejected.push(file.name);
         continue;
       }
       file.text().then((text) => {
+        if (!mounted.current) {
+          return;
+        }
         const words = text.split(/\s+/).filter(Boolean).length;
-        setUploads((prev) => [...prev, { name: file.name, words }]);
+        if (words === 0) {
+          return;
+        }
+        const spoken = /\.(vtt|srt)$/i.test(file.name);
+        const ref = `onboarding:upload:${file.name}`;
+        setPieces((prev) => [
+          ...prev.filter((p) => p.ref !== ref),
+          {
+            ref,
+            label: file.name,
+            words,
+            content: text,
+            register: spoken ? "spoken" : "general",
+            kind: spoken ? "transcript" : "document",
+          },
+        ]);
       });
     }
     setSkipped(rejected);
@@ -844,46 +1428,164 @@ function VoiceStep({
   };
 
   const quality = corpusQuality(corpus.total);
+  const canBuild = corpus.total >= VOICE_MIN_WORDS && !building;
 
-  // The modelling beat must die with the step: a timer surviving unmount
-  // would flip the parent's voiceBuilt after the user navigated away and
-  // make step 4 claim a voice that was never built.
-  const buildTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(
-    () => () => {
-      if (buildTimer.current !== null) {
-        globalThis.clearTimeout(buildTimer.current);
+  async function ingest(profileId: string, piece: VoicePiece) {
+    const { error } = await api.POST("/voice-profiles/{id}/sources", {
+      params: { path: { id: profileId } },
+      body: {
+        kind: piece.kind,
+        register: piece.register,
+        weight: 1,
+        source_label: piece.label,
+        source_ref: piece.ref,
+        format: "text",
+        content: piece.content,
+      },
+    });
+    if (error) {
+      throw new Error(problemMessage(error));
+    }
+  }
+
+  // The build runs on the background worker; poll its durable row until a
+  // terminal state. `deferred` = the monthly AI budget snoozed it — an honest
+  // "still coming", not a failure; the worker keeps the durable build.
+  async function pollBuild(
+    profileId: string,
+    buildId: string,
+  ): Promise<{ status: string; detail?: string | null }> {
+    for (let attempt = 0; attempt < 40 && mounted.current; attempt++) {
+      const { data, error } = await api.GET(
+        "/voice-profiles/{id}/builds/{buildId}",
+        { params: { path: { id: profileId, buildId } } },
+      );
+      if (error) {
+        throw new Error(problemMessage(error));
       }
-    },
-    [],
-  );
+      if (
+        data.status === "succeeded" ||
+        data.status === "failed" ||
+        data.status === "deferred"
+      ) {
+        return { status: data.status, detail: data.status_detail };
+      }
+      await new Promise((resolve) => {
+        globalThis.setTimeout(resolve, 1200);
+      });
+    }
+    return { status: "deferred" };
+  }
 
-  const build = () => {
+  // Reuse the owner's single profile (listVoiceProfiles caps at one) or mint it.
+  async function ensureProfileId(): Promise<string> {
+    const list = await api.GET("/voice-profiles");
+    if (list.error) {
+      throw new Error(problemMessage(list.error));
+    }
+    const existing = list.data.data[0]?.id;
+    if (existing) {
+      return existing;
+    }
+    const created = await api.POST("/voice-profiles", {
+      body: { personality_md: "" },
+    });
+    if (created.error) {
+      throw new Error(problemMessage(created.error));
+    }
+    if (!created.data.id) {
+      throw new Error(t("ob.s2.failedBody"));
+    }
+    return created.data.id;
+  }
+
+  async function ingestCorpus(profileId: string) {
+    for (const piece of pieces) {
+      await ingest(profileId, piece);
+    }
+    if (pasteWords > 0) {
+      await ingest(profileId, {
+        ref: PASTE_REF,
+        label: t("ob.s2.pasteSource"),
+        words: pasteWords,
+        content: paste,
+        register: "general",
+        kind: "other",
+      });
+    }
+  }
+
+  async function startBuild(profileId: string): Promise<string> {
+    const build = await api.POST("/voice-profiles/{id}/builds", {
+      params: { path: { id: profileId } },
+      body: { reason: "onboarding" },
+    });
+    if (build.error) {
+      throw new Error(problemMessage(build.error));
+    }
+    return build.data.id;
+  }
+
+  // A succeeded build has an active derived artifact to show; a deferred build
+  // is honestly "still coming"; a failed build surfaces its safe status detail.
+  async function applyOutcome(
+    profileId: string,
+    outcome: { status: string; detail?: string | null },
+  ) {
+    if (outcome.status === "failed") {
+      setBuildError(outcome.detail ?? t("ob.s2.failedBody"));
+      return;
+    }
+    if (outcome.status === "deferred") {
+      setDeferred(true);
+    } else {
+      const profile = await api.GET("/voice-profiles/{id}", {
+        params: { path: { id: profileId } },
+      });
+      if (!mounted.current) {
+        return;
+      }
+      setDerived(profile.data ?? null);
+    }
+    setBuilt(true);
+    onBuilt();
+  }
+
+  async function runBuild() {
     setBuilding(true);
-    // A short modelling beat, then the starter-voice card. This is a starter
-    // preview built from the corpus you selected — it sharpens for real once
-    // sent email is ingested at connect (see the footnote copy).
-    buildTimer.current = globalThis.setTimeout(() => {
-      setBuilding(false);
-      setBuilt(true);
-      onBuilt();
-    }, 1100);
-  };
+    setBuildError(null);
+    try {
+      const profileId = await ensureProfileId();
+      await ingestCorpus(profileId);
+      const outcome = await pollBuild(profileId, await startBuild(profileId));
+      if (mounted.current) {
+        await applyOutcome(profileId, outcome);
+      }
+    } catch (err) {
+      if (mounted.current) {
+        setBuildError(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      if (mounted.current) {
+        setBuilding(false);
+      }
+    }
+  }
 
   return (
     <section className="ob-panel">
-      <div className="kick">{t("ob.s3.kick")}</div>
+      <div className="kick">{t("ob.s2.kick")}</div>
       <h1 className="ttl">
-        {t("ob.s3.title")} <span className="em">{t("ob.s3.titleEm")}</span>
+        {t("ob.s2.title")} <span className="em">{t("ob.s2.titleEm")}</span>
       </h1>
-      <p className="ob-sub">{t("ob.s3.sub")}</p>
+      <p className="ob-sub">{t("ob.s2.sub")}</p>
 
       <div className="optin">
         <span className="oi-ic">
           <Info aria-hidden />
         </span>
         <div className="oi-b">
-          <b>{t("ob.s3.optinTitle")}</b> {t("ob.s3.optinBody")}
+          <b>{t("ob.s2.optinTitle")}</b> {t("ob.s2.optinBody")}
           <div className="oi-acts">
             <Button
               variant="primary"
@@ -891,14 +1593,14 @@ function VoiceStep({
               onClick={() => setOptedIn(true)}
               disabled={optedIn}
             >
-              <Check aria-hidden /> {t("ob.s3.optinYes")}
+              <Check aria-hidden /> {t("ob.s2.optinYes")}
             </Button>
             <button
               type="button"
               className="wiz-later"
               onClick={() => setOptedIn(false)}
             >
-              {t("ob.s3.optinSkip")}
+              {t("ob.s2.optinSkip")}
             </button>
           </div>
         </div>
@@ -906,58 +1608,24 @@ function VoiceStep({
 
       <div className={`voice-body ${optedIn ? "optedin" : ""}`}>
         <div className="srcgrid">
-          {SOURCES.map((s) => {
-            const on = added.has(s.id);
-            let mark: ReactNode = null;
-            if (s.locked) {
-              mark = (
-                <span className="star">
-                  <Lock aria-hidden />
+          {SOURCES.map((s) => (
+            <div key={s.id} className="src locked">
+              <span className="star">
+                {s.star ? <Star aria-hidden /> : <Lock aria-hidden />}
+              </span>
+              <span className="si">{s.icon}</span>
+              <span className="sb">
+                <span className="st">
+                  {t(s.label)}
+                  <span className={`reg ${s.reg}`}>{t(`ob.reg.${s.reg}`)}</span>
                 </span>
-              );
-            } else if (s.star) {
-              mark = (
-                <span className="star">
-                  <Star aria-hidden />
-                </span>
-              );
-            }
-            let words: ReactNode = null;
-            if (s.locked) {
-              words = (
+                <span className="sh">{t(s.hint)}</span>
                 <span className="added-w muted">
-                  {t("ob.s3.lockedWords", { count: s.words.toLocaleString() })}
+                  {t("ob.s2.whenConnected")}
                 </span>
-              );
-            } else if (on) {
-              words = (
-                <span className="added-w">
-                  {t("ob.s3.addedWords", { count: s.words.toLocaleString() })}
-                </span>
-              );
-            }
-            return (
-              <button
-                key={s.id}
-                type="button"
-                className={`src ${on ? "added" : ""} ${s.locked ? "locked" : ""}`}
-                onClick={() => toggle(s)}
-              >
-                {mark}
-                <span className="si">{s.icon}</span>
-                <span className="sb">
-                  <span className="st">
-                    {t(s.label)}
-                    <span className={`reg ${s.reg}`}>
-                      {t(`ob.reg.${s.reg}`)}
-                    </span>
-                  </span>
-                  <span className="sh">{t(s.hint)}</span>
-                  {words}
-                </span>
-              </button>
-            );
-          })}
+              </span>
+            </div>
+          ))}
         </div>
 
         <button
@@ -968,8 +1636,8 @@ function VoiceStep({
           <span className="dz-ic">
             <UploadCloud aria-hidden />
           </span>
-          <span className="dz-t">{t("ob.s3.dropTitle")}</span>
-          <span className="dz-fmt">{t("ob.s3.dropFmt")}</span>
+          <span className="dz-t">{t("ob.s2.dropTitle")}</span>
+          <span className="dz-fmt">{t("ob.s2.dropFmt")}</span>
         </button>
         <input
           ref={fileRef}
@@ -979,25 +1647,39 @@ function VoiceStep({
           accept={ACCEPTED_CORPUS_ATTR}
           onChange={onFiles}
         />
-        {uploads.length > 0 && (
+        {pieces.length > 0 && (
           <ul className="vp-list" style={{ marginTop: 10 }}>
-            {uploads.map((u) => (
-              <li key={`${u.name}-${u.words}`}>
-                <Check aria-hidden /> {u.name} · {u.words.toLocaleString()}
+            {pieces.map((p) => (
+              <li key={p.ref}>
+                <Check aria-hidden /> {p.label} · {p.words.toLocaleString()}
               </li>
             ))}
           </ul>
         )}
+
+        <div className="field" style={{ marginTop: "var(--space-3)" }}>
+          <label className="t-label" htmlFor="voice-paste">
+            {t("ob.s2.pasteLabel")}
+          </label>
+          <textarea
+            id="voice-paste"
+            className="textarea"
+            rows={5}
+            placeholder={t("ob.s2.pastePlaceholder")}
+            value={paste}
+            onChange={(e) => setPaste(e.target.value)}
+          />
+        </div>
         {skipped.length > 0 && (
           <output className="ob-sub" style={{ display: "block", marginTop: 8 }}>
-            {t("ob.s3.dropSkipped", { files: skipped.join(", ") })}
+            {t("ob.s2.dropSkipped", { files: skipped.join(", ") })}
           </output>
         )}
 
         <div className="meter">
           <div className="meter-top">
             <span>
-              {t("ob.s3.words", {
+              {t("ob.s2.words", {
                 count: corpus.total.toLocaleString(),
                 target: VOICE_TARGET.toLocaleString(),
               })}
@@ -1013,7 +1695,7 @@ function VoiceStep({
           </div>
           {corpus.total > 0 && (
             <div className="regmix">
-              {t("ob.s3.mix", {
+              {t("ob.s2.mix", {
                 spoken: Math.round((corpus.spoken / corpus.total) * 100),
                 written: Math.round((corpus.written / corpus.total) * 100),
                 sources: corpus.sources,
@@ -1021,83 +1703,104 @@ function VoiceStep({
             </div>
           )}
           <p className="spoken-hint">
-            <Mic aria-hidden /> {t("ob.s3.spokenHint")}
+            <Mic aria-hidden /> {t("ob.s2.spokenHint")}
           </p>
         </div>
 
         <div className="email-callout">
           <Mail aria-hidden />
-          <div>{t("ob.s3.emailCallout")}</div>
+          <div>{t("ob.s2.emailCallout")}</div>
         </div>
+
+        {buildError && (
+          <div className="voiceout">
+            <div className="card" style={{ padding: "var(--space-4)" }}>
+              <b>{t("ob.s2.failedTitle")}</b>
+              <p style={{ marginTop: "var(--space-2)", lineHeight: 1.55 }}>
+                {buildError}
+              </p>
+            </div>
+          </div>
+        )}
 
         {!built && (
           <Button
             variant="primary"
             style={{ marginTop: 18 }}
-            disabled={corpus.total < 300 || building}
-            onClick={build}
+            disabled={!canBuild}
+            onClick={runBuild}
           >
             {building ? (
               <>
                 <span className="ob-spinner" />{" "}
-                {t("ob.s3.modelling", { count: corpus.total.toLocaleString() })}
+                {t("ob.s2.building", { count: corpus.total.toLocaleString() })}
               </>
             ) : (
               <>
-                <Sparkles aria-hidden /> {t("ob.s3.build")}
+                <Sparkles aria-hidden /> {t("ob.s2.build")}
               </>
             )}
           </Button>
         )}
 
-        {built && (
+        {!built &&
+          !building &&
+          corpus.total > 0 &&
+          corpus.total < VOICE_MIN_WORDS && (
+            <p className="t-small" style={{ marginTop: "var(--space-2)" }}>
+              {t("ob.s2.minWords", { min: VOICE_MIN_WORDS.toLocaleString() })}
+            </p>
+          )}
+
+        {built && deferred && (
           <div className="voiceout">
-            <div className="card" style={{ padding: 16 }}>
+            <div className="card" style={{ padding: "var(--space-4)" }}>
+              <span className="provenance provenance-human">
+                <Sparkles aria-hidden style={{ width: 13, height: 13 }} />{" "}
+                {t("ob.s2.deferredTitle")}
+              </span>
+              <p style={{ marginTop: "var(--space-3)", lineHeight: 1.55 }}>
+                {t("ob.s2.deferredBody")}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {built && !deferred && (
+          <div className="voiceout">
+            <div className="card" style={{ padding: "var(--space-4)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span className="provenance provenance-human">
                   <User aria-hidden style={{ width: 13, height: 13 }} />{" "}
-                  {t("ob.s3.starterVoice")}
+                  {t("ob.s2.builtTitle")}
                 </span>
                 <span style={{ marginLeft: "auto" }} className="t-small">
-                  {t("ob.s3.vpMeta", {
+                  {t("ob.s2.vpMeta", {
                     count: corpus.total.toLocaleString(),
                     sources: corpus.sources,
                   })}
                 </span>
               </div>
-              <p style={{ marginTop: 10, lineHeight: 1.55 }}>
-                <b>{t("ob.s3.vpLead")}</b> {t("ob.s3.vpRest")}
-              </p>
-              <div className="seclabel" style={{ margin: "14px 0 6px" }}>
-                {t("ob.s3.movesLabel")}
-              </div>
-              <ul className="vp-list">
-                <li>
-                  <Check aria-hidden /> {t("ob.s3.move1")}
-                </li>
-                <li>
-                  <Check aria-hidden /> {t("ob.s3.move2")}
-                </li>
-                <li>
-                  <Check aria-hidden /> {t("ob.s3.move3")}
-                </li>
-                <li className="no">
-                  <Circle aria-hidden /> {t("ob.s3.moveNever")}
-                </li>
-              </ul>
-              <div className="seclabel" style={{ margin: "16px 0 6px" }}>
-                {t("ob.s3.sampleLabel")}
-              </div>
-              <div className="draftbox">
-                {t("ob.s4.draftSample", {
-                  company: company || "your prospect",
-                })}
-              </div>
+              {derived?.voice_profile_md ? (
+                <p
+                  style={{
+                    marginTop: "var(--space-3)",
+                    lineHeight: 1.55,
+                    whiteSpace: "pre-wrap",
+                  }}
+                >
+                  {derived.voice_profile_md}
+                </p>
+              ) : (
+                <p style={{ marginTop: "var(--space-3)", lineHeight: 1.55 }}>
+                  {t("ob.s2.builtEmpty")}
+                </p>
+              )}
               <p
                 className="t-small"
                 style={{ marginTop: 11, fontStyle: "italic" }}
               >
-                {t("ob.s3.vpFootnote", {
+                {t("ob.s2.vpFootnote", {
                   count: corpus.total.toLocaleString(),
                 })}
               </p>
@@ -1109,13 +1812,17 @@ function VoiceStep({
   );
 }
 
-// ---- step 4: results -------------------------------------------------------
+// ---- step 3: results -------------------------------------------------------
 
 function ResultsStep({
-  company,
   voiceBuilt,
   profileSaved,
-}: Readonly<{ company: string; voiceBuilt: boolean; profileSaved: boolean }>) {
+  profile,
+}: Readonly<{
+  voiceBuilt: boolean;
+  profileSaved: boolean;
+  profile?: CompanyProfile;
+}>) {
   const t = useT();
   // The cards tell the truth about what the funnel actually did: a skipped
   // voice step gets the honest "starter voice" card, not a claim that drafts
@@ -1123,28 +1830,67 @@ function ResultsStep({
   // named unsaved, not claimed as captured.
   const cards: { title: MessageKey; body: MessageKey }[] = [
     {
-      title: "ob.s4.cardProfile",
+      title: "ob.s3.cardProfile",
       body: profileSaved
-        ? "ob.s4.cardProfileBody"
-        : "ob.s4.cardProfileSkippedBody",
+        ? "ob.s3.cardProfileBody"
+        : "ob.s3.cardProfileSkippedBody",
     },
     {
-      title: "ob.s4.cardVoice",
-      body: voiceBuilt ? "ob.s4.cardVoiceBody" : "ob.s4.cardVoiceSkippedBody",
+      title: "ob.s3.cardVoice",
+      body: voiceBuilt ? "ob.s3.cardVoiceBody" : "ob.s3.cardVoiceSkippedBody",
     },
-    { title: "ob.s4.cardPipeline", body: "ob.s4.cardPipelineBody" },
+    { title: "ob.s3.cardPipeline", body: "ob.s3.cardPipelineBody" },
     {
-      title: voiceBuilt ? "ob.s4.cardDraft" : "ob.s4.cardDraftExample",
-      body: "ob.s4.cardDraftBody",
+      title: voiceBuilt ? "ob.s3.cardDraft" : "ob.s3.cardDraftExample",
+      body: "ob.s3.cardDraftBody",
     },
   ];
+  const understood = [
+    { label: t("ob.field.offer_summary"), value: profile?.offer_summary },
+    { label: t("ob.field.icp"), value: profile?.icp },
+    {
+      label: t("ob.field.value_proposition"),
+      value: profile?.value_proposition,
+    },
+    { label: t("ob.field.buying_center"), value: profile?.buying_center },
+  ].filter((item): item is { label: string; value: string } =>
+    Boolean(item.value),
+  );
   return (
     <section className="ob-panel">
-      <div className="kick">{t("ob.s4.kick")}</div>
+      <div className="kick">{t("ob.s3.kick")}</div>
       <h1 className="ttl">
-        {t("ob.s4.title")} <span className="em">{t("ob.s4.titleEm")}</span>
+        {t("ob.s3.title")} <span className="em">{t("ob.s3.titleEm")}</span>
       </h1>
-      <p className="ob-sub">{t("ob.s4.sub")}</p>
+      {/* The subtitle claims only what the funnel actually did: "knows your
+          voice" is earned by building it, not by reaching this step. */}
+      <p className="ob-sub">
+        {t(voiceBuilt ? "ob.s3.sub" : "ob.s3.subNoVoice")}
+      </p>
+      {profile && understood.length > 0 && (
+        <div className="understanding-reveal">
+          <div className="understanding-brand">
+            <span>
+              <CheckCircle2 aria-hidden />
+            </span>
+            <div>
+              <small>{t("ob.nowUnderstands")}</small>
+              <h2>{profile.display_name}</h2>
+            </div>
+          </div>
+          <div className="understanding-grid">
+            {understood.map((item) => (
+              <div key={item.label}>
+                <small>{item.label}</small>
+                <p>{item.value}</p>
+              </div>
+            ))}
+          </div>
+          <p className="understanding-note">
+            <Sparkles aria-hidden /> {t("ob.contextReady")}
+          </p>
+        </div>
+      )}
       <div className="rcards">
         {cards.map((c) => (
           <div key={c.title} className="rcard">
@@ -1158,27 +1904,21 @@ function ResultsStep({
           </div>
         ))}
       </div>
-      <div className="draftbox" style={{ marginTop: 12 }}>
-        {t("ob.s4.draftSample", { company: company || "your prospect" })}
-      </div>
-      <p className="t-small" style={{ marginTop: 8, fontStyle: "italic" }}>
-        {t("ob.s4.exampleTag")}
-      </p>
       <div className="omit" style={{ marginTop: 16, borderStyle: "solid" }}>
         <GitBranch aria-hidden />
         <div>
-          <div className="l">{t("ob.s4.originLabel")}</div>
-          <p>{t("ob.s4.originBody")}</p>
+          <div className="l">{t("ob.s3.originLabel")}</div>
+          <p>{t("ob.s3.originBody")}</p>
         </div>
       </div>
       <span className="trustpill" style={{ marginTop: 16 }}>
-        <Lock aria-hidden /> {t("ob.s4.stillNothing")}
+        <Lock aria-hidden /> {t("ob.s3.stillNothing")}
       </span>
     </section>
   );
 }
 
-// ---- step 5: connect (REAL IMAP capture) -----------------------------------
+// ---- step 4: connect (REAL IMAP capture) -----------------------------------
 
 type ConnectResult = {
   connected: boolean;
@@ -1188,11 +1928,259 @@ type ConnectResult = {
   contacts: number;
 };
 
-function ConnectStep() {
+function ConnectStep({
+  outcome,
+  onComplete,
+}: Readonly<{
+  outcome?: string;
+  onComplete: (skipped: boolean) => Promise<void>;
+}>) {
   const t = useT();
+  // Returning from the Google consent lands here with an outcome in the
+  // route; the Google tab is then the one that explains what happened.
   const [provider, setProvider] = useState<"imap" | "google" | "microsoft">(
-    "imap",
+    "google",
   );
+
+  const scopes: { lead: MessageKey; rest: MessageKey }[] = [
+    { lead: "ob.s4.scope1Lead", rest: "ob.s4.scope1Rest" },
+    { lead: "ob.s4.scope2Lead", rest: "ob.s4.scope2Rest" },
+    { lead: "ob.s4.scope3Lead", rest: "ob.s4.scope3Rest" },
+    { lead: "ob.s4.scope4Lead", rest: "ob.s4.scope4Rest" },
+  ];
+
+  return (
+    <section className="ob-panel">
+      <div className="kick">{t("ob.s4.kick")}</div>
+      <h1 className="ttl">
+        {t("ob.s4.title")} <span className="em">{t("ob.s4.titleEm")}</span>
+      </h1>
+      <p className="ob-sub">{t("ob.s4.sub")}</p>
+
+      <div className="consent">
+        <div className="provider-tabs">
+          <button
+            type="button"
+            className={`provtab ${provider === "google" ? "sel" : ""}`}
+            onClick={() => setProvider("google")}
+          >
+            {t("ob.s4.provGoogle")}
+          </button>
+          <button
+            type="button"
+            className={`provtab ${provider === "microsoft" ? "sel" : ""}`}
+            onClick={() => setProvider("microsoft")}
+          >
+            {t("ob.s4.provMicrosoft")}
+          </button>
+          <button
+            type="button"
+            className={`provtab ${provider === "imap" ? "sel" : ""}`}
+            onClick={() => setProvider("imap")}
+          >
+            {t("ob.s4.provImap")}
+          </button>
+        </div>
+
+        {provider === "google" && (
+          <GoogleConnectPanel outcome={outcome} onComplete={onComplete} />
+        )}
+        {provider === "microsoft" && (
+          <MicrosoftConnectPanel onComplete={onComplete} />
+        )}
+        {provider === "imap" && <ImapConnectPanel onComplete={onComplete} />}
+
+        <div className="scopes">
+          {scopes.map((s) => (
+            <div key={s.lead} className="scope">
+              <span className="si">
+                <Check aria-hidden />
+              </span>
+              <div>
+                <b>{t(s.lead)}</b> {t(s.rest)}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// The honest-failure banner the connect panels share.
+function ConnectWarn({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="readfail warn" style={{ maxWidth: 460, margin: "0 auto" }}>
+      <span className="rfi">
+        <Circle aria-hidden />
+      </span>
+      <div>
+        <div className="rft">{title}</div>
+        <p className="rfp">{body}</p>
+      </div>
+    </div>
+  );
+}
+
+// Google: the server mints the consent URL (and the signed state + CSRF
+// cookie that guard the callback); the browser just goes. The return deep
+// link lands back here with the outcome in the route.
+function GoogleConnectPanel({
+  outcome,
+  onComplete,
+}: Readonly<{
+  outcome?: string;
+  onComplete: (skipped: boolean) => Promise<void>;
+}>) {
+  const t = useT();
+  const google = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST("/connectors/{provider}/connect", {
+        params: { path: { provider: "gmail" } },
+        body: {},
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+    onSuccess: (data) => {
+      if (data.authorize_url) {
+        globalThis.location.assign(data.authorize_url);
+      }
+    },
+  });
+
+  // After a successful return, show the live connection rather than a
+  // static claim — the row IS the proof (never a fake-populated screen).
+  const connections = useQuery({
+    queryKey: ["connectors"],
+    enabled: outcome === "ok",
+    queryFn: async () => {
+      const { data, error } = await api.GET("/connectors");
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+  });
+  const gmailConnected =
+    connections.data?.data.some(
+      (c) => c.provider === "gmail" && c.status === "connected",
+    ) ?? false;
+
+  if (outcome === "ok") {
+    return (
+      <div className="connect-result">
+        <div className="cr-h">
+          <CheckCircle2 aria-hidden /> {t("ob.s4.googleOkTitle")}
+        </div>
+        <p className="ob-sub" style={{ margin: "8px auto 0", maxWidth: 460 }}>
+          {t("ob.s4.googleOkBody")}
+        </p>
+        {connections.isPending && (
+          <p className="t-small" style={{ marginTop: "var(--space-3)" }}>
+            {t("ob.s4.googleVerifying")}
+          </p>
+        )}
+        {gmailConnected && (
+          <>
+            <span className="trustpill" style={{ marginTop: "var(--space-3)" }}>
+              <ShieldCheck aria-hidden /> {t("ob.s4.googleLive")}
+            </span>
+            <BackfillPanel provider="gmail" />
+          </>
+        )}
+        {!connections.isPending && !gmailConnected && (
+          <ConnectWarn
+            title={t("ob.s4.googleFailed")}
+            body={t("ob.s4.googleRetry")}
+          />
+        )}
+        <Button
+          variant="primary"
+          style={{ marginTop: "var(--space-4)" }}
+          onClick={() => void onComplete(false)}
+        >
+          {t("ob.s4.enterCrm")} <ArrowRight aria-hidden />
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {outcome === "denied" && (
+        <ConnectWarn
+          title={t("ob.s4.googleDenied")}
+          body={t("ob.s4.googleRetry")}
+        />
+      )}
+      {outcome === "error" && (
+        <ConnectWarn
+          title={t("ob.s4.googleFailed")}
+          body={t("ob.s4.googleRetry")}
+        />
+      )}
+      {google.isError && (
+        <ConnectWarn
+          title={t("ob.s4.googleFailed")}
+          body={google.error.message}
+        />
+      )}
+      <p
+        className="spoken-hint"
+        style={{ maxWidth: 460, margin: "4px auto 0" }}
+      >
+        <ShieldCheck aria-hidden /> {t("ob.s4.googleHint")}
+      </p>
+      <div className="connect-acts">
+        <Button
+          variant="primary"
+          disabled={google.isPending}
+          onClick={() => google.mutate()}
+        >
+          {google.isPending ? (
+            <>
+              <span className="ob-spinner" /> {t("ob.s4.connecting")}
+            </>
+          ) : (
+            <>
+              <Mail aria-hidden /> {t("ob.s4.googleBtn")}
+            </>
+          )}
+        </Button>
+        <Button onClick={() => void onComplete(true)}>
+          <SkipForward aria-hidden /> {t("ob.s4.skipLater")}
+        </Button>
+      </div>
+    </>
+  );
+}
+
+function MicrosoftConnectPanel({
+  onComplete,
+}: Readonly<{ onComplete: (skipped: boolean) => Promise<void> }>) {
+  const t = useT();
+  return (
+    <>
+      <p className="ob-sub" style={{ margin: "0 auto 6px", maxWidth: 460 }}>
+        {t("ob.s4.oauthSoon")}
+      </p>
+      <div className="connect-acts">
+        <Button onClick={() => void onComplete(true)}>
+          <SkipForward aria-hidden /> {t("ob.s4.skipLater")}
+        </Button>
+      </div>
+    </>
+  );
+}
+
+// IMAP: the one-shot pull, exactly as before — the form is the consent.
+function ImapConnectPanel({
+  onComplete,
+}: Readonly<{ onComplete: (skipped: boolean) => Promise<void> }>) {
+  const t = useT();
   const [host, setHostVal] = useState("imap.gmail.com");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -1229,194 +2217,145 @@ function ConnectStep() {
         } catch {
           detail = "";
         }
-        throw new Error(detail || t("ob.s5.connectFailed"));
+        throw new Error(detail || t("ob.s4.connectFailed"));
       }
       return (await res.json()) as ConnectResult;
     },
   });
 
-  const scopes: { lead: MessageKey; rest: MessageKey }[] = [
-    { lead: "ob.s5.scope1Lead", rest: "ob.s5.scope1Rest" },
-    { lead: "ob.s5.scope2Lead", rest: "ob.s5.scope2Rest" },
-    { lead: "ob.s5.scope3Lead", rest: "ob.s5.scope3Rest" },
-    { lead: "ob.s5.scope4Lead", rest: "ob.s5.scope4Rest" },
-  ];
+  const parsedMax = max.trim() === "" ? 30 : Number(max);
+  const ready =
+    host.trim() !== "" &&
+    email.trim() !== "" &&
+    password !== "" &&
+    Number.isInteger(parsedMax) &&
+    parsedMax >= 1 &&
+    parsedMax <= 200;
 
-  const ready = host.trim() !== "" && email.trim() !== "" && password !== "";
+  if (connect.data?.connected) {
+    return (
+      <div className="connect-result">
+        <div className="cr-h">
+          <CheckCircle2 aria-hidden /> {t("ob.s4.capturedTitle")}
+        </div>
+        <div className="cr-stats">
+          <div className="cr-stat">
+            <b>{connect.data.captured}</b>
+            <span>{t("ob.s4.statCaptured")}</span>
+          </div>
+          <div className="cr-stat">
+            <b>{connect.data.contacts}</b>
+            <span>{t("ob.s4.statContacts")}</span>
+          </div>
+          <div className="cr-stat">
+            <b>{connect.data.skipped}</b>
+            <span>{t("ob.s4.statSkipped")}</span>
+          </div>
+        </div>
+        <Button
+          variant="primary"
+          style={{ marginTop: "var(--space-4)" }}
+          onClick={() => void onComplete(false)}
+        >
+          {t("ob.s4.enterCrm")} <ArrowRight aria-hidden />
+        </Button>
+      </div>
+    );
+  }
 
   return (
-    <section className="ob-panel">
-      <div className="kick">{t("ob.s5.kick")}</div>
-      <h1 className="ttl">
-        {t("ob.s5.title")} <span className="em">{t("ob.s5.titleEm")}</span>
-      </h1>
-      <p className="ob-sub">{t("ob.s5.sub")}</p>
+    <>
+      <div className="imap-form">
+        <label className="field full">
+          {t("ob.s4.imapHost")}
+          <input
+            className="input"
+            value={host}
+            placeholder={t("ob.s4.imapHostPlaceholder")}
+            onChange={(e) => setHostVal(e.target.value)}
+          />
+        </label>
+        <label className="field full">
+          {t("ob.s4.imapEmail")}
+          <input
+            className="input"
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </label>
+        <label className="field full">
+          {t("ob.s4.imapPassword")}
+          <input
+            className="input"
+            type="password"
+            autoComplete="off"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </label>
+        <label className="field">
+          {t("ob.s4.imapMailbox")}
+          <input
+            className="input"
+            value={mailbox}
+            onChange={(e) => setMailbox(e.target.value)}
+          />
+        </label>
+        <label className="field">
+          {t("ob.s4.imapMax")}
+          <input
+            className="input"
+            type="number"
+            min={1}
+            max={200}
+            value={max}
+            onChange={(e) => setMax(e.target.value)}
+          />
+        </label>
+      </div>
 
-      {connect.data ? (
-        <div className="connect-result">
-          <div className="cr-h">
-            <CheckCircle2 aria-hidden /> {t("ob.s5.capturedTitle")}
-          </div>
-          <div className="cr-stats">
-            <div className="cr-stat">
-              <b>{connect.data.captured}</b>
-              <span>{t("ob.s5.statCaptured")}</span>
-            </div>
-            <div className="cr-stat">
-              <b>{connect.data.contacts}</b>
-              <span>{t("ob.s5.statContacts")}</span>
-            </div>
-            <div className="cr-stat">
-              <b>{connect.data.skipped}</b>
-              <span>{t("ob.s5.statSkipped")}</span>
-            </div>
-          </div>
-          <Button
-            variant="primary"
-            style={{ marginTop: 16 }}
-            onClick={() => navigate({ screen: "home" })}
-          >
-            {t("ob.s5.enterCrm")} <ArrowRight aria-hidden />
-          </Button>
-        </div>
-      ) : (
-        <div className="consent">
-          <div className="provider-tabs">
-            <button
-              type="button"
-              className={`provtab ${provider === "google" ? "sel" : ""}`}
-              onClick={() => setProvider("google")}
-            >
-              {t("ob.s5.provGoogle")}
-            </button>
-            <button
-              type="button"
-              className={`provtab ${provider === "microsoft" ? "sel" : ""}`}
-              onClick={() => setProvider("microsoft")}
-            >
-              {t("ob.s5.provMicrosoft")}
-            </button>
-            <button
-              type="button"
-              className={`provtab ${provider === "imap" ? "sel" : ""}`}
-              onClick={() => setProvider("imap")}
-            >
-              {t("ob.s5.provImap")}
-            </button>
-          </div>
+      <p
+        className="spoken-hint"
+        style={{ maxWidth: 460, margin: "12px auto 0" }}
+      >
+        <ShieldCheck aria-hidden /> {t("ob.s4.imapHint")}
+      </p>
 
-          <p className="ob-sub" style={{ margin: "0 auto 6px", maxWidth: 460 }}>
-            {t("ob.s5.oauthSoon")}
-          </p>
-
-          <div className="imap-form">
-            <label className="ob-field full">
-              {t("ob.s5.imapHost")}
-              <input
-                className="ob-in"
-                value={host}
-                placeholder={t("ob.s5.imapHostPlaceholder")}
-                onChange={(e) => setHostVal(e.target.value)}
-              />
-            </label>
-            <label className="ob-field full">
-              {t("ob.s5.imapEmail")}
-              <input
-                className="ob-in"
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </label>
-            <label className="ob-field full">
-              {t("ob.s5.imapPassword")}
-              <input
-                className="ob-in"
-                type="password"
-                autoComplete="off"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </label>
-            <label className="ob-field">
-              {t("ob.s5.imapMailbox")}
-              <input
-                className="ob-in"
-                value={mailbox}
-                onChange={(e) => setMailbox(e.target.value)}
-              />
-            </label>
-            <label className="ob-field">
-              {t("ob.s5.imapMax")}
-              <input
-                className="ob-in"
-                type="number"
-                min={1}
-                max={200}
-                value={max}
-                onChange={(e) => setMax(e.target.value)}
-              />
-            </label>
-          </div>
-
-          <p
-            className="spoken-hint"
-            style={{ maxWidth: 460, margin: "12px auto 0" }}
-          >
-            <ShieldCheck aria-hidden /> {t("ob.s5.imapHint")}
-          </p>
-
-          {connect.isError && (
-            <div
-              className="readfail warn"
-              style={{ maxWidth: 460, margin: "16px auto 0" }}
-            >
-              <span className="rfi">
-                <Circle aria-hidden />
-              </span>
-              <div>
-                <div className="rft">{t("ob.s5.connectFailed")}</div>
-                <p className="rfp">{connect.error.message}</p>
-              </div>
-            </div>
-          )}
-
-          <div className="connect-acts">
-            <Button
-              variant="primary"
-              disabled={!ready || connect.isPending}
-              onClick={() => connect.mutate()}
-            >
-              {connect.isPending ? (
-                <>
-                  <span className="ob-spinner" /> {t("ob.s5.connecting")}
-                </>
-              ) : (
-                <>
-                  <Mail aria-hidden /> {t("ob.s5.imapConnect")}
-                </>
-              )}
-            </Button>
-            <Button onClick={() => navigate({ screen: "home" })}>
-              <SkipForward aria-hidden /> {t("ob.s5.skipLater")}
-            </Button>
-          </div>
-
-          <div className="scopes">
-            {scopes.map((s) => (
-              <div key={s.lead} className="scope">
-                <span className="si">
-                  <Check aria-hidden />
-                </span>
-                <div>
-                  <b>{t(s.lead)}</b> {t(s.rest)}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+      {connect.isError && (
+        <ConnectWarn
+          title={t("ob.s4.connectFailed")}
+          body={connect.error.message}
+        />
       )}
-    </section>
+      {connect.data && !connect.data.connected && (
+        <ConnectWarn
+          title={t("ob.s4.connectFailed")}
+          body={t("ob.s4.googleRetry")}
+        />
+      )}
+
+      <div className="connect-acts">
+        <Button
+          variant="primary"
+          disabled={!ready || connect.isPending}
+          onClick={() => connect.mutate()}
+        >
+          {connect.isPending ? (
+            <>
+              <span className="ob-spinner" /> {t("ob.s4.connecting")}
+            </>
+          ) : (
+            <>
+              <Mail aria-hidden /> {t("ob.s4.imapConnect")}
+            </>
+          )}
+        </Button>
+        <Button onClick={() => void onComplete(true)}>
+          <SkipForward aria-hidden /> {t("ob.s4.skipLater")}
+        </Button>
+      </div>
+    </>
   );
 }

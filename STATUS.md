@@ -22,6 +22,271 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**AI cost pricing base (phase 1/2, price-on-read)** — every model call is now
+priceable in US dollars without any money logic on the write path. The router,
+meter and adapters collect four token buckets (`tokens_in` pinned
+cache-inclusive, plus `cached_tokens`, the new `cache_write_tokens`, and
+`tokens_out`); cost is computed only on read by joining each `ai_call` row to
+the `ai_model_rate` row effective on its day (an fx_rate-style, effective-dated,
+per-(provider, model) sheet — new table, FORCE RLS, seeded per workspace with
+explicit all-zero rows for local providers so local reads an honest 0). One
+four-bucket formula lives in two agreeing places (`PriceCall` and the
+`CostReport` SQL). `/ai/usage` now serves per-(day, task, tier)
+`cost_est_minor` in USD minor units with `currency: "USD"`; a call with no rate
+row for its day is counted unpriced, never a silent 0. The cert lane prices its
+runs with the same formula and records four-bucket token means. Cost stays
+display-only — the budget guardrail is untouched and token-denominated
+(ADR-0067/A113, spec PR margince-foundation#1111). **Phase 2 (deferred, own
+plan):** a history-data estimator + pre-flight estimate API (the backfill-preview
+money figure, "what would N messages cost") over these accumulated rows.
+
+**AI runtime observability UI** — Settings → AI now leads with the
+live usage/budget meter and a keyset-paged call trace over the existing
+`ai_call`/`ai_call_payload` records. Admins see economy/queued shell advisories;
+trace detail exposes the configured-versus-served identity, attempt ladder,
+context provenance, and honest capture-off/no-payload/payload states. Captured
+runs export client-side as explicitly unreviewed certification-scenario YAML.
+The implementation checklist, manual verification guide, and upstream P3
+findings live in `.tmp/ai-observability-ui/`.
+
+**Durable AI budget deferral** — the compiled task contract now distinguishes
+interactive from background work and includes the ratified `voice_build` task
+with CompanyContext explicitly disabled. At the monthly hard cap, background
+calls return a typed next-window deferral before any provider attempt or
+`ai_call` trace; interactive calls retain the local-small degraded path.
+Website reads persist that decision as `deferred` with safe status detail and
+`next_attempt_at`, retain progressive findings, keep their one in-flight slot,
+and snooze the same River job without consuming an attempt. Both onboarding and
+organization read surfaces show the safe deferral reason and automatic-resume
+time; migration 0104 and the real-Postgres lane prove join-before-due,
+resume-when-due, and reverse/reapply.
+
+**Cold-start company context — durable knowledge, setup, and refresh (Phases 1–5)** —
+the installation's anchor organization is now the normal company record with a
+governed, typed context view over canonical identity, confirmed profile fields,
+and evidence-bearing facts. Website reading is optional: the progressive
+onboarding dossier persists no company data before confirmation, supports a
+bound accept-subset, preserves web versus human provenance, and produces the
+same company shape as manual entry. The model path now owns one exhaustive
+per-task context policy: agent, reply, and offer drafting receive bounded scopes
+as escaped user data; extraction, classification, enrichment, embeddings,
+brief ranking, and deal health explicitly receive none. AI traces store scopes
+plus context fingerprint and cache keys bind the fingerprint, preventing stale
+answers after a company edit. Reply drafting is shared across HTTP, governed
+tools, and workflows and falls back deterministically without sending. The
+five-step Read · Confirm · Voice · Results · Connect UI now presents website and
+manual entry as equal paths, progressively reveals grounded website evidence,
+supports accept-subset confirmation, and ends with a real confirmed-data reveal.
+Per-human server state survives reload/OAuth returns with creator/member routing,
+optimistic conflicts, RLS, audit, and the identity-stream
+`onboarding.state_changed` event; manual setup needs only company name, offer,
+and ideal customer and makes zero external request. Company settings expose the
+same canonical anchor with provenance-aware editing and website refresh. Refresh
+classifies new, unchanged, machine-changed, and human-conflicting proposals;
+human values require an explicit keep, accept, or custom decision in the same
+version-bound confirmation transaction. An ordered `off < read < tasks < onboarding`
+server capability makes every layer reversible without deleting data. Existing
+installations receive insert-missing-only profile provenance rows without website
+egress, while first-grounded/confirmation timing, extraction coverage, correction
+audits, and exact per-call context byte/token estimates make rollout observable.
+`voice_build` is now a compiled background task but has no product consumer until
+the voice storage and lifecycle surface lands; natural-language search remains
+dormant until its surface is ratified.
+
+**AI runtime contract + certification (four phases, one arc)** — the AI
+task/tier vocabulary is now a compiled contract:
+`backend/api/ai-tasks.yaml` (15 tasks, 4 tiers, execution modes, ladders + budget
+posture) generates `tasks_gen.go` and `config/ai-routing.schema.json`
+via `tools/gen-aitasks` (drift-gated, like `crm.yaml`) — editing routing
+POLICY is a rebuild; binding a tier to a provider/model stays runtime
+config. One gate serves every AI call: `--ai-fake` now rides the real
+Router (metering, tracing, budget — fake provider only), the DB-less
+seam is `ai.NewLocalRouter`/`compose.NewLocalModelPath`, and
+`FakeModelPath` is deleted with arch fitness tests
+(`TestNoModelClientOutsideTheGate`, `TestOneModelPathPerRole`) keeping
+it that way. Tracing moved to the certification grain (migration 0100):
+one `ai_call` row per ATTEMPT (retries/degrades/escalations visible,
+terminal-only metrics), served-model identity reported from the wire
+(`response|echo|configured`, never overclaimed), embeddings traced,
+config snapshots hash-keyed in `ai_call_config`, embedding rows aging
+out at 90 d. On top sits `compose/aicert`: a scenario corpus
+(hand-authored, provenance-attested, ≥1 per task — completeness
+fitness-tested), structural checks + a pinned rubric judge
+(`cert_judge`, own router, never the candidate's binding), N-odd
+cache-off repeats, spec §5 verdict math, and committed JSON records —
+`make e2e-ai TASK=x MODEL=prov:model` certifies any binding;
+`make e2e-ai-report` prints the matrix. Boot warns loudly on unbound
+ladders; `/readyz` names the AI state. A payload trace (`TRACE=1`, on by
+default) dumps every candidate+judge request/response — the post-stripper
+`ai_call_payload` shape — to a gitignored `.tmp/aicert/*.jsonl` for prompt
+tuning. First full-corpus Gemini sweep committed (2026-07-19): of 13 tasks,
+6 certified, 2 supported_degraded, 5 not_supported (mostly Gemini emitting
+`confidence` as a JSON string where the schema wants a number), and
+`offer_draft` blocked — Gemini 2.5's thinking exhausts its 300-token cap
+scenario before it answers. The verdicts are an honest snapshot, not a
+target to game.
+
+**Email ingestion — from fragment to nightly, every-user pipeline
+(ADR-0063, 2026-07-19)** — capture was operationally fragile (one 429
+permanently killed a connection) and mail never became a person. It is
+now a production feature: connect a mailbox, a bounded backfill fills the
+CRM under a preview-before-spend estimate, and a continuous + nightly
+pipeline grows it — persons, companies, employment edges, timeline
+activities, AI classification and signature enrichment, all deduped
+through one resolver. Landed across ten PRs:
+
+- **Sync hardening** (#106): a transient failure never kills a
+  connection — the `capture_sync_state` sidecar, the error taxonomy
+  (429/Retry-After, unreachable backoff, auth→reauth), the per-connection
+  dispatcher; `error` is degraded-and-probed-daily, never a tombstone.
+- **Gmail** — one-click connect (#107), the Pub/Sub push webhook (#110)
+  with Google **OIDC** token verification (#113, salvaged + credited from
+  a duplicate community PR).
+- **IMAP** as a standing connection (#112): UID cursor bound to its
+  mailbox, vault-sealed credentials, bounded incremental fetch.
+- **Bounded backfill** (#117): 3/6/12-month widen-only windows, the
+  ADR-0020 estimate-before-spend, per-page cursor commits with honest
+  resume, cancel keeps captured rows; the M2 window→estimate→activation
+  UI.
+- **Auto-create + core AI** (#120): every captured mail ensures its
+  counterparty through the **ONE dedupe chokepoint** (PO-F-1/PO-F-2) —
+  exact reuses, fuzzy creates-and-records; person + domain-named company
+  + employment edge + person-only activity link, owner-visibility until a
+  human promotes, punycode/impersonation quarantine, erased addresses
+  stay dead (A13); `engagement.reply` (CAP-FORMULA-1) enters the event
+  catalog. The §2.8 **classify** batch (commitment/meeting/noise, per-call
+  commit, budget-clean stop), §2.9 evidence-or-omit **signature enrich**
+  (`person_profile_field`, fill-only-empty, never overwrites a human),
+  the DH-EXT-1/2 **dedupe review queue** (+ the M4 screen) executing the
+  one merge verb, the CAP-DDL-6 morning **digest** (+ `GET /digest` + home
+  card) and `GET /ai/usage`.
+- **Manual creates** meet the same chokepoint (#118): exact still 409s,
+  fuzzy creates and records the near-match.
+- **Microsoft Graph** connector (#119): delta-cursor sync with 410
+  re-anchor, bounded backfill, one-click connect — sharing the extracted
+  `capture/oauthflow` handshake with Gmail (the OAuth2 flow lives once,
+  not mirrored).
+
+The spec package landed first, contract-first, in the sibling
+`margince-foundation` repo (ADR-0063 + the capture / people-and-orgs /
+ai-operational / data-hygiene chapter amendments); this code is built
+from it.
+
+**Deep read v3 — reference evidence + page-parallel lanes (founder
+target ≤15 s, 2026-07-18)** — v2's one corpus call hit the output-token
+wall (~9k quoted-evidence tokens ≈ 150 s). v3 makes the model *read*
+everything and *write* almost nothing: pages are segmented into
+numbered passages, the model cites `"e":"s12"` (schema-enum'd — an
+uncitable id can't be generated) and Go resolves + verifies the
+reference, storing the page's own text as evidence. Extraction is one
+compact call per fact-bearing page (fast tier, `site_fact_extract`) +
+ONE premium profile call over the top excerpts (`site_extract`), all
+OVERLAPPED with the frontier-wave crawl — page calls launch as pages
+commit, the profile fires once the identity-dense prefix is in. Live on
+gradion.com: **~25 s end-to-end** (360→150→42→25 across the arc; the
+remaining floor is gradion's own server throttling the crawl burst —
+snappier origins land ~12–15 s), with MORE extracted than ever: 8/8
+profile fields, ~200 facts (69 services, 69 technologies, 25 locations),
+**11 people** (first roster), 5-entity census → correct abstention.
+E2E floor gains duration ceilings + a paraphrase-warning watchdog.
+
+**Deep read v2 — ONE corpus call (founder decision 2026-07-18)** — the
+per-page extraction (1–2 model calls per page, ~6 min for gradion.com,
+plus a synthesis pass and three cross-page merges) is replaced by ONE
+streamed model call over the whole labeled site corpus (~78k tokens for
+gradion.com; chunked fallback ≤4 for outsized sites). The no-guess gate
+survives intact — every fact re-verified against its NAMED page, and a
+new `legal_entities[]` census makes the multi-entity abstention explicit
+(gradion.com's five-entity imprint → no legal identity proposed +
+warning). Extraction taxonomy v2 adds `company/location` and
+`signal/technology` (migration 0088). The crawl bursts (12-wide waves,
+committed in order — byte-identical to serial by test; ~10 s, <5 s needs
+the pipelined-fetch follow-up), and the dossier now reports live
+`phase`/`pages_read` (migration 0089) so the SPA poll shows movement.
+Anthropic Complete rides SSE above 8k max_tokens (the API drops silent
+non-streaming connections). Extraction routes premium-first
+(`site_extract`); for Anthropic the premium tier must be SONNET-class+
+(Haiku paraphrases evidence away) — judged by the pinned E2E floor
+`make -C backend e2e-siteread` with taxonomy floors (locations ≥ 4,
+technologies ≥ 5, offerings ≥ 10, ≤4 calls). Live: gradion.com in
+~2.5 min end-to-end, 60+ facts, 3 people, correct abstention.
+
+**Deep-read quality loop — debug CLI + ingestion quality** — the answer
+to "12 pages, missing facts, wrong company": crawl caps are now
+operator-tunable with raised defaults (40 pages / 32 MiB / 240 s;
+`--deepread-*` worker flags), and `worker siteread <url>` runs the whole
+crawl→extract→merge pipeline **without the stack** (no DB/Redis/staging)
+printing every intermediate — pages, skips, every extracted field with
+evidence, every finding the gate DROPPED with its reason, merge
+decisions, per-call model telemetry, diffable `--json`. Quality fixes:
+the evidence gate now falls back to presentation-normalized matching
+(quotes/dashes/whitespace/case — words never forgiven) and reports every
+drop instead of silently discarding; the crawl queue is kind-ranked
+(impressum/about/team before blog archives; tracking params stripped);
+extraction has its own routing dial (`site_extract` task) so its tier is
+an `ai-routing.yaml` edit; a site-level synthesis pass reconciles
+contradictions across pages (still evidence-gated per named page,
+degrades to the merge on failure); and the legal-page override is
+hardened (path-depth ≤ 2 authority rule; disagreeing legal pages cancel
+the override entirely). Model comparison per site:
+`worker siteread <url> --model anthropic:<model>`. Spec reconciliation
+pending upstream: the R2 caps (12/8 MiB/90 s) were raised by founder
+decision 2026-07-18.
+
+**Website deep read — crawl a company's whole site (PR #103)** — the
+generic, powerful ingestion: an async River-queued crawl of a company's
+site (bounded — ≤12 pages / 8 MiB / 90s, robots-honored, SSRF-guarded,
+discovery deterministic and never model-chosen) that extracts far more
+than the cold-start fields — company facts, offerings, market signals,
+and team members — through the same evidence-or-omit gate, and stages
+every finding as a confirm-first 🟡 proposal. New home
+`organization_fact` (closed per-category vocabularies, enforced in prompt
++ schema + DB CHECK); the 11 cold-start fields keep
+`organization_profile_field`. Team members become thin, published-only
+`site_lead` proposals landing through the capture Sink as segregated
+leads (NEVER-8 kept). `POST /organizations/{id}/deep-read` (202 + poll),
+`GET .../site-reads/{readId}` reports pages read, pages skipped *with
+reasons*, and any early-stop cause. Reused for onboarding *and*
+enrichment of any org. Live-verified against gradion.com (12 pages, 40
+facts, accepted end-to-end). The live run also caught a defect no fake
+could: River's silent 1-min job timeout killed real crawls and the
+exhausted context wedged the dossier `running` — fixed with an 8-min
+worker timeout + `terminalCtx` (WithoutCancel + fresh deadline) so the
+terminal write survives the work's death.
+
+**Website read-back reads the SITE, and the onboarding design fix (PR #101)**
+— the read-back now fetches the given page *plus* the well-known
+Impressum/legal-notice paths and merges per-page (legal facts prefer the
+page that legally states them), so German sites finally ground
+legal_name/VAT/registered_address; `display_name` joined the
+ColdStartField vocabulary. The fetcher moved to `platform/webread` and
+keeps ADR-0006's promise: robots.txt honored (RFC 9309 semantics, named
+UA), SSRF-guarded via the socket Control hook. The onboarding company
+form was rebuilt on the design-system atoms (it had bespoke CSS that read
+as a foreign screen).
+
+**Onboarding first-run — a bare installation lands in a company form (PR #98)**
+— a cold-start admin used to land in the main menu on top of a nameless
+org; now the app shell gates on `GET /company` (404 = undescribed) and
+routes them into a mandatory company step. `PUT /company` is the human's
+confirm-first write (the unsaved form IS the 🟡 staged state, marked
+`human-only`); `POST /coldstart/preview` pre-fills it without staging.
+The anchor org is marked `organization.is_anchor` (0083). Required
+identity block (name, legal entity, VAT, address, industry); the step
+cannot be skipped.
+
+**Cloud-provider review remediation (PR #102)** — the top-10 correctness
+findings from the post-merge review of the cloud model providers (#96):
+streams surface failure/truncation terminals instead of clean EOF (openai
+`response.failed`/`incomplete`/`error`, gemini mid-stream error objects +
+abnormal `finishReason`, applied to `Complete` too), one shared SSE
+scanner with a 4MiB line cap, cache keys cover model override + response
+schema, `OutputTokens` is reasoning-inclusive on every adapter (gemini
+normalized), Responses API `store:false` pinned, `dimensions` omitted on
+the generic OpenAI wire, canonical `models/…` ids accepted, vLLM
+top-level errors decoded, and `make dev` enables real routing only when
+every bound cloud provider's key is present.
+
 **Single-organization installation (ADR-0061/A107, PR #90)** — the
 ratified single-org concept, end to end. One installation serves one
 organization: bootstrap moved off the public wire into a strict
@@ -192,6 +457,87 @@ tooling and gate suite the baseline needs. Merged so far:
 
 Open work, roughly in priority order:
 
+- **Progressive Voice lifecycle** — ADR-0066's owner-private, human-only
+  contract is implemented on `feat/voice-profile-lifecycle`: durable builds,
+  immutable versions, candidate deltas, apply/reject/rollback, corpus clear,
+  source-driven staleness, learning summaries, and the seven Voice-stream
+  events. Migration 0107 preserves a legacy built profile as its first active
+  immutable version and quarantines obsolete team-scoped rows. Local merge and
+  real-Postgres gates are being completed before the PR; the next PR is the
+  structured Voice builder, followed by canonical reply usage/learning and the
+  settings/onboarding surface.
+
+- **aicert follow-ups** (from the certification arc): the
+  trace-extraction pipeline (scenarios from production `ai_call` rows
+  with a real pseudonymizer — `extracted:` provenance is refused until
+  it exists), a certification-badge surface (records are committed
+  JSON, ready to `go:embed`), a nightly scheduled lane, deeper corpora
+  for the tasks that have only starters, and the §6 upstream spec notes
+  (contract file location, verdict rules, served-identity vocabulary)
+  to reconcile in `margince-foundation`. Seven tasks in the contract
+  (`enrich`, `capture_classify`, `deal_health`, `draft_reply`,
+  `nl_search`, `summarize`, `transcript`) have no production call site
+  yet — their starter scenarios are documented placeholders.
+
+- **Cold-start + company-context refresh** — all phases (0–5) are delivered;
+  the executed state is explained in
+  [docs/explanation/company-context.md](docs/explanation/company-context.md)
+  (the phase plan lives in git history as
+  `docs/explanation/coldstart-company-context-plan.md`).
+  Upstream, foundation PR #1104 is merged at `f97ef6b`; ADR-0065/A111 pins the
+  anchor/profile/fact/site-read schema, the optional three-field manual path,
+  the reusable deep-read wire, the typed context policy, progressive
+  budgets/events, and the five-step UI. Downstream, the phases landed as PRs
+  #127 (read substrate), #128 (onboarding dossier), #130/#131 (task injection +
+  five-step wizard), and #132/#133 (budget deferral + refresh/rollout) — all
+  merged; the per-phase delivery narrative is in those PRs.
+
+- **Email ingestion — deferred pieces of ADR-0063** (the pipeline is
+  live; these were scoped out, not missed):
+  - **Graph webhook (PR-7b)** — the connector is poll-only; the
+    change-notification subscription (validationToken handshake,
+    clientState, ≤3-day renewal riding the existing watch sweep) is
+    unbuilt, so Outlook latency is the poll interval, not the 60s p95.
+  - **Graph refresh-token rotation** — Microsoft rotates the refresh
+    token on each redemption; the stored original works within its
+    ~90-day confidential-client window (active mailboxes never reauth),
+    but persisting the rotated token needs a **credential-update seam**
+    (Sync surfacing an updated credential for the registry to re-seal) that
+    `connector.Connector` does not have — a cross-connector follow-up.
+  - **Dedupe undo of a *merged* pair** answers `409 not_undoable` — the
+    merge verb's reversibility (PO-AC-M6) is not built; dismissals undo
+    fine.
+  - **Nightly dispatcher consolidation** — classify, enrich and digest run
+    as their own daily River jobs (run-on-start); the ADR-0063 staggered
+    coordinator (catch-up → classify → reconcile → enrich → dedupe sweep →
+    digest, one ordered pass) is not yet a single dispatcher, and the
+    `capture_reconcile` sweep over link-less connector activities is
+    unbuilt.
+  - **`ai_usage` RBAC object** — `GET /ai/usage` is gated on the
+    admin-held `automation:update` permission (no `ai_usage` noun exists
+    in the closed RBAC object set); a dedicated object should be pinned
+    upstream (spec-repo reconciliation).
+
+- **Deep-read durability-hardening pass** (from the #103 review, deferred
+  as cross-cutting rather than rushed per-effect) — the redeem-then-execute
+  accept effects (coldstart/scrape/deepread/site_lead) share the ADR-0036
+  pattern where a consumed-but-unapplied approval can't be retried; the
+  correct fix is transactional redeem+apply at the approvals-framework
+  level, repo-wide. Plus: transactional River enqueue (Start→enqueue and
+  stage→finish are separate module txns today; `closeUnqueued` is the
+  current compensation), and a stale-`running` dossier reclaim/sweeper (a
+  crash between Begin and Finish wedges the org's one in-flight slot;
+  `terminalCtx` shrinks but doesn't close the window). Recorded in PR #103's
+  tracking comment.
+- **Website ingestion — upstream ratifications to reconcile** (spec repo,
+  contract-first): founder ratifications R1–R5 (well-known-path probes
+  within ADR-0006, crawl caps/robots posture, the `organization_fact`
+  category home, thin-lead sourcing under NEVER-8) recorded in the #101/#103
+  PR bodies; the two-page quick read measures ~13.3s vs ONBOARD-PARAM-1's
+  8s p95 (re-pin the budget for the multi-page read, or parallelize once the
+  fake client scripts per-page); and `crm.yaml`'s `deepReadCompany`
+  description still mentions a `deepread`-vs-`enrich` proposal kind and a
+  `budget` stop reason the v1 does not emit.
 - **No scanner product + no boot wiring** — new uploads stay
   `scanning`/undownloadable until an admin or test drives
   `activities.Store.MarkScanResult`; no real scanning product is
@@ -349,7 +695,10 @@ Implementation follow-ups deferred from this change (honest floors shipped now):
   row so the lane can change without a full re-embed, or make the column width
   configurable) is a separate PR. Until then, switching the embed binding means
   wiping the store (as the module comment already notes). Filed upstream as
-  foundation #1074.
+  foundation #1074. Truncation applies to native `openai`/`gemini` only:
+  the generic `openai_compatible`/`vllm` wire omits the `dimensions` knob
+  entirely (vLLM rejects it on non-matryoshka models), so a model bound
+  there must natively emit the store's width.
 - **Native tool-use mapping for `openai`/`gemini`.** The tasks run in JSON mode
   today, so no caller sets `req.Tools`; the native adapters currently **reject**
   a non-empty `Tools` (loud, not a silent drop) rather than map it. Mapping to

@@ -118,7 +118,13 @@ type ReadyCheck struct {
 // a dumb liveness answer — a wedged database must fail readiness (stop
 // routing traffic here) without failing liveness (don't restart-loop the
 // process the database outage didn't break).
-func Readyz(checks ...ReadyCheck) http.HandlerFunc {
+//
+// aiState rides the 200 body as a visibility line — "configured",
+// "unconfigured", or "fake" — never a gate: an AI-unconfigured
+// deployment is a legitimate, ready deployment (ai-operational-spec
+// §2), so it is reported alongside "ready", not checked as a
+// ReadyCheck that could turn it into a 503.
+func Readyz(aiState string, checks ...ReadyCheck) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
@@ -133,7 +139,7 @@ func Readyz(checks ...ReadyCheck) http.HandlerFunc {
 			}
 		}
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ready"))
+		_, _ = fmt.Fprintf(w, "ready\nai: %s\n", aiState)
 	}
 }
 
@@ -141,8 +147,11 @@ func Readyz(checks ...ReadyCheck) http.HandlerFunc {
 // PoC stage the handful of gauges below does not justify the
 // client_golang dependency tree, and the text format is a stable,
 // trivially-emitted contract. backlog and published are injected by the
-// composition layer (platform/events owns the outbox SQL).
-func Metrics(pool *pgxpool.Pool, backlog func(context.Context) (int64, error), published func() uint64) http.HandlerFunc {
+// composition layer (platform/events owns the outbox SQL). extra renders
+// any additional counter families a process role wires in (e.g. the AI
+// router's call metrics) directly after the pool gauges; nil means the
+// role wired none.
+func Metrics(pool *pgxpool.Pool, backlog func(context.Context) (int64, error), published func() uint64, extra func(io.Writer)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
@@ -167,5 +176,9 @@ func Metrics(pool *pgxpool.Pool, backlog func(context.Context) (int64, error), p
 		_, _ = fmt.Fprintf(w, "margince_pgxpool_conns{state=\"idle\"} %d\n", stat.IdleConns())
 		_, _ = fmt.Fprintf(w, "margince_pgxpool_conns{state=\"total\"} %d\n", stat.TotalConns())
 		_, _ = fmt.Fprintf(w, "margince_pgxpool_conns{state=\"max\"} %d\n", stat.MaxConns())
+
+		if extra != nil {
+			extra(w)
+		}
 	}
 }

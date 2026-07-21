@@ -181,6 +181,7 @@ const (
 	actorKey
 	correlationKey
 	causationKey
+	agentRunKey
 )
 
 // WithWorkspaceID binds the tenant key the RLS transaction helper will
@@ -234,5 +235,19 @@ func WithCausationEvent(ctx context.Context, eventID ids.UUID) context.Context {
 // CausationEvent returns the parent event_id; ok is false at chain roots.
 func CausationEvent(ctx context.Context) (ids.UUID, bool) {
 	id, ok := ctx.Value(causationKey).(ids.UUID)
+	return id, ok
+}
+
+// WithAgentRunID binds the current Surface-B run's id so the model router
+// can stamp ai_call.agent_run_id — the join that closes the run → model
+// call → audited mutation chain. Unbound on non-agent calls (direct API,
+// capture, retrieval), where the column is honestly NULL.
+func WithAgentRunID(ctx context.Context, id ids.UUID) context.Context {
+	return context.WithValue(ctx, agentRunKey, id)
+}
+
+// AgentRunID returns the bound run id; ok is false outside a runner-driven call.
+func AgentRunID(ctx context.Context) (ids.UUID, bool) {
+	id, ok := ctx.Value(agentRunKey).(ids.UUID)
 	return id, ok
 }

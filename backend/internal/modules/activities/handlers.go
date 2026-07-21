@@ -9,6 +9,7 @@ package activities
 // the transactional write shape.
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -17,11 +18,16 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/extraction"
 )
 
 type Handlers struct {
 	store *Store
+	// emailDrafter is the compose-owned optional model drafting seam. Nil
+	// preserves the deterministic draft, so an AI outage or unconfigured
+	// deployment never blocks a user from preparing a reply.
+	emailDrafter EmailDrafter
 	// consent gates the send path; nil fails closed (WithConsent wires it).
 	consent ConsentGate
 	// The public-booking capture seams; nil fails closed
@@ -38,6 +44,13 @@ type Handlers struct {
 	// extractor is the staged AI-extraction seam (RD-T10); nil falls back to
 	// extraction.NoOpExtractor (WithExtractor wires a real one).
 	extractor extraction.Extractor
+}
+
+// EmailDrafter prepares a reply for an existing activity without sending it.
+// Compose implements the optional model-backed path; activities retains the
+// deterministic floor and the outbound send authority.
+type EmailDrafter interface {
+	DraftEmail(ctx context.Context, anchor ids.UUID, intent string) (subject, body string, err error)
 }
 
 func NewHandlers(pool *pgxpool.Pool) Handlers {

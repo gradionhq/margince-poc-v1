@@ -96,7 +96,6 @@ var unguardedByIDUpdates = map[string]string{
 	// so concurrent archives converge on the same terminal row and the
 	// in-transaction visibility read supplies the NotFound.
 	"internal/modules/automation:Archive":           "absolute idempotent archive transition; concurrent archives converge, the visibility pre-read only feeds the audit before-image",
-	"internal/modules/ai:ArchiveProfile":            "absolute idempotent archive transition; concurrent archives converge, the visibility pre-read only feeds the audit before-image",
 	"internal/modules/collections:ArchiveList":      "absolute idempotent archive transition; the RETURNING + archived_at IS NULL predicate makes a lost race read as already archived",
 	"internal/modules/collections:ArchiveSavedView": "absolute idempotent archive transition; the RETURNING + archived_at IS NULL predicate makes a lost race read as already archived",
 	"internal/modules/collections:ArchiveTag":       "absolute idempotent archive transition; the RETURNING + archived_at IS NULL predicate makes a lost race read as already archived",
@@ -115,6 +114,7 @@ var unguardedByIDUpdates = map[string]string{
 	"internal/modules/customfields:Rename":          "runs under the catalog row lock minted by lockField (FOR UPDATE before every decision read), with the If-Match version checked under that lock",
 	"internal/modules/customfields:Retire":          "runs under the catalog row lock minted by lockField (FOR UPDATE before every decision read); the flip is an absolute idempotent transition besides",
 	"internal/modules/customfields:setOptionsInTx":  "runs under the catalog row lock minted by lockPicklistField (FOR UPDATE before every decision read), plus the per-table advisory lock serializeSchemaChange mints",
+	"internal/modules/people:resolveOrCreateAnchor": "mints its own lock: anchorOrganization(lock=true) takes FOR UPDATE on the anchor row before the name update, so concurrent company-form saves serialize (the form carries no version — the company is one standing record, not an optimistically concurrent one)",
 	"internal/modules/deals:ArchiveOffer":           "runs under the offer row lock taken by visibleOfferLocked, and the write itself is an absolute archive transition",
 	"internal/modules/deals:UpdateOfferLineItem":    "runs under the parent offer's row lock taken by visibleOfferLocked, which serializes every line edit",
 	"internal/modules/deals:recomputeOfferTotals":   "every caller holds the offer row lock via visibleOfferLocked, except createOfferTx where the offer row was inserted in the same transaction",

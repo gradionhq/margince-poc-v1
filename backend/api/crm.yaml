@@ -903,6 +903,70 @@ paths:
                     code: company_unreadable
                     detail: Couldn't read enough from this company's site. Retry or add a URL.
 
+  /organizations/{id}/deep-read:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Organizations, AI]
+      operationId: deepReadCompany
+      summary: Read the company's WHOLE site in the background — a crawl that ends in staged 🟡 proposals.
+      description: |
+        The deep read (founder ratification R2, the A102 crawl seam): discovers up to 12 pages of the
+        organization's own site — well-known paths, sitemap, same-registrable-domain nav links, every
+        one robots-checked and SSRF-guarded, discovery is deterministic code and NEVER model-chosen —
+        extracts each page through the shared evidence gate, and stages the merged findings as 🟡
+        approvals (one `deepread` bundle of company facts; one `site_lead` per person found on team
+        pages, published details only). NOTHING is written to real records until a human accepts.
+        Asynchronous: answers 202 with the read to poll; progress and the outcome (including what was
+        SKIPPED and why — robots, off-domain, page cap, model budget) are on the read report. Re-running
+        while a read is in flight answers the SAME read (idempotent per org+url). Budget-guarded: the
+        crawl stops early and reports `partial` when the model lane demotes to queue-or-local.
+      x-mcp-tool: { verb: enrich, tier: yellow }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EnrichCompanyRequest' }
+      responses:
+        '202':
+          description: The crawl is queued; poll the read.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteReadStarted' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: No URL to read (no override, org has no domain).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '501':
+          description: The process role wired no model path or no job runner — declared absent, never a silent no-op.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /organizations/{id}/site-reads/{readId}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: readId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Organizations]
+      operationId: getSiteRead
+      summary: One deep read's progress and outcome — pages read, pages skipped and WHY, what got staged.
+      x-mcp-tool: { verb: read_record, record_type: organization, tier: green }
+      responses:
+        '200':
+          description: The read report.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteReadReport' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /organizations/{id}/strength:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -2856,6 +2920,308 @@ paths:
                     detail: Couldn't read enough from this page. Retry or paste text.
                     details: { populated_fields: 0 }
 
+  /coldstart/preview:
+    post:
+      tags: [AI]
+      operationId: coldStartPreview
+      summary: Read a company back from a website (or text) to PRE-FILL the company form. Stages nothing.
+      description: |
+        The same extraction + no-guess gate as POST /coldstart, with no staging: the fields are returned
+        for a human to check and correct in the company form, and NOTHING is written or queued. Confirm-first
+        (🟡) is honoured by the form itself — the unsaved form IS the staged state, and PUT /company is the
+        human's confirmation. This is the read-back onboarding uses; POST /coldstart's approval-inbox
+        staging remains for callers that propose asynchronously, with no human at the screen.
+
+        Exactly one of `url`, `text` or `self_description`, as on /coldstart. Every field still carries a
+        non-empty `evidence_snippet` + `confidence`, or it is ABSENT — a field the source does not ground
+        is returned as an omission for the human to fill in by hand, never as a guess.
+      x-mcp-tool: { verb: read, tier: green }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ColdStartRequest' }
+            examples:
+              url:
+                value: { url: 'https://acme.com' }
+      responses:
+        '200':
+          description: The evidenced fields, for the form to pre-fill. Nothing written, nothing staged.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ColdStartReadback' }
+              examples:
+                readback:
+                  value:
+                    fields:
+                      - field: value_proposition
+                        value: Cuts onboarding time by 80%.
+                        evidence_snippet: '"Onboard your team in minutes, not weeks."'
+                        source_kind: url
+                        source_url: 'https://acme.com/#hero'
+                        confidence: 0.86
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422':
+          description: URL unfetchable / read too little — honest degradation, zero fabricated fields.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  # ------------------------- onboarding state ------------------------------
+  /onboarding/state:
+    get:
+      tags: [Identity]
+      operationId: getOnboardingState
+      summary: Get the acting user's resumable onboarding state.
+      description: |
+        Returns only wizard orchestration state. Confirmed company data, website-read findings,
+        voice artifacts, and connector grants remain in their owning resources. A user with no
+        persisted state receives 404; the client starts from the server-derived creator/member path.
+      x-agent-access: human-only
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: The acting user's current onboarding state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OnboardingState' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Identity]
+      operationId: putOnboardingState
+      summary: Create or replace the acting user's resumable onboarding state.
+      description: |
+        `expected_version=0` creates the state. Later writes must supply the version last read;
+        a stale concurrent tab receives 409 and must reload before retrying. The server derives
+        creator/member path from anchor-company existence and rejects creator advancement beyond
+        Confirm until the minimum company profile exists.
+      x-agent-access: human-only
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PutOnboardingStateRequest' }
+      responses:
+        '200':
+          description: Persisted onboarding state with its new optimistic version.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OnboardingState' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  # ----------------------------- /company -----------------------------------
+  /company:
+    get:
+      tags: [Organizations]
+      operationId: getCompany
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: The installation's own company (the anchor organization).
+      description: |
+        The company this installation belongs to — the spec's anchor organization, marked by
+        `organization.is_anchor` (0083; at most one live anchor per workspace). 404 until a human first
+        saves the company form: that 404 IS the "this installation has not described itself yet" signal,
+        and it is what onboarding gates on. Distinct from GET /organizations/{id}, which reads the
+        customer records.
+      responses:
+        '200':
+          description: The anchor organization's profile.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyProfile' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: No company saved yet — onboarding has not been completed.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    put:
+      tags: [Organizations]
+      operationId: putCompany
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      # This save IS the 🟡 confirmation of a read-back: an agent may PROPOSE the company
+      # (POST /coldstart/preview) but never make it true, exactly as it may stage an approval
+      # and never approve it.
+      x-agent-access: human-only
+      summary: Save the installation's own company — the human's confirm-first write.
+      description: |
+        Creates the anchor organization on first save (marking it `is_anchor`) and updates it on every
+        later one. This is a HUMAN write: every field is stamped
+        `captured_by=human:<user id>`, `source=human`, whether it was typed from scratch or accepted
+        from a /coldstart/preview read-back — once a human has looked at a value and saved it, it is
+        theirs, and a later agent read-back will not overwrite it.
+
+        Unlike the cold-start accept path this never resolves a target by domain: the workspace names its
+        own anchor, so a company saved from pasted text or typed by hand works exactly like one read from
+        a website. Fields omitted from the body are left untouched; fields sent empty are cleared.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CompanyProfileInput' }
+            examples:
+              typed:
+                summary: Typed by hand — no website read at all
+                value:
+                  display_name: Acme GmbH
+                  legal_name: Acme Gesellschaft mit beschränkter Haftung
+                  register_vat: DE123456789
+                  registered_address: Torstraße 1, 10119 Berlin
+                  industry: B2B SaaS
+                  icp: Mid-market RevOps teams.
+      responses:
+        '200':
+          description: The saved company.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyProfile' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /company/context/capabilities:
+    get:
+      tags: [Organizations, AI]
+      operationId: getCompanyContextCapabilities
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Get the effective server-side company-context rollout capability.
+      description: The UI follows this authenticated response instead of inferring deployment configuration.
+      responses:
+        '200':
+          description: Effective ordered rollout stage and its derived capabilities.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyContextCapabilities' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /company/context:
+    get:
+      tags: [Organizations, AI]
+      operationId: getCompanyContext
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: The deterministic, typed context assembled from the anchor company.
+      description: |
+        Reads confirmed company identity, profile fields and accepted repeatable facts under the
+        caller's normal organization row scope. The requested scopes bound the result; raw crawl
+        pages and individual people never enter this read model. Ordering and fingerprinting are
+        deterministic so downstream model calls can bind cache entries and traces to the exact
+        company knowledge they used.
+      parameters:
+        - name: scopes
+          in: query
+          description: Comma-separated context scopes. Omit for the bounded default set.
+          schema: { type: string, example: 'identity,positioning,offer' }
+      responses:
+        '200':
+          description: The selected company-context scopes and their provenance-bearing values.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyContext' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /company/site-reads:
+    post:
+      tags: [Organizations, AI]
+      operationId: startCompanySiteRead
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Start an optional progressive website read before the anchor company exists.
+      description: |
+        Creates only an unbound operational dossier and queues the shared deep-read engine in the
+        same transaction. No organization, profile field, fact, lead, or domain row is created.
+        Repeating the same URL while its read is active joins the existing dossier.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StartCompanySiteReadRequest' }
+      responses:
+        '202':
+          description: Read accepted; poll the returned dossier while extraction progresses.
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanySiteRead' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /company/site-reads/{readId}:
+    parameters:
+      - name: readId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Organizations, AI]
+      operationId: getCompanySiteRead
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Read the latest progressive onboarding dossier and its grounded draft findings.
+      responses:
+        '200':
+          description: Current read state, coverage, findings, omissions, and separately staged people.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanySiteRead' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /company/site-reads/{readId}/confirm:
+    parameters:
+      - name: readId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Organizations, AI]
+      operationId: confirmCompanySiteRead
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Confirm a selected onboarding draft into the anchor company atomically.
+      description: |
+        Applies only the submitted profile and selected fact keys. The draft version and proposal
+        hash bind confirmation to the exact inspected proposal; a stale confirmation returns 409.
+        Every human-held collision requires an explicit keyed resolution. Unchanged values retain
+        website evidence, edits become human assertions, and published people remain separate
+        site-lead proposals rather than becoming contacts or company-context rows.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConfirmCompanySiteReadRequest' }
+      responses:
+        '200':
+          description: Confirmed anchor company profile and accepted facts.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyProfile' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   # -------------------------- /connectors/imap ------------------------------
   /connectors/imap/connect:
     post:
@@ -3021,6 +3387,303 @@ paths:
         '204': { description: Disconnected (or already disconnected). }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /connectors/{provider}/backfill/preview:
+    parameters:
+      - $ref: '#/components/parameters/CaptureProvider'
+    post:
+      tags: [Capture]
+      operationId: previewConnectorBackfill
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Preview a backfill window — the scope before the spend.
+      description: |
+        Returns the provider-side message count for a CAP-PARAM-4 window plus the projected AI
+        token/cost estimate (ADR-0063; the ADR-0020 preview-before-spend obligation). MUST precede
+        `startConnectorBackfill` — the estimate is what the user consents to. Labeled an estimate:
+        actual spend is metered per task. Requires a `connected` connection; needs one provider
+        round-trip, so a provider outage surfaces honestly as 502.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BackfillPreviewRequest' }
+      responses:
+        '200':
+          description: The window's estimated scope.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BackfillPreview' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '502':
+          description: 'Provider unreachable — the estimate needs the provider (`code: provider_unreachable`).'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /connectors/{provider}/backfill:
+    parameters:
+      - $ref: '#/components/parameters/CaptureProvider'
+    post:
+      tags: [Capture]
+      operationId: startConnectorBackfill
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Start the bounded connect-time backfill.
+      description: |
+        Creates the CAP-DDL-4 run and enqueues the resumable job (ADR-0063). Widen-only — a
+        re-invoke with a larger window re-scans only the delta (the capture key makes overlap a
+        no-op); a smaller window is refused (`409 window_narrowing`). One live run per connection
+        (`409 backfill_running`). This op commands the job; it never ingests (CAP-WIRE-N-1).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StartBackfillRequest' }
+      responses:
+        '202':
+          description: Backfill queued.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BackfillStatus' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    get:
+      tags: [Capture]
+      operationId: getConnectorBackfillStatus
+      security: [ { cookieAuth: [] } ]
+      summary: Backfill progress — the activation read.
+      description: |
+        The single-row progress read behind the activation screen (CAP-PARAM-2: < 150 ms, never
+        blocks on the pipeline). Every count is a persisted-row count; `updated_at` is the
+        staleness stamp a killed worker leaves honest. `state: none` when this connection has
+        never backfilled.
+      responses:
+        '200':
+          description: Current (or last) backfill state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BackfillStatus' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Capture]
+      operationId: cancelConnectorBackfill
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Cancel a running backfill — captured rows are retained.
+      description: |
+        Stops the job; everything already captured stays (real history). Incremental sync is
+        untouched. `409 not_running` when there is nothing to cancel.
+      responses:
+        '202':
+          description: Cancellation accepted.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BackfillStatus' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /digest:
+    get:
+      tags: [Capture]
+      operationId: getMorningDigest
+      security: [ { cookieAuth: [] } ]
+      summary: The calling user's morning digest — what capture did overnight.
+      description: |
+        Reads the CAP-DDL-6 payload built by the nightly suite (CAP-WIRE-6): capture totals,
+        review counts (open dedupe candidates, pending 🟡 approvals, the classify summary), and
+        the connector health strip. `404 no_digest_yet` before the first nightly run — the
+        client renders the honest empty state. v1 delivery is in-app; email is delivery-only
+        later, same object.
+      parameters:
+        - { name: date, in: query, schema: { type: string, format: date }, description: 'A specific digest day; default: the latest generated.' }
+      responses:
+        '200':
+          description: The digest.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MorningDigest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /ai/usage:
+    get:
+      tags: [AI]
+      operationId: getAiUsage
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: AI usage + budget — the spend is never invisible.
+      description: |
+        Per-day × task × tier usage from the metering record (AIRT-PARAM-33) plus the workspace
+        budget block: monthly token budget, spent, current band (AIRT-PARAM-9..11), and since
+        when. The admin economy-mode banner and the spend view read this (AIRT-WIRE-1; resolves
+        the former AIRT-WIRE-N-1 gap). Inference is the customer's own key (ADR-0020) — this is
+        their own bill made visible, never a Margince meter for resale.
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date }, description: 'Default: first day of the current month. Must not be after `to`; the window is capped at 366 days (422 otherwise).' }
+        - { name: to, in: query, schema: { type: string, format: date }, description: 'Default: today.' }
+      responses:
+        '200':
+          description: Usage + budget.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiUsage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /ai/calls:
+    get:
+      tags: [AI]
+      operationId: listAiCalls
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: The AI call trace — every terminal model call, newest first.
+      description: |
+        Terminal attempts from the AIRT-SCHEMA-2 call record (`ai_call`), keyset-paginated
+        newest-first. The admin trace view reads this; the same automation-config grant
+        that admits `getAiUsage` admits it. `payload_capture_enabled` reports the
+        deployment's `ai.capture_payloads` posture so a client can distinguish
+        "capture is off" from "this call has no payload".
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - { name: task, in: query, schema: { type: string }, description: 'Filter to one task (capture_classify, enrich, …).' }
+      responses:
+        '200':
+          description: One page of terminal calls.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiCallListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /ai/calls/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [AI]
+      operationId: getAiCall
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: One call — attempt ladder, routing identity, context provenance, captured payload.
+      description: |
+        The full trace of one terminal call: its non-terminal retry siblings (shared
+        `logical_call_id`), the configured-vs-served model identity, the injected company-context
+        scopes, and — when `ai.capture_payloads` captured it — the post-secret-stripper
+        request/response payload verbatim.
+      responses:
+        '200':
+          description: The call.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiCall' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+
+  # ------------------ /dedupe (DH-EXT-1/2, ADR-0062) ------------------------
+  # The dedupe review queue over dedupe_candidate (DH-DDL-1): confidence-
+  # sorted open pairs with their detection-time evidence snapshot (DH-N-8).
+  # `merge` executes the owner's merge verb server-side (one merge in the
+  # system); `not_a_duplicate` suppresses the pair from every future sweep
+  # (AC-dedupe-7).
+  /dedupe/candidates:
+    get:
+      tags: [People]
+      operationId: listDedupeCandidates
+      security: [ { cookieAuth: [] } ]
+      summary: The dedupe review queue, confidence-sorted.
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [open, merged, not_a_duplicate], default: open } }
+        - { name: entity_type, in: query, schema: { type: string, enum: [person, organization] } }
+        - { name: cursor, in: query, schema: { type: string }, description: Opaque keyset cursor. }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+      responses:
+        '200':
+          description: One page of candidates.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DedupeCandidateListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /dedupe/candidates/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [People]
+      operationId: getDedupeCandidate
+      security: [ { cookieAuth: [] } ]
+      summary: One candidate with its full detection-time evidence.
+      responses:
+        '200':
+          description: The candidate.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DedupeCandidate' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /dedupe/candidates/{id}/disposition:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [People]
+      operationId: disposeDedupeCandidate
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      summary: Decide one pair — merge through the owner's verb, or dismiss forever.
+      description: |
+        `merge` requires `winner_id` (one of the pair) and executes `mergePerson`/
+        `mergeOrganization` server-side — one merge in the system, no second verb.
+        `not_a_duplicate` flips the row and suppresses the pair from every future
+        sweep (AC-dedupe-7). `409 already_disposed`; `422` when `winner_id` is not
+        one of the pair.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DedupeDispositionRequest' }
+      responses:
+        '200':
+          description: The disposed candidate.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DedupeCandidate' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /dedupe/candidates/{id}/undo:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [People]
+      operationId: undoDedupeDisposition
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      summary: Re-open a disposed pair.
+      description: |
+        A dismissed pair re-opens (the suppression lifts). A merged pair needs the
+        merge verb's reversibility (PO-AC-M6) — `409 not_undoable` until the
+        survivor-side restore exists or when the survivor mutated since.
+      responses:
+        '200':
+          description: The re-opened candidate.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DedupeCandidate' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   # ------------------ /capture/exclusions (RC-2 personal-mail) ---------------
   # The per-user personal-mail exclusion rule set (RC-2): a bounded, typed
@@ -4068,41 +4731,39 @@ paths:
               schema: { $ref: '#/components/schemas/TeamListResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
-  # --------------------------- /voice-profiles ------------------------------
-  # Voice DNA (E07, B-E07.4/.5a): the derived voice_profile_md artifact +
-  # per-source corpus manifest. Corpus sources ride the parent
-  # (/voice-profiles/{id}/sources) — §12.5 gives them no standalone CRUD.
+  # =========================================================================
+  # VOICE — owner-private Voice DNA management (ADR-0066).
+  # The V1 surface is per-user and human-only. Draft generation may consume the
+  # active artifact internally, but an agent cannot browse or alter the human's
+  # corpus, learning signals, candidates, or identity preferences.
+  # =========================================================================
   /voice-profiles:
     get:
       tags: [Voice]
       operationId: listVoiceProfiles
-      summary: List the voice profiles visible to the caller.
-      parameters:
-        - $ref: '#/components/parameters/Cursor'
-        - $ref: '#/components/parameters/Limit'
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: List the calling user's live Voice DNA (zero or one in V1).
       responses:
         '200':
-          description: Voice profiles.
+          description: The caller's profile, when one exists.
           content:
             application/json:
               schema:
                 type: object
-                required: [data, page]
+                required: [data]
                 properties:
-                  data: { type: array, items: { $ref: '#/components/schemas/VoiceProfile' } }
-                  page: { $ref: '#/components/schemas/PageInfo' }
+                  data: { type: array, maxItems: 1, items: { $ref: '#/components/schemas/VoiceProfile' } }
         '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [Voice]
       operationId: createVoiceProfile
-      security: [ { cookieAuth: [] } ]   # human session only — a voice is the human's identity asset
+      security: [ { cookieAuth: [] } ]
       x-agent-access: human-only
-      summary: Create a voice profile (status=building, empty derived artifact).
-      description: |
-        A `user`-scope profile is owned by the caller — one live profile per user (409 on a second).
-        `personality_md` is the human-authored identity half; the derived `voice_profile_md` is
-        written only by the profile builder and arrives empty here.
+      summary: Create the calling user's one personal Voice DNA.
+      description: The profile starts collecting with an empty derived artifact. A second live profile is 409.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -4110,22 +4771,25 @@ paths:
             schema: { $ref: '#/components/schemas/CreateVoiceProfileRequest' }
       responses:
         '201':
-          description: Created (building).
+          description: Created.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/VoiceProfile' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
+
   /voice-profiles/{id}:
     parameters:
       - $ref: '#/components/parameters/Id'
     get:
       tags: [Voice]
       operationId: getVoiceProfile
-      summary: Read one voice profile (derived artifact + human identity).
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Read the calling user's Voice DNA and active derived artifact.
       responses:
         '200':
-          description: The voice profile.
+          description: The Voice DNA.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/VoiceProfile' }
@@ -4133,13 +4797,10 @@ paths:
     patch:
       tags: [Voice]
       operationId: updateVoiceProfile
-      security: [ { cookieAuth: [] } ]   # human session only — see createVoiceProfile
+      security: [ { cookieAuth: [] } ]
       x-agent-access: human-only
-      summary: Edit the human-authored personality_md (never the derived artifact).
-      description: |
-        The PATCH surface deliberately carries ONLY `personality_md`: the derived
-        `voice_profile_md` + its `profile_version` are written by the rebuild path alone, so the
-        human-authored/machine-derived split (features/09 §B0.2) is enforced by the contract shape.
+      summary: Replace human-authored preferences or enable/disable automatic improvement.
+      description: The derived artifact and its version are never writable through this operation.
       parameters:
         - $ref: '#/components/parameters/IfMatch'
       requestBody:
@@ -4159,45 +4820,57 @@ paths:
     delete:
       tags: [Voice]
       operationId: deleteVoiceProfile
-      security: [ { cookieAuth: [] } ]   # human session only — see createVoiceProfile
+      security: [ { cookieAuth: [] } ]
       x-agent-access: human-only
-      summary: Archive a voice profile (soft; its corpus stops being read).
+      summary: Archive the calling user's Voice DNA and stop its use in drafts.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
       responses:
-        '204': { description: Archived. }
+        '200':
+          description: Archived profile; no longer used for drafting.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceProfile' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
   /voice-profiles/{id}/sources:
     parameters:
       - $ref: '#/components/parameters/Id'
     get:
       tags: [Voice]
       operationId: listVoiceCorpusSources
-      summary: The corpus manifest — every ingested source plus the live word/register meter.
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: List the owner's corpus manifest and live meter; source text is never returned.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
       responses:
         '200':
-          description: Manifest rows + meter summary.
+          description: Manifest and meter.
           content:
             application/json:
               schema:
                 type: object
-                required: [data, summary]
+                required: [data, summary, page]
                 properties:
                   data: { type: array, items: { $ref: '#/components/schemas/VoiceCorpusSource' } }
                   summary: { $ref: '#/components/schemas/VoiceCorpusSummary' }
+                  page: { $ref: '#/components/schemas/PageInfo' }
         '404': { $ref: '#/components/responses/NotFound' }
     post:
       tags: [Voice]
       operationId: ingestVoiceCorpusSource
-      security: [ { cookieAuth: [] } ]   # human session only — the corpus is consented personal material
+      security: [ { cookieAuth: [] } ]
       x-agent-access: human-only
-      summary: Ingest one corpus source (idempotent on source_ref).
+      summary: Ingest or replace one manual own-authored text source.
       description: |
-        Accepts the source text (`.txt`/`.md` as-is; `.vtt`/`.srt`/transcript-JSON are parsed and
-        SPEAKER-FILTERED to `speaker_label` — only the owner's own turns enter, features/09 §B1.2),
-        tags its register (explicit or defaulted by kind), counts the REAL words of the ingested
-        text (never an estimate), and upserts by `source_ref` — re-ingesting a source replaces its
-        row, it never double-counts the meter. The V1 corpus is text only (features/09 §B1.1):
-        binary documents (`.docx`/`.pdf`) are refused with a 422 — convert or paste the text
-        instead. Server-side binary extraction is deferred to B-E07.5c.
+        Idempotent on `source_ref`. Transcript inputs are speaker-filtered to the supplied owner label;
+        other speakers contribute zero words. V1 accepts text/transcript formats only, never binary
+        documents. Ingest updates the meter and marks a built profile stale but makes no model call.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -4205,7 +4878,7 @@ paths:
             schema: { $ref: '#/components/schemas/IngestVoiceCorpusSourceRequest' }
       responses:
         '201':
-          description: Ingested (created or replaced).
+          description: Created or replaced.
           content:
             application/json:
               schema:
@@ -4216,6 +4889,7 @@ paths:
                   summary: { $ref: '#/components/schemas/VoiceCorpusSummary' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
+
   /voice-profiles/{id}/sources/{sourceId}:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -4226,9 +4900,11 @@ paths:
     patch:
       tags: [Voice]
       operationId: updateVoiceCorpusSource
-      security: [ { cookieAuth: [] } ]   # human session only — see ingestVoiceCorpusSource
+      security: [ { cookieAuth: [] } ]
       x-agent-access: human-only
-      summary: Flip a source's manifest opt-out (excluded) or its weight.
+      summary: Exclude/re-include a source or change its weight without rebuilding inline.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
       requestBody:
         required: true
         content:
@@ -4236,7 +4912,7 @@ paths:
             schema: { $ref: '#/components/schemas/UpdateVoiceCorpusSourceRequest' }
       responses:
         '200':
-          description: Updated manifest row + refreshed meter.
+          description: Updated source and meter.
           content:
             application/json:
               schema:
@@ -4247,6 +4923,249 @@ paths:
                   summary: { $ref: '#/components/schemas/VoiceCorpusSummary' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Voice]
+      operationId: deleteVoiceCorpusSource
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Permanently remove one retained source and mark any active artifact stale.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Archived source manifest; retained content has been scrubbed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceCorpusSource' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /voice-profiles/{id}/corpus/clear:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Voice]
+      operationId: clearVoiceCorpus
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Permanently clear retained corpus, learning content, builds, deltas, and derived versions.
+      description: Human preferences remain; automatic improvement turns off; the profile returns to collecting.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Corpus and derived history cleared; human-authored preferences remain.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceProfile' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /voice-profiles/{id}/builds:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Voice]
+      operationId: createVoiceBuild
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Queue a durable build over the current included corpus.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateVoiceBuildRequest' }
+      responses:
+        '202':
+          description: Queued, or the already-active build returned idempotently.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceBuild' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /voice-profiles/{id}/builds/{buildId}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: buildId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Voice]
+      operationId: getVoiceBuild
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Poll a durable build, including budget-deferred state.
+      responses:
+        '200':
+          description: Build state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceBuild' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /voice-profiles/{id}/versions:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Voice]
+      operationId: listVoiceProfileVersions
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: List immutable active, superseded, rejected, and candidate versions newest first.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Version history.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/VoiceProfileVersion' } }
+                  page: { $ref: '#/components/schemas/PageInfo' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /voice-profiles/{id}/versions/{profileVersion}/apply:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/VoiceProfileVersionNumber'
+    post:
+      tags: [Voice]
+      operationId: applyVoiceProfileVersion
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Explicitly activate a candidate version that awaited owner review.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Activated version.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceProfileVersion' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /voice-profiles/{id}/versions/{profileVersion}/reject:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/VoiceProfileVersionNumber'
+    post:
+      tags: [Voice]
+      operationId: rejectVoiceProfileVersion
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Reject a candidate; the last known-good remains active.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Rejected candidate.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceProfileVersion' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /voice-profiles/{id}/versions/{profileVersion}/rollback:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - $ref: '#/components/parameters/VoiceProfileVersionNumber'
+    post:
+      tags: [Voice]
+      operationId: rollbackVoiceProfileVersion
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Restore an earlier artifact byte-for-byte as a new forward active version.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: New active forward version.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceProfileVersion' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /voice-profiles/{id}/deltas:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Voice]
+      operationId: listVoiceProfileDeltas
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: List typed, explainable changes between completed versions.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Newest deltas first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/VoiceProfileDelta' } }
+                  page: { $ref: '#/components/schemas/PageInfo' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /voice-profiles/{id}/learning:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Voice]
+      operationId: getVoiceLearningSummary
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Read privacy-safe aggregate draft outcomes and qualifying transformations.
+      responses:
+        '200':
+          description: Aggregate only; generated originals and final text are never returned.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceLearningSummary' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /voice-profiles/{id}/draft-rejections:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Voice]
+      operationId: rejectVoiceDraft
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Record that the owner rejected a bound generated draft; generated text never becomes corpus.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RejectVoiceDraftRequest' }
+      responses:
+        '200':
+          description: Rejection recorded, or already recorded; updated aggregate returned.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceLearningSummary' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # =========================================================================
 
   # ------------------------------ /products ---------------------------------
   # The optional rate-card (B-E03.16, data-model §12.6): reusable priced
@@ -5866,6 +6785,12 @@ components:
       required: true
       schema: { type: string, format: uuid }
       description: Opaque resource id (UUID; ordering semantics are not exposed).
+    VoiceProfileVersionNumber:
+      name: profileVersion
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+      description: Immutable Voice DNA artifact version number within one profile.
     Cursor:
       name: cursor
       in: query
@@ -6051,6 +6976,10 @@ components:
         sync_cursor: { type: [string, 'null'], description: 'Opaque provider watermark (Gmail historyId / IMAP UID / Graph delta) for incremental capture — read-only.' }
         watch_expires_at: { type: [string, 'null'], format: date-time, description: 'Push/delta subscription renewal deadline (Gmail Pub/Sub / Graph change-notification), or null.' }
         scopes: { type: array, items: { type: string }, description: The granted provider scopes. }
+        last_synced_at: { type: [string, 'null'], format: date-time, description: 'Last sync attempt (CAP-DDL-5); null before the first.' }
+        last_sync_error_class: { type: [string, 'null'], description: 'rate_limited | unreachable | auth | history_gone | internal — class only, detail in system_log.' }
+        next_sync_due_at: { type: [string, 'null'], format: date-time, description: 'When the sweep will next pick this connection up (backoff-aware).' }
+        backfill: { allOf: [ { $ref: '#/components/schemas/BackfillStatus' } ], description: 'Summary of the connection''s backfill run; state `none` when never run.' }
         created_at: { type: string, format: date-time, readOnly: true }
         updated_at: { type: string, format: date-time, readOnly: true }
     CaptureConnectionListResponse:
@@ -6062,15 +6991,241 @@ components:
       type: object
       description: |
         Connect input. OAuth providers (`gmail`/`gcal`/`graph`) need only an optional `redirect_uri`
-        (the app page to return to after consent). The secret is written to the vault, never echoed.
+        (the app page to return to after consent); `imap` supplies direct credentials. The secret is
+        written to the vault, never echoed.
       properties:
         redirect_uri: { type: string, format: uri, description: 'App page to return to after OAuth consent (OAuth providers).' }
+        imap:
+          type: object
+          description: Direct IMAP credentials (the `imap` provider only).
+          required: [host, username, secret]
+          properties:
+            host: { type: string }
+            port: { type: integer, default: 993, minimum: 1, maximum: 65535 }
+            username: { type: string }
+            secret: { type: string, writeOnly: true, description: 'IMAP password / app password — written to the vault, never returned.' }
     ConnectConnectorResponse:
       type: object
       description: 'An OAuth redirect target (OAuth providers).'
       properties:
         authorize_url: { type: [string, 'null'], format: uri, description: 'Provider consent URL to redirect the user to (OAuth providers).' }
         connection: { allOf: [ { $ref: '#/components/schemas/CaptureConnection' } ], description: 'The established/updated connection (appears after the callback completes for OAuth).' }
+    BackfillPreviewRequest:
+      type: object
+      required: [window]
+      properties:
+        window: { type: string, enum: [none, 3m, 6m, 12m], description: 'The CAP-PARAM-4 window; default UI selection is 6m.' }
+    BackfillPreview:
+      type: object
+      description: 'The scope before the spend (ADR-0063/ADR-0020): what starting this window would touch and roughly cost. An estimate, labeled as such — actual spend is metered per task.'
+      required: [window, estimated_messages, computed_at]
+      properties:
+        window: { type: string, enum: [none, 3m, 6m, 12m] }
+        estimated_messages: { type: integer, description: 'Provider-side message count for the window (Gmail resultSizeEstimate / Graph $count).' }
+        estimated_ai_tokens: { type: integer, description: 'Projected classify+enrich tokens for that count.' }
+        estimated_cost_minor: { type: integer, description: 'Projected cost in minor currency units at the configured tier''s rate; 0 when inference is local.' }
+        currency: { type: string, description: 'ISO-4217, e.g. EUR.' }
+        computed_at: { type: string, format: date-time }
+    StartBackfillRequest:
+      type: object
+      required: [window]
+      properties:
+        window: { type: string, enum: [3m, 6m, 12m], description: '`none` is expressed by never calling this op. Widen-only versus a prior run.' }
+    BackfillStatus:
+      type: object
+      description: 'The CAP-DDL-4 single-row activation read: every count is a persisted-row count, never a fabricated counter (closes CAP-AC-OPEN-1).'
+      required: [state]
+      properties:
+        state: { type: string, enum: [none, queued, running, done, error, cancelled] }
+        backfill_id: { type: [string, 'null'], format: uuid }
+        window: { type: [string, 'null'], enum: [3m, 6m, 12m, null] }
+        estimated_messages: { type: [integer, 'null'], description: 'The previewed count the user consented to — the progress fraction''s denominator.' }
+        counts:
+          type: object
+          properties:
+            messages_scanned: { type: integer }
+            captured: { type: integer }
+            skipped: { type: integer }
+            people_created: { type: integer }
+            organizations_created: { type: integer }
+            dedupe_candidates: { type: integer }
+        started_at: { type: [string, 'null'], format: date-time }
+        completed_at: { type: [string, 'null'], format: date-time }
+        updated_at: { type: [string, 'null'], format: date-time, description: 'Staleness stamp — a killed worker leaves this honest ("last updated Xs ago").' }
+        last_error_class: { type: [string, 'null'], description: 'Error class only; detail lives in system_log (0078 rationale).' }
+    MorningDigest:
+      type: object
+      description: 'The CAP-DDL-6 payload: what capture did overnight and what awaits the human (CAP-WIRE-6).'
+      required: [date, generated_at, capture, review, connectors]
+      properties:
+        date: { type: string, format: date }
+        generated_at: { type: string, format: date-time }
+        capture:
+          type: object
+          properties:
+            messages_synced: { type: integer }
+            activities_created: { type: integer }
+            people_created: { type: integer }
+            organizations_created: { type: integer }
+        review:
+          type: object
+          properties:
+            dedupe_open: { type: integer, description: 'Open DH-DDL-1 candidate pairs.' }
+            approvals_pending: { type: integer, description: 'Pending 🟡 items (enrich, quarantine, merge).' }
+            classify:
+              type: object
+              properties:
+                commitments: { type: integer }
+                meetings: { type: integer }
+                noise: { type: integer }
+        connectors:
+          type: array
+          items:
+            type: object
+            properties:
+              provider: { type: string, enum: [gmail, gcal, graph, imap] }
+              status: { type: string, enum: [connected, disconnected, error, reauth_required] }
+              last_synced_at: { type: [string, 'null'], format: date-time }
+              last_sync_error_class: { type: [string, 'null'] }
+    DedupeCandidate:
+      type: object
+      description: 'One DH-DDL-1 review-queue row: the canonical unordered pair, its confidence, and the detection-time evidence snapshot (DH-N-8).'
+      required: [id, entity_type, left_id, right_id, confidence, evidence, status, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        entity_type: { type: string, enum: [person, organization] }
+        left_id: { type: string, format: uuid, description: 'Canonical ordering: left is the lower id — {A,B} and {B,A} are one row.' }
+        right_id: { type: string, format: uuid }
+        confidence: { type: number, minimum: 0, maximum: 1, description: 'The PO-F-1/PO-F-2 fuzzy score at detection.' }
+        evidence:
+          type: array
+          description: 'Per-field agree/collide snapshot captured at detection — what the queue renders (AC-dedupe-2/3); never re-derived against since-edited rows.'
+          items:
+            type: object
+            required: [field, left_value, right_value, signal]
+            properties:
+              field: { type: string, description: 'full_name, org, domain, …' }
+              left_value: { type: [string, 'null'] }
+              right_value: { type: [string, 'null'] }
+              signal: { type: string, description: 'agree | collide | one_sided' }
+              score: { type: [number, 'null'], description: 'The field''s contribution where scored (e.g. name_sim).' }
+        status: { type: string, enum: [open, merged, not_a_duplicate] }
+        disposed_by: { type: [string, 'null'], format: uuid }
+        disposed_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+    DedupeCandidateListResponse:
+      type: object
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/DedupeCandidate' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+    DedupeDispositionRequest:
+      type: object
+      required: [disposition]
+      properties:
+        disposition: { type: string, enum: [merge, not_a_duplicate] }
+        winner_id: { type: [string, 'null'], format: uuid, description: 'Required for merge: the surviving record — must be one of the pair.' }
+    AiUsage:
+      type: object
+      description: 'AI usage + budget (AIRT-WIRE-1): the AIRT-PARAM-33 meter aggregated per day × task × tier, plus the budget band. Token-denominated; cost_est_minor is computed on read from the workspace''s ai_model_rate price sheet as of each call''s day (ADR-0067, price-on-read) — omitted, never a fabricated 0, when a task line''s window carries no priced call.'
+      required: [days, budget]
+      properties:
+        days:
+          type: array
+          items:
+            type: object
+            required: [date, tasks]
+            properties:
+              date: { type: string, format: date }
+              tasks:
+                type: array
+                items:
+                  type: object
+                  required: [task, tier, calls, tokens_in, tokens_out]
+                  properties:
+                    task: { type: string, description: 'capture_classify, enrich, summarize, …' }
+                    tier: { type: string, description: 'local_small, cheap_cloud, premium, local_large.' }
+                    calls: { type: integer }
+                    cached_hits: { type: integer }
+                    tokens_in: { type: integer }
+                    tokens_out: { type: integer }
+                    cost_est_minor: { type: integer, description: 'USD minor units (cents), estimated on read from ai_model_rate at each call''s day (ADR-0067). Omitted, not 0, when none of this line''s calls priced.' }
+        budget:
+          type: object
+          required: [monthly_tokens, spent_tokens, band]
+          properties:
+            monthly_tokens: { type: integer, description: 'seats × base × safety factor (AIRT-PARAM-8).' }
+            spent_tokens: { type: integer, description: 'Calendar-month tokens_in + tokens_out.' }
+            band: { type: string, enum: [normal, degraded, queued], description: '< 80% / 80–100% soft-degrade / ≥ 100% non-interactive queued (AIRT-PARAM-9..11).' }
+            band_since: { type: [string, 'null'], format: date-time }
+            currency: { type: string, description: 'ISO-4217 of cost_est_minor — always USD in phase 1 (ADR-0067).' }
+    AiCallSummary:
+      type: object
+      description: One terminal model call from the ai_call trace (AIRT-SCHEMA-2).
+      required: [id, occurred_at, task, tier, provider, model_id, served_model, calls_attempted, tokens_in, tokens_out, reasoning_tokens, cached_tokens, latency_ms, cache_hit, degraded, has_payload]
+      properties:
+        id: { type: string, format: uuid }
+        occurred_at: { type: string, format: date-time }
+        task: { type: string }
+        tier: { type: string, description: 'Empty when the call failed before routing.' }
+        provider: { type: string }
+        model_id: { type: string, description: 'The configured binding.' }
+        served_model: { type: string, description: 'What the provider reported serving.' }
+        calls_attempted: { type: integer, description: 'The attempt number of this terminal attempt: 1 = first try succeeded/failed terminally, >1 = retries happened.' }
+        tokens_in: { type: integer }
+        tokens_out: { type: integer }
+        reasoning_tokens: { type: integer }
+        cached_tokens: { type: integer }
+        latency_ms: { type: integer }
+        cache_hit: { type: boolean }
+        degraded: { type: boolean }
+        error_sentinel: { type: [string, 'null'], description: 'Stable failure code; null on success.' }
+        has_payload: { type: boolean, description: 'A captured payload row exists for this call.' }
+    AiCallAttempt:
+      type: object
+      description: One attempt (terminal or not) within a logical call.
+      required: [attempt, is_terminal, attempt_reason, tokens_in, tokens_out, latency_ms, occurred_at]
+      properties:
+        attempt: { type: integer }
+        is_terminal: { type: boolean }
+        attempt_reason: { type: string, description: 'Why this attempt ran — one of provider_error, schema_invalid, budget_degrade; empty for an ordinary first attempt, though budget_degrade can appear on attempt 1 when the budget guardrail demotes the ladder.' }
+        error_sentinel: { type: [string, 'null'] }
+        tokens_in: { type: integer }
+        tokens_out: { type: integer }
+        latency_ms: { type: integer }
+        occurred_at: { type: string, format: date-time }
+    AiCall:
+      allOf:
+        - $ref: '#/components/schemas/AiCallSummary'
+        - type: object
+          required: [served_identity_source, context_scopes, context_fingerprint, attempts, payload_captured]
+          properties:
+            correlation_id: { type: [string, 'null'], format: uuid }
+            agent_run_id: { type: [string, 'null'], format: uuid }
+            served_identity_source: { type: string, description: 'response | echo | configured.' }
+            config_hash: { type: [string, 'null'], description: 'Routing/prompt config identity of this call.' }
+            context_scopes: { type: array, items: { type: string }, description: 'Company-context scopes injected into the request.' }
+            context_fingerprint: { type: string }
+            attempts:
+              type: array
+              items: { $ref: '#/components/schemas/AiCallAttempt' }
+              description: 'The full attempt ladder for this logical call, oldest first (includes the terminal attempt).'
+            payload_captured: { type: boolean }
+            payload:
+              type: [object, 'null']
+              description: 'Present only when payload_captured. Post-secret-stripper content (AIRT-AC-4); rune-capped with a visible truncation marker.'
+              required: [request, response]
+              properties:
+                request: { description: 'The captured request: {"system": string, "messages": [{role, content}]}.' }
+                response: { description: 'The captured response text (JSON string).' }
+    AiCallListResponse:
+      type: object
+      required: [data, page, payload_capture_enabled, tasks]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/AiCallSummary' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+        payload_capture_enabled: { type: boolean, description: 'The deployment''s ai.capture_payloads posture.' }
+        tasks: { type: array, items: { type: string }, description: 'Every task with at least one terminal call, sorted — the complete filter option set (matches the terminal-only list), independent of the current page.' }
     CaptureExclusionRule:
       type: object
       description: |
@@ -7934,7 +9089,7 @@ components:
         ONLY for `source_kind=url` (nullable otherwise — text/self-description evidence has no URL).
       required: [field, value, evidence_snippet, source_kind, confidence]
       properties:
-        field: { type: string, enum: [icp, buying_center, value_proposition, usp, buying_intents, legal_name, registered_address, register_vat, industry, history] }
+        field: { type: string, enum: [display_name, offer_summary, icp, value_proposition, usp, customer_pains, desired_outcomes, buying_center, buying_intents, common_objections, sales_motion, legal_name, registered_address, register_vat, industry, history] }
         value: { type: string }
         evidence_snippet: { type: string, minLength: 1, description: 'Verbatim source text (from the page, the pasted text, or the user''s own words) — non-empty or the field is absent.' }
         source_kind: { type: string, enum: [url, text, self_description], description: 'Where evidence_snippet came from. For self_description the "evidence" is the user''s own statement — a self-declared ICP is grounded in that statement (B-E01.13), not fabricated.' }
@@ -7956,11 +9111,396 @@ components:
           items: { $ref: '#/components/schemas/ColdStartField' }
         created_at: { type: string, format: date-time }
 
+    ColdStartReadback:
+      type: object
+      description: |
+        An un-staged read-back: the evidenced fields only, for a human to check in the company form.
+        There is no proposal_id because there is no proposal — nothing was written or queued.
+      required: [fields]
+      properties:
+        fields:
+          type: array
+          items: { $ref: '#/components/schemas/ColdStartField' }
+
+    OnboardingCompanyDraft:
+      type: object
+      additionalProperties: false
+      description: |
+        Partial human-editable company input retained while the wizard is unfinished. Every field
+        is optional here because this is not confirmed company truth; confirmation uses the stricter
+        CompanyProfileInput or ConfirmCompanySiteReadRequest contract.
+      properties:
+        display_name: { type: [string, 'null'] }
+        offer_summary: { type: [string, 'null'] }
+        icp: { type: [string, 'null'] }
+        value_proposition: { type: [string, 'null'] }
+        usp: { type: [string, 'null'] }
+        customer_pains: { type: [string, 'null'] }
+        desired_outcomes: { type: [string, 'null'] }
+        buying_center: { type: [string, 'null'] }
+        buying_intents: { type: [string, 'null'] }
+        common_objections: { type: [string, 'null'] }
+        sales_motion: { type: [string, 'null'] }
+        legal_name: { type: [string, 'null'] }
+        registered_address: { type: [string, 'null'] }
+        register_vat: { type: [string, 'null'] }
+        industry: { type: [string, 'null'] }
+        history: { type: [string, 'null'] }
+
+    PutOnboardingStateRequest:
+      type: object
+      additionalProperties: false
+      required: [expected_version, step, source_mode, company_draft, selected_fact_keys, voice_skipped, connect_skipped]
+      properties:
+        expected_version: { type: integer, minimum: 0, description: Zero creates; otherwise the version last read. }
+        step: { type: string, enum: [read, confirm, voice, results, connect, complete] }
+        source_mode: { type: [string, 'null'], enum: [website, manual, null] }
+        website_url: { type: [string, 'null'], format: uri }
+        site_read_id: { type: [string, 'null'], format: uuid }
+        company_draft: { $ref: '#/components/schemas/OnboardingCompanyDraft' }
+        selected_fact_keys:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+        voice_skipped: { type: boolean }
+        connect_skipped: { type: boolean }
+
+    OnboardingState:
+      type: object
+      required: [path, step, source_mode, company_draft, selected_fact_keys, voice_skipped, connect_skipped, version, created_at, updated_at]
+      properties:
+        path: { type: string, enum: [creator, member], readOnly: true }
+        step: { type: string, enum: [read, confirm, voice, results, connect, complete] }
+        source_mode: { type: [string, 'null'], enum: [website, manual, null] }
+        website_url: { type: [string, 'null'], format: uri }
+        site_read_id: { type: [string, 'null'], format: uuid }
+        company_draft: { $ref: '#/components/schemas/OnboardingCompanyDraft' }
+        selected_fact_keys:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+        voice_skipped: { type: boolean }
+        connect_skipped: { type: boolean }
+        version: { type: integer, minimum: 1, readOnly: true }
+        completed_at: { type: [string, 'null'], format: date-time, readOnly: true }
+        created_at: { type: string, format: date-time, readOnly: true }
+        updated_at: { type: string, format: date-time, readOnly: true }
+
+    CompanyProfile:
+      type: object
+      description: |
+        The installation's own company. The flat properties remain compatibility aliases for the
+        existing form; `fields` and `facts` are the provenance-bearing source records used by new
+        clients and by CompanyContext. New onboarding considers the profile minimum-complete when
+        display_name, offer_summary and icp are confirmed. Existing installations may remain
+        incomplete until their next edit; reads never fabricate the missing values.
+      required: [organization_id, display_name]
+      properties:
+        organization_id: { type: string, format: uuid, description: The anchor organization this profile belongs to. }
+        display_name: { type: string, minLength: 1, description: What the company is called day to day. }
+        website: { type: [string, 'null'], description: 'The company''s own domain (acme.com) — stored as its primary domain, the same handle a read-back resolves organizations by. A full URL is accepted on write and reduced to its domain.' }
+        legal_name: { type: [string, 'null'], description: The registered legal entity, when it differs from display_name. }
+        registered_address: { type: [string, 'null'], description: The registered address as one formatted line. }
+        register_vat: { type: [string, 'null'], description: 'VAT ID / commercial register entry (e.g. DE123456789, HRB 12345 B).' }
+        industry: { type: [string, 'null'] }
+        offer_summary: { type: [string, 'null'], description: Plain-language summary of what the company sells or delivers. }
+        icp: { type: [string, 'null'], description: Ideal customer profile — who this company sells to. }
+        value_proposition: { type: [string, 'null'] }
+        usp: { type: [string, 'null'] }
+        customer_pains: { type: [string, 'null'] }
+        desired_outcomes: { type: [string, 'null'] }
+        buying_center: { type: [string, 'null'], description: The roles that decide on a purchase. }
+        buying_intents: { type: [string, 'null'] }
+        common_objections: { type: [string, 'null'] }
+        sales_motion: { type: [string, 'null'] }
+        history: { type: [string, 'null'], description: Company background. }
+        fields:
+          type: array
+          items: { $ref: '#/components/schemas/CompanyProfileField' }
+        facts:
+          type: array
+          items: { $ref: '#/components/schemas/OrganizationFact' }
+        minimum_complete: { type: boolean, description: True when display_name, offer_summary and icp are confirmed. }
+        updated_at: { type: string, format: date-time }
+
+    CompanyProfileInput:
+      type: object
+      description: |
+        The company form's body. New onboarding requires the semantic minimum: display_name,
+        offer_summary and icp. The OpenAPI wire keeps only display_name structurally required so clients
+        can be upgraded independently: clients that submit the former five-field legal identity block
+        still succeed, while the current UI and server-created onboarding flow enforce the semantic
+        minimum. Legal/registration fields are optional until a feature with a real
+        jurisdictional or invoicing need asks for them. An omitted optional field is unchanged and one
+        sent empty is cleared.
+      required: [display_name]
+      properties:
+        display_name: { type: string, minLength: 1 }
+        legal_name: { type: [string, 'null'], description: The registered legal entity. }
+        registered_address: { type: [string, 'null'], description: The registered address as one formatted line. }
+        register_vat: { type: [string, 'null'], description: 'VAT ID / commercial register entry (e.g. DE123456789, HRB 12345 B).' }
+        industry: { type: [string, 'null'] }
+        website: { type: [string, 'null'], description: 'The company''s own domain or full URL; stored as the bare domain.' }
+        offer_summary: { type: [string, 'null'] }
+        icp: { type: [string, 'null'] }
+        value_proposition: { type: [string, 'null'] }
+        usp: { type: [string, 'null'] }
+        customer_pains: { type: [string, 'null'] }
+        desired_outcomes: { type: [string, 'null'] }
+        buying_center: { type: [string, 'null'] }
+        buying_intents: { type: [string, 'null'] }
+        common_objections: { type: [string, 'null'] }
+        sales_motion: { type: [string, 'null'] }
+        history: { type: [string, 'null'] }
+
+    CompanyProfileField:
+      type: object
+      required: [field, value, source, captured_by, updated_at]
+      properties:
+        field: { type: string, enum: [display_name, offer_summary, icp, value_proposition, usp, customer_pains, desired_outcomes, buying_center, buying_intents, common_objections, sales_motion, legal_name, registered_address, register_vat, industry, history] }
+        value: { type: string }
+        source: { type: string, enum: [human, site_read, connector, migration] }
+        captured_by: { type: string, readOnly: true }
+        evidence_snippet: { type: [string, 'null'] }
+        source_url: { type: [string, 'null'], format: uri }
+        confidence: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        updated_at: { type: string, format: date-time }
+
+    OrganizationFact:
+      type: object
+      required: [category, field, value, value_key, source, captured_by, updated_at]
+      properties:
+        category: { type: string, enum: [company, offering, market, signal] }
+        field: { type: string, enum: [founded_year, employee_range, phone, contact_email, location, service, product, capability, served_industry, company_size, geography, language, certification, partner, named_customer, technology, quantified_outcome] }
+        value: { type: string }
+        value_key: { type: string }
+        source: { type: string, enum: [human, site_read, connector, migration] }
+        captured_by: { type: string, readOnly: true }
+        evidence_snippet: { type: [string, 'null'] }
+        source_url: { type: [string, 'null'], format: uri }
+        confidence: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        updated_at: { type: string, format: date-time }
+
+    CompanyContextItem:
+      type: object
+      required: [key, value, source, captured_by]
+      properties:
+        key: { type: string }
+        value: { type: string }
+        source: { type: string, enum: [human, site_read, connector, migration] }
+        captured_by: { type: string, readOnly: true }
+        source_url: { type: [string, 'null'], format: uri }
+        confidence: { type: [number, 'null'], minimum: 0, maximum: 1 }
+
+    CompanyContextScope:
+      type: object
+      required: [scope, items]
+      properties:
+        scope: { type: string, enum: [identity, positioning, sales, offer, market, proof, administrative] }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CompanyContextItem' }
+
+    CompanyContext:
+      type: object
+      required: [organization_id, schema_version, scopes, fingerprint, generated_at]
+      properties:
+        organization_id: { type: string, format: uuid }
+        schema_version: { type: integer, enum: [1] }
+        scopes:
+          type: array
+          items: { $ref: '#/components/schemas/CompanyContextScope' }
+        fingerprint: { type: string, description: Deterministic SHA-256 digest of the selected confirmed values and accepted facts. }
+        generated_at: { type: string, format: date-time }
+
+    CompanyContextCapabilities:
+      type: object
+      required: [rollout, read_enabled, tasks_enabled, onboarding_enabled]
+      properties:
+        rollout: { type: string, enum: [off, read, tasks, onboarding] }
+        read_enabled: { type: boolean }
+        tasks_enabled: { type: boolean }
+        onboarding_enabled: { type: boolean }
+
+    StartCompanySiteReadRequest:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string, format: uri, description: Public company website to read. }
+
+    CompanySiteReadPage:
+      type: object
+      required: [url, status]
+      properties:
+        url: { type: string, format: uri }
+        status: { type: string, enum: [fetched, skipped, failed] }
+        kind: { type: [string, 'null'], enum: [home, impressum, about, team, services, products, contact, other] }
+        reason: { type: [string, 'null'], description: Stable human-readable reason when skipped or failed. }
+
+    CompanySiteReadFact:
+      type: object
+      required: [category, field, value, value_key, evidence_snippet, evidence_url, confidence]
+      properties:
+        category: { type: string, enum: [company, offering, market, signal] }
+        field: { type: string, enum: [founded_year, employee_range, phone, contact_email, location, service, product, capability, served_industry, company_size, geography, language, certification, partner, named_customer, technology, quantified_outcome] }
+        value: { type: string }
+        value_key: { type: string }
+        evidence_snippet: { type: string, minLength: 1 }
+        evidence_url: { type: string, format: uri }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+
+    CompanySiteReadComparison:
+      type: object
+      required: [key, value_kind, classification, current_value, current_source, proposed_value]
+      properties:
+        key: { type: string, description: Stable profile-field key or fact selection key. }
+        value_kind: { type: string, enum: [profile_field, fact] }
+        classification: { type: string, enum: [new, machine_change, human_conflict, unchanged] }
+        current_value: { type: [string, 'null'] }
+        current_source: { type: [string, 'null'], enum: [human, site_read, connector, migration, null] }
+        proposed_value: { type: string }
+
+    CompanySiteReadResolution:
+      type: object
+      required: [key, action]
+      properties:
+        key: { type: string }
+        action: { type: string, enum: [keep_current, accept_proposal, use_value] }
+        value:
+          type: [string, 'null']
+          description: Required and non-blank only for use_value; forbidden for other actions.
+
+    CompanySiteReadPerson:
+      type: object
+      required: [name, role, evidence_snippet, evidence_url]
+      properties:
+        name: { type: string }
+        role: { type: string }
+        published_email: { type: [string, 'null'], format: email }
+        linkedin_url: { type: [string, 'null'], format: uri }
+        evidence_snippet: { type: string, minLength: 1 }
+        evidence_url: { type: string, format: uri }
+        disposition: { type: string, enum: [separate_lead_proposal], description: People never enter company context or contact records through company confirmation. }
+
+    CompanySiteRead:
+      type: object
+      required: [id, target_kind, root_url, status, status_code, status_detail, next_attempt_at, pages, profile_fields, facts, comparisons, people, warnings, draft_version, proposal_hash, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        target_kind: { type: string, enum: [onboarding] }
+        organization_id: { type: [string, 'null'], format: uuid }
+        root_url: { type: string, format: uri }
+        status: { type: string, enum: [queued, deferred, reading, ready, partial, failed, confirmed, abandoned] }
+        status_code: { type: [string, 'null'], enum: [null, budget_deferred] }
+        status_detail: { type: [string, 'null'], description: Safe guidance only; never provider payload, prompt, SQL, or stack data. }
+        next_attempt_at: { type: [string, 'null'], format: date-time }
+        phase: { type: [string, 'null'], enum: [crawling, extracting] }
+        pages_read: { type: integer, minimum: 0 }
+        pages:
+          type: array
+          items: { $ref: '#/components/schemas/CompanySiteReadPage' }
+        profile_fields:
+          type: array
+          items: { $ref: '#/components/schemas/ColdStartField' }
+        facts:
+          type: array
+          items: { $ref: '#/components/schemas/CompanySiteReadFact' }
+        comparisons:
+          type: array
+          description: Version-bound comparison against current confirmed company truth.
+          items: { $ref: '#/components/schemas/CompanySiteReadComparison' }
+        people:
+          type: array
+          items: { $ref: '#/components/schemas/CompanySiteReadPerson' }
+        warnings:
+          type: array
+          items: { type: string }
+        draft_version: { type: integer, minimum: 1 }
+        proposal_hash: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ConfirmCompanySiteReadRequest:
+      type: object
+      required: [draft_version, proposal_hash, profile, selected_fact_keys]
+      properties:
+        draft_version: { type: integer, minimum: 1 }
+        proposal_hash: { type: string }
+        profile: { $ref: '#/components/schemas/CompanyProfileInput' }
+        selected_fact_keys:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+        resolutions:
+          type: array
+          description: Exactly one keyed resolution for every human_conflict comparison. Omitted is equivalent to an empty array for existing clients and succeeds only when no human conflict exists.
+          items: { $ref: '#/components/schemas/CompanySiteReadResolution' }
+
     EnrichCompanyRequest:
       type: object
       description: Optional override. With no body the org's own domain is read.
       properties:
         url: { type: string, format: uri, description: Company URL to read instead of the org's domain. }
+
+    SiteReadStarted:
+      type: object
+      description: The 202 handle for a queued deep read.
+      required: [read_id, status]
+      properties:
+        read_id: { type: string, format: uuid }
+        status: { type: string, enum: [queued, deferred, running], description: 'The joined dossier state when a read is already in flight.' }
+
+    SiteReadPage:
+      type: object
+      description: One page the crawl fetched.
+      required: [url, kind]
+      properties:
+        url: { type: string, format: uri }
+        kind: { type: string, enum: [home, impressum, about, team, services, products, contact, other] }
+
+    SiteReadSkip:
+      type: object
+      description: One page the crawl deliberately did NOT read — honest degradation is reportable.
+      required: [url, reason]
+      properties:
+        url: { type: string, format: uri }
+        reason:
+          type: string
+          enum: [robots, off_domain, page_cap, byte_cap, unreadable]
+          x-enum-varnames: [SiteReadSkipReasonRobots, SiteReadSkipReasonOffDomain, SiteReadSkipReasonPageCap, SiteReadSkipReasonByteCap, SiteReadSkipReasonUnreadable]
+
+    SiteReadReport:
+      type: object
+      description: |
+        One deep read's full account: what was read, what was skipped and why, whether the crawl ended
+        early (`partial` + `stopped_reason`), and the 🟡 proposals the findings staged. The report is
+        the transparency surface — a crawl that silently dropped pages would read as "covered
+        everything" when it did not.
+      required: [read_id, organization_id, seed_url, status, status_code, status_detail, next_attempt_at, pages, skipped, proposal_ids, created_at]
+      properties:
+        read_id: { type: string, format: uuid }
+        organization_id: { type: string, format: uuid }
+        seed_url: { type: string, format: uri }
+        status: { type: string, enum: [queued, deferred, running, done, partial, failed] }
+        status_code: { type: [string, 'null'], enum: [null, budget_deferred] }
+        status_detail: { type: [string, 'null'], description: Safe guidance only; never provider payload, prompt, SQL, or stack data. }
+        next_attempt_at: { type: [string, 'null'], format: date-time }
+        pages:
+          type: array
+          items: { $ref: '#/components/schemas/SiteReadPage' }
+        skipped:
+          type: array
+          items: { $ref: '#/components/schemas/SiteReadSkip' }
+        stopped_reason: { type: [string, 'null'], enum: [budget, page_cap, byte_cap, deadline, null], description: 'Why the crawl ended early; null when it exhausted discovery.' }
+        fact_count: { type: integer, description: Evidenced fields staged in the deepread proposal. }
+        phase: { type: [string, 'null'], enum: [crawling, extracting, null], description: 'Live position while status is running; null once terminal.' }
+        pages_read: { type: integer, description: 'Pages committed so far — live progress while running, final count once terminal.' }
+        proposal_ids:
+          type: array
+          items: { type: string, format: uuid }
+          description: 'The staged 🟡 approvals this read produced (the deepread bundle first, then one per site_lead).'
+        created_at: { type: string, format: date-time }
+        finished_at: { type: [string, 'null'], format: date-time }
 
     EnrichmentProposal:
       type: object
@@ -8364,88 +9904,297 @@ components:
         reason: { type: [string, 'null'], description: 'For failed/blocked/skipped: why (e.g. "provider error", "approval expired", "Passport no longer permits send") — from automation_run.detail.' }
         audit_id: { type: [string, 'null'], description: 'Link into the audit_log row for this run.' }
 
-    # ---- Voice DNA (E07, B-E07.4/.5a; data-model §12.5 + features/09 §B0.2) ----
+    # ---- Voice DNA ----
     VoiceProfile:
       type: object
-      description: |
-        A user's/team's voice DNA. `voice_profile_md` is machine-DERIVED (versioned by
-        `profile_version`, rewritten wholesale on rebuild); `personality_md` is human-AUTHORED
-        free text a rebuild never touches.
-      required: [id, scope, status, voice_profile_md, profile_version, personality_md, created_at]
+      description: The calling owner's live personal Voice DNA control record and active derived artifact.
+      required:
+        - id
+        - owner_id
+        - status
+        - maturity
+        - quality_band
+        - voice_profile_md
+        - profile_version
+        - personality_md
+        - auto_learning_enabled
+        - active_source_hash
+        - candidate_version
+        - last_built_at
+        - source
+        - captured_by
+        - version
+        - created_at
+        - updated_at
+        - archived_at
       properties:
         id: { type: string, format: uuid }
-        owner_id: { type: [string, 'null'], format: uuid, description: 'null = workspace/team profile.' }
-        scope: { type: string, enum: [user, team, workspace] }
-        model_ref: { type: [string, 'null'], description: Derived style descriptor / embedding ref. }
-        status: { type: string, enum: [building, ready, stale] }
-        voice_profile_md: { type: string, description: 'The derived artifact (Identity · stats · signature moves · patterns · rules · vocabulary · anti-patterns · register notes · few-shot examples).' }
-        profile_version: { type: integer, description: 'Bumps on every derived rebuild; 0 = never built.' }
-        personality_md: { type: string }
-        version: { type: integer }
+        owner_id: { type: string, format: uuid, readOnly: true }
+        status: { type: string, enum: [collecting, ready, stale] }
+        maturity: { type: string, enum: [collecting, provisional, building], readOnly: true }
+        quality_band: { type: string, enum: [thin, good, rich, sharp], readOnly: true }
+        voice_profile_md: { type: string, readOnly: true, description: Active derived Voice DNA artifact; empty while collecting. }
+        profile_version: { type: integer, minimum: 0, readOnly: true, description: Zero means no active artifact yet. }
+        personality_md: { type: string, description: Owner-authored preferences; model output never overwrites this field. }
+        auto_learning_enabled: { type: boolean, default: false, description: Explicit owner opt-in; defaults off. }
+        active_source_hash: { type: [string, 'null'], readOnly: true }
+        candidate_version: { type: [integer, 'null'], minimum: 1, readOnly: true }
+        last_built_at: { type: [string, 'null'], format: date-time, readOnly: true }
+        source: { type: string }
+        captured_by: { type: string, readOnly: true }
+        version: { type: integer, minimum: 1 }
         created_at: { type: string, format: date-time }
-        updated_at: { type: [string, 'null'], format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
 
     CreateVoiceProfileRequest:
       type: object
       properties:
-        scope: { type: [string, 'null'], enum: [user, team, workspace, null], description: 'Defaults to user (owned by the caller).' }
-        personality_md: { type: [string, 'null'] }
+        personality_md: { type: string, maxLength: 20000, default: '' }
 
     UpdateVoiceProfileRequest:
       type: object
-      required: [personality_md]
+      minProperties: 1
       properties:
-        personality_md: { type: string }
+        personality_md: { type: string, maxLength: 20000 }
+        auto_learning_enabled: { type: boolean }
 
     VoiceCorpusSource:
       type: object
-      description: One corpus manifest row. The ingested text itself is builder-internal and never echoed back.
-      required: [id, kind, register, weight, source_label, source_ref, word_count, excluded, created_at]
+      description: Privacy-safe source manifest. Retained source text is deliberately not returned.
+      required: [id, origin, kind, register, weight, source_label, source_ref, word_count, included, exclusion_reason, extractor_version, occurred_at, retention_until, content_erased_at, source, captured_by, version, created_at, updated_at, archived_at]
       properties:
         id: { type: string, format: uuid }
-        kind: { type: string, enum: [post, transcript, email, chat, longform, voice_memo] }
-        register: { type: string, enum: [spoken, written, casual, formal] }
-        weight: { type: number }
+        origin: { type: string, enum: [manual, capture, draft_signal] }
+        kind: { type: string, enum: [email, linkedin, proposal, transcript, document, other] }
+        register: { type: string, enum: [email, social, long_form, spoken, general] }
+        weight: { type: number, minimum: 0, maximum: 2 }
         source_label: { type: string }
-        source_ref: { type: string, description: 'The source natural key ingest is idempotent on.' }
-        word_count: { type: integer }
-        excluded: { type: boolean }
+        source_ref: { type: string, description: Stable owner-scoped natural key; not raw content. }
+        word_count: { type: integer, minimum: 0 }
+        included: { type: boolean }
+        exclusion_reason: { type: [string, 'null'] }
+        extractor_version: { type: string }
+        occurred_at: { type: string, format: date-time }
+        retention_until: { type: [string, 'null'], format: date-time }
+        content_erased_at: { type: [string, 'null'], format: date-time, readOnly: true }
+        source: { type: string }
+        captured_by: { type: string, readOnly: true }
+        version: { type: integer, minimum: 1 }
         created_at: { type: string, format: date-time }
-        updated_at: { type: [string, 'null'], format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
 
     IngestVoiceCorpusSourceRequest:
       type: object
-      required: [kind, source_label, content]
+      required: [kind, register, source_label, source_ref, format, content]
       properties:
-        kind: { type: string, enum: [post, transcript, email, chat, longform, voice_memo] }
-        register: { type: [string, 'null'], enum: [spoken, written, casual, formal, null], description: 'Defaults by kind: transcript/voice_memo→spoken, chat→casual, post/longform/email→written.' }
-        weight: { type: [number, 'null'], description: '0.1–5.0; defaults to 1.0.' }
-        source_label: { type: string }
-        source_ref: { type: [string, 'null'], description: 'Natural key (message id, upload name…); defaults to a hash of the content.' }
-        format: { type: [string, 'null'], enum: [txt, md, vtt, srt, json, null], description: 'Defaults to txt. vtt/srt/json are transcript formats and require speaker_label when turns are speaker-labelled.' }
-        speaker_label: { type: [string, 'null'], description: 'The owner''s label in a transcript; only matching turns are ingested (features/09 §B1.2).' }
-        content: { type: string, description: The raw source text in the declared format. }
+        kind: { type: string, enum: [email, linkedin, proposal, transcript, document, other] }
+        register: { type: string, enum: [email, social, long_form, spoken, general] }
+        weight: { type: number, minimum: 0, maximum: 2, default: 1 }
+        source_label: { type: string, minLength: 1, maxLength: 255 }
+        source_ref: { type: string, minLength: 1, maxLength: 512 }
+        format: { type: string, enum: [text, transcript] }
+        speaker_label: { type: [string, 'null'], description: Required for transcript format; only this speaker is retained. }
+        occurred_at: { type: [string, 'null'], format: date-time }
+        content: { type: string, minLength: 1, maxLength: 1000000, writeOnly: true }
 
     UpdateVoiceCorpusSourceRequest:
       type: object
-      description: Any subset; omit a field to leave it unchanged.
+      minProperties: 1
       properties:
-        excluded: { type: [boolean, 'null'] }
-        weight: { type: [number, 'null'] }
+        included: { type: boolean }
+        weight: { type: number, minimum: 0, maximum: 2 }
 
     VoiceCorpusSummary:
       type: object
-      description: The live word-count + register-mix meter over the non-excluded manifest (features/09 §B1.4).
-      required: [total_words, target_words, quality_band, register_words, source_count]
+      required: [total_words, target_words, maturity, quality_band, source_count, register_words]
       properties:
-        total_words: { type: integer }
-        target_words: { type: integer, description: 'The ~30k corpus target the meter fills toward.' }
+        total_words: { type: integer, minimum: 0 }
+        target_words: { type: integer, const: 30000 }
+        maturity: { type: string, enum: [collecting, provisional, building] }
         quality_band: { type: string, enum: [thin, good, rich, sharp] }
+        source_count: { type: integer, minimum: 0 }
         register_words:
           type: object
-          description: Word totals per register (spoken/written/casual/formal mix).
-          additionalProperties: { type: integer }
-        source_count: { type: integer }
+          additionalProperties: { type: integer, minimum: 0 }
+
+    CreateVoiceBuildRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, enum: [onboarding, manual] }
+
+    VoiceBuild:
+      type: object
+      required: [id, profile_id, reason, status, stage, source_hash, source_count, result_version, candidate_action, status_code, status_detail, next_attempt_at, version, created_at, started_at, completed_at, updated_at, archived_at]
+      properties:
+        id: { type: string, format: uuid }
+        profile_id: { type: string, format: uuid }
+        reason: { type: string, enum: [onboarding, manual, automatic] }
+        status: { type: string, enum: [queued, deferred, running, succeeded, failed] }
+        stage: { type: [string, 'null'], enum: [null, snapshot, extract, evaluate, activate] }
+        source_hash: { type: string }
+        source_count: { type: integer, minimum: 0 }
+        result_version: { type: [integer, 'null'], minimum: 1 }
+        candidate_action: { type: string, enum: [none, auto_activated, review_required], default: none }
+        status_code: { type: [string, 'null'], enum: [null, budget_deferred, model_unavailable, invalid_output, quality_regression, material_drift, internal] }
+        status_detail: { type: [string, 'null'], description: Safe operator guidance; never provider payload, prompt, SQL, or stack data. }
+        next_attempt_at: { type: [string, 'null'], format: date-time }
+        version: { type: integer, minimum: 1 }
+        created_at: { type: string, format: date-time }
+        started_at: { type: [string, 'null'], format: date-time }
+        completed_at: { type: [string, 'null'], format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+
+    VoiceProfileEvaluation:
+      type: object
+      required:
+        - held_out_prompts
+        - repeats_per_prompt
+        - anti_ai_hard_failures
+        - structured_output_valid
+        - corpus_citations_valid
+        - active_median_voice_score
+        - identity_word_jaccard
+        - signature_set_jaccard
+        - removed_avoid_rules
+        - removed_register_rules
+        - classification
+        - passed
+      properties:
+        held_out_prompts: { type: integer, const: 5 }
+        repeats_per_prompt: { type: integer, const: 3 }
+        active_median_voice_score: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        candidate_median_voice_score: { type: number, minimum: 0, maximum: 1 }
+        anti_ai_hard_failures: { type: integer, minimum: 0 }
+        structured_output_valid: { type: boolean }
+        corpus_citations_valid: { type: boolean }
+        identity_word_jaccard: { type: number, minimum: 0, maximum: 1 }
+        signature_set_jaccard: { type: number, minimum: 0, maximum: 1 }
+        removed_avoid_rules: { type: integer, minimum: 0 }
+        removed_register_rules: { type: integer, minimum: 0 }
+        classification: { type: string, enum: [routine, material] }
+        passed: { type: boolean }
+
+    VoiceProfileVersion:
+      type: object
+      required:
+        - profile_id
+        - id
+        - profile_version
+        - status
+        - voice_profile_md
+        - profile_json
+        - stats_json
+        - source_hash
+        - source_count
+        - reason
+        - predecessor_version
+        - activation_policy_version
+        - model_provider
+        - model_name
+        - builder_version
+        - source
+        - captured_by
+        - evaluation
+        - review_reasons
+        - version
+        - created_at
+        - updated_at
+        - archived_at
+        - activated_at
+      properties:
+        id: { type: string, format: uuid }
+        profile_id: { type: string, format: uuid }
+        profile_version: { type: integer, minimum: 1 }
+        status: { type: string, enum: [candidate, active, superseded, rejected] }
+        voice_profile_md: { type: string }
+        profile_json: { type: object, additionalProperties: true }
+        stats_json: { type: object, additionalProperties: true }
+        source_hash: { type: string }
+        source_count: { type: integer, minimum: 0 }
+        reason: { type: string, enum: [onboarding, manual, automatic, rollback] }
+        predecessor_version: { type: [integer, 'null'], minimum: 1 }
+        model_provider: { type: string }
+        model_name: { type: string }
+        builder_version: { type: string }
+        source: { type: string }
+        captured_by: { type: string, readOnly: true }
+        activation_policy_version: { type: string }
+        evaluation: { $ref: '#/components/schemas/VoiceProfileEvaluation' }
+        review_reasons: { type: array, items: { type: string } }
+        version: { type: integer, minimum: 1, description: Row concurrency version; distinct from the immutable artifact's profile_version. }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+        activated_at: { type: [string, 'null'], format: date-time }
+
+    VoiceProfileDelta:
+      type: object
+      required:
+        - id
+        - profile_id
+        - from_version
+        - to_version
+        - classification
+        - activation_outcome
+        - words_added
+        - sources_added
+        - sources_excluded
+        - identity_word_jaccard
+        - signature_set_jaccard
+        - avoid_rules_added
+        - avoid_rules_removed
+        - register_rules_removed
+        - created_at
+        - updated_at
+        - archived_at
+      properties:
+        id: { type: string, format: uuid }
+        profile_id: { type: string, format: uuid }
+        from_version: { type: [integer, 'null'], minimum: 1 }
+        to_version: { type: integer, minimum: 1 }
+        classification: { type: string, enum: [routine, material] }
+        activation_outcome: { type: string, enum: [auto_activated, review_required, manually_activated, rejected, rollback] }
+        words_added: { type: integer }
+        sources_added: { type: integer, minimum: 0 }
+        sources_excluded: { type: integer, minimum: 0 }
+        identity_word_jaccard: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        signature_set_jaccard: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        avoid_rules_added: { type: integer, minimum: 0 }
+        avoid_rules_removed: { type: integer, minimum: 0 }
+        register_rules_removed: { type: integer, minimum: 0 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+
+    VoiceLearningTransformation:
+      type: object
+      required: [key, observation_count, description]
+      properties:
+        key: { type: string }
+        observation_count: { type: integer, minimum: 5 }
+        description: { type: string, description: Aggregate transformation description; never copied user text. }
+
+    VoiceLearningSummary:
+      type: object
+      required: [drafted, accepted, edited_sent, rejected, qualifying_source_count, qualifying_words, transformations]
+      properties:
+        drafted: { type: integer, minimum: 0 }
+        accepted: { type: integer, minimum: 0 }
+        edited_sent: { type: integer, minimum: 0 }
+        rejected: { type: integer, minimum: 0 }
+        qualifying_source_count: { type: integer, minimum: 0 }
+        qualifying_words: { type: integer, minimum: 0 }
+        transformations: { type: array, items: { $ref: '#/components/schemas/VoiceLearningTransformation' } }
+
+    RejectVoiceDraftRequest:
+      type: object
+      required: [draft_ref]
+      properties:
+        draft_ref: { type: string, minLength: 1 }
 
     # ---- Offers / Angebote (B-E03.16–.20; data-model §12.6) ----
     Product:

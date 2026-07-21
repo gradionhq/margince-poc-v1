@@ -1,0 +1,54 @@
+name: signals_from_call_notes_and_firmographics
+task: deal_health
+source: hand_authored
+sanitized_by: hand_authored/claude-fable-5
+system: >
+  You infer deal-health signals (close_likelihood, service_line,
+  expected_volume, timing) from the supplied evidence. Each signal MUST
+  quote the specific source text it derives from. Emit a signal ONLY if
+  grounded; omit otherwise. These are advisory signals, NOT field values —
+  the schema has no field-write path.
+input: |
+  Deal: {"id":"deal_314","stage":"negotiation"}
+  Evidence (activities/quotes/firmographics; source_id each):
+  [act_10] call note: "Customer said they need the rollout live before their
+  fiscal year end on March 31 — that's the hard deadline driving this."
+  [act_11] call note: "They're comparing us against one competitor but said
+  our onboarding timeline is the deciding factor."
+  [firmo_1] firmographic: "120 employees, single site, logistics vertical."
+  Return JSON: { "signals": [ {"name","value","evidence_snippet","source_id","confidence"} ] }
+expect:
+  structural:
+    - kind: json_schema
+      schema:
+        type: object
+        properties:
+          signals:
+            type: array
+            items:
+              type: object
+              properties:
+                name:
+                  type: string
+                  enum: [close_likelihood, service_line, expected_volume, timing]
+                value:
+                  type: string
+                evidence_snippet:
+                  type: string
+                source_id:
+                  type: string
+                confidence:
+                  type: number
+              required: [name, value, evidence_snippet, source_id, confidence]
+        required: [signals]
+    - kind: contains
+      arg: March 31
+  rubric: >
+    Score whether the timing signal correctly grounds the March 31 fiscal
+    year-end deadline in act_10, whether close_likelihood reflects the
+    onboarding-timeline advantage in act_11, and whether every signal cites a
+    real source_id rather than a plausible-sounding but ungrounded claim.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

@@ -35,7 +35,7 @@ export MARGINCE_ENV          ?= dev
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check build test test-v test-cover test-integration test-db-up test-it test-integration-serial lint arch-lint vet gen gen-workflow drift db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql redis-cli tidy dev infra-down infra-logs infra-reset clean vuln tools tools-go hooks
+.PHONY: help check build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report test-db-up test-it test-integration-serial lint arch-lint vet gen gen-workflow drift db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql redis-cli tidy dev infra-down infra-logs infra-reset clean vuln tools tools-go hooks
 
 help: ## List targets with their descriptions (the default goal)
 	@grep -hE '^[a-zA-Z][a-zA-Z0-9_-]*:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -62,6 +62,48 @@ test: ## Unit tests (the root fitness tests run uncached)
 # read as red, never as green.
 test-integration: ## Integration lane: real Postgres, fails loudly without it (never skips). Parallel — each package on its own throwaway clone db.
 	@bash ../scripts/test-integration-parallel.sh
+
+# The paid BYOK e2e targets below (e2e-siteread, e2e-ai) call a real cloud model,
+# so they need the provider key (GEMINI_API_KEY, ANTHROPIC_API_KEY, …). `make dev`
+# gets it by sourcing repo-root .env.local (scripts/dev.sh); these targets do the
+# same, so they run against the same local binding out of the box instead of
+# failing with "provider … needs an api key". Absent file → no-op (the offline
+# fake / MARGINCE_E2E_MODEL path still works); the file wins over an inline env
+# var, matching dev.sh. cwd is backend/, so .env.local is one level up.
+ENV_LOCAL      := $(CURDIR)/../.env.local
+LOAD_ENV_LOCAL := set -a; [ -f $(ENV_LOCAL) ] && . $(ENV_LOCAL); set +a;
+
+e2e-siteread: ## Deep-read quality floor vs the real gradion.com (paid: real model + network; opt-in). BYOK key auto-loaded from .env.local; judge a model with MARGINCE_E2E_MODEL=provider:model or MARGINCE_AI_ROUTING.
+	$(LOAD_ENV_LOCAL) $(GO) test -tags e2e_llm ./internal/compose/ -run TestSiteReadE2E -v -count=1 -timeout 20m
+
+# TestE2ECertify has no MARGINCE_E2E_MODEL-style fallback of its own — it
+# hard-fails without a routing file — so, unlike e2e-siteread, e2e-ai
+# supplies one: the per-engineer config/ai-routing.yaml `make install`
+# already seeds, so `make e2e-ai` runs against your local binding out of
+# the box. $(CURDIR) makes it absolute: `go test` runs the binary with its
+# cwd set to the aicert package directory, not to backend/, so a relative
+# "../config/..." would resolve from the wrong place. Override with
+# MARGINCE_AI_ROUTING=<path> for a different one.
+MARGINCE_AI_ROUTING ?= $(CURDIR)/../config/ai-routing.yaml
+
+# TRACE names a directory for the payload trace — every candidate and judge
+# call's post-stripper request+response (the ai_call_payload shape), dumped to
+# a JSONL file whose path is printed to stdout for fast prompt tuning. ON by
+# default (`TRACE=1`) because the corpus is a fixed hand-authored scenario set
+# and the content is post-SecretStripper and written local-only (repo-root
+# .tmp/aicert, gitignored) — no customer data, nothing to leak. `TRACE=<dir>`
+# picks a directory; `TRACE=` (empty) turns it off.
+TRACE ?= 1
+ifeq ($(TRACE),1)
+override TRACE := $(CURDIR)/../.tmp/aicert
+endif
+
+e2e-ai: ## Certify AI tasks vs the local binding (paid: real model + network; opt-in). BYOK key auto-loaded from .env.local. Payload trace ON by default (TRACE= to disable). TASK=x MODEL=prov:model RUNS=3 MARGINCE_AI_ROUTING=path
+	$(LOAD_ENV_LOCAL) MARGINCE_AICERT=1 MARGINCE_AI_ROUTING=$(MARGINCE_AI_ROUTING) MARGINCE_AICERT_TASK=$(TASK) MARGINCE_AICERT_MODEL=$(MODEL) MARGINCE_AICERT_RUNS=$(RUNS) MARGINCE_AICERT_TRACE=$(TRACE) \
+	  $(GO) test -tags e2e_llm ./internal/compose/aicert/ -run TestE2ECertify -v -count=1 -timeout 30m
+
+e2e-ai-report: ## Print the certification matrix (task x provider x model) from the committed records under internal/compose/aicert/records/.
+	$(GO) run ./internal/compose/aicert/reportcmd
 
 test-db-up: ## (Re)build the migrated margince_test template the parallel lane clones from
 	@bash -c 'cd .. && source scripts/lib-testdb.sh && parse_test_dsn && build_template && echo "test-db-up: template $$TEMPLATE_NAME migrated to head"'
@@ -131,9 +173,10 @@ gen: ## Regenerate everything derived from the contract
 	$(GO) generate ./internal/contracts
 	$(GO) run ./tools/gen-stubs
 	$(GO) run ./tools/gen-agentpolicy -in api/crm.yaml -out internal/compose/agentpolicy_gen.go
+	$(GO) run ./tools/gen-aitasks -contract api/ai-tasks.yaml -out-go internal/modules/ai/tasks_gen.go -out-schema ../config/ai-routing.schema.json
 
 drift: gen ## Fail when any generated file drifted from the contract
-	git diff --exit-code -- '*_gen.go' internal/contracts/
+	git diff --exit-code -- '*_gen.go' internal/contracts/ ../config/ai-routing.schema.json
 
 # Scaffolding, not generation: gen-workflow writes a write-once handler +
 # test stub for a developer to fill in (AC-W1) and is never part of

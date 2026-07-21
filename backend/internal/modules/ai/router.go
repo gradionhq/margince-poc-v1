@@ -9,7 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"sync"
+	"log/slog"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -28,122 +28,225 @@ const (
 // the latter's entry point).
 const resultCacheTTL = 15 * time.Minute
 
+// traceWriteTimeout bounds the deferred ai_call write that runs on a
+// context detached from the request's cancellation.
+const traceWriteTimeout = 5 * time.Second
+
+// routeMeta is the provider/model identity per tier, retained from the
+// routing config so every ai_call row and RouteInfo can name what served
+// the call without reaching into the opaque Client.
+type routeMeta struct {
+	provider string
+	model    string
+}
+
 // Router is the tiered routing engine (B-EP06.4): tasks name tiers,
 // tiers resolve to bound Clients, the budget guardrail bends the route
 // before the call, and every call lands in the meter. This is the one
 // place routing policy lives — callers never pick a model.
 type Router struct {
-	clients  map[Tier]model.Client
-	embedder model.Client
-	profile  Profile
-	meter    usageStore
-	budget   BudgetPolicy
-	stripper model.SecretStripper
-	cache    *resultCache
+	clients         map[Tier]model.Client
+	embedder        model.Client
+	profile         Profile
+	meter           usageStore
+	budget          BudgetPolicy
+	stripper        model.SecretStripper
+	cache           *resultCache
+	calls           callStore
+	routeMeta       map[Tier]routeMeta
+	capturePayloads bool
+	log             *slog.Logger
+	metrics         *callMetrics
+	now             func() time.Time
+	// cacheOff disables the §6 result cache entirely (ai.WithoutResultCache):
+	// the cert lane and scripted repeat-call tests need every call to reach
+	// the model, not collapse onto a cached answer.
+	cacheOff bool
+	// configSnapshot/configHash are this Router's ai_call_config dimension
+	// row and its primary key, computed once at construction (NewRouter /
+	// NewLocalRouter). Zero value ("") on a Router assembled without a
+	// RoutingConfig (most unit tests via assembleRouter directly) — flush
+	// then skips EnsureConfig and leaves every attempt's ConfigHash nil.
+	configSnapshot ConfigSnapshot
+	configHash     string
+}
+
+// installConfigSnapshot computes and stores this Router's config-snapshot
+// dimension row from the routing yaml's digest (RoutingConfig.sourceHash).
+// Pure — no DB access; EnsureConfig plants the row lazily, once per flush.
+func (r *Router) installConfigSnapshot(routingConfigHash string) {
+	r.configSnapshot = newConfigSnapshot(routingConfigHash)
+	r.configHash = r.configSnapshot.Hash
 }
 
 // RouteInfo tells the caller how its request was actually served — the
-// honest "reduced quality" signal the UI surfaces in economy mode.
+// honest "reduced quality" signal the UI surfaces in economy mode, plus
+// the provider/model identity the agent-run trace records (RUNNER-AC-4).
 type RouteInfo struct {
 	Tier     Tier
+	Provider string
+	ModelID  string
 	Degraded bool
 	Cached   bool
 }
 
-func NewRouter(cfg RoutingConfig, meter *Meter, budget BudgetPolicy) (*Router, error) {
+// NewRouter builds the production router from a validated routing config.
+// calls traces every completion terminal (ai_call); capturePayloads gates
+// the Layer-3 content capture; log carries router observability.
+func NewRouter(cfg RoutingConfig, meter *Meter, budget BudgetPolicy, calls callStore, capturePayloads bool, log *slog.Logger) (*Router, error) {
 	clients, embedder, err := cfg.buildClients()
 	if err != nil {
 		return nil, err
 	}
-	return newRouter(clients, embedder, cfg.Profile, meter, budget), nil
+	meta := make(map[Tier]routeMeta, len(cfg.Tiers))
+	for tier, binding := range cfg.Tiers {
+		meta[tier] = routeMeta{provider: binding.Provider, model: binding.Model}
+	}
+	router := assembleRouter(clients, embedder, cfg.Profile, meter, budget, calls, meta, capturePayloads, log)
+	router.installConfigSnapshot(cfg.sourceHash)
+	return router, nil
 }
 
-// newRouter is the seam unit tests inject fakes through.
-func newRouter(clients map[Tier]model.Client, embedder model.Client, profile Profile, meter usageStore, budget BudgetPolicy) *Router {
+// assembleRouter is the seam unit tests inject fakes through.
+func assembleRouter(clients map[Tier]model.Client, embedder model.Client, profile Profile, meter usageStore, budget BudgetPolicy, calls callStore, meta map[Tier]routeMeta, capturePayloads bool, log *slog.Logger) *Router {
+	if log == nil {
+		log = slog.Default()
+	}
 	return &Router{
-		clients:  clients,
-		embedder: embedder,
-		profile:  profile,
-		meter:    meter,
-		budget:   budget,
-		stripper: NewSecretStripper(),
-		cache:    newResultCache(resultCacheTTL),
+		clients:         clients,
+		embedder:        embedder,
+		profile:         profile,
+		meter:           meter,
+		budget:          budget,
+		stripper:        NewSecretStripper(),
+		cache:           newResultCache(resultCacheTTL),
+		calls:           calls,
+		routeMeta:       meta,
+		capturePayloads: capturePayloads,
+		log:             log,
+		// Every Router shares the one process-wide collector (metrics.go):
+		// coldStartOptions and offerDraftOptions each mint their own Router
+		// over the same routing config, and /metrics must report one honest
+		// total across both, rendered exactly once.
+		metrics: sharedCallMetrics,
+		now:     time.Now,
 	}
 }
 
 // Complete routes one task to a completion. The request names no model:
-// the resolved tier's binding supplies it.
+// the resolved tier's binding supplies it. It is exactly one logical
+// call — mint, attempt, flush.
 func (r *Router) Complete(ctx context.Context, task Task, req model.Request) (model.Response, RouteInfo, error) {
 	ladder, ok := taskLadders[task]
 	if !ok {
 		return model.Response{}, RouteInfo{}, fmt.Errorf("ai: unknown task %q", task)
 	}
-	return r.complete(ctx, task, ladder, req)
+	return r.serveCompletion(ctx, task, ladder, req)
 }
 
-// complete serves one call over an explicit ladder — Complete passes
-// the task default, the structured-output pipeline passes an escalated
-// suffix.
-func (r *Router) complete(ctx context.Context, task Task, ladder []Tier, req model.Request) (model.Response, RouteInfo, error) {
+// serveCompletion serves one call over an explicit ladder as its OWN
+// logical call — the seam router unit tests drive directly, and the
+// convenience wrapper Complete uses for its single-attempt case.
+func (r *Router) serveCompletion(ctx context.Context, task Task, ladder []Tier, req model.Request) (model.Response, RouteInfo, error) {
+	lc := newLogicalCall()
+	resp, info, err := r.serveAttempt(ctx, lc, task, ladder, req, "")
+	r.flushDetached(ctx, lc)
+	return resp, info, err
+}
+
+// serveAttempt serves ONE attempt over ladder and appends its trace to lc
+// — it never flushes. CompleteStructured (structured.go) calls this
+// directly, threading one shared lc across the whole retry/escalation
+// chain so every rung the caller's request actually walked lands under
+// one LogicalCallID; serveCompletion wraps it for the single-attempt case.
+func (r *Router) serveAttempt(ctx context.Context, lc *logicalCall, task Task, ladder []Tier, req model.Request, reason string) (resp model.Response, info RouteInfo, err error) {
 	rawWS, ok := principal.WorkspaceID(ctx)
 	if !ok {
+		// No workspace ⇒ no RLS-writable trace row; fail before building
+		// the trace so we never attempt a tenant write outside a tenant.
 		return model.Response{}, RouteInfo{}, fmt.Errorf("ai: task %s outside workspace context", task)
 	}
 	wsID := ids.From[ids.WorkspaceKind](rawWS)
+	ladder, degraded, budgetErr := r.applyBudget(ctx, task, wsID, ladder)
+	if budgetErr != nil {
+		return model.Response{}, RouteInfo{}, budgetErr
+	}
 	if req.SecretStripper == nil {
 		req.SecretStripper = r.stripper
 	}
 
-	ladder, degraded, err := r.applyBudget(ctx, task, wsID, ladder)
-	if err != nil {
-		return model.Response{}, RouteInfo{}, err
+	key, keyErr := cacheKey(wsID, task, req)
+	if keyErr != nil {
+		return model.Response{}, RouteInfo{}, keyErr
+	}
+
+	// Every ROUTING terminal below is traced: one Call appended to lc for
+	// the served call, the cache hit, or the failure. The earlier
+	// workspace-context and cache-key failures return before this trace is
+	// built and are not traced (no RLS-writable row exists yet, and no
+	// route was attempted).
+	start := r.now()
+	trace := Call{
+		Task: task, Kind: callKindCompletion, RequestFingerprint: key,
+		ContextScopes: append([]string(nil), req.ContextScopes...), ContextFingerprint: req.ContextFingerprint,
+		ContextBytes: req.ContextBytes, ContextTokensEstimate: req.ContextTokensEstimate,
+		AttemptReason: reason, CacheOff: r.cacheOff,
+	}
+	if cid, ok := principal.CorrelationID(ctx); ok {
+		trace.CorrelationID = &cid
+	}
+	if rid, ok := principal.AgentRunID(ctx); ok {
+		trace.AgentRunID = &rid
+	}
+	defer func() {
+		r.finalizeAttempt(ctx, lc, &trace, req, resp, err, start)
+	}()
+
+	trace.Degraded = degraded
+	if degraded {
+		// The budget guardrail forced a demoted ladder — worth naming even
+		// on what is otherwise attempt 1, since it explains why this
+		// attempt did not run the caller's default route.
+		trace.AttemptReason = attemptReasonBudgetDegrade
 	}
 	ladder = r.applyProfile(ladder)
 
-	key, err := cacheKey(wsID, task, req)
-	if err != nil {
-		return model.Response{}, RouteInfo{}, err
-	}
-	if resp, tier, hit := r.cache.get(key, wsID); hit {
-		if err := r.meter.Record(ctx, Usage{Task: task, Tier: tier, Cached: true}); err != nil {
-			return model.Response{}, RouteInfo{}, fmt.Errorf("ai: metering cache hit: %w", err)
-		}
-		return resp, RouteInfo{Tier: tier, Degraded: degraded, Cached: true}, nil
+	// A cached answer only serves when its tier is still on the adjusted
+	// ladder: after a budget band tightened or the profile remapped the
+	// route, a premium-tier entry must not smuggle premium output into an
+	// economy route. The stale entry stays put — TTL ages it out, and the
+	// band may relax within its lifetime. A cache-off Router (§ cert lane,
+	// scripted repeat-call tests) never consults it: every call must reach
+	// the model.
+	if cached, tier, hit := r.cache.get(key, wsID); !r.cacheOff && hit && tierOnLadder(ladder, tier) {
+		return r.serveCacheHit(ctx, &trace, task, tier, cached, degraded)
 	}
 
-	var lastErr error
-	for _, tier := range ladder {
-		client, bound := r.clients[tier]
-		if !bound {
-			continue
-		}
-		resp, err := client.Complete(ctx, req)
-		if err != nil {
-			// Fallback fires on provider error (§1.2); the last rung's
-			// failure is what the caller sees.
-			lastErr = err
-			continue
-		}
-		if err := r.meter.Record(ctx, Usage{Task: task, Tier: tier, TokensIn: resp.InputTokens, TokensOut: resp.OutputTokens, CachedTokens: resp.CachedTokens, ReasoningTokens: resp.ReasoningTokens}); err != nil {
-			// The tokens are spent either way, but unmetered spend would
-			// quietly hollow out the budget guardrail — fail loudly and
-			// let the caller retry into a metered call.
-			return model.Response{}, RouteInfo{}, fmt.Errorf("ai: call served but metering failed: %w", err)
-		}
-		r.cache.put(key, wsID, resp, tier)
-		return resp, RouteInfo{Tier: tier, Degraded: degraded}, nil
+	out, tier, served, ladderErr := r.attemptLadder(ctx, lc, trace, task, ladder, req, key, wsID, start)
+	// Stamp tier and usage even when the ladder returns an error: a
+	// metering failure of a successfully-served call still spent provider
+	// tokens on a real tier, and an all-rungs-failed walk names the last
+	// tier attempted — the trace records what actually happened, not an
+	// empty terminal.
+	trace.Tier = tier
+	trace.TokensIn, trace.TokensOut = out.InputTokens, out.OutputTokens
+	trace.ReasoningTokens, trace.CachedTokens = out.ReasoningTokens, out.CachedTokens
+	trace.CacheWriteTokens = out.CacheWriteTokens
+	if ladderErr != nil {
+		return model.Response{}, RouteInfo{}, ladderErr
 	}
-	if lastErr != nil {
-		return model.Response{}, RouteInfo{}, fmt.Errorf("ai: every bound tier failed for %s: %w", task, lastErr)
+	if served {
+		m := r.routeMeta[tier]
+		return out, RouteInfo{Tier: tier, Provider: m.provider, ModelID: m.model, Degraded: degraded}, nil
 	}
-	// The honest degraded state (§4.3): no bound model can serve this —
-	// tell the caller instead of silently egressing or fabricating.
+	// The honest degraded state (§4.3): no bound model can serve this.
 	return model.Response{}, RouteInfo{}, fmt.Errorf("ai: no bound tier can serve %s in profile %s", task, r.profile)
 }
 
 // Embed routes the embedding lane. Inputs are stripped before egress —
 // the EmbedRequest carries no per-request hook, so the router is the
-// enforcement point here.
+// enforcement point here. One provider call is exactly one logical call —
+// the embed lane has no retry ladder to bundle.
 func (r *Router) Embed(ctx context.Context, req model.EmbedRequest) (model.Embeddings, error) {
 	if _, ok := principal.WorkspaceID(ctx); !ok {
 		return model.Embeddings{}, fmt.Errorf("ai: embeddings outside workspace context")
@@ -157,11 +260,41 @@ func (r *Router) Embed(ctx context.Context, req model.EmbedRequest) (model.Embed
 		stripped[i] = string(clean)
 	}
 	req.Inputs = stripped
+
+	start := r.now()
 	res, err := r.embedder.Embed(ctx, req)
+	trace := Call{Task: TaskEmbeddings, Tier: TierEmbedLane, Kind: callKindEmbedding, CacheOff: r.cacheOff, LatencyMS: r.now().Sub(start).Milliseconds()}
+	if err == nil {
+		// Stamp the SAME token estimate the meter records below onto the
+		// trace row too — embeddings are input-only (no output, no cache
+		// buckets), so TokensOut/cache fields stay 0. Without this, ai_call
+		// carries tokens_in=0 while ai_usage carries the real estimate for
+		// the identical call; CostReport treats a zero-usage row as free by
+		// construction (a call that failed before reaching the provider),
+		// so a paid embedding model priced to a silent $0 despite a
+		// nonzero token line — cost is transparency, never a silent 0. A
+		// failed call (err != nil) legitimately never reached the
+		// provider, so it keeps TokensIn at 0 and reads free, same as today.
+		trace.TokensIn = embedTokenEstimate(req.Inputs)
+	}
+	if cid, ok := principal.CorrelationID(ctx); ok {
+		trace.CorrelationID = &cid
+	}
+	if m, ok := r.routeMeta[TierEmbedLane]; ok {
+		trace.Provider, trace.ModelID = m.provider, m.model
+	}
+	trace.ErrorSentinel = classifyError(err)
+	// model.Embeddings carries no served-model identity (no adapter reports
+	// one for the embed lane today), so this always falls back to the
+	// tier's configured binding.
+	trace.ServedModel, trace.ServedIdentitySource = servedIdentity(trace.Provider, trace.ModelID, "")
+	lc := newLogicalCall()
+	lc.append(trace)
+	r.flushDetached(ctx, lc)
 	if err != nil {
 		return model.Embeddings{}, err
 	}
-	if err := r.meter.Record(ctx, Usage{Task: TaskEmbeddings, Tier: TierEmbedLane, TokensIn: embedTokenEstimate(req.Inputs)}); err != nil {
+	if err := r.meter.Record(ctx, Usage{Task: TaskEmbeddings, Tier: TierEmbedLane, TokensIn: trace.TokensIn}); err != nil {
 		return model.Embeddings{}, fmt.Errorf("ai: call served but metering failed: %w", err)
 	}
 	return res, nil
@@ -175,7 +308,7 @@ func (r *Router) EmbedDims() int { return r.embedder.Caps().EmbedDims }
 func (r *Router) Invalidate(workspaceID ids.WorkspaceID) { r.cache.invalidate(workspaceID) }
 
 // applyBudget bends the ladder per §1.3: soft-degrade one tier at 80%,
-// queue non-interactive / pin interactive to local-small at 100%.
+// defer background work / pin interactive work to local-small at 100%.
 func (r *Router) applyBudget(ctx context.Context, task Task, wsID ids.WorkspaceID, ladder []Tier) ([]Tier, bool, error) {
 	budgetTokens, err := r.budget.MonthlyTokenBudget(ctx, wsID)
 	if err != nil {
@@ -193,8 +326,10 @@ func (r *Router) applyBudget(ctx context.Context, task Task, wsID ids.WorkspaceI
 	utilization := float64(spent) / float64(budgetTokens)
 	switch {
 	case utilization >= queueUtilization:
-		if nonInteractive[task] {
-			return nil, false, fmt.Errorf("%w: task %s", ErrBudgetExhausted, task)
+		if taskExecutionModes[task] == ExecutionModeBackground {
+			now := r.now().UTC()
+			nextWindow := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, time.UTC)
+			return nil, false, &BudgetDeferralError{Task: task, NextAttemptAt: nextWindow}
 		}
 		return []Tier{TierLocalSmall}, true, nil
 	case utilization >= degradeUtilization:
@@ -244,8 +379,9 @@ func embedTokenEstimate(inputs []string) int {
 	return total
 }
 
-// cacheKey covers EVERY completion-shaping input (system, messages, tools, max
-// tokens, attachments, and provider options) via a collision-resistant digest,
+// cacheKey covers EVERY completion-shaping input (model override, system,
+// messages, tools, max tokens, response schema, attachments, provider
+// options, and company-context binding) via a collision-resistant digest,
 // prefixed with the plaintext workspace id: a hash collision may spoil a cache
 // hit but can never cross a tenant boundary, because the workspace segment is
 // compared literally (and re-checked against the stored entry on read).
@@ -254,13 +390,17 @@ func embedTokenEstimate(inputs []string) int {
 // reasoning/thinking knob) collide, and the second is served the first's answer.
 func cacheKey(wsID ids.WorkspaceID, task Task, req model.Request) (string, error) {
 	material, err := json.Marshal(struct {
-		System          string                     `json:"system"`
-		Messages        []model.Message            `json:"messages"`
-		Tools           []model.ToolDef            `json:"tools"`
-		MaxTokens       int                        `json:"max_tokens"`
-		Attachments     []model.Attachment         `json:"attachments"`
-		ProviderOptions map[string]json.RawMessage `json:"provider_options"`
-	}{req.System, req.Messages, req.Tools, req.MaxTokens, req.Attachments, req.ProviderOptions})
+		Model              string                     `json:"model"`
+		System             string                     `json:"system"`
+		Messages           []model.Message            `json:"messages"`
+		Tools              []model.ToolDef            `json:"tools"`
+		MaxTokens          int                        `json:"max_tokens"`
+		ResponseSchema     json.RawMessage            `json:"response_schema"`
+		Attachments        []model.Attachment         `json:"attachments"`
+		ProviderOptions    map[string]json.RawMessage `json:"provider_options"`
+		ContextScopes      []string                   `json:"context_scopes"`
+		ContextFingerprint string                     `json:"context_fingerprint"`
+	}{req.Model, req.System, req.Messages, req.Tools, req.MaxTokens, req.ResponseSchema, req.Attachments, req.ProviderOptions, req.ContextScopes, req.ContextFingerprint})
 	if err != nil {
 		// A ProviderOptions namespace carrying invalid JSON would otherwise
 		// marshal to nil and collapse every such request onto one cache key —
@@ -269,57 +409,4 @@ func cacheKey(wsID ids.WorkspaceID, task Task, req model.Request) (string, error
 	}
 	sum := sha256.Sum256(material)
 	return wsID.String() + "|" + string(task) + "|" + hex.EncodeToString(sum[:]), nil
-}
-
-// resultCache is the §6 result cache: workspace_id is part of the key
-// (RT-AI-M7 — two tenants with identical inputs must never share an
-// answer), TTL-bounded, with a per-workspace invalidation hook.
-type resultCache struct {
-	mu      sync.Mutex
-	ttl     time.Duration
-	now     func() time.Time
-	entries map[string]cacheEntry
-}
-
-type cacheEntry struct {
-	workspaceID ids.WorkspaceID
-	resp        model.Response
-	tier        Tier
-	expires     time.Time
-}
-
-func newResultCache(ttl time.Duration) *resultCache {
-	return &resultCache{ttl: ttl, now: time.Now, entries: map[string]cacheEntry{}}
-}
-
-func (c *resultCache) get(key string, wsID ids.WorkspaceID) (model.Response, Tier, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	entry, ok := c.entries[key]
-	if !ok || c.now().After(entry.expires) {
-		delete(c.entries, key)
-		return model.Response{}, "", false
-	}
-	// Defense in depth for RT-AI-M7: even a corrupted key can never
-	// serve another workspace's answer.
-	if entry.workspaceID != wsID {
-		return model.Response{}, "", false
-	}
-	return entry.resp, entry.tier, true
-}
-
-func (c *resultCache) put(key string, wsID ids.WorkspaceID, resp model.Response, tier Tier) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.entries[key] = cacheEntry{workspaceID: wsID, resp: resp, tier: tier, expires: c.now().Add(c.ttl)}
-}
-
-func (c *resultCache) invalidate(wsID ids.WorkspaceID) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	for key, entry := range c.entries {
-		if entry.workspaceID == wsID {
-			delete(c.entries, key)
-		}
-	}
 }

@@ -11,6 +11,7 @@ import {
   useBuiltinCommands,
   usePaletteHotkey,
 } from "./app/palette";
+import { navigate } from "./app/router";
 import { Shell, useRoute } from "./app/shell";
 import { EmptyState } from "./design-system/atoms";
 import { useT } from "./i18n";
@@ -26,13 +27,14 @@ import { ClientSurfaceScreen } from "./screens/client";
 import { AuthProbeError, consumeAuthExitNotice, useMe } from "./screens/common";
 import { CustomFieldsScreen } from "./screens/customfields";
 import { DealScreen, DealsScreen } from "./screens/deals";
+import { DedupeScreen } from "./screens/dedupe";
 import { DesignScreen } from "./screens/design";
 import { HomeScreen } from "./screens/home";
 import { InboxScreen } from "./screens/inbox";
 import { LeadScreen, LeadsScreen } from "./screens/leads";
 import { OfferScreen } from "./screens/offers";
 import { OfferTemplatesScreen } from "./screens/offertemplates";
-import { OnboardingScreen } from "./screens/onboarding";
+import { OnboardingScreen, useCompany } from "./screens/onboarding";
 import { CompaniesScreen, CompanyScreen } from "./screens/organizations";
 import { PartnersScreen } from "./screens/partners";
 import { ContactsScreen, PersonScreen } from "./screens/people";
@@ -121,6 +123,10 @@ function ScreenView({
       return <AskAiScreen />;
     case "settings":
       return <SettingsScreen tab={id} />;
+    // reached from the digest/settings, not the rail (the 9-item rail is
+    // canonical): the dedupe review queue (M4).
+    case "dedupe":
+      return <DedupeScreen />;
     // reached from Settings, not the rail — the 9-item rail is canonical
     case "products":
       return <ProductsScreen />;
@@ -205,6 +211,27 @@ function AuthedApp({
     }
   }, [me.data, me.error]);
 
+  // Probed only once the session is known good: an unauthenticated /company
+  // would 401 and say nothing about onboarding.
+  const authed = !me.isPending && !me.isError;
+  const company = useCompany(authed);
+  const described = company.data !== null && company.data !== undefined;
+
+  // route.screen is a dependency on purpose: the gate must hold on every
+  // navigation, not only on first load — otherwise the palette or a typed hash
+  // walks straight past onboarding. The onboarding screen itself is exempt or
+  // this effect would fight its own destination.
+  useEffect(() => {
+    if (
+      authed &&
+      company.isSuccess &&
+      !described &&
+      route.screen !== "onboarding"
+    ) {
+      navigate({ screen: "onboarding", id: "company" });
+    }
+  }, [authed, company.isSuccess, described, route.screen]);
+
   const [paletteOpen, setPaletteOpen] = useState(false);
   const commands = useBuiltinCommands();
   usePaletteHotkey(useCallback(() => setPaletteOpen((open) => !open), []));
@@ -229,6 +256,18 @@ function AuthedApp({
     return (
       <RaillessFrame>
         <AuthScreen onAuthed={() => me.refetch()} notice={notice} />
+      </RaillessFrame>
+    );
+  }
+
+  // An installation that has not described itself has nothing for any other
+  // screen to show. The gate lives here rather than on the login path because
+  // a live session never passes through login — a reload would otherwise walk
+  // straight past onboarding into a company that does not exist.
+  if (company.isPending) {
+    return (
+      <RaillessFrame>
+        <AuthSplash />
       </RaillessFrame>
     );
   }

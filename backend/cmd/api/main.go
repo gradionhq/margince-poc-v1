@@ -30,12 +30,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
-	"github.com/gradionhq/margince/backend/internal/modules/ai"
 
 	// The DE jurisdiction pack compiles into every edge binary of this
 	// DE-first deployment (ADR-0042: composition by require-set).
 	_ "github.com/gradionhq/margince/backend/internal/modules/de"
-	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
@@ -71,6 +69,13 @@ type apiConfig struct {
 	apiBaseURL        string
 	gmailClientID     string
 	gmailClientSecret string
+	gmailPushToken    string
+	gmailPushAudience string
+	gmailPushSA       string
+	gmailJWKSURL      string
+	graphClientID     string
+	graphClientSecret string
+	graphTenant       string
 	connectorStateKey string
 }
 
@@ -91,11 +96,18 @@ func parseAPIFlags(args []string) (apiConfig, error) {
 	fs.BoolVar(&cfg.fakeBrain, "ai-fake", false, "drive the AI surfaces with the offline fake model (dev/test only)")
 	fs.StringVar(&cfg.logLevel, "log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
 	fs.StringVar(&cfg.logFormat, "log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")
-	fs.StringVar(&cfg.publicBaseURL, "public-base-url", os.Getenv("MARGINCE_PUBLIC_BASE_URL"), "canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe); required to send marketing mail and for the Gmail OAuth callback")
+	fs.StringVar(&cfg.publicBaseURL, "public-base-url", os.Getenv("MARGINCE_PUBLIC_BASE_URL"), "canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe); required to send marketing mail and for the Gmail/Graph OAuth callback")
 	fs.StringVar(&cfg.gmailClientID, "gmail-client-id", os.Getenv("MARGINCE_GMAIL_CLIENT_ID"), "Google OAuth client id for the Gmail capture connector; with the secret, state key and public-base-url, enables /connectors/gmail/*")
 	fs.StringVar(&cfg.gmailClientSecret, "gmail-client-secret", os.Getenv("MARGINCE_GMAIL_CLIENT_SECRET"), "Google OAuth client secret for the Gmail capture connector")
+	fs.StringVar(&cfg.gmailPushToken, "gmail-push-token", os.Getenv("MARGINCE_GMAIL_PUSH_TOKEN"), "shared secret on the Pub/Sub push subscription URL; enables POST /webhooks/gmail-push (empty = route absent)")
+	fs.StringVar(&cfg.gmailPushAudience, "gmail-push-audience", os.Getenv("MARGINCE_GMAIL_PUSH_AUDIENCE"), "OIDC audience the Pub/Sub push subscription mints tokens for (this endpoint's public URL); with --gmail-push-service-account, the push webhook also verifies Google's OIDC token")
+	fs.StringVar(&cfg.gmailPushSA, "gmail-push-service-account", os.Getenv("MARGINCE_GMAIL_PUSH_SERVICE_ACCOUNT"), "the Google service account email that signs Pub/Sub push OIDC tokens; verified as the token's email claim")
+	fs.StringVar(&cfg.gmailJWKSURL, "gmail-jwks-url", os.Getenv("MARGINCE_GMAIL_JWKS_URL"), "override Google's OIDC JWKS URL; test/dev only")
+	fs.StringVar(&cfg.graphClientID, "graph-client-id", os.Getenv("MARGINCE_GRAPH_CLIENT_ID"), "Microsoft (Entra) application id for the Outlook/M365 capture connector; with the secret, state key and public-base-url, enables /connectors/graph/*")
+	fs.StringVar(&cfg.graphClientSecret, "graph-client-secret", os.Getenv("MARGINCE_GRAPH_CLIENT_SECRET"), "Microsoft client secret for the Outlook/M365 capture connector")
+	fs.StringVar(&cfg.graphTenant, "graph-tenant", os.Getenv("MARGINCE_GRAPH_TENANT"), "Microsoft identity tenant for the consent endpoint (default: common — any organization)")
 	fs.StringVar(&cfg.apiBaseURL, "api-base-url", os.Getenv("MARGINCE_API_BASE_URL"), "the api's externally-reachable base for the OAuth callback redirect_uri; defaults to --public-base-url (same-origin deployments), set only when the api is on a different origin than the SPA (e.g. dev)")
-	fs.StringVar(&cfg.connectorStateKey, "connector-state-key", os.Getenv("MARGINCE_CONNECTOR_STATE_KEY"), "HMAC key (>=32 bytes) signing the OAuth connect `state`; required for the Gmail connect flow")
+	fs.StringVar(&cfg.connectorStateKey, "connector-state-key", os.Getenv("MARGINCE_CONNECTOR_STATE_KEY"), "HMAC key (>=32 bytes) signing the OAuth connect `state`; required for the Gmail and Graph connect flows")
 	if err := fs.Parse(args); err != nil {
 		return apiConfig{}, err
 	}
@@ -138,7 +150,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
-	opts, closeSchemaPool, err := baseComposeOptions(ctx, cfg, pool, stdout)
+	opts, closeSchemaPool, err := baseComposeOptions(ctx, cfg, deployCfg.Capture.FreemailExtra, pool, logger, stdout)
 	if err != nil {
 		return err
 	}
@@ -162,17 +174,29 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		opts = append(opts, busReady)
 	}
 
-	coldStart, err := coldStartOptions(cfg.routingPath, cfg.fakeBrain, pool)
+	// ONE resolution point: coldStartOptions, offerDraftOptions and the
+	// /readyz AI line all consume the same *compose.ModelPath rather than
+	// each running their own copy of the declared-routing/--ai-fake/
+	// neither switch (and, with it, their own Router, cache and budget).
+	modelPath, aiState, err := resolveModelPath(cfg.routingPath, cfg.fakeBrain, pool, deployCfg.AI.CapturePayloads, logger)
 	if err != nil {
 		return err
 	}
-	opts = append(opts, coldStart...)
+	modelPath.SetCompanyContextEnabled(deployCfg.CompanyContext.TasksEnabled())
+	opts = append(opts, compose.WithAiPayloadCaptureFlag(deployCfg.AI.CapturePayloads))
+	opts = append(opts, coldStartOptions(modelPath)...)
+	opts = append(opts, offerDraftOptions(pool, modelPath)...)
+	opts = append(opts, compose.WithAIState(aiState))
+	if modelPath != nil {
+		opts = append(opts, compose.WithAIMetrics(modelPath.WriteMetrics))
+	}
 
-	offerDraft, err := offerDraftOptions(cfg.routingPath, cfg.fakeBrain, pool)
+	deepRead, err := deepReadOption(pool, logger)
 	if err != nil {
 		return err
 	}
-	opts = append(opts, offerDraft...)
+	opts = append(opts, deepRead)
+	opts = append(opts, compose.WithCompanyContextRollout(string(deployCfg.CompanyContext.EffectiveRollout())))
 
 	srv := &http.Server{
 		Addr:              cfg.addr,
@@ -216,7 +240,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 // returned close func releases whatever this stage opened (currently
 // only the schema pool) and is always safe to call, even when nothing
 // was opened.
-func baseComposeOptions(ctx context.Context, cfg apiConfig, pool *pgxpool.Pool, stdout io.Writer) ([]compose.Option, func(), error) {
+func baseComposeOptions(ctx context.Context, cfg apiConfig, freemailExtra []string, pool *pgxpool.Pool, logger *slog.Logger, stdout io.Writer) ([]compose.Option, func(), error) {
 	var opts []compose.Option
 	if cfg.publicBaseURL != "" {
 		opts = append(opts, compose.WithPublicBaseURL(cfg.publicBaseURL))
@@ -234,24 +258,20 @@ func baseComposeOptions(ctx context.Context, cfg apiConfig, pool *pgxpool.Pool, 
 	}
 	opts = append(opts, kvOpts...)
 
-	// The Gmail connect/callback transport rides the same vault WithKeyvault
-	// wired, so it must follow kvOpts. WithGmailCapture self-gates: absent the
-	// client id/secret, state key, or public base URL it is a no-op and the
-	// /connectors/gmail/* surface keeps its declared 501.
-	gmailCfg := compose.GmailConfig{
-		ClientID:      cfg.gmailClientID,
-		ClientSecret:  cfg.gmailClientSecret,
-		StateKey:      cfg.connectorStateKey,
-		PublicBaseURL: cfg.publicBaseURL,
-		APIBaseURL:    cfg.apiBaseURL,
+	// The Gmail and Graph transports ride the vault WithKeyvault wired, so
+	// they must follow kvOpts (and graph follows gmail: WithGraphCapture
+	// joins the connect registry WithGmailCapture builds when both are
+	// configured).
+	gmailOpts, err := gmailOptions(cfg, freemailExtra, pool, logger, stdout)
+	if err != nil {
+		return nil, nil, err
 	}
-	opts = append(opts, compose.WithGmailCapture(gmailCfg))
-	switch {
-	case gmailCfg.Enabled():
-		_, _ = fmt.Fprintln(stdout, "api gmail capture connector enabled (/connectors/gmail/*)")
-	case cfg.gmailClientID != "":
-		_, _ = fmt.Fprintln(stdout, "api gmail capture connector configured but INCOMPLETE — needs client secret, --connector-state-key (>=32B), and --public-base-url; surface stays 501")
+	opts = append(opts, gmailOpts...)
+	graphOpts, err := graphOptions(cfg, pool, logger, stdout)
+	if err != nil {
+		return nil, nil, err
 	}
+	opts = append(opts, graphOpts...)
 
 	schemaOpts, closeSchemaPool, err := schemaPoolOptions(ctx, cfg.schemaDSN, stdout)
 	if err != nil {
@@ -396,79 +416,6 @@ func startInlineRelay(ctx context.Context, pool *pgxpool.Pool, redisAddr string,
 		return rdb.Ping(ctx).Err()
 	})
 	return busReady, stop, nil
-}
-
-// resolvedModelPath loads ai-routing.yaml and builds the process's
-// ModelPath over it — coldStartOptions and offerDraftOptions each call
-// this on the declared routing file so both stay a plain mirror of the
-// same three-way switch (declared routing / --ai-fake / neither) rather
-// than threading a pre-built ModelPath through run() as a fourth kind of
-// boot parameter.
-func resolvedModelPath(routingPath string, pool *pgxpool.Pool) (compose.ModelPath, error) {
-	cfg, err := ai.LoadRoutingFile(routingPath)
-	if err != nil {
-		return compose.ModelPath{}, err
-	}
-	return compose.NewModelPath(cfg, pool)
-}
-
-// coldStartOptions resolves the cold-start read-back's model wiring: a
-// declared routing file for real deployments, the offline fake behind an
-// explicit dev flag, or nothing — the operation then stays an explicit
-// 501 (same posture as the worker's runner lane).
-func coldStartOptions(routingPath string, fakeBrain bool, pool *pgxpool.Pool) ([]compose.Option, error) {
-	switch {
-	case routingPath != "":
-		modelPath, err := resolvedModelPath(routingPath, pool)
-		if err != nil {
-			return nil, err
-		}
-		// The read-back and per-org enrichment share the fetch + extraction
-		// seam, so both light up together on the one declared model path;
-		// the Morning-Brief L2 re-order rides its own routed lane.
-		fetch := compose.NewWebFetcher()
-		return []compose.Option{
-			compose.WithColdStart(fetch, modelPath.ColdStart),
-			compose.WithScrape(fetch, modelPath.ColdStart),
-			compose.WithBrief(modelPath.BriefRank),
-		}, nil
-	case fakeBrain:
-		fetch := compose.NewWebFetcher()
-		fake := ai.NewFakeClient()
-		return []compose.Option{
-			compose.WithColdStart(fetch, fake),
-			compose.WithScrape(fetch, fake),
-			compose.WithBrief(fake),
-		}, nil
-	default:
-		return nil, nil
-	}
-}
-
-// offerDraftOptions resolves the AI-drafted offer regeneration's model +
-// retrieval wiring (arc 4b): the SAME declared-routing/--ai-fake/absent
-// three-way switch coldStartOptions runs, over the SAME two flags — a
-// role that lights up one AI surface lights up both rather than growing
-// a second pair of flags for what is, at boot time, one decision ("does
-// this role have a model?"). Absent either, regenerateOffer stays the
-// mechanical clone alone (offerregenerate.go's honest "offerDrafter
-// unwired" path) — never a silently different behavior.
-func offerDraftOptions(routingPath string, fakeBrain bool, pool *pgxpool.Pool) ([]compose.Option, error) {
-	switch {
-	case routingPath != "":
-		modelPath, err := resolvedModelPath(routingPath, pool)
-		if err != nil {
-			return nil, err
-		}
-		retriever := search.NewRetriever(search.NewStore(pool), modelPath.Embedder)
-		return []compose.Option{compose.WithOfferDraft(modelPath.OfferDraft, retriever)}, nil
-	case fakeBrain:
-		fake := ai.NewFakeClient()
-		retriever := search.NewRetriever(search.NewStore(pool), nil)
-		return []compose.Option{compose.WithOfferDraft(fake, retriever)}, nil
-	default:
-		return nil, nil
-	}
 }
 
 // envOr reads an environment variable with an explicit default, keeping

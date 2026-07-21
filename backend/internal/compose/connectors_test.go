@@ -128,14 +128,15 @@ func TestConnectConnectorReturnsSignedAuthorizeURLForGcal(t *testing.T) {
 func TestConnectConnectorRejectsUnsupportedProvider(t *testing.T) {
 	h := wiredHandlers()
 	rec := httptest.NewRecorder()
-	// graph (Microsoft 365) is contract-declared but not wired on this Google
-	// transport — it must be refused, not treated as gmail/gcal.
-	req := httptest.NewRequest(http.MethodPost, "/v1/connectors/graph/connect", nil).WithContext(humanCtx())
+	// A provider this OAuth transport does not handle (not gmail/gcal/graph, and
+	// not the separate imap surface) must be refused with a clean
+	// connector_unsupported, never misrouted onto another provider's flow.
+	req := httptest.NewRequest(http.MethodPost, "/v1/connectors/whatsapp/connect", nil).WithContext(humanCtx())
 
-	h.ConnectConnector(rec, req, "graph")
+	h.ConnectConnector(rec, req, "whatsapp")
 
 	if rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want 422 for graph", rec.Code)
+		t.Fatalf("status = %d, want 422 for an unsupported provider", rec.Code)
 	}
 	if !strings.Contains(rec.Body.String(), "connector_unsupported") {
 		t.Errorf("body should carry connector_unsupported: %s", rec.Body)
@@ -165,7 +166,7 @@ func TestCallbackDeniedRedirectsHonestly(t *testing.T) {
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status = %d, want 302", rec.Code)
 	}
-	if loc := rec.Header().Get("Location"); loc != "https://app.test/activation?connect=denied" {
+	if loc := rec.Header().Get("Location"); loc != "https://app.test/#/onboarding/connect/denied" {
 		t.Errorf("Location = %q, want the denied landing", loc)
 	}
 }
@@ -185,7 +186,7 @@ func TestCallbackBadStateRedirectsError(t *testing.T) {
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status = %d, want 302", rec.Code)
 	}
-	if loc := rec.Header().Get("Location"); loc != "https://app.test/activation?connect=error" {
+	if loc := rec.Header().Get("Location"); loc != "https://app.test/#/onboarding/connect/error" {
 		t.Errorf("Location = %q, want the error landing", loc)
 	}
 }

@@ -8,7 +8,9 @@ import {
   Building2,
   ChevronDown,
   Database,
+  Factory,
   type LucideIcon,
+  Mic,
   Package,
   ScrollText,
   ShieldCheck,
@@ -38,6 +40,8 @@ import {
 } from "../design-system/trust";
 import { formatDate, formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
+import { AiCallsCard } from "./aicalls";
+import { AiUsageCard } from "./aiusage";
 import { ActorTag } from "./audit";
 import {
   canConfigureAutomations,
@@ -48,10 +52,15 @@ import {
   useLogout,
   useMe,
 } from "./common";
+import {
+  CompanyContextCard,
+  useCompanyContextCapabilities,
+} from "./company-context";
 import { CreateAction, type CreateField, CreateRecordModal } from "./create";
 import { EditAction } from "./edit";
 import { EntityRef } from "./entityref";
 import { ConsentPurposesCard, PrivacyInboxCard } from "./privacy";
+import { VoiceDnaCard } from "./voice-dna";
 import "./settings.css";
 
 // Settings governance surface (B-EP09.13b): renders FROM the live seams —
@@ -67,14 +76,26 @@ import "./settings.css";
 // Booking / Flow / Connected-surfaces tabs have no live seam here, so they are
 // omitted rather than stubbed (STATE-5). The tab is selected by the route id
 // (#/settings/<id>), so a tab is linkable and the palette can deep-link one.
+// Two groups: "you" (per-user, every member) and "org" (organization config,
+// admin/ops only). The nav renders the org group only for a role that could
+// actually use it; the server stays the RBAC authority on every card within.
+// `ai` stays in the personal group: it carries the caller's own agent passports
+// (per-user), so hiding the whole tab from a rep would regress passport minting.
+// The admin-only cards inside it (usage, call trace) are gated per-card already.
 const SETTINGS_TABS = [
-  { id: "account", icon: Building2 },
-  { id: "ai", icon: Sparkles },
-  { id: "data", icon: Database },
-  { id: "catalog", icon: Package },
-  { id: "privacy", icon: ShieldCheck },
-  { id: "audit", icon: ScrollText },
-] as const satisfies readonly { id: string; icon: LucideIcon }[];
+  { id: "account", icon: Building2, group: "you" },
+  { id: "voice", icon: Mic, group: "you" },
+  { id: "ai", icon: Sparkles, group: "you" },
+  { id: "company", icon: Factory, group: "org" },
+  { id: "data", icon: Database, group: "org" },
+  { id: "catalog", icon: Package, group: "org" },
+  { id: "privacy", icon: ShieldCheck, group: "org" },
+  { id: "audit", icon: ScrollText, group: "org" },
+] as const satisfies readonly {
+  id: string;
+  icon: LucideIcon;
+  group: "you" | "org";
+}[];
 
 type SettingsTabId = (typeof SETTINGS_TABS)[number]["id"];
 
@@ -82,15 +103,12 @@ function tabContent(id: SettingsTabId): ReactNode {
   switch (id) {
     case "account":
       return <IdentityCard />;
+    case "voice":
+      return <VoiceDnaCard />;
+    case "company":
+      return <CompanyContextCard />;
     case "ai":
-      return (
-        <>
-          <AutonomyCard />
-          <PassportCard />
-          <AgentToolsCard />
-          <AutomationsLinkCard />
-        </>
-      );
+      return <AiSettingsTab />;
     case "data":
       return <CustomFieldsLinkCard />;
     case "catalog":
@@ -113,35 +131,84 @@ function tabContent(id: SettingsTabId): ReactNode {
   }
 }
 
+const SETTINGS_GROUPS = ["you", "org"] as const;
+
 export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
   const t = useT();
-  // Unknown / absent id falls back to the first tab — a stale deep-link lands
-  // on Account rather than a blank screen.
-  const active =
-    SETTINGS_TABS.find((entry) => entry.id === tab) ?? SETTINGS_TABS[0];
+  const me = useMe();
+  const capabilities = useCompanyContextCapabilities();
+  // Org config is admin/ops-owned (same predicate the write affordances use);
+  // a rep/manager never sees the Organization group. The server re-checks.
+  const isOrgAdmin = canConfigureAutomations(me.data?.roles);
+  const tabs = SETTINGS_TABS.filter((entry) => {
+    if (entry.group === "org" && !isOrgAdmin) {
+      return false;
+    }
+    if (entry.id === "company" && !capabilities.data?.read_enabled) {
+      return false;
+    }
+    return true;
+  });
+  // Unknown / absent id (or one now hidden by role) falls back to the first
+  // visible tab — a stale deep-link lands on Account, never a blank screen.
+  const active = tabs.find((entry) => entry.id === tab) ?? tabs[0];
   return (
     <div className="wrap">
       <SectionHeader title={t("nav.settings")} />
       <div className="set-grid">
         <nav className="set-nav" aria-label={t("settings.navAria")}>
-          {SETTINGS_TABS.map(({ id, icon: Icon }) => {
-            const isActive = id === active.id;
+          {SETTINGS_GROUPS.map((group) => {
+            const groupTabs = tabs.filter((entry) => entry.group === group);
+            if (groupTabs.length === 0) {
+              return null;
+            }
             return (
-              <a
-                key={id}
-                href={`#/settings/${id}`}
-                className={isActive ? "active" : undefined}
-                aria-current={isActive ? "page" : undefined}
-              >
-                <Icon aria-hidden />
-                {t(`settings.tab.${id}`)}
-              </a>
+              <div key={group} className="set-nav-group">
+                <div className="set-nav-grouplabel">
+                  {t(`settings.group.${group}`)}
+                </div>
+                {groupTabs.map(({ id, icon: Icon }) => {
+                  const isActive = id === active.id;
+                  return (
+                    <a
+                      key={id}
+                      href={`#/settings/${id}`}
+                      className={isActive ? "active" : undefined}
+                      aria-current={isActive ? "page" : undefined}
+                    >
+                      <Icon aria-hidden />
+                      {t(`settings.tab.${id}`)}
+                    </a>
+                  );
+                })}
+              </div>
             );
           })}
         </nav>
         <div className="set-content">{tabContent(active.id)}</div>
       </div>
     </div>
+  );
+}
+
+// The AI & autonomy tab. AiUsageCard (GET /ai/usage) and AiCallsCard
+// (GET /ai/calls) require the automation Update grant server-side, so they
+// are rendered only for admin/ops — a rep/manager would otherwise hit a
+// 403 error box on a tab they can otherwise use. This mirrors the
+// EconomyBanner's canConfigureAutomations guard on the same /ai/usage seam;
+// the server stays the RBAC authority regardless.
+function AiSettingsTab() {
+  const me = useMe();
+  const canSeeRuntime = canConfigureAutomations(me.data?.roles);
+  return (
+    <>
+      {canSeeRuntime && <AiUsageCard />}
+      {canSeeRuntime && <AiCallsCard />}
+      <AutonomyCard />
+      <PassportCard />
+      <AgentToolsCard />
+      <AutomationsLinkCard />
+    </>
   );
 }
 

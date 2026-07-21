@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -89,7 +90,7 @@ func slippingCandidate(d crmcontracts.Deal, today time.Time) agents.SlippingDeal
 // the deterministic draft voice with draft_email.
 func followUpDrafter(provider *Provider) agents.FollowUpDrafter {
 	return func(ctx context.Context, deal agents.SlippingDeal) (ids.UUID, string, error) {
-		subject, body := deterministicDraft(deal.Name, "")
+		subject, body := activities.DeterministicEmailDraft(deal.Name, "")
 		fields, err := json.Marshal(map[string]any{
 			"kind":    "note",
 			"subject": "Draft follow-up: " + subject,

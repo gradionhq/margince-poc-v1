@@ -16,7 +16,7 @@ import {
   SectionHeader,
 } from "../design-system/atoms";
 import { DealCard } from "../design-system/composed";
-import { formatDateTime, formatMoney } from "../format/format";
+import { formatDate, formatDateTime, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessage, QueryGate } from "./common";
@@ -51,6 +51,108 @@ export function useMorningBrief(): UseQueryResult<MorningBrief | null> {
       return data ?? null;
     },
   });
+}
+
+// The overnight digest (CAP-WIRE-6): the nightly build's stored counts —
+// what capture landed and what awaits review. `404 no_digest_yet` renders
+// nothing at all: before the first nightly run there is no card, never a
+// fabricated row of zeros.
+type MorningDigest = components["schemas"]["MorningDigest"];
+
+function useMorningDigest(): UseQueryResult<MorningDigest | null> {
+  return useQuery({
+    queryKey: ["digest"],
+    queryFn: async (): Promise<MorningDigest | null> => {
+      const { data, error, response } = await api.GET("/digest");
+      if (response.status === 404) {
+        return null;
+      }
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data ?? null;
+    },
+  });
+}
+
+function DigestStat({
+  value,
+  label,
+}: Readonly<{ value: number; label: MessageKey }>) {
+  const t = useT();
+  return (
+    <div className="digest-stat">
+      <span className="digest-stat-value t-h2 t-mono">{value}</span>
+      <span className="digest-stat-label t-caption">{t(label)}</span>
+    </div>
+  );
+}
+
+function DigestSection() {
+  const t = useT();
+  const { locale } = useLocale();
+  const digestQuery = useMorningDigest();
+  return (
+    <QueryGate query={digestQuery}>
+      {(digest) => {
+        if (digest === null) {
+          return null;
+        }
+        const { capture, review } = digest;
+        return (
+          <section aria-label={t("home.digest")}>
+            <Card className="digest-card" data-testid="digest-card">
+              <div className="digest-head">
+                <span className="digest-title">{t("home.digest")}</span>
+                <span className="t-caption">
+                  {t("home.digestFor", {
+                    date: formatDate(digest.date, locale, "Europe/Berlin"),
+                  })}
+                </span>
+              </div>
+              <div className="digest-stats">
+                <DigestStat
+                  value={capture.messages_synced ?? 0}
+                  label="home.digestSynced"
+                />
+                <DigestStat
+                  value={capture.people_created ?? 0}
+                  label="home.digestPeople"
+                />
+                <DigestStat
+                  value={capture.organizations_created ?? 0}
+                  label="home.digestOrgs"
+                />
+                <DigestStat
+                  value={review.approvals_pending ?? 0}
+                  label="home.digestApprovals"
+                />
+                <button
+                  type="button"
+                  className="digest-stat digest-dedupe"
+                  onClick={() => navigate({ screen: "dedupe" })}
+                >
+                  <span className="digest-stat-value t-h2 t-mono">
+                    {review.dedupe_open ?? 0}
+                  </span>
+                  <span className="digest-stat-label t-caption">
+                    {t("home.digestDedupe")} <ArrowRight aria-hidden />
+                  </span>
+                </button>
+              </div>
+              <p className="digest-classify t-caption">
+                {t("home.digestClassify", {
+                  commitments: review.classify?.commitments ?? 0,
+                  meetings: review.classify?.meetings ?? 0,
+                  noise: review.classify?.noise ?? 0,
+                })}
+              </p>
+            </Card>
+          </section>
+        );
+      }}
+    </QueryGate>
+  );
 }
 
 // The §10.1 factor order is normative (winnability · revenue · timing ·
@@ -372,6 +474,7 @@ export function HomeScreen() {
           ) : null
         }
       </QueryGate>
+      <DigestSection />
       <BriefSection />
       {stalled.length > 0 && (
         <section aria-label={t("home.stalled")}>
