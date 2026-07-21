@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -135,5 +136,44 @@ func TestReactivateUserRestoresActiveAndEmits(t *testing.T) {
 	}
 	if err := e.svc.ReactivateUser(e.wsCtx(e.member), e.member, e.admin.UserID); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("non-admin reactivate: err = %v, want permission denied", err)
+	}
+}
+
+// TestConcurrentLastAdminDeactivationsKeepOneAdmin proves the admin-guard is
+// race-safe: with two admins, two transactions each deactivating a DIFFERENT
+// one must not both succeed (that would zero out admins). The per-workspace
+// advisory lock serializes them, so exactly one is refused.
+func TestConcurrentLastAdminDeactivationsKeepOneAdmin(t *testing.T) {
+	e := setupRevocationEnv(t, "admin-race")
+
+	// Promote the member to admin — now the workspace has exactly two admins.
+	if err := e.svc.ChangeUserRole(e.wsCtx(e.admin), e.admin, e.member.UserID, "admin"); err != nil {
+		t.Fatalf("promote member to admin: %v", err)
+	}
+
+	targets := []ids.UserID{e.admin.UserID, e.member.UserID}
+	errs := make([]error, len(targets))
+	var wg sync.WaitGroup
+	for i, target := range targets {
+		wg.Add(1)
+		go func(i int, target ids.UserID) {
+			defer wg.Done()
+			errs[i] = e.svc.DeactivateUser(e.wsCtx(e.admin), e.admin, DeactivateUserInput{UserID: target})
+		}(i, target)
+	}
+	wg.Wait()
+
+	conflicts := 0
+	for _, err := range errs {
+		switch {
+		case err == nil:
+		case errors.Is(err, apperrors.ErrConflict):
+			conflicts++
+		default:
+			t.Fatalf("unexpected deactivation error: %v", err)
+		}
+	}
+	if conflicts != 1 {
+		t.Fatalf("concurrent double-admin deactivation refused %d times, want exactly 1 — the race would zero out admins", conflicts)
 	}
 }

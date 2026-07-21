@@ -144,6 +144,16 @@ func (s *Service) ReactivateUser(ctx context.Context, actor Identity, userID ids
 // deactivating them would leave the organization with no administrator and no
 // in-app way to recover. Runs inside the caller's row-locked transaction.
 func lastActiveAdmin(ctx context.Context, tx pgx.Tx, userID ids.UserID) (bool, error) {
+	// Serialize the admin-count check+act across the whole workspace: without
+	// this, two transactions each deactivating a DIFFERENT admin would both see
+	// the other still active (their target-row FOR UPDATE lock doesn't cover the
+	// other admin's row) and both commit, leaving zero admins. A transaction
+	// advisory lock keyed on the workspace makes admin-management serial, so the
+	// second transaction re-reads the first's committed change and refuses.
+	if _, err := tx.Exec(ctx,
+		`SELECT pg_advisory_xact_lock(hashtext('margince:admin-guard:' || current_setting('app.workspace_id', true))::bigint)`); err != nil {
+		return false, err
+	}
 	var targetIsAdmin bool
 	if err := tx.QueryRow(ctx, `
 		SELECT EXISTS (
