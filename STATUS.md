@@ -22,6 +22,56 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**Cold-start dev stack, the machine sweep, and the legal-entity census
+(#151, #156).** Three things that were wrong together.
+
+`make dev` seeded the demo workspace on every boot, so the state a developer
+worked against was never the state a first customer sees — onboarding and empty
+states were permanently skipped. It now boots the installation the api
+bootstraps from `config/margince.yaml` and nothing else; demo data is the
+explicit `make seed-dev`, and `make dev-fresh` rebuilds the database when a
+previous session left data behind.
+
+It also **sweeps**: every margince api/worker/vite on the machine — recorded,
+orphaned, or from another checkout — is killed, anything holding the port is
+evicted, and stray `margince_dev_*` databases are dropped. The app now owns
+`:8080` (the api sits behind it on `:18080`, with `/v1` and the probes proxied
+through), because `localhost:8080` used to answer `404 page not found` and that
+is the first thing anyone types. Two review rounds hardened it: port scans match
+LISTENERS only (`lsof -ti tcp:` also lists clients — the sweep could kill the
+developer's browser), recorded pids are re-verified before being killed (PIDs get
+recycled), and the database sweep runs after `db-up` (it silently did nothing on
+a stopped stack).
+
+**The site read now reads what a company sells.** A 40-page read produced 315
+"facts" that were mostly not facts: UX methods listed as services, and vendors
+(Temenos, Mambu, Kong) recorded as products the company sells — while not one of
+the eight Solutions its own navigation enumerates appeared. The cause was
+upstream of the prompt: `classifyKind` had no keyword for "solution", so the
+index that lists the offerings ranked below every leaf detailing one of them, and
+the crawl hit its cap on leaf pages and six translations of the imprint. The
+ranker learns the taxonomy and prefers an index over its own leaves, the fetch
+wave shrank so discovery can correct the order (which also makes the progress
+counter move), the legal-locale bypass is bounded, and the extraction states the
+two rules it was missing — name offerings at the level they are sold, and a
+platform made by someone else is `technology`, never `product`. Facts are curated
+to `identity.MaxSelectedFacts` by bands, since the confirm step preselects every
+one of them.
+
+**The legal identity a site states is kept, and the human picks.** A group's
+legal notice states one block per entity; the read refuses to guess which one an
+installation is, which was right, but it also discarded the blocks — leaving a
+human to retype what the page already printed. The census now carries each
+entity's registered address and register number (migration `0112`), the contract
+exposes them, and the confirm step offers them: one click fills the three fields.
+They are marked as the human's input, because that is what confirmation records —
+binding the census entry server-side, so the "read from site" label would be
+true, is the follow-up. The grounding rules took three rounds to get right: a
+detail is judged against the entity's own cited block, by whole contiguous
+tokens, so a truncated identifier (`1234` against `HRB 123456`), a sibling
+block's address, and one recombined from unrelated tokens (`HRB 24114`) are all
+refused.
+
 **AI cost pre-flight estimation — the cost hand-off is complete (ADR-0068/A114,
 phase 2 of 2).** Phase 1 priced actuals (`/ai/usage`); phase 2 fills the backfill
 preview's money figure. For N messages the preview now shows a data-driven priced
@@ -518,6 +568,21 @@ tooling and gate suite the baseline needs. Merged so far:
 ## Pick up here
 
 Open work, roughly in priority order:
+
+- **Site-read legal census — three known gaps (#162).** `FinishSiteRead`'s CAS
+  guards only on `status = 'running'`, so a reclaimed-then-returning worker can
+  overwrite the dossier (pre-existing; the finish half now lives in
+  `people/sitereadfinish.go`). A VAT group can fold two real companies into one
+  census entry, because the dedupe keys on the register number — which is what
+  lets a market heading collapse into the entity it labels. And a read whose only
+  surviving output is the legal census is recorded as failed, because the
+  survivor check ignores `merged.entities`.
+
+- **Onboarding UI — restructured, not redesigned.** The company step lost its
+  advertorial copy and the hundred evidence cards moved below the form (collapsed
+  behind a count), but the five-step wizard itself is unchanged. A rethink of the
+  flow is still open, as is the server-side binding that would let the entity
+  picker honestly claim site provenance for the legal trio.
 
 - **Voice DNA follow-ons** — the lifecycle, the real onboarding step and the
   settings surface are merged (see *Recently landed*). Still open: the
