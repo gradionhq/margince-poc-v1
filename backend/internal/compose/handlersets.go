@@ -13,6 +13,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/modules/quotas"
@@ -37,4 +38,5 @@ type (
 	voiceHandlers        = ai.Handlers
 	customfieldsHandlers = customfields.Handlers
 	quotasHandlers       = quotas.Handlers
+	overlayHandlers      = overlay.Handlers
 )

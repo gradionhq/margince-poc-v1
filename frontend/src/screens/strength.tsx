@@ -12,7 +12,7 @@ import {
 } from "../design-system/atoms";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
-import { problemMessage } from "./common";
+import { OverlayUnavailable, problemMessage, useSorMode } from "./common";
 
 // The relationship-strength card (Phase 3, P-4): "no mystery number" — the
 // composite score NEVER renders alone. It always carries its bucket badge
@@ -67,28 +67,34 @@ export function StrengthCard({
 }: Readonly<{ kind: "person" | "organization"; id: string }>) {
   const t = useT();
   const { locale } = useLocale();
+  // Relationship strength is computed over the native people graph, which the
+  // incumbent mirror does not hold (the endpoint 404s in overlay). Show the
+  // honest unavailable state and skip the doomed fetch.
+  const overlay = useSorMode() === "overlay";
   const query = useQuery({
     queryKey: ["strength", kind, id],
     queryFn: () => fetchStrength(kind, id),
+    enabled: !overlay,
   });
 
   return (
     <section className="card" style={{ marginBottom: 16 }}>
       <SectionHeader title={t("strength.title")} />
-      {query.isPending && (
+      {overlay && <OverlayUnavailable />}
+      {!overlay && query.isPending && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <Skeleton width="40%" />
           <Skeleton width="90%" />
         </div>
       )}
-      {query.isError && (
+      {!overlay && query.isError && (
         <EmptyState>
           {query.error instanceof Error
             ? query.error.message
             : t("common.error")}
         </EmptyState>
       )}
-      {query.isSuccess && (
+      {!overlay && query.isSuccess && (
         <StrengthBody strength={query.data} locale={locale} />
       )}
     </section>

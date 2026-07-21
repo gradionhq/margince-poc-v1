@@ -49,6 +49,10 @@ const storyFiles = new Set();
 const missing = [];
 for (const f of changed) {
   if (!f.startsWith("frontend/src/")) continue;
+  // .d.ts declaration files are never renderable components — the generated
+  // API types (src/api/schema.d.ts) regenerate on any contract change, so
+  // requiring a co-located story for them is a false gate. Skip them.
+  if (f.endsWith(".d.ts")) continue;
   if (/\.stories\.[tj]sx?$/.test(f)) {
     storyFiles.add(f);
   } else if (

@@ -269,6 +269,10 @@ export const en = {
   "list.loadMore": "Load more",
   "list.sortNewest": "Newest",
   "list.sortScore": "Score",
+  "list.overlayReadOnly":
+    "Sorting and filters read through HubSpot — open it there",
+  "overlay.unavailable":
+    "Not available while reading from HubSpot — open it in HubSpot",
 
   "people.name": "Name",
   "people.email": "Email",

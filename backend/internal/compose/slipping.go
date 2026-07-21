@@ -88,7 +88,7 @@ func slippingCandidate(d crmcontracts.Deal, today time.Time) agents.SlippingDeal
 // timeline — a note never reads as a sent (or even existing) email, so
 // the draft cannot masquerade as communication that happened. It shares
 // the deterministic draft voice with draft_email.
-func followUpDrafter(provider *Provider) agents.FollowUpDrafter {
+func followUpDrafter(provider datasource.SystemOfRecordProvider) agents.FollowUpDrafter {
 	return func(ctx context.Context, deal agents.SlippingDeal) (ids.UUID, string, error) {
 		subject, body := activities.DeterministicEmailDraft(deal.Name, "")
 		fields, err := json.Marshal(map[string]any{

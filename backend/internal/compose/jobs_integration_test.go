@@ -26,17 +26,71 @@ import (
 
 	"github.com/riverqueue/river"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
+	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 )
+
+// TestNewJobRunnerWiresTheOverlayPollerWhenAVaultIsConfigured proves
+// NewJobRunner's overlayVault-present branch actually registers the
+// overlay reconcile worker/periodic job rather than silently staying off
+// — the counterpart to TestRiverCloseDateSweepStagesSameProvisionalAsDirectSweep's
+// overlayVault=nil call below, which never exercises this branch.
+func TestNewJobRunnerWiresTheOverlayPollerWhenAVaultIsConfigured(t *testing.T) {
+	e := integration.Setup(t)
+	applyRiverSchema(t)
+
+	runner, err := NewJobRunner(e.Pool, slog.New(slog.DiscardHandler), JobRunnerConfig{
+		CloseDateInterval: time.Hour,
+		ReconcileInterval: time.Hour,
+		TimeScanInterval:  time.Hour,
+		OverlayVault:      keyvault.NewMemory(),
+		OverlayInterval:   time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("NewJobRunner: %v", err)
+	}
+	if runner == nil {
+		t.Fatal("NewJobRunner: want a non-nil Runner when an overlay vault is configured")
+	}
+
+	// NewJobRunner returns a non-nil Runner regardless of the overlayVault
+	// branch, so non-nil alone proves nothing. Prove the branch actually
+	// registered the reconcile worker AND its RunOnStart periodic job:
+	// boot the runner and observe an overlay_reconcile completion on the
+	// subscription channel. With no overlay-mode workspace seeded the sweep
+	// finds nothing due and completes cleanly; if the overlayVault branch
+	// were deleted, the job is never scheduled and this await times out.
+	sub, cancelSub := runner.SubscribeCompleted()
+	defer cancelSub()
+
+	ctx := context.Background()
+	if err := runner.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := runner.Stop(stopCtx); err != nil {
+			t.Errorf("Stop: %v", err)
+		}
+	}()
+
+	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	awaitKindCompleted(waitCtx, t, sub, OverlayReconcileArgs{}.Kind())
+}
 
 // riverSchemaOnce guards the River migration per test-binary process, the
 // same contract as testdb.EnsureSchema: the schema survives the per-test
 // Truncate, but the truncate DOES empty river_migration's applied-version
 // ledger — so a second in-process migrate would re-run River's first
 // migration against tables that still exist and fail on CREATE TABLE.
-// Every suite that needs River must go through applyRiverSchema so this
-// stays the one spelling.
+// jobs.Migrate is not idempotent (a second call fails "river_migration
+// already exists"), and more than one suite here now needs the River schema
+// (the close-date sweep proof and the overlay-poller wiring proof), so every
+// suite goes through applyRiverSchema — this stays the one spelling.
 var (
 	riverSchemaOnce sync.Once
 	riverSchemaErr  error
