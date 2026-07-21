@@ -153,6 +153,16 @@ func organizationUpdateInput(req crmcontracts.UpdateOrganizationRequest, ifVersi
 		band := string(*req.SizeBand)
 		in.SizeBand = &band
 	}
+	if req.Domains != nil {
+		desired := make([]OrgDomainInput, 0, len(*req.Domains))
+		for _, d := range *req.Domains {
+			desired = append(desired, OrgDomainInput{
+				Domain:    d.Domain,
+				IsPrimary: d.IsPrimary != nil && *d.IsPrimary,
+			})
+		}
+		in.Domains = &desired
+	}
 	return in
 }
 func leadCreateInput(req crmcontracts.CreateLeadRequest) CreateLeadInput {
