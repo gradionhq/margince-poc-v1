@@ -149,6 +149,25 @@ vite_pids() {
   done
 }
 
+# port_listeners names only the processes SERVING a port. Plain
+# `lsof -ti tcp:8080` also lists everything CONNECTED to it — the
+# developer's browser among them — and this sweep kills what it is given.
+port_listeners() { # port
+  lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true
+}
+
+# still_ours answers whether a pid recorded in an old state file is still a
+# process of ours. PIDs are recycled: a stack killed by a crash or a machine
+# sleep leaves its file behind, and by the time the next `make dev` reads it
+# that number can belong to anything. The pgrep paths already re-check the
+# live command line before killing — a recorded pid gets the same proof.
+still_ours() { # pid
+  local cmd
+  cmd=$(ps -o command= -p "$1" 2>/dev/null || true)
+  [[ -n "$cmd" ]] || return 1
+  [[ "$cmd" == *margince* || "$cmd" == *"$repo_root"* ]]
+}
+
 sweep_stacks() { # kill every margince dev stack: recorded, orphaned, or foreign
   local victims=() pids p port state_file
   local BACKEND_PID FE_PID WORKER_PID API_PORT FE_PORT
@@ -160,10 +179,12 @@ sweep_stacks() { # kill every margince dev stack: recorded, orphaned, or foreign
     BACKEND_PID=''; FE_PID=''; WORKER_PID=''; API_PORT=''; FE_PORT=''
     # shellcheck disable=SC1090
     . "$state_file"
-    victims+=("$BACKEND_PID" "$FE_PID" "$WORKER_PID")
+    for p in "$BACKEND_PID" "$FE_PID" "$WORKER_PID"; do
+      [[ -n "$p" ]] && still_ours "$p" && victims+=("$p")
+    done
     for port in "$API_PORT" "$FE_PORT"; do
       [[ -n "$port" ]] || continue
-      for p in $(lsof -ti "tcp:${port}" 2>/dev/null || true); do victims+=("$p"); done
+      for p in $(port_listeners "$port"); do victims+=("$p"); done
     done
   done
   # 2. Orphans whose state file is gone, and stacks from other checkouts.
@@ -171,7 +192,7 @@ sweep_stacks() { # kill every margince dev stack: recorded, orphaned, or foreign
   # 3. Anything at all holding the ports this stack is about to bind — a foreign
   #    process on :8080 loses the port rather than silently shadowing the api.
   for port in "$api_port" "$fe_port"; do
-    for p in $(lsof -ti "tcp:${port}" 2>/dev/null || true); do victims+=("$p"); done
+    for p in $(port_listeners "$port"); do victims+=("$p"); done
   done
 
   # Deduplicate: the same pid legitimately arrives from several sources.
@@ -209,14 +230,13 @@ up)
     # ports below are free by construction and the browser can only be talking
     # to the api this command starts.
     sweep_stacks
-    drop_stray_dev_dbs
   fi
   # Belt and braces after the sweep, and the only guard a slugged env gets: a
   # bound port must stop the boot, because binding would fail silently and
   # wait_ready would then read "ready" off the OLD server. (Vite without
   # --strictPort would not even fail — it would walk to a port we never poll.)
   for _p in "$api_port" "$fe_port"; do
-    if lsof -ti "tcp:${_p}" >/dev/null 2>&1; then
+    if [[ -n "$(port_listeners "$_p")" ]]; then
       echo "FAIL: port :${_p} already in use — is $label already running? (make dev-stop${slug:+ DEV_SLUG=$slug})" >&2
       exit 1
     fi
@@ -232,6 +252,13 @@ up)
   {
     echo "=== infra + db ==="
     make db-up
+    # The stray-database sweep runs HERE, not with the process sweep above:
+    # every statement it issues goes through the compose Postgres, so running
+    # it before db-up on a stopped stack would connect to nothing, fail
+    # silently, and leave the databases to reappear the moment infra starts.
+    if [[ -z "$slug" ]]; then
+      drop_stray_dev_dbs
+    fi
     # The base `margince` db already exists (db-up + db-init); only a slugged
     # env needs its own database created.
     [[ -n "$slug" ]] && psql_owner postgres -c "CREATE DATABASE \"${db}\"" 2>&1 || true
