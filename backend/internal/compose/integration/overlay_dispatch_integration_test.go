@@ -37,7 +37,7 @@ func TestDispatcherRoutesNativeWorkspaceReadsToTheNativeProvider(t *testing.T) {
 	e := Setup(t)
 	personID := e.SeedPerson(t, "Ada Native", nil)
 
-	d := compose.NewDispatcher(compose.NewProvider(e.Pool), compose.NewOverlayProvider(e.Pool, compose.NewOverlayMeter()), e.Pool)
+	d := compose.NewDispatcher(compose.NewProvider(e.Pool), compose.NewOverlayProvider(e.Pool, compose.NewOverlayMeter(), nil), e.Pool)
 
 	rec, err := d.Read(e.Admin(), datasource.EntityRef{Type: datasource.EntityPerson, ID: personID})
 	if err != nil {
@@ -73,7 +73,7 @@ func TestDispatcherRoutesOverlayWorkspaceReadsToTheOverlayProvider(t *testing.T)
 		t.Fatalf("ingesting the overlay fixture record: %v", err)
 	}
 
-	d := compose.NewDispatcher(compose.NewProvider(e.Pool), compose.NewOverlayProvider(e.Pool, compose.NewOverlayMeter()), e.Pool)
+	d := compose.NewDispatcher(compose.NewProvider(e.Pool), compose.NewOverlayProvider(e.Pool, compose.NewOverlayMeter(), nil), e.Pool)
 
 	searchRes, err := d.Search(ctx, datasource.SearchQuery{
 		EntityTypes: []datasource.EntityType{datasource.EntityPerson},

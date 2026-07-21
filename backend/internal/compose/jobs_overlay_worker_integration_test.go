@@ -78,6 +78,45 @@ func TestOverlayReconcileWorkerWorkNoOpsOverAnEmptyFleet(t *testing.T) {
 	}
 }
 
+// TestResolveOverlayIncumbentBuildsALiveAdapterFromTheVault proves the
+// per-request live-incumbent resolver the api server injects into the
+// force-fresh read path: with no vault, or no active connection, it
+// degrades to a nil adapter (force-fresh falls back to the mirror); once a
+// HubSpot overlay is connected it unseals the token and returns a live
+// adapter. Adapter construction reaches no network, so this needs no real
+// HubSpot.
+func TestResolveOverlayIncumbentBuildsALiveAdapterFromTheVault(t *testing.T) {
+	e := integration.Setup(t)
+	vault := keyvault.NewMemory()
+	adminCtx := overlayAdminCtx(e.WS, e.Rep1)
+
+	// No vault wired → nil adapter, no error (honest degrade).
+	if inc, err := (&Server{}).resolveOverlayIncumbent(e.Pool)(adminCtx); err != nil || inc != nil {
+		t.Fatalf("resolve with no vault = (%v, %v), want (nil, nil)", inc, err)
+	}
+
+	resolve := (&Server{vault: vault}).resolveOverlayIncumbent(e.Pool)
+
+	// Vault wired but no active connection → still nil (degrade).
+	if inc, err := resolve(adminCtx); err != nil || inc != nil {
+		t.Fatalf("resolve with no connection = (%v, %v), want (nil, nil)", inc, err)
+	}
+
+	// Connect a HubSpot overlay; now resolve builds a live adapter.
+	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
+	if _, err := overlay.NewService(e.Pool, vault, ms).
+		Connect(adminCtx, overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	inc, err := resolve(adminCtx)
+	if err != nil {
+		t.Fatalf("resolve after connect: %v", err)
+	}
+	if inc == nil || inc.Name() != "hubspot" {
+		t.Fatalf("resolve after connect = %v, want a live hubspot adapter", inc)
+	}
+}
+
 // TestReconcileConnectionBackfillsAndSeedsViaFakeIncumbent proves the
 // §6.2 sweep end to end against a fake incumbent (the seam the factory
 // injection now enables — before it, reconcileConnection hardcoded a real

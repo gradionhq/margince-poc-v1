@@ -60,7 +60,7 @@ func workflowEngineWithDrafter(pool *pgxpool.Pool, drafter activities.EmailDraft
 	// engine's own OVB meter is independent of the REST surface's
 	// (NewOverlayMeter's doc note).
 	ex := automation.Executors{
-		Provider:  NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, NewOverlayMeter()), pool),
+		Provider:  NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, NewOverlayMeter(), nil), pool),
 		Approvals: automationApprovalsAdapter{svc: approvals.NewService(pool)},
 		Lists:     listsAdapter{store: collections.NewStore(pool)},
 		Comms: commsAdapter{
