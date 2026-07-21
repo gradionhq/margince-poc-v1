@@ -8028,10 +8028,13 @@ type MeResponse struct {
 
 	// SystemOfRecord The workspace's active system-of-record mode (workspace.x_sor_mode). `native` is the
 	// default and full-capability mode. In `overlay` mode the data is served from a read-only
-	// incumbent mirror that cannot answer list sort/filter dials — those return
-	// 422 `unsupported_in_overlay_mode`, so clients gate their list UI on this instead of
-	// offering controls that fail. Reverts to `native` after an overlay→native flip. Optional
-	// for backward compatibility; a missing value MUST be treated as `native`.
+	// incumbent mirror: list sort/filter dials and unservable reads answer
+	// 422 `unsupported_in_overlay_mode` / 404, and mirrored-entity writes answer
+	// `unsupported_by_sor`. Clients gate their UI on this — rendering unservable read surfaces
+	// as an honest "not available in overlay" affordance and hiding mirrored-entity write
+	// controls — rather than offering controls that fail. Reverts to `native` after an
+	// overlay→native flip. Optional for backward compatibility; a missing value MUST be
+	// treated as `native`.
 	SystemOfRecord *struct {
 		Mode MeResponseSystemOfRecordMode `json:"mode"`
 	} `json:"system_of_record,omitempty"`
