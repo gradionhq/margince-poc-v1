@@ -10,6 +10,7 @@ package ai
 // terminal tracing this behavior builds on.
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -237,6 +238,81 @@ func TestEmbedTraceStaysZeroUsageOnFailure(t *testing.T) {
 	}
 	if got := fcs.recorded[0].TokensIn; got != 0 {
 		t.Fatalf("a failed embed call must trace as zero-usage (free by construction), got TokensIn=%d", got)
+	}
+}
+
+// TestEmbedCapturesPayloadWhenEnabled proves the embed lane honors
+// capturePayloads like every other lane. The captured request names
+// which inputs were embedded (already secret-stripped by Embed's own
+// enforcement point); the raw vectors are opaque floats, not reviewable
+// content, so the captured response records shape instead.
+func TestEmbedCapturesPayloadWhenEnabled(t *testing.T) {
+	fcs := &fakeCallStore{}
+	embedder := NewFakeClient()
+	r := assembleRouter(
+		map[Tier]model.Client{}, embedder, ProfileEUHosted, &memMeter{}, DefaultMonthlyTokens, fcs,
+		map[Tier]routeMeta{TierEmbedLane: {provider: "fake", model: "fake-embed"}},
+		true, nil, // capturePayloads = true
+	)
+	inputs := []string{"embed this note", "my key sk-ABCDEF0123456789 leaks"}
+	if _, err := r.Embed(wsCtx(), model.EmbedRequest{Inputs: inputs}); err != nil {
+		t.Fatalf("embed: %v", err)
+	}
+	if len(fcs.recorded) != 1 || fcs.recorded[0].Payload == nil {
+		t.Fatalf("expected a captured payload; got %+v", fcs.recorded)
+	}
+	payload := fcs.recorded[0].Payload
+	if !strings.Contains(string(payload.Request), "embed this note") {
+		t.Fatalf("captured request payload missing the embedded input: %s", payload.Request)
+	}
+	if strings.Contains(string(payload.Request), "sk-ABCDEF0123456789") {
+		t.Fatal("captured request payload still contains the secret")
+	}
+	if strings.Contains(string(payload.Request), "inputs_truncated") {
+		t.Fatalf("a small batch must not be marked truncated: %s", payload.Request)
+	}
+	if !strings.Contains(string(payload.Response), `"vector_count":2`) {
+		t.Fatalf("captured response payload missing the vector-count summary: %s", payload.Response)
+	}
+}
+
+// TestEmbedPayloadCapsInputCountWhenBatchExceedsTheLimit proves the
+// count cap: a batch of many short inputs costs almost nothing against
+// the content budget (each well under maxCapturedPayloadRunes), so
+// without a separate count cap the captured array could grow with the
+// batch size regardless of maxCapturedRequestRunes. inputs_truncated on
+// the wire tells a reader the array itself was cut, the same honesty
+// captureTruncationMarker gives a cut field.
+func TestEmbedPayloadCapsInputCountWhenBatchExceedsTheLimit(t *testing.T) {
+	fcs := &fakeCallStore{}
+	embedder := NewFakeClient()
+	r := assembleRouter(
+		map[Tier]model.Client{}, embedder, ProfileEUHosted, &memMeter{}, DefaultMonthlyTokens, fcs,
+		map[Tier]routeMeta{TierEmbedLane: {provider: "fake", model: "fake-embed"}},
+		true, nil, // capturePayloads = true
+	)
+	inputs := make([]string, maxCapturedEmbedInputs+50)
+	for i := range inputs {
+		inputs[i] = "x"
+	}
+	if _, err := r.Embed(wsCtx(), model.EmbedRequest{Inputs: inputs}); err != nil {
+		t.Fatalf("embed: %v", err)
+	}
+	if len(fcs.recorded) != 1 || fcs.recorded[0].Payload == nil {
+		t.Fatalf("expected a captured payload; got %+v", fcs.recorded)
+	}
+	var captured struct {
+		Inputs          []string `json:"inputs"`
+		InputsTruncated bool     `json:"inputs_truncated"`
+	}
+	if err := json.Unmarshal(fcs.recorded[0].Payload.Request, &captured); err != nil {
+		t.Fatalf("unmarshal captured request: %v", err)
+	}
+	if !captured.InputsTruncated {
+		t.Fatal("a batch over the cap must be marked truncated")
+	}
+	if len(captured.Inputs) != maxCapturedEmbedInputs {
+		t.Fatalf("captured inputs = %d, want exactly the cap (%d)", len(captured.Inputs), maxCapturedEmbedInputs)
 	}
 }
 

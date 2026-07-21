@@ -71,6 +71,57 @@ func (r *Router) buildPayload(ctx context.Context, req model.Request, resp model
 	return &Payload{Request: json.RawMessage(stripped), Response: json.RawMessage(strippedResp)}, nil
 }
 
+// maxCapturedEmbedInputs bounds the embed capture by INPUT COUNT, not just
+// content: the rune budget alone cannot cap a batch of many short or empty
+// inputs (each costs ~0 of the budget, so a large batch could still swell
+// the captured array's own JSON overhead without ever tripping the content
+// cap). Every caller today embeds exactly one input per call (search's
+// indexing and query lanes both do), so 200 is a defensive ceiling, not a
+// tight fit to real traffic — generous enough for a real future batch
+// caller while still keeping one captured row's array bounded regardless
+// of how that batch is shaped. inputs_truncated on the wire tells a reader
+// the array was cut, the same honesty captureTruncationMarker gives a cut
+// field.
+const maxCapturedEmbedInputs = 200
+
+// buildEmbedPayload assembles the embed lane's Layer-3 capture: which
+// inputs were embedded and a summary of what came back — the raw vectors
+// are opaque floats, not reviewable content, so the response side
+// records shape (how many, how wide) rather than every coordinate. Both
+// marshaled shapes are strings/ints/bools only, which json.Marshal
+// cannot fail on — so unlike buildPayload (which strips through a
+// fallible SecretStripper), this returns *Payload directly rather than
+// advertising an error path that can never run.
+//
+// Unlike buildPayload, this does NOT re-run the stripper: it is a
+// private, single-caller method, and Embed's own stripping loop
+// (router.go) runs unconditionally on every path that reaches this call,
+// so req.Inputs is always already scrubbed by the time it gets here —
+// re-stripping would only repeat that same pass. This load-bearing
+// ordering — capture must run strictly after Embed's strip — is what to
+// re-check if Embed is ever restructured.
+func (r *Router) buildEmbedPayload(req model.EmbedRequest, res model.Embeddings) *Payload {
+	budget := captureBudget{remaining: maxCapturedRequestRunes}
+	n := len(req.Inputs)
+	truncatedInputs := n > maxCapturedEmbedInputs
+	if truncatedInputs {
+		n = maxCapturedEmbedInputs
+	}
+	inputs := make([]string, n)
+	for i := 0; i < n; i++ {
+		inputs[i] = budget.take(req.Inputs[i])
+	}
+	reqDoc, _ := json.Marshal(struct {
+		Inputs          []string `json:"inputs"`
+		InputsTruncated bool     `json:"inputs_truncated,omitempty"`
+	}{inputs, truncatedInputs})
+	respDoc, _ := json.Marshal(struct {
+		VectorCount int `json:"vector_count"`
+		Dims        int `json:"dims"`
+	}{len(res.Vectors), res.Dims})
+	return &Payload{Request: json.RawMessage(reqDoc), Response: json.RawMessage(respDoc)}
+}
+
 // maxCapturedPayloadRunes caps each captured content field. 16k runes holds a
 // generous prompt or response while keeping any single ai_call_payload row
 // bounded; it is a rune count (not bytes) so a multi-byte script never inflates
@@ -88,15 +139,22 @@ const maxCapturedRequestRunes = 48_000
 // each take is also held to the per-field cap.
 type captureBudget struct{ remaining int }
 
+// take scans s rune-by-rune up to its allowance rather than converting the
+// whole string to []rune first — a caller can hand it an input far larger
+// than any cap it will ever keep (a full document sent to embed, say), and
+// this must cost work proportional to what's KEPT, not to len(s).
 func (b *captureBudget) take(s string) string {
 	limit := min(maxCapturedPayloadRunes, b.remaining)
-	runes := []rune(s)
-	if len(runes) <= limit {
-		b.remaining -= len(runes)
-		return s
+	n := 0
+	for i := range s {
+		if n == limit {
+			b.remaining -= limit
+			return s[:i] + captureTruncationMarker
+		}
+		n++
 	}
-	b.remaining -= limit
-	return string(runes[:limit]) + captureTruncationMarker
+	b.remaining -= n
+	return s
 }
 
 // captureTruncationMarker tells a trace reader the stored text is not the

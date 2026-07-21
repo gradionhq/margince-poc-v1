@@ -288,6 +288,9 @@ func (r *Router) Embed(ctx context.Context, req model.EmbedRequest) (model.Embed
 	// one for the embed lane today), so this always falls back to the
 	// tier's configured binding.
 	trace.ServedModel, trace.ServedIdentitySource = servedIdentity(trace.Provider, trace.ModelID, "")
+	if r.capturePayloads && trace.ErrorSentinel == "" {
+		trace.Payload = r.buildEmbedPayload(req, res)
+	}
 	lc := newLogicalCall()
 	lc.append(trace)
 	r.flushDetached(ctx, lc)
