@@ -13,6 +13,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"runtime/debug"
 	"slices"
 	"sort"
 	"sync"
@@ -154,6 +156,12 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 func safeExtractPageFacts(ctx context.Context, x evidenceExtractor, page crawlPage) (res pageFactsResult, err error) {
 	defer func() {
 		if p := recover(); p != nil {
+			// recover() suppresses the runtime's own stack dump, so this is
+			// the only place that trace still exists — capture it into the
+			// internal log now, before it's gone; the returned error stays
+			// a short, stack-free line since it can surface on a dossier's
+			// warnings, not just internal diagnostics.
+			slog.ErrorContext(ctx, "extraction panic recovered", "lane", "page_facts", "url", page.URL, "panic", p, "stack", string(debug.Stack()))
 			err = fmt.Errorf("panic: %v", p)
 		}
 	}()
@@ -165,6 +173,7 @@ func safeExtractPageFacts(ctx context.Context, x evidenceExtractor, page crawlPa
 func safeExtractProfile(ctx context.Context, x evidenceExtractor, pages []crawlPage) (fields []evidencedField, err error) {
 	defer func() {
 		if p := recover(); p != nil {
+			slog.ErrorContext(ctx, "extraction panic recovered", "lane", "profile", "panic", p, "stack", string(debug.Stack()))
 			err = fmt.Errorf("panic: %v", p)
 		}
 	}()

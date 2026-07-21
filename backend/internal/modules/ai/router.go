@@ -289,11 +289,7 @@ func (r *Router) Embed(ctx context.Context, req model.EmbedRequest) (model.Embed
 	// tier's configured binding.
 	trace.ServedModel, trace.ServedIdentitySource = servedIdentity(trace.Provider, trace.ModelID, "")
 	if r.capturePayloads && trace.ErrorSentinel == "" {
-		if p, perr := r.buildEmbedPayload(req, res); perr != nil {
-			r.log.WarnContext(ctx, "ai: payload capture failed", "err", perr)
-		} else {
-			trace.Payload = p
-		}
+		trace.Payload = r.buildEmbedPayload(req, res)
 	}
 	lc := newLogicalCall()
 	lc.append(trace)
