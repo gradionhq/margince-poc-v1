@@ -34,7 +34,8 @@ per labeled message (`activity.capture_labeled_at`), enrich per person, embeddin
 entity. Unpriced ⇒ cost **suppressed** (never a silent 0); a new additive
 `estimate_quality` (`observed`|`heuristic`) labels the source; cold-start uses a priced
 work-shape floor (retiring `estTokensPerMessage = 900`). Pure read + `compose/costestimate`
-— no new tables/migrations; cost stays transparency, never a gate. A latent embed-lane gap
+plus one additive index migration (`0111`, indexing the synchronous
+`activity.capture_labeled_at` count); cost stays transparency, never a gate. A latent embed-lane gap
 was fixed in passing (`routeMeta[TierEmbedLane]` was never populated → embed `ai_call` rows
 carried empty provider/model; now folded in at both router constructors). **Two follow-ups:**
 `capture_backfill.people_created`/`organizations_created` are not yet written by the backfill
