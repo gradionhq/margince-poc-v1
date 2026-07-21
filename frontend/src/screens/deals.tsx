@@ -1097,69 +1097,79 @@ function DealBadges({
 }>) {
   const t = useT();
   const cf = useObjectCustomFields("deal");
+  // Edit/archive/reopen all write to a mirrored deal — hidden in overlay
+  // (every such write answers unsupported_by_sor). The status badge (read) and
+  // Share (native record-grant) stay.
+  const overlay = useSorMode() === "overlay";
   if (deal.archived_at != null) {
     return <Badge tone={dealStatusTone(deal.status)}>{deal.status}</Badge>;
   }
   return (
     <>
       <Badge tone={dealStatusTone(deal.status)}>{deal.status}</Badge>
-      <EditAction
-        label={t("deal.edit")}
-        fields={[
-          ...dealEditFields(t, {
-            orgs,
-            me: meId,
-            currentOwner: deal.owner_id ?? null,
-            currency: deal.currency ?? "EUR",
-          }),
-          ...cf.formFields,
-        ]}
-        record={{
-          id: deal.id,
-          version: deal.version,
-          name: deal.name,
-          amount:
-            deal.amount_minor != null ? String(deal.amount_minor / 100) : "",
-          currency: deal.currency ?? "EUR",
-          owner_id: deal.owner_id ?? "",
-          organization_id: deal.organization_id ?? "",
-          partner_org_id: deal.partner_org_id ?? "",
-          forecast_category: deal.forecast_category ?? "",
-          expected_close_date: deal.expected_close_date ?? "",
-          wait_until: deal.wait_until ?? "",
-          ...cf.recordSlice(deal),
-        }}
-        update={async (values) => {
-          const { data, error } = await api.PATCH("/deals/{id}", {
-            params: { path: { id: deal.id }, ...ifMatch(deal.version) },
-            body: { ...mapDealUpdate(values), ...cf.toBody(values) },
-          });
-          if (error) {
-            throwProblem(error);
-          }
-          return data;
-        }}
-        invalidate="deals"
-        recordKey="deal"
-      />
-      <ArchiveAction
-        label={t("deal.archive")}
-        confirmText={t("deal.archiveConfirm")}
-        archive={async () => {
-          const { data, error } = await api.DELETE("/deals/{id}", {
-            params: { path: { id: deal.id } },
-          });
-          if (error) {
-            throwProblem(error);
-          }
-          return data;
-        }}
-        invalidate="deals"
-        recordKey="deal"
-        onArchived={() => navigate({ screen: "deals" })}
-      />
+      {!overlay && (
+        <>
+          <EditAction
+            label={t("deal.edit")}
+            fields={[
+              ...dealEditFields(t, {
+                orgs,
+                me: meId,
+                currentOwner: deal.owner_id ?? null,
+                currency: deal.currency ?? "EUR",
+              }),
+              ...cf.formFields,
+            ]}
+            record={{
+              id: deal.id,
+              version: deal.version,
+              name: deal.name,
+              amount:
+                deal.amount_minor != null
+                  ? String(deal.amount_minor / 100)
+                  : "",
+              currency: deal.currency ?? "EUR",
+              owner_id: deal.owner_id ?? "",
+              organization_id: deal.organization_id ?? "",
+              partner_org_id: deal.partner_org_id ?? "",
+              forecast_category: deal.forecast_category ?? "",
+              expected_close_date: deal.expected_close_date ?? "",
+              wait_until: deal.wait_until ?? "",
+              ...cf.recordSlice(deal),
+            }}
+            update={async (values) => {
+              const { data, error } = await api.PATCH("/deals/{id}", {
+                params: { path: { id: deal.id }, ...ifMatch(deal.version) },
+                body: { ...mapDealUpdate(values), ...cf.toBody(values) },
+              });
+              if (error) {
+                throwProblem(error);
+              }
+              return data;
+            }}
+            invalidate="deals"
+            recordKey="deal"
+          />
+          <ArchiveAction
+            label={t("deal.archive")}
+            confirmText={t("deal.archiveConfirm")}
+            archive={async () => {
+              const { data, error } = await api.DELETE("/deals/{id}", {
+                params: { path: { id: deal.id } },
+              });
+              if (error) {
+                throwProblem(error);
+              }
+              return data;
+            }}
+            invalidate="deals"
+            recordKey="deal"
+            onArchived={() => navigate({ screen: "deals" })}
+          />
+        </>
+      )}
       <ShareAction recordType="deal" recordId={deal.id} />
-      {(deal.status === "won" || deal.status === "lost") && (
+      {!overlay && (deal.status === "won" || deal.status === "lost") && (
         <ReopenAction dealId={deal.id} openStages={openStages} />
       )}
     </>
