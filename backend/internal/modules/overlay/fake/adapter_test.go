@@ -1,0 +1,164 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package fake_test
+
+import (
+	"context"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	"github.com/gradionhq/margince/backend/internal/modules/overlay/fake"
+)
+
+// fixedModified is a deterministic ModifiedAt for fixtures that don't
+// assert on wall-clock timing — it keeps these tests off the real clock
+// (fake.Rec stamps time.Now internally).
+var fixedModified = time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+
+func TestFakeOwnersDirectoryAndEmailResolution(t *testing.T) {
+	f := fake.New()
+	f.SeedOwner("owner-1", "alice@example.com")
+	f.SeedOwner("owner-2", "bob@example.com")
+
+	owners, err := f.Owners(context.Background())
+	if err != nil {
+		t.Fatalf("Owners: %v", err)
+	}
+	got := map[string]string{}
+	for _, o := range owners {
+		got[o.ExternalID] = o.Email
+	}
+	want := map[string]string{"owner-1": "alice@example.com", "owner-2": "bob@example.com"}
+	if len(got) != len(want) {
+		t.Fatalf("Owners returned %d entries, want %d: %v", len(got), len(want), got)
+	}
+	for id, email := range want {
+		if got[id] != email {
+			t.Errorf("Owners[%s] = %q, want %q", id, got[id], email)
+		}
+	}
+
+	// A seeded owner now resolves by id — the directory and single-lookup
+	// paths agree, which is what mirror_user_map's re-verification relies on.
+	email, err := f.OwnerEmail(context.Background(), "owner-1")
+	if err != nil {
+		t.Fatalf("OwnerEmail(owner-1): %v", err)
+	}
+	if email != "alice@example.com" {
+		t.Errorf("OwnerEmail(owner-1) = %q, want alice@example.com", email)
+	}
+}
+
+func TestFakeBackfillPagesAllRecords(t *testing.T) {
+	f := fake.New()
+	for i := 0; i < 250; i++ {
+		rec := fake.Rec(fmt.Sprint(i), map[string]any{"full_name": fmt.Sprint(i)})
+		rec.ModifiedAt = fixedModified
+		f.Seed("person", rec)
+	}
+
+	seen, cur := 0, ""
+	for {
+		p, err := f.Backfill(context.Background(), "person", cur)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen += len(p.Records)
+		if p.NextCursor == "" {
+			break
+		}
+		cur = p.NextCursor
+	}
+
+	if seen != 250 {
+		t.Fatalf("paged %d/250", seen)
+	}
+}
+
+// TestFakeName pins the fixed-value Name method every overlay.Incumbent
+// implementation declares.
+func TestFakeName(t *testing.T) {
+	f := fake.New()
+	if f.Name() != "fake" {
+		t.Errorf("Name() = %q, want fake", f.Name())
+	}
+}
+
+// TestFakeGetReturnsSeededRecordOrACleanError proves Get's happy path and
+// its honest not-found error — never a panic on a miss.
+func TestFakeGetReturnsSeededRecordOrACleanError(t *testing.T) {
+	f := fake.New()
+	seed := fake.Rec("1", map[string]any{"first_name": "Ada"})
+	seed.ModifiedAt = fixedModified
+	f.Seed("contacts", seed)
+
+	rec, err := f.Get(context.Background(), "contacts", "1")
+	if err != nil {
+		t.Fatalf("Get: unexpected error: %v", err)
+	}
+	if rec.Fields["first_name"] != "Ada" {
+		t.Fatalf("Fields[first_name] = %v, want Ada", rec.Fields["first_name"])
+	}
+
+	if _, err := f.Get(context.Background(), "contacts", "does-not-exist"); err == nil {
+		t.Fatal("Get: want an error for an unseeded external id, got nil")
+	}
+}
+
+// TestFakeModifiedFiltersBySinceAndPages proves Modified's since-filter
+// and ascending-by-ModifiedAt ordering, distinct from Backfill's plain
+// index-cursor paging.
+func TestFakeModifiedFiltersBySinceAndPages(t *testing.T) {
+	f := fake.New()
+	now := fixedModified
+	f.Seed("contacts", overlay.Record{ExternalID: "1", Fields: map[string]any{}, ModifiedAt: now.Add(-time.Hour)})
+	f.Seed("contacts", overlay.Record{ExternalID: "2", Fields: map[string]any{}, ModifiedAt: now})
+
+	page, err := f.Modified(context.Background(), "contacts", now.Add(-time.Minute), "")
+	if err != nil {
+		t.Fatalf("Modified: unexpected error: %v", err)
+	}
+	if len(page.Records) != 1 || page.Records[0].ExternalID != "2" {
+		t.Fatalf("Records = %#v, want exactly the record modified after since", page.Records)
+	}
+}
+
+// TestFakeAssociationsUnseededTripleAnswersNoEdges proves the honest-gap
+// posture: a triple SeedAssoc never recorded answers no edges, not an
+// error and not a fabricated one.
+func TestFakeAssociationsUnseededTripleAnswersNoEdges(t *testing.T) {
+	f := fake.New()
+	assocs, err := f.Associations(context.Background(), "deals", "1", "companies")
+	if err != nil {
+		t.Fatalf("Associations: unexpected error: %v", err)
+	}
+	if len(assocs) != 0 {
+		t.Fatalf("assocs = %#v, want none for an unseeded triple", assocs)
+	}
+}
+
+// TestFakeOwnerEmailIsHonestlyUnseeded proves OwnerEmail's own
+// not-fabricated posture: it always answers an error, since no test
+// seeds it (fake/adapter.go's own doc comment).
+func TestFakeOwnerEmailIsHonestlyUnseeded(t *testing.T) {
+	f := fake.New()
+	if _, err := f.OwnerEmail(context.Background(), "owner-1"); err == nil {
+		t.Fatal("OwnerEmail: want an error, got nil")
+	}
+}
+
+// TestFakeBackfillRejectsAMalformedCursor proves parseCursor's error
+// path surfaces through Backfill rather than panicking on a garbage
+// cursor a caller must never construct by hand.
+func TestFakeBackfillRejectsAMalformedCursor(t *testing.T) {
+	f := fake.New()
+	rec := fake.Rec("1", map[string]any{})
+	rec.ModifiedAt = fixedModified
+	f.Seed("contacts", rec)
+	if _, err := f.Backfill(context.Background(), "contacts", "not-a-number"); err == nil {
+		t.Fatal("Backfill: want an error for a malformed cursor, got nil")
+	}
+}

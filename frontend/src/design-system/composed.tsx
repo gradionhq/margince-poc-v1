@@ -225,6 +225,7 @@ export function RecordView({
   subtitle,
   badges,
   timeline,
+  timelineNotice,
   zone,
   children,
 }: Readonly<{
@@ -232,6 +233,10 @@ export function RecordView({
   subtitle?: string;
   badges?: ReactNode;
   timeline: TimelineEntry[];
+  // When set, replaces the timeline list — e.g. an overlay-mode "not available"
+  // note, since the mirror cannot serve entity-scoped activity reads. Keeps the
+  // section honest instead of rendering an empty list that reads as "no activity".
+  timelineNotice?: ReactNode;
   zone: string;
   children?: ReactNode;
 }>) {
@@ -250,28 +255,30 @@ export function RecordView({
       {children}
       <section aria-label={t("record.timeline")}>
         <h2 className="t-sub">{t("record.timeline")}</h2>
-        <ul className="timeline">
-          {timeline.map((entry) => {
-            const Icon = TIMELINE_ICON[entry.kind];
-            return (
-              <li key={entry.id}>
-                <span className="tl-icon">
-                  <Icon aria-hidden />
-                </span>
-                <span className="tl-body">
-                  <span className="tl-title">{entry.title}</span>
-                  <span className="tl-meta">
-                    <span>{formatDate(entry.atIso, locale, zone)}</span>
-                    <ProvenanceTag provenance={entry.provenance} />
+        {timelineNotice ?? (
+          <ul className="timeline">
+            {timeline.map((entry) => {
+              const Icon = TIMELINE_ICON[entry.kind];
+              return (
+                <li key={entry.id}>
+                  <span className="tl-icon">
+                    <Icon aria-hidden />
                   </span>
-                </span>
-                {entry.actions && (
-                  <span className="tl-actions">{entry.actions}</span>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+                  <span className="tl-body">
+                    <span className="tl-title">{entry.title}</span>
+                    <span className="tl-meta">
+                      <span>{formatDate(entry.atIso, locale, zone)}</span>
+                      <ProvenanceTag provenance={entry.provenance} />
+                    </span>
+                  </span>
+                  {entry.actions && (
+                    <span className="tl-actions">{entry.actions}</span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </section>
     </div>
   );

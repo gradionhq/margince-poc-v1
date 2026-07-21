@@ -6,6 +6,7 @@ import { useEffect, useId, useState } from "react";
 import { navigate, type Route } from "../app/router";
 import { Button, Modal, SearchField } from "../design-system/atoms";
 import { useT } from "../i18n";
+import { useSorMode } from "./common";
 
 // The shared "Merge into…" affordance (P-2): a human direct call that folds
 // this record (the source, A) into a picked survivor (B) — A is archived
@@ -46,6 +47,10 @@ export function MergeAction<Survivor extends { id: string }>({
   const t = useT();
   const queryClient = useQueryClient();
   const headingId = useId();
+  // Merge folds one mirrored record into another — a write the incumbent
+  // mirror refuses (unsupported_by_sor). Render nothing in overlay rather than
+  // a button that can only fail (guarded after the hooks below).
+  const overlay = useSorMode() === "overlay";
   const [open, setOpen] = useState(false);
   const [term, setTerm] = useState("");
   const [candidates, setCandidates] = useState<MergeCandidate[]>([]);
@@ -106,6 +111,10 @@ export function MergeAction<Survivor extends { id: string }>({
     setSearchError(null);
     mutation.reset();
   };
+
+  if (overlay) {
+    return null;
+  }
 
   return (
     <>

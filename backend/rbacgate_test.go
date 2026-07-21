@@ -100,6 +100,11 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/activities:SetCaptureLabel":            "classify verdict write driven by the worker sweep under the workspace GUC; a CAS on capture_label IS NULL that touches nothing but the two label columns — attention routing, not a record mutation (§3.2)",
 	"internal/modules/people:SignatureCandidates":            "enrich-backlog read driven by the worker sweep under the workspace GUC, no human principal (ADR-0063 §2.9); reads only connector-created rows still missing both fields",
 	"internal/modules/people:ApplySignatureFields":           "evidence-gated fill-only-empty write driven by the worker sweep under the workspace GUC (§2.9): NULL-predicate CAS on title, first-phone-only insert, PO-DDL-12 evidence rows — a human's answer is structurally untouchable (GATE-AI-4)",
+	"internal/modules/overlay:WithBudgetMeter":               "composition-root wiring (injects the shared OVB meter GetOverlayBudget reads); no data access",
+	"internal/modules/overlay:WithIncumbentClassTranslator":  "composition-root wiring (injects the canonical->incumbent class mapping SyncStatus's backfill-completeness lookup needs); no data access",
+	"internal/modules/overlay:WithIncumbentFactory":          "composition-root wiring (injects the per-connection incumbent adapter builder Connect seeds the owners directory through); no data access — Connect itself remains auth.Require-gated",
+	"internal/modules/overlay:WithLogger":                    "composition-root wiring (injects the logger Connect's best-effort seeding reports through); no data access",
+	"internal/modules/overlay:WithModeFlipObserver":          "composition-root wiring (injects the dispatcher-cache invalidation Connect/Disconnect notify after commit); no data access — both flip paths remain auth.Require-gated",
 }
 
 // gateFnInfo is what the gate needs to know about one function name in a

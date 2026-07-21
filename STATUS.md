@@ -595,6 +595,48 @@ Open work, roughly in priority order:
     in the closed RBAC object set); a dedicated object should be pinned
     upstream (spec-repo reconciliation).
 
+- **Overlay branch 1b — the review-deferred hardening** (from PR #91's
+  three-lens review; the branch itself ships read + poller sync with the
+  human `/v1` surface seam-backed): budget-pace the initial backfill and
+  honor `Retry-After`/ADR-0063-style backoff on a failing connection
+  (today a failed connection re-sweeps hot every tick); one budget meter
+  per deployment, not per process/consumer (combined spend can exceed
+  the HubSpot quota N×); composite keyset watermark (a >10k
+  same-timestamp block wedges the sweep — disclosed in reconcile.go);
+  hard deletes never reach the mirror (no deletion signal, no ID-set
+  diff — an incumbent-deleted record stays visible until disconnect);
+  the webhook-as-signal lane returns only WITH portal-id→workspace
+  binding in the HMAC basis (the unmounted receiver was deleted, not
+  fixed); a reconnect flow (Connect today refuses a workspace with any
+  connection row) that clears the workspace's teardown tombstones as
+  part of establishing the new connection — until then re-ingest of
+  once-purged records is deliberately blocked; live force-fresh read-through (`NewOverlayProvider` still
+  wires `inc: nil`); and the contract question of nullable
+  `pipeline_id`/`stage_id` on overlay deals (zero-UUID today, keys in
+  `raw`) to reconcile upstream.
+
+- **Overlay evaluation-window SPA read-subset UX** (partly landed) — the
+  overlay mirror serves only a read subset (get-by-id, `q`, cursor,
+  `include_archived`); every other list dial (`sort`, `owner_id`, `status`,
+  `tag`, `kind`, `pipeline_id`/`stage_id`/`organization_id`, …) answers
+  `422 unsupported_in_overlay_mode`, and the context-graph/embeddings surfaces
+  hold no mirror data. `GET /me.system_of_record.mode` now signals overlay so
+  the SPA gates its list UI. **Done:** the shared `useListQuery`/`ListToolbar`
+  lists (contacts, companies, leads) and the bespoke Deals screen (drops the
+  refused dials, forces the flat table view, hides the pipeline/filter pickers
+  — the stage-keyed board cannot place a zero-UUID-stage mirror deal).
+  **Still broken / tracked:**
+  - **Tasks** (`GET /activities?kind=task`): `kind` is a *defining* filter the
+    mirror cannot honor; dropping it would mislabel all activities as tasks.
+    Needs an honest "not available in overlay" state (or client-side kind
+    filtering if the mirror carries it).
+  - **Related evidence** (`GET /records/{type}/{id}/context`): 404 — branch 1
+    builds no context graph/embeddings over mirror content (by design). Needs
+    an honest "not available in overlay" state.
+  - A full **record-360 panel audit** (timeline, related records, strength,
+    etc.) for the same read-subset assumptions, converging on one shared
+    "unavailable in overlay" affordance rather than per-panel error states.
+
 - **Deep-read durability-hardening pass** (from the #103 review, deferred
   as cross-cutting rather than rushed per-effect) — the redeem-then-execute
   accept effects (coldstart/scrape/deepread/site_lead) share the ADR-0036

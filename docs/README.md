@@ -22,6 +22,7 @@ maps the codebase and links everything below.
 - [run-the-mcp-server.md](how-to/run-the-mcp-server.md) — serve the governed MCP tool surface.
 - [run-the-frontend.md](how-to/run-the-frontend.md) — run the SPA in dev.
 - [enrich-with-a-local-llm.md](how-to/enrich-with-a-local-llm.md) — point the AI lanes at a local Ollama and enrich a company with no cloud key.
+- [connect-a-hubspot-overlay.md](how-to/connect-a-hubspot-overlay.md) — connect a workspace to a HubSpot portal in overlay (read + continuous sync) mode.
 - [connect-a-cloud-model-provider.md](how-to/connect-a-cloud-model-provider.md) — bind the AI lanes to a BYOK cloud key (Anthropic / OpenAI / Gemini / any OpenAI-compatible vendor).
 - [certify-an-ai-model.md](how-to/certify-an-ai-model.md) — certify a model against a task's scenario corpus and benchmark a candidate swap (`make e2e-ai`).
 
@@ -45,6 +46,7 @@ maps the codebase and links everything below.
 - [company-context.md](explanation/company-context.md) — the five-step onboarding wizard, the governed company profile (profile fields, facts, site reads), and how bounded company context reaches AI tasks.
 - [privacy-and-consent.md](explanation/privacy-and-consent.md) — the consent gate and the GDPR engines (erasure / SAR / retention).
 - [custom-fields.md](explanation/custom-fields.md) — the one runtime `ALTER TABLE` chokepoint: the closed type/object sets, the privilege boundary, and the `fieldcatalog` seam.
+- [overlay-augmentation.md](explanation/overlay-augmentation.md) — the two SoR modes, the frozen seam + inner incumbent seam, the mirror-as-cache, fail-closed visibility, and teardown for the HubSpot overlay (branch 1: read + continuous sync).
 - [automation.md](explanation/automation.md) — the closed 7×7 trigger/action catalog: the two vocabularies, the one firing path, the anchor occurrence key, and both permission gates.
 
 ## Reading order for a new contributor

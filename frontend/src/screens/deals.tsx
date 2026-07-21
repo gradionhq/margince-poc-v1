@@ -33,7 +33,14 @@ import { formatDate, formatMoney } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
-import { problemMessage, QueryGate, throwProblem, useMe } from "./common";
+import {
+  OverlayUnavailable,
+  problemMessage,
+  QueryGate,
+  throwProblem,
+  useMe,
+  useSorMode,
+} from "./common";
 import { TimelineActions } from "./compose";
 import { RecordContextPanel } from "./context";
 import type { CreateField } from "./create";
@@ -106,7 +113,36 @@ type DealFilters = {
   sort: string;
   includeArchived: boolean;
   filters: Record<string, string>;
+  // Overlay mode reads a mirror that refuses every dial below (sort, and the
+  // pipeline/stage/owner/org filters) with a 422 — so in overlay we send none
+  // of them and let the deals list come back flat. The screen forces the table
+  // view and hides the pickers to match (a stage-keyed board cannot place a
+  // mirror deal, whose pipeline/stage is the zero UUID).
+  overlay: boolean;
 };
+
+// dealsQueryParams builds the /deals query. Overlay reads a mirror that 422s
+// every dial except the two the cache can honor, so overlay mode sends only
+// those and the list comes back flat (the screen forces the table view and
+// hides the pickers to match — a stage-keyed board cannot place a mirror deal,
+// whose pipeline/stage is the zero UUID).
+function dealsQueryParams(f: DealFilters) {
+  const base = { limit: 100, include_archived: f.includeArchived || undefined };
+  if (f.overlay) {
+    return base;
+  }
+  const { filters } = f;
+  return {
+    ...base,
+    pipeline_id: f.pipelineId || undefined,
+    sort: f.sort || undefined,
+    stage_id: filters.stage_id || undefined,
+    owner_id: filters.owner_id || undefined,
+    organization_id: filters.organization_id || undefined,
+    stalled: filters.stalled === "true" ? true : undefined,
+    partner_sourced: filters.partner_sourced === "true" ? true : undefined,
+  };
+}
 
 // The board is not paginated — limit:100 is an honest documented cap (a
 // live Kanban reads one screenful, not a keyset walk).
@@ -114,22 +150,8 @@ function useDeals(f: DealFilters) {
   return useQuery({
     queryKey: ["deals", f],
     queryFn: async () => {
-      const { filters } = f;
       const { data, error } = await api.GET("/deals", {
-        params: {
-          query: {
-            limit: 100,
-            pipeline_id: f.pipelineId || undefined,
-            sort: f.sort || undefined,
-            include_archived: f.includeArchived || undefined,
-            stage_id: filters.stage_id || undefined,
-            owner_id: filters.owner_id || undefined,
-            organization_id: filters.organization_id || undefined,
-            stalled: filters.stalled === "true" ? true : undefined,
-            partner_sourced:
-              filters.partner_sourced === "true" ? true : undefined,
-          },
-        },
+        params: { query: dealsQueryParams(f) },
       });
       if (error) {
         throw new Error(problemMessage(error));
@@ -408,6 +430,106 @@ function DealFilterSelects({
   );
 }
 
+// The deals header — the board/table toggle and pipeline/stage/owner/org
+// pickers (all board-only, and all dials the overlay mirror refuses), plus the
+// always-present ListToolbar. Split out of DealsScreen so that screen's render
+// stays legible; overlay mode renders only the toolbar (which self-gates).
+function DealsHeader({
+  overlay,
+  view,
+  setView,
+  pipelines,
+  pipelineId,
+  setPipelineId,
+  stages,
+  orgs,
+  query,
+  setQuery,
+  meUserId,
+}: Readonly<{
+  overlay: boolean;
+  view: "board" | "table";
+  setView: (v: "board" | "table") => void;
+  pipelines: Pipeline[];
+  pipelineId: string;
+  setPipelineId: (id: string) => void;
+  stages: Stage[];
+  orgs: { id: string; display_name: string }[];
+  query: ListQuery;
+  setQuery: Dispatch<SetStateAction<ListQuery>>;
+  meUserId: string;
+}>) {
+  const t = useT();
+  return (
+    <>
+      {/* The stage-keyed board + its pipeline/stage/owner pickers all rely on
+          dials the overlay mirror refuses, so overlay mode shows neither —
+          just the flat table below. */}
+      {!overlay && (
+        <>
+          <div style={{ marginBottom: "var(--space-3)" }}>
+            <SegmentedControl
+              options={["board", "table"] as const}
+              value={view}
+              onChange={setView}
+              labels={{
+                board: t("deals.viewBoard"),
+                table: t("deals.viewTable"),
+              }}
+            />
+          </div>
+          <DealFilterSelects
+            pipelines={pipelines}
+            pipelineId={pipelineId}
+            setPipelineId={(id) => {
+              // A stage belongs to one pipeline; switching pipeline strands any
+              // stage_id filter (its <select> blanks out but useDeals would
+              // still forward the old id and filter a foreign stage → 0 rows).
+              setPipelineId(id);
+              setOrClearFilter(setQuery, "stage_id", "");
+            }}
+            stages={stages}
+            orgs={orgs}
+            query={query}
+            setQuery={setQuery}
+          />
+        </>
+      )}
+      <ListToolbar
+        query={query}
+        setQuery={setQuery}
+        searchable={false}
+        showArchivedToggle
+        sortOptions={DEAL_SORT_OPTIONS}
+        filters={[
+          {
+            kind: "select",
+            key: "stalled",
+            label: "deals.filterStalled",
+            placeholder: "deals.filterStalledAll",
+            options: [{ value: "true", label: "deals.filterStalled" }],
+          },
+          {
+            kind: "select",
+            key: "owner_id",
+            label: "deals.filterOwnerMe",
+            placeholder: "deals.filterOwnerAll",
+            options: [{ value: meUserId, label: "deals.filterOwnerMe" }],
+          },
+          {
+            kind: "select",
+            key: "partner_sourced",
+            label: "deals.filterPartnerSourced",
+            placeholder: "deals.filterPartnerAll",
+            options: [{ value: "true", label: "deals.filterPartnerSourced" }],
+          },
+        ]}
+      />
+    </>
+  );
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: this screen was already at the ceiling; overlay support adds one necessary mode branch (board is unavailable over a stage-less mirror). The header is already extracted; a full DealsScreen split is tracked with the overlay SPA follow-up (STATUS.md).
 export function DealsScreen({
   startCreating = false,
 }: Readonly<{ startCreating?: boolean }>) {
@@ -417,6 +539,7 @@ export function DealsScreen({
   const pipelinesQuery = usePipelines();
   const meQuery = useMe();
   const tierMap = useAgentTierMap();
+  const overlay = useSorMode() === "overlay";
   const [pipelineId, setPipelineId] = useState("");
   const [query, setQuery] = useState<ListQuery>({
     q: "",
@@ -433,8 +556,15 @@ export function DealsScreen({
     sort: query.sort,
     includeArchived: query.includeArchived,
     filters: query.filters,
+    overlay,
   });
-  const [view, setView] = useState<"board" | "table">("board");
+  // A stage-keyed board cannot place a mirror deal (its pipeline/stage is the
+  // zero UUID), so overlay mode opens on the flat table and hides the toggle
+  // (below) — the mode is fixed for the page's life, so a static initial value
+  // is enough.
+  const [view, setView] = useState<"board" | "table">(
+    overlay ? "table" : "board",
+  );
   const [pending, setPending] = useState<PendingAdvance | null>(null);
   const [lostReason, setLostReason] = useState("");
   const [toast, setToast] = useState<string | null>(null);
@@ -570,7 +700,10 @@ export function DealsScreen({
     <div className="wrap">
       <div className="list-head">
         <SectionHeader title={t("nav.deals")} />
-        {openStages.length > 0 && (
+        {/* Create writes a native deal — the mirror refuses it
+            (unsupported_by_sor), so the affordance is hidden in overlay,
+            matching the board mutations. */}
+        {!overlay && openStages.length > 0 && (
           <CreateAction
             label={t("create.deal")}
             invalidate="deals"
@@ -619,63 +752,18 @@ export function DealsScreen({
           />
         )}
       </div>
-      <div style={{ marginBottom: 12 }}>
-        <SegmentedControl
-          options={["board", "table"] as const}
-          value={view}
-          onChange={setView}
-          labels={{ board: t("deals.viewBoard"), table: t("deals.viewTable") }}
-        />
-      </div>
-      <DealFilterSelects
+      <DealsHeader
+        overlay={overlay}
+        view={view}
+        setView={setView}
         pipelines={pipelinesQuery.data ?? []}
         pipelineId={effectivePipeline?.id ?? ""}
-        setPipelineId={(id) => {
-          // A stage belongs to one pipeline; switching pipeline strands any
-          // stage_id filter (its <select> blanks out but useDeals would still
-          // forward the old id and filter against a foreign stage → 0 rows).
-          setPipelineId(id);
-          setOrClearFilter(setQuery, "stage_id", "");
-        }}
+        setPipelineId={setPipelineId}
         stages={stages}
         orgs={orgsQuery.data?.data ?? []}
         query={query}
         setQuery={setQuery}
-      />
-      <ListToolbar
-        query={query}
-        setQuery={setQuery}
-        searchable={false}
-        showArchivedToggle
-        sortOptions={DEAL_SORT_OPTIONS}
-        filters={[
-          {
-            kind: "select",
-            key: "stalled",
-            label: "deals.filterStalled",
-            placeholder: "deals.filterStalledAll",
-            options: [{ value: "true", label: "deals.filterStalled" }],
-          },
-          {
-            kind: "select",
-            key: "owner_id",
-            label: "deals.filterOwnerMe",
-            placeholder: "deals.filterOwnerAll",
-            options: [
-              {
-                value: meQuery.data?.user.id ?? "",
-                label: "deals.filterOwnerMe",
-              },
-            ],
-          },
-          {
-            kind: "select",
-            key: "partner_sourced",
-            label: "deals.filterPartnerSourced",
-            placeholder: "deals.filterPartnerAll",
-            options: [{ value: "true", label: "deals.filterPartnerSourced" }],
-          },
-        ]}
+        meUserId={meQuery.data?.user.id ?? ""}
       />
       <QueryGate query={pipelinesQuery}>
         {() =>
@@ -1012,69 +1100,82 @@ function DealBadges({
 }>) {
   const t = useT();
   const cf = useObjectCustomFields("deal");
+  // Edit/archive/reopen/share are all hidden in overlay; only the status
+  // badge (a read) stays. Edit/archive/reopen write to a mirrored deal
+  // (unsupported_by_sor). Share is hidden too: a record grant probes the
+  // native deal row (auth.EnsureLinkTarget), which a mirror deal has no row
+  // in, so the grant 404s — and overlay visibility is governed by
+  // mirror_visibility, which record_grant does not feed.
+  const overlay = useSorMode() === "overlay";
   if (deal.archived_at != null) {
     return <Badge tone={dealStatusTone(deal.status)}>{deal.status}</Badge>;
   }
   return (
     <>
       <Badge tone={dealStatusTone(deal.status)}>{deal.status}</Badge>
-      <EditAction
-        label={t("deal.edit")}
-        fields={[
-          ...dealEditFields(t, {
-            orgs,
-            me: meId,
-            currentOwner: deal.owner_id ?? null,
-            currency: deal.currency ?? "EUR",
-          }),
-          ...cf.formFields,
-        ]}
-        record={{
-          id: deal.id,
-          version: deal.version,
-          name: deal.name,
-          amount:
-            deal.amount_minor != null ? String(deal.amount_minor / 100) : "",
-          currency: deal.currency ?? "EUR",
-          owner_id: deal.owner_id ?? "",
-          organization_id: deal.organization_id ?? "",
-          partner_org_id: deal.partner_org_id ?? "",
-          forecast_category: deal.forecast_category ?? "",
-          expected_close_date: deal.expected_close_date ?? "",
-          wait_until: deal.wait_until ?? "",
-          ...cf.recordSlice(deal),
-        }}
-        update={async (values) => {
-          const { data, error } = await api.PATCH("/deals/{id}", {
-            params: { path: { id: deal.id }, ...ifMatch(deal.version) },
-            body: { ...mapDealUpdate(values), ...cf.toBody(values) },
-          });
-          if (error) {
-            throwProblem(error);
-          }
-          return data;
-        }}
-        invalidate="deals"
-        recordKey="deal"
-      />
-      <ArchiveAction
-        label={t("deal.archive")}
-        confirmText={t("deal.archiveConfirm")}
-        archive={async () => {
-          const { data, error } = await api.DELETE("/deals/{id}", {
-            params: { path: { id: deal.id } },
-          });
-          if (error) {
-            throwProblem(error);
-          }
-          return data;
-        }}
-        invalidate="deals"
-        recordKey="deal"
-        onArchived={() => navigate({ screen: "deals" })}
-      />
-      <ShareAction recordType="deal" recordId={deal.id} />
-      {(deal.status === "won" || deal.status === "lost") && (
+      {!overlay && (
+        <>
+          <EditAction
+            label={t("deal.edit")}
+            fields={[
+              ...dealEditFields(t, {
+                orgs,
+                me: meId,
+                currentOwner: deal.owner_id ?? null,
+                currency: deal.currency ?? "EUR",
+              }),
+              ...cf.formFields,
+            ]}
+            record={{
+              id: deal.id,
+              version: deal.version,
+              name: deal.name,
+              amount:
+                deal.amount_minor != null
+                  ? String(deal.amount_minor / 100)
+                  : "",
+              currency: deal.currency ?? "EUR",
+              owner_id: deal.owner_id ?? "",
+              organization_id: deal.organization_id ?? "",
+              partner_org_id: deal.partner_org_id ?? "",
+              forecast_category: deal.forecast_category ?? "",
+              expected_close_date: deal.expected_close_date ?? "",
+              wait_until: deal.wait_until ?? "",
+              ...cf.recordSlice(deal),
+            }}
+            update={async (values) => {
+              const { data, error } = await api.PATCH("/deals/{id}", {
+                params: { path: { id: deal.id }, ...ifMatch(deal.version) },
+                body: { ...mapDealUpdate(values), ...cf.toBody(values) },
+              });
+              if (error) {
+                throwProblem(error);
+              }
+              return data;
+            }}
+            invalidate="deals"
+            recordKey="deal"
+          />
+          <ArchiveAction
+            label={t("deal.archive")}
+            confirmText={t("deal.archiveConfirm")}
+            archive={async () => {
+              const { data, error } = await api.DELETE("/deals/{id}", {
+                params: { path: { id: deal.id } },
+              });
+              if (error) {
+                throwProblem(error);
+              }
+              return data;
+            }}
+            invalidate="deals"
+            recordKey="deal"
+            onArchived={() => navigate({ screen: "deals" })}
+          />
+        </>
+      )}
+      {!overlay && <ShareAction recordType="deal" recordId={deal.id} />}
+      {!overlay && (deal.status === "won" || deal.status === "lost") && (
         <ReopenAction dealId={deal.id} openStages={openStages} />
       )}
     </>
@@ -1151,6 +1252,18 @@ function OffersPanel({
   onCreate: () => void;
 }>) {
   const t = useT();
+  // Offers are read (and created) against a mirrored deal — the list read 404s
+  // and creation would write, both refused in overlay. Show the honest
+  // unavailable state instead of an empty panel with a New-offer button.
+  const overlay = useSorMode() === "overlay";
+  if (overlay) {
+    return (
+      <section className="card" style={{ marginBottom: "var(--space-4)" }}>
+        <SectionHeader title={t("deal.offers")} />
+        <OverlayUnavailable />
+      </section>
+    );
+  }
   return (
     <section className="card" style={{ marginBottom: 16 }}>
       <div className="list-head">
@@ -1218,6 +1331,7 @@ function DealOverviewPane({
   creatingOffer,
   locale,
   onCreateOffer,
+  overlay,
 }: Readonly<{
   deal: Deal;
   stages: Stage[];
@@ -1231,6 +1345,7 @@ function DealOverviewPane({
   creatingOffer: boolean;
   locale: Locale;
   onCreateOffer: () => void;
+  overlay: boolean;
 }>) {
   const t = useT();
   return (
@@ -1257,17 +1372,30 @@ function DealOverviewPane({
         </nav>
       )}
       <DealApprovals approvals={dealApprovals} decide={onDecide} />
-      {stakeholders && stakeholders.length > 0 && (
-        <section className="card" style={{ marginBottom: 16 }}>
+      {/* Stakeholders are a relationship read the mirror does not serve. In
+          overlay show the honest unavailable state (never any cached native
+          rows), matching the timeline and offers panels. */}
+      {overlay ? (
+        <section className="card" style={{ marginBottom: "var(--space-4)" }}>
           <SectionHeader title={t("deal.stakeholders")} />
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {stakeholders.map((stakeholder) => (
-              <Badge key={stakeholder.id}>
-                {stakeholder.role ?? stakeholder.person_id ?? stakeholder.kind}
-              </Badge>
-            ))}
-          </div>
+          <OverlayUnavailable />
         </section>
+      ) : (
+        stakeholders &&
+        stakeholders.length > 0 && (
+          <section className="card" style={{ marginBottom: "var(--space-4)" }}>
+            <SectionHeader title={t("deal.stakeholders")} />
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {stakeholders.map((stakeholder) => (
+                <Badge key={stakeholder.id}>
+                  {stakeholder.role ??
+                    stakeholder.person_id ??
+                    stakeholder.kind}
+                </Badge>
+              ))}
+            </div>
+          </section>
+        )
       )}
       <OffersPanel
         offers={offers}
@@ -1301,6 +1429,10 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
   });
   const pipelineQuery = usePipeline();
   const me = useMe();
+  // Overlay serves a read-only mirror: entity-scoped activity reads (timeline)
+  // and the deal's stakeholders/offers sub-resources 422/404, and offer
+  // creation would write to a mirrored deal. Gate all of it on this.
+  const overlay = useSorMode() === "overlay";
   const orgs = useQuery({
     queryKey: ["organizations"],
     queryFn: async () => {
@@ -1315,6 +1447,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
   });
   const stakeholdersQuery = useQuery({
     queryKey: ["deal-stakeholders", id],
+    enabled: !overlay,
     queryFn: async () => {
       const { data, error } = await api.GET("/deals/{id}/stakeholders", {
         params: { path: { id } },
@@ -1339,6 +1472,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
   });
   const timelineQuery = useQuery({
     queryKey: ["activities", "deal", id],
+    enabled: !overlay,
     queryFn: async () => {
       const { data, error } = await api.GET("/activities", {
         params: { query: { entity_type: "deal", entity_id: id, limit: 20 } },
@@ -1351,6 +1485,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
   });
   const offersQuery = useQuery({
     queryKey: ["deal-offers", id],
+    enabled: !overlay,
     queryFn: async () => {
       const { data, error } = await api.GET("/deals/{id}/offers", {
         params: { path: { id } },
@@ -1437,6 +1572,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                     ))
                   : []
               }
+              timelineNotice={overlay ? <OverlayUnavailable /> : undefined}
             >
               <div style={{ marginBottom: 16 }}>
                 <SegmentedControl
@@ -1462,11 +1598,13 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                   onCreateOffer={() =>
                     createOffer.mutate(deal.currency ?? "EUR")
                   }
+                  overlay={overlay}
                 />
               )}
-              {tab === "history" && (
+              {tab === "history" && !overlay && (
                 <RecordHistoryTab kind="deal" id={deal.id} />
               )}
+              {tab === "history" && overlay && <OverlayUnavailable />}
             </RecordView>
           );
         }}
