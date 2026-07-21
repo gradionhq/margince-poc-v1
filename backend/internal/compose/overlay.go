@@ -191,5 +191,6 @@ func overlayMetricsSection(srv Server, pool *pgxpool.Pool) *httpserver.OverlayMe
 		},
 		SyncedTotal:   overlay.MirrorSyncedTotal,
 		ConflictTotal: overlay.MirrorConflictTotal,
+		DeletedTotal:  overlay.MirrorDeletedTotal,
 	}
 }

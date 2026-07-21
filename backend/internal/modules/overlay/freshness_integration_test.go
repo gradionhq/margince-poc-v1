@@ -61,6 +61,10 @@ func (s *stubIncumbent) Modified(context.Context, string, time.Time, string) (Pa
 	return Page{}, fmt.Errorf("stubIncumbent: Modified is not fixtured")
 }
 
+func (s *stubIncumbent) Deletions(context.Context, string, time.Time, string) (DeletionPage, error) {
+	return DeletionPage{}, fmt.Errorf("stubIncumbent: Deletions is not fixtured")
+}
+
 func (s *stubIncumbent) Associations(context.Context, string, string, string) ([]Assoc, error) {
 	return nil, fmt.Errorf("stubIncumbent: Associations is not fixtured")
 }

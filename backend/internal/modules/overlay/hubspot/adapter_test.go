@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,6 +31,73 @@ const searchModifiedContactsJSON = `{
   ],
   "paging": { "next": { "after": "2" } }
 }`
+
+// archivedContactsJSON is a design §11 list response for the archived
+// (deleted) contacts feed — GET .../objects/contacts?archived=true — each
+// object carrying its archivedAt timestamp, ascending, with a paging
+// cursor.
+const archivedContactsJSON = `{
+  "results": [
+    { "id": "100214862042", "properties": { "hs_object_id": "100214862042" },
+      "createdAt": "2024-11-15T13:27:49.194Z", "updatedAt": "2026-05-13T06:44:38.727Z",
+      "archived": true, "archivedAt": "2026-06-01T10:00:00.000Z" },
+    { "id": "100214862099", "properties": { "hs_object_id": "100214862099" },
+      "createdAt": "2024-11-15T13:27:49.194Z", "updatedAt": "2026-05-14T09:12:01.100Z",
+      "archived": true, "archivedAt": "2026-06-02T11:30:00.000Z" }
+  ],
+  "paging": { "next": { "after": "200" } }
+}`
+
+// TestAdapterDeletionsMapsArchivedRecords drives the Adapter's Deletions
+// method against the archived-object list feed: it must request the
+// object's list endpoint with archived=true, map each archived record
+// into an overlay.Deletion keyed by the CANONICAL object class (contacts
+// → person, never the incumbent source name), carry archivedAt through as
+// DeletedAt, and propagate the paging cursor.
+func TestAdapterDeletionsMapsArchivedRecords(t *testing.T) {
+	var gotPath, gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		if _, err := w.Write([]byte(archivedContactsJSON)); err != nil {
+			t.Errorf("writing response body: %v", err)
+		}
+	}))
+	defer srv.Close()
+
+	client := hubspot.NewClient("us", "test-token", hubspot.WithBaseURL(srv.URL))
+	adapter := hubspot.NewAdapter(client)
+
+	since := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	page, err := adapter.Deletions(t.Context(), "contacts", since, "")
+	if err != nil {
+		t.Fatalf("Deletions: unexpected error: %v", err)
+	}
+	if gotPath != "/crm/v3/objects/contacts" {
+		t.Fatalf("path = %q, want /crm/v3/objects/contacts", gotPath)
+	}
+	if !strings.Contains(gotQuery, "archived=true") {
+		t.Fatalf("query = %q, want it to carry archived=true", gotQuery)
+	}
+	if len(page.Deletions) != 2 {
+		t.Fatalf("len(Deletions) = %d, want 2", len(page.Deletions))
+	}
+	first := page.Deletions[0]
+	if first.ExternalID != "100214862042" {
+		t.Errorf("Deletions[0].ExternalID = %q, want 100214862042", first.ExternalID)
+	}
+	if first.ObjectClass != "person" {
+		t.Errorf("Deletions[0].ObjectClass = %q, want the canonical person", first.ObjectClass)
+	}
+	wantDeletedAt := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
+	if !first.DeletedAt.Equal(wantDeletedAt) {
+		t.Errorf("Deletions[0].DeletedAt = %v, want %v", first.DeletedAt, wantDeletedAt)
+	}
+	if page.NextCursor != "200" {
+		t.Errorf("NextCursor = %q, want 200", page.NextCursor)
+	}
+}
 
 // TestAdapterModifiedUsesLastModifiedDateWatermarkForContacts drives the
 // real Client (against an httptest.Server) through the Adapter's

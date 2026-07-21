@@ -163,10 +163,23 @@ racing an application-level read-compare-write.
 carry the [`storekit.Audit`+`Emit` write shape](write-backbone.md) — there is no per-row audit entry or
 domain event for "the mirror refreshed a field," because that would flood the audit log with what is,
 by design, a health/freshness concern, not a business event. What genuinely does emit through the
-outbox: `mirror.conflict` (an incumbent value won over a diverged mirror row) and
-`mirror.budget_degraded` (a force-fresh read fell back to the mirror under budget pressure) — real
-events, registered in the [event catalog](write-backbone.md#the-event-catalog-internalsharedkerneleventscataloggo)
+outbox: `mirror.conflict` (an incumbent value won over a diverged mirror row),
+`mirror.budget_degraded` (a force-fresh read fell back to the mirror under budget pressure), and
+`mirror.deleted` (an incumbent-deleted record was purged from the mirror by the deletion sweep) —
+real events, registered in the [event catalog](write-backbone.md#the-event-catalog-internalsharedkerneleventscataloggo)
 like any other.
+
+**Deletions converge too, on their own feed.** The reconcile poller runs a second, opposite-direction
+sweep per object class after the modified-record sweep: it pages the incumbent's deletion/archive feed
+(`Incumbent.Deletions`, HubSpot's `archived=true` list) and purges each reported record — its mirror
+row, every association edge naming it, and its visibility projection — in one transaction
+(`MirrorStore.PurgeRecord`), emitting `mirror.deleted` for each one the mirror actually held. So a
+record deleted in HubSpot stops being readable from the mirror rather than lingering visible until
+disconnect. The deletion feed rides its own `deleted_at` watermark (distinct from the modified-record
+watermark), and because HubSpot's archived list is not `archivedAt`-ordered the sweep pages it in full
+each pass — correct because the purge is idempotent, though a cheaper incremental deletion feed (or the
+branch-1b webhook-as-signal lane) is a later optimization. Unlike a GDPR erasure, a routine incumbent
+deletion writes **no** tombstone: a record HubSpot later restores must be free to re-mirror.
 
 ## Fail-closed visibility
 

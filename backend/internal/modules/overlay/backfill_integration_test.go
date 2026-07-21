@@ -54,6 +54,10 @@ func (p *pagingCompanies) Backfill(_ context.Context, _, cursor string) (Page, e
 	return page, nil
 }
 
+func (p *pagingCompanies) Deletions(_ context.Context, _ string, _ time.Time, _ string) (DeletionPage, error) {
+	return DeletionPage{}, nil
+}
+
 func (p *pagingCompanies) Modified(_ context.Context, _ string, _ time.Time, _ string) (Page, error) {
 	return Page{}, fmt.Errorf("test: Modified is not used by this fixture")
 }

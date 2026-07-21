@@ -139,6 +139,67 @@ func reconcileOne(ctx context.Context, ms *MirrorStore, rec Record) error {
 	return nil
 }
 
+// ReconcileDeletions sweeps objectClass's incumbent deletion feed
+// (inc.Deletions), purging every reported record from the mirror through
+// MirrorStore.PurgeRecord (which also emits mirror.deleted, atomically,
+// for each one the mirror actually held). objectClass is the INCUMBENT
+// class name inc.Deletions takes (the same seam rule Reconcile obeys),
+// while each Deletion it returns already carries the CANONICAL class
+// PurgeRecord keys the mirror by. It is the removal counterpart to
+// Reconcile: continuous sync converges the mirror on the incumbent's
+// current state in BOTH directions — modified records land, deleted
+// records leave — so an incumbent-side deletion stops being readable
+// rather than lingering visible until disconnect.
+//
+// It full-scans the deletion feed from the epoch every pass rather than
+// riding a watermark. HubSpot's archived feed is NOT archivedAt-ordered on
+// the wire, so a watermark filter risks permanently skipping a record
+// archived behind the cursor mid-sweep (its DeletedAt could sort before an
+// advanced watermark and be filtered out forever). PurgeRecord is
+// idempotent — an already-purged record is a no-op that emits nothing — so
+// re-scanning the full archived set each pass is correct; bounding that
+// scan's cost is a budget concern (branch-1b budget metering), not a
+// correctness one. The incumbent adapter still pages the whole archived set
+// regardless of the since it is passed, so the epoch costs no more than a
+// watermark would have.
+func ReconcileDeletions(ctx context.Context, inc Incumbent, ms *MirrorStore, meter *Meter, objectClass string) error {
+	cursor := ""
+	for {
+		page, err := inc.Deletions(ctx, objectClass, time.Time{}, cursor)
+		if err != nil {
+			return fmt.Errorf("overlay: reconcile %s: sweeping deletions at cursor %q: %w", objectClass, cursor, err)
+		}
+		if err := reconcileDeletionPage(ctx, ms, meter, objectClass, page); err != nil {
+			return err
+		}
+		if page.NextCursor == "" {
+			return nil
+		}
+		cursor = page.NextCursor
+	}
+}
+
+// reconcileDeletionPage purges every record of one deletion page and meters
+// the page's cost against the poller lane — the deletion-feed sibling of
+// reconcilePage. PurgeRecord owns the per-record purge+event atomicity, so
+// this only fans the page out.
+func reconcileDeletionPage(ctx context.Context, ms *MirrorStore, meter *Meter, objectClass string, page DeletionPage) error {
+	if len(page.Deletions) == 0 {
+		return nil
+	}
+	if meter != nil {
+		if err := meter.Consume(ctx, LanePoller, len(page.Deletions)); err != nil {
+			return fmt.Errorf("overlay: reconcile %s: metering the deletion sweep: %w", objectClass, err)
+		}
+	}
+	for _, del := range page.Deletions {
+		if _, err := ms.PurgeRecord(ctx, del); err != nil {
+			return fmt.Errorf("overlay: reconcile: purging deleted %s/%s: %w", del.ObjectClass, del.ExternalID, err)
+		}
+	}
+	return nil
+}
+
 // emitMirrorConflict stages mirror.conflict (events catalog, OVA-EVT-1)
 // in its own short transaction over the mirror store's pool — the same
 // LogSystem+Emit shape freshness.go's emitBudgetDegraded uses for
