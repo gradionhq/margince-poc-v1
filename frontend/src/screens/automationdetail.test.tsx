@@ -240,7 +240,9 @@ describe("AutomationPreview", () => {
       ),
     );
     render(<AutomationPreview automationId="au-1" />);
-    await waitFor(() => expect(screen.getByText("12 match now")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText("12 matching now")).toBeTruthy(),
+    );
     expect(screen.getByText("~34 would fire / 30d")).toBeTruthy();
     expect(bodies).toEqual([{ window_days: 30 }]);
   });
@@ -260,7 +262,9 @@ describe("AutomationPreview", () => {
       ),
     );
     render(<AutomationPreview automationId="au-1" />);
-    await waitFor(() => expect(screen.getByText("12 match now")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText("12 matching now")).toBeTruthy(),
+    );
     await userEvent.click(screen.getByRole("button", { name: "7d" }));
     await waitFor(() =>
       expect(screen.getByText("~5 would fire / 7d")).toBeTruthy(),
@@ -303,7 +307,9 @@ describe("AutomationPreview", () => {
       ),
     );
     const zero = render(<AutomationPreview automationId="au-1" />);
-    await waitFor(() => expect(screen.getByText("5 match now")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText("5 matching now")).toBeTruthy(),
+    );
     expect(screen.queryByText(/hidden/)).toBeNull();
     zero.unmount();
 
@@ -326,6 +332,25 @@ describe("AutomationPreview", () => {
     );
   });
 
+  it("shows the estimating state while the preview POST is in flight", async () => {
+    let release: (r: Response) => void = () => {};
+    const inFlight = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => inFlight),
+    );
+    render(<AutomationPreview automationId="au-1" />);
+    await waitFor(() => expect(screen.getByText("Estimating…")).toBeTruthy());
+    release(
+      jsonResponse({ matches_now: 1, would_have_fired: 1, window_days: 30 }),
+    );
+    await waitFor(() =>
+      expect(screen.getByText("1 matching now")).toBeTruthy(),
+    );
+  });
+
   it("surfaces the 422 window-validation detail honestly", async () => {
     vi.stubGlobal(
       "fetch",
@@ -337,6 +362,31 @@ describe("AutomationPreview", () => {
     render(<AutomationPreview automationId="au-1" />);
     await waitFor(() =>
       expect(screen.getByText("window_days must be 1..90")).toBeTruthy(),
+    );
+  });
+
+  it("recovers via Retry after a transient preview failure", async () => {
+    let attempt = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        attempt += 1;
+        return attempt === 1
+          ? jsonResponse({ detail: "temporary failure" }, 503)
+          : jsonResponse({
+              matches_now: 7,
+              would_have_fired: 7,
+              window_days: 30,
+            });
+      }),
+    );
+    render(<AutomationPreview automationId="au-1" />);
+    await waitFor(() =>
+      expect(screen.getByText("temporary failure")).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() =>
+      expect(screen.getByText("7 matching now")).toBeTruthy(),
     );
   });
 

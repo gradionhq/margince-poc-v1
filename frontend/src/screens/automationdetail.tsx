@@ -3,7 +3,7 @@
 
 import { useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import { Ban, Check, Clock, Minus, X } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactElement, type ReactNode, useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import {
@@ -11,6 +11,7 @@ import {
   Button,
   EmptyState,
   SectionHeader,
+  SegmentedControl,
 } from "../design-system/atoms";
 import { AutonomyDot } from "../design-system/trust";
 import { formatDateTime } from "../format/format";
@@ -27,11 +28,14 @@ import { LoadMoreButton, problemMessage, QueryStates } from "./common";
 type AutomationRun = components["schemas"]["AutomationRun"];
 type Outcome = AutomationRun["outcome"];
 
-// Outcome → tone + glyph + label, TOTAL over the five-value enum. The switch
-// has no default arm on purpose: if the contract grows a sixth outcome the
-// function would fall through to `undefined` and the type checker flags every
-// caller, rather than a silent "unknown" badge shipping to an operator.
-export function OutcomeBadge({ outcome }: Readonly<{ outcome: Outcome }>) {
+// Outcome → tone + glyph + label, TOTAL over the five-value enum. The explicit
+// ReactElement return type is what makes the exhaustiveness real: if the
+// contract grows a sixth outcome, the missing arm's implicit `undefined` return
+// no longer satisfies ReactElement, so THIS function fails to compile — a new
+// outcome cannot ship as a silent "unknown" badge to an operator.
+export function OutcomeBadge({
+  outcome,
+}: Readonly<{ outcome: Outcome }>): ReactElement {
   const t = useT();
   switch (outcome) {
     case "fired":
@@ -93,6 +97,10 @@ function DetailLine({
 function RunRow({ run }: Readonly<{ run: AutomationRun }>) {
   const t = useT();
   const { locale } = useLocale();
+  // A run is an audit-style event: read its time in the VIEWER's own timezone
+  // (as audit.tsx / aicalls.tsx do), never a fixed one — an operator in any
+  // region sees the firing in their local wall-clock.
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   return (
     <li className="card card-inset" style={{ marginTop: "var(--space-2)" }}>
       <div
@@ -105,7 +113,7 @@ function RunRow({ run }: Readonly<{ run: AutomationRun }>) {
       >
         <OutcomeBadge outcome={run.outcome} />
         <span className="t-small" title={run.occurred_at}>
-          {formatDateTime(run.occurred_at, locale, "Europe/Berlin")}
+          {formatDateTime(run.occurred_at, locale, zone)}
         </span>
         <AutonomyDot tier={run.tier === "green" ? "auto" : "confirm"} />
         {run.approval_required && (
@@ -235,6 +243,7 @@ export function AutomationRuns({
               key={option}
               small
               variant={active ? "primary" : "ghost"}
+              aria-pressed={active}
               onClick={() => setOutcome(option === "all" ? undefined : option)}
             >
               {t(FILTER_LABELS[option])}
@@ -249,17 +258,17 @@ export function AutomationRuns({
 
 type AutomationPreviewResult = components["schemas"]["AutomationPreview"];
 
-// The three offered windows. Kept as a typed tuple so the segmented control
-// and its labels can never drift apart, and each value is a valid 1..90 the
-// server accepts (the 422 branch below stays a defensive honesty guard, not a
-// path the UI can normally reach).
-const WINDOWS = [7, 30, 90] as const;
-type Window = (typeof WINDOWS)[number];
+// The three offered windows, as the SegmentedControl's string options (the atom
+// is keyed on strings). Kept as a typed tuple so the control and its labels can
+// never drift apart; each parses to a valid 1..90 the server accepts (the 422
+// branch below stays a defensive honesty guard, not a path the UI can reach).
+const WINDOWS = ["7", "30", "90"] as const;
+type WindowOption = (typeof WINDOWS)[number];
 
-const WINDOW_LABELS: Record<Window, MessageKey> = {
-  7: "auto.preview.window7",
-  30: "auto.preview.window30",
-  90: "auto.preview.window90",
+const WINDOW_LABELS: Record<WindowOption, MessageKey> = {
+  "7": "auto.preview.window7",
+  "30": "auto.preview.window30",
+  "90": "auto.preview.window90",
 };
 
 // AU-1: the dry-run blast-radius panel over POST /automations/{id}/preview.
@@ -270,13 +279,15 @@ export function AutomationPreview({
   automationId,
 }: Readonly<{ automationId: string }>) {
   const t = useT();
-  const [windowDays, setWindowDays] = useState<Window>(30);
+  const [windowDays, setWindowDays] = useState<WindowOption>("30");
 
   const preview = useMutation({
-    mutationFn: async (days: Window): Promise<AutomationPreviewResult> => {
+    mutationFn: async (
+      days: WindowOption,
+    ): Promise<AutomationPreviewResult> => {
       const { data, error } = await api.POST("/automations/{id}/preview", {
         params: { path: { id: automationId } },
-        body: { window_days: days },
+        body: { window_days: Number(days) },
       });
       if (error) {
         throw new Error(problemMessage(error));
@@ -296,16 +307,39 @@ export function AutomationPreview({
   const result = preview.data;
   const hidden = result?.excluded_by_permission ?? 0;
 
+  // SegmentedControl takes resolved label strings (not i18n keys); build them
+  // from the one WINDOW_LABELS map so the control and its copy stay in step.
+  const windowLabels: Record<WindowOption, string> = {
+    "7": t(WINDOW_LABELS["7"]),
+    "30": t(WINDOW_LABELS["30"]),
+    "90": t(WINDOW_LABELS["90"]),
+  };
+
   let body: ReactNode;
   if (preview.isPending) {
     body = <p className="t-small">{t("auto.preview.estimating")}</p>;
   } else if (preview.isError) {
     // covers the 404 (foreign id) and 422 (window out of range) branches —
     // the server's RFC 7807 detail reads verbatim rather than a generic error.
+    // A retry re-runs the current window: the sibling runs panel (QueryStates)
+    // offers the same recovery, and a transient POST failure must not strand
+    // the operator with only the window control as an escape hatch.
     body = (
-      <p className="t-small" style={{ color: "var(--danger)" }}>
-        {preview.error instanceof Error ? preview.error.message : null}
-      </p>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "var(--space-1)",
+          alignItems: "flex-start",
+        }}
+      >
+        <p className="t-small" style={{ color: "var(--danger)" }}>
+          {preview.error instanceof Error ? preview.error.message : null}
+        </p>
+        <Button small onClick={() => mutate(windowDays)}>
+          {t("common.retry")}
+        </Button>
+      </div>
     );
   } else if (result) {
     body = (
@@ -350,22 +384,37 @@ export function AutomationPreview({
         }}
       >
         <span className="t-label">{t("auto.preview.window")}</span>
-        {WINDOWS.map((days) => (
-          <Button
-            key={days}
-            small
-            variant={days === windowDays ? "primary" : "ghost"}
-            aria-pressed={days === windowDays}
-            onClick={() => setWindowDays(days)}
-          >
-            {t(WINDOW_LABELS[days])}
-          </Button>
-        ))}
+        <SegmentedControl
+          options={WINDOWS}
+          value={windowDays}
+          onChange={setWindowDays}
+          labels={windowLabels}
+        />
       </div>
       {body}
       <p className="t-caption" style={{ marginTop: "var(--space-3)" }}>
         {t("auto.preview.explainer")}
       </p>
     </section>
+  );
+}
+
+// The two expandable panels the automation row mounts below its header. Kept as
+// one component so the row owns only the open/close toggles, not the panels'
+// conditional rendering — each panel still mounts lazily, only while open.
+export function AutomationInspectors({
+  automationId,
+  runsOpen,
+  previewOpen,
+}: Readonly<{
+  automationId: string;
+  runsOpen: boolean;
+  previewOpen: boolean;
+}>) {
+  return (
+    <>
+      {runsOpen && <AutomationRuns automationId={automationId} />}
+      {previewOpen && <AutomationPreview automationId={automationId} />}
+    </>
   );
 }

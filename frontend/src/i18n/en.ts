@@ -1279,7 +1279,7 @@ export const en = {
   "auto.preview.window30": "30d",
   "auto.preview.window90": "90d",
   "auto.preview.estimating": "Estimating…",
-  "auto.preview.matchesNow": "{n} match now",
+  "auto.preview.matchesNow": "{n} matching now",
   "auto.preview.wouldFire": "~{n} would fire / {days}d",
   "auto.preview.notComputable": "Trailing estimate not computable",
   "auto.preview.hidden": "{n} hidden — no access",

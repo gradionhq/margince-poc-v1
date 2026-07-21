@@ -10,7 +10,7 @@ import {
 } from "../design-system/atoms";
 import { AutonomyDot } from "../design-system/trust";
 import { useT } from "../i18n";
-import { AutomationPreview, AutomationRuns } from "./automationdetail";
+import { AutomationInspectors } from "./automationdetail";
 import {
   canConfigureAutomations,
   problemMessage,
@@ -298,10 +298,20 @@ export function AutomationRow({
                 {t("trust.edit")}
               </Button>
             )}
-            <Button small onClick={() => setRunsOpen((open) => !open)}>
+            <Button
+              small
+              variant={runsOpen ? "primary" : "ghost"}
+              aria-expanded={runsOpen}
+              onClick={() => setRunsOpen((open) => !open)}
+            >
               {t("auto.runs.open")}
             </Button>
-            <Button small onClick={() => setPreviewOpen((open) => !open)}>
+            <Button
+              small
+              variant={previewOpen ? "primary" : "ghost"}
+              aria-expanded={previewOpen}
+              onClick={() => setPreviewOpen((open) => !open)}
+            >
               {t("auto.preview.open")}
             </Button>
             <Button
@@ -315,8 +325,11 @@ export function AutomationRow({
           </>
         )}
       </div>
-      {runsOpen && <AutomationRuns automationId={automation.id} />}
-      {previewOpen && <AutomationPreview automationId={automation.id} />}
+      <AutomationInspectors
+        automationId={automation.id}
+        runsOpen={runsOpen}
+        previewOpen={previewOpen}
+      />
       {editing && entry && (
         <AutomationForm
           entry={entry}
