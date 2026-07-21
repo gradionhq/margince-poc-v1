@@ -99,7 +99,7 @@ func TestCallbackRequiresMatchingCSRFCookie(t *testing.T) {
 	// (b) Matching cookie → passes the gate and reaches the exchange.
 	oauth.exchanged = false
 	req := httptest.NewRequest(http.MethodGet, "/cb", nil)
-	req.AddCookie(&http.Cookie{Name: oauthCSRFCookie, Value: nonce, HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName("gmail"), Value: nonce, HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode})
 	h.ConnectorOAuthCallback(httptest.NewRecorder(), req, "gmail", params)
 	if !oauth.exchanged {
 		t.Fatal("a matching oauth_csrf cookie should let the flow reach the token exchange")
@@ -148,6 +148,14 @@ func TestWithGmailCaptureWiresOrSkips(t *testing.T) {
 	WithGmailCapture(full)(&s, nil)
 	if !s.wired() {
 		t.Error("WithGmailCapture(full) with a vault did not wire the connector handlers")
+	}
+	// The one Google app mounts BOTH connectors: gcal must resolve through the
+	// production wiring, not only through the manually-injected route tests.
+	if _, ok := s.oauthApp(providerGmail); !ok {
+		t.Error("WithGmailCapture(full) did not compose the gmail OAuth app")
+	}
+	if _, ok := s.oauthApp(providerGcal); !ok {
+		t.Error("WithGmailCapture(full) did not compose the gcal OAuth app")
 	}
 
 	// Fully configured but NO vault → no-op (can't seal the refresh token).
