@@ -960,20 +960,21 @@ const FACT_CATEGORY_LABELS: Record<OrganizationFact["category"], MessageKey> = {
 // One fact row: value plus its trust signals — provenance always, confidence
 // whenever graded, and the evidence snippet — the same "confidence is never
 // hidden" convention as ProfileFieldRow.
+// A fact row shares ProfileFieldRow's vertical label/value/trust-signals
+// layout (NOT the horizontal `.firmo` key/value grid, whose `flex-direction:
+// column` descendant rule would collapse the TrustSignals footer).
 function FactRow({ fact }: Readonly<{ fact: OrganizationFact }>) {
   const t = useT();
   return (
-    <div>
-      <dt>{coldFieldLabel(fact.field, t)}</dt>
-      <dd>
-        <div>{fact.value}</div>
-        <TrustSignals
-          capturedBy={fact.captured_by}
-          confidence={fact.confidence}
-          evidenceSnippet={fact.evidence_snippet}
-          sourceUrl={fact.source_url}
-        />
-      </dd>
+    <div style={{ marginBottom: 12 }}>
+      <span className="t-label">{coldFieldLabel(fact.field, t)}</span>
+      <div>{fact.value}</div>
+      <TrustSignals
+        capturedBy={fact.captured_by}
+        confidence={fact.confidence}
+        evidenceSnippet={fact.evidence_snippet}
+        sourceUrl={fact.source_url}
+      />
     </div>
   );
 }
@@ -998,7 +999,7 @@ function FactsCard({ orgId }: Readonly<{ orgId: string }>) {
   if (factsQuery.isError) {
     return (
       <section className="card" style={{ marginBottom: 16 }}>
-        <SectionHeader title={t("org.facts")} sub={t("org.evidenceOrOmit")} />
+        <SectionHeader title={t("org.facts")} />
         <QueryStates query={factsQuery}>{null}</QueryStates>
       </section>
     );
@@ -1014,20 +1015,20 @@ function FactsCard({ orgId }: Readonly<{ orgId: string }>) {
 
   return (
     <section className="card" style={{ marginBottom: 16 }}>
-      <SectionHeader title={t("org.facts")} sub={t("org.evidenceOrOmit")} />
+      <SectionHeader title={t("org.facts")} />
       {FACT_CATEGORY_ORDER.map((category) => {
         const group = facts.filter((fact) => fact.category === category);
         if (group.length === 0) {
           return null;
         }
         return (
-          <div key={category} style={{ marginBottom: 12 }}>
-            <span className="t-label">{t(FACT_CATEGORY_LABELS[category])}</span>
-            <dl className="firmo">
-              {group.map((fact) => (
-                <FactRow key={`${fact.field}:${fact.value_key}`} fact={fact} />
-              ))}
-            </dl>
+          <div key={category} style={{ marginBottom: 16 }}>
+            <div className="t-label" style={{ marginBottom: 8 }}>
+              {t(FACT_CATEGORY_LABELS[category])}
+            </div>
+            {group.map((fact) => (
+              <FactRow key={`${fact.field}:${fact.value_key}`} fact={fact} />
+            ))}
           </div>
         );
       })}

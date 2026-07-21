@@ -84,8 +84,12 @@ export function ConfidenceMeter({
   );
 }
 
-// Provenance is either an agent (`agent:capture`) or the human user.
-export type Provenance = { kind: "agent"; agent: string } | { kind: "human" };
+// Provenance is an agent (`agent:capture`), a connector (`connector:gmail`),
+// or the human user — the three shapes captured_by can take.
+export type Provenance =
+  | { kind: "agent"; agent: string }
+  | { kind: "connector"; connector: string }
+  | { kind: "human" };
 
 export function ProvenanceTag({
   provenance,
@@ -95,6 +99,13 @@ export function ProvenanceTag({
     return (
       <span className="provenance provenance-agent">
         {t("trust.agentTag", { agent: provenance.agent })}
+      </span>
+    );
+  }
+  if (provenance.kind === "connector") {
+    return (
+      <span className="provenance provenance-agent">
+        {t("trust.connectorTag", { connector: provenance.connector })}
       </span>
     );
   }

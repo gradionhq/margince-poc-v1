@@ -135,7 +135,7 @@ describe("InboxScreen (B-EP09.12a)", () => {
     vi.stubGlobal("fetch", inboxBackend(calls));
     render(<InboxScreen />);
     await waitFor(() => expect(screen.getByText("send_email")).toBeTruthy());
-    expect(screen.getByText("agent: agent:runner")).toBeTruthy();
+    expect(screen.getByText("agent: runner")).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Accept" }));
     await waitFor(() =>
       expect(calls.some((c) => c.url.includes("/approve"))).toBe(true),

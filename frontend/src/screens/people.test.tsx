@@ -82,7 +82,7 @@ describe("ContactsScreen (B-EP09.10a)", () => {
     );
     render(<ContactsScreen />);
     await waitFor(() => expect(screen.getByText("Anna Weber")).toBeTruthy());
-    expect(screen.getByText("agent: connector:gmail")).toBeTruthy();
+    expect(screen.getByText("via gmail")).toBeTruthy();
     await userEvent.click(screen.getByText("Anna Weber"));
     expect(window.location.hash).toBe("#/contacts/p-1");
   });

@@ -14,6 +14,7 @@ import {
   canManageCustomFields,
   isConsentNotGranted,
   problemExistingId,
+  provenanceOf,
   throwProblem,
 } from "./common";
 import { CreateAction } from "./create";
@@ -105,5 +106,28 @@ describe("canManageCustomFields", () => {
     expect(canManageCustomFields(["rep"])).toBe(false);
     expect(canManageCustomFields([])).toBe(false);
     expect(canManageCustomFields(undefined)).toBe(false);
+  });
+});
+
+describe("provenanceOf", () => {
+  it("maps captured_by to a kind without doubling the prefix", () => {
+    // An agent id keeps the bare name — never the old "agent: agent:<id>".
+    expect(provenanceOf("agent:capture")).toEqual({
+      kind: "agent",
+      agent: "capture",
+    });
+    // A connector reads as a connector, not an agent.
+    expect(provenanceOf("connector:gmail")).toEqual({
+      kind: "connector",
+      connector: "gmail",
+    });
+    // Human (and absent) provenance.
+    expect(provenanceOf("human:abc")).toEqual({ kind: "human" });
+    expect(provenanceOf(undefined)).toEqual({ kind: "human" });
+    // A bare token with no kind prefix falls back to an agent label.
+    expect(provenanceOf("capture")).toEqual({
+      kind: "agent",
+      agent: "capture",
+    });
   });
 });
