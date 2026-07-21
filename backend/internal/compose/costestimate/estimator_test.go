@@ -407,7 +407,7 @@ func TestEstimateAsksForTheBackfillTasksOverTheWindow(t *testing.T) {
 	totals := &fakeTotals{}
 	ladder := fakeLadder{tiers: map[ai.Tier]ai.ModelRef{}, ladders: defaultLadders()}
 	e := estimatorFor(totals, fakeRates{}, ladder, fakeLabels(0), fakeYields{})
-	_ = mustEstimate(t, e, 10)
+	mustEstimate(t, e, 10) // run for its side effect; this test asserts which tasks were queried
 
 	if len(totals.got) != len(backfillTasks) {
 		t.Fatalf("asked for %v, want %v", totals.got, backfillTasks)
