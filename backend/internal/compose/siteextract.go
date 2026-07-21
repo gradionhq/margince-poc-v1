@@ -48,11 +48,21 @@ type siteExtraction struct {
 	crawlMs int64
 }
 
-// profileTriggerPages is how many committed pages the profile lane
-// waits for before firing: commits arrive in selection order, so the
-// first dozen ARE the identity-dense excerpt set — waiting for the whole
-// crawl would put the crawl's slow tail on the profile's critical path.
-const profileTriggerPages = 12
+// profileTriggerNonLegalPages is how much commercial evidence the profile
+// lane waits for before firing. A raw page-count trigger can be satisfied
+// entirely by legal pages on policy-heavy sites, permanently producing a
+// legal-only profile because the lane intentionally runs once.
+const profileTriggerNonLegalPages = 8
+
+func profileEvidenceReady(pages []crawlPage) bool {
+	nonLegal := 0
+	for _, page := range pages {
+		if page.Kind != crmcontracts.SiteReadPageKindImpressum {
+			nonLegal++
+		}
+	}
+	return nonLegal >= profileTriggerNonLegalPages
+}
 
 // The read's two live phases, spelled as the site_read store accepts them
 // (people.Store.UpdateSiteReadProgress rejects anything else): the crawl
@@ -104,12 +114,13 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 		committedMu.Lock()
 		committed = append(committed, page)
 		count := len(committed)
+		profileReady := profileEvidenceReady(committed)
 		committedMu.Unlock()
 		// Report the page the moment it commits, not when its extraction
 		// returns: "pages read" is a count of pages fetched, and the hook
 		// runs serially in commit order, so the number only ever climbs.
 		progress(sitePhaseCrawling, count)
-		if count >= profileTriggerPages {
+		if profileReady {
 			fireProfile()
 		}
 		wg.Add(1)

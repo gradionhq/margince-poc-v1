@@ -24,6 +24,7 @@ const (
 	priProbe       = 100
 	priBoilerplate = 1
 	priOther       = 10
+	companyWord    = "company"
 )
 
 var kindPriority = map[crmcontracts.SiteReadPageKind]int{
@@ -78,6 +79,41 @@ func candidatePriority(cand crawlCandidate) int {
 	// A deep page still outranks a blog archive: boilerplate is the only
 	// band below everything, and depth alone never demotes into it.
 	return priBoilerplate + 1
+}
+
+// legalIdentityPath recognizes pages that can plausibly state the
+// operator's registered identity. A broad "contains legal" rule turns a
+// product page such as /teams/legal into an imprint and lets whole policy
+// libraries consume the crawl and profile budgets. Keep this deliberately
+// path-shaped: named imprint/publisher pages, a shallow /legal landing, and
+// the two observed shallow site conventions that mount it one level down.
+func legalIdentityPath(rawURL string) bool {
+	parsed, err := url.Parse(localeCanonical(rawURL))
+	if err != nil {
+		return false
+	}
+	segments := pathSegments(parsed.Path)
+	if len(segments) == 0 {
+		return false
+	}
+	last := segments[len(segments)-1]
+	if containsAny(last, "impressum", "imprint") || last == "legal-notice" || last == "publisher" {
+		return true
+	}
+	if last != "legal" {
+		return false
+	}
+	return len(segments) == 1 || (len(segments) == 2 && (segments[0] == "c" || segments[0] == companyWord))
+}
+
+func pathSegments(path string) []string {
+	var out []string
+	for _, segment := range strings.Split(strings.ToLower(path), "/") {
+		if segment != "" {
+			out = append(out, segment)
+		}
+	}
+	return out
 }
 
 // localePrefixes are the path-leading language tags multilingual sites
@@ -175,19 +211,27 @@ func classifyKind(rawURL string) crmcontracts.SiteReadPageKind {
 	if err != nil {
 		return crmcontracts.SiteReadPageKindOther
 	}
-	path := strings.ToLower(parsed.Path)
+	segments := pathSegments(parsed.Path)
+	if len(segments) > 0 && localePrefixes[segments[0]] {
+		segments = segments[1:]
+	}
+	first := ""
+	if len(segments) > 0 {
+		first = segments[0]
+	}
+	shallow := len(segments) <= 2
 	switch {
-	case containsAny(path, "impressum", "imprint", "legal"):
+	case legalIdentityPath(rawURL):
 		return crmcontracts.SiteReadPageKindImpressum
-	case containsAny(path, "about", "ueber"):
+	case shallow && containsAny(first, "about", "ueber"):
 		return crmcontracts.SiteReadPageKindAbout
-	case strings.Contains(path, "team"):
+	case shallow && containsAny(first, "team", "leadership"):
 		return crmcontracts.SiteReadPageKindTeam
-	case containsAny(path, "kontakt", "contact"):
+	case shallow && containsAny(first, "kontakt", "contact"):
 		return crmcontracts.SiteReadPageKindContact
-	case containsAny(path, "service", "leistung", "solution", "loesung", "lösung"):
+	case containsAny(first, "service", "leistung", "solution", "loesung", "lösung"):
 		return crmcontracts.SiteReadPageKindServices
-	case containsAny(path, "produkt", "product"):
+	case containsAny(first, "produkt", "product"):
 		return crmcontracts.SiteReadPageKindProducts
 	default:
 		return crmcontracts.SiteReadPageKindOther

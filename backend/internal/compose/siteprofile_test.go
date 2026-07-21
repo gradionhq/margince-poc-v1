@@ -98,39 +98,40 @@ func TestGateProfileRefusesUnknownIdsAndBadConfidence(t *testing.T) {
 	}
 }
 
-func TestProfileExcerptPagesAlwaysCarryEveryImpressum(t *testing.T) {
+func TestProfileExcerptPagesBoundLegalPagesAndReserveCommercialEvidence(t *testing.T) {
 	var pages []crawlPage
-	// Enough non-legal bulk to blow the excerpt budget…
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 8; i++ {
 		pages = append(pages, crawlPage{
 			URL: seedURL + "/about" + string(rune('a'+i)), Kind: crmcontracts.SiteReadPageKindAbout,
 			Text: string(make([]byte, 0)) + string(bytesOfRunes('a', 9000)),
 		})
 	}
-	// …and two imprints at the end of crawl order.
-	pages = append(
-		pages,
-		crawlPage{URL: seedURL + "/impressum", Kind: crmcontracts.SiteReadPageKindImpressum, Text: "Impressum eins."},
-		crawlPage{URL: seedURL + "/de/impressum", Kind: crmcontracts.SiteReadPageKindImpressum, Text: "Impressum zwei."},
-	)
+	for i := 0; i < 6; i++ {
+		pages = append(pages, crawlPage{
+			URL: seedURL + "/legal" + string(rune('a'+i)), Kind: crmcontracts.SiteReadPageKindImpressum,
+			Text: string(bytesOfRunes('l', 9000)),
+		})
+	}
 	excerpts := profileExcerptPages(pages)
 	imprints := 0
-	for _, page := range excerpts {
-		if page.Kind == crmcontracts.SiteReadPageKindImpressum {
-			imprints++
-		}
-	}
-	if imprints != 2 {
-		t.Fatalf("every imprint must be excerpted whatever the budget, got %d", imprints)
-	}
+	commercial := 0
 	total := 0
 	for _, page := range excerpts {
-		if page.Kind != crmcontracts.SiteReadPageKindImpressum {
-			total += len([]rune(page.Text))
+		total += len([]rune(page.Text))
+		if page.Kind == crmcontracts.SiteReadPageKindImpressum {
+			imprints++
+		} else {
+			commercial++
 		}
 	}
+	if imprints != profileMaxImpressumPages {
+		t.Fatalf("legal excerpts = %d, want bounded share %d", imprints, profileMaxImpressumPages)
+	}
+	if commercial < 3 {
+		t.Fatalf("the profile must retain a useful commercial cross-section, got %d pages", commercial)
+	}
 	if total > profileExcerptBudgetRunes {
-		t.Fatalf("non-legal excerpts exceed the budget: %d runes", total)
+		t.Fatalf("all excerpts exceed the budget: %d runes", total)
 	}
 }
 

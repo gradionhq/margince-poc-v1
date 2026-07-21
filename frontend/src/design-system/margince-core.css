@@ -13,6 +13,28 @@
   position: absolute;
   inset: 0;
 }
+.margince-core-progress {
+  position: absolute;
+  z-index: 1;
+  inset: -2px;
+  width: calc(100% + 4px);
+  height: calc(100% + 4px);
+  overflow: visible;
+  pointer-events: none;
+  transform: rotate(-90deg);
+}
+.margince-core-progress circle {
+  fill: none;
+  stroke: var(--railHover);
+  stroke-width: 0.7;
+}
+.margince-core-progress .margince-core-progress-value {
+  stroke: var(--aiText);
+  stroke-width: 1.15;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 4px var(--aiText));
+  transition: stroke-dasharray 700ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
 .margince-core-glow {
   position: absolute;
   inset: 26%;
@@ -253,6 +275,7 @@
   .margince-core-orbit,
   .margince-core-thread,
   .margince-core-mark-shell,
+  .margince-core-progress .margince-core-progress-value,
   .margince-core-scene {
     animation: none;
   }

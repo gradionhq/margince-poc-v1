@@ -18,7 +18,7 @@ export const Idle: Story = {
 };
 
 export const Working: Story = {
-  args: { state: "working" },
+  args: { state: "working", progress: 0.58 },
 };
 
 export const Success: Story = {

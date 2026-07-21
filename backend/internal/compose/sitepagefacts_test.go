@@ -9,6 +9,7 @@ package compose
 // pages, and every refusal recorded with its reason.
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -67,6 +68,15 @@ func TestMenuForKindRoutesFactBearingKindsOnly(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("catalog pages must be allowed to name technologies")
+	}
+	for _, expected := range []string{people.FactService, people.FactProduct, people.FactServedIndustry} {
+		if !slices.Contains(menu.factFields, expected) {
+			t.Fatalf("catalog menu must include %q: %+v", expected, menu.factFields)
+		}
+	}
+	home, ok := menuForKind(crmcontracts.SiteReadPageKindHome)
+	if !ok || !slices.Contains(home.factFields, people.FactProduct) || !slices.Contains(home.factFields, people.FactCompanySize) {
+		t.Fatalf("home pages must capture headline offers and markets: %+v", home)
 	}
 }
 
@@ -322,5 +332,19 @@ func TestGatePageEntitiesRefusesASiblingBlocksAddress(t *testing.T) {
 	}
 	if dropReasons(dropped)[fieldRegisteredAddress] != dropValueNotInSnippet {
 		t.Errorf("the cross-block grab must be reported: %+v", dropped)
+	}
+}
+
+func TestGatePageEntitiesJoinsALegalBlockContinuation(t *testing.T) {
+	first := "Acme GmbH, Deliusstrasse 7, 24114 Kiel, Germany. " + strings.Repeat("Represented by management. ", 9)
+	continuation := "Commercial register Amtsgericht Kiel, HRB 123456. VAT ID DE123456789. " + strings.Repeat("Legal notice detail. ", 7)
+	page, menu, idx := pageFixture(crmcontracts.SiteReadPageKindImpressum, seedURL+"/imprint", first+"\n"+continuation)
+	if len(idx.refs) < 2 {
+		t.Fatalf("fixture must create a name and continuation passage: %d", len(idx.refs))
+	}
+	reply := `{"facts":[],"entities":[{"n":"Acme GmbH","a":"Deliusstrasse 7, 24114 Kiel, Germany","r":"HRB 123456","e":"s0"}]}`
+	res, _ := gatePageEntities2(t, reply, page, menu, idx)
+	if len(res) != 1 || res[0].RegisterNumber != "HRB 123456" {
+		t.Fatalf("a legal block's adjacent register line must survive: %+v", res)
 	}
 }

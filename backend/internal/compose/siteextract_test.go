@@ -197,7 +197,7 @@ func streamFixtureSite(n int) *fakeSite {
 // on a small one — and the merge is commit-ordered regardless of
 // completion scheduling.
 func TestCrawlAndExtractStreamsDeterministicallyAndFiresProfileOnce(t *testing.T) {
-	for _, pages := range []int{profileTriggerPages + 4, 3} {
+	for _, pages := range []int{profileTriggerNonLegalPages + 4, 3} {
 		site := streamFixtureSite(pages)
 		var profileCalls atomic.Int32
 		brain := countingLaneFake{

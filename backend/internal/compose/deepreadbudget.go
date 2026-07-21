@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"time"
 
 	"github.com/riverqueue/river"
@@ -15,8 +16,23 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-func (w *siteDeepReadWorker) Work(ctx context.Context, job *river.Job[SiteDeepReadArgs]) error {
-	err := w.run(ctx, job.Args)
+func (w *siteDeepReadWorker) Work(ctx context.Context, job *river.Job[SiteDeepReadArgs]) (workErr error) {
+	// River recovers a worker panic, but it cannot close this module's
+	// claimed dossier. Recover at the ownership boundary so an unexpected
+	// provider/parser panic becomes a terminal failed read instead of a row
+	// that tells the browser "reading" forever.
+	workCtx := deepReadWorkerCtx(ctx, job.Args)
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			cause := fmt.Errorf("site deep read panic: %v", recovered)
+			if w.log != nil {
+				w.log.ErrorContext(workCtx, "site deep read panic recovered",
+					"read", job.Args.SiteReadID.String(), "panic", recovered, "stack", string(debug.Stack()))
+			}
+			workErr = w.fail(workCtx, job.Args.SiteReadID, cause)
+		}
+	}()
+	err := w.run(workCtx, job.Args)
 	var deferral *ai.BudgetDeferralError
 	if !errors.As(err, &deferral) {
 		return err

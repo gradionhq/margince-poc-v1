@@ -11,6 +11,7 @@ package compose
 import (
 	"net/url"
 	"strings"
+	"unicode"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 )
@@ -52,7 +53,7 @@ func dedupeLegalEntities(entities []corpusLegalEntity) []corpusLegalEntity {
 			out[at] = entity
 		}
 	}
-	return out
+	return removeBrandOnlyLegalAliases(out)
 }
 
 // matchingLegalEntity joins locale variants without collapsing genuinely
@@ -61,10 +62,10 @@ func dedupeLegalEntities(entities []corpusLegalEntity) []corpusLegalEntity {
 // When both sightings carry different register numbers, the registry
 // identities win and the entities remain separate even if their names match.
 func matchingLegalEntity(existing []corpusLegalEntity, candidate corpusLegalEntity) int {
-	candidateName := normalizeEvidence(candidate.Name)
+	candidateName := legalEntityNameKey(candidate.Name)
 	candidateRegister := normalizeEvidence(candidate.RegisterNumber)
 	for i, entity := range existing {
-		name := normalizeEvidence(entity.Name)
+		name := legalEntityNameKey(entity.Name)
 		register := normalizeEvidence(entity.RegisterNumber)
 		sameRegister := candidateRegister != "" && register != "" && candidateRegister == register
 		compatibleName := candidateName != "" && candidateName == name &&
@@ -74,6 +75,73 @@ func matchingLegalEntity(existing []corpusLegalEntity, candidate corpusLegalEnti
 		}
 	}
 	return -1
+}
+
+// legalEntityNameKey treats punctuation-only legal-form variants as the
+// same printed company: "B.V." and "BV", or a comma before "Inc.", do
+// not create separate entities. Letters and digits remain authoritative;
+// distinct registry numbers still prevent a fold in matchingLegalEntity.
+func legalEntityNameKey(name string) string {
+	return strings.Join(strings.FieldsFunc(strings.ToLower(name), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}), " ")
+}
+
+// removeBrandOnlyLegalAliases drops a bare brand label only when the same
+// census also contains a richer registered name that includes that label
+// and the bare row has no legal detail. This preserves sole traders and
+// unusual legal names when they are the only identity the page states.
+func removeBrandOnlyLegalAliases(entities []corpusLegalEntity) []corpusLegalEntity {
+	kept := make([]corpusLegalEntity, 0, len(entities))
+	for i, candidate := range entities {
+		key := legalEntityNameKey(candidate.Name)
+		dropAlias := false
+		if legalEntityDetail(candidate) == 0 && len(strings.Fields(key)) == 1 {
+			for j, richer := range entities {
+				if i == j || legalEntityNameKey(richer.Name) == key {
+					continue
+				}
+				for _, token := range strings.Fields(legalEntityNameKey(richer.Name)) {
+					if token == key {
+						dropAlias = true
+						break
+					}
+				}
+				if dropAlias {
+					break
+				}
+			}
+		}
+		if !dropAlias {
+			kept = append(kept, candidate)
+		}
+	}
+	return kept
+}
+
+// enrichLegalEntitiesFromProfile shares already-gated legal trio values
+// with the single legal choice shown to the human. Both lanes cite shallow
+// legal pages and the census has established that there is only one entity;
+// this avoids asking the user to retype a VAT number one lane recovered when
+// the entity lane's 300-rune block ended between the address and identifier.
+func enrichLegalEntitiesFromProfile(entities []corpusLegalEntity, fields []evidencedField) []corpusLegalEntity {
+	if len(entities) != 1 {
+		return entities
+	}
+	out := append([]corpusLegalEntity(nil), entities...)
+	for _, field := range fields {
+		switch field.Field {
+		case string(crmcontracts.ColdStartFieldFieldRegisteredAddress):
+			if out[0].RegisteredAddress == "" {
+				out[0].RegisteredAddress = field.Value
+			}
+		case string(crmcontracts.ColdStartFieldFieldRegisterVat):
+			if out[0].RegisterNumber == "" {
+				out[0].RegisterNumber = field.Value
+			}
+		}
+	}
+	return out
 }
 
 // legalEntityDetail counts how much of an entity block was actually
@@ -100,7 +168,7 @@ const legalWarningMultipleEntities = "disagreeing legal pages: the domain hosts 
 func applyLegalGate(fields []evidencedField, entities []corpusLegalEntity, pageKind map[string]crmcontracts.SiteReadPageKind, censusIncomplete bool) ([]evidencedField, bool, []droppedFinding) {
 	distinct := map[string]bool{}
 	for _, e := range entities {
-		distinct[normalizeEvidence(e.Name)] = true
+		distinct[legalEntityNameKey(e.Name)] = true
 	}
 	var dropped []droppedFinding
 	if censusIncomplete || len(distinct) > 1 {
