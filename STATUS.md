@@ -22,6 +22,37 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**Website-ingestion quality and the Core research stage.** The onboarding
+read was benchmarked against Stripe, Notion, Linear, Personio, DeepL, Celonis,
+Contentful, Forto, GetYourGuide, and Miro, then tuned against the same corpus.
+The systemic failure was page selection: any URL containing `legal` became an
+imprint, policy libraries consumed most of the 40-page budget, and the one-shot
+company profile fired after twelve pages even when all twelve were legal. Legal
+identity paths are now narrow and path-shaped, the crawler probes publisher and
+regional legal routes plus one bounded policy fallback, guide/template slugs no
+longer masquerade as Team/Product pages, the profile waits for commercial
+evidence and takes a kind-diverse corpus, and home/about pages can state
+offerings and markets. The legal census folds punctuation-only company variants
+and bare brand aliases; it carries a legal block across one safe passage
+boundary and reuses already-gated single-entity address/register fields. Focused
+live proofs recovered the full name/address/register blocks for Celonis SE,
+Contentful GmbH, and Forto SE; Linear's policy-only contracting entity is
+recovered without inventing an absent address. Personio consistently returns
+HTTP 429 to the root and legal notice, so that site remains an honest failure;
+Notion's commercial profile is strong but its unlinked, unique-slug German
+imprint remains undiscoverable without a search-engine dependency.
+
+The run also found and fixed the apparent forever-reading failure: a commit
+could discover new links in the same wave that hit the byte/deadline cap, then
+the skip reporter indexed the new queue with the old selection bitmap. The
+boundary is regression-tested, and the worker ownership boundary now closes a
+dossier as failed on any future unexpected panic instead of leaving a zombie.
+The onboarding Core is a vertically centred research stage with a live progress
+halo, legal → offer → customer track, grounded counters, ambient field, and
+first-person English/German copy. Browser passes covered intro, URL entry, live
+progress and completed evidence; `make check` and the 18-package real-Postgres
+lane pass with zero skips.
+
 **Cold-start dev stack, the machine sweep, and the legal-entity census
 (#151, #156).** Three things that were wrong together.
 

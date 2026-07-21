@@ -855,6 +855,11 @@ export const en = {
   "ob.coreIntroBody":
     "I need its legal identity, address and VAT or registration details. Then I'll learn what you sell, who you serve, and how you win business.",
   "ob.coreLegalKicker": "I start with legal identity",
+  "ob.corePathLabel": "What I'll learn",
+  "ob.corePathLegal": "Legal identity",
+  "ob.corePathOffer": "Offer",
+  "ob.corePathCustomer": "Customers",
+  "ob.coreReadingPage": "I'm reading",
   "ob.coreWebsiteTitle": "Which website should I read?",
   "ob.coreWebsiteBody":
     "I'll find the legal notice first, then I’ll read your products, ideal customers, positioning and sales approach.",
@@ -871,7 +876,7 @@ export const en = {
     "I haven't saved anything yet. Please review the legal identity first, then the offer and ideal customer.",
   "ob.coreDeferredBody": "I'll resume this read automatically.",
   "ob.coreFailedBody":
-    "I couldn't ground enough from this site, so I stopped instead of guessing. You can tell me the same information yourself.",
+    "I couldn't reliably access or ground this website, so I stopped instead of guessing. You can tell me the same information yourself.",
   "ob.coreFindingsTitle": "What I found and can support",
   "ob.coreFindingsBody":
     "I attach the public wording behind every value. If I couldn't verify a legal detail, I leave it empty.",

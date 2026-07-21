@@ -188,6 +188,7 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 		return deferErr
 	}
 	mergedFields, legalConflict, legalDrops := applyLegalGate(extraction.fields, extraction.merged.entities, pageKindsOf(crawl.Pages), extraction.legalCensusIncomplete)
+	extraction.merged.entities = enrichLegalEntitiesFromProfile(extraction.merged.entities, mergedFields)
 	w.extract.reportDrops(ctx, laneLegal, legalDrops)
 	if legalConflict {
 		w.log.WarnContext(ctx, legalWarningMultipleEntities,

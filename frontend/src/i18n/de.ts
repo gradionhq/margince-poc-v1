@@ -872,6 +872,11 @@ export const de = {
   "ob.coreIntroBody":
     "Ich brauche rechtliche Identität, Anschrift und USt-IdNr./UID oder Registerdaten. Danach lerne ich, was ihr verkauft, wen ihr bedient und wie ihr Geschäft gewinnt.",
   "ob.coreLegalKicker": "Ich beginne mit der rechtlichen Identität",
+  "ob.corePathLabel": "Was ich lerne",
+  "ob.corePathLegal": "Rechtliche Identität",
+  "ob.corePathOffer": "Angebot",
+  "ob.corePathCustomer": "Kunden",
+  "ob.coreReadingPage": "Ich lese gerade",
   "ob.coreWebsiteTitle": "Welche Website soll ich lesen?",
   "ob.coreWebsiteBody":
     "Ich suche zuerst das Impressum und lese danach Produkte, Idealkunden, Positionierung und Vertriebsansatz.",
@@ -888,7 +893,7 @@ export const de = {
     "Ich habe noch nichts gespeichert. Bitte prüfe zuerst die rechtliche Identität, danach Angebot und Idealkunden.",
   "ob.coreDeferredBody": "Ich setze das Einlesen automatisch fort.",
   "ob.coreFailedBody":
-    "Ich konnte auf dieser Seite nicht genug belegen und habe deshalb aufgehört, statt zu raten. Du kannst mir dieselben Angaben selbst geben.",
+    "Ich konnte diese Website nicht zuverlässig öffnen oder belegen und habe deshalb aufgehört, statt zu raten. Du kannst mir dieselben Angaben selbst geben.",
   "ob.coreFindingsTitle": "Was ich gefunden habe und belegen kann",
   "ob.coreFindingsBody":
     "Ich hänge an jeden Wert den öffentlichen Wortlaut seiner Quelle. Was ich rechtlich nicht belegen kann, lasse ich leer.",

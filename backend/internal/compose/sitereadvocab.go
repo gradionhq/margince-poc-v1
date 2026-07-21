@@ -29,10 +29,11 @@ const (
 // "Name — short description" value spelling NormalizeFactValueKey
 // dedupes on.
 var categoryGuidance = map[string]string{
-	"company": "founded_year is the year the company was founded; employee_range a stated headcount or range; " +
+	companyWord: "founded_year is the year the company was founded; employee_range a stated headcount or range; " +
 		"phone and contact_email the company's own contact details; location one entry per office or site the " +
 		"company states (city and country as printed).",
 	"offering": "service and product name what THIS company sells, at the level it sells them — the page's own subject, as a buyer would name it on an order. " +
+		"A product is software or a repeatable packaged good the buyer uses; a service is work this company performs for the buyer. Use capability when the page states an ability but does not sell it as a named offer. " +
 		"A method, technique, step, phase or deliverable USED TO DELIVER one offering is not itself an offering: on a page about a research service, " +
 		"the service is what the page is about, while workshops, interviews, mapping and synthesis are how it is done — omit those. " +
 		"A product, platform or vendor made by SOMEONE ELSE that this company integrates, migrates, partners on or builds upon is technology, NEVER product or service, " +

@@ -47,6 +47,48 @@ func TestDedupeLegalEntitiesKeepsSameNameWithDistinctRegisters(t *testing.T) {
 	}
 }
 
+func TestDedupeLegalEntitiesFoldsPunctuationVariantsAndDropsBareBrand(t *testing.T) {
+	entities := []corpusLegalEntity{
+		{Name: "RealtimeBoard, Inc. dba Miro", RegisteredAddress: "San Francisco", SourceURL: seedURL + "/legal"},
+		{Name: "RealtimeBoard Inc dba Miro", SourceURL: seedURL + "/imprint"},
+		{Name: "RealtimeBoard B.V.", RegisterNumber: "123", SourceURL: seedURL + "/legal"},
+		{Name: "RealtimeBoard BV", RegisterNumber: "123", SourceURL: seedURL + "/imprint"},
+		{Name: "Miro", SourceURL: seedURL + "/legal"},
+	}
+	got := dedupeLegalEntities(entities)
+	if len(got) != 2 {
+		t.Fatalf("punctuation variants and a bare brand must not become legal choices: %+v", got)
+	}
+	if got[0].RegisteredAddress != "San Francisco" || got[1].RegisterNumber != "123" {
+		t.Fatalf("the richest registered sightings must survive: %+v", got)
+	}
+}
+
+func TestDedupeLegalEntitiesKeepsTheOnlyBareLegalName(t *testing.T) {
+	got := dedupeLegalEntities([]corpusLegalEntity{{Name: "Miro", SourceURL: seedURL + "/legal"}})
+	if len(got) != 1 {
+		t.Fatalf("an unusual legal name must survive when no richer registered alias exists: %+v", got)
+	}
+}
+
+func TestEnrichSingleLegalEntityFromGatedProfile(t *testing.T) {
+	entities := []corpusLegalEntity{{Name: "Acme GmbH", SourceURL: seedURL + "/imprint"}}
+	fields := []evidencedField{
+		{Field: "registered_address", Value: "Deliusstrasse 7, 24114 Kiel"},
+		{Field: "register_vat", Value: "HRB 123456"},
+	}
+	got := enrichLegalEntitiesFromProfile(entities, fields)
+	if got[0].RegisteredAddress == "" || got[0].RegisterNumber != "HRB 123456" {
+		t.Fatalf("the single legal choice must reuse the already-gated trio: %+v", got)
+	}
+	if entities[0].RegisteredAddress != "" {
+		t.Fatal("enrichment must not mutate the source slice")
+	}
+	if many := enrichLegalEntitiesFromProfile(append(entities, corpusLegalEntity{Name: "Acme Inc."}), fields); many[0].RegisterNumber != "" {
+		t.Fatal("profile values must never be assigned across a multi-entity census")
+	}
+}
+
 // Without a register number there is nothing authoritative to fold on, so
 // the name is the identity — two genuinely different names stay two.
 func TestDedupeLegalEntitiesFallsBackToTheNameWithoutARegisterNumber(t *testing.T) {

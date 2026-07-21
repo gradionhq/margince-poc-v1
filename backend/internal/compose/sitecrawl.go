@@ -142,6 +142,17 @@ var wellKnownProbes = []struct {
 	{"/imprint", crmcontracts.SiteReadPageKindImpressum},
 	{"/de/impressum", crmcontracts.SiteReadPageKindImpressum},
 	{"/legal-notice", crmcontracts.SiteReadPageKindImpressum},
+	{"/de/publisher", crmcontracts.SiteReadPageKindImpressum},
+	{"/publisher", crmcontracts.SiteReadPageKindImpressum},
+	{"/de/legal", crmcontracts.SiteReadPageKindImpressum},
+	{"/c/legal", crmcontracts.SiteReadPageKindImpressum},
+	{"/legal", crmcontracts.SiteReadPageKindImpressum},
+	// Some sites publish no identity page; one policy document is the
+	// bounded fallback because its publisher block still identifies the
+	// contracting entity. Probe one only — never crawl the whole library.
+	{"/legal/terms", crmcontracts.SiteReadPageKindImpressum},
+	{"/legal/terms-of-service", crmcontracts.SiteReadPageKindImpressum},
+	{"/legal/aup", crmcontracts.SiteReadPageKindImpressum},
 	{"/about", crmcontracts.SiteReadPageKindAbout},
 	{"/ueber-uns", crmcontracts.SiteReadPageKindAbout},
 	{"/team", crmcontracts.SiteReadPageKindTeam},
@@ -274,7 +285,10 @@ func selectWave(queue []crawlCandidate, priority []int, taken []bool, waveMax in
 func untakenCandidates(queue []crawlCandidate, taken []bool) []crawlCandidate {
 	var rest []crawlCandidate
 	for i, cand := range queue {
-		if !taken[i] {
+		// A commit can discover new links and hit the byte/deadline cap in
+		// the same wave. Those links have joined queue but the next loop-head
+		// has not extended taken yet; they are necessarily untaken.
+		if i >= len(taken) || !taken[i] {
 			rest = append(rest, cand)
 		}
 	}

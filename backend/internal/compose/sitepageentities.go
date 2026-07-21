@@ -10,6 +10,7 @@ package compose
 // kind does, and its rules are about attribution rather than evidence.
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"unicode"
@@ -48,9 +49,9 @@ func gatePageEntities(parsed pageFactsReply, page crawlPage, idx snippetIndex, d
 			// across passages), but a DETAIL must come from the entity's own
 			// block or it belongs to a sibling company.
 			blockNorm := ""
-			if ref, ok := idx.resolve(e.E); ok {
-				entity.EvidenceSnippet = ref.passage
-				blockNorm = ref.norm
+			if block, ok := legalEvidenceBlock(idx, e.E, name); ok {
+				entity.EvidenceSnippet = block
+				blockNorm = normalizeEvidence(block)
 			}
 			// The block's details carry the same no-guess rule as the name:
 			// printed on this page, or absent. A dropped detail costs one
@@ -72,6 +73,51 @@ func gatePageEntities(parsed pageFactsReply, page crawlPage, idx snippetIndex, d
 		}
 	}
 	return out
+}
+
+// legalEvidenceBlock forgives a passage boundary inside one entity's legal
+// block. Addresses and registry lines commonly follow the company name in
+// the next 300-rune passage. Adjacent text joins only while it does not look
+// like a different registered company, preserving the sibling-entity gate.
+func legalEvidenceBlock(idx snippetIndex, id, currentName string) (string, bool) {
+	ref, ok := idx.resolve(id)
+	if !ok {
+		return "", false
+	}
+	var n int
+	if _, err := fmt.Sscanf(id, "s%d", &n); err != nil {
+		return ref.passage, true
+	}
+	parts := []string{ref.passage}
+	for _, adjacent := range []int{n - 1, n + 1} {
+		if adjacent < 0 || adjacent >= len(idx.refs) || idx.refs[adjacent].pageURL != ref.pageURL {
+			continue
+		}
+		if looksLikeDifferentLegalEntity(idx.refs[adjacent].norm, currentName) {
+			continue
+		}
+		if adjacent < n {
+			parts = append([]string{idx.refs[adjacent].passage}, parts...)
+		} else {
+			parts = append(parts, idx.refs[adjacent].passage)
+		}
+	}
+	return strings.Join(parts, " "), true
+}
+
+func looksLikeDifferentLegalEntity(passageNorm, currentName string) bool {
+	if strings.Contains(passageNorm, normalizeEvidence(currentName)) {
+		return false
+	}
+	for _, form := range []string{
+		" gmbh", " ag ", " se ", " inc ", " llc", " ltd", " limited", " bv ", " b v ",
+		" pte ", " plc", " sarl", " s a r l", " sas ", " oy ", " ab ", " sp z o o",
+	} {
+		if strings.Contains(" "+passageNorm+" ", form) {
+			return true
+		}
+	}
+	return false
 }
 
 // groundedDetail keeps a claimed value only when the text it is judged

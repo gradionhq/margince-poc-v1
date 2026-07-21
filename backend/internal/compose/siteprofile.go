@@ -32,11 +32,15 @@ const (
 	// profile in their first passages, and prefill time on this call is
 	// on the read's critical path.
 	profileExcerptBudgetRunes = 18_000
-	// profileImpressumExcerptRunes caps ONE legal page's excerpt share:
-	// every legal page must be represented (the trio quotes from them),
-	// but a site with many impressum-classified pages must not inflate
-	// the one profile prompt past its budget.
-	profileImpressumExcerptRunes = 4_000
+	// Each page receives a bounded share so the profile sees a balanced
+	// cross-section instead of one unusually long About or legal page.
+	profilePageExcerptRunes = 2_500
+	// Legal identity is represented, but the separate entity census reads
+	// every legal page. The profile lane only needs enough legal evidence
+	// for the trio and must reserve most of its corpus for what the company
+	// sells and whom it serves.
+	profileImpressumExcerptRunes = 2_500
+	profileMaxImpressumPages     = 1
 )
 
 // profileSystem is the profile call's prompt.
@@ -93,35 +97,62 @@ func profileSchema(snippetIDs []string) json.RawMessage {
 	))
 }
 
-// profileExcerptPages picks the excerpt corpus: every impressum page
-// (the census needs each), then the remaining pages by corpusRank until
-// the budget is spent. Deterministic: stable order, greedy cut.
+// profileExcerptPages picks a balanced, identity-dense corpus under one
+// total budget. The legal census is a separate page-fact lane, so the
+// profile prompt represents at most one legal page and reserves room for
+// About, services, products, home, contact, and team evidence.
 func profileExcerptPages(pages []crawlPage) []crawlPage {
 	ranked := make([]crawlPage, len(pages))
 	copy(ranked, pages)
 	sortPagesByCorpusRank(ranked)
 	var out []crawlPage
 	used := 0
-	for _, page := range ranked {
+	legalPages := 0
+	selected := map[string]bool{}
+	addPage := func(page crawlPage) bool {
+		capRunes := profilePageExcerptRunes
 		if page.Kind == crmcontracts.SiteReadPageKindImpressum {
-			// Legal pages always join, each on a capped share.
-			if runes := []rune(page.Text); len(runes) > profileImpressumExcerptRunes {
-				page.Text = string(runes[:profileImpressumExcerptRunes])
+			if legalPages >= profileMaxImpressumPages {
+				return false
 			}
-			out = append(out, page)
-			used += len([]rune(page.Text))
-			continue
+			capRunes = profileImpressumExcerptRunes
 		}
-		runes := len([]rune(page.Text))
-		if runes > maxExtractionText {
-			runes = maxExtractionText
-			page.Text = string([]rune(page.Text)[:maxExtractionText])
+		pageRunes := []rune(page.Text)
+		if len(pageRunes) > capRunes {
+			pageRunes = pageRunes[:capRunes]
+			page.Text = string(pageRunes)
 		}
-		if used+runes > profileExcerptBudgetRunes {
-			continue
+		if used+len(pageRunes) > profileExcerptBudgetRunes {
+			return false
 		}
 		out = append(out, page)
-		used += runes
+		used += len(pageRunes)
+		selected[page.URL] = true
+		if page.Kind == crmcontracts.SiteReadPageKindImpressum {
+			legalPages++
+		}
+		return true
+	}
+
+	// First pass buys breadth: one legal, About, team, home, contact,
+	// services, and products page before another locale or another team
+	// page can spend the profile's entire prompt budget.
+	seenKind := map[crmcontracts.SiteReadPageKind]bool{}
+	for _, page := range ranked {
+		if seenKind[page.Kind] {
+			continue
+		}
+		if addPage(page) {
+			seenKind[page.Kind] = true
+		}
+	}
+	// A small site may not publish every kind. Spend any room that remains
+	// on the next-best pages without weakening the one-legal-page bound.
+	for _, page := range ranked {
+		if selected[page.URL] {
+			continue
+		}
+		addPage(page)
 	}
 	return out
 }

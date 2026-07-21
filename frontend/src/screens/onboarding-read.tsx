@@ -1,12 +1,15 @@
 import {
   ArrowRight,
+  Building2,
   Check,
   Circle,
   FileSearch,
   Globe2,
   Info,
+  PackageSearch,
   PenLine,
   ShieldCheck,
+  UsersRound,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { components } from "../api/schema";
@@ -84,6 +87,19 @@ function presenceState(
   return props.mode ? "listening" : "idle";
 }
 
+function coreProgress(read: CompanySiteRead | null): number | undefined {
+  if (!read) {
+    return undefined;
+  }
+  if (terminalStatuses.has(read.status)) {
+    return 1;
+  }
+  if (read.phase === "extracting") {
+    return 0.84;
+  }
+  return Math.max(0.08, Math.min(0.78, (read.pages_read ?? 0) / 40));
+}
+
 // The Core owns conversation and honest progress. Dense evidence stays directly
 // below it, where quotes and controls remain readable instead of being squeezed
 // into a decorative shape.
@@ -100,6 +116,7 @@ export function ReadCompanyStep(props: ReadCompanyStepProps) {
     <section className="ob-panel ob-read-panel">
       <MarginceCoreScene
         state={presenceState(props, running)}
+        progress={coreProgress(props.read)}
         className="ob-core-scene"
       >
         {props.mode === null && (
@@ -159,6 +176,7 @@ function CoreIntroduction({
       <div className="ob-core-kicker">{t("ob.readKick")}</div>
       <h1>{t("ob.coreIntroTitle")}</h1>
       <p>{t("ob.coreIntroBody")}</p>
+      <CoreJourney active={0} />
       <div className="ob-core-choices">
         <button type="button" onClick={onWebsite}>
           <Globe2 aria-hidden />
@@ -195,6 +213,7 @@ function WebsitePrompt(
       <div className="ob-core-kicker">{t("ob.coreLegalKicker")}</div>
       <h1>{t("ob.coreWebsiteTitle")}</h1>
       <p>{t("ob.coreWebsiteBody")}</p>
+      <CoreJourney active={0} />
       <div
         className={`ob-core-url ${props.website && !props.norm.ok ? "invalid" : ""}`}
       >
@@ -272,27 +291,8 @@ function CoreReadProgress({
   const findings = read.profile_fields.length + read.facts.length;
   const host = new URL(read.root_url).hostname;
   const phase = read.phase ?? (read.status === "queued" ? "crawling" : null);
-
-  let title = t("ob.corePreparing", { host });
-  let body = t("ob.coreLegalReadingBody");
-  if (read.status === "deferred") {
-    title = t("ob.coreDeferredBody");
-    body = read.status_detail ?? t("ob.coreDeferredBody");
-  } else if (failedStatuses.has(read.status)) {
-    title = t("ob.failTitle");
-    body = t("ob.coreFailedBody");
-  } else if (successfulStatuses.has(read.status)) {
-    title = t("ob.coreReady", { count: findings });
-    body = t("ob.coreReadyBody");
-  } else if (read.status === "partial") {
-    title = t("ob.corePartial", { count: findings });
-    body = t("ob.coreReadyBody");
-  } else if (phase === "extracting") {
-    title = t("ob.coreBusinessReading");
-    body = t("ob.coreBusinessReadingBody");
-  } else if (phase === "crawling") {
-    title = t("ob.coreLegalReading", { host });
-  }
+  const latestPage = latestFetchedPage(read);
+  const presentation = coreReadPresentation(read, phase, host, findings, t);
 
   return (
     <div className="ob-core-dialog" aria-live="polite">
@@ -302,8 +302,17 @@ function CoreReadProgress({
         )}
         {t(`ob.readStatus.${read.status}`)}
       </div>
-      <h1>{title}</h1>
-      <p>{body}</p>
+      <h1>{presentation.title}</h1>
+      <p>{presentation.body}</p>
+      <CoreJourney active={presentation.journeyStage} />
+      {latestPage && read.status === "reading" && (
+        <div className="ob-core-activity">
+          <FileSearch aria-hidden />
+          <span>
+            {t("ob.coreReadingPage")} <b>{readablePage(latestPage.url)}</b>
+          </span>
+        </div>
+      )}
       {read.status === "deferred" && read.next_attempt_at && (
         <p className="ob-core-detail">
           {t("deepread.resumesAt", {
@@ -332,6 +341,96 @@ function CoreReadProgress({
       )}
     </div>
   );
+}
+
+type Translator = ReturnType<typeof useT>;
+
+function latestFetchedPage(read: CompanySiteRead) {
+  return [...read.pages].reverse().find((page) => page.status === "fetched");
+}
+
+function coreReadPresentation(
+  read: CompanySiteRead,
+  phase: string | null,
+  host: string,
+  findings: number,
+  t: Translator,
+) {
+  if (read.status === "deferred") {
+    return {
+      title: t("ob.coreDeferredBody"),
+      body: read.status_detail ?? t("ob.coreDeferredBody"),
+      journeyStage: 0,
+    };
+  }
+  if (failedStatuses.has(read.status)) {
+    return {
+      title: t("ob.failTitle"),
+      body: t("ob.coreFailedBody"),
+      journeyStage: 0,
+    };
+  }
+  if (successfulStatuses.has(read.status)) {
+    return {
+      title: t("ob.coreReady", { count: findings }),
+      body: t("ob.coreReadyBody"),
+      journeyStage: 3,
+    };
+  }
+  if (read.status === "partial") {
+    return {
+      title: t("ob.corePartial", { count: findings }),
+      body: t("ob.coreReadyBody"),
+      journeyStage: 3,
+    };
+  }
+  if (phase === "extracting") {
+    return {
+      title: t("ob.coreBusinessReading"),
+      body: t("ob.coreBusinessReadingBody"),
+      journeyStage: 1,
+    };
+  }
+  return {
+    title:
+      phase === "crawling"
+        ? t("ob.coreLegalReading", { host })
+        : t("ob.corePreparing", { host }),
+    body: t("ob.coreLegalReadingBody"),
+    journeyStage: 0,
+  };
+}
+
+function CoreJourney({ active }: Readonly<{ active: number }>) {
+  const t = useT();
+  const stages = [
+    { icon: Building2, label: t("ob.corePathLegal") },
+    { icon: PackageSearch, label: t("ob.corePathOffer") },
+    { icon: UsersRound, label: t("ob.corePathCustomer") },
+  ];
+  return (
+    <ol className="ob-core-journey" aria-label={t("ob.corePathLabel")}>
+      {stages.map((stage, index) => {
+        const Icon = stage.icon;
+        const state =
+          index < active ? "done" : index === active ? "active" : "waiting";
+        return (
+          <li key={stage.label} data-state={state}>
+            <i>
+              {state === "done" ? <Check aria-hidden /> : <Icon aria-hidden />}
+            </i>
+            {stage.label}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function readablePage(rawURL: string) {
+  const pageURL = new URL(rawURL);
+  const path = pageURL.pathname.replace(/\/$/, "");
+  return path === "" ? pageURL.hostname : `${pageURL.hostname}${path}`;
 }
 
 function ReadEvidence({ read }: Readonly<{ read: CompanySiteRead }>) {

@@ -40,21 +40,30 @@ type pageMenu struct {
 // makes NO call (boilerplate and unclassified pages state few facts and
 // their calls would dominate cost, not quality).
 func menuForKind(kind crmcontracts.SiteReadPageKind) (pageMenu, bool) {
-	company := people.OrganizationFactFields["company"]
+	company := people.OrganizationFactFields[companyWord]
+	offeringAndMarket := factFields("offering", "market")
 	switch kind {
 	case crmcontracts.SiteReadPageKindImpressum:
 		return pageMenu{factFields: company, entities: true}, true
 	case crmcontracts.SiteReadPageKindContact:
 		return pageMenu{factFields: company}, true
 	case crmcontracts.SiteReadPageKindServices, crmcontracts.SiteReadPageKindProducts:
-		return pageMenu{factFields: append(append([]string{}, people.OrganizationFactFields["offering"]...), "technology")}, true
+		return pageMenu{factFields: append(offeringAndMarket, people.FactTechnology)}, true
 	case crmcontracts.SiteReadPageKindHome, crmcontracts.SiteReadPageKindAbout:
-		return pageMenu{factFields: append(append([]string{}, people.OrganizationFactFields["signal"]...), "location"), people: true}, true
+		return pageMenu{factFields: append(factFields("offering", "market", "signal"), people.FactLocation), people: true}, true
 	case crmcontracts.SiteReadPageKindTeam:
 		return pageMenu{people: true}, true
 	default:
 		return pageMenu{}, false
 	}
+}
+
+func factFields(categories ...string) []string {
+	var out []string
+	for _, category := range categories {
+		out = append(out, people.OrganizationFactFields[category]...)
+	}
+	return out
 }
 
 // factCategoryByField inverts the closed vocabulary: fact field names
@@ -98,6 +107,7 @@ func pageFactsSystem(menu pageMenu) string {
 	if menu.entities {
 		b.WriteString("entities — EVERY distinct legal entity this legal page names: {\"n\":entity name,\"a\":registered address,\"r\":registration/VAT/tax number,\"e\":passage id}. " +
 			"A legal notice states each entity as a block: give the address and the registration number printed WITH that entity's name, copied exactly as printed. " +
+			"For r copy ONE complete legal identifier exactly as printed, preferring a commercial-register number over a VAT/tax number; never combine several identifiers. " +
 			"a and r are ALWAYS present in your answer — use an empty string when the page states none for that entity, and never carry one entity's detail onto another. " +
 			"A market, office or brand label (\"Acme Singapore\", \"DACH\") is NOT an entity: the entity is the registered company name printed under that label (\"Acme Pte. Ltd.\"). List every entity.\n")
 	}
@@ -112,7 +122,7 @@ func menuGuidance(fields []string) string {
 		present[f] = true
 	}
 	var parts []string
-	for _, category := range []string{"company", "offering", "signal"} {
+	for _, category := range []string{companyWord, "offering", "signal"} {
 		for _, f := range people.OrganizationFactFields[category] {
 			if present[f] {
 				parts = append(parts, categoryGuidance[category])

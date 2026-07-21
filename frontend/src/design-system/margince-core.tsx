@@ -13,10 +13,12 @@ export type MarginceCoreState =
 
 export function MarginceCoreScene({
   state = "idle",
+  progress,
   children,
   className = "",
 }: Readonly<{
   state?: MarginceCoreState;
+  progress?: number;
   children?: ReactNode;
   className?: string;
 }>) {
@@ -25,6 +27,23 @@ export function MarginceCoreScene({
       className={`margince-core-scene ${children ? "has-content" : ""} ${className}`}
       data-core-state={state}
     >
+      {progress !== undefined && (
+        <svg
+          className="margince-core-progress"
+          viewBox="0 0 100 100"
+          aria-hidden="true"
+        >
+          <circle cx="50" cy="50" r="48.5" pathLength="100" />
+          <circle
+            className="margince-core-progress-value"
+            cx="50"
+            cy="50"
+            r="48.5"
+            pathLength="100"
+            strokeDasharray={`${Math.max(0, Math.min(1, progress)) * 100} 100`}
+          />
+        </svg>
+      )}
       <div className="margince-core-visual" aria-hidden="true">
         <div className="margince-core-glow" />
         <div className="margince-core-orbit margince-core-orbit-context">
