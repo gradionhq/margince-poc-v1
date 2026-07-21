@@ -236,6 +236,82 @@ func TestDisconnectPurgesTheMirrorTombstonesAndRetainsTheConnectionAudit(t *test
 	}
 }
 
+// TestFencedSyncWritesAbortOnceTheConnectionIsRevoked proves the
+// disconnect-race fence: a MirrorStore bound WithFence (the sweep's store)
+// serializes every sync write against Disconnect on the incumbent_connection
+// row, so once that connection is revoked+purged a stray in-flight sweep
+// write aborts with ErrConnectionGone and resurrects nothing. It closes the
+// backfill.go re-population race (PR #91 review) for the tables the mirror
+// tombstone cannot cover — associations, the backfill cursor, the reconcile
+// watermark, the owner-identity map are not record-keyed — AND for a
+// brand-new mirror row that never had a tombstone at all.
+func TestFencedSyncWritesAbortOnceTheConnectionIsRevoked(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	vault := keyvault.NewMemory()
+	store := NewMirrorStore(pool, noOwnerEmails{})
+	svc := NewService(pool, vault, store)
+	if _, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "pat-fence-secret"}); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	fenced := store.WithFence()
+
+	// While the connection is active the fence is transparent: a fenced write
+	// behaves exactly as an unfenced one, so the sweep's normal operation is
+	// unaffected.
+	if err := fenced.SaveBackfillCursor(ctx, "contacts", "cur-live", false); err != nil {
+		t.Fatalf("fenced write on a live connection = %v, want success", err)
+	}
+
+	if err := svc.Disconnect(ctx); err != nil {
+		t.Fatalf("Disconnect: %v", err)
+	}
+
+	actor, ok := principal.Actor(ctx)
+	if !ok {
+		t.Fatal("testWorkspaceCtx did not bind an actor")
+	}
+	// Every fenced sync write now aborts with ErrConnectionGone — the
+	// connection row is revoked, so the FOR SHARE fence finds no active row.
+	// "person/new" was NEVER in the mirror, so no tombstone guards it: only
+	// the fence stops Ingest from landing a fresh incumbent-derived row into
+	// the now-native workspace.
+	fencedWrites := map[string]func() error{
+		"Ingest": func() error {
+			return fenced.Ingest(ctx, Record{ObjectClass: "person", ExternalID: "new", Fields: map[string]any{"firstname": "Nope"}, ModifiedAt: time.Date(2026, 7, 5, 0, 0, 0, 0, time.UTC)})
+		},
+		"UpsertAssoc": func() error {
+			return fenced.UpsertAssoc(ctx, Assoc{FromType: "person", FromID: "new", ToType: "deal", ToID: "1", TypeID: 1, Category: "HUBSPOT_DEFINED", Direction: "forward"})
+		},
+		"SaveBackfillCursor": func() error { return fenced.SaveBackfillCursor(ctx, "contacts", "cur-stray", true) },
+		"SaveReconcileWatermark": func() error {
+			return fenced.SaveReconcileWatermark(ctx, "contacts", time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC))
+		},
+		"UpsertUserMap": func() error {
+			return fenced.UpsertUserMap(ctx, ids.From[ids.UserKind](actor.UserID), "hubspot", "owner-stray", "manual")
+		},
+	}
+	for name, w := range fencedWrites {
+		if err := w(); !errors.Is(err, ErrConnectionGone) {
+			t.Errorf("fenced %s after disconnect = %v, want ErrConnectionGone", name, err)
+		}
+	}
+
+	// Nothing landed: every incumbent-derived table Disconnect purged is
+	// still empty for the workspace — the fenced writes added nothing back.
+	for _, tbl := range []string{
+		"overlay_mirror", "overlay_association", "overlay_backfill_cursor",
+		"overlay_reconcile_watermark", "mirror_user_map",
+	} {
+		var n int
+		queryRowWS(ctx, t, pool,
+			fmt.Sprintf(`SELECT count(*) FROM %s WHERE workspace_id = $1`, pgx.Identifier{tbl}.Sanitize()),
+			[]any{ws}, &n)
+		if n != 0 {
+			t.Errorf("%s holds %d row(s) after fenced writes on a disconnected workspace, want 0 — the fence must resurrect nothing", tbl, n)
+		}
+	}
+}
+
 func TestDisconnectWithNoActiveConnectionAnswersNotFound(t *testing.T) {
 	ctx, pool, _ := testWorkspaceCtx(t)
 	vault := keyvault.NewMemory()

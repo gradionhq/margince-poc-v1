@@ -23,9 +23,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/fake"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -232,6 +235,79 @@ func TestReconcileConnectionBackfillsAndSeedsViaFakeIncumbent(t *testing.T) {
 	// Rep2 matches no owner, so stays hidden (existence-hiding 404).
 	if _, err := ms.Get(overlayReaderCtx(e.WS, e.Rep2), "person", "c-1"); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("Rep2 (unmapped) must not see the record, got: %v", err)
+	}
+}
+
+// TestReconcileConnectionStopsCleanlyWhenDisconnectedMidSweep proves the
+// disconnect-race fence end to end through the sweep orchestration: if the
+// connection is revoked after the sweep resolved its token but before its
+// writes land, reconcileConnection aborts with overlay.ErrConnectionGone —
+// the clean-stop signal the worker turns into "skip this workspace, no
+// backoff" — and resurrects nothing into the now-disconnected workspace.
+func TestReconcileConnectionStopsCleanlyWhenDisconnectedMidSweep(t *testing.T) {
+	e := integration.Setup(t)
+	vault := keyvault.NewMemory()
+	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
+
+	if _, err := overlay.NewService(e.Pool, vault, ms).
+		Connect(overlayAdminCtx(e.WS, e.Rep1), overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+
+	fakeInc := fake.New()
+	fakeInc.SeedOwner("owner-1", "a@authz.test")
+	rec := fake.Rec("c-1", map[string]any{"firstname": "Ada"})
+	rec.ObjectClass = "person" // canonical
+	rec.OwnerExternalID = "owner-1"
+	fakeInc.Seed(overlay.IncumbentClassContacts, rec)
+
+	adminCtx := overlayAdminCtx(e.WS, e.Rep1)
+	due, err := overlay.DueOverlayConnections(adminCtx, e.Pool)
+	if err != nil {
+		t.Fatalf("DueOverlayConnections: %v", err)
+	}
+	var d overlay.DueOverlayConnection
+	for _, c := range due {
+		if c.Workspace.UUID == e.WS {
+			d = c
+		}
+	}
+	if d.Incumbent == "" {
+		t.Fatal("no due overlay connection for the workspace after connect")
+	}
+
+	// Simulate a disconnect landing AFTER the sweep resolved its token: revoke
+	// the connection row directly (leaving the vaulted token in place, so the
+	// sweep's token resolution still succeeds and it proceeds to its first
+	// fenced write, exactly the mid-sweep race the fence exists for).
+	if err := database.WithWorkspaceTx(adminCtx, e.Pool, func(tx pgx.Tx) error {
+		_, execErr := tx.Exec(adminCtx,
+			`UPDATE incumbent_connection SET status = 'revoked', revoked_at = now()
+			 WHERE workspace_id = current_setting('app.workspace_id')::uuid`)
+		return execErr
+	}); err != nil {
+		t.Fatalf("revoking the connection mid-sweep: %v", err)
+	}
+
+	sweepCtx := reconcileWorkerCtx(context.Background(), ids.From[ids.WorkspaceKind](e.WS))
+	err = reconcileConnection(sweepCtx, vault, ms, overlay.NewMeter(overlay.DefaultMeterConfig()),
+		slog.New(slog.DiscardHandler), d, func(_, _ string) overlay.Incumbent { return fakeInc })
+	if !errors.Is(err, overlay.ErrConnectionGone) {
+		t.Fatalf("reconcileConnection over a revoked connection = %v, want overlay.ErrConnectionGone (clean stop)", err)
+	}
+
+	// The fenced sweep resurrected nothing: no mirror row, no owner mapping.
+	var mirrorRows, userMaps int
+	if qErr := database.WithWorkspaceTx(sweepCtx, e.Pool, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(sweepCtx, `SELECT count(*) FROM overlay_mirror`).Scan(&mirrorRows); err != nil {
+			return err
+		}
+		return tx.QueryRow(sweepCtx, `SELECT count(*) FROM mirror_user_map`).Scan(&userMaps)
+	}); qErr != nil {
+		t.Fatalf("counting resurrected rows: %v", qErr)
+	}
+	if mirrorRows != 0 || userMaps != 0 {
+		t.Errorf("after a fenced sweep over a revoked connection: overlay_mirror=%d mirror_user_map=%d, want 0/0 — the fence must resurrect nothing", mirrorRows, userMaps)
 	}
 }
 

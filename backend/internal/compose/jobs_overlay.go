@@ -98,6 +98,17 @@ func (w *overlayReconcileWorker) Work(ctx context.Context, _ *river.Job[OverlayR
 		// clean sweep resets the backoff. Only the periodic poller schedules
 		// backoff — the on-demand /overlay/reconcile handler returns its
 		// error to the admin without touching the schedule.
+		if errors.Is(err, overlay.ErrConnectionGone) {
+			// The workspace was disconnected mid-sweep: every fenced write
+			// aborted, so nothing was resurrected into the now-native
+			// workspace. This is neither a failure to back off (the revoked
+			// connection is already gone from the next due-scan) nor a success
+			// to checkpoint — the overlay_sync_state row was purged by
+			// teardown. Move on.
+			w.log.DebugContext(wsCtx, "overlay reconcile: connection disconnected mid-sweep, stopping cleanly",
+				"workspace", d.Workspace.String())
+			continue
+		}
 		if err != nil {
 			w.log.WarnContext(wsCtx, "overlay reconcile: sweeping this workspace's connection failed",
 				"workspace", d.Workspace.String(), "err", err)
@@ -173,7 +184,13 @@ func reconcileConnection(ctx context.Context, vault keyvault.Vault, ms *overlay.
 	// emails — the worker-level store carries only the read-path
 	// placeholder resolver (compose/overlay.go), which cannot name an
 	// owner.
-	ms = ms.WithResolver(inc)
+	// WithFence engages the disconnect-race fence for the sweep's writes: if
+	// this workspace is disconnected mid-sweep, every fenced write aborts
+	// with overlay.ErrConnectionGone rather than resurrecting purged
+	// incumbent-derived data into a now-native workspace (overlay's
+	// disconnectfence.go). reconcileConnection and its callees treat that
+	// signal as a clean stop.
+	ms = ms.WithResolver(inc).WithFence()
 
 	// Seed mirror_user_map from the incumbent's owners directory each
 	// sweep: match every incumbent owner's email to an existing workspace
@@ -197,6 +214,9 @@ func reconcileConnection(ctx context.Context, vault keyvault.Vault, ms *overlay.
 		log.WarnContext(ctx, "overlay reconcile: fetching the owners directory to seed mirror_user_map failed",
 			"workspace", d.Workspace.String(), "err", err)
 	} else if err := ms.SeedUserMap(ctx, d.Incumbent, owners); err != nil {
+		if errors.Is(err, overlay.ErrConnectionGone) {
+			return err
+		}
 		log.WarnContext(ctx, "overlay reconcile: seeding mirror_user_map from the owners directory failed",
 			"workspace", d.Workspace.String(), "err", err)
 	}
@@ -212,6 +232,9 @@ func reconcileConnection(ctx context.Context, vault keyvault.Vault, ms *overlay.
 	// mapping is a fail-closed-eventually gap (the NEXT sweep tries
 	// again), not a reason to stop syncing records this tick.
 	if err := ms.RevalidateEmailMappings(ctx, inc); err != nil {
+		if errors.Is(err, overlay.ErrConnectionGone) {
+			return err
+		}
 		if isConnectionLevelIncumbentError(err) {
 			return fmt.Errorf("overlay reconcile: email-mapping revalidation failed: %w", err)
 		}
@@ -257,7 +280,7 @@ func sweepObjectClass(ctx context.Context, inc overlay.Incumbent, ms *overlay.Mi
 	// on-demand through POST /overlay/reconcile) does the load, the rest
 	// ride the watermark.
 	if err := overlay.Backfill(ctx, inc, ms, objectClass); err != nil {
-		if isConnectionLevelIncumbentError(err) {
+		if errors.Is(err, overlay.ErrConnectionGone) || isConnectionLevelIncumbentError(err) {
 			return err
 		}
 		log.WarnContext(ctx, "overlay reconcile: backfill pass failed, skipping this object class this tick",
@@ -275,7 +298,7 @@ func sweepObjectClass(ctx context.Context, inc overlay.Incumbent, ms *overlay.Mi
 	}
 	newWatermark, err := overlay.Reconcile(ctx, inc, ms, meter, objectClass, since)
 	if err != nil {
-		if isConnectionLevelIncumbentError(err) {
+		if errors.Is(err, overlay.ErrConnectionGone) || isConnectionLevelIncumbentError(err) {
 			return err
 		}
 		log.WarnContext(ctx, "overlay reconcile sweep failed",
@@ -284,6 +307,9 @@ func sweepObjectClass(ctx context.Context, inc overlay.Incumbent, ms *overlay.Mi
 	}
 	if newWatermark.After(since) {
 		if err := ms.SaveReconcileWatermark(ctx, objectClass, newWatermark); err != nil {
+			if errors.Is(err, overlay.ErrConnectionGone) {
+				return err
+			}
 			log.WarnContext(ctx, "overlay reconcile: persisting the new watermark failed",
 				"workspace", workspace, "object_class", objectClass, "err", err)
 		}

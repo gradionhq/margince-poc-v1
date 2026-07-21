@@ -683,23 +683,35 @@ Open work, roughly in priority order:
     completed the seam; a "refresh"/🟡-action surface that INVOKES force-fresh
     is a tracked follow-up (see the backlog memory).
 
+  - **A4 reconcile robustness (failing-connection backoff)** — MERGED #165
+    (`9d9dabe`). `overlay_sync_state` sidecar + `RecordSweepFailure`/`Success`
+    (classify + a 2min·2^n ladder capped at 4h *before* ±20% jitter, so
+    ~4h48m effective + rate-limit floor) + `DueOverlayConnections` due-gate +
+    `reconcileConnection` distinguishing connection-level (abort+backoff) from
+    per-object (log+skip) failures.
+  - **A5 disconnect-race fencing** — IN FLIGHT #166
+    (`fix/overlay-disconnect-fencing`). Opt-in `MirrorStore.WithFence()`: a
+    `FOR SHARE` assert on the active `incumbent_connection` row (fail-closed)
+    on every resurrection-risk write, contending with Disconnect's FOR UPDATE
+    so a mid-sweep write either commits-then-purged or aborts with
+    `ErrConnectionGone`; the sweep treats that as a clean stop. Covers the
+    tables the mirror tombstone cannot (associations, checkpoints, user-map)
+    + a tombstone-less new row. `mirrorcheckpoints.go` split out.
+
   Still open in 1b (the next branches, roughly in priority order):
   - **A3b** — token-bucket burst limiter (HubSpot 100–250/10s); shared
     cross-process meter (PG/Redis) so `/overlay/budget` reflects the worker
     poller; **and the force-fresh CALLER** (the surface that invokes the now-live
     Freshness verb) — without it A3's live read is latent infra.
-  - **A4 reconcile robustness** — the **failing-connection backoff is DONE in
-    this PR**: `overlay_sync_state` sidecar + `RecordSweepFailure`/`Success`
-    (classify + a 2min·2^n ladder capped at 4h *before* ±20% jitter, so
-    ~4h48m effective + rate-limit floor) +
-    `DueOverlayConnections` due-gate + `reconcileConnection` distinguishing
-    connection-level (abort+backoff) from per-object (log+skip) failures. Still
-    open (**A4b**): the composite keyset watermark for a >10k same-timestamp
+  - **A4b** — the composite keyset watermark for a >10k same-timestamp
     block (the seam can't signal mode-switch — an upstream spike); atomic
     ingest+`mirror.conflict` in one row-locked tx; propagate aggregate/`ctx.Err()`
     to handlers.go's 503 path; derive sync staleness (`syncstatus.go` never
     marks stale).
-  - **A5 disconnect-race fencing**; **A7 assoc/backfill fidelity**;
+  - **A5b** — teardown.go's post-commit vault-credential delete isn't retryable
+    across a Disconnect retry (inert orphaned sealed blob; branch-1 has no
+    reconnect); needs a durable-cleanup design.
+  - **A7 assoc/backfill fidelity**;
     **webhook-as-signal** (only WITH portal-id→workspace binding in the HMAC
     basis — the unmounted receiver was deleted, not fixed); a **reconnect flow**
     (Connect refuses a workspace with any connection row) that clears teardown
