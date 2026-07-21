@@ -71,6 +71,39 @@ func (r *Router) buildPayload(ctx context.Context, req model.Request, resp model
 	return &Payload{Request: json.RawMessage(stripped), Response: json.RawMessage(strippedResp)}, nil
 }
 
+// buildEmbedPayload assembles the embed lane's Layer-3 capture: which
+// inputs were embedded and a summary of what came back — the raw
+// vectors are opaque floats, not reviewable content, so the response
+// side records shape (how many, how wide) rather than every coordinate.
+// Unlike buildPayload, this does NOT re-run the stripper: it is a
+// private, single-caller method, and Embed's own stripping loop
+// (router.go) runs unconditionally on every path that reaches this call,
+// so req.Inputs is always already scrubbed by the time it gets here —
+// re-stripping would only repeat that same pass. This load-bearing
+// ordering — capture must run strictly after Embed's strip — is what to
+// re-check if Embed is ever restructured.
+func (r *Router) buildEmbedPayload(req model.EmbedRequest, res model.Embeddings) (*Payload, error) {
+	budget := captureBudget{remaining: maxCapturedRequestRunes}
+	inputs := make([]string, len(req.Inputs))
+	for i, in := range req.Inputs {
+		inputs[i] = budget.take(in)
+	}
+	reqDoc, err := json.Marshal(struct {
+		Inputs []string `json:"inputs"`
+	}{inputs})
+	if err != nil {
+		return nil, fmt.Errorf("ai: marshal capture request: %w", err)
+	}
+	respDoc, err := json.Marshal(struct {
+		VectorCount int `json:"vector_count"`
+		Dims        int `json:"dims"`
+	}{len(res.Vectors), res.Dims})
+	if err != nil {
+		return nil, fmt.Errorf("ai: marshal capture response: %w", err)
+	}
+	return &Payload{Request: json.RawMessage(reqDoc), Response: json.RawMessage(respDoc)}, nil
+}
+
 // maxCapturedPayloadRunes caps each captured content field. 16k runes holds a
 // generous prompt or response while keeping any single ai_call_payload row
 // bounded; it is a rune count (not bytes) so a multi-byte script never inflates
