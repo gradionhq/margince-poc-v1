@@ -700,7 +700,10 @@ export function DealsScreen({
     <div className="wrap">
       <div className="list-head">
         <SectionHeader title={t("nav.deals")} />
-        {openStages.length > 0 && (
+        {/* Create writes a native deal — the mirror refuses it
+            (unsupported_by_sor), so the affordance is hidden in overlay,
+            matching the board mutations. */}
+        {!overlay && openStages.length > 0 && (
           <CreateAction
             label={t("create.deal")}
             invalidate="deals"
@@ -1097,9 +1100,12 @@ function DealBadges({
 }>) {
   const t = useT();
   const cf = useObjectCustomFields("deal");
-  // Edit/archive/reopen all write to a mirrored deal — hidden in overlay
-  // (every such write answers unsupported_by_sor). The status badge (read) and
-  // Share (native record-grant) stay.
+  // Edit/archive/reopen/share are all hidden in overlay; only the status
+  // badge (a read) stays. Edit/archive/reopen write to a mirrored deal
+  // (unsupported_by_sor). Share is hidden too: a record grant probes the
+  // native deal row (auth.EnsureLinkTarget), which a mirror deal has no row
+  // in, so the grant 404s — and overlay visibility is governed by
+  // mirror_visibility, which record_grant does not feed.
   const overlay = useSorMode() === "overlay";
   if (deal.archived_at != null) {
     return <Badge tone={dealStatusTone(deal.status)}>{deal.status}</Badge>;
@@ -1168,7 +1174,7 @@ function DealBadges({
           />
         </>
       )}
-      <ShareAction recordType="deal" recordId={deal.id} />
+      {!overlay && <ShareAction recordType="deal" recordId={deal.id} />}
       {!overlay && (deal.status === "won" || deal.status === "lost") && (
         <ReopenAction dealId={deal.id} openStages={openStages} />
       )}
@@ -1325,6 +1331,7 @@ function DealOverviewPane({
   creatingOffer,
   locale,
   onCreateOffer,
+  overlay,
 }: Readonly<{
   deal: Deal;
   stages: Stage[];
@@ -1338,6 +1345,7 @@ function DealOverviewPane({
   creatingOffer: boolean;
   locale: Locale;
   onCreateOffer: () => void;
+  overlay: boolean;
 }>) {
   const t = useT();
   return (
@@ -1364,17 +1372,30 @@ function DealOverviewPane({
         </nav>
       )}
       <DealApprovals approvals={dealApprovals} decide={onDecide} />
-      {stakeholders && stakeholders.length > 0 && (
-        <section className="card" style={{ marginBottom: 16 }}>
+      {/* Stakeholders are a relationship read the mirror does not serve. In
+          overlay show the honest unavailable state (never any cached native
+          rows), matching the timeline and offers panels. */}
+      {overlay ? (
+        <section className="card" style={{ marginBottom: "var(--space-4)" }}>
           <SectionHeader title={t("deal.stakeholders")} />
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {stakeholders.map((stakeholder) => (
-              <Badge key={stakeholder.id}>
-                {stakeholder.role ?? stakeholder.person_id ?? stakeholder.kind}
-              </Badge>
-            ))}
-          </div>
+          <OverlayUnavailable />
         </section>
+      ) : (
+        stakeholders &&
+        stakeholders.length > 0 && (
+          <section className="card" style={{ marginBottom: "var(--space-4)" }}>
+            <SectionHeader title={t("deal.stakeholders")} />
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {stakeholders.map((stakeholder) => (
+                <Badge key={stakeholder.id}>
+                  {stakeholder.role ??
+                    stakeholder.person_id ??
+                    stakeholder.kind}
+                </Badge>
+              ))}
+            </div>
+          </section>
+        )
       )}
       <OffersPanel
         offers={offers}
@@ -1577,11 +1598,13 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                   onCreateOffer={() =>
                     createOffer.mutate(deal.currency ?? "EUR")
                   }
+                  overlay={overlay}
                 />
               )}
-              {tab === "history" && (
+              {tab === "history" && !overlay && (
                 <RecordHistoryTab kind="deal" id={deal.id} />
               )}
+              {tab === "history" && overlay && <OverlayUnavailable />}
             </RecordView>
           );
         }}

@@ -338,7 +338,7 @@ func (s *MirrorStore) revalidateEmailMapping(ctx context.Context, tx pgx.Tx, ema
 		// below, so every email-sourced row for this owner is dropped).
 		currentEmail = ""
 	}
-	_, err = tx.Exec(ctx, `
+	tag, err := tx.Exec(ctx, `
 		DELETE FROM mirror_user_map m
 		WHERE m.incumbent_user_id = $1
 		  AND m.match_source = 'email'
@@ -349,6 +349,13 @@ func (s *MirrorStore) revalidateEmailMapping(ctx context.Context, tx pgx.Tx, ema
 		  )`, incumbentUserID, currentEmail)
 	if err != nil {
 		return fmt.Errorf("overlay: revalidating the email-sourced mapping for %s: %w", incumbentUserID, err)
+	}
+	// Recompute only when a mapping was actually dropped. A no-op
+	// revalidation (the common case — the email still matches) would
+	// otherwise rewrite every visibility row for this owner on each pass,
+	// making an initial backfill quadratic in an owner's record count.
+	if tag.RowsAffected() == 0 {
+		return nil
 	}
 	return recomputeForOwnerTx(ctx, tx, incumbentUserID)
 }

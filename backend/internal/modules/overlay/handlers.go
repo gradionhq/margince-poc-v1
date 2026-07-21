@@ -90,14 +90,17 @@ func (h Handlers) ConnectOverlay(w http.ResponseWriter, r *http.Request) {
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	token := ""
-	if req.PrivateAppToken != nil {
-		token = *req.PrivateAppToken
+	// privateAppToken is a required field (crm.yaml): reject its absence as
+	// a 422 here rather than letting an empty credential reach Connect and
+	// surface as an internal error.
+	if req.PrivateAppToken == "" {
+		httperr.Write(w, r, httperr.Validation("privateAppToken", "required", "a private-app token is required to connect an incumbent"))
+		return
 	}
 	conn, err := h.svc.Connect(r.Context(), ConnectInput{
 		Incumbent: string(req.Incumbent),
 		Region:    req.Region,
-		Token:     token,
+		Token:     req.PrivateAppToken,
 	})
 	if err != nil {
 		httperr.Write(w, r, err)

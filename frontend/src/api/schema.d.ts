@@ -4427,7 +4427,7 @@ export interface components {
             incumbent: "hubspot";
             region: string;
             /** @description Sealed into the vault; never echoed. */
-            privateAppToken?: string;
+            privateAppToken: string;
         };
         /** @description Per-object mirror sync health — freshness state and backfill completeness (design.md §4.7). */
         OverlaySyncStatus: {

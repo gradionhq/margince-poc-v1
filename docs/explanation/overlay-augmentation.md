@@ -208,8 +208,11 @@ past a configured shed threshold, force-fresh falls back to the mirror (spending
 `mirror.budget_degraded` rather than either blocking or silently pretending the live read happened.
 
 `GET /overlay/budget` (the OVB meter's read surface) reports the window, consumption, limit, and a
-`ok`/`warn`/`shed` band — the same meter the poller lane spends against, so
-the biggest consumer of quota is never invisible to it.
+`ok`/`warn`/`shed` band for the **API process's own meter**. The periodic reconcile poller normally runs
+in a separate worker process with its own in-memory meter, so its consumption — often the largest single
+consumer of the workspace's HubSpot quota — is **not** reflected on this surface until the counter is
+shared across processes (a follow-up: the per-process meter is a documented branch-1 limitation, not
+shared accounting).
 
 **Current wiring limitation, stated plainly:** the compose-wired `overlay.Provider` behind the api's
 per-workspace dispatch currently constructs its `FreshnessReader` with no live incumbent client bound

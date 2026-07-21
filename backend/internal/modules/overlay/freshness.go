@@ -101,6 +101,17 @@ func (f *FreshnessReader) Read(ctx context.Context, ref datasource.EntityRef) (d
 		return f.mirrorFreshness(ctx, ref)
 	}
 
+	// Fail-closed visibility BEFORE the live read: a force-fresh answer
+	// (Authoritative:true + ModifiedAt) must never reveal a record the
+	// caller cannot already see. MirrorStore.Get carries the
+	// mirror_visibility deny-join, so a guessed incumbent id that maps to no
+	// visible mirror row is refused here (ErrNotFound, existence-hiding) and
+	// never reaches inc.Get — closing the probe-by-guessed-id hole. The
+	// extra Get is one indexed row read in front of a live HTTP call.
+	if _, vErr := f.ms.Get(ctx, string(ref.Type), uuidToExternalID(ref.ID)); vErr != nil {
+		return datasource.FreshnessInfo{}, vErr
+	}
+
 	rec, err := f.inc.Get(ctx, incumbentClass, uuidToExternalID(ref.ID))
 	if err != nil {
 		slog.WarnContext(ctx, "overlay: live force-fresh read failed, degrading to the mirror",

@@ -104,7 +104,40 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	if cfg.deepReadMaxPages < 0 || cfg.deepReadMaxBytes < 0 || cfg.deepReadWall < 0 {
 		return workerConfig{}, errors.New("worker: the deep-read caps must be zero (default) or positive")
 	}
+	if err := validateSchedulerIntervals(cfg); err != nil {
+		return workerConfig{}, err
+	}
 	return cfg, nil
+}
+
+// validateSchedulerIntervals rejects a non-positive value for any interval
+// that becomes a time.Ticker period or a River periodic schedule: a
+// time.Ticker panics on a non-positive duration, and a non-positive River
+// interval continuously reschedules its maintenance job. These are all
+// clocks, never caps — none has a documented zero-means-unset meaning
+// (that belongs to the deep-read caps and the backfill limit, validated
+// above), so zero and negative are boot errors, never silent defaults.
+func validateSchedulerIntervals(cfg workerConfig) error {
+	intervals := []struct {
+		flag string
+		d    time.Duration
+	}{
+		{"runner-interval", cfg.runnerInterval},
+		{"retention-interval", cfg.retentionInterval},
+		{"close-date-interval", cfg.closeDateInterval},
+		{"reconcile-interval", cfg.reconcileInterval},
+		{"time-scan-interval", cfg.timeScanInterval},
+		{"gmail-sync-interval", cfg.gmailSyncInterval},
+		{"gmail-watch-interval", cfg.gmailWatchInterval},
+		{"gmail-watch-renew-within", cfg.gmailWatchRenew},
+		{"overlay-reconcile-interval", cfg.overlayInterval},
+	}
+	for _, iv := range intervals {
+		if iv.d <= 0 {
+			return fmt.Errorf("worker: --%s must be a positive duration, got %s", iv.flag, iv.d)
+		}
+	}
+	return nil
 }
 
 // overlayBackfillLimitFromEnv folds MARGINCE_OVERLAY_BACKFILL_LIMIT into

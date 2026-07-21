@@ -7475,7 +7475,7 @@ components:
         scopes: { type: array, items: { type: string } }
     OverlayConnectRequest:
       type: object
-      required: [incumbent, region]
+      required: [incumbent, region, privateAppToken]
       properties:
         incumbent: { type: string, enum: [hubspot] }
         region: { type: string }

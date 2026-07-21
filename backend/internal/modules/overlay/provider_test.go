@@ -10,6 +10,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
@@ -70,6 +71,33 @@ func TestProviderWriteVerbsUnsupported(t *testing.T) {
 
 // TestProviderRunReportUnsupported proves RunReport declares itself
 // unsupported — HubSpot has no run_report analogue (design.md §4.5).
+// TestProviderReadVerbsObjectGateBeforeTheMirror proves the read verbs
+// apply object RBAC (auth.Require ActionRead) like the native stores: a
+// bound principal whose role grants no object capability is refused with
+// ErrPermissionDenied. This closes the MCP read_record/search_records
+// bypass — those tools reach the provider directly, without the REST
+// shadow's gate. auth.Require runs before any mirror access, so a denied
+// actor never reaches the DB-backed store; this stays a pure unit test.
+func TestProviderReadVerbsObjectGateBeforeTheMirror(t *testing.T) {
+	p := NewProvider(&MirrorStore{}, nil)
+	ctx := principal.WithActor(context.Background(), principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:no-grants",
+		Permissions: principal.Permissions{RoleKeys: []string{"rep"}},
+	})
+	ref := datasource.EntityRef{Type: datasource.EntityPerson, ID: ids.NewV7()}
+	if _, err := p.Read(ctx, ref); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("Read without a person read grant: err = %v, want ErrPermissionDenied", err)
+	}
+	if _, err := p.Search(ctx, datasource.SearchQuery{
+		EntityTypes: []datasource.EntityType{datasource.EntityPerson},
+	}); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("Search without a person read grant: err = %v, want ErrPermissionDenied", err)
+	}
+	if _, err := p.ListFields(ctx, datasource.EntityPerson); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("ListFields without a person read grant: err = %v, want ErrPermissionDenied", err)
+	}
+}
+
 func TestProviderRunReportUnsupported(t *testing.T) {
 	p := NewProvider(nil, nil)
 	_, err := p.RunReport(context.Background(), datasource.ReportPlan{Entity: datasource.EntityDeal})

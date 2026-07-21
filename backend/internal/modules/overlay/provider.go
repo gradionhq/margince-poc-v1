@@ -13,13 +13,16 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
@@ -108,6 +111,17 @@ func (p *Provider) Read(ctx context.Context, ref datasource.EntityRef) (datasour
 	if p.ms == nil {
 		return datasource.Record{}, errNoMirrorStore()
 	}
+	// Object RBAC — the same gate native stores apply at their read entry
+	// points. The mirror's visibility deny-join is row scope, NOT a
+	// substitute for object capability: a caller whose role denies the
+	// entity type must be refused here so the MCP tool path (read_record),
+	// which reaches the provider directly without the REST shadow's gate,
+	// cannot bypass it. In production ms is always set, so this is the
+	// effective first gate; the nil-ms guard above only fires in the
+	// write-verb unit tests.
+	if err := auth.Require(ctx, string(ref.Type), principal.ActionRead); err != nil {
+		return datasource.Record{}, err
+	}
 	row, err := p.ms.Get(ctx, string(ref.Type), uuidToExternalID(ref.ID))
 	if err != nil {
 		return datasource.Record{}, err
@@ -127,6 +141,12 @@ func (p *Provider) Search(ctx context.Context, q datasource.SearchQuery) (dataso
 		return datasource.SearchResult{}, fmt.Errorf("overlay: search requires exactly one entity type in this branch, got %d", len(q.EntityTypes))
 	}
 	et := q.EntityTypes[0]
+	// Object RBAC before any mirror read — the MCP search_records path
+	// reaches the provider directly, so the gate the REST search shadow
+	// applies must also live here (see Read's rationale).
+	if err := auth.Require(ctx, string(et), principal.ActionRead); err != nil {
+		return datasource.SearchResult{}, err
+	}
 	rows, next, err := p.ms.List(ctx, string(et), q.Cursor, q.Limit)
 	if err != nil {
 		return datasource.SearchResult{}, err
@@ -184,6 +204,12 @@ func (p *Provider) ListObjects(ctx context.Context) ([]datasource.ObjectDef, err
 	for _, et := range knownEntityTypes {
 		fields, err := p.ListFields(ctx, et)
 		if err != nil {
+			// Introspection lists only the object classes the seat may
+			// read (ListFields object-gates below): a denied type is
+			// omitted, not a whole-call 403.
+			if errors.Is(err, apperrors.ErrPermissionDenied) {
+				continue
+			}
 			return nil, err
 		}
 		if len(fields) == 0 {
@@ -202,6 +228,11 @@ func (p *Provider) ListObjects(ctx context.Context) ([]datasource.ObjectDef, err
 func (p *Provider) ListFields(ctx context.Context, objectType datasource.EntityType) ([]datasource.FieldDef, error) {
 	if p.ms == nil {
 		return nil, errNoMirrorStore()
+	}
+	// Object RBAC — a describe of a type the seat cannot read is a 403,
+	// which ListObjects turns into an omission (see Read's rationale).
+	if err := auth.Require(ctx, string(objectType), principal.ActionRead); err != nil {
+		return nil, err
 	}
 	rows, _, err := p.ms.List(ctx, string(objectType), "", schemaSampleSize)
 	if err != nil {

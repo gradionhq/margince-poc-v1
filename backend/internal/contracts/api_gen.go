@@ -8571,8 +8571,8 @@ type OverlayConnectRequest struct {
 	Incumbent OverlayConnectRequestIncumbent `json:"incumbent"`
 
 	// PrivateAppToken Sealed into the vault; never echoed.
-	PrivateAppToken *string `json:"privateAppToken,omitempty"`
-	Region          string  `json:"region"`
+	PrivateAppToken string `json:"privateAppToken"`
+	Region          string `json:"region"`
 }
 
 // OverlayConnectRequestIncumbent defines model for OverlayConnectRequest.Incumbent.

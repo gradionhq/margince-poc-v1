@@ -18,6 +18,7 @@ import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
 import {
+  OverlayUnavailable,
   ProblemError,
   problemMessage,
   provenanceOf,
@@ -865,7 +866,10 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
                 }}
               />
             )}
-            {tab === "history" && <RecordHistoryTab kind="lead" id={lead.id} />}
+            {tab === "history" && !overlay && (
+              <RecordHistoryTab kind="lead" id={lead.id} />
+            )}
+            {tab === "history" && overlay && <OverlayUnavailable />}
           </div>
         )}
       </QueryGate>

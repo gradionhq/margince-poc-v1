@@ -295,6 +295,25 @@ var overlaySearchTypes = []datasource.EntityType{
 // names no limit — the contract's documented default page size.
 const overlaySearchDefaultLimit = 25
 
+// overlaySearchMaxLimit is the contract's SearchParams ceiling (crm.yaml:
+// limit maximum 100). A bound integer that slips past request validation
+// (a negative or oversized ?limit=) must never reach a slice capacity, so
+// the value is clamped here before it sizes any allocation.
+const overlaySearchMaxLimit = 100
+
+// clampOverlaySearchLimit maps a caller-supplied limit onto the contract's
+// 1..100 range so it is safe to use as an allocation size.
+func clampOverlaySearchLimit(v int) int {
+	switch {
+	case v < 1:
+		return 1
+	case v > overlaySearchMaxLimit:
+		return overlaySearchMaxLimit
+	default:
+		return v
+	}
+}
+
 // Search shadows the global search: in overlay mode it is a best-effort
 // visibility-filtered union across entity types (design.md §4.5) — a
 // single capped page with no cross-type cursor, so a supplied cursor is
@@ -321,7 +340,7 @@ func (s Server) Search(w http.ResponseWriter, r *http.Request, params crmcontrac
 	}
 	limit := overlaySearchDefaultLimit
 	if params.Limit != nil {
-		limit = *params.Limit
+		limit = clampOverlaySearchLimit(*params.Limit)
 	}
 	hits := make([]crmcontracts.SearchResult, 0, limit)
 	// hasMore turns true when the page filled before every requested type

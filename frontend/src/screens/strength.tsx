@@ -87,14 +87,14 @@ export function StrengthCard({
           <Skeleton width="90%" />
         </div>
       )}
-      {query.isError && (
+      {!overlay && query.isError && (
         <EmptyState>
           {query.error instanceof Error
             ? query.error.message
             : t("common.error")}
         </EmptyState>
       )}
-      {query.isSuccess && (
+      {!overlay && query.isSuccess && (
         <StrengthBody strength={query.data} locale={locale} />
       )}
     </section>

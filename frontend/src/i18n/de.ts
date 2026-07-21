@@ -278,7 +278,7 @@ export const de = {
   "list.overlayReadOnly":
     "Sortierung und Filter laufen über HubSpot — dort öffnen",
   "overlay.unavailable":
-    "In HubSpot-Ansicht nicht verfügbar — in HubSpot öffnen",
+    "In der HubSpot-Ansicht nicht verfügbar — in HubSpot öffnen",
 
   "people.name": "Name",
   "people.email": "E-Mail",

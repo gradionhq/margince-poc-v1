@@ -304,3 +304,43 @@ func TestApplyAmountToMinorRoundsNegativeHalfAwayFromZero(t *testing.T) {
 		t.Errorf("amount_minor = %d, want -1257 (round-half-away-from-zero of -1256.7)", got)
 	}
 }
+
+// TestApplyAmountToMinorIsExactNotFloat pins the exact-decimal conversion:
+// "1.005" is 100.5 minor units, which rounds half-away-from-zero to 101.
+// A float64 path parses "1.005" as 1.00499999…, scales to 100.4999…, and
+// rounds to 100 — a silent one-unit understatement on an amount the wire
+// stated precisely. The big.Rat path must return 101.
+func TestApplyAmountToMinorIsExactNotFloat(t *testing.T) {
+	m := overlay.ObjectMapping{
+		Source: "deals",
+		Target: "deal",
+		Fields: []overlay.FieldMapping{
+			{From: []string{"amount"}, To: "amount_minor", Kind: overlay.TargetColumn, Transform: "amount_to_minor"},
+		},
+	}
+	out, _, err := overlay.Apply(m, map[string]any{"amount": "1.005"})
+	if err != nil {
+		t.Fatalf("Apply returned an error: %v", err)
+	}
+	if got, ok := out["amount_minor"].(int64); !ok || got != 101 {
+		t.Errorf("amount_minor = %#v, want int64(101) (exact round of 100.5)", out["amount_minor"])
+	}
+}
+
+// TestApplyAmountToMinorRejectsNonFiniteAndOverflow pins the guards the
+// float path lacked: a non-finite token must not parse, and an amount past
+// int64 must be a conversion error rather than a wrapped/garbage value.
+func TestApplyAmountToMinorRejectsNonFiniteAndOverflow(t *testing.T) {
+	m := overlay.ObjectMapping{
+		Source: "deals",
+		Target: "deal",
+		Fields: []overlay.FieldMapping{
+			{From: []string{"amount"}, To: "amount_minor", Kind: overlay.TargetColumn, Transform: "amount_to_minor"},
+		},
+	}
+	for _, bad := range []string{"NaN", "Inf", "-Inf", "not-a-number", "99999999999999999999999999"} {
+		if _, _, err := overlay.Apply(m, map[string]any{"amount": bad}); err == nil {
+			t.Errorf("Apply(amount=%q): want an error, got none", bad)
+		}
+	}
+}

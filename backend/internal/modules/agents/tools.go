@@ -131,14 +131,34 @@ type wireRecord struct {
 	ID         ids.UUID        `json:"id"`
 	Fields     json.RawMessage `json:"fields"`
 	Version    int64           `json:"version,omitempty"`
+	// TrustTier is "external" when the record did not come from the native
+	// store (datasource.Record.Freshness.Authoritative is false) — the
+	// overlay mirror's T2 label (AC-OV-5). It is the same marker the REST
+	// search surface emits (compose.ContractSearchResults); carrying it
+	// here keeps mirror-backed content tainted end-to-end for Surface-A MCP
+	// clients too, not only inside the runner's blanket untrusted-wrapping.
+	// Omitted (empty) for authoritative native reads.
+	TrustTier string `json:"trust_tier,omitempty"`
+}
+
+// newWireRecord is the ONE place a datasource.Record becomes MCP tool
+// output — every read/search/read-back rides it, so the external trust
+// taint is stamped uniformly and can never be silently dropped by one
+// call site again.
+func newWireRecord(rec datasource.Record) wireRecord {
+	w := wireRecord{
+		RecordType: string(rec.Ref.Type), ID: rec.Ref.ID, Fields: rec.Fields, Version: rec.Version,
+	}
+	if !rec.Freshness.Authoritative {
+		w.TrustTier = "external"
+	}
+	return w
 }
 
 func searchResult(res datasource.SearchResult) map[string]any {
 	records := make([]wireRecord, 0, len(res.Records))
 	for _, r := range res.Records {
-		records = append(records, wireRecord{
-			RecordType: string(r.Ref.Type), ID: r.Ref.ID, Fields: r.Fields, Version: r.Version,
-		})
+		records = append(records, newWireRecord(r))
 	}
 	out := map[string]any{"records": records}
 	if res.NextCursor != "" {
@@ -178,9 +198,7 @@ func (t readRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawMes
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(wireRecord{
-		RecordType: string(rec.Ref.Type), ID: rec.Ref.ID, Fields: rec.Fields, Version: rec.Version,
-	})
+	return json.Marshal(newWireRecord(rec))
 }
 
 // --- create_record (🟢 write, reversible) ---
@@ -368,7 +386,5 @@ func readBack(ctx context.Context, p datasource.SystemOfRecordProvider, ref data
 	if err != nil {
 		return nil, fmt.Errorf("crmagents: write landed but read-back failed: %w", err)
 	}
-	return json.Marshal(wireRecord{
-		RecordType: string(rec.Ref.Type), ID: rec.Ref.ID, Fields: rec.Fields, Version: rec.Version,
-	})
+	return json.Marshal(newWireRecord(rec))
 }

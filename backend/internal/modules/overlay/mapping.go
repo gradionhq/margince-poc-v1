@@ -5,7 +5,7 @@ package overlay
 
 import (
 	"fmt"
-	"math"
+	"math/big"
 	"sort"
 	"strconv"
 	"strings"
@@ -105,17 +105,24 @@ func transformLowercase(v any) (any, error) {
 }
 
 // transformAmountToMinor parses a HubSpot decimal-string amount (e.g.
-// "1234.5") into integer minor units (cents), rounding half away from
-// zero. HubSpot always renders numeric properties as strings; valueFor
-// already treats an empty string as an absent property, so this never
-// sees "".
+// "1234.5") into integer minor units, rounding half away from zero.
+// HubSpot always renders numeric properties as strings; valueFor already
+// treats an empty string as an absent property, so this never sees "".
 //
-// math.Round (not the "+0.5 then truncate" idiom) is required here:
-// int64(f*100+0.5) rounds toward zero for a NEGATIVE f — e.g.
-// -12.567*100+0.5 = -1256.2, and int64() truncates that toward zero to
-// -1256, when the nearest minor-unit value is -1257. math.Round rounds
-// half away from zero for both signs, which a deal's amount (a signed
-// quantity — a refund/credit line can be negative) requires.
+// The conversion is exact (math/big.Rat), NOT via float64: strconv.ParseFloat
+// introduces binary rounding error before the scale — "1.005" parses to
+// 1.00499999… and truncates to 100 minor units when 101 is correct — so a
+// float path silently corrupts amounts that a decimal wire value states
+// precisely. big.Rat.SetString also rejects non-finite tokens ("NaN",
+// "Inf") that a float parse would accept, and IsInt64 fences an amount too
+// large for the mirror column.
+//
+// Minor units are computed at the two-decimal (×100) exponent. Currencies
+// whose minor unit is not 1/100 (JPY has none, BHD/KWD use 1/1000) are
+// mirrored at the wrong magnitude; correcting that needs the deal's
+// currency code, which this value-level transform seam does not carry —
+// tracked for upstream reconciliation (the ×100 assumption is stated here,
+// never hidden).
 //
 //craft:ignore naked-any transform seam over untyped incoming JSON property values; asserts concrete type within
 func transformAmountToMinor(v any) (any, error) {
@@ -123,11 +130,42 @@ func transformAmountToMinor(v any) (any, error) {
 	if !ok {
 		return nil, fmt.Errorf("overlay: amount_to_minor transform expects a string, got %T", v)
 	}
-	f, err := strconv.ParseFloat(s, 64)
+	minor, err := decimalStringToMinor(strings.TrimSpace(s), 100)
 	if err != nil {
-		return nil, fmt.Errorf("overlay: amount_to_minor could not parse %q as a decimal amount", s)
+		return nil, fmt.Errorf("overlay: amount_to_minor could not convert %q: %w", s, err)
 	}
-	return int64(math.Round(f * 100)), nil
+	return minor, nil
+}
+
+// decimalStringToMinor converts an exact decimal string into integer minor
+// units at the given per-major-unit scale (100 for a two-decimal currency),
+// rounding half away from zero. It works on big.Rat so no binary float
+// error is ever introduced, and rejects a value that overflows int64.
+func decimalStringToMinor(s string, scale int64) (int64, error) {
+	r, ok := new(big.Rat).SetString(s)
+	if !ok {
+		return 0, fmt.Errorf("not a finite decimal amount")
+	}
+	r.Mul(r, new(big.Rat).SetInt64(scale))
+	// r is now the minor-unit value as an exact rational; round its
+	// numerator/denominator half away from zero to the nearest integer.
+	num, den := r.Num(), r.Denom() // den > 0, normalized
+	quo := new(big.Int)
+	rem := new(big.Int)
+	quo.QuoRem(num, den, rem) // truncates toward zero; rem carries num's sign
+	twiceRem := new(big.Int).Abs(rem)
+	twiceRem.Lsh(twiceRem, 1) // 2*|rem|
+	if twiceRem.Cmp(den) >= 0 {
+		if num.Sign() < 0 {
+			quo.Sub(quo, big.NewInt(1))
+		} else {
+			quo.Add(quo, big.NewInt(1))
+		}
+	}
+	if !quo.IsInt64() {
+		return 0, fmt.Errorf("amount out of range")
+	}
+	return quo.Int64(), nil
 }
 
 // transformEmployeesToSizeBand buckets a HubSpot numberofemployees

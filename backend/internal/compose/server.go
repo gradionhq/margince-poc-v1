@@ -310,6 +310,10 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 		Middlewares: []crmcontracts.MiddlewareFunc{
 			agentGate(registry, staging, provider, fieldOwnership{pool: pool}, gate),
 			idempotency(pool),
+			// Outermost: an overlay-mode SoR write is refused before it can
+			// be recorded under an idempotency key or staged as an agent
+			// approval — the honest unsupported_by_sor, for every principal.
+			overlayWriteGuard(srv.sorDispatch),
 		},
 		// Keep query/path/header parse failures on the problem+json path:
 		// the generated default writes err.Error() as text/plain, an
