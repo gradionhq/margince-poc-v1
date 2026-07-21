@@ -992,7 +992,7 @@ paths:
     get:
       tags: [Organizations]
       operationId: listOrganizationFacts
-      summary: The organization's evidence-backed facts (organization_fact), grouped by category on the client.
+      summary: The organization's confirmed facts (organization_fact), grouped by category on the client. Site-read facts carry evidence (snippet, source URL, confidence); human/migration values may omit it.
       responses:
         '200':
           description: The organization's facts (empty array when none).
@@ -1009,7 +1009,7 @@ paths:
     get:
       tags: [Organizations]
       operationId: listOrganizationProfileFields
-      summary: The organization's confirmed profile fields (organization_profile_field), evidence-or-omit.
+      summary: The organization's confirmed profile fields (organization_profile_field). A field with no stored value is absent (evidence-or-omit); site-read values carry evidence, human/migration values may omit it.
       responses:
         '200':
           description: The organization's profile fields (empty array when none).
@@ -7898,6 +7898,15 @@ components:
         typed refusal (422, the column's CHECK constraint). Reads surface only ACTIVE
         columns; a retired field's stored values are preserved but leave the payload.
 
+    OrganizationDomainInput:
+      type: object
+      description: A client-supplied domain row on create/update. Closed — server-owned fields (id, source, captured_by) are never accepted from the request body.
+      required: [domain]
+      additionalProperties: false
+      properties:
+        domain: { type: string }
+        is_primary: { type: boolean, default: false }
+
     CreateOrganizationRequest:
       type: object
       required: [display_name, source]
@@ -7911,12 +7920,7 @@ components:
         parent_org_id: { type: [string, 'null'], format: uuid }
         domains:
           type: array
-          items:
-            type: object
-            required: [domain]
-            properties:
-              domain: { type: string }
-              is_primary: { type: boolean, default: false }
+          items: { $ref: '#/components/schemas/OrganizationDomainInput' }
         source: { type: string }
       additionalProperties: true
       x-extension: true
@@ -7934,12 +7938,7 @@ components:
         domains:
           type: array
           description: Replace-set of the org's live domains (add new, archive removed, flip is_primary). Absent = untouched; an empty array clears all domains.
-          items:
-            type: object
-            required: [domain]
-            properties:
-              domain: { type: string }
-              is_primary: { type: boolean, default: false }
+          items: { $ref: '#/components/schemas/OrganizationDomainInput' }
       additionalProperties: true
       x-extension: true
 

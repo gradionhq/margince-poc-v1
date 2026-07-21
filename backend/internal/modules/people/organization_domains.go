@@ -142,6 +142,7 @@ func readLiveDomains(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (
 	}
 	defer rows.Close()
 	live = map[string]bool{}
+	before = []map[string]any{}
 	for rows.Next() {
 		var domain string
 		var isPrimary bool

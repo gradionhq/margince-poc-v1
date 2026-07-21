@@ -18,10 +18,7 @@ import (
 func TestOrganizationUpdateInputMapsDomains(t *testing.T) {
 	primary := true
 	req := crmcontracts.UpdateOrganizationRequest{
-		Domains: &[]struct {
-			Domain    string `json:"domain"`
-			IsPrimary *bool  `json:"is_primary,omitempty"`
-		}{
+		Domains: &[]crmcontracts.OrganizationDomainInput{
 			{Domain: "a.test", IsPrimary: &primary},
 			{Domain: "b.test"},
 		},
@@ -45,10 +42,7 @@ func TestOrganizationUpdateInputMapsDomains(t *testing.T) {
 	// An explicitly-present empty array is the "clear all" replace-set — a
 	// non-nil empty slice, distinct from absent/nil.
 	empty := organizationUpdateInput(crmcontracts.UpdateOrganizationRequest{
-		Domains: &[]struct {
-			Domain    string `json:"domain"`
-			IsPrimary *bool  `json:"is_primary,omitempty"`
-		}{},
+		Domains: &[]crmcontracts.OrganizationDomainInput{},
 	}, nil)
 	if empty.Domains == nil || len(*empty.Domains) != 0 {
 		t.Fatalf("empty domains array must map to a non-nil empty slice (clear-all), got %+v", empty.Domains)

@@ -529,7 +529,7 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** The organization's evidence-backed facts (organization_fact), grouped by category on the client. */
+        /** The organization's confirmed facts (organization_fact), grouped by category on the client. Site-read facts carry evidence (snippet, source URL, confidence); human/migration values may omit it. */
         get: operations["listOrganizationFacts"];
         put?: never;
         post?: never;
@@ -549,7 +549,7 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** The organization's confirmed profile fields (organization_profile_field), evidence-or-omit. */
+        /** The organization's confirmed profile fields (organization_profile_field). A field with no stored value is absent (evidence-or-omit); site-read values carry evidence, human/migration values may omit it. */
         get: operations["listOrganizationProfileFields"];
         put?: never;
         post?: never;
@@ -4876,6 +4876,12 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** @description A client-supplied domain row on create/update. Closed — server-owned fields (id, source, captured_by) are never accepted from the request body. */
+        OrganizationDomainInput: {
+            domain: string;
+            /** @default false */
+            is_primary: boolean;
+        };
         CreateOrganizationRequest: {
             display_name: string;
             legal_name?: string | null;
@@ -4887,11 +4893,7 @@ export interface components {
             owner_id?: string | null;
             /** Format: uuid */
             parent_org_id?: string | null;
-            domains?: {
-                domain: string;
-                /** @default false */
-                is_primary: boolean;
-            }[];
+            domains?: components["schemas"]["OrganizationDomainInput"][];
             source: string;
         } & {
             [key: string]: unknown;
@@ -4908,11 +4910,7 @@ export interface components {
             /** Format: uuid */
             parent_org_id?: string | null;
             /** @description Replace-set of the org's live domains (add new, archive removed, flip is_primary). Absent = untouched; an empty array clears all domains. */
-            domains?: {
-                domain: string;
-                /** @default false */
-                is_primary: boolean;
-            }[];
+            domains?: components["schemas"]["OrganizationDomainInput"][];
         } & {
             [key: string]: unknown;
         };

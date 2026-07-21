@@ -7277,12 +7277,9 @@ type CreateOfferTemplateRequest struct {
 // CreateOrganizationRequest defines model for CreateOrganizationRequest.
 type CreateOrganizationRequest struct {
 	// Address Structured postal address.
-	Address     *Address `json:"address,omitempty"`
-	DisplayName string   `json:"display_name"`
-	Domains     *[]struct {
-		Domain    string `json:"domain"`
-		IsPrimary *bool  `json:"is_primary,omitempty"`
-	} `json:"domains,omitempty"`
+	Address              *Address                           `json:"address,omitempty"`
+	DisplayName          string                             `json:"display_name"`
+	Domains              *[]OrganizationDomainInput         `json:"domains,omitempty"`
 	Industry             *string                            `json:"industry,omitempty"`
 	LegalName            *string                            `json:"legal_name,omitempty"`
 	OwnerId              *openapi_types.UUID                `json:"owner_id,omitempty"`
@@ -8496,6 +8493,12 @@ type OrganizationDomain struct {
 	OrganizationId *openapi_types.UUID `json:"organization_id,omitempty"`
 	Source         string              `json:"source"`
 	UpdatedAt      *time.Time          `json:"updated_at,omitempty"`
+}
+
+// OrganizationDomainInput A client-supplied domain row on create/update. Closed — server-owned fields (id, source, captured_by) are never accepted from the request body.
+type OrganizationDomainInput struct {
+	Domain    string `json:"domain"`
+	IsPrimary *bool  `json:"is_primary,omitempty"`
 }
 
 // OrganizationFact defines model for OrganizationFact.
@@ -9829,10 +9832,7 @@ type UpdateOrganizationRequest struct {
 	DisplayName *string  `json:"display_name,omitempty"`
 
 	// Domains Replace-set of the org's live domains (add new, archive removed, flip is_primary). Absent = untouched; an empty array clears all domains.
-	Domains *[]struct {
-		Domain    string `json:"domain"`
-		IsPrimary *bool  `json:"is_primary,omitempty"`
-	} `json:"domains,omitempty"`
+	Domains              *[]OrganizationDomainInput         `json:"domains,omitempty"`
 	Industry             *string                            `json:"industry,omitempty"`
 	LegalName            *string                            `json:"legal_name,omitempty"`
 	OwnerId              *openapi_types.UUID                `json:"owner_id,omitempty"`
@@ -17842,7 +17842,7 @@ type ServerInterface interface {
 	// Enrich this organization from its website (evidence-or-omit) — a staged 🟡 proposal.
 	// (POST /organizations/{id}/enrich)
 	ScrapeCompany(w http.ResponseWriter, r *http.Request, id Id)
-	// The organization's evidence-backed facts (organization_fact), grouped by category on the client.
+	// The organization's confirmed facts (organization_fact), grouped by category on the client. Site-read facts carry evidence (snippet, source URL, confidence); human/migration values may omit it.
 	// (GET /organizations/{id}/facts)
 	ListOrganizationFacts(w http.ResponseWriter, r *http.Request, id Id)
 	// Roll up an organization's account tree — weighted pipeline, current-quarter closed-won, 30-day activity count.
@@ -17857,7 +17857,7 @@ type ServerInterface interface {
 	// Create/update the partner extension on an org (sets classification='partner').
 	// (PUT /organizations/{id}/partner)
 	UpsertPartner(w http.ResponseWriter, r *http.Request, id Id, params UpsertPartnerParams)
-	// The organization's confirmed profile fields (organization_profile_field), evidence-or-omit.
+	// The organization's confirmed profile fields (organization_profile_field). A field with no stored value is absent (evidence-or-omit); site-read values carry evidence, human/migration values may omit it.
 	// (GET /organizations/{id}/profile-fields)
 	ListOrganizationProfileFields(w http.ResponseWriter, r *http.Request, id Id)
 	// One deep read's progress and outcome — pages read, pages skipped and WHY, what got staged.
@@ -18952,7 +18952,7 @@ func (_ Unimplemented) ScrapeCompany(w http.ResponseWriter, r *http.Request, id 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// The organization's evidence-backed facts (organization_fact), grouped by category on the client.
+// The organization's confirmed facts (organization_fact), grouped by category on the client. Site-read facts carry evidence (snippet, source URL, confidence); human/migration values may omit it.
 // (GET /organizations/{id}/facts)
 func (_ Unimplemented) ListOrganizationFacts(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -18982,7 +18982,7 @@ func (_ Unimplemented) UpsertPartner(w http.ResponseWriter, r *http.Request, id 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// The organization's confirmed profile fields (organization_profile_field), evidence-or-omit.
+// The organization's confirmed profile fields (organization_profile_field). A field with no stored value is absent (evidence-or-omit); site-read values carry evidence, human/migration values may omit it.
 // (GET /organizations/{id}/profile-fields)
 func (_ Unimplemented) ListOrganizationProfileFields(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)

@@ -846,33 +846,55 @@ function HierarchyRollupCard({ orgId }: Readonly<{ orgId: string }>) {
 // a footer that names where it came from — provenance, confidence when the
 // read carried one, and the grounding evidence snippet. Mirrors EnrichCard's
 // field row, but these are ACCEPTED values on the record, not staged proposals.
+// The shared trust-signal footer for an evidence-backed row: provenance
+// always, confidence whenever graded, and the evidence snippet when present.
+// One spelling for profile fields and facts so the "confidence is never
+// hidden" convention can't drift between them.
+function TrustSignals({
+  capturedBy,
+  confidence,
+  evidenceSnippet,
+  sourceUrl,
+}: Readonly<{
+  capturedBy?: string;
+  confidence?: number | null;
+  evidenceSnippet?: string | null;
+  sourceUrl?: string | null;
+}>) {
+  const level = confidenceLevel(confidence);
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        flexWrap: "wrap",
+        marginTop: 4,
+      }}
+    >
+      <ProvenanceTag provenance={provenanceOf(capturedBy)} />
+      {level && <ConfidenceMeter level={level} />}
+      {evidenceSnippet && (
+        <EvidenceChip
+          evidence={{ snippet: evidenceSnippet, source: sourceUrl ?? "" }}
+        />
+      )}
+    </div>
+  );
+}
+
 function ProfileFieldRow({ field }: Readonly<{ field: CompanyProfileField }>) {
   const t = useT();
-  const level = confidenceLevel(field.confidence);
   return (
     <div style={{ marginBottom: 12 }}>
       <span className="t-label">{coldFieldLabel(field.field, t)}</span>
       <div>{field.value}</div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          flexWrap: "wrap",
-          marginTop: 4,
-        }}
-      >
-        <ProvenanceTag provenance={provenanceOf(field.captured_by)} />
-        {level && <ConfidenceMeter level={level} />}
-        {field.evidence_snippet && (
-          <EvidenceChip
-            evidence={{
-              snippet: field.evidence_snippet,
-              source: field.source_url ?? "",
-            }}
-          />
-        )}
-      </div>
+      <TrustSignals
+        capturedBy={field.captured_by}
+        confidence={field.confidence}
+        evidenceSnippet={field.evidence_snippet}
+        sourceUrl={field.source_url}
+      />
     </div>
   );
 }
@@ -940,32 +962,17 @@ const FACT_CATEGORY_LABELS: Record<OrganizationFact["category"], MessageKey> = {
 // hidden" convention as ProfileFieldRow.
 function FactRow({ fact }: Readonly<{ fact: OrganizationFact }>) {
   const t = useT();
-  const level = confidenceLevel(fact.confidence);
   return (
     <div>
       <dt>{coldFieldLabel(fact.field, t)}</dt>
       <dd>
         <div>{fact.value}</div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            flexWrap: "wrap",
-            marginTop: 4,
-          }}
-        >
-          <ProvenanceTag provenance={provenanceOf(fact.captured_by)} />
-          {level && <ConfidenceMeter level={level} />}
-          {fact.evidence_snippet && (
-            <EvidenceChip
-              evidence={{
-                snippet: fact.evidence_snippet,
-                source: fact.source_url ?? "",
-              }}
-            />
-          )}
-        </div>
+        <TrustSignals
+          capturedBy={fact.captured_by}
+          confidence={fact.confidence}
+          evidenceSnippet={fact.evidence_snippet}
+          sourceUrl={fact.source_url}
+        />
       </dd>
     </div>
   );
