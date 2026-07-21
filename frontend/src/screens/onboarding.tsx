@@ -547,6 +547,10 @@ function OnboardingCoordinator() {
     wizardState.isPending,
   ]);
 
+  // Which dossier version the form has already absorbed. Reset when a new
+  // read starts, because draft_version counts within ONE dossier.
+  const appliedReadVersion = useRef(0);
+
   const startRead = useMutation({
     mutationFn: async (): Promise<CompanySiteRead> => {
       const { data, error } = await api.POST("/company/site-reads", {
@@ -560,7 +564,28 @@ function OnboardingCoordinator() {
     },
     onSuccess: (data) => {
       setSiteReadID(data.id);
-      persistState(0, { sourceMode: "website", siteReadID: data.id });
+      // Starting a read replaces the previous site's findings, so nothing
+      // of it may survive: the fact selection goes, the legal trio the
+      // entity picker filled goes (prefill would leave it, since picking
+      // marks those fields as yours), and the applied-version counter
+      // resets because draft_version counts within ONE dossier — a new
+      // read can open at a version the old one already passed.
+      appliedReadVersion.current = 0;
+      setSelectedFactKeys([]);
+      setDraft((prev) => {
+        const values = { ...prev.values };
+        const edited = new Set(prev.edited);
+        for (const field of LEGAL_FIELDS) {
+          values[field] = "";
+          edited.delete(field);
+        }
+        return { ...prev, values, edited };
+      });
+      persistState(0, {
+        sourceMode: "website",
+        siteReadID: data.id,
+        selectedFactKeys: [],
+      });
     },
   });
 
@@ -585,34 +610,6 @@ function OnboardingCoordinator() {
     },
   });
 
-  // Reading a DIFFERENT site must not leave the previous one's legal
-  // identity in the form. Those three fields are marked as your input once
-  // an entity is picked, so prefill deliberately leaves them alone — which
-  // would carry one company's registered name into another company's
-  // setup. A new read clears them; the new census fills them again.
-  const appliedReadID = useRef<string | null>(null);
-  useEffect(() => {
-    const id = siteRead.data?.id ?? null;
-    if (id === null || id === appliedReadID.current) {
-      return;
-    }
-    const first = appliedReadID.current === null;
-    appliedReadID.current = id;
-    if (first) {
-      return;
-    }
-    setDraft((prev) => {
-      const values = { ...prev.values };
-      const edited = new Set(prev.edited);
-      for (const field of LEGAL_FIELDS) {
-        values[field] = "";
-        edited.delete(field);
-      }
-      return { ...prev, values, edited };
-    });
-  }, [siteRead.data?.id]);
-
-  const appliedReadVersion = useRef(0);
   useEffect(() => {
     const read = siteRead.data;
     if (!read || read.draft_version <= appliedReadVersion.current) {
