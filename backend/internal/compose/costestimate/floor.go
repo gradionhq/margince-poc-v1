@@ -84,25 +84,24 @@ func workShapeFloor(task ai.Task) ai.Usage {
 // unitsFloor is the built-in volume ratio used when a connection has no
 // completed capture_backfill run to measure real yields from: classify fires ≈
 // once per scanned message (captured ≈ scanned at connect), enrich once per
-// expected new correspondent, and embeddings once per embedded ENTITY — a vector
-// per captured message PLUS one per new person.
+// expected new correspondent, and embeddings once per captured MESSAGE.
 func unitsFloor(task ai.Task, scanned int64) int64 {
 	switch task {
 	case ai.TaskEnrich:
 		return int64(float64(scanned) * defaultPersonsPerMsg)
-	case ai.TaskEmbeddings:
-		// The embed lane embeds one vector per entity: every captured message AND
-		// every new person the enrich pass introduces (the observed path in
-		// rules.go counts captured + people + orgs). The cold-start floor mirrors
-		// that — the message floor plus the expected-person floor — so a
-		// first-connect embed estimate is not systematically low by omitting the
-		// person embeds. Organizations are left out: there is no defensible
-		// org-density floor constant, so their (smaller) embed volume stays a
-		// known, conservative underestimate rather than an invented number.
-		persons := int64(float64(scanned) * defaultPersonsPerMsg)
-		return scanned + persons
 	default:
-		// classify: captured ≈ scanned at first connect, one call per message.
+		// classify AND embeddings: captured ≈ scanned at first connect. The
+		// cold-start embed floor counts MESSAGE-embeds only — person/org embeds are
+		// omitted here on purpose. The floor prices every embed unit at
+		// embedItemTokens (a full email); a person embed's real input is just a
+		// name (a few tokens), so folding expected persons into this count would
+		// charge each person as a full email — a large per-person overquote on the
+		// cheapest, input-only lane. The two simple sizings are both worse than the
+		// omission (email-size = overquote; a name-size special-case = added
+		// complexity for a negligible term), so message-embeds it is. The OBSERVED
+		// path is unaffected: it still counts captured + people + orgs from real
+		// yields (rules.go). Documented in the ADR-0068 design note and
+		// docs/explanation/ai-runtime.md.
 		return scanned
 	}
 }

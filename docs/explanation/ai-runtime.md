@@ -224,9 +224,13 @@ model-call hot path.
   silent `0`); a new `estimate_quality` (`observed` | `heuristic`) labels the source; and a
   first connect with no history falls back to a priced **work-shape floor**. Cost read
   failures **degrade** the preview to a message-count-only number — they never block the
-  consent flow. *(Current limitation: the `capture_backfill` people/org counters are not yet
-  populated by the backfill loop, so the enrich line floors — honest `heuristic` — rather
-  than pricing per person; a tracked follow-up.)*
+  consent flow. The cold-start embed floor counts **message-embeds only** — person/org
+  embeds are omitted from the floor (the floor prices every unit at a full-email size, so
+  charging name-sized person embeds at that size would overquote on the cheapest, input-only
+  lane; the observed path still counts them via yields). *(Current limitation: the
+  `capture_backfill` people/org counters are not yet populated by the backfill loop, so the
+  enrich line floors — honest `heuristic` — rather than pricing per person; a tracked
+  follow-up.)*
 
 ## Certification — proving a binding is good enough
 
