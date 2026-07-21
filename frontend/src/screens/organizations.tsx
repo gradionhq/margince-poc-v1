@@ -1023,10 +1023,7 @@ function FactsCard({ orgId }: Readonly<{ orgId: string }>) {
         }
         return (
           <div key={category} style={{ marginBottom: 16 }}>
-            <div
-              className="t-label"
-              style={{ color: "var(--textMeta)", marginBottom: 8 }}
-            >
+            <div className="t-label" style={{ marginBottom: 8 }}>
               {t(FACT_CATEGORY_LABELS[category])}
             </div>
             {group.map((fact) => (

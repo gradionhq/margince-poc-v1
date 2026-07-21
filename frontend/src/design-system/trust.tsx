@@ -84,7 +84,8 @@ export function ConfidenceMeter({
   );
 }
 
-// Provenance is either an agent (`agent:capture`) or the human user.
+// Provenance is an agent (`agent:capture`), a connector (`connector:gmail`),
+// or the human user — the three shapes captured_by can take.
 export type Provenance =
   | { kind: "agent"; agent: string }
   | { kind: "connector"; connector: string }
