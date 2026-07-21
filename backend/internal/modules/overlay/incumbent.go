@@ -33,6 +33,31 @@ type Record struct {
 	OwnerExternalID string
 }
 
+// Deletion is one incumbent-CRM record reported deleted or archived
+// through the Incumbent seam. Continuous sync purges its mirrored cache
+// row — with its association edges and visibility projection — on
+// observing it, so an incumbent-side deletion stops being readable from
+// the mirror rather than lingering visible until disconnect.
+//
+// ObjectClass MUST be the CANONICAL Margince class (the adapter mapping's
+// Target — e.g. "person", "deal"), the same value the mirror row is keyed
+// by, NOT the incumbent's own source name ("contacts", "deals"). An
+// adapter that returned the raw incumbent class here would make PurgeRecord
+// key a class no mirror row uses and silently purge nothing — the same
+// canonical-not-incumbent rule mapRecord obeys for Record.ObjectClass.
+type Deletion struct {
+	ExternalID  string
+	ObjectClass string
+	DeletedAt   time.Time
+}
+
+// DeletionPage is one page of Deletions results. NextCursor is "" when
+// there is no further page.
+type DeletionPage struct {
+	Deletions  []Deletion
+	NextCursor string
+}
+
 // Assoc is one incumbent-CRM association edge between two records.
 type Assoc struct {
 	FromType  string
@@ -74,6 +99,11 @@ type Incumbent interface {
 	// Modified searches objectClass records modified at or after since,
 	// ascending, watermark-cursor style, for incremental mirror sync.
 	Modified(ctx context.Context, objectClass string, since time.Time, cursor string) (Page, error)
+	// Deletions lists objectClass records deleted or archived in the
+	// incumbent at or after since, cursor-paged, for the continuous-sync
+	// removal feed — the mirror purges each so an incumbent-side deletion
+	// stops being readable rather than lingering until disconnect.
+	Deletions(ctx context.Context, objectClass string, since time.Time, cursor string) (DeletionPage, error)
 	// Get fetches one record's current incumbent-side state (the record
 	// clock a force-fresh read-through reads).
 	Get(ctx context.Context, objectClass, externalID string) (Record, error)

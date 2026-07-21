@@ -104,6 +104,43 @@ func (a *Adapter) Modified(ctx context.Context, objectClass string, since time.T
 	return overlay.Page{Records: records, NextCursor: page.NextAfter}, nil
 }
 
+// Deletions pages objectClass's archived (deleted) records via the
+// Client's archived-object list feed and maps each into an
+// overlay.Deletion keyed by the CANONICAL object class (m.Target) — the
+// same incumbent-naming-never-leaks rule mapRecord obeys. archivedAt
+// becomes DeletedAt; a record archived strictly before since is dropped
+// (the caller's watermark lower-bound), the rest are returned in the feed
+// order. Unlike Modified, this feed is not watermark-ordered on the wire
+// (HubSpot's list endpoint cannot sort by archivedAt), so the deletion
+// sweep pages it fully each pass — see Client.ListArchived for why that
+// stays correct.
+func (a *Adapter) Deletions(ctx context.Context, objectClass string, since time.Time, cursor string) (overlay.DeletionPage, error) {
+	m, err := mappingFor(objectClass)
+	if err != nil {
+		return overlay.DeletionPage{}, err
+	}
+	page, err := a.client.ListArchived(ctx, objectClass, cursor, pageSize)
+	if err != nil {
+		return overlay.DeletionPage{}, err
+	}
+	deletions := make([]overlay.Deletion, 0, len(page.Results))
+	for _, r := range page.Results {
+		deletedAt, err := parseWatermark(r.ArchivedAt)
+		if err != nil {
+			return overlay.DeletionPage{}, fmt.Errorf("hubspot: archived %s record %s: %w", objectClass, r.ID, err)
+		}
+		if deletedAt.Before(since) {
+			continue
+		}
+		deletions = append(deletions, overlay.Deletion{
+			ExternalID:  r.ID,
+			ObjectClass: m.Target,
+			DeletedAt:   deletedAt,
+		})
+	}
+	return overlay.DeletionPage{Deletions: deletions, NextCursor: page.NextAfter}, nil
+}
+
 // Get fetches one record's current HubSpot-side state via BatchRead (the
 // record-clock fetch, design.md §4.4 — the read a force-fresh
 // read-through lands on).

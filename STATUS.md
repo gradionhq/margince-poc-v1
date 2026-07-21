@@ -598,14 +598,20 @@ Open work, roughly in priority order:
 
 - **Overlay branch 1b — the review-deferred hardening** (from PR #91's
   three-lens review; the branch itself ships read + poller sync with the
-  human `/v1` surface seam-backed): budget-pace the initial backfill and
+  human `/v1` surface seam-backed). **In flight:** the **deletion/archive
+  feed** is implemented on branch `fix/overlay-deletion-feed` (local commit
+  `9b8fc80`, gates + integration green, not yet pushed) — `Incumbent.Deletions`
+  + HubSpot `?archived=true` + `MirrorStore.PurgeRecord` (row + assoc +
+  visibility, no tombstone) + `ReconcileDeletions` on its own
+  `overlay_deletion_watermark` + the `mirror.deleted` event, run after the
+  modified sweep. Contract-first blocker: it lands after the upstream spec pin
+  (foundation branch `spec/overlay-deletion-feed`: `mirror.deleted` +
+  EVT-SEM-13 + OVA-AC-5) merges. Still open in 1b: budget-pace the initial backfill and
   honor `Retry-After`/ADR-0063-style backoff on a failing connection
   (today a failed connection re-sweeps hot every tick); one budget meter
   per deployment, not per process/consumer (combined spend can exceed
   the HubSpot quota N×); composite keyset watermark (a >10k
   same-timestamp block wedges the sweep — disclosed in reconcile.go);
-  hard deletes never reach the mirror (no deletion signal, no ID-set
-  diff — an incumbent-deleted record stays visible until disconnect);
   the webhook-as-signal lane returns only WITH portal-id→workspace
   binding in the HMAC basis (the unmounted receiver was deleted, not
   fixed); a reconnect flow (Connect today refuses a workspace with any

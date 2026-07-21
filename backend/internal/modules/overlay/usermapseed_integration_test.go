@@ -34,6 +34,9 @@ func (seedIncumbent) Backfill(context.Context, string, string) (Page, error) {
 func (seedIncumbent) Modified(context.Context, string, time.Time, string) (Page, error) {
 	return Page{}, nil
 }
+func (seedIncumbent) Deletions(context.Context, string, time.Time, string) (DeletionPage, error) {
+	return DeletionPage{}, nil
+}
 func (seedIncumbent) Get(context.Context, string, string) (Record, error) { return Record{}, nil }
 func (seedIncumbent) Associations(context.Context, string, string, string) ([]Assoc, error) {
 	return nil, nil

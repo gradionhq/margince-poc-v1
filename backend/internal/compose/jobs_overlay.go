@@ -171,40 +171,67 @@ func reconcileConnection(ctx context.Context, vault keyvault.Vault, ms *overlay.
 	}
 
 	for _, objectClass := range overlayObjectClasses {
-		// Initial full load before the incremental sweep: Backfill lists
-		// the object class id-cursor style AND fetches its associations
-		// (design.md §4.4), checkpointing overlay_backfill_cursor so
-		// SyncStatus's backfillComplete answers truthfully. It is a cheap
-		// no-op once its cursor has converged, so every later sweep skips
-		// straight to the Modified pass below — the first sweep after a
-		// connect (via the poller, or on-demand through POST
-		// /overlay/reconcile) does the load, the rest ride the watermark.
-		// A backfill failure is logged and skips only this class's sweep
-		// this tick (the NEXT sweep resumes from the checkpoint), never
-		// aborting the other classes.
-		if err := overlay.Backfill(ctx, inc, ms, objectClass); err != nil {
-			log.WarnContext(ctx, "overlay reconcile: backfill pass failed, skipping this object class this tick",
-				"workspace", d.Workspace.String(), "object_class", objectClass, "err", err)
-			continue
-		}
-		since, err := ms.LoadReconcileWatermark(ctx, objectClass)
-		if err != nil {
-			log.WarnContext(ctx, "overlay reconcile: loading the persisted watermark failed, skipping this object class",
-				"workspace", d.Workspace.String(), "object_class", objectClass, "err", err)
-			continue
-		}
-		newWatermark, err := overlay.Reconcile(ctx, inc, ms, meter, objectClass, since)
-		if err != nil {
-			log.WarnContext(ctx, "overlay reconcile sweep failed",
-				"workspace", d.Workspace.String(), "object_class", objectClass, "err", err)
-			continue
-		}
-		if newWatermark.After(since) {
-			if err := ms.SaveReconcileWatermark(ctx, objectClass, newWatermark); err != nil {
-				log.WarnContext(ctx, "overlay reconcile: persisting the new watermark failed",
-					"workspace", d.Workspace.String(), "object_class", objectClass, "err", err)
-			}
-		}
+		sweepObjectClass(ctx, inc, ms, meter, log, d.Workspace.String(), objectClass)
 	}
 	return nil
+}
+
+// sweepObjectClass runs one object class's full convergence for a
+// connection: the initial backfill (a cheap no-op once its cursor has
+// converged), the incremental modified-record sweep, then the
+// opposite-direction deletion sweep — each on its own persisted watermark.
+// Any step's failure is logged and skips the REST of this class's sweep
+// this tick (the next tick resumes from the checkpoint), never aborting the
+// other classes — which is why it returns nothing. workspace is the
+// stringified id, for logging only. Extracted from reconcileConnection so
+// the per-class sequence reads as one unit and the connection-level loop
+// stays short.
+func sweepObjectClass(ctx context.Context, inc overlay.Incumbent, ms *overlay.MirrorStore, meter *overlay.Meter, log *slog.Logger, workspace, objectClass string) {
+	// Initial full load before the incremental sweep: Backfill lists the
+	// object class id-cursor style AND fetches its associations (design.md
+	// §4.4), checkpointing overlay_backfill_cursor so SyncStatus's
+	// backfillComplete answers truthfully. It is a cheap no-op once its
+	// cursor has converged, so every later sweep skips straight to the
+	// Modified pass — the first sweep after a connect (via the poller, or
+	// on-demand through POST /overlay/reconcile) does the load, the rest
+	// ride the watermark.
+	if err := overlay.Backfill(ctx, inc, ms, objectClass); err != nil {
+		log.WarnContext(ctx, "overlay reconcile: backfill pass failed, skipping this object class this tick",
+			"workspace", workspace, "object_class", objectClass, "err", err)
+		return
+	}
+	since, err := ms.LoadReconcileWatermark(ctx, objectClass)
+	if err != nil {
+		log.WarnContext(ctx, "overlay reconcile: loading the persisted watermark failed, skipping this object class",
+			"workspace", workspace, "object_class", objectClass, "err", err)
+		return
+	}
+	newWatermark, err := overlay.Reconcile(ctx, inc, ms, meter, objectClass, since)
+	if err != nil {
+		log.WarnContext(ctx, "overlay reconcile sweep failed",
+			"workspace", workspace, "object_class", objectClass, "err", err)
+		return
+	}
+	if newWatermark.After(since) {
+		if err := ms.SaveReconcileWatermark(ctx, objectClass, newWatermark); err != nil {
+			log.WarnContext(ctx, "overlay reconcile: persisting the new watermark failed",
+				"workspace", workspace, "object_class", objectClass, "err", err)
+		}
+	}
+
+	// Converge the OTHER direction: purge records the incumbent has deleted
+	// so they stop being readable from the mirror (branch-1b deletion feed).
+	// Run AFTER the Modified sweep within the same tick so a live-record
+	// page already fetched this pass can never resurrect a record this sweep
+	// just purged — HubSpot excludes archived records from the
+	// Modified/Search feed, so the two do not fight over the same row. The
+	// sweep full-scans the archived feed each pass and purges idempotently
+	// (ReconcileDeletions' own doc explains why a watermark would be unsound
+	// over HubSpot's unordered archived feed). A failure is logged and skips
+	// only this class's deletion pass this tick.
+	if err := overlay.ReconcileDeletions(ctx, inc, ms, meter, objectClass); err != nil {
+		log.WarnContext(ctx, "overlay reconcile: deletion sweep failed",
+			"workspace", workspace, "object_class", objectClass, "err", err)
+		return
+	}
 }
