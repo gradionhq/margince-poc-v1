@@ -36,10 +36,10 @@ import (
 type Quality string
 
 const (
-	// QualityObserved: every priced task read a real per-unit cost from this
+	// QualityObserved means every priced task read a real per-unit cost from this
 	// workspace's ai_call history AND real units from a completed backfill yield.
 	QualityObserved Quality = "observed"
-	// QualityHeuristic: at least one task fell to a work-shape floor or a
+	// QualityHeuristic means at least one task fell to a work-shape floor or a
 	// defaulted unit ratio, or carried an unpriced slice.
 	QualityHeuristic Quality = "heuristic"
 )
@@ -99,7 +99,8 @@ type Estimator struct {
 
 // NewEstimator wires the estimator over its five reads and an injected clock.
 func NewEstimator(totals ServedTotalsReader, rates RateResolver, ladder LadderResolver,
-	labels LabeledCounter, yields YieldReader, clock Clock) *Estimator {
+	labels LabeledCounter, yields YieldReader, clock Clock,
+) *Estimator {
 	return &Estimator{totals: totals, rates: rates, ladder: ladder, labels: labels, yields: yields, clock: clock}
 }
 

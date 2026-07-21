@@ -185,13 +185,15 @@ func (e *estEnv) insertLabeledActivity(t *testing.T, ws ids.UUID) {
 	}
 }
 
-func (e *estEnv) insertRate(t *testing.T, ws ids.UUID, provider, model string, in, out int64) {
+// insertRate seeds one ai_model_rate for a fake-provider model (every fixture
+// here rates the offline fake router's bindings, so the provider is fixed).
+func (e *estEnv) insertRate(t *testing.T, ws ids.UUID, model string, in, out int64) {
 	t.Helper()
 	if _, err := e.owner.Exec(context.Background(), `
 		INSERT INTO ai_model_rate (workspace_id, provider, model_id, input_per_mtok_microusd,
 		  output_per_mtok_microusd, cache_read_per_mtok_microusd, cache_write_per_mtok_microusd, effective_date)
 		VALUES ($1,$2,$3,$4,$5,0,0,$6)`,
-		ws, provider, model, in, out, rateDay); err != nil {
+		ws, ai.ProviderFake, model, in, out, rateDay); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -207,9 +209,9 @@ func TestEstimatorPricesObservedHistory(t *testing.T) {
 	e.seedBackfill(t, ws, connID, 6, 100, 80, 10, 2)
 
 	// Rates: cloud + embed priced, local a real $0.
-	e.insertRate(t, ws, ai.ProviderFake, "cloud-model", 1_000_000, 2_000_000)
-	e.insertRate(t, ws, ai.ProviderFake, "embed-model", 500_000, 0)
-	e.insertRate(t, ws, ai.ProviderFake, "local-model", 0, 0)
+	e.insertRate(t, ws, "cloud-model", 1_000_000, 2_000_000)
+	e.insertRate(t, ws, "embed-model", 500_000, 0)
+	e.insertRate(t, ws, "local-model", 0, 0)
 
 	// One served slice per task (Calls=1 each), plus four labeled messages.
 	e.insertCall(t, ws, callRow{task: ai.TaskCaptureClassify, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "cloud-model", tokensIn: 2_000_000, tokensOut: 200_000})
@@ -262,7 +264,7 @@ func TestEstimatorExcludesRatelessModelAndFlagsHeuristic(t *testing.T) {
 	e.seedBackfill(t, ws, connID, 6, 100, 100, 0, 0)
 
 	// local-model priced; cloud-model deliberately UNrated.
-	e.insertRate(t, ws, ai.ProviderFake, "local-model", 1_000_000, 0)
+	e.insertRate(t, ws, "local-model", 1_000_000, 0)
 
 	e.insertCall(t, ws, callRow{task: ai.TaskCaptureClassify, tier: ai.TierLocalSmall, provider: ai.ProviderFake, model: "local-model", tokensIn: 1_000_000, tokensOut: 0})
 	e.insertCall(t, ws, callRow{task: ai.TaskCaptureClassify, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "cloud-model", tokensIn: 4_000_000, tokensOut: 0})
@@ -301,8 +303,8 @@ func TestEstimatorRepricesSinceUnboundSlice(t *testing.T) {
 
 	// The router binds cheap_cloud → cloud-model (rated) and local → local-model
 	// ($0). The served slice ran on old-cloud-model, now departed.
-	e.insertRate(t, ws, ai.ProviderFake, "cloud-model", 1_000_000, 0)
-	e.insertRate(t, ws, ai.ProviderFake, "local-model", 0, 0)
+	e.insertRate(t, ws, "cloud-model", 1_000_000, 0)
+	e.insertRate(t, ws, "local-model", 0, 0)
 	e.insertCall(t, ws, callRow{task: ai.TaskCaptureClassify, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "old-cloud-model", tokensIn: 2_000_000, tokensOut: 0})
 	e.insertLabeledActivity(t, ws)
 
@@ -329,7 +331,7 @@ func TestEstimatorNoHistoryUsesFloor(t *testing.T) {
 	user := e.seedUser(t, ws)
 	e.seedConnection(t, ws, user, "gmail")
 	// Rate the floor's classify head (local-model) so the floor prices honestly.
-	e.insertRate(t, ws, ai.ProviderFake, "local-model", 1_000_000, 0)
+	e.insertRate(t, ws, "local-model", 1_000_000, 0)
 
 	got, err := e.newEstimator().EstimateBackfill(wsCtx, "gmail", user, 100)
 	if err != nil {
@@ -355,7 +357,7 @@ func TestEstimatorConnectionScopedYields(t *testing.T) {
 	e.seedBackfill(t, ws, gmailConn, 12, 1000, 900, 200, 50) // a rich yield on gmail
 	e.seedConnection(t, ws, user, "imap")                    // imap has NO completed run
 
-	e.insertRate(t, ws, ai.ProviderFake, "local-model", 1_000_000, 0)
+	e.insertRate(t, ws, "local-model", 1_000_000, 0)
 
 	est := e.newEstimator()
 	imap, err := est.EstimateBackfill(wsCtx, "imap", user, 100)
@@ -386,7 +388,7 @@ func TestEstimatorRLSCrossWorkspaceInvisibility(t *testing.T) {
 	userB := e.seedUser(t, wsB)
 	connB := e.seedConnection(t, wsB, userB, "gmail")
 	e.seedBackfill(t, wsB, connB, 6, 100, 100, 10, 0)
-	e.insertRate(t, wsB, ai.ProviderFake, "cloud-model", 9_000_000, 0)
+	e.insertRate(t, wsB, "cloud-model", 9_000_000, 0)
 	e.insertCall(t, wsB, callRow{task: ai.TaskCaptureClassify, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "cloud-model", tokensIn: 5_000_000, tokensOut: 0})
 	e.insertLabeledActivity(t, wsB)
 

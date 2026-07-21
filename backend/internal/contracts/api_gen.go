@@ -567,6 +567,24 @@ func (e AutomationRunTier) Valid() bool {
 	}
 }
 
+// Defines values for BackfillPreviewEstimateQuality.
+const (
+	Heuristic BackfillPreviewEstimateQuality = "heuristic"
+	Observed  BackfillPreviewEstimateQuality = "observed"
+)
+
+// Valid indicates whether the value is a known member of the BackfillPreviewEstimateQuality enum.
+func (e BackfillPreviewEstimateQuality) Valid() bool {
+	switch e {
+	case Heuristic:
+		return true
+	case Observed:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for BackfillPreviewWindow.
 const (
 	BackfillPreviewWindowN12m BackfillPreviewWindow = "12m"
@@ -6290,19 +6308,25 @@ type AutomationRunTier string
 type BackfillPreview struct {
 	ComputedAt time.Time `json:"computed_at"`
 
-	// Currency ISO-4217, e.g. EUR.
+	// Currency ISO-4217; "USD" in v1.
 	Currency *string `json:"currency,omitempty"`
+
+	// EstimateQuality observed = priced from this workspace's ai_call history; heuristic = cold-start work-shape floor or a defaulted ratio.
+	EstimateQuality *BackfillPreviewEstimateQuality `json:"estimate_quality,omitempty"`
 
 	// EstimatedAiTokens Projected classify+enrich tokens for that count.
 	EstimatedAiTokens *int `json:"estimated_ai_tokens,omitempty"`
 
-	// EstimatedCostMinor Projected cost in minor currency units at the configured tier's rate; 0 when inference is local.
+	// EstimatedCostMinor USD minor units, estimated from observed ai_call history priced per served model at current ai_model_rate; absent when no rate applies (ADR-0068).
 	EstimatedCostMinor *int `json:"estimated_cost_minor,omitempty"`
 
 	// EstimatedMessages Provider-side message count for the window (Gmail resultSizeEstimate / Graph $count).
 	EstimatedMessages int                   `json:"estimated_messages"`
 	Window            BackfillPreviewWindow `json:"window"`
 }
+
+// BackfillPreviewEstimateQuality observed = priced from this workspace's ai_call history; heuristic = cold-start work-shape floor or a defaulted ratio.
+type BackfillPreviewEstimateQuality string
 
 // BackfillPreviewWindow defines model for BackfillPreview.Window.
 type BackfillPreviewWindow string

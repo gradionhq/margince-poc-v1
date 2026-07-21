@@ -109,14 +109,14 @@ func TestBackfillLifecycle(t *testing.T) {
 	rep := ids.From[ids.UserKind](e.Rep1)
 
 	t.Run("preview estimates before anything spends", func(t *testing.T) {
-		msgs, tokens, err := registry.EstimateBackfill(grantCtx, "gmail", rep, 6)
+		msgs, err := registry.EstimateBackfill(grantCtx, "gmail", rep, 6)
 		if err != nil {
 			t.Fatalf("EstimateBackfill: %v", err)
 		}
-		if msgs != 25 || tokens != 25*900 {
-			t.Fatalf("estimate = %d msgs / %d tokens, want 25 / %d", msgs, tokens, 25*900)
+		if msgs != 25 {
+			t.Fatalf("estimate = %d msgs, want 25", msgs)
 		}
-		if _, _, err := registry.EstimateBackfill(grantCtx, "gmail", rep, 5); !errors.Is(err, capture.ErrWindowInvalid) {
+		if _, err := registry.EstimateBackfill(grantCtx, "gmail", rep, 5); !errors.Is(err, capture.ErrWindowInvalid) {
 			t.Fatalf("a 5-month window must be refused, got %v", err)
 		}
 	})

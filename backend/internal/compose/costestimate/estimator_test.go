@@ -92,7 +92,7 @@ var (
 	zeroRate   = &ai.ModelRate{}
 )
 
-func newEstimator(totals *fakeTotals, rates fakeRates, ladder fakeLadder, labels fakeLabels, yields fakeYields) *Estimator {
+func estimatorFor(totals *fakeTotals, rates fakeRates, ladder fakeLadder, labels fakeLabels, yields fakeYields) *Estimator {
 	clock := fixedClock{t: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)}
 	return NewEstimator(totals, rates, ladder, labels, yields, clock)
 }
@@ -139,7 +139,7 @@ func TestEstimateObservedSingleBoundModel(t *testing.T) {
 	}
 	totals := &fakeTotals{rows: []ai.ServedTaskTotal{classify, enrich, embed}}
 	yields := fakeYields{Scanned: 200, Captured: 200, PeopleCreated: 20}
-	e := newEstimator(totals, rates, ladder, fakeLabels(50), yields)
+	e := estimatorFor(totals, rates, ladder, fakeLabels(50), yields)
 
 	got := mustEstimate(t, e, scanned)
 
@@ -194,7 +194,7 @@ func TestEstimateRepricesDepartedSliceAtItsTiersCurrentModel(t *testing.T) {
 	}
 	totals := &fakeTotals{rows: []ai.ServedTaskTotal{served}}
 	yields := fakeYields{Scanned: 100, Captured: 100}
-	e := newEstimator(totals, rates, ladder, fakeLabels(50), yields)
+	e := estimatorFor(totals, rates, ladder, fakeLabels(50), yields)
 
 	got := mustEstimate(t, e, scanned)
 
@@ -221,7 +221,7 @@ func TestEstimateZeroDenominatorRoutesToFloorWithoutDivByZero(t *testing.T) {
 	}
 	rates := fakeRates{rateKey("gemini", "flash"): pricedRate}
 	totals := &fakeTotals{rows: []ai.ServedTaskTotal{served}}
-	e := newEstimator(totals, rates, ladder, fakeLabels(0), fakeYields{Scanned: 100, Captured: 100})
+	e := estimatorFor(totals, rates, ladder, fakeLabels(0), fakeYields{Scanned: 100, Captured: 100})
 
 	got := mustEstimate(t, e, 100) // must not panic
 	if got.Quality != QualityHeuristic {
@@ -241,7 +241,7 @@ func TestEstimateEmptyLadderSurfacesTokensUnpriced(t *testing.T) {
 	}
 	ladder := fakeLadder{tiers: map[ai.Tier]ai.ModelRef{}, ladders: defaultLadders()} // nothing bound
 	totals := &fakeTotals{rows: []ai.ServedTaskTotal{served}}
-	e := newEstimator(totals, fakeRates{}, ladder, fakeLabels(50), fakeYields{Scanned: 100, Captured: 100})
+	e := estimatorFor(totals, fakeRates{}, ladder, fakeLabels(50), fakeYields{Scanned: 100, Captured: 100})
 
 	got := mustEstimate(t, e, 100) // must not panic on an empty BoundLadder
 	if got.HasCost {
@@ -267,7 +267,7 @@ func TestEstimateAllUnpricedSurfacesTokensNoCost(t *testing.T) {
 		ladders: defaultLadders(),
 	}
 	totals := &fakeTotals{rows: []ai.ServedTaskTotal{served}}
-	e := newEstimator(totals, fakeRates{}, ladder, fakeLabels(50), fakeYields{Scanned: 100, Captured: 100})
+	e := estimatorFor(totals, fakeRates{}, ladder, fakeLabels(50), fakeYields{Scanned: 100, Captured: 100})
 
 	got := mustEstimate(t, e, 100)
 	if got.HasCost {
@@ -295,7 +295,7 @@ func TestEstimateDefaultedUnitsStillApplyObservedCost(t *testing.T) {
 	}
 	rates := fakeRates{rateKey("gemini", "flash"): pricedRate}
 	totals := &fakeTotals{rows: []ai.ServedTaskTotal{served}}
-	e := newEstimator(totals, rates, ladder, fakeLabels(50), fakeYields{}) // zero-value yields
+	e := estimatorFor(totals, rates, ladder, fakeLabels(50), fakeYields{}) // zero-value yields
 
 	got := mustEstimate(t, e, 100)
 	if !got.HasCost {
@@ -335,7 +335,7 @@ func TestEstimatePricedDenomFlooredAtOne(t *testing.T) {
 	rates := fakeRates{rateKey("ollama", "gemma3"): pricedRate} // "custom/no-rate" unpriced
 	totals := &fakeTotals{rows: []ai.ServedTaskTotal{priced, unpriced}}
 	// enrich denom = Σcalls = 1000; pricedCalls = 1; 1000×1/1000 = 1 → floored ≥1.
-	e := newEstimator(totals, rates, ladder, fakeLabels(0), fakeYields{Scanned: 100, Captured: 100, PeopleCreated: 50})
+	e := estimatorFor(totals, rates, ladder, fakeLabels(0), fakeYields{Scanned: 100, Captured: 100, PeopleCreated: 50})
 
 	got := mustEstimate(t, e, 100) // must not panic (div-by-zero guard)
 	if !got.HasCost {
@@ -351,7 +351,7 @@ func TestEstimatePricedDenomFlooredAtOne(t *testing.T) {
 func TestEstimateAsksForTheBackfillTasksOverTheWindow(t *testing.T) {
 	totals := &fakeTotals{}
 	ladder := fakeLadder{tiers: map[ai.Tier]ai.ModelRef{}, ladders: defaultLadders()}
-	e := newEstimator(totals, fakeRates{}, ladder, fakeLabels(0), fakeYields{})
+	e := estimatorFor(totals, fakeRates{}, ladder, fakeLabels(0), fakeYields{})
 	_ = mustEstimate(t, e, 10)
 
 	if len(totals.got) != len(backfillTasks) {
