@@ -263,6 +263,7 @@ function MemberRow({ member }: Readonly<{ member: User }>) {
         confirmLabel={t("users.deactivate")}
         confirmVariant="danger"
         pending={deactivate.isPending}
+        error={deactivate.error?.message}
         onConfirm={() => deactivate.mutate()}
       >
         <p className="t-small">{t("users.deactivateConfirmBody")}</p>

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
@@ -37,7 +38,7 @@ func (h Handlers) InviteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.TrimSpace(req.DisplayName)
-	if name == "" || len(name) > 255 {
+	if name == "" || utf8.RuneCountInString(name) > 255 {
 		httperr.Write(w, r, httperr.Validation("display_name", "length", "a display name of 1–255 characters is required"))
 		return
 	}
@@ -50,7 +51,7 @@ func (h Handlers) InviteUser(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, r, err)
 		return
 	}
-	h.sendInvite(r, string(req.Email), rawToken)
+	h.sendInvite(r, email.String(), rawToken)
 	h.writeUserByID(w, r, userID, http.StatusCreated)
 }
 
@@ -82,7 +83,7 @@ func (h Handlers) DeactivateUser(w http.ResponseWriter, r *http.Request, id crmc
 	if r.ContentLength != 0 && !httperr.Decode(w, r, &req) {
 		return
 	}
-	if req.Reason != nil && len(*req.Reason) > 500 {
+	if req.Reason != nil && utf8.RuneCountInString(*req.Reason) > 500 {
 		httperr.Write(w, r, httperr.Validation("reason", "length", "the reason must be 500 characters or fewer"))
 		return
 	}

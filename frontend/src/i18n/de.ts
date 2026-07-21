@@ -1439,7 +1439,7 @@ export const de = {
   "users.namePlaceholder": "Vollständiger Name",
   "users.deactivateConfirmTitle": "{name} deaktivieren?",
   "users.deactivateConfirmBody":
-    "Sie werden überall abgemeldet und ihre Agent-Pässe sofort widerrufen. Du kannst sie später reaktivieren, aber sie müssen sich neu anmelden.",
+    "Die Person wird überall abgemeldet und ihre Agent-Pässe werden sofort widerrufen. Du kannst sie später reaktivieren, aber sie muss sich dann neu anmelden.",
   "users.roleLabel": "Rolle für das neue Mitglied",
   "users.invite": "Einladen",
   "users.setRole": "Rolle setzen…",
