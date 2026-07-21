@@ -90,6 +90,23 @@ func TestAdminUserManagementOverHTTP(t *testing.T) {
 	if afterOn.Status != "active" {
 		t.Fatalf("reactivated member status = %q, want active", afterOn.Status)
 	}
+
+	// The bootstrap admin is the only admin (the invited member is a rep):
+	// neither deactivating nor demoting them is allowed — it would lock the org.
+	var me struct {
+		User struct {
+			ID string `json:"id"`
+		} `json:"user"`
+	}
+	if status := e.call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
+		t.Fatalf("GET /me -> %d, want 200", status)
+	}
+	if status := e.call(t, "POST", "/v1/users/"+me.User.ID+"/deactivate", nil, nil, nil); status != http.StatusConflict {
+		t.Fatalf("deactivating the last admin -> %d, want 409", status)
+	}
+	if status := e.call(t, "PATCH", "/v1/users/"+me.User.ID+"/role", map[string]any{"role": "rep"}, nil, nil); status != http.StatusConflict {
+		t.Fatalf("demoting the last admin -> %d, want 409", status)
+	}
 }
 
 func containsUser(users []userWire, id string) bool {

@@ -29,6 +29,7 @@ import (
 const (
 	userStatusActive   = "active"
 	userAuditKeyStatus = "status"
+	roleAdmin          = "admin"
 )
 
 // InviteUserInput carries the admin-supplied details for a new member. No
@@ -45,7 +46,7 @@ type InviteUserInput struct {
 // user row, the role grant, the token, the audit row and the user.invited event
 // — commits in ONE transaction. A duplicate email answers ErrConflict.
 func (s *Service) InviteUser(ctx context.Context, actor Identity, in InviteUserInput) (ids.UserID, string, error) {
-	if !actor.hasRole("admin") {
+	if !actor.hasRole(roleAdmin) {
 		return ids.UserID{}, "", apperrors.ErrPermissionDenied
 	}
 	wsID, ok := workspaceFrom(ctx)
@@ -107,7 +108,7 @@ func (s *Service) InviteUser(ctx context.Context, actor Identity, in InviteUserI
 // again; existing sessions stay revoked and are re-minted on the next login.
 // Idempotent on an already-active member. Admin-only. Emits user.reactivated.
 func (s *Service) ReactivateUser(ctx context.Context, actor Identity, userID ids.UserID) error {
-	if !actor.hasRole("admin") {
+	if !actor.hasRole(roleAdmin) {
 		return apperrors.ErrPermissionDenied
 	}
 	ctx = actorCtx(ctx, actor)
@@ -137,6 +138,32 @@ func (s *Service) ReactivateUser(ctx context.Context, actor Identity, userID ids
 		return storekit.Emit(ctx, tx, auditID, "user.reactivated", "user", userID.UUID,
 			map[string]any{onboardingAuditUserID: userID, "by": actor.UserID})
 	})
+}
+
+// lastActiveAdmin reports whether userID is an active admin and the ONLY one —
+// deactivating them would leave the organization with no administrator and no
+// in-app way to recover. Runs inside the caller's row-locked transaction.
+func lastActiveAdmin(ctx context.Context, tx pgx.Tx, userID ids.UserID) (bool, error) {
+	var targetIsAdmin bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM role_assignment ra JOIN role r ON r.id = ra.role_id
+			WHERE ra.user_id = $1 AND r.key = 'admin')`, userID).Scan(&targetIsAdmin); err != nil {
+		return false, err
+	}
+	if !targetIsAdmin {
+		return false, nil
+	}
+	var otherAdmins int
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*) FROM app_user u
+		JOIN role_assignment ra ON ra.user_id = u.id
+		JOIN role r ON r.id = ra.role_id
+		WHERE r.key = 'admin' AND u.status = 'active' AND u.archived_at IS NULL
+		  AND u.id <> $1`, userID).Scan(&otherAdmins); err != nil {
+		return false, err
+	}
+	return otherAdmins == 0, nil
 }
 
 // hasRole is the identity module's own admin gate for the operations
@@ -180,7 +207,7 @@ type DeactivateUserInput struct {
 // lets caches and fan-outs drop access without polling). Admin-only;
 // idempotent on an already-deactivated user (no duplicate event).
 func (s *Service) DeactivateUser(ctx context.Context, actor Identity, in DeactivateUserInput) error {
-	if !actor.hasRole("admin") {
+	if !actor.hasRole(roleAdmin) {
 		return apperrors.ErrPermissionDenied
 	}
 	ctx = actorCtx(ctx, actor)
@@ -197,6 +224,15 @@ func (s *Service) DeactivateUser(ctx context.Context, actor Identity, in Deactiv
 		}
 		if status == "deactivated" {
 			return nil
+		}
+		// Never deactivate the last active admin — it would lock the whole
+		// organization out of user administration with no recovery in-app.
+		lastAdmin, err := lastActiveAdmin(ctx, tx, in.UserID)
+		if err != nil {
+			return err
+		}
+		if lastAdmin {
+			return apperrors.ErrConflict
 		}
 		if _, err := tx.Exec(ctx,
 			`UPDATE app_user SET status = 'deactivated' WHERE id = $1`, in.UserID); err != nil {
@@ -231,7 +267,7 @@ func (s *Service) DeactivateUser(ctx context.Context, actor Identity, in Deactiv
 // grant. from_role rides the payload only when the previous state was a
 // single role — a multi-role history has no one "from". Admin-only.
 func (s *Service) ChangeUserRole(ctx context.Context, actor Identity, userID ids.UserID, toRole string) error {
-	if !actor.hasRole("admin") {
+	if !actor.hasRole(roleAdmin) {
 		return apperrors.ErrPermissionDenied
 	}
 	ctx = actorCtx(ctx, actor)
@@ -266,6 +302,16 @@ func (s *Service) ChangeUserRole(ctx context.Context, actor Identity, userID ids
 		}
 		if len(fromRoles) == 1 && fromRoles[0] == toRole {
 			return nil // already exactly this role; no event to publish
+		}
+		// Never demote the last active admin — the same lockout as deactivation.
+		if toRole != roleAdmin {
+			lastAdmin, err := lastActiveAdmin(ctx, tx, userID)
+			if err != nil {
+				return err
+			}
+			if lastAdmin {
+				return apperrors.ErrConflict
+			}
 		}
 
 		if _, err := tx.Exec(ctx,

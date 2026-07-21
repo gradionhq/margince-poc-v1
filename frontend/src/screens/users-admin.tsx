@@ -74,7 +74,7 @@ function InviteForm() {
   const invite = useMutation({
     mutationFn: async () => {
       const { error: err } = await api.POST("/users", {
-        body: { email, display_name: name, role },
+        body: { email: email.trim(), display_name: name.trim(), role },
       });
       if (err) {
         throw new Error(problemMessage(err));

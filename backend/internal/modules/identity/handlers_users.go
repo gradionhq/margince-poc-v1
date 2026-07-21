@@ -19,9 +19,8 @@ import (
 
 // InviteUser (POST /users): provision a new member and mail the set-password link.
 func (h Handlers) InviteUser(w http.ResponseWriter, r *http.Request) {
-	actor, ok := identityFrom(r.Context())
+	actor, ok := h.actor(w, r)
 	if !ok {
-		httperr.Unauthorized(w, r, "authentication required")
 		return
 	}
 	var req crmcontracts.InviteUserRequest
@@ -43,9 +42,8 @@ func (h Handlers) InviteUser(w http.ResponseWriter, r *http.Request) {
 
 // ChangeUserRole (PATCH /users/{id}/role).
 func (h Handlers) ChangeUserRole(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	actor, ok := identityFrom(r.Context())
+	actor, ok := h.actor(w, r)
 	if !ok {
-		httperr.Unauthorized(w, r, "authentication required")
 		return
 	}
 	var req crmcontracts.ChangeUserRoleRequest
@@ -61,9 +59,8 @@ func (h Handlers) ChangeUserRole(w http.ResponseWriter, r *http.Request, id crmc
 
 // DeactivateUser (POST /users/{id}/deactivate).
 func (h Handlers) DeactivateUser(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	actor, ok := identityFrom(r.Context())
+	actor, ok := h.actor(w, r)
 	if !ok {
-		httperr.Unauthorized(w, r, "authentication required")
 		return
 	}
 	// The reason body is optional; an empty/absent body is a bare deactivate.
@@ -83,9 +80,8 @@ func (h Handlers) DeactivateUser(w http.ResponseWriter, r *http.Request, id crmc
 
 // ReactivateUser (POST /users/{id}/reactivate).
 func (h Handlers) ReactivateUser(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	actor, ok := identityFrom(r.Context())
+	actor, ok := h.actor(w, r)
 	if !ok {
-		httperr.Unauthorized(w, r, "authentication required")
 		return
 	}
 	if err := h.svc.ReactivateUser(r.Context(), actor, ids.UserID{UUID: ids.UUID(id)}); err != nil {
@@ -93,6 +89,16 @@ func (h Handlers) ReactivateUser(w http.ResponseWriter, r *http.Request, id crmc
 		return
 	}
 	h.writeUserByID(w, r, ids.UserID{UUID: ids.UUID(id)}, http.StatusOK)
+}
+
+// actor resolves the acting Identity the middleware bound; on the (defensive,
+// middleware-guaranteed) miss it writes 401 and reports ok=false.
+func (h Handlers) actor(w http.ResponseWriter, r *http.Request) (Identity, bool) {
+	id, ok := identityFrom(r.Context())
+	if !ok {
+		httperr.Unauthorized(w, r, "authentication required")
+	}
+	return id, ok
 }
 
 // writeUserByID reads the member back (any status) and writes it — the shared
