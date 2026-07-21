@@ -138,19 +138,33 @@ func seedOverlayModeWorkspace(t *testing.T) (ws, user ids.UUID) {
 // mirror read path (MirrorStore.Get/List) gates on principal.Actor's
 // UserID via mirror_user_map, not on object-RBAC permissions, so no
 // Permissions grant is needed here.
+// overlayReaderPerms is the least-privilege grant an overlay reader needs:
+// Read on every mirrored entity type and nothing else (no CRUD). The
+// overlay Provider object-gates its reads like the native stores, so the
+// object gate must pass for the row-scope (visibility) assertions to be the
+// ones that actually run. RowScope is All because overlay ROW visibility is
+// the store's mirror_visibility deny-join (HubSpot-owner mapping), not the
+// RBAC owner predicate — an unmapped actor still sees zero rows despite
+// RowScopeAll. (ReadOnlyPerms would under-grant here: it omits
+// organization/lead/activity, which these overlay tests also read.)
+var overlayReaderPerms = principal.Permissions{
+	RoleKeys: []string{"read_only"},
+	Objects: map[string]principal.ObjectGrant{
+		"person":       {Read: true},
+		"organization": {Read: true},
+		"deal":         {Read: true},
+		"lead":         {Read: true},
+		"activity":     {Read: true},
+	},
+	RowScope: principal.RowScopeAll,
+}
+
 func overlayActorCtx(ws, user ids.UUID) context.Context {
 	ctx := principal.WithWorkspaceID(context.Background(), ws)
 	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
-	// A normal overlay reader carries the same object-capability grants a
-	// native reader does — the overlay Provider object-gates its reads like
-	// the native stores. Overlay ROW visibility is the mirror_visibility
-	// deny-join (HubSpot-owner mapping), independent of RBAC row scope, so an
-	// unmapped actor still sees zero rows (existence-hiding) despite these
-	// grants: the object gate must pass for the row-scope test to be the one
-	// that actually runs.
 	return principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalHuman, ID: "human:" + user.String(), UserID: user,
-		Permissions: AdminPerms,
+		Permissions: overlayReaderPerms,
 	})
 }
 

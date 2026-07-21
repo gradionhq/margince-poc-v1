@@ -14,13 +14,21 @@ import (
 
 // decimalAmountPattern accepts only a plain or scientific DECIMAL amount —
 // an optional sign, digits with an optional fraction (or a leading-dot
-// fraction), and an optional base-10 exponent. It exists to fence
-// big.Rat.SetString, which is far more permissive than a HubSpot amount
-// ever is: SetString would otherwise accept rationals ("1/2"), hex/binary
-// prefixes ("0x10"), and digit-group underscores ("1_000") and silently
-// coin money from them. Anything this does not match is rejected before
-// conversion.
-var decimalAmountPattern = regexp.MustCompile(`^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$`)
+// fraction), and an optional base-10 exponent of at most three digits. It
+// exists to fence big.Rat.SetString, which is far more permissive than a
+// HubSpot amount ever is: SetString would otherwise accept rationals
+// ("1/2"), hex/binary prefixes ("0x10"), and digit-group underscores
+// ("1_000") and silently coin money from them. The three-digit exponent
+// cap (with maxAmountLen below) also bounds the SetString allocation: a
+// value like "1e-1000000" would otherwise make it build a million-digit
+// denominator for a number that rounds to zero. Anything this does not
+// match is rejected before conversion.
+var decimalAmountPattern = regexp.MustCompile(`^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d{1,3})?$`)
+
+// maxAmountLen bounds the mantissa length so a pathological all-digits input
+// cannot force a huge big.Rat allocation. No genuine HubSpot money amount
+// approaches this; the mirror's int64 minor-unit domain is ~19 digits.
+const maxAmountLen = 40
 
 // TargetKind names the shape of an incumbent-CRM property's landing spot
 // in the mirror. A 1:1 flat projector can express none of these on its
@@ -153,6 +161,9 @@ func transformAmountToMinor(v any) (any, error) {
 // rounding half away from zero. It works on big.Rat so no binary float
 // error is ever introduced, and rejects a value that overflows int64.
 func decimalStringToMinor(s string, scale int64) (int64, error) {
+	if len(s) > maxAmountLen {
+		return 0, fmt.Errorf("amount too long")
+	}
 	if !decimalAmountPattern.MatchString(s) {
 		return 0, fmt.Errorf("not a decimal amount")
 	}

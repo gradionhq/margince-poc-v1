@@ -4,6 +4,7 @@
 package overlay_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
@@ -344,6 +345,9 @@ func TestApplyAmountToMinorRejectsNonFiniteAndOverflow(t *testing.T) {
 	for _, bad := range []string{
 		"NaN", "Inf", "-Inf", "not-a-number", "99999999999999999999999999",
 		"1/2", "0x10", "0b101", "1_000",
+		// A huge exponent / over-long mantissa must be refused BEFORE
+		// big.Rat.SetString allocates for it (a resource-exhaustion guard).
+		"1e-1000000", "1e1000000", strings.Repeat("9", 100),
 	} {
 		if _, _, err := overlay.Apply(m, map[string]any{"amount": bad}); err == nil {
 			t.Errorf("Apply(amount=%q): want an error, got none", bad)
