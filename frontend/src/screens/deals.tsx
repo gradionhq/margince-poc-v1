@@ -34,6 +34,7 @@ import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
 import {
+  OverlayUnavailable,
   problemMessage,
   QueryGate,
   throwProblem,
@@ -1421,8 +1422,12 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
       return data;
     },
   });
+  // Entity-scoped activity reads are a dial the overlay mirror refuses (422);
+  // skip the fetch and show the honest unavailable notice in the timeline slot.
+  const overlay = useSorMode() === "overlay";
   const timelineQuery = useQuery({
     queryKey: ["activities", "deal", id],
+    enabled: !overlay,
     queryFn: async () => {
       const { data, error } = await api.GET("/activities", {
         params: { query: { entity_type: "deal", entity_id: id, limit: 20 } },
@@ -1521,6 +1526,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                     ))
                   : []
               }
+              timelineNotice={overlay ? <OverlayUnavailable /> : undefined}
             >
               <div style={{ marginBottom: 16 }}>
                 <SegmentedControl

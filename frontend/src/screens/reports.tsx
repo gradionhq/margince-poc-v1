@@ -11,7 +11,12 @@ import {
 } from "../design-system/atoms";
 import { formatMoney } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
-import { problemMessage, QueryGate } from "./common";
+import {
+  OverlayUnavailable,
+  problemMessage,
+  QueryGate,
+  useSorMode,
+} from "./common";
 import { QuotasView } from "./quotas";
 
 // Reports (B-EP09.12c, D-11): a picker over three reports — deals-by-stage
@@ -106,7 +111,11 @@ export function ReportsScreen() {
   // The report machinery needs a valid ReportKey; while "quotas" is active the
   // report/pipeline queries are disabled, so this fallback key is inert.
   const report: ReportKey = segment === "quotas" ? "deals-by-stage" : segment;
-  const reportActive = segment !== "quotas";
+  // Deal reports aggregate over the pipeline/stage structure the overlay mirror
+  // does not hold (the report endpoints 404 in overlay), so the report segments
+  // show the honest unavailable state; the native quotas tab still works.
+  const overlay = useSorMode() === "overlay";
+  const reportActive = segment !== "quotas" && !overlay;
 
   const pipelineQuery = useQuery({
     queryKey: ["pipelines"],
@@ -206,6 +215,15 @@ export function ReportsScreen() {
       <div className="wrap narrow">
         {header}
         <QuotasView />
+      </div>
+    );
+  }
+
+  if (overlay) {
+    return (
+      <div className="wrap narrow">
+        {header}
+        <OverlayUnavailable />
       </div>
     );
   }

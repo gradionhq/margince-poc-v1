@@ -16,10 +16,12 @@ import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
 import { ArchiveAction } from "./archive";
 import {
+  OverlayUnavailable,
   problemMessage,
   provenanceOf,
   QueryGate,
   throwProblem,
+  useSorMode,
 } from "./common";
 import { TimelineActions } from "./compose";
 import { ConsentSection } from "./consent";
@@ -257,8 +259,13 @@ function useTimeline(
   entityType: "person" | "organization" | "deal",
   id: string,
 ) {
+  // The timeline is an entity-scoped activity read, a dial the overlay mirror
+  // refuses (422) — skip the fetch in overlay; the 360 renders the honest
+  // unavailable state in the timeline slot instead.
+  const overlay = useSorMode() === "overlay";
   return useQuery({
     queryKey: ["activities", entityType, id],
+    enabled: !overlay,
     queryFn: async () => {
       const { data, error } = await api.GET("/activities", {
         params: {
@@ -402,6 +409,7 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
     },
   });
   const timelineQuery = useTimeline("person", id);
+  const overlay = useSorMode() === "overlay";
 
   return (
     <div className="wrap">
@@ -521,6 +529,7 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                   ))
                 : []
             }
+            timelineNotice={overlay ? <OverlayUnavailable /> : undefined}
           >
             <div style={{ marginBottom: 16 }}>
               <SegmentedControl
