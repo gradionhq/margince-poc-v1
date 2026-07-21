@@ -1,8 +1,0 @@
-[     317ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=b593a928:20102
-[     358ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:5173/v1/me:0
-[    6420ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5173/v1/company:0
-[    6446ms] [ERROR] Failed to load resource: the server responded with a status of 501 (Not Implemented) @ http://localhost:5173/v1/digest:0
-[    6447ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5173/v1/brief:0
-[    6454ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5173/v1/onboarding/state:0
-[    6457ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5173/v1/company:0
-[   92294ms] [ERROR] Failed to load resource: the server responded with a status of 422 (Unprocessable Entity) @ http://localhost:5173/v1/onboarding/state:0

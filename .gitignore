@@ -42,3 +42,8 @@ frontend/storybook-static/
 # factory artifacts (plans/reports/UAT guides) into the worktree can never
 # stage them (target-minimum-setup §1).
 workspace/
+
+# Playwright MCP scratch: page snapshots, console logs and screenshots a
+# browser-driving session writes as it works. Debris from testing, never
+# product — and it lands here by default, so it is ignored by name.
+.playwright-mcp/
