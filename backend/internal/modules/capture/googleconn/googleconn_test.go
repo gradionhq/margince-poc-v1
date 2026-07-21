@@ -129,6 +129,11 @@ func TestGetDecodesOKAndMapsSentinels(t *testing.T) {
 		//craft:ignore swallowed-errors test stub write
 		_, _ = w.Write([]byte(`{"error":{"errors":[{"reason":"rateLimitExceeded"}]}}`))
 	})
+	mux.HandleFunc("/quotaexceeded", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		//craft:ignore swallowed-errors test stub write
+		_, _ = w.Write([]byte(`{"error":{"errors":[{"reason":"quotaExceeded"}]}}`))
+	})
 	mux.HandleFunc("/boom", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusInternalServerError) })
 	mux.HandleFunc("/garbage", func(w http.ResponseWriter, _ *http.Request) {
 		//craft:ignore swallowed-errors test stub write
@@ -164,6 +169,10 @@ func TestGetDecodesOKAndMapsSentinels(t *testing.T) {
 	rl = nil
 	if _, err := Get(context.Background(), client, srv.URL, "tok", "/quota", nil, &out); !errors.As(err, &rl) {
 		t.Fatalf("Get /quota (403 rateLimitExceeded) err = %v, want a RateLimitedError", err)
+	}
+	rl = nil
+	if _, err := Get(context.Background(), client, srv.URL, "tok", "/quotaexceeded", nil, &out); !errors.As(err, &rl) {
+		t.Fatalf("Get /quotaexceeded (403 quotaExceeded) err = %v, want a RateLimitedError", err)
 	}
 }
 

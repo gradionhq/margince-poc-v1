@@ -64,14 +64,14 @@ const codeUnauthorized = "unauthorized"
 // nonce in the signed state — the account-linking-CSRF defence.
 const oauthCSRFCookie = "oauth_csrf"
 
-// csrfCookieName namespaces the CSRF nonce cookie per provider, so a Gmail and
-// a Google Calendar flow (the same Google OAuth app) run concurrently without
-// one flow's nonce clobbering the other's. Gmail keeps the un-suffixed legacy
-// name so a consent round-trip started on a prior build (its cookie already
-// set) still verifies against a callback served by this one — only the new
-// providers take the suffix.
+// csrfCookieName namespaces the CSRF nonce cookie per provider, so the two
+// connectors on the one Google OAuth app (gmail + gcal) don't clobber each
+// other's nonce in concurrent flows. The providers that shipped on the shared
+// un-suffixed "oauth_csrf" name (gmail, graph) keep it, so a consent round-trip
+// started on a prior build still verifies against a callback served by this one
+// across a deploy; only the new provider (gcal) takes the suffix.
 func csrfCookieName(provider string) string {
-	if provider == providerGmail {
+	if provider == providerGmail || provider == providerGraph {
 		return oauthCSRFCookie
 	}
 	return oauthCSRFCookie + "_" + provider

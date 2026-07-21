@@ -32,7 +32,7 @@ func wiredHandlers() connectorHandlers {
 		registry:      capture.NewRegistry(nil, nil, nil, nil),
 		oauth:         gmail.NewOAuth(gmail.OAuthConfig{ClientID: "cid", ClientSecret: "sec", Scopes: []string{"https://www.googleapis.com/auth/gmail.readonly"}}),
 		gmailAPI:      gmail.NewAPI(nil, ""),
-		gcalOAuth:     gmail.NewOAuth(gmail.OAuthConfig{ClientID: "cid", ClientSecret: "sec", Scopes: []string{"https://www.googleapis.com/auth/calendar.readonly"}}),
+		gcalOAuth:     gcal.NewOAuth(gcal.OAuthConfig{ClientID: "cid", ClientSecret: "sec"}),
 		gcalAPI:       gcal.NewAPI(nil, ""),
 		signer:        newStateSigner([]byte(testStateKey)),
 		publicBaseURL: "https://app.test", // the SPA/front origin — landing
@@ -115,6 +115,11 @@ func TestConnectConnectorReturnsSignedAuthorizeURLForGcal(t *testing.T) {
 		t.Errorf("scope = %q, want the calendar.readonly consent", got)
 	} else if strings.Contains(got, "gmail.readonly") {
 		t.Errorf("scope = %q, must not request the gmail.readonly scope", got)
+	}
+	// gcal authorizes separately from Gmail: no incremental authorization, so
+	// the calendar credential can't accrete the mail-read grant.
+	if u.Query().Get("include_granted_scopes") != "" {
+		t.Errorf("gcal consent must not send include_granted_scopes (per-connector least privilege)")
 	}
 	st, err := h.signer.verify(u.Query().Get("state"), time.Now())
 	if err != nil {

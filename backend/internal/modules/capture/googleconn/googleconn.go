@@ -79,11 +79,11 @@ func Get(ctx context.Context, client *http.Client, base, accessToken, path strin
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	// A throttled provider is weather, not a bad credential: honor Retry-After
 	// and let the registry back off rather than parking the connection. Google
-	// signals per-user quota as 429, or as 403 with a rateLimitExceeded reason.
+	// signals quota/rate limits as 429, or as 403 with a rate/quota reason.
 	if resp.StatusCode == http.StatusTooManyRequests {
 		return resp.StatusCode, &connector.RateLimitedError{RetryAfter: retryAfter(resp)}
 	}
-	if resp.StatusCode == http.StatusForbidden && bytes.Contains(body, []byte("ateLimitExceeded")) {
+	if resp.StatusCode == http.StatusForbidden && isRateLimitBody(body) {
 		return resp.StatusCode, &connector.RateLimitedError{RetryAfter: retryAfter(resp)}
 	}
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
@@ -101,6 +101,15 @@ func Get(ctx context.Context, client *http.Client, base, accessToken, path strin
 		return resp.StatusCode, fmt.Errorf("googleconn: decoding %s: %w", path, ErrUnreachable)
 	}
 	return resp.StatusCode, nil
+}
+
+// isRateLimitBody reports whether a 403 body carries one of Google's
+// rate/quota reasons (rateLimitExceeded, userRateLimitExceeded,
+// dailyLimitExceeded — all share "LimitExceeded" — or quotaExceeded). Those are
+// retryable throttling, distinct from a revoked/insufficient grant, which stays
+// ErrAuthRejected.
+func isRateLimitBody(body []byte) bool {
+	return bytes.Contains(body, []byte("LimitExceeded")) || bytes.Contains(body, []byte("quotaExceeded"))
 }
 
 // retryAfter parses the provider's Retry-After (delta-seconds form; Google does

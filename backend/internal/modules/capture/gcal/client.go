@@ -217,10 +217,11 @@ func (a *httpAPI) listPages(ctx context.Context, accessToken string, base url.Va
 		for _, item := range page.Items {
 			events = append(events, []byte(item))
 		}
-		if page.NextSyncToken != "" {
-			syncToken = page.NextSyncToken
-		}
 		if page.NextPageToken == "" {
+			// Only the terminal page carries the delta anchor; a nextSyncToken
+			// on an earlier (non-terminal) page is not the watermark and must
+			// not be trusted if the last page omits it.
+			syncToken = page.NextSyncToken
 			break
 		}
 		pageToken = page.NextPageToken

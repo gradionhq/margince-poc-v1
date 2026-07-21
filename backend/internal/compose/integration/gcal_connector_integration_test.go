@@ -143,14 +143,14 @@ func TestGcalConnectorSyncsExternalMeetingAndSkipsInternal(t *testing.T) {
 		t.Fatalf("cursor did not advance: %q", cursor)
 	}
 
-	assertGcalConnectionSurface(e, grantCtx, t, registry, connID)
+	assertGcalConnectionSurface(grantCtx, e, t, registry, connID)
 }
 
 // assertGcalConnectionSurface exercises the standing-connection surface behind
 // listConnectors / the fleet due-poll / disconnectConnector for the one gcal
 // connection: it lists connected, is paced out right after a sync, becomes due
 // again once the pacing clock passes, and after disconnect the poller skips it.
-func assertGcalConnectionSurface(e *searchEnv, grantCtx context.Context, t *testing.T, registry *capture.Registry, connID ids.UUID) {
+func assertGcalConnectionSurface(grantCtx context.Context, e *searchEnv, t *testing.T, registry *capture.Registry, connID ids.UUID) {
 	t.Helper()
 	views, err := registry.Connections(grantCtx)
 	if err != nil {
@@ -171,14 +171,7 @@ func assertGcalConnectionSurface(e *searchEnv, grantCtx context.Context, t *test
 		t.Fatalf("DueConnections right after a successful sync = %+v, want none (paced out)", due)
 	}
 	// Once the pacing clock passes, the same connection is due again.
-	err = database.WithWorkspaceTx(grantCtx, e.Pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(context.Background(),
-			`UPDATE capture_sync_state SET next_sync_at = now() - interval '1 second' WHERE connection_id = $1`, connID)
-		return err
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	forceDue(t, e, connID)
 	due, err = registry.DueConnections(context.Background(), "gcal")
 	if err != nil {
 		t.Fatalf("DueConnections: %v", err)
