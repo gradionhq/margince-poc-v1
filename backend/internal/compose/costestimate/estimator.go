@@ -266,51 +266,28 @@ func (e *Estimator) priceFloor(ctx context.Context, task ai.Task, units int64, t
 
 // expectedUnits maps this preview's scanned-message count to a task's expected
 // unit count via the connection's backfill yields, or the floor when no
-// completed run exists. Multiply-before-divide. observed=false ⇒ the floor was
-// used (a heuristic).
+// completed run exists (no yield, an unruled task, or a rule reporting its ratio
+// unavailable — enrich's C1 guard). Multiply-before-divide. observed=false ⇒ the
+// floor was used (a heuristic). The per-task observed ratio lives in
+// backfillUnitRules; the shared floor fallback is spelled once here.
 func expectedUnits(task ai.Task, scanned int64, y capture.BackfillYields) (units int64, observed bool) {
-	if y.Scanned <= 0 {
-		return unitsFloor(task, scanned), false
-	}
-	switch task {
-	case ai.TaskCaptureClassify:
-		return scanned * y.Captured / y.Scanned, true // messages
-	case ai.TaskEmbeddings:
-		// person/org embed entities are UNDER-counted while people_created /
-		// organizations_created are unpopulated by the backfill loop (they are
-		// created asynchronously downstream, not at page-commit), so this degrades
-		// to a captured-only figure — a labeled, conservative underestimate.
-		// Embeddings is NOT floored: captured is real and dominates the entity mix,
-		// so the observed ratio stays the honest anchor.
-		return scanned * (y.Captured + y.PeopleCreated + y.OrganizationsCreated) / y.Scanned, true // entities
-	case ai.TaskEnrich:
-		// A zero people_created is "ratio unavailable", not "zero people": the
-		// backfill loop never increments the counter (people/orgs are created
-		// asynchronously downstream, not at page-commit — see capture/backfill.go
-		// RunBackfillStep). Flooring to the named default is honest; a silent
-		// observed-0 on a consent number — quoting $0 enrich to the user — is not.
-		if y.PeopleCreated == 0 {
-			return unitsFloor(ai.TaskEnrich, scanned), false
+	if rule, ok := backfillUnitRules[task]; ok && y.Scanned > 0 {
+		if u, ratioOK := rule.observedUnits(scanned, y); ratioOK {
+			return u, true
 		}
-		return scanned * y.PeopleCreated / y.Scanned, true // persons
-	default:
-		return unitsFloor(task, scanned), false
 	}
+	return unitsFloor(task, scanned), false
 }
 
 // observedUnitsDenom is the observed unit count the window's served slices are
-// divided by: classify's exact labeled-message count (absorbs batching + solo
-// re-asks), else the summed served calls (one enrich call per person, one embed
-// call per entity).
+// divided by — the per-task denominator held in backfillUnitRules. An unruled
+// task (never reached: the loop iterates backfillTasks, fitness-locked to the
+// rule keys) falls back to the summed served calls.
 func observedUnitsDenom(task ai.Task, slices []ai.ServedTaskTotal, labeledCount int64) int64 {
-	if task == ai.TaskCaptureClassify {
-		return labeledCount
+	if rule, ok := backfillUnitRules[task]; ok {
+		return rule.observedDenom(slices, labeledCount)
 	}
-	var sum int64
-	for _, s := range slices {
-		sum += s.Calls
-	}
-	return sum
+	return sumSliceCalls(slices)
 }
 
 // effectiveModel chooses the model to price a served slice at — the model that

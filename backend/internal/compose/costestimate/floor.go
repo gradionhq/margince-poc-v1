@@ -63,36 +63,13 @@ const (
 // yield replaces it the moment one run completes.
 const defaultPersonsPerMsg = 1.0 / classifyBatchSize
 
-// backfillTasks is the closed set of tasks the backfill preview prices — the
-// three AI passes a connect-time backfill drives (ai-operational-spec §2.8/§2.9
-// + the embed lane). Iterated in this fixed order for a deterministic estimate.
-var backfillTasks = []ai.Task{ai.TaskCaptureClassify, ai.TaskEnrich, ai.TaskEmbeddings}
-
 // workShapeFloor returns the per-UNIT token means for one task's floor estimate,
-// derived from the real prompt shape above. Deterministic and non-zero for every
-// backfill task.
+// derived from the real prompt shape above and held in backfillUnitRules.
+// Deterministic and non-zero for every backfill task; a non-backfill task (e.g.
+// summarize) carries no rule and so returns the zero Usage rather than a
+// fabricated floor.
 func workShapeFloor(task ai.Task) ai.Usage {
-	switch task {
-	case ai.TaskCaptureClassify:
-		// Per message: the truncated body plus the batch system/schema prompt
-		// amortized across the batch; one short verdict out.
-		return ai.Usage{
-			TokensIn:  classifyBodyLimit/charsPerToken + classifySystemTokens/classifyBatchSize,
-			TokensOut: classifyVerdictTokens,
-		}
-	case ai.TaskEnrich:
-		// Per person: the trailing signature lines plus the extraction prompt in,
-		// a small field bundle out.
-		return ai.Usage{
-			TokensIn:  signatureLineCount*signatureLineTokens + enrichSystemTokens,
-			TokensOut: enrichFieldsTokens,
-		}
-	case ai.TaskEmbeddings:
-		// Per entity: input-only — no output, no cache.
-		return ai.Usage{TokensIn: embedItemTokens}
-	default:
-		return ai.Usage{}
-	}
+	return backfillUnitRules[task].floor
 }
 
 // unitsFloor is the built-in volume ratio used when a connection has no
