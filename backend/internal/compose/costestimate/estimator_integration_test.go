@@ -201,6 +201,14 @@ func (e *estEnv) insertRate(t *testing.T, ws ids.UUID, model string, in, out int
 // TestEstimatorPricesObservedHistory is the hand-computed cost proof: classify
 // priced at cloud-model, embeddings at embed-model, enrich at a real $0
 // local-model — every task observed and priced, yields present, over real PG.
+//
+// This fixture seeds people_created=10 / organizations_created=2 — the
+// FUTURE-populated-counters state. Production does NOT reach it today: the
+// backfill loop (capture/backfill.go RunBackfillStep) never increments those
+// counters, so a real completed run carries 0 (see the follow-up flag in the
+// PR and TestEstimatorEnrichFloorsWhenPeopleCreatedZero for today's reality).
+// The case is retained so the observed-enrich path stays covered for when the
+// counters are populated.
 func TestEstimatorPricesObservedHistory(t *testing.T) {
 	e := setupEstimator(t)
 	ws, wsCtx := e.seedWorkspace(t)
@@ -249,6 +257,46 @@ func TestEstimatorPricesObservedHistory(t *testing.T) {
 	}
 	if got.InputTokens <= 0 {
 		t.Fatalf("InputTokens = %d, want > 0", got.InputTokens)
+	}
+}
+
+// TestEstimatorEnrichFloorsWhenPeopleCreatedZero is TODAY's production reality:
+// the backfill loop never populates capture_backfill.people_created, so a
+// completed run carries people_created=0. Enrich must FLOOR (heuristic) and
+// price the floor units — never quote a silent observed $0 — even though
+// classify and embeddings price observed from the same completed run.
+func TestEstimatorEnrichFloorsWhenPeopleCreatedZero(t *testing.T) {
+	e := setupEstimator(t)
+	ws, wsCtx := e.seedWorkspace(t)
+	user := e.seedUser(t, ws)
+	connID := e.seedConnection(t, ws, user, "gmail")
+	e.seedBackfill(t, ws, connID, 6, 100, 80, 0, 0) // people/orgs 0, as production leaves them
+
+	e.insertRate(t, ws, "cloud-model", 1_000_000, 2_000_000)
+	e.insertRate(t, ws, "embed-model", 500_000, 0)
+	e.insertRate(t, ws, "local-model", 1_000_000, 0) // enrich floor prices at the local head
+
+	e.insertCall(t, ws, callRow{task: ai.TaskCaptureClassify, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "cloud-model", tokensIn: 2_000_000, tokensOut: 200_000})
+	e.insertCall(t, ws, callRow{task: ai.TaskEnrich, tier: ai.TierLocalSmall, provider: ai.ProviderFake, model: "local-model", tokensIn: 500_000, tokensOut: 50_000})
+	e.insertCall(t, ws, callRow{task: ai.TaskEmbeddings, tier: ai.TierEmbedLane, provider: ai.ProviderFake, model: "embed-model", tokensIn: 1_000_000})
+	for i := 0; i < 4; i++ {
+		e.insertLabeledActivity(t, ws)
+	}
+
+	got, err := e.newEstimator().EstimateBackfill(wsCtx, "gmail", user, 100)
+	if err != nil {
+		t.Fatalf("EstimateBackfill: %v", err)
+	}
+	if got.Quality != QualityHeuristic {
+		t.Fatalf("Quality = %s, want heuristic (people_created=0 floors enrich)", got.Quality)
+	}
+	// Classify + embeddings price observed; enrich floors but is still priced at
+	// its floor units — nothing is a silent $0.
+	if !got.HasCost {
+		t.Fatal("HasCost = false, want true (classify + embeddings priced observed; enrich priced at floor units)")
+	}
+	if got.CostMinor <= 0 {
+		t.Fatalf("CostMinor = %d, want > 0", got.CostMinor)
 	}
 }
 

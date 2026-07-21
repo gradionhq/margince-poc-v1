@@ -169,18 +169,13 @@ func (e *Estimator) EstimateBackfill(ctx context.Context, provider string, userI
 		// No observed cost / no denominator (e.g. a no-label classify week) →
 		// the work-shape floor. Always heuristic.
 		quality = QualityHeuristic
-		floor := workShapeFloor(task)
-		inputTokens += int64(floor.TokensIn) * units // tokens surfaced even when unpriced
-		bound := e.ladder.BoundLadder(task)
-		if len(bound) == 0 {
-			continue // empty ladder → unpriced, never index [0]
-		}
-		rate, err := e.rates.RateFor(ctx, bound[0].Provider, bound[0].Model, today)
+		floorCost, floorTokens, floorPriced, err := e.priceFloor(ctx, task, units, today)
 		if err != nil {
 			return BackfillCost{}, err
 		}
-		if rate != nil {
-			costMicro += ai.PriceCall(floor, *rate) * units
+		costMicro += floorCost
+		inputTokens += floorTokens
+		if floorPriced {
 			hasCost = true
 		}
 	}
@@ -236,6 +231,39 @@ func (e *Estimator) priceObserved(ctx context.Context, task ai.Task, slices []ai
 	return costMicro, inputTokens, priced, heuristic, nil
 }
 
+// priceFloor prices one task's cold-start work-shape floor — the heuristic path
+// when there is no observed cost to scale. It surfaces the input tokens even
+// when unpriced (an empty ladder, or a ladder head with no rate), pricing at
+// the ladder head bound[0] when a rate resolves. Mirror of priceObserved for
+// the no-history side; the caller has already marked the estimate heuristic.
+func (e *Estimator) priceFloor(ctx context.Context, task ai.Task, units int64, today time.Time) (costMicro, inputTokens int64, priced bool, err error) {
+	floor := workShapeFloor(task)
+	inputTokens = int64(floor.TokensIn) * units // tokens surfaced even when unpriced
+	bound := e.ladder.BoundLadder(task)
+	if len(bound) == 0 {
+		return 0, inputTokens, false, nil // empty ladder → unpriced, never index [0]
+	}
+	rate, err := e.rates.RateFor(ctx, bound[0].Provider, bound[0].Model, today)
+	if err != nil {
+		return 0, 0, false, err
+	}
+	if rate == nil {
+		return 0, inputTokens, false, nil
+	}
+	// Scale the per-unit floor into an aggregate Usage BEFORE pricing, so
+	// PriceCall's ÷1e6 truncation lands once on the total rather than on each
+	// per-unit micro-USD before the ×units — the observed path already scales
+	// aggregate slice totals; this keeps the floor path consistent and
+	// truncation-free. The products fit int comfortably at these magnitudes.
+	scaled := ai.Usage{
+		TokensIn:         floor.TokensIn * int(units),
+		TokensOut:        floor.TokensOut * int(units),
+		CachedTokens:     floor.CachedTokens * int(units),
+		CacheWriteTokens: floor.CacheWriteTokens * int(units),
+	}
+	return ai.PriceCall(scaled, *rate), inputTokens, true, nil
+}
+
 // expectedUnits maps this preview's scanned-message count to a task's expected
 // unit count via the connection's backfill yields, or the floor when no
 // completed run exists. Multiply-before-divide. observed=false ⇒ the floor was
@@ -248,8 +276,22 @@ func expectedUnits(task ai.Task, scanned int64, y capture.BackfillYields) (units
 	case ai.TaskCaptureClassify:
 		return scanned * y.Captured / y.Scanned, true // messages
 	case ai.TaskEmbeddings:
+		// person/org embed entities are UNDER-counted while people_created /
+		// organizations_created are unpopulated by the backfill loop (they are
+		// created asynchronously downstream, not at page-commit), so this degrades
+		// to a captured-only figure — a labeled, conservative underestimate.
+		// Embeddings is NOT floored: captured is real and dominates the entity mix,
+		// so the observed ratio stays the honest anchor.
 		return scanned * (y.Captured + y.PeopleCreated + y.OrganizationsCreated) / y.Scanned, true // entities
 	case ai.TaskEnrich:
+		// A zero people_created is "ratio unavailable", not "zero people": the
+		// backfill loop never increments the counter (people/orgs are created
+		// asynchronously downstream, not at page-commit — see capture/backfill.go
+		// RunBackfillStep). Flooring to the named default is honest; a silent
+		// observed-0 on a consent number — quoting $0 enrich to the user — is not.
+		if y.PeopleCreated == 0 {
+			return unitsFloor(ai.TaskEnrich, scanned), false
+		}
 		return scanned * y.PeopleCreated / y.Scanned, true // persons
 	default:
 		return unitsFloor(task, scanned), false

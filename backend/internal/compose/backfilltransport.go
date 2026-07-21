@@ -11,6 +11,7 @@
 package compose
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -36,10 +37,19 @@ import (
 // codeWindowInvalid names the RFC 7807 code for a window outside {3m,6m,12m}.
 const codeWindowInvalid = "window_invalid"
 
+// backfillEstimator is the transport's narrow seam onto the ADR-0068 cost
+// pre-flight. It is an interface, not the concrete *costestimate.Estimator, so
+// the degrade-path test can inject a fault-returning fake and prove the preview
+// still answers 200 with the message count when the cost read fails. The
+// concrete estimator satisfies it.
+type backfillEstimator interface {
+	EstimateBackfill(ctx context.Context, provider string, userID ids.UserID, scannedMessages int64) (costestimate.BackfillCost, error)
+}
+
 type backfillHandlers struct {
 	registry  *capture.Registry
 	inserter  *jobs.Runner
-	estimator *costestimate.Estimator // the ADR-0068 cost pre-flight; nil ⇒ preview is message-count-only
+	estimator backfillEstimator // the ADR-0068 cost pre-flight; nil ⇒ preview is message-count-only
 	log       *slog.Logger
 }
 

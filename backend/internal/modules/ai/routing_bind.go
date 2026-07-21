@@ -57,6 +57,13 @@ func (r *Router) BoundLadder(task Task) []ModelRef {
 // departed the ladder — keyed on the slice's recorded ai_call.tier.
 func (r *Router) CurrentModelForTier(tier Tier) (ModelRef, bool) {
 	m, ok := r.routeMeta[tier]
+	// An empty model id counts as unbound DELIBERATELY: the offline `fake` provider
+	// legitimately binds {provider: fake} with no model id, and there is no model
+	// rate to price such a lane against — so it degrades to the estimator's
+	// floor/unpriced path, which is the acceptable dev/cert posture. Treating a
+	// genuinely-unpriceable binding as "bound" would be worse: it would quote a
+	// confident cost the deployment cannot actually charge. BoundLadder inherits
+	// this — an all-fake ladder resolves empty, i.e. unpriced.
 	if !ok || m.model == "" {
 		return ModelRef{}, false
 	}

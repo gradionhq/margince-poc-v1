@@ -346,6 +346,61 @@ func TestEstimatePricedDenomFlooredAtOne(t *testing.T) {
 	}
 }
 
+// C1 — a zero people_created is NOT a zero-people observed enrich line. The
+// backfill loop never populates capture_backfill.people_created (people/orgs are
+// created asynchronously downstream, not at page-commit), so a 0 means "ratio
+// unavailable": enrich must FLOOR (heuristic) and price the floor units, never
+// silently quote an observed $0 enrich cost.
+func TestEstimateEnrichFloorsWhenPeopleCreatedZero(t *testing.T) {
+	// Directly: expectedUnits floors enrich and reports NOT observed at zero
+	// people_created, even with a real captured/scanned ratio available.
+	units, observed := expectedUnits(ai.TaskEnrich, 100, capture.BackfillYields{Scanned: 100, Captured: 100, PeopleCreated: 0})
+	if observed {
+		t.Fatal("enrich units observed=true at people_created=0, want false (ratio unavailable → floor)")
+	}
+	if want := unitsFloor(ai.TaskEnrich, 100); units != want || units <= 0 {
+		t.Fatalf("enrich floor units = %d, want %d (>0)", units, want)
+	}
+
+	// End to end: classify + embeddings price observed from the same yields, but
+	// the zero-people enrich forces the WHOLE estimate heuristic. Under the old
+	// silent observed-0 (units = scanned×0/scanned) it would have read "observed".
+	classify := ai.ServedTaskTotal{
+		Task: ai.TaskCaptureClassify, Tier: ai.TierCheapCloud, Provider: "gemini", ModelID: "flash",
+		TokensIn: 1_000_000, TokensOut: 100_000, Calls: 5,
+	}
+	enrich := ai.ServedTaskTotal{
+		Task: ai.TaskEnrich, Tier: ai.TierCheapCloud, Provider: "gemini", ModelID: "flash",
+		TokensIn: 400_000, TokensOut: 40_000, Calls: 4,
+	}
+	embed := ai.ServedTaskTotal{
+		Task: ai.TaskEmbeddings, Tier: ai.TierEmbedLane, Provider: "gemini", ModelID: "embed",
+		TokensIn: 500_000, Calls: 10,
+	}
+	ladder := fakeLadder{
+		tiers: map[ai.Tier]ai.ModelRef{
+			ai.TierCheapCloud: {Provider: "gemini", Model: "flash"},
+			ai.TierEmbedLane:  {Provider: "gemini", Model: "embed"},
+		},
+		ladders: defaultLadders(),
+	}
+	rates := fakeRates{
+		rateKey("gemini", "flash"): pricedRate,
+		rateKey("gemini", "embed"): pricedRate,
+	}
+	totals := &fakeTotals{rows: []ai.ServedTaskTotal{classify, enrich, embed}}
+	e := estimatorFor(totals, rates, ladder, fakeLabels(50), fakeYields{Scanned: 100, Captured: 100, PeopleCreated: 0})
+
+	got := mustEstimate(t, e, 100)
+	if got.Quality != QualityHeuristic {
+		t.Fatalf("Quality = %s, want heuristic (zero people_created floors enrich, not a silent observed $0)", got.Quality)
+	}
+	// Enrich is still PRICED — at its floor units, not dropped to a $0 line.
+	if !got.HasCost || got.CostMinor <= 0 {
+		t.Fatalf("cost = %d hasCost=%v, want a priced enrich floor (>0), never a silent $0 enrich line", got.CostMinor, got.HasCost)
+	}
+}
+
 // The served-row window is anchored on the injected clock, and the estimator
 // asks for exactly the three backfill tasks — nothing broader.
 func TestEstimateAsksForTheBackfillTasksOverTheWindow(t *testing.T) {

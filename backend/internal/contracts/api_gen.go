@@ -6368,7 +6368,7 @@ type BackfillPreview struct {
 	// EstimateQuality observed = priced from this workspace's ai_call history; heuristic = cold-start work-shape floor or a defaulted ratio.
 	EstimateQuality *BackfillPreviewEstimateQuality `json:"estimate_quality,omitempty"`
 
-	// EstimatedAiTokens Projected classify+enrich tokens for that count.
+	// EstimatedAiTokens The estimator's input-anchored token figure across classify+enrich+embeddings for that count; absent on estimator fault (ADR-0068).
 	EstimatedAiTokens *int `json:"estimated_ai_tokens,omitempty"`
 
 	// EstimatedCostMinor USD minor units, estimated from observed ai_call history priced per served model at current ai_model_rate; absent when no rate applies (ADR-0068).

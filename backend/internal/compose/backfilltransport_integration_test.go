@@ -24,6 +24,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -223,6 +224,47 @@ func setupBackfillWire(t *testing.T) *backfillWireEnv {
 type backfillFixedClock struct{}
 
 func (backfillFixedClock) Now() time.Time { return time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC) }
+
+// faultyEstimator is the backfillEstimator seam returning a cost-read fault, so
+// the preview's degrade path (cost is transparency, never a gate) is drivable
+// without a broken database.
+type faultyEstimator struct{ err error }
+
+func (f faultyEstimator) EstimateBackfill(context.Context, string, ids.UserID, int64) (costestimate.BackfillCost, error) {
+	return costestimate.BackfillCost{}, f.err
+}
+
+// TestBackfillPreviewDegradesOnEstimatorFault proves the ADR-0068 guardrail: a
+// cost-estimate fault must NOT fail the preview. The message count still answers
+// 200; every estimator-sourced field (tokens, cost, currency, quality) is
+// absent — never a fabricated 0 or a stale label — and the fault is logged, not
+// swallowed (T2).
+func TestBackfillPreviewDegradesOnEstimatorFault(t *testing.T) {
+	b := setupBackfillWire(t)
+	var logbuf bytes.Buffer
+	h := b.handlers
+	h.estimator = faultyEstimator{err: errors.New("rate store unreachable")}
+	h.log = slog.New(slog.NewTextHandler(&logbuf, nil))
+
+	var out crmcontracts.BackfillPreview
+	code, _ := b.do(b.human, t, func(w http.ResponseWriter, r *http.Request) {
+		h.PreviewConnectorBackfill(w, r, crmcontracts.Gmail)
+	}, `{"window":"6m"}`, &out)
+
+	if code != http.StatusOK {
+		t.Fatalf("preview under estimator fault = %d, want 200 (cost is transparency, never a gate)", code)
+	}
+	if out.EstimatedMessages != 25 {
+		t.Fatalf("estimated_messages = %d, want 25 (the message count survives a cost fault)", out.EstimatedMessages)
+	}
+	if out.EstimatedAiTokens != nil || out.EstimatedCostMinor != nil || out.Currency != nil || out.EstimateQuality != nil {
+		t.Fatalf("estimator outputs must be absent on fault, got tokens=%v cost=%v currency=%v quality=%v",
+			out.EstimatedAiTokens, out.EstimatedCostMinor, out.Currency, out.EstimateQuality)
+	}
+	if !strings.Contains(logbuf.String(), "backfill preview cost estimate") {
+		t.Fatalf("estimator fault must be logged, not swallowed; got log %q", logbuf.String())
+	}
+}
 
 // do invokes one backfill handler with a JSON body under ctx and decodes
 // the response into out (when non-nil), returning status and problem code.
