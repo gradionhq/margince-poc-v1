@@ -40,7 +40,16 @@ func registryWithDraftBrain(pool *pgxpool.Pool, brain completer) *agents.Registr
 }
 
 func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.EmailDrafter) *agents.Registry {
-	provider := NewProvider(pool)
+	// The Dispatcher is the datasource seam every core/slipping tool
+	// rides: a native-mode workspace lands on the composite SoR
+	// Provider exactly as before, an overlay-mode workspace's reads land
+	// on the mirror (design.md §4.2/§4.6) — chosen per call from
+	// ctx, never fixed at registry construction time. This registry's own
+	// OVB meter is independent of the REST surface's (NewOverlayMeter's
+	// doc note): the MCP tool surface spends against its own in-process
+	// counter, not the one contractAPI's Dispatcher and GetOverlayBudget
+	// share.
+	provider := NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, NewOverlayMeter()), pool)
 	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate)
 	agents.RegisterCoreTools(registry, provider, provider, provider, fieldOwnership{pool: pool})
 	agents.RegisterReportTool(registry, reportToolRunner(newReportEngine(pool)))

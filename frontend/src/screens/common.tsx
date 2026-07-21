@@ -81,6 +81,17 @@ export function useMe() {
   });
 }
 
+// The workspace system-of-record mode, read off the shared ["me"] cache.
+// `native` is the safe default (full list capability) while /me is loading
+// or if an older server omits the field; the list surfaces gate on `overlay`
+// to drop sort/filter dials the incumbent mirror refuses (422). AuthGate
+// resolves /me before any list screen mounts, so a screen sees the real value.
+export function useSorMode(): "native" | "overlay" {
+  return useMe().data?.system_of_record?.mode === "overlay"
+    ? "overlay"
+    : "native";
+}
+
 // AS-1: sign out. Clears ALL cached tenant data on success, then forces the
 // ["me"] probe to re-run → 401 → AuthGate renders the login screen.
 //

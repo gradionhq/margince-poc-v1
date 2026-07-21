@@ -27,14 +27,19 @@ const (
 	voiceStreamEntity        = "voice"
 )
 
-// streamEntities are the V1 family streams from events.md. Voice is a
-// dedicated owner-private lifecycle stream; workspace remains an envelope
-// field, never a per-tenant stream.
+// streamOverlay is the §5.10 overlay-mirror stream's entity segment — named
+// once because the catalog below repeats it across every mirror.* entry.
+const streamOverlay = "overlay"
+
+// streamEntities are the V1 family streams from events.md, plus the §5.6a
+// identity/access-revocation stream, the voice owner-private lifecycle
+// stream, and the §5.10 overlay-mirror stream (overlay-mode-only).
 // Workspace is a field inside the envelope, never a stream —
 // per-tenant streams would explode key count at multi-tenant scale.
 var streamEntities = []string{
 	personStreamEntity, organizationStreamEntity, dealStreamEntity, leadStreamEntity, activityStreamEntity,
 	approvalStreamEntity, captureStreamEntity, coldstartStreamEntity, auditStreamEntity, identityStreamEntity, voiceStreamEntity,
+	streamOverlay,
 }
 
 // Streams returns the full stream key set, sorted, for the subscriber
@@ -48,11 +53,12 @@ func Streams() []string {
 	return out
 }
 
-// catalog is the enumerable V1 event catalog (events.md §5.1–§5.9, plus
+// catalog is the enumerable V1 event catalog (events.md §5.1–§5.10, plus
 // the §5.11 signal lifecycle): each type's home stream entity and current
-// payload schema version. §5.10 (overlay mirror) is overlay-mode-only and
-// the remaining §5.11 type (forecast.period_closed) rides E09 —
-// deferred with its work package.
+// payload schema version. §5.10 (overlay mirror) is overlay-mode-only —
+// these types are only ever emitted for a workspace with x_sor_mode =
+// 'overlay' — and the remaining §5.11 type (forecast.period_closed) rides
+// E09 — deferred with its work package.
 //
 // Types whose entity segment is not itself a stream ride their family's
 // stream (events.md §1 routing rule): consent.*/retention.* are
@@ -144,6 +150,19 @@ var catalog = map[string]struct {
 	"voice.build_changed":          {voiceStreamEntity, 1},
 	"voice.version_changed":        {voiceStreamEntity, 1},
 	"voice.draft_outcome_recorded": {voiceStreamEntity, 1},
+
+	// §5.10: the overlay mirror's own stream — emitted only in overlay
+	// mode. mirror.write_rejected is reserved for the branch-2 write
+	// path but registered now so the catalog is complete.
+	"mirror.conflict":        {streamOverlay, 1},
+	"mirror.budget_degraded": {streamOverlay, 1},
+	"mirror.write_rejected":  {streamOverlay, 1},
+
+	// §4.3: the incumbent connection lifecycle — a genuine SoR mutation
+	// (unlike mirror ingest), so it carries the full write shape and
+	// rides the same overlay-mode-only stream as the mirror it gates.
+	"incumbent.connected":    {streamOverlay, 1},
+	"incumbent.disconnected": {streamOverlay, 1},
 }
 
 // pipelineEventTypes are the capture-pipeline events that may ride the bus

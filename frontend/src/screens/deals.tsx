@@ -33,7 +33,13 @@ import { formatDate, formatMoney } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
-import { problemMessage, QueryGate, throwProblem, useMe } from "./common";
+import {
+  problemMessage,
+  QueryGate,
+  throwProblem,
+  useMe,
+  useSorMode,
+} from "./common";
 import { TimelineActions } from "./compose";
 import { RecordContextPanel } from "./context";
 import type { CreateField } from "./create";
@@ -106,7 +112,36 @@ type DealFilters = {
   sort: string;
   includeArchived: boolean;
   filters: Record<string, string>;
+  // Overlay mode reads a mirror that refuses every dial below (sort, and the
+  // pipeline/stage/owner/org filters) with a 422 — so in overlay we send none
+  // of them and let the deals list come back flat. The screen forces the table
+  // view and hides the pickers to match (a stage-keyed board cannot place a
+  // mirror deal, whose pipeline/stage is the zero UUID).
+  overlay: boolean;
 };
+
+// dealsQueryParams builds the /deals query. Overlay reads a mirror that 422s
+// every dial except the two the cache can honor, so overlay mode sends only
+// those and the list comes back flat (the screen forces the table view and
+// hides the pickers to match — a stage-keyed board cannot place a mirror deal,
+// whose pipeline/stage is the zero UUID).
+function dealsQueryParams(f: DealFilters) {
+  const base = { limit: 100, include_archived: f.includeArchived || undefined };
+  if (f.overlay) {
+    return base;
+  }
+  const { filters } = f;
+  return {
+    ...base,
+    pipeline_id: f.pipelineId || undefined,
+    sort: f.sort || undefined,
+    stage_id: filters.stage_id || undefined,
+    owner_id: filters.owner_id || undefined,
+    organization_id: filters.organization_id || undefined,
+    stalled: filters.stalled === "true" ? true : undefined,
+    partner_sourced: filters.partner_sourced === "true" ? true : undefined,
+  };
+}
 
 // The board is not paginated — limit:100 is an honest documented cap (a
 // live Kanban reads one screenful, not a keyset walk).
@@ -114,22 +149,8 @@ function useDeals(f: DealFilters) {
   return useQuery({
     queryKey: ["deals", f],
     queryFn: async () => {
-      const { filters } = f;
       const { data, error } = await api.GET("/deals", {
-        params: {
-          query: {
-            limit: 100,
-            pipeline_id: f.pipelineId || undefined,
-            sort: f.sort || undefined,
-            include_archived: f.includeArchived || undefined,
-            stage_id: filters.stage_id || undefined,
-            owner_id: filters.owner_id || undefined,
-            organization_id: filters.organization_id || undefined,
-            stalled: filters.stalled === "true" ? true : undefined,
-            partner_sourced:
-              filters.partner_sourced === "true" ? true : undefined,
-          },
-        },
+        params: { query: dealsQueryParams(f) },
       });
       if (error) {
         throw new Error(problemMessage(error));
@@ -408,6 +429,106 @@ function DealFilterSelects({
   );
 }
 
+// The deals header — the board/table toggle and pipeline/stage/owner/org
+// pickers (all board-only, and all dials the overlay mirror refuses), plus the
+// always-present ListToolbar. Split out of DealsScreen so that screen's render
+// stays legible; overlay mode renders only the toolbar (which self-gates).
+function DealsHeader({
+  overlay,
+  view,
+  setView,
+  pipelines,
+  pipelineId,
+  setPipelineId,
+  stages,
+  orgs,
+  query,
+  setQuery,
+  meUserId,
+}: Readonly<{
+  overlay: boolean;
+  view: "board" | "table";
+  setView: (v: "board" | "table") => void;
+  pipelines: Pipeline[];
+  pipelineId: string;
+  setPipelineId: (id: string) => void;
+  stages: Stage[];
+  orgs: { id: string; display_name: string }[];
+  query: ListQuery;
+  setQuery: Dispatch<SetStateAction<ListQuery>>;
+  meUserId: string;
+}>) {
+  const t = useT();
+  return (
+    <>
+      {/* The stage-keyed board + its pipeline/stage/owner pickers all rely on
+          dials the overlay mirror refuses, so overlay mode shows neither —
+          just the flat table below. */}
+      {!overlay && (
+        <>
+          <div style={{ marginBottom: "var(--space-3)" }}>
+            <SegmentedControl
+              options={["board", "table"] as const}
+              value={view}
+              onChange={setView}
+              labels={{
+                board: t("deals.viewBoard"),
+                table: t("deals.viewTable"),
+              }}
+            />
+          </div>
+          <DealFilterSelects
+            pipelines={pipelines}
+            pipelineId={pipelineId}
+            setPipelineId={(id) => {
+              // A stage belongs to one pipeline; switching pipeline strands any
+              // stage_id filter (its <select> blanks out but useDeals would
+              // still forward the old id and filter a foreign stage → 0 rows).
+              setPipelineId(id);
+              setOrClearFilter(setQuery, "stage_id", "");
+            }}
+            stages={stages}
+            orgs={orgs}
+            query={query}
+            setQuery={setQuery}
+          />
+        </>
+      )}
+      <ListToolbar
+        query={query}
+        setQuery={setQuery}
+        searchable={false}
+        showArchivedToggle
+        sortOptions={DEAL_SORT_OPTIONS}
+        filters={[
+          {
+            kind: "select",
+            key: "stalled",
+            label: "deals.filterStalled",
+            placeholder: "deals.filterStalledAll",
+            options: [{ value: "true", label: "deals.filterStalled" }],
+          },
+          {
+            kind: "select",
+            key: "owner_id",
+            label: "deals.filterOwnerMe",
+            placeholder: "deals.filterOwnerAll",
+            options: [{ value: meUserId, label: "deals.filterOwnerMe" }],
+          },
+          {
+            kind: "select",
+            key: "partner_sourced",
+            label: "deals.filterPartnerSourced",
+            placeholder: "deals.filterPartnerAll",
+            options: [{ value: "true", label: "deals.filterPartnerSourced" }],
+          },
+        ]}
+      />
+    </>
+  );
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: this screen was already at the ceiling; overlay support adds one necessary mode branch (board is unavailable over a stage-less mirror). The header is already extracted; a full DealsScreen split is tracked with the overlay SPA follow-up (STATUS.md).
 export function DealsScreen({
   startCreating = false,
 }: Readonly<{ startCreating?: boolean }>) {
@@ -417,6 +538,7 @@ export function DealsScreen({
   const pipelinesQuery = usePipelines();
   const meQuery = useMe();
   const tierMap = useAgentTierMap();
+  const overlay = useSorMode() === "overlay";
   const [pipelineId, setPipelineId] = useState("");
   const [query, setQuery] = useState<ListQuery>({
     q: "",
@@ -433,8 +555,15 @@ export function DealsScreen({
     sort: query.sort,
     includeArchived: query.includeArchived,
     filters: query.filters,
+    overlay,
   });
-  const [view, setView] = useState<"board" | "table">("board");
+  // A stage-keyed board cannot place a mirror deal (its pipeline/stage is the
+  // zero UUID), so overlay mode opens on the flat table and hides the toggle
+  // (below) — the mode is fixed for the page's life, so a static initial value
+  // is enough.
+  const [view, setView] = useState<"board" | "table">(
+    overlay ? "table" : "board",
+  );
   const [pending, setPending] = useState<PendingAdvance | null>(null);
   const [lostReason, setLostReason] = useState("");
   const [toast, setToast] = useState<string | null>(null);
@@ -619,63 +748,18 @@ export function DealsScreen({
           />
         )}
       </div>
-      <div style={{ marginBottom: 12 }}>
-        <SegmentedControl
-          options={["board", "table"] as const}
-          value={view}
-          onChange={setView}
-          labels={{ board: t("deals.viewBoard"), table: t("deals.viewTable") }}
-        />
-      </div>
-      <DealFilterSelects
+      <DealsHeader
+        overlay={overlay}
+        view={view}
+        setView={setView}
         pipelines={pipelinesQuery.data ?? []}
         pipelineId={effectivePipeline?.id ?? ""}
-        setPipelineId={(id) => {
-          // A stage belongs to one pipeline; switching pipeline strands any
-          // stage_id filter (its <select> blanks out but useDeals would still
-          // forward the old id and filter against a foreign stage → 0 rows).
-          setPipelineId(id);
-          setOrClearFilter(setQuery, "stage_id", "");
-        }}
+        setPipelineId={setPipelineId}
         stages={stages}
         orgs={orgsQuery.data?.data ?? []}
         query={query}
         setQuery={setQuery}
-      />
-      <ListToolbar
-        query={query}
-        setQuery={setQuery}
-        searchable={false}
-        showArchivedToggle
-        sortOptions={DEAL_SORT_OPTIONS}
-        filters={[
-          {
-            kind: "select",
-            key: "stalled",
-            label: "deals.filterStalled",
-            placeholder: "deals.filterStalledAll",
-            options: [{ value: "true", label: "deals.filterStalled" }],
-          },
-          {
-            kind: "select",
-            key: "owner_id",
-            label: "deals.filterOwnerMe",
-            placeholder: "deals.filterOwnerAll",
-            options: [
-              {
-                value: meQuery.data?.user.id ?? "",
-                label: "deals.filterOwnerMe",
-              },
-            ],
-          },
-          {
-            kind: "select",
-            key: "partner_sourced",
-            label: "deals.filterPartnerSourced",
-            placeholder: "deals.filterPartnerAll",
-            options: [{ value: "true", label: "deals.filterPartnerSourced" }],
-          },
-        ]}
+        meUserId={meQuery.data?.user.id ?? ""}
       />
       <QueryGate query={pipelinesQuery}>
         {() =>

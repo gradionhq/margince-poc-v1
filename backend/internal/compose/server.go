@@ -31,6 +31,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/modules/quotas"
@@ -42,9 +43,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
-	"github.com/gradionhq/margince/backend/internal/platform/mailer"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/extraction"
 )
 
 // Server satisfies crmcontracts.ServerInterface by embedding: every
@@ -80,6 +79,7 @@ type Server struct {
 	customfieldsHandlers
 	quotasHandlers
 	attachmentExtractionHandlers
+	overlayHandlers
 
 	// gmailPush is the Pub/Sub push webhook, injected by WithGmailPush only
 	// when a subscription token is configured — the route is absent
@@ -140,149 +140,36 @@ type Server struct {
 	// nil means an AI-less role reports no AI counters at all.
 	aiMetrics func(io.Writer)
 	aiState   string // the /readyz AI line (aistate.go); never a readiness gate
+
+	// overlayMeter is the ONE OVB meter this Server's REST surface
+	// spends against (contractAPI's Dispatcher force-fresh reads) and
+	// reports through (GetOverlayBudget, once WithKeyvault rebuilds
+	// overlayHandlers over it) — see compose/overlay.go's
+	// NewOverlayMeter doc on why these two must share an instance.
+	// Always non-nil (newServer constructs it unconditionally): a
+	// workspace never in overlay mode never spends against it, and a
+	// role with no vault simply never reaches GetOverlayBudget's 501.
+	overlayMeter *overlay.Meter
+	// overlayBackfillLimit bounds the overlay initial mirror backfill per
+	// object class (dev/demo — WithOverlayBackfillLimit); 0 is uncapped.
+	overlayBackfillLimit int
+
+	// sorDispatch is the per-workspace native/overlay provider dispatch:
+	// the ONE instance both the ADR-0055 admission layer (contractAPI's
+	// agentGate) and the overlay-mode human read shadows (overlayread.go)
+	// ride, so a workspace's resolved x_sor_mode is cached once, not per
+	// consumer. Assembled in newServer, before the options run, so
+	// WithKeyvault can hand its Invalidate to overlay.Service as the
+	// mode-flip observer (a connect/disconnect drops the cached mode
+	// immediately in this process).
+	sorDispatch *Dispatcher
 }
 
 var _ crmcontracts.ServerInterface = Server{}
 
-// Option customizes the wiring for one process role; everything not
-// optioned keeps its safe default.
-type Option func(*Server, *pgxpool.Pool)
-
-// WithPasswordReset wires the A74 forgot-password flow onto the identity
-// surface: the operator's transactional mailer plus the public base URL
-// the emailed link points at. Without it the reset endpoints answer
-// their explicit 501 and the capabilities probe reports
-// password_reset=false (A107 — the login UI renders only what works).
-func WithPasswordReset(m mailer.Mailer, publicBaseURL string) Option {
-	return func(s *Server, _ *pgxpool.Pool) {
-		s.authHandlers = s.WithPasswordReset(m, publicBaseURL)
-	}
-}
-
-// WithBusReady adds the event-bus probe to /readyz. The api role passes
-// it when it runs the inline relay: a process that must ship events is
-// not ready while the bus is unreachable.
-func WithBusReady(check func(context.Context) error) Option {
-	return func(s *Server, _ *pgxpool.Pool) { s.busReady = check }
-}
-
-// WithBlobstore wires the object store: it feeds the /readyz probe and
-// backs the attachment handlers and the offer PDF render endpoint.
-// Without it the attachment endpoints and renderOffer stay their
-// generated/explicit 501, so a role that stores no objects declares that
-// by omission rather than nil-derefing at request time. activitiesHandlers
-// and dealsHandlers both promote a WithBlobstore method, so s.WithBlobstore
-// itself would be an ambiguous selector — each call is qualified through
-// its own embedded field instead.
-func WithBlobstore(store blobstore.Store) Option {
-	return func(s *Server, pool *pgxpool.Pool) {
-		s.blob = store
-		s.activitiesHandlers = s.activitiesHandlers.WithBlobstore(store)
-		s.dealsHandlers = s.dealsHandlers.WithBlobstore(store)
-		// Erasure must reach the attachment bytes, not only the rows, so the
-		// DSR erase path gets a blob-aware eraser (Art. 17).
-		s.consentHandlers = s.WithEraser(privacy.NewEraser(pool).WithBlobstore(store))
-	}
-}
-
-// readinessChecks assembles the /readyz dependency probes for this role.
-// Postgres is always probed; the bus, the object store, the secret vault,
-// and the schema pool are probed only when this role wired them, so a
-// split deployment answers ready on exactly what it depends on. A wedged
-// dependency must fail readiness — a probe is never dropped to keep the
-// pod in rotation.
-func (s *Server) readinessChecks(pgPing func(context.Context) error) []httpserver.ReadyCheck {
-	checks := []httpserver.ReadyCheck{{Name: "postgres", Check: pgPing}}
-	if s.busReady != nil {
-		checks = append(checks, httpserver.ReadyCheck{Name: "redis", Check: s.busReady})
-	}
-	if s.blob != nil {
-		checks = append(checks, httpserver.ReadyCheck{Name: "blobstore", Check: s.blob.Health})
-	}
-	if s.vault != nil {
-		checks = append(checks, httpserver.ReadyCheck{Name: "keyvault", Check: s.vault.Health})
-	}
-	if s.schemaPoolReady != nil {
-		checks = append(checks, httpserver.ReadyCheck{Name: "customfields-schema-pool", Check: s.schemaPoolReady})
-	}
-	return checks
-}
-
-// WithSchemaPool wires the owner-privileged schema-change pool the
-// customfields engine's two runtime-DDL paths (Create, SetOptions) need
-// (--schema-dsn / MARGINCE_SCHEMA_DSN). It feeds the
-// /readyz probe and rebuilds the customfields handlers over the real
-// pool; without it those two operations stay their generated 501
-// (ErrSchemaChangesUnavailable) rather than nil-derefing a pool that was
-// never mounted — a role that runs no runtime DDL declares that by
-// omission, the same posture as WithBlobstore/WithKeyvault.
-func WithSchemaPool(schemaPool *pgxpool.Pool) Option {
-	return func(s *Server, pool *pgxpool.Pool) {
-		s.customfieldsHandlers = customfields.NewHandlers(pool, schemaPool)
-		s.schemaPoolReady = schemaPool.Ping
-	}
-}
-
-// WithPublicBaseURL sets the canonical scheme+host the buyer-facing
-// unsubscribe/preference links resolve to (B-E11.32). It is configured at
-// boot, never derived from a request: the link carries the recipient's
-// unsubscribe token. Without it a marketing send refuses rather than emit
-// a forgeable link.
-func WithPublicBaseURL(base string) Option {
-	return func(s *Server, _ *pgxpool.Pool) {
-		s.activitiesHandlers = s.WithPublicBaseURL(base)
-	}
-}
-
-// WithColdStart enables the cold-start read-back over the given fetch
-// and model seams. Without it the operation stays an explicit 501 —
-// the api role must DECLARE its model path, never pick one silently.
-func WithColdStart(fetch PageFetcher, brain completer) Option {
-	return func(s *Server, pool *pgxpool.Pool) {
-		s.coldstartHandlers = coldstartHandlers{engine: &coldStartEngine{
-			extract:   evidenceExtractor{fetch: fetch, brain: brain},
-			approvals: approvals.NewService(pool),
-		}}
-	}
-}
-
-// WithScrape enables per-organization enrichment (scrapeCompany) over the same
-// fetch and model seams as the read-back. Without it the operation stays an
-// explicit 501 — the api role must DECLARE its model path, never pick one
-// silently.
-func WithScrape(fetch PageFetcher, brain completer) Option {
-	return func(s *Server, pool *pgxpool.Pool) {
-		s.scrapeHandlers = scrapeHandlers{engine: &scrapeEngine{
-			extract:   evidenceExtractor{fetch: fetch, brain: brain},
-			people:    people.NewStore(pool),
-			approvals: approvals.NewService(pool),
-		}}
-	}
-}
-
-// WithExtractor wires the staged AI-extraction seam ONCE for both
-// surfaces that consume it: the activities read (getAttachmentExtraction)
-// and the accept-write re-run the SAME extractor, so what the accept
-// validates field_keys against is exactly what the read staged. Without
-// it both fall back to the honest-empty NoOp — the read answers
-// {fields: [], omitted: []} and the accept refuses every key as
-// not_grounded, never writing an unevidenced value.
-func WithExtractor(extractor extraction.Extractor) Option {
-	return func(s *Server, pool *pgxpool.Pool) {
-		s.activitiesHandlers = s.WithExtractor(extractor)
-		s.attachmentExtractionHandlers = attachmentExtractionHandlers{accept: NewExtractionAccept(pool, extractor)}
-	}
-}
-
-// WithBrief enables the Morning-Brief L2 ranker (B-E05.2) over the given
-// model lane. Without it the brief still serves fully on the deterministic
-// §10.1 composite — the L2 layer is advisory over that floor, never a
-// prerequisite for the home surface.
-func WithBrief(brain completer) Option {
-	return func(s *Server, _ *pgxpool.Pool) {
-		s.WithL2Ranker(brain, s.log)
-	}
-}
+// Option, readinessChecks, and every With* role-customization function live
+// in serveroptions.go — the per-process-role wiring surface, kept separate
+// from the struct/router assembly below.
 
 // New wires the modules and returns the ready http.Handler: contract
 // routes under /v1, health probe, session middleware, panic recovery.
@@ -311,7 +198,7 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 // newServer assembles the module handler sets. Every cross-module edge
 // is injected HERE, never as a sibling import (ADR-0054).
 func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH dealsHandlers) Server {
-	return Server{
+	srv := Server{
 		authHandlers: authH,
 		// The fieldcatalog seam: customfields' catalog read makes the
 		// workspace's active cf_* columns ride person/organization
@@ -385,7 +272,19 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		log:                          log,
 		dealsStore:                   deals.NewStore(pool),
 		toolRegistry:                 NewRegistry(pool),
+		// Constructed unconditionally: WithKeyvault rebuilds
+		// overlayHandlers over this SAME instance rather than minting a
+		// second one, and contractAPI's Dispatcher spends force-fresh
+		// reads against it too (see compose/overlay.go's NewOverlayMeter
+		// doc).
+		overlayMeter: NewOverlayMeter(),
 	}
+	srv.sorDispatch = NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, srv.overlayMeter), pool)
+	// /me reports the workspace's system-of-record mode so the client can
+	// gate its list UI (an overlay mirror refuses sort/filter dials). The
+	// dispatch owns mode resolution; identity never imports overlay.
+	srv.authHandlers = srv.WithSorMode(srv.sorDispatch.isOverlay)
+	return srv
 }
 
 // contractAPI mounts the generated contract router with the ADR-0055
@@ -395,7 +294,11 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) http.Handler {
 	gate := auth.NewGate(identitySvc)
 	registry := registryWithGate(pool, gate, srv.replyDrafter)
-	provider := NewProvider(pool)
+	// The ADR-0055 admission layer and the MCP tool surface share one
+	// provider seam: agentGate's StageResolver dispatches per workspace
+	// exactly like the MCP registry's tools do — and the overlay-mode
+	// human read shadows (overlayread.go) ride this same instance.
+	provider := srv.sorDispatch
 	staging := approvalsAdapter{svc: approvals.NewService(pool)}
 	// Wrap order: the generated router applies the slice left-to-right
 	// around the handler, so the LAST entry is outermost — idempotency
@@ -428,7 +331,8 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH auth
 	mux.HandleFunc("/metrics", httpserver.Metrics(pool,
 		func(ctx context.Context) (int64, error) { return events.OutboxBacklog(ctx, pool) },
 		events.PublishedTotal,
-		srv.writeAIMetrics))
+		srv.writeAIMetrics,
+		overlayMetricsSection(srv, pool)))
 	// The anonymous public edges sit between the session middleware (which
 	// lets /v1/public/ through without session or workspace) and the
 	// router: each resolves its own token/slug → tenant, throttles, and

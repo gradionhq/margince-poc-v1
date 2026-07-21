@@ -14,6 +14,7 @@ import {
 } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
+import { useSorMode } from "./common";
 
 // The shared list foundation (P-14): every list screen sends the rich
 // q/sort/cursor/include_archived/filter vocabulary instead of a flat
@@ -61,9 +62,13 @@ export function useListQuery<Row>({
   ) => Promise<ListPage<Row>>;
   initialSort?: string;
 }>) {
+  // In overlay mode the incumbent mirror refuses sort/filter dials (422), so
+  // list reads must carry neither: seed an empty sort (ListToolbar hides the
+  // control to match). Native mode keeps the screen's default sort.
+  const overlay = useSorMode() === "overlay";
   const [query, setQuery] = useState<ListQuery>({
     q: "",
-    sort: initialSort ?? "",
+    sort: overlay ? "" : (initialSort ?? ""),
     includeArchived: false,
     filters: {},
   });
@@ -107,6 +112,12 @@ export function ListToolbar({
 }>) {
   const t = useT();
   const [localSearch, setLocalSearch] = useState(query.q);
+  // Overlay mode reads a mirror that cannot sort or filter (the server 422s
+  // those dials), so we render neither control — only what the mirror can
+  // honestly answer: search, and the archived toggle (the mirror holds no
+  // archived rows, so it is a harmless no-op there). This is the honest half
+  // of "render only what works"; the sort/filter dials return with a flip.
+  const overlay = useSorMode() === "overlay";
 
   // A functional updater reads the query at commit time, not at the time the
   // timer was scheduled: a concurrent sort/filter/includeArchived toggle
@@ -136,18 +147,22 @@ export function ListToolbar({
           onChange={(event) => setLocalSearch(event.target.value)}
         />
       )}
-      <select
-        className="input"
-        aria-label={t("list.sort")}
-        value={query.sort}
-        onChange={(event) => setQuery({ ...query, sort: event.target.value })}
-      >
-        {sortOptions.map((option) => (
-          <option key={option.value} value={option.value}>
-            {t(option.label)}
-          </option>
-        ))}
-      </select>
+      {overlay ? (
+        <span className="list-toolbar-note">{t("list.overlayReadOnly")}</span>
+      ) : (
+        <select
+          className="input"
+          aria-label={t("list.sort")}
+          value={query.sort}
+          onChange={(event) => setQuery({ ...query, sort: event.target.value })}
+        >
+          {sortOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {t(option.label)}
+            </option>
+          ))}
+        </select>
+      )}
       {showArchivedToggle && (
         <label>
           <input
@@ -160,51 +175,52 @@ export function ListToolbar({
           {t("list.showArchived")}
         </label>
       )}
-      {filters?.map((filter) =>
-        filter.kind === "select" ? (
-          <select
-            key={filter.key}
-            className="input"
-            aria-label={t(filter.label)}
-            value={query.filters[filter.key] ?? ""}
-            onChange={(event) => {
-              const next = { ...query.filters };
-              if (event.target.value) {
-                next[filter.key] = event.target.value;
-              } else {
-                delete next[filter.key];
-              }
-              setQuery({ ...query, filters: next });
-            }}
-          >
-            <option value="">
-              {filter.placeholder ? t(filter.placeholder) : ""}
-            </option>
-            {filter.options.map((option) => (
-              <option key={option.value} value={option.value}>
-                {t(option.label)}
+      {!overlay &&
+        filters?.map((filter) =>
+          filter.kind === "select" ? (
+            <select
+              key={filter.key}
+              className="input"
+              aria-label={t(filter.label)}
+              value={query.filters[filter.key] ?? ""}
+              onChange={(event) => {
+                const next = { ...query.filters };
+                if (event.target.value) {
+                  next[filter.key] = event.target.value;
+                } else {
+                  delete next[filter.key];
+                }
+                setQuery({ ...query, filters: next });
+              }}
+            >
+              <option value="">
+                {filter.placeholder ? t(filter.placeholder) : ""}
               </option>
-            ))}
-          </select>
-        ) : (
-          <input
-            key={filter.key}
-            type="text"
-            className="input"
-            aria-label={t(filter.label)}
-            value={query.filters[filter.key] ?? ""}
-            onChange={(event) => {
-              const next = { ...query.filters };
-              if (event.target.value) {
-                next[filter.key] = event.target.value;
-              } else {
-                delete next[filter.key];
-              }
-              setQuery({ ...query, filters: next });
-            }}
-          />
-        ),
-      )}
+              {filter.options.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {t(option.label)}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              key={filter.key}
+              type="text"
+              className="input"
+              aria-label={t(filter.label)}
+              value={query.filters[filter.key] ?? ""}
+              onChange={(event) => {
+                const next = { ...query.filters };
+                if (event.target.value) {
+                  next[filter.key] = event.target.value;
+                } else {
+                  delete next[filter.key];
+                }
+                setQuery({ ...query, filters: next });
+              }}
+            />
+          ),
+        )}
     </div>
   );
 }

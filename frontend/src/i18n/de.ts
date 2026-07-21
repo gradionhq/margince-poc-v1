@@ -275,6 +275,8 @@ export const de = {
   "list.loadMore": "Mehr laden",
   "list.sortNewest": "Neueste",
   "list.sortScore": "Score",
+  "list.overlayReadOnly":
+    "Sortierung und Filter laufen über HubSpot — dort öffnen",
 
   "people.name": "Name",
   "people.email": "E-Mail",
