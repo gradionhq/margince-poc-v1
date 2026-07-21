@@ -9302,6 +9302,7 @@ components:
         selected_fact_keys:
           type: array
           uniqueItems: true
+          maxItems: 100
           items: { type: string }
         voice_skipped: { type: boolean }
         connect_skipped: { type: boolean }
@@ -9319,6 +9320,7 @@ components:
         selected_fact_keys:
           type: array
           uniqueItems: true
+          maxItems: 100
           items: { type: string }
         voice_skipped: { type: boolean }
         connect_skipped: { type: boolean }
@@ -9571,6 +9573,7 @@ components:
         selected_fact_keys:
           type: array
           uniqueItems: true
+          maxItems: 100
           items: { type: string }
         resolutions:
           type: array

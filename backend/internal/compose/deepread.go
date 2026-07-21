@@ -242,9 +242,9 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 		draftFields, extraction.merged.facts, draftPeople, warnings, proposalHash)
 }
 
-func (w *siteDeepReadWorker) progressiveCallbacks(ctx context.Context, readID ids.UUID) (func(int), func(pageFactsResult)) {
-	progress := func(pagesDone int) {
-		if err := w.people.UpdateSiteReadProgress(ctx, readID, "extracting", pagesDone); err != nil {
+func (w *siteDeepReadWorker) progressiveCallbacks(ctx context.Context, readID ids.UUID) (func(string, int), func(pageFactsResult)) {
+	progress := func(phase string, pagesDone int) {
+		if err := w.people.UpdateSiteReadProgress(ctx, readID, phase, pagesDone); err != nil {
 			w.log.WarnContext(ctx, "site read progress update failed", "read", readID.String(), "err", err)
 		}
 	}

@@ -32,8 +32,14 @@ var categoryGuidance = map[string]string{
 	"company": "founded_year is the year the company was founded; employee_range a stated headcount or range; " +
 		"phone and contact_email the company's own contact details; location one entry per office or site the " +
 		"company states (city and country as printed).",
-	"offering": "service and product name what the company sells; capability names a declared delivery or technical capability — one entry per item, repeating the field name.",
-	"market":   "served_industry, company_size, geography and language describe markets the company explicitly says it serves — one entry per grounded item, repeating the field name.",
+	"offering": "service and product name what THIS company sells, at the level it sells them — the page's own subject, as a buyer would name it on an order. " +
+		"A method, technique, step, phase or deliverable USED TO DELIVER one offering is not itself an offering: on a page about a research service, " +
+		"the service is what the page is about, while workshops, interviews, mapping and synthesis are how it is done — omit those. " +
+		"A product, platform or vendor made by SOMEONE ELSE that this company integrates, migrates, partners on or builds upon is technology, NEVER product or service, " +
+		"however deeply the page describes working with it. " +
+		"capability names a delivery or technical capability the company declares about ITSELF — what it can do for any client — never an implementation detail, " +
+		"configuration, or feature bullet of one project, page or engagement. One entry per item, repeating the field name.",
+	"market": "served_industry, company_size, geography and language describe markets the company explicitly says it serves — one entry per grounded item, repeating the field name.",
 	"signal": "certification names a held certification or standard; partner a named business partner; " +
 		"named_customer a customer the site names; technology a platform, product or stack the company says it " +
 		"works with or builds on; quantified_outcome preserves an exact measurable customer or case-study result " +

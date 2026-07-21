@@ -41,11 +41,37 @@ const (
 	factCategorySignal   = "signal"
 )
 
+// The fact fields themselves. Named because they are a vocabulary shared
+// across the seam — a read curates by them, a gate judges them — and a
+// shared vocabulary spelled as loose strings drifts one typo at a time.
+const (
+	FactFoundedYear   = "founded_year"
+	FactEmployeeRange = "employee_range"
+	FactPhone         = "phone"
+	FactContactEmail  = "contact_email"
+	FactLocation      = "location"
+
+	FactService    = "service"
+	FactProduct    = "product"
+	FactCapability = "capability"
+
+	FactServedIndustry = "served_industry"
+	FactCompanySize    = "company_size"
+	FactGeography      = "geography"
+	FactLanguage       = "language"
+
+	FactCertification     = "certification"
+	FactPartner           = "partner"
+	FactNamedCustomer     = "named_customer"
+	FactTechnology        = "technology"
+	FactQuantifiedOutcome = "quantified_outcome"
+)
+
 var OrganizationFactFields = map[string][]string{
-	factCategoryCompany:  {"founded_year", "employee_range", "phone", "contact_email", "location"},
-	factCategoryOffering: {"service", "product", "capability"},
-	factCategoryMarket:   {"served_industry", "company_size", "geography", "language"},
-	factCategorySignal:   {"certification", "partner", "named_customer", "technology", "quantified_outcome"},
+	factCategoryCompany:  {FactFoundedYear, FactEmployeeRange, FactPhone, FactContactEmail, FactLocation},
+	factCategoryOffering: {FactService, FactProduct, FactCapability},
+	factCategoryMarket:   {FactServedIndustry, FactCompanySize, FactGeography, FactLanguage},
+	factCategorySignal:   {FactCertification, FactPartner, FactNamedCustomer, FactTechnology, FactQuantifiedOutcome},
 }
 
 // OrganizationFactMultiValue names the fields that may carry several rows
