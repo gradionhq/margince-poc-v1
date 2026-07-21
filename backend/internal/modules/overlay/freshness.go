@@ -25,9 +25,17 @@ import (
 // degrade must ship with the live read or branch 1 can starve the
 // customer's own quota.
 type FreshnessReader struct {
-	inc   Incumbent
-	ms    *MirrorStore
-	meter *Meter
+	// resolveIncumbent builds the LIVE incumbent adapter for the request's
+	// workspace, at read time. A force-fresh read needs THIS workspace's own
+	// vaulted region+token, which the process-wide Dispatcher cannot bind at
+	// construction — so the read path resolves it per request (compose wires
+	// a resolver that reads the workspace's incumbent_connection + vault).
+	// nil (or a resolver returning nil/err) is an honest degrade to the
+	// mirror, never a silent authority claim: a role with no vault, or a
+	// workspace with no active connection, simply has no live read to do.
+	resolveIncumbent func(ctx context.Context) (Incumbent, error)
+	ms               *MirrorStore
+	meter            *Meter
 	// toIncumbentClass translates a CANONICAL entity-type name (e.g.
 	// "person", the datasource.EntityRef.Type this reader is called
 	// with) to the INCUMBENT's own object class (e.g. "contacts") — the
@@ -44,16 +52,26 @@ type FreshnessReader struct {
 	toIncumbentClass func(canonical string) (incumbentClass string, ok bool)
 }
 
-// NewFreshnessReader constructs a FreshnessReader over inc (the live
-// incumbent read), ms (the mirror fallback), meter (the OVB budget
-// gate), and toIncumbentClass (the canonical->incumbent class
-// translator Read needs before every inc.Get — see the type doc). meter
-// and toIncumbentClass may both be nil only in tests that don't exercise
-// the live path at all: Read treats a nil translator as "this incumbent
-// class is unknown for every canonical type" (an honest degrade, never
-// a silent canonical-name pass-through).
-func NewFreshnessReader(inc Incumbent, ms *MirrorStore, meter *Meter, toIncumbentClass func(string) (string, bool)) *FreshnessReader {
-	return &FreshnessReader{inc: inc, ms: ms, meter: meter, toIncumbentClass: toIncumbentClass}
+// NewFreshnessReader constructs a FreshnessReader over resolveIncumbent
+// (the per-request live-incumbent resolver — see the field doc), ms (the
+// mirror fallback), meter (the OVB budget gate), and toIncumbentClass (the
+// canonical->incumbent class translator Read needs before every inc.Get).
+// resolveIncumbent, meter, and toIncumbentClass may each be nil in tests or
+// roles that don't exercise the live path: a nil resolver degrades every
+// read to the mirror, and a nil translator treats every canonical type as
+// having no incumbent class (both honest degrades, never a silent
+// authority claim or canonical-name pass-through).
+func NewFreshnessReader(resolveIncumbent func(context.Context) (Incumbent, error), ms *MirrorStore, meter *Meter, toIncumbentClass func(string) (string, bool)) *FreshnessReader {
+	return &FreshnessReader{resolveIncumbent: resolveIncumbent, ms: ms, meter: meter, toIncumbentClass: toIncumbentClass}
+}
+
+// SetIncumbentResolver installs the per-request live-incumbent resolver
+// after construction — the boot-time injection point compose uses once the
+// vault the resolver needs is wired (WithKeyvault), after this reader was
+// built with a nil resolver. Called at server assembly, before any request
+// is served, so it never races a Read.
+func (f *FreshnessReader) SetIncumbentResolver(resolveIncumbent func(context.Context) (Incumbent, error)) {
+	f.resolveIncumbent = resolveIncumbent
 }
 
 // Read answers ref's freshness. Under the meter's shed band it degrades
@@ -82,51 +100,77 @@ func (f *FreshnessReader) Read(ctx context.Context, ref datasource.EntityRef) (d
 		return f.degradeForShed(ctx, ref)
 	}
 
-	if f.inc == nil {
-		// No live incumbent wired at all — the same honest fallback the
-		// shed band takes, but this is a wiring gap, not a budget
-		// decision, so it does not emit mirror.budget_degraded either.
-		return f.mirrorFreshness(ctx, ref)
+	// Read the mirror row ONCE, up front — before resolving the incumbent
+	// (which unseals a credential from the vault) and before any live call.
+	// This is BOTH the fail-closed visibility gate (MirrorStore.Get carries
+	// the mirror_visibility deny-join, so an invisible or guessed id is
+	// refused here — ErrNotFound, existence-hiding — and never triggers a
+	// vault unseal or a live HTTP call) AND the source for every mirror
+	// fallback below, so the degrade paths reuse this row rather than
+	// re-reading it. A force-fresh answer must never reveal a record the
+	// caller cannot already see.
+	row, err := f.ms.Get(ctx, string(ref.Type), uuidToExternalID(ref.ID))
+	if err != nil {
+		return datasource.FreshnessInfo{}, err
 	}
+	mirror := datasource.FreshnessInfo{LastSyncedAt: row.LastSyncedAt, Authoritative: false}
 
 	incumbentClass, ok := f.incumbentClassFor(string(ref.Type))
 	if !ok {
-		// No declared incumbent-class mapping for this canonical type —
-		// the same honest wiring-gap fallback f.inc == nil takes above.
-		// Passing ref.Type straight to inc.Get here would be exactly the
-		// silent canonical/incumbent confusion this translation step
-		// exists to prevent.
+		// No declared incumbent-class mapping for this canonical type — an
+		// honest mirror fallback. Passing ref.Type straight to inc.Get would
+		// be the silent canonical/incumbent confusion this step prevents.
 		slog.WarnContext(ctx, "overlay: no incumbent class mapping for canonical type, degrading to the mirror",
 			"entity_type", string(ref.Type))
-		return f.mirrorFreshness(ctx, ref)
+		return mirror, nil
 	}
 
-	// Fail-closed visibility BEFORE the live read: a force-fresh answer
-	// (Authoritative:true + ModifiedAt) must never reveal a record the
-	// caller cannot already see. MirrorStore.Get carries the
-	// mirror_visibility deny-join, so a guessed incumbent id that maps to no
-	// visible mirror row is refused here (ErrNotFound, existence-hiding) and
-	// never reaches inc.Get — closing the probe-by-guessed-id hole. The
-	// extra Get is one indexed row read in front of a live HTTP call.
-	if _, vErr := f.ms.Get(ctx, string(ref.Type), uuidToExternalID(ref.ID)); vErr != nil {
-		return datasource.FreshnessInfo{}, vErr
+	// Resolve THIS workspace's live incumbent (nil resolver ⇒ no live read
+	// wired). A resolve error is an honest wiring/connection gap, not a
+	// budget decision, so it degrades to the mirror WITHOUT emitting
+	// mirror.budget_degraded — logged, never swallowed. A nil incumbent (no
+	// active connection, no vault, or a non-HubSpot incumbent) is the same
+	// honest fallback.
+	var inc Incumbent
+	if f.resolveIncumbent != nil {
+		resolved, rErr := f.resolveIncumbent(ctx)
+		if rErr != nil {
+			slog.WarnContext(ctx, "overlay: resolving the live incumbent for force-fresh failed, degrading to the mirror",
+				"entity_type", string(ref.Type), "err", rErr)
+			return mirror, nil
+		}
+		inc = resolved
+	}
+	if inc == nil {
+		return mirror, nil
 	}
 
-	rec, err := f.inc.Get(ctx, incumbentClass, uuidToExternalID(ref.ID))
+	// Reserve the force-fresh unit BEFORE the live call. Reserve is an
+	// atomic band-check-and-record, so concurrent force-fresh reads cannot
+	// all observe a non-shed band and collectively overshoot the budget;
+	// and because the unit is reserved up front, a live read that later
+	// FAILS still counts (its HTTP call spent quota either way). A shed
+	// reservation (band flipped since the fast-path check above, or a
+	// concurrent reserve pushed over) degrades and emits the budget event.
+	if f.meter != nil {
+		allowed, rErr := f.meter.Reserve(ctx, LaneForceFresh, 1)
+		if rErr != nil {
+			return datasource.FreshnessInfo{}, rErr
+		}
+		if !allowed {
+			return f.degradeForShed(ctx, ref)
+		}
+	}
+
+	rec, err := inc.Get(ctx, incumbentClass, uuidToExternalID(ref.ID))
 	if err != nil {
+		// The force-fresh unit is already reserved and stays spent — the
+		// failed HTTP call consumed quota all the same. Degrade to the
+		// already-read mirror row without a budget event (this is an
+		// incumbent outage, not a budget decision).
 		slog.WarnContext(ctx, "overlay: live force-fresh read failed, degrading to the mirror",
 			"entity_type", string(ref.Type), "incumbent_class", incumbentClass, "entity_id", ref.ID.String(), "err", err)
-		info, mErr := f.mirrorFreshness(ctx, ref)
-		if mErr != nil {
-			return datasource.FreshnessInfo{}, fmt.Errorf("overlay: live freshness read failed (%w) and the mirror fallback also failed: %v", err, mErr)
-		}
-		return info, nil
-	}
-
-	if f.meter != nil {
-		if cErr := f.meter.Consume(ctx, LaneForceFresh, 1); cErr != nil {
-			return datasource.FreshnessInfo{}, cErr
-		}
+		return mirror, nil
 	}
 	return datasource.FreshnessInfo{LastSyncedAt: rec.ModifiedAt, Authoritative: true}, nil
 }

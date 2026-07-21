@@ -40,6 +40,40 @@ func queryRowWS(ctx context.Context, t *testing.T, pool *pgxpool.Pool, sql strin
 	}
 }
 
+// TestActiveConnectionReadsThisWorkspacesConnection proves the per-request
+// read the force-fresh resolver relies on: no connection answers
+// ErrNotFound (the resolver degrades to the mirror), and after Connect it
+// returns this workspace's incumbent/region/credential-ref (everything the
+// resolver needs to build a live adapter, the credential itself staying
+// sealed behind the opaque ref).
+func TestActiveConnectionReadsThisWorkspacesConnection(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	vault := keyvault.NewMemory()
+	svc := NewService(pool, vault, NewMirrorStore(pool, noOwnerEmails{}))
+
+	if _, err := ActiveConnection(ctx, pool); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("ActiveConnection with no connection = %v, want ErrNotFound", err)
+	}
+
+	if _, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+
+	conn, err := ActiveConnection(ctx, pool)
+	if err != nil {
+		t.Fatalf("ActiveConnection after connect: %v", err)
+	}
+	if conn.Incumbent != "hubspot" || conn.Region != "eu1" {
+		t.Fatalf("ActiveConnection = %+v, want hubspot/eu1", conn)
+	}
+	if conn.CredentialRef == "" {
+		t.Fatal("ActiveConnection returned an empty credential ref")
+	}
+	if conn.Workspace.UUID != ws {
+		t.Fatalf("ActiveConnection workspace = %v, want %v", conn.Workspace.UUID, ws)
+	}
+}
+
 func TestConnectSealsTheTokenAndFlipsTheWorkspaceToOverlay(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
 	vault := keyvault.NewMemory()

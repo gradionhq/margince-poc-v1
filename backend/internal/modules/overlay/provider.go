@@ -42,6 +42,16 @@ func NewProvider(ms *MirrorStore, ff *FreshnessReader) *Provider {
 	return &Provider{ms: ms, ff: ff}
 }
 
+// SetFreshnessIncumbentResolver forwards the per-request live-incumbent
+// resolver to the force-fresh reader (boot-time only; see
+// FreshnessReader.SetIncumbentResolver). A Provider built without a
+// force-fresh reader ignores it.
+func (p *Provider) SetFreshnessIncumbentResolver(resolveIncumbent func(context.Context) (Incumbent, error)) {
+	if p.ff != nil {
+		p.ff.SetIncumbentResolver(resolveIncumbent)
+	}
+}
+
 var _ datasource.SystemOfRecordProvider = (*Provider)(nil)
 
 // errNoMirrorStore is the honest hard-case answer a read verb gives when

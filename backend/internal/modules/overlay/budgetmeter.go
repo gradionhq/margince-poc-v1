@@ -186,6 +186,40 @@ func (m *Meter) Consume(ctx context.Context, lane string, n int) error {
 	})
 }
 
+// Reserve atomically checks ctx's workspace band and, if it is NOT shed,
+// records n spend units and returns allowed=true; if the band is already
+// shed it records nothing and returns allowed=false. Doing the band check
+// and the record under ONE lock is the whole point: FreshnessReader must
+// reserve its force-fresh unit BEFORE the live incumbent call, or N
+// concurrent force-fresh reads would all observe a non-shed band, all
+// reach the incumbent (each spending real quota), and only then record
+// consumption — collectively overshooting the budget. Reserving up front
+// also means a live read that later FAILS still counts (its HTTP call
+// spent quota all the same), unlike a Consume placed after the call that a
+// failure path skips.
+func (m *Meter) Reserve(ctx context.Context, lane string, n int) (bool, error) {
+	if n <= 0 {
+		// A non-positive reservation would either weaken enforcement (n=0
+		// "reserves" nothing yet reports allowed) or, worse, lower the
+		// window total (n<0). A caller asking to reserve nothing is a
+		// programming error, refused rather than silently accepted.
+		return false, fmt.Errorf("overlay: budget reserve requires a positive unit count, got %d", n)
+	}
+	allowed := false
+	err := m.withState(ctx, func(st *windowState) {
+		if m.cfg.band(st.total) == BandShed {
+			return
+		}
+		st.byLane[lane] += n
+		st.total += n
+		allowed = true
+	})
+	if err != nil {
+		return false, err
+	}
+	return allowed, nil
+}
+
 // band computes the ok/warn/shed band for consumed against limit and
 // the configured fractions.
 func (cfg MeterConfig) band(consumed int) string {

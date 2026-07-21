@@ -468,7 +468,7 @@ func TestAcceptance_AC_OV_3_MirrorReadMeetsBudget(t *testing.T) {
 	fakeInc.Seed(overlay.IncumbentClassContacts, liveRec)
 
 	meter := overlay.NewMeterWithClock(acceptanceMeterConfig(), time.Now)
-	ff := overlay.NewFreshnessReader(fakeInc, mirror, meter, contactsTranslator)
+	ff := overlay.NewFreshnessReader(func(context.Context) (overlay.Incumbent, error) { return fakeInc, nil }, mirror, meter, contactsTranslator)
 	fullProvider := overlay.NewProvider(mirror, ff)
 
 	before := meter.Snapshot(ctx)
@@ -544,7 +544,7 @@ func TestAcceptance_AC_OV_7_ForceFreshDegrades(t *testing.T) {
 		t.Fatalf("meter.Band = %q after loading to the shed threshold, want %q", got, overlay.BandShed)
 	}
 
-	ff := overlay.NewFreshnessReader(fakeInc, mirror, meter, contactsTranslator)
+	ff := overlay.NewFreshnessReader(func(context.Context) (overlay.Incumbent, error) { return fakeInc, nil }, mirror, meter, contactsTranslator)
 	overlayProvider := overlay.NewProvider(mirror, ff)
 	d := compose.NewDispatcher(compose.NewProvider(e.Pool), overlayProvider, e.Pool)
 
@@ -774,7 +774,7 @@ func TestAcceptance_AC_OV_11_FailClosedVisibility_ReadSubset(t *testing.T) {
 
 	t.Run("an unmapped user sees zero rows through the composed dispatcher (existence-hiding)", func(t *testing.T) {
 		unmappedCtx := overlayActorCtx(ws, seedUnmappedAppUser(t, ws))
-		d := compose.NewDispatcher(compose.NewProvider(e.Pool), compose.NewOverlayProvider(e.Pool, compose.NewOverlayMeter()), e.Pool)
+		d := compose.NewDispatcher(compose.NewProvider(e.Pool), compose.NewOverlayProvider(e.Pool, compose.NewOverlayMeter(), nil), e.Pool)
 		if _, err := d.Search(unmappedCtx, datasource.SearchQuery{EntityTypes: []datasource.EntityType{datasource.EntityPerson}, Limit: 10}); !errors.Is(err, apperrors.ErrNotFound) {
 			t.Fatalf("dispatched Search for an unmapped user = %v, want apperrors.ErrNotFound (existence-hiding, zero rows)", err)
 		}
@@ -867,7 +867,7 @@ func TestAcceptance_OVA_AC_1_TeardownPurges(t *testing.T) {
 		t.Fatalf("fixture is broken: seeded mirror=%d association=%d, want both > 0", seededMirror, seededAssoc)
 	}
 
-	dispatcher := compose.NewDispatcher(compose.NewProvider(pool), compose.NewOverlayProvider(pool, compose.NewOverlayMeter()), pool)
+	dispatcher := compose.NewDispatcher(compose.NewProvider(pool), compose.NewOverlayProvider(pool, compose.NewOverlayMeter(), nil), pool)
 	preTeardown, err := dispatcher.Search(adminCtx, datasource.SearchQuery{EntityTypes: []datasource.EntityType{datasource.EntityDeal}, Limit: 10})
 	if err != nil || len(preTeardown.Records) != 1 {
 		t.Fatalf("expected the mapped admin to see the one backfilled deal before disconnect: err=%v records=%d", err, len(preTeardown.Records))
@@ -924,7 +924,7 @@ func TestAcceptance_OVA_AC_1_TeardownPurges(t *testing.T) {
 		principal.WithCorrelationID(principal.WithWorkspaceID(context.Background(), wsID), ids.NewV7()),
 		principal.Principal{Type: principal.PrincipalHuman, ID: "human:" + adminID.String(), UserID: adminID, Permissions: AdminPerms},
 	)
-	postDisconnectDispatcher := compose.NewDispatcher(compose.NewProvider(pool), compose.NewOverlayProvider(pool, compose.NewOverlayMeter()), pool)
+	postDisconnectDispatcher := compose.NewDispatcher(compose.NewProvider(pool), compose.NewOverlayProvider(pool, compose.NewOverlayMeter(), nil), pool)
 	postTeardown, err := postDisconnectDispatcher.Search(adminNativeCtx, datasource.SearchQuery{EntityTypes: []datasource.EntityType{datasource.EntityDeal}, Limit: 10})
 	if err != nil {
 		t.Fatalf("post-disconnect dispatched Search: %v", err)
