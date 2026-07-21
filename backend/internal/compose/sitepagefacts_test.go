@@ -217,3 +217,54 @@ func TestZeroedStatOnlyJudgesMeasurements(t *testing.T) {
 		}
 	}
 }
+
+// A legal notice states one block per entity. Everything printed inside
+// that block — the address, the register number — is what the confirm
+// step later offers as a choice, so it carries the same no-guess rule as
+// every other value: on the page, or absent.
+func TestGatePageEntitiesKeepsThePrintedBlock(t *testing.T) {
+	page, menu, idx := pageFixture(crmcontracts.SiteReadPageKindImpressum, seedURL+"/imprint",
+		"Imprint. Acme Robotics GmbH, Deliusstrasse 7, 24114 Kiel, Germany. Registergericht HRB 12345. "+
+			"Acme Pte. Ltd., 77 High Street, Singapore (179433). Business Profile: 201629357M.")
+	reply := `{"facts":[],"entities":[
+		{"n":"Acme Robotics GmbH","a":"Deliusstrasse 7, 24114 Kiel, Germany","r":"HRB 12345","e":"s0"},
+		{"n":"Acme Pte. Ltd.","a":"77 High Street, Singapore 179433","r":"201629357M","e":"s0"}]}`
+	res, _ := gatePageEntities2(t, reply, page, menu, idx)
+	if len(res) != 2 {
+		t.Fatalf("both entities must survive: %+v", res)
+	}
+	if res[0].RegisteredAddress != "Deliusstrasse 7, 24114 Kiel, Germany" || res[0].RegisterNumber != "HRB 12345" {
+		t.Errorf("the first block lost its details: %+v", res[0])
+	}
+	// The page prints "Singapore (179433)" and the model answered
+	// "Singapore 179433": the same address with its punctuation
+	// rearranged, which must not cost the human the field.
+	if res[1].RegisteredAddress != "77 High Street, Singapore 179433" {
+		t.Errorf("punctuation drift dropped a printed address: %+v", res[1])
+	}
+}
+
+func TestGatePageEntitiesRefusesDetailsThePageNeverPrinted(t *testing.T) {
+	page, menu, idx := pageFixture(crmcontracts.SiteReadPageKindImpressum, seedURL+"/imprint",
+		"Imprint. Acme Robotics GmbH, Kiel, Germany. This notice states no register number at all.")
+	reply := `{"facts":[],"entities":[
+		{"n":"Acme Robotics GmbH","a":"Baker Street 221B, London","r":"HRB 99999","e":"s0"}]}`
+	res, dropped := gatePageEntities2(t, reply, page, menu, idx)
+	if len(res) != 1 {
+		t.Fatalf("the entity itself is printed and must survive: %+v", res)
+	}
+	if res[0].RegisteredAddress != "" || res[0].RegisterNumber != "" {
+		t.Errorf("an invented address or register number reached the block: %+v", res[0])
+	}
+	reasons := dropReasons(dropped)
+	if reasons[fieldRegisteredAddress] != dropValueNotInSnippet || reasons[fieldRegisterVat] != dropValueNotInSnippet {
+		t.Errorf("both inventions must be REPORTED, not dropped in silence: %+v", dropped)
+	}
+}
+
+// gatePageEntities2 runs the entity lane and returns its drops.
+func gatePageEntities2(t *testing.T, reply string, page crawlPage, menu pageMenu, idx snippetIndex) ([]corpusLegalEntity, []droppedFinding) {
+	t.Helper()
+	res, dropped := gatePageFacts(reply, page, menu, idx)
+	return res.entities, dropped
+}
