@@ -309,6 +309,114 @@ func (e ApprovalStatus) Valid() bool {
 	}
 }
 
+// Defines values for AssistantProfileInferenceMode.
+const (
+	AssistantProfileInferenceModeCloud       AssistantProfileInferenceMode = "cloud"
+	AssistantProfileInferenceModeDevelopment AssistantProfileInferenceMode = "development"
+	AssistantProfileInferenceModeHybrid      AssistantProfileInferenceMode = "hybrid"
+	AssistantProfileInferenceModeLocal       AssistantProfileInferenceMode = "local"
+	AssistantProfileInferenceModeNone        AssistantProfileInferenceMode = "none"
+)
+
+// Valid indicates whether the value is a known member of the AssistantProfileInferenceMode enum.
+func (e AssistantProfileInferenceMode) Valid() bool {
+	switch e {
+	case AssistantProfileInferenceModeCloud:
+		return true
+	case AssistantProfileInferenceModeDevelopment:
+		return true
+	case AssistantProfileInferenceModeHybrid:
+		return true
+	case AssistantProfileInferenceModeLocal:
+		return true
+	case AssistantProfileInferenceModeNone:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AssistantProfileKind.
+const (
+	Ai AssistantProfileKind = "ai"
+)
+
+// Valid indicates whether the value is a known member of the AssistantProfileKind enum.
+func (e AssistantProfileKind) Valid() bool {
+	switch e {
+	case Ai:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AssistantProfileName.
+const (
+	Margince AssistantProfileName = "Margince"
+)
+
+// Valid indicates whether the value is a known member of the AssistantProfileName enum.
+func (e AssistantProfileName) Valid() bool {
+	switch e {
+	case Margince:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AssistantProfileProviders.
+const (
+	Anthropic        AssistantProfileProviders = "anthropic"
+	Gemini           AssistantProfileProviders = "gemini"
+	Ollama           AssistantProfileProviders = "ollama"
+	Openai           AssistantProfileProviders = "openai"
+	OpenaiCompatible AssistantProfileProviders = "openai_compatible"
+	Vllm             AssistantProfileProviders = "vllm"
+)
+
+// Valid indicates whether the value is a known member of the AssistantProfileProviders enum.
+func (e AssistantProfileProviders) Valid() bool {
+	switch e {
+	case Anthropic:
+		return true
+	case Gemini:
+		return true
+	case Ollama:
+		return true
+	case Openai:
+		return true
+	case OpenaiCompatible:
+		return true
+	case Vllm:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AssistantProfileState.
+const (
+	AssistantProfileStateConfigured   AssistantProfileState = "configured"
+	AssistantProfileStateDevelopment  AssistantProfileState = "development"
+	AssistantProfileStateUnconfigured AssistantProfileState = "unconfigured"
+)
+
+// Valid indicates whether the value is a known member of the AssistantProfileState enum.
+func (e AssistantProfileState) Valid() bool {
+	switch e {
+	case AssistantProfileStateConfigured:
+		return true
+	case AssistantProfileStateDevelopment:
+		return true
+	case AssistantProfileStateUnconfigured:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AttachmentEntityType.
 const (
 	AttachmentEntityTypeActivity     AttachmentEntityType = "activity"
@@ -6215,6 +6323,32 @@ type ApproveRequest struct {
 	// EditedPayload Optional edits — the edited payload is re-admitted, then it executes (edit-then-send).
 	EditedPayload *map[string]interface{} `json:"edited_payload,omitempty"`
 }
+
+// AssistantProfile defines model for AssistantProfile.
+type AssistantProfile struct {
+	InferenceMode AssistantProfileInferenceMode `json:"inference_mode"`
+	Kind          AssistantProfileKind          `json:"kind"`
+	Name          AssistantProfileName          `json:"name"`
+
+	// Providers Distinct configured provider keys, sorted; fake is never returned.
+	Providers []AssistantProfileProviders `json:"providers"`
+	State     AssistantProfileState       `json:"state"`
+}
+
+// AssistantProfileInferenceMode defines model for AssistantProfile.InferenceMode.
+type AssistantProfileInferenceMode string
+
+// AssistantProfileKind defines model for AssistantProfile.Kind.
+type AssistantProfileKind string
+
+// AssistantProfileName defines model for AssistantProfile.Name.
+type AssistantProfileName string
+
+// AssistantProfileProviders defines model for AssistantProfile.Providers.
+type AssistantProfileProviders string
+
+// AssistantProfileState defines model for AssistantProfile.State.
+type AssistantProfileState string
 
 // Attachment A file hung off an entity. Mirrors the `attachment` table: the row is the
 // system of record and the tenant anchor; the bytes live in object storage,
@@ -17542,6 +17676,9 @@ type ServerInterface interface {
 	// Reject a staged action (discards it; nothing commits).
 	// (POST /approvals/{id}/reject)
 	RejectApproval(w http.ResponseWriter, r *http.Request, id Id)
+	// Minimal public identity and configuration posture for the Margince AI presence.
+	// (GET /assistant/profile)
+	GetAssistantProfile(w http.ResponseWriter, r *http.Request)
 	// List the attachments hung off one entity (cursor-paginated metadata).
 	// (GET /attachments)
 	ListAttachments(w http.ResponseWriter, r *http.Request, params ListAttachmentsParams)
@@ -18307,6 +18444,12 @@ func (_ Unimplemented) ApproveApproval(w http.ResponseWriter, r *http.Request, i
 // Reject a staged action (discards it; nothing commits).
 // (POST /approvals/{id}/reject)
 func (_ Unimplemented) RejectApproval(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Minimal public identity and configuration posture for the Margince AI presence.
+// (GET /assistant/profile)
+func (_ Unimplemented) GetAssistantProfile(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -20521,6 +20664,20 @@ func (siw *ServerInterfaceWrapper) RejectApproval(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RejectApproval(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAssistantProfile operation middleware
+func (siw *ServerInterfaceWrapper) GetAssistantProfile(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAssistantProfile(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -31367,6 +31524,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/approvals/{id}/reject", wrapper.RejectApproval)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/assistant/profile", wrapper.GetAssistantProfile)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/attachments", wrapper.ListAttachments)

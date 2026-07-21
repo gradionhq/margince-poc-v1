@@ -94,6 +94,21 @@ leaves the backfill *status* payload's people/org counts at 0); and the FE conse
 renders cost only when `> 0` and ignores `estimate_quality`, so an honest `$0` and the
 quality signal don't yet reach the human.
 
+**Margince Core login presence + first-person AI voice** — the login experience
+now introduces the built-in AI as a governed participant instead of a generic
+product illustration. A responsive, reduced-motion-safe orbital Core visual
+reacts to authentication state while readable copy states the real boundary:
+Margince cannot use a person's context until authentication succeeds. A new
+anonymous, deliberately minimal `GET /assistant/profile` surface derives its
+configured/development posture, local/cloud/hybrid mode, and provider names from
+the same validated routing decision used at boot; it exposes no model ids,
+endpoints, secrets, budgets, usage, errors, organization data, or health claim.
+The form remains first on mobile and fully usable when that profile request
+fails. English/German copy, Storybook states, backend disclosure/allowlist tests,
+and auth regressions cover the change. The normative character, copy, login, AI
+runtime, and contract amendments live on the sibling foundation branch
+`feat/margince-core-login`.
+
 **Voice DNA end to end, and the settings surface it needed (#134, #143, #145,
 #147)** — ADR-0066's owner-private, human-only Voice lifecycle is merged
 (migration 0107): durable builds, immutable versions, candidate deltas,

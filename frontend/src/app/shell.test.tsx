@@ -209,7 +209,7 @@ describe("WorkspaceRail sign-out (AS-1)", () => {
     // seeing 401, render the auth (signup/login) screen — the rail must be
     // gone. AuthScreen defaults to its signup mode, so assert on that
     // heading rather than assuming "Sign in" is the first thing shown.
-    await screen.findByRole("heading", { name: "Sign in to Margince" });
+    await screen.findByRole("heading", { name: "Welcome back" });
     expect(screen.queryByRole("navigation")).toBeNull();
     expect(loggedOut).toBe(true);
     expect(meCalls).toBeGreaterThanOrEqual(2);

@@ -1,40 +1,49 @@
 /*
- * The unauthenticated surface (A107/ADR-0061 §12): login, forgot-password,
- * and reset — one centered column (~420 px), neutral background, restrained
- * brand treatment. No hero, no product claims: the screen's whole job is
- * authentication. Copy comes from the i18n catalogs; colours read tokens
- * (conformance gates).
+ * The unauthenticated surface: a focused authentication utility beside the
+ * Margince Core AI presence. The form remains the task; the Core carries only
+ * identity, configuration posture and enforced trust facts.
  */
 
 .auth-page {
   min-height: 100vh;
   display: grid;
   place-items: center;
-  padding: 40px 24px;
-  padding-bottom: max(40px, env(safe-area-inset-bottom));
-  background: var(--bgPage);
+  padding: var(--space-6);
+  padding-bottom: max(var(--space-6), env(safe-area-inset-bottom));
+  background:
+    radial-gradient(circle at 18% 24%, var(--aiLight), transparent 34%),
+    radial-gradient(circle at 82% 78%, var(--accentLight), transparent 30%),
+    var(--bgPage);
 }
-@media (max-width: 480px) {
-  .auth-page {
-    padding-left: 16px;
-    padding-right: 16px;
-  }
+.auth-experience {
+  width: min(1120px, 100%);
+  min-height: min(720px, calc(100vh - 48px));
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(380px, 440px);
+  grid-template-areas: "core form";
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: var(--bgElevated);
+  box-shadow: var(--shadow-pop);
 }
 .auth-column {
+  grid-area: form;
   width: 100%;
-  max-width: 420px;
   display: flex;
   flex-direction: column;
   gap: 22px;
+  justify-content: center;
+  padding: 48px 40px 32px;
 }
 .auth-wordmark {
-  align-self: center;
+  align-self: flex-start;
   display: grid;
   place-items: center;
-  margin-bottom: 6px;
+  margin: 0 0 8px 4px;
 }
 .auth-wordmark img {
-  width: 232px;
+  width: 196px;
   max-width: 70vw;
   height: auto;
 }
@@ -49,22 +58,22 @@
 }
 
 .auth-card {
-  background: var(--bgElevated);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-card);
-  padding: 28px 28px 24px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
 }
 .auth-card h1 {
   font-family: var(--f-display);
   font-weight: 600;
-  font-size: 20px;
+  font-size: 28px;
   letter-spacing: -0.01em;
   color: var(--textPrimary);
 }
 .auth-card .card-sub {
-  margin-top: 4px;
-  font-size: 13px;
+  margin-top: 8px;
+  font-size: 14px;
   color: var(--textSecondary);
   line-height: 1.5;
 }
@@ -196,7 +205,7 @@
 }
 
 .auth-notice {
-  text-align: center;
+  text-align: left;
   font-size: 13px;
   color: var(--textSecondary);
   background: var(--bgElevated);
@@ -214,15 +223,461 @@
   justify-content: center;
   gap: 8px;
   color: var(--textTertiary);
-  margin-top: 10px;
+  margin-top: auto;
 }
 .auth-footer .auth-link[aria-pressed="true"] {
   color: var(--textPrimary);
   font-weight: 600;
 }
 
+/* The Core stays one coherent object: readable copy outside the decorative
+   scene, with every moving layer hidden from the accessibility tree. */
+.auth-core {
+  grid-area: core;
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(280px, 1fr) auto;
+  gap: var(--space-4);
+  padding: 44px 48px 40px;
+  color: var(--railIconActive);
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 50% 46%, var(--aiMed), transparent 28%),
+    radial-gradient(circle at 18% 85%, var(--accentMed), transparent 32%),
+    linear-gradient(145deg, var(--railTop), var(--railBottom));
+}
+.auth-core::before,
+.auth-core::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  border: 1px solid var(--railHover);
+  border-radius: var(--r-full);
+}
+.auth-core::before {
+  width: 420px;
+  height: 420px;
+  top: -230px;
+  right: -180px;
+}
+.auth-core::after {
+  width: 300px;
+  height: 300px;
+  bottom: -180px;
+  left: -120px;
+}
+.auth-core-copy,
+.auth-core-meta {
+  position: relative;
+  z-index: 3;
+}
+.auth-core-kicker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--f-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--railIconHover);
+}
+.auth-core-live {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--r-full);
+  background: var(--aiText);
+  box-shadow: 0 0 16px var(--aiText);
+  animation: auth-core-live 2.8s ease-in-out infinite;
+}
+.auth-core-statement {
+  max-width: 470px;
+  margin-top: var(--space-3);
+  font-family: var(--f-display);
+  font-size: clamp(22px, 2.4vw, 34px);
+  font-weight: 500;
+  line-height: 1.12;
+  letter-spacing: -0.025em;
+  color: var(--railIconActive);
+}
+.auth-core-scene {
+  position: relative;
+  width: min(390px, 78%);
+  aspect-ratio: 1;
+  align-self: center;
+  justify-self: center;
+  transition:
+    transform 0.6s ease,
+    filter 0.6s ease;
+}
+.auth-core-glow {
+  position: absolute;
+  inset: 26%;
+  border-radius: var(--r-full);
+  background: var(--aiMed);
+  filter: blur(28px);
+  animation: auth-core-breathe 5s ease-in-out infinite;
+}
+.auth-core-orbit {
+  position: absolute;
+  inset: 12%;
+  border: 1px solid var(--aiMed);
+  border-radius: var(--r-full);
+  animation: auth-core-orbit 18s linear infinite;
+}
+.auth-core-orbit::before,
+.auth-core-orbit::after {
+  content: "";
+  position: absolute;
+  inset: 8%;
+  border: 1px dashed var(--railHover);
+  border-radius: var(--r-full);
+}
+.auth-core-orbit::after {
+  inset: 20%;
+  border-style: solid;
+  border-color: var(--accentMed);
+}
+.auth-core-orbit-evidence {
+  inset: 3%;
+  transform: rotate(62deg);
+  animation-duration: 26s;
+  animation-direction: reverse;
+  border-style: dashed;
+}
+.auth-core-orbit-approval {
+  inset: 22%;
+  border: 2px solid var(--warnBorder);
+  animation-duration: 12s;
+}
+.auth-core-orbit-approval::before,
+.auth-core-orbit-approval::after {
+  display: none;
+}
+.auth-core-node,
+.auth-core-gate {
+  position: absolute;
+  display: block;
+  border-radius: var(--r-full);
+  background: var(--railIconActive);
+  box-shadow: 0 0 18px var(--aiText);
+}
+.auth-core-node {
+  width: 8px;
+  height: 8px;
+}
+.auth-core-node-a {
+  top: 8%;
+  left: 20%;
+}
+.auth-core-node-b {
+  right: -4px;
+  top: 48%;
+  background: var(--online);
+}
+.auth-core-node-c {
+  bottom: 12%;
+  left: 14%;
+  background: var(--aiText);
+}
+.auth-core-node-d {
+  right: 16%;
+  top: 11%;
+  width: 5px;
+  height: 5px;
+}
+.auth-core-gate {
+  width: 13px;
+  height: 13px;
+  top: -7px;
+  left: calc(50% - 7px);
+  background: var(--away);
+  box-shadow: 0 0 22px var(--away);
+}
+.auth-core-thread {
+  position: absolute;
+  width: 34%;
+  height: 1px;
+  top: 50%;
+  left: 50%;
+  transform-origin: left center;
+  background: linear-gradient(90deg, var(--aiMed), transparent);
+  animation: auth-core-thread 3.6s ease-in-out infinite;
+}
+.auth-core-thread-a {
+  transform: rotate(18deg);
+}
+.auth-core-thread-b {
+  transform: rotate(142deg);
+  animation-delay: -1.2s;
+}
+.auth-core-thread-c {
+  transform: rotate(258deg);
+  animation-delay: -2.4s;
+}
+.auth-core-mark-shell {
+  position: absolute;
+  inset: 34%;
+  display: grid;
+  place-items: center;
+  padding: 9%;
+  border: 1px solid var(--aiMed);
+  border-radius: var(--r-full);
+  color: var(--railIconActive);
+  background: var(--railActive);
+  box-shadow:
+    0 0 34px var(--aiMed),
+    inset 0 0 22px var(--railHover);
+  animation: auth-core-mark 5s ease-in-out infinite;
+}
+.auth-core-mark-shell svg {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  fill: currentcolor;
+}
+.auth-core-mark-soft {
+  opacity: 0.5;
+}
+.auth-core-mark-mid {
+  opacity: 0.78;
+}
+.auth-core-runtime {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 31px;
+  margin-bottom: var(--space-3);
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--railIconHover);
+}
+.auth-core-runtime-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 5px 9px;
+  border: 1px solid var(--railHover);
+  border-radius: var(--r-full);
+  color: var(--railIconActive);
+  background: var(--railHover);
+}
+.auth-core-runtime-state svg {
+  width: 12px;
+  height: 12px;
+  color: var(--online);
+}
+.auth-core-trust {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+}
+.auth-core-trust li {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--railIconHover);
+}
+.auth-core-trust-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-sm);
+  color: var(--aiText);
+  background: var(--railHover);
+}
+.auth-core-trust-icon svg {
+  width: 12px;
+  height: 12px;
+}
+.auth-experience:focus-within .auth-core-scene {
+  transform: scale(1.025);
+}
+.auth-experience[data-auth-phase="signing-in"] .auth-core-scene {
+  transform: scale(0.94);
+  filter: saturate(1.3);
+}
+.auth-experience[data-auth-phase="signing-in"] .auth-core-orbit {
+  animation-duration: 3s;
+}
+.auth-experience[data-auth-phase="success"] .auth-core-scene {
+  transform: scale(1.08);
+  filter: brightness(1.25);
+}
+.auth-experience[data-auth-phase="error"] .auth-core-scene,
+.auth-experience[data-auth-phase="unavailable"] .auth-core-scene {
+  filter: saturate(0.35);
+}
+
+@keyframes auth-core-orbit {
+  to {
+    transform: rotate(1turn);
+  }
+}
+@keyframes auth-core-breathe {
+  0%,
+  100% {
+    transform: scale(0.86);
+    opacity: 0.56;
+  }
+  50% {
+    transform: scale(1.14);
+    opacity: 1;
+  }
+}
+@keyframes auth-core-mark {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-4px) scale(1.035);
+  }
+}
+@keyframes auth-core-thread {
+  0%,
+  100% {
+    opacity: 0.18;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+@keyframes auth-core-live {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 959px) {
+  .auth-page {
+    place-items: start center;
+  }
+  .auth-experience {
+    width: min(560px, 100%);
+    min-height: auto;
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "form"
+      "core";
+  }
+  .auth-column {
+    padding: 40px 36px 32px;
+  }
+  .auth-core {
+    min-height: 280px;
+    grid-template-columns: minmax(0, 1fr) 190px;
+    grid-template-rows: auto auto;
+    padding: 28px 32px;
+  }
+  .auth-core-copy {
+    align-self: end;
+  }
+  .auth-core-statement {
+    font-size: 22px;
+  }
+  .auth-core-scene {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    width: 180px;
+  }
+  .auth-core-meta {
+    align-self: start;
+  }
+  .auth-core-trust {
+    grid-template-columns: 1fr;
+  }
+  .auth-core-trust li:nth-child(n + 2) {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .auth-page {
+    padding: 0;
+    background: var(--bgPage);
+  }
+  .auth-experience {
+    width: 100%;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .auth-column {
+    padding: 32px 20px 24px;
+  }
+  .auth-wordmark img {
+    width: 172px;
+  }
+  .auth-input {
+    font-size: 16px;
+  }
+  .auth-core {
+    min-height: 210px;
+    grid-template-columns: 1fr 122px;
+    padding: 24px 20px max(24px, env(safe-area-inset-bottom));
+  }
+  .auth-core-statement {
+    font-size: 18px;
+  }
+  .auth-core-scene {
+    width: 126px;
+  }
+  .auth-core-runtime {
+    margin-bottom: 0;
+  }
+  .auth-core-trust {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-core-live,
+  .auth-core-glow,
+  .auth-core-orbit,
+  .auth-core-thread,
+  .auth-core-mark-shell {
+    animation: none;
+  }
+  .auth-core-scene,
+  .auth-core-mark-shell {
+    transition: none;
+    transform: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .auth-core,
+  .auth-core-mark-shell,
+  .auth-core-runtime-state,
+  .auth-core-trust-icon {
+    forced-color-adjust: auto;
+  }
+}
+
 @supports (min-height: 100dvh) {
   .auth-page {
     min-height: 100dvh;
+  }
+  .auth-experience {
+    min-height: min(720px, calc(100dvh - 48px));
+  }
+  @media (max-width: 959px) {
+    .auth-experience {
+      min-height: auto;
+    }
   }
 }

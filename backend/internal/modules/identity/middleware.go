@@ -22,6 +22,7 @@ import (
 // publicPaths need no session; every other /v1 path 401s without one
 // (the middleware only fronts the API — static assets never reach it).
 var publicPaths = map[string]bool{
+	"/v1/assistant/profile":    true,
 	"/v1/auth/capabilities":    true,
 	"/v1/auth/login":           true,
 	"/v1/auth/logout":          true,
