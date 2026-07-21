@@ -127,14 +127,14 @@ Every commit lands through this loop — code, docs, and config alike.
 Direct pushes to `main` are blocked by branch protection; there is no
 other path to merge.
 
-**Run GitHub publishing with host access.** In a sandboxed agent session,
+**Run repository publishing with host access.** In a sandboxed agent session,
 `gh auth status` is not authoritative because the sandbox may not see the host
 keychain even when the active host account is valid. Run the authentication
 check again with host escalation before asking the user to re-authenticate.
-Git mutations that write repository metadata (`commit`, `rebase`, and related
-operations), network pushes, `gh pr create` / `gh pr edit`, and PR check
-monitoring must likewise run with host escalation. Read-only working-tree
-inspection (`git status`, `git diff`, `git log`) may stay sandboxed.
+Every repository or remote mutation must likewise run with host escalation,
+including branch creation, commit, rebase, push, PR create/edit/merge, and PR
+check monitoring. Read-only working-tree inspection (`git status`, `git diff`,
+`git log`) may stay sandboxed.
 
 1. **Branch off `main`**: `git switch -c <type>/<slug> origin/main`.
 2. **Sign off every commit** (`git commit -s`) — the DCO gate rejects a

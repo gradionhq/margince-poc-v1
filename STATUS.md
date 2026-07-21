@@ -106,8 +106,8 @@ endpoints, secrets, budgets, usage, errors, organization data, or health claim.
 The form remains first on mobile and fully usable when that profile request
 fails. English/German copy, Storybook states, backend disclosure/allowlist tests,
 and auth regressions cover the change. The normative character, copy, login, AI
-runtime, and contract amendments live on the sibling foundation branch
-`feat/margince-core-login`.
+runtime, and contract amendments are tracked durably in foundation PR #1126
+(`feat/margince-core-login`).
 
 **Voice DNA end to end, and the settings surface it needed (#134, #143, #145,
 #147)** — ADR-0066's owner-private, human-only Voice lifecycle is merged

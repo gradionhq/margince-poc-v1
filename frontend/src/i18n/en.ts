@@ -1144,7 +1144,7 @@ export const en = {
     "I can only use your context after Margince verifies that it's you.",
   "auth.corePermission": "I use your permissions.",
   "auth.coreCites": "I cite what I find.",
-  "auth.coreWaits": "I wait before external action.",
+  "auth.coreWaits": "I wait before taking external action.",
   "auth.coreConfigured": "Configured",
   "auth.coreUnconfigured": "AI not configured",
   "auth.coreStillWorks": "The CRM still works.",

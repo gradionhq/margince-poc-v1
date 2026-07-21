@@ -1,5 +1,5 @@
 import { BookOpenText, Check, LockKeyhole, ShieldCheck } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useId } from "react";
 import type { components } from "../api/schema";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -44,7 +44,7 @@ export function AuthExperience({
     <div className="auth-page">
       <main className="auth-experience" data-auth-phase={phase}>
         <section className="auth-column">{children}</section>
-        <MarginceCore profile={profile} phase={phase} />
+        <MarginceCore profile={profile} />
       </main>
     </div>
   );
@@ -52,20 +52,20 @@ export function AuthExperience({
 
 export function MarginceCore({
   profile,
-  phase,
-}: Readonly<{ profile?: AssistantProfile; phase: AuthPhase }>) {
+}: Readonly<{ profile?: AssistantProfile }>) {
   const t = useT();
+  const identityId = useId();
   return (
-    <aside className="auth-core" aria-labelledby="auth-core-identity">
+    <aside className="auth-core" aria-labelledby={identityId}>
       <div className="auth-core-copy">
-        <p className="auth-core-kicker" id="auth-core-identity">
-          <span className="auth-core-live" aria-hidden />
+        <p className="auth-core-kicker" id={identityId}>
+          <span className="auth-core-identity-dot" aria-hidden />
           {t("auth.coreDisclosure")}
         </p>
         <p className="auth-core-statement">{t("auth.coreBoundary")}</p>
       </div>
 
-      <CoreScene phase={phase} />
+      <CoreScene />
 
       <div className="auth-core-meta">
         {profile && <RuntimeProfile profile={profile} />}
@@ -132,9 +132,9 @@ function TrustFact({
   );
 }
 
-function CoreScene({ phase }: Readonly<{ phase: AuthPhase }>) {
+function CoreScene() {
   return (
-    <div className="auth-core-scene" aria-hidden="true" data-phase={phase}>
+    <div className="auth-core-scene" aria-hidden="true">
       <div className="auth-core-glow" />
       <div className="auth-core-orbit auth-core-orbit-context">
         <span className="auth-core-node auth-core-node-a" />

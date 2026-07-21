@@ -1175,7 +1175,7 @@ export const de = {
   "auth.coreModeLocal": "lokales Routing",
   "auth.coreModeHybrid": "hybrides Routing",
   "auth.coreModeNone": "kein Modell-Routing",
-  "auth.coreModeDevelopment": "lokaler Entwicklungspfad",
+  "auth.coreModeDevelopment": "Offline-Entwicklungspfad",
   "auth.coreProviderAnthropic": "Anthropic",
   "auth.coreProviderGemini": "Gemini",
   "auth.coreProviderOllama": "Ollama",

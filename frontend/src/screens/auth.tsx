@@ -62,7 +62,7 @@ function resetTokenFromLocation(): string | null {
 export function AuthScreen({
   onAuthed,
   notice = null,
-}: Readonly<{ onAuthed: () => void; notice?: AuthNotice }>) {
+}: Readonly<{ onAuthed: () => void | Promise<void>; notice?: AuthNotice }>) {
   const t = useT();
   const [view, setView] = useState<View>(() => {
     const token = resetTokenFromLocation();
@@ -295,7 +295,7 @@ function LoginForm({
   resetAvailable,
   onForgot,
 }: Readonly<{
-  onAuthed: () => void;
+  onAuthed: () => void | Promise<void>;
   onPhase: (phase: AuthPhase) => void;
   resetAvailable: boolean;
   onForgot: () => void;
@@ -332,11 +332,14 @@ function LoginForm({
         if (response.status >= 500) throw new LoginError("unreachable");
         throw new Error(problemMessage(error));
       }
+      // The login response only says the credential exchange succeeded. The
+      // session is real when the app's authenticated /me probe accepts the
+      // resulting cookie; keep the Core in its signing-in state until then.
+      await onAuthed();
       return data;
     },
     onSuccess: () => {
       onPhase("success");
-      onAuthed();
       // Restore the originally requested route (§8.5): a deep link the
       // user followed stays; only a bare entry lands on home.
       const hash = globalThis.location?.hash ?? "";

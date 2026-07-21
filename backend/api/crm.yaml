@@ -8992,6 +8992,7 @@ components:
         inference_mode: { type: string, enum: [cloud, local, hybrid, none, development] }
         providers:
           type: array
+          uniqueItems: true
           description: Distinct configured provider keys, sorted; fake is never returned.
           items: { type: string, enum: [anthropic, gemini, ollama, openai, openai_compatible, vllm] }
 

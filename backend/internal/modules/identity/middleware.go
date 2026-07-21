@@ -19,20 +19,25 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// publicPaths need no session; every other /v1 path 401s without one
-// (the middleware only fronts the API — static assets never reach it).
-var publicPaths = map[string]bool{
-	"/v1/assistant/profile":    true,
-	"/v1/auth/capabilities":    true,
-	"/v1/auth/login":           true,
-	"/v1/auth/logout":          true,
-	"/v1/auth/forgot-password": true,
-	"/v1/auth/reset-password":  true,
+// publicRequests need no session; every other /v1 request 401s without one.
+// Method is part of the key so a future mutation cannot silently inherit a
+// GET-only anonymous exemption.
+var publicRequests = map[string]map[string]bool{
+	"/v1/assistant/profile":    {http.MethodGet: true},
+	"/v1/auth/capabilities":    {http.MethodGet: true},
+	"/v1/auth/login":           {http.MethodPost: true},
+	"/v1/auth/logout":          {http.MethodPost: true},
+	"/v1/auth/forgot-password": {http.MethodPost: true},
+	"/v1/auth/reset-password":  {http.MethodPost: true},
 	// The OAuth AS endpoints authenticate by their own means: DCR is
 	// open (public clients + PKCE), token exchange proves possession via
 	// the code + verifier. authorize is NOT here — it demands a session.
-	"/oauth/register": true,
-	"/oauth/token":    true,
+	"/oauth/register": {http.MethodPost: true},
+	"/oauth/token":    {http.MethodPost: true},
+}
+
+func isPublicRequest(r *http.Request) bool {
+	return publicRequests[r.URL.Path][r.Method]
 }
 
 // isConnectorOAuthCallback matches the capture-connector OAuth redirect
@@ -75,7 +80,7 @@ func (h Handlers) Middleware(next http.Handler) http.Handler {
 		}
 		ctx = principal.WithWorkspaceID(ctx, wsID.UUID)
 
-		if publicPaths[r.URL.Path] {
+		if isPublicRequest(r) {
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}

@@ -20,12 +20,11 @@ const (
 	AIStateUnconfigured = "unconfigured" // neither wired
 )
 
-// WithAIState sets the /readyz AI visibility line. cmd computes it from
-// the same declared-routing/--ai-fake/neither switch that decides
-// whether coldStartOptions/offerDraftOptions light up, so the probe
-// never disagrees with what the process actually wired.
+// WithAIState sets only the /readyz AI visibility line. It carries no routing
+// configuration from which the anonymous profile could be derived; callers
+// that own that configuration use WithAssistantProfile instead.
 func WithAIState(state string) Option {
-	return WithAssistantProfile(state, ai.NewPublicProfile(state, ai.RoutingConfig{}))
+	return func(s *Server, _ *pgxpool.Pool) { s.aiState = state }
 }
 
 // WithAssistantProfile binds both public login posture and the operational

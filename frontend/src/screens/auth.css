@@ -284,13 +284,11 @@
   text-transform: uppercase;
   color: var(--railIconHover);
 }
-.auth-core-live {
+.auth-core-identity-dot {
   width: 7px;
   height: 7px;
   border-radius: var(--r-full);
   background: var(--aiText);
-  box-shadow: 0 0 16px var(--aiText);
-  animation: auth-core-live 2.8s ease-in-out infinite;
 }
 .auth-core-statement {
   max-width: 470px;
@@ -342,7 +340,6 @@
 }
 .auth-core-orbit-evidence {
   inset: 3%;
-  transform: rotate(62deg);
   animation-duration: 26s;
   animation-direction: reverse;
   border-style: dashed;
@@ -375,7 +372,7 @@
 .auth-core-node-b {
   right: -4px;
   top: 48%;
-  background: var(--online);
+  background: var(--aiText);
 }
 .auth-core-node-c {
   bottom: 12%;
@@ -552,16 +549,6 @@
     opacity: 0.85;
   }
 }
-@keyframes auth-core-live {
-  0%,
-  100% {
-    opacity: 0.55;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
 @media (max-width: 959px) {
   .auth-page {
     place-items: start center;
@@ -645,7 +632,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .auth-core-live,
   .auth-core-glow,
   .auth-core-orbit,
   .auth-core-thread,

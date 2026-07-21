@@ -53,7 +53,11 @@ func TestPublicProfileDerivesSafeRoutingPosture(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := NewPublicProfile(tt.state, tt.config)
-			if got.State != tt.wantState || got.InferenceMode != tt.wantMode || !reflect.DeepEqual(got.Providers, tt.want) {
+			providers := make([]string, len(got.Providers))
+			for i, provider := range got.Providers {
+				providers[i] = string(provider)
+			}
+			if string(got.State) != tt.wantState || string(got.InferenceMode) != tt.wantMode || !reflect.DeepEqual(providers, tt.want) {
 				t.Fatalf("profile = %+v, want state=%s mode=%s providers=%v", got, tt.wantState, tt.wantMode, tt.want)
 			}
 		})
@@ -61,13 +65,16 @@ func TestPublicProfileDerivesSafeRoutingPosture(t *testing.T) {
 }
 
 func TestGetAssistantProfileReturnsOnlyPublicFields(t *testing.T) {
-	h := NewHandlers(nil, nil).WithPublicProfile(PublicProfile{
-		State: "configured", InferenceMode: "hybrid", Providers: []string{"anthropic", "ollama"},
-	})
+	h := NewHandlers(nil, nil).WithPublicProfile(NewPublicProfile("configured", RoutingConfig{
+		Tiers: map[Tier]ProviderConfig{
+			TierLocalSmall: {Provider: providerOllama},
+			TierPremium:    {Provider: providerAnthropic},
+		},
+	}))
 	recorder := httptest.NewRecorder()
 	h.GetAssistantProfile(recorder, httptest.NewRequest("GET", "/v1/assistant/profile", nil))
 
-	var body map[string]any
+	var body map[string]json.RawMessage
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}

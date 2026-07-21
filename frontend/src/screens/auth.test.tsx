@@ -141,6 +141,32 @@ describe("AuthScreen login", () => {
     expect(request?.headers.has("X-Workspace-Slug")).toBe(false);
   });
 
+  it("does not show success until the authenticated session probe succeeds", async () => {
+    stubApi({ password: true, password_reset: false }, () =>
+      ok(200, { user: {}, roles: [], teams: [] }),
+    );
+    const probe = vi.fn().mockRejectedValue(new Error("session rejected"));
+    const { container } = render(<AuthScreen onAuthed={probe} />);
+
+    await userEvent.type(
+      screen.getByLabelText("Email address"),
+      "ada@example.com",
+    );
+    await userEvent.type(
+      screen.getByLabelText("Password"),
+      "correct-horse-battery{enter}",
+    );
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Margince couldn't be reached",
+    );
+    expect(probe).toHaveBeenCalledOnce();
+    expect(
+      container.querySelector<HTMLElement>(".auth-experience")?.dataset
+        .authPhase,
+    ).toBe("error");
+  });
+
   it("answers bad credentials with the one non-enumerating message, keeps the email, clears the password", async () => {
     stubApi({ password: true, password_reset: false }, () =>
       ok(401, {
