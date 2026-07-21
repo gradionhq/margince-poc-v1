@@ -32,8 +32,14 @@ func gatePageEntities(parsed pageFactsReply, page crawlPage, idx snippetIndex, d
 			drop(laneLegal, e.N, "", dropEmptyValue)
 		case page.Kind != crmcontracts.SiteReadPageKindImpressum || !legalAuthorityPage(page.URL):
 			drop(laneLegal, name, "", dropLegalNotFromLegalPage)
-		case !strings.Contains(pageNorm, normalizeEvidence(name)):
-			// A hallucinated entity must not force a false abstention.
+		case groundedDetail(pageNorm, name) == "":
+			// The same whole-token rule the details get, so a name cannot
+			// pass on a partial token either. Only the SCOPE differs: the
+			// census reads the whole page, because a layout can break an
+			// entity's name across passages and an undercounted census
+			// applies the wrong company's legal identity — the failure the
+			// abstention exists to prevent. A hallucinated entity must not
+			// force a false abstention either, which is what this rejects.
 			drop(laneLegal, name, "", dropValueNotInSnippet)
 		default:
 			entity := corpusLegalEntity{Name: name, SourceURL: page.URL}
@@ -68,27 +74,29 @@ func gatePageEntities(parsed pageFactsReply, page crawlPage, idx snippetIndex, d
 	return out
 }
 
-// groundedDetail keeps an entity detail only when the CITED BLOCK prints
-// it. Scope matters as much as presence: a legal notice lists several
-// companies, and a detail that merely appears somewhere on the page may
-// belong to a different one — attaching a sibling's registered address to
-// the entity a human then selects is the wrong-company outcome the
-// multi-entity abstention exists to prevent.
+// groundedDetail keeps a claimed value only when the text it is judged
+// against actually prints it. The CALLER chooses that scope, and the two
+// scopes differ for a reason: an entity's name is judged against the whole
+// page, because a layout can break it across passages and an undercounted
+// census applies the wrong company's legal identity; a detail is judged
+// against the entity's own cited block, because a notice lists several
+// companies and a sibling's registered address must not attach to the one
+// a human then selects.
 //
 // An address survives a round trip through a model with its punctuation
 // rearranged — a block printing "Singapore (179433)" comes back
 // "Singapore 179433" — and refusing that costs the human the field they
 // came for. So the test is that every content token of the value was
-// printed in the block, WHOLE: "1234" is not evidence from a block that
+// printed in that text, WHOLE: "1234" is not evidence from a notice that
 // printed "HRB 123456", and a truncated register number is a legal
 // identifier the company does not have. Substring containment would accept
 // exactly that, which is why it is not used.
 //
-// The scoping is as strong as the page's own layout. Passages pack short
-// lines together, so a legal notice compact enough to fit one passage IS
-// the cited block, and a sibling's address inside it cannot be told apart
-// from this entity's. The human picking from the census remains the check
-// that catches it.
+// Block scoping is only as strong as the page's own layout: passages pack
+// short lines together, so a legal notice compact enough to fit one
+// passage IS the cited block, and a sibling's address inside it cannot be
+// told apart from this entity's. The human picking from the census remains
+// the check that catches that.
 func groundedDetail(blockNorm, value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" || blockNorm == "" {
