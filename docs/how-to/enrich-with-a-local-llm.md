@@ -71,9 +71,10 @@ make dev   # look for: "dev: using config/ai-routing.yaml for the cold-start rea
 > missing key for *any* bound cloud provider puts the whole stack on the
 > offline fake — Ollama included.
 
-`make dev` brings up the api on `:8080`, API-seeds the demo workspace on boot,
-and runs the Vite SPA on `:5173`. Open **http://localhost:5173** and log in
-with the seeded admin (`admin@demo.test` / `demo-password-123`).
+`make dev` brings up the api on `:8080` and the Vite SPA on `:5173`, cold —
+the bootstrap organization and admin, no records. Open
+**http://localhost:5173** and log in as `admin@demo.test` /
+`demo-password-123`.
 Full first-run details:
 [tutorials/getting-started.md](../tutorials/getting-started.md).
 

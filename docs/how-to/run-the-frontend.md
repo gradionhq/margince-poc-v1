@@ -7,7 +7,7 @@ talks only to the `/v1` contract surface — there is no privileged path.
 ## Develop
 
 ```sh
-make dev   # full local stack: db + migrate + api (:8080) + seed + the Vite SPA (:5173)
+make dev   # full local stack, cold: db + migrate + api (:8080) + the Vite SPA (:5173)
 ```
 
 `make dev` starts the Vite dev server too, with its `/v1` proxy pointed at

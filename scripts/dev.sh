@@ -7,8 +7,8 @@
 # slug-derived ports, so two worktrees can run concurrently without colliding on
 # the database or the host ports.
 #
-# MARGINCE_ENV=dev is set so the api trusts the X-Workspace-Slug header the seed
-# and FE send. localhost is a browser secure-context, so the Secure session
+# MARGINCE_ENV=dev is set so the api trusts the X-Workspace-Slug header the FE
+# and the seed script send. localhost is a browser secure-context, so the Secure session
 # cookie survives over plain http — no TLS front door needed.
 #
 # BYOK: if .env.local sets a cloud key (GEMINI_API_KEY / OPENAI_API_KEY /
@@ -48,7 +48,7 @@ MINIO_PORT="${MINIO_PORT:-59000}"
 # Bare `make dev` runs the shared `margince` database on the base ports, so it
 # stays coherent with `make migrate` / `seed-dev` / `verify-boot`. A DEV_SLUG
 # gives an isolated database on deterministically derived ports (same slug →
-# same db + ports, so a resume reuses the existing migrated+seeded data).
+# same db + ports, so a resume reuses whatever that database already holds).
 if [[ -z "$slug" ]]; then
   label="dev"
   db="margince"
@@ -253,22 +253,12 @@ up)
     kill "$be_pid" 2>/dev/null || true
     exit 1
   fi
-  # Seed the demo workspace through the public API (idempotent). A seed failure
-  # is fatal: `make dev` must not report ready while promising a login that the
-  # unseeded workspace can't serve.
-  if ! API_BASE="http://localhost:${api_port}" bash scripts/seed-dev.sh >>"$log" 2>&1; then
-    echo "FAIL: $label API seed failed — see ${log}" >&2
-    kill "$be_pid" 2>/dev/null || true
-    exit 1
-  fi
-  # Dev DB seed for API-less demo data (FX rates today; see scripts/seed-dev.sql).
-  # Applied here too so a plain `make dev` pre-fills everything — e.g. winning a
-  # non-EUR deal shows the frozen FX line with no manual step.
-  if ! psql_owner "$db" -v ON_ERROR_STOP=1 <scripts/seed-dev.sql >>"$log" 2>&1; then
-    echo "FAIL: $label dev DB seed failed — see ${log}" >&2
-    kill "$be_pid" 2>/dev/null || true
-    exit 1
-  fi
+  # No demo records: `make dev` brings up a COLD START — the installation the
+  # api bootstrapped from the deployment config (one organization, one admin
+  # seat) and nothing else, so onboarding, empty states, and first-run flows are
+  # what a developer sees by default. Demo data is an explicit opt-in step:
+  # `make seed-dev` (API records + the FX/RBAC fixture) jumps over the cold
+  # start on a stack that is already up.
 
   # The background process role (cmd/worker) always runs alongside the api in
   # dev: the standalone outbox relay (coexists with the api's inline relay —
@@ -287,7 +277,7 @@ up)
   # --retention-interval 720h: the worker runs the nightly GDPR
   # retention/erasure pass unconditionally. River's RunOnStart still fires one
   # evaluation immediately at boot (inherent, not gated by this flag) — but it
-  # only ERASES data past its jurisdiction floor, so on fresh seeded demo data
+  # only ERASES data past its jurisdiction floor, so on a fresh dev database
   # it is a no-op. The long interval just stops it recurring during a dev
   # session.
   ( cd backend && go build -o ../bin/worker ./cmd/worker ) >>"$log" 2>&1
@@ -325,13 +315,12 @@ up)
     echo "$label ready"
     echo "  api      http://localhost:${api_port}"
     echo "  frontend http://localhost:${fe_port}"
-    # Demo logins — printed straight from scripts/seed-dev.sql's manifest block so
-    # the credentials live in exactly one place (that file seeds them). rep =
-    # team-scoped, rep2 = own-scoped — see docs/explanation/rbac-roles-and-teams.md.
-    echo "  login"
-    sed -n '/DEMO-ACCOUNTS-BEGIN/,/DEMO-ACCOUNTS-END/p' scripts/seed-dev.sql \
-      | sed '1d;$d' \
-      | sed 's/^-- /           /'
+    # The only seat on a cold start is the bootstrap admin, and the deployment
+    # config is where it is defined — read the address back from that file
+    # rather than restating it, so an edited config prints the truth.
+    admin_email="$(sed -n 's/^[[:space:]]*email:[[:space:]]*\(.*\)$/\1/p' "$deploy_cfg" | head -1)"
+    echo "  login    ${admin_email} / $(cat "$admin_pw_file")  (bootstrap admin — cold start, no other data)"
+    echo "  demo     make seed-dev  — adds the demo records + rep seats on top"
     echo "  logs     ${log}"
     echo "  stop     make dev-stop${slug:+ DEV_SLUG=$slug}"
   else

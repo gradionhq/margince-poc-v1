@@ -62,32 +62,41 @@ Everything below this line is for people (and agents) working on the code.
 ## Quick start
 
 **Boot it.** `make dev` brings up the whole local stack — the Docker
-Compose infra (Postgres 16 + Redis 7), migrations, the api, a seeded demo
-workspace, and the Vite SPA — then prints the URLs and returns (the servers
-run in the background; stop them with `make dev-stop`):
+Compose infra (Postgres 16 + Redis 7), migrations, the api, and the Vite SPA
+— then prints the URLs and returns (the servers run in the background; stop
+them with `make dev-stop`):
 
 ```sh
 make dev
 ```
 
+It boots **cold**: the organization and admin seat the api bootstraps from
+`config/margince.yaml`, and no other data. That is the state a real first
+customer sees, so onboarding and empty states are what you develop against
+by default.
+
 **Log in.** Open http://localhost:5173 for the web UI (people, the deal
 board, the timeline) — the Vite dev server; it proxies `/v1` to the api on
-:8080. Workspace `demo-workspace`, sign in as `admin@demo.test` /
-`demo-password-123` (dev-only credentials). The seed goes through the public
-API — same audit trail, same events as real traffic — and is idempotent;
-`make seed-reset` wipes the demo workspace for a clean re-seed.
+:8080. Sign in as `admin@demo.test` / `demo-password-123` (dev-only
+credentials, from `config/margince.yaml`).
+
+**Skip the cold start** with `make seed-dev` against a running stack: demo
+people, organizations, and deals plus the two rep seats and FX rates. The
+seed goes through the public API — same audit trail, same events as real
+traffic — and is idempotent; `make seed-reset` wipes the demo workspace for
+a clean re-seed.
 
 **Isolate a second stack.** `make dev DEV_SLUG=<slug>` gives a private
 `margince_dev_<slug>` database on slug-derived ports so a second worktree
 runs concurrently without colliding; `make dev-stop DEV_SLUG=<slug> [DROP=1]`
 tears it down (`DROP=1` also drops the database).
 
-**Verify** the whole thing end to end (seeded-admin login over `/v1`,
-seeded people visible, frontend production build — fails loudly on the
-first broken step):
+**Verify** the whole thing end to end (admin login over `/v1`, seeded people
+visible, frontend production build — fails loudly on the first broken step).
+It reads the demo records, so seed first:
 
 ```sh
-make verify-boot
+make seed-dev && make verify-boot
 ```
 
 Toolchain: Go ≥ 1.26, Docker (Compose), `jq`, `golangci-lint`, and

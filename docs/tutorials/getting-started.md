@@ -64,8 +64,9 @@ Connect): let Margince read a company website or enter the three required
 fields by hand — it is resumable and skippable, and explained in
 [explanation/company-context.md](../explanation/company-context.md). After
 that you have people, leads, the deal board, and the activity timeline —
-`make dev` already API-seeded demo records on boot (`make seed-dev` re-runs
-the same idempotent seed).
+empty, because `make dev` boots a cold installation on purpose: what you see
+is what a first customer sees. Run `make seed-dev` against the running stack
+when you want demo records (idempotent, re-runnable).
 
 Prefer the API? Log in and reuse the session. The `crm_session` cookie is `Secure`, so pull it out of
 the login response rather than relying on curl's jar; the server resolves its singleton organization
