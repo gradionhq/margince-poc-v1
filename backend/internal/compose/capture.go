@@ -29,13 +29,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// The single read-only Google scope each capture connector requests: mail read
-// for Gmail, calendar read for Google Calendar — no send, no modify. Both ride
-// one Google OAuth app (differing only in the requested scope).
-const (
-	gmailReadonlyScope = "https://www.googleapis.com/auth/gmail.readonly"
-	gcalReadonlyScope  = "https://www.googleapis.com/auth/calendar.readonly"
-)
+// gmailReadonlyScope is the single Google scope the read-only Gmail capture
+// connector requests (mail read; no send, no modify). The calendar connector
+// owns its own calendar-read scope inside the gcal package.
+const gmailReadonlyScope = "https://www.googleapis.com/auth/gmail.readonly"
 
 // graphScopes are the Microsoft identity platform scopes the read-only Graph
 // capture connector requests: mail read + the signed-in user's profile (the
@@ -149,17 +146,17 @@ func newGmailOAuth(c GmailConfig) gmail.OAuth {
 	})
 }
 
-// newGcalOAuth builds the Google OAuth client for the calendar connector. It is
-// the SAME Google OAuth2 client the Gmail connector uses (same app creds),
-// differing only in the requested scope — so gcal takes on no duplicate token
-// plumbing; the gmail.OAuth value satisfies gcal's structurally-identical seam.
+// newGcalOAuth builds the calendar connector's OAuth client. It shares the same
+// Google app credentials as Gmail (one app per deployment) but authorizes
+// SEPARATELY, requesting the calendar scope alone — the gcal package owns that
+// scope and its own error sentinels, so calendar diagnostics never surface as
+// "gmail:" and the credential never accretes Gmail's mail-read grant.
 //
 //nolint:ireturn // returns the gcal.OAuth seam by design (a fakeable interface)
 func newGcalOAuth(c GmailConfig) gcal.OAuth {
-	return gmail.NewOAuth(gmail.OAuthConfig{
+	return gcal.NewOAuth(gcal.OAuthConfig{
 		ClientID:     c.ClientID,
 		ClientSecret: c.ClientSecret,
-		Scopes:       []string{gcalReadonlyScope},
 	})
 }
 

@@ -149,6 +149,14 @@ func TestWithGmailCaptureWiresOrSkips(t *testing.T) {
 	if !s.wired() {
 		t.Error("WithGmailCapture(full) with a vault did not wire the connector handlers")
 	}
+	// The one Google app mounts BOTH connectors: gcal must resolve through the
+	// production wiring, not only through the manually-injected route tests.
+	if _, ok := s.oauthApp(providerGmail); !ok {
+		t.Error("WithGmailCapture(full) did not compose the gmail OAuth app")
+	}
+	if _, ok := s.oauthApp(providerGcal); !ok {
+		t.Error("WithGmailCapture(full) did not compose the gcal OAuth app")
+	}
 
 	// Fully configured but NO vault → no-op (can't seal the refresh token).
 	var s2 Server

@@ -21,11 +21,24 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture/googleconn"
+	"github.com/gradionhq/margince/backend/internal/modules/capture/oauthflow"
 )
 
 // calendarAPIBase is Google's Calendar v3 root; overridable via NewAPI for
 // tests. The connector reads the "primary" calendar only.
 const calendarAPIBase = "https://www.googleapis.com/calendar/v3"
+
+// Default Google OAuth endpoints; overridable via OAuthConfig for tests. The
+// calendar connector authorizes against the same Google identity platform as
+// Gmail, but as its OWN authorization (calendar scope only).
+const (
+	googleAuthURL  = "https://accounts.google.com/o/oauth2/v2/auth"
+	googleTokenURL = "https://oauth2.googleapis.com/token" //nolint:gosec // G101 false positive: Google's public OAuth token *endpoint URL*, not a credential
+)
+
+// calendarReadonlyScope is the single Google scope the read-only calendar
+// connector requests (event read; no write).
+const calendarReadonlyScope = "https://www.googleapis.com/auth/calendar.readonly"
 
 // initialBackfillDays bounds the first sync's window so a long calendar history
 // does not stream unbounded on connect: only events starting within this many
@@ -54,9 +67,53 @@ var (
 var ErrSyncTokenGone = errors.New("gcal: sync token expired")
 
 // OAuth is the OAuth2 handshake surface the connector consumes — the shared
-// Google shape (googleconn.OAuth). compose builds one concrete client per Google
-// scope and injects it here, so this package owns no duplicate token plumbing.
+// Google shape (googleconn.OAuth). compose builds one concrete client and
+// injects it here, so this package owns no duplicate token plumbing.
 type OAuth = googleconn.OAuth
+
+// OAuthConfig wires the calendar OAuth client. AuthURL/TokenURL default to
+// Google's endpoints when empty; tests override TokenURL.
+type OAuthConfig struct {
+	ClientID     string
+	ClientSecret string
+	AuthURL      string
+	TokenURL     string
+}
+
+// NewOAuth builds the calendar OAuth client on the shared oauthflow handshake.
+// It is a SEPARATE Google authorization from Gmail's (calendar.readonly only),
+// and deliberately omits include_granted_scopes: incremental authorization
+// would let a calendar consent granted after a Gmail one silently accrue the
+// mail-read scope into this credential, breaking the per-connector scope
+// boundary. The gcal error sentinels are supplied so the registry classifies
+// failures as calendar's own, with accurate diagnostics.
+//
+//nolint:ireturn // returns the OAuth seam by design — the connector holds it as an interface so tests substitute a stub
+func NewOAuth(cfg OAuthConfig) OAuth {
+	if cfg.AuthURL == "" {
+		cfg.AuthURL = googleAuthURL
+	}
+	if cfg.TokenURL == "" {
+		cfg.TokenURL = googleTokenURL
+	}
+	return oauthflow.New(oauthflow.Config{
+		Provider:     connectorName,
+		ClientID:     cfg.ClientID,
+		ClientSecret: cfg.ClientSecret,
+		Scopes:       []string{calendarReadonlyScope},
+		AuthURL:      cfg.AuthURL,
+		TokenURL:     cfg.TokenURL,
+		// Google needs offline access + a forced consent prompt to return a
+		// refresh token. No include_granted_scopes: keep this credential scoped
+		// to the calendar alone.
+		AuthParams: map[string]string{
+			"access_type": "offline",
+			"prompt":      "consent",
+		},
+		AuthRejected: ErrAuthRejected,
+		Unreachable:  ErrUnreachable,
+	})
+}
 
 // API is the read-only Google Calendar surface the connector uses. All calls
 // take a short-lived access token (minted from the refresh token per Sync).
@@ -167,6 +224,13 @@ func (a *httpAPI) listPages(ctx context.Context, accessToken string, base url.Va
 			break
 		}
 		pageToken = page.NextPageToken
+	}
+	if syncToken == "" {
+		// A fully-walked list must end on a nextSyncToken (Google's delta
+		// anchor). Its absence is a provider-contract violation; surface it as
+		// retryable rather than persist an empty cursor that would force a full
+		// re-backfill every cycle.
+		return nil, "", ErrUnreachable
 	}
 	return events, syncToken, nil
 }

@@ -14,13 +14,15 @@
 package googleconn
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -36,14 +38,20 @@ const httpTimeout = 30 * time.Second
 // BoundedClient returns an HTTP client with the standard Google-call timeout.
 func BoundedClient() *http.Client { return &http.Client{Timeout: httpTimeout} }
 
+// The package sentinels wrap the shared connector vocabulary (ADR-0063) so the
+// registry classifies a failure without knowing the provider: a rejected auth
+// parks the connection, a rate limit honors Retry-After, and an unreachable
+// provider backs off (rather than every failure becoming a terminal error).
+
 // ErrAuthRejected marks an OAuth/authorization failure Google reported (bad or
 // expired code, revoked grant, missing scope). The transport maps it to a 422
 // without echoing the raw provider error.
-var ErrAuthRejected = errors.New("googleconn: the authorization was rejected")
+var ErrAuthRejected = fmt.Errorf("googleconn: the authorization was rejected: %w", connector.ErrAuthRejected)
 
 // ErrUnreachable marks a transport-level failure reaching Google (DNS, TCP,
-// TLS, timeout, 5xx). The transport maps it to a 502.
-var ErrUnreachable = errors.New("googleconn: could not reach Google")
+// TLS, timeout, 5xx, or a truncated/undecodable body). The transport maps it to
+// a 502 and the registry retries with backoff.
+var ErrUnreachable = fmt.Errorf("googleconn: could not reach Google: %w", connector.ErrUnreachable)
 
 // Get performs an authorized GET against base+path and JSON-decodes the 200
 // body into out. It returns the HTTP status (so a caller can special-case a
@@ -68,17 +76,43 @@ func Get(ctx context.Context, client *http.Client, base, accessToken, path strin
 	}
 	//craft:ignore swallowed-errors best-effort close of the response body — the decoded result/status is what matters
 	defer func() { _ = resp.Body.Close() }()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	// A throttled provider is weather, not a bad credential: honor Retry-After
+	// and let the registry back off rather than parking the connection. Google
+	// signals per-user quota as 429, or as 403 with a rateLimitExceeded reason.
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return resp.StatusCode, &connector.RateLimitedError{RetryAfter: retryAfter(resp)}
+	}
+	if resp.StatusCode == http.StatusForbidden && bytes.Contains(body, []byte("ateLimitExceeded")) {
+		return resp.StatusCode, &connector.RateLimitedError{RetryAfter: retryAfter(resp)}
+	}
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		return resp.StatusCode, ErrAuthRejected
 	}
 	if resp.StatusCode != http.StatusOK {
 		return resp.StatusCode, ErrUnreachable
 	}
+	if readErr != nil {
+		// A truncated body that happens to be a valid-JSON prefix must never
+		// pass as a complete response — treat the read failure as unreachable.
+		return resp.StatusCode, fmt.Errorf("googleconn: reading %s: %w", path, ErrUnreachable)
+	}
 	if err := json.Unmarshal(body, out); err != nil {
 		return resp.StatusCode, fmt.Errorf("googleconn: decoding %s: %w", path, ErrUnreachable)
 	}
 	return resp.StatusCode, nil
+}
+
+// retryAfter parses the provider's Retry-After (delta-seconds form; Google does
+// not send HTTP-dates here). Zero when absent — the registry's own backoff then
+// takes over.
+func retryAfter(resp *http.Response) time.Duration {
+	if s := resp.Header.Get("Retry-After"); s != "" {
+		if secs, err := strconv.Atoi(s); err == nil && secs > 0 {
+			return time.Duration(secs) * time.Second
+		}
+	}
+	return 0
 }
 
 // Descriptor is the shared static metadata for a read-only Google capture
@@ -185,6 +219,13 @@ func Authenticate(ctx context.Context, oauth OAuth, req connector.AuthRequest, s
 	owner, err := resolveOwner(ctx, access)
 	if err != nil {
 		return nil, err
+	}
+	// An empty owner would make every counterparty look external (ownerDom
+	// ""), so an all-internal meeting could be logged in violation of the
+	// zero-rows rule (formulas §20). Refuse the connection rather than seal a
+	// credential that cannot classify internal-vs-external.
+	if strings.TrimSpace(owner) == "" {
+		return nil, fmt.Errorf("googleconn: provider returned an empty account owner: %w", ErrAuthRejected)
 	}
 	state := AuthState{RefreshToken: refresh, Owner: owner, Scopes: ScopeStrings(scopes)}
 	//nolint:gosec // G117: sealing the connector's own refresh token into the opaque Auth bundle IS the intended path — the registry stores it encrypted in the vault, never logged or returned

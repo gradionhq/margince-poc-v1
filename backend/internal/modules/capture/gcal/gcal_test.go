@@ -292,6 +292,13 @@ func TestCursorRoundTrip(t *testing.T) {
 	if empty, err := parseCursor(nil); err != nil || empty != "" {
 		t.Errorf("empty cursor = (%q,%v), want (\"\", nil)", empty, err)
 	}
+	// A stored-but-tokenless cursor is corruption, not a fresh calendar: it must
+	// error rather than silently trigger a full re-backfill that overwrites the
+	// watermark.
+	tokenless, _ := json.Marshal(cursorState{SyncToken: ""})
+	if _, err := parseCursor(tokenless); err == nil {
+		t.Error("parseCursor of a non-empty cursor with an empty token must error, not re-anchor")
+	}
 }
 
 // skipSink returns connector.ErrSkip on every Upsert — the exclusion-gate shape.

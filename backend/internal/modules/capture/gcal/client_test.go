@@ -108,6 +108,25 @@ func TestListIncrementalExpiredTokenMapsGoneSentinel(t *testing.T) {
 	}
 }
 
+func TestListInitialRejectsMissingTerminalSyncToken(t *testing.T) {
+	// A fully-walked list that never yields a nextSyncToken is a Google
+	// contract violation; the client must surface it (retryable) rather than
+	// return an empty cursor that would force a full re-backfill every cycle.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/calendars/primary/events", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]any{
+			"items": []map[string]any{{"id": "evt-1", "status": "confirmed"}},
+			// no nextPageToken (terminal) and no nextSyncToken (the violation)
+		})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	api := NewAPI(srv.Client(), srv.URL)
+	if _, _, err := api.ListInitial(context.Background(), "access-1"); !errors.Is(err, ErrUnreachable) {
+		t.Fatalf("want ErrUnreachable for a terminal page with no syncToken, got %v", err)
+	}
+}
+
 func TestGetMapsAuthAndTransportSentinels(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/calendars/primary", func(w http.ResponseWriter, _ *http.Request) {

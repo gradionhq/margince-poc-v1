@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -119,6 +120,15 @@ func TestGetDecodesOKAndMapsSentinels(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"id": "rep@myco.com"})
 	})
 	mux.HandleFunc("/forbidden", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) })
+	mux.HandleFunc("/toomany", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusTooManyRequests)
+	})
+	mux.HandleFunc("/quota", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		//craft:ignore swallowed-errors test stub write
+		_, _ = w.Write([]byte(`{"error":{"errors":[{"reason":"rateLimitExceeded"}]}}`))
+	})
 	mux.HandleFunc("/boom", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusInternalServerError) })
 	mux.HandleFunc("/garbage", func(w http.ResponseWriter, _ *http.Request) {
 		//craft:ignore swallowed-errors test stub write
@@ -142,6 +152,31 @@ func TestGetDecodesOKAndMapsSentinels(t *testing.T) {
 	}
 	if _, err := Get(context.Background(), client, srv.URL, "tok", "/garbage", nil, &out); !errors.Is(err, ErrUnreachable) {
 		t.Fatalf("Get /garbage (undecodable) err = %v, want ErrUnreachable", err)
+	}
+	// A 429 and a quota-403 are retryable rate limits, NOT rejected auth — the
+	// registry must back off and honor Retry-After, not park the connection.
+	var rl *connector.RateLimitedError
+	if _, err := Get(context.Background(), client, srv.URL, "tok", "/toomany", nil, &out); !errors.As(err, &rl) {
+		t.Fatalf("Get /toomany err = %v, want a RateLimitedError", err)
+	} else if rl.RetryAfter != 30*time.Second {
+		t.Errorf("RetryAfter = %v, want 30s", rl.RetryAfter)
+	}
+	rl = nil
+	if _, err := Get(context.Background(), client, srv.URL, "tok", "/quota", nil, &out); !errors.As(err, &rl) {
+		t.Fatalf("Get /quota (403 rateLimitExceeded) err = %v, want a RateLimitedError", err)
+	}
+}
+
+func TestAuthenticateRejectsEmptyOwner(t *testing.T) {
+	req, err := AuthRequestFrom("the-code", "https://app/callback")
+	if err != nil {
+		t.Fatalf("AuthRequestFrom: %v", err)
+	}
+	// A provider that returns a blank owner would make every counterparty look
+	// external — refuse the connection rather than seal an unclassifiable one.
+	owner := func(context.Context, string) (string, error) { return "  ", nil }
+	if _, err := Authenticate(context.Background(), fakeOAuth{refresh: "r", access: "a"}, req, nil, owner); !errors.Is(err, ErrAuthRejected) {
+		t.Fatalf("want ErrAuthRejected for an empty owner, got %v", err)
 	}
 }
 

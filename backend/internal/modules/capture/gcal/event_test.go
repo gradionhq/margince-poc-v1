@@ -163,9 +163,12 @@ func TestParseEventAllDayFallsBackToDate(t *testing.T) {
 		t.Fatalf("marshal: %v", err)
 	}
 	m := mustParse(t, raw)
-	want := time.Date(2026, 7, 16, 0, 0, 0, 0, time.UTC)
+	// A timezone-free all-day date is anchored at noon UTC so it keeps its
+	// calendar date across the ±12h of real-world offsets (midnight UTC would
+	// slip to the previous day for any zone west of UTC).
+	want := time.Date(2026, 7, 16, 12, 0, 0, 0, time.UTC)
 	if !m.occurredAt.Equal(want) {
-		t.Errorf("all-day OccurredAt = %v, want %v (midnight UTC)", m.occurredAt, want)
+		t.Errorf("all-day OccurredAt = %v, want %v (noon UTC)", m.occurredAt, want)
 	}
 }
 

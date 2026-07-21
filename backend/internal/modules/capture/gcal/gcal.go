@@ -103,9 +103,8 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, cursor connec
 		}
 	}
 
-	if nextToken == "" {
-		nextToken = start // nothing new / no token returned; keep the prior watermark
-	}
+	// selectEvents (through listPages) guarantees a non-empty syncToken on a
+	// successful pull, so the advanced watermark is always real here.
 	return marshalCursor(nextToken), nil
 }
 
@@ -187,6 +186,11 @@ func parseCursor(cur connector.Cursor) (string, error) {
 	var cs cursorState
 	if err := json.Unmarshal(cur, &cs); err != nil {
 		return "", fmt.Errorf("gcal: unreadable sync cursor: %w", err)
+	}
+	if cs.SyncToken == "" {
+		// A stored-but-empty token is corruption, NOT a fresh calendar: stop
+		// rather than silently re-backfill and overwrite the watermark.
+		return "", fmt.Errorf("gcal: sync cursor carries no token")
 	}
 	return cs.SyncToken, nil
 }

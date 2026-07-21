@@ -65,7 +65,8 @@ func gmailOptions(cfg apiConfig, freemailExtra []string, pool *pgxpool.Pool, log
 			return nil, err
 		}
 		opts = append(opts, compose.WithCaptureBackfill(backfillInserter))
-		_, _ = fmt.Fprintln(stdout, "api gmail capture connector enabled (/connectors/gmail/*, backfill ops)")
+		// The same Google OAuth app wires both connectors, so gcal comes up with gmail.
+		_, _ = fmt.Fprintln(stdout, "api google capture connectors enabled (/connectors/gmail/* + /connectors/gcal/*, backfill ops)")
 	case cfg.gmailClientID != "":
 		_, _ = fmt.Fprintln(stdout, "api gmail capture connector configured but INCOMPLETE — needs client secret, --connector-state-key (>=32B), and --public-base-url; surface stays 501")
 	}

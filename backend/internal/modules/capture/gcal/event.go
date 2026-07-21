@@ -199,9 +199,9 @@ func buildBody(ev rawEvent, attendeeEmails []string) string {
 }
 
 // parseStart reads the event's start: a timed dateTime (RFC3339) preferred,
-// falling back to an all-day date (parsed as midnight UTC). A start we cannot
-// read yields the zero time — the Sink then stamps capture time honestly
-// rather than sorting the row to the beginning of history.
+// falling back to an all-day date. A start we cannot read yields the zero time
+// — the Sink then stamps capture time honestly rather than sorting the row to
+// the beginning of history.
 func parseStart(start eventDateTime) time.Time {
 	if dt := strings.TrimSpace(start.DateTime); dt != "" {
 		if t, err := time.Parse(time.RFC3339, dt); err == nil {
@@ -210,7 +210,12 @@ func parseStart(start eventDateTime) time.Time {
 	}
 	if d := strings.TrimSpace(start.Date); d != "" {
 		if t, err := time.Parse("2006-01-02", d); err == nil {
-			return t.UTC()
+			// An all-day date is calendar-local with no timezone; time.Parse
+			// reads it as midnight UTC, which lands on the PREVIOUS day for any
+			// zone west of UTC. Anchor at noon UTC so the stored instant keeps
+			// the intended calendar date across the whole ±12h range of real
+			// offsets, absent a per-event timezone.
+			return t.Add(12 * time.Hour).UTC()
 		}
 	}
 	return time.Time{}
