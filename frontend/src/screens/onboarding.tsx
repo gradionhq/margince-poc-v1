@@ -70,6 +70,14 @@ const VOICE_TARGET = 30000;
 
 type CompanyProfile = components["schemas"]["CompanyProfile"];
 type ColdField = components["schemas"]["ColdStartField"];
+// The legal trio the entity picker owns: filled from one census entry, and
+// cleared together when a different site is read.
+const LEGAL_FIELDS = [
+  "legal_name",
+  "registered_address",
+  "register_vat",
+] as const satisfies readonly CompanyFieldName[];
+
 type CompanySiteReadLegalEntity =
   components["schemas"]["CompanySiteReadLegalEntity"];
 type ColdReadback = components["schemas"]["ColdStartReadback"];
@@ -576,6 +584,33 @@ function OnboardingCoordinator() {
       return status === "deferred" ? 60_000 : false;
     },
   });
+
+  // Reading a DIFFERENT site must not leave the previous one's legal
+  // identity in the form. Those three fields are marked as your input once
+  // an entity is picked, so prefill deliberately leaves them alone — which
+  // would carry one company's registered name into another company's
+  // setup. A new read clears them; the new census fills them again.
+  const appliedReadID = useRef<string | null>(null);
+  useEffect(() => {
+    const id = siteRead.data?.id ?? null;
+    if (id === null || id === appliedReadID.current) {
+      return;
+    }
+    const first = appliedReadID.current === null;
+    appliedReadID.current = id;
+    if (first) {
+      return;
+    }
+    setDraft((prev) => {
+      const values = { ...prev.values };
+      const edited = new Set(prev.edited);
+      for (const field of LEGAL_FIELDS) {
+        values[field] = "";
+        edited.delete(field);
+      }
+      return { ...prev, values, edited };
+    });
+  }, [siteRead.data?.id]);
 
   const appliedReadVersion = useRef(0);
   useEffect(() => {

@@ -285,6 +285,11 @@ func TestGroundedDetailRefusesPartialAndForeignIdentifiers(t *testing.T) {
 		{"truncated identifier", "1234", ""},
 		{"identifier with an extra digit", "HRB 1234567", ""},
 		{"a street the block never printed", "Baker Street 221B, Kiel", ""},
+		// Both tokens ARE in the block — "24114" from the postcode, "HRB"
+		// from the register line — but never together. A set test would
+		// vouch for this invented identifier.
+		{"recombined from unrelated tokens", "HRB 24114", ""},
+		{"printed tokens in the wrong order", "123456 HRB", ""},
 		{"nothing claimed", "", ""},
 	} {
 		if got := groundedDetail(block, tc.value); got != tc.want {

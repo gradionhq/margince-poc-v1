@@ -273,7 +273,9 @@ up)
       # would erase one database and migrate another; refuse rather than
       # rebuild something the caller never named.
       if [[ "$OWNER_DSN" != "postgres://margince_owner:dev@localhost:55432/margince" ]]; then
-        echo "FAIL: --fresh rebuilds the compose Postgres, but OWNER_DSN points at \"${OWNER_DSN%%\?*}\" — drop that database yourself, then run make dev" >&2
+        # The DSN itself is never echoed: it carries a password, and this
+        # branch exists precisely because the caller supplied a real one.
+        echo "FAIL: --fresh rebuilds the compose Postgres, but OWNER_DSN points somewhere else — drop that database yourself, then run make dev" >&2
         exit 1
       fi
       psql_owner postgres -c "DROP DATABASE IF EXISTS \"${db}\" WITH (FORCE)" </dev/null
