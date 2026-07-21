@@ -91,6 +91,19 @@ func WithKeyvault(vault keyvault.Vault) Option {
 		// GetOverlayBudget answers from the SAME meter contractAPI's
 		// Dispatcher spends force-fresh reads against.
 		s.overlayHandlers = NewOverlayHandlers(pool, vault, s.overlayMeter, s.log, s.overlayBackfillLimit, s.sorDispatch.Invalidate)
+		// Now that the vault is wired, install the live per-workspace
+		// incumbent resolver on the overlay read dispatch — force-fresh
+		// reads can reach HubSpot (Authoritative:true), no longer degrading
+		// to the mirror unconditionally. newServer built the dispatch with a
+		// nil resolver because the vault arrives only here; the dispatch is
+		// a shared pointer, so this reaches the same instance that serves
+		// reads. Boot-time only (before serving), so it never races a Read.
+		// Guarded for the isolated-option unit tests that apply WithKeyvault
+		// to a Server with no dispatch wired; the real newServer path always
+		// has one.
+		if s.sorDispatch != nil {
+			s.sorDispatch.SetOverlayIncumbentResolver(s.resolveOverlayIncumbent(pool))
+		}
 	}
 }
 

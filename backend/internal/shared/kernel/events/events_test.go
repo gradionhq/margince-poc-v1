@@ -63,7 +63,7 @@ func TestCatalogTypesObeyNamingConvention(t *testing.T) {
 		// "reply" is the noun naming the fact, not a verb — the contract
 		// wins over the tense convention (P3).
 		"reply":    true,
-		"conflict": true, "budget_degraded": true, "write_rejected": true,
+		"conflict": true, "budget_degraded": true, "write_rejected": true, "deleted": true,
 		"connected": true, "disconnected": true,
 	}
 

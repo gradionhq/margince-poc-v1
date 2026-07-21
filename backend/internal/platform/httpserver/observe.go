@@ -159,6 +159,9 @@ type OverlayMetrics struct {
 	SyncedTotal func() uint64
 	// ConflictTotal answers the process's mirror.conflict counter.
 	ConflictTotal func() uint64
+	// DeletedTotal answers the process's mirror.deleted counter (records
+	// purged from the mirror by the continuous-sync deletion feed).
+	DeletedTotal func() uint64
 }
 
 // Metrics serves the Prometheus text exposition format, hand-rolled: at
@@ -226,6 +229,10 @@ func writeOverlayMetrics(ctx context.Context, w http.ResponseWriter, overlay *Ov
 	_, _ = fmt.Fprintf(w, "# HELP margince_overlay_mirror_conflict_total mirror.conflict events emitted (incumbent-wins divergence) since process start.\n")
 	_, _ = fmt.Fprintf(w, "# TYPE margince_overlay_mirror_conflict_total counter\n")
 	_, _ = fmt.Fprintf(w, "margince_overlay_mirror_conflict_total %d\n", overlay.ConflictTotal())
+
+	_, _ = fmt.Fprintf(w, "# HELP margince_overlay_mirror_deleted_total mirror.deleted events emitted (incumbent-deleted records purged from the mirror) since process start.\n")
+	_, _ = fmt.Fprintf(w, "# TYPE margince_overlay_mirror_deleted_total counter\n")
+	_, _ = fmt.Fprintf(w, "margince_overlay_mirror_deleted_total %d\n", overlay.DeletedTotal())
 }
 
 // sortedKeys answers lag's object-class keys in a stable order — a

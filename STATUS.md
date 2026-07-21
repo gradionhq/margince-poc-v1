@@ -22,6 +22,28 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**AI cost pre-flight estimation — the cost hand-off is complete (ADR-0068/A114,
+phase 2 of 2).** Phase 1 priced actuals (`/ai/usage`); phase 2 fills the backfill
+preview's money figure. For N messages the preview now shows a data-driven priced
+cost, factored per task into per-unit cost (from `ai_call` served rows grouped by
+`(task, tier, provider, model_id)` over a 7-day window, priced with phase-1's
+`PriceCall`) × expected units (from `capture_backfill` yields), **priced at the model
+that will run** — served-if-bound, else the slice's own tier's current binding keyed on
+`ai_call.tier` (never the ladder head), so a rebind re-prices instantly. Classify counts
+per labeled message (`activity.capture_labeled_at`), enrich per person, embeddings per
+entity. Unpriced ⇒ cost **suppressed** (never a silent 0); a new additive
+`estimate_quality` (`observed`|`heuristic`) labels the source; cold-start uses a priced
+work-shape floor (retiring `estTokensPerMessage = 900`). Pure read + `compose/costestimate`
+plus one additive index migration (`0111`, indexing the synchronous
+`activity.capture_labeled_at` count); cost stays transparency, never a gate. A latent embed-lane gap
+was fixed in passing (`routeMeta[TierEmbedLane]` was never populated → embed `ai_call` rows
+carried empty provider/model; now folded in at both router constructors). **Two follow-ups:**
+`capture_backfill.people_created`/`organizations_created` are not yet written by the backfill
+loop, so enrich currently floors (honest `heuristic`) instead of pricing per-person (also
+leaves the backfill *status* payload's people/org counts at 0); and the FE consent screen
+renders cost only when `> 0` and ignores `estimate_quality`, so an honest `$0` and the
+quality signal don't yet reach the human.
+
 **Voice DNA end to end, and the settings surface it needed (#134, #143, #145,
 #147)** — ADR-0066's owner-private, human-only Voice lifecycle is merged
 (migration 0107): durable builds, immutable versions, candidate deltas,
@@ -576,23 +598,37 @@ Open work, roughly in priority order:
 
 - **Overlay branch 1b — the review-deferred hardening** (from PR #91's
   three-lens review; the branch itself ships read + poller sync with the
-  human `/v1` surface seam-backed): budget-pace the initial backfill and
-  honor `Retry-After`/ADR-0063-style backoff on a failing connection
-  (today a failed connection re-sweeps hot every tick); one budget meter
-  per deployment, not per process/consumer (combined spend can exceed
-  the HubSpot quota N×); composite keyset watermark (a >10k
-  same-timestamp block wedges the sweep — disclosed in reconcile.go);
-  hard deletes never reach the mirror (no deletion signal, no ID-set
-  diff — an incumbent-deleted record stays visible until disconnect);
-  the webhook-as-signal lane returns only WITH portal-id→workspace
-  binding in the HMAC basis (the unmounted receiver was deleted, not
-  fixed); a reconnect flow (Connect today refuses a workspace with any
-  connection row) that clears the workspace's teardown tombstones as
-  part of establishing the new connection — until then re-ingest of
-  once-purged records is deliberately blocked; live force-fresh read-through (`NewOverlayProvider` still
-  wires `inc: nil`); and the contract question of nullable
-  `pipeline_id`/`stage_id` on overlay deals (zero-UUID today, keys in
-  `raw`) to reconcile upstream.
+  human `/v1` surface seam-backed). **Landed (2026-07-21):**
+  - **Deletion/archive feed** — MERGED #159 (`fc95b15`). `Incumbent.Deletions`
+    + HubSpot `?archived=true` + `MirrorStore.PurgeRecord` (row + assoc +
+    visibility + atomic `mirror.deleted` emit, no tombstone) + full-scan
+    `ReconcileDeletions` (no watermark — the archived feed is unordered) +
+    purge indexes + `/metrics` counter. Spec pin: foundation #1123.
+  - **Visibility concurrency + ambiguity** — MERGED #160 (`078a388`). One
+    per-workspace visibility advisory lock (`lockWorkspaceVisibility`) taken
+    by every visibility mutator; distinct-owner-set ambiguity + late-ambiguity
+    revoke; GUC-unset fails closed.
+
+  Still open in 1b (the next branches, roughly in priority order):
+  - **A3 budget metering + live freshness** — wire a live per-workspace
+    incumbent into the force-fresh read path (`NewOverlayProvider` still wires
+    `inc: nil` at compose/overlay.go — FreshnessReader needs a per-request
+    `resolveIncumbent(ctx)` reading the connection + vault + building the
+    adapter, reusing jobs_overlay's factory); atomic reserve-before-`inc.Get`
+    (review #56); meter in the HTTP transport (not per-record-count);
+    token-bucket burst limiter; one budget meter per deployment, not
+    per-process (shared PG/Redis state) — combined spend can exceed the
+    HubSpot quota N×. Branch `fix/overlay-budget-metering` started.
+  - **A4 reconcile robustness** — budget-pace/`Retry-After` backoff on a
+    failing connection (today it re-sweeps hot every tick); composite keyset
+    watermark (a >10k same-timestamp block wedges the sweep — disclosed in
+    reconcile.go).
+  - **A5 disconnect-race fencing**; **A7 assoc/backfill fidelity**;
+    **webhook-as-signal** (only WITH portal-id→workspace binding in the HMAC
+    basis — the unmounted receiver was deleted, not fixed); a **reconnect flow**
+    (Connect refuses a workspace with any connection row) that clears teardown
+    tombstones. The nullable `pipeline_id`/`stage_id` overlay-deal contract
+    question is reconciled upstream (foundation #1124, merged).
 
 - **Overlay evaluation-window SPA read-subset UX** (partly landed) — the
   overlay mirror serves only a read subset (get-by-id, `q`, cursor,

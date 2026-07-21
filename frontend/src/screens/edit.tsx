@@ -4,7 +4,12 @@ import type { Route } from "../app/router";
 import { Button, Modal } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { isVersionSkew, ProblemError, problemExistingId } from "./common";
-import { type CreateField, type FormRows, RecordFormBody } from "./create";
+import {
+  type CreateField,
+  type FormRow,
+  type FormRows,
+  RecordFormBody,
+} from "./create";
 
 // The shared post-update choreography: run the screen-supplied PATCH, then
 // refresh both the list and the specific record so the 360 reflects the new
@@ -55,19 +60,55 @@ function prefillField(
   return current == null ? "" : String(current);
 }
 
-// The record's field values as form strings, keyed by field — dividers omitted.
+// The record's scalar field values as form strings, keyed by field — dividers
+// hold no value and repeatable fields live in the separate rows channel, so
+// both are skipped here.
 function prefillFromRecord(
   fields: CreateField[],
   record: Record<string, unknown>,
 ): Record<string, string> {
   const prefilled: Record<string, string> = {};
   for (const field of fields) {
-    if (field.divider) {
+    if (field.divider || field.type === "repeatable") {
       continue;
     }
     prefilled[field.key] = prefillField(field, record);
   }
   return prefilled;
+}
+
+// One repeatable field's row value coerced to the form's string-keyed rows: an
+// array of row objects seeds those rows (each subfield stringified — the form
+// controls only ever read/write strings); anything else starts with no rows.
+function prefillRows(value: unknown): FormRow[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((entry) => {
+    const row: FormRow = {};
+    if (entry && typeof entry === "object") {
+      for (const [key, cell] of Object.entries(entry)) {
+        row[key] = cell == null ? "" : String(cell);
+      }
+    }
+    return row;
+  });
+}
+
+// The record's repeatable fields as prefilled rows, keyed by field — the rows
+// channel's counterpart to prefillFromRecord (a field the record doesn't carry
+// starts empty rather than throwing).
+function prefillRowsFromRecord(
+  fields: CreateField[],
+  record: Record<string, unknown>,
+): FormRows {
+  const rows: FormRows = {};
+  for (const field of fields) {
+    if (field.type === "repeatable") {
+      rows[field.key] = prefillRows(record[field.key]);
+    }
+  }
+  return rows;
 }
 
 // The edit modal: prefilled from the record's current field values (each
@@ -100,9 +141,8 @@ export function EditRecordModal({
 }>) {
   const headingId = useId();
   const [values, setValues] = useState<Record<string, string>>({});
-  // Repeatable-row fields aren't populated from the record yet (no edit
-  // screen uses them) — the state exists so the modal's shape matches
-  // create's, ready for a future screen to prefill.
+  // Repeatable-row fields prefill from the record's current rows (e.g. a
+  // company's domains) so an edit starts from the live set rather than blank.
   const [rows, setRows] = useState<FormRows>({});
   // Only the closed→open TRANSITION should reset the form — `record`/`fields`
   // are non-primitive props that a background refetch (react-query, focus
@@ -116,7 +156,7 @@ export function EditRecordModal({
       // A fresh open starts from the record's current values, never a
       // previous attempt's leftovers.
       setValues(prefillFromRecord(fields, record));
-      setRows({});
+      setRows(prefillRowsFromRecord(fields, record));
     }
     wasOpen.current = open;
   }, [open, fields, record]);

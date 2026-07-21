@@ -63,6 +63,15 @@ type Dispatcher struct {
 	cache map[ids.UUID]sorModeCacheEntry
 }
 
+// SetOverlayIncumbentResolver installs the live-incumbent resolver on the
+// overlay read provider's force-fresh reader (boot-time only). compose's
+// WithKeyvault calls it once the vault the resolver needs is available.
+func (d *Dispatcher) SetOverlayIncumbentResolver(resolveIncumbent func(context.Context) (overlay.Incumbent, error)) {
+	if d.overlay != nil {
+		d.overlay.SetFreshnessIncumbentResolver(resolveIncumbent)
+	}
+}
+
 // NewDispatcher wires native and overlayProvider behind the per-workspace
 // mode lookup, resolved against pool's workspace table.
 func NewDispatcher(native *Provider, overlayProvider *overlay.Provider, pool *pgxpool.Pool) *Dispatcher {

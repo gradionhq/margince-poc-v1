@@ -38,7 +38,8 @@ import (
 // freshness_integration_test.go's stubIncumbent; conflating the two here
 // would only add unrelated noise to what this file is proving.
 type sweptRecords struct {
-	records []Record
+	records   []Record
+	deletions []Deletion
 }
 
 var _ Incumbent = (*sweptRecords)(nil)
@@ -47,6 +48,20 @@ func (s *sweptRecords) Name() string { return "test-swept" }
 
 func (s *sweptRecords) Backfill(context.Context, string, string) (Page, error) {
 	return Page{}, errUnusedFixtureMethod("Backfill")
+}
+
+// Deletions serves the seeded deletion feed the same way Modified serves
+// records: filtered to objectClass and deleted at or after since, ascending
+// by DeletedAt — the one method ReconcileDeletions drives.
+func (s *sweptRecords) Deletions(_ context.Context, objectClass string, since time.Time, _ string) (DeletionPage, error) {
+	var matched []Deletion
+	for _, d := range s.deletions {
+		if d.ObjectClass == objectClass && !d.DeletedAt.Before(since) {
+			matched = append(matched, d)
+		}
+	}
+	sort.Slice(matched, func(i, j int) bool { return matched[i].DeletedAt.Before(matched[j].DeletedAt) })
+	return DeletionPage{Deletions: matched}, nil
 }
 
 func (s *sweptRecords) Modified(_ context.Context, objectClass string, since time.Time, _ string) (Page, error) {

@@ -126,6 +126,36 @@ func TestFakeModifiedFiltersBySinceAndPages(t *testing.T) {
 	}
 }
 
+// TestFakeDeletionsFilterBySinceAndOrdering proves the deletion feed's
+// since-filter AND its ascending-by-DeletedAt ordering: one deletion
+// before since is dropped, and the two after it are returned oldest-first
+// regardless of the order they were seeded — the removal signal continuous
+// sync sweeps to purge mirror rows an incumbent deleted, distinct from the
+// live-record Modified feed.
+func TestFakeDeletionsFilterBySinceAndOrdering(t *testing.T) {
+	f := fake.New()
+	now := fixedModified
+	// Seeded newest-first to prove Deletions re-sorts ascending.
+	f.SeedDeletion("contacts", overlay.Deletion{ExternalID: "newer", DeletedAt: now})
+	f.SeedDeletion("contacts", overlay.Deletion{ExternalID: "older", DeletedAt: now.Add(-time.Minute)})
+	f.SeedDeletion("contacts", overlay.Deletion{ExternalID: "before", DeletedAt: now.Add(-time.Hour)})
+
+	page, err := f.Deletions(context.Background(), "contacts", now.Add(-2*time.Minute), "")
+	if err != nil {
+		t.Fatalf("Deletions: unexpected error: %v", err)
+	}
+	if len(page.Deletions) != 2 {
+		t.Fatalf("Deletions = %#v, want exactly the two deleted at or after since", page.Deletions)
+	}
+	if page.Deletions[0].ExternalID != "older" || page.Deletions[1].ExternalID != "newer" {
+		t.Fatalf("Deletions order = [%s, %s], want ascending by DeletedAt [older, newer]",
+			page.Deletions[0].ExternalID, page.Deletions[1].ExternalID)
+	}
+	if page.Deletions[0].ObjectClass != "contacts" {
+		t.Errorf("Deletions[0].ObjectClass = %q, want contacts", page.Deletions[0].ObjectClass)
+	}
+}
+
 // TestFakeAssociationsUnseededTripleAnswersNoEdges proves the honest-gap
 // posture: a triple SeedAssoc never recorded answers no edges, not an
 // error and not a fabricated one.

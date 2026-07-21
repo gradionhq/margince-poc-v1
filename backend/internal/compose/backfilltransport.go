@@ -11,6 +11,7 @@
 package compose
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -21,7 +22,10 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/riverqueue/river"
 
+	"github.com/gradionhq/margince/backend/internal/compose/costestimate"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
@@ -33,10 +37,20 @@ import (
 // codeWindowInvalid names the RFC 7807 code for a window outside {3m,6m,12m}.
 const codeWindowInvalid = "window_invalid"
 
+// backfillEstimator is the transport's narrow seam onto the ADR-0068 cost
+// pre-flight. It is an interface, not the concrete *costestimate.Estimator, so
+// the degrade-path test can inject a fault-returning fake and prove the preview
+// still answers 200 with the message count when the cost read fails. The
+// concrete estimator satisfies it.
+type backfillEstimator interface {
+	EstimateBackfill(ctx context.Context, provider string, userID ids.UserID, scannedMessages int64) (costestimate.BackfillCost, error)
+}
+
 type backfillHandlers struct {
-	registry *capture.Registry
-	inserter *jobs.Runner
-	log      *slog.Logger
+	registry  *capture.Registry
+	inserter  *jobs.Runner
+	estimator backfillEstimator // the ADR-0068 cost pre-flight; nil ⇒ preview is message-count-only
+	log       *slog.Logger
 }
 
 // WithCaptureBackfill wires the backfill ops over the connect registry and
@@ -56,6 +70,40 @@ func WithCaptureBackfill(inserter *jobs.Runner) Option {
 		}
 	}
 }
+
+// WithBackfillEstimator wires the ADR-0068 cost pre-flight estimator onto the
+// already-wired backfill ops: the priced projection the preview surfaces next to
+// the message count. router is the process's model router — its currently-bound
+// tiers (BoundLadder / CurrentModelForTier) price observed ai_call history at the
+// model that WILL run each task. Idempotent and self-gating: an unwired backfill
+// surface or a nil router (an AI-unconfigured role) leaves the preview
+// message-count-only. Cost is transparency, never a gate (ADR-0020, NEVER-4) — a
+// role without a model path simply omits the price rather than refusing the
+// preview. Append it AFTER the WithCaptureBackfill/WithGmailCapture options so
+// the shared registry it reads yields from is already set.
+func WithBackfillEstimator(router *ai.Router) Option {
+	return func(s *Server, pool *pgxpool.Pool) {
+		if s.backfillHandlers.registry == nil || router == nil {
+			return
+		}
+		s.estimator = costestimate.NewEstimator(
+			ai.NewCallReadStore(pool),
+			ai.NewRateStore(pool),
+			router,
+			activities.NewStore(pool),
+			s.backfillHandlers.registry,
+			systemClock{},
+		)
+	}
+}
+
+// systemClock is the wall clock the estimator's 7-day history window and rate
+// as-of day derive from in production; tests inject a fixed clock instead. It is
+// the composition-root adapter from the stdlib clock to the estimator's Clock
+// seam — the one place the estimator's time source is bound.
+type systemClock struct{}
+
+func (systemClock) Now() time.Time { return time.Now() }
 
 // windowMonths maps the contract's window enum onto months.
 func windowMonths(w string) (int, bool) {
@@ -136,19 +184,40 @@ func (h backfillHandlers) PreviewConnectorBackfill(w http.ResponseWriter, r *htt
 		})
 		return
 	}
-	messages, tokens, err := h.registry.EstimateBackfill(r.Context(), string(provider), userID, months)
+	messages, err := h.registry.EstimateBackfill(r.Context(), string(provider), userID, months)
 	if err != nil {
 		h.writeBackfillError(w, r, err)
 		return
 	}
-	costMinor := 0 // no price feed configured — tokens are the honest unit; 0, never a guess
-	writeBackfillJSON(w, crmcontracts.BackfillPreview{
-		Window:             crmcontracts.BackfillPreviewWindow(req.Window),
-		EstimatedMessages:  messages,
-		EstimatedAiTokens:  &tokens,
-		EstimatedCostMinor: &costMinor,
-		ComputedAt:         time.Now().UTC(),
-	})
+	preview := crmcontracts.BackfillPreview{
+		Window:            crmcontracts.BackfillPreviewWindow(req.Window),
+		EstimatedMessages: messages,
+		ComputedAt:        time.Now().UTC(),
+	}
+	// The priced projection is advisory: cost is transparency, never a gate
+	// (ADR-0020, NEVER-4). A nil estimator (AI-unconfigured role) or a cost-read
+	// fault degrades to a message-count-only preview rather than blocking the
+	// backfill consent flow — the fault is logged, never swallowed silently.
+	if h.estimator != nil {
+		cost, err := h.estimator.EstimateBackfill(r.Context(), string(provider), userID, int64(messages))
+		if err != nil {
+			h.log.ErrorContext(r.Context(), "backfill preview cost estimate", "err", err)
+		} else {
+			tokens := int(cost.InputTokens)
+			preview.EstimatedAiTokens = &tokens
+			quality := crmcontracts.BackfillPreviewEstimateQuality(cost.Quality)
+			preview.EstimateQuality = &quality
+			// HasCost=false ⇒ nothing priced: suppress the cost field rather than
+			// render a fabricated or silent 0 (the worst failure a consent-before-
+			// spend number has). A genuine local $0 prices with HasCost=true.
+			if cost.HasCost {
+				costMinor := int(cost.CostMinor)
+				preview.EstimatedCostMinor = &costMinor
+				preview.Currency = &cost.Currency
+			}
+		}
+	}
+	writeBackfillJSON(w, preview)
 }
 
 func (h backfillHandlers) StartConnectorBackfill(w http.ResponseWriter, r *http.Request, provider crmcontracts.CaptureProvider) {
@@ -179,7 +248,7 @@ func (h backfillHandlers) StartConnectorBackfill(w http.ResponseWriter, r *http.
 	// client that skipped the preview starts with none (the bar shows counts
 	// only — honest, just less shaped).
 	estimate := 0
-	if messages, _, err := h.registry.EstimateBackfill(r.Context(), string(provider), userID, months); err == nil {
+	if messages, err := h.registry.EstimateBackfill(r.Context(), string(provider), userID, months); err == nil {
 		estimate = messages
 	}
 	run, err := h.registry.StartBackfill(r.Context(), string(provider), userID, months, estimate)

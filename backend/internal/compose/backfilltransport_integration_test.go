@@ -24,14 +24,18 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
+	"github.com/gradionhq/margince/backend/internal/compose/costestimate"
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
@@ -189,9 +193,76 @@ func setupBackfillWire(t *testing.T) *backfillWireEnv {
 	if err != nil {
 		t.Fatalf("NewInserter: %v", err)
 	}
+	// The ADR-0068 cost pre-flight over the same registry (its yields) and a
+	// DB-less local router whose tiers bind to distinct fake-provider models —
+	// the resolvers BoundLadder / CurrentModelForTier need real (provider, model)
+	// identities, no network. A fixed clock keeps the 7-day window deterministic.
+	router, err := ai.NewLocalRouter(ai.RoutingConfig{
+		Profile: ai.ProfileEUHosted,
+		Tiers: map[ai.Tier]ai.ProviderConfig{
+			ai.TierLocalSmall: {Provider: ai.ProviderFake, Model: "local-model"},
+			ai.TierCheapCloud: {Provider: ai.ProviderFake, Model: "cloud-model"},
+			ai.TierPremium:    {Provider: ai.ProviderFake, Model: "premium-model"},
+		},
+		Embeddings: ai.ProviderConfig{Provider: ai.ProviderFake, Model: "embed-model"},
+	})
+	if err != nil {
+		t.Fatalf("NewLocalRouter: %v", err)
+	}
+	estimator := costestimate.NewEstimator(
+		ai.NewCallReadStore(e.Pool), ai.NewRateStore(e.Pool), router,
+		activities.NewStore(e.Pool), registry, backfillFixedClock{},
+	)
 	return &backfillWireEnv{
 		env: e, registry: registry, gmail: gm, human: human,
-		handlers: backfillHandlers{registry: registry, inserter: inserter, log: quiet},
+		handlers: backfillHandlers{registry: registry, inserter: inserter, estimator: estimator, log: quiet},
+	}
+}
+
+// backfillFixedClock pins the estimator's 7-day window so the preview wire test
+// never depends on the wall clock (T11: inject a clock, never read the real one).
+type backfillFixedClock struct{}
+
+func (backfillFixedClock) Now() time.Time { return time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC) }
+
+// faultyEstimator is the backfillEstimator seam returning a cost-read fault, so
+// the preview's degrade path (cost is transparency, never a gate) is drivable
+// without a broken database.
+type faultyEstimator struct{ err error }
+
+func (f faultyEstimator) EstimateBackfill(context.Context, string, ids.UserID, int64) (costestimate.BackfillCost, error) {
+	return costestimate.BackfillCost{}, f.err
+}
+
+// TestBackfillPreviewDegradesOnEstimatorFault proves the ADR-0068 guardrail: a
+// cost-estimate fault must NOT fail the preview. The message count still answers
+// 200; every estimator-sourced field (tokens, cost, currency, quality) is
+// absent — never a fabricated 0 or a stale label — and the fault is logged, not
+// swallowed (T2).
+func TestBackfillPreviewDegradesOnEstimatorFault(t *testing.T) {
+	b := setupBackfillWire(t)
+	var logbuf bytes.Buffer
+	h := b.handlers
+	h.estimator = faultyEstimator{err: errors.New("rate store unreachable")}
+	h.log = slog.New(slog.NewTextHandler(&logbuf, nil))
+
+	var out crmcontracts.BackfillPreview
+	code, _ := b.do(b.human, t, func(w http.ResponseWriter, r *http.Request) {
+		h.PreviewConnectorBackfill(w, r, crmcontracts.Gmail)
+	}, `{"window":"6m"}`, &out)
+
+	if code != http.StatusOK {
+		t.Fatalf("preview under estimator fault = %d, want 200 (cost is transparency, never a gate)", code)
+	}
+	if out.EstimatedMessages != 25 {
+		t.Fatalf("estimated_messages = %d, want 25 (the message count survives a cost fault)", out.EstimatedMessages)
+	}
+	if out.EstimatedAiTokens != nil || out.EstimatedCostMinor != nil || out.Currency != nil || out.EstimateQuality != nil {
+		t.Fatalf("estimator outputs must be absent on fault, got tokens=%v cost=%v currency=%v quality=%v",
+			out.EstimatedAiTokens, out.EstimatedCostMinor, out.Currency, out.EstimateQuality)
+	}
+	if !strings.Contains(logbuf.String(), "backfill preview cost estimate") {
+		t.Fatalf("estimator fault must be logged, not swallowed; got log %q", logbuf.String())
 	}
 }
 
@@ -293,16 +364,29 @@ func TestBackfillWire(t *testing.T) {
 		}
 	})
 
-	t.Run("preview carries the provider estimate and the token projection", func(t *testing.T) {
+	t.Run("preview carries the estimate and suppresses an unpriced cost honestly", func(t *testing.T) {
 		var out crmcontracts.BackfillPreview
 		if code, _ := b.do(b.human, t, preview(crmcontracts.Gmail), `{"window":"6m"}`, &out); code != http.StatusOK {
 			t.Fatalf("preview = %d, want 200", code)
 		}
-		if out.EstimatedMessages != 25 || out.EstimatedAiTokens == nil || *out.EstimatedAiTokens != 25*900 {
-			t.Fatalf("preview = %+v, want 25 messages / %d tokens", out, 25*900)
+		if out.EstimatedMessages != 25 {
+			t.Fatalf("estimated_messages = %d, want 25 (the provider count)", out.EstimatedMessages)
 		}
-		if out.EstimatedCostMinor == nil || *out.EstimatedCostMinor != 0 {
-			t.Fatalf("cost must be the honest 0 (no price feed), got %+v", out.EstimatedCostMinor)
+		// No ai_call history, no rate, no completed backfill for this connection →
+		// the estimator falls to the work-shape floor: it still surfaces projected
+		// tokens and marks the estimate heuristic, but with nothing priced it
+		// SUPPRESSES the cost field (and currency) rather than fabricating a 0.
+		if out.EstimatedAiTokens == nil || *out.EstimatedAiTokens <= 0 {
+			t.Fatalf("estimated_ai_tokens = %+v, want floor tokens > 0", out.EstimatedAiTokens)
+		}
+		if out.EstimateQuality == nil || *out.EstimateQuality != crmcontracts.Heuristic {
+			t.Fatalf("estimate_quality = %+v, want heuristic (cold-start floor)", out.EstimateQuality)
+		}
+		if out.EstimatedCostMinor != nil {
+			t.Fatalf("unpriced cost must be suppressed (nil), never a fabricated 0, got %+v", out.EstimatedCostMinor)
+		}
+		if out.Currency != nil {
+			t.Fatalf("currency must be absent when cost is suppressed, got %+v", out.Currency)
 		}
 	})
 

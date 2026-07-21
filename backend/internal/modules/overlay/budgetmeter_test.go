@@ -13,6 +13,7 @@ package overlay_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -46,6 +47,86 @@ func mustWorkspaceID() (id [16]byte) {
 	// with even if two tests reused the same workspace id.
 	id[0] = 1
 	return id
+}
+
+// TestMeterReserveRecordsOnlyWhenNotShed proves the atomic check-and-record
+// FreshnessReader relies on: under budget Reserve allows and records the
+// spend; once shed it refuses AND records nothing — the two decided under
+// one lock so concurrent force-fresh reads can't collectively overshoot.
+func TestMeterReserveRecordsOnlyWhenNotShed(t *testing.T) {
+	m := overlay.NewMeterWithClock(testMeterCfg(), fixedClock()) // Limit 100, shed 0.9
+	ctx := wsCtx()
+
+	allowed, err := m.Reserve(ctx, overlay.LaneForceFresh, 1)
+	if err != nil {
+		t.Fatalf("Reserve (under budget): %v", err)
+	}
+	if !allowed {
+		t.Fatal("Reserve under budget = not allowed, want allowed")
+	}
+	if got := m.Snapshot(ctx).Consumed; got != 1 {
+		t.Fatalf("consumed after an allowed Reserve = %d, want 1", got)
+	}
+
+	// Push total to the shed threshold (>= 0.9*100), then Reserve must
+	// refuse and record nothing.
+	if err := m.Consume(ctx, overlay.LanePoller, 89); err != nil { // total 90 >= 90
+		t.Fatalf("Consume to shed: %v", err)
+	}
+	before := m.Snapshot(ctx).Consumed
+	allowed, err = m.Reserve(ctx, overlay.LaneForceFresh, 1)
+	if err != nil {
+		t.Fatalf("Reserve (shed): %v", err)
+	}
+	if allowed {
+		t.Fatal("Reserve in the shed band = allowed, want refused")
+	}
+	if got := m.Snapshot(ctx).Consumed; got != before {
+		t.Fatalf("a refused Reserve recorded %d units, want 0", got-before)
+	}
+}
+
+// TestMeterReserveIsAtomicUnderConcurrency proves Reserve's whole point:
+// the band check and the spend record happen under one lock, so a burst of
+// concurrent force-fresh reservations near the shed threshold cannot
+// collectively overshoot the budget. Primed at 88/100 (shed at 90), 20
+// concurrent Reserves must allow EXACTLY 2 (88→89, 89→90, then shed) and
+// leave the total at 90 — a non-atomic band-then-record would let several
+// goroutines all observe 88/89 and push the total past the threshold.
+func TestMeterReserveIsAtomicUnderConcurrency(t *testing.T) {
+	m := overlay.NewMeterWithClock(testMeterCfg(), fixedClock()) // Limit 100, shed 0.9 → shed at 90
+	ctx := wsCtx()
+	if err := m.Consume(ctx, overlay.LanePoller, 88); err != nil {
+		t.Fatalf("priming the window to 88: %v", err)
+	}
+
+	const goroutines = 20
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	allowed := 0
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ok, err := m.Reserve(ctx, overlay.LaneForceFresh, 1)
+			if err != nil {
+				return
+			}
+			if ok {
+				mu.Lock()
+				allowed++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+
+	if allowed != 2 {
+		t.Fatalf("allowed concurrent reservations = %d, want exactly 2 (88→89→90, then shed)", allowed)
+	}
+	if got := m.Snapshot(ctx).Consumed; got != 90 {
+		t.Fatalf("consumed after the concurrent burst = %d, want 90 — Reserve must never overshoot the shed threshold", got)
+	}
 }
 
 func TestMeterBandStartsOK(t *testing.T) {

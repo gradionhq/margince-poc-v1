@@ -11,6 +11,7 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -43,6 +44,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -279,12 +281,54 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// doc).
 		overlayMeter: NewOverlayMeter(),
 	}
-	srv.sorDispatch = NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, srv.overlayMeter), pool)
+	// The overlay read dispatch is built with a nil live-incumbent resolver
+	// here (force-fresh degrades to the mirror). WithKeyvault injects the
+	// vault-backed resolver once the vault is known — the vault arrives via
+	// an option applied AFTER newServer returns, and the dispatch/provider/
+	// freshness reader are pointers shared across that return, so a
+	// boot-time SetOverlayIncumbentResolver reaches the same instance this
+	// field serves reads through.
+	srv.sorDispatch = NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, srv.overlayMeter, nil), pool)
 	// /me reports the workspace's system-of-record mode so the client can
 	// gate its list UI (an overlay mirror refuses sort/filter dials). The
 	// dispatch owns mode resolution; identity never imports overlay.
 	srv.authHandlers = srv.WithSorMode(srv.sorDispatch.isOverlay)
 	return srv
+}
+
+// resolveOverlayIncumbent builds the per-request live-incumbent resolver
+// FreshnessReader's force-fresh lane reads through: for the request's
+// workspace it reads the active incumbent_connection and unseals its
+// private-app token, returning a live HubSpot adapter. It reads s.vault
+// LAZILY (at request time), not at construction, because WithKeyvault
+// installs the vault AFTER newServer builds the dispatch — so before a
+// vault is wired, or on a role that never wires one, it returns a nil
+// adapter and force-fresh degrades to the mirror honestly. A workspace
+// with no active connection (ErrNotFound) or a non-HubSpot incumbent is
+// the same honest nil degrade, not an error; only a genuine connection-read
+// or vault failure surfaces as an error (which FreshnessReader logs and
+// then degrades on, never faking authority).
+func (s *Server) resolveOverlayIncumbent(pool *pgxpool.Pool) func(context.Context) (overlay.Incumbent, error) {
+	return func(ctx context.Context) (overlay.Incumbent, error) {
+		if s.vault == nil {
+			return nil, nil
+		}
+		conn, err := overlay.ActiveConnection(ctx, pool)
+		if err != nil {
+			if errors.Is(err, apperrors.ErrNotFound) {
+				return nil, nil
+			}
+			return nil, err
+		}
+		if conn.Incumbent != "hubspot" {
+			return nil, nil
+		}
+		token, err := s.vault.Get(ctx, conn.Workspace, conn.CredentialRef)
+		if err != nil {
+			return nil, err
+		}
+		return hubspotIncumbentFactory(conn.Region, string(token)), nil
+	}
 }
 
 // contractAPI mounts the generated contract router with the ADR-0055

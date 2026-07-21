@@ -101,10 +101,7 @@ func NewLocalRouter(cfg RoutingConfig, opts ...LocalOption) (*Router, error) {
 			embedder = o.fakeClient
 		}
 	}
-	meta := make(map[Tier]routeMeta, len(cfg.Tiers))
-	for tier, binding := range cfg.Tiers {
-		meta[tier] = routeMeta{provider: binding.Provider, model: binding.Model}
-	}
+	meta := embedInclusiveMeta(cfg)
 	// o.callStore: the DB-less debug path traces no ai_call rows by
 	// default (the router skips tracing when calls == nil), captures no
 	// payloads (WithPayloadCapture opts in), and logs through slog.Default;

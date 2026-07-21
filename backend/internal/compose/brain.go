@@ -132,6 +132,19 @@ func NewLocalRouterForCert(cfg ai.RoutingConfig, opts ...ai.LocalOption) (*ai.Ro
 	return ai.NewLocalRouter(cfg, opts...)
 }
 
+// Router exposes the model path's underlying router — the same one every model
+// lane rides — so the ADR-0068 cost pre-flight can price observed history at the
+// exact tier bindings that will serve it (via the router's BoundLadder /
+// CurrentModelForTier resolvers). Nil when no router backs this path (a nil-Agent
+// ModelPath), so a caller wires no priced estimate rather than pricing against an
+// absent ladder.
+func (p ModelPath) Router() *ai.Router {
+	if r, ok := p.Agent.(agentBrain); ok {
+		return r.router
+	}
+	return nil
+}
+
 // WriteMetrics renders the model path's underlying router's AI call
 // counters (margince_ai_calls_total et al.) for the /metrics endpoint.
 // Nil-safe for a ModelPath built with a nil Agent (no model path

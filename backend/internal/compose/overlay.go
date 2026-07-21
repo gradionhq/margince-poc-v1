@@ -89,22 +89,18 @@ func hubspotIncumbentFactory(region, token string) overlay.Incumbent {
 // (the shared OVB accounting — see NewOverlayMeter's doc on which meter
 // instance a caller must pass).
 //
-// inc (the live incumbent adapter Freshness's force-fresh lane reads
-// through) is deliberately nil here: a real adapter needs THIS
-// workspace's own vaulted region+token (keyvault.Vault.Get keyed by the
-// incumbent_connection row), a per-workspace credential lookup the
-// Dispatcher — one process-wide instance shared by every workspace — has
-// no seam to thread per call. Dispatch here is scoped to the READ verbs,
-// which never touch inc (they serve the mirror); FreshnessReader already
-// degrades a nil inc to the mirror honestly (see freshness.go's own doc
-// comment), so this is not a silent gap, just a deferred one. Wiring a
-// genuinely per-workspace live adapter (so force-fresh reads are
-// authoritative, not just mirror fallback) is left for the poller
-// lane, which also meters against the same shared HubSpot quota this
-// Meter accounts.
-func NewOverlayProvider(pool *pgxpool.Pool, meter *overlay.Meter) *overlay.Provider {
+// resolveIncumbent is the per-request live-incumbent resolver
+// FreshnessReader's force-fresh lane reads through: given the request's
+// workspace context it returns a live adapter built from THAT workspace's
+// own vaulted region+token. A process-wide Dispatcher cannot bind that at
+// construction (each workspace has its own credential), so the read path
+// resolves it per call. The api server wires a vault-backed resolver
+// (server.go); a role with no vault, or a caller that passes nil, degrades
+// force-fresh to the mirror honestly (freshness.go's own doc) — never a
+// faked authority claim.
+func NewOverlayProvider(pool *pgxpool.Pool, meter *overlay.Meter, resolveIncumbent func(context.Context) (overlay.Incumbent, error)) *overlay.Provider {
 	ms := overlay.NewMirrorStore(pool, unresolvedOwnerEmails{})
-	ff := overlay.NewFreshnessReader(nil, ms, meter, hubspot.IncumbentClassFor)
+	ff := overlay.NewFreshnessReader(resolveIncumbent, ms, meter, hubspot.IncumbentClassFor)
 	return overlay.NewProvider(ms, ff)
 }
 
@@ -191,5 +187,6 @@ func overlayMetricsSection(srv Server, pool *pgxpool.Pool) *httpserver.OverlayMe
 		},
 		SyncedTotal:   overlay.MirrorSyncedTotal,
 		ConflictTotal: overlay.MirrorConflictTotal,
+		DeletedTotal:  overlay.MirrorDeletedTotal,
 	}
 }

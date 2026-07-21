@@ -50,6 +50,7 @@ type stubIncumbent struct {
 	objectClass, externalID string
 	rec                     Record
 	calls                   int
+	getErr                  error // when set, Get returns it (a live-read failure)
 }
 
 func (s *stubIncumbent) Name() string { return "stub" }
@@ -59,6 +60,10 @@ func (s *stubIncumbent) Backfill(context.Context, string, string) (Page, error) 
 
 func (s *stubIncumbent) Modified(context.Context, string, time.Time, string) (Page, error) {
 	return Page{}, fmt.Errorf("stubIncumbent: Modified is not fixtured")
+}
+
+func (s *stubIncumbent) Deletions(context.Context, string, time.Time, string) (DeletionPage, error) {
+	return DeletionPage{}, fmt.Errorf("stubIncumbent: Deletions is not fixtured")
 }
 
 func (s *stubIncumbent) Associations(context.Context, string, string, string) ([]Assoc, error) {
@@ -76,6 +81,9 @@ func (s *stubIncumbent) Owners(context.Context) ([]OwnerRef, error) { return nil
 // can assert this method was never reached at all.
 func (s *stubIncumbent) Get(_ context.Context, objectClass, externalID string) (Record, error) {
 	s.calls++
+	if s.getErr != nil {
+		return Record{}, s.getErr
+	}
 	if objectClass != s.objectClass || externalID != s.externalID {
 		return Record{}, fmt.Errorf("stubIncumbent: no record fixtured for %s/%s", objectClass, externalID)
 	}
@@ -177,7 +185,7 @@ func TestFreshnessReaderUnderThresholdReadsLiveAndSpends(t *testing.T) {
 	inc := seedMirrorAndLiveFixture(ctx, t, ms, externalID, mirrorTime, liveTime)
 
 	meter := NewMeterWithClock(testMeterConfig(), time.Now)
-	fr := NewFreshnessReader(inc, ms, meter, translatorFor(false))
+	fr := NewFreshnessReader(func(context.Context) (Incumbent, error) { return inc, nil }, ms, meter, translatorFor(false))
 
 	id, err := externalIDToUUID(externalID)
 	if err != nil {
@@ -208,6 +216,46 @@ func TestFreshnessReaderUnderThresholdReadsLiveAndSpends(t *testing.T) {
 	}
 }
 
+// TestFreshnessReaderFailedLiveReadStillSpendsAndDegrades proves the
+// reserve-before-Get discipline (review #56): the force-fresh unit is
+// reserved BEFORE the live incumbent call, so a live read that FAILS still
+// consumes it — its HTTP call spent the workspace's HubSpot quota either
+// way — and the read degrades to the mirror (Authoritative:false) rather
+// than erroring. Charging only on success would let an unbounded run of
+// failing force-fresh reads hammer HubSpot without the meter ever shedding.
+func TestFreshnessReaderFailedLiveReadStillSpendsAndDegrades(t *testing.T) {
+	ctx, pool, _ := testWorkspaceCtx(t)
+	ms := NewMirrorStore(pool, noOwnerEmails{})
+
+	const externalID = "100214862042"
+	mirrorTime := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	inc := seedMirrorAndLiveFixture(ctx, t, ms, externalID, mirrorTime, mirrorTime.Add(time.Hour))
+	inc.getErr = fmt.Errorf("hubspot: unreachable")
+
+	meter := NewMeterWithClock(testMeterConfig(), time.Now)
+	fr := NewFreshnessReader(func(context.Context) (Incumbent, error) { return inc, nil }, ms, meter, translatorFor(false))
+
+	id, err := externalIDToUUID(externalID)
+	if err != nil {
+		t.Fatalf("externalIDToUUID(%q): %v", externalID, err)
+	}
+	ref := datasource.EntityRef{Type: datasource.EntityType(canonicalClass), ID: id}
+
+	info, err := fr.Read(ctx, ref)
+	if err != nil {
+		t.Fatalf("Read must degrade to the mirror on a live-read failure, not error: %v", err)
+	}
+	if info.Authoritative {
+		t.Fatal("a failed live read must degrade to the mirror (Authoritative:false)")
+	}
+	if inc.calls != 1 {
+		t.Fatalf("inc.Get calls = %d, want 1 (the one failed live read)", inc.calls)
+	}
+	if snap := meter.Snapshot(ctx); snap.Consumed != 1 {
+		t.Fatalf("meter consumed = %d, want 1 — a FAILED force-fresh read still spends its reserved unit", snap.Consumed)
+	}
+}
+
 // TestFreshnessReaderNoIncumbentClassMappingDegradesHonestly proves the
 // translator-miss path (review F1): a canonical type with no declared
 // incumbent-class mapping must degrade to the mirror exactly like a nil
@@ -227,7 +275,7 @@ func TestFreshnessReaderNoIncumbentClassMappingDegradesHonestly(t *testing.T) {
 	inc := seedMirrorAndLiveFixture(ctx, t, ms, externalID, mirrorTime, liveTime)
 
 	meter := NewMeterWithClock(testMeterConfig(), time.Now)
-	fr := NewFreshnessReader(inc, ms, meter, translatorFor(true)) // every canonical type misses
+	fr := NewFreshnessReader(func(context.Context) (Incumbent, error) { return inc, nil }, ms, meter, translatorFor(true)) // every canonical type misses
 
 	id, err := externalIDToUUID(externalID)
 	if err != nil {
@@ -296,7 +344,7 @@ func TestFreshnessReaderShedDegradesToMirrorAndEmitsBudgetDegraded(t *testing.T)
 		t.Fatalf("meter.Band = %q after loading to the shed threshold, want %q", got, BandShed)
 	}
 
-	fr := NewFreshnessReader(inc, ms, meter, translatorFor(false))
+	fr := NewFreshnessReader(func(context.Context) (Incumbent, error) { return inc, nil }, ms, meter, translatorFor(false))
 
 	id, err := externalIDToUUID(externalID)
 	if err != nil {

@@ -13,7 +13,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { CompaniesScreen, CompanyScreen } from "./organizations";
+import { CompaniesScreen, CompanyScreen, mapOrgUpdate } from "./organizations";
 
 // Company-360 enrichment (EP05 scrapeCompany): one click stages a 🟡
 // evidence-backed proposal — human field labels, per-field confidence +
@@ -554,7 +554,204 @@ describe("CompanyScreen — edit with If-Match (P-1)", () => {
     await waitFor(() => expect(patchBody).toBeTruthy());
     expect(patchHeader).toBe("1");
     expect(patchBody).toMatchObject({ industry: "Manufacturing" });
+    // The org fixture carries no domains, so an edit that doesn't touch them
+    // omits the field (untouched) rather than clearing the stored set.
     expect(patchBody).not.toHaveProperty("domains");
+  });
+});
+
+// B7: the edit modal's repeatable domains field replace-sets the org's live
+// domains on PATCH. Adding a row from the modal and saving carries a
+// `domains[]` body — the fork-owned editable seam over the firmographics card.
+describe("CompanyScreen — edit domains round-trip (B7)", () => {
+  it("PATCHes domains[] when a domain is added in the edit modal", async () => {
+    let patchBody: unknown = null;
+    stubFetch(async (url, method, request) => {
+      if (method === "PATCH") {
+        patchBody = JSON.parse(await request.text());
+        return jsonResponse({ ...org, version: 2 });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
+    await userEvent.click(screen.getByTestId("edit-record"));
+    await screen.findByLabelText("Industry");
+    await userEvent.click(screen.getByText("Add domain"));
+    await userEvent.type(screen.getByLabelText("Domain *"), "brandt.example");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(patchBody).toBeTruthy());
+    expect(patchBody).toMatchObject({
+      domains: [{ domain: "brandt.example", is_primary: false }],
+    });
+  });
+});
+
+// B7 unit: the PATCH mapping sends `domains` only when the set actually
+// changed — untouched edits stay sparse (omit), and removing every row sends
+// the empty replace-set (`[]` = clear all), the two cases the API distinguishes.
+describe("mapOrgUpdate — domains change detection (P1)", () => {
+  const dom = (domain: string, isPrimary: boolean) => ({
+    id: "00000000-0000-0000-0000-000000000000",
+    domain,
+    is_primary: isPrimary,
+    source: "manual",
+    captured_by: "human:x",
+  });
+
+  it("omits domains when the set is unchanged", () => {
+    const body = mapOrgUpdate(
+      { display_name: "X" },
+      { domains: [{ domain: "a.test", is_primary: "true" }] },
+      [dom("a.test", true)],
+    );
+    expect(body).not.toHaveProperty("domains");
+  });
+
+  it("sends [] when every domain row is removed (clear all)", () => {
+    const body = mapOrgUpdate({ display_name: "X" }, { domains: [] }, [
+      dom("a.test", true),
+    ]);
+    expect(body.domains).toEqual([]);
+  });
+
+  it("sends the new set when a domain is added", () => {
+    const body = mapOrgUpdate(
+      { display_name: "X" },
+      {
+        domains: [
+          { domain: "a.test", is_primary: "true" },
+          { domain: "b.test", is_primary: "" },
+        ],
+      },
+      [dom("a.test", true)],
+    );
+    expect(body.domains).toEqual([
+      { domain: "a.test", is_primary: true },
+      { domain: "b.test", is_primary: false },
+    ]);
+  });
+});
+
+// B5: the Firmographics & legal card renders the org's confirmed profile
+// fields evidence-or-omit — a returned field shows with its human label and
+// value, a field the read never grounded is simply absent, and an empty read
+// states so honestly instead of inventing rows.
+describe("CompanyScreen — profile fields card (B5)", () => {
+  it("renders a confirmed field's label + value and omits absent fields", async () => {
+    stubFetch(async (url) => {
+      if (url.includes("/profile-fields")) {
+        return jsonResponse({
+          data: [
+            {
+              field: "value_proposition",
+              value: "Fleet retrofits without downtime",
+              source: "site_read",
+              captured_by: "agent:capture",
+              evidence_snippet: "We retrofit fleets without downtime",
+              source_url: "https://brandt.example",
+              confidence: 0.9,
+              updated_at: "2026-07-01T00:00:00Z",
+            },
+          ],
+        });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Value proposition")).toBeTruthy(),
+    );
+    expect(screen.getByText("Fleet retrofits without downtime")).toBeTruthy();
+    // A field the read never grounded (legal name) must not be invented.
+    expect(screen.queryByText("Registered legal name")).toBeNull();
+    // The empty-state copy only shows when nothing was read.
+    expect(screen.queryByText(/Nothing read yet/)).toBeNull();
+  });
+
+  it("shows the honest empty state when nothing has been read yet", async () => {
+    stubFetch(async (url) => {
+      if (url.includes("/profile-fields")) {
+        return jsonResponse({ data: [] });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/Nothing read yet/)).toBeTruthy(),
+    );
+  });
+});
+
+// B6: the facts card groups site-read facts into the four fixed categories,
+// omits empty categories, and renders each fact's field → value row.
+describe("CompanyScreen — facts card (B6)", () => {
+  it("groups facts by category and omits empty categories", async () => {
+    stubFetch(async (url) => {
+      if (url.endsWith("/facts")) {
+        return jsonResponse({
+          data: [
+            {
+              category: "market",
+              field: "served_industry",
+              value: "Automotive OEMs",
+              value_key: "served_industry:automotive-oems",
+              source: "site_read",
+              captured_by: "agent:capture",
+              updated_at: "2026-07-01T00:00:00Z",
+            },
+            {
+              category: "company",
+              field: "founded_year",
+              value: "1998",
+              value_key: "founded_year:1998",
+              source: "site_read",
+              captured_by: "agent:capture",
+              updated_at: "2026-07-01T00:00:00Z",
+            },
+            {
+              category: "offering",
+              field: "service",
+              value: "Fleet retrofits",
+              value_key: "service:fleet-retrofits",
+              source: "site_read",
+              captured_by: "agent:capture",
+              updated_at: "2026-07-01T00:00:00Z",
+            },
+          ],
+        });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Facts read from the site")).toBeTruthy(),
+    );
+    expect(screen.getByText("Company")).toBeTruthy();
+    expect(screen.getByText("Offering")).toBeTruthy();
+    expect(screen.getByText("Market")).toBeTruthy();
+    expect(screen.getByText("1998")).toBeTruthy();
+    expect(screen.getByText("Automotive OEMs")).toBeTruthy();
+    expect(screen.getByText("Fleet retrofits")).toBeTruthy();
+    // No signal fact was returned, so that subsection is absent.
+    expect(screen.queryByText("Signals")).toBeNull();
   });
 });
 

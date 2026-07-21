@@ -49,7 +49,7 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// doc note): the MCP tool surface spends against its own in-process
 	// counter, not the one contractAPI's Dispatcher and GetOverlayBudget
 	// share.
-	provider := NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, NewOverlayMeter()), pool)
+	provider := NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, NewOverlayMeter(), nil), pool)
 	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate)
 	agents.RegisterCoreTools(registry, provider, provider, provider, fieldOwnership{pool: pool})
 	agents.RegisterReportTool(registry, reportToolRunner(newReportEngine(pool)))

@@ -181,19 +181,77 @@ The write path is the standard one — `ai_call` + `ai_call_payload` in one
 trace is as tenant-isolated as any domain row. See
 [write-backbone.md](write-backbone.md).
 
+## Cost — the meter collects tokens, a rate table prices them
+
+Inference is the customer's own provider bill (ADR-0020), so cost is **transparency,
+never a gate** — it is a labeled number shown *about* their spend, and the budget
+guardrail above stays token-denominated. The write path reflects that: the meter and
+`ai_call` collect **tokens only** and know nothing about money. Price is a *read-side*
+computation (ADR-0067), so a corrected rate heals every figure and nothing rides the
+model-call hot path.
+
+```
+ WRITE (tokens only)                      RATES (fx_rate-style)            READ (priced on demand)
+ ──────────────────                       ────────────────────            ───────────────────────
+ ai_call: tokens_in / cached_tokens       ai_model_rate                   • /ai/usage  → actuals   (phase 1)
+          / cache_write_tokens              per (provider, model, day)     • backfill preview → estimate (phase 2)
+          / tokens_out  (per attempt)       4 micro-USD/MTok components          │
+                                            input · cache_read ·                 └─ cost = uncached_in×in + cached×read
+                                            cache_write · output                          + cache_write×write + out×out
+```
+
+- **The rate table (`ai_model_rate`).** Workspace-scoped, one row per
+  `(provider, model, effective_date)` — keyed on the *concrete model that
+  served*, not the tier, so rebinding a tier keeps its rates. Each row is four
+  integer
+  **micro-USD-per-MTok** prices: input, cache-read, cache-write, output. Lookup
+  works like `fx_rate` — the latest row dated on or before the call's day wins,
+  and a price change is a *new* row, never an edit. Local providers get explicit
+  all-zero rows, so a local call prices as an honest `0`. **Unpriced ≠ free:** a
+  call whose model has no rate row is *unpriced* — still counted and surfaced,
+  just flagged as a different thing from a real `$0`. Changing a price is a single
+  insert; no rebuild.
+- **One formula, three consumers.** The four-bucket price arithmetic is written
+  once as `PriceCall`. `/ai/usage` reports **actuals** through
+  `RateStore.CostReport` — SQL that mirrors that same arithmetic row-for-row, to
+  price a whole window in one round-trip — while the backfill preview and the
+  certification record both call `PriceCall` directly, for a **pre-flight
+  estimate** and a per-run cost stamp. One formula, so the numbers can't drift.
+- **The pre-flight estimate (`compose/costestimate`).** Before a backfill runs,
+  the preview estimates its cost as `Σ per-task (per-unit cost × expected units)`:
+  - **Per-unit cost** comes from the last 7 days of `ai_call` history, grouped
+    into `(task, tier, provider, model)` slices. Each slice is priced at whichever
+    model *will* serve it now: the model that served it if that's still bound,
+    else its own tier's current binding (so a rebind re-prices instantly), else
+    the ladder head if that tier is now unbound.
+  - **Expected units** come from the connection's completed backfill yields:
+    messages to classify, people to enrich, entities to embed.
+  - **When there's nothing to price from, the preview says so instead of
+    guessing.** With no history it falls back to a priced **work-shape floor** and
+    labels the estimate `heuristic` (vs `observed`). If the whole preview would be
+    unpriced it *hides* the cost field rather than show a misleading `0`, and a
+    cost-read failure degrades it to a plain message count — never a block on the
+    consent flow.
+
+  *(Known rough edge, tracked: the backfill loop doesn't populate the people/org
+  unit counters yet, so anything keyed on them under-counts today — the enrich
+  line floors as `heuristic`, and the embed estimate counts captured-message
+  embeds only, under-counting person/org entities. The cold-start floor also
+  counts message embeds by design: person/org embeds would over-quote at its
+  full-email unit size.)*
+
 ## Certification — proving a binding is good enough
 
-Because a task names a contract and a binding is swappable, you can **certify a
-model against a task before you trust it**. The lane (`compose/aicert`) drives a
-hand-authored scenario corpus through a candidate, scores each answer with a
-pinned rubric judge on its *own* `cert_judge` binding (never the candidate's),
-folds N odd cache-off runs into a `certified` / `supported_degraded` /
-`not_supported` verdict, and commits the result as JSON. This is how you compare
-gemini-2.5-flash against a cheaper swap on the same rubric before changing the
-routing file. When a verdict needs explaining, the lane can dump every
-candidate and judge call's request/response — the *same* post-stripper
-`ai_call_payload` shape — to a local JSONL trace for tuning (on by default,
-gitignored). Full walkthrough:
+Because a task names a contract and the model behind it is swappable, you can
+**certify a model against a task before you trust it**. The cert lane
+(`compose/aicert`) runs a hand-authored scenario corpus through a candidate
+model, scores each answer with a fixed rubric judge on its *own* `cert_judge`
+binding (never the candidate's), and folds several cache-off runs into one
+verdict — `certified` / `supported_degraded` / `not_supported` — saved as JSON.
+That's how you compare, say, gemini-2.5-flash against a cheaper swap on the same
+rubric *before* editing the routing file. To debug a verdict, the lane can dump
+every candidate and judge call to a local JSONL trace — the *same* secret-stripped
+`ai_call_payload` shape (on by default, gitignored). Full walkthrough:
 [how-to/certify-an-ai-model.md](../how-to/certify-an-ai-model.md).
 
 ## Reference
@@ -206,6 +264,9 @@ gitignored). Full walkthrough:
 | The gate | `internal/modules/ai` — `ai.Router` / `ai.NewLocalRouter`; `--ai-fake` flag |
 | Providers | `anthropic`, `openai`, `gemini` (native) · `ollama`, `vllm`, `openai_compatible` · `fake` |
 | Tracing | `ai_call` / `ai_call_payload` / `ai_call_config` (migrations `0088`, `0089`, `0100`, `0102`) |
+| Cost rates | `ai_model_rate` (per provider/model, effective-dated, micro-USD; ADR-0067) · seeded by `SeedModelRates` |
+| Pricer (actuals) | `PriceCall` + `RateStore` (`internal/modules/ai`) → `/ai/usage` `cost_est_minor` |
+| Pre-flight estimate | `internal/compose/costestimate` (backfill preview `estimated_cost_minor` + `estimate_quality`; ADR-0068) |
 | Budget deferral | `BudgetDeferralError` / `ErrBudgetDeferred` (`internal/modules/ai/budget.go`) |
 | Company context | `companycontextprompt.go` (compose) · rollout switch `company_context.rollout` (`margince.yaml`, `platform/deployconfig`, migration `0105`) |
 | Boot/ops surface | `/readyz` AI state; per-task unbound-ladder boot warnings |

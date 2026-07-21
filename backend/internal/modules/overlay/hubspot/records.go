@@ -48,6 +48,61 @@ func (c *Client) List(ctx context.Context, objectClass string, properties []stri
 	return Page{Results: toObjectRecords(out.Results), NextAfter: out.Paging.Next.After}, nil
 }
 
+// ArchivedObject is one archived (deleted) record from the archived-object
+// list feed: only the id and the archivedAt timestamp the deletion sweep
+// keys the mirror purge by — the deletion feed does not project fields.
+type ArchivedObject struct {
+	ID         string
+	ArchivedAt string
+}
+
+// ArchivedPage is one page of ListArchived results; NextAfter is "" when
+// there is no further page.
+type ArchivedPage struct {
+	Results   []ArchivedObject
+	NextAfter string
+}
+
+// ListArchived pages objectClass's ARCHIVED (deleted) records via the list
+// endpoint's archived=true flag (GET .../objects/{type}?archived=true&after=)
+// — the deletion feed continuous sync sweeps to purge mirror rows the
+// incumbent has removed. HubSpot's list endpoint is not archivedAt-ordered,
+// so the deletion sweep (overlay/reconcile.go) pages the full archived set
+// each pass and filters by its watermark; that stays correct because the
+// per-record purge is idempotent, at the cost of re-listing archived
+// records already handled — a cheaper incremental deletion feed is a later
+// optimization, not a correctness gap.
+func (c *Client) ListArchived(ctx context.Context, objectClass, after string, limit int) (ArchivedPage, error) {
+	q := url.Values{}
+	q.Set("archived", "true")
+	if after != "" {
+		q.Set("after", after)
+	}
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
+	}
+	var out struct {
+		Results []struct {
+			ID         string `json:"id"`
+			ArchivedAt string `json:"archivedAt"` //nolint:tagliatelle // HubSpot's wire format (camelCase); must match to decode
+		} `json:"results"`
+		Paging struct {
+			Next struct {
+				After string `json:"after"`
+			} `json:"next"`
+		} `json:"paging"`
+	}
+	path := "/crm/v3/objects/" + url.PathEscape(objectClass)
+	if err := c.do(ctx, http.MethodGet, path+"?"+q.Encode(), nil, &out); err != nil {
+		return ArchivedPage{}, err
+	}
+	res := make([]ArchivedObject, 0, len(out.Results))
+	for _, r := range out.Results {
+		res = append(res, ArchivedObject{ID: r.ID, ArchivedAt: r.ArchivedAt})
+	}
+	return ArchivedPage{Results: res, NextAfter: out.Paging.Next.After}, nil
+}
+
 // batchReadBody is the CRM v3 batch/read request body.
 type batchReadBody struct {
 	Properties []string           `json:"properties,omitempty"`

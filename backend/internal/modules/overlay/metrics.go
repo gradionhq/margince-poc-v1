@@ -3,11 +3,12 @@
 
 package overlay
 
-// The overlay sync-health metrics surface (design.md §4.7): two
-// in-process atomic counters (the mirror's inbound sync rate and its
-// conflict rate — a Prometheus counter, exposed as *_total and rated
-// client-side, the same shape platform/events.PublishedTotal already
-// establishes for the outbox relay) plus SourceLagByClass, a fleet-wide
+// The overlay sync-health metrics surface (design.md §4.7): three
+// in-process atomic counters (the mirror's inbound sync rate, its
+// conflict rate, and its deletion rate — Prometheus counters, exposed as
+// *_total and rated client-side, the same shape
+// platform/events.PublishedTotal already establishes for the outbox
+// relay) plus SourceLagByClass, a fleet-wide
 // staleness read the /metrics endpoint drives (it has no one workspace's
 // request context to scope a WithWorkspaceTx to, so it walks the fleet
 // the same rls-exempt way DueOverlayConnections/jobs.go's
@@ -45,6 +46,15 @@ var mirrorConflictTotal atomic.Uint64
 
 // MirrorConflictTotal answers the process's mirror-conflict counter.
 func MirrorConflictTotal() uint64 { return mirrorConflictTotal.Load() }
+
+// mirrorDeletedTotal counts every mirror.deleted event PurgeRecord
+// (mirrordeletion.go) has emitted since process start — one per
+// incumbent-deleted record actually purged from the mirror, the
+// removal-rate counterpart to the conflict counter.
+var mirrorDeletedTotal atomic.Uint64
+
+// MirrorDeletedTotal answers the process's mirror-deletion counter.
+func MirrorDeletedTotal() uint64 { return mirrorDeletedTotal.Load() }
 
 // selectFleetSourceLagSQL answers, for one already-workspace-scoped tx,
 // the OLDEST last_synced_at per object class — the worst-case staleness

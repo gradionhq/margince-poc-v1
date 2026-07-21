@@ -157,6 +157,7 @@ var catalog = map[string]struct {
 	"mirror.conflict":        {streamOverlay, 1},
 	"mirror.budget_degraded": {streamOverlay, 1},
 	"mirror.write_rejected":  {streamOverlay, 1},
+	"mirror.deleted":         {streamOverlay, 1},
 
 	// §4.3: the incumbent connection lifecycle — a genuine SoR mutation
 	// (unlike mirror ingest), so it carries the full write shape and

@@ -34,6 +34,9 @@ func (seedIncumbent) Backfill(context.Context, string, string) (Page, error) {
 func (seedIncumbent) Modified(context.Context, string, time.Time, string) (Page, error) {
 	return Page{}, nil
 }
+func (seedIncumbent) Deletions(context.Context, string, time.Time, string) (DeletionPage, error) {
+	return DeletionPage{}, nil
+}
 func (seedIncumbent) Get(context.Context, string, string) (Record, error) { return Record{}, nil }
 func (seedIncumbent) Associations(context.Context, string, string, string) ([]Assoc, error) {
 	return nil, nil
@@ -203,6 +206,77 @@ func TestSeedUserMapNeverOverwritesAManualMapping(t *testing.T) {
 	// ...and was NOT remapped to owner-y.
 	if _, err := store.Get(ctxAlice, objectClass, recY); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("seeding must not remap a manual mapping to owner-y, got: %v", err)
+	}
+}
+
+// TestSeedUserMapRevokesAMappingThatBecameAmbiguous proves the
+// ambiguity rule holds GOING FORWARD, not only at first seed: a user
+// mapped while their owner's email was unique must LOSE that mapping (and
+// its visibility grants) once a second incumbent owner acquires the same
+// email — otherwise a user keeps access through a match that is no longer
+// unambiguous (design.md §4.6 "ambiguous → no row"). Skipping the
+// re-seed is not enough; the pre-existing row must be revoked.
+func TestSeedUserMapRevokesAMappingThatBecameAmbiguous(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(pool, stubOwnerEmails{"owner-p": "bob@example.com"})
+	ctxBob, _ := testWorkspaceCtxAsUser(t, ws, "bob@example.com")
+
+	const objectClass, external = "contact", "ext-owned-by-p"
+	if err := store.Ingest(ctx, Record{
+		ObjectClass: objectClass, ExternalID: external,
+		Fields: map[string]any{"firstname": "Rec"}, ModifiedAt: time.Now(), OwnerExternalID: "owner-p",
+	}); err != nil {
+		t.Fatalf("ingesting the owner-p record: %v", err)
+	}
+
+	// First sweep: owner-p alone carries bob@ — bob is seed-matched and sees it.
+	if err := store.SeedUserMap(ctx, "hubspot", []OwnerRef{{ExternalID: "owner-p", Email: "bob@example.com"}}); err != nil {
+		t.Fatalf("SeedUserMap (unique): %v", err)
+	}
+	if _, err := store.Get(ctxBob, objectClass, external); err != nil {
+		t.Fatalf("bob must see the record after the unique-email seed, got: %v", err)
+	}
+
+	// A second owner acquires bob's email — the match is now AMBIGUOUS.
+	// The next sweep must revoke bob's stale mapping, not merely skip re-seeding.
+	if err := store.SeedUserMap(ctx, "hubspot", []OwnerRef{
+		{ExternalID: "owner-p", Email: "bob@example.com"},
+		{ExternalID: "owner-q", Email: "bob@example.com"},
+	}); err != nil {
+		t.Fatalf("SeedUserMap (now ambiguous): %v", err)
+	}
+	if _, err := store.Get(ctxBob, objectClass, external); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("bob's mapping must be revoked once his email became ambiguous, got: %v", err)
+	}
+}
+
+// TestSeedUserMapTreatsADuplicateOwnerListingAsOneOwner proves the
+// ambiguity check counts DISTINCT owners, not raw directory entries: a
+// paginated owners directory can list the same owner twice (overlapping
+// pages), and that must still seed the single legitimate owner — never be
+// misread as two owners sharing the email and revoked/withheld.
+func TestSeedUserMapTreatsADuplicateOwnerListingAsOneOwner(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(pool, stubOwnerEmails{"owner-p": "bob@example.com"})
+	ctxBob, _ := testWorkspaceCtxAsUser(t, ws, "bob@example.com")
+
+	const objectClass, external = "contact", "ext-owned-by-p"
+	if err := store.Ingest(ctx, Record{
+		ObjectClass: objectClass, ExternalID: external,
+		Fields: map[string]any{"firstname": "Rec"}, ModifiedAt: time.Now(), OwnerExternalID: "owner-p",
+	}); err != nil {
+		t.Fatalf("ingesting the owner-p record: %v", err)
+	}
+
+	// owner-p listed TWICE — one owner, not an ambiguous pair.
+	if err := store.SeedUserMap(ctx, "hubspot", []OwnerRef{
+		{ExternalID: "owner-p", Email: "bob@example.com"},
+		{ExternalID: "owner-p", Email: "bob@example.com"},
+	}); err != nil {
+		t.Fatalf("SeedUserMap: %v", err)
+	}
+	if _, err := store.Get(ctxBob, objectClass, external); err != nil {
+		t.Fatalf("bob must be seed-matched to the single owner-p (a duplicate listing is not ambiguity), got: %v", err)
 	}
 }
 

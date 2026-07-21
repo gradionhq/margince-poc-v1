@@ -25,6 +25,7 @@ export const en = {
   "trust.save": "Save",
   "trust.typedByYou": "typed by you",
   "trust.agentTag": "agent: {agent}",
+  "trust.connectorTag": "via {connector}",
   "trust.dismissed": "Suggestion dismissed.",
   "trust.stagedProposal": "staged proposal",
   "trust.resolvedValue": "resolved value",
@@ -309,6 +310,14 @@ export const en = {
   "org.firmographics": "Firmographics",
   "org.evidenceOrOmit": "evidence-backed fields only — absent means unknown",
   "org.domains": "Domains",
+  "org.firmographicsLegal": "Firmographics & legal",
+  "org.firmographicsEmpty":
+    "Nothing read yet — grounded profile fields appear here once a site read confirms them.",
+  "org.facts": "Facts read from the site",
+  "org.factCategory.company": "Company",
+  "org.factCategory.offering": "Offering",
+  "org.factCategory.market": "Market",
+  "org.factCategory.signal": "Signals",
 
   "lead.score": "Score",
   "lead.status": "Status",

@@ -22,9 +22,10 @@ const pageSize = 100
 // objectClass and served back through the same paging/filtering
 // contract a real incumbent client would honor.
 type Adapter struct {
-	records map[string][]overlay.Record
-	assocs  map[assocKey][]overlay.Assoc
-	owners  map[string]string
+	records   map[string][]overlay.Record
+	assocs    map[assocKey][]overlay.Assoc
+	owners    map[string]string
+	deletions map[string][]overlay.Deletion
 }
 
 // assocKey identifies one Associations(fromClass, fromID, toClass) query
@@ -86,6 +87,44 @@ func (a *Adapter) SeedAssoc(fromClass, fromID, toClass string, assocs ...overlay
 	a.assocs[key] = append(a.assocs[key], assocs...)
 }
 
+// SeedDeletion records that objectClass's deletion feed reports del — the
+// removal signal the deletion sweep pages back through Deletions to purge
+// from the mirror. objectClass is the incumbent bucket the feed is paged
+// by (as Seed's objectClass is), while del.ObjectClass carries the
+// CANONICAL class a real adapter's mapping would have translated it to
+// (defaulting to objectClass when the caller leaves it unset), so the fake
+// faithfully simulates the incumbent→canonical translation the deletion
+// sweep relies on to purge the right mirror row.
+//
+// Call order matters, mirroring the incumbent: SeedDeletion drops any live
+// row it currently holds for del.ExternalID (an archived record leaves the
+// live feed), so a test that wants a record both live-then-deleted must
+// Seed it BEFORE calling SeedDeletion. A Seed of the same id AFTER
+// SeedDeletion re-introduces it as live — the fake models "restored in the
+// incumbent", not an inconsistency.
+func (a *Adapter) SeedDeletion(objectClass string, del overlay.Deletion) {
+	if del.ObjectClass == "" {
+		del.ObjectClass = objectClass
+	}
+	if a.deletions == nil {
+		a.deletions = make(map[string][]overlay.Deletion)
+	}
+	a.deletions[objectClass] = append(a.deletions[objectClass], del)
+
+	// An archived record no longer appears in the live Backfill/Modified
+	// feed (HubSpot excludes archived objects from Search) — drop it from
+	// the live set so the fake never serves a record that is simultaneously
+	// live and deleted, the same invariant the deletion sweep's ordering
+	// relies on.
+	live := a.records[objectClass][:0]
+	for _, rec := range a.records[objectClass] {
+		if rec.ExternalID != del.ExternalID {
+			live = append(live, rec)
+		}
+	}
+	a.records[objectClass] = live
+}
+
 // Name identifies this incumbent implementation.
 func (a *Adapter) Name() string { return "fake" }
 
@@ -116,19 +155,31 @@ func (a *Adapter) Backfill(_ context.Context, objectClass, cursor string) (overl
 // after since, sorted ascending by ModifiedAt, then pages the result the
 // same way Backfill does.
 func (a *Adapter) Modified(_ context.Context, objectClass string, since time.Time, cursor string) (overlay.Page, error) {
-	var matched []overlay.Record
-	for _, rec := range a.records[objectClass] {
-		if !rec.ModifiedAt.Before(since) {
-			matched = append(matched, rec)
+	page, next, err := filterSortPage(a.records[objectClass], since, cursor, func(r overlay.Record) time.Time { return r.ModifiedAt })
+	if err != nil {
+		return overlay.Page{}, err
+	}
+	return overlay.Page{Records: page, NextCursor: next}, nil
+}
+
+// filterSortPage is the since-filter → ascending-timestamp-sort → cursor-page
+// pipeline Modified and Deletions share: it keeps items whose at(item) is at
+// or after since, sorts the survivors ascending by that timestamp, and pages
+// them the same index-cursor way Backfill does. at extracts the ordering
+// timestamp (ModifiedAt for records, DeletedAt for deletions) so the one
+// pipeline serves both feeds without either restating it.
+func filterSortPage[T any](items []T, since time.Time, cursor string, at func(T) time.Time) ([]T, string, error) {
+	var matched []T
+	for _, it := range items {
+		if !at(it).Before(since) {
+			matched = append(matched, it)
 		}
 	}
-	sort.Slice(matched, func(i, j int) bool {
-		return matched[i].ModifiedAt.Before(matched[j].ModifiedAt)
-	})
+	sort.Slice(matched, func(i, j int) bool { return at(matched[i]).Before(at(matched[j])) })
 
 	start, err := parseCursor(cursor)
 	if err != nil {
-		return overlay.Page{}, err
+		return nil, "", err
 	}
 	if start > len(matched) {
 		start = len(matched)
@@ -138,11 +189,22 @@ func (a *Adapter) Modified(_ context.Context, objectClass string, since time.Tim
 		end = len(matched)
 	}
 
-	page := overlay.Page{Records: append([]overlay.Record(nil), matched[start:end]...)}
+	next := ""
 	if end < len(matched) {
-		page.NextCursor = fmt.Sprint(end)
+		next = fmt.Sprint(end)
 	}
-	return page, nil
+	return append([]T(nil), matched[start:end]...), next, nil
+}
+
+// Deletions filters objectClass's seeded deletions to those at or after
+// since, sorted ascending by DeletedAt, then pages the result the same
+// way Modified pages live records.
+func (a *Adapter) Deletions(_ context.Context, objectClass string, since time.Time, cursor string) (overlay.DeletionPage, error) {
+	page, next, err := filterSortPage(a.deletions[objectClass], since, cursor, func(d overlay.Deletion) time.Time { return d.DeletedAt })
+	if err != nil {
+		return overlay.DeletionPage{}, err
+	}
+	return overlay.DeletionPage{Deletions: page, NextCursor: next}, nil
 }
 
 // Get returns objectClass's seeded record for externalID.
