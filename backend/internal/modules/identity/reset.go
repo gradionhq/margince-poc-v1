@@ -37,6 +37,11 @@ import (
 // is a live credential in an inbox (AUTH-DDL-1: reset ~1h).
 const resetTokenTTL = time.Hour
 
+// inviteTokenTTL is the set-password link's lifetime for a new member — longer
+// than a reset because an invited person has no account yet and may take a few
+// days to act on the mail.
+const inviteTokenTTL = 7 * 24 * time.Hour
+
 // RequestPasswordReset implements (POST /auth/forgot-password): mint a
 // single-use token and email its link. Always 202 — the response never
 // discloses whether the address maps to an account.

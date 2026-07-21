@@ -15,6 +15,7 @@ import {
   ScrollText,
   ShieldCheck,
   Sparkles,
+  UsersRound,
 } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { api } from "../api/client";
@@ -60,6 +61,7 @@ import { CreateAction, type CreateField, CreateRecordModal } from "./create";
 import { EditAction } from "./edit";
 import { EntityRef } from "./entityref";
 import { ConsentPurposesCard, PrivacyInboxCard } from "./privacy";
+import { UsersAdminCard } from "./users-admin";
 import { VoiceDnaCard } from "./voice-dna";
 import "./settings.css";
 
@@ -87,6 +89,7 @@ const SETTINGS_TABS = [
   { id: "voice", icon: Mic, group: "you" },
   { id: "ai", icon: Sparkles, group: "you" },
   { id: "company", icon: Factory, group: "org" },
+  { id: "users", icon: UsersRound, group: "org" },
   { id: "data", icon: Database, group: "org" },
   { id: "catalog", icon: Package, group: "org" },
   { id: "privacy", icon: ShieldCheck, group: "org" },
@@ -107,6 +110,8 @@ function tabContent(id: SettingsTabId): ReactNode {
       return <VoiceDnaCard />;
     case "company":
       return <CompanyContextCard />;
+    case "users":
+      return <UsersAdminCard />;
     case "ai":
       return <AiSettingsTab />;
     case "data":
