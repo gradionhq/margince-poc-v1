@@ -276,9 +276,8 @@ const WINDOW_LABELS: Record<WindowOption, MessageKey> = {
 };
 
 // AU-1: the dry-run blast-radius panel over POST /automations/{id}/preview.
-// A pure 🟢 read (no writes) modelled as a mutation because it POSTs a body
-// and re-runs on demand — fired on open (the panel only mounts when open) and
-// on every window change.
+// A pure 🟢 read (no writes) — it uses POST only to carry the window in a body;
+// see the useQuery note below for why it is modelled as a query, not a mutation.
 export function AutomationPreview({
   automationId,
 }: Readonly<{ automationId: string }>) {
