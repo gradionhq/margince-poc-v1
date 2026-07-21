@@ -158,7 +158,8 @@ describe("log activity from a 360", () => {
       links: [{ entity_type: "person", entity_id: "p1" }],
       source: "manual",
     });
-    const { occurred_at } = post?.body as { occurred_at: string };
+    if (!post) throw new Error("expected a POST /activities to be captured");
+    const { occurred_at } = post.body as { occurred_at: string };
     expect(occurred_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
     // the invalidation refetches the timeline the screen already loaded once
     await waitFor(() =>
@@ -209,7 +210,8 @@ describe("log activity from a 360", () => {
       links: [{ entity_type: "organization", entity_id: "o1" }],
       source: "manual",
     });
-    const { due_at } = post?.body as { due_at: string };
+    if (!post) throw new Error("expected a POST /activities to be captured");
+    const { due_at } = post.body as { due_at: string };
     expect(new Date(due_at).toISOString()).toBe(
       new Date("2026-07-10").toISOString(),
     );
