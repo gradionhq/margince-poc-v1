@@ -986,6 +986,40 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /organizations/{id}/facts:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Organizations]
+      operationId: listOrganizationFacts
+      summary: The organization's confirmed facts (organization_fact), grouped by category on the client. Site-read facts carry evidence (snippet, source URL, confidence); human/migration values may omit it.
+      responses:
+        '200':
+          description: The organization's facts (empty array when none).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationFactListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /organizations/{id}/profile-fields:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Organizations]
+      operationId: listOrganizationProfileFields
+      summary: The organization's confirmed profile fields (organization_profile_field). A field with no stored value is absent (evidence-or-omit); site-read values carry evidence, human/migration values may omit it.
+      responses:
+        '200':
+          description: The organization's profile fields (empty array when none).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationProfileFieldListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /partners:
     get:
       tags: [Partners]
@@ -7865,6 +7899,15 @@ components:
         typed refusal (422, the column's CHECK constraint). Reads surface only ACTIVE
         columns; a retired field's stored values are preserved but leave the payload.
 
+    OrganizationDomainInput:
+      type: object
+      description: A client-supplied domain row on create/update. Closed — server-owned fields (id, source, captured_by) are never accepted from the request body.
+      required: [domain]
+      additionalProperties: false
+      properties:
+        domain: { type: string }
+        is_primary: { type: boolean, default: false }
+
     CreateOrganizationRequest:
       type: object
       required: [display_name, source]
@@ -7878,12 +7921,7 @@ components:
         parent_org_id: { type: [string, 'null'], format: uuid }
         domains:
           type: array
-          items:
-            type: object
-            required: [domain]
-            properties:
-              domain: { type: string }
-              is_primary: { type: boolean, default: false }
+          items: { $ref: '#/components/schemas/OrganizationDomainInput' }
         source: { type: string }
       additionalProperties: true
       x-extension: true
@@ -7898,6 +7936,10 @@ components:
         address: { $ref: '#/components/schemas/Address' }
         owner_id: { type: [string, 'null'], format: uuid }
         parent_org_id: { type: [string, 'null'], format: uuid }
+        domains:
+          type: array
+          description: Replace-set of the org's live domains (add new, archive removed, flip is_primary). Absent = untouched; an empty array clears all domains.
+          items: { $ref: '#/components/schemas/OrganizationDomainInput' }
       additionalProperties: true
       x-extension: true
 
@@ -9570,6 +9612,19 @@ components:
         source_url: { type: [string, 'null'], format: uri }
         confidence: { type: [number, 'null'], minimum: 0, maximum: 1 }
         updated_at: { type: string, format: date-time }
+
+    OrganizationFactListResponse:
+      type: object
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/OrganizationFact' } }
+
+    OrganizationProfileFieldListResponse:
+      type: object
+      description: An organization's confirmed profile fields (organization_profile_field). Items reuse CompanyProfileField — the table's field/source vocabulary is identical (migration 0099).
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/CompanyProfileField' } }
 
     CompanyContextItem:
       type: object
