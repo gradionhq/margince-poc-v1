@@ -126,14 +126,19 @@ export function SegmentedControl<Option extends string>({
   value,
   onChange,
   labels,
+  label,
 }: Readonly<{
   options: readonly Option[];
   value: Option;
   onChange: (next: Option) => void;
   labels: Record<Option, string>;
+  // Accessible name for the control as a whole (the `fieldset` group); a
+  // screen reader announces it alongside each option so the buttons aren't
+  // read out of context. Optional so existing callers are unaffected.
+  label?: string;
 }>) {
   return (
-    <fieldset className="segmented">
+    <fieldset className="segmented" aria-label={label}>
       {options.map((option) => (
         <button
           key={option}

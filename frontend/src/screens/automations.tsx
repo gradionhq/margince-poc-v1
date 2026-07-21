@@ -10,6 +10,7 @@ import {
 } from "../design-system/atoms";
 import { AutonomyDot } from "../design-system/trust";
 import { useT } from "../i18n";
+import { AutomationInspectors } from "./automationdetail";
 import {
   canConfigureAutomations,
   problemMessage,
@@ -202,6 +203,10 @@ export function AutomationRow({
   const t = useT();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
+  // Two independent panels (run history + dry-run preview): each mounts lazily
+  // only while open, and opening one never closes the other.
+  const [runsOpen, setRunsOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const patch = useMutation({
     mutationFn: async (body: {
@@ -295,6 +300,22 @@ export function AutomationRow({
             )}
             <Button
               small
+              variant={runsOpen ? "primary" : "ghost"}
+              aria-expanded={runsOpen}
+              onClick={() => setRunsOpen((open) => !open)}
+            >
+              {t("auto.runs.open")}
+            </Button>
+            <Button
+              small
+              variant={previewOpen ? "primary" : "ghost"}
+              aria-expanded={previewOpen}
+              onClick={() => setPreviewOpen((open) => !open)}
+            >
+              {t("auto.preview.open")}
+            </Button>
+            <Button
+              small
               variant="danger"
               disabled={remove.isPending}
               onClick={() => remove.mutate()}
@@ -304,6 +325,12 @@ export function AutomationRow({
           </>
         )}
       </div>
+      <AutomationInspectors
+        automationId={automation.id}
+        runsOpen={runsOpen}
+        previewOpen={previewOpen}
+        canConfigure={canConfigure}
+      />
       {editing && entry && (
         <AutomationForm
           entry={entry}
