@@ -47,9 +47,18 @@ const (
 	enrichSystemTokens  = 120 // signatureEnrichSystem prompt (~480 chars) in tokens
 	enrichFieldsTokens  = 40  // the extracted field bundle out
 
-	// The per-entity embeddings shape: input-only (no output, no cache), the
-	// captured item's text ≈ a truncated body.
-	embedItemTokens = classifyBodyLimit / charsPerToken
+	// The per-entity embeddings shape: input-only (no output, no cache). Unlike
+	// classify — which truncates each body to classifyBodyLimit (1500 chars)
+	// BEFORE prompting — the embed lane embeds the entity's FULL text (for an
+	// activity, concat_ws(' ', subject, body); search/embedgen.go, no truncation
+	// bound in search/embedding.go's UpsertEmbedding). So the classifier's
+	// 1500-char cut under-counts the embedded size. This floor uses a
+	// representative full email instead: a short subject plus a realistic body,
+	// in chars, converted at charsPerToken. Deliberately bounded (not a worst
+	// case) — a real ai_call history supersedes it the instant one exists.
+	embedSubjectChars = 60   // a representative email subject line
+	embedBodyChars    = 2000 // a representative full email body (untruncated, unlike classify)
+	embedItemTokens   = (embedSubjectChars + embedBodyChars) / charsPerToken
 )
 
 // defaultPersonsPerMsg is the cold-start sender density — distinct new
@@ -73,15 +82,27 @@ func workShapeFloor(task ai.Task) ai.Usage {
 }
 
 // unitsFloor is the built-in volume ratio used when a connection has no
-// completed capture_backfill run to measure real yields from: classify and
-// embeddings fire ≈ once per scanned message (captured ≈ scanned at connect),
-// enrich once per expected new correspondent (scanned × defaultPersonsPerMsg).
+// completed capture_backfill run to measure real yields from: classify fires ≈
+// once per scanned message (captured ≈ scanned at connect), enrich once per
+// expected new correspondent, and embeddings once per embedded ENTITY — a vector
+// per captured message PLUS one per new person.
 func unitsFloor(task ai.Task, scanned int64) int64 {
 	switch task {
 	case ai.TaskEnrich:
 		return int64(float64(scanned) * defaultPersonsPerMsg)
+	case ai.TaskEmbeddings:
+		// The embed lane embeds one vector per entity: every captured message AND
+		// every new person the enrich pass introduces (the observed path in
+		// rules.go counts captured + people + orgs). The cold-start floor mirrors
+		// that — the message floor plus the expected-person floor — so a
+		// first-connect embed estimate is not systematically low by omitting the
+		// person embeds. Organizations are left out: there is no defensible
+		// org-density floor constant, so their (smaller) embed volume stays a
+		// known, conservative underestimate rather than an invented number.
+		persons := int64(float64(scanned) * defaultPersonsPerMsg)
+		return scanned + persons
 	default:
-		// classify + embeddings: captured ≈ scanned at first connect.
+		// classify: captured ≈ scanned at first connect, one call per message.
 		return scanned
 	}
 }

@@ -39,12 +39,21 @@ func TestWorkShapeFloorIsDeterministicAndNonZeroPerTask(t *testing.T) {
 func TestUnitsFloorTracksTheYieldlessRatios(t *testing.T) {
 	const scanned = 100
 
-	// classify + embeddings fire ≈ once per scanned message at connect.
+	// classify fires ≈ once per scanned message at connect.
 	if got := unitsFloor(ai.TaskCaptureClassify, scanned); got != scanned {
 		t.Fatalf("unitsFloor(classify, %d) = %d, want %d (captured ≈ scanned)", scanned, got, scanned)
 	}
-	if got := unitsFloor(ai.TaskEmbeddings, scanned); got != scanned {
-		t.Fatalf("unitsFloor(embeddings, %d) = %d, want %d (captured ≈ scanned)", scanned, got, scanned)
+
+	// embeddings embed one vector per entity — a message floor PLUS the expected
+	// new-person embeds (scanned × defaultPersonsPerMsg), so the cold-start embed
+	// volume must exceed the message-only count. Omitting the person embeds (the
+	// old `== scanned`) systematically under-quoted first-connect embed cost.
+	wantEmbed := scanned + int64(float64(scanned)*defaultPersonsPerMsg)
+	if got := unitsFloor(ai.TaskEmbeddings, scanned); got != wantEmbed {
+		t.Fatalf("unitsFloor(embeddings, %d) = %d, want %d (messages + expected person embeds)", scanned, got, wantEmbed)
+	}
+	if got := unitsFloor(ai.TaskEmbeddings, scanned); got <= scanned {
+		t.Fatalf("unitsFloor(embeddings, %d) = %d, want > %d (person embeds omitted)", scanned, got, scanned)
 	}
 
 	// enrich fires once per expected new correspondent — scanned × the one
