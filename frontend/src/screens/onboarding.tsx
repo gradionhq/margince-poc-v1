@@ -86,35 +86,35 @@ type OnboardingState = components["schemas"]["OnboardingState"];
 type PutOnboardingState = components["schemas"]["PutOnboardingStateRequest"];
 type SourceMode = "website" | "manual";
 
-// The company form, grouped as it reads: who the company IS, then how it sells.
-// Identity fields are one-liners; positioning fields are prose (textareas).
-// website is absent here because it renders as the read bar at the top of the
-// group — one control for one value, not two.
-const IDENTITY_FIELDS = [
+// Legal identity comes first. The remaining groups then explain the offer,
+// customer and sales motion without mixing registered facts with positioning.
+const LEGAL_IDENTITY_FIELDS = [
   "display_name",
   "legal_name",
-  "register_vat",
   "registered_address",
+  "register_vat",
   "industry",
+  "history",
 ] as const;
-const POSITIONING_FIELDS = [
-  "offer_summary",
+const OFFER_FIELDS = ["offer_summary", "value_proposition", "usp"] as const;
+const CUSTOMER_FIELDS = [
   "icp",
-  "value_proposition",
-  "usp",
+  "buying_center",
   "customer_pains",
   "desired_outcomes",
-  "buying_center",
+] as const;
+const SALES_FIELDS = [
   "buying_intents",
   "common_objections",
   "sales_motion",
-  "history",
 ] as const;
 
 type CompanyFieldName =
   | "website"
-  | (typeof IDENTITY_FIELDS)[number]
-  | (typeof POSITIONING_FIELDS)[number];
+  | (typeof LEGAL_IDENTITY_FIELDS)[number]
+  | (typeof OFFER_FIELDS)[number]
+  | (typeof CUSTOMER_FIELDS)[number]
+  | (typeof SALES_FIELDS)[number];
 type CompanyForm = Record<CompanyFieldName, string>;
 
 // The universal semantic minimum is enough to tell later product calls who the
@@ -125,6 +125,125 @@ const REQUIRED_FIELDS = [
   "offer_summary",
   "icp",
 ] as const satisfies readonly CompanyFieldName[];
+
+type ManualQuestion = Readonly<{
+  field: Exclude<CompanyFieldName, "website">;
+  chapter: MessageKey;
+  prompt: MessageKey;
+  hint: MessageKey;
+  multiline?: boolean;
+}>;
+
+const MANUAL_QUESTIONS: readonly ManualQuestion[] = [
+  {
+    field: "display_name",
+    chapter: "ob.manualChapterLegal",
+    prompt: "ob.manual.display_name",
+    hint: "ob.manual.display_nameHint",
+  },
+  {
+    field: "legal_name",
+    chapter: "ob.manualChapterLegal",
+    prompt: "ob.manual.legal_name",
+    hint: "ob.manual.legal_nameHint",
+  },
+  {
+    field: "registered_address",
+    chapter: "ob.manualChapterLegal",
+    prompt: "ob.manual.registered_address",
+    hint: "ob.manual.registered_addressHint",
+    multiline: true,
+  },
+  {
+    field: "register_vat",
+    chapter: "ob.manualChapterLegal",
+    prompt: "ob.manual.register_vat",
+    hint: "ob.manual.register_vatHint",
+  },
+  {
+    field: "industry",
+    chapter: "ob.manualChapterLegal",
+    prompt: "ob.manual.industry",
+    hint: "ob.manual.industryHint",
+  },
+  {
+    field: "history",
+    chapter: "ob.manualChapterLegal",
+    prompt: "ob.manual.history",
+    hint: "ob.manual.historyHint",
+    multiline: true,
+  },
+  {
+    field: "offer_summary",
+    chapter: "ob.manualChapterOffer",
+    prompt: "ob.manual.offer_summary",
+    hint: "ob.manual.offer_summaryHint",
+    multiline: true,
+  },
+  {
+    field: "value_proposition",
+    chapter: "ob.manualChapterOffer",
+    prompt: "ob.manual.value_proposition",
+    hint: "ob.manual.value_propositionHint",
+    multiline: true,
+  },
+  {
+    field: "usp",
+    chapter: "ob.manualChapterOffer",
+    prompt: "ob.manual.usp",
+    hint: "ob.manual.uspHint",
+    multiline: true,
+  },
+  {
+    field: "icp",
+    chapter: "ob.manualChapterCustomer",
+    prompt: "ob.manual.icp",
+    hint: "ob.manual.icpHint",
+    multiline: true,
+  },
+  {
+    field: "buying_center",
+    chapter: "ob.manualChapterCustomer",
+    prompt: "ob.manual.buying_center",
+    hint: "ob.manual.buying_centerHint",
+    multiline: true,
+  },
+  {
+    field: "customer_pains",
+    chapter: "ob.manualChapterCustomer",
+    prompt: "ob.manual.customer_pains",
+    hint: "ob.manual.customer_painsHint",
+    multiline: true,
+  },
+  {
+    field: "desired_outcomes",
+    chapter: "ob.manualChapterCustomer",
+    prompt: "ob.manual.desired_outcomes",
+    hint: "ob.manual.desired_outcomesHint",
+    multiline: true,
+  },
+  {
+    field: "buying_intents",
+    chapter: "ob.manualChapterSales",
+    prompt: "ob.manual.buying_intents",
+    hint: "ob.manual.buying_intentsHint",
+    multiline: true,
+  },
+  {
+    field: "common_objections",
+    chapter: "ob.manualChapterSales",
+    prompt: "ob.manual.common_objections",
+    hint: "ob.manual.common_objectionsHint",
+    multiline: true,
+  },
+  {
+    field: "sales_motion",
+    chapter: "ob.manualChapterSales",
+    prompt: "ob.manual.sales_motion",
+    hint: "ob.manual.sales_motionHint",
+    multiline: true,
+  },
+];
 
 // The read-back can only ground the contract's ColdStartField names —
 // website is always the human's to give.
@@ -460,8 +579,10 @@ function OnboardingCoordinator() {
       connectSkipped: boolean;
     }> = {},
   ) => {
-    const mode = overrides.sourceMode ?? sourceMode;
-    const readID = overrides.siteReadID ?? siteReadID;
+    const mode =
+      overrides.sourceMode === undefined ? sourceMode : overrides.sourceMode;
+    const readID =
+      overrides.siteReadID === undefined ? siteReadID : overrides.siteReadID;
     const factKeys = overrides.selectedFactKeys ?? selectedFactKeys;
     const skippedVoice = overrides.voiceSkipped ?? voiceSkipped;
     const skippedConnect = overrides.connectSkipped ?? connectSkipped;
@@ -811,6 +932,34 @@ function OnboardingCoordinator() {
                   ? siteRead.error.message
                   : null
             }
+            manualContent={
+              sourceMode === "manual" ? (
+                <ManualCompanyInterview
+                  values={draft.values}
+                  setField={setField}
+                  onPersist={() =>
+                    persistState(0, {
+                      sourceMode: "manual",
+                      siteReadID: null,
+                    })
+                  }
+                  onBackToChoice={() => {
+                    setSourceMode(null);
+                    persistState(0, {
+                      sourceMode: null,
+                      siteReadID: null,
+                    });
+                  }}
+                  onComplete={() => {
+                    persistState(1, {
+                      sourceMode: "manual",
+                      siteReadID: null,
+                    });
+                    go(1, false);
+                  }}
+                />
+              ) : null
+            }
             onWebsiteChange={(value) => setField("website", value)}
             onChooseWebsite={() => {
               setSourceMode("website");
@@ -818,8 +967,7 @@ function OnboardingCoordinator() {
             }}
             onChooseManual={() => {
               setSourceMode("manual");
-              persistState(1, { sourceMode: "manual", siteReadID: null });
-              go(1, false);
+              persistState(0, { sourceMode: "manual", siteReadID: null });
             }}
             onStart={() => startRead.mutate()}
             onContinue={() => {
@@ -857,19 +1005,21 @@ function OnboardingCoordinator() {
           <ConnectStep outcome={connectOutcome} onComplete={finishOnboarding} />
         )}
 
-        <Footer
-          step={step}
-          go={go}
-          onSaveCompany={saveCompany}
-          savePending={save.isPending}
-          memberPath={memberPath}
-          onSkipVoice={() => {
-            setVoiceSkipped(true);
-            const next = memberPath ? 4 : 3;
-            persistState(next, { voiceSkipped: true });
-            go(next, false);
-          }}
-        />
+        {step > 0 && (
+          <Footer
+            step={step}
+            go={go}
+            onSaveCompany={saveCompany}
+            savePending={save.isPending}
+            memberPath={memberPath}
+            onSkipVoice={() => {
+              setVoiceSkipped(true);
+              const next = memberPath ? 4 : 3;
+              persistState(next, { voiceSkipped: true });
+              go(next, false);
+            }}
+          />
+        )}
       </div>
     </div>
   );
@@ -950,6 +1100,116 @@ function Footer({
 }
 
 // ---- step 1: company -------------------------------------------------------
+
+function ManualCompanyInterview({
+  values,
+  setField,
+  onPersist,
+  onBackToChoice,
+  onComplete,
+}: Readonly<{
+  values: CompanyForm;
+  setField: (field: CompanyFieldName, value: string) => void;
+  onPersist: () => void;
+  onBackToChoice: () => void;
+  onComplete: () => void;
+}>) {
+  const t = useT();
+  const [questionIndex, setQuestionIndex] = useState(0);
+  const question = MANUAL_QUESTIONS[questionIndex];
+  const answerID = `manual-question-${question?.field ?? "unavailable"}-answer`;
+
+  useEffect(() => {
+    document.getElementById(answerID)?.focus();
+  }, [answerID]);
+
+  if (!question) {
+    return null;
+  }
+  const required = isRequired(question.field);
+  const value = values[question.field];
+  const last = questionIndex === MANUAL_QUESTIONS.length - 1;
+  const advance = () => {
+    if (required && value.trim() === "") {
+      return;
+    }
+    onPersist();
+    if (last) {
+      onComplete();
+      return;
+    }
+    setQuestionIndex((current) => current + 1);
+  };
+  const back = () => {
+    onPersist();
+    if (questionIndex === 0) {
+      onBackToChoice();
+      return;
+    }
+    setQuestionIndex((current) => current - 1);
+  };
+  const promptID = `manual-question-${question.field}`;
+
+  return (
+    <form
+      className="ob-core-dialog ob-manual-question"
+      onSubmit={(event) => {
+        event.preventDefault();
+        advance();
+      }}
+    >
+      <div className="ob-manual-progress">
+        <span>{t(question.chapter)}</span>
+        <span>
+          {questionIndex + 1} / {MANUAL_QUESTIONS.length}
+        </span>
+      </div>
+      <h1 id={promptID}>{t(question.prompt)}</h1>
+      <p>{t(question.hint)}</p>
+      {question.multiline ? (
+        <textarea
+          id={answerID}
+          className="ob-manual-input ob-manual-textarea"
+          aria-labelledby={promptID}
+          value={value}
+          required={required}
+          onChange={(event) => setField(question.field, event.target.value)}
+          onBlur={onPersist}
+        />
+      ) : (
+        <input
+          id={answerID}
+          className="ob-manual-input"
+          aria-labelledby={promptID}
+          value={value}
+          required={required}
+          onChange={(event) => setField(question.field, event.target.value)}
+          onBlur={onPersist}
+        />
+      )}
+      <div className="ob-manual-actions">
+        <button type="button" className="ob-core-link" onClick={back}>
+          <ArrowLeft aria-hidden /> {t("ob.back")}
+        </button>
+        <Button
+          variant="primary"
+          type="submit"
+          disabled={required && value.trim() === ""}
+        >
+          {last
+            ? t("ob.manualReview")
+            : !required && value.trim() === ""
+              ? t("ob.manualLater")
+              : t("ob.manualNext")}
+          <ArrowRight aria-hidden />
+        </Button>
+      </div>
+      <small className="ob-manual-required">
+        {required ? t("ob.manualRequired") : t("ob.manualOptional")}
+      </small>
+    </form>
+  );
+}
 
 function CompanyStep({
   draft,
@@ -1032,39 +1292,40 @@ function CompanyStep({
       <div className="form-stack ob-companyform">
         <p className="form-divider t-label">{t("ob.s1.identityLabel")}</p>
         <LegalEntityChoice read={read} draft={draft} onPick={onPickEntity} />
-        {IDENTITY_FIELDS.map((field) => (
-          <CompanyFormField
-            key={field}
-            field={field}
-            value={draft.values[field]}
-            grounded={groundingOf(draft, field)}
-            edited={draft.edited.has(field)}
-            required={isRequired(field)}
-            error={
-              missingRequired.includes(field) ? t("ob.s1.fieldRequired") : null
-            }
-            onChange={(v) => setField(field, v)}
-            onBlur={onFieldBlur}
-          />
-        ))}
+        <CompanyFieldList
+          fields={LEGAL_IDENTITY_FIELDS}
+          draft={draft}
+          missingRequired={missingRequired}
+          setField={setField}
+          onBlur={onFieldBlur}
+        />
 
-        <p className="form-divider t-label">{t("ob.s1.positioningLabel")}</p>
-        {POSITIONING_FIELDS.map((field) => (
-          <CompanyFormField
-            key={field}
-            field={field}
-            value={draft.values[field]}
-            grounded={groundingOf(draft, field)}
-            edited={draft.edited.has(field)}
-            required={isRequired(field)}
-            error={
-              missingRequired.includes(field) ? t("ob.s1.fieldRequired") : null
-            }
-            multiline
-            onChange={(v) => setField(field, v)}
-            onBlur={onFieldBlur}
-          />
-        ))}
+        <p className="form-divider t-label">{t("ob.s1.offerLabel")}</p>
+        <CompanyFieldList
+          fields={OFFER_FIELDS}
+          draft={draft}
+          missingRequired={missingRequired}
+          setField={setField}
+          onBlur={onFieldBlur}
+        />
+
+        <p className="form-divider t-label">{t("ob.s1.customerLabel")}</p>
+        <CompanyFieldList
+          fields={CUSTOMER_FIELDS}
+          draft={draft}
+          missingRequired={missingRequired}
+          setField={setField}
+          onBlur={onFieldBlur}
+        />
+
+        <p className="form-divider t-label">{t("ob.s1.salesLabel")}</p>
+        <CompanyFieldList
+          fields={SALES_FIELDS}
+          draft={draft}
+          missingRequired={missingRequired}
+          setField={setField}
+          onBlur={onFieldBlur}
+        />
       </div>
 
       {read && read.facts.length > 0 && (
@@ -1117,6 +1378,46 @@ function CompanyStep({
         </details>
       )}
     </section>
+  );
+}
+
+function CompanyFieldList({
+  fields,
+  draft,
+  missingRequired,
+  setField,
+  onBlur,
+}: Readonly<{
+  fields: readonly Exclude<CompanyFieldName, "website">[];
+  draft: CompanyDraft;
+  missingRequired: readonly CompanyFieldName[];
+  setField: (field: CompanyFieldName, value: string) => void;
+  onBlur: () => void;
+}>) {
+  const t = useT();
+  return fields.map((field) => (
+    <CompanyFormField
+      key={field}
+      field={field}
+      value={draft.values[field]}
+      grounded={groundingOf(draft, field)}
+      edited={draft.edited.has(field)}
+      required={isRequired(field)}
+      error={missingRequired.includes(field) ? t("ob.s1.fieldRequired") : null}
+      multiline={isMultilineField(field)}
+      onChange={(value) => setField(field, value)}
+      onBlur={onBlur}
+    />
+  ));
+}
+
+function isMultilineField(field: CompanyFieldName): boolean {
+  return !(
+    field === "display_name" ||
+    field === "legal_name" ||
+    field === "register_vat" ||
+    field === "industry" ||
+    field === "website"
   );
 }
 

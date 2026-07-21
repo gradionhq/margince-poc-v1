@@ -868,6 +868,30 @@ export const de = {
   "ob.readManualSub": "Ohne KI, ohne externe Anfrage.",
   "ob.readTrustTitle": "Nur öffentliche Seiten. ",
   "ob.readTrustBody": "Nichts wird zu Firmendaten, bevor du es bestätigst.",
+  "ob.coreIntroTitle": "Zuerst dein rechtliches Unternehmen.",
+  "ob.coreIntroBody":
+    "Ich muss zuerst feststellen, welche rechtliche Organisation Margince nutzt. Danach lerne ich, was sie verkauft, wen sie bedient und wie sie Geschäft gewinnt.",
+  "ob.coreLegalKicker": "Rechtliche Identität zuerst",
+  "ob.coreWebsiteTitle": "Wo soll ich anfangen?",
+  "ob.coreWebsiteBody":
+    "Ich suche zuerst das Impressum — Firmenname, Anschrift, Register- und USt-IdNr./UID — und lese danach Produkte, Idealkunden und Positionierung.",
+  "ob.corePreparing": "{host} wird zum Einlesen vorbereitet",
+  "ob.coreLegalReading": "Die rechtliche Identität auf {host} wird gelesen",
+  "ob.coreLegalReadingBody":
+    "Ich suche Impressum, eingetragene Organisation, Anschrift sowie Register- oder USt-IdNr./UID. Was nicht genannt ist, bleibt leer.",
+  "ob.coreBusinessReading": "Das Geschäft dahinter wird verstanden",
+  "ob.coreBusinessReadingBody":
+    "Ich verbinde Produkte, Kunden und Positionierung mit dem genauen öffentlichen Text, der sie belegt.",
+  "ob.coreReady": "Ich habe {count} belegte Firmendaten gefunden",
+  "ob.corePartial": "Ich habe {count} nützliche Angaben gefunden — mit Lücken",
+  "ob.coreReadyBody":
+    "Nichts wurde gespeichert. Prüfe zuerst die rechtliche Identität, danach Angebot und Idealkunden.",
+  "ob.coreDeferredBody": "Das Einlesen wird automatisch fortgesetzt.",
+  "ob.coreFailedBody":
+    "Ich konnte auf dieser Seite nicht genug belegen und habe deshalb aufgehört, statt zu raten. Du kannst mir dieselben Angaben selbst geben.",
+  "ob.coreFindingsTitle": "Was ich von der Website belegen kann",
+  "ob.coreFindingsBody":
+    "Jeder Wert enthält den öffentlichen Wortlaut seiner Quelle. Fehlende rechtliche Angaben bleiben fehlend.",
   "ob.continueManual": "Manuell fortfahren",
   "ob.reviewFindings": "Ergebnisse prüfen",
   "ob.live": "Live",
@@ -906,8 +930,10 @@ export const de = {
   "ob.s1.sub":
     "Ausgefüllt ist nur, was deine Website wirklich nennt. Korrigiere, was nicht stimmt.",
   "ob.s1.urlPlaceholder": "deinefirma.de",
-  "ob.s1.identityLabel": "Firmendaten",
-  "ob.s1.positioningLabel": "Was du verkaufst — und an wen",
+  "ob.s1.identityLabel": "Rechtliche Organisation",
+  "ob.s1.offerLabel": "Produkte und Angebot",
+  "ob.s1.customerLabel": "Idealkunde",
+  "ob.s1.salesLabel": "Positionierung und Vertriebskontext",
   "ob.s1.fieldRequired": "Pflichtfeld.",
   "ob.s1.requiredMissing": "Diese Felder fehlen noch: {fields}",
   "ob.s1.saving": "Wird gespeichert…",
@@ -935,6 +961,67 @@ export const de = {
     "Es kann eine Login-Wand, eine Platzhalterseite oder ein robots.txt-Verbot sein",
   "ob.failWhy3": "Oder es ist schlicht zu wenig Text vorhanden",
   "ob.tryAnother": "Andere URL versuchen",
+
+  "ob.manualChapterLegal": "Deine rechtliche Organisation",
+  "ob.manualChapterOffer": "Produkte und Angebot",
+  "ob.manualChapterCustomer": "Idealkunde",
+  "ob.manualChapterSales": "Wie du verkaufst",
+  "ob.manualNext": "Nächste Frage",
+  "ob.manualLater": "Später ergänzen",
+  "ob.manualReview": "Antworten prüfen",
+  "ob.manualRequired": "Erforderlich für ein nutzbares Firmenprofil",
+  "ob.manualOptional": "Optional — leer lassen und später ergänzen",
+  "ob.manual.display_name":
+    "Unter welchem Namen kennen Kunden dein Unternehmen?",
+  "ob.manual.display_nameHint":
+    "Nutze den vertrauten Firmen- oder Markennamen, der in Margince erscheinen soll.",
+  "ob.manual.legal_name":
+    "Wie lautet der vollständige eingetragene Firmenname?",
+  "ob.manual.legal_nameHint":
+    "Inklusive Rechtsform wie GmbH, AG, Ltd oder Inc. Ergänze ihn später, wenn das nicht zutrifft.",
+  "ob.manual.registered_address": "Wie lautet die eingetragene Anschrift?",
+  "ob.manual.registered_addressHint":
+    "Nutze die offizielle Anschrift aus Handelsregister oder Impressum.",
+  "ob.manual.register_vat": "Wie lauten Register- und USt-IdNr./UID?",
+  "ob.manual.register_vatHint":
+    "Trage die Kennungen exakt wie ausgegeben ein. Leer lassen, wenn keine zutrifft.",
+  "ob.manual.industry": "In welcher Branche ist das Unternehmen tätig?",
+  "ob.manual.industryHint":
+    "Wähle die Beschreibung, die deine Kunden sofort verstehen würden.",
+  "ob.manual.history": "Welche Firmengeschichte sollte Margince kennen?",
+  "ob.manual.historyHint":
+    "Zum Beispiel Gründungsjahr, Ursprung oder eine wichtige Veränderung des Geschäfts.",
+  "ob.manual.offer_summary": "Welche Produkte oder Leistungen verkauft ihr?",
+  "ob.manual.offer_summaryHint":
+    "Ein oder zwei konkrete Sätze genügen. Diese Erklärung nutzt Margince für euer Geschäft.",
+  "ob.manual.value_proposition": "Welches Ergebnis schafft das Angebot?",
+  "ob.manual.value_propositionHint":
+    "Erkläre den Kundennutzen, nicht nur die Produktfunktionen.",
+  "ob.manual.usp": "Warum entscheiden sich Kunden für euch?",
+  "ob.manual.uspHint":
+    "Nenne den wichtigsten echten Unterschied zu den Alternativen.",
+  "ob.manual.icp": "Wer ist euer Idealkunde?",
+  "ob.manual.icpHint":
+    "Beschreibe Unternehmen oder Personen mit dem größten Nutzen — Größe, Branche, Situation oder Region.",
+  "ob.manual.buying_center": "Wer prüft, kauft oder genehmigt den Kauf?",
+  "ob.manual.buying_centerHint":
+    "Nenne die typischen Rollen und wer am Ende entscheidet.",
+  "ob.manual.customer_pains":
+    "Mit welchen Problemen kommen diese Kunden zu euch?",
+  "ob.manual.customer_painsHint":
+    "Nutze die Probleme, wie Kunden sie selbst beschreiben würden.",
+  "ob.manual.desired_outcomes": "Was möchten sie erreichen?",
+  "ob.manual.desired_outcomesHint":
+    "Beschreibe die praktischen oder geschäftlichen Ergebnisse, die ihnen wichtig sind.",
+  "ob.manual.buying_intents": "Was signalisiert üblicherweise Kaufinteresse?",
+  "ob.manual.buying_intentsHint":
+    "Zum Beispiel eine neue Initiative, Einstellungen, eine Frist oder ein operatives Problem.",
+  "ob.manual.common_objections": "Welche Einwände hört ihr am häufigsten?",
+  "ob.manual.common_objectionsHint":
+    "Nenne Bedenken, die einen Kauf regelmäßig verzögern oder verhindern.",
+  "ob.manual.sales_motion": "Wie läuft ein typischer Verkauf ab?",
+  "ob.manual.sales_motionHint":
+    "Beschreibe den Weg vom ersten Gespräch zur Entscheidung, einschließlich Test oder Einkauf, wenn relevant.",
 
   "ob.field.display_name": "Firmenname",
   "ob.field.offer_summary": "Was verkaufst du?",

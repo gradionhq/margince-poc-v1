@@ -146,10 +146,6 @@ export const EmptyChoice: Story = {
   render: () => <ReadStory mode={null} />,
 };
 
-export const ManualChoice: Story = {
-  render: () => <ReadStory mode="manual" />,
-};
-
 export const ReadingProgress: Story = {
   render: () => <ReadStory read={reading} />,
 };

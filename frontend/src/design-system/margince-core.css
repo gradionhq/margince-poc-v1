@@ -1,0 +1,254 @@
+.margince-core-scene {
+  position: relative;
+  width: min(390px, 78%);
+  aspect-ratio: 1;
+  align-self: center;
+  justify-self: center;
+  color: var(--railIconActive);
+  transition:
+    transform 0.6s ease,
+    filter 0.6s ease;
+}
+.margince-core-visual {
+  position: absolute;
+  inset: 0;
+}
+.margince-core-glow {
+  position: absolute;
+  inset: 26%;
+  border-radius: var(--r-full);
+  background: var(--aiMed);
+  filter: blur(28px);
+  animation: margince-core-breathe 5s ease-in-out infinite;
+}
+.margince-core-orbit {
+  position: absolute;
+  inset: 12%;
+  border: 1px solid var(--aiMed);
+  border-radius: var(--r-full);
+  animation: margince-core-orbit 18s linear infinite;
+}
+.margince-core-orbit::before,
+.margince-core-orbit::after {
+  content: "";
+  position: absolute;
+  inset: 8%;
+  border: 1px dashed var(--railHover);
+  border-radius: var(--r-full);
+}
+.margince-core-orbit::after {
+  inset: 20%;
+  border-style: solid;
+  border-color: var(--accentMed);
+}
+.margince-core-orbit-evidence {
+  inset: 3%;
+  animation-duration: 26s;
+  animation-direction: reverse;
+  border-style: dashed;
+}
+.margince-core-orbit-approval {
+  inset: 22%;
+  border: 2px solid var(--warnBorder);
+  animation-duration: 12s;
+}
+.margince-core-orbit-approval::before,
+.margince-core-orbit-approval::after {
+  display: none;
+}
+.margince-core-node,
+.margince-core-gate {
+  position: absolute;
+  display: block;
+  border-radius: var(--r-full);
+  background: var(--railIconActive);
+  box-shadow: 0 0 18px var(--aiText);
+}
+.margince-core-node {
+  width: 8px;
+  height: 8px;
+}
+.margince-core-node-a {
+  top: 8%;
+  left: 20%;
+}
+.margince-core-node-b {
+  right: -4px;
+  top: 48%;
+  background: var(--aiText);
+}
+.margince-core-node-c {
+  bottom: 12%;
+  left: 14%;
+  background: var(--aiText);
+}
+.margince-core-node-d {
+  right: 16%;
+  top: 11%;
+  width: 5px;
+  height: 5px;
+}
+.margince-core-gate {
+  width: 13px;
+  height: 13px;
+  top: -7px;
+  left: calc(50% - 7px);
+  background: var(--away);
+  box-shadow: 0 0 22px var(--away);
+}
+.margince-core-thread {
+  position: absolute;
+  width: 34%;
+  height: 1px;
+  top: 50%;
+  left: 50%;
+  transform-origin: left center;
+  background: linear-gradient(90deg, var(--aiMed), transparent);
+  animation: margince-core-thread 3.6s ease-in-out infinite;
+}
+.margince-core-thread-a {
+  transform: rotate(18deg);
+}
+.margince-core-thread-b {
+  transform: rotate(142deg);
+  animation-delay: -1.2s;
+}
+.margince-core-thread-c {
+  transform: rotate(258deg);
+  animation-delay: -2.4s;
+}
+.margince-core-mark-shell {
+  position: absolute;
+  inset: 34%;
+  display: grid;
+  place-items: center;
+  padding: 9%;
+  border: 1px solid var(--aiMed);
+  border-radius: var(--r-full);
+  color: var(--railIconActive);
+  background: var(--railActive);
+  box-shadow:
+    0 0 34px var(--aiMed),
+    inset 0 0 22px var(--railHover);
+  animation: margince-core-mark 5s ease-in-out infinite;
+}
+.margince-core-mark-shell svg {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  fill: currentcolor;
+}
+.margince-core-mark-soft {
+  opacity: 0.5;
+}
+.margince-core-mark-mid {
+  opacity: 0.78;
+}
+.margince-core-content {
+  position: relative;
+  z-index: 2;
+  width: 70%;
+  height: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  text-align: center;
+}
+.margince-core-scene.has-content .margince-core-mark-shell {
+  inset: 11% auto auto 50%;
+  width: 58px;
+  height: 58px;
+  padding: 15px;
+  transform: translateX(-50%);
+  animation-name: margince-core-mark-content;
+}
+.margince-core-scene[data-core-state="listening"] {
+  transform: scale(0.985);
+}
+.margince-core-scene[data-core-state="working"] {
+  transform: scale(0.97);
+  filter: saturate(1.25);
+}
+.margince-core-scene[data-core-state="working"] .margince-core-orbit {
+  animation-duration: 4s;
+}
+.margince-core-scene[data-core-state="success"] {
+  transform: scale(1.035);
+  filter: brightness(1.18);
+}
+.margince-core-scene[data-core-state="attention"] .margince-core-gate {
+  transform: scale(1.25);
+}
+.margince-core-scene[data-core-state="error"],
+.margince-core-scene[data-core-state="unavailable"] {
+  filter: saturate(0.35);
+}
+
+@keyframes margince-core-orbit {
+  to {
+    transform: rotate(1turn);
+  }
+}
+@keyframes margince-core-breathe {
+  0%,
+  100% {
+    transform: scale(0.86);
+    opacity: 0.56;
+  }
+  50% {
+    transform: scale(1.14);
+    opacity: 1;
+  }
+}
+@keyframes margince-core-mark {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-4px) scale(1.035);
+  }
+}
+@keyframes margince-core-mark-content {
+  0%,
+  100% {
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+  50% {
+    transform: translateX(-50%) translateY(-4px) scale(1.035);
+  }
+}
+@keyframes margince-core-thread {
+  0%,
+  100% {
+    opacity: 0.18;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .margince-core-glow,
+  .margince-core-orbit,
+  .margince-core-thread,
+  .margince-core-mark-shell {
+    animation: none;
+  }
+  .margince-core-scene,
+  .margince-core-mark-shell {
+    transition: none;
+    transform: none;
+  }
+  .margince-core-scene.has-content .margince-core-mark-shell {
+    transform: translateX(-50%);
+  }
+}
+
+@media (forced-colors: active) {
+  .margince-core-mark-shell {
+    forced-color-adjust: auto;
+  }
+}

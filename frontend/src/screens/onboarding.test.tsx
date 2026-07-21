@@ -181,19 +181,40 @@ async function chooseManual() {
   await userEvent.click(
     await screen.findByRole("button", { name: /Enter it myself/ }),
   );
-  await screen.findByLabelText(/Company name/);
+  await screen.findByRole("textbox", {
+    name: /What name do customers know your company by/,
+  });
 }
 
-async function fillRequired() {
-  await userEvent.type(screen.getByLabelText(/Company name/), "Gradion");
-  await userEvent.type(
-    screen.getByLabelText(/What do you sell\?/),
-    "Revenue software for manufacturers",
+async function answerManual(value: string) {
+  await userEvent.type(screen.getByRole("textbox"), value);
+  await userEvent.click(screen.getByRole("button", { name: /Next question/ }));
+}
+
+async function skipManual() {
+  await userEvent.click(screen.getByRole("button", { name: /Add later/ }));
+}
+
+async function completeManualInterview() {
+  await answerManual("Gradion");
+  await answerManual("Gradion GmbH");
+  await answerManual("Hauptstrasse 1, 10115 Berlin");
+  await answerManual("HRB 12345 · DE123456789");
+  await answerManual("Revenue software");
+  await skipManual();
+  await answerManual("Revenue software for manufacturers");
+  await skipManual();
+  await skipManual();
+  await answerManual("Mid-market manufacturers");
+  await skipManual();
+  await skipManual();
+  await skipManual();
+  await skipManual();
+  await skipManual();
+  await userEvent.click(
+    screen.getByRole("button", { name: /Review my answers/ }),
   );
-  await userEvent.type(
-    screen.getByLabelText(/Ideal customer/),
-    "Mid-market manufacturers",
-  );
+  await screen.findByLabelText(/Company name/);
 }
 
 async function readWebsite() {
@@ -288,7 +309,11 @@ describe("the optional website path", () => {
     await userEvent.click(
       screen.getByRole("button", { name: /Continue manually/ }),
     );
-    expect(await screen.findByLabelText(/Company name/)).toBeTruthy();
+    expect(
+      await screen.findByRole("textbox", {
+        name: /What name do customers know your company by/,
+      }),
+    ).toBeTruthy();
   });
 
   it("shows a deferred read as scheduled work and keeps the manual path available", async () => {
@@ -333,7 +358,7 @@ describe("the mandatory company minimum", () => {
     const calls = stubApi();
     render(<OnboardingScreen />);
     await chooseManual();
-    await fillRequired();
+    await completeManualInterview();
 
     await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
 
@@ -344,6 +369,9 @@ describe("the mandatory company minimum", () => {
       .clone()
       .json()) as Record<string, string>;
     expect(body.display_name).toBe("Gradion");
+    expect(body.legal_name).toBe("Gradion GmbH");
+    expect(body.registered_address).toBe("Hauptstrasse 1, 10115 Berlin");
+    expect(body.register_vat).toBe("HRB 12345 · DE123456789");
     expect(body.offer_summary).toBe("Revenue software for manufacturers");
     expect(body.icp).toBe("Mid-market manufacturers");
     expect(calls.some((request) => request.url.includes("site-reads"))).toBe(
@@ -351,30 +379,47 @@ describe("the mandatory company minimum", () => {
     );
   });
 
-  it("blocks an empty form and names exactly the three required fields", async () => {
+  it("starts with legal identity and does not advance without the required company name", async () => {
     const calls = stubApi();
     render(<OnboardingScreen />);
     await chooseManual();
 
-    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
-
+    expect(screen.getByText("Your legal organization")).toBeTruthy();
     expect(
-      screen.getByText(
-        "Fill these in before you continue: Company name, What do you sell?, Ideal customer",
-      ),
-    ).toBeTruthy();
+      (
+        screen.getByRole("button", {
+          name: /Next question/,
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
     expect(requestTo(calls, "/company", "PUT")).toBeUndefined();
-    expect(
-      (screen.getByLabelText(/Registered legal name/) as HTMLInputElement)
-        .required,
-    ).toBe(false);
   });
 
   it("treats whitespace as missing and keeps a failed save editable", async () => {
-    stubApi({ saveError: { detail: "database unavailable", status: 503 } });
+    stubApi({
+      state: {
+        path: "creator",
+        step: "confirm",
+        source_mode: "manual",
+        website_url: null,
+        site_read_id: null,
+        company_draft: {
+          display_name: "Gradion",
+          offer_summary: "Revenue software for manufacturers",
+          icp: "Mid-market manufacturers",
+        },
+        selected_fact_keys: [],
+        voice_skipped: false,
+        connect_skipped: false,
+        version: 4,
+        completed_at: null,
+        created_at: "2026-07-19T08:00:00Z",
+        updated_at: "2026-07-19T08:02:00Z",
+      },
+      saveError: { detail: "database unavailable", status: 503 },
+    });
     render(<OnboardingScreen />);
-    await chooseManual();
-    await fillRequired();
+    await screen.findByLabelText(/Company name/);
     await userEvent.clear(screen.getByLabelText(/What do you sell\?/));
     await userEvent.type(screen.getByLabelText(/What do you sell\?/), "   ");
     await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
@@ -443,7 +488,7 @@ describe("later optional steps remain honest", () => {
     stubApi();
     render(<OnboardingScreen />);
     await chooseManual();
-    await fillRequired();
+    await completeManualInterview();
     await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
     await userEvent.click(
       await screen.findByRole("button", { name: "Skip this step" }),
@@ -458,7 +503,7 @@ describe("later optional steps remain honest", () => {
     const calls = stubApi();
     render(<OnboardingScreen />);
     await chooseManual();
-    await fillRequired();
+    await completeManualInterview();
     await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
     await userEvent.click(
       await screen.findByRole("button", { name: "Skip this step" }),

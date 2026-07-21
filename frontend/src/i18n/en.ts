@@ -851,6 +851,30 @@ export const en = {
   "ob.readManualSub": "No AI, no external request.",
   "ob.readTrustTitle": "Public pages only. ",
   "ob.readTrustBody": "Nothing becomes company data until you confirm it.",
+  "ob.coreIntroTitle": "First, your legal company.",
+  "ob.coreIntroBody":
+    "I need to establish which legal organization uses Margince. Then I'll learn what it sells, who it serves, and how it wins business.",
+  "ob.coreLegalKicker": "Legal identity first",
+  "ob.coreWebsiteTitle": "Where should I start?",
+  "ob.coreWebsiteBody":
+    "I'll look for the legal notice first — registered name, address, register and VAT/UID details — then read products, ideal customers and positioning.",
+  "ob.corePreparing": "Preparing to read {host}",
+  "ob.coreLegalReading": "Reading the legal identity on {host}",
+  "ob.coreLegalReadingBody":
+    "I'm looking for the legal notice, registered organization, address and register or VAT/UID details. I leave anything unstated empty.",
+  "ob.coreBusinessReading": "Understanding the business around it",
+  "ob.coreBusinessReadingBody":
+    "I'm connecting products, customers and positioning to the exact public text that supports them.",
+  "ob.coreReady": "I found {count} cited company details",
+  "ob.corePartial": "I found {count} useful details, with some gaps",
+  "ob.coreReadyBody":
+    "Nothing has been saved. Review the legal identity first, then the offer and ideal customer.",
+  "ob.coreDeferredBody": "This read will resume automatically.",
+  "ob.coreFailedBody":
+    "I couldn't ground enough from this site, so I stopped instead of guessing. You can tell me the same information yourself.",
+  "ob.coreFindingsTitle": "What I can support from the website",
+  "ob.coreFindingsBody":
+    "Every value below carries the public wording it came from. Missing legal details stay missing.",
   "ob.continueManual": "Continue manually",
   "ob.reviewFindings": "Review what we found",
   "ob.live": "Live",
@@ -889,8 +913,10 @@ export const en = {
   "ob.s1.sub":
     "Only what your site actually states is filled in. Correct anything that is wrong.",
   "ob.s1.urlPlaceholder": "yourcompany.com",
-  "ob.s1.identityLabel": "Company details",
-  "ob.s1.positioningLabel": "What you sell, and to whom",
+  "ob.s1.identityLabel": "Legal organization",
+  "ob.s1.offerLabel": "Products and offer",
+  "ob.s1.customerLabel": "Ideal customer",
+  "ob.s1.salesLabel": "Positioning and sales context",
   "ob.s1.fieldRequired": "Required.",
   "ob.s1.requiredMissing": "Fill these in before you continue: {fields}",
   "ob.s1.saving": "Saving…",
@@ -917,6 +943,64 @@ export const en = {
     "It may be a login wall, a holding page, or block automated reads in robots.txt",
   "ob.failWhy3": "There may simply be too little text to work from",
   "ob.tryAnother": "Try another URL",
+
+  "ob.manualChapterLegal": "Your legal organization",
+  "ob.manualChapterOffer": "Products and offer",
+  "ob.manualChapterCustomer": "Ideal customer",
+  "ob.manualChapterSales": "How you sell",
+  "ob.manualNext": "Next question",
+  "ob.manualLater": "Add later",
+  "ob.manualReview": "Review my answers",
+  "ob.manualRequired": "Required to create a usable company profile",
+  "ob.manualOptional": "Optional — leave it empty to add later",
+  "ob.manual.display_name": "What name do customers know your company by?",
+  "ob.manual.display_nameHint":
+    "Use the familiar company or trading name shown throughout Margince.",
+  "ob.manual.legal_name": "What is the full registered legal name?",
+  "ob.manual.legal_nameHint":
+    "Include the legal form, such as GmbH, Ltd, Inc. or AG. Add it later if it does not apply.",
+  "ob.manual.registered_address": "What is the registered address?",
+  "ob.manual.registered_addressHint":
+    "Use the official address from the commercial register or legal notice.",
+  "ob.manual.register_vat": "What are the register and VAT/UID numbers?",
+  "ob.manual.register_vatHint":
+    "Enter the identifiers exactly as issued. Leave this empty when none applies.",
+  "ob.manual.industry": "Which industry is the company in?",
+  "ob.manual.industryHint":
+    "Choose the description your customers would immediately recognize.",
+  "ob.manual.history": "Is there useful company history Margince should know?",
+  "ob.manual.historyHint":
+    "For example founding year, origin or an important change in the business.",
+  "ob.manual.offer_summary": "What products or services do you sell?",
+  "ob.manual.offer_summaryHint":
+    "One or two concrete sentences are enough. This is the commercial explanation Margince will use.",
+  "ob.manual.value_proposition": "What outcome does the offer create?",
+  "ob.manual.value_propositionHint":
+    "Explain the value customers receive, not only the product features.",
+  "ob.manual.usp": "What makes customers choose you?",
+  "ob.manual.uspHint":
+    "Name the strongest meaningful difference from the alternatives.",
+  "ob.manual.icp": "Who is your ideal customer?",
+  "ob.manual.icpHint":
+    "Describe the companies or people that benefit most — size, industry, situation or geography.",
+  "ob.manual.buying_center": "Who evaluates, buys or approves the purchase?",
+  "ob.manual.buying_centerHint":
+    "List the typical roles and who has the final say.",
+  "ob.manual.customer_pains": "What problems bring those customers to you?",
+  "ob.manual.customer_painsHint":
+    "Use the problems customers would describe in their own words.",
+  "ob.manual.desired_outcomes": "What are they trying to achieve?",
+  "ob.manual.desired_outcomesHint":
+    "Describe the practical or business outcomes they care about.",
+  "ob.manual.buying_intents": "What usually signals buying interest?",
+  "ob.manual.buying_intentsHint":
+    "For example a new initiative, hiring pattern, deadline or operational problem.",
+  "ob.manual.common_objections": "What objections do you hear most often?",
+  "ob.manual.common_objectionsHint":
+    "Include the concerns that regularly slow down or stop a purchase.",
+  "ob.manual.sales_motion": "How does a typical sale happen?",
+  "ob.manual.sales_motionHint":
+    "Describe the path from first conversation to decision, including trials or procurement if relevant.",
 
   "ob.field.display_name": "Company name",
   "ob.field.offer_summary": "What do you sell?",
