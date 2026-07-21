@@ -603,36 +603,28 @@ function OnboardingCoordinator() {
     globalThis.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // Choosing a legal entity applies what the legal notice printed, so the
-  // three fields keep the read's evidence instead of being marked as the
-  // human's own assertion — the provenance story stays true, and a field
-  // the page left blank is cleared rather than left holding another
-  // entity's value.
+  // Choosing a legal entity fills the three fields from the block the legal
+  // notice printed — the whole point of offering the choice. They are marked
+  // as YOUR input, not as read-from-site, because that is what the server
+  // records: the multi-entity abstention strips the legal trio from the
+  // read's own fields, and confirmation trusts evidence only from those. A
+  // label claiming provenance the database does not hold would be worse than
+  // no label at all. A field the notice left blank is cleared rather than
+  // left holding the previous entity's value.
   const setLegalEntity = (entity: CompanySiteReadLegalEntity) =>
     setDraft((prev) => {
       const grounded = { ...prev.grounded };
       const edited = new Set(prev.edited);
+      const values = { ...prev.values };
       const applied: Array<[ColdField["field"], string]> = [
         ["legal_name", entity.name],
         ["registered_address", entity.registered_address ?? ""],
         ["register_vat", entity.register_number ?? ""],
       ];
-      const values = { ...prev.values };
       for (const [field, value] of applied) {
         values[field] = value;
-        edited.delete(field);
-        if (value === "") {
-          delete grounded[field];
-          continue;
-        }
-        grounded[field] = {
-          field,
-          value,
-          evidence_snippet: entity.evidence_snippet ?? entity.name,
-          source_kind: "url",
-          source_url: entity.source_url,
-          confidence: 1,
-        };
+        delete grounded[field];
+        edited.add(field);
       }
       return { values, grounded, edited };
     });

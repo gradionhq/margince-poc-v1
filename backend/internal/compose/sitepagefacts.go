@@ -397,24 +397,30 @@ func gatePageEntities(parsed pageFactsReply, page crawlPage, idx snippetIndex, d
 			drop(laneLegal, name, "", dropValueNotInSnippet)
 		default:
 			entity := corpusLegalEntity{Name: name, SourceURL: page.URL}
+			// The block this entity was cited from. The census NAME check
+			// deliberately spans the whole page (a layout can split a name
+			// across passages), but a DETAIL must come from the entity's own
+			// block or it belongs to a sibling company.
+			blockNorm := ""
+			if ref, ok := idx.resolve(e.E); ok {
+				entity.EvidenceSnippet = ref.passage
+				blockNorm = ref.norm
+			}
 			// The block's details carry the same no-guess rule as the name:
 			// printed on this page, or absent. A dropped detail costs one
 			// field a human can type; an invented registration number is a
 			// legal identity that was never theirs.
-			entity.RegisteredAddress = groundedDetail(pageNorm, e.A)
-			entity.RegisterNumber = groundedDetail(pageNorm, e.R)
+			entity.RegisteredAddress = groundedDetail(blockNorm, e.A)
+			entity.RegisterNumber = groundedDetail(blockNorm, e.R)
 			// A detail the model stated but the page does not print is the
 			// no-guess gate working; report it rather than dropping it in
 			// silence, so a systematically-lost field is visible.
 			for field, claimed := range map[string]string{
 				fieldRegisteredAddress: e.A, fieldRegisterVat: e.R,
 			} {
-				if strings.TrimSpace(claimed) != "" && groundedDetail(pageNorm, claimed) == "" {
+				if strings.TrimSpace(claimed) != "" && groundedDetail(blockNorm, claimed) == "" {
 					drop(laneLegal, field, claimed, dropValueNotInSnippet)
 				}
-			}
-			if ref, ok := idx.resolve(e.E); ok {
-				entity.EvidenceSnippet = ref.passage
 			}
 			out = append(out, entity)
 		}
@@ -422,35 +428,54 @@ func gatePageEntities(parsed pageFactsReply, page crawlPage, idx snippetIndex, d
 	return out
 }
 
-// groundedDetail keeps an entity detail only when the page prints it.
-// Exact containment is the common case, but an address survives a round
-// trip through a model with its punctuation rearranged — a page printing
-// "Singapore (179433)" comes back as "Singapore 179433" — and refusing
-// that costs the human the very field they came for. So a detail whose
-// every content token appears on the page counts as printed: rearranged
-// punctuation passes, an invented street or register number cannot,
-// because its tokens are nowhere on the page.
-func groundedDetail(pageNorm, value string) string {
+// groundedDetail keeps an entity detail only when the CITED BLOCK prints
+// it. Scope matters as much as presence: a legal notice lists several
+// companies, and a detail that merely appears somewhere on the page may
+// belong to a different one — attaching a sibling's registered address to
+// the entity a human then selects is the wrong-company outcome the
+// multi-entity abstention exists to prevent.
+//
+// An address survives a round trip through a model with its punctuation
+// rearranged — a block printing "Singapore (179433)" comes back
+// "Singapore 179433" — and refusing that costs the human the field they
+// came for. So the test is that every content token of the value was
+// printed in the block, WHOLE: "1234" is not evidence from a block that
+// printed "HRB 123456", and a truncated register number is a legal
+// identifier the company does not have. Substring containment would accept
+// exactly that, which is why it is not used.
+//
+// The scoping is as strong as the page's own layout. Passages pack short
+// lines together, so a legal notice compact enough to fit one passage IS
+// the cited block, and a sibling's address inside it cannot be told apart
+// from this entity's. The human picking from the census remains the check
+// that catches it.
+func groundedDetail(blockNorm, value string) string {
 	value = strings.TrimSpace(value)
-	if value == "" {
+	if value == "" || blockNorm == "" {
 		return ""
 	}
-	normalized := normalizeEvidence(value)
-	if strings.Contains(pageNorm, normalized) {
-		return value
-	}
-	tokens := strings.FieldsFunc(normalized, func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
-	})
-	if len(tokens) == 0 {
+	claimed := contentTokens(normalizeEvidence(value))
+	if len(claimed) == 0 {
 		return ""
 	}
-	for _, token := range tokens {
-		if !strings.Contains(pageNorm, token) {
+	printed := map[string]bool{}
+	for _, token := range contentTokens(blockNorm) {
+		printed[token] = true
+	}
+	for _, token := range claimed {
+		if !printed[token] {
 			return ""
 		}
 	}
 	return value
+}
+
+// contentTokens splits normalized text into its letter/digit runs — the
+// units a whole-token comparison compares.
+func contentTokens(normalized string) []string {
+	return strings.FieldsFunc(normalized, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
 }
 
 // factName is the dedupe/containment identity of a multi-value fact's

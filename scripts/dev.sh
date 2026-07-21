@@ -268,6 +268,14 @@ up)
     # the default — a restart to pick up a backend change must not cost the
     # records you were half-way through creating.
     if [[ "$fresh" == "1" ]]; then
+      # psql_owner always talks to the COMPOSE Postgres, while the migration
+      # below connects through OWNER_DSN. Point that elsewhere and --fresh
+      # would erase one database and migrate another; refuse rather than
+      # rebuild something the caller never named.
+      if [[ "$OWNER_DSN" != "postgres://margince_owner:dev@localhost:55432/margince" ]]; then
+        echo "FAIL: --fresh rebuilds the compose Postgres, but OWNER_DSN points at \"${OWNER_DSN%%\?*}\" — drop that database yourself, then run make dev" >&2
+        exit 1
+      fi
       psql_owner postgres -c "DROP DATABASE IF EXISTS \"${db}\" WITH (FORCE)" </dev/null
       psql_owner postgres -c "CREATE DATABASE \"${db}\"" </dev/null
       psql_owner "$db" -v ON_ERROR_STOP=1 <scripts/db-init.sql
