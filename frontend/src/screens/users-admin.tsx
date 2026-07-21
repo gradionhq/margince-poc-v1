@@ -50,30 +50,36 @@ export function UsersAdminCard() {
   return (
     <section className="card">
       <SectionHeader title={t("users.title")} sub={t("users.sub")} />
-      {isAdmin ? (
-        <>
-          <InviteForm />
-          <QueryGate query={members}>
-            {(list) =>
-              list.length === 0 ? (
-                <EmptyState>
-                  <p className="t-small">{t("users.empty")}</p>
-                </EmptyState>
-              ) : (
-                <ul className="users-list">
-                  {list.map((u) => (
-                    <MemberRow key={u.id} member={u} />
-                  ))}
-                </ul>
-              )
-            }
-          </QueryGate>
-        </>
-      ) : (
-        <EmptyState>
-          <p className="t-small">{t("users.adminOnly")}</p>
-        </EmptyState>
-      )}
+      {/* Gate on the role probe itself so the admin-only notice appears only
+          once /me has actually answered — never as a flash while it loads. */}
+      <QueryGate query={me}>
+        {() =>
+          isAdmin ? (
+            <>
+              <InviteForm />
+              <QueryGate query={members}>
+                {(list) =>
+                  list.length === 0 ? (
+                    <EmptyState>
+                      <p className="t-small">{t("users.empty")}</p>
+                    </EmptyState>
+                  ) : (
+                    <ul className="users-list">
+                      {list.map((u) => (
+                        <MemberRow key={u.id} member={u} />
+                      ))}
+                    </ul>
+                  )
+                }
+              </QueryGate>
+            </>
+          ) : (
+            <EmptyState>
+              <p className="t-small">{t("users.adminOnly")}</p>
+            </EmptyState>
+          )
+        }
+      </QueryGate>
     </section>
   );
 }

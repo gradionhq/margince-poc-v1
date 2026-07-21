@@ -103,10 +103,14 @@ describe("UsersAdminCard", () => {
             teams: [],
           });
         }
-        return jsonResponse(ROSTER);
+        // A non-admin must never reach the roster — any other request is a
+        // regression, so fail loudly rather than serving fixture data.
+        throw new Error(`unexpected request: ${req.method} ${req.url}`);
       }),
     );
     render(<UsersAdminCard />);
+    // The notice renders only after /me resolves (the card gates on that query),
+    // so this cannot pass on the loading render.
     await waitFor(() => expect(screen.getByText(/admins only/i)).toBeTruthy());
     expect(screen.queryByText("Ada Active")).toBeNull();
   });
