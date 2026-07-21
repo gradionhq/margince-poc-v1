@@ -13,6 +13,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"runtime/debug"
 	"slices"
 	"sort"
 	"sync"
@@ -92,7 +94,7 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 			profileWg.Add(1)
 			go func() {
 				defer profileWg.Done()
-				out.fields, profileErr = x.extractProfile(ctx, snapshot)
+				out.fields, profileErr = safeExtractProfile(ctx, x, snapshot)
 			}()
 		})
 	}
@@ -115,7 +117,7 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			res, err := x.extractPageFacts(ctx, page)
+			res, err := safeExtractPageFacts(ctx, x, page)
 			mu.Lock()
 			if err != nil {
 				failed = append(failed, fmt.Errorf("page %s: %w", page.URL, err))
@@ -172,6 +174,40 @@ func publishDraft(onDraft func(pageFactsResult), results []pageFactsResult, publ
 	}
 	onDraft(merged)
 	return merged
+}
+
+// safeExtractPageFacts recovers a panic from extractPageFacts into an
+// ordinary error. Both crawlAndExtract and extractSite run this lane
+// from its own goroutine among up to pageExtractConcurrency siblings: an
+// unrecovered panic in any one of them kills the whole process — this
+// file's own "one page's failure costs that page's findings, never the
+// whole fan-out" contract must hold even when the failure is a panic,
+// not a returned error.
+func safeExtractPageFacts(ctx context.Context, x evidenceExtractor, page crawlPage) (res pageFactsResult, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			// recover() suppresses the runtime's own stack dump, so this is
+			// the only place that trace still exists — capture it into the
+			// internal log now, before it's gone; the returned error stays
+			// a short, stack-free line since it can surface on a dossier's
+			// warnings, not just internal diagnostics.
+			slog.ErrorContext(ctx, "extraction panic recovered", "lane", "page_facts", "url", page.URL, "panic", p, "stack", string(debug.Stack()))
+			err = fmt.Errorf("panic: %v", p)
+		}
+	}()
+	return x.extractPageFacts(ctx, page)
+}
+
+// safeExtractProfile is safeExtractPageFacts' counterpart for the profile
+// lane, which runs concurrently with the same page-fact fan-out.
+func safeExtractProfile(ctx context.Context, x evidenceExtractor, pages []crawlPage) (fields []evidencedField, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			slog.ErrorContext(ctx, "extraction panic recovered", "lane", "profile", "panic", p, "stack", string(debug.Stack()))
+			err = fmt.Errorf("panic: %v", p)
+		}
+	}()
+	return x.extractProfile(ctx, pages)
 }
 
 func snapshotCrawlPages(mu *sync.Mutex, pages *[]crawlPage) []crawlPage {
@@ -231,7 +267,7 @@ func extractSite(ctx context.Context, x evidenceExtractor, pages []crawlPage, on
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			results[i], errs[i] = x.extractPageFacts(ctx, page)
+			results[i], errs[i] = safeExtractPageFacts(ctx, x, page)
 			report()
 		}()
 	}
@@ -240,7 +276,7 @@ func extractSite(ctx context.Context, x evidenceExtractor, pages []crawlPage, on
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		out.fields, profileErr = x.extractProfile(ctx, pages)
+		out.fields, profileErr = safeExtractProfile(ctx, x, pages)
 	}()
 	wg.Wait()
 
