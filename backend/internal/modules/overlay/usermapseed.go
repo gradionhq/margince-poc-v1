@@ -43,24 +43,55 @@ func (s *MirrorStore) SeedUserMap(ctx context.Context, incumbent string, owners 
 	// seeding a user to "whichever owner the directory listed last" would
 	// be a nondeterministic remap that revokes the prior owner's records
 	// every sweep. Only an email owned by exactly one owner is seedable.
+	// Track the DISTINCT owner ids per normalized email as a set, not a raw
+	// occurrence count: a paginated owners directory can list the SAME owner
+	// twice (overlapping pages), and counting that as two owners would
+	// misclassify one legitimate owner as ambiguous — revoking and
+	// withholding a user's visibility over duplicate input rather than a
+	// genuine two-owner collision. Ambiguity is "more than one DISTINCT
+	// owner claims this email."
 	byEmail := make(map[string]OwnerRef)
-	ambiguous := make(map[string]bool)
+	ownersByEmail := make(map[string]map[string]struct{})
 	for _, owner := range owners {
 		email := normalizeEmail(owner.Email)
 		if owner.ExternalID == "" || email == "" {
 			continue
 		}
-		if _, seen := byEmail[email]; seen {
-			ambiguous[email] = true
-			continue
+		if ownersByEmail[email] == nil {
+			ownersByEmail[email] = make(map[string]struct{})
 		}
-		byEmail[email] = owner
+		ownersByEmail[email][owner.ExternalID] = struct{}{}
+		if _, seen := byEmail[email]; !seen {
+			byEmail[email] = owner
+		}
 	}
 
 	var errs []error
+
+	// Revoke any pre-existing email-sourced mapping whose owner email has
+	// BECOME ambiguous since it was seeded (a second DISTINCT incumbent
+	// owner now carries the same email). design.md §4.6's "ambiguous → no
+	// row" must hold going FORWARD, not only at first seed: skipping the
+	// re-seed below is not enough — the stale row would keep granting access
+	// through a match that is no longer unique, so the row and its
+	// visibility grants must be dropped.
+	var ambiguousOwners []string
+	for _, ownerIDs := range ownersByEmail {
+		if len(ownerIDs) > 1 {
+			for id := range ownerIDs {
+				ambiguousOwners = append(ambiguousOwners, id)
+			}
+		}
+	}
+	if len(ambiguousOwners) > 0 {
+		if err := s.revokeEmailMappingsForOwners(ctx, incumbent, ambiguousOwners); err != nil {
+			errs = append(errs, fmt.Errorf("overlay: revoking mappings for now-ambiguous owner emails: %w", err))
+		}
+	}
+
 	for email, owner := range byEmail {
-		if ambiguous[email] {
-			continue
+		if len(ownersByEmail[email]) > 1 {
+			continue // ambiguous — never seed (and revoked above)
 		}
 		users, err := s.usersMatchingEmail(ctx, owner.Email, incumbent)
 		if err != nil {
@@ -74,6 +105,47 @@ func (s *MirrorStore) SeedUserMap(ctx context.Context, incumbent string, owners 
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// revokeEmailMappingsForOwners drops every email-sourced mirror_user_map
+// row pointing at any of ownerIDs and recomputes those owners' visibility
+// in the SAME transaction, so a user mapped through an email that has since
+// turned ambiguous loses both the mapping and its can_see grants at once —
+// the fail-closed half of the ambiguity rule (a manual override is never
+// touched; it is the admin escape hatch). Owner ids are de-duplicated so a
+// pair sharing an email is processed once each.
+func (s *MirrorStore) revokeEmailMappingsForOwners(ctx context.Context, incumbent string, ownerIDs []string) error {
+	seen := make(map[string]bool, len(ownerIDs))
+	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		// Same per-workspace visibility lock every mutator takes, so this
+		// revoke cannot interleave with a concurrent re-seed (UpsertUserMap)
+		// that would restore the mapping right after we drop it, and two
+		// concurrent ambiguity sweeps cannot deadlock on per-owner ordering.
+		if err := lockWorkspaceVisibility(ctx, tx); err != nil {
+			return err
+		}
+		for _, ownerID := range ownerIDs {
+			if ownerID == "" || seen[ownerID] {
+				continue
+			}
+			seen[ownerID] = true
+			tag, err := tx.Exec(ctx,
+				`DELETE FROM mirror_user_map WHERE incumbent = $1 AND incumbent_user_id = $2 AND match_source = 'email'`,
+				incumbent, ownerID)
+			if err != nil {
+				return fmt.Errorf("overlay: revoking email mappings for owner %s: %w", ownerID, err)
+			}
+			// Recompute only when a mapping was actually dropped — a no-op
+			// avoids rewriting the owner's visibility rows for nothing.
+			if tag.RowsAffected() == 0 {
+				continue
+			}
+			if err := recomputeForOwnerTx(ctx, tx, ownerID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // usersMatchingEmail lists the workspace app_user ids whose email equals
