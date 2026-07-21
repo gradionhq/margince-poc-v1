@@ -1,0 +1,193 @@
+- generic [ref=f4e2]:
+  - generic [ref=f4e33]:
+    - navigation "Primary navigation" [ref=f4e1311]:
+      - link "Margince" [ref=f4e1312] [cursor=pointer]:
+        - /url: "#/home"
+      - link "Home" [ref=f4e1318] [cursor=pointer]:
+        - /url: "#/home"
+      - link "Contacts" [ref=f4e1322] [cursor=pointer]:
+        - /url: "#/contacts"
+      - link "Companies" [ref=f4e1328] [cursor=pointer]:
+        - /url: "#/companies"
+      - link "Leads" [ref=f4e1333] [cursor=pointer]:
+        - /url: "#/leads"
+      - link "Deals" [ref=f4e1337] [cursor=pointer]:
+        - /url: "#/deals"
+      - link "Tasks" [ref=f4e1342] [cursor=pointer]:
+        - /url: "#/tasks"
+      - link "Inbox" [ref=f4e1346] [cursor=pointer]:
+        - /url: "#/inbox"
+      - link "Reports" [ref=f4e1350] [cursor=pointer]:
+        - /url: "#/reports"
+      - link "Ask AI" [ref=f4e1353] [cursor=pointer]:
+        - /url: "#/ai"
+      - button "Sign out" [ref=f4e1357] [cursor=pointer]
+      - link "Settings" [ref=f4e1361] [cursor=pointer]:
+        - /url: "#/settings"
+    - main [ref=f4e1365]:
+      - generic [ref=f4e1366]:
+        - generic [ref=f4e1367]: Home
+        - generic [ref=f4e1368]:
+          - button "Search" [ref=f4e1369] [cursor=pointer]
+          - button "Switch to German" [ref=f4e1373] [cursor=pointer]:
+            - generic [ref=f4e1374]: DE
+          - button "Dark theme" [ref=f4e1375] [cursor=pointer]
+      - generic [ref=f4e1379]:
+        - generic [ref=f4e1380]:
+          - heading "Morning brief" [level=2] [ref=f4e1381]
+          - generic [ref=f4e1382]: ranked from live signals — staged actions first
+        - region "Waiting on you" [ref=f4e1383]:
+          - generic [ref=f4e1384]:
+            - heading "Waiting on you" [level=2] [ref=f4e1385]
+            - generic [ref=f4e1386]: Nothing sent yet
+          - article [ref=f4e1387]:
+            - generic [ref=f4e1388]:
+              - img "confirm-first" [ref=f4e1389]
+              - generic [ref=f4e1390]: site_lead
+              - generic [ref=f4e1391]: "agent: agent:site-read"
+              - generic [ref=f4e1392]: expires in 1439m 20s
+              - button "Approval detail" [ref=f4e1393] [cursor=pointer]
+            - paragraph [ref=f4e1394]: "Lead from https://gradion.com: Lars Strojny — Gradion"
+            - generic [ref=f4e1395]:
+              - button "Accept" [ref=f4e1396] [cursor=pointer]
+              - button "Edit" [ref=f4e1397] [cursor=pointer]
+              - button "Reject" [ref=f4e1398] [cursor=pointer]
+          - article [ref=f4e1399]:
+            - generic [ref=f4e1400]:
+              - img "confirm-first" [ref=f4e1401]
+              - generic [ref=f4e1402]: site_lead
+              - generic [ref=f4e1403]: "agent: agent:site-read"
+              - generic [ref=f4e1404]: expires in 1439m 20s
+              - button "Approval detail" [ref=f4e1405] [cursor=pointer]
+            - paragraph [ref=f4e1406]: "Lead from https://gradion.com: Lars Jankowfsky — Founder"
+            - generic [ref=f4e1407]:
+              - button "Accept" [ref=f4e1408] [cursor=pointer]
+              - button "Edit" [ref=f4e1409] [cursor=pointer]
+              - button "Reject" [ref=f4e1410] [cursor=pointer]
+          - article [ref=f4e1411]:
+            - generic [ref=f4e1412]:
+              - img "confirm-first" [ref=f4e1413]
+              - generic [ref=f4e1414]: site_lead
+              - generic [ref=f4e1415]: "agent: agent:site-read"
+              - generic [ref=f4e1416]: expires in 1439m 20s
+              - button "Approval detail" [ref=f4e1417] [cursor=pointer]
+            - paragraph [ref=f4e1418]: "Lead from https://gradion.com: Soonthorn Tharnpipitchai — Supply Chain Director at Senior Aerospace Thailand"
+            - generic [ref=f4e1419]:
+              - button "Accept" [ref=f4e1420] [cursor=pointer]
+              - button "Edit" [ref=f4e1421] [cursor=pointer]
+              - button "Reject" [ref=f4e1422] [cursor=pointer]
+          - article [ref=f4e1423]:
+            - generic [ref=f4e1424]:
+              - img "confirm-first" [ref=f4e1425]
+              - generic [ref=f4e1426]: site_lead
+              - generic [ref=f4e1427]: "agent: agent:site-read"
+              - generic [ref=f4e1428]: expires in 1439m 20s
+              - button "Approval detail" [ref=f4e1429] [cursor=pointer]
+            - paragraph [ref=f4e1430]: "Lead from https://gradion.com: Melanie Friedrich — Product Owner · Roadsurfer"
+            - generic [ref=f4e1431]:
+              - button "Accept" [ref=f4e1432] [cursor=pointer]
+              - button "Edit" [ref=f4e1433] [cursor=pointer]
+              - button "Reject" [ref=f4e1434] [cursor=pointer]
+          - article [ref=f4e1435]:
+            - generic [ref=f4e1436]:
+              - img "confirm-first" [ref=f4e1437]
+              - generic [ref=f4e1438]: site_lead
+              - generic [ref=f4e1439]: "agent: agent:site-read"
+              - generic [ref=f4e1440]: expires in 1439m 20s
+              - button "Approval detail" [ref=f4e1441] [cursor=pointer]
+            - paragraph [ref=f4e1442]: "Lead from https://gradion.com: Marc Costea — CEO · Qilin.Cloud"
+            - generic [ref=f4e1443]:
+              - button "Accept" [ref=f4e1444] [cursor=pointer]
+              - button "Edit" [ref=f4e1445] [cursor=pointer]
+              - button "Reject" [ref=f4e1446] [cursor=pointer]
+          - article [ref=f4e1447]:
+            - generic [ref=f4e1448]:
+              - img "confirm-first" [ref=f4e1449]
+              - generic [ref=f4e1450]: site_lead
+              - generic [ref=f4e1451]: "agent: agent:site-read"
+              - generic [ref=f4e1452]: expires in 1439m 20s
+              - button "Approval detail" [ref=f4e1453] [cursor=pointer]
+            - paragraph [ref=f4e1454]: "Lead from https://gradion.com: Franziska Hilmer — Product Owner · Louis"
+            - generic [ref=f4e1455]:
+              - button "Accept" [ref=f4e1456] [cursor=pointer]
+              - button "Edit" [ref=f4e1457] [cursor=pointer]
+              - button "Reject" [ref=f4e1458] [cursor=pointer]
+          - article [ref=f4e1459]:
+            - generic [ref=f4e1460]:
+              - img "confirm-first" [ref=f4e1461]
+              - generic [ref=f4e1462]: site_lead
+              - generic [ref=f4e1463]: "agent: agent:site-read"
+              - generic [ref=f4e1464]: expires in 1439m 20s
+              - button "Approval detail" [ref=f4e1465] [cursor=pointer]
+            - paragraph [ref=f4e1466]: "Lead from https://gradion.com: Sven Müller — Staff Engineer · commercetools"
+            - generic [ref=f4e1467]:
+              - button "Accept" [ref=f4e1468] [cursor=pointer]
+              - button "Edit" [ref=f4e1469] [cursor=pointer]
+              - button "Reject" [ref=f4e1470] [cursor=pointer]
+          - article [ref=f4e1471]:
+            - generic [ref=f4e1472]:
+              - img "confirm-first" [ref=f4e1473]
+              - generic [ref=f4e1474]: site_lead
+              - generic [ref=f4e1475]: "agent: agent:site-read"
+              - generic [ref=f4e1476]: expires in 1439m 20s
+              - button "Approval detail" [ref=f4e1477] [cursor=pointer]
+            - paragraph [ref=f4e1478]: "Lead from https://gradion.com: Marco Bollow — CEO · AUBII"
+            - generic [ref=f4e1479]:
+              - button "Accept" [ref=f4e1480] [cursor=pointer]
+              - button "Edit" [ref=f4e1481] [cursor=pointer]
+              - button "Reject" [ref=f4e1482] [cursor=pointer]
+          - article [ref=f4e1483]:
+            - generic [ref=f4e1484]:
+              - img "confirm-first" [ref=f4e1485]
+              - generic [ref=f4e1486]: site_lead
+              - generic [ref=f4e1487]: "agent: agent:site-read"
+              - generic [ref=f4e1488]: expires in 1439m 20s
+              - button "Approval detail" [ref=f4e1489] [cursor=pointer]
+            - paragraph [ref=f4e1490]: "Lead from https://gradion.com: Frank Miller — CEO · straight"
+            - generic [ref=f4e1491]:
+              - button "Accept" [ref=f4e1492] [cursor=pointer]
+              - button "Edit" [ref=f4e1493] [cursor=pointer]
+              - button "Reject" [ref=f4e1494] [cursor=pointer]
+          - article [ref=f4e1495]:
+            - generic [ref=f4e1496]:
+              - img "confirm-first" [ref=f4e1497]
+              - generic [ref=f4e1498]: site_lead
+              - generic [ref=f4e1499]: "agent: agent:site-read"
+              - generic [ref=f4e1500]: expires in 1439m 20s
+              - button "Approval detail" [ref=f4e1501] [cursor=pointer]
+            - paragraph [ref=f4e1502]: "Lead from https://gradion.com: Dennis Höting — Director Product Development · Shopware"
+            - generic [ref=f4e1503]:
+              - button "Accept" [ref=f4e1504] [cursor=pointer]
+              - button "Edit" [ref=f4e1505] [cursor=pointer]
+              - button "Reject" [ref=f4e1506] [cursor=pointer]
+          - article [ref=f4e1507]:
+            - generic [ref=f4e1508]:
+              - img "confirm-first" [ref=f4e1509]
+              - generic [ref=f4e1510]: site_lead
+              - generic [ref=f4e1511]: "agent: agent:site-read"
+              - generic [ref=f4e1512]: expires in 1439m 20s
+              - button "Approval detail" [ref=f4e1513] [cursor=pointer]
+            - paragraph [ref=f4e1514]: "Lead from https://gradion.com: Manuel Ludvigsen-Diekmann — CTO · Shopmacher"
+            - generic [ref=f4e1515]:
+              - button "Accept" [ref=f4e1516] [cursor=pointer]
+              - button "Edit" [ref=f4e1517] [cursor=pointer]
+              - button "Reject" [ref=f4e1518] [cursor=pointer]
+          - article [ref=f4e1519]:
+            - generic [ref=f4e1520]:
+              - img "confirm-first" [ref=f4e1521]
+              - generic [ref=f4e1522]: site_lead
+              - generic [ref=f4e1523]: "agent: agent:site-read"
+              - generic [ref=f4e1524]: expires in 1439m 20s
+              - button "Approval detail" [ref=f4e1525] [cursor=pointer]
+            - paragraph [ref=f4e1526]: "Lead from https://gradion.com: Joscha Krug — CEO · Makaira"
+            - generic [ref=f4e1527]:
+              - button "Accept" [ref=f4e1528] [cursor=pointer]
+              - button "Edit" [ref=f4e1529] [cursor=pointer]
+              - button "Reject" [ref=f4e1530] [cursor=pointer]
+        - region "Today's queue" [ref=f4e1535]:
+          - generic [ref=f4e1536]:
+            - generic [ref=f4e1537]:
+              - heading "No brief yet" [level=2] [ref=f4e1538]
+              - generic [ref=f4e1539]: Your morning brief ranks the deals worth your first hour — winnability, revenue, timing, momentum, and warmth, each factor with its evidence. Generate the first run once you have open deals.
+            - button "Generate my first brief" [ref=f4e1540] [cursor=pointer]
+  - button "Ask about this" [ref=f4e1547] [cursor=pointer]

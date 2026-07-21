@@ -28,6 +28,7 @@ func TestStreamsMatchSpecList(t *testing.T) {
 		"gw:events:crm:identity",
 		"gw:events:crm:lead",
 		"gw:events:crm:organization",
+		"gw:events:crm:overlay",
 		"gw:events:crm:person",
 		"gw:events:crm:voice",
 	}
@@ -61,7 +62,9 @@ func TestCatalogTypesObeyNamingConvention(t *testing.T) {
 		// engagement.reply is the §5.11 spec-pinned type name (EVT-SEM-14):
 		// "reply" is the noun naming the fact, not a verb — the contract
 		// wins over the tense convention (P3).
-		"reply": true,
+		"reply":    true,
+		"conflict": true, "budget_degraded": true, "write_rejected": true,
+		"connected": true, "disconnected": true,
 	}
 
 	for _, typ := range Types() {

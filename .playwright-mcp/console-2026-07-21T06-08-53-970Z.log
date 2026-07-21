@@ -1,0 +1,2 @@
+[    1425ms] [ERROR] Access to XMLHttpRequest at 'https://play.google.com/log?format=json&hasfast=true' from origin 'chrome-untrusted://new-tab-page' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ chrome-untrusted://new-tab-page/one-google-bar?paramsencoded=:0
+[    1426ms] [ERROR] Failed to load resource: net::ERR_FAILED @ https://play.google.com/log?format=json&hasfast=true:0

@@ -18,12 +18,14 @@ import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
 import {
+  OverlayUnavailable,
   ProblemError,
   problemMessage,
   provenanceOf,
   QueryGate,
   throwProblem,
   useMe,
+  useSorMode,
 } from "./common";
 import { RecordContextPanel } from "./context";
 import { CreateAction, type CreateField } from "./create";
@@ -581,9 +583,12 @@ function LeadOverviewPane({
   onLifecycleChanged: () => void;
 }>) {
   const t = useT();
+  // Promote turns a mirrored lead into a person — a write the incumbent mirror
+  // refuses (unsupported_by_sor), so the button is hidden in overlay.
+  const overlay = useSorMode() === "overlay";
   return (
     <>
-      {!lead.archived_at && (
+      {!lead.archived_at && !overlay && (
         <>
           <div
             style={{
@@ -692,6 +697,9 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
   const queryClient = useQueryClient();
   const headingId = useId();
   const [tab, setTab] = useState<LeadTab>("overview");
+  // Edit/archive write to a mirrored lead — hidden in overlay (every such
+  // write answers unsupported_by_sor).
+  const overlay = useSorMode() === "overlay";
   const leadQuery = useQuery({
     queryKey: ["lead", id],
     queryFn: async () => {
@@ -764,7 +772,7 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
                   the backend rejects edit/disqualify/promote/score-override on
                   it, so those affordances would only 404. Read-only past that
                   point. */}
-              {!lead.archived_at && (
+              {!lead.archived_at && !overlay && (
                 <>
                   <EditAction
                     label={t("record.edit")}
@@ -858,7 +866,10 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
                 }}
               />
             )}
-            {tab === "history" && <RecordHistoryTab kind="lead" id={lead.id} />}
+            {tab === "history" && !overlay && (
+              <RecordHistoryTab kind="lead" id={lead.id} />
+            )}
+            {tab === "history" && overlay && <OverlayUnavailable />}
           </div>
         )}
       </QueryGate>

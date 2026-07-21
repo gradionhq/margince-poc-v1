@@ -1,0 +1,54 @@
+- main [ref=f4e34]:
+  - generic [ref=f4e36]:
+    - generic [ref=f4e37]:
+      - img "Margince" [ref=f4e38]
+      - navigation "Set up Margince" [ref=f4e39]:
+        - generic [ref=f4e40]: Read
+        - generic [ref=f4e45]: Confirm
+        - generic [ref=f4e50]: Voice
+        - generic [ref=f4e56]:
+          - generic [ref=f4e57]: "4"
+          - generic [ref=f4e58]: Results
+        - generic [ref=f4e61]:
+          - generic [ref=f4e62]: "5"
+          - generic [ref=f4e63]: Connect
+    - generic [ref=f4e64]:
+      - generic [ref=f4e1204]:
+        - generic [ref=f4e1205]: Step 4 of 5
+        - heading "Look what you've built — with nothing connected." [level=1] [ref=f4e1206]
+        - paragraph [ref=f4e1207]: Your workspace already knows your business. Connect your inbox next and it fills itself with your real people, companies, and deals.
+        - generic [ref=f4e1208]:
+          - generic [ref=f4e1214]:
+            - text: Margince now understands
+            - heading "Gradion" [level=2] [ref=f4e1215]
+          - generic [ref=f4e1216]:
+            - generic [ref=f4e1217]:
+              - text: What do you sell?
+              - paragraph [ref=f4e1218]: Digital and Deep Tech Consultancy that assesses client problems, produces a clear report on what is broken and what needs to change, then delivers engineering teams across four continents to fix it — at a price reflecting how the company is built, not where it is headquartered.
+            - generic [ref=f4e1219]:
+              - text: Ideal customer
+              - paragraph [ref=f4e1220]: Companies in travel, e-commerce, manufacturing and fintech that need deep engineering capability at scale — platform players and industrial operators across APAC, DACH and MENA.
+            - generic [ref=f4e1221]:
+              - text: Value proposition
+              - paragraph [ref=f4e1222]: 320 engineers across four continents who can fix diagnosed problems, at a price that reflects how the company is built, not where it is headquartered. $10B+ in GMV flows annually through systems Gradion has built or maintained. 97% client satisfaction across more than 1,000 deployments.
+          - paragraph [ref=f4e1223]: This context is ready for relevant drafts, search, agents, and Voice DNA — with provenance attached.
+        - generic [ref=f4e1227]:
+          - generic [ref=f4e1228]:
+            - generic [ref=f4e1229]: Business profile
+            - paragraph [ref=f4e1233]: Confirmed and saved to your company page. Fields read from your site keep their source; the rest are in your own words.
+          - generic [ref=f4e1234]:
+            - generic [ref=f4e1235]: Your writing voice
+            - paragraph [ref=f4e1239]: You skipped the voice step — drafts start in a neutral starter voice until you build yours. Two minutes, anytime, in Settings.
+          - generic [ref=f4e1240]:
+            - generic [ref=f4e1241]: Sales pipeline
+            - paragraph [ref=f4e1245]: The standard 7-stage B2B template, pre-tuned to your industry. Empty until you connect — then deals fill in from your mail.
+          - generic [ref=f4e1246]:
+            - generic [ref=f4e1247]: A sample draft
+            - paragraph [ref=f4e1251]: See it below.
+        - generic [ref=f4e1257]:
+          - generic [ref=f4e1258]: Where this pipeline comes from
+          - paragraph [ref=f4e1259]: No magic — it's the standard B2B stage template, tuned to your industry from the Step-1 read. It's empty right now. When you connect your inbox, capture reads your sent mail and meetings, then proposes deals into these stages — each one evidenced and reversible. You approve what becomes a deal.
+        - generic [ref=f4e1260]: Still nothing connected. You're in control of when that changes.
+      - generic [ref=f4e101]:
+        - button "Back" [ref=f4e1168] [cursor=pointer]
+        - button "Connect my inbox" [ref=f4e1264] [cursor=pointer]

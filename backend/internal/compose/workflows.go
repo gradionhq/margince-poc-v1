@@ -53,8 +53,14 @@ func workflowEngineWithDrafter(pool *pgxpool.Pool, drafter activities.EmailDraft
 	// identity is injected (ADR-0054 §8), same as platform/auth.NewGate.
 	engine := automation.NewWorkflowEngine(pool, identity.NewService(pool))
 	peopleStore := people.NewStore(pool)
+	// Executors ride the same per-workspace dispatch as every other
+	// datasource consumer: a starter firing for an overlay-mode
+	// workspace reads/writes through the overlay seam, not silently
+	// against the native tables that workspace no longer owns. This
+	// engine's own OVB meter is independent of the REST surface's
+	// (NewOverlayMeter's doc note).
 	ex := automation.Executors{
-		Provider:  NewProvider(pool),
+		Provider:  NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, NewOverlayMeter()), pool),
 		Approvals: automationApprovalsAdapter{svc: approvals.NewService(pool)},
 		Lists:     listsAdapter{store: collections.NewStore(pool)},
 		Comms: commsAdapter{

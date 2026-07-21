@@ -4,7 +4,7 @@ import { api } from "../api/client";
 import type { EntityKind } from "../app/entity";
 import { Button, SectionHeader, TextInput } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { problemMessage } from "./common";
+import { problemMessage, useSorMode } from "./common";
 
 // Log a note or task from a 360 (person/company/deal/lead): the contract's
 // logActivity POST, linked to the record being viewed, occurred_at stamped
@@ -35,6 +35,11 @@ export function LogActivity({
   const formId = useId();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<ActivityDraft>(EMPTY_DRAFT);
+  // Logging an activity writes to a mirrored record; in overlay every write
+  // answers unsupported_by_sor, so the form would only fail on submit. Guarded
+  // below (after the hooks) to render nothing rather than an affordance that
+  // can't work (P1/A107, ADR-0018).
+  const overlay = useSorMode() === "overlay";
 
   const log = useMutation({
     mutationFn: async (input: ActivityDraft) => {
@@ -66,6 +71,10 @@ export function LogActivity({
 
   const setField = (patch: Partial<ActivityDraft>) =>
     setDraft((current) => ({ ...current, ...patch }));
+
+  if (overlay) {
+    return null;
+  }
 
   return (
     <section className="card" style={{ marginBottom: 16 }}>

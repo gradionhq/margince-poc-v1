@@ -14,6 +14,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -143,6 +144,23 @@ func Readyz(aiState string, checks ...ReadyCheck) http.HandlerFunc {
 	}
 }
 
+// OverlayMetrics is the overlay sync-health section /metrics adds when
+// this role has an incumbent connection surface wired (design.md §4.7):
+// per-object-class source lag (the fleet-wide worst-case staleness),
+// plus the inbound sync-rate and conflict-rate counters. Nil means this
+// role never wired an overlay keyvault (WithKeyvault absent) — the same
+// "declared or absent" posture backlog/published already establish for
+// the outbox relay, never a silent zero-valued section.
+type OverlayMetrics struct {
+	// SourceLag answers, per canonical object class, now minus the
+	// oldest last_synced_at seen anywhere in the fleet for that class.
+	SourceLag func(context.Context) (map[string]time.Duration, error)
+	// SyncedTotal answers the process's inbound mirror-sync counter.
+	SyncedTotal func() uint64
+	// ConflictTotal answers the process's mirror.conflict counter.
+	ConflictTotal func() uint64
+}
+
 // Metrics serves the Prometheus text exposition format, hand-rolled: at
 // PoC stage the handful of gauges below does not justify the
 // client_golang dependency tree, and the text format is a stable,
@@ -150,8 +168,9 @@ func Readyz(aiState string, checks ...ReadyCheck) http.HandlerFunc {
 // composition layer (platform/events owns the outbox SQL). extra renders
 // any additional counter families a process role wires in (e.g. the AI
 // router's call metrics) directly after the pool gauges; nil means the
-// role wired none.
-func Metrics(pool *pgxpool.Pool, backlog func(context.Context) (int64, error), published func() uint64, extra func(io.Writer)) http.HandlerFunc {
+// role wired none. overlay is injected the same way (nil for a role with
+// no overlay surface wired).
+func Metrics(pool *pgxpool.Pool, backlog func(context.Context) (int64, error), published func() uint64, extra func(io.Writer), overlay *OverlayMetrics) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
@@ -180,5 +199,43 @@ func Metrics(pool *pgxpool.Pool, backlog func(context.Context) (int64, error), p
 		if extra != nil {
 			extra(w)
 		}
+		if overlay != nil {
+			writeOverlayMetrics(r.Context(), w, overlay)
+		}
 	}
+}
+
+// writeOverlayMetrics renders the overlay sync-health section — split
+// out of Metrics so that function's own top-to-bottom read stays one
+// section per line, not buried behind a nested nil-check.
+func writeOverlayMetrics(ctx context.Context, w http.ResponseWriter, overlay *OverlayMetrics) {
+	if lag, err := overlay.SourceLag(ctx); err == nil {
+		_, _ = fmt.Fprintf(w, "# HELP margince_overlay_source_lag_seconds Seconds since the mirror's oldest last sync per object class (worst case across the fleet).\n")
+		_, _ = fmt.Fprintf(w, "# TYPE margince_overlay_source_lag_seconds gauge\n")
+		for _, objectClass := range sortedKeys(lag) {
+			_, _ = fmt.Fprintf(w, "margince_overlay_source_lag_seconds{object_class=%q} %.0f\n", objectClass, lag[objectClass].Seconds())
+		}
+	} else {
+		slog.Error("metrics: overlay source-lag query failed", "err", err)
+	}
+
+	_, _ = fmt.Fprintf(w, "# HELP margince_overlay_mirror_synced_total Mirror rows ingested (push+pull) since process start.\n")
+	_, _ = fmt.Fprintf(w, "# TYPE margince_overlay_mirror_synced_total counter\n")
+	_, _ = fmt.Fprintf(w, "margince_overlay_mirror_synced_total %d\n", overlay.SyncedTotal())
+
+	_, _ = fmt.Fprintf(w, "# HELP margince_overlay_mirror_conflict_total mirror.conflict events emitted (incumbent-wins divergence) since process start.\n")
+	_, _ = fmt.Fprintf(w, "# TYPE margince_overlay_mirror_conflict_total counter\n")
+	_, _ = fmt.Fprintf(w, "margince_overlay_mirror_conflict_total %d\n", overlay.ConflictTotal())
+}
+
+// sortedKeys answers lag's object-class keys in a stable order — a
+// Prometheus scrape target's series order should not flap between
+// scrapes for no reason, and map iteration order is not stable.
+func sortedKeys(lag map[string]time.Duration) []string {
+	keys := make([]string, 0, len(lag))
+	for k := range lag {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

@@ -1,0 +1,64 @@
+[      84ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:8080/node_modules/.vite/deps/react-dom_client.js?v=b593a928:20102
+[     100ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8080/v1/me:0
+[   15551ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:8080/v1/company:0
+[   15573ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:8080/v1/brief:0
+[   15573ms] [ERROR] Failed to load resource: the server responded with a status of 501 (Not Implemented) @ http://localhost:8080/v1/digest:0
+[   15583ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:8080/v1/onboarding/state:0
+[   15586ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:8080/v1/company:0
+[  198425ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:8080/node_modules/.vite/deps/react-dom_client.js?v=b593a928:20102
+[  285822ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:8080/node_modules/.vite/deps/react-dom_client.js?v=b593a928:20102
+[ 2139677ms] [ERROR] WebSocket connection to 'ws://localhost:8080/?token=RV7ftNXPonDF' failed:  @ http://localhost:8080/@vite/client:801
+[ 2139677ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:8080/@vite/client:963
+[ 2139741ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 2140743ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 2141745ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 2142747ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 2143749ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 2144756ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 2145766ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 2146790ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 2147833ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 2148901ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 2149985ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 2151160ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 2152485ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 2153870ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 2157156ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 2163022ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:8080/node_modules/.vite/deps/react-dom_client.js?v=b593a928:20102
+[ 2163039ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8080/v1/me:0
+[ 2356515ms] [ERROR] WebSocket connection to 'ws://localhost:8080/?token=3KWK4lVrbXdS' failed:  @ http://localhost:8080/@vite/client:801
+[ 2356515ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:8080/@vite/client:963
+[ 2356579ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 2357581ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 2358584ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 2359586ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 2360591ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 2361597ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 2362608ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 2364501ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:8080/node_modules/.vite/deps/react-dom_client.js?v=b593a928:20102
+[ 2364526ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8080/v1/me:0
+[ 3376700ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:8080/node_modules/.vite/deps/react-dom_client.js?v=b593a928:20102
+[ 3376718ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8080/v1/me:0
+[ 3378823ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:8080/node_modules/.vite/deps/react-dom_client.js?v=b593a928:20102
+[ 3378844ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8080/v1/me:0
+[ 3494674ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8080/v1/me:0
+[ 3505789ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8080/v1/me:0
+[ 3531883ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:8080/node_modules/.vite/deps/react-dom_client.js?v=b593a928:20102
+[ 3531907ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8080/v1/me:0
+[ 3604332ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:8080/@vite/client:963
+[ 3604333ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 3605337ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 3606340ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 3607341ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 3608344ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 3609346ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 3610349ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 3611351ms] [ERROR] WebSocket connection to 'ws://localhost:8080/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/@vite/client:1034
+[ 3613266ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:8080/node_modules/.vite/deps/react-dom_client.js?v=b593a928:20102
+[ 3613284ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8080/v1/me:0
+[ 4344781ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:8080/node_modules/.vite/deps/react-dom_client.js?v=b593a928:20102
+[ 4344796ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8080/v1/me:0
+[ 4363902ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/src/screens/onboarding.tsx?t=1784623237199:0
+[ 4423144ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:8080/node_modules/.vite/deps/react-dom_client.js?v=b593a928:20102
+[ 4423160ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8080/v1/me:0
+[ 4433298ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8080/v1/me:0

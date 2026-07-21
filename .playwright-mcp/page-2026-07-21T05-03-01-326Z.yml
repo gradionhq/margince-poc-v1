@@ -1,0 +1,113 @@
+- main [ref=e32]:
+  - generic [ref=e34]:
+    - generic [ref=e35]:
+      - img "Margince" [ref=e36]
+      - navigation "Set up Margince" [ref=e37]:
+        - generic [ref=e39]:
+          - generic [ref=e40]: "1"
+          - generic [ref=e41]: Read
+        - generic [ref=e44]:
+          - generic [ref=e45]: "2"
+          - generic [ref=e46]: Confirm
+        - generic [ref=e49]:
+          - generic [ref=e50]: "3"
+          - generic [ref=e51]: Voice
+        - generic [ref=e54]:
+          - generic [ref=e55]: "4"
+          - generic [ref=e56]: Results
+        - generic [ref=e59]:
+          - generic [ref=e60]: "5"
+          - generic [ref=e61]: Connect
+    - generic [ref=e63]:
+      - generic [ref=e68]: Step 1 of 5 · company context
+      - heading "Let Margince understand your business." [level=1] [ref=e69]
+      - paragraph [ref=e70]: Start with your public website for a grounded read, or enter the three essentials yourself. Both paths create the same useful company context.
+      - group "Choose how to describe your company" [ref=e71]:
+        - button "Read my website We inspect the useful pages and show every claim before saving." [pressed] [ref=e73] [cursor=pointer]:
+          - generic [ref=e80]:
+            - generic [ref=e81]: Read my website
+            - generic [ref=e82]: We inspect the useful pages and show every claim before saving.
+        - button "Enter it myself Company name, what you sell, and who you sell to. No AI or external request." [ref=e85] [cursor=pointer]:
+          - generic [ref=e89]:
+            - generic [ref=e90]: Enter it myself
+            - generic [ref=e91]: Company name, what you sell, and who you sell to. No AI or external request.
+      - generic [ref=e100]:
+        - generic [ref=e101]:
+          - generic [ref=e102]: https://
+          - textbox "Website" [ref=e103]:
+            - /placeholder: yourcompany.com
+            - text: gradion.com
+          - button "Read again" [ref=e148] [cursor=pointer]
+        - generic [ref=e110]: We'll read gradion.com
+        - generic [ref=e115]:
+          - generic [ref=e117]:
+            - generic [ref=e118]: Partial read
+            - heading "Understanding gradion.com" [level=2] [ref=e119]
+          - generic [ref=e122]:
+            - generic [ref=e123]: Discover pages
+            - generic [ref=e128]: Extract grounded facts
+            - generic [ref=e133]: Prepare review
+          - generic [ref=e138]:
+            - generic [ref=e139]:
+              - generic [ref=e140]: "40"
+              - generic [ref=e141]: pages read
+            - generic [ref=e142]:
+              - generic [ref=e143]: "8"
+              - generic [ref=e144]: profile findings
+            - generic [ref=e145]:
+              - generic [ref=e146]: "315"
+              - generic [ref=e147]: useful facts
+          - generic [ref=e158]:
+            - article [ref=e159]:
+              - generic [ref=e160]:
+                - text: Company name
+                - generic [ref=e163]: 95%
+              - strong [ref=e164]: Gradion
+              - blockquote [ref=e165]: “Imprint | Gradion | Gradion Solutions Products Industries About English Contact Us Solutions Products Industries About English Deutsch Tiếng Việt ไทย العربية 日本語 Contact Us Imprint Gradion Singapore Gradion Pte. Ltd.”
+            - article [ref=e166]:
+              - generic [ref=e167]:
+                - text: Industry
+                - generic [ref=e170]: 90%
+              - strong [ref=e171]: Digital and Deep Tech Consultancy
+              - blockquote [ref=e172]: “A consultancy that delivers Gradion is a Digital and Deep Tech Consultancy - with an important distinction from most consultancies. A good doctor does not guess at the prescription. They examine, read the data, and then treat.”
+            - article [ref=e173]:
+              - generic [ref=e174]:
+                - text: What do you sell?
+                - generic [ref=e177]: 90%
+              - strong [ref=e178]: Digital and Deep Tech Consultancy that assesses problems, produces a clear report on what is broken and what needs to change, then uses 320 engineers across four continents to fix it — at a price that reflects how the company is built, not where it is headquartered.
+              - blockquote [ref=e179]: “A consultancy that delivers Gradion is a Digital and Deep Tech Consultancy - with an important distinction from most consultancies. A good doctor does not guess at the prescription. They examine, read the data, and then treat.”
+            - article [ref=e180]:
+              - generic [ref=e181]:
+                - text: Value proposition
+                - generic [ref=e184]: 85%
+              - strong [ref=e185]: 320 engineers across four continents who can fix what is broken, at a price that reflects how the company is built, not where it is headquartered. $10B+ in GMV flows annually through systems Gradion has built or maintained. More than 20 million tasks are automated monthly. 97% client satisfaction across more than 1,000 deployments.
+              - blockquote [ref=e186]: “Gradion has 320 engineers across four continents who can fix it, at a price that reflects how the company is built, not where it is headquartered. $10B+ in GMV flows annually through systems Gradion has built or maintained.”
+            - article [ref=e187]:
+              - generic [ref=e188]:
+                - text: What sets you apart
+                - generic [ref=e191]: 85%
+              - strong [ref=e192]: Most consultancies hand the report to the client and leave. Gradion has 320 engineers who can fix it — combining diagnostic rigour with full-stack delivery capability at scale.
+              - blockquote [ref=e193]: "“Gradion works the same way: the assessment produces a clear report - what is broken, what needs to change, and in what order. The difference is what happens next. Most consultancies hand that report to the client and leave.”"
+            - article [ref=e194]:
+              - generic [ref=e195]:
+                - text: Ideal customer
+                - generic [ref=e198]: 80%
+              - strong [ref=e199]: Companies in travel, e-commerce, and manufacturing that need deep technical engineering capability at scale — including core platform players and industrial operators across Asia-Pacific, DACH, and MENA.
+              - blockquote [ref=e200]: “More than 20 million tasks are automated monthly across production deployments. ISO 27001 certified . 97% client satisfaction across more than 1,000 deployments. Domain depth built over decades Gradion builds capability in specific domains rather than maintaining a generalist bench.”
+            - article [ref=e201]:
+              - generic [ref=e202]:
+                - text: Sales motion
+                - generic [ref=e205]: 75%
+              - strong [ref=e206]: Start small. Measure. Grow. Tell us about your project and we'll scope a team. Book a call.
+              - blockquote [ref=e207]: “One delivery network. Explore How We Work Start small. Measure. Grow. Explore Our DNA We are your partner. We have skin in the game. Explore Let&#x27;s work together Tell us about your project and we&#x27;ll scope a team.”
+            - article [ref=e208]:
+              - generic [ref=e209]:
+                - text: Company history
+                - generic [ref=e212]: 80%
+              - strong [ref=e213]: Gradion traces its origin to NFQ, founded in Lithuania over two decades ago. It expanded into Asia as a market thesis. In Asia, the company operates under the Gradion name since 2023, building on more than two decades of NFQ Group history. Offices and engineering teams are now across Vietnam, Singapore, Bangkok, Cairo, and Hamburg.
+              - blockquote [ref=e214]: “About Gradion Gradion traces its origin to NFQ , founded in Lithuania over two decades ago. The move into Asia was not a talent arbitrage play.”
+          - group [ref=e215]:
+            - generic "Coverage and honest omissions" [ref=e216] [cursor=pointer]
+        - generic [ref=e219]:
+          - button "Continue manually" [ref=e220] [cursor=pointer]
+          - button "Review what we found" [ref=e221] [cursor=pointer]

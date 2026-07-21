@@ -1,0 +1,61 @@
+- main [ref=e34]:
+  - generic [ref=e36]:
+    - generic [ref=e37]:
+      - img "Margince" [ref=e38]
+      - navigation "Set up Margince" [ref=e39]:
+        - generic [ref=e41]:
+          - generic [ref=e42]: "1"
+          - generic [ref=e43]: Read
+        - generic [ref=e46]:
+          - generic [ref=e47]: "2"
+          - generic [ref=e48]: Confirm
+        - generic [ref=e51]:
+          - generic [ref=e52]: "3"
+          - generic [ref=e53]: Voice
+        - generic [ref=e56]:
+          - generic [ref=e57]: "4"
+          - generic [ref=e58]: Results
+        - generic [ref=e61]:
+          - generic [ref=e62]: "5"
+          - generic [ref=e63]: Connect
+    - generic [ref=e65]:
+      - generic [ref=e70]: Step 1 of 5 · company context
+      - heading "Your company" [level=1] [ref=e71]
+      - paragraph [ref=e72]: Read it from your website, or type it in.
+      - group "Choose how to describe your company" [ref=e73]:
+        - button "Read my website You review every claim before it saves." [pressed] [ref=e75] [cursor=pointer]:
+          - generic [ref=e82]:
+            - generic [ref=e83]: Read my website
+            - generic [ref=e84]: You review every claim before it saves.
+        - button "Enter it myself No AI, no external request." [ref=e87] [cursor=pointer]:
+          - generic [ref=e91]:
+            - generic [ref=e92]: Enter it myself
+            - generic [ref=e93]: No AI, no external request.
+      - generic [ref=e102]:
+        - generic [ref=e103]:
+          - generic [ref=e104]: https://
+          - textbox "Website" [disabled] [ref=e105]:
+            - /placeholder: yourcompany.com
+            - text: gradion.com
+          - button "Reading…" [disabled] [ref=e115]
+        - generic [ref=e112]: We'll read gradion.com
+        - generic [ref=e117]:
+          - generic [ref=e118]:
+            - generic [ref=e119]:
+              - generic [ref=e120]: Reading now
+              - heading "Understanding gradion.com" [level=2] [ref=e121]
+            - generic [ref=e122]: Live
+          - generic [ref=e124]:
+            - generic [ref=e125]: Discover pages
+            - generic [ref=e130]: Extract grounded facts
+            - generic [ref=e135]: Prepare review
+          - generic [ref=e140]:
+            - generic [ref=e141]:
+              - generic [ref=e142]: "0"
+              - generic [ref=e143]: pages read
+            - generic [ref=e144]:
+              - generic [ref=e145]: "0"
+              - generic [ref=e146]: profile findings
+            - generic [ref=e147]:
+              - generic [ref=e148]: "0"
+              - generic [ref=e149]: useful facts

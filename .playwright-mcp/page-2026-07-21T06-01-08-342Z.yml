@@ -1,0 +1,32 @@
+- main [ref=f4e34]:
+  - generic [ref=f4e36]:
+    - generic [ref=f4e37]:
+      - img "Margince" [ref=f4e38]
+      - navigation "Set up Margince" [ref=f4e39]:
+        - generic [ref=f4e40]: Read
+        - generic [ref=f4e45]: Confirm
+        - generic [ref=f4e50]: Voice
+        - generic [ref=f4e55]: Results
+        - generic [ref=f4e61]:
+          - generic [ref=f4e62]: "5"
+          - generic [ref=f4e63]: Connect
+    - generic [ref=f4e64]:
+      - generic [ref=f4e1269]:
+        - generic [ref=f4e1270]: Step 5 of 5 · the last step
+        - heading "Ready to bring it to life?" [level=1] [ref=f4e1271]
+        - paragraph [ref=f4e1272]: You've built the brain. Connect your inbox and your CRM fills itself — people, companies, and deals captured automatically, so you never type them.
+        - generic [ref=f4e1273]:
+          - generic [ref=f4e1274]:
+            - button "Google" [ref=f4e1275] [cursor=pointer]
+            - button "Microsoft" [ref=f4e1276] [cursor=pointer]
+            - button "Any inbox (IMAP)" [ref=f4e1277] [cursor=pointer]
+          - paragraph [ref=f4e1278]: Read-only access. You'll approve it on Google's own consent screen, and you can disconnect it again any time.
+          - generic [ref=f4e1282]:
+            - button "Continue with Google" [ref=f4e1283] [cursor=pointer]
+            - button "Skip for now — I'll connect later" [ref=f4e1287] [cursor=pointer]
+          - generic [ref=f4e1290]:
+            - generic [ref=f4e1291]: We read — we don't clutter. Your mail becomes contacts, companies and activities, captured automatically.
+            - generic [ref=f4e1296]: We never send anything without your approval. Drafts wait in your approval inbox.
+            - generic [ref=f4e1301]: Your data stays in your workspace. Own-your-data — export or delete everything anytime.
+            - generic [ref=f4e1306]: Disconnect in one click. The CRM keeps working; it just stops capturing.
+      - button "Back" [ref=f4e1168] [cursor=pointer]

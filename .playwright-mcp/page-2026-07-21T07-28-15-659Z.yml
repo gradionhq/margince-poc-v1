@@ -1,0 +1,38 @@
+- main [ref=f6e34]:
+  - generic [ref=f6e36]:
+    - generic [ref=f6e37]:
+      - img "Margince" [ref=f6e38]
+      - navigation "Set up Margince" [ref=f6e39]:
+        - generic [ref=f6e41]:
+          - generic [ref=f6e42]: "1"
+          - generic [ref=f6e43]: Read
+        - generic [ref=f6e46]:
+          - generic [ref=f6e47]: "2"
+          - generic [ref=f6e48]: Confirm
+        - generic [ref=f6e51]:
+          - generic [ref=f6e52]: "3"
+          - generic [ref=f6e53]: Voice
+        - generic [ref=f6e56]:
+          - generic [ref=f6e57]: "4"
+          - generic [ref=f6e58]: Results
+        - generic [ref=f6e61]:
+          - generic [ref=f6e62]: "5"
+          - generic [ref=f6e63]: Connect
+    - generic [ref=f6e65]:
+      - generic [ref=f6e70]: Step 1 of 5 · company context
+      - heading "Your company" [level=1] [ref=f6e71]
+      - paragraph [ref=f6e72]: Read it from your website, or type it in.
+      - group "Choose how to describe your company" [ref=f6e73]:
+        - button "Read my website You review every claim before it saves." [active] [pressed] [ref=f6e75] [cursor=pointer]:
+          - generic [ref=f6e82]:
+            - generic [ref=f6e83]: Read my website
+            - generic [ref=f6e84]: You review every claim before it saves.
+        - button "Enter it myself No AI, no external request." [ref=f6e87] [cursor=pointer]:
+          - generic [ref=f6e91]:
+            - generic [ref=f6e92]: Enter it myself
+            - generic [ref=f6e93]: No AI, no external request.
+      - generic [ref=f6e103]:
+        - generic [ref=f6e104]: https://
+        - textbox "Website" [ref=f6e105]:
+          - /placeholder: yourcompany.com
+        - button "Read my website" [disabled] [ref=f6e106]

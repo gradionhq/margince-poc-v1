@@ -564,6 +564,38 @@ func (stubs) GetOrganizationStrength(w nethttp.ResponseWriter, r *nethttp.Reques
 	httperr.NotImplemented(w, r, "GetOrganizationStrength")
 }
 
+func (stubs) GetOverlayBudget(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetOverlayBudget")
+}
+
+func (stubs) DisconnectOverlay(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "DisconnectOverlay")
+}
+
+func (stubs) GetOverlayConnection(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetOverlayConnection")
+}
+
+func (stubs) ConnectOverlay(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ConnectOverlay")
+}
+
+func (stubs) ExecuteOverlayFlip(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ExecuteOverlayFlip")
+}
+
+func (stubs) PreflightOverlayFlip(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "PreflightOverlayFlip")
+}
+
+func (stubs) ReconcileOverlay(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ReconcileOverlay")
+}
+
+func (stubs) GetOverlaySyncStatus(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetOverlaySyncStatus")
+}
+
 func (stubs) ListPartners(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListPartnersParams) {
 	httperr.NotImplemented(w, r, "ListPartners")
 }

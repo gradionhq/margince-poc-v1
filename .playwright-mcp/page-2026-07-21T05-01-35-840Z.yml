@@ -1,0 +1,20 @@
+- main [ref=e4]:
+  - main [ref=e7]:
+    - img "Margince"
+    - generic [ref=e8]:
+      - heading "Sign in to Margince" [level=1] [ref=e9]
+      - generic [ref=e10]:
+        - generic [ref=e11]:
+          - generic [ref=e12]: Email address
+          - textbox "Email address" [active] [ref=e14]:
+            - /placeholder: name@example.com
+        - generic [ref=e15]:
+          - generic [ref=e16]: Password
+          - generic [ref=e18]:
+            - textbox "Password" [ref=e19]
+            - button "Show password" [ref=e20] [cursor=pointer]
+      - button "Sign in" [disabled] [ref=e25]
+    - generic [ref=e26]:
+      - button "Deutsch" [ref=e27] [cursor=pointer]
+      - generic [ref=e28]: ·
+      - button "English" [pressed] [ref=e29] [cursor=pointer]

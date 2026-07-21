@@ -1,0 +1,131 @@
+- main [ref=f6e34]:
+  - generic [ref=f6e36]:
+    - generic [ref=f6e37]:
+      - img "Margince" [ref=f6e38]
+      - navigation "Set up Margince" [ref=f6e39]:
+        - generic [ref=f6e41]:
+          - generic [ref=f6e42]: "1"
+          - generic [ref=f6e43]: Read
+        - generic [ref=f6e46]:
+          - generic [ref=f6e47]: "2"
+          - generic [ref=f6e48]: Confirm
+        - generic [ref=f6e51]:
+          - generic [ref=f6e52]: "3"
+          - generic [ref=f6e53]: Voice
+        - generic [ref=f6e56]:
+          - generic [ref=f6e57]: "4"
+          - generic [ref=f6e58]: Results
+        - generic [ref=f6e61]:
+          - generic [ref=f6e62]: "5"
+          - generic [ref=f6e63]: Connect
+    - generic [ref=f6e65]:
+      - generic [ref=f6e70]: Step 1 of 5 · company context
+      - heading "Your company" [level=1] [ref=f6e71]
+      - paragraph [ref=f6e72]: Read it from your website, or type it in.
+      - group "Choose how to describe your company" [ref=f6e73]:
+        - button "Read my website You review every claim before it saves." [pressed] [ref=f6e75] [cursor=pointer]:
+          - generic [ref=f6e82]:
+            - generic [ref=f6e83]: Read my website
+            - generic [ref=f6e84]: You review every claim before it saves.
+        - button "Enter it myself No AI, no external request." [ref=f6e87] [cursor=pointer]:
+          - generic [ref=f6e91]:
+            - generic [ref=f6e92]: Enter it myself
+            - generic [ref=f6e93]: No AI, no external request.
+      - generic [ref=f6e102]:
+        - generic [ref=f6e103]:
+          - generic [ref=f6e104]: https://
+          - textbox "Website" [ref=f6e105]:
+            - /placeholder: yourcompany.com
+            - text: gradion.com
+          - button "Read again" [ref=f6e150] [cursor=pointer]
+        - generic [ref=f6e112]: We'll read gradion.com
+        - generic [ref=f6e117]:
+          - generic [ref=f6e119]:
+            - generic [ref=f6e120]: Partial read
+            - heading "Understanding gradion.com" [level=2] [ref=f6e121]
+          - generic [ref=f6e124]:
+            - generic [ref=f6e125]: Discover pages
+            - generic [ref=f6e130]: Extract grounded facts
+            - generic [ref=f6e135]: Prepare review
+          - generic [ref=f6e140]:
+            - generic [ref=f6e141]:
+              - generic [ref=f6e142]: "40"
+              - generic [ref=f6e143]: pages read
+            - generic [ref=f6e144]:
+              - generic [ref=f6e145]: "11"
+              - generic [ref=f6e146]: profile findings
+            - generic [ref=f6e147]:
+              - generic [ref=f6e148]: "100"
+              - generic [ref=f6e149]: useful facts
+          - generic [ref=f6e160]:
+            - article [ref=f6e161]:
+              - generic [ref=f6e162]:
+                - text: Company name
+                - generic [ref=f6e165]: 95%
+              - strong [ref=f6e166]: Gradion
+              - blockquote [ref=f6e167]: “23 years. Four continents. 320 people who | Gradion | Gradion Solutions Products Industries About English Contact Us Solutions Products Industries About English Deutsch Tiếng Việt ไทย العربية 日本語 Contact Us About Us 23 years. 4 continents. 320 people who diagnose problems and build what fixes them.”
+            - article [ref=f6e168]:
+              - generic [ref=f6e169]:
+                - text: Industry
+                - generic [ref=f6e172]: 90%
+              - strong [ref=f6e173]: Digital and Deep Tech Consultancy
+              - blockquote [ref=f6e174]: “A consultancy that delivers Gradion is a Digital and Deep Tech Consultancy - with an important distinction from most consultancies. A good doctor does not guess at the prescription. They examine, read the data, and then treat.”
+            - article [ref=f6e175]:
+              - generic [ref=f6e176]:
+                - text: What do you sell?
+                - generic [ref=f6e179]: 95%
+              - strong [ref=f6e180]: Digital and Deep Tech Consultancy that diagnoses problems, produces clear assessment reports, and delivers engineering teams across four continents to fix them — covering software development, automation, AI, and deep tech across travel, e-commerce, and manufacturing domains.
+              - blockquote [ref=f6e181]: “A consultancy that delivers Gradion is a Digital and Deep Tech Consultancy - with an important distinction from most consultancies. A good doctor does not guess at the prescription. They examine, read the data, and then treat.”
+            - article [ref=f6e182]:
+              - generic [ref=f6e183]:
+                - text: Value proposition
+                - generic [ref=f6e186]: 90%
+              - strong [ref=f6e187]: 320 engineers across four continents who can fix what the assessment identifies, at a price that reflects how the company is built, not where it is headquartered. $10B+ in GMV flows annually through systems Gradion has built or maintained. 97% client satisfaction across more than 1,000 deployments.
+              - blockquote [ref=f6e188]: “Gradion has 320 engineers across four continents who can fix it, at a price that reflects how the company is built, not where it is headquartered. $10B+ in GMV flows annually through systems Gradion has built or maintained.”
+            - article [ref=f6e189]:
+              - generic [ref=f6e190]:
+                - text: What sets you apart
+                - generic [ref=f6e193]: 90%
+              - strong [ref=f6e194]: Unlike most consultancies that hand over a report and leave, Gradion both diagnoses problems and has 320 engineers to fix them — combining consultancy insight with engineering delivery at scale, with domain depth built over decades in travel, e-commerce, and manufacturing.
+              - blockquote [ref=f6e195]: “A consultancy that delivers Gradion is a Digital and Deep Tech Consultancy - with an important distinction from most consultancies. A good doctor does not guess at the prescription. They examine, read the data, and then treat.”
+            - article [ref=f6e196]:
+              - generic [ref=f6e197]:
+                - text: Customer pains
+                - generic [ref=f6e200]: 85%
+              - strong [ref=f6e201]: Most consultancies hand a report to the client and leave; clients are left without an implementation partner who can execute the recommended changes at scale, on time, and at a fair price.
+              - blockquote [ref=f6e202]: "“Gradion works the same way: the assessment produces a clear report - what is broken, what needs to change, and in what order. The difference is what happens next. Most consultancies hand that report to the client and leave.”"
+            - article [ref=f6e203]:
+              - generic [ref=f6e204]:
+                - text: Desired outcomes
+                - generic [ref=f6e207]: 85%
+              - strong [ref=f6e208]: Scalable engineering capability, sustained quality over time, ISO 27001 certified processes, 97% client satisfaction, $10B+ GMV through built/maintained systems, 20M+ tasks automated monthly across production deployments.
+              - blockquote [ref=f6e209]: “More than 20 million tasks are automated monthly across production deployments. ISO 27001 certified . 97% client satisfaction across more than 1,000 deployments. Domain depth built over decades Gradion builds capability in specific domains rather than maintaining a generalist bench.”
+            - article [ref=f6e210]:
+              - generic [ref=f6e211]:
+                - text: Sales motion
+                - generic [ref=f6e214]: 80%
+              - strong [ref=f6e215]: Start small. Measure. Grow. Clients book a call to scope a team, beginning with a scoped assessment that produces a clear report, followed by phased engineering delivery.
+              - blockquote [ref=f6e216]: “One delivery network. Explore How We Work Start small. Measure. Grow. Explore Our DNA We are your partner. We have skin in the game. Explore Let&#x27;s work together Tell us about your project and we&#x27;ll scope a team.”
+            - article [ref=f6e217]:
+              - generic [ref=f6e218]:
+                - text: Ideal customer
+                - generic [ref=f6e221]: 85%
+              - strong [ref=f6e222]: Technology companies and enterprises in Asia (Singapore, Vietnam, Thailand), Europe (Germany/DACH), and MENA operating in travel, e-commerce, and manufacturing who need embedded engineering teams and deep tech consultancy to scale digital products and operations.
+              - blockquote [ref=f6e223]: "“It was a market thesis: that Asia - Singapore, Vietnam, Thailand - was becoming a third axis of global technology alongside the US and Europe, and that a firm positioned inside that axis, not just pointing at it, would compound differently over time. That thesis has proven correct.”"
+            - article [ref=f6e224]:
+              - generic [ref=f6e225]:
+                - text: Company history
+                - generic [ref=f6e228]: 85%
+              - strong [ref=f6e229]: Gradion traces its origin to NFQ, founded in Lithuania over two decades ago. The company expanded into Asia as a market thesis that Asia was becoming a third axis of global technology. It has offices in Vietnam, Singapore, Bangkok, Cairo, and Hamburg. In Asia, the company operates under the Gradion name since 2023, building on more than two decades of NFQ Group history. Key milestones include building Swoodoo (acquired by KAYAK 2010), engineering partnership with KAYAK (acquired by Priceline for $1.8B in 2013), and engineering HomeToGo to a EUR 1B IPO in 2021.
+              - blockquote [ref=f6e230]: “Gradion now has offices and engineering teams across Vietnam , Singapore , Bangkok , Cairo , and Hamburg . In Asia, the company operates under the Gradion name since 2023, building on more than two decades of NFQ Group history.”
+            - article [ref=f6e231]:
+              - generic [ref=f6e232]:
+                - text: Buying intents
+                - generic [ref=f6e235]: 70%
+              - strong [ref=f6e236]: Businesses looking to scope an engineering team for a digital or deep tech project; companies open to advisory equity, co-investment, or founding partnerships for the right market and product.
+              - blockquote [ref=f6e237]: "“For the right business, the right market, the right founding team, and a product the company genuinely believes in, Gradion is open to going further than a services engagement: advisory equity, co investment, or a founding role. Not as a standard offering.”"
+          - group [ref=f6e238]:
+            - generic "Coverage and honest omissions" [ref=f6e239] [cursor=pointer]
+        - generic [ref=f6e242]:
+          - button "Continue manually" [ref=f6e243] [cursor=pointer]
+          - button "Review what we found" [ref=f6e244] [cursor=pointer]

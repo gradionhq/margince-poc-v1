@@ -4,7 +4,8 @@
 package compose
 
 // The deep read's cross-page fold for the page-parallel lane: facts
-// dedupe on their value key, people on the normalized name, entities union.
+// dedupe on category+field+value key, people on the normalized name,
+// entities union.
 // With the binary citation gate there is no model confidence to break
 // ties — page-kind specificity does (an Impressum's phone beats a
 // homepage mention), then first-seen, and page order is deterministic,
@@ -30,22 +31,16 @@ var factPageRank = map[crmcontracts.SiteReadPageKind]int{
 	crmcontracts.SiteReadPageKindHome:      1,
 }
 
-// mergeIdentity is what makes two findings the SAME fact within one read.
-// For a named item it is the value key alone, deliberately across fields:
-// a site that lists "affinity mapping" under both its services and its
-// capabilities has said one thing twice, and a reviewer offered the same
-// name twice cannot tell the two apart. It is also the identity every
-// consumer of a read selects on — the onboarding wizard's
-// selected_fact_keys is a set of value keys — so a read that emitted one
-// key twice would produce a selection its own API rejects as duplicated.
-// Facts with no value key (the single-value fields) keep the full
-// category+field identity, which is theirs alone.
-func mergeIdentity(fact people.DeepReadFact) string {
-	if fact.ValueKey == "" {
-		return factKey(fact)
-	}
-	return fact.ValueKey
-}
+// A fact's identity within one read is the identity the DB and the
+// selection API already use: category + field + value key (factKey). Two
+// findings that share a NAME but not a field are two facts — a company
+// legitimately appears as both a partner and a named customer, and
+// collapsing them would silently drop one of its own claims.
+//
+// Consumers that select by value key alone (the onboarding wizard's
+// selected_fact_keys) therefore have to fold the duplicates themselves; a
+// set of keys is what they send, and one key selects every fact carrying
+// it.
 
 // factBands curate a read down to what a human will actually confirm.
 //
@@ -156,7 +151,7 @@ func mergePageResults(results []pageFactsResult) pageFactsResult {
 	for _, res := range results {
 		rank := factPageRank[res.kind]
 		for _, fact := range res.facts {
-			key := mergeIdentity(fact)
+			key := factKey(fact)
 			at, seen := factIndex[key]
 			if !seen {
 				factIndex[key] = len(out.facts)

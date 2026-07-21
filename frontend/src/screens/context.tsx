@@ -8,7 +8,13 @@ import { ENTITY_KINDS, type EntityKind } from "../app/entity";
 import { EmptyState, SectionHeader } from "../design-system/atoms";
 import { EvidenceChip, toEvidence } from "../design-system/trust";
 import { useT } from "../i18n";
-import { problemMessage, QueryGate, type QueryLike } from "./common";
+import {
+  OverlayUnavailable,
+  problemMessage,
+  QueryGate,
+  type QueryLike,
+  useSorMode,
+} from "./common";
 import { EntityRef } from "./entityref";
 import "./context.css";
 
@@ -26,8 +32,13 @@ export function RecordContextPanel({
   id,
 }: Readonly<{ entityType: EntityKind; id: string }>) {
   const t = useT();
+  // The context walk is assembled from the context graph / embeddings, which
+  // branch 1 builds no nodes for over mirror content (the endpoint 404s in
+  // overlay) — an honest unavailable state, not an error, and no doomed fetch.
+  const overlay = useSorMode() === "overlay";
   const query = useQuery({
     queryKey: ["record-context", entityType, id],
+    enabled: !overlay,
     queryFn: async () => {
       const { data, error } = await api.GET(
         "/records/{entity_type}/{id}/context",
@@ -44,6 +55,15 @@ export function RecordContextPanel({
       return data;
     },
   });
+
+  if (overlay) {
+    return (
+      <section className="card record-context">
+        <SectionHeader title={t("context.title")} />
+        <OverlayUnavailable />
+      </section>
+    );
+  }
 
   return (
     <section className="card record-context">
