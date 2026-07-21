@@ -147,6 +147,16 @@ func recomputeForOwnerTx(ctx context.Context, tx pgx.Tx, incumbentUserID string)
 	if incumbentUserID == "" {
 		return fmt.Errorf("overlay: recompute requires a non-empty incumbent user id")
 	}
+	// No row-level locking here: every transaction that mutates this
+	// workspace's visibility projection (this recompute's callers, plus
+	// Ingest's owner-reassignment projection) first acquires the single
+	// per-workspace visibility advisory lock (lockWorkspaceVisibility), so
+	// recomputes and reassignments already run serially — a plain read of
+	// the owner's current records is consistent within that serialization.
+	// A per-owner FOR UPDATE was tried and rejected: it locked only rows
+	// ALREADY owned by this owner, missing a record transitioning INTO the
+	// owner concurrently, and two recomputes locking owner rows in opposite
+	// order could deadlock. One coarse lock avoids both.
 	rows, err := tx.Query(ctx,
 		`SELECT object_class, external_id FROM overlay_mirror WHERE owner_external_id = $1`,
 		incumbentUserID)
@@ -182,8 +192,42 @@ func recomputeForOwnerTx(ctx context.Context, tx pgx.Tx, incumbentUserID string)
 // join.
 func (s *MirrorStore) RecomputeForOwner(ctx context.Context, incumbentUserID string) error {
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if err := lockWorkspaceVisibility(ctx, tx); err != nil {
+			return err
+		}
 		return recomputeForOwnerTx(ctx, tx, incumbentUserID)
 	})
+}
+
+// lockWorkspaceVisibility serializes every transaction that mutates this
+// workspace's mirror_visibility projection — the mapping upsert+recompute
+// (UpsertUserMap), the owner-reassignment projection (Ingest), the periodic
+// revalidation (RevalidateEmailMappings), and the ambiguity revoke
+// (revokeEmailMappingsForOwners). ONE per-workspace advisory lock,
+// transaction-scoped (auto-released at commit/rollback), is the whole
+// serialization: because every visibility mutator acquires the SAME key
+// FIRST, no two interleave their read-decide-clear-then-grant sequences —
+// which the fine-grained per-owner/per-user locking could not guarantee (a
+// record transitioning INTO an owner, a revoke racing a re-seed, or two
+// recomputes acquiring owner rows in opposite order and deadlocking all
+// serialize on this single lock instead). It is re-entrant within a
+// transaction, so a caller that already holds it may acquire it again
+// harmlessly. Overlay visibility mutations are low-frequency (a single
+// leader-elected poller plus occasional manual remaps), so serializing them
+// per workspace costs effectively nothing.
+func lockWorkspaceVisibility(ctx context.Context, tx pgx.Tx) error {
+	// current_setting WITHOUT missing_ok: an unset app.workspace_id must
+	// RAISE, never resolve to NULL. hashtext and pg_advisory_xact_lock are
+	// STRICT, so a NULL workspace id would turn this into a no-op SELECT
+	// that acquires NO lock — silently bypassing the serialization every
+	// caller relies on. Failing closed on an unset GUC (this is only ever
+	// called inside database.WithWorkspaceTx, which sets it) matches how the
+	// RLS policies fail closed on the same condition.
+	if _, err := tx.Exec(ctx,
+		`SELECT pg_advisory_xact_lock(hashtext('margince:overlay-visibility:' || current_setting('app.workspace_id'))::bigint)`); err != nil {
+		return fmt.Errorf("overlay: acquiring the workspace visibility lock: %w", err)
+	}
+	return nil
 }
 
 // normalizeEmail applies the case/whitespace normalization design.md §4.6
@@ -241,6 +285,10 @@ func (s *MirrorStore) UpsertUserMap(ctx context.Context, appUser ids.UserID, inc
 	}
 
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		// Resolve the email match BEFORE taking the visibility lock: the
+		// match may call the incumbent (OwnerEmailResolver → HubSpot), and a
+		// slow lookup must never be held under the workspace-wide lock where
+		// it would block every sibling remap.
 		if source == "email" {
 			matched, err := s.emailMatches(ctx, tx, appUser, incumbentUserID)
 			if err != nil {
@@ -250,6 +298,18 @@ func (s *MirrorStore) UpsertUserMap(ctx context.Context, appUser ids.UserID, inc
 				return fmt.Errorf("overlay: %s's email does not match incumbent user %s (fail-closed, design.md §4.6 rule 3, no row written)",
 					appUser, incumbentUserID)
 			}
+		}
+
+		// Serialize the read-decide-upsert-recompute sequence against every
+		// other visibility mutation in this workspace (a sibling remap, an
+		// Ingest owner reassignment, the ambiguity revoke). Acquiring the
+		// per-workspace visibility lock here — before the prior-mapping read
+		// — is what makes the whole sequence atomic: without it two
+		// concurrent remaps could each read the prior mapping, then
+		// interleave their clear-then-grant recomputes and leave the user
+		// granted on both the old and new owners' records.
+		if err := lockWorkspaceVisibility(ctx, tx); err != nil {
+			return err
 		}
 
 		var priorIncumbentUserID string
@@ -401,6 +461,9 @@ func (s *MirrorStore) RevalidateEmailMappings(ctx context.Context, emails OwnerE
 
 	for _, owner := range owners {
 		if err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+			if err := lockWorkspaceVisibility(ctx, tx); err != nil {
+				return err
+			}
 			return s.revalidateEmailMapping(ctx, tx, emails, owner)
 		}); err != nil {
 			return fmt.Errorf("overlay: revalidating the email-sourced mapping for owner %s: %w", owner, err)

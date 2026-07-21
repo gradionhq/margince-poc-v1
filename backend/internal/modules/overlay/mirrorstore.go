@@ -136,6 +136,16 @@ func (s *MirrorStore) Ingest(ctx context.Context, rec Record) error {
 	}
 	var landed bool
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		// Ingest's owner projection (ProjectOwnerVisibility, and the
+		// owner-change revalidation) mutates mirror_visibility, so it takes
+		// the same per-workspace visibility lock every other mutator takes —
+		// serializing an owner reassignment against a concurrent manual remap
+		// so a record transitioning between owners can never leave a stale
+		// grant. Overlay ingest is driven by the single leader-elected
+		// poller, so this lock is uncontended on the hot path.
+		if err := lockWorkspaceVisibility(ctx, tx); err != nil {
+			return err
+		}
 		var priorOwner string
 		if err := tx.QueryRow(
 			ctx,
