@@ -165,10 +165,10 @@
   animation-name: margince-core-mark-content;
 }
 .margince-core-scene[data-core-state="listening"] {
-  transform: scale(0.985);
+  animation: margince-core-listen 5.2s ease-in-out infinite;
 }
 .margince-core-scene[data-core-state="working"] {
-  transform: scale(0.97);
+  animation: margince-core-speak 3.8s ease-in-out infinite;
   filter: saturate(1.25);
 }
 .margince-core-scene[data-core-state="working"] .margince-core-orbit {
@@ -229,12 +229,31 @@
     opacity: 0.85;
   }
 }
+@keyframes margince-core-listen {
+  0%,
+  100% {
+    transform: scale(0.985);
+  }
+  50% {
+    transform: scale(1.005);
+  }
+}
+@keyframes margince-core-speak {
+  0%,
+  100% {
+    transform: scale(0.975);
+  }
+  50% {
+    transform: scale(1.015);
+  }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .margince-core-glow,
   .margince-core-orbit,
   .margince-core-thread,
-  .margince-core-mark-shell {
+  .margince-core-mark-shell,
+  .margince-core-scene {
     animation: none;
   }
   .margince-core-scene,

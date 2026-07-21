@@ -265,6 +265,7 @@ function CoreReadProgress({
   const t = useT();
   const { locale } = useLocale();
   const fetchedPages = read.pages.filter((page) => page.status === "fetched");
+  const legalEntities = read.legal_entities ?? [];
   const pagesRead = terminalStatuses.has(read.status)
     ? fetchedPages.length
     : (read.pages_read ?? fetchedPages.length);
@@ -315,6 +316,9 @@ function CoreReadProgress({
           <b>{pagesRead}</b> {t("ob.pagesRead")}
         </span>
         <span>
+          <b>{legalEntities.length}</b> {t("ob.legalEntitiesFound")}
+        </span>
+        <span>
           <b>{read.profile_fields.length}</b> {t("ob.profileFindings")}
         </span>
         <span>
@@ -332,8 +336,10 @@ function CoreReadProgress({
 
 function ReadEvidence({ read }: Readonly<{ read: CompanySiteRead }>) {
   const t = useT();
+  const legalEntities = read.legal_entities ?? [];
   const skippedPages = read.pages.filter((page) => page.status !== "fetched");
   if (
+    legalEntities.length === 0 &&
     read.profile_fields.length === 0 &&
     skippedPages.length === 0 &&
     read.warnings.length === 0
@@ -342,6 +348,31 @@ function ReadEvidence({ read }: Readonly<{ read: CompanySiteRead }>) {
   }
   return (
     <div className="core-findings">
+      {legalEntities.length > 0 && (
+        <section className="legal-preview">
+          <h2>{t("ob.legalFoundTitle")}</h2>
+          <p>{t("ob.legalFoundBody")}</p>
+          <div className="legal-preview-grid">
+            {legalEntities.map((entity) => (
+              <article
+                key={`${entity.name}:${entity.register_number ?? ""}:${entity.source_url}`}
+                className="legal-preview-card"
+              >
+                <div className="finding-label">
+                  <ShieldCheck aria-hidden /> {t("ob.legalEntity")}
+                </div>
+                <strong>{entity.name}</strong>
+                {entity.registered_address && (
+                  <span>{entity.registered_address}</span>
+                )}
+                {entity.register_number && (
+                  <small>{entity.register_number}</small>
+                )}
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
       {read.profile_fields.length > 0 && (
         <>
           <h2>{t("ob.coreFindingsTitle")}</h2>

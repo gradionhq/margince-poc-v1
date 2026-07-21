@@ -304,6 +304,25 @@ func TestCrawlClassifiesPageKinds(t *testing.T) {
 	}
 }
 
+func TestCrawlerProbesImpressumHTML(t *testing.T) {
+	const path = "/impressum.html"
+	site := &fakeSite{pages: seedOnly()}
+	site.pages[seedURL+path] = fakeSitePage{text: readable("Acme GmbH, HRB 12345, Werkstrasse 1.")}
+	crawl, err := testSiteCrawler(site).Crawl(context.Background(), seedURL)
+	if err != nil {
+		t.Fatalf("crawl: %v", err)
+	}
+	found := false
+	for _, page := range crawl.Pages {
+		if page.URL == seedURL+path && page.Kind == crmcontracts.SiteReadPageKindImpressum {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("legal probe %s was not fetched as an impressum: %+v", path, crawl.Pages)
+	}
+}
+
 func TestCrawlOrderIsDeterministicAcrossRuns(t *testing.T) {
 	build := func() *fakeSite {
 		site := &fakeSite{pages: seedOnly("/blog", "/pricing")}

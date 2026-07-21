@@ -20,6 +20,9 @@ func TestDedupeLegalEntitiesFoldsOnTheRegisterNumber(t *testing.T) {
 			Name: "Acme Pte. Ltd.", RegisteredAddress: "77 High Street, Singapore",
 			RegisterNumber: "201629357M", SourceURL: seedURL + "/de/imprint",
 		},
+		// Another locale can lose the register number at a passage boundary.
+		// Its matching name must not create a duplicate choice for the human.
+		{Name: "Acme Pte. Ltd.", SourceURL: seedURL + "/th/imprint"},
 		{Name: "Acme GmbH", RegisterNumber: "HRB 12345", SourceURL: seedURL + "/imprint"},
 	}
 	got := dedupeLegalEntities(entities)
@@ -31,6 +34,16 @@ func TestDedupeLegalEntitiesFoldsOnTheRegisterNumber(t *testing.T) {
 	}
 	if got[1].Name != "Acme GmbH" {
 		t.Errorf("a distinct register number is a distinct company: %+v", got[1])
+	}
+}
+
+func TestDedupeLegalEntitiesKeepsSameNameWithDistinctRegisters(t *testing.T) {
+	entities := []corpusLegalEntity{
+		{Name: "Acme Ltd", RegisterNumber: "SG-1", SourceURL: seedURL + "/imprint"},
+		{Name: "Acme Ltd", RegisterNumber: "UK-2", SourceURL: seedURL + "/en/imprint"},
+	}
+	if got := dedupeLegalEntities(entities); len(got) != 2 {
+		t.Fatalf("different registry identities must remain separate: %+v", got)
 	}
 }
 

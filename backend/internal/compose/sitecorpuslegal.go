@@ -41,16 +41,10 @@ type corpusLegalEntity struct {
 // to their normalized name. The richest sighting wins, so a locale that
 // printed the address is not lost to one that omitted it.
 func dedupeLegalEntities(entities []corpusLegalEntity) []corpusLegalEntity {
-	index := map[string]int{}
 	var out []corpusLegalEntity
 	for _, entity := range entities {
-		key := normalizeEvidence(entity.RegisterNumber)
-		if key == "" {
-			key = normalizeEvidence(entity.Name)
-		}
-		at, seen := index[key]
-		if !seen {
-			index[key] = len(out)
+		at := matchingLegalEntity(out, entity)
+		if at < 0 {
 			out = append(out, entity)
 			continue
 		}
@@ -59,6 +53,27 @@ func dedupeLegalEntities(entities []corpusLegalEntity) []corpusLegalEntity {
 		}
 	}
 	return out
+}
+
+// matchingLegalEntity joins locale variants without collapsing genuinely
+// distinct registrations. A translated legal page can omit the register
+// number that another locale printed; those sightings still match by name.
+// When both sightings carry different register numbers, the registry
+// identities win and the entities remain separate even if their names match.
+func matchingLegalEntity(existing []corpusLegalEntity, candidate corpusLegalEntity) int {
+	candidateName := normalizeEvidence(candidate.Name)
+	candidateRegister := normalizeEvidence(candidate.RegisterNumber)
+	for i, entity := range existing {
+		name := normalizeEvidence(entity.Name)
+		register := normalizeEvidence(entity.RegisterNumber)
+		sameRegister := candidateRegister != "" && register != "" && candidateRegister == register
+		compatibleName := candidateName != "" && candidateName == name &&
+			(candidateRegister == "" || register == "" || candidateRegister == register)
+		if sameRegister || compatibleName {
+			return i
+		}
+	}
+	return -1
 }
 
 // legalEntityDetail counts how much of an entity block was actually
