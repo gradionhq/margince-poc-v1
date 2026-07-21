@@ -137,6 +137,8 @@ tags:
     description: Owner or team revenue quota targets for a period, with server-computed attainment (RD-WIRE-2/RD-WIRE-3).
   - name: Agents
     description: The governed agent tool surface — registry metadata for the operator UI.
+  - name: Overlay
+    description: The HubSpot mirror overlay — incumbent connection, mirror sync health, budget, and the read→overlay flip.
 
 # =============================================================================
 paths:
@@ -6885,6 +6887,95 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  # ---------------------------- /overlay ------------------------------------
+  # The HubSpot mirror overlay (a second datasource.SystemOfRecordProvider):
+  # incumbent connection lifecycle, mirror sync health, budget, and the
+  # read-mode→overlay flip. Handlers land as 501 in this contract-first cut;
+  # real bodies land in later tasks (design.md §11).
+  /overlay/connection:
+    get:
+      tags: [Overlay]
+      operationId: getOverlayConnection
+      summary: The workspace's overlay incumbent connection, if any.
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/OverlayConnection' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }   # mode_not_overlay
+    post:
+      tags: [Overlay]
+      operationId: connectOverlay
+      summary: Connect the workspace's overlay incumbent (HubSpot).
+      x-mcp-tool:
+        verb: connect_incumbent
+        record_type: overlay_connection
+        tier: yellow
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/OverlayConnectRequest' } } } }
+      responses:
+        '201': { description: Connected, content: { application/json: { schema: { $ref: '#/components/schemas/OverlayConnection' } } } }
+        '409': { $ref: '#/components/responses/Conflict' }   # incumbent_already_connected
+    delete:
+      tags: [Overlay]
+      operationId: disconnectOverlay
+      summary: Disconnect the overlay incumbent and queue mirror teardown.
+      x-mcp-tool:
+        verb: disconnect_incumbent
+        record_type: overlay_connection
+        tier: yellow
+      responses:
+        '202': { description: Teardown queued }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /overlay/sync-status:
+    get:
+      tags: [Overlay]
+      operationId: getOverlaySyncStatus
+      summary: Per-object mirror sync freshness (fresh/pending_sync/stale, backfill completeness).
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/OverlaySyncStatus' } } } }
+
+  /overlay/reconcile:
+    post:
+      tags: [Overlay]
+      operationId: reconcileOverlay
+      summary: Queue an out-of-band mirror reconciliation sweep.
+      x-mcp-tool:
+        verb: reconcile_overlay
+        record_type: overlay_connection
+        tier: green
+      responses:
+        '202': { description: Sweep queued }
+
+  /overlay/budget:
+    get:
+      tags: [Overlay]
+      operationId: getOverlayBudget
+      summary: The incumbent API budget window's consumption and band (ok/warn/shed).
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/OverlayBudget' } } } }
+
+  /overlay/flip:preflight:
+    post:
+      tags: [Overlay]
+      operationId: preflightOverlayFlip
+      summary: Dry-run the read-mode→overlay flip's readiness checks without executing it.
+      x-mcp-tool:
+        verb: preflight_overlay_flip
+        record_type: overlay_connection
+        tier: green
+      responses:
+        '200': { description: OK }
+
+  /overlay/flip:
+    post:
+      tags: [Overlay]
+      operationId: executeOverlayFlip
+      summary: Execute the read-mode→overlay flip, queuing the migration.
+      x-mcp-tool:
+        verb: execute_overlay_flip
+        record_type: overlay_connection
+        tier: yellow
+      responses:
+        '202': { description: Migration queued }
+
   # DEFERRED — stubs only (data-model.md §12). Intentionally NOT specified:
   #   /sequences, /sequences/{id}/steps, /enrollments   (outbound cadences; sends gated)
   #   /calls, /telephony/*                               (telephony / click-to-call)
@@ -7404,6 +7495,46 @@ components:
       required: [data]
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/CaptureExclusionRule' } }
+
+    # ---- overlay (HubSpot mirror; design.md §11) ----
+    OverlayConnection:
+      type: object
+      description: The workspace's overlay incumbent connection (HubSpot). The credential itself is never in this shape — it lives sealed in the vault.
+      required: [incumbent, region, status, connectedAt, scopes]
+      properties:
+        incumbent: { type: string, enum: [hubspot] }
+        region: { type: string }
+        status: { type: string, enum: [active, revoked, error] }
+        connectedAt: { type: string, format: date-time }
+        scopes: { type: array, items: { type: string } }
+    OverlayConnectRequest:
+      type: object
+      required: [incumbent, region, privateAppToken]
+      properties:
+        incumbent: { type: string, enum: [hubspot] }
+        region: { type: string }
+        privateAppToken: { type: string, minLength: 1, description: Sealed into the vault; never echoed. An empty value is rejected (422); a real credential is required to connect. }
+    OverlaySyncStatus:
+      type: object
+      description: Per-object mirror sync health — freshness state and backfill completeness (design.md §4.7).
+      properties:
+        objects:
+          type: array
+          items:
+            type: object
+            properties:
+              object: { type: string }
+              lastSyncedAt: { type: [string, 'null'], format: date-time }
+              state: { type: string, enum: [fresh, pending_sync, stale] }
+              backfillComplete: { type: boolean }
+    OverlayBudget:
+      type: object
+      description: The incumbent API budget window's consumption and degradation band.
+      properties:
+        window: { type: string }
+        consumed: { type: number }
+        limit: { type: number }
+        band: { type: string, enum: [ok, warn, shed] }
 
     # ---- error (RFC 7807) ----
     Problem:
@@ -8866,6 +8997,21 @@ components:
         teams:
           type: array
           items: { type: string, format: uuid }
+        system_of_record:
+          type: object
+          description: |
+            The workspace's active system-of-record mode (workspace.x_sor_mode). `native` is the
+            default and full-capability mode. In `overlay` mode the data is served from a read-only
+            incumbent mirror: list sort/filter dials and unservable reads answer
+            422 `unsupported_in_overlay_mode` / 404, and mirrored-entity writes answer
+            `unsupported_by_sor`. Clients gate their UI on this — rendering unservable read surfaces
+            as an honest "not available in overlay" affordance and hiding mirrored-entity write
+            controls — rather than offering controls that fail. Reverts to `native` after an
+            overlay→native flip. Optional for backward compatibility; a missing value MUST be
+            treated as `native`.
+          required: [mode]
+          properties:
+            mode: { type: string, enum: [native, overlay] }
         passport:
           type: [object, 'null']
           description: Present when the principal is an agent acting under an Agent Seat Passport.

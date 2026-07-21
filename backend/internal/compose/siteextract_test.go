@@ -28,16 +28,26 @@ type laneFake struct {
 	profileReply string
 	pageReplies  map[string]string // page URL → reply
 	failFor      map[string]error  // page URL → error
+	panicFor     map[string]bool   // page URL → panic instead of erroring
+	panicProfile bool              // profile lane panics instead of replying
 }
 
 func (f laneFake) Complete(_ context.Context, req model.Request) (model.Response, error) {
 	if req.System == profileSystem {
+		if f.panicProfile {
+			panic("laneFake: profile lane panic")
+		}
 		return model.Response{Text: f.profileReply}, nil
 	}
 	if len(req.Messages) == 0 {
 		return model.Response{}, errors.New("laneFake: no message")
 	}
 	content := req.Messages[0].Content
+	for url := range f.panicFor {
+		if strings.HasPrefix(content, "Page "+url+":") {
+			panic("laneFake: page " + url + " panic")
+		}
+	}
 	for url, err := range f.failFor {
 		if strings.HasPrefix(content, "Page "+url+":") {
 			return model.Response{}, err
@@ -118,6 +128,53 @@ func TestExtractSiteOnePageFailureDegradesNotDiscards(t *testing.T) {
 	}
 	if len(got.fields) != 1 {
 		t.Fatalf("the profile lane must survive a page failure: %+v", got.fields)
+	}
+}
+
+// TestExtractSitePageFactPanicDegradesNotCrashes proves safeExtractPageFacts:
+// a panic in one page's fact lane — a goroutine among up to
+// pageExtractConcurrency siblings — must degrade like any other page
+// failure, not take the whole process down with it.
+func TestExtractSitePageFactPanicDegradesNotCrashes(t *testing.T) {
+	brain := laneFake{
+		profileReply: `{"fields":[{"f":"display_name","v":"Acme","e":"s0","c":0.9}]}`,
+		pageReplies: map[string]string{
+			seedURL + "/services": `{"facts":[{"f":"service","v":"Cloud Cost Audit — line-by-line review","e":"s0"}]}`,
+		},
+		panicFor: map[string]bool{seedURL + "/impressum": true},
+	}
+	got := extractSite(context.Background(), evidenceExtractor{brain: brain, factBrain: brain}, extractFixturePages(), nil)
+	if got.err == nil || !strings.Contains(got.err.Error(), "panic") {
+		t.Fatalf("the panicking page must surface as an ordinary error naming the panic: %v", got.err)
+	}
+	if len(got.merged.facts) != 1 {
+		t.Fatalf("the surviving page's fact must be kept: %+v", got.merged.facts)
+	}
+	if len(got.fields) != 1 {
+		t.Fatalf("the profile lane must survive a sibling page's panic: %+v", got.fields)
+	}
+}
+
+// TestExtractSiteProfilePanicDegradesNotCrashes is
+// TestExtractSitePageFactPanicDegradesNotCrashes' counterpart for the
+// profile lane (safeExtractProfile): its panic must not crash the process
+// either, and the page-fact lane it runs alongside must still complete.
+func TestExtractSiteProfilePanicDegradesNotCrashes(t *testing.T) {
+	brain := laneFake{
+		panicProfile: true,
+		pageReplies: map[string]string{
+			seedURL + "/services": `{"facts":[{"f":"service","v":"Cloud Cost Audit — line-by-line review","e":"s0"}]}`,
+		},
+	}
+	got := extractSite(context.Background(), evidenceExtractor{brain: brain, factBrain: brain}, extractFixturePages(), nil)
+	if got.err == nil || !strings.Contains(got.err.Error(), "panic") {
+		t.Fatalf("the panicking profile lane must surface as an ordinary error naming the panic: %v", got.err)
+	}
+	if got.fields != nil {
+		t.Fatalf("a panicking profile lane must yield no fields, got %+v", got.fields)
+	}
+	if len(got.merged.facts) != 1 {
+		t.Fatalf("the page-fact lane must survive the profile lane's panic: %+v", got.merged.facts)
 	}
 }
 

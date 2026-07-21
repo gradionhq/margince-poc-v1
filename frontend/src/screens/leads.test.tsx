@@ -699,9 +699,11 @@ describe("LeadScreen — owner display + assign to me (P-11)", () => {
     );
     render(<LeadScreen id="l-1" />);
 
-    await waitFor(() => expect(screen.getByText(/u-9/)).toBeTruthy());
-    // Wait past the me-probe resolving too, so the assertion below isn't a
-    // false negative from the button not having had a chance to render yet.
+    // Owned by the current user settles to the "you" owner line once /me
+    // resolves (LeadScreen subscribes to the probe up front); waiting on that
+    // settled state — rather than the transient raw owner id — is what makes
+    // the self-assign assertion below reliable.
+    await waitFor(() => expect(screen.getByText("Owner: you")).toBeTruthy());
     await waitFor(() =>
       expect(urls.some((url) => url.endsWith("/v1/me"))).toBe(true),
     );

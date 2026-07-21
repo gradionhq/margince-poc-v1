@@ -26,11 +26,13 @@ import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
 import {
   coldFieldLabel,
+  OverlayUnavailable,
   problemMessage,
   provenanceOf,
   QueryGate,
   QueryStates,
   throwProblem,
+  useSorMode,
 } from "./common";
 import { TimelineActions } from "./compose";
 import { RecordContextPanel } from "./context";
@@ -975,13 +977,16 @@ type CompanyTab = (typeof COMPANY_TABS)[number];
 function CompanyActionBadges({ org }: Readonly<{ org: Organization }>) {
   const t = useT();
   const cf = useObjectCustomFields("organization");
+  const overlay = useSorMode() === "overlay";
   return (
     <>
       {org.classification && <Badge>{org.classification}</Badge>}
       <ProvenanceTag provenance={provenanceOf(org.captured_by)} />
       {org.archived_at ? (
         <Badge tone="warn">{t("record.archived")}</Badge>
-      ) : (
+      ) : overlay ? // Edit/merge/archive all write to a mirrored record — hidden in
+      // overlay (every such write answers unsupported_by_sor).
+      null : (
         <>
           <EditAction
             label={t("record.edit")}
@@ -1091,8 +1096,12 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
       return data;
     },
   });
+  // Entity-scoped activity reads are a dial the overlay mirror refuses (422);
+  // skip the fetch and show the honest unavailable notice in the timeline slot.
+  const overlay = useSorMode() === "overlay";
   const timelineQuery = useQuery({
     queryKey: ["activities", "organization", id],
+    enabled: !overlay,
     queryFn: async () => {
       const { data, error } = await api.GET("/activities", {
         params: {
@@ -1126,6 +1135,7 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
                   ))
                 : []
             }
+            timelineNotice={overlay ? <OverlayUnavailable /> : undefined}
           >
             <div style={{ marginBottom: 16 }}>
               <SegmentedControl

@@ -16,10 +16,12 @@ import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
 import { ArchiveAction } from "./archive";
 import {
+  OverlayUnavailable,
   problemMessage,
   provenanceOf,
   QueryGate,
   throwProblem,
+  useSorMode,
 } from "./common";
 import { TimelineActions } from "./compose";
 import { ConsentSection } from "./consent";
@@ -257,8 +259,13 @@ function useTimeline(
   entityType: "person" | "organization" | "deal",
   id: string,
 ) {
+  // The timeline is an entity-scoped activity read, a dial the overlay mirror
+  // refuses (422) — skip the fetch in overlay; the 360 renders the honest
+  // unavailable state in the timeline slot instead.
+  const overlay = useSorMode() === "overlay";
   return useQuery({
     queryKey: ["activities", entityType, id],
+    enabled: !overlay,
     queryFn: async () => {
       const { data, error } = await api.GET("/activities", {
         params: {
@@ -402,10 +409,12 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
     },
   });
   const timelineQuery = useTimeline("person", id);
+  const overlay = useSorMode() === "overlay";
 
   return (
     <div className="wrap">
       <QueryGate query={personQuery}>
+        {/* biome-ignore lint/complexity/noExcessiveCognitiveComplexity: this 360 render was already at the ceiling; overlay support adds one necessary mode branch (write affordances are hidden over a read-only mirror). A PersonScreen split is tracked with the overlay SPA follow-up (STATUS.md). */}
         {(person) => (
           <RecordView
             name={person.full_name}
@@ -420,7 +429,9 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                   // unarchive path), so offering those buttons would only
                   // 404. The badge is the whole affordance.
                   <Badge tone="warn">{t("record.archived")}</Badge>
-                ) : (
+                ) : overlay ? // Edit/merge/archive all write to a mirrored record — hidden
+                // in overlay (every such write answers unsupported_by_sor).
+                null : (
                   <>
                     <EditAction
                       label={t("record.edit")}
@@ -521,6 +532,7 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                   ))
                 : []
             }
+            timelineNotice={overlay ? <OverlayUnavailable /> : undefined}
           >
             <div style={{ marginBottom: 16 }}>
               <SegmentedControl

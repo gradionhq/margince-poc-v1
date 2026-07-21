@@ -3991,6 +3991,110 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/overlay/connection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The workspace's overlay incumbent connection, if any. */
+        get: operations["getOverlayConnection"];
+        put?: never;
+        /** Connect the workspace's overlay incumbent (HubSpot). */
+        post: operations["connectOverlay"];
+        /** Disconnect the overlay incumbent and queue mirror teardown. */
+        delete: operations["disconnectOverlay"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/overlay/sync-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Per-object mirror sync freshness (fresh/pending_sync/stale, backfill completeness). */
+        get: operations["getOverlaySyncStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/overlay/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Queue an out-of-band mirror reconciliation sweep. */
+        post: operations["reconcileOverlay"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/overlay/budget": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The incumbent API budget window's consumption and band (ok/warn/shed). */
+        get: operations["getOverlayBudget"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/overlay/flip:preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Dry-run the read-mode→overlay flip's readiness checks without executing it. */
+        post: operations["preflightOverlayFlip"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/overlay/flip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Execute the read-mode→overlay flip, queuing the migration. */
+        post: operations["executeOverlayFlip"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -4346,6 +4450,43 @@ export interface components {
         };
         CaptureExclusionRuleListResponse: {
             data: components["schemas"]["CaptureExclusionRule"][];
+        };
+        /** @description The workspace's overlay incumbent connection (HubSpot). The credential itself is never in this shape — it lives sealed in the vault. */
+        OverlayConnection: {
+            /** @enum {string} */
+            incumbent: "hubspot";
+            region: string;
+            /** @enum {string} */
+            status: "active" | "revoked" | "error";
+            /** Format: date-time */
+            connectedAt: string;
+            scopes: string[];
+        };
+        OverlayConnectRequest: {
+            /** @enum {string} */
+            incumbent: "hubspot";
+            region: string;
+            /** @description Sealed into the vault; never echoed. An empty value is rejected (422); a real credential is required to connect. */
+            privateAppToken: string;
+        };
+        /** @description Per-object mirror sync health — freshness state and backfill completeness (design.md §4.7). */
+        OverlaySyncStatus: {
+            objects?: {
+                object?: string;
+                /** Format: date-time */
+                lastSyncedAt?: string | null;
+                /** @enum {string} */
+                state?: "fresh" | "pending_sync" | "stale";
+                backfillComplete?: boolean;
+            }[];
+        };
+        /** @description The incumbent API budget window's consumption and degradation band. */
+        OverlayBudget: {
+            window?: string;
+            consumed?: number;
+            limit?: number;
+            /** @enum {string} */
+            band?: "ok" | "warn" | "shed";
         };
         /** @description RFC 7807 problem+json with a stable machine `code` and structured `details`. */
         Problem: {
@@ -5996,6 +6137,21 @@ export interface components {
             /** @description Effective role keys for this principal. */
             roles: string[];
             teams: string[];
+            /**
+             * @description The workspace's active system-of-record mode (workspace.x_sor_mode). `native` is the
+             *     default and full-capability mode. In `overlay` mode the data is served from a read-only
+             *     incumbent mirror: list sort/filter dials and unservable reads answer
+             *     422 `unsupported_in_overlay_mode` / 404, and mirrored-entity writes answer
+             *     `unsupported_by_sor`. Clients gate their UI on this — rendering unservable read surfaces
+             *     as an honest "not available in overlay" affordance and hiding mirrored-entity write
+             *     controls — rather than offering controls that fail. Reverts to `native` after an
+             *     overlay→native flip. Optional for backward compatibility; a missing value MUST be
+             *     treated as `native`.
+             */
+            system_of_record?: {
+                /** @enum {string} */
+                mode: "native" | "overlay";
+            };
             /** @description Present when the principal is an agent acting under an Agent Seat Passport. */
             passport?: {
                 /** Format: uuid */
@@ -16721,6 +16877,165 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    getOverlayConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverlayConnection"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    connectOverlay: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OverlayConnectRequest"];
+            };
+        };
+        responses: {
+            /** @description Connected */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverlayConnection"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+        };
+    };
+    disconnectOverlay: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Teardown queued */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getOverlaySyncStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverlaySyncStatus"];
+                };
+            };
+        };
+    };
+    reconcileOverlay: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Sweep queued */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getOverlayBudget: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverlayBudget"];
+                };
+            };
+        };
+    };
+    preflightOverlayFlip: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    executeOverlayFlip: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Migration queued */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
 }
