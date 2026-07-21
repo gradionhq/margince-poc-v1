@@ -200,9 +200,10 @@ model-call hot path.
                                             cache_write · output                          + cache_write×write + out×out
 ```
 
-- **The rate table (`ai_model_rate`).** One row per `(provider, model,
-  effective_date)` — keyed on the *concrete model that served*, not the tier, so
-  rebinding a tier keeps its rates. Each row is four integer
+- **The rate table (`ai_model_rate`).** Workspace-scoped, one row per
+  `(provider, model, effective_date)` — keyed on the *concrete model that
+  served*, not the tier, so rebinding a tier keeps its rates. Each row is four
+  integer
   **micro-USD-per-MTok** prices: input, cache-read, cache-write, output. Lookup
   works like `fx_rate` — the latest row dated on or before the call's day wins,
   and a price change is a *new* row, never an edit. Local providers get explicit
@@ -210,17 +211,19 @@ model-call hot path.
   call whose model has no rate row is *unpriced* — still counted and surfaced,
   just flagged as a different thing from a real `$0`. Changing a price is a single
   insert; no rebuild.
-- **One pricer, two readers.** `PriceCall` is the only function that touches
-  money. `/ai/usage` runs it over the window's `ai_call` rows to report
-  **actuals**; the backfill preview runs it ahead of time for a **pre-flight
-  estimate**. Same formula, two callers.
+- **One formula, three consumers.** The four-bucket price arithmetic is written
+  once as `PriceCall`. `/ai/usage` reports **actuals** through
+  `RateStore.CostReport` — SQL that mirrors that same arithmetic row-for-row, to
+  price a whole window in one round-trip — while the backfill preview and the
+  certification record both call `PriceCall` directly, for a **pre-flight
+  estimate** and a per-run cost stamp. One formula, so the numbers can't drift.
 - **The pre-flight estimate (`compose/costestimate`).** Before a backfill runs,
   the preview estimates its cost as `Σ per-task (per-unit cost × expected units)`:
-  - **Per-unit cost** comes from the last 7 days of `ai_call` history, grouped by
-    `(task, tier, provider, model)` and priced at whichever model *will* serve —
-    the model that served last if it's still bound, otherwise the tier's current
-    binding (keyed on the tier, never the ladder head). So a rebind re-prices
-    instantly.
+  - **Per-unit cost** comes from the last 7 days of `ai_call` history, grouped
+    into `(task, tier, provider, model)` slices. Each slice is priced at whichever
+    model *will* serve it now: the model that served it if that's still bound,
+    else its own tier's current binding (so a rebind re-prices instantly), else
+    the ladder head if that tier is now unbound.
   - **Expected units** come from the connection's completed backfill yields:
     messages to classify, people to enrich, entities to embed.
   - **When there's nothing to price from, the preview says so instead of
@@ -230,11 +233,12 @@ model-call hot path.
     cost-read failure degrades it to a plain message count — never a block on the
     consent flow.
 
-  *(Two known rough edges, both tracked: the cold-start floor counts message
-  embeds only — person/org embeds would over-quote at the floor's full-email size,
-  so they ride the observed path instead; and the people/org unit counters aren't
-  wired into the backfill loop yet, so the enrich line still floors as
-  `heuristic`.)*
+  *(Known rough edge, tracked: the backfill loop doesn't populate the people/org
+  unit counters yet, so anything keyed on them under-counts today — the enrich
+  line floors as `heuristic`, and the embed estimate counts captured-message
+  embeds only, under-counting person/org entities. The cold-start floor also
+  counts message embeds by design: person/org embeds would over-quote at its
+  full-email unit size.)*
 
 ## Certification — proving a binding is good enough
 
