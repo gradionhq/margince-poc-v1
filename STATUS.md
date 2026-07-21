@@ -22,6 +22,46 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**Voice DNA end to end, and the settings surface it needed (#134, #143, #145,
+#147)** — ADR-0066's owner-private, human-only Voice lifecycle is merged
+(migration 0107): durable builds, immutable versions, candidate deltas,
+apply/reject/rollback, corpus clear, source-driven staleness, learning
+summaries, and the seven Voice-stream events. A legacy built profile is
+preserved as its first active immutable version and obsolete team-scoped rows
+are quarantined. Corpus clear drops `qualifies_as_source` in the same UPDATE
+that nulls `final_text`, so erasing a corpus carrying a qualifying
+`edited_sent` signal no longer trips `voice_learning_signal_qualifies_check`.
+
+On top of it, the **cold-start Voice step is real**: it was a client-only
+simulation (hardcoded preset word counts, a `setTimeout` "build", static
+result copy, uploads counted then discarded). It now ensures the profile,
+ingests the actually-uploaded/pasted text, creates an onboarding build, polls
+the durable row, and renders the real derived artifact, with honest queued /
+budget-deferred / failed states. The meter counts only real corpus; the preset
+chips are "learns from this once connected" examples, never fabricated counts.
+The build button gates at the server's real 800-word floor (it gated at 300,
+so 300–799 words clicked straight into a 422).
+
+Settings split into **Your settings** (account, Voice DNA, and the AI tab,
+which carries the caller's own agent passports) and an admin/ops-only
+**Organization** group (company, users, catalog, privacy, audit). That also
+puts the company website-refresh behind the admin-only group. The per-user
+**Voice DNA tab** is the "…later in Settings" surface onboarding promises:
+derived voice, owner-authored preferences (If-Match guarded), corpus sources,
+rebuild. The user-facing `voice profile` → **Voice DNA** rename is finished in
+the contract summaries and i18n; identifiers, paths, tables and events stay
+frozen.
+
+**Admin user management (#147)** closes the contract's `/users … CRUD
+fast-follow`: invite (create with no password + role grant + a single-use
+set-password token, mailed when a sender is wired), change role, deactivate,
+reactivate, plus `include_inactive` on the roster (admin-only) so a deactivated
+member is visible to reactivate. Registers `user.invited`/`user.reactivated`.
+Two guards worth knowing: the **last active admin** can be neither deactivated
+nor demoted (409), and that check takes a per-workspace transaction advisory
+lock, because without it two transactions each deactivating a *different* admin
+both pass and commit, leaving zero admins.
+
 **AI cost pricing base (phase 1/2, price-on-read)** — every model call is now
 priceable in US dollars without any money logic on the write path. The router,
 meter and adapters collect four token buckets (`tokens_in` pinned
@@ -89,9 +129,9 @@ server capability makes every layer reversible without deleting data. Existing
 installations receive insert-missing-only profile provenance rows without website
 egress, while first-grounded/confirmation timing, extraction coverage, correction
 audits, and exact per-call context byte/token estimates make rollout observable.
-`voice_build` is now a compiled background task but has no product consumer until
-the voice storage and lifecycle surface lands; natural-language search remains
-dormant until its surface is ratified.
+`voice_build` is a compiled background task; its product consumers landed with the
+Voice DNA arc below. Natural-language search remains dormant until its surface is
+ratified.
 
 **AI runtime contract + certification (four phases, one arc)** — the AI
 task/tier vocabulary is now a compiled contract:
@@ -457,15 +497,27 @@ tooling and gate suite the baseline needs. Merged so far:
 
 Open work, roughly in priority order:
 
-- **Progressive Voice lifecycle** — ADR-0066's owner-private, human-only
-  contract is implemented on `feat/voice-profile-lifecycle`: durable builds,
-  immutable versions, candidate deltas, apply/reject/rollback, corpus clear,
-  source-driven staleness, learning summaries, and the seven Voice-stream
-  events. Migration 0107 preserves a legacy built profile as its first active
-  immutable version and quarantines obsolete team-scoped rows. Local merge and
-  real-Postgres gates are being completed before the PR; the next PR is the
-  structured Voice builder, followed by canonical reply usage/learning and the
-  settings/onboarding surface.
+- **Voice DNA follow-ons** — the lifecycle, the real onboarding step and the
+  settings surface are merged (see *Recently landed*). Still open: the
+  structured Voice builder, and canonical reply usage/learning (drafts that
+  actually consume the active artifact and feed `voice_learning_signal` back).
+  Operationally, `voice_build` only completes where its tier is bound to a
+  reachable provider in `ai-routing.yaml`; on an unbound stack the build stays
+  `queued` and the UI honestly says so, which is easy to mistake for a bug.
+
+- **User administration follow-ups (#147)** — the roster read is first-page
+  only (fine for a single-org install, wrong at scale); an invite issues a
+  set-password token but delivers nothing when no mailer is configured, and the
+  recovery today is the operator path (`migrate reset-password`), so returning
+  the link on the response is an open contract-shape decision; and `User`
+  carries no per-user role, so the admin control sets a role without showing
+  the current one.
+
+- **Endpoints without a caller** — the recurring shape this week (MISSING-UI-V4
+  §5/§6/§7 landed as #146/#142/#148; the Voice API and the identity
+  deactivate/role methods were the same story). Worth treating as a standing
+  check rather than a backlog item: a handler-backed, routed endpoint with zero
+  frontend callers is not done, and the gap is invisible from the green gates.
 
 - **aicert follow-ups** (from the certification arc): the
   trace-extraction pipeline (scenarios from production `ai_call` rows
@@ -498,6 +550,10 @@ Open work, roughly in priority order:
     change-notification subscription (validationToken handshake,
     clientState, ≤3-day renewal riding the existing watch sweep) is
     unbuilt, so Outlook latency is the poll interval, not the 60s p95.
+  - **Microsoft has no onboarding connect UI** — the Graph connector (#119)
+    is live, but the wizard's last step still renders a "coming soon" panel
+    for Microsoft and offers only skip; Google OAuth and IMAP are real there.
+    A first-run Outlook user cannot connect without leaving onboarding.
   - **Graph refresh-token rotation** — Microsoft rotates the refresh
     token on each redemption; the stored original works within its
     ~90-day confidential-client window (active mailboxes never reauth),
