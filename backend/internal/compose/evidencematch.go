@@ -89,6 +89,7 @@ const (
 	dropConfidenceRange   = "confidence_out_of_range"
 	dropNameRoleUnlinked  = "name_role_not_in_snippet"
 	dropEmptyValueKey     = "empty_value_key"
+	dropZeroedStat        = "zeroed_stat"
 	dropUnparseableReply  = "unparseable_reply"
 	// dropLegalConflict marks a legal-trio claim refused because the
 	// site's legal pages disagree on the entity: with no trustworthy

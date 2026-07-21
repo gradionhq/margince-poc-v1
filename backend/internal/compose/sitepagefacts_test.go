@@ -172,3 +172,48 @@ func TestGatePageFactsValueKeysAndDuplicates(t *testing.T) {
 		t.Fatalf("the repeated location left no duplicate drop: %+v", dropped)
 	}
 }
+
+func TestGatePageFactsDropsZeroedStats(t *testing.T) {
+	// Sites animate headline numbers up from zero, so the fetched DOM
+	// states "0 B + GMV enabled" where a visitor reads "$10B+". The
+	// citation gate cannot catch it — the passage really does say that —
+	// and recording it would publish a claim the company never made.
+	page, menu, idx := pageFixture(crmcontracts.SiteReadPageKindHome, seedURL,
+		"Delivery at scale: $ 0 B + GMV enabled 0 M + tasks automated monthly and 97% client satisfaction across deployments.")
+	reply := `{"facts":[
+		{"f":"quantified_outcome","v":"0 B + GMV enabled","e":"s0"},
+		{"f":"quantified_outcome","v":"0 M + tasks automated monthly","e":"s0"},
+		{"f":"quantified_outcome","v":"97% client satisfaction","e":"s0"}]}`
+	res, dropped := gatePageFacts(reply, page, menu, idx)
+	if len(res.facts) != 1 || res.facts[0].Value != "97% client satisfaction" {
+		t.Fatalf("only the real measurement survives: %+v", res.facts)
+	}
+	zeroed := 0
+	for _, d := range dropped {
+		if d.Reason == dropZeroedStat {
+			zeroed++
+		}
+	}
+	if zeroed != 2 {
+		t.Fatalf("both zeroed counters must drop as %s: %+v", dropZeroedStat, dropped)
+	}
+}
+
+func TestZeroedStatOnlyJudgesMeasurements(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		field string
+		value string
+		want  bool
+	}{
+		{"animated counter", "quantified_outcome", "0 B + GMV enabled", true},
+		{"real measurement", "quantified_outcome", "$10B+ GMV enabled", false},
+		{"zero inside a real number", "quantified_outcome", "20 million tasks monthly", false},
+		{"claim with no number", "quantified_outcome", "market leading uptime", false},
+		{"a zero belongs in other fields", "product", "Product 0", false},
+	} {
+		if got := zeroedStat(tc.field, tc.value); got != tc.want {
+			t.Errorf("%s: zeroedStat(%q, %q) = %v, want %v", tc.name, tc.field, tc.value, got, tc.want)
+		}
+	}
+}

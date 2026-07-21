@@ -71,9 +71,10 @@ make dev   # look for: "dev: using config/ai-routing.yaml for the cold-start rea
 > missing key for *any* bound cloud provider puts the whole stack on the
 > offline fake — Ollama included.
 
-`make dev` brings up the api on `:8080`, API-seeds the demo workspace on boot,
-and runs the Vite SPA on `:5173`. Open **http://localhost:5173** and log in
-with the seeded admin (`admin@demo.test` / `demo-password-123`).
+`make dev` brings up the app on `:8080` (the api behind it), cold —
+the bootstrap organization and admin, no records. Open
+**http://localhost:8080** and log in as `admin@demo.test` /
+`demo-password-123`.
 Full first-run details:
 [tutorials/getting-started.md](../tutorials/getting-started.md).
 
@@ -103,7 +104,7 @@ the anti-hallucination guarantee, not a bug.
 | *"Couldn't read enough from this company's site."* | The fetch failed: the offline fake is active (see above), a **403** from a bot-protected domain, or a genuinely thin page. Use a crawlable domain. |
 | *"no field survived the no-guess evidence gate"* | The model returned JSON but no `evidence_snippet` was verbatim on the page (or confidences ≤ 0). Expected for weak models / thin pages — try a content-rich page, or `mistral` over `gemma3`. |
 | A 500 mentioning *"cannot unmarshal … into … string"* | The model ignored the schema and emitted a wrong-typed field. Switch to `mistral`. |
-| Logged out immediately after login on `:5173` | The api isn't reachable at the Vite `/v1` proxy target — make sure `make dev` is running (it starts both) and use the URLs it printed. |
+| Logged out immediately after login | The api isn't reachable at the `/v1` proxy target — make sure `make dev` is running (it starts both) and use the URL it printed. |
 
 Set `MARGINCE_LOG_LEVEL=debug` (in `.env.local` or via `--log-level`) for verbose
 model-runtime logs. Small local models are hit-or-miss against the strict

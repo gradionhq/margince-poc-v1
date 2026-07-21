@@ -91,13 +91,22 @@ func (c CrawlCaps) withDefaults() CrawlCaps {
 	return c
 }
 
-// The crawl selects FRONTIER-sized waves: every admissible candidate
-// known at selection time fetches concurrently (the webread pacer's
-// in-flight budget does the throttling), and results COMMIT strictly in
-// selection order, so the walk stays deterministic whatever order the
-// responses arrive in. Most of a site's candidates are known after the
-// probes + sitemap, so the whole crawl is ~2 waves. Tests pin the wave
-// to 1 so their in-memory fetch logs stay sequential.
+// The crawl fetches in bounded WAVES: each round takes the best few
+// admissible candidates and fetches them concurrently (the webread
+// pacer's in-flight budget does the throttling), and results COMMIT
+// strictly in selection order, so the walk stays deterministic whatever
+// order the responses arrive in. Tests pin the wave to 1 so their
+// in-memory fetch logs stay sequential.
+
+// crawlWaveSize bounds one concurrent round. It is deliberately far below
+// the page budget: a wave as wide as the budget spends every slot on the
+// candidates known at the seed, so a page discovered one link deeper — a
+// solutions index linked only from a submenu — can never compete however
+// well it ranks. Re-ranking every few pages lets discovery correct the
+// order, and the staggered commits are what the SPA's progress counter
+// actually watches. Small enough to re-rank often, wide enough that the
+// pacer, not this bound, remains the throughput limit.
+const crawlWaveSize = 6
 
 type siteCrawler struct {
 	fetch     siteFetcher
@@ -111,13 +120,12 @@ type siteCrawler struct {
 func newSiteCrawler(fetch siteFetcher, caps CrawlCaps) *siteCrawler {
 	caps = caps.withDefaults()
 	return &siteCrawler{
-		fetch:    fetch,
-		newPacer: func() crawlPacer { return webread.NewPacer() },
-		maxPages: caps.MaxPages,
-		maxBytes: caps.MaxBytes,
-		wall:     caps.Wall,
-		// Frontier sizing: the page budget itself is the wave bound.
-		fetchWave: caps.MaxPages,
+		fetch:     fetch,
+		newPacer:  func() crawlPacer { return webread.NewPacer() },
+		maxPages:  caps.MaxPages,
+		maxBytes:  caps.MaxBytes,
+		wall:      caps.Wall,
+		fetchWave: crawlWaveSize,
 	}
 }
 
@@ -139,6 +147,7 @@ var wellKnownProbes = []struct {
 	{"/kontakt", crmcontracts.SiteReadPageKindContact},
 	{"/contact", crmcontracts.SiteReadPageKindContact},
 	{"/services", crmcontracts.SiteReadPageKindServices},
+	{"/solutions", crmcontracts.SiteReadPageKindServices},
 	{"/leistungen", crmcontracts.SiteReadPageKindServices},
 	{"/products", crmcontracts.SiteReadPageKindProducts},
 	{"/produkte", crmcontracts.SiteReadPageKindProducts},
@@ -294,6 +303,9 @@ type crawlRun struct {
 	seenText      map[string]bool
 	canonicalDone map[string]bool
 	probeKindDone map[crmcontracts.SiteReadPageKind]bool
+	// impressumRead counts committed legal pages: the locale bypass that
+	// keeps the entity census honest is bounded by it (legalCensusOpen).
+	impressumRead int
 	totalBytes    int
 }
 

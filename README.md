@@ -62,32 +62,50 @@ Everything below this line is for people (and agents) working on the code.
 ## Quick start
 
 **Boot it.** `make dev` brings up the whole local stack — the Docker
-Compose infra (Postgres 16 + Redis 7), migrations, the api, a seeded demo
-workspace, and the Vite SPA — then prints the URLs and returns (the servers
-run in the background; stop them with `make dev-stop`):
+Compose infra (Postgres 16 + Redis 7), migrations, the api, and the Vite SPA
+— then prints the URLs and returns (the servers run in the background; stop
+them with `make dev-stop`):
 
 ```sh
 make dev
 ```
 
-**Log in.** Open http://localhost:5173 for the web UI (people, the deal
-board, the timeline) — the Vite dev server; it proxies `/v1` to the api on
-:8080. Workspace `demo-workspace`, sign in as `admin@demo.test` /
-`demo-password-123` (dev-only credentials). The seed goes through the public
-API — same audit trail, same events as real traffic — and is idempotent;
-`make seed-reset` wipes the demo workspace for a clean re-seed.
+It boots **cold**: the organization and admin seat the api bootstraps from
+`config/margince.yaml`, and no other data. That is the state a real first
+customer sees, so onboarding and empty states are what you develop against
+by default.
+
+**Log in.** Open **http://localhost:8080** — that is the app, always. The
+dev server proxies `/v1` (and the probes) to the api behind it on :18080, so
+the one port serves both the UI and the contract. Sign in as
+`admin@demo.test` / `demo-password-123` (dev-only credentials, from
+`config/margince.yaml`).
+
+**Skip the cold start** with `make seed-dev` against a running stack: demo
+people, organizations, and deals plus the two rep seats and FX rates. The
+seed goes through the public API — same audit trail, same events as real
+traffic — and is idempotent; `make seed-reset` wipes the demo workspace for
+a clean re-seed.
+
+`make dev` is always safe to re-run: it sweeps first — every margince
+api/worker/vite on the machine is killed (including one another checkout left
+behind), anything holding `:8080` is evicted, and leftover
+`margince_dev_*` databases are dropped. One stack, always the same ports, and
+no chance the browser is talking to an api from an older branch. `make dev-stop`
+is the mirror: bare, it stops every stack.
 
 **Isolate a second stack.** `make dev DEV_SLUG=<slug>` gives a private
 `margince_dev_<slug>` database on slug-derived ports so a second worktree
 runs concurrently without colliding; `make dev-stop DEV_SLUG=<slug> [DROP=1]`
-tears it down (`DROP=1` also drops the database).
+tears it down (`DROP=1` also drops the database). The sweep spares a running
+slugged stack — but the next bare `make dev` will not.
 
-**Verify** the whole thing end to end (seeded-admin login over `/v1`,
-seeded people visible, frontend production build — fails loudly on the
-first broken step):
+**Verify** the whole thing end to end (admin login over `/v1`, seeded people
+visible, frontend production build — fails loudly on the first broken step).
+It reads the demo records, so seed first:
 
 ```sh
-make verify-boot
+make seed-dev && make verify-boot
 ```
 
 Toolchain: Go ≥ 1.26, Docker (Compose), `jq`, `golangci-lint`, and

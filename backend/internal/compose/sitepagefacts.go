@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
@@ -231,6 +232,29 @@ func (x evidenceExtractor) extractPageFacts(ctx context.Context, page crawlPage)
 	return result, nil
 }
 
+// zeroedStat rejects a measurable claim whose measurement is zero. Sites
+// animate their headline numbers up from 0, and a fetched page carries
+// the pre-animation DOM — so "$10B+ GMV enabled", the figure a human
+// sees, reaches extraction as "0 B + GMV enabled". It cites its passage
+// honestly, which is why the citation gate passes it, and it is still a
+// claim the company never made. Only quantified_outcome is affected:
+// zero is meaningless for a stat and meaningful nowhere else.
+func zeroedStat(field, value string) bool {
+	if field != people.FactQuantifiedOutcome {
+		return false
+	}
+	digits := strings.IndexFunc(value, unicode.IsDigit)
+	if digits < 0 {
+		return false // a claim with no number at all is not a zeroed one
+	}
+	for _, r := range value {
+		if unicode.IsDigit(r) && r != '0' {
+			return false
+		}
+	}
+	return true
+}
+
 // gatePageFacts is the no-guess gate for one page's compact reply:
 // closed vocabulary (schema-enforced, re-checked), resolvable citation,
 // the value's NAME in the cited passage (±1 same-page join), people
@@ -276,6 +300,10 @@ func gatePageFactList(parsed pageFactsReply, page crawlPage, menu pageMenu, idx 
 		evidence, cited := idx.nameInCited(f.E, factName(f.V))
 		if !cited {
 			drop(lanePageFacts, f.F, f.V, dropValueNotInSnippet)
+			continue
+		}
+		if zeroedStat(f.F, f.V) {
+			drop(lanePageFacts, f.F, f.V, dropZeroedStat)
 			continue
 		}
 		valueKey := ""
