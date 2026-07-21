@@ -35,6 +35,32 @@ var kindPriority = map[crmcontracts.SiteReadPageKind]int{
 	crmcontracts.SiteReadPageKindProducts:  40,
 }
 
+// depthDemotion ranks an index above its own leaves. /solutions enumerates
+// what a company sells — the taxonomy a CRM needs; /solutions/security/
+// pen-testing details ONE of those and states its methods and deliverables
+// as bullets. Read the leaf first and the budget buys sub-bullets of one
+// offering while the list of offerings is never seen at all, which reads
+// back as "this company sells affinity mapping" instead of "UX Research".
+// A leaf is never excluded — it is simply behind every index above it.
+const depthDemotion = 8
+
+// pathDepth counts a URL's path segments on its locale-canonical form, so
+// /en/solutions is depth 1 like /solutions and a translation is never
+// demoted for carrying a language prefix.
+func pathDepth(rawURL string) int {
+	parsed, err := url.Parse(localeCanonical(rawURL))
+	if err != nil {
+		return 1
+	}
+	depth := 0
+	for _, segment := range strings.Split(parsed.Path, "/") {
+		if segment != "" {
+			depth++
+		}
+	}
+	return depth
+}
+
 func candidatePriority(cand crawlCandidate) int {
 	if cand.probe {
 		return priProbe
@@ -42,10 +68,16 @@ func candidatePriority(cand crawlCandidate) int {
 	if boilerplatePath(cand.url) {
 		return priBoilerplate
 	}
-	if pri, ok := kindPriority[classifyKind(cand.url)]; ok {
-		return pri
+	pri, ok := kindPriority[classifyKind(cand.url)]
+	if !ok {
+		pri = priOther
 	}
-	return priOther
+	if demoted := pri - (pathDepth(cand.url)-1)*depthDemotion; demoted > priBoilerplate {
+		return demoted
+	}
+	// A deep page still outranks a blog archive: boilerplate is the only
+	// band below everything, and depth alone never demotes into it.
+	return priBoilerplate + 1
 }
 
 // localePrefixes are the path-leading language tags multilingual sites
@@ -153,7 +185,7 @@ func classifyKind(rawURL string) crmcontracts.SiteReadPageKind {
 		return crmcontracts.SiteReadPageKindTeam
 	case containsAny(path, "kontakt", "contact"):
 		return crmcontracts.SiteReadPageKindContact
-	case containsAny(path, "service", "leistung"):
+	case containsAny(path, "service", "leistung", "solution", "loesung", "lösung"):
 		return crmcontracts.SiteReadPageKindServices
 	case containsAny(path, "produkt", "product"):
 		return crmcontracts.SiteReadPageKindProducts

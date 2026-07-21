@@ -109,11 +109,11 @@ func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *s
 	}
 
 	start := time.Now()
-	crawl, extraction, err := crawlAndExtract(ctx, crawler, extract, opts.SeedURL, func(done int) {
+	crawl, extraction, err := crawlAndExtract(ctx, crawler, extract, opts.SeedURL, func(phase string, done int) {
 		if opts.Progress != nil {
 			// The total is unknowable mid-crawl (pages stream in); done
 			// alone is the honest signal.
-			opts.Progress("extracted page", done, done)
+			opts.Progress(phase, done, done)
 		}
 	}, nil)
 	if err != nil {

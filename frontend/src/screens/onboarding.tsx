@@ -583,7 +583,11 @@ function OnboardingCoordinator() {
     }
     appliedReadVersion.current = read.draft_version;
     setDraft((prev) => prefill(prev, read.profile_fields));
-    setSelectedFactKeys(read.facts.map((fact) => fact.value_key));
+    // A value key can name more than one fact — the same company can be
+    // both a partner and a named customer — and the API takes a SET of
+    // keys, so the selection folds the repeats rather than sending a
+    // duplicate it would reject.
+    setSelectedFactKeys([...new Set(read.facts.map((fact) => fact.value_key))]);
   }, [siteRead.data]);
 
   const go = (next: number, persist = true) => {
@@ -946,7 +950,7 @@ function CompanyStep({
               const selected = selectedFactKeys.includes(fact.value_key);
               return (
                 <button
-                  key={fact.value_key}
+                  key={`${fact.field}:${fact.value_key}`}
                   type="button"
                   className={`fact-card ${selected ? "selected" : ""}`}
                   aria-pressed={selected}

@@ -209,7 +209,7 @@ func TestCrawlAndExtractStreamsDeterministicallyAndFiresProfileOnce(t *testing.T
 			brain.pageReplies[pageURL] = fmt.Sprintf(`{"facts":[{"f":"service","v":"Audit %02d — catalog line","e":"s0"}]}`, i)
 		}
 		crawler := testSiteCrawler(site)
-		crawler.fetchWave = crawler.maxPages // production frontier sizing
+		crawler.fetchWave = crawler.maxPages // one wave: every page commits in the same round
 		var published []int
 		crawl, extraction, err := crawlAndExtract(context.Background(), crawler,
 			evidenceExtractor{brain: brain, factBrain: brain}, seedURL, nil, func(partial pageFactsResult) {

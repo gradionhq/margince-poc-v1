@@ -207,6 +207,13 @@ function ReadProgress({
   const fetchedPages = read.pages.filter((page) => page.status === "fetched");
   const skippedPages = read.pages.filter((page) => page.status !== "fetched");
   const findings = read.profile_fields.length + read.facts.length;
+  // The page LIST lands only with the finished read; pages_read is the
+  // counter the worker advances as each page commits. Reading the list
+  // while the read is still running shows a frozen 0 for the whole crawl,
+  // so prefer the live counter until the terminal write supersedes it.
+  const pagesRead = terminalStatuses.has(read.status)
+    ? fetchedPages.length
+    : (read.pages_read ?? fetchedPages.length);
   const activePhase =
     read.phase ?? (read.status === "queued" ? "crawling" : null);
 
@@ -269,7 +276,7 @@ function ReadProgress({
 
       <div className="read-metrics">
         <div>
-          <b>{fetchedPages.length}</b>
+          <b>{pagesRead}</b>
           <span>{t("ob.pagesRead")}</span>
         </div>
         <div>

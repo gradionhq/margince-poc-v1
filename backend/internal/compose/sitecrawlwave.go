@@ -48,7 +48,7 @@ func (r *crawlRun) admit(cand crawlCandidate) (admission, bool) {
 	if kind == "" {
 		kind = classifyKind(candURL)
 	}
-	if kind != crmcontracts.SiteReadPageKindImpressum && r.canonicalDone[localeCanonical(candURL)] {
+	if !r.legalCensusOpen(kind) && r.canonicalDone[localeCanonical(candURL)] {
 		// A locale variant of a page already read (/de/about after
 		// /about): a translation restates the same document, and exact-
 		// text dedupe cannot see that. One language per document.
@@ -97,6 +97,21 @@ func (r *crawlRun) fetchWave(ctx context.Context, admitted []admission) []fetchR
 }
 
 // commit files one fetched result — a page, a recorded skip, a silent
+// legalCensusOpen reports whether an Impressum candidate may still bypass
+// the one-language-per-document rule. The bypass exists because a group's
+// per-locale legal pages can name DIFFERENT legal entities, and the entity
+// census must see them all. But it is a budget hole: a six-language site
+// offers six translations of one legal notice, each at the highest kind
+// priority, and unbounded they buy six slots the offering pages then never
+// get. Two is enough to notice a second entity; past that a translation is
+// a translation.
+const maxLegalLocalePages = 2
+
+func (r *crawlRun) legalCensusOpen(kind crmcontracts.SiteReadPageKind) bool {
+	return kind == crmcontracts.SiteReadPageKindImpressum && r.impressumRead < maxLegalLocalePages
+}
+
+// commit folds one fetched candidate into the run — as a page, a
 // skip, or the crawl's stop — in wave order, single-threaded. The probe-
 // kind and locale rechecks exist because a wave admits its candidates
 // BEFORE any of them fetched: two probes of one kind (or two locales of
@@ -109,7 +124,7 @@ func (r *crawlRun) commit(adm admission, res fetchResult) {
 		// moot probe pre-fetch.
 		return
 	}
-	if adm.kind != crmcontracts.SiteReadPageKindImpressum && r.canonicalDone[localeCanonical(adm.url)] {
+	if !r.legalCensusOpen(adm.kind) && r.canonicalDone[localeCanonical(adm.url)] {
 		// Same for a locale variant whose document landed earlier in the
 		// wave.
 		return
@@ -151,6 +166,9 @@ func (r *crawlRun) commit(adm admission, res fetchResult) {
 
 	r.seenText[page.Text] = true
 	r.canonicalDone[localeCanonical(adm.url)] = true
+	if adm.kind == crmcontracts.SiteReadPageKindImpressum {
+		r.impressumRead++
+	}
 	r.totalBytes += page.Bytes
 	if adm.cand.probe {
 		r.probeKindDone[adm.cand.kind] = true

@@ -376,13 +376,16 @@ func TestCrawlSpendsAScarcePageBudgetOnFactPagesBeforeBlogLinks(t *testing.T) {
 	}
 }
 
-func TestCrawlReadsOneLanguagePerDocumentButEveryLegalPage(t *testing.T) {
+func TestCrawlReadsOneLanguagePerDocumentAndBoundsTheLegalCensus(t *testing.T) {
 	site := &fakeSite{pages: seedOnly()}
 	// The same three documents mounted under four locales, plus one page
 	// that exists ONLY under a locale prefix — that one must still be
-	// read. Legal pages are exempt from the collapse: the multi-entity
-	// conflict guard can only count what it reads, so every locale's
-	// imprint is fetched.
+	// read. Legal pages relax the collapse, because a group's per-locale
+	// imprints can name different entities and the conflict guard can
+	// only count what it reads — but the relaxation is BOUNDED
+	// (maxLegalLocalePages): past it a translation is just a translation,
+	// and on a six-language site the unbounded rule spent the page budget
+	// on restatements of one legal notice.
 	for _, path := range []string{"/about", "/imprint", "/pricing"} {
 		site.sitemap = append(site.sitemap, seedURL+path)
 		site.pages[seedURL+path] = fakeSitePage{text: readable("en " + path)}
@@ -405,11 +408,20 @@ func TestCrawlReadsOneLanguagePerDocumentButEveryLegalPage(t *testing.T) {
 	want := []string{
 		seedURL,
 		seedURL + "/imprint", seedURL + "/about", // the probes lead
-		seedURL + "/de/imprint", seedURL + "/vi/imprint", seedURL + "/th/imprint",
+		seedURL + "/de/imprint", // the census's second entity chance, and its last
 		seedURL + "/pricing", seedURL + "/de/karriere",
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("wrong collapse: locale variants must dedupe EXCEPT legal pages:\n got %v\nwant %v", got, want)
+		t.Fatalf("wrong collapse: locale variants dedupe, legal pages bounded at %d:\n got %v\nwant %v", maxLegalLocalePages, got, want)
+	}
+	var legal int
+	for _, page := range crawl.Pages {
+		if page.Kind == crmcontracts.SiteReadPageKindImpressum {
+			legal++
+		}
+	}
+	if legal > maxLegalLocalePages {
+		t.Fatalf("legal census read %d pages, want at most %d", legal, maxLegalLocalePages)
 	}
 }
 
