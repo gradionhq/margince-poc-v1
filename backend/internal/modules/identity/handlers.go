@@ -48,6 +48,15 @@ type Handlers struct {
 	loginPerIP    *ratelimit.Limiter // 30/min per client IP
 	resetPerEmail *ratelimit.Limiter // 3/hour per (email, IP)
 	resetPerIP    *ratelimit.Limiter // 30/hour per client IP
+
+	// sorMode answers whether the caller's workspace reads from an
+	// incumbent overlay mirror, so /me can tell the client its
+	// system-of-record mode (the client gates its list UI on it — an
+	// overlay mirror cannot serve sort/filter dials). Injected by the
+	// composition root (the datasource dispatch owns mode resolution;
+	// identity never imports the overlay module). Nil ⟹ always native,
+	// the correct default for any role that wired no overlay dispatch.
+	sorMode func(context.Context) (overlay bool, err error)
 }
 
 // NewHandlers builds the identity transport surface over its service.
@@ -69,6 +78,30 @@ func (h Handlers) WithPasswordReset(m mailer.Mailer, publicBaseURL string) Handl
 	h.resetMailer = m
 	h.resetBaseURL = strings.TrimRight(publicBaseURL, "/")
 	return h
+}
+
+// WithSorMode injects the workspace system-of-record mode resolver the
+// composition root builds over the datasource dispatch. Without it /me
+// reports native (the correct answer for any role with no overlay wiring).
+func (h Handlers) WithSorMode(resolve func(context.Context) (bool, error)) Handlers {
+	h.sorMode = resolve
+	return h
+}
+
+// resolveSorMode names the caller's workspace system-of-record mode for
+// the /me response. A nil resolver (no overlay wiring) is native; a
+// resolver error degrades to native rather than failing /me — the 422
+// read-subset guard still refuses any dial the mirror cannot serve, so a
+// momentary mis-report costs an unsorted list, never a wrong answer.
+func (h Handlers) resolveSorMode(ctx context.Context) crmcontracts.MeResponseSystemOfRecordMode {
+	if h.sorMode == nil {
+		return crmcontracts.Native
+	}
+	overlay, err := h.sorMode(ctx)
+	if err != nil || !overlay {
+		return crmcontracts.Native
+	}
+	return crmcontracts.Overlay
 }
 
 // clientIP is the throttle key for unauthenticated calls. RemoteAddr is
@@ -133,7 +166,7 @@ func (h Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setSessionCookie(w, token)
-	httperr.WriteJSON(w, http.StatusOK, meResponse(id))
+	httperr.WriteJSON(w, http.StatusOK, meResponse(id, h.resolveSorMode(r.Context())))
 }
 
 // Logout implements (POST /auth/logout): revoke + clear, idempotent, 204.
@@ -155,7 +188,7 @@ func (h Handlers) GetCurrentPrincipal(w http.ResponseWriter, r *http.Request) {
 		httperr.Unauthorized(w, r, "no session")
 		return
 	}
-	httperr.WriteJSON(w, http.StatusOK, meResponse(id))
+	httperr.WriteJSON(w, http.StatusOK, meResponse(id, h.resolveSorMode(r.Context())))
 }
 
 // IssuePassport implements (POST /passports): the session user mints an
@@ -357,7 +390,7 @@ func clearSessionCookie(w http.ResponseWriter) {
 	})
 }
 
-func meResponse(id Identity) crmcontracts.MeResponse {
+func meResponse(id Identity, sorMode crmcontracts.MeResponseSystemOfRecordMode) crmcontracts.MeResponse {
 	roles := id.Roles
 	if roles == nil {
 		roles = []string{}
@@ -376,5 +409,8 @@ func meResponse(id Identity) crmcontracts.MeResponse {
 		},
 		Roles: roles,
 		Teams: teams,
+		SystemOfRecord: &struct {
+			Mode crmcontracts.MeResponseSystemOfRecordMode `json:"mode"`
+		}{Mode: sorMode},
 	}
 }

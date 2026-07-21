@@ -47,8 +47,12 @@ var alterTableStmt = regexp.MustCompile(`(?is)ALTER\s+TABLE\s+([a-z_]+)`)
 // singleQuoted pulls the 'value' literals out of a captured IN-list.
 var singleQuoted = regexp.MustCompile(`'([^']*)'`)
 
-// migrationPrefix is the fixed-width name shape last-wins ordering needs.
-var migrationPrefix = regexp.MustCompile(`^\d{4}_`)
+// migrationPrefix is the fixed-width name shape last-wins ordering needs:
+// core/ uses a 4-digit sequence number (ADR-0017), custom/ a 14-digit
+// YYYYMMDDHHMMSS timestamp (ADR-0017 Amendment 1) — either width sorts
+// lexically-equals-chronologically within its own namespace, which is all
+// tableCheckSets' per-root walk relies on.
+var migrationPrefix = regexp.MustCompile(`^\d{4,}_`)
 
 // recordChecks derives every CHECK (col IN (…)) set in text and records
 // it under table.col — the one spelling shared by the CREATE-block and

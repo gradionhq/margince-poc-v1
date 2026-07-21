@@ -11,7 +11,12 @@ import {
 } from "../design-system/atoms";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
-import { problemMessage, QueryGate } from "./common";
+import {
+  OverlayUnavailable,
+  problemMessage,
+  QueryGate,
+  useSorMode,
+} from "./common";
 import { CreateRecordModal, NewRecordButton } from "./create";
 
 // Tasks (B-EP09.12d): open tasks grouped overdue / today / upcoming / undated
@@ -165,8 +170,14 @@ export function TasksScreen() {
   const t = useT();
   const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
+  // Tasks are activities filtered by kind=task — a defining filter the overlay
+  // mirror cannot honor (422), and creating one would write to an incumbent
+  // that owns the record. So overlay mode shows the honest unavailable state
+  // (below) and skips the doomed fetch, rather than mislabeling every activity.
+  const overlay = useSorMode() === "overlay";
   const query = useQuery({
     queryKey: ["tasks"],
+    enabled: !overlay,
     queryFn: async () => {
       const { data, error } = await api.GET("/activities", {
         params: { query: { kind: "task", limit: 100 } },
@@ -242,6 +253,17 @@ export function TasksScreen() {
 
   const remindTask = (id: string, remindAt: string | null) =>
     update.mutate({ id, body: { remind_at: remindAt } });
+
+  if (overlay) {
+    return (
+      <div className="wrap narrow">
+        <div className="list-head">
+          <SectionHeader title={t("nav.tasks")} />
+        </div>
+        <OverlayUnavailable />
+      </div>
+    );
+  }
 
   return (
     <div className="wrap narrow">

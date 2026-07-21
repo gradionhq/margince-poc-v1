@@ -2694,6 +2694,24 @@ func (e MeResponsePassportScopes) Valid() bool {
 	}
 }
 
+// Defines values for MeResponseSystemOfRecordMode.
+const (
+	Native  MeResponseSystemOfRecordMode = "native"
+	Overlay MeResponseSystemOfRecordMode = "overlay"
+)
+
+// Valid indicates whether the value is a known member of the MeResponseSystemOfRecordMode enum.
+func (e MeResponseSystemOfRecordMode) Valid() bool {
+	switch e {
+	case Native:
+		return true
+	case Overlay:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MorningBriefItemState.
 const (
 	MorningBriefItemStateActed     MorningBriefItemState = "acted"
@@ -3081,6 +3099,99 @@ func (e OrganizationHierarchyRollupScope) Valid() bool {
 	case OrganizationHierarchyRollupScopeSelf:
 		return true
 	case OrganizationHierarchyRollupScopeTree:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OverlayBudgetBand.
+const (
+	OverlayBudgetBandOk   OverlayBudgetBand = "ok"
+	OverlayBudgetBandShed OverlayBudgetBand = "shed"
+	OverlayBudgetBandWarn OverlayBudgetBand = "warn"
+)
+
+// Valid indicates whether the value is a known member of the OverlayBudgetBand enum.
+func (e OverlayBudgetBand) Valid() bool {
+	switch e {
+	case OverlayBudgetBandOk:
+		return true
+	case OverlayBudgetBandShed:
+		return true
+	case OverlayBudgetBandWarn:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OverlayConnectRequestIncumbent.
+const (
+	OverlayConnectRequestIncumbentHubspot OverlayConnectRequestIncumbent = "hubspot"
+)
+
+// Valid indicates whether the value is a known member of the OverlayConnectRequestIncumbent enum.
+func (e OverlayConnectRequestIncumbent) Valid() bool {
+	switch e {
+	case OverlayConnectRequestIncumbentHubspot:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OverlayConnectionIncumbent.
+const (
+	OverlayConnectionIncumbentHubspot OverlayConnectionIncumbent = "hubspot"
+)
+
+// Valid indicates whether the value is a known member of the OverlayConnectionIncumbent enum.
+func (e OverlayConnectionIncumbent) Valid() bool {
+	switch e {
+	case OverlayConnectionIncumbentHubspot:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OverlayConnectionStatus.
+const (
+	OverlayConnectionStatusActive  OverlayConnectionStatus = "active"
+	OverlayConnectionStatusError   OverlayConnectionStatus = "error"
+	OverlayConnectionStatusRevoked OverlayConnectionStatus = "revoked"
+)
+
+// Valid indicates whether the value is a known member of the OverlayConnectionStatus enum.
+func (e OverlayConnectionStatus) Valid() bool {
+	switch e {
+	case OverlayConnectionStatusActive:
+		return true
+	case OverlayConnectionStatusError:
+		return true
+	case OverlayConnectionStatusRevoked:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OverlaySyncStatusObjectsState.
+const (
+	OverlaySyncStatusObjectsStateFresh       OverlaySyncStatusObjectsState = "fresh"
+	OverlaySyncStatusObjectsStatePendingSync OverlaySyncStatusObjectsState = "pending_sync"
+	OverlaySyncStatusObjectsStateStale       OverlaySyncStatusObjectsState = "stale"
+)
+
+// Valid indicates whether the value is a known member of the OverlaySyncStatusObjectsState enum.
+func (e OverlaySyncStatusObjectsState) Valid() bool {
+	switch e {
+	case OverlaySyncStatusObjectsStateFresh:
+		return true
+	case OverlaySyncStatusObjectsStatePendingSync:
+		return true
+	case OverlaySyncStatusObjectsStateStale:
 		return true
 	default:
 		return false
@@ -4292,19 +4403,19 @@ func (e UpdateOrganizationRequestSizeBand) Valid() bool {
 
 // Defines values for UpdateSignalRequestSeverity.
 const (
-	Info   UpdateSignalRequestSeverity = "info"
-	Urgent UpdateSignalRequestSeverity = "urgent"
-	Warn   UpdateSignalRequestSeverity = "warn"
+	UpdateSignalRequestSeverityInfo   UpdateSignalRequestSeverity = "info"
+	UpdateSignalRequestSeverityUrgent UpdateSignalRequestSeverity = "urgent"
+	UpdateSignalRequestSeverityWarn   UpdateSignalRequestSeverity = "warn"
 )
 
 // Valid indicates whether the value is a known member of the UpdateSignalRequestSeverity enum.
 func (e UpdateSignalRequestSeverity) Valid() bool {
 	switch e {
-	case Info:
+	case UpdateSignalRequestSeverityInfo:
 		return true
-	case Urgent:
+	case UpdateSignalRequestSeverityUrgent:
 		return true
-	case Warn:
+	case UpdateSignalRequestSeverityWarn:
 		return true
 	default:
 		return false
@@ -4784,19 +4895,19 @@ func (e VoiceProfileQualityBand) Valid() bool {
 
 // Defines values for VoiceProfileStatus.
 const (
-	Collecting VoiceProfileStatus = "collecting"
-	Ready      VoiceProfileStatus = "ready"
-	Stale      VoiceProfileStatus = "stale"
+	VoiceProfileStatusCollecting VoiceProfileStatus = "collecting"
+	VoiceProfileStatusReady      VoiceProfileStatus = "ready"
+	VoiceProfileStatusStale      VoiceProfileStatus = "stale"
 )
 
 // Valid indicates whether the value is a known member of the VoiceProfileStatus enum.
 func (e VoiceProfileStatus) Valid() bool {
 	switch e {
-	case Collecting:
+	case VoiceProfileStatusCollecting:
 		return true
-	case Ready:
+	case VoiceProfileStatusReady:
 		return true
-	case Stale:
+	case VoiceProfileStatusStale:
 		return true
 	default:
 		return false
@@ -4868,22 +4979,22 @@ func (e VoiceProfileEvaluationClassification) Valid() bool {
 
 // Defines values for VoiceProfileVersionReason.
 const (
-	Automatic  VoiceProfileVersionReason = "automatic"
-	Manual     VoiceProfileVersionReason = "manual"
-	Onboarding VoiceProfileVersionReason = "onboarding"
-	Rollback   VoiceProfileVersionReason = "rollback"
+	VoiceProfileVersionReasonAutomatic  VoiceProfileVersionReason = "automatic"
+	VoiceProfileVersionReasonManual     VoiceProfileVersionReason = "manual"
+	VoiceProfileVersionReasonOnboarding VoiceProfileVersionReason = "onboarding"
+	VoiceProfileVersionReasonRollback   VoiceProfileVersionReason = "rollback"
 )
 
 // Valid indicates whether the value is a known member of the VoiceProfileVersionReason enum.
 func (e VoiceProfileVersionReason) Valid() bool {
 	switch e {
-	case Automatic:
+	case VoiceProfileVersionReasonAutomatic:
 		return true
-	case Manual:
+	case VoiceProfileVersionReasonManual:
 		return true
-	case Onboarding:
+	case VoiceProfileVersionReasonOnboarding:
 		return true
-	case Rollback:
+	case VoiceProfileVersionReasonRollback:
 		return true
 	default:
 		return false
@@ -7913,7 +8024,20 @@ type MeResponse struct {
 	} `json:"passport,omitempty"`
 
 	// Roles Effective role keys for this principal.
-	Roles []string             `json:"roles"`
+	Roles []string `json:"roles"`
+
+	// SystemOfRecord The workspace's active system-of-record mode (workspace.x_sor_mode). `native` is the
+	// default and full-capability mode. In `overlay` mode the data is served from a read-only
+	// incumbent mirror: list sort/filter dials and unservable reads answer
+	// 422 `unsupported_in_overlay_mode` / 404, and mirrored-entity writes answer
+	// `unsupported_by_sor`. Clients gate their UI on this — rendering unservable read surfaces
+	// as an honest "not available in overlay" affordance and hiding mirrored-entity write
+	// controls — rather than offering controls that fail. Reverts to `native` after an
+	// overlay→native flip. Optional for backward compatibility; a missing value MUST be
+	// treated as `native`.
+	SystemOfRecord *struct {
+		Mode MeResponseSystemOfRecordMode `json:"mode"`
+	} `json:"system_of_record,omitempty"`
 	Teams []openapi_types.UUID `json:"teams"`
 
 	// User A seat — human or first-party agent. Mirrors `app_user`.
@@ -7922,6 +8046,9 @@ type MeResponse struct {
 
 // MeResponsePassportScopes defines model for MeResponse.Passport.Scopes.
 type MeResponsePassportScopes string
+
+// MeResponseSystemOfRecordMode defines model for MeResponse.SystemOfRecord.Mode.
+type MeResponseSystemOfRecordMode string
 
 // Money Money as integer minor-units + ISO-4217 currency. Never a float.
 type Money struct {
@@ -8427,6 +8554,57 @@ type OrganizationListResponse struct {
 	Data []Organization `json:"data"`
 	Page PageInfo       `json:"page"`
 }
+
+// OverlayBudget The incumbent API budget window's consumption and degradation band.
+type OverlayBudget struct {
+	Band     *OverlayBudgetBand `json:"band,omitempty"`
+	Consumed *float32           `json:"consumed,omitempty"`
+	Limit    *float32           `json:"limit,omitempty"`
+	Window   *string            `json:"window,omitempty"`
+}
+
+// OverlayBudgetBand defines model for OverlayBudget.Band.
+type OverlayBudgetBand string
+
+// OverlayConnectRequest defines model for OverlayConnectRequest.
+type OverlayConnectRequest struct {
+	Incumbent OverlayConnectRequestIncumbent `json:"incumbent"`
+
+	// PrivateAppToken Sealed into the vault; never echoed. An empty value is rejected (422); a real credential is required to connect.
+	PrivateAppToken string `json:"privateAppToken"`
+	Region          string `json:"region"`
+}
+
+// OverlayConnectRequestIncumbent defines model for OverlayConnectRequest.Incumbent.
+type OverlayConnectRequestIncumbent string
+
+// OverlayConnection The workspace's overlay incumbent connection (HubSpot). The credential itself is never in this shape — it lives sealed in the vault.
+type OverlayConnection struct {
+	ConnectedAt time.Time                  `json:"connectedAt"`
+	Incumbent   OverlayConnectionIncumbent `json:"incumbent"`
+	Region      string                     `json:"region"`
+	Scopes      []string                   `json:"scopes"`
+	Status      OverlayConnectionStatus    `json:"status"`
+}
+
+// OverlayConnectionIncumbent defines model for OverlayConnection.Incumbent.
+type OverlayConnectionIncumbent string
+
+// OverlayConnectionStatus defines model for OverlayConnection.Status.
+type OverlayConnectionStatus string
+
+// OverlaySyncStatus Per-object mirror sync health — freshness state and backfill completeness (design.md §4.7).
+type OverlaySyncStatus struct {
+	Objects *[]struct {
+		BackfillComplete *bool                          `json:"backfillComplete,omitempty"`
+		LastSyncedAt     *time.Time                     `json:"lastSyncedAt,omitempty"`
+		Object           *string                        `json:"object,omitempty"`
+		State            *OverlaySyncStatusObjectsState `json:"state,omitempty"`
+	} `json:"objects,omitempty"`
+}
+
+// OverlaySyncStatusObjectsState defines model for OverlaySyncStatus.Objects.State.
+type OverlaySyncStatusObjectsState string
 
 // PageInfo defines model for PageInfo.
 type PageInfo struct {
@@ -12296,6 +12474,9 @@ type MergeOrganizationJSONRequestBody MergeOrganizationJSONBody
 
 // UpsertPartnerJSONRequestBody defines body for UpsertPartner for application/json ContentType.
 type UpsertPartnerJSONRequestBody = UpsertPartnerRequest
+
+// ConnectOverlayJSONRequestBody defines body for ConnectOverlay for application/json ContentType.
+type ConnectOverlayJSONRequestBody = OverlayConnectRequest
 
 // IssuePassportJSONRequestBody defines body for IssuePassport for application/json ContentType.
 type IssuePassportJSONRequestBody = IssuePassportRequest
@@ -17648,6 +17829,30 @@ type ServerInterface interface {
 	// Relationship strength for an organization (max over current employees).
 	// (GET /organizations/{id}/strength)
 	GetOrganizationStrength(w http.ResponseWriter, r *http.Request, id Id)
+	// The incumbent API budget window's consumption and band (ok/warn/shed).
+	// (GET /overlay/budget)
+	GetOverlayBudget(w http.ResponseWriter, r *http.Request)
+	// Disconnect the overlay incumbent and queue mirror teardown.
+	// (DELETE /overlay/connection)
+	DisconnectOverlay(w http.ResponseWriter, r *http.Request)
+	// The workspace's overlay incumbent connection, if any.
+	// (GET /overlay/connection)
+	GetOverlayConnection(w http.ResponseWriter, r *http.Request)
+	// Connect the workspace's overlay incumbent (HubSpot).
+	// (POST /overlay/connection)
+	ConnectOverlay(w http.ResponseWriter, r *http.Request)
+	// Execute the read-mode→overlay flip, queuing the migration.
+	// (POST /overlay/flip)
+	ExecuteOverlayFlip(w http.ResponseWriter, r *http.Request)
+	// Dry-run the read-mode→overlay flip's readiness checks without executing it.
+	// (POST /overlay/flip:preflight)
+	PreflightOverlayFlip(w http.ResponseWriter, r *http.Request)
+	// Queue an out-of-band mirror reconciliation sweep.
+	// (POST /overlay/reconcile)
+	ReconcileOverlay(w http.ResponseWriter, r *http.Request)
+	// Per-object mirror sync freshness (fresh/pending_sync/stale, backfill completeness).
+	// (GET /overlay/sync-status)
+	GetOverlaySyncStatus(w http.ResponseWriter, r *http.Request)
 	// List partner organizations (orgs with a partner row), filterable by role/cert status.
 	// (GET /partners)
 	ListPartners(w http.ResponseWriter, r *http.Request, params ListPartnersParams)
@@ -18743,6 +18948,54 @@ func (_ Unimplemented) GetSiteRead(w http.ResponseWriter, r *http.Request, id Id
 // Relationship strength for an organization (max over current employees).
 // (GET /organizations/{id}/strength)
 func (_ Unimplemented) GetOrganizationStrength(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The incumbent API budget window's consumption and band (ok/warn/shed).
+// (GET /overlay/budget)
+func (_ Unimplemented) GetOverlayBudget(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Disconnect the overlay incumbent and queue mirror teardown.
+// (DELETE /overlay/connection)
+func (_ Unimplemented) DisconnectOverlay(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The workspace's overlay incumbent connection, if any.
+// (GET /overlay/connection)
+func (_ Unimplemented) GetOverlayConnection(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Connect the workspace's overlay incumbent (HubSpot).
+// (POST /overlay/connection)
+func (_ Unimplemented) ConnectOverlay(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Execute the read-mode→overlay flip, queuing the migration.
+// (POST /overlay/flip)
+func (_ Unimplemented) ExecuteOverlayFlip(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Dry-run the read-mode→overlay flip's readiness checks without executing it.
+// (POST /overlay/flip:preflight)
+func (_ Unimplemented) PreflightOverlayFlip(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Queue an out-of-band mirror reconciliation sweep.
+// (POST /overlay/reconcile)
+func (_ Unimplemented) ReconcileOverlay(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Per-object mirror sync freshness (fresh/pending_sync/stale, backfill completeness).
+// (GET /overlay/sync-status)
+func (_ Unimplemented) GetOverlaySyncStatus(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -25827,6 +26080,182 @@ func (siw *ServerInterfaceWrapper) GetOrganizationStrength(w http.ResponseWriter
 	handler.ServeHTTP(w, r)
 }
 
+// GetOverlayBudget operation middleware
+func (siw *ServerInterfaceWrapper) GetOverlayBudget(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOverlayBudget(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DisconnectOverlay operation middleware
+func (siw *ServerInterfaceWrapper) DisconnectOverlay(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DisconnectOverlay(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetOverlayConnection operation middleware
+func (siw *ServerInterfaceWrapper) GetOverlayConnection(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOverlayConnection(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ConnectOverlay operation middleware
+func (siw *ServerInterfaceWrapper) ConnectOverlay(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ConnectOverlay(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ExecuteOverlayFlip operation middleware
+func (siw *ServerInterfaceWrapper) ExecuteOverlayFlip(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ExecuteOverlayFlip(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PreflightOverlayFlip operation middleware
+func (siw *ServerInterfaceWrapper) PreflightOverlayFlip(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PreflightOverlayFlip(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReconcileOverlay operation middleware
+func (siw *ServerInterfaceWrapper) ReconcileOverlay(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReconcileOverlay(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetOverlaySyncStatus operation middleware
+func (siw *ServerInterfaceWrapper) GetOverlaySyncStatus(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOverlaySyncStatus(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListPartners operation middleware
 func (siw *ServerInterfaceWrapper) ListPartners(w http.ResponseWriter, r *http.Request) {
 
@@ -31139,6 +31568,30 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/strength", wrapper.GetOrganizationStrength)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/overlay/budget", wrapper.GetOverlayBudget)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/overlay/connection", wrapper.DisconnectOverlay)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/overlay/connection", wrapper.GetOverlayConnection)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/overlay/connection", wrapper.ConnectOverlay)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/overlay/flip", wrapper.ExecuteOverlayFlip)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/overlay/flip:preflight", wrapper.PreflightOverlayFlip)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/overlay/reconcile", wrapper.ReconcileOverlay)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/overlay/sync-status", wrapper.GetOverlaySyncStatus)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/partners", wrapper.ListPartners)

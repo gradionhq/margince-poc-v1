@@ -81,6 +81,29 @@ export function useMe() {
   });
 }
 
+// The workspace system-of-record mode, read off the shared ["me"] cache.
+// `native` is the safe default (full list capability) while /me is loading
+// or if an older server omits the field; the list surfaces gate on `overlay`
+// to drop sort/filter dials the incumbent mirror refuses (422). AuthGate
+// resolves /me before any list screen mounts, so a screen sees the real value.
+export function useSorMode(): "native" | "overlay" {
+  return useMe().data?.system_of_record?.mode === "overlay"
+    ? "overlay"
+    : "native";
+}
+
+// The honest "this surface can't be served from the incumbent mirror" state,
+// shown in overlay mode where a feature needs a capability the mirror does not
+// hold — entity-scoped timelines, relationship strength, the context graph,
+// task filtering, the morning brief. It is NOT an error: it is a deliberate,
+// documented read-subset gap that closes when the workspace flips to native.
+// Rendered in place of the feature so the user never hits "Couldn't load this
+// view" for a capability overlay mode was never going to answer.
+export function OverlayUnavailable() {
+  const t = useT();
+  return <EmptyState>{t("overlay.unavailable")}</EmptyState>;
+}
+
 // AS-1: sign out. Clears ALL cached tenant data on success, then forces the
 // ["me"] probe to re-run → 401 → AuthGate renders the login screen.
 //

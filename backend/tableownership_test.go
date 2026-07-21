@@ -143,6 +143,17 @@ var tableOwners = map[string]string{
 	"custom_field": "internal/modules/customfields",
 	// quotas (RD-T06: owner-XOR-team revenue targets)
 	"quota": "internal/modules/quotas",
+	// overlay (the HubSpot mirror cluster, ADR-0017 custom namespace —
+	// design.md §4.2)
+	"incumbent_connection":        "internal/modules/overlay",
+	"overlay_mirror":              "internal/modules/overlay",
+	"overlay_association":         "internal/modules/overlay",
+	"mirror_user_map":             "internal/modules/overlay",
+	"mirror_visibility":           "internal/modules/overlay",
+	"overlay_write_ledger":        "internal/modules/overlay",
+	"overlay_tombstone":           "internal/modules/overlay",
+	"overlay_backfill_cursor":     "internal/modules/overlay",
+	"overlay_reconcile_watermark": "internal/modules/overlay",
 	// compose (HTTP replay protection is transport plumbing, not domain;
 	// the brief read model is the cross-module ranker's own snapshot —
 	// deals + people strength + activities compose only here)
@@ -226,6 +237,18 @@ var crossStoreWrites = map[string]string{
 	// logins have no session yet — so identity appends the append-only rows
 	// directly, the same reason it writes its own audit_log rows above.
 	"internal/modules/identity:system_log": "login and failed-login land in system_log but fire before/without an authenticated principal for storekit.LogSystem to stamp; identity appends the append-only rows itself",
+
+	// overlay's Connect/Disconnect flip workspace.x_sor_mode/x_incumbent —
+	// columns overlay's OWN fork-owned migration added
+	// (migrations/custom/20260716120000_overlay.up.sql, ADR-0054 §7's
+	// fork-owned custom namespace), not identity's core schema. The
+	// x_overlay_iff_incumbent CHECK requires both columns to change
+	// together, in the SAME transaction as the incumbent_connection
+	// row write (Connect) or its purge (Disconnect) — routing this
+	// through identity would split that atomicity across a sibling
+	// call, the same single-transaction rationale privacy's erasure
+	// entries above document.
+	"internal/modules/overlay:workspace": "flips its own fork-owned x_sor_mode/x_incumbent columns atomically with the connection row write, inside the same transaction (the x_overlay_iff_incumbent CHECK demands both change together)",
 }
 
 // sqlWriteTargets extracts write-statement table names from one SQL (or

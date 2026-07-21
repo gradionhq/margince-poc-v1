@@ -25,7 +25,9 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
+	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -237,9 +239,10 @@ func sweepInsertOpts() *river.InsertOpts {
 
 // JobRunnerConfig is NewJobRunner's boot configuration: the three
 // always-on periodic passes' intervals, the optional Gmail poll (added
-// only when GmailRegistry is non-nil), and the optional Gmail push-watch
+// only when GmailRegistry is non-nil), the optional Gmail push-watch
 // maintenance pass (added only when GmailRegistry is non-nil AND
-// GmailWatch.Topic is set).
+// GmailWatch.Topic is set), and the optional overlay reconcile poller
+// (added only when OverlayVault is non-nil).
 type JobRunnerConfig struct {
 	CloseDateInterval time.Duration
 	ReconcileInterval time.Duration
@@ -252,7 +255,13 @@ type JobRunnerConfig struct {
 	ClassifyBrain completer
 	// EnrichBrain is the signature-enrich lane; nil = the pass is absent
 	// by omission and connector-created people keep their empty fields.
-	EnrichBrain completer
+	EnrichBrain     completer
+	OverlayVault    keyvault.Vault
+	OverlayInterval time.Duration
+	// OverlayBackfillLimit bounds the initial mirror backfill at this many
+	// records per object class (dev/demo — MARGINCE_OVERLAY_BACKFILL_LIMIT);
+	// 0 (the default) is uncapped.
+	OverlayBackfillLimit int
 	// DeepReadBrain is the model lane the site deep-read job extracts with
 	// (the worker's modelPath.SiteExtract — the crawl's own routing
 	// dial). May be nil: the deep-read worker still registers, so a
@@ -283,6 +292,14 @@ type JobRunnerConfig struct {
 // maintenance pass is added on cfg.GmailWatch.Interval that registers/renews
 // Gmail watches nearing expiry; without a topic the watch job is absent by
 // omission and capture stays on the poll.
+//
+// When cfg.OverlayVault is non-nil (the deployment configured a secret
+// vault), the overlay reconcile poller is added on cfg.OverlayInterval —
+// leader-elected the same way, sweeping every overlay-mode workspace's
+// active incumbent connection. Without a vault there is no credential
+// custodian to resolve a connection's sealed token through, so the poller
+// stays off by omission, the same posture cfg.GmailRegistry==nil takes for
+// the Gmail poll.
 func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*jobs.Runner, error) {
 	workers := river.NewWorkers()
 	// The deep read is not periodic — the api enqueues one job per started
@@ -371,6 +388,17 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 				&river.PeriodicJobOpts{RunOnStart: true},
 			))
 		}
+	}
+
+	if cfg.OverlayVault != nil {
+		ms := overlay.NewMirrorStore(pool, unresolvedOwnerEmails{})
+		meter := overlay.NewMeter(overlay.DefaultMeterConfig())
+		river.AddWorker(workers, &overlayReconcileWorker{pool: pool, vault: cfg.OverlayVault, ms: ms, meter: meter, log: log, newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit)})
+		periodic = append(periodic, river.NewPeriodicJob(
+			river.PeriodicInterval(cfg.OverlayInterval),
+			func() (river.JobArgs, *river.InsertOpts) { return OverlayReconcileArgs{}, sweepInsertOpts() },
+			&river.PeriodicJobOpts{RunOnStart: true},
+		))
 	}
 
 	return jobs.New(pool, jobs.Config{
