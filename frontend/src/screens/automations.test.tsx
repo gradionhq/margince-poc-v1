@@ -324,3 +324,89 @@ describe("AutomationsScreen (B-EP09.15)", () => {
     expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
   });
 });
+
+// The two ops behind these toggles are human-only and gated on the same
+// canConfigure grant as pause/edit/delete; the panels mount lazily and
+// independently (opening one never closes the other).
+describe("AutomationRow — Runs/Preview toggles", () => {
+  // A benign stub for the lazily-mounted panels' first fetch: the toggle
+  // tests care about mount/independence, not panel contents, so runs answer
+  // an empty page and preview a zero-radius result.
+  function panelBackend() {
+    return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : null;
+      const url = String(request ? request.url : input);
+      const method = request ? request.method : (init?.method ?? "GET");
+      if (url.includes("/preview") && method === "POST") {
+        return jsonResponse({
+          matches_now: 0,
+          would_have_fired: 0,
+          window_days: 30,
+        });
+      }
+      return jsonResponse({ data: [], page: { next_cursor: null } });
+    });
+  }
+
+  it("shows the Runs/Preview toggles only when canConfigure", () => {
+    vi.stubGlobal("fetch", panelBackend());
+    const view = render(
+      <ul>
+        <AutomationRow
+          automation={instance({})}
+          entry={catalog[0]}
+          canConfigure
+        />
+      </ul>,
+    );
+    expect(screen.getByRole("button", { name: "Runs" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Preview" })).toBeTruthy();
+    view.unmount();
+
+    render(
+      <ul>
+        <AutomationRow
+          automation={instance({})}
+          entry={catalog[0]}
+          canConfigure={false}
+        />
+      </ul>,
+    );
+    expect(screen.queryByRole("button", { name: "Runs" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
+  });
+
+  it("mounts the runs panel on click without mounting preview", async () => {
+    vi.stubGlobal("fetch", panelBackend());
+    render(
+      <ul>
+        <AutomationRow
+          automation={instance({})}
+          entry={catalog[0]}
+          canConfigure
+        />
+      </ul>,
+    );
+    expect(screen.queryByTestId("automation-runs")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Runs" }));
+    expect(screen.getByTestId("automation-runs")).toBeTruthy();
+    expect(screen.queryByTestId("automation-preview")).toBeNull();
+  });
+
+  it("keeps both panels open independently", async () => {
+    vi.stubGlobal("fetch", panelBackend());
+    render(
+      <ul>
+        <AutomationRow
+          automation={instance({})}
+          entry={catalog[0]}
+          canConfigure
+        />
+      </ul>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Runs" }));
+    await userEvent.click(screen.getByRole("button", { name: "Preview" }));
+    expect(screen.getByTestId("automation-runs")).toBeTruthy();
+    expect(screen.getByTestId("automation-preview")).toBeTruthy();
+  });
+});

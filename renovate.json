@@ -4,6 +4,7 @@
   "timezone": "Asia/Ho_Chi_Minh",
   "schedule": ["after 2am and before 6am"],
   "labels": ["dependencies"],
+  "commitBody": "Signed-off-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>",
   "postUpdateOptions": ["gomodTidy"],
   "prConcurrentLimit": 5,
   "platformAutomerge": true,
