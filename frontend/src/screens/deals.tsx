@@ -1246,6 +1246,18 @@ function OffersPanel({
   onCreate: () => void;
 }>) {
   const t = useT();
+  // Offers are read (and created) against a mirrored deal — the list read 404s
+  // and creation would write, both refused in overlay. Show the honest
+  // unavailable state instead of an empty panel with a New-offer button.
+  const overlay = useSorMode() === "overlay";
+  if (overlay) {
+    return (
+      <section className="card" style={{ marginBottom: "var(--space-4)" }}>
+        <SectionHeader title={t("deal.offers")} />
+        <OverlayUnavailable />
+      </section>
+    );
+  }
   return (
     <section className="card" style={{ marginBottom: 16 }}>
       <div className="list-head">
@@ -1396,6 +1408,10 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
   });
   const pipelineQuery = usePipeline();
   const me = useMe();
+  // Overlay serves a read-only mirror: entity-scoped activity reads (timeline)
+  // and the deal's stakeholders/offers sub-resources 422/404, and offer
+  // creation would write to a mirrored deal. Gate all of it on this.
+  const overlay = useSorMode() === "overlay";
   const orgs = useQuery({
     queryKey: ["organizations"],
     queryFn: async () => {
@@ -1410,6 +1426,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
   });
   const stakeholdersQuery = useQuery({
     queryKey: ["deal-stakeholders", id],
+    enabled: !overlay,
     queryFn: async () => {
       const { data, error } = await api.GET("/deals/{id}/stakeholders", {
         params: { path: { id } },
@@ -1432,9 +1449,6 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
       return data;
     },
   });
-  // Entity-scoped activity reads are a dial the overlay mirror refuses (422);
-  // skip the fetch and show the honest unavailable notice in the timeline slot.
-  const overlay = useSorMode() === "overlay";
   const timelineQuery = useQuery({
     queryKey: ["activities", "deal", id],
     enabled: !overlay,
@@ -1450,6 +1464,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
   });
   const offersQuery = useQuery({
     queryKey: ["deal-offers", id],
+    enabled: !overlay,
     queryFn: async () => {
       const { data, error } = await api.GET("/deals/{id}/offers", {
         params: { path: { id } },
