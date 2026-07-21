@@ -178,7 +178,7 @@ func TestUpdateOrganizationKeepingOwnDomainIsNoFalseConflict(t *testing.T) {
 
 	// Re-submitting the org's own live domain must not read as a dedupe hit.
 	if _, err := e.store.UpdateOrganization(ctx, orgID, UpdateOrganizationInput{
-		DisplayName: strptr("Keep GmbH (edited)"),
+		DisplayName: strPtr("Keep GmbH (edited)"),
 		Domains:     &[]OrgDomainInput{{Domain: "keep.test", IsPrimary: true}},
 	}); err != nil {
 		t.Fatalf("keeping own domain must not conflict: %v", err)
@@ -188,5 +188,3 @@ func TestUpdateOrganizationKeepingOwnDomainIsNoFalseConflict(t *testing.T) {
 		t.Fatalf("live domains = %+v, want {keep.test:true}", live)
 	}
 }
-
-func strptr(s string) *string { return &s }

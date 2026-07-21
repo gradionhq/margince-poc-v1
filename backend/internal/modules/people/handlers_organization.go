@@ -95,7 +95,7 @@ func (h Handlers) UpdateOrganization(w http.ResponseWriter, r *http.Request, id 
 	httperr.WriteJSON(w, http.StatusOK, org)
 }
 
-// ListOrganizationFacts: GET /organizations/{id}/facts — the org's
+// ListOrganizationFacts serves GET /organizations/{id}/facts — the org's
 // confirmed evidence-backed facts, row-scoped. Empty is honest ([]).
 func (h Handlers) ListOrganizationFacts(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
 	facts, err := h.store.ListOrganizationFacts(r.Context(), pathID[ids.OrganizationKind](id))
@@ -109,8 +109,8 @@ func (h Handlers) ListOrganizationFacts(w http.ResponseWriter, r *http.Request, 
 	httperr.WriteJSON(w, http.StatusOK, crmcontracts.OrganizationFactListResponse{Data: facts})
 }
 
-// ListOrganizationProfileFields: GET /organizations/{id}/profile-fields —
-// the org's confirmed profile fields, row-scoped. Empty is honest ([]).
+// ListOrganizationProfileFields serves GET /organizations/{id}/profile-fields
+// — the org's confirmed profile fields, row-scoped. Empty is honest ([]).
 func (h Handlers) ListOrganizationProfileFields(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
 	fields, err := h.store.ListOrganizationProfileFields(r.Context(), pathID[ids.OrganizationKind](id))
 	if err != nil {

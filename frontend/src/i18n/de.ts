@@ -312,6 +312,14 @@ export const de = {
   "org.firmographics": "Firmendaten",
   "org.evidenceOrOmit": "nur belegte Felder — fehlend heißt unbekannt",
   "org.domains": "Domains",
+  "org.firmographicsLegal": "Firmendaten & Impressum",
+  "org.firmographicsEmpty":
+    "Noch nichts gelesen — belegte Profilfelder erscheinen hier, sobald eine Website-Auswertung sie bestätigt.",
+  "org.facts": "Von der Website gelesene Fakten",
+  "org.factCategory.company": "Unternehmen",
+  "org.factCategory.offering": "Angebot",
+  "org.factCategory.market": "Markt",
+  "org.factCategory.signal": "Signale",
 
   "lead.score": "Score",
   "lead.status": "Status",
