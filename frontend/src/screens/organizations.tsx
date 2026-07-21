@@ -30,6 +30,7 @@ import {
   problemMessage,
   provenanceOf,
   QueryGate,
+  QueryStates,
   throwProblem,
   useSorMode,
 } from "./common";
@@ -68,6 +69,8 @@ type CreateOrganizationRequest =
   components["schemas"]["CreateOrganizationRequest"];
 type UpdateOrganizationRequest =
   components["schemas"]["UpdateOrganizationRequest"];
+type CompanyProfileField = components["schemas"]["CompanyProfileField"];
+type OrganizationFact = components["schemas"]["OrganizationFact"];
 
 const SIZE_BAND_OPTIONS = [
   "1-10",
@@ -136,6 +139,43 @@ function asSizeBand(
     : undefined;
 }
 
+// The repeatable `domains` rows → the wire `domains[]` shape, shared by the
+// create body and the edit patch: blank rows drop out, the domain lowercases,
+// and the row's primary radio (a string "true"/"") becomes the boolean flag.
+// An empty result is `undefined` — on create that means "no domains", on
+// update the field is omitted so the stored set stays untouched (never
+// silently cleared).
+function mapDomainRows(rows: FormRows): CreateOrganizationRequest["domains"] {
+  const domains = mapDomainRowsReplaceSet(rows);
+  return domains.length > 0 ? domains : undefined;
+}
+
+type DomainPatch = NonNullable<UpdateOrganizationRequest["domains"]>;
+
+// The edit-patch form of the repeatable domains field: always the concrete
+// desired set (possibly empty), so a caller can send [] to clear every domain.
+// Blank rows drop; the primary radio ("true"/"") becomes the boolean flag.
+function mapDomainRowsReplaceSet(rows: FormRows): DomainPatch {
+  return (rows.domains ?? [])
+    .filter((row) => (row.domain ?? "").trim().length > 0)
+    .map((row) => ({
+      domain: row.domain.trim().toLowerCase(),
+      is_primary: row.is_primary === "true",
+    }));
+}
+
+// Order-independent set equality: an edit that leaves the domains untouched
+// omits the field (sparse PATCH), while any real change — including clearing
+// to empty — sends the replace-set.
+function sameDomainSet(a: DomainPatch, b: DomainPatch): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  const key = (d: DomainPatch[number]) => `${d.domain}:${d.is_primary ? 1 : 0}`;
+  const seen = new Set(a.map(key));
+  return b.every((d) => seen.has(key(d)));
+}
+
 // Builds the create-company request body: `domains[]` rows carry
 // `{domain, is_primary}` keyed off the repeatable rows channel, scalar
 // fields trim to undefined when blank.
@@ -143,33 +183,41 @@ export function mapOrgBody(
   values: Record<string, string>,
   rows: FormRows,
 ): CreateOrganizationRequest {
-  const domains = (rows.domains ?? [])
-    .filter((row) => (row.domain ?? "").trim().length > 0)
-    .map((row) => ({
-      domain: row.domain.trim().toLowerCase(),
-      is_primary: row.is_primary === "true",
-    }));
   return {
     display_name: values.display_name.trim(),
     legal_name: values.legal_name?.trim() || undefined,
     industry: values.industry?.trim() || undefined,
     size_band: asSizeBand(values.size_band),
-    domains: domains.length > 0 ? domains : undefined,
+    domains: mapDomainRows(rows),
     source: "manual",
   };
 }
 
-// Builds the PATCH body: only the UpdateOrganizationRequest fields (never
-// domains — not in the contract's update shape).
+// Builds the PATCH body: the scalar UpdateOrganizationRequest fields plus the
+// domains replace-set from the edit modal's repeatable rows. Domains are sent
+// only when the set actually changed from `currentDomains` — an untouched edit
+// omits the field (sparse PATCH), and clearing every row sends [] (clear all),
+// the two cases the contract's "absent = untouched" vs "[] = clear" distinguish.
 export function mapOrgUpdate(
   values: Record<string, unknown>,
+  rows: FormRows,
+  currentDomains: Organization["domains"] = [],
 ): UpdateOrganizationRequest {
-  return {
+  const desired = mapDomainRowsReplaceSet(rows);
+  const current: DomainPatch = (currentDomains ?? []).map((domain) => ({
+    domain: domain.domain,
+    is_primary: domain.is_primary,
+  }));
+  const body: UpdateOrganizationRequest = {
     display_name: stringField(values.display_name).trim() || undefined,
     legal_name: stringField(values.legal_name).trim() || undefined,
     industry: stringField(values.industry).trim() || undefined,
     size_band: asSizeBand(stringField(values.size_band)),
   };
+  if (!sameDomainSet(desired, current)) {
+    body.domains = desired;
+  }
+  return body;
 }
 
 const companyCreateFields: CreateField[] = [
@@ -201,6 +249,14 @@ const companyEditFields: CreateField[] = [
     label: "create.sizeBand",
     type: "select",
     options: SIZE_BAND_OPTIONS.map((band) => ({ value: band, label: band })),
+  },
+  {
+    key: "domains",
+    label: "org.domains",
+    type: "repeatable",
+    addLabel: "field.addDomain",
+    rowFields: [{ key: "domain", label: "field.domain", required: true }],
+    primaryKey: "is_primary",
   },
 ];
 
@@ -786,6 +842,199 @@ function HierarchyRollupCard({ orgId }: Readonly<{ orgId: string }>) {
   );
 }
 
+// One confirmed profile field (S-E02): the human field label, the value, and
+// a footer that names where it came from — provenance, confidence when the
+// read carried one, and the grounding evidence snippet. Mirrors EnrichCard's
+// field row, but these are ACCEPTED values on the record, not staged proposals.
+// The shared trust-signal footer for an evidence-backed row: provenance
+// always, confidence whenever graded, and the evidence snippet when present.
+// One spelling for profile fields and facts so the "confidence is never
+// hidden" convention can't drift between them.
+function TrustSignals({
+  capturedBy,
+  confidence,
+  evidenceSnippet,
+  sourceUrl,
+}: Readonly<{
+  capturedBy?: string;
+  confidence?: number | null;
+  evidenceSnippet?: string | null;
+  sourceUrl?: string | null;
+}>) {
+  const level = confidenceLevel(confidence);
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        flexWrap: "wrap",
+        marginTop: 4,
+      }}
+    >
+      <ProvenanceTag provenance={provenanceOf(capturedBy)} />
+      {level && <ConfidenceMeter level={level} />}
+      {evidenceSnippet && (
+        <EvidenceChip
+          evidence={{ snippet: evidenceSnippet, source: sourceUrl ?? "" }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ProfileFieldRow({ field }: Readonly<{ field: CompanyProfileField }>) {
+  const t = useT();
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <span className="t-label">{coldFieldLabel(field.field, t)}</span>
+      <div>{field.value}</div>
+      <TrustSignals
+        capturedBy={field.captured_by}
+        confidence={field.confidence}
+        evidenceSnippet={field.evidence_snippet}
+        sourceUrl={field.source_url}
+      />
+    </div>
+  );
+}
+
+// The Firmographics & legal card: the org's confirmed profile fields, rendered
+// evidence-or-omit — a field with no stored value is simply absent, never
+// guessed. An empty read is stated honestly ("nothing read yet"), never
+// fabricated into blank rows. This card carries the region's loading/error
+// surface; the sibling facts card stays silent when it has nothing to add.
+function ProfileFieldsCard({ orgId }: Readonly<{ orgId: string }>) {
+  const t = useT();
+  const fieldsQuery = useQuery({
+    queryKey: ["org-profile-fields", orgId],
+    queryFn: async () => {
+      const { data, error } = await api.GET(
+        "/organizations/{id}/profile-fields",
+        { params: { path: { id: orgId } } },
+      );
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data.data ?? [];
+    },
+  });
+
+  return (
+    <section className="card" style={{ marginBottom: 16 }}>
+      <SectionHeader
+        title={t("org.firmographicsLegal")}
+        sub={t("org.evidenceOrOmit")}
+      />
+      <QueryStates query={fieldsQuery}>
+        {fieldsQuery.data && fieldsQuery.data.length === 0 ? (
+          <p className="t-caption">{t("org.firmographicsEmpty")}</p>
+        ) : (
+          (fieldsQuery.data ?? []).map((field) => (
+            <ProfileFieldRow key={field.field} field={field} />
+          ))
+        )}
+      </QueryStates>
+    </section>
+  );
+}
+
+// Facts read from the site, grouped into the four fixed categories. Empty
+// categories are omitted and an empty read renders nothing at all — the
+// profile card above already carries the region's honest empty state, so a
+// second "nothing here" would only be noise.
+const FACT_CATEGORY_ORDER = [
+  "company",
+  "offering",
+  "market",
+  "signal",
+] as const;
+
+const FACT_CATEGORY_LABELS: Record<OrganizationFact["category"], MessageKey> = {
+  company: "org.factCategory.company",
+  offering: "org.factCategory.offering",
+  market: "org.factCategory.market",
+  signal: "org.factCategory.signal",
+};
+
+// One fact row: value plus its trust signals — provenance always, confidence
+// whenever graded, and the evidence snippet — the same "confidence is never
+// hidden" convention as ProfileFieldRow.
+function FactRow({ fact }: Readonly<{ fact: OrganizationFact }>) {
+  const t = useT();
+  return (
+    <div>
+      <dt>{coldFieldLabel(fact.field, t)}</dt>
+      <dd>
+        <div>{fact.value}</div>
+        <TrustSignals
+          capturedBy={fact.captured_by}
+          confidence={fact.confidence}
+          evidenceSnippet={fact.evidence_snippet}
+          sourceUrl={fact.source_url}
+        />
+      </dd>
+    </div>
+  );
+}
+
+function FactsCard({ orgId }: Readonly<{ orgId: string }>) {
+  const t = useT();
+  const factsQuery = useQuery({
+    queryKey: ["org-facts", orgId],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/organizations/{id}/facts", {
+        params: { path: { id: orgId } },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data.data ?? [];
+    },
+  });
+
+  // A read that failed is surfaced, never swallowed as "no facts" — an empty
+  // read and a 404/network error must stay distinguishable and retryable.
+  if (factsQuery.isError) {
+    return (
+      <section className="card" style={{ marginBottom: 16 }}>
+        <SectionHeader title={t("org.facts")} sub={t("org.evidenceOrOmit")} />
+        <QueryStates query={factsQuery}>{null}</QueryStates>
+      </section>
+    );
+  }
+
+  // Otherwise facts are supplementary: while the read is in flight, or if it
+  // has nothing to show, the card stays absent rather than flashing a skeleton
+  // or an empty shell next to the profile card that owns the region's states.
+  const facts = factsQuery.data;
+  if (!facts || facts.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="card" style={{ marginBottom: 16 }}>
+      <SectionHeader title={t("org.facts")} sub={t("org.evidenceOrOmit")} />
+      {FACT_CATEGORY_ORDER.map((category) => {
+        const group = facts.filter((fact) => fact.category === category);
+        if (group.length === 0) {
+          return null;
+        }
+        return (
+          <div key={category} style={{ marginBottom: 12 }}>
+            <span className="t-label">{t(FACT_CATEGORY_LABELS[category])}</span>
+            <dl className="firmo">
+              {group.map((fact) => (
+                <FactRow key={`${fact.field}:${fact.value_key}`} fact={fact} />
+              ))}
+            </dl>
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
 const COMPANY_TABS = [
   "overview",
   "relationships",
@@ -823,15 +1072,25 @@ function CompanyActionBadges({ org }: Readonly<{ org: Organization }>) {
               legal_name: org.legal_name ?? "",
               industry: org.industry ?? "",
               size_band: org.size_band ?? "",
+              // The repeatable domains field prefills from the org's live set;
+              // its rows are string-keyed, so the primary flag stringifies to
+              // match the "true"/"" the primary radio writes.
+              domains: (org.domains ?? []).map((domain) => ({
+                domain: domain.domain,
+                is_primary: String(domain.is_primary),
+              })),
               ...cf.recordSlice(org),
             }}
-            update={async (values) => {
+            update={async (values, rows) => {
               const { data, error } = await api.PATCH("/organizations/{id}", {
                 params: {
                   path: { id: org.id },
                   ...ifMatch(org.version),
                 },
-                body: { ...mapOrgUpdate(values), ...cf.toBody(values) },
+                body: {
+                  ...mapOrgUpdate(values, rows ?? {}, org.domains),
+                  ...cf.toBody(values),
+                },
               });
               if (error) {
                 throwProblem(error);
@@ -999,6 +1258,8 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
                     )}
                   </dl>
                 </section>
+                <ProfileFieldsCard orgId={org.id} />
+                <FactsCard orgId={org.id} />
                 <CustomFieldsCard object="organization" record={org} />
                 <EnrichCard orgId={org.id} />
                 <DeepReadCard orgId={org.id} />

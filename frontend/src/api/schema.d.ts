@@ -519,6 +519,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{id}/facts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** The organization's confirmed facts (organization_fact), grouped by category on the client. Site-read facts carry evidence (snippet, source URL, confidence); human/migration values may omit it. */
+        get: operations["listOrganizationFacts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{id}/profile-fields": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** The organization's confirmed profile fields (organization_profile_field). A field with no stored value is absent (evidence-or-omit); site-read values carry evidence, human/migration values may omit it. */
+        get: operations["listOrganizationProfileFields"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/partners": {
         parameters: {
             query?: never;
@@ -4836,6 +4876,12 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** @description A client-supplied domain row on create/update. Closed — server-owned fields (id, source, captured_by) are never accepted from the request body. */
+        OrganizationDomainInput: {
+            domain: string;
+            /** @default false */
+            is_primary: boolean;
+        };
         CreateOrganizationRequest: {
             display_name: string;
             legal_name?: string | null;
@@ -4847,11 +4893,7 @@ export interface components {
             owner_id?: string | null;
             /** Format: uuid */
             parent_org_id?: string | null;
-            domains?: {
-                domain: string;
-                /** @default false */
-                is_primary: boolean;
-            }[];
+            domains?: components["schemas"]["OrganizationDomainInput"][];
             source: string;
         } & {
             [key: string]: unknown;
@@ -4867,6 +4909,8 @@ export interface components {
             owner_id?: string | null;
             /** Format: uuid */
             parent_org_id?: string | null;
+            /** @description Replace-set of the org's live domains (add new, archive removed, flip is_primary). Absent = untouched; an empty array clears all domains. */
+            domains?: components["schemas"]["OrganizationDomainInput"][];
         } & {
             [key: string]: unknown;
         };
@@ -6723,6 +6767,13 @@ export interface components {
             confidence?: number | null;
             /** Format: date-time */
             updated_at: string;
+        };
+        OrganizationFactListResponse: {
+            data: components["schemas"]["OrganizationFact"][];
+        };
+        /** @description An organization's confirmed profile fields (organization_profile_field). Items reuse CompanyProfileField — the table's field/source vocabulary is identical (migration 0099). */
+        OrganizationProfileFieldListResponse: {
+            data: components["schemas"]["CompanyProfileField"][];
         };
         CompanyContextItem: {
             key: string;
@@ -9548,6 +9599,58 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RelationshipStrength"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listOrganizationFacts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The organization's facts (empty array when none). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationFactListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listOrganizationProfileFields: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The organization's profile fields (empty array when none). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationProfileFieldListResponse"];
                 };
             };
             401: components["responses"]["Unauthorized"];

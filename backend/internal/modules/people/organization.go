@@ -159,6 +159,10 @@ type UpdateOrganizationInput struct {
 	ParentOrgID *ids.OrganizationID
 	Address     *crmcontracts.Address
 	IfVersion   *int64
+	// Domains, when non-nil, is the desired live domain set (replace-set:
+	// add missing, archive removed, flip is_primary). nil leaves domains
+	// untouched; an empty slice clears them.
+	Domains *[]OrgDomainInput
 	// CustomFields carries the request body's extra top-level keys
 	// (additionalProperties); only active cf_* catalog columns land,
 	// drop-on-mismatch (customfields.go).
@@ -187,12 +191,56 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.OrganizationID, i
 			return err
 		}
 		storekit.SetCustomFieldPatch(p, active, in.CustomFields, current.AdditionalProperties)
+
+		// Validate the domain replace-set up front (bad request fails before
+		// the version bump). The reconcile itself rides the org row's version
+		// bump (updated_at below), so If-Match still guards it and the audit
+		// row records the transition — the same shape as UpdatePerson/social.
+		var by string
+		if in.Domains != nil {
+			if by, err = storekit.CapturedBy(ctx); err != nil {
+				return err
+			}
+			if err := parseOrgDomains(*in.Domains); err != nil {
+				return err
+			}
+			// Collapse hosts that normalize to the same domain so the probe,
+			// reconcile, and audit-after all see one row per host.
+			*in.Domains = dedupeDomains(*in.Domains)
+			if err := ensureOrgDomainsUnclaimedExcept(ctx, tx, id, *in.Domains); err != nil {
+				return err
+			}
+			p.Set("updated_at", current.UpdatedAt, time.Now().UTC())
+		}
 		if p.Empty() {
 			out = current
 			return nil
 		}
-		out, err = writeOrganizationUpdate(ctx, tx, id, in.IfVersion, p, active)
-		return err
+		if err := p.ApplyGuarded(ctx, tx, "organization", id.UUID, in.IfVersion); err != nil {
+			return fmt.Errorf("apply organization patch: %w", err)
+		}
+
+		before, after := p.Before(), p.After()
+		if in.Domains != nil {
+			domainsBefore, err := reconcileOrgDomains(ctx, tx, workspaceID(ctx), id, by, *in.Domains)
+			if err != nil {
+				return err
+			}
+			before["domains"] = domainsBefore
+			after["domains"] = domainSummaries(*in.Domains)
+		}
+
+		auditID, err := storekit.Audit(ctx, tx, "update", "organization", id.UUID, before, after)
+		if err != nil {
+			return fmt.Errorf("audit organization update: %w", err)
+		}
+		if err := storekit.Emit(ctx, tx, auditID, "organization.updated", "organization", id.UUID, after); err != nil {
+			return fmt.Errorf("emit organization.updated: %w", err)
+		}
+		if out, err = readOrganization(ctx, tx, id, storekit.LiveOnly, active); err != nil {
+			return fmt.Errorf("read updated organization: %w", err)
+		}
+		return nil
 	})
 	return out, err
 }
@@ -233,27 +281,6 @@ func buildOrganizationPatch(ctx context.Context, tx pgx.Tx, current crmcontracts
 		p.Set("address_country", cur.Country, in.Address.Country)
 	}
 	return p, nil
-}
-
-// writeOrganizationUpdate lands the patch on the write shape — domain row,
-// audit row, and organization.updated event in the one transaction — and
-// returns the reloaded survivor.
-func writeOrganizationUpdate(ctx context.Context, tx pgx.Tx, id ids.OrganizationID, ifVersion *int64, p *storekit.Patch, active []fieldcatalog.Column) (crmcontracts.Organization, error) {
-	if err := p.ApplyGuarded(ctx, tx, "organization", id.UUID, ifVersion); err != nil {
-		return crmcontracts.Organization{}, fmt.Errorf("apply organization patch: %w", err)
-	}
-	auditID, err := storekit.Audit(ctx, tx, "update", "organization", id.UUID, p.Before(), p.After())
-	if err != nil {
-		return crmcontracts.Organization{}, fmt.Errorf("audit organization update: %w", err)
-	}
-	if err := storekit.Emit(ctx, tx, auditID, "organization.updated", "organization", id.UUID, p.After()); err != nil {
-		return crmcontracts.Organization{}, fmt.Errorf("emit organization.updated: %w", err)
-	}
-	out, err := readOrganization(ctx, tx, id, storekit.LiveOnly, active)
-	if err != nil {
-		return crmcontracts.Organization{}, fmt.Errorf("read updated organization: %w", err)
-	}
-	return out, nil
 }
 
 func (s *Store) ArchiveOrganization(ctx context.Context, id ids.OrganizationID) (crmcontracts.Organization, error) {

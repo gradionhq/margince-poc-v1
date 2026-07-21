@@ -7277,12 +7277,9 @@ type CreateOfferTemplateRequest struct {
 // CreateOrganizationRequest defines model for CreateOrganizationRequest.
 type CreateOrganizationRequest struct {
 	// Address Structured postal address.
-	Address     *Address `json:"address,omitempty"`
-	DisplayName string   `json:"display_name"`
-	Domains     *[]struct {
-		Domain    string `json:"domain"`
-		IsPrimary *bool  `json:"is_primary,omitempty"`
-	} `json:"domains,omitempty"`
+	Address              *Address                           `json:"address,omitempty"`
+	DisplayName          string                             `json:"display_name"`
+	Domains              *[]OrganizationDomainInput         `json:"domains,omitempty"`
 	Industry             *string                            `json:"industry,omitempty"`
 	LegalName            *string                            `json:"legal_name,omitempty"`
 	OwnerId              *openapi_types.UUID                `json:"owner_id,omitempty"`
@@ -8498,6 +8495,12 @@ type OrganizationDomain struct {
 	UpdatedAt      *time.Time          `json:"updated_at,omitempty"`
 }
 
+// OrganizationDomainInput A client-supplied domain row on create/update. Closed — server-owned fields (id, source, captured_by) are never accepted from the request body.
+type OrganizationDomainInput struct {
+	Domain    string `json:"domain"`
+	IsPrimary *bool  `json:"is_primary,omitempty"`
+}
+
 // OrganizationFact defines model for OrganizationFact.
 type OrganizationFact struct {
 	CapturedBy      *string                  `json:"captured_by,omitempty"`
@@ -8520,6 +8523,11 @@ type OrganizationFactField string
 
 // OrganizationFactSource defines model for OrganizationFact.Source.
 type OrganizationFactSource string
+
+// OrganizationFactListResponse defines model for OrganizationFactListResponse.
+type OrganizationFactListResponse struct {
+	Data []OrganizationFact `json:"data"`
+}
 
 // OrganizationHierarchyRollup The account-tree roll-up over organization.parent_org_id. A server read only,
 // never client-summed. Money is base-currency converted — never a raw
@@ -8553,6 +8561,11 @@ type OrganizationHierarchyRollupScope string
 type OrganizationListResponse struct {
 	Data []Organization `json:"data"`
 	Page PageInfo       `json:"page"`
+}
+
+// OrganizationProfileFieldListResponse An organization's confirmed profile fields (organization_profile_field). Items reuse CompanyProfileField — the table's field/source vocabulary is identical (migration 0099).
+type OrganizationProfileFieldListResponse struct {
+	Data []CompanyProfileField `json:"data"`
 }
 
 // OverlayBudget The incumbent API budget window's consumption and degradation band.
@@ -9815,8 +9828,11 @@ type UpdateOfferTemplateRequest struct {
 // UpdateOrganizationRequest defines model for UpdateOrganizationRequest.
 type UpdateOrganizationRequest struct {
 	// Address Structured postal address.
-	Address              *Address                           `json:"address,omitempty"`
-	DisplayName          *string                            `json:"display_name,omitempty"`
+	Address     *Address `json:"address,omitempty"`
+	DisplayName *string  `json:"display_name,omitempty"`
+
+	// Domains Replace-set of the org's live domains (add new, archive removed, flip is_primary). Absent = untouched; an empty array clears all domains.
+	Domains              *[]OrganizationDomainInput         `json:"domains,omitempty"`
 	Industry             *string                            `json:"industry,omitempty"`
 	LegalName            *string                            `json:"legal_name,omitempty"`
 	OwnerId              *openapi_types.UUID                `json:"owner_id,omitempty"`
@@ -16821,6 +16837,14 @@ func (a *UpdateOrganizationRequest) UnmarshalJSON(b []byte) error {
 		delete(object, "display_name")
 	}
 
+	if raw, found := object["domains"]; found {
+		err = json.Unmarshal(raw, &a.Domains)
+		if err != nil {
+			return fmt.Errorf("error reading 'domains': %w", err)
+		}
+		delete(object, "domains")
+	}
+
 	if raw, found := object["industry"]; found {
 		err = json.Unmarshal(raw, &a.Industry)
 		if err != nil {
@@ -16891,6 +16915,13 @@ func (a UpdateOrganizationRequest) MarshalJSON() ([]byte, error) {
 		object["display_name"], err = json.Marshal(a.DisplayName)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'display_name': %w", err)
+		}
+	}
+
+	if a.Domains != nil {
+		object["domains"], err = json.Marshal(a.Domains)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'domains': %w", err)
 		}
 	}
 
@@ -17811,6 +17842,9 @@ type ServerInterface interface {
 	// Enrich this organization from its website (evidence-or-omit) — a staged 🟡 proposal.
 	// (POST /organizations/{id}/enrich)
 	ScrapeCompany(w http.ResponseWriter, r *http.Request, id Id)
+	// The organization's confirmed facts (organization_fact), grouped by category on the client. Site-read facts carry evidence (snippet, source URL, confidence); human/migration values may omit it.
+	// (GET /organizations/{id}/facts)
+	ListOrganizationFacts(w http.ResponseWriter, r *http.Request, id Id)
 	// Roll up an organization's account tree — weighted pipeline, current-quarter closed-won, 30-day activity count.
 	// (GET /organizations/{id}/hierarchy-rollup)
 	GetOrganizationHierarchyRollup(w http.ResponseWriter, r *http.Request, id Id, params GetOrganizationHierarchyRollupParams)
@@ -17823,6 +17857,9 @@ type ServerInterface interface {
 	// Create/update the partner extension on an org (sets classification='partner').
 	// (PUT /organizations/{id}/partner)
 	UpsertPartner(w http.ResponseWriter, r *http.Request, id Id, params UpsertPartnerParams)
+	// The organization's confirmed profile fields (organization_profile_field). A field with no stored value is absent (evidence-or-omit); site-read values carry evidence, human/migration values may omit it.
+	// (GET /organizations/{id}/profile-fields)
+	ListOrganizationProfileFields(w http.ResponseWriter, r *http.Request, id Id)
 	// One deep read's progress and outcome — pages read, pages skipped and WHY, what got staged.
 	// (GET /organizations/{id}/site-reads/{readId})
 	GetSiteRead(w http.ResponseWriter, r *http.Request, id Id, readId openapi_types.UUID)
@@ -18915,6 +18952,12 @@ func (_ Unimplemented) ScrapeCompany(w http.ResponseWriter, r *http.Request, id 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// The organization's confirmed facts (organization_fact), grouped by category on the client. Site-read facts carry evidence (snippet, source URL, confidence); human/migration values may omit it.
+// (GET /organizations/{id}/facts)
+func (_ Unimplemented) ListOrganizationFacts(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Roll up an organization's account tree — weighted pipeline, current-quarter closed-won, 30-day activity count.
 // (GET /organizations/{id}/hierarchy-rollup)
 func (_ Unimplemented) GetOrganizationHierarchyRollup(w http.ResponseWriter, r *http.Request, id Id, params GetOrganizationHierarchyRollupParams) {
@@ -18936,6 +18979,12 @@ func (_ Unimplemented) GetPartner(w http.ResponseWriter, r *http.Request, id Id)
 // Create/update the partner extension on an org (sets classification='partner').
 // (PUT /organizations/{id}/partner)
 func (_ Unimplemented) UpsertPartner(w http.ResponseWriter, r *http.Request, id Id, params UpsertPartnerParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The organization's confirmed profile fields (organization_profile_field). A field with no stored value is absent (evidence-or-omit); site-read values carry evidence, human/migration values may omit it.
+// (GET /organizations/{id}/profile-fields)
+func (_ Unimplemented) ListOrganizationProfileFields(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -25765,6 +25814,40 @@ func (siw *ServerInterfaceWrapper) ScrapeCompany(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// ListOrganizationFacts operation middleware
+func (siw *ServerInterfaceWrapper) ListOrganizationFacts(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListOrganizationFacts(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetOrganizationHierarchyRollup operation middleware
 func (siw *ServerInterfaceWrapper) GetOrganizationHierarchyRollup(w http.ResponseWriter, r *http.Request) {
 
@@ -25994,6 +26077,40 @@ func (siw *ServerInterfaceWrapper) UpsertPartner(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpsertPartner(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListOrganizationProfileFields operation middleware
+func (siw *ServerInterfaceWrapper) ListOrganizationProfileFields(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListOrganizationProfileFields(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -31552,6 +31669,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/organizations/{id}/enrich", wrapper.ScrapeCompany)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{id}/facts", wrapper.ListOrganizationFacts)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/hierarchy-rollup", wrapper.GetOrganizationHierarchyRollup)
 	})
 	r.Group(func(r chi.Router) {
@@ -31562,6 +31682,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/organizations/{id}/partner", wrapper.UpsertPartner)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{id}/profile-fields", wrapper.ListOrganizationProfileFields)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/site-reads/{readId}", wrapper.GetSiteRead)

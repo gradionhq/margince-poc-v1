@@ -102,6 +102,183 @@ func insertOrgDomains(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, orgI
 	return nil
 }
 
+// ensureOrgDomainsUnclaimedExcept is ensureOrgDomainsUnclaimed for an edit:
+// a domain already live on THIS org is not a conflict (keeping it is a
+// no-op), only one owned by a DIFFERENT org is. The existing-id is
+// disclosed under the same visibility gate as the create-path probe.
+func ensureOrgDomainsUnclaimedExcept(ctx context.Context, tx pgx.Tx, self ids.OrganizationID, domains []OrgDomainInput) error {
+	for _, d := range domains {
+		var existing ids.OrganizationID
+		err := tx.QueryRow(ctx,
+			`SELECT organization_id FROM organization_domain WHERE domain = lower($1) AND archived_at IS NULL`,
+			d.Domain).Scan(&existing)
+		if errors.Is(err, pgx.ErrNoRows) || existing == self {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("probe domain dedupe: %w", err)
+		}
+		dup := &DuplicateDomainError{Domain: d.Domain}
+		visible, verr := auth.VisibleTo(ctx, tx, "organization", existing.UUID)
+		if verr != nil {
+			return verr
+		}
+		if visible {
+			dup.ExistingID = existing
+		}
+		return dup
+	}
+	return nil
+}
+
+// readLiveDomains returns the org's live domains as a lookup set, the
+// audit-before rows, and the current primary domain (or "") in one pass.
+func readLiveDomains(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (live map[string]bool, before []map[string]any, currentPrimary string, err error) {
+	rows, err := tx.Query(ctx,
+		`SELECT domain, is_primary FROM organization_domain
+		 WHERE organization_id = $1 AND archived_at IS NULL`, orgID)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("read current domains: %w", err)
+	}
+	defer rows.Close()
+	live = map[string]bool{}
+	before = []map[string]any{}
+	for rows.Next() {
+		var domain string
+		var isPrimary bool
+		if err := rows.Scan(&domain, &isPrimary); err != nil {
+			return nil, nil, "", fmt.Errorf("scan current domain: %w", err)
+		}
+		live[domain] = true
+		if isPrimary {
+			currentPrimary = domain
+		}
+		before = append(before, map[string]any{"domain": domain, "is_primary": isPrimary})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, "", fmt.Errorf("read current domains: %w", err)
+	}
+	return live, before, currentPrimary, nil
+}
+
+// dedupeDomains collapses domains that normalize to the same host (parse
+// already normalized them), OR-ing is_primary. A replace-set that names the
+// same host twice then reconciles once instead of self-colliding on
+// uq_org_domain with a misleading ownership 409.
+func dedupeDomains(domains []OrgDomainInput) []OrgDomainInput {
+	at := map[string]int{}
+	out := make([]OrgDomainInput, 0, len(domains))
+	for _, d := range domains {
+		if i, ok := at[d.Domain]; ok {
+			if d.IsPrimary {
+				out[i].IsPrimary = true
+			}
+			continue
+		}
+		at[d.Domain] = len(out)
+		out = append(out, d)
+	}
+	return out
+}
+
+// singleDesiredPrimary returns the one domain marked primary, or "" for
+// none. uq_org_domain_primary is a single-row invariant, so more than one
+// is the typed 409 up front rather than a constraint failure mid-write.
+func singleDesiredPrimary(desired []OrgDomainInput) (string, error) {
+	primary := ""
+	count := 0
+	for _, d := range desired {
+		if d.IsPrimary {
+			primary = d.Domain
+			count++
+		}
+	}
+	if count > 1 {
+		return "", apperrors.ErrConflict
+	}
+	return primary, nil
+}
+
+// reconcileOrgDomains makes the org's live domain set equal `desired`
+// (add missing, archive removed, set the single primary). It returns the
+// prior live set as audit-before rows. Primaries are cleared before the new
+// one is set so the transient state never trips uq_org_domain_primary, and
+// adds reuse insertOrgDomains so the uniqueness→409 mapping stays one
+// spelling. Callers validate the domains (parse + unclaimed) first.
+func reconcileOrgDomains(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, orgID ids.OrganizationID, by string, desired []OrgDomainInput) ([]map[string]any, error) {
+	live, before, currentPrimary, err := readLiveDomains(ctx, tx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	primary, err := singleDesiredPrimary(desired)
+	if err != nil {
+		return nil, err
+	}
+
+	// The primary only moves when it actually changes — a no-op re-submit
+	// must not touch the row. Clearing before setting keeps the transient
+	// state from racing uq_org_domain_primary against a still-primary row.
+	if primary != currentPrimary {
+		if _, err := tx.Exec(ctx,
+			`UPDATE organization_domain SET is_primary = false
+			 WHERE organization_id = $1 AND archived_at IS NULL AND is_primary`, orgID); err != nil {
+			return nil, fmt.Errorf("clear domain primaries: %w", err)
+		}
+	}
+
+	desiredSet := map[string]bool{}
+	var adds []OrgDomainInput
+	for _, d := range desired {
+		desiredSet[d.Domain] = true
+		if !live[d.Domain] {
+			adds = append(adds, OrgDomainInput{Domain: d.Domain, IsPrimary: false})
+		}
+	}
+	if err := archiveRemovedDomains(ctx, tx, orgID, live, desiredSet); err != nil {
+		return nil, err
+	}
+	if len(adds) > 0 {
+		if err := insertOrgDomains(ctx, tx, wsID, orgID, "manual", by, adds); err != nil {
+			return nil, err
+		}
+	}
+	if primary != "" && primary != currentPrimary {
+		if _, err := tx.Exec(ctx,
+			`UPDATE organization_domain SET is_primary = true
+			 WHERE organization_id = $1 AND domain = lower($2) AND archived_at IS NULL`,
+			orgID, primary); err != nil {
+			return nil, fmt.Errorf("set primary domain: %w", err)
+		}
+	}
+	return before, nil
+}
+
+// archiveRemovedDomains soft-deletes the org's live domains absent from the
+// desired set.
+func archiveRemovedDomains(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, live, desiredSet map[string]bool) error {
+	for domain := range live {
+		if desiredSet[domain] {
+			continue
+		}
+		if _, err := tx.Exec(ctx,
+			`UPDATE organization_domain SET archived_at = now()
+			 WHERE organization_id = $1 AND domain = lower($2) AND archived_at IS NULL`,
+			orgID, domain); err != nil {
+			return fmt.Errorf("archive removed domain: %w", err)
+		}
+	}
+	return nil
+}
+
+// domainSummaries renders the desired set as audit-after rows.
+func domainSummaries(domains []OrgDomainInput) []map[string]any {
+	out := make([]map[string]any, 0, len(domains))
+	for _, d := range domains {
+		out = append(out, map[string]any{"domain": d.Domain, "is_primary": d.IsPrimary})
+	}
+	return out
+}
+
 func attachOrgDomains(ctx context.Context, tx pgx.Tx, orgs []crmcontracts.Organization) error {
 	if len(orgs) == 0 {
 		return nil
