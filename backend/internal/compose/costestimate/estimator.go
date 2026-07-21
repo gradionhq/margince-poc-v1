@@ -197,9 +197,8 @@ func (e *Estimator) EstimateBackfill(ctx context.Context, provider string, userI
 // priced, and whether any slice forced a heuristic downgrade (unpriced or
 // unresolvable to a model).
 func (e *Estimator) priceObserved(ctx context.Context, task ai.Task, slices []ai.ServedTaskTotal, units, denom int64, today time.Time) (costMicro, inputTokens int64, priced, heuristic bool, err error) {
-	var pricedCost, pricedCalls, sumCalls int64
+	var pricedCost, pricedCompletedCalls int64
 	for _, s := range slices {
-		sumCalls += s.Calls
 		// Input-anchored, multiply-before-divide on the aggregate slice total —
 		// no per-unit integer truncation. Surfaced for every slice, priced or not.
 		inputTokens += s.TokensIn * units / denom
@@ -217,27 +216,36 @@ func (e *Estimator) priceObserved(ctx context.Context, task ai.Task, slices []ai
 		}
 		if rate != nil {
 			pricedCost += ai.PriceCall(usageOf(s), *rate)
-			pricedCalls += s.Calls
+			// Completed calls only: a metering_failed retry's spend already rode
+			// PriceCall (its tokens are in the slice sums), but it completed no
+			// fresh unit, so it must not inflate the denominator below.
+			pricedCompletedCalls += s.CompletedCalls
 			priced = true
 		} else {
 			heuristic = true // a rate-less slice scales the priced mix as representative
 		}
 	}
 
-	if pricedCalls > 0 {
+	if priced {
 		// The observed denominator the priced cost is spread over. For a
 		// call-based denominator (enrich per person, embed per entity) the priced
-		// slices' share of the work IS their share of the calls, so scale by
-		// pricedCalls/Σcalls — floored ≥ 1 so pricedCalls > 0 never divides by
-		// zero. For a NON-call denominator (classify counts labeled MESSAGES, and
-		// one call is a variable-size batch) that reweight overquotes — a
-		// 10-message priced batch and a 1-message unpriced retry are 1 call each,
-		// so a 50/50 call split would double the per-message cost. There the
-		// priced cost is spread over the full denominator and the unpriced share
-		// falls to $0 (already flagged heuristic).
+		// slices' share of the work IS their share of the COMPLETED calls, so the
+		// share is denom×pricedCompletedCalls/Σcompleted-calls — but denom equals
+		// Σcompleted-calls for these rules (observedDenom is that same sum), so it
+		// reduces exactly to pricedCompletedCalls. Assigned directly: the reduced
+		// form both avoids the denom×pricedCompletedCalls product overflowing at
+		// large totals and drops the redundant Σ read. Floored ≥ 1 so a priced mix
+		// whose completed calls all land on UNpriced slices (a metering_failed-only
+		// priced slice beside a completed unpriced one) never divides by zero. For
+		// a NON-call denominator (classify counts labeled MESSAGES, and one call is
+		// a variable-size batch) that reweight overquotes — a 10-message priced
+		// batch and a 1-message unpriced retry are 1 call each, so a 50/50 call
+		// split would double the per-message cost. There the priced cost is spread
+		// over the full denominator and the unpriced share falls to $0 (already
+		// flagged heuristic).
 		pricedDenom := denom
 		if backfillUnitRules[task].denomIsCalls {
-			pricedDenom = max(denom*pricedCalls/max(sumCalls, 1), 1)
+			pricedDenom = max(pricedCompletedCalls, 1)
 		}
 		costMicro = pricedCost * units / pricedDenom
 	}
@@ -295,12 +303,12 @@ func expectedUnits(task ai.Task, scanned int64, y capture.BackfillYields) (units
 // observedUnitsDenom is the observed unit count the window's served slices are
 // divided by — the per-task denominator held in backfillUnitRules. An unruled
 // task (never reached: the loop iterates backfillTasks, fitness-locked to the
-// rule keys) falls back to the summed served calls.
+// rule keys) falls back to the summed completed served calls.
 func observedUnitsDenom(task ai.Task, slices []ai.ServedTaskTotal, labeledCount int64) int64 {
 	if rule, ok := backfillUnitRules[task]; ok {
 		return rule.observedDenom(slices, labeledCount)
 	}
-	return sumSliceCalls(slices)
+	return sumCompletedCalls(slices)
 }
 
 // effectiveModel chooses the model to price a served slice at — the model that

@@ -23,8 +23,10 @@ type unitRule struct {
 	observedUnits func(scanned int64, y capture.BackfillYields) (units int64, ok bool)
 	// observedDenom is the observed-unit count the window's served slices are
 	// divided by for the priced-slice cost: classify's exact labeled-message
-	// count (absorbs batching + solo re-asks), else the summed served calls (one
-	// enrich call per person, one embed call per entity).
+	// count (absorbs batching + solo re-asks), else the summed COMPLETED served
+	// calls (one enrich call per person, one embed call per entity). Completed —
+	// not all served — so a metering_failed retry, whose spend rides the token
+	// numerator, does not inflate the call denominator and divide its own cost out.
 	observedDenom func(slices []ai.ServedTaskTotal, labeled int64) int64
 	// denomIsCalls says whether observedDenom is a COUNT OF CALLS (Σcalls) rather
 	// than a count of some other unit. It decides how a partly-unpriced mix
@@ -75,7 +77,7 @@ var backfillUnitRules = map[ai.Task]unitRule{
 			}
 			return scanned * y.PeopleCreated / y.Scanned, true // persons
 		},
-		observedDenom: func(slices []ai.ServedTaskTotal, _ int64) int64 { return sumSliceCalls(slices) },
+		observedDenom: func(slices []ai.ServedTaskTotal, _ int64) int64 { return sumCompletedCalls(slices) },
 		denomIsCalls:  true, // one enrich call per person
 		// Per person: the trailing signature lines plus the extraction prompt in,
 		// a small field bundle out.
@@ -94,7 +96,7 @@ var backfillUnitRules = map[ai.Task]unitRule{
 		observedUnits: func(scanned int64, y capture.BackfillYields) (int64, bool) {
 			return scanned * (y.Captured + y.PeopleCreated + y.OrganizationsCreated) / y.Scanned, true // entities
 		},
-		observedDenom: func(slices []ai.ServedTaskTotal, _ int64) int64 { return sumSliceCalls(slices) },
+		observedDenom: func(slices []ai.ServedTaskTotal, _ int64) int64 { return sumCompletedCalls(slices) },
 		denomIsCalls:  true, // one embed call per entity
 		// Per entity: input-only — no output, no cache.
 		floor: ai.Usage{TokensIn: embedItemTokens},
@@ -108,13 +110,16 @@ var backfillUnitRules = map[ai.Task]unitRule{
 // asserts it matches the map's key set exactly.
 var backfillTasks = []ai.Task{ai.TaskCaptureClassify, ai.TaskEnrich, ai.TaskEmbeddings}
 
-// sumSliceCalls totals the served calls across a task's window slices — the
+// sumCompletedCalls totals the COMPLETED served calls (error_sentinel IS NULL,
+// excluding metering_failed retries) across a task's window slices — the
 // observed-unit denominator for the tasks that fire one call per unit (enrich
-// per person, embeddings per entity).
-func sumSliceCalls(slices []ai.ServedTaskTotal) int64 {
+// per person, embeddings per entity). A metering_failed retry spent tokens
+// (carried in the token sums) but completed no fresh unit, so it must not be
+// counted here: doing so would inflate the denominator and cancel its own cost.
+func sumCompletedCalls(slices []ai.ServedTaskTotal) int64 {
 	var sum int64
 	for _, s := range slices {
-		sum += s.Calls
+		sum += s.CompletedCalls
 	}
 	return sum
 }

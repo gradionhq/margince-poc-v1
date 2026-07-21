@@ -114,15 +114,15 @@ func TestEstimateObservedSingleBoundModel(t *testing.T) {
 	const scanned = 200
 	classify := ai.ServedTaskTotal{
 		Task: ai.TaskCaptureClassify, Tier: ai.TierCheapCloud, Provider: "gemini", ModelID: "flash",
-		TokensIn: 1_000_000, TokensOut: 100_000, Calls: 5,
+		TokensIn: 1_000_000, TokensOut: 100_000, Calls: 5, CompletedCalls: 5,
 	}
 	enrich := ai.ServedTaskTotal{
 		Task: ai.TaskEnrich, Tier: ai.TierLocalSmall, Provider: "ollama", ModelID: "gemma3",
-		TokensIn: 300, TokensOut: 40, Calls: 4,
+		TokensIn: 300, TokensOut: 40, Calls: 4, CompletedCalls: 4,
 	}
 	embed := ai.ServedTaskTotal{
 		Task: ai.TaskEmbeddings, Tier: ai.TierEmbedLane, Provider: "gemini", ModelID: "embed",
-		TokensIn: 500, Calls: 10,
+		TokensIn: 500, Calls: 10, CompletedCalls: 10,
 	}
 	rates := fakeRates{
 		rateKey("gemini", "flash"):  pricedRate,
@@ -178,7 +178,7 @@ func TestEstimateRepricesDepartedSliceAtItsTiersCurrentModel(t *testing.T) {
 	// rate, so they add nothing to cost.
 	served := ai.ServedTaskTotal{
 		Task: ai.TaskCaptureClassify, Tier: ai.TierCheapCloud, Provider: "gemini", ModelID: "old-flash",
-		TokensIn: 1_000_000, TokensOut: 100_000, Calls: 3,
+		TokensIn: 1_000_000, TokensOut: 100_000, Calls: 3, CompletedCalls: 3,
 	}
 	ladder := fakeLadder{
 		tiers: map[ai.Tier]ai.ModelRef{
@@ -213,7 +213,7 @@ func TestEstimateRepricesDepartedSliceAtItsTiersCurrentModel(t *testing.T) {
 func TestEstimateZeroDenominatorRoutesToFloorWithoutDivByZero(t *testing.T) {
 	served := ai.ServedTaskTotal{
 		Task: ai.TaskCaptureClassify, Tier: ai.TierCheapCloud, Provider: "gemini", ModelID: "flash",
-		TokensIn: 1000, TokensOut: 100, Calls: 5,
+		TokensIn: 1000, TokensOut: 100, Calls: 5, CompletedCalls: 5,
 	}
 	ladder := fakeLadder{
 		tiers:   map[ai.Tier]ai.ModelRef{ai.TierCheapCloud: {Provider: "gemini", Model: "flash"}},
@@ -237,7 +237,7 @@ func TestEstimateZeroDenominatorRoutesToFloorWithoutDivByZero(t *testing.T) {
 func TestEstimateEmptyLadderSurfacesTokensUnpriced(t *testing.T) {
 	served := ai.ServedTaskTotal{
 		Task: ai.TaskCaptureClassify, Tier: ai.TierCheapCloud, Provider: "gemini", ModelID: "flash",
-		TokensIn: 1000, TokensOut: 100, Calls: 5,
+		TokensIn: 1000, TokensOut: 100, Calls: 5, CompletedCalls: 5,
 	}
 	ladder := fakeLadder{tiers: map[ai.Tier]ai.ModelRef{}, ladders: defaultLadders()} // nothing bound
 	totals := &fakeTotals{rows: []ai.ServedTaskTotal{served}}
@@ -260,7 +260,7 @@ func TestEstimateEmptyLadderSurfacesTokensUnpriced(t *testing.T) {
 func TestEstimateAllUnpricedSurfacesTokensNoCost(t *testing.T) {
 	served := ai.ServedTaskTotal{
 		Task: ai.TaskCaptureClassify, Tier: ai.TierCheapCloud, Provider: "gemini", ModelID: "flash",
-		TokensIn: 1000, TokensOut: 100, Calls: 5,
+		TokensIn: 1000, TokensOut: 100, Calls: 5, CompletedCalls: 5,
 	}
 	ladder := fakeLadder{
 		tiers:   map[ai.Tier]ai.ModelRef{ai.TierCheapCloud: {Provider: "gemini", Model: "flash"}},
@@ -287,7 +287,7 @@ func TestEstimateAllUnpricedSurfacesTokensNoCost(t *testing.T) {
 func TestEstimateDefaultedUnitsStillApplyObservedCost(t *testing.T) {
 	served := ai.ServedTaskTotal{
 		Task: ai.TaskCaptureClassify, Tier: ai.TierCheapCloud, Provider: "gemini", ModelID: "flash",
-		TokensIn: 1_000_000, TokensOut: 100_000, Calls: 5,
+		TokensIn: 1_000_000, TokensOut: 100_000, Calls: 5, CompletedCalls: 5,
 	}
 	ladder := fakeLadder{
 		tiers:   map[ai.Tier]ai.ModelRef{ai.TierCheapCloud: {Provider: "gemini", Model: "flash"}},
@@ -320,7 +320,7 @@ func TestEstimateDefaultedUnitsStillApplyObservedCost(t *testing.T) {
 func TestEstimatePricedDenomFlooredAtOne(t *testing.T) {
 	priced := ai.ServedTaskTotal{
 		Task: ai.TaskEnrich, Tier: ai.TierLocalSmall, Provider: "ollama", ModelID: "gemma3",
-		TokensIn: 300, TokensOut: 40, Calls: 1,
+		TokensIn: 300, TokensOut: 40, Calls: 1, CompletedCalls: 1,
 	}
 	// A huge GENUINELY-unpriced slice at the same task drives sumCalls up so that
 	// denom(=Σcalls)×pricedCalls/sumCalls truncates toward 0 before the floor. It
@@ -329,7 +329,7 @@ func TestEstimatePricedDenomFlooredAtOne(t *testing.T) {
 	// the priced local head, which would make it priced and defeat the guard.
 	unpriced := ai.ServedTaskTotal{
 		Task: ai.TaskEnrich, Tier: ai.TierCheapCloud, Provider: "gemini", ModelID: "old-flash",
-		TokensIn: 9_000, TokensOut: 900, Calls: 999,
+		TokensIn: 9_000, TokensOut: 900, Calls: 999, CompletedCalls: 999,
 	}
 	ladder := fakeLadder{
 		tiers: map[ai.Tier]ai.ModelRef{
@@ -367,11 +367,11 @@ func TestEstimateClassifyUnpricedSliceDoesNotOverquote(t *testing.T) {
 	// retry (1 call) — 1 priced call of 2, a 50/50 call split.
 	pricedBatch := ai.ServedTaskTotal{
 		Task: ai.TaskCaptureClassify, Tier: ai.TierCheapCloud, Provider: "gemini", ModelID: "flash",
-		TokensIn: 1_000_000, TokensOut: 100_000, Calls: 1,
+		TokensIn: 1_000_000, TokensOut: 100_000, Calls: 1, CompletedCalls: 1,
 	}
 	unpricedRetry := ai.ServedTaskTotal{
 		Task: ai.TaskCaptureClassify, Tier: ai.TierLocalSmall, Provider: "ollama", ModelID: "gemma3",
-		TokensIn: 5_000, TokensOut: 500, Calls: 1,
+		TokensIn: 5_000, TokensOut: 500, Calls: 1, CompletedCalls: 1,
 	}
 	ladder := fakeLadder{
 		tiers: map[ai.Tier]ai.ModelRef{
@@ -428,15 +428,15 @@ func TestEstimateEnrichFloorsWhenPeopleCreatedZero(t *testing.T) {
 	// silent observed-0 (units = scanned×0/scanned) it would have read "observed".
 	classify := ai.ServedTaskTotal{
 		Task: ai.TaskCaptureClassify, Tier: ai.TierCheapCloud, Provider: "gemini", ModelID: "flash",
-		TokensIn: 1_000_000, TokensOut: 100_000, Calls: 5,
+		TokensIn: 1_000_000, TokensOut: 100_000, Calls: 5, CompletedCalls: 5,
 	}
 	enrich := ai.ServedTaskTotal{
 		Task: ai.TaskEnrich, Tier: ai.TierCheapCloud, Provider: "gemini", ModelID: "flash",
-		TokensIn: 400_000, TokensOut: 40_000, Calls: 4,
+		TokensIn: 400_000, TokensOut: 40_000, Calls: 4, CompletedCalls: 4,
 	}
 	embed := ai.ServedTaskTotal{
 		Task: ai.TaskEmbeddings, Tier: ai.TierEmbedLane, Provider: "gemini", ModelID: "embed",
-		TokensIn: 500_000, Calls: 10,
+		TokensIn: 500_000, Calls: 10, CompletedCalls: 10,
 	}
 	ladder := fakeLadder{
 		tiers: map[ai.Tier]ai.ModelRef{
@@ -459,6 +459,106 @@ func TestEstimateEnrichFloorsWhenPeopleCreatedZero(t *testing.T) {
 	// Enrich is still PRICED — at its floor units, not dropped to a $0 line.
 	if !got.HasCost || got.CostMinor <= 0 {
 		t.Fatalf("cost = %d hasCost=%v, want a priced enrich floor (>0), never a silent $0 enrich line", got.CostMinor, got.HasCost)
+	}
+}
+
+// #4 (ADR-0068): a metering_failed enrich retry spent provider tokens (kept in
+// the slice token sums) but completed no fresh person, so it must inflate ONLY
+// the cost numerator, never the call-count denominator. A slice with Calls=2,
+// CompletedCalls=1 (one clean call + one metering_failed retry) therefore
+// projects ~2× the per-person cost of a clean Calls=1/CompletedCalls=1 slice —
+// the retry's spend must NOT divide back out. Under the pre-fix code (the
+// denominator counted ALL served calls, including metering_failed) the doubled
+// numerator and doubled denominator cancelled and both projected the SAME
+// figure, silently quoting one call of cost for two calls of spend.
+func TestEstimateEnrichMeteringFailedRetryDoesNotCancel(t *testing.T) {
+	const scanned = 100
+	// Isolate enrich: only enrich carries a ladder (→ a rated head), so classify
+	// and embeddings floor against an empty ladder and add no cost of their own.
+	ladder := fakeLadder{
+		tiers:   map[ai.Tier]ai.ModelRef{ai.TierLocalSmall: {Provider: "ollama", Model: "gemma3"}},
+		ladders: map[ai.Task][]ai.Tier{ai.TaskEnrich: {ai.TierLocalSmall}},
+	}
+	rates := fakeRates{rateKey("ollama", "gemma3"): pricedRate}
+	// PeopleCreated anchors the observed enrich ratio: units = 100×50/100 = 50.
+	yields := fakeYields{Scanned: 100, Captured: 100, PeopleCreated: 50}
+
+	clean := ai.ServedTaskTotal{
+		Task: ai.TaskEnrich, Tier: ai.TierLocalSmall, Provider: "ollama", ModelID: "gemma3",
+		TokensIn: 300_000, TokensOut: 40_000, Calls: 1, CompletedCalls: 1,
+	}
+	// Same person population, one clean call + one metering_failed retry: DOUBLE
+	// the spent tokens, but still ONE completed call.
+	retry := ai.ServedTaskTotal{
+		Task: ai.TaskEnrich, Tier: ai.TierLocalSmall, Provider: "ollama", ModelID: "gemma3",
+		TokensIn: 600_000, TokensOut: 80_000, Calls: 2, CompletedCalls: 1,
+	}
+
+	cleanEst := estimatorFor(&fakeTotals{rows: []ai.ServedTaskTotal{clean}}, rates, ladder, fakeLabels(0), yields)
+	retryEst := estimatorFor(&fakeTotals{rows: []ai.ServedTaskTotal{retry}}, rates, ladder, fakeLabels(0), yields)
+
+	cleanGot := mustEstimate(t, cleanEst, scanned)
+	retryGot := mustEstimate(t, retryEst, scanned)
+
+	// denom = Σcompleted-calls = 1 for BOTH; the retry's cost is higher only
+	// because its token sums (the real spend) are doubled.
+	wantClean := ai.PriceCall(usageOf(clean), *pricedRate) * 50 / 1 / microsPerMinor
+	wantRetry := ai.PriceCall(usageOf(retry), *pricedRate) * 50 / 1 / microsPerMinor
+	if cleanGot.CostMinor != wantClean {
+		t.Fatalf("clean CostMinor = %d, want %d", cleanGot.CostMinor, wantClean)
+	}
+	if retryGot.CostMinor != wantRetry {
+		t.Fatalf("retry CostMinor = %d, want %d", retryGot.CostMinor, wantRetry)
+	}
+	if retryGot.CostMinor != 2*cleanGot.CostMinor {
+		t.Fatalf("retry CostMinor = %d, want 2×clean (%d) — the metering_failed retry cost cancelled instead of doubling",
+			retryGot.CostMinor, 2*cleanGot.CostMinor)
+	}
+	if retryGot.CostMinor == cleanGot.CostMinor {
+		t.Fatal("retry and clean CostMinor equal — the retry's spend divided back out (the pre-fix bug)")
+	}
+}
+
+// #5 (ADR-0068): for a call-based denominator the pricedDenom was
+// max(denom×pricedCompletedCalls/max(Σcompleted,1), 1); since denom EQUALS
+// Σcompleted-calls for these rules it reduces exactly to
+// max(pricedCompletedCalls, 1), assigned directly to avoid the
+// denom×pricedCompletedCalls product overflowing at large totals. On normal
+// inputs (all priced, all completed) the estimate must match the un-reduced
+// formula exactly.
+func TestEstimateCallDenomReducedFormMatchesOldFormula(t *testing.T) {
+	const scanned = 100
+	// Two priced enrich slices on the same rated tier — a multi-slice call-denom
+	// mix, all priced and all completed (no metering_failed).
+	a := ai.ServedTaskTotal{
+		Task: ai.TaskEnrich, Tier: ai.TierLocalSmall, Provider: "ollama", ModelID: "gemma3",
+		TokensIn: 300_000, TokensOut: 40_000, Calls: 3, CompletedCalls: 3,
+	}
+	b := ai.ServedTaskTotal{
+		Task: ai.TaskEnrich, Tier: ai.TierLocalSmall, Provider: "ollama", ModelID: "gemma3",
+		TokensIn: 100_000, TokensOut: 10_000, Calls: 2, CompletedCalls: 2,
+	}
+	ladder := fakeLadder{
+		tiers:   map[ai.Tier]ai.ModelRef{ai.TierLocalSmall: {Provider: "ollama", Model: "gemma3"}},
+		ladders: map[ai.Task][]ai.Tier{ai.TaskEnrich: {ai.TierLocalSmall}},
+	}
+	rates := fakeRates{rateKey("ollama", "gemma3"): pricedRate}
+	yields := fakeYields{Scanned: 100, Captured: 100, PeopleCreated: 50}
+	e := estimatorFor(&fakeTotals{rows: []ai.ServedTaskTotal{a, b}}, rates, ladder, fakeLabels(0), yields)
+
+	got := mustEstimate(t, e, scanned)
+
+	const units = int64(50) // 100×50/100
+	pricedCost := ai.PriceCall(usageOf(a), *pricedRate) + ai.PriceCall(usageOf(b), *pricedRate)
+	sumCompleted := a.CompletedCalls + b.CompletedCalls // == denom for a call rule
+	reduced := pricedCost * units / max(sumCompleted, 1) / microsPerMinor
+	// The un-reduced formula it replaces (denom == Σcompleted for call rules).
+	old := pricedCost * units / max(sumCompleted*sumCompleted/max(sumCompleted, 1), 1) / microsPerMinor
+	if reduced != old {
+		t.Fatalf("fixture bug: reduced (%d) != un-reduced formula (%d)", reduced, old)
+	}
+	if got.CostMinor != reduced {
+		t.Fatalf("CostMinor = %d, want %d (reduced call-denom form must match the old formula)", got.CostMinor, reduced)
 	}
 }
 

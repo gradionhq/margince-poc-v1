@@ -26,6 +26,16 @@ import (
 // excluding it would understate the per-unit cost. A cache hit, a zero-token
 // row, or a genuine provider error (which spent nothing billable here) is not a
 // billable model invocation and must not skew the per-unit cost.
+//
+// Calls counts EVERY served row (successes + metering_failed retries); the token
+// sums likewise span every served row, so a retry's real spend is carried.
+// CompletedCalls counts only the rows that terminated cleanly (error_sentinel IS
+// NULL). The distinction matters where the observed-units denominator is a call
+// COUNT (enrich per person, embed per entity): a metering_failed retry spent
+// tokens but did NOT complete a fresh unit of work, so it belongs in the token
+// numerator yet must not inflate the call denominator — counting it in both
+// would divide its retry cost back out. CompletedCalls is that de-inflated
+// denominator; Calls stays the full served count.
 type ServedTaskTotal struct {
 	Task     Task
 	Tier     Tier
@@ -37,6 +47,7 @@ type ServedTaskTotal struct {
 	CacheWriteTokens int64
 	TokensOut        int64
 	Calls            int64
+	CompletedCalls   int64
 }
 
 // ServedTaskTotals returns the served ai_call slices for tasks since the given
@@ -50,7 +61,8 @@ func (s *CallReadStore) ServedTaskTotals(ctx context.Context, tasks []Task, sinc
 	const q = `
 		SELECT task, tier, provider, model_id,
 		       sum(tokens_in), sum(cached_tokens), sum(cache_write_tokens),
-		       sum(tokens_out), count(*)
+		       sum(tokens_out), count(*),
+		       count(*) FILTER (WHERE error_sentinel IS NULL)
 		FROM ai_call
 		WHERE occurred_at >= $1 AND NOT cache_hit
 		      AND (error_sentinel IS NULL OR error_sentinel = 'metering_failed')
@@ -73,7 +85,7 @@ func (s *CallReadStore) ServedTaskTotals(ctx context.Context, tasks []Task, sinc
 			var t ServedTaskTotal
 			if err := rows.Scan(&t.Task, &t.Tier, &t.Provider, &t.ModelID,
 				&t.TokensIn, &t.CachedTokens, &t.CacheWriteTokens, &t.TokensOut,
-				&t.Calls); err != nil {
+				&t.Calls, &t.CompletedCalls); err != nil {
 				return err
 			}
 			totals = append(totals, t)

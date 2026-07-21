@@ -378,6 +378,48 @@ func TestEstimatorCountsMeteringFailedRows(t *testing.T) {
 	}
 }
 
+// TestEstimatorEnrichMeteringFailedRetryDoesNotInflateDenominator (#4): for a
+// call-based denominator (enrich per person) a metering_failed retry spent
+// provider tokens — carried in the token sums — but completed no fresh person.
+// The SQL splits the two: Calls counts both served rows, CompletedCalls counts
+// only the clean one. So an enrich person with one clean call + one
+// metering_failed retry projects the FULL doubled spend over ONE completed call,
+// never dividing the retry cost back out. Enrich is isolated on cheap_cloud
+// (the only rated model) so classify/embeddings floor unpriced and add no cost.
+func TestEstimatorEnrichMeteringFailedRetryDoesNotInflateDenominator(t *testing.T) {
+	e := setupEstimator(t)
+	ws, wsCtx := e.seedWorkspace(t)
+	user := e.seedUser(t, ws)
+	connID := e.seedConnection(t, ws, user, "gmail")
+	e.seedBackfill(t, ws, connID, 6, 100, 100, 50, 0) // people_created=50 → observed enrich ratio
+
+	// ONLY cloud-model is rated: enrich (served on cheap_cloud) prices; classify's
+	// and embeddings' floor heads (local-model, embed-model) stay unrated → $0.
+	e.insertRate(t, ws, "cloud-model", 1_000_000, 0)
+
+	// One clean enrich call + one metering_failed retry, same (tier, provider,
+	// model) so they group into a single slice: TokensIn=1_000_000, Calls=2,
+	// CompletedCalls=1.
+	e.insertCall(t, ws, callRow{task: ai.TaskEnrich, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "cloud-model", tokensIn: 500_000, tokensOut: 0})
+	e.insertCall(t, ws, callRow{task: ai.TaskEnrich, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "cloud-model", tokensIn: 500_000, tokensOut: 0, errorSentinel: "metering_failed"})
+
+	got, err := e.newEstimator().EstimateBackfill(wsCtx, "gmail", user, 100)
+	if err != nil {
+		t.Fatalf("EstimateBackfill: %v", err)
+	}
+	// units = 100×50/100 = 50; denom = CompletedCalls = 1 (NOT 2). The doubled
+	// spend of both rows is priced over the single completed call. Had the
+	// metering_failed row inflated the denominator to 2, this figure would halve.
+	wantMicro := ai.PriceCall(ai.Usage{TokensIn: 1_000_000},
+		ai.ModelRate{InputPerMTokMicroUSD: 1_000_000}) * 50 / 1
+	if !got.HasCost {
+		t.Fatal("HasCost = false, want true (the enrich slice priced at cloud-model)")
+	}
+	if got.CostMinor != wantMicro/microsPerMinor {
+		t.Fatalf("CostMinor = %d, want %d — the metering_failed retry inflated the call denominator and cancelled its spend", got.CostMinor, wantMicro/microsPerMinor)
+	}
+}
+
 // TestEstimatorRepricesSinceUnboundSlice: a classify slice served on a model
 // that has since left the ladder reprices at cheap_cloud's CURRENT binding
 // (which is rated), never the $0 local head — the cloud cost survives a swap.
