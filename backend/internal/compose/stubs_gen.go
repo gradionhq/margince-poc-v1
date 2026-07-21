@@ -540,6 +540,10 @@ func (stubs) ScrapeCompany(w nethttp.ResponseWriter, r *nethttp.Request, id crmc
 	httperr.NotImplemented(w, r, "ScrapeCompany")
 }
 
+func (stubs) ListOrganizationFacts(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ListOrganizationFacts")
+}
+
 func (stubs) GetOrganizationHierarchyRollup(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.GetOrganizationHierarchyRollupParams) {
 	httperr.NotImplemented(w, r, "GetOrganizationHierarchyRollup")
 }
@@ -554,6 +558,10 @@ func (stubs) GetPartner(w nethttp.ResponseWriter, r *nethttp.Request, id crmcont
 
 func (stubs) UpsertPartner(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.UpsertPartnerParams) {
 	httperr.NotImplemented(w, r, "UpsertPartner")
+}
+
+func (stubs) ListOrganizationProfileFields(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ListOrganizationProfileFields")
 }
 
 func (stubs) GetSiteRead(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, readId openapi_types.UUID) {

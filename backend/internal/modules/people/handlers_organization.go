@@ -95,6 +95,34 @@ func (h Handlers) UpdateOrganization(w http.ResponseWriter, r *http.Request, id 
 	httperr.WriteJSON(w, http.StatusOK, org)
 }
 
+// ListOrganizationFacts: GET /organizations/{id}/facts — the org's
+// confirmed evidence-backed facts, row-scoped. Empty is honest ([]).
+func (h Handlers) ListOrganizationFacts(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	facts, err := h.store.ListOrganizationFacts(r.Context(), pathID[ids.OrganizationKind](id))
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	if facts == nil {
+		facts = []crmcontracts.OrganizationFact{}
+	}
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.OrganizationFactListResponse{Data: facts})
+}
+
+// ListOrganizationProfileFields: GET /organizations/{id}/profile-fields —
+// the org's confirmed profile fields, row-scoped. Empty is honest ([]).
+func (h Handlers) ListOrganizationProfileFields(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	fields, err := h.store.ListOrganizationProfileFields(r.Context(), pathID[ids.OrganizationKind](id))
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	if fields == nil {
+		fields = []crmcontracts.CompanyProfileField{}
+	}
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.OrganizationProfileFieldListResponse{Data: fields})
+}
+
 func (h Handlers) ArchiveOrganization(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
 	org, err := h.store.ArchiveOrganization(r.Context(), pathID[ids.OrganizationKind](id))
 	if err != nil {
