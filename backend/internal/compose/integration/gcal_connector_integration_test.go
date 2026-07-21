@@ -143,14 +143,14 @@ func TestGcalConnectorSyncsExternalMeetingAndSkipsInternal(t *testing.T) {
 		t.Fatalf("cursor did not advance: %q", cursor)
 	}
 
-	assertGcalConnectionSurface(grantCtx, t, registry, connID)
+	assertGcalConnectionSurface(e, grantCtx, t, registry, connID)
 }
 
 // assertGcalConnectionSurface exercises the standing-connection surface behind
 // listConnectors / the fleet due-poll / disconnectConnector for the one gcal
-// connection: it lists connected, the poller finds it due, and after disconnect
-// the poller skips it.
-func assertGcalConnectionSurface(grantCtx context.Context, t *testing.T, registry *capture.Registry, connID ids.UUID) {
+// connection: it lists connected, is paced out right after a sync, becomes due
+// again once the pacing clock passes, and after disconnect the poller skips it.
+func assertGcalConnectionSurface(e *searchEnv, grantCtx context.Context, t *testing.T, registry *capture.Registry, connID ids.UUID) {
 	t.Helper()
 	views, err := registry.Connections(grantCtx)
 	if err != nil {
@@ -160,12 +160,31 @@ func assertGcalConnectionSurface(grantCtx context.Context, t *testing.T, registr
 		t.Fatalf("Connections = %+v, want one connected gcal", views)
 	}
 
+	// Pacing (ADR-0063): the sync that just succeeded scheduled the next one an
+	// interval out, so the connection is NOT due right now — a frequent
+	// dispatcher scan never means frequent provider calls.
 	due, err := registry.DueConnections(context.Background(), "gcal")
 	if err != nil {
 		t.Fatalf("DueConnections: %v", err)
 	}
+	if len(due) != 0 {
+		t.Fatalf("DueConnections right after a successful sync = %+v, want none (paced out)", due)
+	}
+	// Once the pacing clock passes, the same connection is due again.
+	err = database.WithWorkspaceTx(grantCtx, e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(),
+			`UPDATE capture_sync_state SET next_sync_at = now() - interval '1 second' WHERE connection_id = $1`, connID)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	due, err = registry.DueConnections(context.Background(), "gcal")
+	if err != nil {
+		t.Fatalf("DueConnections: %v", err)
+	}
 	if len(due) != 1 || due[0].ID != connID {
-		t.Fatalf("DueConnections = %+v, want the one connection %s", due, connID)
+		t.Fatalf("DueConnections past the pacing clock = %+v, want the one connection %s", due, connID)
 	}
 
 	if err := registry.Disconnect(grantCtx, "gcal"); err != nil {
