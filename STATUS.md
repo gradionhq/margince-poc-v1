@@ -674,20 +674,31 @@ Open work, roughly in priority order:
     by every visibility mutator; distinct-owner-set ambiguity + late-ambiguity
     revoke; GUC-unset fails closed.
 
+  - **A3 live force-fresh + atomic budget reserve** — MERGED #161 (`fbeea10`).
+    Per-request vault-backed `resolveIncumbent` wired into FreshnessReader
+    (force-fresh reaches HubSpot per workspace, no longer `inc:nil`); atomic
+    `Meter.Reserve` + reserve-before-`inc.Get` (review #56); `ActiveConnection`
+    per-workspace read (split into `connectionreads.go`). NOTE the
+    `datasource.Freshness` verb still has **no production caller** — A3
+    completed the seam; a "refresh"/🟡-action surface that INVOKES force-fresh
+    is a tracked follow-up (see the backlog memory).
+
   Still open in 1b (the next branches, roughly in priority order):
-  - **A3 budget metering + live freshness** — wire a live per-workspace
-    incumbent into the force-fresh read path (`NewOverlayProvider` still wires
-    `inc: nil` at compose/overlay.go — FreshnessReader needs a per-request
-    `resolveIncumbent(ctx)` reading the connection + vault + building the
-    adapter, reusing jobs_overlay's factory); atomic reserve-before-`inc.Get`
-    (review #56); meter in the HTTP transport (not per-record-count);
-    token-bucket burst limiter; one budget meter per deployment, not
-    per-process (shared PG/Redis state) — combined spend can exceed the
-    HubSpot quota N×. Branch `fix/overlay-budget-metering` started.
-  - **A4 reconcile robustness** — budget-pace/`Retry-After` backoff on a
-    failing connection (today it re-sweeps hot every tick); composite keyset
-    watermark (a >10k same-timestamp block wedges the sweep — disclosed in
-    reconcile.go).
+  - **A3b** — token-bucket burst limiter (HubSpot 100–250/10s); shared
+    cross-process meter (PG/Redis) so `/overlay/budget` reflects the worker
+    poller; **and the force-fresh CALLER** (the surface that invokes the now-live
+    Freshness verb) — without it A3's live read is latent infra.
+  - **A4 reconcile robustness** — the **failing-connection backoff is DONE in
+    this PR**: `overlay_sync_state` sidecar + `RecordSweepFailure`/`Success`
+    (classify + a 2min·2^n ladder capped at 4h *before* ±20% jitter, so
+    ~4h48m effective + rate-limit floor) +
+    `DueOverlayConnections` due-gate + `reconcileConnection` distinguishing
+    connection-level (abort+backoff) from per-object (log+skip) failures. Still
+    open (**A4b**): the composite keyset watermark for a >10k same-timestamp
+    block (the seam can't signal mode-switch — an upstream spike); atomic
+    ingest+`mirror.conflict` in one row-locked tx; propagate aggregate/`ctx.Err()`
+    to handlers.go's 503 path; derive sync staleness (`syncstatus.go` never
+    marks stale).
   - **A5 disconnect-race fencing**; **A7 assoc/backfill fidelity**;
     **webhook-as-signal** (only WITH portal-id→workspace binding in the HMAC
     basis — the unmounted receiver was deleted, not fixed); a **reconnect flow**

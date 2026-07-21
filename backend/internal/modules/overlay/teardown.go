@@ -141,7 +141,7 @@ func revokeConnection(ctx context.Context, tx pgx.Tx) (credentialRef string, err
 // (the HubSpot owner id), so it is exactly the "no incumbent-derived
 // data remains queryable" surface OVA-AC-1 names, even though it holds
 // no mirror row itself. The sync checkpoints (overlay_backfill_cursor +
-// overlay_reconcile_watermark) purge for the same reason plus a
+// overlay_reconcile_watermark + overlay_sync_state's sweep backoff) purge for the same reason plus a
 // behavioral one: each is a position into the incumbent's own record
 // stream, so a checkpoint that survived disconnect would make a later
 // connection resume mid-stream — a retained done backfill cursor
@@ -190,6 +190,9 @@ func purgeMirror(ctx context.Context, tx pgx.Tx) error {
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM overlay_reconcile_watermark`); err != nil {
 		return fmt.Errorf("overlay: purging the reconcile watermarks: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM overlay_sync_state`); err != nil {
+		return fmt.Errorf("overlay: purging the sweep backoff state: %w", err)
 	}
 	return nil
 }
