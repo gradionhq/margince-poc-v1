@@ -221,6 +221,41 @@ describe("UsersAdminCard", () => {
     );
   });
 
+  it("surfaces a failed member action as an inline alert on the row", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const req =
+          input instanceof Request ? input : new Request(String(input), init);
+        if (req.url.endsWith("/v1/me")) {
+          return jsonResponse({
+            user: { email: "admin@acme.test" },
+            roles: ["admin"],
+            teams: [],
+          });
+        }
+        if (req.url.includes("/users") && req.method === "GET") {
+          return jsonResponse(ROSTER);
+        }
+        return jsonResponse(
+          { title: "Conflict", detail: "That would leave no admin." },
+          409,
+        );
+      }),
+    );
+    render(<UsersAdminCard />);
+    await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
+
+    const active = screen.getByText("Ada Active").closest("li") as HTMLElement;
+    await userEvent.selectOptions(
+      within(active).getByLabelText(/set role for ada active/i),
+      "rep",
+    );
+
+    await waitFor(() => expect(within(active).getByRole("alert")).toBeTruthy());
+    expect(screen.getByText(/leave no admin/i)).toBeTruthy();
+  });
+
   it("surfaces a failed invite as an inline error", async () => {
     vi.stubGlobal(
       "fetch",

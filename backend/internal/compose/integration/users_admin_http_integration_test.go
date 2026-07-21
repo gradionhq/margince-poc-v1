@@ -11,6 +11,7 @@ package integration
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -46,6 +47,23 @@ func TestAdminUserManagementOverHTTP(t *testing.T) {
 		"email": "newbie@acme.test", "display_name": "Dupe", "role": "rep",
 	}, nil, nil); status != http.StatusConflict {
 		t.Fatalf("duplicate invite -> %d, want 409", status)
+	}
+
+	// Malformed input is refused before any member is created.
+	if status := e.call(t, "POST", "/v1/users", map[string]any{
+		"email": "not-an-email", "display_name": "X", "role": "rep",
+	}, nil, nil); status != http.StatusUnprocessableEntity {
+		t.Fatalf("invite with a malformed email -> %d, want 422", status)
+	}
+	if status := e.call(t, "POST", "/v1/users", map[string]any{
+		"email": "blank@acme.test", "display_name": "   ", "role": "rep",
+	}, nil, nil); status != http.StatusUnprocessableEntity {
+		t.Fatalf("invite with a blank display name -> %d, want 422", status)
+	}
+	if status := e.call(t, "POST", base+"/deactivate", map[string]any{
+		"reason": strings.Repeat("x", 501),
+	}, nil, nil); status != http.StatusUnprocessableEntity {
+		t.Fatalf("deactivate with an over-long reason -> %d, want 422", status)
 	}
 
 	// The active-only roster shows the invited member.
