@@ -72,19 +72,27 @@ infra-up: db-up
 infra-down:
 	$(MAKE) -C backend infra-down
 
-## dev — the full local stack in a real browser: Postgres + Redis, the api, the
+## dev — the full local COLD-START stack in a real browser: Postgres + Redis, the api, the
 ## background worker (cmd/worker — outbox relay + Surface-B runner, always on),
 ## and the Vite dev server, so the SPA runs against a live api on http://localhost:8080
-## (FE on :5173). Bare `make dev` uses the shared `margince` database; `make dev
+## (the app on :8080, api behind it on :18080). Bare `make dev` uses the shared
+## `margince` database; `make dev
 ## DEV_SLUG=<slug>` gives an isolated margince_dev_<slug> on slug-derived ports,
-## so two worktrees run concurrently without colliding. Reads an optional
+## so two worktrees run concurrently without colliding. A bare `make dev` first
+## SWEEPS: every margince api/worker/vite on the machine is killed, whatever
+## holds :8080 is evicted, and stray margince_dev_* databases are dropped,
+## so exactly one stack runs and the app is ALWAYS on :8080. Boots COLD: the
+## organization + admin the api bootstraps from config/margince.yaml and no
+## other data, so onboarding and empty states are the default view — run
+## `make seed-dev` on top when you want the demo records. Reads an optional
 ## Anthropic BYOK key from .env.local for the live cold-start read-back. Logs +
 ## stop handle under .tmp/dev/<slug>/.
 dev:
 	@bash scripts/dev.sh up "$(DEV_SLUG)"
 
-## dev-stop — stop the stack started by `make dev` and free its ports:
-## make dev-stop [DEV_SLUG=<slug>] [DROP=1 also drops an isolated margince_dev_<slug>].
+## dev-stop — stop dev stacks and free their ports. Bare: stops EVERY stack on
+## the machine (the mirror of what `make dev` sweeps). With DEV_SLUG=<slug>:
+## just that one. DROP=1 also drops the per-slug databases (never `margince`).
 dev-stop:
 	@bash scripts/dev.sh stop "$(DEV_SLUG)" $(if $(filter 1,$(DROP)),--drop,)
 
@@ -144,7 +152,8 @@ seed-dev:
 
 ## verify-boot — prove a running, seeded stack end to end: seeded-admin
 ## login, seeded people visible over /v1, frontend production build.
-## Pure client (make dev first — it API-seeds on boot); fails loudly, never skips.
+## Pure client (make dev, then make seed-dev — dev boots cold); fails loudly,
+## never skips.
 verify-boot:
 	./scripts/verify-boot.sh
 

@@ -2,13 +2,13 @@
 # One-command local dev stack on the ONE shared infra: Postgres + Redis, the api
 # (cmd/api), the background worker (cmd/worker — outbox relay + Surface-B runner),
 # and the Vite dev server — so the SPA runs in a real browser against a live api.
-# Bare `make dev` uses the shared `margince` database on :8080/:5173;
+# Bare `make dev` serves the app on :8080 (the api behind it on :18080);
 # `make dev DEV_SLUG=<slug>` gives an isolated `margince_dev_<slug>` database on
 # slug-derived ports, so two worktrees can run concurrently without colliding on
 # the database or the host ports.
 #
-# MARGINCE_ENV=dev is set so the api trusts the X-Workspace-Slug header the seed
-# and FE send. localhost is a browser secure-context, so the Secure session
+# MARGINCE_ENV=dev is set so the api trusts the X-Workspace-Slug header the FE
+# and the seed script send. localhost is a browser secure-context, so the Secure session
 # cookie survives over plain http — no TLS front door needed.
 #
 # BYOK: if .env.local sets a cloud key (GEMINI_API_KEY / OPENAI_API_KEY /
@@ -34,6 +34,7 @@ drop=0
 [[ "${3:-}" == "--drop" ]] && drop=1
 
 cd "$(git rev-parse --show-toplevel)"
+repo_root="$PWD"
 
 # This repo's dev connection surface (overridable). OWNER_DSN runs migrations;
 # APP_DSN is the non-superuser role the api connects as (RLS binds it).
@@ -48,7 +49,7 @@ MINIO_PORT="${MINIO_PORT:-59000}"
 # Bare `make dev` runs the shared `margince` database on the base ports, so it
 # stays coherent with `make migrate` / `seed-dev` / `verify-boot`. A DEV_SLUG
 # gives an isolated database on deterministically derived ports (same slug →
-# same db + ports, so a resume reuses the existing migrated+seeded data).
+# same db + ports, so a resume reuses whatever that database already holds).
 if [[ -z "$slug" ]]; then
   label="dev"
   db="margince"
@@ -64,8 +65,13 @@ else
   db="margince_dev_${slug}"
   hash=$(printf '%s' "$slug" | cksum | awk '{print $1 % 1000}')
 fi
-api_port=$(( 8080 + hash ))
-fe_port=$(( 5173 + hash ))
+# :8080 is THE port — the app, the thing a human opens, always and only.
+# The api sits behind it on 18080 and the app's dev server proxies /v1 and
+# the probes through, so `curl localhost:8080/v1/...` still answers and
+# nobody has to remember which of two ports serves what. The two ranges
+# (8080.. and 18080..) cannot collide however the slug hashes.
+fe_port=$(( 8080 + hash ))
+api_port=$(( 18080 + hash ))
 
 # Swap the database segment of each base DSN — no credential literal here.
 owner_prefix="${OWNER_DSN%/*}"          # scheme://user:pass@host:port
@@ -96,14 +102,141 @@ wait_ready() { # url timeout_s — only a 2xx counts as ready (a 401/500/503 is 
   return 1
 }
 
+# A stack that outlives the shell that started it is the worst failure mode this
+# script has: an api from an earlier branch keeps answering while Vite serves the
+# code you just wrote, and the app breaks in ways that look exactly like your bug.
+# So a bare `make dev` does not merely check its own two ports — it claims the
+# machine: every margince server process, every recorded stack, and every
+# leftover per-slug database goes, and the one stack that remains is this one on
+# :8080 against `margince`. `DEV_SLUG` keeps its escape hatch (it sweeps
+# nothing, so an isolated env survives until the next bare `make dev`).
+
+kill_pids() { # pid… — TERM, then KILL whatever is still standing
+  local pids=("$@") alive=()
+  [[ ${#pids[@]} -gt 0 ]] || return 0
+  kill "${pids[@]}" 2>/dev/null || true
+  for _ in $(seq 1 10); do
+    alive=()
+    for p in "${pids[@]}"; do kill -0 "$p" 2>/dev/null && alive+=("$p"); done
+    [[ ${#alive[@]} -eq 0 ]] && return 0
+    sleep 0.5
+  done
+  kill -9 "${alive[@]}" 2>/dev/null || true
+}
+
+# Margince server processes anywhere on this machine, not just this checkout: a
+# second worktree's api on :8081 owns a different database and is exactly the
+# ghost this sweep exists to remove. Matched on the binary name AND a margince
+# connection string, so an unrelated program called `api` is never touched.
+margince_server_pids() {
+  local pid cmd
+  for pid in $(pgrep -f 'bin/(api|worker)|exe/(api|worker)' 2>/dev/null || true); do
+    [[ "$pid" == "$$" ]] && continue
+    cmd=$(ps -o command= -p "$pid" 2>/dev/null || true)
+    [[ "$cmd" == *margince* ]] && echo "$pid"
+  done
+}
+
+# Vite resolves out of <repo>/frontend/node_modules, so its command line carries
+# the worktree path — that is what distinguishes our dev server from any other
+# Vite project the developer happens to be running.
+vite_pids() {
+  local pid cmd
+  for pid in $(pgrep -f 'vite' 2>/dev/null || true); do
+    [[ "$pid" == "$$" ]] && continue
+    cmd=$(ps -o command= -p "$pid" 2>/dev/null || true)
+    [[ "$cmd" == *"$repo_root"* ]] && echo "$pid"
+  done
+}
+
+# port_listeners names only the processes SERVING a port. Plain
+# `lsof -ti tcp:8080` also lists everything CONNECTED to it — the
+# developer's browser among them — and this sweep kills what it is given.
+port_listeners() { # port
+  lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true
+}
+
+# still_ours answers whether a pid recorded in an old state file is still a
+# process of ours. PIDs are recycled: a stack killed by a crash or a machine
+# sleep leaves its file behind, and by the time the next `make dev` reads it
+# that number can belong to anything. The pgrep paths already re-check the
+# live command line before killing — a recorded pid gets the same proof.
+still_ours() { # pid
+  local cmd
+  cmd=$(ps -o command= -p "$1" 2>/dev/null || true)
+  [[ -n "$cmd" ]] || return 1
+  [[ "$cmd" == *margince* || "$cmd" == *"$repo_root"* ]]
+}
+
+sweep_stacks() { # kill every margince dev stack: recorded, orphaned, or foreign
+  local victims=() pids p port state_file
+  local BACKEND_PID FE_PID WORKER_PID API_PORT FE_PORT
+  # 1. Every stack this script ever recorded — its own pids and its own ports.
+  #    The locals above shadow what the state file sets, so sourcing one cannot
+  #    leak a stale pid into the rest of the run.
+  for state_file in .tmp/dev/*/env; do
+    [[ -f "$state_file" ]] || continue
+    BACKEND_PID=''; FE_PID=''; WORKER_PID=''; API_PORT=''; FE_PORT=''
+    # shellcheck disable=SC1090
+    . "$state_file"
+    for p in "$BACKEND_PID" "$FE_PID" "$WORKER_PID"; do
+      [[ -n "$p" ]] && still_ours "$p" && victims+=("$p")
+    done
+    for port in "$API_PORT" "$FE_PORT"; do
+      [[ -n "$port" ]] || continue
+      for p in $(port_listeners "$port"); do victims+=("$p"); done
+    done
+  done
+  # 2. Orphans whose state file is gone, and stacks from other checkouts.
+  for p in $(margince_server_pids) $(vite_pids); do victims+=("$p"); done
+  # 3. Anything at all holding the ports this stack is about to bind — a foreign
+  #    process on :8080 loses the port rather than silently shadowing the api.
+  for port in "$api_port" "$fe_port"; do
+    for p in $(port_listeners "$port"); do victims+=("$p"); done
+  done
+
+  # Deduplicate: the same pid legitimately arrives from several sources.
+  pids=$(printf '%s\n' "${victims[@]+"${victims[@]}"}" | grep -E '^[0-9]+$' | sort -u || true)
+  if [[ -n "$pids" ]]; then
+    # shellcheck disable=SC2086
+    kill_pids $pids
+    echo "dev: swept $(printf '%s\n' $pids | wc -l | tr -d ' ') stray process(es) from earlier stacks"
+  fi
+  rm -rf .tmp/dev/*
+}
+
+drop_stray_dev_dbs() { # every margince_dev_<slug> database an isolated env left behind
+  local strays
+  strays=$(psql_owner postgres -tAc \
+    "SELECT datname FROM pg_database WHERE datname LIKE 'margince\\_dev\\_%'" 2>/dev/null | tr -d '\r' || true)
+  [[ -n "$strays" ]] || return 0
+  while read -r stray; do
+    [[ -n "$stray" ]] || continue
+    # WITH (FORCE) terminates a connection the just-killed process has not
+    # finished closing; the shared `margince` and the test lane's
+    # margince_test* / margince_it_* namespaces never match this pattern.
+    # </dev/null is load-bearing: psql_owner runs `docker compose exec -T`,
+    # which would otherwise swallow the rest of this loop's input and drop
+    # exactly one database however many are stray.
+    psql_owner postgres -c "DROP DATABASE IF EXISTS \"${stray}\" WITH (FORCE)" >/dev/null 2>&1 </dev/null || true
+    echo "dev: dropped stray database ${stray}"
+  done <<<"$strays"
+}
+
 case "$cmd" in
 up)
-  # Refuse if either port is already bound — otherwise a second `up` would fail
-  # to bind silently and wait_ready would get a false "ready" from the OLD
-  # server. (Vite in particular would auto-increment off a taken port without
-  # --strictPort, landing on a port we never poll.) Stop it first.
+  if [[ -z "$slug" ]]; then
+    # Bare `make dev` is the exclusive stack: clear the machine first, so the
+    # ports below are free by construction and the browser can only be talking
+    # to the api this command starts.
+    sweep_stacks
+  fi
+  # Belt and braces after the sweep, and the only guard a slugged env gets: a
+  # bound port must stop the boot, because binding would fail silently and
+  # wait_ready would then read "ready" off the OLD server. (Vite without
+  # --strictPort would not even fail — it would walk to a port we never poll.)
   for _p in "$api_port" "$fe_port"; do
-    if lsof -ti "tcp:${_p}" >/dev/null 2>&1; then
+    if [[ -n "$(port_listeners "$_p")" ]]; then
       echo "FAIL: port :${_p} already in use — is $label already running? (make dev-stop${slug:+ DEV_SLUG=$slug})" >&2
       exit 1
     fi
@@ -119,6 +252,13 @@ up)
   {
     echo "=== infra + db ==="
     make db-up
+    # The stray-database sweep runs HERE, not with the process sweep above:
+    # every statement it issues goes through the compose Postgres, so running
+    # it before db-up on a stopped stack would connect to nothing, fail
+    # silently, and leave the databases to reappear the moment infra starts.
+    if [[ -z "$slug" ]]; then
+      drop_stray_dev_dbs
+    fi
     # The base `margince` db already exists (db-up + db-init); only a slugged
     # env needs its own database created.
     [[ -n "$slug" ]] && psql_owner postgres -c "CREATE DATABASE \"${db}\"" 2>&1 || true
@@ -253,22 +393,12 @@ up)
     kill "$be_pid" 2>/dev/null || true
     exit 1
   fi
-  # Seed the demo workspace through the public API (idempotent). A seed failure
-  # is fatal: `make dev` must not report ready while promising a login that the
-  # unseeded workspace can't serve.
-  if ! API_BASE="http://localhost:${api_port}" bash scripts/seed-dev.sh >>"$log" 2>&1; then
-    echo "FAIL: $label API seed failed — see ${log}" >&2
-    kill "$be_pid" 2>/dev/null || true
-    exit 1
-  fi
-  # Dev DB seed for API-less demo data (FX rates today; see scripts/seed-dev.sql).
-  # Applied here too so a plain `make dev` pre-fills everything — e.g. winning a
-  # non-EUR deal shows the frozen FX line with no manual step.
-  if ! psql_owner "$db" -v ON_ERROR_STOP=1 <scripts/seed-dev.sql >>"$log" 2>&1; then
-    echo "FAIL: $label dev DB seed failed — see ${log}" >&2
-    kill "$be_pid" 2>/dev/null || true
-    exit 1
-  fi
+  # No demo records: `make dev` brings up a COLD START — the installation the
+  # api bootstrapped from the deployment config (one organization, one admin
+  # seat) and nothing else, so onboarding, empty states, and first-run flows are
+  # what a developer sees by default. Demo data is an explicit opt-in step:
+  # `make seed-dev` (API records + the FX/RBAC fixture) jumps over the cold
+  # start on a stack that is already up.
 
   # The background process role (cmd/worker) always runs alongside the api in
   # dev: the standalone outbox relay (coexists with the api's inline relay —
@@ -287,7 +417,7 @@ up)
   # --retention-interval 720h: the worker runs the nightly GDPR
   # retention/erasure pass unconditionally. River's RunOnStart still fires one
   # evaluation immediately at boot (inherent, not gated by this flag) — but it
-  # only ERASES data past its jurisdiction floor, so on fresh seeded demo data
+  # only ERASES data past its jurisdiction floor, so on a fresh dev database
   # it is a no-op. The long interval just stops it recurring during a dev
   # session.
   ( cd backend && go build -o ../bin/worker ./cmd/worker ) >>"$log" 2>&1
@@ -323,15 +453,16 @@ up)
 
   if wait_ready "http://localhost:${fe_port}/" 90; then
     echo "$label ready"
-    echo "  api      http://localhost:${api_port}"
-    echo "  frontend http://localhost:${fe_port}"
-    # Demo logins — printed straight from scripts/seed-dev.sql's manifest block so
-    # the credentials live in exactly one place (that file seeds them). rep =
-    # team-scoped, rep2 = own-scoped — see docs/explanation/rbac-roles-and-teams.md.
-    echo "  login"
-    sed -n '/DEMO-ACCOUNTS-BEGIN/,/DEMO-ACCOUNTS-END/p' scripts/seed-dev.sql \
-      | sed '1d;$d' \
-      | sed 's/^-- /           /'
+    echo ""
+    echo "  OPEN     http://localhost:${fe_port}"
+    echo ""
+    echo "  api      http://localhost:${api_port}  (also proxied at :${fe_port}/v1)"
+    # The only seat on a cold start is the bootstrap admin, and the deployment
+    # config is where it is defined — read the address back from that file
+    # rather than restating it, so an edited config prints the truth.
+    admin_email="$(sed -n 's/^[[:space:]]*email:[[:space:]]*\(.*\)$/\1/p' "$deploy_cfg" | head -1)"
+    echo "  login    ${admin_email} / $(cat "$admin_pw_file")  (bootstrap admin — cold start, no other data)"
+    echo "  demo     make seed-dev  — adds the demo records + rep seats on top"
     echo "  logs     ${log}"
     echo "  stop     make dev-stop${slug:+ DEV_SLUG=$slug}"
   else
@@ -343,6 +474,18 @@ up)
   ;;
 
 stop)
+  if [[ -z "$slug" ]]; then
+    # The mirror of `up`: bare dev-stop clears the machine, so `make dev-stop`
+    # is a promise you can trust before starting anything else. Stray databases
+    # are left alone unless DROP=1 asks for them — stopping is not deleting.
+    sweep_stacks
+    echo "stopped every dev stack (freed :$api_port :$fe_port)"
+    if [[ "$drop" == "1" ]]; then
+      drop_stray_dev_dbs
+      echo "note: the shared 'margince' database is kept — DROP=1 only removes the per-slug ones" >&2
+    fi
+    exit 0
+  fi
   if [[ -f "$state" ]]; then
     # shellcheck disable=SC1090
     . "$state"

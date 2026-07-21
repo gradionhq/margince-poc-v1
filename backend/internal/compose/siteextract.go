@@ -54,19 +54,31 @@ type siteExtraction struct {
 // crawl would put the crawl's slow tail on the profile's critical path.
 const profileTriggerPages = 12
 
+// The read's two live phases, spelled as the site_read store accepts them
+// (people.Store.UpdateSiteReadProgress rejects anything else): the crawl
+// is still fetching, or the crawl is done and the model lanes are not.
+const (
+	sitePhaseCrawling   = "crawling"
+	sitePhaseExtracting = "extracting"
+)
+
 // crawlAndExtract OVERLAPS the crawl and the extraction: page-fact
 // calls launch the moment their page commits, and the profile call
 // fires once the top-ranked pages are in (or the crawl ends, whichever
 // is first). The read's wall clock becomes ~max(crawl, slowest lane)
-// instead of their sum. onPage (may be nil) fires serially with the
-// extracted-page count.
-func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtractor, seedURL string, onPage func(done int), onDraft func(pageFactsResult)) (siteCrawl, siteExtraction, error) {
+// instead of their sum. onProgress (may be nil) fires serially with the
+// live phase and the number of pages fetched so far.
+func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtractor, seedURL string, onProgress func(phase string, done int), onDraft func(pageFactsResult)) (siteCrawl, siteExtraction, error) {
 	var out siteExtraction
 	var results []pageFactsResult
 	var published pageFactsResult
 	var failed []error
 	var mu sync.Mutex
-	report := progressReporter(onPage)
+	progress := func(phase string, done int) {
+		if onProgress != nil {
+			onProgress(phase, done)
+		}
+	}
 
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, pageExtractConcurrency)
@@ -93,6 +105,10 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 		committed = append(committed, page)
 		count := len(committed)
 		committedMu.Unlock()
+		// Report the page the moment it commits, not when its extraction
+		// returns: "pages read" is a count of pages fetched, and the hook
+		// runs serially in commit order, so the number only ever climbs.
+		progress(sitePhaseCrawling, count)
 		if count >= profileTriggerPages {
 			fireProfile()
 		}
@@ -110,18 +126,9 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 				}
 			} else {
 				results = append(results, res)
-				if onDraft != nil {
-					snapshot := append([]pageFactsResult(nil), results...)
-					sort.Slice(snapshot, func(i, j int) bool { return snapshot[i].url < snapshot[j].url })
-					merged := mergePageResults(snapshot)
-					if !slices.Equal(merged.facts, published.facts) || !slices.Equal(merged.people, published.people) {
-						onDraft(merged)
-						published = merged
-					}
-				}
+				published = publishDraft(onDraft, results, published)
 			}
 			mu.Unlock()
-			report()
 		}()
 	})
 	out.crawlMs = time.Since(crawlStart).Milliseconds()
@@ -134,6 +141,10 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 		profileWg.Wait()
 		return siteCrawl{}, siteExtraction{}, crawlErr
 	}
+	// The crawl is done but its pages' extraction lanes are not: hold the
+	// page count and move the phase, so the SPA stops showing "discovering"
+	// while the model is the only thing still working.
+	progress(sitePhaseExtracting, len(crawl.Pages))
 	fireProfile() // a small crawl may end below the trigger
 	wg.Wait()
 	profileWg.Wait()
@@ -144,6 +155,25 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 	out.merged = mergeInCommitOrder(crawl, results)
 	out.err = errors.Join(failed...)
 	return crawl, out, nil
+}
+
+// publishDraft hands the caller the read SO FAR whenever it changed, so
+// the SPA fills in findings while the remaining pages are still being
+// read. Sorting by URL first keeps the fold stable as completions arrive
+// in scheduler order. Returns what was published, for the next
+// comparison. The caller holds the results lock.
+func publishDraft(onDraft func(pageFactsResult), results []pageFactsResult, published pageFactsResult) pageFactsResult {
+	if onDraft == nil {
+		return published
+	}
+	snapshot := append([]pageFactsResult(nil), results...)
+	sort.Slice(snapshot, func(i, j int) bool { return snapshot[i].url < snapshot[j].url })
+	merged := mergePageResults(snapshot)
+	if slices.Equal(merged.facts, published.facts) && slices.Equal(merged.people, published.people) {
+		return published
+	}
+	onDraft(merged)
+	return merged
 }
 
 // safeExtractPageFacts recovers a panic from extractPageFacts into an
@@ -186,23 +216,6 @@ func snapshotCrawlPages(mu *sync.Mutex, pages *[]crawlPage) []crawlPage {
 	return append([]crawlPage(nil), (*pages)...)
 }
 
-// progressReporter serializes the progress callback: it fires from the
-// fan-out's goroutines, and locking here spares every caller (CLI
-// printer, progress store) its own lock.
-func progressReporter(onPage func(done int)) func() {
-	var done atomic.Int32
-	var mu sync.Mutex
-	return func() {
-		n := int(done.Add(1))
-		if onPage == nil {
-			return
-		}
-		mu.Lock()
-		defer mu.Unlock()
-		onPage(n)
-	}
-}
-
 // mergeInCommitOrder folds streamed per-page results deterministically:
 // completion order is scheduler noise, so results re-order to the
 // crawl's commit order before the fold.
@@ -218,6 +231,23 @@ func mergeInCommitOrder(crawl siteCrawl, results []pageFactsResult) pageFactsRes
 		}
 	}
 	return mergePageResults(ordered)
+}
+
+// progressReporter serializes the progress callback for the fan-out
+// spine: it fires from many goroutines at once, and locking here spares
+// the caller its own lock.
+func progressReporter(onPage func(done int)) func() {
+	var done atomic.Int32
+	var mu sync.Mutex
+	return func() {
+		n := int(done.Add(1))
+		if onPage == nil {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		onPage(n)
+	}
 }
 
 // extractSite runs the profile lane and the per-page fact lane in

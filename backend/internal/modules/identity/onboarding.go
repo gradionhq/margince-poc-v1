@@ -47,11 +47,20 @@ const (
 	OnboardingSourceManual = "manual"
 
 	maxOnboardingDraftBytes = 64 * 1024
-	maxSelectedFacts        = 100
 	maxSelectedFactKeyBytes = 256
-	httpScheme              = "http"
-	httpsScheme             = "https"
-	onboardingAuditUserID   = "user_id"
+
+	// MaxSelectedFacts bounds a wizard state's fact selection, and is
+	// exported because it bounds the SITE READ too: the confirm step
+	// offers every fact a read produced and starts with all of them
+	// selected, so a read allowed to emit more facts than this would
+	// build a selection its own API rejects — the product's happy path
+	// failing on its own output. The contract states it (crm.yaml's
+	// maxItems on selected_fact_keys) so a client sees the bound instead
+	// of discovering it as a 422.
+	MaxSelectedFacts      = 100
+	httpScheme            = "http"
+	httpsScheme           = "https"
+	onboardingAuditUserID = "user_id"
 )
 
 var onboardingSteps = map[string]struct{}{
@@ -249,7 +258,7 @@ func validateOnboardingSource(in *PutOnboardingStateInput) error {
 }
 
 func normalizeSelectedFactKeys(in *PutOnboardingStateInput) error {
-	if len(in.SelectedFactKeys) > maxSelectedFacts {
+	if len(in.SelectedFactKeys) > MaxSelectedFacts {
 		return invalidOnboarding("selected_fact_keys", "contains too many facts")
 	}
 	seen := make(map[string]struct{}, len(in.SelectedFactKeys))

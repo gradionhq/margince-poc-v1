@@ -76,7 +76,7 @@ make check-fe           # frontend half (biome + vitest + tsc + build)
 make test-integration   # real-Postgres lane: RLS gates + HTTP end-to-end (needs db-up).
                         # Parallel — each package on its own throwaway clone db; ends
                         # with `OK: integration passed with 0 skips`, never skips silently
-make dev                # full local stack: db + api (:8080) + worker + Vite SPA (:5173)
+make dev                # full local stack: the app on :8080 (api behind it on :18080)
                         # (worker = cmd/worker, always on: outbox relay + Surface-B runner)
                         # (DEV_SLUG=x → isolated margince_dev_<slug> on slug-derived ports)
 make dev-stop           # stop the stack (add DEV_SLUG=x [DROP=1] for an isolated env)
@@ -84,28 +84,31 @@ make dev-stop           # stop the stack (add DEV_SLUG=x [DROP=1] for an isolate
 
 ### EXACTLY ONE dev stack at a time (non-negotiable)
 
-**Before starting a stack, stop every stack that is already running.** A second
-`make dev` refuses the port, but the far worse case is the one that does NOT
-fail: an `api` binary started from an earlier branch keeps serving :8080 happily
-while Vite hot-reloads the code you just wrote. The SPA then calls endpoints the
-running binary has never heard of, and the app fails in ways that look like your
-bug and are not — an old server is indistinguishable from a broken feature.
+**`make dev` enforces this itself — it sweeps before it starts.** A bare
+`make dev` kills every margince api/worker/vite on the machine (recorded,
+orphaned, or from another checkout), evicts whatever holds :8080, drops
+every leftover `margince_dev_*` database, and only then boots ONE stack on
+:8080 against `margince`. So `make dev` is always safe to run; you no
+longer stop the old stack by hand.
 
-```
-make dev-stop           # always FIRST — stops :8080 + :5173
-lsof -ti:8080,5173       # must print nothing before you start
-make dev                 # then, and only then, ONE stack
-```
+The failure it removes is the one that does NOT announce itself: an `api`
+binary started from an earlier branch keeps serving :8080 happily while Vite
+hot-reloads the code you just wrote. The SPA then calls endpoints the running
+binary has never heard of, and the app fails in ways that look like your bug
+and are not — an old server is indistinguishable from a broken feature.
 
 The api is a compiled binary: **Vite hot-reloads the frontend, the API does
 not.** Any backend change — a new endpoint, a migration, a handler fix — needs
-`make dev-stop && make dev`. Restarting is the only way your Go code reaches the
-browser.
+`make dev` again (it sweeps and rebuilds). Restarting is the only way your Go
+code reaches the browser.
 
-`DEV_SLUG=x` exists for running an isolated stack (its own database and ports)
-*alongside* someone else's — use it rather than killing a colleague's stack, and
-tear it down with `DEV_SLUG=x make dev-stop DROP=1` when done. It is not a
-licence to leave several running: know which stack the browser is talking to.
+`make dev-stop` is the mirror: bare, it stops EVERY stack, not just the one it
+recorded. The `margince` database survives both (stopping is not deleting);
+`DROP=1` removes the per-slug databases only.
+
+`DEV_SLUG=x` still gives an isolated stack (own database, own ports) and is the
+one thing the sweep leaves alone — but the next bare `make dev` will take it
+down, by design. Tear yours down with `DEV_SLUG=x make dev-stop DROP=1`.
 
 This repo's working tree is often shared with parallel agent sessions that
 switch branches under you. Before you trust ANY manual test, confirm both:
