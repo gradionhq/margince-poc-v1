@@ -6,6 +6,7 @@ package overlay
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -16,9 +17,10 @@ import (
 // that issued the write began. The sweep treats it as a clean STOP, never a
 // failure — there is nothing to sync into a workspace that has left overlay
 // mode, and the revoked connection is already gone from the due-scan. It is
-// a package-internal control signal, deliberately NOT an apperrors sentinel:
-// it never crosses an HTTP/MCP boundary, because the only caller of a fenced
-// store is the background reconcile sweep.
+// exported so compose (the sweep orchestration) can recognize it, but it is
+// deliberately NOT an apperrors sentinel: it is an application-internal
+// control signal that never crosses an HTTP/MCP boundary — the on-demand
+// reconcile path maps it to apperrors.ErrModeNotOverlay before it could.
 var ErrConnectionGone = errors.New("overlay: the incumbent connection was revoked mid-sweep")
 
 // assertActiveConnection is the disconnect-race fence. It takes a SHARED
@@ -56,5 +58,8 @@ func assertActiveConnection(ctx context.Context, tx pgx.Tx) error {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrConnectionGone
 	}
-	return err
+	if err != nil {
+		return fmt.Errorf("overlay: asserting the active incumbent connection: %w", err)
+	}
+	return nil
 }

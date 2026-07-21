@@ -101,6 +101,14 @@ func (s *MirrorStore) SeedUserMap(ctx context.Context, incumbent string, owners 
 		for _, appUser := range users {
 			if err := s.UpsertUserMap(ctx, appUser, incumbent, owner.ExternalID, "email"); err != nil {
 				errs = append(errs, fmt.Errorf("overlay: seeding %s to owner %s: %w", appUser, owner.ExternalID, err))
+				if errors.Is(err, ErrConnectionGone) {
+					// The workspace was disconnected mid-seed (fenced store): every
+					// remaining UpsertUserMap would abort the same way after
+					// spending another incumbent email resolution and DB tx. Stop
+					// now and surface the signal for the sweep to treat as a clean
+					// stop.
+					return errors.Join(errs...)
+				}
 			}
 		}
 	}

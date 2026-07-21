@@ -289,6 +289,15 @@ func TestFencedSyncWritesAbortOnceTheConnectionIsRevoked(t *testing.T) {
 		"UpsertUserMap": func() error {
 			return fenced.UpsertUserMap(ctx, ids.From[ids.UserKind](actor.UserID), "hubspot", "owner-stray", "manual")
 		},
+		// The sweep outcome recording (overlay_sync_state) is fenced too:
+		// teardown purges that row, so recording a backoff or success after a
+		// disconnect would resurrect it.
+		"RecordSweepSuccess": func() error {
+			return fenced.RecordSweepSuccess(ctx, time.Date(2026, 7, 7, 0, 0, 0, 0, time.UTC))
+		},
+		"RecordSweepFailure": func() error {
+			return fenced.RecordSweepFailure(ctx, errors.New("boom"), time.Date(2026, 7, 7, 0, 0, 0, 0, time.UTC))
+		},
 	}
 	for name, w := range fencedWrites {
 		if err := w(); !errors.Is(err, ErrConnectionGone) {
@@ -300,7 +309,7 @@ func TestFencedSyncWritesAbortOnceTheConnectionIsRevoked(t *testing.T) {
 	// still empty for the workspace — the fenced writes added nothing back.
 	for _, tbl := range []string{
 		"overlay_mirror", "overlay_association", "overlay_backfill_cursor",
-		"overlay_reconcile_watermark", "mirror_user_map",
+		"overlay_reconcile_watermark", "mirror_user_map", "overlay_sync_state",
 	} {
 		var n int
 		queryRowWS(ctx, t, pool,

@@ -15,6 +15,7 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -161,7 +162,15 @@ func (r overlayReconciler) Reconcile(ctx context.Context) error {
 	}
 	for _, d := range due {
 		if d.Workspace.UUID == wsID {
-			return reconcileConnection(ctx, r.vault, r.ms, r.meter, r.log, d, r.newIncumbent)
+			err := reconcileConnection(ctx, r.vault, r.ms, r.meter, r.log, d, r.newIncumbent)
+			if errors.Is(err, overlay.ErrConnectionGone) {
+				// The connection was revoked between the due-scan above and the
+				// sweep's first fenced write (a disconnect racing this on-demand
+				// reconcile). That is the same mode-question the fallthrough
+				// below answers — not an opaque 500 — so collapse it here.
+				return apperrors.ErrModeNotOverlay
+			}
+			return err
 		}
 	}
 	// No active connection for THIS workspace — the same mode-question

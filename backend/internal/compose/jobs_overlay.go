@@ -89,6 +89,14 @@ func reconcileWorkerCtx(ctx context.Context, workspaceID ids.WorkspaceID) contex
 
 func (w *overlayReconcileWorker) Work(ctx context.Context, _ *river.Job[OverlayReconcileArgs]) error {
 	due, enumErr := overlay.DueOverlayConnections(ctx, w.pool)
+	// The outcome-recording store is fenced too (WithFence): overlay_sync_state
+	// is one of the tables teardown purges, so recording a backoff or success
+	// against a workspace that disconnected before/after the sweep would
+	// resurrect a purged row — the fence makes the recording abort with
+	// ErrConnectionGone instead. A rate-limit/auth failure leaves the
+	// connection row 'active' (only Disconnect revokes it), so the legitimate
+	// backoff paths still record.
+	recMS := w.ms.WithFence()
 	for _, d := range due {
 		wsCtx := reconcileWorkerCtx(ctx, d.Workspace)
 		err := reconcileConnection(wsCtx, w.vault, w.ms, w.meter, w.log, d, w.newIncumbent)
@@ -112,13 +120,15 @@ func (w *overlayReconcileWorker) Work(ctx context.Context, _ *river.Job[OverlayR
 		if err != nil {
 			w.log.WarnContext(wsCtx, "overlay reconcile: sweeping this workspace's connection failed",
 				"workspace", d.Workspace.String(), "err", err)
-			if recErr := w.ms.RecordSweepFailure(wsCtx, err, time.Now()); recErr != nil {
+			// A fenced ErrConnectionGone here means the connection was revoked
+			// between the sweep and this recording — benign, nothing to pace.
+			if recErr := recMS.RecordSweepFailure(wsCtx, err, time.Now()); recErr != nil && !errors.Is(recErr, overlay.ErrConnectionGone) {
 				w.log.WarnContext(wsCtx, "overlay reconcile: recording the sweep-failure backoff failed",
 					"workspace", d.Workspace.String(), "err", recErr)
 			}
 			continue
 		}
-		if recErr := w.ms.RecordSweepSuccess(wsCtx, time.Now()); recErr != nil {
+		if recErr := recMS.RecordSweepSuccess(wsCtx, time.Now()); recErr != nil && !errors.Is(recErr, overlay.ErrConnectionGone) {
 			w.log.WarnContext(wsCtx, "overlay reconcile: resetting the sweep backoff after success failed",
 				"workspace", d.Workspace.String(), "err", recErr)
 		}
@@ -232,9 +242,9 @@ func reconcileConnection(ctx context.Context, vault keyvault.Vault, ms *overlay.
 	// mapping is a fail-closed-eventually gap (the NEXT sweep tries
 	// again), not a reason to stop syncing records this tick.
 	if err := ms.RevalidateEmailMappings(ctx, inc); err != nil {
-		if errors.Is(err, overlay.ErrConnectionGone) {
-			return err
-		}
+		// RevalidateEmailMappings is intentionally unfenced (it only
+		// revalidates/clears, never resurrects — visibility.go), so it never
+		// surfaces ErrConnectionGone; no clean-stop branch belongs here.
 		if isConnectionLevelIncumbentError(err) {
 			return fmt.Errorf("overlay reconcile: email-mapping revalidation failed: %w", err)
 		}
@@ -264,12 +274,14 @@ func reconcileConnection(ctx context.Context, vault keyvault.Vault, ms *overlay.
 // stringified id, for logging only. Extracted from reconcileConnection so
 // the per-class sequence reads as one unit and the connection-level loop
 // stays short.
-// It returns a non-nil error ONLY for a connection-level incumbent failure
+// It returns a non-nil error only for a connection-level incumbent failure
 // (isConnectionLevelIncumbentError) — the signal reconcileConnection
-// propagates to abort the sweep and back the connection off. A per-object
-// failure (a mapping/data defect, a DB read/write blip) is logged and skips
-// the rest of THIS class with a nil return, so the connection-level loop
-// moves on to the next class.
+// propagates to abort the sweep and back the connection off — or
+// overlay.ErrConnectionGone, the disconnect-race fence's clean-stop signal
+// reconcileConnection turns into a no-backoff stop. A per-object failure (a
+// mapping/data defect, a DB read/write blip) is logged and skips the rest of
+// THIS class with a nil return, so the connection-level loop moves on to the
+// next class.
 func sweepObjectClass(ctx context.Context, inc overlay.Incumbent, ms *overlay.MirrorStore, meter *overlay.Meter, log *slog.Logger, workspace, objectClass string) error {
 	// Initial full load before the incremental sweep: Backfill lists the
 	// object class id-cursor style AND fetches its associations (design.md
