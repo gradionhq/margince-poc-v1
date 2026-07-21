@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"testing"
 	"time"
 
@@ -77,18 +76,18 @@ func TestConnectGraphNotImplementedWhenOnlyGmailWired(t *testing.T) {
 	}
 }
 
-func TestGcalStillUnsupportedWithBothAppsWired(t *testing.T) {
+func TestGcalConnectsAlongsideGraph(t *testing.T) {
+	// gcal rides the same Google OAuth app as gmail; wiring the Microsoft
+	// (graph) app alongside must not disturb it — the calendar flow still
+	// returns its signed authorize URL.
 	h := graphWiredHandlers()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/connectors/gcal/connect", nil).WithContext(humanCtx())
 
 	h.ConnectConnector(rec, req, "gcal")
 
-	if rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want 422 for gcal", rec.Code)
-	}
-	if !strings.Contains(rec.Body.String(), "connector_unsupported") {
-		t.Errorf("body should carry connector_unsupported: %s", rec.Body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 for gcal (body %s)", rec.Code, rec.Body)
 	}
 }
 

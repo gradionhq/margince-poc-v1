@@ -53,6 +53,7 @@ func TestCatalogTypesObeyNamingConvention(t *testing.T) {
 		"received": true, "normalized": true, "skipped": true,
 		"read_back_proposed": true, "detected": true, "resolved": true,
 		"deactivated": true, "revoked": true,
+		"invited": true, "reactivated": true,
 		"state_changed":   true,
 		"profile_created": true, "profile_updated": true, "profile_archived": true,
 		"corpus_changed": true, "build_changed": true, "version_changed": true,

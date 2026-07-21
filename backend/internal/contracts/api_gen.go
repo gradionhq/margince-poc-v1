@@ -756,6 +756,33 @@ func (e CaptureExclusionRuleKind) Valid() bool {
 	}
 }
 
+// Defines values for ChangeUserRoleRequestRole.
+const (
+	ChangeUserRoleRequestRoleAdmin    ChangeUserRoleRequestRole = "admin"
+	ChangeUserRoleRequestRoleManager  ChangeUserRoleRequestRole = "manager"
+	ChangeUserRoleRequestRoleOps      ChangeUserRoleRequestRole = "ops"
+	ChangeUserRoleRequestRoleReadOnly ChangeUserRoleRequestRole = "read_only"
+	ChangeUserRoleRequestRoleRep      ChangeUserRoleRequestRole = "rep"
+)
+
+// Valid indicates whether the value is a known member of the ChangeUserRoleRequestRole enum.
+func (e ChangeUserRoleRequestRole) Valid() bool {
+	switch e {
+	case ChangeUserRoleRequestRoleAdmin:
+		return true
+	case ChangeUserRoleRequestRoleManager:
+		return true
+	case ChangeUserRoleRequestRoleOps:
+		return true
+	case ChangeUserRoleRequestRoleReadOnly:
+		return true
+	case ChangeUserRoleRequestRoleRep:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ColdStartFieldField.
 const (
 	ColdStartFieldFieldBuyingCenter      ColdStartFieldField = "buying_center"
@@ -2511,6 +2538,33 @@ func (e IngestVoiceCorpusSourceRequestRegister) Valid() bool {
 	case IngestVoiceCorpusSourceRequestRegisterSocial:
 		return true
 	case IngestVoiceCorpusSourceRequestRegisterSpoken:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for InviteUserRequestRole.
+const (
+	InviteUserRequestRoleAdmin    InviteUserRequestRole = "admin"
+	InviteUserRequestRoleManager  InviteUserRequestRole = "manager"
+	InviteUserRequestRoleOps      InviteUserRequestRole = "ops"
+	InviteUserRequestRoleReadOnly InviteUserRequestRole = "read_only"
+	InviteUserRequestRoleRep      InviteUserRequestRole = "rep"
+)
+
+// Valid indicates whether the value is a known member of the InviteUserRequestRole enum.
+func (e InviteUserRequestRole) Valid() bool {
+	switch e {
+	case InviteUserRequestRoleAdmin:
+		return true
+	case InviteUserRequestRoleManager:
+		return true
+	case InviteUserRequestRoleOps:
+		return true
+	case InviteUserRequestRoleReadOnly:
+		return true
+	case InviteUserRequestRoleRep:
 		return true
 	default:
 		return false
@@ -6461,6 +6515,14 @@ type CaptureExclusionRuleListResponse struct {
 	Data []CaptureExclusionRule `json:"data"`
 }
 
+// ChangeUserRoleRequest defines model for ChangeUserRoleRequest.
+type ChangeUserRoleRequest struct {
+	Role ChangeUserRoleRequestRole `json:"role"`
+}
+
+// ChangeUserRoleRequestRole defines model for ChangeUserRoleRequest.Role.
+type ChangeUserRoleRequestRole string
+
 // ColdStartField One read-back field. EVERY field carries a non-empty `evidence_snippet` + `confidence`, or it is
 // omitted (the no-guess gate). `source_kind` says where the evidence lives; `source_url` is present
 // ONLY for `source_kind=url` (nullable otherwise — text/self-description evidence has no URL).
@@ -7415,6 +7477,12 @@ type DataSubjectRequestKind string
 // DataSubjectRequestStatus defines model for DataSubjectRequest.Status.
 type DataSubjectRequestStatus string
 
+// DeactivateUserRequest defines model for DeactivateUserRequest.
+type DeactivateUserRequest struct {
+	// Reason Optional operator note that rides the user.deactivated event.
+	Reason *string `json:"reason,omitempty"`
+}
+
 // Deal A deal. Mirrors the `deal` table.
 type Deal struct {
 	AmountMinor *int64     `json:"amount_minor,omitempty"`
@@ -7704,6 +7772,16 @@ type IngestVoiceCorpusSourceRequestKind string
 
 // IngestVoiceCorpusSourceRequestRegister defines model for IngestVoiceCorpusSourceRequest.Register.
 type IngestVoiceCorpusSourceRequestRegister string
+
+// InviteUserRequest Admin-supplied details for a new member. No password — the invite issues a set-password token.
+type InviteUserRequest struct {
+	DisplayName string                `json:"display_name"`
+	Email       openapi_types.Email   `json:"email"`
+	Role        InviteUserRequestRole `json:"role"`
+}
+
+// InviteUserRequestRole defines model for InviteUserRequest.Role.
+type InviteUserRequestRole string
 
 // IssuePassportRequest defines model for IssuePassportRequest.
 type IssuePassportRequest struct {
@@ -11841,6 +11919,9 @@ type ListUsersParams struct {
 
 	// Q Case-insensitive match over display_name/email.
 	Q *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// IncludeInactive Admin management view — include deactivated/suspended members. Honored only for an admin caller.
+	IncludeInactive *bool `form:"include_inactive,omitempty" json:"include_inactive,omitempty"`
 }
 
 // ListSavedViewsParams defines parameters for ListSavedViews.
@@ -12311,6 +12392,15 @@ type CreateTagJSONRequestBody = CreateTagRequest
 
 // ApplyTagJSONRequestBody defines body for ApplyTag for application/json ContentType.
 type ApplyTagJSONRequestBody = ApplyTagRequest
+
+// InviteUserJSONRequestBody defines body for InviteUser for application/json ContentType.
+type InviteUserJSONRequestBody = InviteUserRequest
+
+// DeactivateUserJSONRequestBody defines body for DeactivateUser for application/json ContentType.
+type DeactivateUserJSONRequestBody = DeactivateUserRequest
+
+// ChangeUserRoleJSONRequestBody defines body for ChangeUserRole for application/json ContentType.
+type ChangeUserRoleJSONRequestBody = ChangeUserRoleRequest
 
 // CreateSavedViewJSONRequestBody defines body for CreateSavedView for application/json ContentType.
 type CreateSavedViewJSONRequestBody = CreateSavedViewRequest
@@ -17774,6 +17864,18 @@ type ServerInterface interface {
 	// List workspace members (roster) — cursor-paginated. Read-only.
 	// (GET /users)
 	ListUsers(w http.ResponseWriter, r *http.Request, params ListUsersParams)
+	// Invite a new member. Admin-only, human-only.
+	// (POST /users)
+	InviteUser(w http.ResponseWriter, r *http.Request)
+	// Deactivate a member and revoke their live access. Admin-only, human-only.
+	// (POST /users/{id}/deactivate)
+	DeactivateUser(w http.ResponseWriter, r *http.Request, id Id)
+	// Reactivate a deactivated member. Admin-only, human-only.
+	// (POST /users/{id}/reactivate)
+	ReactivateUser(w http.ResponseWriter, r *http.Request, id Id)
+	// Set a member's system role. Admin-only, human-only.
+	// (PATCH /users/{id}/role)
+	ChangeUserRole(w http.ResponseWriter, r *http.Request, id Id)
 	// List the caller's saved views (per-user; optionally scoped to one resource).
 	// (GET /views)
 	ListSavedViews(w http.ResponseWriter, r *http.Request, params ListSavedViewsParams)
@@ -19049,6 +19151,30 @@ func (_ Unimplemented) ListTeams(w http.ResponseWriter, r *http.Request, params 
 // List workspace members (roster) — cursor-paginated. Read-only.
 // (GET /users)
 func (_ Unimplemented) ListUsers(w http.ResponseWriter, r *http.Request, params ListUsersParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Invite a new member. Admin-only, human-only.
+// (POST /users)
+func (_ Unimplemented) InviteUser(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Deactivate a member and revoke their live access. Admin-only, human-only.
+// (POST /users/{id}/deactivate)
+func (_ Unimplemented) DeactivateUser(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Reactivate a deactivated member. Admin-only, human-only.
+// (POST /users/{id}/reactivate)
+func (_ Unimplemented) ReactivateUser(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Set a member's system role. Admin-only, human-only.
+// (PATCH /users/{id}/role)
+func (_ Unimplemented) ChangeUserRole(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -29094,8 +29220,145 @@ func (siw *ServerInterfaceWrapper) ListUsers(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// ------------- Optional query parameter "include_inactive" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_inactive", r.URL.Query(), &params.IncludeInactive, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_inactive"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_inactive", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListUsers(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// InviteUser operation middleware
+func (siw *ServerInterfaceWrapper) InviteUser(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.InviteUser(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeactivateUser operation middleware
+func (siw *ServerInterfaceWrapper) DeactivateUser(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeactivateUser(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReactivateUser operation middleware
+func (siw *ServerInterfaceWrapper) ReactivateUser(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReactivateUser(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ChangeUserRole operation middleware
+func (siw *ServerInterfaceWrapper) ChangeUserRole(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ChangeUserRole(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -31092,6 +31355,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/users", wrapper.ListUsers)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/users", wrapper.InviteUser)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/users/{id}/deactivate", wrapper.DeactivateUser)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/users/{id}/reactivate", wrapper.ReactivateUser)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/users/{id}/role", wrapper.ChangeUserRole)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/views", wrapper.ListSavedViews)

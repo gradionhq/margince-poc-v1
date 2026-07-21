@@ -2722,7 +2722,89 @@ export interface paths {
          */
         get: operations["listUsers"];
         put?: never;
+        /**
+         * Invite a new member. Admin-only, human-only.
+         * @description Creates an active member with the chosen system role and no password, then issues a
+         *     single-use set-password token. When an email sender is configured the invite link is
+         *     mailed to the new address; otherwise the member sets a password through the standard
+         *     account-recovery flow. Admin-only (`role: admin`); an agent may never provision a human.
+         *     Emits `user.invited`.
+         */
+        post: operations["inviteUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{id}/role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Set a member's system role. Admin-only, human-only.
+         * @description Replaces the member's role assignments with the one target system role and emits
+         *     `role.changed` so effective-permission caches never serve a stale grant. Admin-only.
+         */
+        patch: operations["changeUserRole"];
+        trace?: never;
+    };
+    "/users/{id}/deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deactivate a member and revoke their live access. Admin-only, human-only.
+         * @description Flips the member to `deactivated` and hard-revokes every live session and passport they
+         *     bound, in one transaction; per-call re-auth already refuses a deactivated principal, and
+         *     `user.deactivated` lets caches drop access without polling. Idempotent. Admin-only.
+         */
+        post: operations["deactivateUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{id}/reactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reactivate a deactivated member. Admin-only, human-only.
+         * @description Returns a `deactivated` member to `active`; they may sign in again (existing sessions
+         *     stay revoked and are re-minted on the next login). Idempotent on an already-active member.
+         *     Emits `user.reactivated`. Admin-only.
+         */
+        post: operations["reactivateUser"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5793,6 +5875,22 @@ export interface components {
             updated_at?: string;
             /** Format: date-time */
             archived_at?: string | null;
+        };
+        /** @description Admin-supplied details for a new member. No password — the invite issues a set-password token. */
+        InviteUserRequest: {
+            /** Format: email */
+            email: string;
+            display_name: string;
+            /** @enum {string} */
+            role: "admin" | "manager" | "rep" | "read_only" | "ops";
+        };
+        ChangeUserRoleRequest: {
+            /** @enum {string} */
+            role: "admin" | "manager" | "rep" | "read_only" | "ops";
+        };
+        DeactivateUserRequest: {
+            /** @description Optional operator note that rides the user.deactivated event. */
+            reason?: string;
         };
         /** @description Mirrors the `team` table. */
         Team: {
@@ -13788,6 +13886,8 @@ export interface operations {
                 limit?: components["parameters"]["Limit"];
                 /** @description Case-insensitive match over display_name/email. */
                 q?: string;
+                /** @description Admin management view — include deactivated/suspended members. Honored only for an admin caller. */
+                include_inactive?: boolean;
             };
             header?: never;
             path?: never;
@@ -13805,6 +13905,148 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    inviteUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InviteUserRequest"];
+            };
+        };
+        responses: {
+            /** @description The invited member. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description A member with this email already exists. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    changeUserRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeUserRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated member. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Refused — demoting this member would leave the organization with no active admin. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    deactivateUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DeactivateUserRequest"];
+            };
+        };
+        responses: {
+            /** @description The deactivated member. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Refused — this is the last active admin; deactivating them would lock the organization out. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    reactivateUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The reactivated member. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     listTeams: {

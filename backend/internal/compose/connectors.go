@@ -10,9 +10,9 @@ package compose
 // provider consent URL carrying a signed state; the session-less callback
 // verifies that state, exchanges the code, reconstructs the granting human's
 // authority from the (trusted) state, and persists the connection through the
-// capture Registry; the background poller then syncs it. Gmail and Microsoft
-// Graph share this flow, dispatched by provider (gcal is contract-declared,
-// not yet implemented).
+// capture Registry; the background poller then syncs it. Gmail, Microsoft
+// Graph, and Google Calendar (gcal) share this flow, dispatched by provider;
+// gcal reuses the same Google OAuth app as Gmail, differing only in scope.
 //
 // connectorHandlers is embedded in Server as a zero value; a role that wires
 // neither OAuth app (no --gmail-client-id / --graph-client-id) leaves
@@ -23,8 +23,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
-	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -34,11 +32,10 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/modules/capture/gcal"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/graph"
-	"github.com/gradionhq/margince/backend/internal/modules/capture/imap"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
-	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
@@ -47,10 +44,12 @@ import (
 // click through Google, short enough that a leaked state is quickly useless.
 const connectStateTTL = 10 * time.Minute
 
-// The OAuth capture providers this transport implements (gcal is
-// contract-declared, not yet wired).
+// The OAuth capture providers this transport implements. Gmail and Google
+// Calendar (gcal) share one Google OAuth app (differing only in scope); graph
+// is the Microsoft 365 app.
 const (
 	providerGmail = "gmail"
+	providerGcal  = "gcal"
 	providerGraph = "graph"
 )
 
@@ -60,10 +59,23 @@ const (
 // platform 401 writer.
 const codeUnauthorized = "unauthorized"
 
-// oauthCSRFCookie carries the per-flow nonce (SameSite=Lax so it rides the
-// top-level redirect back from Google) that must match the nonce in the
-// signed state — the account-linking-CSRF defence.
+// oauthCSRFCookie is the base name of the per-flow nonce cookie (SameSite=Lax
+// so it rides the top-level redirect back from Google) that must match the
+// nonce in the signed state — the account-linking-CSRF defence.
 const oauthCSRFCookie = "oauth_csrf"
+
+// csrfCookieName namespaces the CSRF nonce cookie per provider, so the two
+// connectors on the one Google OAuth app (gmail + gcal) don't clobber each
+// other's nonce in concurrent flows. The providers that shipped on the shared
+// un-suffixed "oauth_csrf" name (gmail, graph) keep it, so a consent round-trip
+// started on a prior build still verifies against a callback served by this one
+// across a deploy; only the new provider (gcal) takes the suffix.
+func csrfCookieName(provider string) string {
+	if provider == providerGmail || provider == providerGraph {
+		return oauthCSRFCookie
+	}
+	return oauthCSRFCookie + "_" + provider
+}
 
 type connectorHandlers struct {
 	registry *capture.Registry
@@ -73,6 +85,8 @@ type connectorHandlers struct {
 	imapAuthenticate func(ctx context.Context, req connector.AuthRequest) (connector.Auth, error)
 	oauth            gmail.OAuth
 	gmailAPI         gmail.API
+	gcalOAuth        gcal.OAuth
+	gcalAPI          gcal.API
 	graphOAuth       graph.OAuth
 	graphAPI         graph.API
 	signer           stateSigner
@@ -122,6 +136,20 @@ func (h connectorHandlers) oauthApp(provider string) (oauthApp, bool) {
 					return nil, err
 				}
 				return gmail.New(h.oauth, h.gmailAPI).Authenticate(ctx, req)
+			},
+		}, true
+	case providerGcal:
+		if h.gcalOAuth == nil {
+			return oauthApp{}, false
+		}
+		return oauthApp{
+			authCodeURL: h.gcalOAuth.AuthCodeURL,
+			authenticate: func(ctx context.Context, code, redirectURI string) (connector.Auth, error) {
+				req, err := gcal.AuthRequestFrom(code, redirectURI)
+				if err != nil {
+					return nil, err
+				}
+				return gcal.New(h.gcalOAuth, h.gcalAPI).Authenticate(ctx, req)
 			},
 		}, true
 	case providerGraph:
@@ -182,7 +210,7 @@ func (h connectorHandlers) ConnectConnector(w http.ResponseWriter, r *http.Reque
 		h.connectIMAP(w, r)
 		return
 	}
-	if string(provider) != providerGmail && string(provider) != providerGraph {
+	if string(provider) != providerGmail && string(provider) != providerGraph && string(provider) != providerGcal {
 		if h.registry == nil {
 			httperr.NotImplemented(w, r, "ConnectConnector")
 			return
@@ -190,7 +218,7 @@ func (h connectorHandlers) ConnectConnector(w http.ResponseWriter, r *http.Reque
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusUnprocessableEntity,
 			Code:   "connector_unsupported",
-			Detail: "Only gmail, graph and imap connect here; gcal is not yet implemented.",
+			Detail: "Only the gmail, gcal, graph and imap connectors can be connected here.",
 		})
 		return
 	}
@@ -216,7 +244,7 @@ func (h connectorHandlers) ConnectConnector(w http.ResponseWriter, r *http.Reque
 	// attacker-initiated flow (account-linking CSRF).
 	nonce := rand.Text()
 	http.SetCookie(w, &http.Cookie{
-		Name:     oauthCSRFCookie,
+		Name:     csrfCookieName(string(provider)),
 		Value:    nonce,
 		Path:     "/v1/connectors",
 		MaxAge:   int(connectStateTTL / time.Second),
@@ -259,7 +287,7 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 	// started it. Without this, an attacker could trick a victim into
 	// completing the attacker's flow and link the victim's mailbox to the
 	// attacker's account (account-linking CSRF).
-	csrf, cerr := r.Cookie(oauthCSRFCookie)
+	csrf, cerr := r.Cookie(csrfCookieName(string(provider)))
 	if cerr != nil || st.Nonce == "" || subtle.ConstantTimeCompare([]byte(csrf.Value), []byte(st.Nonce)) != 1 {
 		slog.WarnContext(ctx, "connector callback: CSRF nonce missing/mismatched", "err", cerr, "provider", string(provider))
 		http.Redirect(w, r, h.landingURL("error"), http.StatusFound)
@@ -268,7 +296,7 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 	// One-shot: clear the CSRF cookie now that it's been consumed (same secure
 	// attributes as when it was set, so the delete is honored).
 	http.SetCookie(w, &http.Cookie{
-		Name: oauthCSRFCookie, Path: "/v1/connectors", MaxAge: -1,
+		Name: csrfCookieName(string(provider)), Path: "/v1/connectors", MaxAge: -1,
 		HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
 	})
 
@@ -337,156 +365,4 @@ func toContractConnection(v capture.ConnectionView) crmcontracts.CaptureConnecti
 	bf := backfillStatusPayload(v.Backfill)
 	c.Backfill = &bf
 	return c
-}
-
-const providerIMAP = "imap"
-
-const codeConnectorStoreFailed = "connector_store_failed"
-
-// connectIMAP establishes a STANDING imap connection: the credentials are
-// probed (dial + login, session closed), sealed to the vault by
-// Registry.Connect, and the background sweep takes over — the same lifecycle
-// as gmail, minus the OAuth ceremony. The transient one-shot pull
-// (/connectors/imap/connect) remains a separate surface until its callers
-// migrate.
-func (h connectorHandlers) connectIMAP(w http.ResponseWriter, r *http.Request) {
-	actor, ok := principal.Actor(r.Context())
-	_, hasWS := principal.WorkspaceID(r.Context())
-	if !ok || actor.Type != principal.PrincipalHuman || !hasWS {
-		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusUnauthorized,
-			Code:   codeUnauthorized,
-			Detail: "Connecting a mailbox is a signed-in human action.",
-		})
-		return
-	}
-	// Scope preflight BEFORE any credential probe: the probe dials a
-	// tenant-supplied host, so an under-scoped caller must be refused before
-	// any egress happens (and before login-vs-unreachable becomes
-	// distinguishable). Registry.Connect re-checks the same scopes as the
-	// persistence invariant.
-	for _, scope := range imap.NewStanding().Descriptor().Scopes {
-		if !actor.Scopes.Has(scope) {
-			httperr.Write(w, r, &httperr.DetailedError{
-				Status: http.StatusForbidden,
-				Code:   "scope_exceeded",
-				Detail: "Connecting a mailbox needs the read scope your session does not hold.",
-			})
-			return
-		}
-	}
-	var req crmcontracts.ConnectConnectorRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Imap == nil || req.Imap.Secret == nil {
-		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusUnprocessableEntity,
-			Code:   "imap_credentials_required",
-			Detail: "The imap provider needs host, username and secret in the request body.",
-		})
-		return
-	}
-	port := 0
-	if req.Imap.Port != nil {
-		port = *req.Imap.Port
-	}
-	authReq, err := imap.AuthRequestFrom(imap.Credentials{
-		Host:     req.Imap.Host,
-		Port:     port,
-		Email:    req.Imap.Username,
-		Password: *req.Imap.Secret,
-	})
-	if err != nil {
-		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusUnprocessableEntity,
-			Code:   "imap_credentials_invalid",
-			Detail: "These credentials could not be processed.",
-		})
-		return
-	}
-	authenticate := h.imapAuthenticate
-	if authenticate == nil {
-		authenticate = imap.NewStanding().Authenticate
-	}
-	auth, err := authenticate(r.Context(), authReq)
-	if err != nil {
-		writeIMAPConnectError(w, r, err)
-		return
-	}
-	h.persistIMAPConnection(w, r, auth)
-}
-
-// persistIMAPConnection stores the sealed bundle and answers with the
-// connected row — the connect's terminal half.
-func (h connectorHandlers) persistIMAPConnection(w http.ResponseWriter, r *http.Request, auth connector.Auth) {
-	if _, err := h.registry.Connect(r.Context(), providerIMAP, auth); err != nil {
-		if errors.Is(err, apperrors.ErrScopeExceeded) {
-			httperr.Write(w, r, &httperr.DetailedError{
-				Status: http.StatusForbidden,
-				Code:   "scope_exceeded",
-				Detail: "Connecting a mailbox needs the read scope your session does not hold.",
-			})
-			return
-		}
-		slog.ErrorContext(r.Context(), "imap connector: persisting connection", "err", err)
-		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusInternalServerError,
-			Code:   codeConnectorStoreFailed,
-			Detail: "The connection could not be stored. Nothing was captured; try again.",
-		})
-		return
-	}
-	views, err := h.registry.Connections(r.Context())
-	if err != nil {
-		slog.ErrorContext(r.Context(), "imap connector: reading back connection", "err", err)
-		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusInternalServerError,
-			Code:   codeConnectorStoreFailed,
-			Detail: "The connection was stored but could not be read back.",
-		})
-		return
-	}
-	for _, v := range views {
-		if v.Provider == providerIMAP {
-			w.Header().Set("Content-Type", "application/json")
-			conn := toContractConnection(v)
-			if err := json.NewEncoder(w).Encode(crmcontracts.ConnectConnectorResponse{
-				Connection: &conn,
-			}); err != nil {
-				// The status line is already gone; the log is the only place
-				// a truncated success can still be seen.
-				slog.ErrorContext(r.Context(), "imap connector: encoding connect response", "err", err)
-			}
-			return
-		}
-	}
-	httperr.Write(w, r, &httperr.DetailedError{
-		Status: http.StatusInternalServerError,
-		Code:   codeConnectorStoreFailed,
-		Detail: "The connection was stored but did not appear in the read-back.",
-	})
-}
-
-// writeIMAPConnectError maps the connector sentinels onto the transport
-// without leaking the provider's raw error.
-func writeIMAPConnectError(w http.ResponseWriter, r *http.Request, err error) {
-	switch {
-	case errors.Is(err, imap.ErrLoginRejected):
-		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusUnprocessableEntity,
-			Code:   "imap_login_rejected",
-			Detail: "The mailbox rejected these credentials. Check host, email and app password.",
-		})
-	case errors.Is(err, imap.ErrUnreachable):
-		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusBadGateway,
-			Code:   "imap_unreachable",
-			Detail: "The mail server could not be reached.",
-		})
-	default:
-		slog.ErrorContext(r.Context(), "imap connector: authenticate", "err", err)
-		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusInternalServerError,
-			Code:   "imap_connect_failed",
-			Detail: "The connection could not be established.",
-		})
-	}
 }

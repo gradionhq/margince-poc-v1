@@ -122,11 +122,13 @@ func NewOAuth(cfg OAuthConfig) OAuth {
 		AuthURL:      cfg.AuthURL,
 		TokenURL:     cfg.TokenURL,
 		// Google needs offline access + a forced consent prompt to return a
-		// refresh token, and includes previously-granted scopes.
+		// refresh token. No include_granted_scopes: with a second read-only
+		// connector (gcal) on the same Google app, incremental authorization
+		// would let whichever mailbox/calendar is connected second accrete the
+		// other's scope into its credential — keep each grant to its own scope.
 		AuthParams: map[string]string{
-			"access_type":            "offline",
-			"prompt":                 "consent",
-			"include_granted_scopes": "true",
+			"access_type": "offline",
+			"prompt":      "consent",
 		},
 		AuthRejected: ErrAuthRejected,
 		Unreachable:  ErrUnreachable,

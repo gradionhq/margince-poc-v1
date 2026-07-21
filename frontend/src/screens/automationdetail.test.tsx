@@ -63,14 +63,15 @@ describe("OutcomeBadge", () => {
     ["queued_for_approval", "badge-warn", "queued"],
   ];
 
-  it.each(
-    cases,
-  )("renders %s with the right tone and label", (outcome, toneClass, label) => {
-    const { container } = render(<OutcomeBadge outcome={outcome} />);
-    const badge = container.querySelector(`.${toneClass}`);
-    expect(badge).not.toBeNull();
-    expect(badge?.textContent).toContain(label);
-  });
+  it.each(cases)(
+    "renders %s with the right tone and label",
+    (outcome, toneClass, label) => {
+      const { container } = render(<OutcomeBadge outcome={outcome} />);
+      const badge = container.querySelector(`.${toneClass}`);
+      expect(badge).not.toBeNull();
+      expect(badge?.textContent).toContain(label);
+    },
+  );
 });
 
 describe("AutomationRuns", () => {

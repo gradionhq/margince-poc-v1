@@ -352,7 +352,10 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		river.AddWorker(workers, &captureBackfillWorker{registry: cfg.GmailRegistry, log: log})
 		// The dispatcher tick is a cheap indexed due-scan; per-connection
 		// pacing lives in the sidecar (next_sync_at = success + interval),
-		// so a frequent scan does not mean frequent provider calls.
+		// so a frequent scan does not mean frequent provider calls. It scans
+		// every registered connector, so a Google Calendar connection (the same
+		// Google OAuth app) syncs on the identical per-connection path a mailbox
+		// does — no gcal-specific job.
 		periodic = append(periodic, river.NewPeriodicJob(
 			river.PeriodicInterval(dispatchScanInterval),
 			func() (river.JobArgs, *river.InsertOpts) { return GmailSyncArgs{}, sweepInsertOpts() },
