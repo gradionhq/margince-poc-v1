@@ -85,6 +85,11 @@ func sweepBackoffDelay(consecutiveFailures int) time.Duration {
 // sweep heals a backed-off connection.
 func (s *MirrorStore) RecordSweepSuccess(ctx context.Context, now time.Time) error {
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if s.fenced {
+			if err := assertActiveConnection(ctx, tx); err != nil {
+				return err
+			}
+		}
 		_, err := tx.Exec(ctx, `
 			INSERT INTO overlay_sync_state (workspace_id, next_sweep_at, consecutive_failures, last_success_at, last_error_class, updated_at)
 			VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, 0, $1, NULL, now())
@@ -107,6 +112,11 @@ func (s *MirrorStore) RecordSweepSuccess(ctx context.Context, now time.Time) err
 func (s *MirrorStore) RecordSweepFailure(ctx context.Context, sweepErr error, now time.Time) error {
 	class := classifySweepError(sweepErr)
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if s.fenced {
+			if err := assertActiveConnection(ctx, tx); err != nil {
+				return err
+			}
+		}
 		var failures int
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO overlay_sync_state (workspace_id, next_sweep_at, consecutive_failures, last_error_class, last_failure_at, updated_at)

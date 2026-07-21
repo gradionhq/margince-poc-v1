@@ -23,9 +23,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/fake"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -232,6 +236,184 @@ func TestReconcileConnectionBackfillsAndSeedsViaFakeIncumbent(t *testing.T) {
 	// Rep2 matches no owner, so stays hidden (existence-hiding 404).
 	if _, err := ms.Get(overlayReaderCtx(e.WS, e.Rep2), "person", "c-1"); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("Rep2 (unmapped) must not see the record, got: %v", err)
+	}
+}
+
+// TestReconcileConnectionStopsCleanlyWhenDisconnectedMidSweep proves the
+// disconnect-race fence end to end through the sweep orchestration: if the
+// connection is revoked after the sweep resolved its token but before its
+// writes land, reconcileConnection aborts with overlay.ErrConnectionGone —
+// the clean-stop signal the worker turns into "skip this workspace, no
+// backoff" — and resurrects nothing into the now-disconnected workspace.
+func TestReconcileConnectionStopsCleanlyWhenDisconnectedMidSweep(t *testing.T) {
+	e := integration.Setup(t)
+	vault := keyvault.NewMemory()
+	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
+
+	if _, err := overlay.NewService(e.Pool, vault, ms).
+		Connect(overlayAdminCtx(e.WS, e.Rep1), overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+
+	fakeInc := fake.New()
+	fakeInc.SeedOwner("owner-1", "a@authz.test")
+	rec := fake.Rec("c-1", map[string]any{"firstname": "Ada"})
+	rec.ObjectClass = "person" // canonical
+	rec.OwnerExternalID = "owner-1"
+	fakeInc.Seed(overlay.IncumbentClassContacts, rec)
+
+	adminCtx := overlayAdminCtx(e.WS, e.Rep1)
+	due, err := overlay.DueOverlayConnections(adminCtx, e.Pool)
+	if err != nil {
+		t.Fatalf("DueOverlayConnections: %v", err)
+	}
+	var d overlay.DueOverlayConnection
+	for _, c := range due {
+		if c.Workspace.UUID == e.WS {
+			d = c
+		}
+	}
+	if d.Incumbent == "" {
+		t.Fatal("no due overlay connection for the workspace after connect")
+	}
+
+	// Simulate a disconnect landing AFTER the sweep resolved its token: revoke
+	// the connection row directly (leaving the vaulted token in place, so the
+	// sweep's token resolution still succeeds and it proceeds to its first
+	// fenced write, exactly the mid-sweep race the fence exists for).
+	if err := database.WithWorkspaceTx(adminCtx, e.Pool, func(tx pgx.Tx) error {
+		_, execErr := tx.Exec(adminCtx,
+			`UPDATE incumbent_connection SET status = 'revoked', revoked_at = now()
+			 WHERE workspace_id = current_setting('app.workspace_id')::uuid`)
+		return execErr
+	}); err != nil {
+		t.Fatalf("revoking the connection mid-sweep: %v", err)
+	}
+
+	sweepCtx := reconcileWorkerCtx(context.Background(), ids.From[ids.WorkspaceKind](e.WS))
+	err = reconcileConnection(sweepCtx, vault, ms, overlay.NewMeter(overlay.DefaultMeterConfig()),
+		slog.New(slog.DiscardHandler), d, func(_, _ string) overlay.Incumbent { return fakeInc })
+	if !errors.Is(err, overlay.ErrConnectionGone) {
+		t.Fatalf("reconcileConnection over a revoked connection = %v, want overlay.ErrConnectionGone (clean stop)", err)
+	}
+
+	// The fenced sweep resurrected nothing: no mirror row, no owner mapping.
+	var mirrorRows, userMaps int
+	if qErr := database.WithWorkspaceTx(sweepCtx, e.Pool, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(sweepCtx, `SELECT count(*) FROM overlay_mirror`).Scan(&mirrorRows); err != nil {
+			return err
+		}
+		return tx.QueryRow(sweepCtx, `SELECT count(*) FROM mirror_user_map`).Scan(&userMaps)
+	}); qErr != nil {
+		t.Fatalf("counting resurrected rows: %v", qErr)
+	}
+	if mirrorRows != 0 || userMaps != 0 {
+		t.Errorf("after a fenced sweep over a revoked connection: overlay_mirror=%d mirror_user_map=%d, want 0/0 — the fence must resurrect nothing", mirrorRows, userMaps)
+	}
+}
+
+// revokeOnOwnersIncumbent simulates a disconnect landing MID-SWEEP: it
+// revokes the workspace's connection row (leaving the vaulted token in place)
+// the first time the sweep calls Owners — after the due-scan enumerated the
+// connection as active but before the sweep's first fenced write — then
+// delegates to the wrapped fake. It is the deterministic hook that exercises
+// the disconnect-race clean-stop paths (the fence itself is DB state, not an
+// incumbent response, so it cannot be injected through the adapter directly).
+type revokeOnOwnersIncumbent struct {
+	overlay.Incumbent
+	pool *pgxpool.Pool
+	done bool
+}
+
+func (r *revokeOnOwnersIncumbent) Owners(ctx context.Context) ([]overlay.OwnerRef, error) {
+	if !r.done {
+		r.done = true
+		if err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+			_, execErr := tx.Exec(ctx,
+				`UPDATE incumbent_connection SET status = 'revoked', revoked_at = now()
+				 WHERE workspace_id = current_setting('app.workspace_id')::uuid`)
+			return execErr
+		}); err != nil {
+			return nil, err
+		}
+	}
+	return r.Incumbent.Owners(ctx)
+}
+
+// TestWorkerCleanStopsOnMidSweepDisconnect proves the worker's clean-stop: a
+// connection revoked mid-sweep makes reconcileConnection return
+// ErrConnectionGone, and Work skips the workspace WITHOUT recording a backoff
+// or a success — so the overlay_sync_state row teardown purged is not
+// resurrected, and nothing is re-mirrored into the now-native workspace.
+func TestWorkerCleanStopsOnMidSweepDisconnect(t *testing.T) {
+	e := integration.Setup(t)
+	vault := keyvault.NewMemory()
+	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
+	if _, err := overlay.NewService(e.Pool, vault, ms).
+		Connect(overlayAdminCtx(e.WS, e.Rep1), overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	fakeInc := fake.New()
+	fakeInc.SeedOwner("owner-1", "a@authz.test") // matches Rep1, so SeedUserMap reaches a fenced UpsertUserMap
+
+	w := &overlayReconcileWorker{
+		pool: e.Pool, vault: vault, ms: ms,
+		meter: overlay.NewMeter(overlay.DefaultMeterConfig()),
+		log:   slog.New(slog.DiscardHandler),
+		newIncumbent: func(_, _ string) overlay.Incumbent {
+			return &revokeOnOwnersIncumbent{Incumbent: fakeInc, pool: e.Pool}
+		},
+	}
+	if err := w.Work(e.Admin(), nil); err != nil {
+		t.Fatalf("Work must not error on a mid-sweep disconnect: %v", err)
+	}
+
+	// No sweep outcome was recorded: the clean-stop path skipped both
+	// RecordSweepFailure and RecordSweepSuccess, so the purged
+	// overlay_sync_state row stays gone (a resurrected row is exactly the P1
+	// this fences).
+	var syncStateRows, mirrorRows int
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(e.Admin(), `SELECT count(*) FROM overlay_sync_state`).Scan(&syncStateRows); err != nil {
+			return err
+		}
+		return tx.QueryRow(e.Admin(), `SELECT count(*) FROM overlay_mirror`).Scan(&mirrorRows)
+	}); err != nil {
+		t.Fatalf("counting post-sweep rows: %v", err)
+	}
+	if syncStateRows != 0 {
+		t.Errorf("overlay_sync_state has %d row(s) after a mid-sweep disconnect, want 0 — the clean stop must not resurrect the purged backoff row", syncStateRows)
+	}
+	if mirrorRows != 0 {
+		t.Errorf("overlay_mirror has %d row(s) after a mid-sweep disconnect, want 0 — nothing may be re-mirrored into a now-native workspace", mirrorRows)
+	}
+}
+
+// TestOnDemandReconcileRacingDisconnectAnswersModeNotOverlay proves the
+// on-demand /overlay/reconcile boundary translates the disconnect-race
+// sentinel into the same ErrModeNotOverlay a workspace with no active
+// connection already gets — never an opaque 500.
+func TestOnDemandReconcileRacingDisconnectAnswersModeNotOverlay(t *testing.T) {
+	e := integration.Setup(t)
+	vault := keyvault.NewMemory()
+	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
+	if _, err := overlay.NewService(e.Pool, vault, ms).
+		Connect(overlayAdminCtx(e.WS, e.Rep1), overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	fakeInc := fake.New()
+	fakeInc.SeedOwner("owner-1", "a@authz.test")
+
+	r := overlayReconciler{
+		pool: e.Pool, vault: vault, ms: ms,
+		meter: overlay.NewMeter(overlay.DefaultMeterConfig()),
+		log:   slog.New(slog.DiscardHandler),
+		newIncumbent: func(_, _ string) overlay.Incumbent {
+			return &revokeOnOwnersIncumbent{Incumbent: fakeInc, pool: e.Pool}
+		},
+	}
+	if err := r.Reconcile(overlayAdminCtx(e.WS, e.Rep1)); !errors.Is(err, apperrors.ErrModeNotOverlay) {
+		t.Fatalf("on-demand reconcile racing a disconnect = %v, want apperrors.ErrModeNotOverlay (not an opaque 500)", err)
 	}
 }
 
