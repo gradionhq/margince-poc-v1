@@ -81,6 +81,10 @@ the one port serves both the UI and the contract. Sign in as
 `admin@demo.test` / `demo-password-123` (dev-only credentials, from
 `config/margince.yaml`).
 
+`make dev-fresh` is `make dev` onto a rebuilt database — use it when a
+previous session left data behind and you want the first-run experience
+again. Plain `make dev` keeps what is there.
+
 **Skip the cold start** with `make seed-dev` against a running stack: demo
 people, organizations, and deals plus the two rep seats and FX rates. The
 seed goes through the public API — same audit trail, same events as real

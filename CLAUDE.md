@@ -102,6 +102,9 @@ not.** Any backend change — a new endpoint, a migration, a handler fix — nee
 `make dev` again (it sweeps and rebuilds). Restarting is the only way your Go
 code reaches the browser.
 
+`make dev-fresh` is `make dev` onto a rebuilt database — the first-run
+installation again, for when a previous session left data behind.
+
 `make dev-stop` is the mirror: bare, it stops EVERY stack, not just the one it
 recorded. The `margince` database survives both (stopping is not deleting);
 `DROP=1` removes the per-slug databases only.
