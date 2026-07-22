@@ -71,7 +71,7 @@ func TestComputeConfigHashIsDeterministicAndSensitiveToEveryField(t *testing.T) 
 // (tasks_gen.go) rather than a hand-maintained copy that could drift from
 // the contract it is meant to fingerprint.
 func TestNewConfigSnapshotUsesTheGeneratedTaskContractHash(t *testing.T) {
-	snap := newConfigSnapshot("routing-hash")
+	snap := newConfigSnapshot("routing-hash", 1024)
 	if snap.TaskContractHash != TaskContractHash {
 		t.Fatalf("TaskContractHash = %q, want the generated constant %q", snap.TaskContractHash, TaskContractHash)
 	}
@@ -83,5 +83,21 @@ func TestNewConfigSnapshotUsesTheGeneratedTaskContractHash(t *testing.T) {
 	}
 	if snap.Hash != computeConfigHash(snap.TaskContractHash, snap.RoutingConfigHash, snap.PromptVersion, snap.ProviderParams) {
 		t.Fatal("Hash does not match computeConfigHash over the snapshot's own fields")
+	}
+}
+
+// TestNewConfigSnapshotCarriesTheConfiguredEmbedDimensionAndChangesHash
+// proves the config snapshot's provider_params names the configured embed
+// width (Task 5), and — since ProviderParams feeds computeConfigHash — that
+// two snapshots differing only in that width land on two DIFFERENT
+// ai_call_config rows rather than silently colliding onto one.
+func TestNewConfigSnapshotCarriesTheConfiguredEmbedDimensionAndChangesHash(t *testing.T) {
+	snap := newConfigSnapshot("routing-hash", 768)
+	if string(snap.ProviderParams) != `{"embed_dimensions":768}` {
+		t.Fatalf("ProviderParams = %s, want {\"embed_dimensions\":768}", snap.ProviderParams)
+	}
+	other := newConfigSnapshot("routing-hash", 1536)
+	if other.Hash == snap.Hash {
+		t.Fatal("two snapshots with different configured embed dimensions must not collide onto the same Hash")
 	}
 }

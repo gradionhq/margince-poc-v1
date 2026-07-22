@@ -80,10 +80,15 @@ type Router struct {
 }
 
 // installConfigSnapshot computes and stores this Router's config-snapshot
-// dimension row from the routing yaml's digest (RoutingConfig.sourceHash).
-// Pure — no DB access; EnsureConfig plants the row lazily, once per flush.
-func (r *Router) installConfigSnapshot(routingConfigHash string) {
-	r.configSnapshot = newConfigSnapshot(routingConfigHash)
+// dimension row from the routing yaml's digest (RoutingConfig.sourceHash)
+// and the configured embed-lane width, and stamps embedDims onto the Router
+// itself — the one call that keeps both in sync, since the snapshot's
+// provider_params must name the SAME width Embed defaults an unset request
+// to. Pure — no DB access; EnsureConfig plants the row lazily, once per
+// flush.
+func (r *Router) installConfigSnapshot(routingConfigHash string, embedDims int) {
+	r.embedDims = embedDims
+	r.configSnapshot = newConfigSnapshot(routingConfigHash, embedDims)
 	r.configHash = r.configSnapshot.Hash
 }
 
@@ -108,8 +113,7 @@ func NewRouter(cfg RoutingConfig, meter *Meter, budget BudgetPolicy, calls callS
 	}
 	meta := embedInclusiveMeta(cfg)
 	router := assembleRouter(clients, embedder, cfg.Profile, meter, budget, calls, meta, capturePayloads, log)
-	router.installConfigSnapshot(cfg.sourceHash)
-	router.embedDims = cfg.Embeddings.Dimensions
+	router.installConfigSnapshot(cfg.sourceHash, cfg.Embeddings.Dimensions)
 	return router, nil
 }
 
