@@ -105,6 +105,7 @@ type preparedSource struct {
 	Text       string
 	Words      int
 	OccurredAt time.Time
+	Stats      CorpusIngestStats
 }
 
 // prepareSource runs the pure half of the §B1 pipeline: field
@@ -146,7 +147,7 @@ func prepareSource(in IngestSourceInput) (preparedSource, error) {
 	format := in.Format
 	switch format {
 	case "", "text":
-		format = "txt"
+		format = corpusFormatTxt
 	case voiceSourceKindTranscript:
 		format = transcriptCorpusFormat(in.Content)
 	}
@@ -154,19 +155,28 @@ func prepareSource(in IngestSourceInput) (preparedSource, error) {
 	// the §B1.2 filter is what keeps a counterparty's words out of the
 	// corpus, and a plain-text conversation would walk straight past it —
 	// the Art. 17 posture of this table rests on this refusal.
-	if in.Kind == voiceSourceKindTranscript && (format == "txt" || format == "md") {
+	if in.Kind == voiceSourceKindTranscript && (format == corpusFormatTxt || format == corpusFormatMd) {
 		return preparedSource{}, &CorpusIngestError{
 			Field:  voiceKeyFormat,
+			Code:   CorpusErrUnattributedTranscript,
 			Reason: "a " + in.Kind + " source must be a speaker-attributed transcript (vtt, srt, or json) so only the owner's own words are modeled",
 		}
 	}
-	text, err := NormalizeCorpusText(format, in.Content, in.SpeakerLabel, in.Kind == voiceSourceKindTranscript)
+	turns, plain, err := corpusTurns(format, in.Content)
 	if err != nil {
 		return preparedSource{}, err
+	}
+	text := in.Content
+	if !plain {
+		text, err = filterOwnTurns(turns, in.SpeakerLabel, in.Kind == voiceSourceKindTranscript)
+		if err != nil {
+			return preparedSource{}, err
+		}
 	}
 	if in.Kind == voiceSourceKindTranscript && strings.TrimSpace(text) == "" {
 		return preparedSource{}, &CorpusIngestError{
 			Field:  voiceKeySpeakerLabel,
+			Code:   CorpusErrSpeakerNotFound,
 			Reason: "no turns belong to this speaker label — nothing of the owner's own words to ingest",
 		}
 	}
@@ -182,6 +192,7 @@ func prepareSource(in IngestSourceInput) (preparedSource, error) {
 		Kind: in.Kind, Register: register, Weight: weight,
 		Label: in.SourceLabel, SourceRef: sourceRef,
 		Text: text, Words: WordCount(text), OccurredAt: occurredAt,
+		Stats: ingestStats(in.Content, turns, plain, text, in.SpeakerLabel),
 	}, nil
 }
 
@@ -189,10 +200,16 @@ func transcriptCorpusFormat(content string) string {
 	trimmed := strings.TrimSpace(content)
 	switch {
 	case strings.HasPrefix(trimmed, "WEBVTT"):
-		return "vtt"
+		return corpusFormatVTT
 	case strings.HasPrefix(trimmed, "[") || strings.HasPrefix(trimmed, "{"):
-		return "json"
+		// Commit to JSON only when it decodes as transcript turns: a
+		// speaker-labelled plain transcript can legitimately open with a
+		// bracket ("[10:03] Lars: ..."), and that is SRT-shaped, not JSON.
+		if _, err := decodeTranscriptItems(content); err == nil {
+			return corpusFormatJSON
+		}
+		return corpusFormatSRT
 	default:
-		return "srt"
+		return corpusFormatSRT
 	}
 }

@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 // CorpusMeterVersion versions the meter thresholds below: the quality
@@ -68,11 +69,22 @@ func QualityBand(totalWords int) string {
 }
 
 // CorpusIngestError reports an unusable ingest input; the transport maps
-// it to a 422 with the field and reason intact.
+// it to a 422 with the field and reason intact. Code, when set, is the
+// stable machine-readable refusal class a conversational client can voice
+// without parsing prose (empty falls back to the generic "invalid").
 type CorpusIngestError struct {
 	Field  string
+	Code   string
 	Reason string
 }
+
+// The stable refusal codes for conversational corpus input.
+const (
+	CorpusErrUnattributedTranscript = "unattributed_transcript"
+	CorpusErrSpeakerLabelRequired   = "speaker_label_required"
+	CorpusErrSpeakerNotFound        = "speaker_not_found"
+	CorpusErrUnsupportedFormat      = "unsupported_format"
+)
 
 func (e *CorpusIngestError) Error() string {
 	return fmt.Sprintf("voice corpus %s: %s", e.Field, e.Reason)
@@ -107,6 +119,15 @@ func SourceRefForContent(content string) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
+// The concrete corpus text formats the pipeline parses.
+const (
+	corpusFormatTxt  = "txt"
+	corpusFormatMd   = "md"
+	corpusFormatVTT  = "vtt"
+	corpusFormatSRT  = "srt"
+	corpusFormatJSON = "json"
+)
+
 // speakerTurn is one attributed stretch of transcript text; Speaker is
 // empty when the format carries no attribution.
 type speakerTurn struct {
@@ -124,30 +145,42 @@ type speakerTurn struct {
 // only when attribution is not required (a pasted memo, a
 // single-speaker dictation).
 func NormalizeCorpusText(format, content, speakerLabel string, requireAttribution bool) (string, error) {
-	var turns []speakerTurn
-	switch format {
-	case "txt", "md":
+	turns, plain, err := corpusTurns(format, content)
+	if err != nil {
+		return "", err
+	}
+	if plain {
 		return content, nil
-	case "vtt":
-		turns = parseVTT(content)
-	case "srt":
-		turns = parseSRT(content)
-	case "json":
+	}
+	return filterOwnTurns(turns, speakerLabel, requireAttribution)
+}
+
+// corpusTurns parses one raw source into speaker turns; plain formats
+// (txt/md) carry no turn structure and pass through whole.
+func corpusTurns(format, content string) (turns []speakerTurn, plain bool, err error) {
+	switch format {
+	case corpusFormatTxt, corpusFormatMd:
+		return nil, true, nil
+	case corpusFormatVTT:
+		return parseVTT(content), false, nil
+	case corpusFormatSRT:
+		return parseSRT(content), false, nil
+	case corpusFormatJSON:
 		parsed, err := parseTranscriptJSON(content)
 		if err != nil {
-			return "", err
+			return nil, false, err
 		}
-		turns = parsed
+		return parsed, false, nil
 	default:
 		// The V1 corpus is text only (ADR-0058, features/09 §B1.1): a
 		// binary document (.docx/.pdf) has no honest word count without
 		// real extraction, so it is refused, never estimated from bytes.
-		return "", &CorpusIngestError{
+		return nil, false, &CorpusIngestError{
 			Field:  voiceKeyFormat,
+			Code:   CorpusErrUnsupportedFormat,
 			Reason: "the corpus is text only — must be one of txt, md, vtt, srt, json; convert a binary document or paste its text",
 		}
 	}
-	return filterOwnTurns(turns, speakerLabel, requireAttribution)
 }
 
 // filterOwnTurns applies the §B1.2 speaker filter over parsed turns.
@@ -164,6 +197,7 @@ func filterOwnTurns(turns []speakerTurn, speakerLabel string, requireAttribution
 		if requireAttribution {
 			return "", &CorpusIngestError{
 				Field:  voiceKeyContent,
+				Code:   CorpusErrUnattributedTranscript,
 				Reason: "a conversational source needs speaker-attributed turns; an unlabelled transcript cannot be filtered to the owner's own words",
 			}
 		}
@@ -175,6 +209,7 @@ func filterOwnTurns(turns []speakerTurn, speakerLabel string, requireAttribution
 	if strings.TrimSpace(speakerLabel) == "" {
 		return "", &CorpusIngestError{
 			Field:  voiceKeySpeakerLabel,
+			Code:   CorpusErrSpeakerLabelRequired,
 			Reason: "this transcript attributes its turns to speakers; name the owner's label so only their own words are modeled",
 		}
 	}
@@ -271,8 +306,10 @@ func parseSRT(content string) []speakerTurn {
 }
 
 // splitSpeakerLine extracts attribution from one cue line: a WebVTT
-// `<v Name>text</v>` voice tag, or the `Name: text` convention (a short,
-// digitless prefix — a URL or clock time is not a speaker).
+// `<v Name>text</v>` voice tag, or the `Name: text` convention. A name is
+// letters-first with at most a short trailing number — that admits the
+// "Speaker 1" / "Sprecher 2" labels diarizers emit while a URL or clock
+// time is still never a speaker.
 func splitSpeakerLine(line string) (speaker, text string) {
 	if strings.HasPrefix(line, "<v ") {
 		if end := strings.Index(line, ">"); end > 3 {
@@ -281,13 +318,34 @@ func splitSpeakerLine(line string) (speaker, text string) {
 			return speaker, text
 		}
 	}
-	if idx := strings.Index(line, ":"); idx > 0 && idx <= 40 {
-		candidate := line[:idx]
-		if !strings.ContainsAny(candidate, "0123456789/<>") {
-			return strings.TrimSpace(candidate), strings.TrimSpace(line[idx+1:])
+	if idx := strings.Index(line, ":"); idx > 0 && idx <= 40 && !strings.HasPrefix(line[idx+1:], "//") {
+		if candidate := speakerCandidate(line[:idx]); candidate != "" {
+			return candidate, strings.TrimSpace(line[idx+1:])
 		}
 	}
 	return "", strings.TrimSpace(line)
+}
+
+// speakerCandidate accepts a name-shaped prefix: it must start with a
+// letter, carry digits only as one trailing run of at most three (the
+// diarizer convention), and contain no markup or path characters.
+func speakerCandidate(prefix string) string {
+	candidate := strings.TrimSpace(prefix)
+	if candidate == "" || strings.ContainsAny(candidate, "/<>") {
+		return ""
+	}
+	stem := strings.TrimSpace(strings.TrimRight(candidate, "0123456789"))
+	if len(candidate)-len(stem) > 4 || stem == "" {
+		// TrimSpace may drop the separator space too, so allow digits+space.
+		return ""
+	}
+	if strings.ContainsAny(stem, "0123456789") {
+		return ""
+	}
+	if first := []rune(stem)[0]; !unicode.IsLetter(first) {
+		return ""
+	}
+	return candidate
 }
 
 // transcriptItem is the common shape of one turn across the JSON

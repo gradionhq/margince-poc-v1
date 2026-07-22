@@ -2879,16 +2879,16 @@ func (e FieldHistoryEntryEntityType) Valid() bool {
 
 // Defines values for FilteredExportRequestFormat.
 const (
-	Csv  FilteredExportRequestFormat = "csv"
-	Json FilteredExportRequestFormat = "json"
+	FilteredExportRequestFormatCsv  FilteredExportRequestFormat = "csv"
+	FilteredExportRequestFormatJson FilteredExportRequestFormat = "json"
 )
 
 // Valid indicates whether the value is a known member of the FilteredExportRequestFormat enum.
 func (e FilteredExportRequestFormat) Valid() bool {
 	switch e {
-	case Csv:
+	case FilteredExportRequestFormatCsv:
 		return true
-	case Json:
+	case FilteredExportRequestFormatJson:
 		return true
 	default:
 		return false
@@ -5292,6 +5292,48 @@ func (e VoiceBuildStatusCode) Valid() bool {
 	}
 }
 
+// Defines values for VoiceCorpusPreviewRequestFormat.
+const (
+	VoiceCorpusPreviewRequestFormatText       VoiceCorpusPreviewRequestFormat = "text"
+	VoiceCorpusPreviewRequestFormatTranscript VoiceCorpusPreviewRequestFormat = "transcript"
+)
+
+// Valid indicates whether the value is a known member of the VoiceCorpusPreviewRequestFormat enum.
+func (e VoiceCorpusPreviewRequestFormat) Valid() bool {
+	switch e {
+	case VoiceCorpusPreviewRequestFormatText:
+		return true
+	case VoiceCorpusPreviewRequestFormatTranscript:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VoiceCorpusPreviewResultDetectedFormat.
+const (
+	VoiceCorpusPreviewResultDetectedFormatJson VoiceCorpusPreviewResultDetectedFormat = "json"
+	VoiceCorpusPreviewResultDetectedFormatSrt  VoiceCorpusPreviewResultDetectedFormat = "srt"
+	VoiceCorpusPreviewResultDetectedFormatTxt  VoiceCorpusPreviewResultDetectedFormat = "txt"
+	VoiceCorpusPreviewResultDetectedFormatVtt  VoiceCorpusPreviewResultDetectedFormat = "vtt"
+)
+
+// Valid indicates whether the value is a known member of the VoiceCorpusPreviewResultDetectedFormat enum.
+func (e VoiceCorpusPreviewResultDetectedFormat) Valid() bool {
+	switch e {
+	case VoiceCorpusPreviewResultDetectedFormatJson:
+		return true
+	case VoiceCorpusPreviewResultDetectedFormatSrt:
+		return true
+	case VoiceCorpusPreviewResultDetectedFormatTxt:
+		return true
+	case VoiceCorpusPreviewResultDetectedFormatVtt:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for VoiceCorpusSourceKind.
 const (
 	VoiceCorpusSourceKindDocument   VoiceCorpusSourceKind = "document"
@@ -5660,31 +5702,31 @@ func (e CaptureProvider) Valid() bool {
 
 // Defines values for ListActivitiesParamsKind.
 const (
-	ListActivitiesParamsKindCall     ListActivitiesParamsKind = "call"
-	ListActivitiesParamsKindEmail    ListActivitiesParamsKind = "email"
-	ListActivitiesParamsKindMeeting  ListActivitiesParamsKind = "meeting"
-	ListActivitiesParamsKindNote     ListActivitiesParamsKind = "note"
-	ListActivitiesParamsKindTask     ListActivitiesParamsKind = "task"
-	ListActivitiesParamsKindTelegram ListActivitiesParamsKind = "telegram"
-	ListActivitiesParamsKindWhatsapp ListActivitiesParamsKind = "whatsapp"
+	Call     ListActivitiesParamsKind = "call"
+	Email    ListActivitiesParamsKind = "email"
+	Meeting  ListActivitiesParamsKind = "meeting"
+	Note     ListActivitiesParamsKind = "note"
+	Task     ListActivitiesParamsKind = "task"
+	Telegram ListActivitiesParamsKind = "telegram"
+	Whatsapp ListActivitiesParamsKind = "whatsapp"
 )
 
 // Valid indicates whether the value is a known member of the ListActivitiesParamsKind enum.
 func (e ListActivitiesParamsKind) Valid() bool {
 	switch e {
-	case ListActivitiesParamsKindCall:
+	case Call:
 		return true
-	case ListActivitiesParamsKindEmail:
+	case Email:
 		return true
-	case ListActivitiesParamsKindMeeting:
+	case Meeting:
 		return true
-	case ListActivitiesParamsKindNote:
+	case Note:
 		return true
-	case ListActivitiesParamsKindTask:
+	case Task:
 		return true
-	case ListActivitiesParamsKindTelegram:
+	case Telegram:
 		return true
-	case ListActivitiesParamsKindWhatsapp:
+	case Whatsapp:
 		return true
 	default:
 		return false
@@ -8724,7 +8766,11 @@ type ImapConnectResult struct {
 
 // IngestVoiceCorpusSourceRequest defines model for IngestVoiceCorpusSourceRequest.
 type IngestVoiceCorpusSourceRequest struct {
-	Content     *string                                `json:"content,omitempty"`
+	Content *string `json:"content,omitempty"`
+
+	// Format Send `transcript` for anything conversational — .vtt, .srt, transcript JSON,
+	// and speaker-labelled plain text ("Name: …" lines) alike; the server detects
+	// the concrete shape. `text` is for single-author prose only.
 	Format      IngestVoiceCorpusSourceRequestFormat   `json:"format"`
 	Kind        IngestVoiceCorpusSourceRequestKind     `json:"kind"`
 	OccurredAt  *time.Time                             `json:"occurred_at,omitempty"`
@@ -8737,7 +8783,9 @@ type IngestVoiceCorpusSourceRequest struct {
 	Weight       *float32 `json:"weight,omitempty"`
 }
 
-// IngestVoiceCorpusSourceRequestFormat defines model for IngestVoiceCorpusSourceRequest.Format.
+// IngestVoiceCorpusSourceRequestFormat Send `transcript` for anything conversational — .vtt, .srt, transcript JSON,
+// and speaker-labelled plain text ("Name: …" lines) alike; the server detects
+// the concrete shape. `text` is for single-author prose only.
 type IngestVoiceCorpusSourceRequestFormat string
 
 // IngestVoiceCorpusSourceRequestKind defines model for IngestVoiceCorpusSourceRequest.Kind.
@@ -10968,6 +11016,31 @@ type VoiceBuildStatus string
 // VoiceBuildStatusCode defines model for VoiceBuild.StatusCode.
 type VoiceBuildStatusCode string
 
+// VoiceCorpusPreviewRequest defines model for VoiceCorpusPreviewRequest.
+type VoiceCorpusPreviewRequest struct {
+	Content *string                         `json:"content,omitempty"`
+	Format  VoiceCorpusPreviewRequestFormat `json:"format"`
+}
+
+// VoiceCorpusPreviewRequestFormat defines model for VoiceCorpusPreviewRequest.Format.
+type VoiceCorpusPreviewRequestFormat string
+
+// VoiceCorpusPreviewResult Dry-run inspection of a candidate source; nothing is stored.
+type VoiceCorpusPreviewResult struct {
+	DetectedFormat         VoiceCorpusPreviewResultDetectedFormat `json:"detected_format"`
+	IngestibleAsTranscript bool                                   `json:"ingestible_as_transcript"`
+	Speakers               []struct {
+		Label string `json:"label"`
+		Turns int    `json:"turns"`
+		Words int    `json:"words"`
+	} `json:"speakers"`
+	TotalWords        int `json:"total_words"`
+	UnattributedWords int `json:"unattributed_words"`
+}
+
+// VoiceCorpusPreviewResultDetectedFormat defines model for VoiceCorpusPreviewResult.DetectedFormat.
+type VoiceCorpusPreviewResultDetectedFormat string
+
 // VoiceCorpusSource Privacy-safe source manifest. Retained source text is deliberately not returned.
 type VoiceCorpusSource struct {
 	ArchivedAt       *time.Time                `json:"archived_at"`
@@ -11018,6 +11091,15 @@ type VoiceCorpusSummaryMaturity string
 
 // VoiceCorpusSummaryQualityBand defines model for VoiceCorpusSummary.QualityBand.
 type VoiceCorpusSummaryQualityBand string
+
+// VoiceIngestStats What the speaker filter did to one ingested source; kept words are the only words that count.
+type VoiceIngestStats struct {
+	DiscardedTurns int      `json:"discarded_turns"`
+	InputWords     int      `json:"input_words"`
+	KeptTurns      int      `json:"kept_turns"`
+	KeptWords      int      `json:"kept_words"`
+	SpeakersSeen   []string `json:"speakers_seen"`
+}
 
 // VoiceLearningSummary defines model for VoiceLearningSummary.
 type VoiceLearningSummary struct {
@@ -13649,6 +13731,9 @@ type RejectVoiceDraftJSONRequestBody = RejectVoiceDraftRequest
 
 // IngestVoiceCorpusSourceJSONRequestBody defines body for IngestVoiceCorpusSource for application/json ContentType.
 type IngestVoiceCorpusSourceJSONRequestBody = IngestVoiceCorpusSourceRequest
+
+// PreviewVoiceCorpusSourceJSONRequestBody defines body for PreviewVoiceCorpusSource for application/json ContentType.
+type PreviewVoiceCorpusSourceJSONRequestBody = VoiceCorpusPreviewRequest
 
 // UpdateVoiceCorpusSourceJSONRequestBody defines body for UpdateVoiceCorpusSource for application/json ContentType.
 type UpdateVoiceCorpusSourceJSONRequestBody = UpdateVoiceCorpusSourceRequest
@@ -19229,6 +19314,9 @@ type ServerInterface interface {
 	// Ingest or replace one manual own-authored text source.
 	// (POST /voice-profiles/{id}/sources)
 	IngestVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id, params IngestVoiceCorpusSourceParams)
+	// Dry-run one candidate source; detect its shape and speakers without storing anything.
+	// (POST /voice-profiles/{id}/sources/preview)
+	PreviewVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id)
 	// Permanently remove one retained source and mark any active artifact stale.
 	// (DELETE /voice-profiles/{id}/sources/{sourceId})
 	DeleteVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id, sourceId openapi_types.UUID, params DeleteVoiceCorpusSourceParams)
@@ -20708,6 +20796,12 @@ func (_ Unimplemented) ListVoiceCorpusSources(w http.ResponseWriter, r *http.Req
 // Ingest or replace one manual own-authored text source.
 // (POST /voice-profiles/{id}/sources)
 func (_ Unimplemented) IngestVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id, params IngestVoiceCorpusSourceParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Dry-run one candidate source; detect its shape and speakers without storing anything.
+// (POST /voice-profiles/{id}/sources/preview)
+func (_ Unimplemented) PreviewVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -32082,6 +32176,38 @@ func (siw *ServerInterfaceWrapper) IngestVoiceCorpusSource(w http.ResponseWriter
 	handler.ServeHTTP(w, r)
 }
 
+// PreviewVoiceCorpusSource operation middleware
+func (siw *ServerInterfaceWrapper) PreviewVoiceCorpusSource(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PreviewVoiceCorpusSource(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeleteVoiceCorpusSource operation middleware
 func (siw *ServerInterfaceWrapper) DeleteVoiceCorpusSource(w http.ResponseWriter, r *http.Request) {
 
@@ -33685,6 +33811,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/voice-profiles/{id}/sources", wrapper.IngestVoiceCorpusSource)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/voice-profiles/{id}/sources/preview", wrapper.PreviewVoiceCorpusSource)
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/voice-profiles/{id}/sources/{sourceId}", wrapper.DeleteVoiceCorpusSource)

@@ -182,12 +182,53 @@ func (h Handlers) IngestVoiceCorpusSource(w http.ResponseWriter, r *http.Request
 		in.SpeakerLabel = *req.SpeakerLabel
 	}
 	in.OccurredAt = req.OccurredAt
-	source, summary, err := h.voice.IngestSource(r.Context(), ids.UUID(id), in)
+	source, summary, stats, err := h.voice.IngestSource(r.Context(), ids.UUID(id), in)
 	if err != nil {
 		writeVoiceErr(w, r, err)
 		return
 	}
-	httperr.WriteJSON(w, http.StatusCreated, wireSourceWithSummary(source, summary))
+	wire := wireSourceWithSummary(source, summary)
+	wireStats := wireIngestStats(stats)
+	wire.IngestStats = &wireStats
+	httperr.WriteJSON(w, http.StatusCreated, wire)
+}
+
+// PreviewVoiceCorpusSource implements (POST /voice-profiles/{id}/sources/preview):
+// the dry-run "who speaks in this file?" answer the speaker question rests
+// on — pure inspection, nothing stored.
+func (h Handlers) PreviewVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	var req crmcontracts.VoiceCorpusPreviewRequest
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	content := ""
+	if req.Content != nil {
+		content = *req.Content
+	}
+	preview, err := h.voice.PreviewSource(r.Context(), ids.UUID(id), string(req.Format), content)
+	if err != nil {
+		writeVoiceErr(w, r, err)
+		return
+	}
+	speakers := make([]struct {
+		Label string `json:"label"`
+		Turns int    `json:"turns"`
+		Words int    `json:"words"`
+	}, 0, len(preview.Speakers))
+	for _, speaker := range preview.Speakers {
+		speakers = append(speakers, struct {
+			Label string `json:"label"`
+			Turns int    `json:"turns"`
+			Words int    `json:"words"`
+		}{Label: speaker.Label, Turns: speaker.Turns, Words: speaker.Words})
+	}
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.VoiceCorpusPreviewResult{
+		DetectedFormat:         crmcontracts.VoiceCorpusPreviewResultDetectedFormat(preview.DetectedFormat),
+		TotalWords:             preview.TotalWords,
+		Speakers:               speakers,
+		UnattributedWords:      preview.UnattributedWords,
+		IngestibleAsTranscript: preview.IngestibleAsTranscript,
+	})
 }
 
 // UpdateVoiceCorpusSource implements (PATCH /voice-profiles/{id}/sources/{sourceId}).
@@ -230,7 +271,11 @@ func (h Handlers) DeleteVoiceCorpusSource(w http.ResponseWriter, r *http.Request
 func writeVoiceErr(w http.ResponseWriter, r *http.Request, err error) {
 	var ingest *CorpusIngestError
 	if errors.As(err, &ingest) {
-		httperr.Write(w, r, httperr.Validation(ingest.Field, "invalid", ingest.Reason))
+		code := ingest.Code
+		if code == "" {
+			code = "invalid"
+		}
+		httperr.Write(w, r, httperr.Validation(ingest.Field, code, ingest.Reason))
 		return
 	}
 	httperr.Write(w, r, err)
@@ -332,10 +377,25 @@ func updatedAt(created time.Time, updated *time.Time) time.Time {
 // manifest row plus the refreshed meter, so the funnel updates its bar
 // without a second round trip.
 type sourceWithSummary struct {
-	Source  crmcontracts.VoiceCorpusSource  `json:"source"`
-	Summary crmcontracts.VoiceCorpusSummary `json:"summary"`
+	Source      crmcontracts.VoiceCorpusSource  `json:"source"`
+	Summary     crmcontracts.VoiceCorpusSummary `json:"summary"`
+	IngestStats *crmcontracts.VoiceIngestStats  `json:"ingest_stats,omitempty"`
 }
 
 func wireSourceWithSummary(source VoiceCorpusSource, summary CorpusSummary) sourceWithSummary {
 	return sourceWithSummary{Source: wireVoiceSource(source), Summary: wireCorpusSummary(summary)}
+}
+
+func wireIngestStats(stats CorpusIngestStats) crmcontracts.VoiceIngestStats {
+	speakers := stats.SpeakersSeen
+	if speakers == nil {
+		speakers = []string{}
+	}
+	return crmcontracts.VoiceIngestStats{
+		InputWords:     stats.InputWords,
+		KeptWords:      stats.KeptWords,
+		KeptTurns:      stats.KeptTurns,
+		DiscardedTurns: stats.DiscardedTurns,
+		SpeakersSeen:   speakers,
+	}
 }

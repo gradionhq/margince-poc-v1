@@ -153,6 +153,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/voice-profiles/{id}/corpus/clear":                          {Op: "clearVoiceCorpus", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/voice-profiles/{id}/draft-rejections":                      {Op: "rejectVoiceDraft", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/voice-profiles/{id}/sources":                               {Op: "ingestVoiceCorpusSource", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"POST /v1/voice-profiles/{id}/sources/preview":                       {Op: "previewVoiceCorpusSource", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/voice-profiles/{id}/versions/{profileVersion}/apply":       {Op: "applyVoiceProfileVersion", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/voice-profiles/{id}/versions/{profileVersion}/reject":      {Op: "rejectVoiceProfileVersion", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/voice-profiles/{id}/versions/{profileVersion}/rollback":    {Op: "rollbackVoiceProfileVersion", Access: "human-only", Tool: "", RecordType: "", Tier: ""},

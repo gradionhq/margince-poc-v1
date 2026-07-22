@@ -165,7 +165,7 @@ func seedVoiceBuild(t *testing.T, quote string, sourceCount int) (*voiceBuildEnv
 		if i == 0 {
 			content = quote + " " + content
 		}
-		if _, _, err := store.IngestSource(owner, profile.ID, ai.IngestSourceInput{
+		if _, _, _, err := store.IngestSource(owner, profile.ID, ai.IngestSourceInput{
 			Kind: "email", Register: register, SourceLabel: fmt.Sprintf("source-%d", i+1), Content: content,
 		}); err != nil {
 			t.Fatal(err)
@@ -245,7 +245,7 @@ func TestVoiceBuildRunsToAnActiveVersion(t *testing.T) {
 
 func TestVoiceBuildFailsWhenTheCorpusChangedSinceQueueing(t *testing.T) {
 	env, build := seedVoiceBuild(t, "A quote that will survive.", 6)
-	if _, _, err := env.store.IngestSource(env.owner, env.profile.ID, ai.IngestSourceInput{
+	if _, _, _, err := env.store.IngestSource(env.owner, env.profile.ID, ai.IngestSourceInput{
 		Kind: "other", SourceLabel: "late addition", Content: "text arriving after the snapshot was taken",
 	}); err != nil {
 		t.Fatal(err)
