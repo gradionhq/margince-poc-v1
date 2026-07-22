@@ -102,19 +102,54 @@ func goImports(t *testing.T, dir string) map[string][]string {
 	return out
 }
 
-// TestExtensionsImportOnlyThePublishedSurface: an extension reaches the
-// product only through backend/pkg/** — never internal/**, cmd/**, the
-// composition module, or a sibling extension (EXT-P2/P7). Third-party
-// imports are the extension's own business (its go.mod carries them).
-func TestExtensionsImportOnlyThePublishedSurface(t *testing.T) {
+// extensionSurfaceMarker is the allowlist directive (ADR-0069 §3):
+// membership in backend/pkg alone grants nothing — a package is
+// extension surface only when its package clause carries this line.
+const extensionSurfaceMarker = "//margince:extension-surface"
+
+// allowlistedSurface derives the published allowlist from the tree: the
+// import path of every backend/pkg package whose non-test source carries
+// the marker directive.
+func allowlistedSurface(t *testing.T) map[string]bool {
+	t.Helper()
+	marked := map[string]bool{}
+	err := filepath.WalkDir("pkg", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return err
+		}
+		src, err := os.ReadFile(path) // #nosec G304 -- path from walking the trusted source tree
+		if err != nil {
+			return err
+		}
+		for _, line := range strings.Split(string(src), "\n") {
+			if strings.TrimSpace(line) == extensionSurfaceMarker {
+				marked[modulePath+"/"+filepath.ToSlash(filepath.Dir(path))] = true
+				break
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return marked
+}
+
+// TestExtensionsImportOnlyTheAllowlistedSurface: an extension reaches the
+// product only through the marker-allowlisted backend/pkg packages —
+// never internal/**, cmd/**, an unmarked pkg package, the composition
+// module, or a sibling extension (EXT-P2/P7). Third-party imports are
+// the extension's own business (its go.mod carries them).
+func TestExtensionsImportOnlyTheAllowlistedSurface(t *testing.T) {
 	trees := extensionTrees(t)
 	modPaths := extensionModulePaths(t, trees)
+	surface := allowlistedSurface(t)
 	for dir := range trees {
 		for file, imports := range goImports(t, dir) {
 			for _, imp := range imports {
 				if strings.HasPrefix(imp, modulePath+"/") {
-					if !strings.HasPrefix(imp, modulePath+"/pkg/") {
-						t.Errorf("%s imports %s: extensions import only the published surface (%s/pkg/**)", file, imp, modulePath)
+					if !surface[imp] {
+						t.Errorf("%s imports %s: extensions import only the allowlisted published surface (a backend/pkg package carrying %s)", file, imp, extensionSurfaceMarker)
 					}
 					continue
 				}
@@ -131,6 +166,34 @@ func TestExtensionsImportOnlyThePublishedSurface(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// TestSurfaceMarkerLivesOnlyUnderPkg: the directive grants surface
+// membership, so a stray copy outside backend/pkg would be a silent
+// allowlist widening — the marker is meaningless (and refused) anywhere
+// else in the backend tree. Test files are exempt: the allowlist
+// derivation never reads them (this file's own constant included).
+func TestSurfaceMarkerLivesOnlyUnderPkg(t *testing.T) {
+	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return err
+		}
+		rel := filepath.ToSlash(path)
+		if strings.HasPrefix(rel, "pkg/") {
+			return nil
+		}
+		src, err := os.ReadFile(path) // #nosec G304 -- path from walking the trusted source tree
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(src), extensionSurfaceMarker) {
+			t.Errorf("%s carries %s: the surface marker belongs only on backend/pkg packages", rel, extensionSurfaceMarker)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
