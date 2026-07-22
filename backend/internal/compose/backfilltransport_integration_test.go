@@ -204,7 +204,7 @@ func setupBackfillWire(t *testing.T) *backfillWireEnv {
 			ai.TierCheapCloud: {Provider: ai.ProviderFake, Model: "cloud-model"},
 			ai.TierPremium:    {Provider: ai.ProviderFake, Model: "premium-model"},
 		},
-		Embeddings: ai.ProviderConfig{Provider: ai.ProviderFake, Model: "embed-model"},
+		Embeddings: ai.EmbeddingsConfig{ProviderConfig: ai.ProviderConfig{Provider: ai.ProviderFake, Model: "embed-model"}},
 	})
 	if err != nil {
 		t.Fatalf("NewLocalRouter: %v", err)
@@ -379,7 +379,7 @@ func TestBackfillWire(t *testing.T) {
 		if out.EstimatedAiTokens == nil || *out.EstimatedAiTokens <= 0 {
 			t.Fatalf("estimated_ai_tokens = %+v, want floor tokens > 0", out.EstimatedAiTokens)
 		}
-		if out.EstimateQuality == nil || *out.EstimateQuality != crmcontracts.Heuristic {
+		if out.EstimateQuality == nil || *out.EstimateQuality != crmcontracts.BackfillPreviewEstimateQualityHeuristic {
 			t.Fatalf("estimate_quality = %+v, want heuristic (cold-start floor)", out.EstimateQuality)
 		}
 		if out.EstimatedCostMinor != nil {

@@ -12,12 +12,14 @@ package jobs_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -44,9 +46,11 @@ type noopWorker struct {
 func (noopWorker) Work(context.Context, *river.Job[noopArgs]) error { return nil }
 
 // migratedAppPool resets the schema as owner, applies core+custom and the
-// River schema, and returns a pool on the runtime app role — proving the
-// grants in jobs.Migrate actually let the app role reach River's tables.
-func migratedAppPool(t *testing.T) *jobs.Runner {
+// River schema, and returns a runner plus the underlying pool on the
+// runtime app role — proving the grants in jobs.Migrate actually let the
+// app role reach River's tables. The pool is returned alongside the runner
+// so callers can open their own transactions (e.g. to exercise EnqueueTx*).
+func migratedAppPool(t *testing.T) (*jobs.Runner, *pgxpool.Pool) {
 	t.Helper()
 	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
 	appDSN := os.Getenv("MARGINCE_TEST_APP_DSN")
@@ -105,16 +109,59 @@ func migratedAppPool(t *testing.T) *jobs.Runner {
 	if err != nil {
 		t.Fatalf("jobs.New: %v", err)
 	}
-	return r
+	return r, appPool
 }
 
 func TestRunnerStartsAndStopsCleanlyAsAppRole(t *testing.T) {
-	r := migratedAppPool(t)
+	r, _ := migratedAppPool(t)
 	ctx := t.Context()
 	if err := r.Start(ctx); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	if err := r.Stop(ctx); err != nil {
 		t.Fatalf("Stop: %v", err)
+	}
+}
+
+// TestEnqueueTxUniqueSurfacesDedupeOutcome proves the confirm endpoint's
+// premise: enqueuing the same unique job twice in the same transaction
+// tells the two outcomes apart without an error — the first insert lands,
+// the second is River's own dedupe, not a failure.
+func TestEnqueueTxUniqueSurfacesDedupeOutcome(t *testing.T) {
+	r, pool := migratedAppPool(t)
+	ctx := t.Context()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer func() {
+		// Committed below on the success path; Rollback after a successful
+		// Commit reports ErrTxClosed, which is expected, not swallowed.
+		if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			t.Errorf("rolling back tx: %v", err)
+		}
+	}()
+
+	opts := &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByArgs: true}}
+
+	inserted, err := r.EnqueueTxUnique(ctx, tx, noopArgs{}, opts)
+	if err != nil {
+		t.Fatalf("first EnqueueTxUnique: %v", err)
+	}
+	if !inserted {
+		t.Fatal("first enqueue: want inserted=true, got false")
+	}
+
+	inserted, err = r.EnqueueTxUnique(ctx, tx, noopArgs{}, opts)
+	if err != nil {
+		t.Fatalf("second EnqueueTxUnique: %v", err)
+	}
+	if inserted {
+		t.Fatal("second enqueue: want inserted=false (deduped), got true")
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit tx: %v", err)
 	}
 }

@@ -1948,4 +1948,37 @@ export const de = {
   "quotas.archive.title": "Quota archivieren",
   "quotas.archive.confirm":
     "Das Archivieren entfernt diese Quota aus der Liste und stoppt die Verfolgung der Zielerreichung. Archivierte Quotas können nicht bearbeitet werden.",
+
+  "reindexbanner.needed": "Neuindizierung erforderlich",
+  "reindexbanner.link": "In den Einstellungen prüfen",
+
+  "embedreindex.title": "Suchindex",
+  "embedreindex.sub":
+    "Der Neuindizierungsstatus des Embedding-Speichers — nur admin/ops, auch zum Ansehen.",
+  "embedreindex.loading": "Indexstatus wird geprüft…",
+  "embedreindex.statusUnavailable":
+    "Der Indexstatus ist gerade nicht verfügbar.",
+  "embedreindex.statusIdle": "Aktuell",
+  "embedreindex.statusNeeded": "Neuindizierung erforderlich",
+  "embedreindex.statusReembedding": "Neuindizierung läuft…",
+  "embedreindex.reembeddingSince": "Neuindizierung läuft seit {duration}",
+  "embedreindex.entitiesPending": "{count} Einträge ausstehend",
+  "embedreindex.workspacePending": "{count} ausstehend",
+  "embedreindex.reviewCta": "Prüfen & neu indizieren",
+  "embedreindex.rebuildCta": "Index neu aufbauen",
+  "embedreindex.confirmTitle": "Neuindizierung starten",
+  "embedreindex.rebuildTitle": "Suchindex neu aufbauen",
+  "embedreindex.confirmCta": "Neuindizierung starten",
+  "embedreindex.rebuildConfirmCta": "Jetzt neu aufbauen",
+  "embedreindex.starting": "Wird gestartet…",
+  "embedreindex.previewLoading": "Umfang wird geschätzt…",
+  "embedreindex.estimateEntities": "Neu einzubettende Einträge:",
+  "embedreindex.estimateTokens": "Geschätzte KI-Tokens:",
+  "embedreindex.estimateCost": "Geschätzte Kosten:",
+  "embedreindex.estimateQualityHeuristic":
+    "Heuristische Schätzung — eine kalte Arbeitsmengen-Untergrenze, kein beobachteter Verbrauch.",
+  "embedreindex.utilizationTitle": "Budgetauswirkung je Workspace",
+  "embedreindex.impact.normal": "normal",
+  "embedreindex.impact.degraded": "würde in den Sparmodus wechseln",
+  "embedreindex.impact.queued": "würde in die Warteschlange gestellt",
 } as const satisfies Record<MessageKey, string>;

@@ -65,10 +65,14 @@ func seedSubject(t *testing.T, e *Env) ids.UUID {
 			subjectEmail); err != nil {
 			return err
 		}
+		// The identity is a composite provider/model@dims stamp, not the
+		// legacy fixed label — erasure must remove the row regardless of
+		// which identity produced it (the DELETE at erasure.go carries no
+		// model filter; a mixed-width store must still erase fully).
 		vector := "[" + strings.TrimSuffix(strings.Repeat("0.1,", 1023), ",") + ",0.1]"
 		_, err := tx.Exec(ctx,
 			`INSERT INTO embedding (workspace_id, entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
-			 VALUES (`+wsClause+`, 'person', $1, 0, 'h', 'fake', $2::vector)`, personID, vector)
+			 VALUES (`+wsClause+`, 'person', $1, 0, 'h', 'gemini/gemini-embedding-001@1024', $2::vector)`, personID, vector)
 		return err
 	})
 	if err != nil {

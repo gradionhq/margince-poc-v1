@@ -83,6 +83,7 @@ type Server struct {
 	quotasHandlers
 	attachmentExtractionHandlers
 	overlayHandlers
+	embedReindexHandlers
 	webhooksHandlers
 
 	// gmailPush is the Pub/Sub push webhook, injected by WithGmailPush only
@@ -389,7 +390,7 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH auth
 	// other operational edges are unauthenticated by design.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", httpserver.Healthz)
-	mux.HandleFunc("/readyz", httpserver.Readyz(srv.aiStateOrDefault(), srv.readinessChecks(pool.Ping)...))
+	mux.HandleFunc("/readyz", httpserver.Readyz(srv.aiStateOrDefault(), srv.readyzEmbedState(), srv.readinessChecks(pool.Ping)...))
 	mux.HandleFunc("/metrics", httpserver.Metrics(pool,
 		func(ctx context.Context) (int64, error) { return events.OutboxBacklog(ctx, pool) },
 		events.PublishedTotal,
@@ -419,6 +420,17 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH auth
 	return mux
 }
 
+// readyzEmbedState builds /readyz's embed-status closure (Task 17) over
+// whatever embed lane this process role already wired via
+// WithEmbedReindex — the SAME store and embedder embedReindexHandlers'
+// status/preview/confirm read, so this reports through the one seam
+// rather than opening a second router/store pair. A role that never
+// wires an embed lane (no declared routing config, --ai-fake, or the
+// two self-gating nils WithEmbedReindex checks) leaves engine nil; that
+// is a legitimate "no embed lane to report on" shape, not a fault, so it
+// renders "unknown" exactly like a marker-read failure does — Readyz's
+// body never distinguishes the two, only ever "was this readable right
+// now or not."
 // signalStrength bridges people's §4 relationship-strength computation to
 // the slice the warm room consumes (signals.StrengthSource). It carries
 // only the score and its bucket across the seam — the full explainable

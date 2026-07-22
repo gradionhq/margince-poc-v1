@@ -59,6 +59,7 @@ import {
 } from "./company-context";
 import { CreateAction, type CreateField, CreateRecordModal } from "./create";
 import { EditAction } from "./edit";
+import { EmbedReindexCard } from "./embedreindex";
 import { EntityRef } from "./entityref";
 import { ConsentPurposesCard, PrivacyInboxCard } from "./privacy";
 import { UsersAdminCard } from "./users-admin";
@@ -115,7 +116,12 @@ function tabContent(id: SettingsTabId): ReactNode {
     case "ai":
       return <AiSettingsTab />;
     case "data":
-      return <CustomFieldsLinkCard />;
+      return (
+        <>
+          <CustomFieldsLinkCard />
+          <EmbedReindexCard />
+        </>
+      );
     case "catalog":
       return (
         <>

@@ -132,11 +132,19 @@ func (f *FakeClient) Embed(ctx context.Context, req model.EmbedRequest) (model.E
 		return model.Embeddings{}, err
 	}
 	f.record(FakeCall{Op: "embed", Model: req.Model, Payload: payload})
+	// Dimensions, when set, is the caller's requested vector width (e.g.
+	// the Router filling it from the configured embeddings binding) — the
+	// fake must honor it exactly, the same way a real adapter forwards it
+	// on the wire, rather than always answering at its own default width.
+	dims := req.Dimensions
+	if dims == 0 {
+		dims = f.embedDims
+	}
 	vectors := make([][]float32, len(req.Inputs))
 	for i, input := range req.Inputs {
-		vectors[i] = deterministicVector(input, f.embedDims)
+		vectors[i] = deterministicVector(input, dims)
 	}
-	return model.Embeddings{Vectors: vectors, Dims: f.embedDims}, nil
+	return model.Embeddings{Vectors: vectors, Dims: dims}, nil
 }
 
 func (f *FakeClient) Caps() model.Capabilities {

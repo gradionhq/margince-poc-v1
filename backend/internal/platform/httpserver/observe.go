@@ -125,7 +125,18 @@ type ReadyCheck struct {
 // deployment is a legitimate, ready deployment (ai-operational-spec
 // §2), so it is reported alongside "ready", not checked as a
 // ReadyCheck that could turn it into a 503.
-func Readyz(aiState string, checks ...ReadyCheck) http.HandlerFunc {
+//
+// embedState is the same shape of visibility line for the search
+// module's embed store binding (Task 17): "active", "needs_reindex", or
+// "reembedding". It is called once, after every check has passed, with
+// the same deadline-bound ctx the checks ran under; a nil embedState (a
+// role that wires no embed lane) and one whose own marker-read failed
+// and already turned that into "unknown" both render identically —
+// Readyz never inspects why, only what it's handed. Like the AI line,
+// this NEVER gates: the embed store still serves N+1 reads correctly
+// under a stale binding, so a drifted or unreadable marker is
+// informational, not a reason to stop routing traffic here.
+func Readyz(aiState string, embedState func(context.Context) string, checks ...ReadyCheck) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
@@ -139,8 +150,12 @@ func Readyz(aiState string, checks ...ReadyCheck) http.HandlerFunc {
 				return
 			}
 		}
+		embed := "unknown"
+		if embedState != nil {
+			embed = embedState(ctx)
+		}
 		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprintf(w, "ready\nai: %s\n", aiState)
+		_, _ = fmt.Fprintf(w, "ready\nai: %s\nembed: %s\n", aiState, embed)
 	}
 }
 

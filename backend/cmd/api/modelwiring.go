@@ -116,3 +116,23 @@ func jobEnqueueOptions(pool *pgxpool.Pool, logger *slog.Logger, modelPath *compo
 	}
 	return []compose.Option{deepRead, compose.WithVoiceBuildEnqueue(inserter)}, nil
 }
+
+// embedReindexOption wires the /embeddings/reindex* ops over the resolved
+// model path's embed lane and its own insert-only River client (the api
+// enqueues the fleet-wide re-embed, the worker role works it — the same
+// api-enqueues/worker-works split as deepReadOption). Without a model
+// path there is no router to hand WithEmbedReindex, which self-gates on
+// a nil router exactly like it self-gates on a nil inserter — so the
+// returned Option is always real, and the three ops stay their generated
+// 501 by that same omission, never a special-cased nil Option here.
+func embedReindexOption(pool *pgxpool.Pool, modelPath *compose.ModelPath, logger *slog.Logger) (compose.Option, error) {
+	inserter, err := jobs.NewInserter(pool, logger)
+	if err != nil {
+		return nil, err
+	}
+	var router *ai.Router
+	if modelPath != nil {
+		router = modelPath.Router()
+	}
+	return compose.WithEmbedReindex(router, inserter), nil
+}

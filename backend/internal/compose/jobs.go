@@ -27,6 +27,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
@@ -283,6 +284,13 @@ type JobRunnerConfig struct {
 	// DeepReadCaps bounds each deep-read crawl; the zero value takes the
 	// compose defaults (CrawlCaps.withDefaults).
 	DeepReadCaps CrawlCaps
+	// Embedder is the retrieval embed lane (ModelPath.Embedder) the
+	// embed-reindex worker re-embeds under. The worker registers
+	// regardless of whether this is nil: a picked-up embed_reindex job
+	// on a brainless worker role fails clearly (embedReindexWorker.Work)
+	// rather than sitting queued forever behind a job no one can work —
+	// the same posture as DeepReadBrain.
+	Embedder search.Embedder
 	// VoiceBrain is the voice-build model lane (the worker's
 	// modelPath.VoiceBuild). May be nil: the build worker still registers,
 	// so a queued build on a brainless worker finishes failed with an
@@ -327,6 +335,11 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	river.AddWorker(workers, &closeDateSweepWorker{corrector: NewCloseDateCorrector(pool, log)})
 	river.AddWorker(workers, &followUpReconcileWorker{reconciler: NewFollowUpReconciler(pool, log)})
 	river.AddWorker(workers, &timeScanWorker{scanner: NewTimeScanner(pool, log)})
+	// The embed-reindex job is not periodic — the api enqueues one job per
+	// confirmed reindex (embedreindextransport.go); the worker role only
+	// needs the worker registered, same posture as the deep-read worker
+	// above.
+	river.AddWorker(workers, &embedReindexWorker{store: search.NewStore(pool), embedder: cfg.Embedder})
 
 	periodic := []*river.PeriodicJob{
 		river.NewPeriodicJob(
@@ -441,52 +454,4 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		Workers:      workers,
 		PeriodicJobs: periodic,
 	}, log)
-}
-
-// CaptureBackfillArgs pages ONE bounded backfill run (ADR-0063). Unique by
-// args while incomplete: start and any retry converge on one job.
-type CaptureBackfillArgs struct {
-	Workspace  string `json:"workspace"`
-	BackfillID string `json:"backfill_id"`
-}
-
-// Kind is the stable job identifier River persists in river_job.
-func (CaptureBackfillArgs) Kind() string { return "capture_backfill" }
-
-// captureBackfillWorker pages a run to completion, yielding between pages
-// (snooze) so a long mailbox never monopolizes a worker slot. A page error
-// returns nil after the engine recorded it — the run row owns its state.
-type captureBackfillWorker struct {
-	river.WorkerDefaults[CaptureBackfillArgs]
-	registry *capture.Registry
-	log      *slog.Logger
-}
-
-// backfillPagesPerTick bounds how many pages one Work invocation walks
-// before yielding the worker slot.
-const backfillPagesPerTick = 10
-
-func (w *captureBackfillWorker) Work(ctx context.Context, job *river.Job[CaptureBackfillArgs]) error {
-	ws, err := ids.Parse(job.Args.Workspace)
-	if err != nil {
-		return fmt.Errorf("capture_backfill: workspace id: %w", err)
-	}
-	bfID, err := ids.Parse(job.Args.BackfillID)
-	if err != nil {
-		return fmt.Errorf("capture_backfill: backfill id: %w", err)
-	}
-	wsCtx := principal.WithWorkspaceID(ctx, ws)
-	for i := 0; i < backfillPagesPerTick; i++ {
-		done, err := w.registry.RunBackfillStep(wsCtx, bfID)
-		if err != nil {
-			// The engine recorded the failure class on the run; the log
-			// carries the detail. The row owns retry policy, not River.
-			w.log.WarnContext(ctx, "capture backfill page failed", "backfill", job.Args.BackfillID, "err", err)
-			return nil
-		}
-		if done {
-			return nil
-		}
-	}
-	return river.JobSnooze(time.Second)
 }

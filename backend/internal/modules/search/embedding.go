@@ -23,22 +23,32 @@ import (
 // ai router (or the offline fake) — search never picks a model.
 type Embedder interface {
 	Embed(ctx context.Context, req model.EmbedRequest) (model.Embeddings, error)
+	// EmbedIdentity is the current binding's stamp — cheap, no API call.
+	// identity = "<provider>/<model>@<dims>"; dims is the width guard's expected size.
+	EmbedIdentity() (identity string, dims int)
 }
 
-// embedModelLabel records which lane produced a row. The binding is
-// per-deployment config (one embedder per store — mixed models cannot
-// rank against each other); swapping it means wiping the store, which
-// the width-change custom migration forces anyway.
-const embedModelLabel = "embed-lane"
-
-// embeddingDims must match the migration's vector(1024) column; a
-// binding that produces another width fails loudly here instead of
-// storing unrankable vectors.
-const embeddingDims = 1024
+// isZero reports whether every vector component is exactly 0. Cosine
+// similarity against the zero vector is 0/0 = NaN, and a naive
+// `ORDER BY sim DESC` sorts NaN FIRST — silently outranking every real
+// match — so a zero vector must never reach storage.
+func isZero(vec []float32) bool {
+	for _, v := range vec {
+		if v != 0 {
+			return false
+		}
+	}
+	return true
+}
 
 // UpsertEmbedding maintains one entity's vector. Content-hash keyed
-// (ai-operational-spec §6): unchanged text costs NO model call — the
-// returned bool says whether an embedding was actually computed.
+// (ai-operational-spec §6): unchanged text under an unchanged embed
+// binding costs NO model call — the returned bool says whether an
+// embedding was actually computed. A text match under a CHANGED binding
+// (an operator swap to a different provider/model/width) still
+// re-embeds: skipping on hash alone would leave the row stamped with a
+// model no longer serving the workspace, indistinguishable from a live
+// one.
 func (s *Store) UpsertEmbedding(ctx context.Context, entityType string, entityID ids.UUID, text string, embedder Embedder) (bool, error) {
 	if !knownEntity(entityType) {
 		return false, fmt.Errorf("search: unembeddable entity type %q", entityType)
@@ -49,39 +59,65 @@ func (s *Store) UpsertEmbedding(ctx context.Context, entityType string, entityID
 	}
 	sum := sha256.Sum256([]byte(text))
 	hash := hex.EncodeToString(sum[:])
+	identity, dims := embedder.EmbedIdentity()
+	if identity == "" {
+		// No embed lane bound (--ai-fake, or any routing config that never
+		// declared an embeddings model) — a legitimate deployment shape
+		// (brain.go's seedEmbedBinding carve-out), not an error. Embedding
+		// is a no-op system-wide when unbound: returning here before the
+		// transaction skips both the DB round-trip and the width guard
+		// below, which would otherwise fire on every call (dims stays 0,
+		// but Embed's own zero-width default fills a live-width vector) and
+		// keep EmbedGen.HandleEvent from ever acking, redelivering forever.
+		return false, nil
+	}
 
 	fresh := false
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		var existing string
+		var existingHash, existingModel string
 		err := tx.QueryRow(ctx, `
-			SELECT chunk_hash FROM embedding
+			SELECT chunk_hash, model FROM embedding
 			WHERE entity_type = $1 AND entity_id = $2 AND chunk_ix = 0`,
-			entityType, entityID).Scan(&existing)
-		if err == nil && existing == hash {
-			return nil // never re-embed unchanged text
+			entityType, entityID).Scan(&existingHash, &existingModel)
+		if err != nil {
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+			// No row yet: existingHash/existingModel stay "" — the honest
+			// "nothing stored" case, distinct from a real empty hash/model.
 		}
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return err
+		if existingHash == hash && existingModel == identity {
+			return nil // unchanged text, unchanged binding — never re-embed
 		}
 
-		res, err := embedder.Embed(ctx, model.EmbedRequest{Inputs: []string{text}, Dimensions: embeddingDims})
+		res, err := embedder.Embed(ctx, model.EmbedRequest{Inputs: []string{text}, Dimensions: dims})
 		if err != nil {
 			return fmt.Errorf("search: embed: %w", err)
 		}
-		if len(res.Vectors) != 1 || res.Dims != embeddingDims {
-			return fmt.Errorf("search: embedder returned %d vectors of width %d, need 1×%d", len(res.Vectors), res.Dims, embeddingDims)
+		if len(res.Vectors) != 1 || res.Dims != dims {
+			return fmt.Errorf("search: embedder returned %d vectors of width %d, need 1×%d", len(res.Vectors), res.Dims, dims)
 		}
-		_, err = tx.Exec(ctx, `
+		if isZero(res.Vectors[0]) {
+			return fmt.Errorf("search: embedder returned a zero vector (cosine NaN)")
+		}
+
+		// CAS on the hash read above ('' when no row existed): a
+		// concurrent writer that already advanced chunk_hash past what we
+		// read (a redelivered event racing this one, or another identity
+		// swap) already won — leave fresh=false rather than clobbering a
+		// row fresher than the one this call started from.
+		tag, err := tx.Exec(ctx, `
 			INSERT INTO embedding (workspace_id, entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, 0, $3, $4, $5::vector)
 			ON CONFLICT (workspace_id, entity_type, entity_id, chunk_ix)
 			DO UPDATE SET chunk_hash = EXCLUDED.chunk_hash, model = EXCLUDED.model,
-			              embedding = EXCLUDED.embedding, created_at = now()`,
-			entityType, entityID, hash, embedModelLabel, vectorLiteral(res.Vectors[0]))
+			              embedding = EXCLUDED.embedding, created_at = now()
+			WHERE embedding.chunk_hash IS NOT DISTINCT FROM $6`,
+			entityType, entityID, hash, identity, vectorLiteral(res.Vectors[0]), existingHash)
 		if err != nil {
 			return fmt.Errorf("search: upsert embedding: %w", err)
 		}
-		fresh = true
+		fresh = tag.RowsAffected() > 0
 		return nil
 	})
 	return fresh, err
@@ -96,15 +132,28 @@ type VectorHit struct {
 }
 
 // SimilarEntities ranks entities by cosine similarity to the query
-// vector. Object RBAC and row scope gate every branch, exactly like the
-// lexical union — a vector hit is a read too.
-func (s *Store) SimilarEntities(ctx context.Context, queryVec []float32, limit int) ([]VectorHit, error) {
+// vector, restricted to rows stamped with the caller's own embed
+// identity. Object RBAC and row scope gate every branch, exactly like
+// the lexical union — a vector hit is a read too.
+func (s *Store) SimilarEntities(ctx context.Context, queryVec []float32, identity string, limit int) ([]VectorHit, error) {
+	// A zero query vector makes every cosine distance 0/0 = NaN, and a
+	// naive ORDER BY sim DESC sorts NaN FIRST — the same trap the write
+	// path guards. There is nothing to rank against it, so return no vector
+	// hits and let the caller's lexical arm carry the query.
+	if isZero(queryVec) {
+		return nil, nil
+	}
 	limit = clampLimit(limit)
 	var hits []VectorHit
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var args []any
 		arg := func(v any) int { args = append(args, v); return len(args) }
 		vecPos := arg(vectorLiteral(queryVec))
+		// The e.model = $identity predicate is load-bearing for BOTH correctness (old-space rows must not
+		// rank against new-space queries) AND crash-avoidance: the column is unbounded, so a bare
+		// e.embedding <=> $q against a different-width row raises "different vector dimensions". The filter
+		// excludes those rows before the projection computes <=>. NEVER remove it. (see design §5.6)
+		identityPos := arg(identity)
 
 		var branches []string
 		for _, branch := range searchBranches {
@@ -119,8 +168,8 @@ func (s *Store) SimilarEntities(ctx context.Context, queryVec []float32, limit i
 				`SELECT '%s'::text AS rtype, e.entity_id AS id, %s AS title,
 				        (1 - (e.embedding <=> $%d::vector))::float8 AS sim
 				 FROM embedding e JOIN %s t ON t.id = e.entity_id
-				 WHERE e.entity_type = '%s' AND t.archived_at IS NULL`,
-				branch.entity, branch.title, vecPos, branch.table, branch.entity)
+				 WHERE e.entity_type = '%s' AND t.archived_at IS NULL AND e.model = $%d`,
+				branch.entity, branch.title, vecPos, branch.table, branch.entity, identityPos)
 			if scope != "" {
 				sql += " AND " + scope
 			}

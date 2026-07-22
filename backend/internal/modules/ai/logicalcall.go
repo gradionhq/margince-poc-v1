@@ -72,23 +72,43 @@ func computeConfigHash(taskContractHash, routingConfigHash, promptVersion string
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// defaultProviderParams is the config snapshot's provider_params until a
-// per-provider tunable (temperature, top_p, …) exists on ProviderConfig to
-// snapshot — the routing yaml's tier bindings are already covered by
-// RoutingConfigHash, so there is nothing else to capture here yet.
-var defaultProviderParams = json.RawMessage("{}")
+// embedDimensionsParams builds the config snapshot's provider_params: the
+// operator-configured embed lane width (RoutingConfig.Embeddings.Dimensions,
+// defaulted/validated once by ParseRouting) — the one per-provider tunable
+// this snapshot needs to trace today, since the routing yaml's tier
+// bindings are already covered by RoutingConfigHash. The value is static
+// (the CONFIGURED width, not a per-call model.EmbedRequest.Dimensions or
+// model.Embeddings.Dims): newConfigSnapshot runs once, at Router
+// construction, and the snapshot's Hash is the ai_call_config primary key,
+// so a per-call value would re-hash — and re-INSERT — the config row on
+// every single embed. The width guard that keeps this static value
+// truthful lives at the consumer (search's UpsertEmbedding rejects any
+// provider response whose width != the configured dims), not in
+// Router.Embed itself. Marshaling a struct of one int field cannot fail (same reasoning
+// as buildEmbedPayload in payloadcapture.go), so the error is deliberately
+// discarded rather than advertising a path that can never run.
+func embedDimensionsParams(dims int) json.RawMessage {
+	params, _ := json.Marshal(struct {
+		EmbedDimensions int `json:"embed_dimensions"`
+	}{dims})
+	return params
+}
 
 // newConfigSnapshot builds this Router's config dimension row: the
-// generated task-contract hash, the loaded routing yaml's digest, and the
-// (currently unset) prompt version and provider params. It is pure — no
-// DB access — so it runs once at Router construction; installing the row
-// in ai_call_config happens lazily, once per flush, via EnsureConfig.
-func newConfigSnapshot(routingConfigHash string) ConfigSnapshot {
+// generated task-contract hash, the loaded routing yaml's digest, the
+// (currently unset) prompt version, and provider_params carrying the
+// configured embed-lane width. It is pure — no DB access — so it runs once
+// at Router construction; installing the row in ai_call_config happens
+// lazily, once per flush, via EnsureConfig. embedDims is 0 on a Router with
+// no embeddings binding (assembleRouter's zero value, most non-embed unit
+// tests), which simply traces provider_params as {"embed_dimensions":0} —
+// there is no embed lane to describe more honestly.
+func newConfigSnapshot(routingConfigHash string, embedDims int) ConfigSnapshot {
 	snap := ConfigSnapshot{
 		TaskContractHash:  TaskContractHash,
 		RoutingConfigHash: routingConfigHash,
 		PromptVersion:     "",
-		ProviderParams:    defaultProviderParams,
+		ProviderParams:    embedDimensionsParams(embedDims),
 	}
 	snap.Hash = computeConfigHash(snap.TaskContractHash, snap.RoutingConfigHash, snap.PromptVersion, snap.ProviderParams)
 	return snap

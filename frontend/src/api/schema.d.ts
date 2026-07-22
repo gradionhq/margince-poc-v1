@@ -1681,6 +1681,85 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/embeddings/reindex/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The embed-store binding marker + the derived reindex-needed signal.
+         * @description The deployment-level `embed_store_binding` marker (ADR-0068 design §5.6) plus a live
+         *     per-workspace scan: `configured_identity` is the live embed binding's provider/model@dims
+         *     (Task 9); `populated_identity` is what the store's embeddings were last completed under.
+         *     `reindex_needed` is DERIVED fresh on every read, never a stored flag (search/binding.go) —
+         *     true when the two identities differ or any live entity still lacks a current-identity
+         *     embedding row. Read and the confirm route below are both admin/ops-only (the
+         *     `embedding_reindex` RBAC object, migration 0114).
+         */
+        get: operations["EmbedReindexStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/embeddings/reindex/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview a reindex — the scope before the spend.
+         * @description Returns the fleet-wide and per-workspace pending-entity counts plus a projected AI token/
+         *     cost estimate (the ADR-0020 preview-before-spend obligation), MUST precede the confirm
+         *     route below — the estimate is what the operator consents to. `estimate_quality` is always
+         *     `heuristic` here: a `SUM(length(source text))/4` cold work-shape floor over the pending
+         *     set (search/binding.go's `TokenSumByWorkspace`), never priced from observed `ai_call`
+         *     history — there is no per-embedding-call billing line to observe. Labeled an estimate;
+         *     actual spend is metered per embed call. Each workspace row also carries
+         *     `utilization_impact`: the AIRT-PARAM-9..11 budget band that workspace would land in were
+         *     its share of the estimate added to its current spend — a disclosure only, never a block.
+         */
+        get: operations["EmbedReindexPreview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/embeddings/reindex": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm and start a fleet-wide reindex.
+         * @description Claims the `embed_store_binding` marker (idle → reembedding) and enqueues the resumable
+         *     fleet-wide re-embed job (search/binding.go's `ClaimAndEnqueueReembedding`). Resumable BY
+         *     CONSTRUCTION — UpsertEmbedding's content-hash + identity skip-compare makes revisiting an
+         *     already-current row free, so a crash, a retry, or a deliberate second run all cost nothing
+         *     for entities already done. One live reindex fleet-wide at a time (`409 reindex_running`);
+         *     admin/ops only (the `embedding_reindex` RBAC object's `update` grant).
+         */
+        post: operations["EmbedReindexStart"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agent-tools": {
         parameters: {
             query?: never;
@@ -4488,6 +4567,71 @@ export interface components {
             updated_at?: string | null;
             /** @description Error class only; detail lives in system_log (0078 rationale). */
             last_error_class?: string | null;
+        };
+        /** @description The embed_store_binding marker (ADR-0068 design §5.6) plus the derived reindex-needed signal: every count is a live-scanned figure, never a stored counter. */
+        EmbedReindexStatus: {
+            /** @description The live embed binding's provider/model@dims (Task 9). */
+            configured_identity: string;
+            /** @description What the store's embeddings were last completed under (embed_store_binding.populated_identity). */
+            populated_identity: string;
+            /**
+             * @description The marker's own job-lifecycle state (embed_store_binding.status).
+             * @enum {string}
+             */
+            status: "idle" | "reembedding";
+            /**
+             * Format: date-time
+             * @description When the marker last changed (embed_store_binding.updated_at) — while status is reembedding, how long the job has been running, the figure a stuck-job recovery affordance needs to show a human.
+             */
+            updated_at: string;
+            /** @description Derived fresh on every read (never a stored flag): true when configured_identity != populated_identity, or entities_pending > 0. */
+            reindex_needed: boolean;
+            /** @description Fleet-wide count of live entities lacking a current-identity embedding row. */
+            entities_pending: number;
+            /** @description Per-workspace breakdown of entities_pending, one row per live tenant workspace. */
+            per_workspace: {
+                /** Format: uuid */
+                workspace_id: string;
+                entities_pending: number;
+            }[];
+        };
+        /** @description The scope before the spend (ADR-0020 preview-before-spend obligation): what running the reindex now would touch and roughly cost. MUST precede the confirm route — the estimate is what the operator consents to. An estimate, labeled as such — actual spend is metered per embed call. */
+        EmbedReindexPreview: {
+            /** @description Fleet-wide pending count (the same figure the status read reports). */
+            entities_pending: number;
+            /** @description Fleet-wide SUM(length(source text))/4 work-shape estimate across every pending entity (search/binding.go's TokenSumByWorkspace); absent on estimator fault (ADR-0068). */
+            estimated_ai_tokens?: number;
+            /** @description USD minor units, estimated from the current embedding ai_model_rate; absent when no rate applies (ADR-0068). */
+            estimated_cost_minor?: number;
+            /**
+             * @description Always heuristic for this estimator — a cold work-shape floor, never priced from observed ai_call history (there is no per-embedding-call billing line to observe).
+             * @enum {string}
+             */
+            estimate_quality: "heuristic";
+            /** @description ISO-4217; "USD" in v1. */
+            currency?: string;
+            /** Format: date-time */
+            computed_at: string;
+            /** @description Per-workspace breakdown, the same set of live tenant workspaces the status read enumerates. */
+            per_workspace: {
+                /** Format: uuid */
+                workspace_id: string;
+                entities_pending: number;
+                /** @description This workspace's share of the fleet-wide estimate; absent on estimator fault. */
+                estimated_ai_tokens?: number;
+                /**
+                 * @description The AIRT-PARAM-9..11 budget band this workspace would land in were its estimated_ai_tokens added to its current spent_tokens — a disclosure only; the reindex proceeds fleet-wide regardless of any one workspace's band.
+                 * @enum {string}
+                 */
+                utilization_impact: "normal" | "degraded" | "queued";
+            }[];
+        };
+        /** @description Optional confirm body. With no body, no drift check runs and force is off. */
+        EmbedReindexStartRequest: {
+            /** @description The identity the SPA previewed against; compared to the currently-configured identity — mismatch is a 409 (the operator changed the embed binding between preview and confirm). Omitted or empty skips the check. */
+            previewed_identity?: string;
+            /** @description Rebuild the index even when nothing is derived as pending (the v6 B2 affordance). */
+            force?: boolean;
         };
         /** @description The CAP-DDL-6 payload: what capture did overnight and what awaits the human (CAP-WIRE-6). */
         MorningDigest: {
@@ -12740,6 +12884,77 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    EmbedReindexStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The binding marker + the fleet-wide and per-workspace pending counts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmbedReindexStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+        };
+    };
+    EmbedReindexPreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The reindex's estimated scope and per-workspace budget-impact disclosure. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmbedReindexPreview"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+        };
+    };
+    EmbedReindexStart: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["EmbedReindexStartRequest"];
+            };
+        };
+        responses: {
+            /** @description Reindex claimed and enqueued. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmbedReindexStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            409: components["responses"]["Conflict"];
         };
     };
     listAgentTools: {

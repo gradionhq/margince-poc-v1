@@ -692,16 +692,16 @@ func (e AutomationRunTier) Valid() bool {
 
 // Defines values for BackfillPreviewEstimateQuality.
 const (
-	Heuristic BackfillPreviewEstimateQuality = "heuristic"
-	Observed  BackfillPreviewEstimateQuality = "observed"
+	BackfillPreviewEstimateQualityHeuristic BackfillPreviewEstimateQuality = "heuristic"
+	BackfillPreviewEstimateQualityObserved  BackfillPreviewEstimateQuality = "observed"
 )
 
 // Valid indicates whether the value is a known member of the BackfillPreviewEstimateQuality enum.
 func (e BackfillPreviewEstimateQuality) Valid() bool {
 	switch e {
-	case Heuristic:
+	case BackfillPreviewEstimateQualityHeuristic:
 		return true
-	case Observed:
+	case BackfillPreviewEstimateQualityObserved:
 		return true
 	default:
 		return false
@@ -2538,6 +2538,60 @@ func (e DedupeDispositionRequestDisposition) Valid() bool {
 	case DedupeDispositionRequestDispositionMerge:
 		return true
 	case DedupeDispositionRequestDispositionNotADuplicate:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EmbedReindexPreviewEstimateQuality.
+const (
+	EmbedReindexPreviewEstimateQualityHeuristic EmbedReindexPreviewEstimateQuality = "heuristic"
+)
+
+// Valid indicates whether the value is a known member of the EmbedReindexPreviewEstimateQuality enum.
+func (e EmbedReindexPreviewEstimateQuality) Valid() bool {
+	switch e {
+	case EmbedReindexPreviewEstimateQualityHeuristic:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EmbedReindexPreviewPerWorkspaceUtilizationImpact.
+const (
+	EmbedReindexPreviewPerWorkspaceUtilizationImpactDegraded EmbedReindexPreviewPerWorkspaceUtilizationImpact = "degraded"
+	EmbedReindexPreviewPerWorkspaceUtilizationImpactNormal   EmbedReindexPreviewPerWorkspaceUtilizationImpact = "normal"
+	EmbedReindexPreviewPerWorkspaceUtilizationImpactQueued   EmbedReindexPreviewPerWorkspaceUtilizationImpact = "queued"
+)
+
+// Valid indicates whether the value is a known member of the EmbedReindexPreviewPerWorkspaceUtilizationImpact enum.
+func (e EmbedReindexPreviewPerWorkspaceUtilizationImpact) Valid() bool {
+	switch e {
+	case EmbedReindexPreviewPerWorkspaceUtilizationImpactDegraded:
+		return true
+	case EmbedReindexPreviewPerWorkspaceUtilizationImpactNormal:
+		return true
+	case EmbedReindexPreviewPerWorkspaceUtilizationImpactQueued:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EmbedReindexStatusStatus.
+const (
+	Idle        EmbedReindexStatusStatus = "idle"
+	Reembedding EmbedReindexStatusStatus = "reembedding"
+)
+
+// Valid indicates whether the value is a known member of the EmbedReindexStatusStatus enum.
+func (e EmbedReindexStatusStatus) Valid() bool {
+	switch e {
+	case Idle:
+		return true
+	case Reembedding:
 		return true
 	default:
 		return false
@@ -5483,25 +5537,25 @@ func (e UploadAttachmentMultipartBodyEntityType) Valid() bool {
 
 // Defines values for ListAutomationRunsParamsOutcome.
 const (
-	ListAutomationRunsParamsOutcomeBlocked           ListAutomationRunsParamsOutcome = "blocked"
-	ListAutomationRunsParamsOutcomeFailed            ListAutomationRunsParamsOutcome = "failed"
-	ListAutomationRunsParamsOutcomeFired             ListAutomationRunsParamsOutcome = "fired"
-	ListAutomationRunsParamsOutcomeQueuedForApproval ListAutomationRunsParamsOutcome = "queued_for_approval"
-	ListAutomationRunsParamsOutcomeSkipped           ListAutomationRunsParamsOutcome = "skipped"
+	Blocked           ListAutomationRunsParamsOutcome = "blocked"
+	Failed            ListAutomationRunsParamsOutcome = "failed"
+	Fired             ListAutomationRunsParamsOutcome = "fired"
+	QueuedForApproval ListAutomationRunsParamsOutcome = "queued_for_approval"
+	Skipped           ListAutomationRunsParamsOutcome = "skipped"
 )
 
 // Valid indicates whether the value is a known member of the ListAutomationRunsParamsOutcome enum.
 func (e ListAutomationRunsParamsOutcome) Valid() bool {
 	switch e {
-	case ListAutomationRunsParamsOutcomeBlocked:
+	case Blocked:
 		return true
-	case ListAutomationRunsParamsOutcomeFailed:
+	case Failed:
 		return true
-	case ListAutomationRunsParamsOutcomeFired:
+	case Fired:
 		return true
-	case ListAutomationRunsParamsOutcomeQueuedForApproval:
+	case QueuedForApproval:
 		return true
-	case ListAutomationRunsParamsOutcomeSkipped:
+	case Skipped:
 		return true
 	default:
 		return false
@@ -8137,6 +8191,83 @@ type EmailDraft struct {
 	// VoiceProfileVersion The Voice DNA PROFILE version (not a model version) that styled this draft — the "built from your corpus · vN" provenance; null when no ready voice profile shaped it.
 	VoiceProfileVersion *int `json:"voice_profile_version,omitempty"`
 }
+
+// EmbedReindexPreview The scope before the spend (ADR-0020 preview-before-spend obligation): what running the reindex now would touch and roughly cost. MUST precede the confirm route — the estimate is what the operator consents to. An estimate, labeled as such — actual spend is metered per embed call.
+type EmbedReindexPreview struct {
+	ComputedAt time.Time `json:"computed_at"`
+
+	// Currency ISO-4217; "USD" in v1.
+	Currency *string `json:"currency,omitempty"`
+
+	// EntitiesPending Fleet-wide pending count (the same figure the status read reports).
+	EntitiesPending int `json:"entities_pending"`
+
+	// EstimateQuality Always heuristic for this estimator — a cold work-shape floor, never priced from observed ai_call history (there is no per-embedding-call billing line to observe).
+	EstimateQuality EmbedReindexPreviewEstimateQuality `json:"estimate_quality"`
+
+	// EstimatedAiTokens Fleet-wide SUM(length(source text))/4 work-shape estimate across every pending entity (search/binding.go's TokenSumByWorkspace); absent on estimator fault (ADR-0068).
+	EstimatedAiTokens *int `json:"estimated_ai_tokens,omitempty"`
+
+	// EstimatedCostMinor USD minor units, estimated from the current embedding ai_model_rate; absent when no rate applies (ADR-0068).
+	EstimatedCostMinor *int `json:"estimated_cost_minor,omitempty"`
+
+	// PerWorkspace Per-workspace breakdown, the same set of live tenant workspaces the status read enumerates.
+	PerWorkspace []struct {
+		EntitiesPending int `json:"entities_pending"`
+
+		// EstimatedAiTokens This workspace's share of the fleet-wide estimate; absent on estimator fault.
+		EstimatedAiTokens *int `json:"estimated_ai_tokens,omitempty"`
+
+		// UtilizationImpact The AIRT-PARAM-9..11 budget band this workspace would land in were its estimated_ai_tokens added to its current spent_tokens — a disclosure only; the reindex proceeds fleet-wide regardless of any one workspace's band.
+		UtilizationImpact EmbedReindexPreviewPerWorkspaceUtilizationImpact `json:"utilization_impact"`
+		WorkspaceId       openapi_types.UUID                               `json:"workspace_id"`
+	} `json:"per_workspace"`
+}
+
+// EmbedReindexPreviewEstimateQuality Always heuristic for this estimator — a cold work-shape floor, never priced from observed ai_call history (there is no per-embedding-call billing line to observe).
+type EmbedReindexPreviewEstimateQuality string
+
+// EmbedReindexPreviewPerWorkspaceUtilizationImpact The AIRT-PARAM-9..11 budget band this workspace would land in were its estimated_ai_tokens added to its current spent_tokens — a disclosure only; the reindex proceeds fleet-wide regardless of any one workspace's band.
+type EmbedReindexPreviewPerWorkspaceUtilizationImpact string
+
+// EmbedReindexStartRequest Optional confirm body. With no body, no drift check runs and force is off.
+type EmbedReindexStartRequest struct {
+	// Force Rebuild the index even when nothing is derived as pending (the v6 B2 affordance).
+	Force *bool `json:"force,omitempty"`
+
+	// PreviewedIdentity The identity the SPA previewed against; compared to the currently-configured identity — mismatch is a 409 (the operator changed the embed binding between preview and confirm). Omitted or empty skips the check.
+	PreviewedIdentity *string `json:"previewed_identity,omitempty"`
+}
+
+// EmbedReindexStatus The embed_store_binding marker (ADR-0068 design §5.6) plus the derived reindex-needed signal: every count is a live-scanned figure, never a stored counter.
+type EmbedReindexStatus struct {
+	// ConfiguredIdentity The live embed binding's provider/model@dims (Task 9).
+	ConfiguredIdentity string `json:"configured_identity"`
+
+	// EntitiesPending Fleet-wide count of live entities lacking a current-identity embedding row.
+	EntitiesPending int `json:"entities_pending"`
+
+	// PerWorkspace Per-workspace breakdown of entities_pending, one row per live tenant workspace.
+	PerWorkspace []struct {
+		EntitiesPending int                `json:"entities_pending"`
+		WorkspaceId     openapi_types.UUID `json:"workspace_id"`
+	} `json:"per_workspace"`
+
+	// PopulatedIdentity What the store's embeddings were last completed under (embed_store_binding.populated_identity).
+	PopulatedIdentity string `json:"populated_identity"`
+
+	// ReindexNeeded Derived fresh on every read (never a stored flag): true when configured_identity != populated_identity, or entities_pending > 0.
+	ReindexNeeded bool `json:"reindex_needed"`
+
+	// Status The marker's own job-lifecycle state (embed_store_binding.status).
+	Status EmbedReindexStatusStatus `json:"status"`
+
+	// UpdatedAt When the marker last changed (embed_store_binding.updated_at) — while status is reembedding, how long the job has been running, the figure a stuck-job recovery affordance needs to show a human.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// EmbedReindexStatusStatus The marker's own job-lifecycle state (embed_store_binding.status).
+type EmbedReindexStatusStatus string
 
 // EnrichCompanyRequest Optional override. With no body the org's own domain is read.
 type EnrichCompanyRequest struct {
@@ -12989,6 +13120,9 @@ type CreateOfferJSONRequestBody = CreateOfferRequest
 
 // DisposeDedupeCandidateJSONRequestBody defines body for DisposeDedupeCandidate for application/json ContentType.
 type DisposeDedupeCandidateJSONRequestBody = DedupeDispositionRequest
+
+// EmbedReindexStartJSONRequestBody defines body for EmbedReindexStart for application/json ContentType.
+type EmbedReindexStartJSONRequestBody = EmbedReindexStartRequest
 
 // CreateFilteredExportJSONRequestBody defines body for CreateFilteredExport for application/json ContentType.
 type CreateFilteredExportJSONRequestBody = FilteredExportRequest
@@ -18287,6 +18421,15 @@ type ServerInterface interface {
 	// The calling user's morning digest — what capture did overnight.
 	// (GET /digest)
 	GetMorningDigest(w http.ResponseWriter, r *http.Request, params GetMorningDigestParams)
+	// Confirm and start a fleet-wide reindex.
+	// (POST /embeddings/reindex)
+	EmbedReindexStart(w http.ResponseWriter, r *http.Request)
+	// Preview a reindex — the scope before the spend.
+	// (GET /embeddings/reindex/preview)
+	EmbedReindexPreview(w http.ResponseWriter, r *http.Request)
+	// The embed-store binding marker + the derived reindex-needed signal.
+	// (GET /embeddings/reindex/status)
+	EmbedReindexStatus(w http.ResponseWriter, r *http.Request)
 	// Export a filtered slice of one object (or a saved view / dynamic list) to an open format.
 	// (POST /exports)
 	CreateFilteredExport(w http.ResponseWriter, r *http.Request)
@@ -19307,6 +19450,24 @@ func (_ Unimplemented) UndoDedupeDisposition(w http.ResponseWriter, r *http.Requ
 // The calling user's morning digest — what capture did overnight.
 // (GET /digest)
 func (_ Unimplemented) GetMorningDigest(w http.ResponseWriter, r *http.Request, params GetMorningDigestParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Confirm and start a fleet-wide reindex.
+// (POST /embeddings/reindex)
+func (_ Unimplemented) EmbedReindexStart(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Preview a reindex — the scope before the spend.
+// (GET /embeddings/reindex/preview)
+func (_ Unimplemented) EmbedReindexPreview(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The embed-store binding marker + the derived reindex-needed signal.
+// (GET /embeddings/reindex/status)
+func (_ Unimplemented) EmbedReindexStatus(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -24376,6 +24537,66 @@ func (siw *ServerInterfaceWrapper) GetMorningDigest(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMorningDigest(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// EmbedReindexStart operation middleware
+func (siw *ServerInterfaceWrapper) EmbedReindexStart(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EmbedReindexStart(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// EmbedReindexPreview operation middleware
+func (siw *ServerInterfaceWrapper) EmbedReindexPreview(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EmbedReindexPreview(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// EmbedReindexStatus operation middleware
+func (siw *ServerInterfaceWrapper) EmbedReindexStatus(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EmbedReindexStatus(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -32598,6 +32819,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/digest", wrapper.GetMorningDigest)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/embeddings/reindex", wrapper.EmbedReindexStart)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/embeddings/reindex/preview", wrapper.EmbedReindexPreview)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/embeddings/reindex/status", wrapper.EmbedReindexStatus)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/exports", wrapper.CreateFilteredExport)

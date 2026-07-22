@@ -104,6 +104,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/deals/{id}/offers":                                         {Op: "createOffer", Access: "tool", Tool: "create_record", RecordType: "offer", Tier: "green"},
 	"POST /v1/dedupe/candidates/{id}/disposition":                        {Op: "disposeDedupeCandidate", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/dedupe/candidates/{id}/undo":                               {Op: "undoDedupeDisposition", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"POST /v1/embeddings/reindex":                                        {Op: "EmbedReindexStart", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/exports":                                                   {Op: "createFilteredExport", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/leads":                                                     {Op: "createLead", Access: "tool", Tool: "create_record", RecordType: "lead", Tier: "green"},
 	"POST /v1/leads/{id}/promote":                                        {Op: "promoteLead", Access: "tool", Tool: "promote_lead", RecordType: "lead", Tier: "yellow"},

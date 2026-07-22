@@ -106,12 +106,19 @@ tiers:
 # embeddings — the embedding lane, bound separately from the chat tiers
 # (retrieval must keep working when the chat budget is exhausted). Required.
 # Defaults to gemini so the stack needs no local Ollama; the adapter requests
-# outputDimensionality to match the store's vector(1024) column. Key from
-# GEMINI_API_KEY (same as the chat tiers). Swap to `{ provider: ollama, model:
-# bge-m3 }` for a fully-local embedder, or `{ provider: fake }` for offline dev.
+# `outputDimensionality: dimensions` below. The embedding column is unbounded
+# (stores whatever width the binding emits) — no migration to change width.
+# `[1,2000]` is THIS config's range (pgvector's ANN ceiling); it is a config
+# cap, not a promise every value works with every model — the provider/model
+# must actually support the width you pick (Gemini emits 128–3072, truncated;
+# Ollama models emit their own NATIVE width and ignore this knob, so match it).
+# Key from GEMINI_API_KEY (same as the chat tiers). Swap to
+# `{ provider: ollama, model: bge-m3, dimensions: 1024 }` for a fully-local
+# embedder (bge-m3's native width), or `{ provider: fake }` for offline dev.
 embeddings:
   provider: gemini
-  model: gemini-embedding-001
+  model: gemini-embedding-001   # text-only, GA, not deprecated. Newer alt: gemini-embedding-2 (multimodal) — its space is incompatible, so swapping triggers a reindex (that is this store's whole point).
+  dimensions: 1536   # optional; default 1536. Gemini's recommended widths are 768 / 1536; 3072 is Gemini's API max but EXCEEDS this config's 2000 cap, so it is not selectable here.
 
 # A fully-offline dev/test config needs no infrastructure at all:
 #   profile: eu_hosted

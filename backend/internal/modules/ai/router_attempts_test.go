@@ -170,6 +170,43 @@ func TestEmbedRecordsOneTerminalEmbeddingCall(t *testing.T) {
 	}
 }
 
+// TestEmbedRecordsConfiguredDimensionInProviderParams proves the embed
+// lane's config-snapshot dimension row carries the operator-configured
+// vector width — the one per-provider tunable this lane has today — so a
+// reader of ai_call_config can tell which width produced a batch of embed
+// rows without cross-referencing the routing yaml. installConfigSnapshot
+// takes the static configured dims (not req.Dimensions/res.Dims, which vary
+// per call and would re-hash the snapshot on every embed): this test wires
+// the Router with a configured width DIFFERENT from what any single call
+// would resolve to, so a test that accidentally asserted the per-call value
+// instead would fail loudly rather than passing by coincidence.
+func TestEmbedRecordsConfiguredDimensionInProviderParams(t *testing.T) {
+	fcs := &fakeCallStore{}
+	embedder := NewFakeClient()
+	r := assembleRouter(
+		map[Tier]model.Client{}, embedder, ProfileEUHosted, &memMeter{}, DefaultMonthlyTokens, fcs,
+		map[Tier]routeMeta{TierEmbedLane: {provider: "fake", model: "fake-embed"}},
+		false, nil,
+	)
+	r.installConfigSnapshot("routing-hash", 768)
+
+	if _, err := r.Embed(wsCtx(), model.EmbedRequest{Inputs: []string{"embed me"}}); err != nil {
+		t.Fatalf("embed: %v", err)
+	}
+	if len(fcs.configSnapshots) != 1 {
+		t.Fatalf("want exactly 1 EnsureConfig call, got %d: %+v", len(fcs.configSnapshots), fcs.configSnapshots)
+	}
+	var params struct {
+		EmbedDimensions int `json:"embed_dimensions"`
+	}
+	if err := json.Unmarshal(fcs.configSnapshots[0].ProviderParams, &params); err != nil {
+		t.Fatalf("provider_params is not valid JSON: %v (%s)", err, fcs.configSnapshots[0].ProviderParams)
+	}
+	if params.EmbedDimensions != 768 {
+		t.Fatalf("provider_params.embed_dimensions = %d, want the configured 768 (got %s)", params.EmbedDimensions, fcs.configSnapshots[0].ProviderParams)
+	}
+}
+
 // TestEmbedTraceTokensMatchMeteredUsage proves the I1 fix: the embed
 // lane's ai_call trace row carries the SAME token estimate the meter
 // records for the identical call, instead of a hardcoded 0. Before the

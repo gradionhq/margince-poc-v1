@@ -81,6 +81,20 @@ func (r *Runner) EnqueueTx(ctx context.Context, tx pgx.Tx, args river.JobArgs, o
 	return nil
 }
 
+// EnqueueTxUnique inserts a job through the caller's transaction like
+// EnqueueTx, but also surfaces River's dedupe outcome: inserted is false
+// when the job's UniqueOpts matched an existing job and River skipped the
+// insert rather than erroring. Callers that must tell "enqueued" apart
+// from "already running" (e.g. a confirm endpoint choosing 202 vs 409)
+// need this signal; EnqueueTx alone discards it.
+func (r *Runner) EnqueueTxUnique(ctx context.Context, tx pgx.Tx, args river.JobArgs, opts *river.InsertOpts) (bool, error) {
+	res, err := r.client.InsertTx(ctx, tx, args, opts)
+	if err != nil {
+		return false, fmt.Errorf("jobs: enqueue %s transactionally: %w", args.Kind(), err)
+	}
+	return !res.UniqueSkippedAsDuplicate, nil
+}
+
 // Start begins working the configured queues and returns once startup
 // completes; the client keeps running until Stop. Leadership is elected
 // cluster-wide, so periodic jobs fire exactly once across all replicas.
@@ -105,4 +119,14 @@ func (r *Runner) Stop(ctx context.Context) error {
 // completion is missed; call the returned cancel when done.
 func (r *Runner) SubscribeCompleted() (<-chan *river.Event, func()) {
 	return r.client.Subscribe(river.EventKindJobCompleted)
+}
+
+// SubscribeCancelled delivers job-cancellation events (river.JobCancel) —
+// the counterpart to SubscribeCompleted for a job that deliberately stops
+// rather than finishing normally (e.g. the embed-reindex worker's
+// identity-drift guard, which must be observed as a cancellation, not
+// burn its retry budget). Subscribe before Start so no cancellation is
+// missed; call the returned cancel when done.
+func (r *Runner) SubscribeCancelled() (<-chan *river.Event, func()) {
+	return r.client.Subscribe(river.EventKindJobCancelled)
 }

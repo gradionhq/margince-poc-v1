@@ -336,7 +336,7 @@ const schemaTemplate = `{
     },
     "embeddings": {
       "description": "The embedding lane, bound separately from chat (retrieval must survive a chat-budget exhaustion). Required.",
-      "$ref": "#/$defs/binding"
+      "$ref": "#/$defs/embeddingsBinding"
     }
   },
   "$defs": {
@@ -351,6 +351,27 @@ const schemaTemplate = `{
         },
         "model":    { "type": "string", "description": "Provider-native model id. ollama/vllm default to a Gemma-class model when omitted (A23)." },
         "base_url": { "type": "string", "description": "Endpoint override. REQUIRED for openai_compatible (the vendor host root, NO /v1). Empty ⇒ provider default." }
+      },
+      "allOf": [
+        {
+          "if":   { "properties": { "provider": { "const": "openai_compatible" } } },
+          "then": { "required": ["base_url"] }
+        }
+      ]
+    },
+    "embeddingsBinding": {
+      "description": "The embeddings-lane binding: same shape as $defs/binding plus dimensions — a field only this lane carries (chat tiers have no notion of output width), so it gets its own $def rather than widening the shared one's additionalProperties:false.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider"],
+      "properties": {
+        "provider": {
+          "description": "fake | anthropic | ollama | vllm | openai_compatible | openai | gemini. The only place vendor names appear.",
+          "enum": ["fake", "anthropic", "ollama", "vllm", "openai_compatible", "openai", "gemini"]
+        },
+        "model":    { "type": "string", "description": "Provider-native model id. ollama/vllm default to a Gemma-class model when omitted (A23)." },
+        "base_url": { "type": "string", "description": "Endpoint override. REQUIRED for openai_compatible (the vendor host root, NO /v1). Empty ⇒ provider default." },
+        "dimensions": { "type": "integer", "minimum": 0, "maximum": 2000, "description": "Vector width the provider is asked to emit. Optional; 0 or omitted defaults to 1536." }
       },
       "allOf": [
         {
