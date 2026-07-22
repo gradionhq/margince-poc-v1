@@ -16,6 +16,11 @@ exclude:
   - tools
 
 vendors:
+  # The composed extension set (ADR-0069): an out-of-module import — the
+  # committed vanilla stub in bare builds, the generated module under
+  # build/composition/ in composed ones. Only cmd wires it (the fitness
+  # test in backend/extensions_arch_test.go holds the same rule).
+  composition: { in: github.com/gradionhq/margince/composition }
   pgx:    { in: github.com/jackc/** }
   chi:    { in: github.com/go-chi/** }
   oapi:   { in: github.com/oapi-codegen/** }
@@ -34,6 +39,11 @@ vendors:
   xnet:   { in: golang.org/x/net/** }
 
 components:
+  # The published extension surface (ADR-0069 §3): the outermost Tier-0
+  # leaf, importable by every layer (and by extensions outside this
+  # module); its own imports are gated to stdlib by depguard pkg-purity +
+  # TestPublishedSurfaceIsPure.
+  pkg:         { in: pkg/** }
   shared:      { in: internal/shared/** }
   contracts:   { in: internal/contracts }
   platform:    { in: internal/platform/** }
@@ -63,6 +73,7 @@ components:
 
 commonComponents:
   - shared
+  - pkg
 
 deps:
   # The generated contract package carries its transport runtime; it
@@ -154,4 +165,4 @@ deps:
     canUse: [yaml]
   cmd:
     mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, automation, ai, search, capture, consent, collections, signals, de, customfields, quotas, overlay, webhooks, contracts, platform, migrations]
-    canUse: [pgx, redis, xterm]
+    canUse: [pgx, redis, xterm, composition]

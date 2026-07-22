@@ -43,6 +43,11 @@ import (
 	"syscall"
 	"time"
 
+	// The composed extension set (ADR-0069): the generated module under
+	// build/composition/ in a composed build, the committed vanilla stub
+	// in a bare one — same import path either way.
+	"github.com/gradionhq/margince/composition"
+
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
@@ -73,6 +78,12 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	if *dsn == "" {
 		return errors.New("mcp: --dsn or MARGINCE_DSN required")
+	}
+
+	// Register the composed extension set before the tool surface
+	// serves; a failing registration aborts the boot (ADR-0069 EXT-P4).
+	if err := compose.RegisterExtensions(composition.Extensions()); err != nil {
+		return err
 	}
 
 	// Diagnostics go to stderr on BOTH transports: stdout is the stdio
