@@ -40,7 +40,13 @@ export MARGINCE_ENV          ?= dev
 help: ## List targets with their descriptions (the default goal)
 	@grep -hE '^[a-zA-Z][a-zA-Z0-9_-]*:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
 
-check: build vet lint arch-lint test drift ## The merge gate: everything a PR must pass
+# The five analysis passes share no outputs and only read the tree — Go's
+# build cache is concurrency-safe — so they fan out together. drift stays
+# behind them: gen REWRITES *_gen.go and internal/contracts/ in place,
+# a write-under-reader race for any pass still compiling those files.
+check: ## The merge gate: everything a PR must pass
+	$(MAKE) -j5 build vet lint arch-lint test
+	$(MAKE) drift
 
 build: ## Compile every package
 	$(GO) build ./...
