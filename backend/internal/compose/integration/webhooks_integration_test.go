@@ -275,6 +275,12 @@ func TestWebhookSubscriptionCRUDOverHTTP(t *testing.T) {
 		t.Fatal("rotate did not return a fresh secret")
 	}
 
+	// An empty update body is a 422 at runtime, matching the contract's
+	// minProperties:1 — never a silent no-op.
+	if status := we.call(t, "PATCH", "/v1/webhook-subscriptions/"+subID, anyMap{}, nil, nil); status != 422 {
+		t.Fatalf("empty PATCH → %d, want 422", status)
+	}
+
 	// Pause via PATCH, then archive.
 	if status := we.call(t, "PATCH", "/v1/webhook-subscriptions/"+subID, anyMap{"state": "paused"}, nil, nil); status != http.StatusOK {
 		t.Fatalf("pause → %d", status)

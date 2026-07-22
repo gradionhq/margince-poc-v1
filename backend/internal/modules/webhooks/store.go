@@ -253,19 +253,30 @@ type UpdateSubscriptionInput struct {
 	IfVersion  *int64
 }
 
+// validateUpdate rejects a malformed patch: a body that sets nothing (the
+// contract's minProperties:1, honored at runtime), an unknown state, or an
+// invalid event-type set.
+func validateUpdate(in UpdateSubscriptionInput) error {
+	if in.State == nil && in.EventTypes == nil {
+		return &BadInputError{Field: "body", Reason: "at least one of state or event_types is required"}
+	}
+	if in.State != nil && *in.State != "active" && *in.State != "paused" {
+		return &BadInputError{Field: "state", Reason: "must be active or paused"}
+	}
+	if in.EventTypes != nil {
+		return validateEventTypes(*in.EventTypes)
+	}
+	return nil
+}
+
 // UpdateSubscription pauses/resumes or re-targets a subscription under an
 // optimistic-concurrency guard, auditing the before/after image.
 func (s *Store) UpdateSubscription(ctx context.Context, id ids.UUID, in UpdateSubscriptionInput) (Subscription, error) {
 	if err := auth.Require(ctx, rbacObject, principal.ActionUpdate); err != nil {
 		return Subscription{}, err
 	}
-	if in.State != nil && *in.State != "active" && *in.State != "paused" {
-		return Subscription{}, &BadInputError{Field: "state", Reason: "must be active or paused"}
-	}
-	if in.EventTypes != nil {
-		if err := validateEventTypes(*in.EventTypes); err != nil {
-			return Subscription{}, err
-		}
+	if err := validateUpdate(in); err != nil {
+		return Subscription{}, err
 	}
 	var out Subscription
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
