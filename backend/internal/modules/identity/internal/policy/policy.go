@@ -74,9 +74,9 @@ var (
 // subscription registers outbound egress of governed events, so managing
 // the fan-out surface is workspace integration config (create/update/
 // delete admin/ops-only); every role may read subscriptions and their
-// delivery health. (UC-E10-04 narrates a Rep registering one — a
-// discrepancy raised for upstream reconciliation, not resolved by
-// widening egress control here without owner-scoped row filtering.)
+// delivery health. (UC-E10-04 narrates a Rep registering one; that
+// posture question is tracked upstream against the spec, not settled
+// here.)
 var defaults = map[string]Document{
 	"admin": {
 		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, crud),

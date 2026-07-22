@@ -199,6 +199,12 @@ func (d *Deliverer) SweepOnce(ctx context.Context) error {
 // is a human action: gated, existence-hiding, and audited. The ctx already
 // carries the acting human and workspace from the request middleware.
 func (d *Deliverer) Replay(ctx context.Context, subID, deliveryID ids.UUID) (Delivery, error) {
+	// Without a signing key there is no way to sign the re-attempt, so
+	// refuse BEFORE touching state — the same honest 503 create/rotate
+	// give, never a silent reset that leaves the row mis-stated.
+	if d.store.cipher == nil {
+		return Delivery{}, ErrNotConfigured
+	}
 	if err := d.store.requireReplay(ctx, subID, deliveryID); err != nil {
 		return Delivery{}, err
 	}

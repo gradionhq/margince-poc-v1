@@ -131,7 +131,7 @@ func (h Handlers) ListWebhookDeliveries(w http.ResponseWriter, r *http.Request, 
 	if params.Limit != nil {
 		limit = *params.Limit
 	}
-	deliveries, err := h.store.ListDeliveries(r.Context(), ids.UUID(id), limit)
+	deliveries, hasMore, err := h.store.ListDeliveries(r.Context(), ids.UUID(id), limit)
 	if err != nil {
 		writeErr(w, r, err)
 		return
@@ -141,17 +141,15 @@ func (h Handlers) ListWebhookDeliveries(w http.ResponseWriter, r *http.Request, 
 		data = append(data, wireDelivery(d))
 	}
 	httperr.WriteJSON(w, http.StatusOK, crmcontracts.WebhookDeliveryListResponse{
-		Data: data, Page: crmcontracts.PageInfo{HasMore: false},
+		Data: data, Page: crmcontracts.PageInfo{HasMore: hasMore},
 	})
 }
 
 // ReplayWebhookDelivery re-attempts a parked delivery on demand; 503 when
 // no deployment key is configured to sign it.
 func (h Handlers) ReplayWebhookDelivery(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, deliveryID openapi_types.UUID) {
-	if h.deliverer == nil {
-		writeErr(w, r, ErrNotConfigured)
-		return
-	}
+	// Replay itself refuses (ErrNotConfigured → 503) when no signing key is
+	// configured, before touching state — the handler need not pre-check.
 	delivery, err := h.deliverer.Replay(r.Context(), ids.UUID(id), ids.UUID(deliveryID))
 	if err != nil {
 		writeErr(w, r, err)

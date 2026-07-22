@@ -52,22 +52,26 @@ func scanDelivery(r pgx.Row) (Delivery, error) {
 
 // ListDeliveries returns a subscription's delivery history newest-first —
 // the dead-letter inspection surface (B-E10.13c). Read-gated, and the
-// subscription is existence-hidden if the caller may not see it.
-func (s *Store) ListDeliveries(ctx context.Context, subID ids.UUID, limit int) ([]Delivery, error) {
+// subscription is existence-hidden if the caller may not see it. It reports
+// hasMore honestly: the dead-letter view must never look complete while
+// older parked deliveries are hidden behind the page limit.
+func (s *Store) ListDeliveries(ctx context.Context, subID ids.UUID, limit int) ([]Delivery, bool, error) {
 	if err := auth.Require(ctx, rbacObject, principal.ActionRead); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if _, err := s.GetSubscription(ctx, subID); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
 	var out []Delivery
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		// Fetch one past the page so a full page is distinguishable from a
+		// truncated one without a second count query.
 		rows, err := tx.Query(ctx, "SELECT "+deliveryColumns+
 			" FROM webhook_delivery WHERE subscription_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2",
-			subID, limit)
+			subID, limit+1)
 		if err != nil {
 			return err
 		}
@@ -81,7 +85,14 @@ func (s *Store) ListDeliveries(ctx context.Context, subID ids.UUID, limit int) (
 		}
 		return rows.Err()
 	})
-	return out, err
+	if err != nil {
+		return nil, false, err
+	}
+	hasMore := len(out) > limit
+	if hasMore {
+		out = out[:limit]
+	}
+	return out, hasMore, nil
 }
 
 // getDelivery reads one delivery by id in the caller's workspace.
