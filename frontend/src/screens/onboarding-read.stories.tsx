@@ -3,7 +3,7 @@
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ReadCompanyStep } from "./onboarding-read";
-import { StoryProviders } from "./story-utils";
+import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 import "./onboarding.css";
 
 const meta: Meta = {
@@ -164,6 +164,29 @@ function ReadStory({
   read?: typeof reading | typeof partial | typeof deferred | null;
   error?: string | null;
 }>) {
+  installFetchStub({
+    "GET /assistant/profile": () =>
+      jsonResponse({
+        name: "Margince",
+        kind: "ai",
+        state: "configured",
+        inference_mode: "hybrid",
+        providers: ["gemini", "ollama"],
+        configured_models: [
+          {
+            tier: "cheap_cloud",
+            provider: "gemini",
+            model: "gemini-3.1-flash-lite",
+          },
+          { tier: "local_small", provider: "ollama", model: "gemma3" },
+          {
+            tier: "premium",
+            provider: "gemini",
+            model: "gemini-3.5-flash",
+          },
+        ],
+      }),
+  });
   return (
     <StoryProviders>
       <div className="ob-page">

@@ -46,6 +46,27 @@ function wizardState(step: "confirm" | "results") {
 
 function FullScreenStory({ step }: Readonly<{ step: "confirm" | "results" }>) {
   installFetchStub({
+    "GET /assistant/profile": () =>
+      jsonResponse({
+        name: "Margince",
+        kind: "ai",
+        state: "configured",
+        inference_mode: "hybrid",
+        providers: ["gemini", "ollama"],
+        configured_models: [
+          {
+            tier: "cheap_cloud",
+            provider: "gemini",
+            model: "gemini-3.1-flash-lite",
+          },
+          { tier: "local_small", provider: "ollama", model: "gemma3" },
+          {
+            tier: "premium",
+            provider: "gemini",
+            model: "gemini-3.5-flash",
+          },
+        ],
+      }),
     "GET /company": () => jsonResponse(company),
     "GET /onboarding/state": () => jsonResponse(wizardState(step)),
   });
@@ -56,7 +77,7 @@ function FullScreenStory({ step }: Readonly<{ step: "confirm" | "results" }>) {
   );
 }
 
-export const Review: Story = {
+export const CompanyResume: Story = {
   render: () => <FullScreenStory step="confirm" />,
 };
 
