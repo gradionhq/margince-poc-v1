@@ -113,7 +113,7 @@ func TestReconcileDeletionsPurgesMirroredRecordAndEmits(t *testing.T) {
 	inc := &sweptRecords{deletions: []Deletion{{
 		ObjectClass: objectClass, ExternalID: externalID, DeletedAt: deletedAt,
 	}}}
-	meter := NewMeterWithClock(testMeterConfig(), time.Now)
+	meter := NewMeterWithClock(pool, testMeterConfig(), time.Now)
 
 	if err := ReconcileDeletions(ctx, inc, ms, meter, objectClass); err != nil {
 		t.Fatalf("ReconcileDeletions: %v", err)
@@ -176,7 +176,7 @@ func TestReconcileDeletionsForUnmirroredRecordIsANoOp(t *testing.T) {
 	inc := &sweptRecords{deletions: []Deletion{{
 		ObjectClass: objectClass, ExternalID: externalID, DeletedAt: deletedAt,
 	}}}
-	meter := NewMeterWithClock(testMeterConfig(), time.Now)
+	meter := NewMeterWithClock(pool, testMeterConfig(), time.Now)
 
 	if err := ReconcileDeletions(ctx, inc, ms, meter, objectClass); err != nil {
 		t.Fatalf("ReconcileDeletions: %v", err)

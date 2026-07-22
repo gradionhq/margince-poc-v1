@@ -143,11 +143,14 @@ type Server struct {
 	aiMetrics func(io.Writer)
 	aiState   string // the /readyz AI line (aistate.go); never a readiness gate
 
-	// overlayMeter is the ONE OVB meter this Server's REST surface
-	// spends against (contractAPI's Dispatcher force-fresh reads) and
-	// reports through (GetOverlayBudget, once WithKeyvault rebuilds
-	// overlayHandlers over it) — see compose/overlay.go's
-	// NewOverlayMeter doc on why these two must share an instance.
+	// overlayMeter is this Server's REST-surface OVB meter — what
+	// contractAPI's Dispatcher force-fresh reads spend against and what
+	// GetOverlayBudget reports (once WithKeyvault rebuilds
+	// overlayHandlers over it). Its window lives in Postgres now, so it
+	// shares a per-workspace count with every other meter over the same
+	// pool (see compose/overlay.go's NewOverlayMeter doc); threading this
+	// one instance through both wiring points is convention, no longer a
+	// correctness requirement.
 	// Always non-nil (newServer constructs it unconditionally): a
 	// workspace never in overlay mode never spends against it, and a
 	// role with no vault simply never reaches GetOverlayBudget's 501.
@@ -279,7 +282,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// second one, and contractAPI's Dispatcher spends force-fresh
 		// reads against it too (see compose/overlay.go's NewOverlayMeter
 		// doc).
-		overlayMeter: NewOverlayMeter(),
+		overlayMeter: NewOverlayMeter(pool),
 	}
 	// The overlay read dispatch is built with a nil live-incumbent resolver
 	// here (force-fresh degrades to the mirror). WithKeyvault injects the

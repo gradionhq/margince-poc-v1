@@ -45,11 +45,12 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// Provider exactly as before, an overlay-mode workspace's reads land
 	// on the mirror (design.md §4.2/§4.6) — chosen per call from
 	// ctx, never fixed at registry construction time. This registry's own
-	// OVB meter is independent of the REST surface's (NewOverlayMeter's
-	// doc note): the MCP tool surface spends against its own in-process
-	// counter, not the one contractAPI's Dispatcher and GetOverlayBudget
-	// share.
-	provider := NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, NewOverlayMeter(), nil), pool)
+	// OVB meter shares the REST surface's per-workspace count — the
+	// window lives in Postgres now (NewOverlayMeter's doc), so the MCP
+	// tool surface's force-fresh spend and contractAPI's Dispatcher's
+	// draw on the SAME budget rather than each on a private in-process
+	// counter.
+	provider := NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, NewOverlayMeter(pool), nil), pool)
 	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate)
 	agents.RegisterCoreTools(registry, provider, provider, provider, fieldOwnership{pool: pool})
 	agents.RegisterReportTool(registry, reportToolRunner(newReportEngine(pool)))

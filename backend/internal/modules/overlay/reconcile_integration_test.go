@@ -161,7 +161,7 @@ func TestReconcileOverwritesDivergedNonDirtyRowAndEmitsConflict(t *testing.T) {
 		Fields:     map[string]any{"display_name": "New Name"},
 		ModifiedAt: newBaseline,
 	}}}
-	meter := NewMeterWithClock(testMeterConfig(), time.Now)
+	meter := NewMeterWithClock(pool, testMeterConfig(), time.Now)
 
 	watermark, err := Reconcile(ctx, inc, ms, meter, objectClass, oldBaseline.Add(-time.Second))
 	if err != nil {
@@ -226,7 +226,7 @@ func TestReconcileNeverClobbersADirtyRow(t *testing.T) {
 		Fields:     map[string]any{"display_name": "Incumbent Overwrite Attempt"},
 		ModifiedAt: newBaseline,
 	}}}
-	meter := NewMeterWithClock(testMeterConfig(), time.Now)
+	meter := NewMeterWithClock(pool, testMeterConfig(), time.Now)
 
 	if _, err := Reconcile(ctx, inc, ms, meter, objectClass, oldBaseline.Add(-time.Second)); err != nil {
 		t.Fatalf("Reconcile: %v", err)

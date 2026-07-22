@@ -184,7 +184,7 @@ func TestFreshnessReaderUnderThresholdReadsLiveAndSpends(t *testing.T) {
 
 	inc := seedMirrorAndLiveFixture(ctx, t, ms, externalID, mirrorTime, liveTime)
 
-	meter := NewMeterWithClock(testMeterConfig(), time.Now)
+	meter := NewMeterWithClock(pool, testMeterConfig(), time.Now)
 	fr := NewFreshnessReader(func(context.Context) (Incumbent, error) { return inc, nil }, ms, meter, translatorFor(false))
 
 	id, err := externalIDToUUID(externalID)
@@ -232,7 +232,7 @@ func TestFreshnessReaderFailedLiveReadStillSpendsAndDegrades(t *testing.T) {
 	inc := seedMirrorAndLiveFixture(ctx, t, ms, externalID, mirrorTime, mirrorTime.Add(time.Hour))
 	inc.getErr = fmt.Errorf("hubspot: unreachable")
 
-	meter := NewMeterWithClock(testMeterConfig(), time.Now)
+	meter := NewMeterWithClock(pool, testMeterConfig(), time.Now)
 	fr := NewFreshnessReader(func(context.Context) (Incumbent, error) { return inc, nil }, ms, meter, translatorFor(false))
 
 	id, err := externalIDToUUID(externalID)
@@ -274,7 +274,7 @@ func TestFreshnessReaderNoIncumbentClassMappingDegradesHonestly(t *testing.T) {
 
 	inc := seedMirrorAndLiveFixture(ctx, t, ms, externalID, mirrorTime, liveTime)
 
-	meter := NewMeterWithClock(testMeterConfig(), time.Now)
+	meter := NewMeterWithClock(pool, testMeterConfig(), time.Now)
 	fr := NewFreshnessReader(func(context.Context) (Incumbent, error) { return inc, nil }, ms, meter, translatorFor(true)) // every canonical type misses
 
 	id, err := externalIDToUUID(externalID)
@@ -333,7 +333,7 @@ func TestFreshnessReaderShedDegradesToMirrorAndEmitsBudgetDegraded(t *testing.T)
 
 	inc := seedMirrorAndLiveFixture(ctx, t, ms, externalID, mirrorTime, liveTime)
 
-	meter := NewMeterWithClock(testMeterConfig(), time.Now)
+	meter := NewMeterWithClock(pool, testMeterConfig(), time.Now)
 	// Push the window straight to the shed band (limit 10, shed at 8)
 	// via a different lane — proving the meter's band is a total across
 	// lanes, not a per-lane count force_fresh alone would never reach.

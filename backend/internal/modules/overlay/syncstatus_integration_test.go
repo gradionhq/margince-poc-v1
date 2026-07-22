@@ -76,7 +76,7 @@ func TestBackfillCompleteForRequiresEveryEngagementClass(t *testing.T) {
 func TestSyncStatusAndBudgetRefuseANativeModeWorkspace(t *testing.T) {
 	ctx, pool, _ := testWorkspaceCtx(t) // never flips to overlay mode
 	svc := NewService(pool, keyvault.NewMemory(), NewMirrorStore(pool, noOwnerEmails{})).
-		WithBudgetMeter(NewMeter(DefaultMeterConfig()))
+		WithBudgetMeter(NewMeter(pool, DefaultMeterConfig()))
 
 	if _, err := svc.SyncStatus(ctx); !errors.Is(err, apperrors.ErrModeNotOverlay) {
 		t.Errorf("SyncStatus err = %v, want errors.Is(_, ErrModeNotOverlay)", err)

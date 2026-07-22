@@ -228,7 +228,7 @@ func TestOverlayReadAndSyncEndToEnd(t *testing.T) {
 	// the REAL composed dispatcher path (compose.Dispatcher — the exact
 	// seam every native GET/read_record call rides in production),
 	// carries TrustTier=external + Authoritative=false ---
-	dispatcher := compose.NewDispatcher(compose.NewProvider(pool), compose.NewOverlayProvider(pool, compose.NewOverlayMeter(), nil), pool)
+	dispatcher := compose.NewDispatcher(compose.NewProvider(pool), compose.NewOverlayProvider(pool, compose.NewOverlayMeter(pool), nil), pool)
 	searchRes, err := dispatcher.Search(adminCtx, datasource.SearchQuery{
 		EntityTypes: []datasource.EntityType{datasource.EntityPerson}, Limit: 10,
 	})
