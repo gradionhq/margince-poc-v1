@@ -8362,8 +8362,8 @@ components:
         currency: { type: [string, 'null'], pattern: '^[A-Z]{3}$' }
         fx_rate_to_base: { type: [string, 'null'], description: 'Native→base, frozen at close (null while open). Decimal-as-string to avoid float rounding of the 10-dp rate.' }
         fx_rate_date: { type: [string, 'null'], format: date }
-        pipeline_id: { type: string, format: uuid }
-        stage_id: { type: string, format: uuid, description: Must belong to pipeline_id. }
+        pipeline_id: { type: [string, 'null'], format: uuid, description: 'Native mode: always a non-null pipeline FK. Overlay mode: NULL — an overlay-mirror deal has no native Margince pipeline row; the incumbent''s own pipeline id rides `raw` and the code-declared stage→semantic mapping drives tier resolution (overlay-augmentation OVA-MAP-6). A zero/placeholder UUID here is forbidden (dangling FK).' }
+        stage_id: { type: [string, 'null'], format: uuid, description: 'Native mode: always a non-null stage FK; must belong to pipeline_id. Overlay mode: NULL (see pipeline_id; the incumbent dealstage id rides `raw`, OVA-MAP-6).' }
         organization_id: { type: [string, 'null'], format: uuid, description: Primary org; never a raw lead. }
         partner_org_id: { type: [string, 'null'], format: uuid, description: 'Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a `partner` row.' }
         owner_id: { type: [string, 'null'], format: uuid }

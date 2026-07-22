@@ -5262,13 +5262,16 @@ export interface components {
             fx_rate_to_base?: string | null;
             /** Format: date */
             fx_rate_date?: string | null;
-            /** Format: uuid */
-            pipeline_id: string;
             /**
              * Format: uuid
-             * @description Must belong to pipeline_id.
+             * @description Native mode: always a non-null pipeline FK. Overlay mode: NULL — an overlay-mirror deal has no native Margince pipeline row; the incumbent's own pipeline id rides `raw` and the code-declared stage→semantic mapping drives tier resolution (overlay-augmentation OVA-MAP-6). A zero/placeholder UUID here is forbidden (dangling FK).
              */
-            stage_id: string;
+            pipeline_id: string | null;
+            /**
+             * Format: uuid
+             * @description Native mode: always a non-null stage FK; must belong to pipeline_id. Overlay mode: NULL (see pipeline_id; the incumbent dealstage id rides `raw`, OVA-MAP-6).
+             */
+            stage_id: string | null;
             /**
              * Format: uuid
              * @description Primary org; never a raw lead.

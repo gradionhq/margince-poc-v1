@@ -15,6 +15,7 @@ package hubspot
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
@@ -78,6 +79,10 @@ func (a *Adapter) Backfill(ctx context.Context, objectClass, cursor string) (ove
 	if err != nil {
 		return overlay.Page{}, err
 	}
+	records, err = a.enrichLeads(ctx, objectClass, records)
+	if err != nil {
+		return overlay.Page{}, err
+	}
 	return overlay.Page{Records: records, NextCursor: page.NextAfter}, nil
 }
 
@@ -98,6 +103,10 @@ func (a *Adapter) Modified(ctx context.Context, objectClass string, since time.T
 		return overlay.Page{}, err
 	}
 	records, err := mapRecords(m, objectClass, page.Results)
+	if err != nil {
+		return overlay.Page{}, err
+	}
+	records, err = a.enrichLeads(ctx, objectClass, records)
 	if err != nil {
 		return overlay.Page{}, err
 	}
@@ -160,7 +169,19 @@ func (a *Adapter) Get(ctx context.Context, objectClass, externalID string) (over
 	if len(recs) == 0 {
 		return overlay.Record{}, fmt.Errorf("hubspot: no %s record with external id %s", objectClass, externalID)
 	}
-	return mapRecord(m, objectClass, recs[0])
+	rec, err := mapRecord(m, objectClass, recs[0])
+	if err != nil {
+		return overlay.Record{}, err
+	}
+	// A force-fresh single-record read must return the SAME shape as backfill
+	// / incremental (OVA-MAP-5): a lead's email/company_name are denormalized
+	// from its contact association, so enrich here too rather than returning a
+	// bare lead missing them.
+	enriched, err := a.enrichLeads(ctx, objectClass, []overlay.Record{rec})
+	if err != nil {
+		return overlay.Record{}, err
+	}
+	return enriched[0], nil
 }
 
 // Associations lists the v4 association edges from fromID (of fromClass)
@@ -207,6 +228,77 @@ func (a *Adapter) Associations(ctx context.Context, fromClass, fromID, toClass s
 		}
 	}
 	return out, nil
+}
+
+// leadContactProps are the associated contact's properties a lead
+// denormalizes (OVA-MAP-5): email and the free-text company name.
+var leadContactProps = []string{"email", "company"}
+
+// enrichLeads denormalizes each lead's email and company_name from the
+// contact reached through its REQUIRED contact association (OVA-MAP-5) — the
+// Leads object carries neither. It is a no-op for any other object class. A
+// lead with no contact association keeps both absent, so the wire surfaces
+// null rather than an invented value.
+//
+// It resolves one association per lead (leads are low-volume; the
+// per-lead association lookup is bounded by the page size) and then batch-
+// reads the distinct contacts in a single call.
+//
+// Staleness bound (denormalization, not a live join): these fields refresh
+// when the LEAD is next swept — its own Modified watermark, or a backfill.
+// A contact-only email/company change (the lead's watermark unchanged) is
+// not observed until then, because the incremental sweep is per-object and
+// there is no contact→lead dependency propagation yet. That propagation
+// (re-ingesting a contact's associated leads when the contact changes) is
+// tracked with the incremental-association-sync work (A7), not built here;
+// a read-time association join, once it lands, would remove the bound
+// entirely.
+func (a *Adapter) enrichLeads(ctx context.Context, objectClass string, records []overlay.Record) ([]overlay.Record, error) {
+	if objectClass != objectClassLeads || len(records) == 0 {
+		return records, nil
+	}
+	contactByLead := make(map[string]string, len(records))
+	seen := make(map[string]bool)
+	var contactIDs []string
+	for _, rec := range records {
+		assocs, err := a.client.Associations(ctx, objectClassLeads, rec.ExternalID, objectClassContacts)
+		if err != nil {
+			return nil, fmt.Errorf("hubspot: resolving the contact association for lead %s: %w", rec.ExternalID, err)
+		}
+		if len(assocs) == 0 {
+			continue // no contact association — email/company_name stay null
+		}
+		cid := assocs[0].ToObjectID
+		contactByLead[rec.ExternalID] = cid
+		if !seen[cid] {
+			seen[cid] = true
+			contactIDs = append(contactIDs, cid)
+		}
+	}
+	if len(contactIDs) == 0 {
+		return records, nil
+	}
+	contacts, err := a.client.BatchRead(ctx, objectClassContacts, contactIDs, leadContactProps)
+	if err != nil {
+		return nil, fmt.Errorf("hubspot: batch-reading the contacts leads are associated to: %w", err)
+	}
+	byID := make(map[string]ObjectRecord, len(contacts))
+	for _, c := range contacts {
+		byID[c.ID] = c
+	}
+	for i := range records {
+		c, ok := byID[contactByLead[records[i].ExternalID]]
+		if !ok {
+			continue
+		}
+		if email := strings.ToLower(strings.TrimSpace(c.Properties["email"])); email != "" {
+			records[i].Fields["email"] = email
+		}
+		if company := strings.TrimSpace(c.Properties["company"]); company != "" {
+			records[i].Fields["company_name"] = company
+		}
+	}
+	return records, nil
 }
 
 // OwnerEmail resolves a HubSpot owner id to its email via the Owners API
