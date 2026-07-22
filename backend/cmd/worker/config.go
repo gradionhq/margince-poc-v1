@@ -40,6 +40,8 @@ type workerConfig struct {
 	gmailWatchRenew      time.Duration
 	overlayInterval      time.Duration
 	overlayBackfillLimit int
+	webhookKey           string
+	webhookRetryInterval time.Duration
 	deepReadMaxPages     int
 	deepReadMaxBytes     int
 	deepReadWall         time.Duration
@@ -90,6 +92,8 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	fs.IntVar(&cfg.deepReadMaxPages, "deepread-max-pages", maxPagesDefault, "deep-read crawl page cap; 0 takes the built-in default")
 	fs.IntVar(&cfg.deepReadMaxBytes, "deepread-max-bytes", maxBytesDefault, "deep-read crawl aggregate byte cap; 0 takes the built-in default")
 	fs.DurationVar(&cfg.deepReadWall, "deepread-wall", wallDefault, "deep-read crawl wall clock; 0 takes the built-in default")
+	fs.StringVar(&cfg.webhookKey, "webhook-key", os.Getenv("MARGINCE_WEBHOOK_KEY"), "base64 32-byte key sealing outbound-webhook signing secrets; enables the cg:webhooks delivery consumer + retry sweep. Empty leaves the delivery worker off.")
+	fs.DurationVar(&cfg.webhookRetryInterval, "webhook-retry-interval", 5*time.Second, "outbound-webhook retry-sweep tick interval")
 	fs.StringVar(&cfg.logLevel, "log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
 	fs.StringVar(&cfg.logFormat, "log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")
 	if err := fs.Parse(args); err != nil {
@@ -134,6 +138,7 @@ func validateSchedulerIntervals(cfg workerConfig) error {
 		{"gmail-sync-interval", cfg.gmailSyncInterval},
 		{"gmail-watch-interval", cfg.gmailWatchInterval},
 		{"overlay-reconcile-interval", cfg.overlayInterval},
+		{"webhook-retry-interval", cfg.webhookRetryInterval},
 	}
 	for _, iv := range intervals {
 		if iv.d <= 0 {

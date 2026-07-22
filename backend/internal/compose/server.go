@@ -82,6 +82,7 @@ type Server struct {
 	quotasHandlers
 	attachmentExtractionHandlers
 	overlayHandlers
+	webhooksHandlers
 
 	// gmailPush is the Pub/Sub push webhook, injected by WithGmailPush only
 	// when a subscription token is configured — the route is absent
@@ -274,9 +275,14 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// WithExtractor rebuilds it together with the activities read so
 		// both surfaces answer from the SAME seam.
 		attachmentExtractionHandlers: attachmentExtractionHandlers{accept: NewExtractionAccept(pool, nil)},
-		log:                          log,
-		dealsStore:                   deals.NewStore(pool),
-		toolRegistry:                 NewRegistry(pool),
+		// Outbound webhooks (E10/S-E10.6): the read surface works
+		// unconditionally; create/rotate/replay need a deployment signing
+		// key, wired by WithWebhookSigningKey (the api role sources it from
+		// the environment). Without it those paths answer an honest 503.
+		webhooksHandlers: newWebhookHandlers(pool, nil, log),
+		log:              log,
+		dealsStore:       deals.NewStore(pool),
+		toolRegistry:     NewRegistry(pool),
 		// Constructed unconditionally: WithKeyvault rebuilds
 		// overlayHandlers over this SAME instance rather than minting a
 		// second one, and contractAPI's Dispatcher spends force-fresh

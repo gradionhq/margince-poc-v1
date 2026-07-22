@@ -250,6 +250,10 @@ func Groups() []Group {
 		{Name: "cg:flow-bridge", Streams: forEntities(personStreamEntity, dealStreamEntity, activityStreamEntity)},
 		{Name: "cg:read-model", Streams: all},
 		{Name: "cg:audit-stream", Streams: all},
+		// The outbound-webhook fan-out (E10/S-E10.6): a subscription may
+		// name any published event type, so this group listens on every
+		// stream and matches per-subscription event_types in-process.
+		{Name: "cg:webhooks", Streams: all},
 	}
 }
 
