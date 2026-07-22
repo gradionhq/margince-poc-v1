@@ -9,8 +9,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // TestUnresolvedOwnerEmailsIsHonestlyUnwired proves the compose-level
@@ -59,14 +57,23 @@ func TestOverlayMetricsSectionPresentWithAVault(t *testing.T) {
 }
 
 // TestNewOverlayMeterUsesTheDefaultConfig proves NewOverlayMeter wires
-// budgetmeter.go's own DefaultMeterConfig rather than an ad hoc literal
-// — a Snapshot against a fresh meter must answer that config's Limit.
+// budgetmeter.go's own DefaultMeterConfig rather than an ad hoc literal.
+// The meter's window lives in Postgres now, so the real metered path
+// needs a DB (exercised by the overlay integration suite); this unit
+// lane reads the config through the fail-closed Snapshot instead: with
+// no workspace bound, Snapshot short-circuits before touching the pool
+// (WithWorkspaceTx returns ErrNoWorkspace) yet still reports Limit from
+// the wired config — so a wrong config here is still caught, without a
+// database. A nil pool is safe precisely because that path never begins
+// a transaction.
 func TestNewOverlayMeterUsesTheDefaultConfig(t *testing.T) {
-	m := NewOverlayMeter()
-	ctx := principal.WithWorkspaceID(context.Background(), ids.NewV7())
-	snap := m.Snapshot(ctx)
+	m := NewOverlayMeter(nil)
+	snap := m.Snapshot(context.Background()) // no workspace bound → fail-closed, no DB touched
 	want := overlay.DefaultMeterConfig()
 	if snap.Limit != want.Limit {
 		t.Fatalf("Snapshot().Limit = %d, want %d (DefaultMeterConfig)", snap.Limit, want.Limit)
+	}
+	if snap.Band != overlay.BandShed {
+		t.Fatalf("Snapshot().Band with no workspace bound = %q, want %q (fail closed)", snap.Band, overlay.BandShed)
 	}
 }

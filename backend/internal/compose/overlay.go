@@ -31,23 +31,19 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// NewOverlayMeter constructs one OVB (overlay budget) meter. A process
-// role that wires BOTH a Dispatcher's overlay.Provider (force-fresh
-// reads consume against it) AND overlay.Handlers' GetOverlayBudget
-// (reads its Snapshot) MUST pass the SAME instance to both — a Service
-// or Provider built with a separate meter would silently report a
-// window nothing ever fed. server.go does this by constructing one
-// meter per Server and threading it through both wiring points;
-// registry.go/workflows.go each still mint their OWN independent meter
-// for their own Dispatcher instances (the MCP tool surface and the
-// workflow engine each spend against a different in-process counter than
-// the REST surface does) — a known, pre-existing fragmentation
-// budgetmeter.go's own doc already names ("per-PROCESS... even with a
-// single replica") and is not closed end-to-end here; fixing it fully
-// needs the shared PG/Redis counter budgetmeter.go's own pending item
-// already tracks.
-func NewOverlayMeter() *overlay.Meter {
-	return overlay.NewMeter(overlay.DefaultMeterConfig())
+// NewOverlayMeter constructs one OVB (overlay budget) meter backed by
+// pool. The meter's window now lives in Postgres (overlay_budget_window,
+// ONE row per workspace), so every meter instance over the same pool —
+// this REST surface's, the MCP tool surface's (registry.go), the
+// workflow engine's (workflows.go), and cmd/worker's poller (jobs.go) —
+// reads and advances the SAME per-workspace count. Threading the same
+// *instance* through a Server's Provider and Handlers is therefore no
+// longer load-bearing for correctness (they'd share the count either
+// way); server.go still does it, and there is no cost to it. The
+// per-process fragmentation this doc used to warn about is closed by the
+// shared counter, not by careful instance threading.
+func NewOverlayMeter(pool *pgxpool.Pool) *overlay.Meter {
+	return overlay.NewMeter(pool, overlay.DefaultMeterConfig())
 }
 
 // NewOverlayHandlers builds the overlay module's connection-lifecycle

@@ -57,10 +57,10 @@ func workflowEngineWithDrafter(pool *pgxpool.Pool, drafter activities.EmailDraft
 	// datasource consumer: a starter firing for an overlay-mode
 	// workspace reads/writes through the overlay seam, not silently
 	// against the native tables that workspace no longer owns. This
-	// engine's own OVB meter is independent of the REST surface's
-	// (NewOverlayMeter's doc note).
+	// engine's own OVB meter shares the REST surface's per-workspace
+	// count through the Postgres-backed window (NewOverlayMeter's doc).
 	ex := automation.Executors{
-		Provider:  NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, NewOverlayMeter(), nil), pool),
+		Provider:  NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, NewOverlayMeter(pool), nil), pool),
 		Approvals: automationApprovalsAdapter{svc: approvals.NewService(pool)},
 		Lists:     listsAdapter{store: collections.NewStore(pool)},
 		Comms: commsAdapter{

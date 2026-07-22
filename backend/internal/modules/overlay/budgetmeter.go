@@ -12,44 +12,52 @@ package overlay
 // whether a force-fresh read is affordable; Snapshot() answers the
 // GET /overlay/budget read surface.
 //
-// Storage: in-memory, per-PROCESS, per-workspace. ADR-0054/A69 already
-// runs FOUR separate cmd/<role> binaries in normal operation — cmd/api (this
-// meter's force_fresh caller) and cmd/worker (the poller
-// caller) are two DISTINCT OS processes today, each with
-// its OWN Meter instance and its OWN in-memory counters, even with a
-// single replica of each. They do NOT share this counter. So the
-// combined spend against the ONE real HubSpot quota a workspace holds
-// is bounded by (process count) x Limit, not by Limit — exactly the
-// "don't starve the shared quota" property this meter exists to
-// protect, undercut by construction the moment more than one role
-// process reads/writes for the same workspace. This is not a
-// multi-replica-only concern; it is true right now, with one replica
-// of each of the two roles.
+// Storage: a shared, cross-process PG counter (overlay_budget_window), ONE
+// row per workspace. ADR-0054/A69 runs cmd/api (this meter's force_fresh
+// caller) and cmd/worker (the poller caller) as two DISTINCT OS processes;
+// both read and advance the SAME row, so a workspace's combined spend against
+// its ONE real HubSpot quota is measured against ONE shared Limit — not
+// (process count)×Limit, the "don't starve the shared quota" hole a
+// per-process in-memory counter had by construction — and GET /overlay/budget
+// reflects the poller's spend, not just the reading process's.
 //
-// TODO(branch-1b/pre-GA, design.md#5.1): replace this per-process counter
-// with a shared PG/Redis counter before customer-GA — required so
-// api+worker don't each spend a full budget against the shared incumbent
-// quota (OVA-PARAM-8/9). Gated the same way design.md §5.1 gates the
-// branch-1b visibility floor: "no customer-GA until [the gate] pass[es]."
-// Not built now because OVA-PARAM-8/9's own numeric values are still
-// unpinned upstream (see DefaultMeterConfig's doc) — a shared counter
-// with unspecified capacity/threshold parameters would be premature
-// machinery, not a fix.
+// "Measured", not hard-capped: force_fresh reads Reserve (they shed once the
+// shared window crosses the threshold), but the poller lane Consumes
+// unconditionally — an incumbent it must mirror is not something to refuse
+// partway. So the shared count bounds what force_fresh will SPEND against the
+// window; the poller only records its own accounting units into it, and those
+// units are approximate — reconcile.go Consumes len(page.Records)/
+// len(page.Deletions) (a per-record count), whereas real HubSpot quota is
+// spent per REQUEST (a page fetch, plus any enrichment calls). So the poller's
+// contribution tracks work done, not requests made, and can diverge from the
+// true quota ceiling. It does not itself cap the poller; a hard poller cap
+// with request-level metering (a token bucket over this same shared row) is
+// the coupled follow-up.
 //
-// The window itself is fixed (start, then reset after Window elapses),
-// not sliding — good enough to protect a per-process slice of the quota
-// without the bookkeeping a sliding window needs, and it mirrors an
-// incumbent's own quota-reset cadence (a fixed per-hour/per-day window),
-// which this build has no visibility into.
+// The window is fixed (window_start + Window duration), not sliding: a
+// consume/reserve whose clock reads past window_start+Window rolls the window
+// (resets window_start and consumed) in the SAME statement, so a stale window
+// can never over-count. It mirrors an incumbent's own fixed quota-reset
+// cadence, which this build has no visibility into.
+//
+// "now" is the meter's injected clock, threaded into every statement as a
+// parameter rather than SQL now(): window expiry stays a property tests
+// assert by advancing the clock, never by sleeping (T11).
+//
+// OVA-PARAM-8/9 (the OVB numeric capacity/thresholds) are still unpinned
+// upstream — DefaultMeterConfig's numbers are this build's honest placeholder
+// (see its doc), now enforced by a shared counter rather than a per-process
+// one.
 
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 )
 
 // Lane names Consume's caller declares — the fixed lane set this
@@ -117,86 +125,99 @@ type Budget struct {
 	Band     string
 }
 
-// windowState is one workspace's current fixed window: when it started
-// and how much each lane has spent inside it.
-type windowState struct {
-	start  time.Time
-	byLane map[string]int
-	total  int
-}
-
-// Meter is the OVB consumption meter: Consume records spend, Band
-// answers the current degradation band, Snapshot answers the read
-// surface. The zero value is not usable; construct with NewMeter or
-// NewMeterWithClock.
+// Meter is the OVB consumption meter: Consume records spend, Reserve
+// atomically band-checks then records, Band answers the current
+// degradation band, Snapshot answers the read surface. Every operation
+// reads/advances the ONE overlay_budget_window row for ctx's workspace,
+// so the count is shared across processes. The zero value is not usable;
+// construct with NewMeter or NewMeterWithClock.
 type Meter struct {
-	cfg MeterConfig
-	now func() time.Time
-
-	mu      sync.Mutex
-	windows map[ids.UUID]*windowState
+	cfg  MeterConfig
+	pool *pgxpool.Pool
+	now  func() time.Time
 }
 
-// NewMeter constructs a Meter over cfg using the real wall clock.
-func NewMeter(cfg MeterConfig) *Meter {
-	return NewMeterWithClock(cfg, time.Now)
+// NewMeter constructs a Meter over cfg backed by pool, using the real
+// wall clock.
+func NewMeter(pool *pgxpool.Pool, cfg MeterConfig) *Meter {
+	return NewMeterWithClock(pool, cfg, time.Now)
 }
 
 // NewMeterWithClock takes the clock as a dependency so window expiry is
 // a property tests assert by advancing time, not by sleeping against
-// it (T11) — the same discipline platform/ratelimit.NewWithClock uses.
-func NewMeterWithClock(cfg MeterConfig, now func() time.Time) *Meter {
-	return &Meter{cfg: cfg, now: now, windows: make(map[ids.UUID]*windowState)}
+// it (T11): the clock's reading is threaded into every statement as the
+// $now parameter (rather than SQL now()), so a test rolls the window by
+// handing the meter a later time, deterministically.
+func NewMeterWithClock(pool *pgxpool.Pool, cfg MeterConfig, now func() time.Time) *Meter {
+	return &Meter{cfg: cfg, pool: pool, now: now}
 }
 
-// withState resolves ctx's workspace's current window (resetting it
-// first if the prior window has expired) and runs fn against it WHILE
-// STILL HOLDING m.mu — the whole read-or-modify operation is one
-// critical section. This is load-bearing, not defensive style: an
-// earlier version resolved the window under the lock, released it, and
-// let Consume/Band/Snapshot re-acquire separately to read/mutate — a
-// window that expired and got replaced in the gap between those two
-// lock sections would silently lose a spend the caller believed it had
-// recorded. A ctx with no workspace bound is a programming error (every
-// operation context binds one — the HTTP middleware, or a job's own
-// operation scope); it never runs fn against an empty workspace key.
-func (m *Meter) withState(ctx context.Context, fn func(st *windowState)) error {
-	wsID, ok := principal.WorkspaceID(ctx)
-	if !ok {
-		return fmt.Errorf("overlay: budget meter requires a workspace-bound context")
-	}
-	now := m.now()
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	st, ok := m.windows[wsID]
-	if !ok || now.Sub(st.start) >= m.cfg.Window {
-		st = &windowState{start: now, byLane: make(map[string]int)}
-		m.windows[wsID] = st
-	}
-	fn(st)
-	return nil
-}
+// windowSeconds is the configured window as float seconds, the shape the
+// SQL's make_interval(secs => $2) wants. Threading the window as a
+// parameter (not a literal) keeps the roll condition — "now minus
+// window_start has reached a full window" — identical across every
+// statement below.
+func (m *Meter) windowSeconds() float64 { return m.cfg.Window.Seconds() }
 
-// Consume records n spend units against lane for ctx's workspace's
-// current window.
+// upsertRollAdd is the shared upsert every WRITE runs: insert a fresh
+// window (consumed = $3) if the workspace has none, else — in the SAME
+// statement — roll the window when $now has reached window_start + Window
+// (reset window_start to $now and consumed to $3) or otherwise ADD $3 to
+// the running total. Because the roll and the add are one statement, a
+// window that has just expired can never be added onto: it is reset
+// first, atomically. $1=now, $2=window seconds, $3=units to add.
+const upsertRollAdd = `
+	INSERT INTO overlay_budget_window (workspace_id, window_start, consumed, updated_at)
+	VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $3, $1)
+	ON CONFLICT (workspace_id) DO UPDATE SET
+		window_start = CASE WHEN $1 - overlay_budget_window.window_start >= make_interval(secs => $2)
+			THEN $1 ELSE overlay_budget_window.window_start END,
+		consumed = CASE WHEN $1 - overlay_budget_window.window_start >= make_interval(secs => $2)
+			THEN $3 ELSE overlay_budget_window.consumed + $3 END,
+		updated_at = $1`
+
+// effectiveConsumed is the shared READ: the workspace's consumed count,
+// but ZERO when the stored window has already expired ($now has reached
+// window_start + Window) or no row exists yet. It never mutates, so a
+// read of an expired window reports 0 without rolling it — the next write
+// does the reset. $1=now, $2=window seconds.
+const effectiveConsumed = `
+	SELECT COALESCE((
+		SELECT CASE WHEN $1 - window_start >= make_interval(secs => $2) THEN 0 ELSE consumed END
+		FROM overlay_budget_window
+		WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+	), 0)`
+
+// Consume records n spend units for ctx's workspace's current window
+// (rolling the window first if it has expired). A non-positive n is a
+// no-op — the poller call site passes len(page.Records), which is 0 for
+// an empty page, and an empty page spent no quota to record. The write
+// runs inside WithWorkspaceTx so RLS binds it to ctx's workspace and the
+// GUC the SQL reads is set.
 func (m *Meter) Consume(ctx context.Context, lane string, n int) error {
-	return m.withState(ctx, func(st *windowState) {
-		st.byLane[lane] += n
-		st.total += n
+	if n <= 0 {
+		return nil
+	}
+	return database.WithWorkspaceTx(ctx, m.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, upsertRollAdd, m.now(), m.windowSeconds(), n); err != nil {
+			return fmt.Errorf("overlay: recording %d %s budget units: %w", n, lane, err)
+		}
+		return nil
 	})
 }
 
 // Reserve atomically checks ctx's workspace band and, if it is NOT shed,
 // records n spend units and returns allowed=true; if the band is already
-// shed it records nothing and returns allowed=false. Doing the band check
-// and the record under ONE lock is the whole point: FreshnessReader must
-// reserve its force-fresh unit BEFORE the live incumbent call, or N
-// concurrent force-fresh reads would all observe a non-shed band, all
-// reach the incumbent (each spending real quota), and only then record
-// consumption — collectively overshooting the budget. Reserving up front
-// also means a live read that later FAILS still counts (its HTTP call
-// spent quota all the same), unlike a Consume placed after the call that a
-// failure path skips.
+// shed it records nothing and returns allowed=false. The check and the
+// record are ONE transaction holding the row lock the whole time: an
+// earlier ROLL-and-lock upsert takes the row's write lock (and returns
+// the post-roll consumed), the band is judged on that locked count, and
+// the conditional add commits under the same lock — so N concurrent
+// force-fresh reservations serialize through the row rather than all
+// observing a non-shed band, all reaching the incumbent, and only then
+// recording. Reserving BEFORE the live call also means a read that later
+// FAILS still counts (its HTTP call spent quota all the same), unlike a
+// Consume placed after the call that a failure path skips.
 func (m *Meter) Reserve(ctx context.Context, lane string, n int) (bool, error) {
 	if n <= 0 {
 		// A non-positive reservation would either weaken enforcement (n=0
@@ -206,13 +227,28 @@ func (m *Meter) Reserve(ctx context.Context, lane string, n int) (bool, error) {
 		return false, fmt.Errorf("overlay: budget reserve requires a positive unit count, got %d", n)
 	}
 	allowed := false
-	err := m.withState(ctx, func(st *windowState) {
-		if m.cfg.band(st.total) == BandShed {
-			return
+	err := database.WithWorkspaceTx(ctx, m.pool, func(tx pgx.Tx) error {
+		// Roll-if-expired and take the row's write lock, returning the
+		// current (post-roll) consumed. A 0-unit upsert here does not
+		// advance the count — it exists only to create/roll the row and
+		// hold its lock for the band decision below.
+		var consumed int
+		if err := tx.QueryRow(ctx, upsertRollAdd+`
+			RETURNING consumed`, m.now(), m.windowSeconds(), 0).Scan(&consumed); err != nil {
+			return fmt.Errorf("overlay: locking the budget window to reserve %d %s units: %w", n, lane, err)
 		}
-		st.byLane[lane] += n
-		st.total += n
+		if m.cfg.band(consumed) == BandShed {
+			return nil // allowed stays false; nothing recorded
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE overlay_budget_window
+			SET consumed = consumed + $1, updated_at = $2
+			WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`,
+			n, m.now()); err != nil {
+			return fmt.Errorf("overlay: recording the reserved %d %s units: %w", n, lane, err)
+		}
 		allowed = true
+		return nil
 	})
 	if err != nil {
 		return false, err
@@ -238,26 +274,27 @@ func (cfg MeterConfig) band(consumed int) string {
 	}
 }
 
-// Band reports ctx's workspace's current degradation band. A ctx with
-// no workspace bound answers shed — the fail-closed direction: Band's
-// only caller inside this package (FreshnessReader.Read) uses it to
-// decide whether a force-fresh spend is affordable, and an unknown
-// budget must never be read as "spend freely."
+// Band reports ctx's workspace's current degradation band. A read error
+// — including a ctx with no workspace bound, which makes WithWorkspaceTx
+// fail — answers shed, the fail-closed direction: Band's only caller
+// inside this package (FreshnessReader.Read) uses it to decide whether a
+// force-fresh spend is affordable, and an unknown budget must never be
+// read as "spend freely."
 func (m *Meter) Band(ctx context.Context) string {
-	var consumed int
-	if err := m.withState(ctx, func(st *windowState) { consumed = st.total }); err != nil {
+	consumed, err := m.readConsumed(ctx)
+	if err != nil {
 		return BandShed
 	}
 	return m.cfg.band(consumed)
 }
 
 // Snapshot answers the current window's consumption for ctx's
-// workspace — the shape GetOverlayBudget reads. A ctx with no
-// workspace bound answers the same fail-closed shed band Band does,
-// with zero consumption (there is no window to report on).
+// workspace — the shape GetOverlayBudget reads. A read error answers the
+// same fail-closed shed band Band does, with zero consumption (there is
+// no window it can trust to report on).
 func (m *Meter) Snapshot(ctx context.Context) Budget {
-	var consumed int
-	if err := m.withState(ctx, func(st *windowState) { consumed = st.total }); err != nil {
+	consumed, err := m.readConsumed(ctx)
+	if err != nil {
 		return Budget{Window: m.cfg.Window.String(), Consumed: 0, Limit: m.cfg.Limit, Band: BandShed}
 	}
 	return Budget{
@@ -266,4 +303,19 @@ func (m *Meter) Snapshot(ctx context.Context) Budget {
 		Limit:    m.cfg.Limit,
 		Band:     m.cfg.band(consumed),
 	}
+}
+
+// readConsumed runs the read-only effectiveConsumed query for ctx's
+// workspace (0 for an expired or absent window). Both read surfaces
+// (Band, Snapshot) go through it so the "expired reads as 0, never
+// rolls" rule lives in one place.
+func (m *Meter) readConsumed(ctx context.Context) (int, error) {
+	var consumed int
+	err := database.WithWorkspaceTx(ctx, m.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, effectiveConsumed, m.now(), m.windowSeconds()).Scan(&consumed)
+	})
+	if err != nil {
+		return 0, err
+	}
+	return consumed, nil
 }
