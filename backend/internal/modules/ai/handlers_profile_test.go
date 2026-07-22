@@ -67,8 +67,8 @@ func TestPublicProfileDerivesSafeRoutingPosture(t *testing.T) {
 func TestGetAssistantProfileReturnsOnlyPublicFields(t *testing.T) {
 	h := NewHandlers(nil, nil).WithPublicProfile(NewPublicProfile("configured", RoutingConfig{
 		Tiers: map[Tier]ProviderConfig{
-			TierLocalSmall: {Provider: providerOllama},
-			TierPremium:    {Provider: providerAnthropic},
+			TierLocalSmall: {Provider: providerOllama, Model: "gemma3"},
+			TierPremium:    {Provider: providerAnthropic, Model: "claude-sonnet"},
 		},
 	}))
 	recorder := httptest.NewRecorder()
@@ -78,7 +78,7 @@ func TestGetAssistantProfileReturnsOnlyPublicFields(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	wantKeys := []string{"inference_mode", "kind", "name", "providers", "state"}
+	wantKeys := []string{"configured_models", "inference_mode", "kind", "name", "providers", "state"}
 	for _, key := range wantKeys {
 		if _, ok := body[key]; !ok {
 			t.Errorf("response misses %q: %s", key, recorder.Body.String())
@@ -87,9 +87,13 @@ func TestGetAssistantProfileReturnsOnlyPublicFields(t *testing.T) {
 	if len(body) != len(wantKeys) {
 		t.Fatalf("response exposes fields outside the public contract: %s", recorder.Body.String())
 	}
-	for _, forbidden := range []string{"model", "endpoint", "budget", "workspace", "key"} {
+	for _, forbidden := range []string{"endpoint", "budget", "workspace", "key"} {
 		if strings.Contains(recorder.Body.String(), forbidden) {
 			t.Errorf("response contains forbidden %q detail: %s", forbidden, recorder.Body.String())
 		}
+	}
+	if !strings.Contains(recorder.Body.String(), `"model":"claude-sonnet"`) ||
+		!strings.Contains(recorder.Body.String(), `"tier":"premium"`) {
+		t.Fatalf("response hides configured model routing: %s", recorder.Body.String())
 	}
 }

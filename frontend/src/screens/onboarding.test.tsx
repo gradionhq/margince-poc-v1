@@ -14,7 +14,7 @@ import { LocaleProvider } from "../i18n";
 import { OnboardingScreen } from "./onboarding";
 
 type CompanySiteRead = components["schemas"]["CompanySiteRead"];
-type MessageReply = components["schemas"]["CompanySiteReadMessageReply"];
+type MessageReply = components["schemas"]["OnboardingCompanyMessageReply"];
 
 const savedProfile = {
   organization_id: "018f3a1b-0000-7000-8000-0000000000a1",
@@ -153,6 +153,13 @@ function stubApi(options: StubOptions = {}) {
           state: "configured",
           inference_mode: "cloud",
           providers: ["gemini"],
+          configured_models: [
+            {
+              tier: "cheap_cloud",
+              provider: "gemini",
+              model: "gemini-3.5-flash",
+            },
+          ],
         });
       }
       if (path.endsWith("/onboarding/state") && request.method === "GET") {
@@ -190,15 +197,18 @@ function stubApi(options: StubOptions = {}) {
         return jsonResponse(savedProfile);
       }
       if (
-        path.includes("/company/site-reads/") &&
-        path.endsWith("/messages") &&
+        path.endsWith("/onboarding/company/messages") &&
         request.method === "POST"
       ) {
         return jsonResponse(
           options.messageReply ?? {
+            kind: "answer",
             message: "I can help you review what I found.",
             proposed_changes: [],
             citations: [],
+            next_required_field: null,
+            remaining_required_fields: [],
+            available_action: "confirm_company",
             ai_runtime: {
               currency: "USD",
               call_attempts: 1,
@@ -251,12 +261,16 @@ async function chooseManual() {
     await screen.findByRole("button", { name: /Tell me yourself/ }),
   );
   await screen.findByRole("textbox", {
-    name: /What name do customers know your company by/,
+    name: /What is the full registered legal name/,
   });
 }
 
 async function answerManual(value: string) {
-  await userEvent.type(screen.getByRole("textbox"), value);
+  const input = document.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+    ".ob-manual-input",
+  );
+  expect(input).not.toBeNull();
+  await userEvent.type(input as HTMLInputElement, value);
   await userEvent.click(screen.getByRole("button", { name: /Next question/ }));
 }
 
@@ -265,16 +279,16 @@ async function skipManual() {
 }
 
 async function completeManualInterview() {
-  await answerManual("Gradion");
   await answerManual("Gradion GmbH");
   await answerManual("Hauptstrasse 1, 10115 Berlin");
   await answerManual("HRB 12345 · DE123456789");
-  await answerManual("Revenue software");
-  await skipManual();
+  await answerManual("Gradion");
   await answerManual("Revenue software for manufacturers");
-  await skipManual();
-  await skipManual();
   await answerManual("Mid-market manufacturers");
+  await skipManual();
+  await skipManual();
+  await skipManual();
+  await skipManual();
   await skipManual();
   await skipManual();
   await skipManual();
@@ -287,11 +301,8 @@ async function completeManualInterview() {
 }
 
 async function readWebsite() {
-  await userEvent.click(
-    await screen.findByRole("button", { name: /Read my website/ }),
-  );
   await userEvent.type(
-    screen.getByRole("textbox", { name: "Website" }),
+    await screen.findByRole("textbox", { name: "Website" }),
     "gradion.com",
   );
   await userEvent.click(
@@ -300,9 +311,6 @@ async function readWebsite() {
       .at(-1) as HTMLElement,
   );
   await screen.findByText("Legal entities I found");
-  await userEvent.click(
-    screen.getByRole("button", { name: /Review what I found/ }),
-  );
   await screen.findByLabelText(/Company name/);
 }
 
@@ -349,14 +357,16 @@ describe("the optional website path", () => {
     expect(
       (screen.getByLabelText(/Ideal customer/) as HTMLTextAreaElement).value,
     ).toBe("Mid-market manufacturers");
-    expect(screen.getByText(/© 2026 Gradion GmbH/)).toBeTruthy();
+    expect(screen.getAllByText(/© 2026 Gradion GmbH/).length).toBeGreaterThan(
+      0,
+    );
     expect(
       (screen.getByLabelText(/Registered address/) as HTMLInputElement).value,
     ).toBe("Hauptstrasse 1, 10115 Berlin");
     expect(
       (screen.getByLabelText(/Register \/ VAT ID/) as HTMLInputElement).value,
     ).toBe("HRB 12345 · DE123456789");
-    expect(screen.getByText(/founded year/i)).toBeTruthy();
+    expect(screen.getAllByText(/founded year/i).length).toBeGreaterThan(0);
   });
 
   it("caps the default fact selection at the server limit", async () => {
@@ -391,7 +401,6 @@ describe("the optional website path", () => {
     render(<OnboardingScreen />);
 
     await readWebsite();
-    await userEvent.click(screen.getByRole("button", { name: "Back" }));
     await userEvent.click(
       screen
         .getAllByRole("button", { name: /Tell me instead/ })
@@ -418,11 +427,8 @@ describe("the optional website path", () => {
     });
     render(<OnboardingScreen />);
 
-    await userEvent.click(
-      await screen.findByRole("button", { name: /Read my website/ }),
-    );
     await userEvent.type(
-      screen.getByRole("textbox", { name: "Website" }),
+      await screen.findByRole("textbox", { name: "Website" }),
       "gradion.com",
     );
     await userEvent.click(
@@ -439,7 +445,7 @@ describe("the optional website path", () => {
     );
     expect(
       await screen.findByRole("textbox", {
-        name: /What name do customers know your company by/,
+        name: /What is the full registered legal name/,
       }),
     ).toBeTruthy();
   });
@@ -460,11 +466,8 @@ describe("the optional website path", () => {
     });
     render(<OnboardingScreen />);
 
-    await userEvent.click(
-      await screen.findByRole("button", { name: /Read my website/ }),
-    );
     await userEvent.type(
-      screen.getByRole("textbox", { name: "Website" }),
+      await screen.findByRole("textbox", { name: "Website" }),
       "gradion.com",
     );
     await userEvent.click(
@@ -482,7 +485,39 @@ describe("the optional website path", () => {
 
   it("shows exact run transparency and applies conversational suggestions only after approval", async () => {
     const calls = stubApi({
+      read: {
+        ...readyRead,
+        ai_runtime: {
+          currency: "USD",
+          call_attempts: 41,
+          tokens_in: 100_000,
+          tokens_out: 7_931,
+          latency_ms: 80_809,
+          estimated_cost_microusd: 79_529,
+          unpriced_calls: 0,
+          models: [
+            {
+              task: "site_fact_extract",
+              tier: "cheap_cloud",
+              provider: "gemini",
+              configured_model: "gemini-3.1-flash-lite",
+              served_model: "gemini-3.1-flash-lite-2026-07",
+              call_attempts: 40,
+              tokens_in: 100_000,
+              tokens_out: 7_931,
+              cached_tokens: 0,
+              cache_write_tokens: 0,
+              reasoning_tokens: 0,
+              latency_ms: 80_809,
+              estimated_cost_microusd: 79_529,
+              unpriced_calls: 0,
+              last_used_at: "2026-07-19T08:00:03Z",
+            },
+          ],
+        },
+      },
       messageReply: {
+        kind: "recommendation",
         message:
           "I found evidence that industrial software is the clearest industry description.",
         proposed_changes: [
@@ -493,6 +528,7 @@ describe("the optional website path", () => {
           },
         ],
         citations: [{ label: "industry", url: "https://gradion.com/about" }],
+        remaining_required_fields: ["display_name", "offer_summary"],
         ai_runtime: {
           currency: "USD",
           call_attempts: 3,
@@ -525,11 +561,8 @@ describe("the optional website path", () => {
     });
     render(<OnboardingScreen />);
 
-    await userEvent.click(
-      await screen.findByRole("button", { name: /Read my website/ }),
-    );
     await userEvent.type(
-      screen.getByRole("textbox", { name: "Website" }),
+      await screen.findByRole("textbox", { name: "Website" }),
       "gradion.com",
     );
     await userEvent.click(
@@ -548,14 +581,11 @@ describe("the optional website path", () => {
     expect(
       await screen.findByText(/industrial software is the clearest/),
     ).toBeTruthy();
-    expect(screen.getByText("gemini-3.5-flash-2026-07")).toBeTruthy();
-    expect(screen.getByText("$0.0035")).toBeTruthy();
+    expect(screen.getByText("gemini-3.1-flash-lite-2026-07")).toBeTruthy();
+    expect(screen.getByText("$0.079529")).toBeTruthy();
     expect(screen.getByText("Industrial software")).toBeTruthy();
     await userEvent.click(
       screen.getByRole("button", { name: /Apply to my draft/ }),
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: /Review what I found/ }),
     );
     expect(
       (
@@ -569,6 +599,7 @@ describe("the optional website path", () => {
     expect(await messageRequest?.clone().json()).toEqual({
       message: "Which industry should we use?",
       history: [],
+      locale: "en",
     });
   });
 });
@@ -580,7 +611,9 @@ describe("the mandatory company minimum", () => {
     await chooseManual();
     await completeManualInterview();
 
-    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /Confirm and save company/ }),
+    );
 
     await waitFor(() =>
       expect(requestTo(calls, "/company", "PUT")).toBeTruthy(),
@@ -605,6 +638,9 @@ describe("the mandatory company minimum", () => {
     await chooseManual();
 
     expect(screen.getByText("Your legal organization")).toBeTruthy();
+    await skipManual();
+    await skipManual();
+    await skipManual();
     expect(
       (
         screen.getByRole("button", {
@@ -642,7 +678,9 @@ describe("the mandatory company minimum", () => {
     await screen.findByLabelText(/Company name/);
     await userEvent.clear(screen.getByLabelText(/What do you sell\?/));
     await userEvent.type(screen.getByLabelText(/What do you sell\?/), "   ");
-    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /Confirm and save company/ }),
+    );
     expect(
       screen.getByText("Fill these in before you continue: What do you sell?"),
     ).toBeTruthy();
@@ -652,7 +690,9 @@ describe("the mandatory company minimum", () => {
       screen.getByLabelText(/What do you sell\?/),
       "Revenue software",
     );
-    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /Confirm and save company/ }),
+    );
     expect(await screen.findByText("Couldn't save your company")).toBeTruthy();
     expect(screen.getByText("database unavailable")).toBeTruthy();
   });
@@ -709,7 +749,9 @@ describe("later optional steps remain honest", () => {
     render(<OnboardingScreen />);
     await chooseManual();
     await completeManualInterview();
-    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /Confirm and save company/ }),
+    );
     await userEvent.click(
       await screen.findByRole("button", { name: "Skip this step" }),
     );
@@ -724,7 +766,9 @@ describe("later optional steps remain honest", () => {
     render(<OnboardingScreen />);
     await chooseManual();
     await completeManualInterview();
-    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /Confirm and save company/ }),
+    );
     await userEvent.click(
       await screen.findByRole("button", { name: "Skip this step" }),
     );

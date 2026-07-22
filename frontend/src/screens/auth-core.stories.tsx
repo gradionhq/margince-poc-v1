@@ -33,6 +33,10 @@ export const Configured: Story = {
       state: "configured",
       inference_mode: "hybrid",
       providers: ["anthropic", "ollama"],
+      configured_models: [
+        { tier: "local_small", provider: "ollama", model: "gemma3" },
+        { tier: "premium", provider: "anthropic", model: "claude-sonnet" },
+      ],
     },
   },
 };

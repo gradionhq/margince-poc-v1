@@ -31,6 +31,7 @@ import {
 import {
   type ChangeEvent,
   type ReactNode,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -60,8 +61,7 @@ import { parseVoiceInsights, VoiceInsights } from "./voice-insights";
 import "./onboarding.css";
 
 const STEPS = [
-  { key: "read", label: "ob.read" },
-  { key: "confirm", label: "ob.confirm" },
+  { key: "read", label: "ob.company" },
   { key: "voice", label: "ob.voice" },
   { key: "results", label: "ob.results" },
   { key: "connect", label: "ob.connect" },
@@ -140,12 +140,6 @@ type ManualQuestion = Readonly<{
 
 const MANUAL_QUESTIONS: readonly ManualQuestion[] = [
   {
-    field: "display_name",
-    chapter: "ob.manualChapterLegal",
-    prompt: "ob.manual.display_name",
-    hint: "ob.manual.display_nameHint",
-  },
-  {
     field: "legal_name",
     chapter: "ob.manualChapterLegal",
     prompt: "ob.manual.legal_name",
@@ -165,6 +159,26 @@ const MANUAL_QUESTIONS: readonly ManualQuestion[] = [
     hint: "ob.manual.register_vatHint",
   },
   {
+    field: "display_name",
+    chapter: "ob.manualChapterLegal",
+    prompt: "ob.manual.display_name",
+    hint: "ob.manual.display_nameHint",
+  },
+  {
+    field: "offer_summary",
+    chapter: "ob.manualChapterOffer",
+    prompt: "ob.manual.offer_summary",
+    hint: "ob.manual.offer_summaryHint",
+    multiline: true,
+  },
+  {
+    field: "icp",
+    chapter: "ob.manualChapterCustomer",
+    prompt: "ob.manual.icp",
+    hint: "ob.manual.icpHint",
+    multiline: true,
+  },
+  {
     field: "industry",
     chapter: "ob.manualChapterLegal",
     prompt: "ob.manual.industry",
@@ -175,13 +189,6 @@ const MANUAL_QUESTIONS: readonly ManualQuestion[] = [
     chapter: "ob.manualChapterLegal",
     prompt: "ob.manual.history",
     hint: "ob.manual.historyHint",
-    multiline: true,
-  },
-  {
-    field: "offer_summary",
-    chapter: "ob.manualChapterOffer",
-    prompt: "ob.manual.offer_summary",
-    hint: "ob.manual.offer_summaryHint",
     multiline: true,
   },
   {
@@ -196,13 +203,6 @@ const MANUAL_QUESTIONS: readonly ManualQuestion[] = [
     chapter: "ob.manualChapterOffer",
     prompt: "ob.manual.usp",
     hint: "ob.manual.uspHint",
-    multiline: true,
-  },
-  {
-    field: "icp",
-    chapter: "ob.manualChapterCustomer",
-    prompt: "ob.manual.icp",
-    hint: "ob.manual.icpHint",
     multiline: true,
   },
   {
@@ -488,6 +488,9 @@ function restoredWizardStep(
   if (routeID === "connect") {
     return null;
   }
+  if (state.step === "confirm") {
+    return 0;
+  }
   const index = STEPS.findIndex((candidate) => candidate.key === state.step);
   return index >= 0 ? index : null;
 }
@@ -525,7 +528,7 @@ function OnboardingCoordinator() {
   const t = useT();
   const queryClient = useQueryClient();
   const route = useRoute();
-  const [step, setStep] = useState(route.id === "connect" ? 4 : 0);
+  const [step, setStep] = useState(route.id === "connect" ? 3 : 0);
   const connectOutcome =
     route.id === "connect" && route.id2 ? route.id2 : undefined;
   const [voiceBuilt, setVoiceBuilt] = useState(false);
@@ -573,61 +576,74 @@ function OnboardingCoordinator() {
   const persistQueue = useRef<Promise<boolean>>(Promise.resolve(true));
   const seeded = useRef(false);
 
-  const persistState = (
-    nextStep: number,
-    overrides: Partial<{
-      sourceMode: SourceMode | null;
-      siteReadID: string | null;
-      selectedFactKeys: string[];
-      voiceSkipped: boolean;
-      connectSkipped: boolean;
-    }> = {},
-  ) => {
-    const mode =
-      overrides.sourceMode === undefined ? sourceMode : overrides.sourceMode;
-    const readID =
-      overrides.siteReadID === undefined ? siteReadID : overrides.siteReadID;
-    const factKeys = overrides.selectedFactKeys ?? selectedFactKeys;
-    const skippedVoice = overrides.voiceSkipped ?? voiceSkipped;
-    const skippedConnect = overrides.connectSkipped ?? connectSkipped;
-    const values = draft.values;
-    persistQueue.current = persistQueue.current.then(async () => {
-      try {
-        const data = await writeWizardState(
-          wizardStateBody({
-            expectedVersion: stateVersion.current,
-            nextStep,
-            mode,
-            readID,
-            norm,
-            values,
-            factKeys,
-            skippedVoice,
-            skippedConnect,
-          }),
-        );
-        stateVersion.current = data.version;
-        statePath.current = data.path;
-        queryClient.setQueryData(["onboarding-state"], data);
-        setStateConflict(null);
-        return true;
-      } catch (error) {
-        if (error instanceof WizardStateWriteError && error.status === 409) {
-          setStateConflict(t("ob.stateConflict"));
-          seeded.current = false;
-          await queryClient.invalidateQueries({
-            queryKey: ["onboarding-state"],
-          });
+  const persistState = useCallback(
+    (
+      nextStep: number,
+      overrides: Partial<{
+        sourceMode: SourceMode | null;
+        siteReadID: string | null;
+        selectedFactKeys: string[];
+        voiceSkipped: boolean;
+        connectSkipped: boolean;
+      }> = {},
+    ) => {
+      const mode =
+        overrides.sourceMode === undefined ? sourceMode : overrides.sourceMode;
+      const readID =
+        overrides.siteReadID === undefined ? siteReadID : overrides.siteReadID;
+      const factKeys = overrides.selectedFactKeys ?? selectedFactKeys;
+      const skippedVoice = overrides.voiceSkipped ?? voiceSkipped;
+      const skippedConnect = overrides.connectSkipped ?? connectSkipped;
+      const values = draft.values;
+      persistQueue.current = persistQueue.current.then(async () => {
+        try {
+          const data = await writeWizardState(
+            wizardStateBody({
+              expectedVersion: stateVersion.current,
+              nextStep,
+              mode,
+              readID,
+              norm,
+              values,
+              factKeys,
+              skippedVoice,
+              skippedConnect,
+            }),
+          );
+          stateVersion.current = data.version;
+          statePath.current = data.path;
+          queryClient.setQueryData(["onboarding-state"], data);
+          setStateConflict(null);
+          return true;
+        } catch (error) {
+          if (error instanceof WizardStateWriteError && error.status === 409) {
+            setStateConflict(t("ob.stateConflict"));
+            seeded.current = false;
+            await queryClient.invalidateQueries({
+              queryKey: ["onboarding-state"],
+            });
+            return false;
+          }
+          setStateConflict(
+            error instanceof Error ? error.message : t("ob.stateSaveFailed"),
+          );
           return false;
         }
-        setStateConflict(
-          error instanceof Error ? error.message : t("ob.stateSaveFailed"),
-        );
-        return false;
-      }
-    });
-    return persistQueue.current;
-  };
+      });
+      return persistQueue.current;
+    },
+    [
+      connectSkipped,
+      draft.values,
+      norm,
+      queryClient,
+      selectedFactKeys,
+      siteReadID,
+      sourceMode,
+      t,
+      voiceSkipped,
+    ],
+  );
 
   useEffect(() => {
     if (seeded.current || existing.isPending || wizardState.isPending) {
@@ -660,7 +676,7 @@ function OnboardingCoordinator() {
         edited: new Set(),
       });
       if (route.id !== "connect") {
-        setStep(2);
+        setStep(1);
       }
     }
     setCompanySaved(Boolean(existing.data));
@@ -696,7 +712,10 @@ function OnboardingCoordinator() {
       // resets because draft_version counts within ONE dossier — a new
       // read can open at a version the old one already passed.
       appliedReadVersion.current = 0;
-      setSelectedFactKeys([]);
+      const factKeys = [
+        ...new Set(data.facts.map((fact) => fact.value_key)),
+      ].slice(0, MAX_SELECTED_FACTS);
+      setSelectedFactKeys(factKeys);
       setDraft((prev) => {
         const values = { ...prev.values };
         const edited = new Set(prev.edited);
@@ -709,7 +728,7 @@ function OnboardingCoordinator() {
       persistState(0, {
         sourceMode: "website",
         siteReadID: data.id,
-        selectedFactKeys: [],
+        selectedFactKeys: factKeys,
       });
     },
   });
@@ -746,13 +765,12 @@ function OnboardingCoordinator() {
     // both a partner and a named customer — and the API takes a SET of
     // keys, so the selection folds the repeats rather than sending a
     // duplicate it would reject.
-    setSelectedFactKeys(
-      [...new Set(read.facts.map((fact) => fact.value_key))].slice(
-        0,
-        MAX_SELECTED_FACTS,
-      ),
-    );
-  }, [siteRead.data]);
+    const factKeys = [
+      ...new Set(read.facts.map((fact) => fact.value_key)),
+    ].slice(0, MAX_SELECTED_FACTS);
+    setSelectedFactKeys(factKeys);
+    persistState(0, { selectedFactKeys: factKeys });
+  }, [siteRead.data, persistState]);
 
   const go = (next: number, persist = true) => {
     if (next < 0 || next >= STEPS.length) {
@@ -861,7 +879,7 @@ function OnboardingCoordinator() {
       // The server owns the stored shape (a full URL is reduced to its bare
       // domain) — show what was actually saved, not what was typed.
       setDraft((prev) => ({ ...prev, values: formFromProfile(profile) }));
-      go(2);
+      go(1);
     },
   });
 
@@ -968,20 +986,15 @@ function OnboardingCoordinator() {
                     });
                   }}
                   onComplete={() => {
-                    persistState(1, {
+                    persistState(0, {
                       sourceMode: "manual",
                       siteReadID: null,
                     });
-                    go(1, false);
                   }}
                 />
               ) : null
             }
             onWebsiteChange={(value) => setField("website", value)}
-            onChooseWebsite={() => {
-              setSourceMode("website");
-              persistState(0, { sourceMode: "website" });
-            }}
             onChooseManual={() => {
               setSourceMode("manual");
               setSelectedFactKeys([]);
@@ -991,44 +1004,49 @@ function OnboardingCoordinator() {
                 selectedFactKeys: [],
               });
             }}
-            onStart={() => startRead.mutate()}
+            onStart={() => {
+              setSourceMode("website");
+              startRead.mutate();
+            }}
             onApplyChanges={(changes) => {
               for (const change of changes) {
                 setField(change.field, change.value);
               }
             }}
-            onContinue={() => {
-              persistState(1, { sourceMode: "website", selectedFactKeys });
-              go(1, false);
-            }}
+            reviewContent={
+              sourceMode !== null ? (
+                <CompanyStep
+                  embedded
+                  draft={draft}
+                  setField={setField}
+                  saved={companySaved}
+                  saveError={save.isError ? save.error.message : null}
+                  missingRequired={saveAttempted ? missingRequired : []}
+                  read={siteRead.data ?? null}
+                  onPickEntity={setLegalEntity}
+                  selectedFactKeys={selectedFactKeys}
+                  setSelectedFactKeys={(keys) => {
+                    setSelectedFactKeys(keys);
+                    persistState(0, { selectedFactKeys: keys });
+                  }}
+                  onFieldBlur={() => persistState(0)}
+                />
+              ) : null
+            }
+            confirmPending={save.isPending}
+            confirmDisabled={false}
+            onConfirm={saveCompany}
           />
         )}
-        {step === 1 && (
-          <CompanyStep
-            draft={draft}
-            setField={setField}
-            saved={companySaved}
-            saveError={save.isError ? save.error.message : null}
-            missingRequired={saveAttempted ? missingRequired : []}
-            read={siteRead.data ?? null}
-            onPickEntity={setLegalEntity}
-            selectedFactKeys={selectedFactKeys}
-            setSelectedFactKeys={(keys) => {
-              setSelectedFactKeys(keys);
-              persistState(1, { selectedFactKeys: keys });
-            }}
-            onFieldBlur={() => persistState(1)}
-          />
-        )}
-        {step === 2 && <VoiceStep onBuilt={() => setVoiceBuilt(true)} />}
-        {step === 3 && (
+        {step === 1 && <VoiceStep onBuilt={() => setVoiceBuilt(true)} />}
+        {step === 2 && (
           <ResultsStep
             voiceBuilt={voiceBuilt}
             profileSaved={companySaved}
             profile={existing.data ?? undefined}
           />
         )}
-        {step === 4 && (
+        {step === 3 && (
           <ConnectStep outcome={connectOutcome} onComplete={finishOnboarding} />
         )}
 
@@ -1036,12 +1054,10 @@ function OnboardingCoordinator() {
           <Footer
             step={step}
             go={go}
-            onSaveCompany={saveCompany}
-            savePending={save.isPending}
             memberPath={memberPath}
             onSkipVoice={() => {
               setVoiceSkipped(true);
-              const next = memberPath ? 4 : 3;
+              const next = memberPath ? 3 : 2;
               persistState(next, { voiceSkipped: true });
               go(next, false);
             }}
@@ -1057,24 +1073,20 @@ function OnboardingCoordinator() {
 function Footer({
   step,
   go,
-  onSaveCompany,
-  savePending,
   memberPath,
   onSkipVoice,
 }: Readonly<{
   step: number;
   go: (n: number, persist?: boolean) => void;
-  onSaveCompany: () => void;
-  savePending: boolean;
   memberPath: boolean;
   onSkipVoice: () => void;
 }>) {
   const t = useT();
   let backTarget: number | null = step - 1;
-  if (memberPath && step === 2) {
+  if (memberPath && step === 1) {
     backTarget = null;
-  } else if (memberPath && step === 4) {
-    backTarget = 2;
+  } else if (memberPath && step === 3) {
+    backTarget = 1;
   }
   return (
     <div className="wiz-foot">
@@ -1091,34 +1103,17 @@ function Footer({
       )}
       <span className="grow" />
       {step === 1 && (
-        <Button
-          variant="primary"
-          disabled={savePending}
-          onClick={onSaveCompany}
-        >
-          {savePending ? (
-            <>
-              <span className="ob-spinner" /> {t("ob.s1.saving")}
-            </>
-          ) : (
-            <>
-              {t("ob.next")} <ArrowRight aria-hidden />
-            </>
-          )}
-        </Button>
-      )}
-      {step === 2 && (
         <>
           <button type="button" className="wiz-later" onClick={onSkipVoice}>
             {t("ob.skipStep")}
           </button>
-          <Button variant="primary" onClick={() => go(memberPath ? 4 : 3)}>
+          <Button variant="primary" onClick={() => go(memberPath ? 3 : 2)}>
             {t("ob.next")} <ArrowRight aria-hidden />
           </Button>
         </>
       )}
-      {step === 3 && (
-        <Button variant="primary" onClick={() => go(4)}>
+      {step === 2 && (
+        <Button variant="primary" onClick={() => go(3)}>
           {t("ob.s3.cta")} <ArrowRight aria-hidden />
         </Button>
       )}
@@ -1249,6 +1244,7 @@ function CompanyStep({
   setSelectedFactKeys,
   onPickEntity,
   onFieldBlur,
+  embedded = false,
 }: Readonly<{
   draft: CompanyDraft;
   setField: (field: CompanyFieldName, value: string) => void;
@@ -1260,14 +1256,19 @@ function CompanyStep({
   selectedFactKeys: readonly string[];
   setSelectedFactKeys: (keys: string[]) => void;
   onFieldBlur: () => void;
+  embedded?: boolean;
 }>) {
   const t = useT();
 
   return (
-    <section className="ob-panel">
-      <div className="kick">{t("ob.s1.kick")}</div>
-      <h1 className="ttl">{t("ob.s1.title")}</h1>
-      <p className="ob-sub">{t("ob.s1.sub")}</p>
+    <section className={embedded ? "ob-company-review" : "ob-panel"}>
+      {!embedded && (
+        <>
+          <div className="kick">{t("ob.s1.kick")}</div>
+          <h1 className="ttl">{t("ob.s1.title")}</h1>
+          <p className="ob-sub">{t("ob.s1.sub")}</p>
+        </>
+      )}
 
       <div className="confirm-origin">
         <ShieldCheck aria-hidden />

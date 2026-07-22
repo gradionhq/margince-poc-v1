@@ -172,7 +172,7 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 			errors.New("site deep read: worker has no model path — configure --ai-routing (or --ai-fake) on the worker role"))
 	}
 
-	if err := w.people.UpdateSiteReadProgress(ctx, args.SiteReadID, "crawling", 0); err != nil {
+	if err := w.people.UpdateSiteReadProgress(ctx, args.SiteReadID, "crawling", nil); err != nil {
 		w.log.WarnContext(ctx, "site read progress update failed", "read", args.SiteReadID.String(), "err", err)
 	}
 	// Crawl and extraction OVERLAP (crawlAndExtract): page calls launch
@@ -198,7 +198,7 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 			"read", args.SiteReadID.String(), "seed", claim.SeedURL)
 	}
 	factCount := len(mergedFields) + len(extraction.merged.facts)
-	if extraction.err != nil && factCount == 0 && len(extraction.merged.people) == 0 {
+	if extraction.err != nil && factCount == 0 && len(extraction.merged.people) == 0 && len(extraction.merged.entities) == 0 {
 		// Every lane died before anything was evidenced: nothing honest
 		// to report but the failure itself.
 		return w.fail(ctx, args.SiteReadID, extraction.err)
@@ -236,70 +236,37 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 	}
 	draftFields := deepReadFields(mergedFields)
 	draftPeople := siteReadPeople(extraction.merged.people)
-	proposalHash, err := siteReadProposalHash(draftFields, extraction.merged.facts, draftPeople)
+	draftEntities := siteReadLegalEntities(extraction.merged.entities)
+	proposalHash, err := siteReadProposalHash(draftFields, extraction.merged.facts, draftPeople, draftEntities)
 	if err != nil {
 		return w.fail(ctx, args.SiteReadID, fmt.Errorf("site deep read %s: hashing the draft: %w", args.SiteReadID, err))
 	}
 	// Zero surviving findings is an honest empty read — done, fact_count 0,
 	// no proposal — not an error: the site simply evidenced nothing.
 	return w.finish(ctx, args.SiteReadID, status, readPages, crawl, factCount, proposalIDs,
-		draftFields, extraction.merged.facts, draftPeople, siteReadLegalEntities(extraction.merged.entities),
+		draftFields, extraction.merged.facts, draftPeople, draftEntities,
 		warnings, proposalHash)
 }
 
-func (w *siteDeepReadWorker) progressiveCallbacks(ctx context.Context, readID ids.UUID) (func(string, int), func(pageFactsResult)) {
-	progress := func(phase string, pagesDone int) {
-		if err := w.people.UpdateSiteReadProgress(ctx, readID, phase, pagesDone); err != nil {
+func (w *siteDeepReadWorker) progressiveCallbacks(ctx context.Context, readID ids.UUID) (func(string, []crawlPage), func(pageFactsResult)) {
+	progress := func(phase string, pages []crawlPage) {
+		if err := w.people.UpdateSiteReadProgress(ctx, readID, phase, siteReadPages(pages)); err != nil {
 			w.log.WarnContext(ctx, "site read progress update failed", "read", readID.String(), "err", err)
 		}
 	}
 	publishDraft := func(partial pageFactsResult) {
 		found := siteReadPeople(partial.people)
-		hash, err := siteReadProposalHash(nil, partial.facts, found)
+		entities := siteReadLegalEntities(partial.entities)
+		hash, err := siteReadProposalHash(nil, partial.facts, found, entities)
 		if err != nil {
 			w.log.WarnContext(ctx, "site read progressive draft hash failed", "read", readID.String(), "err", err)
 			return
 		}
-		if err := w.people.UpdateSiteReadDraft(ctx, readID, partial.facts, found, hash); err != nil {
+		if err := w.people.UpdateSiteReadDraft(ctx, readID, partial.facts, found, entities, hash); err != nil {
 			w.log.WarnContext(ctx, "site read progressive draft update failed", "read", readID.String(), "err", err)
 		}
 	}
 	return progress, publishDraft
-}
-
-func deepReadFields(fields []evidencedField) []people.DeepReadField {
-	out := make([]people.DeepReadField, len(fields))
-	for i, field := range fields {
-		out[i] = people.DeepReadField{
-			Field: field.Field, Value: field.Value, EvidenceSnippet: field.EvidenceSnippet,
-			SourceURL: field.SourceURL, Confidence: field.Confidence,
-		}
-	}
-	return out
-}
-
-func siteReadPeople(found []sitePerson) []people.SiteReadPerson {
-	out := make([]people.SiteReadPerson, len(found))
-	for i, person := range found {
-		out[i] = people.SiteReadPerson{
-			Name: person.Name, Role: person.Role, PublishedEmail: person.PublishedEmail,
-			LinkedinURL: person.LinkedinURL, EvidenceSnippet: person.EvidenceSnippet, SourceURL: person.SourceURL,
-		}
-	}
-	return out
-}
-
-func siteReadProposalHash(fields []people.DeepReadField, facts []people.DeepReadFact, found []people.SiteReadPerson) (string, error) {
-	raw, err := json.Marshal(struct {
-		Fields []people.DeepReadField  `json:"fields"`
-		Facts  []people.DeepReadFact   `json:"facts"`
-		People []people.SiteReadPerson `json:"people"`
-	}{Fields: fields, Facts: facts, People: found})
-	if err != nil {
-		return "", err
-	}
-	digest := sha256.Sum256(raw)
-	return hex.EncodeToString(digest[:]), nil
 }
 
 // stageProposals stages everything the read evidenced: the ONE deepread

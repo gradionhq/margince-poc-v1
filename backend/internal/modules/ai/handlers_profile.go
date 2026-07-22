@@ -14,9 +14,10 @@ import (
 // PublicProfile is the deliberately small pre-auth view of the process's AI
 // posture. It describes boot-time configuration, never provider health.
 type PublicProfile struct {
-	State         crmcontracts.AssistantProfileState
-	InferenceMode crmcontracts.AssistantProfileInferenceMode
-	Providers     []crmcontracts.AssistantProfileProviders
+	State            crmcontracts.AssistantProfileState
+	InferenceMode    crmcontracts.AssistantProfileInferenceMode
+	Providers        []crmcontracts.AssistantProfileProviders
+	ConfiguredModels []crmcontracts.AssistantConfiguredModel
 }
 
 // NewPublicProfile derives the anonymous view from the same validated routing
@@ -26,24 +27,49 @@ func NewPublicProfile(runtimeState string, cfg RoutingConfig) PublicProfile {
 	switch runtimeState {
 	case "fake":
 		return PublicProfile{
-			State:         crmcontracts.AssistantProfileStateDevelopment,
-			InferenceMode: crmcontracts.AssistantProfileInferenceModeDevelopment,
-			Providers:     []crmcontracts.AssistantProfileProviders{},
+			State:            crmcontracts.AssistantProfileStateDevelopment,
+			InferenceMode:    crmcontracts.AssistantProfileInferenceModeDevelopment,
+			Providers:        []crmcontracts.AssistantProfileProviders{},
+			ConfiguredModels: []crmcontracts.AssistantConfiguredModel{},
 		}
 	case "configured":
 		providers := publicProviders(cfg)
 		return PublicProfile{
-			State:         crmcontracts.AssistantProfileStateConfigured,
-			InferenceMode: publicInferenceMode(providers),
-			Providers:     providers,
+			State:            crmcontracts.AssistantProfileStateConfigured,
+			InferenceMode:    publicInferenceMode(providers),
+			Providers:        providers,
+			ConfiguredModels: publicConfiguredModels(cfg),
 		}
 	default:
 		return PublicProfile{
-			State:         crmcontracts.AssistantProfileStateUnconfigured,
-			InferenceMode: crmcontracts.AssistantProfileInferenceModeNone,
-			Providers:     []crmcontracts.AssistantProfileProviders{},
+			State:            crmcontracts.AssistantProfileStateUnconfigured,
+			InferenceMode:    crmcontracts.AssistantProfileInferenceModeNone,
+			Providers:        []crmcontracts.AssistantProfileProviders{},
+			ConfiguredModels: []crmcontracts.AssistantConfiguredModel{},
 		}
 	}
+}
+
+func publicConfiguredModels(cfg RoutingConfig) []crmcontracts.AssistantConfiguredModel {
+	tiers := make([]Tier, 0, len(cfg.Tiers))
+	for tier := range cfg.Tiers {
+		tiers = append(tiers, tier)
+	}
+	sort.Slice(tiers, func(i, j int) bool { return tiers[i] < tiers[j] })
+	models := make([]crmcontracts.AssistantConfiguredModel, 0, len(tiers))
+	for _, tier := range tiers {
+		binding := cfg.Tiers[tier]
+		provider, ok := publicProvider(binding.Provider)
+		if !ok {
+			continue
+		}
+		models = append(models, crmcontracts.AssistantConfiguredModel{
+			Tier:     crmcontracts.AssistantConfiguredModelTier(tier),
+			Provider: crmcontracts.AssistantConfiguredModelProvider(provider),
+			Model:    binding.Model,
+		})
+	}
+	return models
 }
 
 func publicProviders(cfg RoutingConfig) []crmcontracts.AssistantProfileProviders {
@@ -67,17 +93,17 @@ func publicProviders(cfg RoutingConfig) []crmcontracts.AssistantProfileProviders
 func publicProvider(provider string) (crmcontracts.AssistantProfileProviders, bool) {
 	switch provider {
 	case providerAnthropic:
-		return crmcontracts.Anthropic, true
+		return crmcontracts.AssistantProfileProviders(providerAnthropic), true
 	case providerGemini:
-		return crmcontracts.Gemini, true
+		return crmcontracts.AssistantProfileProviders(providerGemini), true
 	case providerOllama:
-		return crmcontracts.Ollama, true
+		return crmcontracts.AssistantProfileProviders(providerOllama), true
 	case providerOpenAI:
-		return crmcontracts.Openai, true
+		return crmcontracts.AssistantProfileProviders(providerOpenAI), true
 	case providerOpenAICompatible:
-		return crmcontracts.OpenaiCompatible, true
+		return crmcontracts.AssistantProfileProviders(providerOpenAICompatible), true
 	case providerVLLM:
-		return crmcontracts.Vllm, true
+		return crmcontracts.AssistantProfileProviders(providerVLLM), true
 	default:
 		return "", false
 	}
@@ -114,10 +140,11 @@ func (h Handlers) WithPublicProfile(profile PublicProfile) Handlers {
 // GetAssistantProfile implements (GET /assistant/profile).
 func (h Handlers) GetAssistantProfile(w http.ResponseWriter, _ *http.Request) {
 	httperr.WriteJSON(w, http.StatusOK, crmcontracts.AssistantProfile{
-		Name:          crmcontracts.Margince,
-		Kind:          crmcontracts.Ai,
-		State:         h.publicProfile.State,
-		InferenceMode: h.publicProfile.InferenceMode,
-		Providers:     h.publicProfile.Providers,
+		Name:             crmcontracts.Margince,
+		Kind:             crmcontracts.Ai,
+		State:            h.publicProfile.State,
+		InferenceMode:    h.publicProfile.InferenceMode,
+		Providers:        h.publicProfile.Providers,
+		ConfiguredModels: h.publicProfile.ConfiguredModels,
 	})
 }

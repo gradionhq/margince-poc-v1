@@ -172,7 +172,8 @@ func TestSiteReadBudgetDeferralKeepsProgressAndJoinsUntilDue(t *testing.T) {
 	if _, err := store.BeginSiteRead(worker, read.ID, 10*time.Minute); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpdateSiteReadProgress(worker, read.ID, "extracting", 2); err != nil {
+	progressPages := []people.SiteReadPage{{URL: "https://acme.example", Kind: "home"}, {URL: "https://acme.example/imprint", Kind: "impressum"}}
+	if err := store.UpdateSiteReadProgress(worker, read.ID, "extracting", progressPages); err != nil {
 		t.Fatal(err)
 	}
 	next := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Second)
@@ -188,7 +189,7 @@ func TestSiteReadBudgetDeferralKeepsProgressAndJoinsUntilDue(t *testing.T) {
 		deferred.StatusDetail == nil || deferred.NextAttemptAt == nil || !deferred.NextAttemptAt.Equal(next) {
 		t.Fatalf("deferred dossier = %+v", deferred)
 	}
-	if deferred.PagesRead != 2 || deferred.FinishedAt != nil {
+	if deferred.PagesRead != 2 || len(deferred.Pages) != 2 || deferred.Pages[1].URL != "https://acme.example/imprint" || deferred.FinishedAt != nil {
 		t.Fatalf("deferral discarded progress or became terminal: %+v", deferred)
 	}
 	joined, didJoin, err := store.StartSiteRead(human, org, read.SeedURL, "human:"+e.Rep2.String())

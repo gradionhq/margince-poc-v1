@@ -17,6 +17,10 @@ const configured: AssistantProfile = {
   state: "configured",
   inference_mode: "hybrid",
   providers: ["anthropic", "ollama"],
+  configured_models: [
+    { tier: "local_small", provider: "ollama", model: "gemma3" },
+    { tier: "premium", provider: "anthropic", model: "claude-sonnet" },
+  ],
 };
 
 function AuthStory({
@@ -61,6 +65,7 @@ export const Unconfigured: Story = {
         state: "unconfigured",
         inference_mode: "none",
         providers: [],
+        configured_models: [],
       }}
     />
   ),
@@ -75,6 +80,7 @@ export const Development: Story = {
         state: "development",
         inference_mode: "development",
         providers: [],
+        configured_models: [],
       }}
     />
   ),

@@ -1802,14 +1802,24 @@
   box-shadow: none;
   backdrop-filter: none;
 }
-.mw-conversation .ob-core-dialog h1 {
+.mw-conversation .ob-core-dialog:not(.ob-manual-question) h1 {
   display: none;
 }
-.mw-conversation .ob-core-dialog > p,
+.mw-conversation .ob-core-dialog:not(.ob-manual-question) > p,
 .mw-conversation .ob-core-kicker,
 .mw-conversation .ob-core-journey,
 .mw-conversation .ob-core-url-note {
   display: none;
+}
+.mw-conversation .ob-manual-question h1 {
+  margin-top: var(--space-2);
+  color: var(--textPrimary);
+  font-size: 20px;
+}
+.mw-conversation .ob-manual-question > p {
+  margin: var(--space-1) 0 var(--space-3);
+  color: var(--textSecondary);
+  font-size: 12px;
 }
 .mw-conversation .ob-core-url {
   margin-top: 0;
@@ -2007,15 +2017,55 @@
   margin-top: 0;
   box-shadow: none;
 }
-.mw-review .read-actions {
+.ob-company-review {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--borderSubtle);
+}
+.ob-company-review-title {
+  margin: var(--space-1) 0 0;
+  font-family: var(--f-display);
+  font-size: 20px;
+}
+.ob-company-review .ob-companyform {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+.ob-company-review .form-divider,
+.ob-company-review .legal-choice {
+  grid-column: 1 / -1;
+}
+.mw-confirm-company {
   position: sticky;
   bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
   margin-top: var(--space-3);
   padding: var(--space-3);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-md);
   background: color-mix(in srgb, var(--bgElevated) 94%, transparent);
   backdrop-filter: blur(10px);
+}
+.mw-confirm-company p {
+  margin: 0;
+  color: var(--textSecondary);
+  font-size: 11px;
+}
+.live-fact-preview {
+  margin-top: var(--space-5);
+}
+@media (max-width: 640px) {
+  .ob-company-review .ob-companyform {
+    grid-template-columns: 1fr;
+  }
+  .mw-confirm-company {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 /* The legal-entity choice sits at the top of the identity group: it is a
    question, not a field, and answering it fills the three fields under it. */

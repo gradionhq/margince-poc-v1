@@ -278,14 +278,18 @@ func (s *Store) GetOnboardingSiteRead(ctx context.Context, readID ids.UUID) (Sit
 // of a silent 'running'. Best-effort by contract: a read that is no
 // longer running is simply not updated (the terminal write won), never
 // an error. No auth.Require, same rationale as BeginSiteRead.
-func (s *Store) UpdateSiteReadProgress(ctx context.Context, readID ids.UUID, phase string, pagesRead int) error {
+func (s *Store) UpdateSiteReadProgress(ctx context.Context, readID ids.UUID, phase string, pages []SiteReadPage) error {
 	if phase != "crawling" && phase != "extracting" {
 		return fmt.Errorf("people: %q is not a site-read phase (crawling|extracting)", phase)
 	}
+	pagesRaw, err := marshalSiteReadList(pages)
+	if err != nil {
+		return fmt.Errorf("people: progressive site-read pages: %w", err)
+	}
 	return s.tx(ctx, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `
-			UPDATE site_read SET phase = $2, pages_read = $3, updated_at = now()
-			WHERE id = $1 AND status = 'running'`, readID, phase, pagesRead); err != nil {
+			UPDATE site_read SET phase = $2, pages = $3, pages_read = $4, updated_at = now()
+			WHERE id = $1 AND status = 'running'`, readID, phase, pagesRaw, len(pages)); err != nil {
 			return fmt.Errorf("update site read progress: %w", err)
 		}
 		return nil
@@ -295,7 +299,7 @@ func (s *Store) UpdateSiteReadProgress(ctx context.Context, readID ids.UUID, pha
 // UpdateSiteReadDraft exposes the grounded page lanes while the worker is
 // still reading. The version and hash advance together, so a client can never
 // confirm an older snapshot after new findings arrive.
-func (s *Store) UpdateSiteReadDraft(ctx context.Context, readID ids.UUID, facts []DeepReadFact, found []SiteReadPerson, proposalHash string) error {
+func (s *Store) UpdateSiteReadDraft(ctx context.Context, readID ids.UUID, facts []DeepReadFact, found []SiteReadPerson, entities []SiteReadLegalEntity, proposalHash string) error {
 	factsRaw, err := marshalSiteReadList(facts)
 	if err != nil {
 		return fmt.Errorf("people: progressive site-read facts: %w", err)
@@ -304,14 +308,18 @@ func (s *Store) UpdateSiteReadDraft(ctx context.Context, readID ids.UUID, facts 
 	if err != nil {
 		return fmt.Errorf("people: progressive site-read people: %w", err)
 	}
+	entitiesRaw, err := marshalSiteReadList(entities)
+	if err != nil {
+		return fmt.Errorf("people: progressive site-read legal entities: %w", err)
+	}
 	return s.tx(ctx, func(tx pgx.Tx) error {
-		grounded := len(facts) > 0
+		grounded := len(facts) > 0 || len(found) > 0 || len(entities) > 0
 		if _, err := tx.Exec(ctx, `UPDATE site_read
-			SET facts = $2, people = $3, proposal_hash = $4,
+			SET facts = $2, people = $3, legal_entities = $4, proposal_hash = $5,
 			    draft_version = draft_version + 1,
-			    first_grounded_at = CASE WHEN $5 THEN COALESCE(first_grounded_at, now()) ELSE first_grounded_at END,
+			    first_grounded_at = CASE WHEN $6 THEN COALESCE(first_grounded_at, now()) ELSE first_grounded_at END,
 			    updated_at = now()
-			WHERE id = $1 AND status = 'running'`, readID, factsRaw, peopleRaw, proposalHash, grounded); err != nil {
+			WHERE id = $1 AND status = 'running'`, readID, factsRaw, peopleRaw, entitiesRaw, proposalHash, grounded); err != nil {
 			return fmt.Errorf("update progressive site-read draft: %w", err)
 		}
 		return nil

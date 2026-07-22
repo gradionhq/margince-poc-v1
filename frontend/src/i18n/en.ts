@@ -841,7 +841,7 @@ export const en = {
     "This setup changed in another tab. We reloaded the saved version so nothing is silently overwritten.",
   "ob.stateSaveFailed":
     "We couldn't save your setup progress. Please try again.",
-  "ob.readKick": "Step 1 of 5 · company context",
+  "ob.readKick": "Step 1 of 4 · company context",
   "ob.readTitle": "Your company",
   "ob.readSub": "Read it from your website, or type it in.",
   "ob.readChoice": "Choose how to describe your company",
@@ -896,16 +896,21 @@ export const en = {
   "ob.ai.awaitingModel": "Shown after my first model call",
   "ob.ai.notAvailableYet": "Not available yet",
   "ob.ai.runtimeUnavailable": "Runtime details unavailable",
-  "ob.ai.readFirst": "Start the website read before asking about it.",
+  "ob.ai.readFirst": "Start company setup before asking about it.",
   "ob.ai.liveArtifact": "Live, reviewable artifact",
   "ob.ai.companyKnowledge": "What I understand about your company",
   "ob.ai.companyKnowledgeBody":
     "Website evidence stays separate from our conversation. You decide what becomes company context.",
+  "ob.ai.companyKnowledgeManualBody":
+    "Your answers and my suggestions stay editable here. You decide what becomes company context.",
   "ob.ai.askPlaceholder":
     "Ask me about a finding, correct a detail, or tell me what I missed…",
   "ob.ai.send": "Send to Margince",
   "ob.ai.reviewBoundary":
     "I can suggest changes here. I only apply them to your draft when you approve.",
+  "ob.ai.confirmBoundary":
+    "Nothing becomes company context until you confirm this draft.",
+  "ob.ai.confirmCompany": "Confirm and save company",
   "ob.ai.thinking": "I'm checking the dossier and preparing an answer…",
   "ob.ai.suggestedChanges": "Suggested changes to your draft",
   "ob.ai.applyChanges": "Apply to my draft",
@@ -1062,7 +1067,7 @@ export const en = {
   "ob.field.industry": "Industry",
   "ob.field.history": "Company history",
 
-  "ob.s2.kick": "Step 3 of 5 · optional",
+  "ob.s2.kick": "Step 2 of 4 · optional",
   "ob.s2.title": "Now let's learn",
   "ob.s2.titleEm": "how you really write.",
   "ob.s2.sub":

@@ -1865,6 +1865,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/onboarding/company/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Continue the scoped company-setup conversation with or without a website read.
+         * @description Uses the acting human's resumable onboarding state as the conversation and AI-run scope.
+         *     The response may answer, clarify, or propose typed draft changes, but it never writes
+         *     company truth. Off-topic input is redirected to the next unresolved company question.
+         */
+        post: operations["messageOnboardingCompany"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/company": {
         parameters: {
             query?: never;
@@ -6529,6 +6551,15 @@ export interface components {
             inference_mode: "cloud" | "local" | "hybrid" | "none" | "development";
             /** @description Distinct configured provider keys, sorted; fake is never returned. */
             providers: ("anthropic" | "gemini" | "ollama" | "openai" | "openai_compatible" | "vllm")[];
+            /** @description Public tier-to-model bindings. Provider credentials and endpoints never appear here. */
+            configured_models: components["schemas"]["AssistantConfiguredModel"][];
+        };
+        AssistantConfiguredModel: {
+            /** @enum {string} */
+            tier: "local_small" | "cheap_cloud" | "premium" | "local_large";
+            /** @enum {string} */
+            provider: "anthropic" | "gemini" | "ollama" | "openai" | "openai_compatible" | "vllm";
+            model: string;
         };
         AuthCapabilities: {
             /** @description Email + password login is enabled. */
@@ -7371,9 +7402,30 @@ export interface components {
             message: string;
         };
         CompanySiteReadMessageReply: {
+            kind: components["schemas"]["CompanyConversationResponseKind"];
             message: string;
             proposed_changes: components["schemas"]["CompanySiteReadSuggestedChange"][];
             citations: components["schemas"]["CompanySiteReadCitation"][];
+            ai_runtime: components["schemas"]["AiRunSummary"];
+        };
+        /** @enum {string} */
+        CompanyConversationResponseKind: "status" | "answer" | "recommendation" | "correction" | "confirmation" | "clarification" | "off_topic";
+        OnboardingCompanyMessageRequest: {
+            message: string;
+            /** @enum {string} */
+            locale: "en" | "de";
+            history?: components["schemas"]["CompanySiteReadConversationTurn"][];
+        };
+        OnboardingCompanyMessageReply: {
+            kind: components["schemas"]["CompanyConversationResponseKind"];
+            message: string;
+            proposed_changes: components["schemas"]["CompanySiteReadSuggestedChange"][];
+            citations: components["schemas"]["CompanySiteReadCitation"][];
+            /** @enum {string|null} */
+            next_required_field?: null | "display_name" | "offer_summary" | "icp";
+            remaining_required_fields: ("display_name" | "offer_summary" | "icp")[];
+            /** @enum {string|null} */
+            available_action?: null | "confirm_company";
             ai_runtime: components["schemas"]["AiRunSummary"];
         };
         CompanySiteRead: {
@@ -13105,6 +13157,43 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    messageOnboardingCompany: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OnboardingCompanyMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Scoped conversational response and optional draft proposals. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingCompanyMessageReply"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description No governed model path is configured. */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     getCompany: {

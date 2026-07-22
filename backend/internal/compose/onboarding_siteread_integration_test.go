@@ -71,7 +71,7 @@ func finishOnboardingDraft(t *testing.T, e *integration.Env, read people.SiteRea
 		LinkedinURL:     "https://www.linkedin.com/in/anna-keller",
 		EvidenceSnippet: "Anna Keller, Founder", SourceURL: seedURL + "/team",
 	}}
-	hash, err := siteReadProposalHash(fields, facts, found)
+	hash, err := siteReadProposalHash(fields, facts, found, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -77,16 +77,16 @@ const (
 // fires once the top-ranked pages are in (or the crawl ends, whichever
 // is first). The read's wall clock becomes ~max(crawl, slowest lane)
 // instead of their sum. onProgress (may be nil) fires serially with the
-// live phase and the number of pages fetched so far.
-func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtractor, seedURL string, onProgress func(phase string, done int), onDraft func(pageFactsResult)) (siteCrawl, siteExtraction, error) {
+// live phase and the pages fetched so far.
+func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtractor, seedURL string, onProgress func(phase string, pages []crawlPage), onDraft func(pageFactsResult)) (siteCrawl, siteExtraction, error) {
 	var out siteExtraction
 	var results []pageFactsResult
 	var published pageFactsResult
 	var failed []error
 	var mu sync.Mutex
-	progress := func(phase string, done int) {
+	progress := func(phase string, pages []crawlPage) {
 		if onProgress != nil {
-			onProgress(phase, done)
+			onProgress(phase, pages)
 		}
 	}
 
@@ -113,13 +113,13 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 	crawl, crawlErr := crawler.CrawlStream(ctx, seedURL, func(page crawlPage) {
 		committedMu.Lock()
 		committed = append(committed, page)
-		count := len(committed)
+		pages := append([]crawlPage(nil), committed...)
 		profileReady := profileEvidenceReady(committed)
 		committedMu.Unlock()
 		// Report the page the moment it commits, not when its extraction
 		// returns: "pages read" is a count of pages fetched, and the hook
 		// runs serially in commit order, so the number only ever climbs.
-		progress(sitePhaseCrawling, count)
+		progress(sitePhaseCrawling, pages)
 		if profileReady {
 			fireProfile()
 		}
@@ -155,7 +155,7 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 	// The crawl is done but its pages' extraction lanes are not: hold the
 	// page count and move the phase, so the SPA stops showing "discovering"
 	// while the model is the only thing still working.
-	progress(sitePhaseExtracting, len(crawl.Pages))
+	progress(sitePhaseExtracting, crawl.Pages)
 	fireProfile() // a small crawl may end below the trigger
 	wg.Wait()
 	profileWg.Wait()
@@ -180,7 +180,8 @@ func publishDraft(onDraft func(pageFactsResult), results []pageFactsResult, publ
 	snapshot := append([]pageFactsResult(nil), results...)
 	sort.Slice(snapshot, func(i, j int) bool { return snapshot[i].url < snapshot[j].url })
 	merged := mergePageResults(snapshot)
-	if slices.Equal(merged.facts, published.facts) && slices.Equal(merged.people, published.people) {
+	if slices.Equal(merged.facts, published.facts) && slices.Equal(merged.people, published.people) &&
+		slices.Equal(merged.entities, published.entities) {
 		return published
 	}
 	onDraft(merged)

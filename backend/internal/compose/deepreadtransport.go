@@ -208,6 +208,10 @@ func WithDeepRead(inserter *jobs.Runner, brain completer) Option {
 		}
 		rollout := s.companyContextRollout
 		s.siteReadHandlers = siteReadHandlers{engine: engine, start: engine.start, report: engine.report, companyContextRollout: rollout}
+		s.assistant = &onboardingCompanyAssistant{
+			state: s.state, people: people.NewStore(pool),
+			brain: brain, runtime: ai.NewRunTransparency(pool),
+		}
 	}
 }
 

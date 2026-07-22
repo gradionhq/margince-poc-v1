@@ -141,6 +141,9 @@ var wellKnownProbes = []struct {
 	{"/impressum.html", crmcontracts.SiteReadPageKindImpressum},
 	{"/imprint", crmcontracts.SiteReadPageKindImpressum},
 	{"/de/impressum", crmcontracts.SiteReadPageKindImpressum},
+	{"/en/imprint", crmcontracts.SiteReadPageKindImpressum},
+	{"/en/legal-notice", crmcontracts.SiteReadPageKindImpressum},
+	{"/en/terms-of-service", crmcontracts.SiteReadPageKindImpressum},
 	{"/legal-notice", crmcontracts.SiteReadPageKindImpressum},
 	{"/de/publisher", crmcontracts.SiteReadPageKindImpressum},
 	{"/publisher", crmcontracts.SiteReadPageKindImpressum},
@@ -154,14 +157,19 @@ var wellKnownProbes = []struct {
 	{"/legal/terms-of-service", crmcontracts.SiteReadPageKindImpressum},
 	{"/legal/aup", crmcontracts.SiteReadPageKindImpressum},
 	{"/about", crmcontracts.SiteReadPageKindAbout},
+	{"/en/about", crmcontracts.SiteReadPageKindAbout},
 	{"/ueber-uns", crmcontracts.SiteReadPageKindAbout},
 	{"/team", crmcontracts.SiteReadPageKindTeam},
 	{"/kontakt", crmcontracts.SiteReadPageKindContact},
 	{"/contact", crmcontracts.SiteReadPageKindContact},
+	{"/en/contact", crmcontracts.SiteReadPageKindContact},
 	{"/services", crmcontracts.SiteReadPageKindServices},
+	{"/en/services", crmcontracts.SiteReadPageKindServices},
 	{"/solutions", crmcontracts.SiteReadPageKindServices},
+	{"/en/solutions", crmcontracts.SiteReadPageKindServices},
 	{"/leistungen", crmcontracts.SiteReadPageKindServices},
 	{"/products", crmcontracts.SiteReadPageKindProducts},
+	{"/en/products", crmcontracts.SiteReadPageKindProducts},
 	{"/produkte", crmcontracts.SiteReadPageKindProducts},
 }
 
@@ -191,6 +199,12 @@ func (c *siteCrawler) CrawlStream(ctx context.Context, seedURL string, onPage fu
 	pacer := c.newPacer()
 
 	seedPage, err := c.fetchPaced(ctx, pacer, seedURL)
+	if err != nil {
+		// The landing page is the only irreplaceable discovery source. One
+		// immediate retry absorbs a transient edge/CDN timeout while the crawl's
+		// wall deadline still bounds the attempt.
+		seedPage, err = c.fetchPaced(ctx, pacer, seedURL)
+	}
 	if err != nil {
 		return siteCrawl{}, fmt.Errorf("site read of %s: the seed page itself failed: %w", seedURL, err)
 	}
@@ -241,7 +255,7 @@ func (c *siteCrawler) CrawlStream(ctx context.Context, seedURL string, onPage fu
 		}
 		results := run.fetchWave(ctx, admitted)
 		for i, adm := range admitted {
-			run.commit(adm, results[i])
+			run.commit(ctx, adm, results[i])
 			if run.crawl.Stopped != nil {
 				break
 			}
@@ -354,6 +368,12 @@ func (r *crawlRun) discover(ctx context.Context, origin string, seedPage webread
 		r.queue = append(r.queue, crawlCandidate{url: origin + probe.path, kind: probe.kind, probe: true})
 	}
 	sitemapLocs, err := r.crawler.fetch.FetchSitemap(ctx, origin)
+	if err != nil {
+		// A single slow sitemap response must not collapse an SPA site to its
+		// landing page. Retry once without delaying; the crawl's wall deadline
+		// remains the governing bound.
+		sitemapLocs, err = r.crawler.fetch.FetchSitemap(ctx, origin)
+	}
 	if err != nil {
 		// The sitemap is one of three discovery channels, and the flakiest:
 		// SPA catch-alls serve HTML at /sitemap.xml, robots may fence it off.

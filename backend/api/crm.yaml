@@ -3334,6 +3334,38 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /onboarding/company/messages:
+    post:
+      tags: [Organizations, AI]
+      operationId: messageOnboardingCompany
+      summary: Continue the scoped company-setup conversation with or without a website read.
+      description: |
+        Uses the acting human's resumable onboarding state as the conversation and AI-run scope.
+        The response may answer, clarify, or propose typed draft changes, but it never writes
+        company truth. Off-topic input is redirected to the next unresolved company question.
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OnboardingCompanyMessageRequest' }
+      responses:
+        '200':
+          description: Scoped conversational response and optional draft proposals.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OnboardingCompanyMessageReply' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '501':
+          description: No governed model path is configured.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
   # ----------------------------- /company -----------------------------------
   /company:
     get:
@@ -9434,7 +9466,7 @@ components:
     AssistantProfile:
       type: object
       additionalProperties: false
-      required: [name, kind, state, inference_mode, providers]
+      required: [name, kind, state, inference_mode, providers, configured_models]
       properties:
         name: { type: string, enum: [Margince] }
         kind: { type: string, enum: [ai] }
@@ -9445,6 +9477,25 @@ components:
           uniqueItems: true
           description: Distinct configured provider keys, sorted; fake is never returned.
           items: { type: string, enum: [anthropic, gemini, ollama, openai, openai_compatible, vllm] }
+        configured_models:
+          type: array
+          description: Public tier-to-model bindings. Provider credentials and endpoints never appear here.
+          items: { $ref: '#/components/schemas/AssistantConfiguredModel' }
+
+    AssistantConfiguredModel:
+      type: object
+      additionalProperties: false
+      required: [tier, provider, model]
+      properties:
+        tier:
+          type: string
+          enum: [local_small, cheap_cloud, premium, local_large]
+          x-enum-varnames: [AssistantModelTierLocalSmall, AssistantModelTierCheapCloud, AssistantModelTierPremium, AssistantModelTierLocalLarge]
+        provider:
+          type: string
+          enum: [anthropic, gemini, ollama, openai, openai_compatible, vllm]
+          x-enum-varnames: [AssistantModelProviderAnthropic, AssistantModelProviderGemini, AssistantModelProviderOllama, AssistantModelProviderOpenAI, AssistantModelProviderOpenAICompatible, AssistantModelProviderVLLM]
+        model: { type: string }
 
     AuthCapabilities:
       type: object
@@ -10296,8 +10347,9 @@ components:
 
     CompanySiteReadMessageReply:
       type: object
-      required: [message, proposed_changes, citations, ai_runtime]
+      required: [kind, message, proposed_changes, citations, ai_runtime]
       properties:
+        kind: { $ref: '#/components/schemas/CompanyConversationResponseKind' }
         message: { type: string }
         proposed_changes:
           type: array
@@ -10306,6 +10358,56 @@ components:
         citations:
           type: array
           items: { $ref: '#/components/schemas/CompanySiteReadCitation' }
+        ai_runtime: { $ref: '#/components/schemas/AiRunSummary' }
+
+    CompanyConversationResponseKind:
+      type: string
+      enum: [status, answer, recommendation, correction, confirmation, clarification, off_topic]
+      x-enum-varnames: [CompanyConversationStatus, CompanyConversationAnswer, CompanyConversationRecommendation, CompanyConversationCorrection, CompanyConversationConfirmation, CompanyConversationClarification, CompanyConversationOffTopic]
+
+    OnboardingCompanyMessageRequest:
+      type: object
+      additionalProperties: false
+      required: [message, locale]
+      properties:
+        message: { type: string, minLength: 1, maxLength: 2000 }
+        locale:
+          type: string
+          enum: [en, de]
+          x-enum-varnames: [OnboardingCompanyLocaleEN, OnboardingCompanyLocaleDE]
+        history:
+          type: array
+          maxItems: 8
+          items: { $ref: '#/components/schemas/CompanySiteReadConversationTurn' }
+
+    OnboardingCompanyMessageReply:
+      type: object
+      required: [kind, message, proposed_changes, citations, remaining_required_fields, ai_runtime]
+      properties:
+        kind: { $ref: '#/components/schemas/CompanyConversationResponseKind' }
+        message: { type: string, minLength: 1 }
+        proposed_changes:
+          type: array
+          maxItems: 5
+          items: { $ref: '#/components/schemas/CompanySiteReadSuggestedChange' }
+        citations:
+          type: array
+          items: { $ref: '#/components/schemas/CompanySiteReadCitation' }
+        next_required_field:
+          type: [string, 'null']
+          enum: [null, display_name, offer_summary, icp]
+          x-enum-varnames: [OnboardingNextRequiredNone, OnboardingNextRequiredDisplayName, OnboardingNextRequiredOfferSummary, OnboardingNextRequiredICP]
+        remaining_required_fields:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [display_name, offer_summary, icp]
+            x-enum-varnames: [OnboardingRequiredDisplayName, OnboardingRequiredOfferSummary, OnboardingRequiredICP]
+        available_action:
+          type: [string, 'null']
+          enum: [null, confirm_company]
+          x-enum-varnames: [OnboardingAvailableActionNone, OnboardingAvailableActionConfirmCompany]
         ai_runtime: { $ref: '#/components/schemas/AiRunSummary' }
 
     CompanySiteRead:

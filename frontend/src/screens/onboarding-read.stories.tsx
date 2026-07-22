@@ -176,12 +176,14 @@ function ReadStory({
             pending={false}
             refreshing={read?.status === "reading"}
             error={error}
+            confirmPending={false}
+            confirmDisabled={false}
             onWebsiteChange={noAction}
-            onChooseWebsite={noAction}
             onChooseManual={noAction}
             onStart={noAction}
-            onContinue={noAction}
+            onConfirm={noAction}
             onApplyChanges={noAction}
+            reviewContent={read ? <p>Company draft</p> : undefined}
           />
         </div>
       </div>

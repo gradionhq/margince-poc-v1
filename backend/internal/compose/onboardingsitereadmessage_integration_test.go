@@ -39,6 +39,7 @@ func TestCompanySiteReadMessageUsesTheStoredDossierAndReturnsRuntime(t *testing.
 		string(ai.TierCheapCloud), "workbench-fingerprint", usedAt, read.ID)
 	human := env.As(env.Rep1, nil, integration.AdminPerms)
 	brain := &replyBrainStub{response: model.Response{Text: `{
+		"kind":"recommendation",
 		"message":"I found the company name on the home page.",
 		"proposed_changes":[{"field":"display_name","value":"Acme","reason":"The page states it.","source_ids":["S1"]}],
 		"source_ids":["S1"]}`}}

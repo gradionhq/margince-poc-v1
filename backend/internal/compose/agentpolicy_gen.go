@@ -117,6 +117,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/offers/{id}/reject":                                        {Op: "rejectOffer", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/offers/{id}/render":                                        {Op: "renderOffer", Access: "tool", Tool: "render_offer", RecordType: "offer", Tier: "green"},
 	"POST /v1/offers/{id}/send":                                          {Op: "sendOffer", Access: "tool", Tool: "send_offer", RecordType: "offer", Tier: "yellow"},
+	"POST /v1/onboarding/company/messages":                               {Op: "messageOnboardingCompany", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/organizations":                                             {Op: "createOrganization", Access: "tool", Tool: "create_record", RecordType: "organization", Tier: "green"},
 	"POST /v1/organizations/{id}/deep-read":                              {Op: "deepReadCompany", Access: "tool", Tool: "enrich", RecordType: "", Tier: "yellow"},
 	"POST /v1/organizations/{id}/enrich":                                 {Op: "scrapeCompany", Access: "tool", Tool: "enrich", RecordType: "", Tier: "yellow"},

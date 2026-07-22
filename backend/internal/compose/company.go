@@ -36,6 +36,7 @@ const (
 // The company form's field names on the wire — the contract's ColdStartField
 // vocabulary, which is also how the store keys its profile rows.
 const (
+	fieldDisplayName       = "display_name"
 	fieldOfferSummary      = "offer_summary"
 	fieldLegalName         = "legal_name"
 	fieldRegisteredAddress = "registered_address"

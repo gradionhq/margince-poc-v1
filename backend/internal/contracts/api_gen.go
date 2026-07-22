@@ -324,6 +324,60 @@ func (e ApprovalStatus) Valid() bool {
 	}
 }
 
+// Defines values for AssistantConfiguredModelProvider.
+const (
+	AssistantModelProviderAnthropic        AssistantConfiguredModelProvider = "anthropic"
+	AssistantModelProviderGemini           AssistantConfiguredModelProvider = "gemini"
+	AssistantModelProviderOllama           AssistantConfiguredModelProvider = "ollama"
+	AssistantModelProviderOpenAI           AssistantConfiguredModelProvider = "openai"
+	AssistantModelProviderOpenAICompatible AssistantConfiguredModelProvider = "openai_compatible"
+	AssistantModelProviderVLLM             AssistantConfiguredModelProvider = "vllm"
+)
+
+// Valid indicates whether the value is a known member of the AssistantConfiguredModelProvider enum.
+func (e AssistantConfiguredModelProvider) Valid() bool {
+	switch e {
+	case AssistantModelProviderAnthropic:
+		return true
+	case AssistantModelProviderGemini:
+		return true
+	case AssistantModelProviderOllama:
+		return true
+	case AssistantModelProviderOpenAI:
+		return true
+	case AssistantModelProviderOpenAICompatible:
+		return true
+	case AssistantModelProviderVLLM:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AssistantConfiguredModelTier.
+const (
+	AssistantModelTierCheapCloud AssistantConfiguredModelTier = "cheap_cloud"
+	AssistantModelTierLocalLarge AssistantConfiguredModelTier = "local_large"
+	AssistantModelTierLocalSmall AssistantConfiguredModelTier = "local_small"
+	AssistantModelTierPremium    AssistantConfiguredModelTier = "premium"
+)
+
+// Valid indicates whether the value is a known member of the AssistantConfiguredModelTier enum.
+func (e AssistantConfiguredModelTier) Valid() bool {
+	switch e {
+	case AssistantModelTierCheapCloud:
+		return true
+	case AssistantModelTierLocalLarge:
+		return true
+	case AssistantModelTierLocalSmall:
+		return true
+	case AssistantModelTierPremium:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AssistantProfileInferenceMode.
 const (
 	AssistantProfileInferenceModeCloud       AssistantProfileInferenceMode = "cloud"
@@ -1113,6 +1167,39 @@ func (e CompanyContextScopeScope) Valid() bool {
 	case CompanyContextScopeScopeProof:
 		return true
 	case CompanyContextScopeScopeSales:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompanyConversationResponseKind.
+const (
+	CompanyConversationAnswer         CompanyConversationResponseKind = "answer"
+	CompanyConversationClarification  CompanyConversationResponseKind = "clarification"
+	CompanyConversationConfirmation   CompanyConversationResponseKind = "confirmation"
+	CompanyConversationCorrection     CompanyConversationResponseKind = "correction"
+	CompanyConversationOffTopic       CompanyConversationResponseKind = "off_topic"
+	CompanyConversationRecommendation CompanyConversationResponseKind = "recommendation"
+	CompanyConversationStatus         CompanyConversationResponseKind = "status"
+)
+
+// Valid indicates whether the value is a known member of the CompanyConversationResponseKind enum.
+func (e CompanyConversationResponseKind) Valid() bool {
+	switch e {
+	case CompanyConversationAnswer:
+		return true
+	case CompanyConversationClarification:
+		return true
+	case CompanyConversationConfirmation:
+		return true
+	case CompanyConversationCorrection:
+		return true
+	case CompanyConversationOffTopic:
+		return true
+	case CompanyConversationRecommendation:
+		return true
+	case CompanyConversationStatus:
 		return true
 	default:
 		return false
@@ -3096,6 +3183,87 @@ const (
 func (e OmittedExtractionFieldReason) Valid() bool {
 	switch e {
 	case NotStatedInFile:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OnboardingCompanyMessageReplyAvailableAction.
+const (
+	OnboardingAvailableActionConfirmCompany OnboardingCompanyMessageReplyAvailableAction = "confirm_company"
+	OnboardingAvailableActionNone           OnboardingCompanyMessageReplyAvailableAction = "<nil>"
+)
+
+// Valid indicates whether the value is a known member of the OnboardingCompanyMessageReplyAvailableAction enum.
+func (e OnboardingCompanyMessageReplyAvailableAction) Valid() bool {
+	switch e {
+	case OnboardingAvailableActionConfirmCompany:
+		return true
+	case OnboardingAvailableActionNone:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OnboardingCompanyMessageReplyNextRequiredField.
+const (
+	OnboardingNextRequiredDisplayName  OnboardingCompanyMessageReplyNextRequiredField = "display_name"
+	OnboardingNextRequiredICP          OnboardingCompanyMessageReplyNextRequiredField = "icp"
+	OnboardingNextRequiredNone         OnboardingCompanyMessageReplyNextRequiredField = "<nil>"
+	OnboardingNextRequiredOfferSummary OnboardingCompanyMessageReplyNextRequiredField = "offer_summary"
+)
+
+// Valid indicates whether the value is a known member of the OnboardingCompanyMessageReplyNextRequiredField enum.
+func (e OnboardingCompanyMessageReplyNextRequiredField) Valid() bool {
+	switch e {
+	case OnboardingNextRequiredDisplayName:
+		return true
+	case OnboardingNextRequiredICP:
+		return true
+	case OnboardingNextRequiredNone:
+		return true
+	case OnboardingNextRequiredOfferSummary:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OnboardingCompanyMessageReplyRemainingRequiredFields.
+const (
+	OnboardingRequiredDisplayName  OnboardingCompanyMessageReplyRemainingRequiredFields = "display_name"
+	OnboardingRequiredICP          OnboardingCompanyMessageReplyRemainingRequiredFields = "icp"
+	OnboardingRequiredOfferSummary OnboardingCompanyMessageReplyRemainingRequiredFields = "offer_summary"
+)
+
+// Valid indicates whether the value is a known member of the OnboardingCompanyMessageReplyRemainingRequiredFields enum.
+func (e OnboardingCompanyMessageReplyRemainingRequiredFields) Valid() bool {
+	switch e {
+	case OnboardingRequiredDisplayName:
+		return true
+	case OnboardingRequiredICP:
+		return true
+	case OnboardingRequiredOfferSummary:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OnboardingCompanyMessageRequestLocale.
+const (
+	OnboardingCompanyLocaleDE OnboardingCompanyMessageRequestLocale = "de"
+	OnboardingCompanyLocaleEN OnboardingCompanyMessageRequestLocale = "en"
+)
+
+// Valid indicates whether the value is a known member of the OnboardingCompanyMessageRequestLocale enum.
+func (e OnboardingCompanyMessageRequestLocale) Valid() bool {
+	switch e {
+	case OnboardingCompanyLocaleDE:
+		return true
+	case OnboardingCompanyLocaleEN:
 		return true
 	default:
 		return false
@@ -6573,11 +6741,26 @@ type ApproveRequest struct {
 	EditedPayload *map[string]interface{} `json:"edited_payload,omitempty"`
 }
 
+// AssistantConfiguredModel defines model for AssistantConfiguredModel.
+type AssistantConfiguredModel struct {
+	Model    string                           `json:"model"`
+	Provider AssistantConfiguredModelProvider `json:"provider"`
+	Tier     AssistantConfiguredModelTier     `json:"tier"`
+}
+
+// AssistantConfiguredModelProvider defines model for AssistantConfiguredModel.Provider.
+type AssistantConfiguredModelProvider string
+
+// AssistantConfiguredModelTier defines model for AssistantConfiguredModel.Tier.
+type AssistantConfiguredModelTier string
+
 // AssistantProfile defines model for AssistantProfile.
 type AssistantProfile struct {
-	InferenceMode AssistantProfileInferenceMode `json:"inference_mode"`
-	Kind          AssistantProfileKind          `json:"kind"`
-	Name          AssistantProfileName          `json:"name"`
+	// ConfiguredModels Public tier-to-model bindings. Provider credentials and endpoints never appear here.
+	ConfiguredModels []AssistantConfiguredModel    `json:"configured_models"`
+	InferenceMode    AssistantProfileInferenceMode `json:"inference_mode"`
+	Kind             AssistantProfileKind          `json:"kind"`
+	Name             AssistantProfileName          `json:"name"`
 
 	// Providers Distinct configured provider keys, sorted; fake is never returned.
 	Providers []AssistantProfileProviders `json:"providers"`
@@ -7143,6 +7326,9 @@ type CompanyContextScope struct {
 // CompanyContextScopeScope defines model for CompanyContextScope.Scope.
 type CompanyContextScopeScope string
 
+// CompanyConversationResponseKind defines model for CompanyConversationResponseKind.
+type CompanyConversationResponseKind string
+
 // CompanyProfile The installation's own company. The flat properties remain compatibility aliases for the
 // existing form; `fields` and `facts` are the provenance-bearing source records used by new
 // clients and by CompanyContext. New onboarding considers the profile minimum-complete when
@@ -7365,6 +7551,7 @@ type CompanySiteReadMessageReply struct {
 	// AiRuntime Cumulative price-on-read transparency for model calls carrying one run correlation id.
 	AiRuntime       AiRunSummary                     `json:"ai_runtime"`
 	Citations       []CompanySiteReadCitation        `json:"citations"`
+	Kind            CompanyConversationResponseKind  `json:"kind"`
 	Message         string                           `json:"message"`
 	ProposedChanges []CompanySiteReadSuggestedChange `json:"proposed_changes"`
 }
@@ -8958,6 +9145,38 @@ type OnboardingCompanyDraft struct {
 	Usp               *string `json:"usp,omitempty"`
 	ValueProposition  *string `json:"value_proposition,omitempty"`
 }
+
+// OnboardingCompanyMessageReply defines model for OnboardingCompanyMessageReply.
+type OnboardingCompanyMessageReply struct {
+	// AiRuntime Cumulative price-on-read transparency for model calls carrying one run correlation id.
+	AiRuntime               AiRunSummary                                           `json:"ai_runtime"`
+	AvailableAction         *OnboardingCompanyMessageReplyAvailableAction          `json:"available_action,omitempty"`
+	Citations               []CompanySiteReadCitation                              `json:"citations"`
+	Kind                    CompanyConversationResponseKind                        `json:"kind"`
+	Message                 string                                                 `json:"message"`
+	NextRequiredField       *OnboardingCompanyMessageReplyNextRequiredField        `json:"next_required_field,omitempty"`
+	ProposedChanges         []CompanySiteReadSuggestedChange                       `json:"proposed_changes"`
+	RemainingRequiredFields []OnboardingCompanyMessageReplyRemainingRequiredFields `json:"remaining_required_fields"`
+}
+
+// OnboardingCompanyMessageReplyAvailableAction defines model for OnboardingCompanyMessageReply.AvailableAction.
+type OnboardingCompanyMessageReplyAvailableAction string
+
+// OnboardingCompanyMessageReplyNextRequiredField defines model for OnboardingCompanyMessageReply.NextRequiredField.
+type OnboardingCompanyMessageReplyNextRequiredField string
+
+// OnboardingCompanyMessageReplyRemainingRequiredFields defines model for OnboardingCompanyMessageReply.RemainingRequiredFields.
+type OnboardingCompanyMessageReplyRemainingRequiredFields string
+
+// OnboardingCompanyMessageRequest defines model for OnboardingCompanyMessageRequest.
+type OnboardingCompanyMessageRequest struct {
+	History *[]CompanySiteReadConversationTurn    `json:"history,omitempty"`
+	Locale  OnboardingCompanyMessageRequestLocale `json:"locale"`
+	Message string                                `json:"message"`
+}
+
+// OnboardingCompanyMessageRequestLocale defines model for OnboardingCompanyMessageRequest.Locale.
+type OnboardingCompanyMessageRequestLocale string
 
 // OnboardingState defines model for OnboardingState.
 type OnboardingState struct {
@@ -13159,6 +13378,9 @@ type UpdateOfferLineItemJSONRequestBody = UpdateOfferLineItemRequest
 
 // RejectOfferJSONRequestBody defines body for RejectOffer for application/json ContentType.
 type RejectOfferJSONRequestBody = RejectOfferRequest
+
+// MessageOnboardingCompanyJSONRequestBody defines body for MessageOnboardingCompany for application/json ContentType.
+type MessageOnboardingCompanyJSONRequestBody = OnboardingCompanyMessageRequest
 
 // PutOnboardingStateJSONRequestBody defines body for PutOnboardingState for application/json ContentType.
 type PutOnboardingStateJSONRequestBody = PutOnboardingStateRequest
@@ -18526,6 +18748,9 @@ type ServerInterface interface {
 	// Send a draft offer (🟡 — leaves the workspace; freezes FX + buyer/issuer snapshot).
 	// (POST /offers/{id}/send)
 	SendOffer(w http.ResponseWriter, r *http.Request, id Id, params SendOfferParams)
+	// Continue the scoped company-setup conversation with or without a website read.
+	// (POST /onboarding/company/messages)
+	MessageOnboardingCompany(w http.ResponseWriter, r *http.Request)
 	// Get the acting user's resumable onboarding state.
 	// (GET /onboarding/state)
 	GetOnboardingState(w http.ResponseWriter, r *http.Request)
@@ -19660,6 +19885,12 @@ func (_ Unimplemented) RenderOffer(w http.ResponseWriter, r *http.Request, id Id
 // Send a draft offer (🟡 — leaves the workspace; freezes FX + buyer/issuer snapshot).
 // (POST /offers/{id}/send)
 func (_ Unimplemented) SendOffer(w http.ResponseWriter, r *http.Request, id Id, params SendOfferParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Continue the scoped company-setup conversation with or without a website read.
+// (POST /onboarding/company/messages)
+func (_ Unimplemented) MessageOnboardingCompany(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -26276,6 +26507,26 @@ func (siw *ServerInterfaceWrapper) SendOffer(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SendOffer(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MessageOnboardingCompany operation middleware
+func (siw *ServerInterfaceWrapper) MessageOnboardingCompany(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MessageOnboardingCompany(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -32924,6 +33175,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/offers/{id}/send", wrapper.SendOffer)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/onboarding/company/messages", wrapper.MessageOnboardingCompany)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/onboarding/state", wrapper.GetOnboardingState)

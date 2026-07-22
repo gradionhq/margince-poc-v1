@@ -23,17 +23,17 @@ import (
 
 func TestCompanyReadReplyAcceptsReviewableChangesAndOnlyKnownSources(t *testing.T) {
 	known := map[string]companyReadEvidence{"S1": {ID: "S1", Value: "Acme GmbH", Quote: "Acme GmbH, HRB 12345"}}
-	valid := `{"message":"I found the registered name.","proposed_changes":[{"field":"legal_name","value":"Acme GmbH","reason":"The legal notice states it.","source_ids":["S1"]}],"source_ids":["S1"]}`
+	valid := `{"kind":"recommendation","message":"I found the registered name.","proposed_changes":[{"field":"legal_name","value":"Acme GmbH","reason":"The legal notice states it.","source_ids":["S1"]}],"source_ids":["S1"]}`
 	if err := validateCompanyReadReply(valid, known, "Which legal name did you find?"); err != nil {
 		t.Fatalf("valid reply rejected: %v", err)
 	}
 
-	unknown := `{"message":"I found it.","proposed_changes":[],"source_ids":["S9"]}`
+	unknown := `{"kind":"answer","message":"I found it.","proposed_changes":[],"source_ids":["S9"]}`
 	if err := validateCompanyReadReply(unknown, known, "Find it"); err == nil {
 		t.Fatal("reply citing a URL outside the dossier was accepted")
 	}
 
-	unsupported := `{"message":"I can change it.","proposed_changes":[{"field":"website","value":"evil.example","reason":"requested","source_ids":[]}],"source_ids":[]}`
+	unsupported := `{"kind":"correction","message":"I can change it.","proposed_changes":[{"field":"website","value":"evil.example","reason":"requested","source_ids":[]}],"source_ids":[]}`
 	if err := validateCompanyReadReply(unsupported, known, "Use evil.example"); err == nil {
 		t.Fatal("reply proposing a field outside the onboarding vocabulary was accepted")
 	}
@@ -41,6 +41,7 @@ func TestCompanyReadReplyAcceptsReviewableChangesAndOnlyKnownSources(t *testing.
 
 func TestCompanyReadAnswerBuildsABoundedGroundedModelRequest(t *testing.T) {
 	brain := &replyBrainStub{response: model.Response{Text: `{
+		"kind":"recommendation",
 		"message":" I found the legal name. ",
 		"proposed_changes":[{"field":"legal_name","value":"Acme GmbH","reason":"The legal notice states it.","source_ids":["S1"]}],
 		"source_ids":["S1"]}`}}
@@ -108,6 +109,7 @@ func TestCompanyReadEvidenceIsBoundedNumberedAndWebsiteGrounded(t *testing.T) {
 func TestCompanyReadReplyMapsChangesCitationsAndExactRuntime(t *testing.T) {
 	now := time.Date(2026, 7, 22, 8, 0, 0, 0, time.UTC)
 	got := contractCompanyReadReply(companyReadModelReply{
+		Kind:            "recommendation",
 		Message:         " I found two grounded details. ",
 		ProposedChanges: []companyReadProposedChange{{Field: "legal_name", Value: " Acme GmbH ", Reason: " Imprint ", SourceIDs: []string{"S1"}}},
 		SourceIDs:       []string{"S1", "S2"},
@@ -144,19 +146,19 @@ func TestCompanyReadReplyValidationRejectsEveryUnsafeShape(t *testing.T) {
 		tooMany[i] = companyReadProposedChange{Field: "icp", Value: "A", Reason: "B", SourceIDs: []string{}}
 	}
 	tests := map[string]companyReadModelReply{
-		"empty message":      {Message: " "},
-		"too many changes":   {Message: "Answer", ProposedChanges: tooMany},
-		"unsupported field":  {Message: "Answer", ProposedChanges: []companyReadProposedChange{{Field: "website", Value: "A", Reason: "B", SourceIDs: []string{}}}},
-		"empty change value": {Message: "Answer", ProposedChanges: []companyReadProposedChange{{Field: "icp", Value: " ", Reason: "B", SourceIDs: []string{}}}},
-		"unknown source":     {Message: "Answer", SourceIDs: []string{"S9"}},
-		"duplicate source":   {Message: "Answer", SourceIDs: []string{"S1", "S1"}},
-		"fabricated uncited change": {Message: "Answer", ProposedChanges: []companyReadProposedChange{{
+		"empty message":      {Kind: "answer", Message: " "},
+		"too many changes":   {Kind: "recommendation", Message: "Answer", ProposedChanges: tooMany},
+		"unsupported field":  {Kind: "correction", Message: "Answer", ProposedChanges: []companyReadProposedChange{{Field: "website", Value: "A", Reason: "B", SourceIDs: []string{}}}},
+		"empty change value": {Kind: "correction", Message: "Answer", ProposedChanges: []companyReadProposedChange{{Field: "icp", Value: " ", Reason: "B", SourceIDs: []string{}}}},
+		"unknown source":     {Kind: "answer", Message: "Answer", SourceIDs: []string{"S9"}},
+		"duplicate source":   {Kind: "answer", Message: "Answer", SourceIDs: []string{"S1", "S1"}},
+		"fabricated uncited change": {Kind: "correction", Message: "Answer", ProposedChanges: []companyReadProposedChange{{
 			Field: "legal_name", Value: "Invented GmbH", Reason: "Claimed", SourceIDs: []string{},
 		}}},
-		"unrelated cited evidence": {Message: "Answer", SourceIDs: []string{"S1"}, ProposedChanges: []companyReadProposedChange{{
+		"unrelated cited evidence": {Kind: "recommendation", Message: "Answer", SourceIDs: []string{"S1"}, ProposedChanges: []companyReadProposedChange{{
 			Field: "legal_name", Value: "Invented GmbH", Reason: "Claimed", SourceIDs: []string{"S1"},
 		}}},
-		"hidden change citation": {Message: "Answer", ProposedChanges: []companyReadProposedChange{{
+		"hidden change citation": {Kind: "recommendation", Message: "Answer", ProposedChanges: []companyReadProposedChange{{
 			Field: "legal_name", Value: "Acme GmbH", Reason: "Claimed", SourceIDs: []string{"S1"},
 		}}},
 	}
@@ -171,7 +173,7 @@ func TestCompanyReadReplyValidationRejectsEveryUnsafeShape(t *testing.T) {
 	if err := validateCompanyReadReply("not json", nil, ""); err == nil {
 		t.Fatal("malformed JSON was accepted")
 	}
-	adminSupplied := companyReadModelReply{Message: "I can suggest that.", ProposedChanges: []companyReadProposedChange{{
+	adminSupplied := companyReadModelReply{Kind: "correction", Message: "I can suggest that.", ProposedChanges: []companyReadProposedChange{{
 		Field: "legal_name", Value: "Admin GmbH", Reason: "You supplied it.", SourceIDs: []string{},
 	}}}
 	if err := validateCompanyReadReplyValue(adminSupplied, known, "Please use Admin GmbH"); err != nil {
@@ -219,7 +221,39 @@ func TestWithDeepReadWiresConversationAndRuntimeFromTheSameOption(t *testing.T) 
 	WithDeepRead(nil, brain)(&server, nil)
 
 	if server.siteReadHandlers.engine == nil || server.siteReadHandlers.engine.brain != brain ||
-		server.siteReadHandlers.engine.runtime == nil {
+		server.siteReadHandlers.engine.runtime == nil || server.assistant == nil ||
+		server.assistant.brain != brain {
 		t.Fatalf("deep-read workbench wiring = %+v", server.siteReadHandlers)
+	}
+}
+
+func TestOnboardingCompanyStatusQuestionsNeverBecomeChanges(t *testing.T) {
+	for _, question := range []string{"Does this work?", "Is this working now?", "Wie ist der Status?", "Funktioniert das?"} {
+		if !isCompanyStatusQuestion(question) {
+			t.Fatalf("status question %q was not recognized", question)
+		}
+	}
+	if isCompanyStatusQuestion("Change our sales status to active") {
+		t.Fatal("an ordinary company correction was classified as a status question")
+	}
+
+	reply := onboardingCompanyReply(companyReadModelReply{
+		Kind: "status", Message: onboardingStatusMessage("en", true, 2),
+	}, nil, []string{"display_name", "icp"}, true, ai.RunSummary{Currency: "USD"})
+	if reply.Kind != crmcontracts.CompanyConversationStatus || len(reply.ProposedChanges) != 0 ||
+		reply.NextRequiredField == nil || *reply.NextRequiredField != crmcontracts.OnboardingNextRequiredDisplayName ||
+		reply.AvailableAction != nil {
+		t.Fatalf("status reply = %+v", reply)
+	}
+}
+
+func TestCompanyConversationRejectsAChangeHiddenInAStatusReply(t *testing.T) {
+	reply := companyReadModelReply{
+		Kind: "status", Message: "It works.", ProposedChanges: []companyReadProposedChange{{
+			Field: "industry", Value: "Software", Reason: "You said so", SourceIDs: []string{},
+		}},
+	}
+	if err := validateCompanyReadReplyValue(reply, nil, "Software"); err == nil {
+		t.Fatal("status reply carrying a proposed change was accepted")
 	}
 }

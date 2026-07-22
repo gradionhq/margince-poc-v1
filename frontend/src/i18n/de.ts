@@ -858,7 +858,7 @@ export const de = {
     "Diese Einrichtung wurde in einem anderen Tab geändert. Wir haben den gespeicherten Stand neu geladen, damit nichts still überschrieben wird.",
   "ob.stateSaveFailed":
     "Wir konnten deinen Einrichtungsfortschritt nicht speichern. Bitte versuche es erneut.",
-  "ob.readKick": "Schritt 1 von 5 · Firmenkontext",
+  "ob.readKick": "Schritt 1 von 4 · Firmenkontext",
   "ob.readTitle": "Dein Unternehmen",
   "ob.readSub": "Von deiner Website lesen, oder selbst eintragen.",
   "ob.readChoice": "Wähle, wie du deine Firma beschreiben möchtest",
@@ -913,16 +913,21 @@ export const de = {
   "ob.ai.awaitingModel": "Nach meinem ersten Modellaufruf sichtbar",
   "ob.ai.notAvailableYet": "Noch nicht verfügbar",
   "ob.ai.runtimeUnavailable": "Laufzeitdetails nicht verfügbar",
-  "ob.ai.readFirst": "Starte zuerst das Einlesen der Website.",
+  "ob.ai.readFirst": "Starte zuerst die Firmeneinrichtung.",
   "ob.ai.liveArtifact": "Lebendes, prüfbares Ergebnis",
   "ob.ai.companyKnowledge": "Was ich über dein Unternehmen verstehe",
   "ob.ai.companyKnowledgeBody":
     "Website-Belege bleiben von unserem Gespräch getrennt. Du entscheidest, was Firmenkontext wird.",
+  "ob.ai.companyKnowledgeManualBody":
+    "Deine Antworten und meine Vorschläge bleiben hier bearbeitbar. Du entscheidest, was Firmenkontext wird.",
   "ob.ai.askPlaceholder":
     "Frag mich zu einem Fund, korrigiere ein Detail oder sag mir, was fehlt…",
   "ob.ai.send": "An Margince senden",
   "ob.ai.reviewBoundary":
     "Ich kann hier Änderungen vorschlagen. Ich übernehme sie erst nach deiner Freigabe in den Entwurf.",
+  "ob.ai.confirmBoundary":
+    "Nichts wird Firmenkontext, bevor du diesen Entwurf bestätigst.",
+  "ob.ai.confirmCompany": "Firma bestätigen und speichern",
   "ob.ai.thinking": "Ich prüfe das Dossier und bereite eine Antwort vor…",
   "ob.ai.suggestedChanges": "Vorgeschlagene Änderungen am Entwurf",
   "ob.ai.applyChanges": "In meinen Entwurf übernehmen",
@@ -1082,7 +1087,7 @@ export const de = {
   "ob.field.industry": "Branche",
   "ob.field.history": "Firmengeschichte",
 
-  "ob.s2.kick": "Schritt 3 von 5 · optional",
+  "ob.s2.kick": "Schritt 2 von 4 · optional",
   "ob.s2.title": "Jetzt lernen wir,",
   "ob.s2.titleEm": "wie du wirklich schreibst.",
   "ob.s2.sub":

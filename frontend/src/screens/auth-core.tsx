@@ -116,13 +116,16 @@ function RuntimeProfile({ profile }: Readonly<{ profile: AssistantProfile }>) {
   const providers = profile.providers
     .map((provider) => t(providerKeys[provider]))
     .join(" + ");
+  const models = (profile.configured_models ?? [])
+    .map((binding) => `${binding.model} · ${binding.tier}`)
+    .join(" + ");
   return (
     <div className="auth-core-runtime">
       <span className="auth-core-runtime-state">
         <Check aria-hidden /> {t("auth.coreConfigured")}
       </span>
       <span>
-        {[providers, t(modeKeys[profile.inference_mode])]
+        {[models || providers, t(modeKeys[profile.inference_mode])]
           .filter(Boolean)
           .join(" · ")}
       </span>
