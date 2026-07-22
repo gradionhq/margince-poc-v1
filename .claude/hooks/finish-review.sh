@@ -38,8 +38,7 @@ if [ -z "$root" ]; then exit 0; fi   # not a git repo → nothing to review
 
 # Per-worktree state: --absolute-git-dir resolves to .git/ in the main
 # checkout and .git/worktrees/<name>/ in a linked worktree, where $root/.git
-# is a file — a literal $root/.git/<name> write would fail there and kill the
-# hook before it could emit its block decision.
+# is a file, not a writable directory.
 state_file="$(git -C "$root" rev-parse --absolute-git-dir)/margince-finish-review.state"
 max_craft_attempts=3
 
@@ -112,11 +111,10 @@ done <<< "$session_edits"
 if [ "${#edited[@]}" -eq 0 ]; then exit 0; fi   # this session issued no backend edits → not our turn
 
 # Keep only those with a real NET change still in the tree, measured against
-# the merge-base with origin/main — NOT against HEAD: the standard loop
-# commits within the turn, so a HEAD comparison nets committed work to zero
-# and the review would never fire. Committed-but-unmerged changes stay in
-# scope; an edit-then-revert still nets to nothing and drops out; a sibling
-# session's files never enter because the set is transcript-derived.
+# the merge-base with origin/main: committed-but-unmerged work stays in
+# scope (the normal loop commits within the turn), an edit-then-revert nets
+# to nothing and drops out, and a sibling session's files never enter
+# because the set is transcript-derived.
 base="$(git -C "$root" merge-base HEAD origin/main 2>/dev/null || git -C "$root" rev-parse HEAD)"
 files=()
 for f in "${edited[@]}"; do
