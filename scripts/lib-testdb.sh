@@ -77,10 +77,16 @@ build_template() {
 
 # ensure_template — build the template only if it is missing (fast reuse for the
 # single-package inner loop; the full lane rebuilds fresh via build_template).
-# A failed probe reads as missing: build_template then reports the real error.
+# db-exists separates "absent" (prints false) from "could not ask" (non-zero
+# exit) exactly so this caller can too: a failed probe propagates with its
+# stderr instead of reading as "missing" and force-rebuilding a healthy
+# template over a transient error.
 ensure_template() {
   local exists
-  exists="$(db_admin db-exists --name "$TEMPLATE_NAME" 2>/dev/null || true)"
+  if ! exists="$(db_admin db-exists --name "$TEMPLATE_NAME")"; then
+    echo "FAIL: could not probe for template ${TEMPLATE_NAME} — fix the error above; a failed probe is not 'missing'" >&2
+    return 1
+  fi
   [[ "$exists" = "true" ]] || build_template
 }
 
