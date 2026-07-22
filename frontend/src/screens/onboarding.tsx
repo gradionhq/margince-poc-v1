@@ -2035,6 +2035,19 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
     setPieces((prev) => [...prev.filter((p) => p.ref !== piece.ref), piece]);
   };
 
+  // Parallel uploads share ONE profile resolution: concurrent
+  // ensureProfileId calls would race each other into the server's
+  // one-live-profile conflict. A failed resolution clears the slot so the
+  // next upload can retry rather than inheriting a dead promise.
+  const profileIdInFlight = useRef<Promise<string> | null>(null);
+  const sharedProfileId = () => {
+    profileIdInFlight.current ??= ensureProfileId().catch((err: unknown) => {
+      profileIdInFlight.current = null;
+      throw err;
+    });
+    return profileIdInFlight.current;
+  };
+
   // classifyUpload decides what one file honestly IS before anything counts:
   // the server preview detects transcript structure and counts each
   // speaker's words, so a conversation never enters the meter whole — the
@@ -2045,7 +2058,7 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
       return;
     }
     const ref = `onboarding:upload:${name}`;
-    const profileId = await ensureProfileId();
+    const profileId = await sharedProfileId();
     const { data, error } = await api.POST(
       "/voice-profiles/{id}/sources/preview",
       {
@@ -2286,7 +2299,7 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
     setBuilding(true);
     setBuildError(null);
     try {
-      const profileId = await ensureProfileId();
+      const profileId = await sharedProfileId();
       await ingestCorpus(profileId);
       const outcome = await pollBuild(profileId, await startBuild(profileId));
       if (mounted.current) {
