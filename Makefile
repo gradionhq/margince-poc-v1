@@ -185,8 +185,8 @@ frontend-check:
 	frontend/scripts/check-icon-glyph.sh
 	frontend/scripts/check-ds-spacing.sh
 	cd frontend && pnpm install --frozen-lockfile && pnpm gen:api && \
-		{ git diff --exit-code -- src/api/schema.d.ts || \
-			{ echo "frontend types drifted from backend/api/crm.yaml — commit the regenerated src/api/schema.d.ts (printed above)"; exit 1; }; } && \
+		{ git diff --exit-code -- src/api/schema.d.ts src/api/public-events.d.ts || \
+			{ echo "frontend types drifted from the backend contracts — commit the regenerated src/api/*.d.ts (printed above)"; exit 1; }; } && \
 		pnpm check
 
 ## fe-install — install the frontend deps (pnpm, frozen lockfile). The FE half

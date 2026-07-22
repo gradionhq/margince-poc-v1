@@ -1,0 +1,121 @@
+openapi: 3.1.0
+info:
+  title: Margince Public Event Payloads
+  version: "1"
+  description: >-
+    The public, transport-agnostic projection of Margince domain events — the
+    strict contract for outbound webhook delivery. This file is components-only
+    (no paths, no webhooks block): it is compiled to typed Go structs by
+    backend/tools/gen-payloads (into internal/contracts/webhookpayloads_gen.go)
+    and to TypeScript by the frontend's gen:events script. It is kept SEPARATE
+    from api/crm.yaml on purpose — crm.yaml's webhooks: block is silently pruned
+    by kin-openapi, and enabling global skip-prune there trips a pre-existing
+    ApprovalToken name collision. An isolated file sidesteps both.
+
+    Only fields safe to expose beyond the trust boundary appear here. Internal
+    envelope metadata (audit_log_id, causation_id, passport_id, on_behalf_of,
+    workspace_id) is deliberately absent so a schema/code mismatch fails to
+    compile rather than leaking internals over the wire.
+components:
+  schemas:
+    SubscribableEventType:
+      type: string
+      description: >-
+        The closed set of domain events a webhook subscription can select.
+        Phase 4 fills this out; today it carries the pilot event only.
+      enum:
+        - deal.stage_changed
+
+    WebhookActor:
+      type: object
+      description: Who or what caused the event, as exposed publicly.
+      required: [type]
+      properties:
+        type:
+          type: string
+          description: Actor kind (e.g. human, agent, connector).
+      additionalProperties: false
+
+    WebhookEntityRef:
+      type: object
+      description: The primary entity the event concerns.
+      required: [type, id]
+      properties:
+        type:
+          type: string
+          description: Entity kind (e.g. deal, person, organization).
+        id:
+          type: string
+          format: uuid
+          description: Stable identifier of the entity.
+      additionalProperties: false
+
+    WebhookDeliveryEnvelope:
+      type: object
+      description: >-
+        The public wrapper around every delivered event payload. This is the
+        exact JSON shape a subscriber receives; it carries no internal metadata.
+      required:
+        - event_id
+        - type
+        - version
+        - occurred_at
+        - actor
+        - entity
+        - correlation_id
+        - data
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Unique id of this event occurrence.
+        type:
+          type: string
+          description: The event type (a SubscribableEventType value).
+        version:
+          type: integer
+          description: Schema version of the payload in data.
+        occurred_at:
+          type: string
+          format: date-time
+          description: When the event occurred (RFC 3339).
+        actor:
+          $ref: '#/components/schemas/WebhookActor'
+        entity:
+          $ref: '#/components/schemas/WebhookEntityRef'
+        correlation_id:
+          type: string
+          format: uuid
+          description: Correlates all events emitted for one originating request.
+        data:
+          type: object
+          description: The typed event payload (one of the WebhookPayload* schemas).
+      additionalProperties: false
+
+    WebhookPayloadDealStageChanged:
+      type: object
+      x-event-type: deal.stage_changed
+      x-entity-type: deal
+      description: Payload for deal.stage_changed — a deal advanced between stages.
+      required:
+        - deal_id
+        - pipeline_id
+        - to_stage_id
+      properties:
+        deal_id:
+          type: string
+          format: uuid
+          description: The deal that moved.
+        pipeline_id:
+          type: string
+          format: uuid
+          description: Pipeline the deal belongs to.
+        from_stage_id:
+          type: string
+          format: uuid
+          description: Stage the deal left (absent on first placement).
+        to_stage_id:
+          type: string
+          format: uuid
+          description: Stage the deal entered.
+      additionalProperties: false
