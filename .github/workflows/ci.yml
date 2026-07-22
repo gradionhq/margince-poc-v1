@@ -69,6 +69,9 @@ jobs:
               - 'go.work.sum'
               - 'Makefile'
               - 'scripts/**'
+              - 'extensions/**'
+              - 'fixtures/**'
+              - 'composition/**'
               - '.github/workflows/**'
               - 'AGENTS.md'
               - 'sonar-project.properties'
@@ -164,6 +167,38 @@ jobs:
           # In CI a missing base ref is a broken checkout, never a skip.
           CONTRACT_BREAKING_REQUIRE_BASE: "1"
         run: make check-backend
+
+  # The composed-build lane (ADR-0069): materialize the walking-skeleton
+  # reference extension into extensions/, compose, and run the backend
+  # build + unit lane against the composed workspace — the continuous
+  # proof that an enabled extension composes without touching an
+  # upstream-owned file, plus the extension's own test lane the way a
+  # fork's CI would run it. deterministic-gates covers the vanilla
+  # composition (empty set) via the same make targets.
+  extension-reference:
+    name: extension-reference
+    needs: [changes]
+    if: needs.changes.outputs.backend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      # working-directory: . on the root-level steps — the workflow default
+      # (backend) would resolve fixtures/ and extensions/ under backend/.
+      - name: Enable the reference extension
+        working-directory: .
+        run: cp -R fixtures/extensions/crm-hello extensions/
+      - name: Composed build + unit lane
+        working-directory: .
+        run: make -C backend build test check-composition
+      - name: Extension self-test lane
+        working-directory: extensions/crm-hello
+        run: GOWORK="$GITHUB_WORKSPACE/build/composition/go.work" go test ./...
 
   # The code-craftsmanship gate (ADR-0045) runs only after the deterministic
   # gates are green — a red build must never be judged on style.
