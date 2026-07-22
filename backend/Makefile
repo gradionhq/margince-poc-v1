@@ -178,10 +178,13 @@ lint: ## golangci-lint: repo-wide baseline + new-code strict set
 # which re-downloads and recompiles the tool on every invocation: correct
 # on a fresh machine, waste everywhere else.
 #   $(call resolve-gate-tool,<binary>,<module regex>,<version>,<install path>)
+# The binary branch is emitted pre-quoted: the value lands unquoted in a
+# recipe line, and a GOBIN/GOPATH with spaces must not word-split there.
+# The go run fallback stays bare — it is deliberately multi-word.
 GATE_BIN_DIR := $(or $(shell $(GO) env GOBIN),$(shell $(GO) env GOPATH)/bin)
 resolve-gate-tool = $(shell $(GO) version -m '$(GATE_BIN_DIR)/$(1)' 2>/dev/null \
 	| grep -qE '[[:space:]]mod[[:space:]]+$(2)[[:space:]]+$(3)([[:space:]]|$$)' \
-	&& echo '$(GATE_BIN_DIR)/$(1)' || echo "$(GO) run $(4)@$(3)")
+	&& echo '"$(GATE_BIN_DIR)/$(1)"' || echo "$(GO) run $(4)@$(3)")
 
 # Layer C of the boundary stack — a HARD gate: a forbidden import edge
 # fails `make check`, it is never advisory.
