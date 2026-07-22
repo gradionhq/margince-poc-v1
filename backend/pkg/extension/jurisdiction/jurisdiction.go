@@ -64,8 +64,29 @@ func (p Period) String() string {
 // Cutoff anchors the period at ref and returns the calendar point it
 // reaches back to — the boundary a retention comparison uses (an earlier
 // cutoff is the stricter floor).
+//
+// The arithmetic deliberately mirrors POSTGRES interval subtraction, not
+// time.AddDate: months subtract with the day-of-month CLAMPED to the
+// target month's last day (2024-02-29 − P1Y = 2023-02-28), where AddDate
+// normalizes the impossible date forward (→ 2023-03-01). The SQL
+// enforcing a floor and the Go selecting the strictest one must agree at
+// leap days and month ends — a one-day disagreement is destruction a day
+// early. Days then subtract exactly, as in both systems.
 func (p Period) Cutoff(ref time.Time) time.Time {
-	return ref.AddDate(-p.Years, -p.Months, -p.Days)
+	idx := ref.Year()*12 + int(ref.Month()) - 1 - (p.Years*12 + p.Months)
+	year, month := idx/12, idx%12
+	if month < 0 {
+		month += 12
+		year--
+	}
+	lastDay := time.Date(year, time.Month(month+2), 0, 0, 0, 0, 0, ref.Location()).Day()
+	day := ref.Day()
+	if day > lastDay {
+		day = lastDay
+	}
+	anchored := time.Date(year, time.Month(month+1), day,
+		ref.Hour(), ref.Minute(), ref.Second(), ref.Nanosecond(), ref.Location())
+	return anchored.AddDate(0, 0, -p.Days)
 }
 
 // Validate refuses negative components. The fields stay signed ints (Go
@@ -116,7 +137,9 @@ const (
 	// Handelsbriefe): email/call/meeting/messaging activities carry it
 	// today (the retention engine's activity floor); accepted and sent
 	// offers derive into it when the germany-package classification hook
-	// lands (DEPACK-PARAM-5: 6 yr, immutable).
+	// lands (DEPACK-PARAM-5: 6 yr, immutable, anchored at calendar-year
+	// end per §147(4) AO — a January Handelsbrief keeps almost seven
+	// calendar years).
 	CommercialCorrespondence RetentionClassName = "commercial_correspondence"
 
 	// AccountingRecords are booking records (§147 AO Buchungsbelege, 8
@@ -137,10 +160,61 @@ func (n RetentionClassName) Validate() error {
 	return fmt.Errorf("retention class %q is not in the closed class set — vocabulary registration is deferred (ADR-0069 §13)", string(n))
 }
 
+// Anchor names where a retention period starts counting. The zero value
+// counts from the record's own timestamp; German statutes (§147(4) AO,
+// §257(5) HGB) count from the END of the record's calendar year, which
+// stretches real protection by up to a year — a floor that ignores its
+// anchor erases a January document almost a year early.
+type Anchor string
+
+const (
+	// AnchorOccurrence counts from the record's own timestamp (also the
+	// zero value's meaning).
+	AnchorOccurrence Anchor = "occurrence"
+
+	// AnchorCalendarYearEnd counts from the end of the calendar year the
+	// record occurred in (§147(4) AO / §257(5) HGB).
+	AnchorCalendarYearEnd Anchor = "calendar_year_end"
+)
+
+// Validate enforces membership; the empty string reads as
+// AnchorOccurrence so the field stays additive for existing declarations.
+func (a Anchor) Validate() error {
+	switch a {
+	case "", AnchorOccurrence, AnchorCalendarYearEnd:
+		return nil
+	}
+	return fmt.Errorf("retention anchor %q is not in the closed anchor set (occurrence, calendar_year_end)", string(a))
+}
+
 // RetentionClass names one statutory retention floor: the core engine
 // treats Keep as a minimum — a workspace policy may keep longer, never
 // destroy earlier.
 type RetentionClass struct {
 	Name RetentionClassName
 	Keep Period
+
+	// Anchor is where Keep starts counting; zero = the record's own
+	// occurrence.
+	Anchor Anchor
+}
+
+// ProtectedSince returns the earliest record timestamp still protected
+// by this class at ref — the strictest-floor comparison point (an
+// earlier value is the stricter floor). Year-end anchoring finds the
+// earliest calendar year whose end-plus-Keep is still ahead of ref by
+// direct candidate testing: clamped interval arithmetic is not
+// invertible, so nothing here inverts it.
+func (c RetentionClass) ProtectedSince(ref time.Time) time.Time {
+	cut := c.Keep.Cutoff(ref)
+	if c.Anchor != AnchorCalendarYearEnd {
+		return cut
+	}
+	for year := cut.Year() - 1; ; year++ {
+		yearEnd := time.Date(year+1, time.January, 1, 0, 0, 0, 0, ref.Location())
+		keepUntil := yearEnd.AddDate(c.Keep.Years, c.Keep.Months, c.Keep.Days)
+		if keepUntil.After(ref) {
+			return time.Date(year, time.January, 1, 0, 0, 0, 0, ref.Location())
+		}
+	}
 }

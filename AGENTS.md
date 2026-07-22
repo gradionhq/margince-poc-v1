@@ -172,7 +172,7 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   `Admit` (scope ∧ tier) + object RBAC + row-scope clauses incl. the
   activity link-walk), `events` (outbox relay/subscriber/dedupe),
   `dbmigrate`, `httperr` (RFC 7807 + wire helpers), `httpserver` (chassis).
-- `internal/modules/` — seventeen bounded capabilities, flat by default per
+- `internal/modules/` — eighteen bounded capabilities, flat by default per
   ADR-0054 §3 (store + mapping + transport + provider in one package),
   growing subpackages only when a named trigger fires (split for a reason, never symmetry); a module NEVER
   imports a sibling: `identity` (workspaces, users, sessions, passports;
@@ -204,7 +204,8 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   (the governed add-field engine: the sole runtime `ALTER TABLE`
   chokepoint; record stores read the `cf_*` columns via the
   `fieldcatalog` seam), `quotas` (RD-T06 owner-XOR-team revenue
-  targets, human-set, workspace-shared config posture), and `overlay` (the incumbent-CRM mirror: a second
+  targets, human-set, workspace-shared config posture), `webhooks`
+  (outbound webhook subscriptions + owner-scoped delivery, E10), and `overlay` (the incumbent-CRM mirror: a second
   `datasource.SystemOfRecordProvider` selected per-workspace by
   `workspace.x_sor_mode`, serving mirror-backed reads behind the inner
   `incumbent.Incumbent` seam — fail-closed visibility deny-join,

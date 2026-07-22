@@ -66,7 +66,8 @@ func ObserveExtensionInventory(ctx context.Context, pool *pgxpool.Pool, log *slo
 	ctx = principal.WithActor(ctx, principal.Principal{Type: principal.PrincipalSystem, ID: "system:extension-inventory"})
 	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
 
-	return database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+	changed := false
+	err = database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		// api and worker boot concurrently and both observe: without a
 		// lock the two check-and-insert transactions each read the same
 		// previous inventory and one change lands twice. Same idiom as
@@ -88,9 +89,18 @@ func ObserveExtensionInventory(ctx context.Context, pool *pgxpool.Pool, log *slo
 		if err != nil {
 			return err
 		}
-		log.Info("extension composition changed", "extensions", len(current))
+		changed = true
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	// Logged only after the transaction COMMITTED: an in-closure log line
+	// would report a change the database may have rolled back.
+	if changed {
+		log.Info("extension composition changed", "extensions", len(current))
+	}
+	return nil
 }
 
 // lastObservedExtensions reads the most recent observation; none yet

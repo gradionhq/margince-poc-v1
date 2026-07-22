@@ -88,7 +88,21 @@ cleanup() {
 trap cleanup EXIT
 git worktree add --detach --quiet "$WORKTREE" "$BASE"
 
-OLD_PKGS="$(cd "$WORKTREE/backend" && go list ./pkg/... 2> /dev/null || true)"
+# Fail-closed package discovery: a module or loading error must never
+# read as "nothing frozen" — only the go tool's own "matched no
+# packages" does.
+golist_err="$(mktemp "${TMPDIR:-/tmp}/pkg-freeze-golist.XXXXXX")"
+if ! OLD_PKGS="$(cd "$WORKTREE/backend" && go list ./pkg/... 2> "$golist_err")"; then
+  if grep -q "matched no packages" "$golist_err"; then
+    OLD_PKGS=""
+  else
+    echo "FAIL: pkg-freeze — cannot load the baseline's published packages:" >&2
+    sed 's/^/  /' "$golist_err" >&2
+    rm -f "$golist_err"
+    exit 1
+  fi
+fi
+rm -f "$golist_err"
 if [ -z "$OLD_PKGS" ]; then
   echo "OK: pkg-freeze ($MODE) — no published packages at the merge-base; nothing frozen yet"
   exit 0

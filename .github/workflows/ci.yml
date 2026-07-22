@@ -394,11 +394,19 @@ jobs:
       - name: Reconcile the slices and merge coverage
         working-directory: .
         run: ./scripts/test-integration-reconcile.sh "$RUNNER_TEMP/shards" backend/coverage.out
+      # Extension units are their own modules — the shard profiles cannot
+      # reach them; their lane emits its own merged profile so first-party
+      # extension coverage reaches the quality gate too.
+      - name: Extension coverage
+        working-directory: .
+        run: make -C backend test-extensions EXT_COVER_OUT="$PWD/backend/coverage-extensions.out"
       - name: Upload Go coverage
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: go-coverage
-          path: backend/coverage.out
+          path: |
+            backend/coverage.out
+            backend/coverage-extensions.out
           if-no-files-found: ignore
           retention-days: 1
 

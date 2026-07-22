@@ -32,8 +32,17 @@ import (
 )
 
 // nameGrammar is the one spelling of the unit-name rule; the grammar in
-// prose lives on Name.
+// prose lives on Name. The generator (tools/gen-composition) validates
+// through this same method, so scan-time acceptance can never drift from
+// boot-time validation.
 var nameGrammar = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+
+// maxNameLength bounds the unit name so every derived SQL identifier
+// stays inside PostgreSQL's 63-byte limit — a longer name would be
+// silently TRUNCATED there, and two long names could collide on one
+// role. 32 leaves ≥29 bytes for the `x_` prefix plus a table suffix
+// (`x_<name>_<table>`).
+const maxNameLength = 32
 
 // Name is the canonical extension name and must equal the
 // extensions/<name> directory name, stable across versions. It keys the
@@ -41,14 +50,18 @@ var nameGrammar = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 // x_<name> database role).
 type Name string
 
-// Validate enforces the exact grammar: lower-case [a-z0-9] segments
-// joined by single hyphens — `^[a-z0-9]+(-[a-z0-9]+)*$` — so no leading,
-// trailing, or doubled hyphen; anything else would leak into SQL
-// identifiers and URL paths. Boot registration refuses the set on a
-// violation.
+// Validate enforces the exact grammar — lower-case [a-z0-9] segments
+// joined by single hyphens, `^[a-z0-9]+(-[a-z0-9]+)*$`, at most 32
+// characters — so no leading, trailing, or doubled hyphen, and nothing
+// a 63-byte SQL identifier would truncate; anything else would leak
+// into SQL identifiers and URL paths. Boot registration refuses the set
+// on a violation.
 func (n Name) Validate() error {
 	if !nameGrammar.MatchString(string(n)) {
 		return fmt.Errorf("extension name %q is not a valid unit name (lower-case [a-z0-9] segments joined by single hyphens, ADR-0069 §2)", string(n))
+	}
+	if len(n) > maxNameLength {
+		return fmt.Errorf("extension name %q is %d characters — the unit name keys SQL identifiers (x_<name>_<table>, 63-byte limit), so it is capped at %d", string(n), len(n), maxNameLength)
 	}
 	return nil
 }

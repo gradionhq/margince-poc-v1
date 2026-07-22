@@ -197,6 +197,17 @@ func TestSurfaceMarkerLivesOnlyUnderPkg(t *testing.T) {
 	}
 }
 
+// compositionWiringFiles are the ONLY files that may import the
+// composed extension set: the role mains themselves. An explicit
+// allowlist, not a cmd/ prefix — any other file under cmd/ importing it
+// would be a second composition entry point slipping in unnoticed.
+var compositionWiringFiles = map[string]bool{
+	"cmd/api/main.go":     true,
+	"cmd/worker/main.go":  true,
+	"cmd/mcp/main.go":     true,
+	"cmd/migrate/main.go": true,
+}
+
 // TestCompositionWiredOnlyFromCmd: the backend imports the composed
 // extension set exactly at the four role mains — anywhere else would be
 // a second composition path — and never imports an extension module
@@ -209,8 +220,8 @@ func TestCompositionWiredOnlyFromCmd(t *testing.T) {
 			continue // the generator authors these strings; it wires nothing
 		}
 		for _, imp := range imports {
-			if imp == compositionModulePath && !strings.HasPrefix(file, "cmd/") {
-				t.Errorf("%s imports the composition module: only cmd/<role> mains wire the composed extension set", file)
+			if imp == compositionModulePath && !compositionWiringFiles[file] {
+				t.Errorf("%s imports the composition module: only the role mains (%v) wire the composed extension set", file, "cmd/<role>/main.go")
 			}
 			for _, mod := range extMods {
 				if imp == mod || strings.HasPrefix(imp, mod+"/") {
