@@ -33,35 +33,57 @@ export MARGINCE_TEST_BLOBSTORE_BUCKET     ?= margince-test
 # production deployment sets its own environment and never runs make.
 export MARGINCE_ENV          ?= dev
 
+# The composed workspace (ADR-0069): every build/test lane runs against
+# build/composition/go.work, so an enabled extension set under
+# extensions/ is compiled in — vanilla composes empty and the output is
+# unchanged (the generator's vanilla wiring is byte-identical to the
+# committed composition/ stub bare go commands resolve). `make
+# composition` materializes it on every lane run (fast), so a stale
+# composition is never built; gen-composition itself runs under the ROOT
+# workspace — it must work before the composition exists.
+COMPOSITION_DIR := $(abspath ../build/composition)
+GOWORK_COMPOSED := GOWORK=$(COMPOSITION_DIR)/go.work
+
 .DEFAULT_GOAL := help
 
-.PHONY: help check build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report test-db-up test-it test-integration-serial lint arch-lint vet gen gen-workflow drift db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql redis-cli tidy dev infra-down infra-logs infra-reset clean vuln tools tools-go hooks
+.PHONY: help check build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report test-db-up test-it test-integration-serial lint arch-lint vet gen gen-workflow drift composition check-composition db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql redis-cli tidy dev infra-down infra-logs infra-reset clean vuln tools tools-go hooks
 
 help: ## List targets with their descriptions (the default goal)
 	@grep -hE '^[a-zA-Z][a-zA-Z0-9_-]*:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
 
-check: build vet lint arch-lint test drift ## The merge gate: everything a PR must pass
+check: build vet lint arch-lint test drift check-composition ## The merge gate: everything a PR must pass
 
-build: ## Compile every package
-	$(GO) build ./...
+composition: ## Materialize build/composition/ from the enabled set under extensions/ (every build lane depends on this)
+	@$(GO) run ./tools/gen-composition
 
-vet: ## Run go vet over every package
-	$(GO) vet ./...
+check-composition: composition ## Reproducibility gate: a clean regeneration must reproduce composition.json byte-for-byte
+	@$(GO) run ./tools/gen-composition -verify
+	@echo "OK: composition reproducible"
 
-test: ## Unit tests (the root fitness tests run uncached)
-	$(GO) test ./...
+build: composition ## Compile every package (composed workspace)
+	$(GOWORK_COMPOSED) $(GO) build ./...
+
+vet: composition ## Run go vet over every package (composed workspace)
+	$(GOWORK_COMPOSED) $(GO) vet ./...
+
+test: composition ## Unit tests (the root fitness tests run uncached)
+	$(GOWORK_COMPOSED) $(GO) test ./...
+	# The tool chain is its own module, so ./... above never reaches it —
+	# its tests (generator determinism, scaffold behavior) run here or
+	# nowhere.
+	$(GOWORK_COMPOSED) $(GO) test ./tools/...
 	# The root fitness tests scan files OUTSIDE their package (WalkDir
 	# over internal/modules, schema introspection), which Go's test
 	# cache cannot key — run them uncached so a new module can never
 	# ride a stale green.
-	$(GO) test -count=1 .
+	$(GOWORK_COMPOSED) $(GO) test -count=1 .
 
 # -v is load-bearing, not chattiness: `go test` only names skipped tests in
 # verbose mode, and the zero-skip teeth below grep for them. A skip in this
 # lane means a security gate (RLS, erasure) silently didn't run — that must
 # read as red, never as green.
-test-integration: ## Integration lane: real Postgres, fails loudly without it (never skips). Parallel — each package on its own throwaway clone db.
-	@bash ../scripts/test-integration-parallel.sh
+test-integration: composition ## Integration lane: real Postgres, fails loudly without it (never skips). Parallel — each package on its own throwaway clone db.
+	@$(GOWORK_COMPOSED) bash ../scripts/test-integration-parallel.sh
 
 # The paid BYOK e2e targets below (e2e-siteread, e2e-ai) call a real cloud model,
 # so they need the provider key (GEMINI_API_KEY, ANTHROPIC_API_KEY, …). `make dev`
@@ -73,8 +95,8 @@ test-integration: ## Integration lane: real Postgres, fails loudly without it (n
 ENV_LOCAL      := $(CURDIR)/../.env.local
 LOAD_ENV_LOCAL := set -a; [ -f $(ENV_LOCAL) ] && . $(ENV_LOCAL); set +a;
 
-e2e-siteread: ## Deep-read quality floor vs the real gradion.com (paid: real model + network; opt-in). BYOK key auto-loaded from .env.local; judge a model with MARGINCE_E2E_MODEL=provider:model or MARGINCE_AI_ROUTING.
-	$(LOAD_ENV_LOCAL) $(GO) test -tags e2e_llm ./internal/compose/ -run TestSiteReadE2E -v -count=1 -timeout 20m
+e2e-siteread: composition ## Deep-read quality floor vs the real gradion.com (paid: real model + network; opt-in). BYOK key auto-loaded from .env.local; judge a model with MARGINCE_E2E_MODEL=provider:model or MARGINCE_AI_ROUTING.
+	$(LOAD_ENV_LOCAL) $(GOWORK_COMPOSED) $(GO) test -tags e2e_llm ./internal/compose/ -run TestSiteReadE2E -v -count=1 -timeout 20m
 
 # TestE2ECertify has no MARGINCE_E2E_MODEL-style fallback of its own — it
 # hard-fails without a routing file — so, unlike e2e-siteread, e2e-ai
@@ -98,9 +120,9 @@ ifeq ($(TRACE),1)
 override TRACE := $(CURDIR)/../.tmp/aicert
 endif
 
-e2e-ai: ## Certify AI tasks vs the local binding (paid: real model + network; opt-in). BYOK key auto-loaded from .env.local. Payload trace ON by default (TRACE= to disable). TASK=x MODEL=prov:model RUNS=3 MARGINCE_AI_ROUTING=path
+e2e-ai: composition ## Certify AI tasks vs the local binding (paid: real model + network; opt-in). BYOK key auto-loaded from .env.local. Payload trace ON by default (TRACE= to disable). TASK=x MODEL=prov:model RUNS=3 MARGINCE_AI_ROUTING=path
 	$(LOAD_ENV_LOCAL) MARGINCE_AICERT=1 MARGINCE_AI_ROUTING=$(MARGINCE_AI_ROUTING) MARGINCE_AICERT_TASK=$(TASK) MARGINCE_AICERT_MODEL=$(MODEL) MARGINCE_AICERT_RUNS=$(RUNS) MARGINCE_AICERT_TRACE=$(TRACE) \
-	  $(GO) test -tags e2e_llm ./internal/compose/aicert/ -run TestE2ECertify -v -count=1 -timeout 30m
+	  $(GOWORK_COMPOSED) $(GO) test -tags e2e_llm ./internal/compose/aicert/ -run TestE2ECertify -v -count=1 -timeout 30m
 
 e2e-ai-report: ## Print the certification matrix (task x provider x model) from the committed records under internal/compose/aicert/records/.
 	$(GO) run ./internal/compose/aicert/reportcmd
@@ -108,13 +130,13 @@ e2e-ai-report: ## Print the certification matrix (task x provider x model) from 
 test-db-up: ## (Re)build the migrated margince_test template the parallel lane clones from
 	@bash -c 'cd .. && source scripts/lib-testdb.sh && parse_test_dsn && build_template && echo "test-db-up: template $$TEMPLATE_NAME migrated to head"'
 
-test-it: ## Run ONE integration package (optionally RUN=Regex) on a throwaway clone: make test-it DIR=backend/internal/modules/people [RUN=TestName]
-	@bash ../scripts/test-integration-one.sh "$(DIR)" "$(RUN)"
+test-it: composition ## Run ONE integration package (optionally RUN=Regex) on a throwaway clone: make test-it DIR=backend/internal/modules/people [RUN=TestName]
+	@$(GOWORK_COMPOSED) bash ../scripts/test-integration-one.sh "$(DIR)" "$(RUN)"
 
-test-integration-serial: ## Escape hatch: the old sequential lane, all packages on the shared margince_test DB (debugging a parallel-isolation issue).
+test-integration-serial: composition ## Escape hatch: the old sequential lane, all packages on the shared margince_test DB (debugging a parallel-isolation issue).
 	@bash -c 'cd .. && source scripts/lib-testdb.sh && parse_test_dsn && ensure_template'
 	@log=$$(mktemp); st=$$(mktemp); \
-	{ $(GO) test -tags integration -p 1 -v ./... 2>&1; echo $$? >"$$st"; } | tee "$$log"; \
+	{ $(GOWORK_COMPOSED) $(GO) test -tags integration -p 1 -v ./... 2>&1; echo $$? >"$$st"; } | tee "$$log"; \
 	code=$$(cat "$$st"); rm -f "$$st"; \
 	if [ "$$code" -ne 0 ]; then rm -f "$$log"; exit "$$code"; fi; \
 	if grep -q -- '--- SKIP' "$$log"; then \
@@ -125,8 +147,8 @@ test-integration-serial: ## Escape hatch: the old sequential lane, all packages 
 
 # The integration lane above runs the same harness on the SMB tier as a
 # standing canary; this target is the tier the PERF-7 SLO binds at.
-bench-perf: ## PERF-3/PERF-7 benchmark harness on the mid-market §6.7 tier (needs db-up; seeds 250k contacts)
-	MARGINCE_BENCH_TIER=mid_market $(GO) test -tags integration -run TestPerfBudgetsHoldOnSeededVolumeTier -v -timeout 30m ./internal/compose/integration
+bench-perf: composition ## PERF-3/PERF-7 benchmark harness on the mid-market §6.7 tier (needs db-up; seeds 250k contacts)
+	MARGINCE_BENCH_TIER=mid_market $(GOWORK_COMPOSED) $(GO) test -tags integration -run TestPerfBudgetsHoldOnSeededVolumeTier -v -timeout 30m ./internal/compose/integration
 
 # golangci-lint is the one gate tool this Makefile installs rather than
 # runs via pinned `go run` (arch-lint/vuln/oasdiff do): `go run` would
@@ -148,14 +170,14 @@ GOLANGCI_LINT ?= $(shell test -x $(GOLANGCI_LINT_BIN) && echo $(GOLANGCI_LINT_BI
 # baseline (the depguard DAG lives there and must never be diff-scoped);
 # .golangci.strict.yml is the expanded strict set, gated to new
 # code via new-from-merge-base so the pre-existing backlog is not a burn-down.
-lint: ## golangci-lint: repo-wide baseline + new-code strict set
+lint: composition ## golangci-lint: repo-wide baseline + new-code strict set
 	@test -n "$(GOLANGCI_LINT)" || { \
 		echo "lint: golangci-lint not found — run 'make tools' (installs $(GOLANGCI_LINT_VERSION) to $$($(GO) env GOPATH)/bin)"; \
 		exit 1; \
 	}
-	$(GOLANGCI_LINT) run ./...
+	$(GOWORK_COMPOSED) $(GOLANGCI_LINT) run ./...
 	@if git rev-parse --verify -q origin/main >/dev/null; then \
-		$(GOLANGCI_LINT) run --config .golangci.strict.yml ./...; \
+		$(GOWORK_COMPOSED) $(GOLANGCI_LINT) run --config .golangci.strict.yml ./...; \
 	else \
 		echo "SKIP strict lint: origin/main not found — fetch it to arm the new-code gate"; \
 	fi
@@ -174,6 +196,7 @@ gen: ## Regenerate everything derived from the contract
 	$(GO) run ./tools/gen-stubs
 	$(GO) run ./tools/gen-agentpolicy -in api/crm.yaml -out internal/compose/agentpolicy_gen.go
 	$(GO) run ./tools/gen-aitasks -contract api/ai-tasks.yaml -out-go internal/modules/ai/tasks_gen.go -out-schema ../config/ai-routing.schema.json
+	$(GO) run ./tools/gen-composition
 
 drift: gen ## Fail when any generated file drifted from the contract
 	git diff --exit-code -- '*_gen.go' internal/contracts/ ../config/ai-routing.schema.json
@@ -255,8 +278,8 @@ migrate-up: migrate ## Alias for migrate — apply all pending migrations (owner
 migrate-down: ## Roll back the last migration(s): make migrate-down [STEPS=n]
 	$(GO) run ./cmd/migrate down --dsn "$(OWNER_DSN)" --steps $(or $(STEPS),1)
 
-run: ## Run the api on :8080 (no db-up/migrate) — go run ./cmd/api
-	$(GO) run ./cmd/api --dsn "$(APP_DSN)"
+run: composition ## Run the api on :8080 (no db-up/migrate) — go run ./cmd/api
+	$(GOWORK_COMPOSED) $(GO) run ./cmd/api --dsn "$(APP_DSN)"
 
 psql: ## Open a psql shell on the dev database (owner role)
 	$(COMPOSE) exec postgres psql -U margince_owner -d $(DB_NAME)
@@ -267,11 +290,11 @@ redis-cli: ## Open a redis-cli shell on the dev Redis
 tidy: ## Sync module deps (go mod tidy)
 	$(GO) mod tidy
 
-test-v: ## go test -v across the module
-	$(GO) test -v ./...
+test-v: composition ## go test -v across the module
+	$(GOWORK_COMPOSED) $(GO) test -v ./...
 
-test-cover: ## Go unit tests with coverage summary
-	$(GO) test -cover ./...
+test-cover: composition ## Go unit tests with coverage summary
+	$(GOWORK_COMPOSED) $(GO) test -cover ./...
 
 db-wait: ## Block until Postgres answers pg_isready
 	@until $(COMPOSE) exec -T postgres pg_isready -U margince_owner -d $(DB_NAME) >/dev/null 2>&1; do sleep 1; done; echo "postgres ready"
