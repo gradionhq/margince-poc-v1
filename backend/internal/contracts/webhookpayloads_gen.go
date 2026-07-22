@@ -10,23 +10,32 @@ import (
 
 // Defines values for SubscribableEventType.
 const (
-	DealArchived     SubscribableEventType = "deal.archived"
-	DealCreated      SubscribableEventType = "deal.created"
-	DealOwnerChanged SubscribableEventType = "deal.owner_changed"
-	DealRestored     SubscribableEventType = "deal.restored"
-	DealStageChanged SubscribableEventType = "deal.stage_changed"
-	DealUpdated      SubscribableEventType = "deal.updated"
-	OfferAccepted    SubscribableEventType = "offer.accepted"
-	OfferCreated     SubscribableEventType = "offer.created"
-	OfferRejected    SubscribableEventType = "offer.rejected"
-	OfferSent        SubscribableEventType = "offer.sent"
-	OfferSuperseded  SubscribableEventType = "offer.superseded"
-	PipelineArchived SubscribableEventType = "pipeline.archived"
-	PipelineCreated  SubscribableEventType = "pipeline.created"
-	PipelineUpdated  SubscribableEventType = "pipeline.updated"
-	StageArchived    SubscribableEventType = "stage.archived"
-	StageCreated     SubscribableEventType = "stage.created"
-	StageUpdated     SubscribableEventType = "stage.updated"
+	DealArchived         SubscribableEventType = "deal.archived"
+	DealCreated          SubscribableEventType = "deal.created"
+	DealOwnerChanged     SubscribableEventType = "deal.owner_changed"
+	DealRestored         SubscribableEventType = "deal.restored"
+	DealStageChanged     SubscribableEventType = "deal.stage_changed"
+	DealUpdated          SubscribableEventType = "deal.updated"
+	OfferAccepted        SubscribableEventType = "offer.accepted"
+	OfferCreated         SubscribableEventType = "offer.created"
+	OfferRejected        SubscribableEventType = "offer.rejected"
+	OfferSent            SubscribableEventType = "offer.sent"
+	OfferSuperseded      SubscribableEventType = "offer.superseded"
+	OrganizationArchived SubscribableEventType = "organization.archived"
+	OrganizationCreated  SubscribableEventType = "organization.created"
+	OrganizationMerged   SubscribableEventType = "organization.merged"
+	OrganizationUpdated  SubscribableEventType = "organization.updated"
+	PersonArchived       SubscribableEventType = "person.archived"
+	PersonCreated        SubscribableEventType = "person.created"
+	PersonMerged         SubscribableEventType = "person.merged"
+	PersonRestored       SubscribableEventType = "person.restored"
+	PersonUpdated        SubscribableEventType = "person.updated"
+	PipelineArchived     SubscribableEventType = "pipeline.archived"
+	PipelineCreated      SubscribableEventType = "pipeline.created"
+	PipelineUpdated      SubscribableEventType = "pipeline.updated"
+	StageArchived        SubscribableEventType = "stage.archived"
+	StageCreated         SubscribableEventType = "stage.created"
+	StageUpdated         SubscribableEventType = "stage.updated"
 )
 
 // Valid indicates whether the value is a known member of the SubscribableEventType enum.
@@ -54,6 +63,24 @@ func (e SubscribableEventType) Valid() bool {
 		return true
 	case OfferSuperseded:
 		return true
+	case OrganizationArchived:
+		return true
+	case OrganizationCreated:
+		return true
+	case OrganizationMerged:
+		return true
+	case OrganizationUpdated:
+		return true
+	case PersonArchived:
+		return true
+	case PersonCreated:
+		return true
+	case PersonMerged:
+		return true
+	case PersonRestored:
+		return true
+	case PersonUpdated:
+		return true
 	case PipelineArchived:
 		return true
 	case PipelineCreated:
@@ -71,7 +98,7 @@ func (e SubscribableEventType) Valid() bool {
 	}
 }
 
-// SubscribableEventType The closed set of domain events a webhook subscription can select. Phase 4 fills this out family by family; today it carries the pilot event plus the deal family (Task 5a-i), the offer family (Task 5a-ii), and the pipeline/stage config family (Task 5a-iii).
+// SubscribableEventType The closed set of domain events a webhook subscription can select. Phase 4 fills this out family by family; today it carries the pilot event plus the deal family (Task 5a-i), the offer family (Task 5a-ii), the pipeline/stage config family (Task 5a-iii), and the person/organization family (Task 5b-personorg). lead.* is a separate task (5b-lead) and is not yet listed.
 type SubscribableEventType string
 
 // WebhookActor Who or what caused the event, as exposed publicly.
@@ -254,6 +281,81 @@ type WebhookPayloadOfferSuperseded struct {
 	ToRevision int `json:"to_revision"`
 }
 
+// WebhookPayloadOrganizationArchived Payload for organization.archived — an organization was archived. Carries no data.
+type WebhookPayloadOrganizationArchived struct{}
+
+// WebhookPayloadOrganizationCreated Payload for organization.created — a UNION across five emit sites (a direct create, the capture auto-create engine, the anchor company save, the site-read confirmation, and the cold-start profile apply), each of which sets only its own subset; every field is therefore optional.
+type WebhookPayloadOrganizationCreated struct {
+	// Anchor Whether this is the installation's own anchor organization (company save only).
+	Anchor *bool `json:"anchor,omitempty"`
+
+	// CapturedBy The principal that created this organization.
+	CapturedBy *string `json:"captured_by,omitempty"`
+
+	// Delta The fields the creating site applied (company save / site-read confirmation only).
+	Delta *map[string]interface{} `json:"delta,omitempty"`
+
+	// DisplayName The organization's display name at creation (absent when the site never set one).
+	DisplayName *string `json:"display_name,omitempty"`
+
+	// PrimaryDomain The organization's primary domain (cold-start apply only).
+	PrimaryDomain *string `json:"primary_domain,omitempty"`
+
+	// SiteReadId The site-read that produced this organization (site-read confirmation only).
+	SiteReadId *openapi_types.UUID `json:"site_read_id,omitempty"`
+
+	// Source Where this organization originated (e.g. human, site_read).
+	Source *string `json:"source,omitempty"`
+
+	// SourceUrl The source page this organization was read from (site-read confirmation only).
+	SourceUrl *string `json:"source_url,omitempty"`
+}
+
+// WebhookPayloadOrganizationMerged Payload for organization.merged — two organization records collapsed into one (the §1.3 merge); neither organization.updated nor organization.archived can say this, so it is its own verb.
+type WebhookPayloadOrganizationMerged struct {
+	// MergedFromId The merged-away (source) organization, retired but still fetchable by id.
+	MergedFromId openapi_types.UUID `json:"merged_from_id"`
+
+	// MergedIntoId The survivor (target) organization.
+	MergedIntoId openapi_types.UUID `json:"merged_into_id"`
+}
+
+// WebhookPayloadOrganizationUpdated Payload for organization.updated — an OPEN envelope: eight emit sites carry divergent shapes (a flat column patch, the anchor company save's field delta, the partner extension's nested delta, enrichment/deep-read applies, a relationship delta), so the honest shape is a change-set map rather than a fixed field list.
+type WebhookPayloadOrganizationUpdated struct {
+	// ChangedFields Field name → new value for whatever this update touched, incl. runtime cf_* custom fields.
+	ChangedFields map[string]interface{} `json:"changed_fields"`
+}
+
+// WebhookPayloadPersonArchived Payload for person.archived — a person was archived. Carries no data.
+type WebhookPayloadPersonArchived struct{}
+
+// WebhookPayloadPersonCreated Payload for person.created — a person was created.
+type WebhookPayloadPersonCreated struct {
+	// FullName The person's name at creation.
+	FullName string `json:"full_name"`
+}
+
+// WebhookPayloadPersonMerged Payload for person.merged — two person records collapsed into one (the §1.3 merge); neither person.updated nor person.archived can say this, so it is its own verb.
+type WebhookPayloadPersonMerged struct {
+	// MergedFromId The merged-away (source) person, retired but still fetchable by id.
+	MergedFromId openapi_types.UUID `json:"merged_from_id"`
+
+	// MergedIntoId The survivor (target) person.
+	MergedIntoId openapi_types.UUID `json:"merged_into_id"`
+
+	// Relinked How many child rows on each side were repointed from the merged- away person onto the survivor (people/merge.go relinkCounts).
+	Relinked WebhookPersonMergedRelinkCounts `json:"relinked"`
+}
+
+// WebhookPayloadPersonRestored Payload for person.restored. Never emitted today (no restore path exists for person); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it.
+type WebhookPayloadPersonRestored struct{}
+
+// WebhookPayloadPersonUpdated Payload for person.updated — an OPEN envelope: its emit sites carry divergent shapes (a flat column patch, a lead-promotion conversion note, a signature-enrichment fill, a relationship delta), so the honest shape is a change-set map rather than a fixed field list.
+type WebhookPayloadPersonUpdated struct {
+	// ChangedFields Field name → new value for whatever this update touched, incl. runtime cf_* custom fields.
+	ChangedFields map[string]interface{} `json:"changed_fields"`
+}
+
 // WebhookPayloadPipelineArchived Payload for pipeline.archived. Never emitted today (no archive path exists for pipeline); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it.
 type WebhookPayloadPipelineArchived struct{}
 
@@ -309,6 +411,21 @@ type WebhookPayloadStageUpdated struct {
 
 	// WinProbability The stage's new win probability (absent when this update did not touch it).
 	WinProbability *int `json:"win_probability,omitempty"`
+}
+
+// WebhookPersonMergedRelinkCounts How many child rows on each side were repointed from the merged- away person onto the survivor (people/merge.go relinkCounts).
+type WebhookPersonMergedRelinkCounts struct {
+	// ActivityLinks activity_link rows relinked.
+	ActivityLinks int64 `json:"activity_links"`
+
+	// Emails person_email rows relinked.
+	Emails int64 `json:"emails"`
+
+	// Phones person_phone rows relinked.
+	Phones int64 `json:"phones"`
+
+	// Relationships relationship edge rows relinked.
+	Relationships int64 `json:"relationships"`
 }
 
 // WebhookPipelineCreatedStage One initial stage as declared on a pipeline.created event — the stage's own stage.created is NOT separately emitted for these (events.md §5.3b: one pipeline.created carries the whole set).
@@ -367,6 +484,42 @@ func (WebhookPayloadOfferSuperseded) EventType() string { return "offer.supersed
 
 func (WebhookPayloadOfferSuperseded) EntityType() string { return "offer" }
 
+func (WebhookPayloadOrganizationArchived) EventType() string { return "organization.archived" }
+
+func (WebhookPayloadOrganizationArchived) EntityType() string { return "organization" }
+
+func (WebhookPayloadOrganizationCreated) EventType() string { return "organization.created" }
+
+func (WebhookPayloadOrganizationCreated) EntityType() string { return "organization" }
+
+func (WebhookPayloadOrganizationMerged) EventType() string { return "organization.merged" }
+
+func (WebhookPayloadOrganizationMerged) EntityType() string { return "organization" }
+
+func (WebhookPayloadOrganizationUpdated) EventType() string { return "organization.updated" }
+
+func (WebhookPayloadOrganizationUpdated) EntityType() string { return "organization" }
+
+func (WebhookPayloadPersonArchived) EventType() string { return "person.archived" }
+
+func (WebhookPayloadPersonArchived) EntityType() string { return "person" }
+
+func (WebhookPayloadPersonCreated) EventType() string { return "person.created" }
+
+func (WebhookPayloadPersonCreated) EntityType() string { return "person" }
+
+func (WebhookPayloadPersonMerged) EventType() string { return "person.merged" }
+
+func (WebhookPayloadPersonMerged) EntityType() string { return "person" }
+
+func (WebhookPayloadPersonRestored) EventType() string { return "person.restored" }
+
+func (WebhookPayloadPersonRestored) EntityType() string { return "person" }
+
+func (WebhookPayloadPersonUpdated) EventType() string { return "person.updated" }
+
+func (WebhookPayloadPersonUpdated) EntityType() string { return "person" }
+
 func (WebhookPayloadPipelineArchived) EventType() string { return "pipeline.archived" }
 
 func (WebhookPayloadPipelineArchived) EntityType() string { return "pipeline" }
@@ -397,21 +550,30 @@ func (WebhookPayloadStageUpdated) EntityType() string { return "stage" }
 // both the coverage gate (every subscribable event type must be a key here)
 // and the version gate (VersionOf(type) must equal this map's value).
 var WebhookPayloadVersions = map[string]int{
-	"deal.archived":      1,
-	"deal.created":       1,
-	"deal.owner_changed": 1,
-	"deal.restored":      1,
-	"deal.stage_changed": 1,
-	"deal.updated":       1,
-	"offer.accepted":     1,
-	"offer.created":      1,
-	"offer.rejected":     1,
-	"offer.sent":         1,
-	"offer.superseded":   1,
-	"pipeline.archived":  1,
-	"pipeline.created":   1,
-	"pipeline.updated":   1,
-	"stage.archived":     1,
-	"stage.created":      1,
-	"stage.updated":      1,
+	"deal.archived":         1,
+	"deal.created":          1,
+	"deal.owner_changed":    1,
+	"deal.restored":         1,
+	"deal.stage_changed":    1,
+	"deal.updated":          1,
+	"offer.accepted":        1,
+	"offer.created":         1,
+	"offer.rejected":        1,
+	"offer.sent":            1,
+	"offer.superseded":      1,
+	"organization.archived": 1,
+	"organization.created":  1,
+	"organization.merged":   1,
+	"organization.updated":  1,
+	"person.archived":       1,
+	"person.created":        1,
+	"person.merged":         1,
+	"person.restored":       1,
+	"person.updated":        1,
+	"pipeline.archived":     1,
+	"pipeline.created":      1,
+	"pipeline.updated":      1,
+	"stage.archived":        1,
+	"stage.created":         1,
+	"stage.updated":         1,
 }

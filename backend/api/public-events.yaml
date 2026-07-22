@@ -24,7 +24,9 @@ components:
         The closed set of domain events a webhook subscription can select.
         Phase 4 fills this out family by family; today it carries the
         pilot event plus the deal family (Task 5a-i), the offer family
-        (Task 5a-ii), and the pipeline/stage config family (Task 5a-iii).
+        (Task 5a-ii), the pipeline/stage config family (Task 5a-iii), and
+        the person/organization family (Task 5b-personorg). lead.* is a
+        separate task (5b-lead) and is not yet listed.
       enum:
         - deal.created
         - deal.owner_changed
@@ -43,6 +45,15 @@ components:
         - stage.created
         - stage.updated
         - stage.archived
+        - person.created
+        - person.archived
+        - person.merged
+        - person.updated
+        - person.restored
+        - organization.created
+        - organization.archived
+        - organization.merged
+        - organization.updated
 
     WebhookActor:
       type: object
@@ -552,4 +563,208 @@ components:
         exists for stage); the schema is published so the type is a valid
         subscription target and the coverage gate can name it explicitly
         rather than silently omitting it.
+      additionalProperties: false
+
+    WebhookPersonMergedRelinkCounts:
+      type: object
+      description: >-
+        How many child rows on each side were repointed from the merged-
+        away person onto the survivor (people/merge.go relinkCounts).
+      required:
+        - emails
+        - phones
+        - relationships
+        - activity_links
+      properties:
+        emails:
+          type: integer
+          format: int64
+          description: person_email rows relinked.
+        phones:
+          type: integer
+          format: int64
+          description: person_phone rows relinked.
+        relationships:
+          type: integer
+          format: int64
+          description: relationship edge rows relinked.
+        activity_links:
+          type: integer
+          format: int64
+          description: activity_link rows relinked.
+      additionalProperties: false
+
+    WebhookPayloadPersonCreated:
+      type: object
+      x-event-type: person.created
+      x-entity-type: person
+      x-version: 1
+      description: Payload for person.created — a person was created.
+      required:
+        - full_name
+      properties:
+        full_name:
+          type: string
+          description: The person's name at creation.
+      additionalProperties: false
+
+    WebhookPayloadPersonArchived:
+      type: object
+      x-event-type: person.archived
+      x-entity-type: person
+      x-version: 1
+      description: Payload for person.archived — a person was archived. Carries no data.
+      additionalProperties: false
+
+    WebhookPayloadPersonMerged:
+      type: object
+      x-event-type: person.merged
+      x-entity-type: person
+      x-version: 1
+      description: >-
+        Payload for person.merged — two person records collapsed into one
+        (the §1.3 merge); neither person.updated nor person.archived can
+        say this, so it is its own verb.
+      required:
+        - merged_from_id
+        - merged_into_id
+        - relinked
+      properties:
+        merged_from_id:
+          type: string
+          format: uuid
+          description: The merged-away (source) person, retired but still fetchable by id.
+        merged_into_id:
+          type: string
+          format: uuid
+          description: The survivor (target) person.
+        relinked:
+          $ref: '#/components/schemas/WebhookPersonMergedRelinkCounts'
+      additionalProperties: false
+
+    WebhookPayloadPersonUpdated:
+      type: object
+      x-event-type: person.updated
+      x-entity-type: person
+      x-version: 1
+      description: >-
+        Payload for person.updated — an OPEN envelope: its emit sites carry
+        divergent shapes (a flat column patch, a lead-promotion conversion
+        note, a signature-enrichment fill, a relationship delta), so the
+        honest shape is a change-set map rather than a fixed field list.
+      required:
+        - changed_fields
+      properties:
+        changed_fields:
+          type: object
+          additionalProperties: true
+          description: >-
+            Field name → new value for whatever this update touched,
+            incl. runtime cf_* custom fields.
+      additionalProperties: false
+
+    WebhookPayloadPersonRestored:
+      type: object
+      x-event-type: person.restored
+      x-entity-type: person
+      x-version: 1
+      description: >-
+        Payload for person.restored. Never emitted today (no restore path
+        exists for person); the schema is published so the type is a
+        valid subscription target and the coverage gate can name it
+        explicitly rather than silently omitting it.
+      additionalProperties: false
+
+    WebhookPayloadOrganizationCreated:
+      type: object
+      x-event-type: organization.created
+      x-entity-type: organization
+      x-version: 1
+      description: >-
+        Payload for organization.created — a UNION across five emit sites
+        (a direct create, the capture auto-create engine, the anchor
+        company save, the site-read confirmation, and the cold-start
+        profile apply), each of which sets only its own subset; every
+        field is therefore optional.
+      properties:
+        display_name:
+          type: string
+          description: The organization's display name at creation (absent when the site never set one).
+        primary_domain:
+          type: string
+          description: The organization's primary domain (cold-start apply only).
+        delta:
+          type: object
+          additionalProperties: true
+          description: The fields the creating site applied (company save / site-read confirmation only).
+        source:
+          type: string
+          description: Where this organization originated (e.g. human, site_read).
+        source_url:
+          type: string
+          description: The source page this organization was read from (site-read confirmation only).
+        site_read_id:
+          type: string
+          format: uuid
+          description: The site-read that produced this organization (site-read confirmation only).
+        anchor:
+          type: boolean
+          description: Whether this is the installation's own anchor organization (company save only).
+        captured_by:
+          type: string
+          description: The principal that created this organization.
+      additionalProperties: false
+
+    WebhookPayloadOrganizationArchived:
+      type: object
+      x-event-type: organization.archived
+      x-entity-type: organization
+      x-version: 1
+      description: Payload for organization.archived — an organization was archived. Carries no data.
+      additionalProperties: false
+
+    WebhookPayloadOrganizationMerged:
+      type: object
+      x-event-type: organization.merged
+      x-entity-type: organization
+      x-version: 1
+      description: >-
+        Payload for organization.merged — two organization records
+        collapsed into one (the §1.3 merge); neither organization.updated
+        nor organization.archived can say this, so it is its own verb.
+      required:
+        - merged_from_id
+        - merged_into_id
+      properties:
+        merged_from_id:
+          type: string
+          format: uuid
+          description: The merged-away (source) organization, retired but still fetchable by id.
+        merged_into_id:
+          type: string
+          format: uuid
+          description: The survivor (target) organization.
+      additionalProperties: false
+
+    WebhookPayloadOrganizationUpdated:
+      type: object
+      x-event-type: organization.updated
+      x-entity-type: organization
+      x-version: 1
+      description: >-
+        Payload for organization.updated — an OPEN envelope: eight emit
+        sites carry divergent shapes (a flat column patch, the anchor
+        company save's field delta, the partner extension's nested
+        delta, enrichment/deep-read applies, a relationship delta), so
+        the honest shape is a change-set map rather than a fixed field
+        list.
+      required:
+        - changed_fields
+      properties:
+        changed_fields:
+          type: object
+          additionalProperties: true
+          description: >-
+            Field name → new value for whatever this update touched,
+            incl. runtime cf_* custom fields.
       additionalProperties: false

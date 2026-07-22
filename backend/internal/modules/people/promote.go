@@ -17,6 +17,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
@@ -234,14 +235,25 @@ func finalizeLeadPromotion(ctx context.Context, tx pgx.Tx, id ids.LeadID, in Pro
 	}); err != nil {
 		return crmcontracts.Person{}, fmt.Errorf("emit lead.promoted: %w", err)
 	}
-	personEvent, personPayload := "person.created", map[string]any{"full_name": person.FullName}
-	if merged {
-		personEvent, personPayload = "person.updated", map[string]any{"converted_from_lead_id": id}
-	}
-	if err := storekit.Emit(ctx, tx, auditID, personEvent, "person", personID.UUID, personPayload); err != nil {
-		return crmcontracts.Person{}, fmt.Errorf("emit %s: %w", personEvent, err)
+	personPayload := promotedPersonPayload(person, merged, id)
+	if err := storekit.EmitEvent(ctx, tx, auditID, personID.UUID, personPayload); err != nil {
+		return crmcontracts.Person{}, fmt.Errorf("emit %s: %w", personPayload.EventType(), err)
 	}
 	return person, nil
+}
+
+// promotedPersonPayload builds the person-side event a lead promotion
+// emits — its own verb (person.created) on a fresh person, or a
+// person.updated changed_fields note pointing back at the retired lead
+// when the promotion instead merged into an existing person (merged=true,
+// PO-F-1). The two shapes are different published events, not variants
+// of one, so the return type is the shared events.Payload seam rather
+// than a single struct.
+func promotedPersonPayload(person crmcontracts.Person, merged bool, leadID ids.LeadID) events.Payload {
+	if merged {
+		return crmcontracts.WebhookPayloadPersonUpdated{ChangedFields: map[string]any{"converted_from_lead_id": leadID}}
+	}
+	return crmcontracts.WebhookPayloadPersonCreated{FullName: person.FullName}
 }
 
 // promotableLead loads the lead and enforces every promotion guard:

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -121,9 +122,9 @@ func finalizeOrgMerge(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.Org
 	if err != nil {
 		return crmcontracts.Organization{}, fmt.Errorf("audit organization merge: %w", err)
 	}
-	if err := storekit.Emit(ctx, tx, auditID, "organization.merged", "organization", sourceID.UUID, map[string]any{
-		"merged_from_id": sourceID,
-		"merged_into_id": targetID,
+	if err := storekit.EmitEvent(ctx, tx, auditID, sourceID.UUID, crmcontracts.WebhookPayloadOrganizationMerged{
+		MergedFromId: openapi_types.UUID(sourceID.UUID),
+		MergedIntoId: openapi_types.UUID(targetID.UUID),
 	}); err != nil {
 		return crmcontracts.Organization{}, fmt.Errorf("emit organization.merged: %w", err)
 	}

@@ -18,6 +18,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -92,8 +93,10 @@ func (s *Store) ApplyEnrichment(ctx context.Context, orgID ids.OrganizationID, i
 		if err != nil {
 			return fmt.Errorf("audit enrichment apply: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "organization.updated", "organization", orgID.UUID, map[string]any{
-			eventKeyDelta: applied, auditKeySource: companySourceSiteRead, auditKeySourceURL: in.SourceURL,
+		if err := storekit.EmitEvent(ctx, tx, auditID, orgID.UUID, crmcontracts.WebhookPayloadOrganizationUpdated{
+			ChangedFields: map[string]any{
+				eventKeyDelta: applied, auditKeySource: companySourceSiteRead, auditKeySourceURL: in.SourceURL,
+			},
 		}); err != nil {
 			return fmt.Errorf("emit organization.updated: %w", err)
 		}

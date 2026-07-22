@@ -13,6 +13,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 
 	"github.com/jackc/pgx/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -140,11 +141,7 @@ func (s *Store) mergePersonTx(ctx context.Context, tx pgx.Tx, sourceID, targetID
 	}
 	// One event, its own verb: the context graph collapses two nodes,
 	// which neither person.updated nor person.archived can say.
-	if err := storekit.Emit(ctx, tx, auditID, "person.merged", "person", sourceID.UUID, map[string]any{
-		"merged_from_id": sourceID,
-		"merged_into_id": targetID,
-		"relinked":       counts,
-	}); err != nil {
+	if err := storekit.EmitEvent(ctx, tx, auditID, sourceID.UUID, personMergedPayload(sourceID, targetID, counts)); err != nil {
 		return crmcontracts.Person{}, fmt.Errorf("emit person.merged: %w", err)
 	}
 	out, err := readPerson(ctx, tx, targetID, storekit.LiveOnly, active)
@@ -152,6 +149,24 @@ func (s *Store) mergePersonTx(ctx context.Context, tx pgx.Tx, sourceID, targetID
 		return crmcontracts.Person{}, fmt.Errorf("read surviving person: %w", err)
 	}
 	return out, nil
+}
+
+// personMergedPayload builds the person.merged wire payload from
+// MergePerson's resolved ids and relink tally — the ONE place that maps
+// the local relinkCounts shape onto the published schema, so a future
+// field rename shows up here rather than at an independently-drifting
+// map literal.
+func personMergedPayload(sourceID, targetID ids.PersonID, counts relinkCounts) crmcontracts.WebhookPayloadPersonMerged {
+	return crmcontracts.WebhookPayloadPersonMerged{
+		MergedFromId: openapi_types.UUID(sourceID.UUID),
+		MergedIntoId: openapi_types.UUID(targetID.UUID),
+		Relinked: crmcontracts.WebhookPersonMergedRelinkCounts{
+			Emails:        counts.Emails,
+			Phones:        counts.Phones,
+			Relationships: counts.Relationships,
+			ActivityLinks: counts.ActivityLinks,
+		},
+	}
 }
 
 // buildSurvivorshipPatch folds A's values onto B fill-only: B never loses

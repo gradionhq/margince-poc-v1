@@ -10,9 +10,12 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -20,8 +23,6 @@ const (
 	actionCreate              = "create"
 	companySiteReadCapturedBy = "agent:site-read"
 	eventKeyCapturedBy        = "captured_by"
-	eventOrganizationCreated  = "organization.created"
-	eventOrganizationUpdated  = "organization.updated"
 )
 
 // ConfirmCompanySiteReadInput is the inspected onboarding draft plus the
@@ -225,9 +226,9 @@ func stageConfirmedSiteReadPeople(
 }
 
 func recordSiteReadConfirmation(ctx context.Context, tx pgx.Tx, read SiteRead, confirmation siteReadConfirmation) error {
-	action, eventType := actionUpdate, eventOrganizationUpdated
+	action := actionUpdate
 	if confirmation.created {
-		action, eventType = actionCreate, eventOrganizationCreated
+		action = actionCreate
 	}
 	auditID, err := storekit.Audit(ctx, tx, action, "organization", confirmation.organizationID.UUID, nil, map[string]any{
 		auditKeySource: companySourceSiteRead, auditKeySourceURL: read.SeedURL,
@@ -237,16 +238,9 @@ func recordSiteReadConfirmation(ctx context.Context, tx pgx.Tx, read SiteRead, c
 	if err != nil {
 		return fmt.Errorf("audit company site-read confirmation: %w", err)
 	}
-	if err := storekit.Emit(ctx, tx, auditID, eventType, "organization", confirmation.organizationID.UUID, map[string]any{
-		eventKeyDelta: map[string]any{
-			auditKeyFields: confirmation.appliedSite,
-			"human_fields": confirmation.appliedHuman,
-			auditKeyFacts:  confirmation.appliedFacts,
-		},
-		auditKeySource: companySourceSiteRead, auditKeySourceURL: read.SeedURL,
-		"site_read_id": read.ID, eventKeyCapturedBy: companySiteReadCapturedBy,
-	}); err != nil {
-		return fmt.Errorf("emit %s: %w", eventType, err)
+	payload := siteReadConfirmationPayload(read, confirmation)
+	if err := storekit.EmitEvent(ctx, tx, auditID, confirmation.organizationID.UUID, payload); err != nil {
+		return fmt.Errorf("emit %s: %w", payload.EventType(), err)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE site_read
 		SET organization_id = $2, proposal_ids = $3, confirmed_at = now(), updated_at = now()
@@ -254,6 +248,42 @@ func recordSiteReadConfirmation(ctx context.Context, tx pgx.Tx, read SiteRead, c
 		return fmt.Errorf("mark website read confirmed: %w", err)
 	}
 	return nil
+}
+
+// siteReadConfirmationPayload builds the organization-side event a
+// confirmed site-read emits — organization.created (the union struct)
+// when the confirmation minted a fresh organization, or an
+// organization.updated changed_fields note when it filled an existing
+// one — the ONE place that maps the applied site/human/fact deltas onto
+// the published schema. The two shapes are different published events,
+// not variants of one, so the return type is the shared events.Payload
+// seam.
+func siteReadConfirmationPayload(read SiteRead, confirmation siteReadConfirmation) events.Payload {
+	delta := map[string]any{
+		auditKeyFields: confirmation.appliedSite,
+		"human_fields": confirmation.appliedHuman,
+		auditKeyFacts:  confirmation.appliedFacts,
+	}
+	if confirmation.created {
+		source := companySourceSiteRead
+		sourceURL := read.SeedURL
+		siteReadID := openapi_types.UUID(read.ID)
+		capturedBy := companySiteReadCapturedBy
+		return crmcontracts.WebhookPayloadOrganizationCreated{
+			Delta:      &delta,
+			Source:     &source,
+			SourceUrl:  &sourceURL,
+			SiteReadId: &siteReadID,
+			CapturedBy: &capturedBy,
+		}
+	}
+	return crmcontracts.WebhookPayloadOrganizationUpdated{
+		ChangedFields: map[string]any{
+			eventKeyDelta:  delta,
+			auditKeySource: companySourceSiteRead, auditKeySourceURL: read.SeedURL,
+			"site_read_id": read.ID, eventKeyCapturedBy: companySiteReadCapturedBy,
+		},
+	}
 }
 
 func lockOnboardingSiteRead(ctx context.Context, tx pgx.Tx, readID ids.UUID) (SiteRead, error) {

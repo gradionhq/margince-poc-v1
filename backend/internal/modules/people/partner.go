@@ -203,8 +203,10 @@ func (s *Store) UpsertPartner(ctx context.Context, in UpsertPartnerInput) (partn
 		if err != nil {
 			return err
 		}
-		return storekit.Emit(ctx, tx, auditID, "organization.updated", "organization", in.OrganizationID.UUID, map[string]any{
-			"delta": map[string]any{"partner": map[string]any{"role": in.PartnerRole, "cert_status": out.CertStatus}},
+		return storekit.EmitEvent(ctx, tx, auditID, in.OrganizationID.UUID, crmcontracts.WebhookPayloadOrganizationUpdated{
+			ChangedFields: map[string]any{
+				"delta": map[string]any{"partner": map[string]any{"role": in.PartnerRole, "cert_status": out.CertStatus}},
+			},
 		})
 	})
 	return out, err

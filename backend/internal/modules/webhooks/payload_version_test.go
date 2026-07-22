@@ -233,3 +233,69 @@ func TestStageUpdatedWireSnapshot(t *testing.T) {
 	}
 	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
 }
+
+// personSnapshotSource/personSnapshotTarget are fixed, memorable UUIDs so
+// the person/organization family's golden snapshots (webhooks Task
+// 5b-personorg) are stable across test runs — a real ids.NewV7() would
+// churn the fixtures on every regeneration for no reason.
+var (
+	personSnapshotSource = uuid.MustParse("88888888-8888-8888-8888-888888888888")
+	personSnapshotTarget = uuid.MustParse("99999999-9999-9999-9999-999999999999")
+)
+
+// TestPersonCreatedWireSnapshot pins the person.created wire shape
+// (webhooks Task 5b-personorg, person/organization family).
+func TestPersonCreatedWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadPersonCreated{FullName: "Ada Lovelace"}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestPersonMergedWireSnapshot pins the person.merged wire shape.
+func TestPersonMergedWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadPersonMerged{
+		MergedFromId: personSnapshotSource,
+		MergedIntoId: personSnapshotTarget,
+		Relinked: crmcontracts.WebhookPersonMergedRelinkCounts{
+			Emails: 2, Phones: 1, Relationships: 3, ActivityLinks: 5,
+		},
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestPersonUpdatedWireSnapshot pins the person.updated wire shape — the
+// OPEN changed_fields envelope, sampled with a flat column patch.
+func TestPersonUpdatedWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadPersonUpdated{
+		ChangedFields: map[string]any{"title": "VP Sales"},
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestOrganizationCreatedWireSnapshot pins the organization.created wire
+// shape — the UNION struct, sampled with the direct-create subset
+// (display_name only; the other four sites' fields are exercised by the
+// people-package payload-builder unit tests).
+func TestOrganizationCreatedWireSnapshot(t *testing.T) {
+	displayName := "Acme GmbH"
+	sample := crmcontracts.WebhookPayloadOrganizationCreated{DisplayName: &displayName}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestOrganizationMergedWireSnapshot pins the organization.merged wire shape.
+func TestOrganizationMergedWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadOrganizationMerged{
+		MergedFromId: personSnapshotSource,
+		MergedIntoId: personSnapshotTarget,
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestOrganizationUpdatedWireSnapshot pins the organization.updated wire
+// shape — the OPEN changed_fields envelope, sampled with a flat column
+// patch.
+func TestOrganizationUpdatedWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadOrganizationUpdated{
+		ChangedFields: map[string]any{"industry": "software"},
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}

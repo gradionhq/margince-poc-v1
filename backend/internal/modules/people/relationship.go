@@ -26,6 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -347,18 +348,28 @@ func emitRelationshipChange(ctx context.Context, tx pgx.Tx, action string, rel r
 	if err != nil {
 		return err
 	}
-	delta := map[string]any{
+	changedFields := map[string]any{
 		"delta": map[string]any{"relationship": map[string]any{"id": rel.ID, "kind": rel.Kind, "action": action}},
 	}
-	// deal.updated is migrated to the typed WebhookPayload* seam (webhooks
-	// Task 5a-i); person.updated/organization.updated stay on the legacy
-	// map-payload Emit until their own family task (5b) migrates them —
-	// this anchor is the one call site that fans out across all three, so
-	// it cannot switch wholesale before that.
-	if anchorObject == "deal" {
-		return storekit.EmitEvent(ctx, tx, auditID, anchorID, crmcontracts.WebhookPayloadDealUpdated{ChangedFields: delta})
+	return storekit.EmitEvent(ctx, tx, auditID, anchorID, relationshipUpdatedPayload(anchorObject, changedFields))
+}
+
+// relationshipUpdatedPayload builds the anchor's .updated event for a
+// relationship mutation — the same changed_fields delta wrapped in
+// whichever of the three anchors' published OPEN envelopes this edge
+// points at. All three (deal.updated, person.updated,
+// organization.updated) are OPEN envelopes with an identical
+// changed_fields shape, so the only real work here is picking the right
+// generated struct for the anchor.
+func relationshipUpdatedPayload(anchorObject string, changedFields map[string]any) events.Payload {
+	switch anchorObject {
+	case "deal":
+		return crmcontracts.WebhookPayloadDealUpdated{ChangedFields: changedFields}
+	case "person":
+		return crmcontracts.WebhookPayloadPersonUpdated{ChangedFields: changedFields}
+	default: // organization
+		return crmcontracts.WebhookPayloadOrganizationUpdated{ChangedFields: changedFields}
 	}
-	return storekit.Emit(ctx, tx, auditID, anchorObject+".updated", anchorObject, anchorID, delta)
 }
 
 // EnsureDealVisible probes a deal id under the caller's row scope —

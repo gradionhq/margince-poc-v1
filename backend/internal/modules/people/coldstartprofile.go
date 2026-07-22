@@ -21,8 +21,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -99,9 +101,9 @@ func applyColdStartTx(ctx context.Context, tx pgx.Tx, in ApplyColdStartProfileIn
 		return ids.OrganizationID{}, err
 	}
 
-	action, eventType := "update", "organization.updated"
+	action := "update"
 	if created {
-		action, eventType = "create", "organization.created"
+		action = "create"
 	}
 	auditID, err := storekit.Audit(ctx, tx, action, "organization", orgID.UUID, nil, map[string]any{
 		auditKeySource: companySourceSiteRead, auditKeySourceURL: in.SourceURL, auditKeyFields: applied,
@@ -109,15 +111,39 @@ func applyColdStartTx(ctx context.Context, tx pgx.Tx, in ApplyColdStartProfileIn
 	if err != nil {
 		return ids.OrganizationID{}, fmt.Errorf("audit coldstart apply: %w", err)
 	}
-	payload := map[string]any{eventKeyDelta: applied, auditKeySource: companySourceSiteRead, auditKeySourceURL: in.SourceURL}
-	if created {
-		payload = map[string]any{"display_name": fieldValue(in.Fields, "legal_name"), "primary_domain": host,
-			auditKeySource: companySourceSiteRead, "captured_by": by}
-	}
-	if err := storekit.Emit(ctx, tx, auditID, eventType, "organization", orgID.UUID, payload); err != nil {
-		return ids.OrganizationID{}, fmt.Errorf("emit %s: %w", eventType, err)
+	payload := coldStartApplyPayload(created, in, host, by, applied)
+	if err := storekit.EmitEvent(ctx, tx, auditID, orgID.UUID, payload); err != nil {
+		return ids.OrganizationID{}, fmt.Errorf("emit %s: %w", payload.EventType(), err)
 	}
 	return orgID, nil
+}
+
+// coldStartApplyPayload builds the organization-side event an accepted
+// cold-start profile emits — organization.created (the union struct,
+// display_name/primary_domain from the accepted legal_name field and the
+// resolved host) when the apply minted a fresh organization, or an
+// organization.updated changed_fields note when it filled an existing
+// one — the ONE place that maps the applied field delta onto the
+// published schema. The two shapes are different published events, not
+// variants of one, so the return type is the shared events.Payload seam.
+func coldStartApplyPayload(created bool, in ApplyColdStartProfileInput, host, by string, applied map[string]any) events.Payload {
+	if created {
+		displayName := fieldValue(in.Fields, "legal_name")
+		primaryDomain := host
+		source := companySourceSiteRead
+		capturedBy := by
+		return crmcontracts.WebhookPayloadOrganizationCreated{
+			DisplayName:   &displayName,
+			PrimaryDomain: &primaryDomain,
+			Source:        &source,
+			CapturedBy:    &capturedBy,
+		}
+	}
+	return crmcontracts.WebhookPayloadOrganizationUpdated{
+		ChangedFields: map[string]any{
+			eventKeyDelta: applied, auditKeySource: companySourceSiteRead, auditKeySourceURL: in.SourceURL,
+		},
+	}
 }
 
 // resolveOrCreateColdStartOrg finds the organization the source domain
