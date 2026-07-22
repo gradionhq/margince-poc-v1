@@ -24,9 +24,9 @@
 #     added, give each slot a private index here (and teach that test to read it).
 
 # parse_test_dsn: split MARGINCE_TEST_DSN (owner) and MARGINCE_TEST_APP_DSN (app)
-# into a psql-admin target + the reusable prefix/suffix each clone DSN is built
-# from. Both DSNs point at the same template db in normal use; we only ever swap
-# the db name segment, never the credentials/host.
+# into the reusable prefix/suffix each clone DSN is built from. Both DSNs point
+# at the same template db in normal use; we only ever swap the db name segment,
+# never the credentials/host.
 parse_test_dsn() {
   local owner="${MARGINCE_TEST_DSN:-postgres://margince_owner:dev@localhost:55432/margince}"
   local app="${MARGINCE_TEST_APP_DSN:-postgres://margince_app:margince_app_dev@localhost:55432/margince}"
@@ -45,20 +45,18 @@ parse_test_dsn() {
   local a_tail="${a_body#*/}"
   A_QUERY=""; local a_db="${a_tail%%\?*}"; [[ "$a_tail" != "$a_db" ]] && A_QUERY="${a_tail#*\?}"
 
-  # psql admin identity: the owner role, run against the maintenance `postgres`
-  # db so CREATE/DROP DATABASE never runs inside the database being dropped.
-  local hostcreds="${owner#*://}"; hostcreds="${hostcreds%%/*}"   # user:pass@host:port
-  local userpass="${hostcreds%@*}"
-  PGADMIN_USER="${userpass%%:*}"
-
-  export O_PREFIX O_QUERY A_PREFIX A_QUERY TEMPLATE_DB PGADMIN_USER
+  export O_PREFIX O_QUERY A_PREFIX A_QUERY TEMPLATE_DB
 }
 
-# psql is NOT a host requirement (hosts need Go + Docker only): admin SQL runs
-# inside the compose postgres container, the same way scripts/dev.sh does.
-pg_admin() {
-  docker compose -f infra/docker-compose.dev.yml exec -T postgres \
-    psql -U "$PGADMIN_USER" -d postgres "$@"
+# db_admin verb [flags…] — create/drop/probe databases through cmd/migrate's
+# db verbs, over the SAME owner DSN the migrations and tests use. psql is NOT
+# a host requirement (hosts need Go + Docker only), and an overridden
+# MARGINCE_TEST_DSN targets one cluster for clone + migrate + test alike —
+# there is no second admin connection path that could point elsewhere. The
+# maintenance `postgres` db is the target: CREATE/DROP DATABASE never runs
+# inside the database being dropped. Runs from the repo root, like build_template.
+db_admin() {
+  ( cd backend && go run ./cmd/migrate "$@" --dsn "${O_PREFIX}/postgres${O_QUERY:+?$O_QUERY}" )
 }
 
 # The migrated template every per-package clone is copied from. Exported so the
@@ -73,18 +71,17 @@ app_clone_dsn()   { local db="$1"; echo "${A_PREFIX}/${db}${A_QUERY:+?$A_QUERY}"
 # Fresh each call so the template can never carry a stale schema. Runs from the
 # repo root; the caller must have cd'd there (both scripts do).
 build_template() {
-  pg_admin -v ON_ERROR_STOP=1 \
-    -c "DROP DATABASE IF EXISTS ${TEMPLATE_NAME}" \
-    -c "CREATE DATABASE ${TEMPLATE_NAME}" >/dev/null
+  db_admin recreate-db --name "$TEMPLATE_NAME" >/dev/null
   ( cd backend && go run ./cmd/migrate up --dsn "$(owner_clone_dsn "$TEMPLATE_NAME")" >/dev/null )
 }
 
 # ensure_template — build the template only if it is missing (fast reuse for the
 # single-package inner loop; the full lane rebuilds fresh via build_template).
+# A failed probe reads as missing: build_template then reports the real error.
 ensure_template() {
   local exists
-  exists="$(pg_admin -tAc "SELECT 1 FROM pg_database WHERE datname = '${TEMPLATE_NAME}'" 2>/dev/null || true)"
-  [[ "$exists" = "1" ]] || build_template
+  exists="$(db_admin db-exists --name "$TEMPLATE_NAME" 2>/dev/null || true)"
+  [[ "$exists" = "true" ]] || build_template
 }
 
 # make_clone db — drop any stale clone, then copy the migrated template (a fast
@@ -92,12 +89,10 @@ ensure_template() {
 # the template, which holds: nothing connects to margince_test after build.
 make_clone() {
   local db="$1"
-  pg_admin -v ON_ERROR_STOP=1 \
-    -c "DROP DATABASE IF EXISTS ${db}" \
-    -c "CREATE DATABASE ${db} TEMPLATE ${TEMPLATE_NAME}" >/dev/null
+  db_admin recreate-db --name "$db" --template "$TEMPLATE_NAME" >/dev/null
 }
 
-drop_clone() { local db="$1"; pg_admin -c "DROP DATABASE IF EXISTS ${db}" >/dev/null 2>&1 || true; }
+drop_clone() { local db="$1"; db_admin drop-db --name "$db" >/dev/null 2>&1 || true; }
 
 # bucket_for SLOT [BASE] — DNS-compliant private MinIO bucket per slot (the store
 # auto-creates it). Hyphen, never underscore.

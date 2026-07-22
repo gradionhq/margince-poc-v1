@@ -222,9 +222,9 @@ jobs:
       # Postgres + Redis + MinIO, digest-pinned there) plus scripts/db-init.sql
       # for the cluster-level margince_app role — migration 0015 GRANTs to it,
       # and the parallel lane's clones inherit those grants. One stack
-      # definition instead of hand-mirrored GH service containers, and the
-      # lane's admin psql runs inside the postgres container
-      # (scripts/lib-testdb.sh pg_admin), so no host psql is assumed.
+      # definition instead of hand-mirrored GH service containers; the lane's
+      # database admin goes through cmd/migrate's db verbs on the test DSN
+      # (scripts/lib-testdb.sh db_admin), so no host psql is assumed.
       - name: Start the dev infra stack (compose + app role)
         run: make db-up
       # The same lane, with coverage: COVER_OUT switches the parallel runner
