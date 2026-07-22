@@ -113,6 +113,30 @@ func TestOverlayWireDealParsesAmountAndCloseDate(t *testing.T) {
 	}
 }
 
+// TestOverlayWireDealNullsPipelineAndStage is the OVA-MAP-6 contract proof:
+// an overlay-mirror deal reads with NULL pipeline_id/stage_id (never a
+// fabricated/zero UUID — a forbidden dangling FK), while the incumbent's own
+// pipeline/dealstage identifiers ride raw.
+func TestOverlayWireDealNullsPipelineAndStage(t *testing.T) {
+	rec := wireRecord(t, datasource.EntityDeal, map[string]any{
+		"name": "Acme", "pipeline_id": "default", "stage_id": "appointmentscheduled",
+	})
+	deal, err := overlayWireDeal(wireCtx(), rec)
+	if err != nil {
+		t.Fatalf("overlayWireDeal: %v", err)
+	}
+	if deal.PipelineId != nil {
+		t.Errorf("PipelineId = %v, want nil (overlay has no native pipeline row — OVA-MAP-6)", *deal.PipelineId)
+	}
+	if deal.StageId != nil {
+		t.Errorf("StageId = %v, want nil (overlay has no native stage row — OVA-MAP-6)", *deal.StageId)
+	}
+	// The incumbent identifiers ride raw, never lost.
+	if deal.Raw == nil || (*deal.Raw)["pipeline_id"] != "default" || (*deal.Raw)["stage_id"] != "appointmentscheduled" {
+		t.Errorf("raw = %v, want the incumbent pipeline/dealstage identifiers preserved", deal.Raw)
+	}
+}
+
 func TestFieldInt64RejectsNonIntegralNumbers(t *testing.T) {
 	for name, v := range map[string]any{
 		"fractional": 1.5, "huge": 1e19, "nan": math.NaN(), "inf": math.Inf(1), "text": "12.5",

@@ -73,6 +73,15 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.DealID, in AdvanceDealIn
 		if err != nil {
 			return fmt.Errorf("read deal before advance: %w", err)
 		}
+		// pipeline_id/stage_id became nullable for overlay-mirror deals
+		// (OVA-MAP-6), but a NATIVE deal — the only kind this native advance
+		// path ever runs against — always carries both (NOT NULL columns).
+		// Refuse a deal missing them rather than nil-deref below: an overlay
+		// deal cannot reach here (advance_deal is unsupported in overlay mode),
+		// so a nil is corruption, not a valid transition.
+		if current.StageId == nil || current.PipelineId == nil {
+			return fmt.Errorf("advance deal %s: deal has no native pipeline/stage", id)
+		}
 
 		semantic, winProbability, err := resolveAdvanceTarget(ctx, tx, in.ToStageID, current)
 		if err != nil {
@@ -95,7 +104,7 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.DealID, in AdvanceDealIn
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO deal_stage_history (workspace_id, deal_id, from_stage_id, to_stage_id, changed_by, amount_minor_at_change, currency_at_change, win_probability_at_change)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-			storekit.MustWorkspace(ctx), id, ids.UUID(current.StageId), in.ToStageID, by,
+			storekit.MustWorkspace(ctx), id, ids.UUID(*current.StageId), in.ToStageID, by,
 			current.AmountMinor, current.Currency, winProbability); err != nil {
 			return fmt.Errorf("record stage history: %w", err)
 		}
@@ -140,7 +149,7 @@ func resolveAdvanceTarget(ctx context.Context, tx pgx.Tx, toStage ids.StageID, c
 	if err != nil {
 		return "", 0, fmt.Errorf("resolve target stage: %w", err)
 	}
-	if stagePipeline.UUID != ids.UUID(current.PipelineId) {
+	if stagePipeline.UUID != ids.UUID(*current.PipelineId) {
 		return "", 0, &StagePipelineMismatchError{StageID: toStage}
 	}
 	return semantic, winProbability, nil
