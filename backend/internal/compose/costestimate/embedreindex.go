@@ -121,7 +121,8 @@ func (e *EmbedReindexEstimator) EstimateEmbedReindex(ctx context.Context, curren
 	perWorkspace = make([]Row, 0, len(counts))
 	var totalEntities int
 	var totalTokens, totalCostMinor int64
-	var totalHasCost bool
+	pricedRows := 0
+	anyPendingUnrated := false
 
 	for _, wsID := range sortedWorkspaceIDs(counts) {
 		row, err := e.priceWorkspaceRow(ctx, wsID, counts[wsID], tokens[wsID], ref, bound, today)
@@ -134,7 +135,14 @@ func (e *EmbedReindexEstimator) EstimateEmbedReindex(ctx context.Context, curren
 		totalTokens += row.Tokens
 		if row.CostMinor != nil {
 			totalCostMinor += *row.CostMinor
-			totalHasCost = true
+			pricedRows++
+		} else if row.Entities > 0 {
+			// A workspace with real pending work but no resolvable rate means
+			// the fleet total would be a PARTIAL cost — presenting it as the
+			// whole understates the spend. Suppress the total cost rather than
+			// fabricate completeness (the same never-fabricated-0 honesty the
+			// per-row field already keeps).
+			anyPendingUnrated = true
 		}
 	}
 
@@ -144,7 +152,7 @@ func (e *EmbedReindexEstimator) EstimateEmbedReindex(ctx context.Context, curren
 		Currency: currencyUSD,
 		Quality:  QualityHeuristic,
 	}
-	if totalHasCost {
+	if pricedRows > 0 && !anyPendingUnrated {
 		total.CostMinor = &totalCostMinor
 	}
 	return perWorkspace, total, nil

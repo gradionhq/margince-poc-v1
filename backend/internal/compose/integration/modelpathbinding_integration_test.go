@@ -19,9 +19,12 @@ package integration
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
@@ -153,8 +156,11 @@ func TestNewModelPathUnboundEmbedLaneSkipsSeed(t *testing.T) {
 	}
 
 	store := search.NewStore(e.Pool)
-	if _, _, _, err := store.PopulatedIdentity(context.Background()); err == nil {
-		t.Fatal("the binding marker must NOT exist — an unbound embed lane must skip the seed, not plant an empty identity")
+	// The marker row must be genuinely ABSENT — assert the specific
+	// no-row error, so a schema/permission fault can't masquerade as
+	// "correctly skipped the seed".
+	if _, _, _, err := store.PopulatedIdentity(context.Background()); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("the binding marker must NOT exist — an unbound embed lane must skip the seed, not plant an empty identity; want pgx.ErrNoRows, got: %v", err)
 	}
 
 	if strings.Contains(buf.String(), "embed binding changed") {

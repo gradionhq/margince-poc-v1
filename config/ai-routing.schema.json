@@ -56,7 +56,7 @@
         },
         "model":    { "type": "string", "description": "Provider-native model id. ollama/vllm default to a Gemma-class model when omitted (A23)." },
         "base_url": { "type": "string", "description": "Endpoint override. REQUIRED for openai_compatible (the vendor host root, NO /v1). Empty ⇒ provider default." },
-        "dimensions": { "type": "integer", "minimum": 1, "maximum": 2000, "description": "Vector width the provider is asked to emit. Optional; defaults to 1024." }
+        "dimensions": { "type": "integer", "minimum": 0, "maximum": 2000, "description": "Vector width the provider is asked to emit. Optional; 0 or omitted defaults to 1536." }
       },
       "allOf": [
         {

@@ -49,7 +49,12 @@ func startInlineRelay(ctx context.Context, pool *pgxpool.Pool, redisAddr, webhoo
 	// rides the same deliverer.
 	if webhookKey != "" {
 		if derr := startInlineWebhookDelivery(relayCtx, &relay, rdb, pool, webhookKey, webhookRetryInterval, logger); derr != nil {
+			// Mirror the stop closure's order below: cancel, drain the relay
+			// goroutine, THEN close the bus client — the relay's Run(relayCtx)
+			// is already in flight and must observe cancellation and stop
+			// using rdb before we close it.
 			cancel()
+			relay.Wait()
 			if cerr := rdb.Close(); cerr != nil {
 				logger.Warn("closing bus client", "err", cerr)
 			}

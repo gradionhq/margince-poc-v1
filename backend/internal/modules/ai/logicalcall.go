@@ -81,9 +81,10 @@ func computeConfigHash(taskContractHash, routingConfigHash, promptVersion string
 // model.Embeddings.Dims): newConfigSnapshot runs once, at Router
 // construction, and the snapshot's Hash is the ai_call_config primary key,
 // so a per-call value would re-hash — and re-INSERT — the config row on
-// every single embed. The width guard (Embed's own res.Dims == configured
-// check) already keeps this static value truthful for every call it
-// covers. Marshaling a struct of one int field cannot fail (same reasoning
+// every single embed. The width guard that keeps this static value
+// truthful lives at the consumer (search's UpsertEmbedding rejects any
+// provider response whose width != the configured dims), not in
+// Router.Embed itself. Marshaling a struct of one int field cannot fail (same reasoning
 // as buildEmbedPayload in payloadcapture.go), so the error is deliberately
 // discarded rather than advertising a path that can never run.
 func embedDimensionsParams(dims int) json.RawMessage {

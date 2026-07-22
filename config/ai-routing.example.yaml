@@ -106,13 +106,16 @@ tiers:
 # embeddings — the embedding lane, bound separately from the chat tiers
 # (retrieval must keep working when the chat budget is exhausted). Required.
 # Defaults to gemini so the stack needs no local Ollama; the adapter requests
-# outputDimensionality to match the store's vector(1024) column. Key from
-# GEMINI_API_KEY (same as the chat tiers). Swap to `{ provider: ollama, model:
-# bge-m3 }` for a fully-local embedder, or `{ provider: fake }` for offline dev.
+# `outputDimensionality: dimensions` below. The embedding column is unbounded
+# (stores whatever width the binding emits), so any width in [1,2000] is valid
+# — no migration to change it. Key from GEMINI_API_KEY (same as the chat
+# tiers). Swap to `{ provider: ollama, model: bge-m3, dimensions: 1024 }` for a
+# fully-local embedder (bge-m3's native width), or `{ provider: fake }` for
+# offline dev.
 embeddings:
   provider: gemini
-  model: gemini-embedding-001
-  dimensions: 1024   # optional; default 1024. The width the provider is asked to emit.
+  model: gemini-embedding-001   # text-only, GA, not deprecated. Newer alt: gemini-embedding-2 (multimodal) — its space is incompatible, so swapping triggers a reindex (that is this store's whole point).
+  dimensions: 1536   # optional; default 1536. gemini recommends 768 / 1536 / 3072 (API default 3072).
 
 # A fully-offline dev/test config needs no infrastructure at all:
 #   profile: eu_hosted

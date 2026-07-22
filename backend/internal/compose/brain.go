@@ -11,6 +11,7 @@ package compose
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 
@@ -78,7 +79,9 @@ func NewModelPath(cfg ai.RoutingConfig, pool *pgxpool.Pool, capturePayloads bool
 	if err != nil {
 		return ModelPath{}, err
 	}
-	seedEmbedBinding(context.Background(), search.NewStore(pool), router, log)
+	if err := seedEmbedBinding(context.Background(), search.NewStore(pool), router, log); err != nil {
+		return ModelPath{}, err
+	}
 	return modelPathForRouter(router, newCompanyContextProvider(people.NewStore(pool))), nil
 }
 
@@ -93,35 +96,37 @@ func NewModelPath(cfg ai.RoutingConfig, pool *pgxpool.Pool, capturePayloads bool
 // never bound an embeddings model) — there is no live identity to plant,
 // so this is a no-op, never an error.
 //
-// A store already populated under a DIFFERENT identity means an operator
-// changed the embed binding since the marker was last seeded. The store
-// still serves reads correctly under its existing populated identity (the
-// N+1 read path tolerates a stale binding); reindexing onto the new one
-// is a deliberate ops action, not something boot should force. So this
-// logs LOUDLY at error level — an admin must see it — and construction
-// still succeeds.
-func seedEmbedBinding(ctx context.Context, store *search.Store, router *ai.Router, log *slog.Logger) {
+// A genuine store failure (SeedBinding or PopulatedIdentity) is a real DB
+// fault surfacing right after the pool connected — it aborts boot through
+// NewModelPath rather than launching a process whose embed marker is
+// unestablished or unverified.
+//
+// A store already populated under a DIFFERENT identity is NOT a fault: it
+// means an operator changed the embed binding since the marker was last
+// seeded. The store still serves reads correctly under its existing
+// populated identity (the N+1 read path tolerates a stale binding);
+// reindexing onto the new one is a deliberate ops action, not something
+// boot should force. So that case logs LOUDLY at error level — an admin
+// must see it — and construction still succeeds.
+func seedEmbedBinding(ctx context.Context, store *search.Store, router *ai.Router, log *slog.Logger) error {
 	if log == nil {
 		log = slog.Default()
 	}
 	identity, _ := router.EmbedIdentity()
 	if identity == "" {
-		return
+		return nil
 	}
-	// A seed failure must never crash boot (the router is already built and
-	// otherwise usable), but it must never be silently dropped either.
 	if err := store.SeedBinding(ctx, identity); err != nil {
-		log.Error("seeding embed binding marker failed", "error", err)
-		return
+		return fmt.Errorf("seeding embed binding marker: %w", err)
 	}
 	populated, _, _, err := store.PopulatedIdentity(ctx)
 	if err != nil {
-		log.Error("reading embed binding marker failed", "error", err)
-		return
+		return fmt.Errorf("reading embed binding marker: %w", err)
 	}
 	if populated != identity {
 		log.Error("embed binding changed", "configured", identity, "populated", populated)
 	}
+	return nil
 }
 
 // NewLocalModelPath builds a ModelPath over the DB-less local router

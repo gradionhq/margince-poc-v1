@@ -23,6 +23,10 @@ const embedStateUnknown = "unknown"
 // this one line.
 func (s Server) readyzEmbedState() func(context.Context) string {
 	engine := s.embedReindexHandlers.engine
+	log := s.log
+	if log == nil {
+		log = slog.Default()
+	}
 	return func(ctx context.Context) string {
 		if engine == nil {
 			return embedStateUnknown
@@ -43,7 +47,7 @@ func (s Server) readyzEmbedState() func(context.Context) string {
 			// unreadable binding) — it only ever downgrades this one
 			// visibility line, so the failure is logged here rather than
 			// surfaced to the probe body.
-			slog.ErrorContext(ctx, "readyz: reading embed binding marker failed", "err", err)
+			log.ErrorContext(ctx, "readyz: reading embed binding marker failed", "err", err)
 			return embedStateUnknown
 		}
 		if status == reembeddingStatus {

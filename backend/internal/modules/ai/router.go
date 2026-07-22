@@ -87,6 +87,13 @@ type Router struct {
 // to. Pure — no DB access; EnsureConfig plants the row lazily, once per
 // flush.
 func (r *Router) installConfigSnapshot(routingConfigHash string, embedDims int) {
+	// ParseRouting defaults 0→defaultEmbedDimensions, but a programmatic
+	// RoutingConfig built without it (a hand-assembled test fixture) reaches
+	// construction with Dimensions still 0 — default here too so a bound embed
+	// lane never stamps its identity as "@0" or asks a provider for width 0.
+	if embedDims == 0 {
+		embedDims = defaultEmbedDimensions
+	}
 	r.embedDims = embedDims
 	r.configSnapshot = newConfigSnapshot(routingConfigHash, embedDims)
 	r.configHash = r.configSnapshot.Hash

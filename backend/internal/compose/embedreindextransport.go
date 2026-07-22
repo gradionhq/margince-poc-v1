@@ -441,6 +441,17 @@ type embedReindexWorker struct {
 	embedder search.Embedder
 }
 
+// Timeout disables River's 1-minute default: a fleet-wide re-embed is a
+// resumable batch bounded by corpus size, not by a wall-clock budget, so a
+// large corpus (or a slow embed provider) must not be cancelled mid-pass and
+// forced to burn its retries re-walking work the skip-compare would anyway
+// make free. It still stops on ctx cancellation at shutdown, cancels itself
+// on identity drift, and each individual embed is bounded by the model
+// lane's own per-call timeout — this only removes the whole-job wall.
+func (w *embedReindexWorker) Timeout(*river.Job[embedReindexArgs]) time.Duration {
+	return -1
+}
+
 func (w *embedReindexWorker) Work(ctx context.Context, job *river.Job[embedReindexArgs]) error {
 	if w.embedder == nil {
 		// This worker role has no embed lane configured (JobRunnerConfig.

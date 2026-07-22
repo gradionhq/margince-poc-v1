@@ -250,9 +250,9 @@ func TestUnboundLadderWarnings(t *testing.T) {
 
 // TestParseRoutingEmbedDimensions pins the embeddings-lane `dimensions`
 // contract (spec ai-operational-spec.md §1.4, embed-identity phase 2): unset
-// (0) defaults to 1024 — the pgvector column width the example config already
-// commits to — while anything outside [1,2000] fails at startup, the same
-// boot-loud-not-3am-surprise posture every other routing-config defect gets.
+// (0) defaults to 1536 (a gemini-recommended width) — while anything outside
+// [1,2000] fails at startup, the same boot-loud-not-3am-surprise posture
+// every other routing-config defect gets.
 func TestParseRoutingEmbedDimensions(t *testing.T) {
 	const base = `
 profile: eu_hosted
@@ -271,8 +271,17 @@ embeddings: {provider: fake, model: embed-model, dimensions: %d}
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("dims=%d: err=%v wantErr=%v", tc.dims, err, tc.wantErr)
 			}
-			if err == nil && tc.dims == 0 && got.Embeddings.Dimensions != 1024 {
-				t.Fatalf("dims=0 did not default to 1024, got %d", got.Embeddings.Dimensions)
+			if err == nil {
+				// An accepted width must be preserved verbatim (0 defaults
+				// to 1536) — a parser silently rewriting 1/768/2000 to
+				// another width would otherwise pass unnoticed.
+				want := tc.dims
+				if tc.dims == 0 {
+					want = 1536
+				}
+				if got.Embeddings.Dimensions != want {
+					t.Fatalf("dims=%d: parsed Dimensions=%d, want %d", tc.dims, got.Embeddings.Dimensions, want)
+				}
 			}
 		})
 	}

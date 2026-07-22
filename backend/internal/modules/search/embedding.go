@@ -136,6 +136,13 @@ type VectorHit struct {
 // identity. Object RBAC and row scope gate every branch, exactly like
 // the lexical union — a vector hit is a read too.
 func (s *Store) SimilarEntities(ctx context.Context, queryVec []float32, identity string, limit int) ([]VectorHit, error) {
+	// A zero query vector makes every cosine distance 0/0 = NaN, and a
+	// naive ORDER BY sim DESC sorts NaN FIRST — the same trap the write
+	// path guards. There is nothing to rank against it, so return no vector
+	// hits and let the caller's lexical arm carry the query.
+	if isZero(queryVec) {
+		return nil, nil
+	}
 	limit = clampLimit(limit)
 	var hits []VectorHit
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {

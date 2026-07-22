@@ -155,10 +155,11 @@ func (s *Store) PendingByWorkspace(ctx context.Context, currentIdentity string) 
 	return counts, err
 }
 
-// TokenSumByWorkspace is the per-workspace SUM(length(<embedText
+// TokenSumByWorkspace is the per-workspace SUM(octet_length(<embedText
 // source>))/4 over the same pending set PendingByWorkspace counts — a
-// rough 4-bytes-per-token estimate (the same convention as
-// ai/router.go:410 and ai/fake.go:113), feeding Task 14's advisory cost
+// rough 4-UTF-8-bytes-per-token estimate (the same convention as
+// ai/router.go:410 and ai/fake.go:113, which count bytes not runes, so a
+// non-ASCII corpus is not undercounted), feeding Task 14's advisory cost
 // preview. No corpus materialization and no model call: the length lives
 // in the source columns already.
 func (s *Store) TokenSumByWorkspace(ctx context.Context, currentIdentity string) (map[ids.WorkspaceID]int64, error) {
@@ -252,7 +253,7 @@ func (s *Store) workspacePending(ctx context.Context, currentIdentity string) (c
 	txErr := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		for entityType, src := range pendingSources {
 			sql := fmt.Sprintf(`
-				SELECT count(*), coalesce(sum(length(btrim(%s))), 0)
+				SELECT count(*), coalesce(sum(octet_length(btrim(%s))), 0)
 				FROM %s t
 				WHERE t.archived_at IS NULL
 				  AND btrim(%s) <> ''

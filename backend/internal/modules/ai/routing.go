@@ -26,9 +26,12 @@ const (
 )
 
 // defaultEmbedDimensions is the vector width an embeddings binding gets when
-// it leaves `dimensions` unset (0) — matching the pgvector column the
-// committed example config already assumes.
-const defaultEmbedDimensions = 1024
+// it leaves `dimensions` unset (0) — 1536, one of gemini-embedding-001's
+// recommended Matryoshka widths (768 / 1536 / 3072) and a safe mid-size
+// default for the unbounded embedding column. An operator on a provider
+// with a different native width (e.g. Ollama bge-m3 at 1024) sets
+// `dimensions` explicitly.
+const defaultEmbedDimensions = 1536
 
 // maxEmbedDimensions bounds an operator-set `dimensions` from above (spec
 // ai-operational-spec.md §1.4); config/ai-routing.schema.json's generated

@@ -230,6 +230,23 @@ export function EmbedReindexCard() {
   const qc = useQueryClient();
   const canWrite = canConfigureAutomations(me.data?.roles);
   const [mode, setMode] = useState<"reindex" | "rebuild" | null>(null);
+  // The identity the operator is previewing against, snapshotted when the
+  // dialog opens — NOT re-read from the live status query at confirm time. A
+  // background status refetch (window focus, invalidation) could otherwise
+  // swap in a newer configured_identity, silently defeating the server's
+  // reindex_identity_drift guard: the whole point is to confirm against the
+  // binding that was on screen.
+  const [previewedIdentity, setPreviewedIdentity] = useState<string | null>(
+    null,
+  );
+  const openDialog = (next: "reindex" | "rebuild", identity: string) => {
+    setPreviewedIdentity(identity);
+    setMode(next);
+  };
+  const closeDialog = () => {
+    setMode(null);
+    setPreviewedIdentity(null);
+  };
 
   const status = useQuery({
     queryKey: embedReindexStatusQueryKey,
@@ -268,9 +285,11 @@ export function EmbedReindexCard() {
     mutationFn: async (force: boolean): Promise<ReindexStatus> => {
       const { data, error } = await api.POST("/embeddings/reindex", {
         body: {
-          // The identity this SPA previewed against — the server 409s
-          // (reindex_identity_drift) if the embed binding changed since.
-          previewed_identity: status.data?.configured_identity,
+          // The identity this SPA previewed against, snapshotted at dialog
+          // open — the server 409s (reindex_identity_drift) if the embed
+          // binding changed since, so this must be the on-screen value, not a
+          // possibly-refetched live one.
+          previewed_identity: previewedIdentity ?? undefined,
           force,
         },
       });
@@ -287,12 +306,12 @@ export function EmbedReindexCard() {
       // shared cache directly so the card and the banner both reflect
       // "reembedding" without an extra round trip.
       qc.setQueryData(embedReindexStatusQueryKey, data);
-      setMode(null);
+      closeDialog();
     },
   });
 
   // Non-ops viewers hold no read grant on embedding_reindex server-side
-  // (migration 0114) and have nothing actionable to do with this card
+  // (migration 0115) and have nothing actionable to do with this card
   // regardless — render nothing rather than a "status unavailable" card
   // for a 403 that was always expected. This runs after every hook call
   // above so the hooks-call-order stays unconditional; the query itself
@@ -340,20 +359,28 @@ export function EmbedReindexCard() {
       <ReindexActions
         data={data}
         isRunning={isRunning}
-        onReindex={() => setMode("reindex")}
-        onRebuild={() => setMode("rebuild")}
+        onReindex={() => openDialog("reindex", data.configured_identity)}
+        onRebuild={() => openDialog("rebuild", data.configured_identity)}
         t={t}
       />
       <ConfirmModal
         open={mode !== null}
-        onClose={() => setMode(null)}
+        onClose={closeDialog}
         title={dialogTitle(mode ?? "reindex", t)}
         confirmLabel={dialogConfirmLabel(
           mode ?? "reindex",
           confirm.isPending,
           t,
         )}
-        confirmDisabled={preview.isPending || !preview.data}
+        // Gate on a fully-loaded, non-errored, non-refetching estimate — a
+        // cached preview that is refetching (isFetching) or has errored must
+        // not leave Confirm live over stale scope/cost.
+        confirmDisabled={
+          preview.isPending ||
+          preview.isFetching ||
+          preview.isError ||
+          !preview.data
+        }
         pending={confirm.isPending}
         error={confirm.error?.message}
         onConfirm={() => confirm.mutate(mode === "rebuild")}
