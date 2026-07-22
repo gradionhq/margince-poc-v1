@@ -282,12 +282,13 @@ no-jurisdiction:
 	@./scripts/check-no-jurisdiction.sh
 
 ## pkg-freeze — published-surface freeze gate (ADR-0069 §3, EXT-P3): apidiff
-## on every backend/pkg package vs the merge-base (the extensions integration
-## branch while the arc holds there, else origin/main); an incompatible change
-## or a removed published package fails, additive growth passes. A ratified
-## change is its exact finding line in scripts/pkg-freeze-allowlist.txt,
-## bound to the merge-base sha it ratifies against; superseded entries
-## can license nothing and warn until removed.
+## on every backend/pkg package vs the merge target (origin/$GITHUB_BASE_REF
+## in CI; locally the extensions integration branch, else origin/main).
+## ADVISORY before the first v1+ release tag (the surface is design-fluid:
+## incompatible changes print, never block); ENFORCING from v1.0.0 — then a
+## ratified change is its exact finding line in
+## scripts/pkg-freeze-allowlist.txt, bound to the merge-base sha it
+## ratifies against, and package removals are never allowlistable.
 pkg-freeze:
 	@./scripts/check-pkg-freeze.sh
 
