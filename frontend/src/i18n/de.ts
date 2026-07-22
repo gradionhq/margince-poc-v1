@@ -930,7 +930,8 @@ export const de = {
     "Ich habe mehrere Einheiten im Impressum gefunden. Wähle deine und ich trage ihre Daten ein.",
   "ob.factsTitle": "Weitere Fakten, die ich gefunden habe",
   "ob.factsSelected": "{selected} von {total} ausgewählt",
-  "ob.factsSub": "Wähle ab, was nicht Teil des Firmenkontexts werden soll.",
+  "ob.factsSub":
+    "Wähle ab, was nicht Teil des Firmenkontexts werden soll — bis zu 100 Angaben können ausgewählt sein.",
   "ob.nowUnderstands": "Ich verstehe jetzt",
   "ob.contextReady":
     "Ich kann diesen Kontext jetzt für relevante Entwürfe, Suche, Agenten und Voice DNA nutzen — inklusive Herkunft.",

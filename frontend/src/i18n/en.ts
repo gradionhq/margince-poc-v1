@@ -913,7 +913,8 @@ export const en = {
     "I found several entities in the legal notice. Choose yours and I'll fill in its details.",
   "ob.factsTitle": "Other facts I found",
   "ob.factsSelected": "{selected} of {total} selected",
-  "ob.factsSub": "Untick anything that should not become company context.",
+  "ob.factsSub":
+    "Untick anything that should not become company context — up to 100 facts can be selected.",
   "ob.nowUnderstands": "I now understand",
   "ob.contextReady":
     "I can now use this context for relevant drafts, search, agents and Voice DNA — with provenance attached.",
