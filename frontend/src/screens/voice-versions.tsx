@@ -317,7 +317,7 @@ function VersionRow({
     },
     onError: (e: Error) => setError(e.message),
   });
-  const locale = useLocale();
+  const { locale } = useLocale();
   return (
     <li className="vdna-row">
       <span>
