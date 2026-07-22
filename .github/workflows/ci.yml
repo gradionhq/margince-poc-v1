@@ -210,25 +210,6 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.backend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: pgvector/pgvector:pg16@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
-        env:
-          POSTGRES_USER: margince_owner
-          POSTGRES_PASSWORD: dev
-          POSTGRES_DB: margince
-        ports:
-          - 55432:5432
-        options: >-
-          --health-cmd "pg_isready -U margince_owner"
-          --health-interval 2s --health-timeout 5s --health-retries 15
-      redis:
-        image: redis:7@sha256:a8f08480e1f88f2647fed492d1178c06abb0d0c1fbf02c682a61e2f483fb3954
-        ports:
-          - 56379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 2s --health-timeout 5s --health-retries 15
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -237,25 +218,15 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
-      # The margince_app role must exist cluster-wide before the lane migrates:
-      # migration 0015 GRANTs to it, and the parallel lane's clones inherit those
-      # grants. The lane itself is self-contained — it builds the migrated
-      # margince_test template and clones per package — so no separate "apply
-      # migrations to the shared DB" step is needed (the shared margince DB is
-      # never touched by the parallel lane).
-      - name: Create the non-owner app role
-        run: psql "postgres://margince_owner:dev@localhost:55432/margince" -v ON_ERROR_STOP=1 -f ../scripts/db-init.sql
-      # MinIO backs the blobstore integration lane. It cannot be a GH service
-      # (the minio image needs a `server /data` command, which services can't
-      # set), so it runs here; the digest matches the compose stack's pin.
-      # The store creates its bucket and tolerates a
-      # still-starting backend, so no explicit wait is needed.
-      - name: Start MinIO (blobstore)
-        run: |
-          docker run -d --name minio -p 59000:9000 \
-            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
-            minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e \
-            server /data
+      # The same compose stack dev machines use (infra/docker-compose.dev.yml:
+      # Postgres + Redis + MinIO, digest-pinned there) plus scripts/db-init.sql
+      # for the cluster-level margince_app role — migration 0015 GRANTs to it,
+      # and the parallel lane's clones inherit those grants. One stack
+      # definition instead of hand-mirrored GH service containers; the lane's
+      # database admin goes through cmd/migrate's db verbs on the test DSN
+      # (scripts/lib-testdb.sh db_admin), so no host psql is assumed.
+      - name: Start the dev infra stack (compose + app role)
+        run: make db-up
       # The same lane, with coverage: COVER_OUT switches the parallel runner
       # into per-package covdata + a merged text profile. Uploaded as an
       # artifact the sonarcloud job consumes — so the scan is NOT a second
@@ -366,10 +337,9 @@ jobs:
         run: echo "SONAR_TOKEN not set; skipping CI scan (Automatic Analysis still active). Add the secret to activate."
 
   # The README quickstart, run literally: compose up → migrate → api →
-  # seed-dev → verify-boot. This is what keeps the compose file, the
-  # API-driven seed, and the boot proof honest — the integration job's
-  # GH service containers would stay green even if the compose stack or
-  # the seed script rotted.
+  # seed-dev → verify-boot. This is what keeps the API-driven seed and
+  # the boot proof honest — the integration job never boots the api or
+  # runs the seed script, so those would rot invisibly without this job.
   live-boot:
     name: live-boot (compose + seed + verify)
     needs: [changes]

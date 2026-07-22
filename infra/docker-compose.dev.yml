@@ -5,9 +5,9 @@
 # service containers — change them everywhere or nowhere.
 #
 # Images are digest-pinned to the multi-arch INDEX digest (works on both
-# arm64 dev machines and amd64 CI), same pins as CI's service containers
-# (.github/workflows/ci.yml) — bump tag and digest together, everywhere or
-# nowhere. The check-image-pins gate fails a floating tag here.
+# arm64 dev machines and amd64 CI — CI's integration lane runs this same
+# compose file via `make db-up`, so these are the only pins). Bump tag and
+# digest together. The check-image-pins gate fails a floating tag here.
 #
 # The project name is repo-specific: a generic name (margince-dev) collides
 # with stale volumes from the frozen poc-era stack on machines that ran it,

@@ -41,7 +41,7 @@ func main() {
 
 func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: migrate <up|down|reset-password> --dsn <dsn> [--steps n] [--email <address>]")
+		return errors.New("usage: migrate <up|down|reset-password|recreate-db|drop-db|db-exists> --dsn <dsn> [--steps n] [--email <address>] [--name <db>] [--template <db>]")
 	}
 	direction := args[0]
 
@@ -49,6 +49,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	dsn := fs.String("dsn", os.Getenv("MARGINCE_DSN"), "Postgres DSN (owner role)")
 	steps := fs.Int("steps", 1, "migrations to revert (down only)")
 	email := fs.String("email", "", "user email (reset-password only)")
+	name := fs.String("name", "", "database name (recreate-db, drop-db, db-exists only)")
+	template := fs.String("template", "", "template database to copy (recreate-db only)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -74,25 +76,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 
 	switch direction {
 	case "up":
-		applied, err := dbmigrate.Up(ctx, conn, core, custom)
-		if err != nil {
-			return err
-		}
-		// River owns its schema through its own migrator, applied as the
-		// fourth namespace after core+custom (ADR-0017 order). Its migrator
-		// wants a pool, not the single conn the SQL runner uses; open one on
-		// the same owner DSN.
-		riverPool, err := database.NewPool(ctx, *dsn)
-		if err != nil {
-			return fmt.Errorf("migrate: opening river pool: %w", err)
-		}
-		defer riverPool.Close()
-		riverApplied, err := jobs.Migrate(ctx, riverPool)
-		if err != nil {
-			return err
-		}
-		_, _ = fmt.Fprintf(stdout, "applied %d core+custom + %d river migration(s); schema is at head\n", applied, riverApplied)
-		return nil
+		return up(ctx, conn, *dsn, core, custom, stdout)
 	case "down":
 		// Down reverts the SQL namespaces only — custom first (it sits on top
 		// of core), --steps at a time. River's schema is infrastructure with
@@ -110,13 +94,151 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 			}
 			reverted += more
 		}
-		_, _ = fmt.Fprintf(stdout, "reverted %d migration(s)\n", reverted)
+		if _, err := fmt.Fprintf(stdout, "reverted %d migration(s)\n", reverted); err != nil {
+			return fmt.Errorf("migrate down: writing the confirmation: %w", err)
+		}
 		return nil
 	case "reset-password":
 		return resetPassword(ctx, conn, *email, os.Stdin, stdout)
+	case "recreate-db":
+		return recreateDB(ctx, conn, *name, *template, stdout)
+	case "drop-db":
+		return dropDB(ctx, conn, *name, stdout)
+	case "db-exists":
+		return dbExists(ctx, conn, *name, stdout)
 	default:
-		return fmt.Errorf("migrate: unknown direction %q (want up, down or reset-password)", direction)
+		return fmt.Errorf("migrate: unknown direction %q (want up, down, reset-password, recreate-db, drop-db or db-exists)", direction)
 	}
+}
+
+// up applies the embedded SQL namespaces, then River's schema. River owns
+// its schema through its own migrator, applied as the fourth namespace after
+// core+custom (ADR-0017 order); its migrator wants a pool, not the single
+// conn the SQL runner uses, so one is opened on the same owner DSN.
+func up(ctx context.Context, conn *pgx.Conn, dsn string, core, custom dbmigrate.Namespace, stdout io.Writer) error {
+	applied, err := dbmigrate.Up(ctx, conn, core, custom)
+	if err != nil {
+		return err
+	}
+	riverPool, err := database.NewPool(ctx, dsn)
+	if err != nil {
+		return fmt.Errorf("migrate: opening river pool: %w", err)
+	}
+	defer riverPool.Close()
+	riverApplied, err := jobs.Migrate(ctx, riverPool)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(stdout, "applied %d core+custom + %d river migration(s); schema is at head\n", applied, riverApplied); err != nil {
+		return fmt.Errorf("migrate up: writing the confirmation: %w", err)
+	}
+	return nil
+}
+
+// The database-lifecycle verbs below serve the integration lane's
+// clone-per-package shape (scripts/lib-testdb.sh): they run over the same
+// owner DSN the migrations and tests use, so the lane needs no psql — and an
+// overridden MARGINCE_TEST_DSN targets ONE cluster for clone, migrate, and
+// test alike. The --dsn must name a maintenance database (`postgres`):
+// CREATE/DROP DATABASE cannot run inside the database being dropped.
+
+// fitsIdentifier rejects a value longer than the server's identifier limit
+// (63 bytes on stock builds). Postgres silently TRUNCATES longer identifiers
+// — quoted or not, with only a NOTICE a script never sees — so an unchecked
+// long name would make recreate-db/drop-db act on a database the caller
+// never named, while db-exists (an exact datname compare, and datname can
+// never hold a longer name) answers for one that cannot exist. Rejecting up
+// front, before any destructive statement, keeps the three verbs consistent.
+func fitsIdentifier(ctx context.Context, conn *pgx.Conn, what, value string) error {
+	var limit int
+	if err := conn.QueryRow(ctx, "SELECT current_setting('max_identifier_length')::int").Scan(&limit); err != nil {
+		return fmt.Errorf("%s: reading the server's identifier limit: %w", what, err)
+	}
+	if len(value) > limit {
+		return fmt.Errorf("%s: %q is %d bytes, over the server's %d-byte identifier limit — Postgres would silently truncate it and act on a different database; pick a shorter name", what, value, len(value), limit)
+	}
+	return nil
+}
+
+// recreateDB drops the named database if present and creates it fresh —
+// from --template when given (CREATE DATABASE ... TEMPLATE, a fast file
+// copy that needs no session connected to the template). The drop is WITH
+// (FORCE): a stale clone left by a crashed run may still hold sessions, and
+// starting over is exactly the caller's intent.
+func recreateDB(ctx context.Context, conn *pgx.Conn, name, template string, stdout io.Writer) error {
+	if name == "" {
+		return errors.New("migrate recreate-db: --name is required")
+	}
+	if err := fitsIdentifier(ctx, conn, "migrate recreate-db: --name", name); err != nil {
+		return err
+	}
+	if template != "" {
+		if err := fitsIdentifier(ctx, conn, "migrate recreate-db: --template", template); err != nil {
+			return err
+		}
+		// The drop runs before the create: recreating a database from itself
+		// would destroy the template first and then copy from nothing. The
+		// compare uses the sanitized forms — the same normalization the DDL
+		// below splices — so two spellings of one datname cannot slip past.
+		if (pgx.Identifier{template}).Sanitize() == (pgx.Identifier{name}).Sanitize() {
+			return fmt.Errorf("migrate recreate-db: --template %q is the database being recreated — the drop would destroy the template before the create can copy it; pass a distinct template", template)
+		}
+	}
+	if _, err := conn.Exec(ctx, "DROP DATABASE IF EXISTS "+pgx.Identifier{name}.Sanitize()+" WITH (FORCE)"); err != nil {
+		return fmt.Errorf("migrate recreate-db: dropping %q: %w", name, err)
+	}
+	create := "CREATE DATABASE " + pgx.Identifier{name}.Sanitize()
+	if template != "" {
+		create += " TEMPLATE " + pgx.Identifier{template}.Sanitize()
+	}
+	if _, err := conn.Exec(ctx, create); err != nil {
+		return fmt.Errorf("migrate recreate-db: creating %q: %w", name, err)
+	}
+	if _, err := fmt.Fprintf(stdout, "recreated %s\n", name); err != nil {
+		return fmt.Errorf("migrate recreate-db: writing the confirmation: %w", err)
+	}
+	return nil
+}
+
+// dropDB drops the named database if present — WITH (FORCE), terminating
+// lingering sessions: the verb tears down throwaway clones right after a
+// test process exits, when its backends may not have noticed yet, and a
+// teardown that can lose that race would fail flakily. Dropping an absent
+// database succeeds (IF EXISTS), so teardown paths need no pre-check.
+func dropDB(ctx context.Context, conn *pgx.Conn, name string, stdout io.Writer) error {
+	if name == "" {
+		return errors.New("migrate drop-db: --name is required")
+	}
+	if err := fitsIdentifier(ctx, conn, "migrate drop-db: --name", name); err != nil {
+		return err
+	}
+	if _, err := conn.Exec(ctx, "DROP DATABASE IF EXISTS "+pgx.Identifier{name}.Sanitize()+" WITH (FORCE)"); err != nil {
+		return fmt.Errorf("migrate drop-db: dropping %q: %w", name, err)
+	}
+	if _, err := fmt.Fprintf(stdout, "dropped %s\n", name); err != nil {
+		return fmt.Errorf("migrate drop-db: writing the confirmation: %w", err)
+	}
+	return nil
+}
+
+// dbExists prints "true" or "false" — output, not exit code, so callers can
+// tell "absent" apart from "could not ask" (a connection failure still exits
+// non-zero).
+func dbExists(ctx context.Context, conn *pgx.Conn, name string, stdout io.Writer) error {
+	if name == "" {
+		return errors.New("migrate db-exists: --name is required")
+	}
+	if err := fitsIdentifier(ctx, conn, "migrate db-exists: --name", name); err != nil {
+		return err
+	}
+	var exists bool
+	if err := conn.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)", name).Scan(&exists); err != nil {
+		return fmt.Errorf("migrate db-exists: probing %q: %w", name, err)
+	}
+	if _, err := fmt.Fprintf(stdout, "%t\n", exists); err != nil {
+		return fmt.Errorf("migrate db-exists: writing the answer: %w", err)
+	}
+	return nil
 }
 
 // resetPassword is the operator-only recovery path (A107/ADR-0061 §9.1):

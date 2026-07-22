@@ -35,7 +35,9 @@ parse_test_dsn
 ensure_template
 db="margince_it_one_$$"
 make_clone "$db"
-trap 'drop_clone "$db"' EXIT
+# Teardown keeps the test status unless it is the only failure: a clone that
+# cannot be dropped is a leaked database and must not report a green run.
+trap 'st=$?; if ! drop_clone "$db"; then echo "FAIL: clone db $db was not dropped — leaked on the test cluster" >&2; if [[ "$st" -eq 0 ]]; then st=1; fi; fi; exit "$st"' EXIT
 
 run_flag=()
 [ -n "$RUN" ] && run_flag=(-run "$RUN")
