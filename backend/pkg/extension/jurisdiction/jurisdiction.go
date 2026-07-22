@@ -68,6 +68,19 @@ func (p Period) Cutoff(ref time.Time) time.Time {
 	return ref.AddDate(-p.Years, -p.Months, -p.Days)
 }
 
+// Validate refuses negative components. The fields stay signed ints (Go
+// convention: unsigned would trade this check for silent wraparound),
+// so the guard lives here: a negative component renders as a
+// Postgres-parseable interval ("P-6Y") whose cutoff lies in the FUTURE —
+// it would silently SHRINK a statutory floor, the exact failure class
+// this type exists to prevent. The boot preflight refuses it.
+func (p Period) Validate() error {
+	if p.Years < 0 || p.Months < 0 || p.Days < 0 {
+		return fmt.Errorf("period %s carries a negative component — a retention floor reaches back, never forward", p)
+	}
+	return nil
+}
+
 // Pack is one jurisdiction's compiled-in behavior set. Retention is the
 // only obligation packs carry today; the further ADR-0042 contributions
 // (FiscalFormatter, ConformityRegime, …) return when a work package pays

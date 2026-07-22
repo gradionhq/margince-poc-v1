@@ -53,8 +53,11 @@ help: ## List targets with their descriptions (the default goal)
 
 check: build vet lint arch-lint test test-extensions drift check-composition ## The merge gate: everything a PR must pass
 
+# gen-composition runs pinned to the ROOT workspace: the tool lives in
+# the separate backend/tools module, so a caller-exported GOWORK (off, or
+# an unrelated workspace) would break resolution before anything builds.
 composition: ## Materialize build/composition/ from the enabled set under extensions/ (every build lane depends on this)
-	@$(GO) run ./tools/gen-composition
+	@GOWORK=$(abspath ../go.work) $(GO) run ./tools/gen-composition
 
 check-composition: composition ## Reproducibility gate: a clean regeneration must reproduce composition.json byte-for-byte
 	@$(GO) run ./tools/gen-composition -verify
@@ -206,7 +209,7 @@ gen: ## Regenerate everything derived from the contract
 	$(GO) run ./tools/gen-stubs
 	$(GO) run ./tools/gen-agentpolicy -in api/crm.yaml -out internal/compose/agentpolicy_gen.go
 	$(GO) run ./tools/gen-aitasks -contract api/ai-tasks.yaml -out-go internal/modules/ai/tasks_gen.go -out-schema ../config/ai-routing.schema.json
-	$(GO) run ./tools/gen-composition
+	GOWORK=$(abspath ../go.work) $(GO) run ./tools/gen-composition
 
 drift: gen ## Fail when any generated file drifted from the contract
 	git diff --exit-code -- '*_gen.go' internal/contracts/ ../config/ai-routing.schema.json

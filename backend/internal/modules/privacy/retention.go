@@ -174,6 +174,11 @@ func (s *RetentionService) evaluateWorkspace(ctx context.Context) error {
 		return err
 	}
 
+	// ONE reference instant per workspace pass: the strictest-floor
+	// comparison anchors mixed-unit periods at a timestamp, so a fresh
+	// time.Now() per policy could order the floors differently between
+	// two activity policies of the same run.
+	ref := time.Now()
 	for _, pol := range policies {
 		scope := pol.ObjectType + "/"
 		if pol.Category != nil {
@@ -189,7 +194,7 @@ func (s *RetentionService) evaluateWorkspace(ctx context.Context) error {
 		if pol.ObjectType == "activity" {
 			floor := jurisdiction.Period{}
 			if pol.Action != "archive" {
-				floor = statutoryCorrespondenceFloor(time.Now())
+				floor = statutoryCorrespondenceFloor(ref)
 			}
 			args = append(args, floor.String())
 		}
