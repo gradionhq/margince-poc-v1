@@ -56,6 +56,7 @@ UAT guides call by name (`docs/target-minimum-setup.md §3`). `check-q`,
 | `drift` | `gen`, then fail if any generated file changed — the contract drift gate |
 | `composition` | Materialize `build/composition/` from the enabled set under `extensions/` (ADR-0069). Every build/test lane depends on it and runs under `GOWORK=build/composition/go.work`, so an enabled extension is compiled in and a stale composition is never built; vanilla composes empty with unchanged output |
 | `check-composition` | `composition`, then `gen-composition -verify`: a clean regeneration must reproduce `composition.json`'s recorded input digests and output hashes byte-for-byte (the drift gate for ignored composition output) |
+| `test-extensions` | Every enabled extension's own test lane (each unit under `extensions/` is its own Go module — `./...` never reaches them), run on the composed workspace; part of `make check` |
 | `gen-workflow` | `make gen-workflow NAME=<snake_case_handler_name>` — scaffold a new automation `workflow.Handler` + its test stub (write-once; refuses to overwrite an existing scaffold). See [how-to/create-a-workflow.md](../how-to/create-a-workflow.md) |
 
 The root `make check` runs the backend gate above **and** these deterministic
