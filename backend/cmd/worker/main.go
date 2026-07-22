@@ -41,6 +41,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 )
 
@@ -137,7 +138,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
-	stopJobs, err := startJobRunner(ctx, pool, logger, cfg, modelPath, stdout)
+	stopJobs, err := startJobRunner(ctx, pool, rdb, compose.OverlayBudgetConfig(deployCfg.EffectiveOverlayBudget()), logger, cfg, modelPath, stdout)
 	if err != nil {
 		return err
 	}
@@ -202,12 +203,33 @@ func backfillConnectorCredentials(ctx context.Context, pool *pgxpool.Pool, stdou
 // drain — what the bare tickers lacked. The domain logic (Sweep/Reconcile)
 // is unchanged; only the scheduler is River now. The returned stop function
 // drains in-flight jobs on shutdown.
-func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, cfg workerConfig, modelPath compose.ModelPath, stdout io.Writer) (func(), error) {
+// gmailWatchConfig builds the Gmail push-watch maintenance config: the
+// watch job runs only where a Pub/Sub topic is configured AND the Gmail
+// app is wired (gmailWired); otherwise capture stays on the poll and the
+// topic is left empty.
+func gmailWatchConfig(cfg workerConfig, gmailWired bool) compose.GmailWatchConfig {
+	w := compose.GmailWatchConfig{
+		Interval:    cfg.gmailWatchInterval,
+		RenewWithin: cfg.gmailWatchRenew,
+	}
+	if gmailWired {
+		w.Topic = cfg.gmailPubsubTopic
+	}
+	return w
+}
+
+func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, overlayBudget overlaybudget.Config, logger *slog.Logger, cfg workerConfig, modelPath compose.ModelPath, stdout io.Writer) (func(), error) {
 	// The sweep registry is always live — the standing IMAP connector needs
 	// no deployment config; gmail joins it when the OAuth app is configured.
 	// The vault holds every connection's sealed credential (the standing
-	// flavors resolve through it), so it initializes here regardless.
-	vault, _, verr := keyvault.FromEnv(pool)
+	// flavors resolve through it), so it initializes here regardless. The
+	// SAME vault is the overlay reconcile poller's credential custodian
+	// (the only one that can resolve a connected workspace's sealed HubSpot
+	// token, overlay.DueOverlayConnections' CredentialRef) — resolved once,
+	// shared; when it is not configured, overlayVault is nil so an
+	// unconfigured deployment never fails worker boot over a poller it has
+	// no connected overlay workspace to run anyway.
+	vault, vaultConfigured, verr := keyvault.FromEnv(pool)
 	if verr != nil {
 		return nil, fmt.Errorf("worker: keyvault: %w", verr)
 	}
@@ -220,27 +242,9 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 		Tenant:       cfg.graphTenant,
 	}, cfg.freemailExtra...).WithSyncInterval(cfg.gmailSyncInterval)
 	gmailWired := cfg.gmailClientID != "" && cfg.gmailClientSecret != ""
-	watchCfg := compose.GmailWatchConfig{
-		Interval:    cfg.gmailWatchInterval,
-		RenewWithin: cfg.gmailWatchRenew,
-	}
-	// The watch job only runs where a Pub/Sub topic is configured AND the Gmail
-	// app is wired; otherwise capture stays on the poll.
-	if gmailWired {
-		watchCfg.Topic = cfg.gmailPubsubTopic
-	}
-	// The overlay reconcile poller shares the same keyvault a deployment
-	// configures for Gmail/capture: it is the only credential custodian
-	// that can resolve a connected workspace's sealed HubSpot token
-	// (overlay.DueOverlayConnections' CredentialRef). An unconfigured
-	// deployment must not fail worker boot over a poller it has no
-	// connected overlay workspace to run anyway — the same posture
-	// backfillConnectorCredentials/the Gmail poll already take.
-	overlayVault, overlayConfigured, overlayErr := keyvault.FromEnv(pool)
-	if overlayErr != nil {
-		return nil, fmt.Errorf("worker: keyvault: %w", overlayErr)
-	}
-	if !overlayConfigured {
+	watchCfg := gmailWatchConfig(cfg, gmailWired)
+	overlayVault := vault
+	if !vaultConfigured {
 		overlayVault = nil
 	}
 
@@ -257,6 +261,11 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 		OverlayVault:         overlayVault,
 		OverlayInterval:      cfg.overlayInterval,
 		OverlayBackfillLimit: cfg.overlayBackfillLimit,
+		// The poller's OVB meter records against the SAME Redis the relay
+		// uses (rdb) so the worker's poller spend and the api's force-fresh
+		// spend land on one shared per-workspace-per-incumbent count. Built
+		// here in cmd (the raw-Redis dependency stays out of compose).
+		OverlayMeter: overlaybudget.New(rdb, overlayBudget),
 		// The deep-read worker registers regardless: without a model path
 		// (nil SiteExtract) it fails a picked-up read honestly rather than
 		// leaving it queued behind a job no one can work.

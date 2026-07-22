@@ -22,6 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/mailer"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/extraction"
 )
 
@@ -113,6 +114,20 @@ func WithKeyvault(vault keyvault.Vault) Option {
 // off s.overlayBackfillLimit); cmd/api orders them that way. 0 is uncapped.
 func WithOverlayBackfillLimit(limit int) Option {
 	return func(s *Server, _ *pgxpool.Pool) { s.overlayBackfillLimit = limit }
+}
+
+// WithOverlayMeter Rebinds the Server's shared OVB meter to the live,
+// Redis-backed meter cmd built. newServer constructs the meter fail-closed
+// (nil Redis) and shares that ONE pointer with the read dispatch and the
+// budget handlers, so this RebindFrom reaches every holder regardless of
+// option order — force-fresh reads and the budget surface all meter against
+// the same Redis windows. Taking the already-built *overlaybudget.Meter
+// (not a *redis.Client) keeps the raw-Redis dependency in cmd, never in
+// compose. Without this option the meter stays fail-closed (every
+// force-fresh read sheds to the mirror), the honest posture for a role with
+// no Redis.
+func WithOverlayMeter(meter *overlaybudget.Meter) Option {
+	return func(s *Server, _ *pgxpool.Pool) { s.overlayMeter.RebindFrom(meter) }
 }
 
 // readinessChecks assembles the /readyz dependency probes for this role.

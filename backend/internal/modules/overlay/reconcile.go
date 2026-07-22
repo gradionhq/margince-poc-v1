@@ -11,7 +11,7 @@ package overlay
 // (mirrorstore.go) — this file's own job is deciding, for every record
 // the sweep observes, whether the mirror's PRIOR state was a genuine
 // divergence worth surfacing as mirror.conflict, and metering the sweep
-// against the shared OVB budget.
+// against the shared OVB budget (per-request, poller source).
 
 import (
 	"context"
@@ -23,12 +23,13 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
 // Reconcile sweeps objectClass's records modified at or after since via
-// inc.Modified, ingesting every page into ms and metering the sweep
-// against the poller lane. objectClass is the INCUMBENT class name (the
+// inc.Modified, ingesting every page into ms and metering each page fetch
+// against the poller source of the shared OVB budget. objectClass is the INCUMBENT class name (the
 // same seam rule Backfill/Modified obey, overlay/backfill.go's own doc
 // comment) — the vocabulary inc.Modified itself takes — while the
 // records it returns already carry the CANONICAL object class Reconcile
@@ -66,16 +67,26 @@ import (
 // one watermark window) — the >10k-per-timestamp fallback stays a named,
 // upstream-tracked gap rather than an invented behavior against an
 // unconfirmed wire contract.
-func Reconcile(ctx context.Context, inc Incumbent, ms *MirrorStore, meter *Meter, objectClass string, since time.Time) (time.Time, error) {
+func Reconcile(ctx context.Context, inc Incumbent, ms *MirrorStore, meter *overlaybudget.Meter, objectClass string, since time.Time) (time.Time, error) {
+	incumbent := inc.Name()
 	watermark := since
 	cursor := ""
 	for {
+		if paced, err := chargeSearchRequest(ctx, meter, incumbent, objectClass); err != nil {
+			return watermark, err
+		} else if !paced {
+			// Per-second search-burst budget exhausted: pace by stopping this
+			// sweep and resuming from the persisted watermark on the next
+			// tick, rather than tripping the incumbent's per-second 429.
+			return watermark, nil
+		}
+
 		page, err := inc.Modified(ctx, objectClass, since, cursor)
 		if err != nil {
 			return watermark, fmt.Errorf("overlay: reconcile %s: sweeping modified records at cursor %q: %w", objectClass, cursor, err)
 		}
 
-		watermark, err = reconcilePage(ctx, ms, meter, objectClass, page, watermark)
+		watermark, err = reconcilePage(ctx, ms, page, watermark)
 		if err != nil {
 			return watermark, err
 		}
@@ -87,19 +98,40 @@ func Reconcile(ctx context.Context, inc Incumbent, ms *MirrorStore, meter *Meter
 	}
 }
 
-// reconcilePage lands every record of one Modified page, meters the
-// page's cost against the poller lane, and answers the watermark
-// advanced across those records (or watermark unchanged for an empty
-// page) — split out of Reconcile's own loop so the pagination control
-// flow and the per-page landing logic each read as one clear thing.
-func reconcilePage(ctx context.Context, ms *MirrorStore, meter *Meter, objectClass string, page Page, watermark time.Time) (time.Time, error) {
+// chargeSearchRequest meters one incumbent search-API request (a Modified/
+// Deletions page fetch) against BOTH windows: it reserves a per-second
+// search-window slot (the burst limiter — a declined reservation returns
+// paced=false so the caller stops the sweep and resumes next tick) and, if
+// allowed, records the same request against the daily REST window on the
+// poller source (unconditional — the poller mirrors, it does not refuse
+// the day budget, but its spend is still counted). A nil meter is a no-op
+// (paced=true) for roles/tests that do not wire one.
+func chargeSearchRequest(ctx context.Context, meter *overlaybudget.Meter, incumbent, objectClass string) (paced bool, err error) {
+	if meter == nil {
+		return true, nil
+	}
+	allowed, rErr := meter.ReserveSearch(ctx, incumbent, 1)
+	if rErr != nil {
+		return false, fmt.Errorf("overlay: reconcile %s: reserving a search slot: %w", objectClass, rErr)
+	}
+	if !allowed {
+		return false, nil
+	}
+	if cErr := meter.ConsumeREST(ctx, incumbent, overlaybudget.SourcePoller, 1); cErr != nil {
+		return false, fmt.Errorf("overlay: reconcile %s: metering the poller REST charge: %w", objectClass, cErr)
+	}
+	return true, nil
+}
+
+// reconcilePage lands every record of one Modified page and answers the
+// watermark advanced across those records (or watermark unchanged for an
+// empty page) — split out of Reconcile's own loop so the pagination
+// control flow and the per-page landing logic each read as one clear
+// thing. The page's incumbent-API cost is metered by the loop before the
+// fetch (chargeSearchRequest), not here.
+func reconcilePage(ctx context.Context, ms *MirrorStore, page Page, watermark time.Time) (time.Time, error) {
 	if len(page.Records) == 0 {
 		return watermark, nil
-	}
-	if meter != nil {
-		if err := meter.Consume(ctx, LanePoller, len(page.Records)); err != nil {
-			return watermark, fmt.Errorf("overlay: reconcile %s: metering the poller lane: %w", objectClass, err)
-		}
 	}
 	for _, rec := range page.Records {
 		if err := reconcileOne(ctx, ms, rec); err != nil {
@@ -162,14 +194,25 @@ func reconcileOne(ctx context.Context, ms *MirrorStore, rec Record) error {
 // correctness one. The incumbent adapter still pages the whole archived set
 // regardless of the since it is passed, so the epoch costs no more than a
 // watermark would have.
-func ReconcileDeletions(ctx context.Context, inc Incumbent, ms *MirrorStore, meter *Meter, objectClass string) error {
+func ReconcileDeletions(ctx context.Context, inc Incumbent, ms *MirrorStore, meter *overlaybudget.Meter, objectClass string) error {
+	incumbent := inc.Name()
 	cursor := ""
 	for {
+		if paced, err := chargeSearchRequest(ctx, meter, incumbent, objectClass); err != nil {
+			return err
+		} else if !paced {
+			// Per-second burst budget exhausted: stop the deletion sweep and
+			// resume it on the next tick (the feed is full-scanned from the
+			// epoch every pass and PurgeRecord is idempotent, so a partial
+			// pass loses nothing).
+			return nil
+		}
+
 		page, err := inc.Deletions(ctx, objectClass, time.Time{}, cursor)
 		if err != nil {
 			return fmt.Errorf("overlay: reconcile %s: sweeping deletions at cursor %q: %w", objectClass, cursor, err)
 		}
-		if err := reconcileDeletionPage(ctx, ms, meter, objectClass, page); err != nil {
+		if err := reconcileDeletionPage(ctx, ms, page); err != nil {
 			return err
 		}
 		if page.NextCursor == "" {
@@ -179,18 +222,14 @@ func ReconcileDeletions(ctx context.Context, inc Incumbent, ms *MirrorStore, met
 	}
 }
 
-// reconcileDeletionPage purges every record of one deletion page and meters
-// the page's cost against the poller lane — the deletion-feed sibling of
-// reconcilePage. PurgeRecord owns the per-record purge+event atomicity, so
-// this only fans the page out.
-func reconcileDeletionPage(ctx context.Context, ms *MirrorStore, meter *Meter, objectClass string, page DeletionPage) error {
+// reconcileDeletionPage purges every record of one deletion page — the
+// deletion-feed sibling of reconcilePage. PurgeRecord owns the per-record
+// purge+event atomicity, so this only fans the page out. The page's
+// incumbent-API cost is metered by the loop before the fetch
+// (chargeSearchRequest), not here.
+func reconcileDeletionPage(ctx context.Context, ms *MirrorStore, page DeletionPage) error {
 	if len(page.Deletions) == 0 {
 		return nil
-	}
-	if meter != nil {
-		if err := meter.Consume(ctx, LanePoller, len(page.Deletions)); err != nil {
-			return fmt.Errorf("overlay: reconcile %s: metering the deletion sweep: %w", objectClass, err)
-		}
 	}
 	for _, del := range page.Deletions {
 		if _, err := ms.PurgeRecord(ctx, del); err != nil {

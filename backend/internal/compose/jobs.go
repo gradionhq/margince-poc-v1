@@ -28,6 +28,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -258,6 +259,13 @@ type JobRunnerConfig struct {
 	EnrichBrain     completer
 	OverlayVault    keyvault.Vault
 	OverlayInterval time.Duration
+	// OverlayMeter is the poller's OVB meter — built by cmd/worker over the
+	// SAME Redis the api's force-fresh meter uses, so both lanes share one
+	// per-workspace-per-incumbent count (keeping the raw-Redis dependency in
+	// the cmd tier, never compose). Nil makes the poller fail-closed (it
+	// still mirrors; ConsumeREST is a silent no-op and ReserveSearch
+	// declines, pacing the sweep to a stop rather than spending unmetered).
+	OverlayMeter *overlaybudget.Meter
 	// OverlayBackfillLimit bounds the initial mirror backfill at this many
 	// records per object class (dev/demo — MARGINCE_OVERLAY_BACKFILL_LIMIT);
 	// 0 (the default) is uncapped.
@@ -392,10 +400,13 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 
 	if cfg.OverlayVault != nil {
 		ms := overlay.NewMirrorStore(pool, unresolvedOwnerEmails{})
-		// The SAME construction helper the REST/MCP/workflow surfaces use,
-		// so the poller lane can never drift onto a different meter config
-		// or backing than the rest of this process's overlay surfaces.
-		meter := NewOverlayMeter(pool)
+		// cmd/worker built the meter over the shared Redis (so the poller's
+		// spend and the api's force-fresh spend land on ONE count); fall back
+		// to a fail-closed meter if a role wired the poller without one.
+		meter := cfg.OverlayMeter
+		if meter == nil {
+			meter = failClosedOverlayMeter()
+		}
 		river.AddWorker(workers, &overlayReconcileWorker{pool: pool, vault: cfg.OverlayVault, ms: ms, meter: meter, log: log, newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit)})
 		periodic = append(periodic, river.NewPeriodicJob(
 			river.PeriodicInterval(cfg.OverlayInterval),

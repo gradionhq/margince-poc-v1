@@ -24,6 +24,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -37,7 +38,7 @@ func TestDispatcherRoutesNativeWorkspaceReadsToTheNativeProvider(t *testing.T) {
 	e := Setup(t)
 	personID := e.SeedPerson(t, "Ada Native", nil)
 
-	d := compose.NewDispatcher(compose.NewProvider(e.Pool), compose.NewOverlayProvider(e.Pool, compose.NewOverlayMeter(e.Pool), nil), e.Pool)
+	d := compose.NewDispatcher(compose.NewProvider(e.Pool), compose.NewOverlayProvider(e.Pool, overlaybudget.New(nil, nil), nil), e.Pool)
 
 	rec, err := d.Read(e.Admin(), datasource.EntityRef{Type: datasource.EntityPerson, ID: personID})
 	if err != nil {
@@ -73,7 +74,7 @@ func TestDispatcherRoutesOverlayWorkspaceReadsToTheOverlayProvider(t *testing.T)
 		t.Fatalf("ingesting the overlay fixture record: %v", err)
 	}
 
-	d := compose.NewDispatcher(compose.NewProvider(e.Pool), compose.NewOverlayProvider(e.Pool, compose.NewOverlayMeter(e.Pool), nil), e.Pool)
+	d := compose.NewDispatcher(compose.NewProvider(e.Pool), compose.NewOverlayProvider(e.Pool, overlaybudget.New(nil, nil), nil), e.Pool)
 
 	searchRes, err := d.Search(ctx, datasource.SearchQuery{
 		EntityTypes: []datasource.EntityType{datasource.EntityPerson},

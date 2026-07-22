@@ -20,6 +20,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -224,15 +225,41 @@ func (s *Service) backfillCompleteFor(ctx context.Context, tx pgx.Tx, canonicalO
 // honesty is wrong here — this is a WIRING gap, not a mode question — so
 // it surfaces its own explicit error instead of silently degrading to a
 // fabricated all-zero Budget.
-func (s *Service) Budget(ctx context.Context) (Budget, error) {
+func (s *Service) Budget(ctx context.Context) (overlaybudget.Budget, error) {
 	if err := auth.Require(ctx, overlayConnectionObject, principal.ActionRead); err != nil {
-		return Budget{}, err
+		return overlaybudget.Budget{}, err
 	}
 	if err := s.requireOverlayMode(ctx); err != nil {
-		return Budget{}, err
+		return overlaybudget.Budget{}, err
 	}
 	if s.meter == nil {
-		return Budget{}, fmt.Errorf("overlay: budget meter is not wired for this role")
+		return overlaybudget.Budget{}, fmt.Errorf("overlay: budget meter is not wired for this role")
 	}
-	return s.meter.Snapshot(ctx), nil
+	// The meter selects per-incumbent config by name, so the snapshot needs
+	// THIS workspace's active incumbent — the same one force-fresh reads and
+	// the poller charge against.
+	incumbent, err := s.activeIncumbent(ctx)
+	if err != nil {
+		return overlaybudget.Budget{}, err
+	}
+	return s.meter.Snapshot(ctx, incumbent), nil
+}
+
+// activeIncumbent reads ctx's workspace's active incumbent name
+// (workspace.x_incumbent) — set while in overlay mode, the config selector
+// the meter keys on. requireOverlayMode has already established the
+// workspace is in overlay mode, so x_incumbent is non-null here.
+func (s *Service) activeIncumbent(ctx context.Context) (string, error) {
+	wsID, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		return "", errors.New("overlay: budget called outside a workspace context")
+	}
+	var incumbent string
+	err := database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT coalesce(x_incumbent, '') FROM workspace WHERE id = $1`, wsID).Scan(&incumbent)
+	})
+	if err != nil {
+		return "", fmt.Errorf("overlay: resolving the workspace's active incumbent: %w", err)
+	}
+	return incumbent, nil
 }

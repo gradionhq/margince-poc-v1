@@ -12,18 +12,19 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
 // FreshnessReader is the real force-fresh read-through (design.md §4.5
 // S2): a Freshness call bypasses the mirror and re-reads the incumbent
-// live, metered against the OVB budget meter (budgetmeter.go), degrading
-// to mirror-with-staleness-warning — and emitting mirror.budget_degraded
-// — once the meter reports the shed band. This is NOT deferrable: branch
-// 1 ships live force-fresh reads and an always-on poller against the
-// SAME shared HubSpot quota (the poller lane is metered too), so the
-// degrade must ship with the live read or branch 1 can starve the
-// customer's own quota.
+// live, metered against the OVB budget meter (platform/overlaybudget),
+// degrading to mirror-with-staleness-warning — and emitting
+// mirror.budget_degraded — once the meter's REST window sheds. This is NOT
+// deferrable: branch 1 ships live force-fresh reads and an always-on
+// poller against the SAME shared HubSpot quota (the poller is metered
+// too), so the degrade must ship with the live read or branch 1 can
+// starve the customer's own quota.
 type FreshnessReader struct {
 	// resolveIncumbent builds the LIVE incumbent adapter for the request's
 	// workspace, at read time. A force-fresh read needs THIS workspace's own
@@ -35,7 +36,7 @@ type FreshnessReader struct {
 	// workspace with no active connection, simply has no live read to do.
 	resolveIncumbent func(ctx context.Context) (Incumbent, error)
 	ms               *MirrorStore
-	meter            *Meter
+	meter            *overlaybudget.Meter
 	// toIncumbentClasses translates a CANONICAL entity-type name (e.g.
 	// "person", the datasource.EntityRef.Type this reader is called
 	// with) to the INCUMBENT's own object class (e.g. "contacts") — the
@@ -68,7 +69,7 @@ type FreshnessReader struct {
 // read to the mirror, and a nil translator treats every canonical type as
 // having no incumbent class (both honest degrades, never a silent
 // authority claim or canonical-name pass-through).
-func NewFreshnessReader(resolveIncumbent func(context.Context) (Incumbent, error), ms *MirrorStore, meter *Meter, toIncumbentClasses func(string) ([]string, bool)) *FreshnessReader {
+func NewFreshnessReader(resolveIncumbent func(context.Context) (Incumbent, error), ms *MirrorStore, meter *overlaybudget.Meter, toIncumbentClasses func(string) ([]string, bool)) *FreshnessReader {
 	return &FreshnessReader{resolveIncumbent: resolveIncumbent, ms: ms, meter: meter, toIncumbentClasses: toIncumbentClasses}
 }
 
@@ -85,7 +86,7 @@ func (f *FreshnessReader) SetIncumbentResolver(resolveIncumbent func(context.Con
 // to the mirror row (0 quota spent) and emits mirror.budget_degraded
 // (OVA-EVT-3) so the shed is an observable, auditable fact rather than
 // a silent quality drop. Otherwise it does a live incumbent read,
-// spending 1 unit on the force_fresh lane and answering
+// spending 1 unit on the force_fresh source of the REST window and answering
 // Authoritative:true — the one honest way this port can ever set that
 // field true for an overlay-mode workspace (every other overlay read
 // serves the mirror, DS-AC-7).
@@ -103,9 +104,12 @@ func (f *FreshnessReader) Read(ctx context.Context, ref datasource.EntityRef) (d
 		return datasource.FreshnessInfo{}, fmt.Errorf("overlay: freshness reader has no mirror store configured")
 	}
 
-	if f.meter != nil && f.meter.Band(ctx) == BandShed {
-		return f.degradeForShed(ctx, ref)
-	}
+	// The shed decision lives in the ReserveREST call below, AFTER the
+	// incumbent is resolved (the meter selects config per incumbent, so it
+	// needs the incumbent's name). We deliberately do NOT pre-check the band
+	// before the mirror Get: the mirror Get is the fail-closed visibility
+	// gate, and it must run before anything reveals whether the record even
+	// exists — a shed budget is no reason to skip the existence check.
 
 	// Read the mirror row ONCE, up front — before resolving the incumbent
 	// (which unseals a credential from the vault) and before any live call.
@@ -152,15 +156,15 @@ func (f *FreshnessReader) Read(ctx context.Context, ref datasource.EntityRef) (d
 		return mirror, nil
 	}
 
-	// Reserve the force-fresh unit BEFORE the live call. Reserve is an
-	// atomic band-check-and-record, so concurrent force-fresh reads cannot
-	// all observe a non-shed band and collectively overshoot the budget;
-	// and because the unit is reserved up front, a live read that later
-	// FAILS still counts (its HTTP call spent quota either way). A shed
-	// reservation (band flipped since the fast-path check above, or a
-	// concurrent reserve pushed over) degrades and emits the budget event.
+	// Reserve the force-fresh unit against the incumbent's REST window
+	// BEFORE the live call. ReserveREST is an atomic band-check-and-record,
+	// so concurrent force-fresh reads cannot all observe a non-shed band and
+	// collectively overshoot the budget; and because the unit is reserved up
+	// front, a live read that later FAILS still counts (its HTTP call spent
+	// quota either way). A shed reservation (the REST window is at or over
+	// its shed threshold) degrades to the mirror and emits the budget event.
 	if f.meter != nil {
-		allowed, rErr := f.meter.Reserve(ctx, LaneForceFresh, 1)
+		allowed, rErr := f.meter.ReserveREST(ctx, inc.Name(), overlaybudget.SourceForceFresh, 1)
 		if rErr != nil {
 			return datasource.FreshnessInfo{}, rErr
 		}
@@ -248,13 +252,13 @@ func (f *FreshnessReader) emitBudgetDegraded(ctx context.Context, ref datasource
 		logID, err := storekit.LogSystem(ctx, tx, "mirror.budget_degraded", map[string]any{
 			"entity_type": string(ref.Type),
 			"entity_id":   ref.ID.String(),
-			"band":        BandShed,
+			"band":        overlaybudget.BandShed,
 		})
 		if err != nil {
 			return fmt.Errorf("overlay: logging the budget-degrade system event: %w", err)
 		}
 		if err := storekit.Emit(ctx, tx, logID, "mirror.budget_degraded", string(ref.Type), ref.ID,
-			map[string]any{"band": BandShed}); err != nil {
+			map[string]any{"band": overlaybudget.BandShed}); err != nil {
 			return fmt.Errorf("overlay: emitting mirror.budget_degraded: %w", err)
 		}
 		return nil
