@@ -121,15 +121,21 @@ type VectorHit struct {
 }
 
 // SimilarEntities ranks entities by cosine similarity to the query
-// vector. Object RBAC and row scope gate every branch, exactly like the
-// lexical union — a vector hit is a read too.
-func (s *Store) SimilarEntities(ctx context.Context, queryVec []float32, limit int) ([]VectorHit, error) {
+// vector, restricted to rows stamped with the caller's own embed
+// identity. Object RBAC and row scope gate every branch, exactly like
+// the lexical union — a vector hit is a read too.
+func (s *Store) SimilarEntities(ctx context.Context, queryVec []float32, identity string, limit int) ([]VectorHit, error) {
 	limit = clampLimit(limit)
 	var hits []VectorHit
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var args []any
 		arg := func(v any) int { args = append(args, v); return len(args) }
 		vecPos := arg(vectorLiteral(queryVec))
+		// The e.model = $identity predicate is load-bearing for BOTH correctness (old-space rows must not
+		// rank against new-space queries) AND crash-avoidance: the column is unbounded, so a bare
+		// e.embedding <=> $q against a different-width row raises "different vector dimensions". The filter
+		// excludes those rows before the projection computes <=>. NEVER remove it. (see design §5.6)
+		identityPos := arg(identity)
 
 		var branches []string
 		for _, branch := range searchBranches {
@@ -144,8 +150,8 @@ func (s *Store) SimilarEntities(ctx context.Context, queryVec []float32, limit i
 				`SELECT '%s'::text AS rtype, e.entity_id AS id, %s AS title,
 				        (1 - (e.embedding <=> $%d::vector))::float8 AS sim
 				 FROM embedding e JOIN %s t ON t.id = e.entity_id
-				 WHERE e.entity_type = '%s' AND t.archived_at IS NULL`,
-				branch.entity, branch.title, vecPos, branch.table, branch.entity)
+				 WHERE e.entity_type = '%s' AND t.archived_at IS NULL AND e.model = $%d`,
+				branch.entity, branch.title, vecPos, branch.table, branch.entity, identityPos)
 			if scope != "" {
 				sql += " AND " + scope
 			}

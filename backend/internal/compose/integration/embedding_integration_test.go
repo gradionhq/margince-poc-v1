@@ -14,11 +14,15 @@ package integration
 
 import (
 	"context"
+	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
@@ -129,7 +133,8 @@ func TestSimilarityRankingAndRowScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hits, err := e.store.SimilarEntities(e.Admin(), queryVec.Vectors[0], 10)
+	identity, _ := embedder.EmbedIdentity()
+	hits, err := e.store.SimilarEntities(e.Admin(), queryVec.Vectors[0], identity, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +143,7 @@ func TestSimilarityRankingAndRowScope(t *testing.T) {
 	}
 
 	// rep1 (team1) cannot see rep3's row through the vector lane either.
-	hits, err = e.store.SimilarEntities(e.asTeamRep(e.Rep1, e.Team1), queryVec.Vectors[0], 10)
+	hits, err = e.store.SimilarEntities(e.asTeamRep(e.Rep1, e.Team1), queryVec.Vectors[0], identity, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,5 +349,74 @@ func TestUpsertRejectsZeroVector(t *testing.T) {
 	}
 	if fresh {
 		t.Fatalf("zero vector must not report fresh=true, got %v", fresh)
+	}
+}
+
+// TestSimilarEntitiesFiltersIdentityAndDoesNotCrossDimCrash proves the
+// e.model = $identity predicate is BOTH a correctness fix and a
+// crash-safety pin (design §5.6/§5.8): the embedding column is unbounded
+// after migration 0113, so a store holding rows at two different widths
+// under two different bindings must (a) rank only the caller's own
+// identity's rows without erroring, and (b) the SAME comparison run
+// WITHOUT the identity filter — the shape SimilarEntities would run if
+// the predicate were ever removed — must itself error with a dimension
+// mismatch, proving the filter is load-bearing, not decoration.
+func TestSimilarEntitiesFiltersIdentityAndDoesNotCrossDimCrash(t *testing.T) {
+	e := setupSearch(t)
+	ctx := context.Background()
+
+	threeDim := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Three Dim Person', 'manual', 'human:x')`)
+	twoDim := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Two Dim Person', 'manual', 'human:x')`)
+
+	// Seed the unbounded embedding column directly at two different
+	// widths under two different identities — the mixed-width store
+	// Task 6's migration made possible, and Task 7's read-side filter
+	// must survive.
+	if _, err := e.owner.Exec(ctx, `
+		INSERT INTO embedding (workspace_id, entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
+		VALUES ($1, 'person', $2, 0, 'hash-three', 'm@3', '[1,2,3]'::vector)`,
+		e.WS, threeDim); err != nil {
+		t.Fatalf("seeding the 3-dim row: %v", err)
+	}
+	if _, err := e.owner.Exec(ctx, `
+		INSERT INTO embedding (workspace_id, entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
+		VALUES ($1, 'person', $2, 0, 'hash-two', 'm@2', '[1,2]'::vector)`,
+		e.WS, twoDim); err != nil {
+		t.Fatalf("seeding the 2-dim row: %v", err)
+	}
+
+	// (a) Filtered to "m@3": returns only the m@3 hit and does not crash
+	// against the differently-sized m@2 sibling sharing the same column.
+	hits, err := e.store.SimilarEntities(e.Admin(), []float32{1, 2, 3}, "m@3", 10)
+	if err != nil {
+		t.Fatalf("SimilarEntities must not cross-dim crash when identity-filtered: %v", err)
+	}
+	if len(hits) != 1 || hits[0].ID != threeDim {
+		t.Fatalf("expected only the m@3 hit, got %+v", hits)
+	}
+
+	// (b) Pin WHY the filter is load-bearing: the unfiltered shape — no
+	// model predicate — over the SAME mixed-width store must error with a
+	// dimension mismatch. This is what SimilarEntities would do to every
+	// caller the moment the e.model = $identity predicate is removed.
+	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `SELECT 1 - (embedding <=> $1::vector) FROM embedding`, "[1,2,3]")
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var sim float64
+			if err := rows.Scan(&sim); err != nil {
+				return err
+			}
+		}
+		return rows.Err()
+	})
+	if err == nil {
+		t.Fatal("the unfiltered cross-dim comparison must error, got nil")
+	}
+	if !strings.Contains(err.Error(), "different vector dimensions") {
+		t.Fatalf("expected a dimension-mismatch error, got: %v", err)
 	}
 }

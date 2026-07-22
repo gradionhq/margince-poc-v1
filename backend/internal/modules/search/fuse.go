@@ -40,12 +40,13 @@ func (s *Store) HybridSearch(ctx context.Context, query string, embedder Embedde
 		return hits, nil
 	}
 
-	// Dimensions rides the SAME identity every stored row was embedded
-	// under (Task 8 adds the read-side identity filter that keeps a
-	// binding swap's stale rows out of this query's results); a fixed
-	// width here would silently mismatch a store re-derived at another
-	// width.
-	_, dims := embedder.EmbedIdentity()
+	// identity and dims both ride the SAME binding the query is about to
+	// embed under: dims sizes the request, and identity is threaded into
+	// SimilarEntities below so the read side only ever ranks rows stored
+	// under this exact identity — the filter that keeps a binding swap's
+	// stale, differently-sized rows out of this query's results (and out
+	// of the <=> operator's reach entirely).
+	identity, dims := embedder.EmbedIdentity()
 	queryEmb, err := embedder.Embed(ctx, model.EmbedRequest{Inputs: []string{query}, Dimensions: dims})
 	if err != nil {
 		return nil, fmt.Errorf("search: embedding the query: %w", err)
@@ -53,7 +54,7 @@ func (s *Store) HybridSearch(ctx context.Context, query string, embedder Embedde
 	if len(queryEmb.Vectors) != 1 {
 		return nil, fmt.Errorf("search: query embedding returned %d vectors", len(queryEmb.Vectors))
 	}
-	vector, err := s.SimilarEntities(ctx, queryEmb.Vectors[0], laneDepth)
+	vector, err := s.SimilarEntities(ctx, queryEmb.Vectors[0], identity, laneDepth)
 	if err != nil {
 		return nil, err
 	}
