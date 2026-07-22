@@ -194,6 +194,26 @@ func Emit(ctx context.Context, tx pgx.Tx, auditID ids.UUID, eventType, entityTyp
 	return err
 }
 
+// EmitEvent is Emit with the event type and entity type derived FROM the
+// payload (p.EventType(), p.EntityType()) instead of taken as separate
+// string parameters — a wrong payload for an event, or a payload staged
+// under the wrong entity type, is impossible to express at the call site.
+// Use this for every event whose entity is the payload's own static
+// subject (the common case); use EmitEventForEntity for the handful of
+// dynamic-entity types below.
+func EmitEvent(ctx context.Context, tx pgx.Tx, auditID ids.UUID, entityID ids.UUID, p events.Payload) error {
+	return Emit(ctx, tx, auditID, p.EventType(), p.EntityType(), entityID, p)
+}
+
+// EmitEventForEntity is EmitEvent for the dynamic-entity event types
+// (mirror.*, consent.changed, retention.applied — contract
+// `x-entity-type: dynamic`) whose subject is a runtime value the caller
+// resolves, not the payload's static type: it takes entityType as a
+// parameter and ignores p.EntityType() entirely.
+func EmitEventForEntity(ctx context.Context, tx pgx.Tx, auditID ids.UUID, entityType string, entityID ids.UUID, p events.Payload) error {
+	return Emit(ctx, tx, auditID, p.EventType(), entityType, entityID, p)
+}
+
 // EmitPipeline stages an entity-less pipeline event (events envelope
 // pipeline class — capture.skipped and its siblings): a bus event that names
 // NO subject because the pipeline step produced nothing (an excluded message
