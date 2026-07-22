@@ -5,11 +5,14 @@
 # that hard-codes a country string cannot be reused across jurisdictions and
 # leaks one market's rules into everyone's build.
 #
-# This repo's seam is internal/modules/de (the German pack) plus
-# internal/shared/ports/jurisdiction (the Tier-0 port); everything else under
-# internal/ is core and must stay country-neutral. Generated contract code
-# (*_gen.go / *.gen.go) and tests (which legitimately exercise pack behavior)
-# are out of scope — this gate guards hand-written core source.
+# This repo's seam is internal/shared/ports/jurisdiction (the Tier-0 port,
+# aliasing the published pkg/extension/jurisdiction contract); the packs
+# themselves live OUTSIDE core as stable-tier extensions (extensions/de, the
+# ADR-0069 pilot), which this gate does not scan — an extension is
+# jurisdiction-specific by design. Everything else under internal/ is core and
+# must stay country-neutral. Generated contract code (*_gen.go / *.gen.go) and
+# tests (which legitimately exercise pack behavior) are out of scope — this
+# gate guards hand-written core source.
 #
 # The gate reads CODE, not documentation: a comment-only line is dropped
 # before matching, so core may name the motivating statute for a GENERIC,
@@ -20,7 +23,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 scan="backend/internal"
-seam='/modules/de/|/ports/jurisdiction/'
+seam='/ports/jurisdiction/'
 # Anchored to the path segment of a `file:line:content` grep row (…_gen.go:NN),
 # not `$` — which would match the END of the content, so generated files never
 # got excluded (the whole point of this filter).
@@ -61,7 +64,7 @@ iso_hits="$(grep -rnE "$iso" "$scan" --include='*.go' 2>/dev/null \
   | strip_comments | grep -E "$iso" || true)"
 
 if [[ -n "$hits" ]] || [[ -n "$iso_hits" ]]; then
-  echo "FAIL: jurisdiction-specific strings in core (move to internal/modules/de):"
+  echo "FAIL: jurisdiction-specific strings in core (move to the jurisdiction pack, extensions/de):"
   [[ -n "$hits" ]] && echo "$hits"
   [[ -n "$iso_hits" ]] && echo "$iso_hits"
   exit 1

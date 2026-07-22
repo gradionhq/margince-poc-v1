@@ -33,10 +33,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
-
-	// The DE jurisdiction pack compiles into every edge binary of this
-	// DE-first deployment (ADR-0042: composition by require-set).
-	_ "github.com/gradionhq/margince/backend/internal/modules/de"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"

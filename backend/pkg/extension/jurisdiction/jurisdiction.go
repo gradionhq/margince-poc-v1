@@ -87,10 +87,40 @@ type Retention interface {
 	Classes() []RetentionClass
 }
 
+// RetentionClassName names a statutory retention class the core engine
+// understands. The set is CLOSED: extensions supply floors for known
+// classes, they do not add kinds — vocabulary registration is
+// deliberately deferred (ADR-0069 §13), and an unknown name would be a
+// floor that looks registered while no engine ever consults it.
+type RetentionClassName string
+
+const (
+	// CommercialCorrespondence is external business communication
+	// (GoBD Handelsbriefe: email, call, meeting, messaging).
+	CommercialCorrespondence RetentionClassName = "commercial_correspondence"
+
+	// AccountingRecords are booking records (§147 AO Buchungsbelege).
+	AccountingRecords RetentionClassName = "accounting_records"
+
+	// BooksAndAnnualAccounts are books, inventories and annual accounts
+	// (§147 AO Bücher und Abschlüsse).
+	BooksAndAnnualAccounts RetentionClassName = "books_and_annual_accounts"
+)
+
+// Validate enforces membership in the closed set; the boot preflight
+// refuses a pack declaring a name no engine consults.
+func (n RetentionClassName) Validate() error {
+	switch n {
+	case CommercialCorrespondence, AccountingRecords, BooksAndAnnualAccounts:
+		return nil
+	}
+	return fmt.Errorf("retention class %q is not in the closed class set — vocabulary registration is deferred (ADR-0069 §13)", string(n))
+}
+
 // RetentionClass names one statutory retention floor: the core engine
 // treats Keep as a minimum — a workspace policy may keep longer, never
 // destroy earlier.
 type RetentionClass struct {
-	Name string
+	Name RetentionClassName
 	Keep Period
 }
