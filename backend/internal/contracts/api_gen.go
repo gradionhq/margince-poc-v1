@@ -7895,7 +7895,7 @@ type CreateWebhookSubscriptionRequest struct {
 	// EventTypes At least one event type from the published catalog; a true set — duplicates are rejected.
 	EventTypes []string `json:"event_types"`
 
-	// TargetUrl HTTPS-only; http:// is rejected.
+	// TargetUrl HTTPS-only; http:// is rejected (the contract enforces the scheme, matching the store's check).
 	TargetUrl string `json:"target_url"`
 }
 

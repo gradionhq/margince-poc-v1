@@ -99,6 +99,8 @@ security:
   - cookieAuth: []      # humans — interactive session cookie (ADR-0043)
 
 tags:
+  - name: Webhooks
+    description: Outbound webhook subscriptions (E10/S-E10.6) — signed, retried delivery of published domain events to a tenant-owned HTTPS endpoint.
   - name: People
     description: Person (contact) records, their emails and phones.
   - name: Organizations
@@ -7485,7 +7487,7 @@ components:
       type: object
       required: [target_url, event_types]
       properties:
-        target_url: { type: string, format: uri, description: HTTPS-only; http:// is rejected. }
+        target_url: { type: string, format: uri, pattern: '^https://', description: 'HTTPS-only; http:// is rejected (the contract enforces the scheme, matching the store''s check).' }
         event_types:
           type: array
           minItems: 1
@@ -7496,6 +7498,7 @@ components:
     UpdateWebhookSubscriptionRequest:
       type: object
       description: A partial update; omitted fields keep their stored value. Use it to pause/resume or re-target the event set.
+      minProperties: 1
       properties:
         state: { type: string, enum: [active, paused] }
         event_types:

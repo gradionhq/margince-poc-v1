@@ -4300,7 +4300,7 @@ export interface components {
         CreateWebhookSubscriptionRequest: {
             /**
              * Format: uri
-             * @description HTTPS-only; http:// is rejected.
+             * @description HTTPS-only; http:// is rejected (the contract enforces the scheme, matching the store's check).
              */
             target_url: string;
             /** @description At least one event type from the published catalog; a true set — duplicates are rejected. */
