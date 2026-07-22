@@ -23,6 +23,9 @@ import (
 // ai router (or the offline fake) — search never picks a model.
 type Embedder interface {
 	Embed(ctx context.Context, req model.EmbedRequest) (model.Embeddings, error)
+	// EmbedIdentity is the current binding's stamp — cheap, no API call.
+	// identity = "<provider>/<model>@<dims>"; dims is the width guard's expected size.
+	EmbedIdentity() (identity string, dims int)
 }
 
 // embedModelLabel records which lane produced a row. The binding is

@@ -316,6 +316,22 @@ func (r *Router) Embed(ctx context.Context, req model.EmbedRequest) (model.Embed
 	return res, nil
 }
 
+// EmbedIdentity names the current embed binding for search to stamp on
+// every row and filter retrieval to (search.Embedder) — cheap, no API
+// call. Returns ("", 0) when the embed lane is unbound (--ai-fake with no
+// embeddings configured, or any boot that never bound one): routeMeta
+// only carries a TierEmbedLane entry when routing_bind.go's
+// embedInclusiveMeta saw a non-empty Embeddings.Model, so a missing entry
+// here is the honest "nothing to identify" case, never a panic on a
+// missing map key.
+func (r *Router) EmbedIdentity() (string, int) {
+	m, ok := r.routeMeta[TierEmbedLane]
+	if !ok {
+		return "", 0
+	}
+	return fmt.Sprintf("%s/%s@%d", m.provider, m.model, r.embedDims), r.embedDims
+}
+
 // Invalidate drops a workspace's cached results — the hook the §6
 // record-change invalidation rides (wired from event consumers).
 func (r *Router) Invalidate(workspaceID ids.WorkspaceID) { r.cache.invalidate(workspaceID) }
