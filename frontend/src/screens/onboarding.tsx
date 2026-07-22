@@ -56,6 +56,7 @@ import {
 } from "./company-context";
 import { confidenceLevel } from "./inbox";
 import { ReadCompanyStep } from "./onboarding-read";
+import { parseVoiceInsights, VoiceInsights } from "./voice-insights";
 import "./onboarding.css";
 
 const STEPS = [
@@ -1811,6 +1812,9 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
   const [derived, setDerived] = useState<
     components["schemas"]["VoiceProfile"] | null
   >(null);
+  const [activeVersion, setActiveVersion] = useState<
+    components["schemas"]["VoiceProfileVersion"] | null
+  >(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // A build in flight must not write state after the step unmounts — the parent
@@ -1999,10 +2003,20 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
       const profile = await api.GET("/voice-profiles/{id}", {
         params: { path: { id: profileId } },
       });
+      // The structured insights (thinking pattern, signature moves, sample
+      // drafts) live on the active version row; a failed read degrades to
+      // the plain artifact text, never blocks the step.
+      const versions = await api.GET("/voice-profiles/{id}/versions", {
+        params: { path: { id: profileId } },
+      });
       if (!mounted.current) {
         return;
       }
       setDerived(profile.data ?? null);
+      setActiveVersion(
+        versions.data?.data.find((version) => version.status === "active") ??
+          null,
+      );
     }
     setBuilt(true);
     onBuilt();
@@ -2238,7 +2252,12 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
                   })}
                 </span>
               </div>
-              {derived?.voice_profile_md ? (
+              {activeVersion ? (
+                <VoiceInsights
+                  data={parseVoiceInsights(activeVersion)}
+                  profileVersion={activeVersion.profile_version}
+                />
+              ) : derived?.voice_profile_md ? (
                 <p
                   style={{
                     marginTop: "var(--space-3)",

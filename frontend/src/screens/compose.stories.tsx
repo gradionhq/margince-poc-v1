@@ -39,6 +39,7 @@ const DRAFT: components["schemas"]["EmailDraft"] = {
   subject: "Re: Q3 numbers",
   body: "Thanks for the note — following up as promised.",
   to: ["buyer@acme.test"],
+  ai_generated: false,
 };
 
 // Renders the composer over a given route map, always serving the consent

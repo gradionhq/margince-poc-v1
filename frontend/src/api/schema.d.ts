@@ -5747,6 +5747,15 @@ export interface components {
             to?: string[];
             /** Format: uuid */
             in_reply_to_activity_id?: string | null;
+            /**
+             * @description Art. 50 AI-assisted disclosure: true when a model produced this draft; stamped on the drafting call itself, never persisted.
+             * @default false
+             */
+            readonly ai_generated: boolean;
+            /** @description The machine-readable Art. 50 disclosure line; non-null iff ai_generated=true. */
+            readonly ai_disclosure?: string | null;
+            /** @description The Voice DNA profile version that styled this draft ("your corpus · model vN" provenance); null when no ready voice profile shaped it. */
+            readonly voice_profile_version?: number | null;
         };
         SendEmailRequest: {
             subject: string;

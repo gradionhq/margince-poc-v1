@@ -1610,6 +1610,38 @@ export const de = {
     "Notizen dazu, wie du klingen willst — genau so behalten, wie du sie schreibst; das Modell überschreibt das nie.",
   "settings.voice.savePreferences": "Vorgaben speichern",
   "settings.voice.corpusLabel": "Schreibproben",
+  "settings.voice.meter": "{count} von {target} W\u00f6rtern",
+  "settings.voice.register.email": "E-Mail",
+  "settings.voice.register.social": "Social",
+  "settings.voice.register.long_form": "Langform",
+  "settings.voice.register.spoken": "gesprochen",
+  "settings.voice.register.general": "allgemein",
+  "settings.voice.bandDrop":
+    "Das Entfernen stuft deine Stimme von {from} auf {to} zur\u00fcck. Zum Best\u00e4tigen erneut klicken.",
+  "voice.insights.provenance": "Aus deinem Korpus gebaut \u00b7 v{n}",
+  "voice.insights.statWords": "{count} W\u00f6rter",
+  "voice.insights.statSources": "{count} Quellen",
+  "voice.insights.statSentence": "\u2248{count} W\u00f6rter pro Satz",
+  "voice.insights.thinkingLabel": "Wie du denkst",
+  "voice.insights.movesLabel":
+    "Deine Signature Moves \u2014 in deinen eigenen Worten",
+  "voice.insights.samplesLabel": "Beispielentw\u00fcrfe in deiner Stimme",
+  "voice.insights.draftOnly": "nur Entwurf \u2014 wird nie gesendet",
+  "voice.insights.disclosure":
+    "KI-gest\u00fctzte Entw\u00fcrfe; jeder Versand bleibt eine menschliche Entscheidung.",
+  "voice.insights.nextBestLabel": "So wird sie besser:",
+  "voice.candidate.title":
+    "Eine neue Stimmen-Version (v{n}) wartet auf deine Pr\u00fcfung.",
+  "voice.candidate.apply": "Diese Version verwenden",
+  "voice.candidate.reject": "Meine aktuelle Stimme behalten",
+  "voice.history.label": "Versionen und Lernen",
+  "voice.history.empty":
+    "Noch keine Versionen \u2014 baue zuerst deine Stimme.",
+  "voice.history.deltasLabel": "Was sich ge\u00e4ndert hat",
+  "voice.history.deltaRow": "v{from} \u2192 v{to}",
+  "voice.history.learning":
+    "Lernt kontinuierlich: {drafted} Entw\u00fcrfe erstellt \u00b7 {edited} vor dem Senden bearbeitet \u00b7 {rejected} abgelehnt.",
+  "voice.history.rollback": "Version {n} wiederherstellen",
   "settings.voice.corpusEmpty": "Noch keine Proben.",
   "settings.voice.excluded": "ausgeschlossen",
   "settings.voice.removeSource": "Probe entfernen",
