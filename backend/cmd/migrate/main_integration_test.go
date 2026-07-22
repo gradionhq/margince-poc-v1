@@ -200,7 +200,12 @@ func TestDBVerbsRejectNamesTheServerWouldTruncate(t *testing.T) {
 	prefix := base + "_verbs_trunc_"
 	victim := prefix + strings.Repeat("x", 63-len(prefix)) // exactly the limit: accepted
 	long := victim + "y"                                   // one byte over: its truncation IS victim
+	ok := base + "_verbs_ok"                               // the over-length-template case's would-be output
 	t.Cleanup(func() { mustMigrate(t, "drop-db", "--dsn", maint, "--name", victim) })
+	// If the guard regresses, the template case creates `ok` right before the
+	// test fails — drop it either way so the failure path cannot leak it
+	// (dropping an absent database succeeds).
+	t.Cleanup(func() { mustMigrate(t, "drop-db", "--dsn", maint, "--name", ok) })
 
 	mustMigrate(t, "recreate-db", "--dsn", maint, "--name", victim)
 	stamp(t, withDB(victim), "CREATE TABLE survivor_marker (id int)")
@@ -209,7 +214,7 @@ func TestDBVerbsRejectNamesTheServerWouldTruncate(t *testing.T) {
 		{"recreate-db", "--dsn", maint, "--name", long},
 		{"drop-db", "--dsn", maint, "--name", long},
 		{"db-exists", "--dsn", maint, "--name", long},
-		{"recreate-db", "--dsn", maint, "--name", base + "_verbs_ok", "--template", long},
+		{"recreate-db", "--dsn", maint, "--name", ok, "--template", long},
 	} {
 		if _, err := migrateCmd(t, args...); err == nil || !strings.Contains(err.Error(), "identifier limit") {
 			t.Fatalf("migrate %s: got %v, want a refusal naming the identifier limit", strings.Join(args, " "), err)
@@ -218,7 +223,7 @@ func TestDBVerbsRejectNamesTheServerWouldTruncate(t *testing.T) {
 	if !tableExists(t, withDB(victim), "survivor_marker") {
 		t.Fatal("a verb given the over-length name touched the database owning its truncated prefix — the refusal must come before any destructive statement")
 	}
-	if out := mustMigrate(t, "db-exists", "--dsn", maint, "--name", base+"_verbs_ok"); out != "false\n" {
+	if out := mustMigrate(t, "db-exists", "--dsn", maint, "--name", ok); out != "false\n" {
 		t.Fatalf("recreate-db with an over-length --template still created --name: db-exists printed %q, want %q", out, "false\n")
 	}
 }
