@@ -376,7 +376,7 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH auth
 	// other operational edges are unauthenticated by design.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", httpserver.Healthz)
-	mux.HandleFunc("/readyz", httpserver.Readyz(srv.aiStateOrDefault(), srv.readinessChecks(pool.Ping)...))
+	mux.HandleFunc("/readyz", httpserver.Readyz(srv.aiStateOrDefault(), srv.readyzEmbedState(), srv.readinessChecks(pool.Ping)...))
 	mux.HandleFunc("/metrics", httpserver.Metrics(pool,
 		func(ctx context.Context) (int64, error) { return events.OutboxBacklog(ctx, pool) },
 		events.PublishedTotal,
@@ -404,6 +404,43 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH auth
 		mux.Handle("/webhooks/gmail-push", httpserver.Correlate(httpserver.AccessLog(log, srv.gmailPush)))
 	}
 	return mux
+}
+
+// readyzEmbedState builds /readyz's embed-status closure (Task 17) over
+// whatever embed lane this process role already wired via
+// WithEmbedReindex — the SAME store and embedder embedReindexHandlers'
+// status/preview/confirm read, so this reports through the one seam
+// rather than opening a second router/store pair. A role that never
+// wires an embed lane (no declared routing config, --ai-fake, or the
+// two self-gating nils WithEmbedReindex checks) leaves engine nil; that
+// is a legitimate "no embed lane to report on" shape, not a fault, so it
+// renders "unknown" exactly like a marker-read failure does — Readyz's
+// body never distinguishes the two, only ever "was this readable right
+// now or not."
+func (s Server) readyzEmbedState() func(context.Context) string {
+	engine := s.embedReindexHandlers.engine
+	return func(ctx context.Context) string {
+		if engine == nil {
+			return "unknown"
+		}
+		populated, status, err := engine.store.PopulatedIdentity(ctx)
+		if err != nil {
+			// The marker read failing mid-request never gates readiness (the
+			// embed store still serves N+1 reads correctly under a stale or
+			// unreadable binding) — it only ever downgrades this one
+			// visibility line, so the failure is logged here rather than
+			// surfaced to the probe body.
+			slog.ErrorContext(ctx, "readyz: reading embed binding marker failed", "err", err)
+			return "unknown"
+		}
+		if status == reembeddingStatus {
+			return "reembedding"
+		}
+		if populated == engine.currentIdentity() {
+			return "active"
+		}
+		return "needs_reindex"
+	}
 }
 
 // signalStrength bridges people's §4 relationship-strength computation to
