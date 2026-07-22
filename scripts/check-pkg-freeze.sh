@@ -129,7 +129,7 @@ expired="$EXPORT_DIR/expired"
 : > "$allowed"
 : > "$expired"
 if [ -f "$ALLOWLIST" ]; then
-  entries="$(grep -vE '^\s*(#|$)' "$ALLOWLIST" || true)"
+  entries="$(awk '!/^[[:space:]]*(#|$)/' "$ALLOWLIST")"
   if [ -n "$entries" ]; then
     printf '%s\n' "$entries" | grep -E "^$BASE12 " | sed "s/^$BASE12 //" > "$allowed" || true
     printf '%s\n' "$entries" | grep -vE "^$BASE12 " > "$expired" || true
