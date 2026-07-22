@@ -29,7 +29,8 @@ make check-backend      # backend half: build, vet, lint (baseline + new-code
                         # strict), arch-lint, unit + fitness tests, contract drift,
                         # plus the root script gates (craft drift, image pins,
                         # contract-breaking, test-lanes, file-length, rls-store-path,
-                        # no-jurisdiction). This is what CI's deterministic-gates runs.
+                        # no-jurisdiction, pkg-freeze). This is what CI's
+                        # deterministic-gates runs.
 make check-fe           # frontend half (biome + vitest + tsc + build)
 make test-integration   # real-Postgres lane: RLS gates + HTTP end-to-end (needs db-up).
                         # Parallel — each package on its own throwaway clone db; ends
@@ -203,9 +204,8 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   (the governed add-field engine: the sole runtime `ALTER TABLE`
   chokepoint; record stores read the `cf_*` columns via the
   `fieldcatalog` seam), `quotas` (RD-T06 owner-XOR-team revenue
-  targets, human-set, workspace-shared config posture), `de` (the
-  German jurisdiction pack: GoBD retention floors, registered via
-  `ports/jurisdiction`), and `overlay` (the incumbent-CRM mirror: a second
+  targets, human-set, workspace-shared config posture), `webhooks`
+  (outbound webhook subscriptions + owner-scoped delivery, E10), and `overlay` (the incumbent-CRM mirror: a second
   `datasource.SystemOfRecordProvider` selected per-workspace by
   `workspace.x_sor_mode`, serving mirror-backed reads behind the inner
   `incumbent.Incumbent` seam — fail-closed visibility deny-join,
@@ -240,6 +240,14 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
 - `frontend/` — the Vite/React web UI: a standalone static build served
   separately from the API binary (which serves `/v1` only — no embedded
   SPA); `make frontend-check` / `make dev` exist at the repo root.
+- `extensions/<name>/` — the stable extension tier (ADR-0069): each unit
+  is its own Go module importing ONLY the marker-allowlisted
+  `backend/pkg/**` surface; presence under `extensions/` is the
+  enablement. The vanilla tree ships `extensions/de` (the German
+  jurisdiction pack — GoBD calendar-year retention floors), first-party
+  and enabled by default. `make composition` (run by every build lane)
+  generates the ignored `build/composition/` wiring; `composition/` at
+  the root is the committed vanilla stub so bare go commands resolve.
 
 ## DO NOT TOUCH
 

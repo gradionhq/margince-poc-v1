@@ -64,6 +64,10 @@ func (stubs) GetAiCall(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontr
 	httperr.NotImplemented(w, r, "GetAiCall")
 }
 
+func (stubs) GetAiProfile(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetAiProfile")
+}
+
 func (stubs) GetAiUsage(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetAiUsageParams) {
 	httperr.NotImplemented(w, r, "GetAiUsage")
 }
@@ -522,6 +526,10 @@ func (stubs) RenderOffer(w nethttp.ResponseWriter, r *nethttp.Request, id crmcon
 
 func (stubs) SendOffer(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.SendOfferParams) {
 	httperr.NotImplemented(w, r, "SendOffer")
+}
+
+func (stubs) MessageOnboardingCompany(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "MessageOnboardingCompany")
 }
 
 func (stubs) GetOnboardingState(w nethttp.ResponseWriter, r *nethttp.Request) {

@@ -5,10 +5,13 @@ package ai
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 func TestPublicProfileDerivesSafeRoutingPosture(t *testing.T) {
@@ -67,8 +70,8 @@ func TestPublicProfileDerivesSafeRoutingPosture(t *testing.T) {
 func TestGetAssistantProfileReturnsOnlyPublicFields(t *testing.T) {
 	h := NewHandlers(nil, nil).WithPublicProfile(NewPublicProfile("configured", RoutingConfig{
 		Tiers: map[Tier]ProviderConfig{
-			TierLocalSmall: {Provider: providerOllama},
-			TierPremium:    {Provider: providerAnthropic},
+			TierLocalSmall: {Provider: providerOllama, Model: "gemma3"},
+			TierPremium:    {Provider: providerAnthropic, Model: "claude-sonnet"},
 		},
 	}))
 	recorder := httptest.NewRecorder()
@@ -87,9 +90,55 @@ func TestGetAssistantProfileReturnsOnlyPublicFields(t *testing.T) {
 	if len(body) != len(wantKeys) {
 		t.Fatalf("response exposes fields outside the public contract: %s", recorder.Body.String())
 	}
-	for _, forbidden := range []string{"model", "endpoint", "budget", "workspace", "key"} {
+	for _, forbidden := range []string{"endpoint", "budget", "workspace", "key"} {
 		if strings.Contains(recorder.Body.String(), forbidden) {
 			t.Errorf("response contains forbidden %q detail: %s", forbidden, recorder.Body.String())
 		}
+	}
+	for _, forbidden := range []string{"claude-sonnet", "gemma3", "premium", "local_small"} {
+		if strings.Contains(recorder.Body.String(), forbidden) {
+			t.Fatalf("public response exposes %q: %s", forbidden, recorder.Body.String())
+		}
+	}
+}
+
+func TestGetAiProfileReturnsAuthenticatedConfiguredModelsAndLocalDefaults(t *testing.T) {
+	h := NewHandlers(nil, nil).WithPublicProfile(NewPublicProfile("configured", RoutingConfig{
+		Tiers: map[Tier]ProviderConfig{
+			TierLocalSmall: {Provider: providerOllama},
+			TierLocalLarge: {Provider: providerVLLM},
+			TierPremium:    {Provider: providerAnthropic, Model: "claude-sonnet"},
+		},
+	}))
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest("GET", "/v1/ai/profile", nil)
+	request = request.WithContext(principal.WithActor(request.Context(), principal.Principal{
+		Type: principal.PrincipalHuman,
+		Permissions: principal.Permissions{Objects: map[string]principal.ObjectGrant{
+			"automation": {Update: true},
+		}},
+	}))
+	h.GetAiProfile(recorder, request)
+
+	body := recorder.Body.String()
+	for _, expected := range []string{defaultOllamaModel, defaultVLLMModel, "claude-sonnet", `"tier":"premium"`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("authenticated profile misses %q: %s", expected, body)
+		}
+	}
+}
+
+func TestGetAiProfileRequiresOperationalConfigurationGrant(t *testing.T) {
+	h := NewHandlers(nil, nil).WithPublicProfile(NewPublicProfile("configured", RoutingConfig{}))
+	request := httptest.NewRequest("GET", "/v1/ai/profile", nil)
+	request = request.WithContext(principal.WithActor(request.Context(), principal.Principal{
+		Type: principal.PrincipalHuman,
+	}))
+	recorder := httptest.NewRecorder()
+
+	h.GetAiProfile(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d: %s", recorder.Code, http.StatusForbidden, recorder.Body.String())
 	}
 }

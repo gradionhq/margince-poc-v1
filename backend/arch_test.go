@@ -121,15 +121,35 @@ func TestNoSiblingModuleImports(t *testing.T) {
 }
 
 // TestSharedIsPure: internal/shared (kernel + apperrors + ports) is the
-// Tier-0 leaf layer — stdlib and each other, nothing else. A third-party
-// or project import here is an architecture defect.
+// Tier-0 leaf layer — stdlib, each other, and the published extension
+// surface beneath it (ports alias published seam types so a core module
+// and an extension register the same type, ADR-0069 §3). Anything else
+// is an architecture defect.
 func TestSharedIsPure(t *testing.T) {
 	for _, dir := range packagesUnder(t, "internal/shared") {
 		for _, imp := range projectImports(t, dir) {
 			if strings.HasPrefix(imp, modulePath+"/internal/shared/") {
 				continue // leaf → leaf is allowed (types only, no cycles)
 			}
+			if strings.HasPrefix(imp, modulePath+"/pkg/") {
+				continue // the published surface sits below shared
+			}
 			t.Errorf("%s imports %s: shared packages must be stdlib-only", dir, imp)
+		}
+	}
+}
+
+// TestPublishedSurfaceIsPure: backend/pkg is the published extension
+// surface (ADR-0069 §3) and the outermost leaf — stdlib and itself,
+// nothing else. Any other import would become transitively-frozen
+// published API the moment an extension binds it.
+func TestPublishedSurfaceIsPure(t *testing.T) {
+	for _, dir := range packagesUnder(t, "pkg") {
+		for _, imp := range projectImports(t, dir) {
+			if strings.HasPrefix(imp, modulePath+"/pkg/") {
+				continue
+			}
+			t.Errorf("%s imports %s: published surface packages must be stdlib-only", dir, imp)
 		}
 	}
 }

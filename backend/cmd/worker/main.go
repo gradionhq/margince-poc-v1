@@ -24,15 +24,15 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	// The composed extension set (ADR-0069): the generated module under
+	// build/composition/ in a composed build, the committed vanilla stub
+	// in a bare one — same import path either way.
+	"github.com/gradionhq/margince/composition"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
-
-	// The DE jurisdiction pack compiles into every edge binary of this
-	// DE-first deployment (ADR-0042: composition by require-set).
-	_ "github.com/gradionhq/margince/backend/internal/modules/de"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
@@ -67,6 +67,15 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+
+	// Register the composed extension set before anything runs; a
+	// failing registration aborts the boot (ADR-0069 EXT-P4). ONE
+	// snapshot serves registration and the boot inventory below, so both
+	// observe the same declarations.
+	extensions := composition.Extensions()
+	if err := compose.RegisterExtensions(extensions); err != nil {
+		return err
+	}
 	// The worker reads the same deployment file the api boots from: the
 	// capture pipeline tuning (capture.freemail_extra) and the operator's
 	// ai.capture_payloads posture the Surface-B runner honors. A missing
@@ -89,6 +98,13 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	defer pool.Close()
+
+	// Record the composed extension set when it changed since the last
+	// boot (ADR-0069 §5); pre-bootstrap it skips — the api records the
+	// first observation once it has bootstrapped the installation.
+	if err := compose.ObserveExtensionInventory(ctx, pool, logger, extensions); err != nil {
+		return err
+	}
 
 	rdb, err := events.NewClient(ctx, cfg.redisAddr)
 	if err != nil {

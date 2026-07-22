@@ -1865,6 +1865,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/onboarding/company/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Continue the scoped company-setup conversation with or without a website read.
+         * @description Uses the acting human's resumable onboarding state as the conversation and AI-run scope.
+         *     The response may answer, clarify, or propose typed draft changes, but it never writes
+         *     company truth. Off-topic input is redirected to the next unresolved company question.
+         */
+        post: operations["messageOnboardingCompany"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/company": {
         parameters: {
             query?: never;
@@ -2296,6 +2318,29 @@ export interface paths {
          *     their own bill made visible, never a Margince meter for resale.
          */
         get: operations["getAiUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Authenticated AI configuration posture for transparent human-facing workspaces.
+         * @description The configured tier-to-provider-to-model bindings used by the deployment. This is an
+         *     authenticated administrative surface: the anonymous assistant presence deliberately
+         *     omits model ids, tiers, routes, and provider bindings. Runtime call summaries remain the
+         *     authority for which model actually served a specific task and its measured cost.
+         */
+        get: operations["getAiProfile"];
         put?: never;
         post?: never;
         delete?: never;
@@ -6530,6 +6575,27 @@ export interface components {
             /** @description Distinct configured provider keys, sorted; fake is never returned. */
             providers: ("anthropic" | "gemini" | "ollama" | "openai" | "openai_compatible" | "vllm")[];
         };
+        AiProfile: {
+            /** @enum {string} */
+            name: "Margince";
+            /** @enum {string} */
+            kind: "ai";
+            /** @enum {string} */
+            state: "configured" | "unconfigured" | "development";
+            /** @enum {string} */
+            inference_mode: "cloud" | "local" | "hybrid" | "none" | "development";
+            /** @description Distinct configured provider keys, sorted; fake is never returned. */
+            providers: ("anthropic" | "gemini" | "ollama" | "openai" | "openai_compatible" | "vllm")[];
+            /** @description Authenticated tier-to-model bindings. Credentials and endpoints never appear here. */
+            configured_models: components["schemas"]["AssistantConfiguredModel"][];
+        };
+        AssistantConfiguredModel: {
+            /** @enum {string} */
+            tier: "local_small" | "cheap_cloud" | "premium" | "local_large";
+            /** @enum {string} */
+            provider: "anthropic" | "gemini" | "ollama" | "openai" | "openai_compatible" | "vllm";
+            model: string;
+        };
         AuthCapabilities: {
             /** @description Email + password login is enabled. */
             password: boolean;
@@ -7018,7 +7084,8 @@ export interface components {
         /**
          * @description Partial human-editable company input retained while the wizard is unfinished. Every field
          *     is optional here because this is not confirmed company truth; confirmation uses the stricter
-         *     CompanyProfileInput or ConfirmCompanySiteReadRequest contract.
+         *     CompanyProfileInput or ConfirmCompanySiteReadRequest contract. Values are bounded because the
+         *     same draft may be supplied as context to the conversational assistant.
          */
         OnboardingCompanyDraft: {
             display_name?: string | null;
@@ -7371,9 +7438,32 @@ export interface components {
             message: string;
         };
         CompanySiteReadMessageReply: {
+            kind: components["schemas"]["CompanyConversationResponseKind"];
             message: string;
             proposed_changes: components["schemas"]["CompanySiteReadSuggestedChange"][];
             citations: components["schemas"]["CompanySiteReadCitation"][];
+            ai_runtime: components["schemas"]["AiRunSummary"];
+        };
+        /** @enum {string} */
+        CompanyConversationResponseKind: "status" | "answer" | "recommendation" | "correction" | "confirmation" | "clarification" | "off_topic";
+        OnboardingCompanyMessageRequest: {
+            message: string;
+            /** @enum {string} */
+            locale: "en" | "de";
+            history?: components["schemas"]["CompanySiteReadConversationTurn"][];
+            /** @description The administrator's current unsaved artifact, used only as conversational context. */
+            company_draft?: components["schemas"]["OnboardingCompanyDraft"];
+        };
+        OnboardingCompanyMessageReply: {
+            kind: components["schemas"]["CompanyConversationResponseKind"];
+            message: string;
+            proposed_changes: components["schemas"]["CompanySiteReadSuggestedChange"][];
+            citations: components["schemas"]["CompanySiteReadCitation"][];
+            /** @enum {string|null} */
+            next_required_field?: null | "display_name" | "offer_summary" | "icp";
+            remaining_required_fields: ("display_name" | "offer_summary" | "icp")[];
+            /** @enum {string|null} */
+            available_action?: null | "confirm_company";
             ai_runtime: components["schemas"]["AiRunSummary"];
         };
         CompanySiteRead: {
@@ -13107,6 +13197,43 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    messageOnboardingCompany: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OnboardingCompanyMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Scoped conversational response and optional draft proposals. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingCompanyMessageReply"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description No governed model path is configured. */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getCompany: {
         parameters: {
             query?: never;
@@ -13708,6 +13835,28 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["PermissionDenied"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    getAiProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authenticated configured-model posture. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiProfile"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
         };
     };
     listAiCalls: {

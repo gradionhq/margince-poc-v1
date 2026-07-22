@@ -117,7 +117,7 @@ func (r *crawlRun) legalCensusOpen(kind crmcontracts.SiteReadPageKind) bool {
 // BEFORE any of them fetched: two probes of one kind (or two locales of
 // one document) can share a wave, and the second must fold once the
 // first landed.
-func (r *crawlRun) commit(adm admission, res fetchResult) {
+func (r *crawlRun) commit(ctx context.Context, adm admission, res fetchResult) {
 	if adm.cand.probe && r.probeKindDone[adm.cand.kind] {
 		// An earlier commit in this wave satisfied the kind: the guess is
 		// moot, whatever its fetch returned — same silence admit gives a
@@ -133,9 +133,10 @@ func (r *crawlRun) commit(adm admission, res fetchResult) {
 	case errors.Is(res.err, webread.ErrRobotsDisallowed):
 		r.skip(adm.url, crmcontracts.SiteReadSkipReasonRobots)
 		return
-	case errors.Is(res.err, context.DeadlineExceeded) || errors.Is(res.err, context.Canceled):
-		// The crawl's clock ran out mid-fetch; stopping here avoids a bogus
-		// per-page "unreadable".
+	case crawlDeadlineError(ctx, res.err):
+		// Only the crawl context can end the whole walk. http.Client reports
+		// its own per-request timeout as context.DeadlineExceeded too; that
+		// page is unreadable, but the other discovery candidates remain valid.
 		r.crawl.Stopped = stoppedPtr(crmcontracts.SiteReadReportStoppedReasonDeadline)
 		return
 	case res.err != nil:
@@ -179,4 +180,8 @@ func (r *crawlRun) commit(adm admission, res fetchResult) {
 		r.onPage(committed)
 	}
 	r.queue = append(r.queue, linkCandidates(page.Links)...)
+}
+
+func crawlDeadlineError(ctx context.Context, err error) bool {
+	return ctx.Err() != nil && (errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled))
 }
