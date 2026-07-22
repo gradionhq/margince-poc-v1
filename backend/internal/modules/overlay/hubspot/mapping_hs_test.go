@@ -305,6 +305,17 @@ func TestHubSpotDealAmountCurrencyFidelity(t *testing.T) {
 	if v, present := out["amount_minor"]; present && v != nil {
 		t.Errorf("amount_minor with no currency code = %#v, want null (absent or nil), never a guessed ×100", v)
 	}
+
+	// A currency present but the amount explicitly null (HubSpot's JSON null
+	// for an unset property) also maps to null — not an error, not a coined
+	// zero. It is "no amount", exactly like an absent one.
+	out, _, err = overlay.Apply(m, map[string]any{"hs_object_id": "3", "amount": nil, "deal_currency_code": "EUR"})
+	if err != nil {
+		t.Fatalf("Apply (nil amount): %v — a null amount must map to null, never error", err)
+	}
+	if v, present := out["amount_minor"]; present && v != nil {
+		t.Errorf("amount_minor for a nil amount = %#v, want null (absent or nil)", v)
+	}
 }
 
 // rawEngagement is a HubSpot engagement properties map using the

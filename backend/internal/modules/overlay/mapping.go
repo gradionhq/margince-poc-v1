@@ -200,7 +200,10 @@ func transformAmountMinorByCurrency(v any) (any, error) {
 	}
 	code := strings.ToUpper(strings.TrimSpace(stringField(fields, "deal_currency_code")))
 	amountRaw, hasAmount := fields["amount"]
-	if hasAmount && code != "" {
+	// A nil amount (HubSpot's JSON null for an unset property) is "no amount",
+	// exactly like an absent one — not a type violation. Only a present,
+	// non-nil, non-string amount is the malformed case worth surfacing.
+	if hasAmount && amountRaw != nil && code != "" {
 		amountStr, ok := amountRaw.(string)
 		if !ok {
 			return nil, fmt.Errorf("overlay: amount_minor_by_currency: amount expects a string, got %T", amountRaw)
