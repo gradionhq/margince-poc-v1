@@ -138,12 +138,38 @@ func up(ctx context.Context, conn *pgx.Conn, dsn string, core, custom dbmigrate.
 // test alike. The --dsn must name a maintenance database (`postgres`):
 // CREATE/DROP DATABASE cannot run inside the database being dropped.
 
+// fitsIdentifier rejects a value longer than the server's identifier limit
+// (63 bytes on stock builds). Postgres silently TRUNCATES longer identifiers
+// — quoted or not, with only a NOTICE a script never sees — so an unchecked
+// long name would make recreate-db/drop-db act on a database the caller
+// never named, while db-exists (an exact datname compare, and datname can
+// never hold a longer name) answers for one that cannot exist. Rejecting up
+// front, before any destructive statement, keeps the three verbs consistent.
+func fitsIdentifier(ctx context.Context, conn *pgx.Conn, what, value string) error {
+	var limit int
+	if err := conn.QueryRow(ctx, "SELECT current_setting('max_identifier_length')::int").Scan(&limit); err != nil {
+		return fmt.Errorf("%s: reading the server's identifier limit: %w", what, err)
+	}
+	if len(value) > limit {
+		return fmt.Errorf("%s: %q is %d bytes, over the server's %d-byte identifier limit — Postgres would silently truncate it and act on a different database; pick a shorter name", what, value, len(value), limit)
+	}
+	return nil
+}
+
 // recreateDB drops the named database if present and creates it fresh —
 // from --template when given (CREATE DATABASE ... TEMPLATE, a fast file
 // copy that needs no session connected to the template).
 func recreateDB(ctx context.Context, conn *pgx.Conn, name, template string, stdout io.Writer) error {
 	if name == "" {
 		return errors.New("migrate recreate-db: --name is required")
+	}
+	if err := fitsIdentifier(ctx, conn, "migrate recreate-db: --name", name); err != nil {
+		return err
+	}
+	if template != "" {
+		if err := fitsIdentifier(ctx, conn, "migrate recreate-db: --template", template); err != nil {
+			return err
+		}
 	}
 	if _, err := conn.Exec(ctx, "DROP DATABASE IF EXISTS "+pgx.Identifier{name}.Sanitize()); err != nil {
 		return fmt.Errorf("migrate recreate-db: dropping %q: %w", name, err)
@@ -167,6 +193,9 @@ func dropDB(ctx context.Context, conn *pgx.Conn, name string, stdout io.Writer) 
 	if name == "" {
 		return errors.New("migrate drop-db: --name is required")
 	}
+	if err := fitsIdentifier(ctx, conn, "migrate drop-db: --name", name); err != nil {
+		return err
+	}
 	if _, err := conn.Exec(ctx, "DROP DATABASE IF EXISTS "+pgx.Identifier{name}.Sanitize()); err != nil {
 		return fmt.Errorf("migrate drop-db: dropping %q: %w", name, err)
 	}
@@ -182,6 +211,9 @@ func dropDB(ctx context.Context, conn *pgx.Conn, name string, stdout io.Writer) 
 func dbExists(ctx context.Context, conn *pgx.Conn, name string, stdout io.Writer) error {
 	if name == "" {
 		return errors.New("migrate db-exists: --name is required")
+	}
+	if err := fitsIdentifier(ctx, conn, "migrate db-exists: --name", name); err != nil {
+		return err
 	}
 	var exists bool
 	if err := conn.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)", name).Scan(&exists); err != nil {

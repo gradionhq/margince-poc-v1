@@ -207,7 +207,7 @@ migrate <recreate-db|drop-db|db-exists> --dsn <owner-maintenance-dsn> --name <db
 | `--dsn` | `MARGINCE_DSN` | — (required) | Postgres DSN, **owner** role. For the db verbs it must name a maintenance database (`postgres`): `CREATE`/`DROP DATABASE` cannot run inside the database being dropped |
 | `--steps` | — | `1` | migrations to revert (`down` only) |
 | `--email` | — | — | user email (`reset-password` only): the operator break-glass (A107/ADR-0061 §9.1) — sets that user's password directly against the database, reading the new password from **stdin** (never argv); the way back in when the admin is locked out and no outbound email is configured |
-| `--name` | — | — | database name (`recreate-db`, `drop-db`, `db-exists` only): the integration lane's clone-per-package admin — drop-if-exists + create, drop-if-exists, or print `true`/`false`. Runs on the same owner DSN the migrations and tests use, so the lane needs no host psql and an overridden `MARGINCE_TEST_DSN` targets one cluster throughout |
+| `--name` | — | — | database name (`recreate-db`, `drop-db`, `db-exists` only): the integration lane's clone-per-package admin — drop-if-exists + create, drop-if-exists, or print `true`/`false`. Runs on the same owner DSN the migrations and tests use, so the lane needs no host psql and an overridden `MARGINCE_TEST_DSN` targets one cluster throughout. A name (or template) over the server's identifier limit (63 bytes stock) is rejected, never silently truncated onto a different database |
 | `--template` | — | — | template database to copy (`recreate-db` only): `CREATE DATABASE … TEMPLATE`, a fast file copy |
 
 ## Other environment variables

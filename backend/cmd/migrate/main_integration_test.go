@@ -166,6 +166,38 @@ func TestDBVerbsQuoteNamesThatNeedIt(t *testing.T) {
 	}
 }
 
+func TestDBVerbsRejectNamesTheServerWouldTruncate(t *testing.T) {
+	// Postgres truncates identifiers over 63 bytes to their prefix, so an
+	// unchecked long --name would drop/create the database that owns that
+	// prefix — a database the caller never named. The verbs must refuse
+	// instead, before anything destructive runs.
+	maint, base, withDB := testDSNs(t)
+	prefix := base + "_verbs_trunc_"
+	victim := prefix + strings.Repeat("x", 63-len(prefix)) // exactly the limit: accepted
+	long := victim + "y"                                   // one byte over: its truncation IS victim
+	t.Cleanup(func() { mustMigrate(t, "drop-db", "--dsn", maint, "--name", victim) })
+
+	mustMigrate(t, "recreate-db", "--dsn", maint, "--name", victim)
+	stamp(t, withDB(victim), "CREATE TABLE survivor_marker (id int)")
+
+	for _, args := range [][]string{
+		{"recreate-db", "--dsn", maint, "--name", long},
+		{"drop-db", "--dsn", maint, "--name", long},
+		{"db-exists", "--dsn", maint, "--name", long},
+		{"recreate-db", "--dsn", maint, "--name", base + "_verbs_ok", "--template", long},
+	} {
+		if _, err := migrateCmd(t, args...); err == nil || !strings.Contains(err.Error(), "identifier limit") {
+			t.Fatalf("migrate %s: got %v, want a refusal naming the identifier limit", strings.Join(args, " "), err)
+		}
+	}
+	if !tableExists(t, withDB(victim), "survivor_marker") {
+		t.Fatal("a verb given the over-length name touched the database owning its truncated prefix — the refusal must come before any destructive statement")
+	}
+	if out := mustMigrate(t, "db-exists", "--dsn", maint, "--name", base+"_verbs_ok"); out != "false\n" {
+		t.Fatalf("recreate-db with an over-length --template still created --name: db-exists printed %q, want %q", out, "false\n")
+	}
+}
+
 func TestDBVerbsRequireAName(t *testing.T) {
 	maint, _, _ := testDSNs(t)
 	for _, verb := range []string{"recreate-db", "drop-db", "db-exists"} {
