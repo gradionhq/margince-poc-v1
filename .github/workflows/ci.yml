@@ -136,6 +136,26 @@ jobs:
         with:
           path: ~/go/bin
           key: gate-binaries-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/go.mod', 'backend/Makefile') }}
+      # golangci-lint's analysis cache (~/.cache/golangci-lint) is separate
+      # from Go's build cache, so without this it recomputes the whole repo
+      # every run — the two lint passes (baseline + strict) were the largest
+      # slice of this job. The key ends in the commit SHA so every run saves
+      # its refreshed cache; restore-keys matches the newest prior run with
+      # the same dependency/config prefix, so a PR pays analysis only for
+      # the packages it touched. A toolchain, dependency, or lint-config
+      # change shifts the prefix and starts clean — go.mod is in the hash
+      # because a toolchain bump changes analysis results without
+      # necessarily touching go.sum. The golangci version pin (in
+      # backend/Makefile) is deliberately NOT in the key: golangci versions
+      # its cache entries internally, and hashing the whole Makefile went
+      # cold on every unrelated Makefile edit.
+      - name: Cache the golangci-lint analysis cache
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ~/.cache/golangci-lint
+          key: golangci-analysis-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', 'backend/.golangci.yml', 'backend/.golangci.strict.yml') }}-${{ github.sha }}
+          restore-keys: |
+            golangci-analysis-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', 'backend/.golangci.yml', 'backend/.golangci.strict.yml') }}-
       # Install the pinned gate binaries (golangci-lint, go-arch-lint, oasdiff) so
       # `make check` runs golangci and the oasdiff contract gate itself — one run
       # of every gate, instead of the golangci-lint-action + per-gate steps that

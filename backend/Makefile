@@ -40,7 +40,18 @@ export MARGINCE_ENV          ?= dev
 help: ## List targets with their descriptions (the default goal)
 	@grep -hE '^[a-zA-Z][a-zA-Z0-9_-]*:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
 
-check: build vet lint arch-lint test drift ## The merge gate: everything a PR must pass
+# build runs ALONE first: it compiles the dependency graph into the build
+# cache exactly once. Fanning it out with the others makes every pass
+# compile that graph concurrently — the cache does not block a second
+# compiler on an in-flight entry, so parallel-from-cold multiplies the
+# work and LOSES to serial on a small runner (measured in CI). The four
+# analysis passes then fan out as pure readers of the warmed cache. drift
+# stays last and serial: gen REWRITES *_gen.go and internal/contracts/ in
+# place, a write-under-reader race for any pass still compiling them.
+check: ## The merge gate: everything a PR must pass
+	$(MAKE) build
+	$(MAKE) -j4 vet lint arch-lint test
+	$(MAKE) drift
 
 build: ## Compile every package
 	$(GO) build ./...
@@ -160,11 +171,27 @@ lint: ## golangci-lint: repo-wide baseline + new-code strict set
 		echo "SKIP strict lint: origin/main not found — fetch it to arm the new-code gate"; \
 	fi
 
+# Gate-tool resolution: prefer the install from `make tools` (CI restores
+# it from cache), but only when its embedded module version (`go version
+# -m`) matches the pin — a stale local install must never gate at a
+# version CI does not run. Anything else falls back to a pinned `go run`,
+# which re-downloads and recompiles the tool on every invocation: correct
+# on a fresh machine, waste everywhere else.
+#   $(call resolve-gate-tool,<binary>,<module regex>,<version>,<install path>)
+# The binary branch is emitted pre-quoted: the value lands unquoted in a
+# recipe line, and a GOBIN/GOPATH with spaces must not word-split there.
+# The go run fallback stays bare — it is deliberately multi-word.
+GATE_BIN_DIR := $(or $(shell $(GO) env GOBIN),$(shell $(GO) env GOPATH)/bin)
+resolve-gate-tool = $(shell $(GO) version -m '$(GATE_BIN_DIR)/$(1)' 2>/dev/null \
+	| grep -qE '[[:space:]]mod[[:space:]]+$(2)[[:space:]]+$(3)([[:space:]]|$$)' \
+	&& echo '"$(GATE_BIN_DIR)/$(1)"' || echo "$(GO) run $(4)@$(3)")
+
 # Layer C of the boundary stack — a HARD gate: a forbidden import edge
 # fails `make check`, it is never advisory.
 GO_ARCH_LINT_VERSION ?= v1.12.0
+GO_ARCH_LINT ?= $(call resolve-gate-tool,go-arch-lint,github\.com/fe3dback/go-arch-lint,$(GO_ARCH_LINT_VERSION),github.com/fe3dback/go-arch-lint)
 arch-lint: ## Import-boundary lint (go-arch-lint over .go-arch-lint.yml)
-	$(GO) run github.com/fe3dback/go-arch-lint@$(GO_ARCH_LINT_VERSION) check
+	$(GO_ARCH_LINT) check
 
 # The stub and agent-policy generators run here explicitly (not via
 # `go generate ./...`): internal/compose is generated INTO, and its own
@@ -190,9 +217,12 @@ gen-workflow: ## Scaffold a new workflow.Handler: make gen-workflow NAME=flag_id
 # `make check`, so a missing network never blocks a local build. The
 # version is PINNED — `@latest` makes the scan non-reproducible (a tool
 # upgrade could change findings between two runs of the same commit).
+# govulncheck's module is golang.org/x/vuln; the binary installs from the
+# cmd/ subpath — resolve-gate-tool takes both.
 GOVULNCHECK_VERSION ?= v1.1.4
+GOVULNCHECK ?= $(call resolve-gate-tool,govulncheck,golang\.org/x/vuln,$(GOVULNCHECK_VERSION),golang.org/x/vuln/cmd/govulncheck)
 vuln: ## Scan dependencies for known vulnerabilities (govulncheck)
-	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+	$(GOVULNCHECK) ./...
 
 # Fresh-machine bootstrap. golangci-lint is the one gate binary `make check`
 # runs from an install rather than a pinned `go run`; the lint target
