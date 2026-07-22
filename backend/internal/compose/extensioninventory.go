@@ -67,6 +67,14 @@ func ObserveExtensionInventory(ctx context.Context, pool *pgxpool.Pool, log *slo
 	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
 
 	return database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		// api and worker boot concurrently and both observe: without a
+		// lock the two check-and-insert transactions each read the same
+		// previous inventory and one change lands twice. Same idiom as
+		// identity's admin guard (users.go).
+		if _, err := tx.Exec(ctx,
+			`SELECT pg_advisory_xact_lock(hashtext('margince:extension-inventory:' || current_setting('app.workspace_id', true))::bigint)`); err != nil {
+			return err
+		}
 		last, err := lastObservedExtensions(ctx, tx)
 		if err != nil {
 			return err
@@ -90,8 +98,12 @@ func ObserveExtensionInventory(ctx context.Context, pool *pgxpool.Pool, log *slo
 // first enabled extension does.
 func lastObservedExtensions(ctx context.Context, tx pgx.Tx) ([]observedExtension, error) {
 	var detail []byte
+	// occurred_at leads the ordering: uuidv7 ids are monotonic only
+	// within one process, and api + worker mint theirs independently —
+	// same-millisecond rows could sort against observation order on id
+	// alone. id stays as the deterministic tiebreak.
 	err := tx.QueryRow(ctx,
-		`SELECT detail->'extensions' FROM system_log WHERE action = $1 ORDER BY id DESC LIMIT 1`,
+		`SELECT detail->'extensions' FROM system_log WHERE action = $1 ORDER BY occurred_at DESC, id DESC LIMIT 1`,
 		extensionCompositionObserved).Scan(&detail)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil

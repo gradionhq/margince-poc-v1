@@ -4,7 +4,9 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"go/format"
 	"os"
 	"path"
 	"path/filepath"
@@ -55,15 +57,36 @@ func composedFiles(root string) (map[string][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	wiring, err := canonicalGoSource("backend/extensions_gen.go", extensionsGen(units))
+	if err != nil {
+		return nil, err
+	}
 	return map[string][]byte{
 		"go.work":                    work,
 		"backend/go.mod":             composedGoMod(goVersion),
-		"backend/extensions_gen.go":  extensionsGen(units),
+		"backend/extensions_gen.go":  wiring,
 		"frontend/extensions.gen.ts": frontendGen(),
 		// The effective contract: base + extension fragments/overlays once
 		// the contract slice lands; until then the base, byte-identical.
 		"api/crm.yaml": contract,
 	}, nil
+}
+
+// canonicalGoSource parses emitted Go source and requires it to already
+// be canonical gofmt: a template bug surfaces at gen time under this
+// name instead of at the next go build, and a formatting drift is an
+// error rather than silently adopted — the byte-identity gates (stub ==
+// vanilla output, regeneration == recorded hashes) depend on the emitter
+// producing canonical bytes itself.
+func canonicalGoSource(name string, src []byte) ([]byte, error) {
+	formatted, err := format.Source(src)
+	if err != nil {
+		return nil, fmt.Errorf("%s: generated source does not parse: %w", name, err)
+	}
+	if !bytes.Equal(formatted, src) {
+		return nil, fmt.Errorf("%s: generated source is not canonical gofmt — fix the emitter, not the output", name)
+	}
+	return src, nil
 }
 
 // composedWork emits the composed workspace: the root go.work members
@@ -81,6 +104,13 @@ func composedWork(root string, units []extensionUnit) ([]byte, string, error) {
 	}
 	if rootWork.Go == nil {
 		return nil, "", fmt.Errorf("root go.work carries no go directive")
+	}
+	// Only go + use are carried over; silently dropping a replace,
+	// toolchain or godebug directive would make the composed lane resolve
+	// differently from the bare one. Support arrives when a directive is
+	// actually needed — until then, refuse loudly.
+	if len(rootWork.Replace) > 0 || rootWork.Toolchain != nil || len(rootWork.Godebug) > 0 {
+		return nil, "", fmt.Errorf("root go.work carries replace/toolchain/godebug directives gen-composition does not compose yet — extend composedWork before using them")
 	}
 	goVersion := rootWork.Go.Version
 
@@ -113,7 +143,10 @@ func composedGoMod(goVersion string) []byte {
 // extensionsGen emits the composition wiring. The empty set reproduces
 // the committed vanilla stub byte-for-byte; a non-empty set constructs
 // each unit in sorted-name order under positional import aliases
-// (deterministic, collision-free regardless of module path shape).
+// (deterministic, collision-free regardless of module path shape), each
+// pinned to its extensions/<name> directory — composition.json and the
+// boot inventory attribute the unit by that name, so a declaration
+// disagreeing with it must not compose under a different identity.
 func extensionsGen(units []extensionUnit) []byte {
 	var b strings.Builder
 	b.WriteString(extensionsGenHeader)
@@ -130,10 +163,21 @@ func extensionsGen(units []extensionUnit) []byte {
 		return []byte(b.String())
 	}
 	b.WriteString("\treturn []extension.Extension{\n")
-	for i := range units {
-		fmt.Fprintf(&b, "\t\text%d.New(),\n", i)
+	for i, u := range units {
+		fmt.Fprintf(&b, "\t\tmustBe(%q, ext%d.New()),\n", u.Name, i)
 	}
 	b.WriteString("\t}\n}\n")
+	b.WriteString(`
+// mustBe pins a unit to its extensions/<name> directory: a declaration
+// whose Name disagrees with the directory it shipped in is a wiring
+// defect and aborts the boot.
+func mustBe(dir string, e extension.Extension) extension.Extension {
+	if e.Name != dir {
+		panic("composition: extensions/" + dir + " declares Name \"" + e.Name + "\" — the unit name is its directory name (ADR-0069 §2)")
+	}
+	return e
+}
+`)
 	return []byte(b.String())
 }
 

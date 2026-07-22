@@ -29,6 +29,7 @@ var extensionName = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 // operate on the declared set before anything is applied.
 func RegisterExtensions(exts []extension.Extension) error {
 	seen := make(map[string]bool, len(exts))
+	packCodes := make(map[string]string, len(exts))
 	for _, e := range exts {
 		if !extensionName.MatchString(e.Name) {
 			return fmt.Errorf("compose: extension name %q is not a valid unit name (lower-case [a-z0-9-], ADR-0069 §2)", e.Name)
@@ -37,6 +38,23 @@ func RegisterExtensions(exts []extension.Extension) error {
 			return fmt.Errorf("compose: extension %q composed twice — the enabled set under extensions/ carries one directory per unit", e.Name)
 		}
 		seen[e.Name] = true
+		if e.Version == "" {
+			return fmt.Errorf("compose: extension %q declares no version — the boot inventory records it", e.Name)
+		}
+		// Every capability is preflighted here, against the declared set
+		// AND the live registry, so the apply loop below cannot fail
+		// halfway: a mid-apply abort would leave an earlier unit's packs
+		// registered while the boot reports failure.
+		for _, p := range e.Jurisdictions {
+			code := p.Code()
+			if owner, dup := packCodes[code]; dup {
+				return fmt.Errorf("compose: extensions %q and %q both declare jurisdiction %q", owner, e.Name, code)
+			}
+			if _, taken := jurisdiction.For(code); taken {
+				return fmt.Errorf("compose: extension %q declares jurisdiction %q, which a core pack already registers", e.Name, code)
+			}
+			packCodes[code] = e.Name
+		}
 	}
 	for _, e := range exts {
 		for _, p := range e.Jurisdictions {

@@ -41,6 +41,12 @@ func scanExtensions(root string) ([]extensionUnit, error) {
 	}
 	var units []extensionUnit
 	for _, entry := range entries {
+		if entry.Type()&fs.ModeSymlink != 0 {
+			// IsDir() is false for a symlink, so without this check a
+			// symlinked unit would silently drop out of the composed
+			// binary while sitting visibly under extensions/.
+			return nil, fmt.Errorf("extensions/%s: a symlinked entry is not composable — an enabled unit is a plain directory tree", entry.Name())
+		}
 		if !entry.IsDir() {
 			continue // approvals.lock, .gitkeep
 		}
@@ -203,8 +209,11 @@ func digestTree(dir string) (string, error) {
 		if err != nil || d.IsDir() {
 			return err
 		}
-		if d.Type()&fs.ModeSymlink != 0 {
-			return fmt.Errorf("%s: symlinks are not part of an extension unit", path)
+		if !d.Type().IsRegular() {
+			// A symlink would digest as its target's bytes while
+			// provenance points elsewhere; a FIFO would block the read
+			// forever. An extension unit is a plain file tree.
+			return fmt.Errorf("%s: only regular files are part of an extension unit (found %s)", path, d.Type())
 		}
 		rel, err := filepath.Rel(dir, path)
 		if err != nil {

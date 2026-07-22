@@ -120,7 +120,7 @@ ifeq ($(TRACE),1)
 override TRACE := $(CURDIR)/../.tmp/aicert
 endif
 
-e2e-ai: ## Certify AI tasks vs the local binding (paid: real model + network; opt-in). BYOK key auto-loaded from .env.local. Payload trace ON by default (TRACE= to disable). TASK=x MODEL=prov:model RUNS=3 MARGINCE_AI_ROUTING=path
+e2e-ai: composition ## Certify AI tasks vs the local binding (paid: real model + network; opt-in). BYOK key auto-loaded from .env.local. Payload trace ON by default (TRACE= to disable). TASK=x MODEL=prov:model RUNS=3 MARGINCE_AI_ROUTING=path
 	$(LOAD_ENV_LOCAL) MARGINCE_AICERT=1 MARGINCE_AI_ROUTING=$(MARGINCE_AI_ROUTING) MARGINCE_AICERT_TASK=$(TASK) MARGINCE_AICERT_MODEL=$(MODEL) MARGINCE_AICERT_RUNS=$(RUNS) MARGINCE_AICERT_TRACE=$(TRACE) \
 	  $(GOWORK_COMPOSED) $(GO) test -tags e2e_llm ./internal/compose/aicert/ -run TestE2ECertify -v -count=1 -timeout 30m
 

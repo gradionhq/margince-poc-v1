@@ -41,9 +41,32 @@ func TestRegisterExtensionsRejectsAnInvalidUnitName(t *testing.T) {
 }
 
 func TestRegisterExtensionsRejectsADuplicateUnit(t *testing.T) {
-	err := RegisterExtensions([]extension.Extension{{Name: "twice"}, {Name: "twice"}})
+	err := RegisterExtensions([]extension.Extension{
+		{Name: "twice", Version: "0.0.1"},
+		{Name: "twice", Version: "0.0.2"},
+	})
 	if err == nil || !strings.Contains(err.Error(), "composed twice") {
 		t.Fatalf("err = %v, want the duplicate-unit rejection", err)
+	}
+}
+
+func TestRegisterExtensionsRejectsAMissingVersion(t *testing.T) {
+	err := RegisterExtensions([]extension.Extension{{Name: "unversioned"}})
+	if err == nil || !strings.Contains(err.Error(), "declares no version") {
+		t.Fatalf("err = %v, want the missing-version rejection", err)
+	}
+}
+
+func TestRegisterExtensionsPreflightsDuplicateJurisdictions(t *testing.T) {
+	err := RegisterExtensions([]extension.Extension{
+		{Name: "first", Version: "0.0.1", Jurisdictions: []jurisdiction.Pack{fakePack{code: "zv"}}},
+		{Name: "second", Version: "0.0.1", Jurisdictions: []jurisdiction.Pack{fakePack{code: "zv"}}},
+	})
+	if err == nil || !strings.Contains(err.Error(), `both declare jurisdiction "zv"`) {
+		t.Fatalf("err = %v, want the duplicate-jurisdiction rejection", err)
+	}
+	if _, ok := jurisdiction.For("zv"); ok {
+		t.Fatal("a duplicate-declared pack landed although the set was rejected")
 	}
 }
 
@@ -53,7 +76,7 @@ func TestRegisterExtensionsRejectsADuplicateUnit(t *testing.T) {
 // half-registered state behind.
 func TestNoCapabilityAppliesWhenTheSetIsInvalid(t *testing.T) {
 	err := RegisterExtensions([]extension.Extension{
-		{Name: "clean", Jurisdictions: []jurisdiction.Pack{fakePack{code: "zy"}}},
+		{Name: "clean", Version: "0.0.1", Jurisdictions: []jurisdiction.Pack{fakePack{code: "zy"}}},
 		{Name: "Invalid Name"},
 	})
 	if err == nil {

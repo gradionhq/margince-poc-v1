@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -162,11 +163,19 @@ func materializeWorkSum(root, outRoot string) error {
 
 // verifyOutputs is the reproducibility gate: the deterministic outputs
 // are regenerated in memory and must match both the recorded hashes and
-// the files on disk; go.work.sum (a pure function of the members'
-// go.mod/go.sum graph) is checked against its recorded hash.
+// the files on disk, composition.json itself must be byte-identical to
+// its re-encoding (a hand edit, an unknown field, or a foreign encoder
+// fails here even when the semantic content agrees), and the output tree
+// must hold exactly the generated files — a stale or injected extra file
+// would ride into the composed build unnoticed otherwise. go.work.sum (a
+// pure function of the members' go.mod/go.sum graph) is checked against
+// its recorded hash.
 func verifyOutputs(root string, recorded manifest) error {
 	if err := stubMatchesVanilla(root); err != nil {
 		return err
+	}
+	if recorded.Schema != 1 {
+		return fmt.Errorf("composition.json carries schema %d, this tool writes schema 1 — run 'make gen'", recorded.Schema)
 	}
 	files, err := composedFiles(root)
 	if err != nil {
@@ -199,7 +208,48 @@ func verifyOutputs(root string, recorded manifest) error {
 	if extra := len(recorded.Outputs) - len(current.Outputs); extra != 0 {
 		return fmt.Errorf("composition.json records %d outputs, regeneration produced %d — run 'make gen'", len(recorded.Outputs), len(current.Outputs))
 	}
-	return nil
+	encoded, err := encodeManifest(current)
+	if err != nil {
+		return err
+	}
+	raw, err := os.ReadFile(filepath.Join(root, "build", "composition", "composition.json"))
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(raw, encoded) {
+		return fmt.Errorf("composition.json on disk differs from its re-encoding — hand-edited? run 'make gen'")
+	}
+	return verifyNoExtraFiles(root, current.Outputs)
+}
+
+// verifyNoExtraFiles walks build/composition/ and rejects anything the
+// generator did not write: expected outputs + composition.json, all
+// regular files.
+func verifyNoExtraFiles(root string, outputs map[string]string) error {
+	outRoot := filepath.Join(root, "build", "composition")
+	expected := map[string]bool{"composition.json": true}
+	for rel := range outputs {
+		expected[rel] = true
+	}
+	return filepath.WalkDir(outRoot, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, err := filepath.Rel(outRoot, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if !d.Type().IsRegular() {
+			return fmt.Errorf("build/composition/%s: only generated regular files belong here — run 'make gen'", rel)
+		}
+		// go.work.sum legitimately may not exist; anything present must
+		// be expected.
+		if !expected[rel] {
+			return fmt.Errorf("build/composition/%s was not written by this generation — stale or injected; run 'make gen'", rel)
+		}
+		return nil
+	})
 }
 
 // stubMatchesVanilla holds the two lanes together: the committed

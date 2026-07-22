@@ -24,15 +24,18 @@ import "github.com/gradionhq/margince/backend/pkg/extension/jurisdiction"
 
 // Extension is one installed unit's declaration.
 type Extension struct {
-	// Name is the canonical extension name (the extensions/<name>
-	// directory name): lower-case, [a-z0-9-], stable across versions.
-	// It keys the namespace at every layer (x_<name>_ tables,
+	// Name is the canonical extension name and must equal the
+	// extensions/<name> directory name, stable across versions. Exact
+	// grammar: lower-case [a-z0-9] segments joined by single hyphens —
+	// `^[a-z0-9]+(-[a-z0-9]+)*$` — so no leading, trailing, or doubled
+	// hyphen. It keys the namespace at every layer (x_<name>_ tables,
 	// /x/<name>/ paths, the x_<name> database role).
 	Name string
 
-	// Version is the extension's own version string, reported in the
-	// boot inventory; it carries no authority (ADR-0069 §7 binds
-	// operator decisions to digests, never to a version string).
+	// Version is the extension's own version string, required non-empty
+	// and expected stable for an unchanged unit: the boot inventory
+	// records it and logs a change. It carries no authority (ADR-0069 §7
+	// binds operator decisions to digests, never to a version string).
 	Version string
 
 	// Jurisdictions are the unit's jurisdiction packs (policy suppliers

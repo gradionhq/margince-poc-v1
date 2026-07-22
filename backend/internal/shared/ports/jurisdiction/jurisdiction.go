@@ -40,12 +40,17 @@ var (
 	packs = map[string]Pack{}
 )
 
-// Register is called from a pack's init(); a duplicate code is a wiring
-// defect and fails fast at boot.
+// Register is called from a pack's init(); a duplicate code — or one
+// outside the documented lower-case ISO 3166-1 alpha-2 shape, which For
+// could never resolve canonically — is a wiring defect and fails fast at
+// boot.
 func Register(p Pack) {
 	mu.Lock()
 	defer mu.Unlock()
 	code := p.Code()
+	if len(code) != 2 || code[0] < 'a' || code[0] > 'z' || code[1] < 'a' || code[1] > 'z' {
+		panic(fmt.Sprintf("jurisdiction: pack code %q is not a lower-case ISO 3166-1 alpha-2 code", code))
+	}
 	if _, dup := packs[code]; dup {
 		panic(fmt.Sprintf("jurisdiction: pack %q registered twice", code))
 	}

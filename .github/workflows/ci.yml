@@ -69,6 +69,9 @@ jobs:
               - 'go.work.sum'
               - 'Makefile'
               - 'scripts/**'
+              - 'extensions/**'
+              - 'fixtures/**'
+              - 'composition/**'
               - '.github/workflows/**'
               - 'AGENTS.md'
               - 'sonar-project.properties'
@@ -179,9 +182,13 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
+      # working-directory: . on the root-level steps — the workflow default
+      # (backend) would resolve fixtures/ and extensions/ under backend/.
       - name: Enable the reference extension
+        working-directory: .
         run: cp -R fixtures/extensions/crm-hello extensions/
       - name: Composed build + unit lane
+        working-directory: .
         run: make -C backend build test check-composition
       - name: Extension self-test lane
         working-directory: extensions/crm-hello

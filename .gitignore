@@ -7,10 +7,11 @@ coverage.out
 
 # ADR-0069 stable extension tier: build/composition/ is the ONE ignored
 # root for installation-dependent generated output (digest-gated by its
-# composition.json, never committed), and extensions/ is the
-# installation-owned enabled set — only the placeholder and the approval
-# lock belong to the vanilla tree.
-/build/
+# composition.json, never committed — anchored to the composition root so
+# an unrelated future /build asset is never silently hidden), and
+# extensions/ is the installation-owned enabled set — only the
+# placeholder and the approval lock belong to the vanilla tree.
+/build/composition/
 /extensions/*
 !/extensions/.gitkeep
 !/extensions/approvals.lock

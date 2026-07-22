@@ -73,8 +73,11 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 
 	// Register the composed extension set before anything runs; a
-	// failing registration aborts the boot (ADR-0069 EXT-P4).
-	if err := compose.RegisterExtensions(composition.Extensions()); err != nil {
+	// failing registration aborts the boot (ADR-0069 EXT-P4). ONE
+	// snapshot serves registration and the boot inventory below, so both
+	// observe the same declarations.
+	extensions := composition.Extensions()
+	if err := compose.RegisterExtensions(extensions); err != nil {
 		return err
 	}
 	// The worker reads the same deployment file the api boots from: the
@@ -103,7 +106,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	// Record the composed extension set when it changed since the last
 	// boot (ADR-0069 §5); pre-bootstrap it skips — the api records the
 	// first observation once it has bootstrapped the installation.
-	if err := compose.ObserveExtensionInventory(ctx, pool, logger, composition.Extensions()); err != nil {
+	if err := compose.ObserveExtensionInventory(ctx, pool, logger, extensions); err != nil {
 		return err
 	}
 

@@ -34,12 +34,46 @@ func TestExtensionsGenWiresUnitsInSortedOrder(t *testing.T) {
 	for _, want := range []string{
 		"ext0 \"example.test/ext/alpha\"",
 		"ext1 \"example.test/ext/beta\"",
-		"ext0.New(),\n\t\text1.New(),",
+		"mustBe(\"alpha\", ext0.New()),\n\t\tmustBe(\"beta\", ext1.New()),",
+		"func mustBe(dir string, e extension.Extension) extension.Extension {",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated wiring misses %q:\n%s", want, got)
 		}
 	}
+}
+
+// TestEmittedWiringIsCanonicalGoSource: the emitter must produce parsing,
+// gofmt-canonical bytes itself — canonicalGoSource is the gen-time gate
+// that turns a template bug into a named error instead of a failure at
+// the next go build (and a formatting drift into an error instead of a
+// silent byte-identity break).
+func TestEmittedWiringIsCanonicalGoSource(t *testing.T) {
+	for name, units := range map[string][]extensionUnit{
+		"vanilla": nil,
+		"composed": {
+			{Name: "alpha", ModulePath: "example.test/ext/alpha"},
+			{Name: "beta", ModulePath: "example.test/ext/beta"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := canonicalGoSource("extensions_gen.go", extensionsGen(units)); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+
+	t.Run("a parse error is a gen-time error", func(t *testing.T) {
+		if _, err := canonicalGoSource("broken.go", []byte("package x\nfunc {")); err == nil || !strings.Contains(err.Error(), "does not parse") {
+			t.Fatalf("err = %v, want the parse rejection", err)
+		}
+	})
+
+	t.Run("non-canonical formatting is an error, never adopted", func(t *testing.T) {
+		if _, err := canonicalGoSource("ugly.go", []byte("package x\nvar  a  =  1\n")); err == nil || !strings.Contains(err.Error(), "not canonical gofmt") {
+			t.Fatalf("err = %v, want the formatting rejection", err)
+		}
+	})
 }
 
 // writeUnit lays out one extension dir under a temp extensions/ root.
@@ -107,6 +141,18 @@ func TestScanExtensions(t *testing.T) {
 		units, err := scanExtensions(t.TempDir())
 		if err != nil || units != nil {
 			t.Fatalf("units, err = %v, %v — want the empty set", units, err)
+		}
+	})
+
+	t.Run("symlinked unit is refused, not skipped", func(t *testing.T) {
+		root := t.TempDir()
+		writeUnit(t, root, "real", map[string]string{"go.mod": goMod, "a.go": "package a\n"})
+		if err := os.Symlink(filepath.Join(root, "extensions", "real"), filepath.Join(root, "extensions", "linked")); err != nil {
+			t.Fatal(err)
+		}
+		_, err := scanExtensions(root)
+		if err == nil || !strings.Contains(err.Error(), "symlinked entry") {
+			t.Fatalf("err = %v, want the symlink refusal", err)
 		}
 	})
 }

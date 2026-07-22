@@ -10,11 +10,13 @@ package backendarch
 // enrolled the moment it exists.
 
 import (
+	"fmt"
 	"go/parser"
 	"go/token"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -70,7 +72,10 @@ func extensionModulePaths(t *testing.T, trees map[string]string) map[string]stri
 }
 
 // goImports parses every .go file under dir (tests included) and returns
-// file → imports, without compiling anything.
+// file → imports, without compiling anything. Paths are decoded with
+// strconv.Unquote: the compiler accepts a raw-string (backtick) import
+// path too, and naive quote-trimming would let exactly that form slide
+// past every deny rule below.
 func goImports(t *testing.T, dir string) map[string][]string {
 	t.Helper()
 	out := map[string][]string{}
@@ -83,7 +88,11 @@ func goImports(t *testing.T, dir string) map[string][]string {
 			return err
 		}
 		for _, imp := range file.Imports {
-			out[filepath.ToSlash(path)] = append(out[filepath.ToSlash(path)], strings.Trim(imp.Path.Value, `"`))
+			decoded, err := strconv.Unquote(imp.Path.Value)
+			if err != nil {
+				return fmt.Errorf("%s: import path %s does not decode as a Go string literal: %w", path, imp.Path.Value, err)
+			}
+			out[filepath.ToSlash(path)] = append(out[filepath.ToSlash(path)], decoded)
 		}
 		return nil
 	})
