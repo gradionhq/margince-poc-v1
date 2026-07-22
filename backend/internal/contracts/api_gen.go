@@ -4593,6 +4593,24 @@ func (e UpdateStageRequestSemantic) Valid() bool {
 	}
 }
 
+// Defines values for UpdateWebhookSubscriptionRequestState.
+const (
+	UpdateWebhookSubscriptionRequestStateActive UpdateWebhookSubscriptionRequestState = "active"
+	UpdateWebhookSubscriptionRequestStatePaused UpdateWebhookSubscriptionRequestState = "paused"
+)
+
+// Valid indicates whether the value is a known member of the UpdateWebhookSubscriptionRequestState enum.
+func (e UpdateWebhookSubscriptionRequestState) Valid() bool {
+	switch e {
+	case UpdateWebhookSubscriptionRequestStateActive:
+		return true
+	case UpdateWebhookSubscriptionRequestStatePaused:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for UpsertPartnerRequestCertStatus.
 const (
 	UpsertPartnerRequestCertStatusApplied   UpsertPartnerRequestCertStatus = "applied"
@@ -5151,6 +5169,48 @@ func (e VoiceProfileVersionStatus) Valid() bool {
 	}
 }
 
+// Defines values for WebhookDeliveryStatus.
+const (
+	WebhookDeliveryStatusDeadLettered WebhookDeliveryStatus = "dead_lettered"
+	WebhookDeliveryStatusDelivered    WebhookDeliveryStatus = "delivered"
+	WebhookDeliveryStatusPending      WebhookDeliveryStatus = "pending"
+	WebhookDeliveryStatusRetrying     WebhookDeliveryStatus = "retrying"
+)
+
+// Valid indicates whether the value is a known member of the WebhookDeliveryStatus enum.
+func (e WebhookDeliveryStatus) Valid() bool {
+	switch e {
+	case WebhookDeliveryStatusDeadLettered:
+		return true
+	case WebhookDeliveryStatusDelivered:
+		return true
+	case WebhookDeliveryStatusPending:
+		return true
+	case WebhookDeliveryStatusRetrying:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for WebhookSubscriptionState.
+const (
+	WebhookSubscriptionStateActive WebhookSubscriptionState = "active"
+	WebhookSubscriptionStatePaused WebhookSubscriptionState = "paused"
+)
+
+// Valid indicates whether the value is a known member of the WebhookSubscriptionState enum.
+func (e WebhookSubscriptionState) Valid() bool {
+	switch e {
+	case WebhookSubscriptionStateActive:
+		return true
+	case WebhookSubscriptionStatePaused:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CaptureProvider.
 const (
 	Gcal  CaptureProvider = "gcal"
@@ -5408,16 +5468,16 @@ func (e ListCustomFieldsParamsObject) Valid() bool {
 
 // Defines values for ListCustomFieldsParamsStatus.
 const (
-	Active  ListCustomFieldsParamsStatus = "active"
-	Retired ListCustomFieldsParamsStatus = "retired"
+	ListCustomFieldsParamsStatusActive  ListCustomFieldsParamsStatus = "active"
+	ListCustomFieldsParamsStatusRetired ListCustomFieldsParamsStatus = "retired"
 )
 
 // Valid indicates whether the value is a known member of the ListCustomFieldsParamsStatus enum.
 func (e ListCustomFieldsParamsStatus) Valid() bool {
 	switch e {
-	case Active:
+	case ListCustomFieldsParamsStatusActive:
 		return true
-	case Retired:
+	case ListCustomFieldsParamsStatusRetired:
 		return true
 	default:
 		return false
@@ -7649,6 +7709,15 @@ type CreateVoiceBuildRequestReason string
 // CreateVoiceProfileRequest defines model for CreateVoiceProfileRequest.
 type CreateVoiceProfileRequest struct {
 	PersonalityMd *string `json:"personality_md,omitempty"`
+}
+
+// CreateWebhookSubscriptionRequest defines model for CreateWebhookSubscriptionRequest.
+type CreateWebhookSubscriptionRequest struct {
+	// EventTypes At least one event type from the published catalog.
+	EventTypes []string `json:"event_types"`
+
+	// TargetUrl HTTPS-only; http:// is rejected.
+	TargetUrl string `json:"target_url"`
 }
 
 // CustomField A workspace-defined runtime field on an existing core object. Mirrors the
@@ -10116,6 +10185,15 @@ type UpdateVoiceProfileRequest struct {
 	PersonalityMd       *string `json:"personality_md,omitempty"`
 }
 
+// UpdateWebhookSubscriptionRequest A partial update; omitted fields keep their stored value. Use it to pause/resume or re-target the event set.
+type UpdateWebhookSubscriptionRequest struct {
+	EventTypes *[]string                              `json:"event_types,omitempty"`
+	State      *UpdateWebhookSubscriptionRequestState `json:"state,omitempty"`
+}
+
+// UpdateWebhookSubscriptionRequestState defines model for UpdateWebhookSubscriptionRequest.State.
+type UpdateWebhookSubscriptionRequestState string
+
 // UpsertPartnerRequest defines model for UpsertPartnerRequest.
 type UpsertPartnerRequest struct {
 	CertStatus        *UpsertPartnerRequestCertStatus        `json:"cert_status,omitempty"`
@@ -10397,6 +10475,70 @@ type VoiceProfileVersionReason string
 
 // VoiceProfileVersionStatus defines model for VoiceProfileVersion.Status.
 type VoiceProfileVersionStatus string
+
+// WebhookDelivery One delivery attempt log (`webhook_delivery`) — the inspectable dead-letter surface. At-least-once with idempotency: exactly one row per (subscription, event).
+type WebhookDelivery struct {
+	Attempts       int                   `json:"attempts"`
+	CreatedAt      *time.Time            `json:"created_at,omitempty"`
+	DeadLetteredAt *time.Time            `json:"dead_lettered_at,omitempty"`
+	DeliveredAt    *time.Time            `json:"delivered_at,omitempty"`
+	EventId        openapi_types.UUID    `json:"event_id"`
+	EventType      string                `json:"event_type"`
+	Id             openapi_types.UUID    `json:"id"`
+	LastError      *string               `json:"last_error,omitempty"`
+	LastStatusCode *int                  `json:"last_status_code,omitempty"`
+	NextRetryAt    *time.Time            `json:"next_retry_at,omitempty"`
+	Status         WebhookDeliveryStatus `json:"status"`
+	SubscriptionId openapi_types.UUID    `json:"subscription_id"`
+	UpdatedAt      *time.Time            `json:"updated_at,omitempty"`
+}
+
+// WebhookDeliveryStatus defines model for WebhookDelivery.Status.
+type WebhookDeliveryStatus string
+
+// WebhookDeliveryListResponse defines model for WebhookDeliveryListResponse.
+type WebhookDeliveryListResponse struct {
+	Data []WebhookDelivery `json:"data"`
+	Page PageInfo          `json:"page"`
+}
+
+// WebhookSubscription An outbound webhook subscription (`webhook_subscription`): a tenant-configured target URL that receives signed HTTP POSTs for a chosen subset of the published event catalog. The signing secret is NEVER returned here — it is surfaced once, at create/rotate, in `WebhookSubscriptionCreated`.
+type WebhookSubscription struct {
+	ArchivedAt *time.Time `json:"archived_at,omitempty"`
+	CreatedAt  *time.Time `json:"created_at,omitempty"`
+
+	// EventTypes The subscribed event types, each from the published catalog (events.md §5).
+	EventTypes []string                 `json:"event_types"`
+	Id         openapi_types.UUID       `json:"id"`
+	OwnerId    openapi_types.UUID       `json:"owner_id"`
+	State      WebhookSubscriptionState `json:"state"`
+
+	// TargetUrl HTTPS-only delivery endpoint.
+	TargetUrl string     `json:"target_url"`
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+
+	// Version Optimistic-concurrency version; echo it in If-Match on update.
+	Version     int64              `json:"version"`
+	WorkspaceId openapi_types.UUID `json:"workspace_id"`
+}
+
+// WebhookSubscriptionState defines model for WebhookSubscription.State.
+type WebhookSubscriptionState string
+
+// WebhookSubscriptionCreated The create/rotate response — the subscription plus the `signing_secret`, which is shown EXACTLY ONCE and never retrievable again. Store it now: deliveries are signed (HMAC-SHA256) with it.
+type WebhookSubscriptionCreated struct {
+	// SigningSecret The per-subscription signing secret. Shown once; use it to verify X-Margince-Signature.
+	SigningSecret string `json:"signing_secret"`
+
+	// Subscription An outbound webhook subscription (`webhook_subscription`): a tenant-configured target URL that receives signed HTTP POSTs for a chosen subset of the published event catalog. The signing secret is NEVER returned here — it is surfaced once, at create/rotate, in `WebhookSubscriptionCreated`.
+	Subscription WebhookSubscription `json:"subscription"`
+}
+
+// WebhookSubscriptionListResponse defines model for WebhookSubscriptionListResponse.
+type WebhookSubscriptionListResponse struct {
+	Data []WebhookSubscription `json:"data"`
+	Page PageInfo              `json:"page"`
+}
 
 // ApprovalToken defines model for ApprovalToken.
 type ApprovalToken = string
@@ -12496,6 +12638,28 @@ type RollbackVoiceProfileVersionParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// ListWebhookSubscriptionsParams defines parameters for ListWebhookSubscriptions.
+type ListWebhookSubscriptionsParams struct {
+	// IncludeArchived Include soft-deleted (archived) rows. Default false.
+	IncludeArchived *IncludeArchived `form:"include_archived,omitempty" json:"include_archived,omitempty"`
+}
+
+// UpdateWebhookSubscriptionParams defines parameters for UpdateWebhookSubscription.
+type UpdateWebhookSubscriptionParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// ListWebhookDeliveriesParams defines parameters for ListWebhookDeliveries.
+type ListWebhookDeliveriesParams struct {
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // LogActivityJSONRequestBody defines body for LogActivity for application/json ContentType.
 type LogActivityJSONRequestBody = CreateActivityRequest
 
@@ -12774,6 +12938,12 @@ type IngestVoiceCorpusSourceJSONRequestBody = IngestVoiceCorpusSourceRequest
 
 // UpdateVoiceCorpusSourceJSONRequestBody defines body for UpdateVoiceCorpusSource for application/json ContentType.
 type UpdateVoiceCorpusSourceJSONRequestBody = UpdateVoiceCorpusSourceRequest
+
+// CreateWebhookSubscriptionJSONRequestBody defines body for CreateWebhookSubscription for application/json ContentType.
+type CreateWebhookSubscriptionJSONRequestBody = CreateWebhookSubscriptionRequest
+
+// UpdateWebhookSubscriptionJSONRequestBody defines body for UpdateWebhookSubscription for application/json ContentType.
+type UpdateWebhookSubscriptionJSONRequestBody = UpdateWebhookSubscriptionRequest
 
 // Getter for additional properties for Address. Returns the specified
 // element and whether it was found
@@ -18345,6 +18515,30 @@ type ServerInterface interface {
 	// Restore an earlier artifact byte-for-byte as a new forward active version.
 	// (POST /voice-profiles/{id}/versions/{profileVersion}/rollback)
 	RollbackVoiceProfileVersion(w http.ResponseWriter, r *http.Request, id Id, profileVersion VoiceProfileVersionNumber, params RollbackVoiceProfileVersionParams)
+	// List the workspace's outbound webhook subscriptions.
+	// (GET /webhook-subscriptions)
+	ListWebhookSubscriptions(w http.ResponseWriter, r *http.Request, params ListWebhookSubscriptionsParams)
+	// Register an outbound webhook subscription (returns the signing secret once).
+	// (POST /webhook-subscriptions)
+	CreateWebhookSubscription(w http.ResponseWriter, r *http.Request)
+	// Archive a webhook subscription (stops all delivery).
+	// (DELETE /webhook-subscriptions/{id})
+	ArchiveWebhookSubscription(w http.ResponseWriter, r *http.Request, id Id)
+	// Get one webhook subscription by id.
+	// (GET /webhook-subscriptions/{id})
+	GetWebhookSubscription(w http.ResponseWriter, r *http.Request, id Id)
+	// Pause/resume a subscription or re-target its event set.
+	// (PATCH /webhook-subscriptions/{id})
+	UpdateWebhookSubscription(w http.ResponseWriter, r *http.Request, id Id, params UpdateWebhookSubscriptionParams)
+	// List a subscription's delivery attempts (the dead-letter inspection surface).
+	// (GET /webhook-subscriptions/{id}/deliveries)
+	ListWebhookDeliveries(w http.ResponseWriter, r *http.Request, id Id, params ListWebhookDeliveriesParams)
+	// Replay a parked (dead-lettered) delivery.
+	// (POST /webhook-subscriptions/{id}/deliveries/{deliveryId}/replay)
+	ReplayWebhookDelivery(w http.ResponseWriter, r *http.Request, id Id, deliveryId openapi_types.UUID)
+	// Rotate a subscription's signing secret (returns the new secret once).
+	// (POST /webhook-subscriptions/{id}/rotate-secret)
+	RotateWebhookSecret(w http.ResponseWriter, r *http.Request, id Id)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -19782,6 +19976,54 @@ func (_ Unimplemented) RejectVoiceProfileVersion(w http.ResponseWriter, r *http.
 // Restore an earlier artifact byte-for-byte as a new forward active version.
 // (POST /voice-profiles/{id}/versions/{profileVersion}/rollback)
 func (_ Unimplemented) RollbackVoiceProfileVersion(w http.ResponseWriter, r *http.Request, id Id, profileVersion VoiceProfileVersionNumber, params RollbackVoiceProfileVersionParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the workspace's outbound webhook subscriptions.
+// (GET /webhook-subscriptions)
+func (_ Unimplemented) ListWebhookSubscriptions(w http.ResponseWriter, r *http.Request, params ListWebhookSubscriptionsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Register an outbound webhook subscription (returns the signing secret once).
+// (POST /webhook-subscriptions)
+func (_ Unimplemented) CreateWebhookSubscription(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Archive a webhook subscription (stops all delivery).
+// (DELETE /webhook-subscriptions/{id})
+func (_ Unimplemented) ArchiveWebhookSubscription(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get one webhook subscription by id.
+// (GET /webhook-subscriptions/{id})
+func (_ Unimplemented) GetWebhookSubscription(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Pause/resume a subscription or re-target its event set.
+// (PATCH /webhook-subscriptions/{id})
+func (_ Unimplemented) UpdateWebhookSubscription(w http.ResponseWriter, r *http.Request, id Id, params UpdateWebhookSubscriptionParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List a subscription's delivery attempts (the dead-letter inspection surface).
+// (GET /webhook-subscriptions/{id}/deliveries)
+func (_ Unimplemented) ListWebhookDeliveries(w http.ResponseWriter, r *http.Request, id Id, params ListWebhookDeliveriesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Replay a parked (dead-lettered) delivery.
+// (POST /webhook-subscriptions/{id}/deliveries/{deliveryId}/replay)
+func (_ Unimplemented) ReplayWebhookDelivery(w http.ResponseWriter, r *http.Request, id Id, deliveryId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Rotate a subscription's signing secret (returns the new secret once).
+// (POST /webhook-subscriptions/{id}/rotate-secret)
+func (_ Unimplemented) RotateWebhookSecret(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -31364,6 +31606,310 @@ func (siw *ServerInterfaceWrapper) RollbackVoiceProfileVersion(w http.ResponseWr
 	handler.ServeHTTP(w, r)
 }
 
+// ListWebhookSubscriptions operation middleware
+func (siw *ServerInterfaceWrapper) ListWebhookSubscriptions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListWebhookSubscriptionsParams
+
+	// ------------- Optional query parameter "include_archived" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_archived", r.URL.Query(), &params.IncludeArchived, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_archived"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_archived", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListWebhookSubscriptions(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateWebhookSubscription operation middleware
+func (siw *ServerInterfaceWrapper) CreateWebhookSubscription(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateWebhookSubscription(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ArchiveWebhookSubscription operation middleware
+func (siw *ServerInterfaceWrapper) ArchiveWebhookSubscription(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ArchiveWebhookSubscription(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetWebhookSubscription operation middleware
+func (siw *ServerInterfaceWrapper) GetWebhookSubscription(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetWebhookSubscription(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateWebhookSubscription operation middleware
+func (siw *ServerInterfaceWrapper) UpdateWebhookSubscription(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateWebhookSubscriptionParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateWebhookSubscription(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListWebhookDeliveries operation middleware
+func (siw *ServerInterfaceWrapper) ListWebhookDeliveries(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListWebhookDeliveriesParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListWebhookDeliveries(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReplayWebhookDelivery operation middleware
+func (siw *ServerInterfaceWrapper) ReplayWebhookDelivery(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "deliveryId" -------------
+	var deliveryId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "deliveryId", chi.URLParam(r, "deliveryId"), &deliveryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "deliveryId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplayWebhookDelivery(w, r, id, deliveryId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RotateWebhookSecret operation middleware
+func (siw *ServerInterfaceWrapper) RotateWebhookSecret(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RotateWebhookSecret(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -32193,6 +32739,30 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/voice-profiles/{id}/versions/{profileVersion}/rollback", wrapper.RollbackVoiceProfileVersion)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/webhook-subscriptions", wrapper.ListWebhookSubscriptions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/webhook-subscriptions", wrapper.CreateWebhookSubscription)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/webhook-subscriptions/{id}", wrapper.ArchiveWebhookSubscription)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/webhook-subscriptions/{id}", wrapper.GetWebhookSubscription)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/webhook-subscriptions/{id}", wrapper.UpdateWebhookSubscription)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/webhook-subscriptions/{id}/deliveries", wrapper.ListWebhookDeliveries)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/webhook-subscriptions/{id}/deliveries/{deliveryId}/replay", wrapper.ReplayWebhookDelivery)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/webhook-subscriptions/{id}/rotate-secret", wrapper.RotateWebhookSecret)
 	})
 
 	return r

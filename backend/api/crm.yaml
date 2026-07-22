@@ -2660,6 +2660,175 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  # ----------------------- /webhook-subscriptions ---------------------------
+  # Outbound webhook subscriptions (E10/S-E10.6, A51): a first-party outbound
+  # surface — signed, retried delivery of published domain events to a
+  # tenant-owned HTTPS target. Registering a subscription is registering
+  # outbound egress, so an AGENT create/update is a 🟡 governed tool held for
+  # approval (BYO-WIRE-6, UC-E10-04 E4); a human does it directly. Rotating a
+  # secret and replaying a delivery are human-only (secret exposure /
+  # operational). The signing secret is returned exactly once, at create/rotate.
+  /webhook-subscriptions:
+    get:
+      tags: [Webhooks]
+      operationId: listWebhookSubscriptions
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: List the workspace's outbound webhook subscriptions.
+      parameters:
+        - $ref: '#/components/parameters/IncludeArchived'
+      responses:
+        '200':
+          description: Webhook subscriptions.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookSubscriptionListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Webhooks]
+      operationId: createWebhookSubscription
+      x-mcp-tool: { verb: create_record, record_type: webhook_subscription, tier: yellow }
+      summary: Register an outbound webhook subscription (returns the signing secret once).
+      description: |
+        Registers a target URL + event-type subset. Registering outbound egress, so an agent
+        principal's call is 🟡 — staged for human approval (ADR-0036); a human on a session
+        registers directly. Every register/change/delete is audited. The `signing_secret` in the
+        response is shown EXACTLY ONCE — deliveries are HMAC-SHA256 signed with it
+        (X-Margince-Signature). `target_url` must be https://.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateWebhookSubscriptionRequest' }
+      responses:
+        '201':
+          description: Created subscription plus the one-time signing secret.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookSubscriptionCreated' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /webhook-subscriptions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Webhooks]
+      operationId: getWebhookSubscription
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Get one webhook subscription by id.
+      responses:
+        '200':
+          description: The subscription.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookSubscription' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Webhooks]
+      operationId: updateWebhookSubscription
+      x-mcp-tool: { verb: update_record, record_type: webhook_subscription, tier: yellow }
+      summary: Pause/resume a subscription or re-target its event set.
+      description: |
+        A partial update (pause/resume or re-target the event set). Re-targeting can widen
+        outbound egress, so an agent principal's call is 🟡 — staged for approval; a human
+        updates directly.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateWebhookSubscriptionRequest' }
+      responses:
+        '200':
+          description: Updated subscription.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookSubscription' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Webhooks]
+      operationId: archiveWebhookSubscription
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Archive a webhook subscription (stops all delivery).
+      responses:
+        '200':
+          description: Archived subscription.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookSubscription' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /webhook-subscriptions/{id}/rotate-secret:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Webhooks]
+      operationId: rotateWebhookSecret
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Rotate a subscription's signing secret (returns the new secret once).
+      responses:
+        '200':
+          description: The subscription plus the new one-time signing secret.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookSubscriptionCreated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /webhook-subscriptions/{id}/deliveries:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Webhooks]
+      operationId: listWebhookDeliveries
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: List a subscription's delivery attempts (the dead-letter inspection surface).
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Delivery attempts, newest first.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookDeliveryListResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /webhook-subscriptions/{id}/deliveries/{deliveryId}/replay:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: deliveryId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Webhooks]
+      operationId: replayWebhookDelivery
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Replay a parked (dead-lettered) delivery.
+      responses:
+        '200':
+          description: The delivery after the replay attempt.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookDelivery' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   # ------------------------------ /tags -------------------------------------
   /tags:
     get:
@@ -7226,6 +7395,99 @@ components:
 
   # ------------------------------- schemas ----------------------------------
   schemas:
+
+    # ---- outbound webhooks (E10/S-E10.6, A51; BYO-DDL-3/4) ----
+    WebhookSubscription:
+      type: object
+      description: >-
+        An outbound webhook subscription (`webhook_subscription`): a tenant-configured
+        target URL that receives signed HTTP POSTs for a chosen subset of the published
+        event catalog. The signing secret is NEVER returned here — it is surfaced once,
+        at create/rotate, in `WebhookSubscriptionCreated`.
+      required: [id, workspace_id, owner_id, target_url, event_types, state, version]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        owner_id: { type: string, format: uuid }
+        target_url: { type: string, format: uri, description: HTTPS-only delivery endpoint. }
+        event_types:
+          type: array
+          items: { type: string }
+          description: The subscribed event types, each from the published catalog (events.md §5).
+        state: { type: string, enum: [active, paused] }
+        version: { type: integer, format: int64, description: Optimistic-concurrency version; echo it in If-Match on update. }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+
+    WebhookSubscriptionCreated:
+      type: object
+      description: >-
+        The create/rotate response — the subscription plus the `signing_secret`, which is
+        shown EXACTLY ONCE and never retrievable again. Store it now: deliveries are signed
+        (HMAC-SHA256) with it.
+      required: [subscription, signing_secret]
+      properties:
+        subscription: { $ref: '#/components/schemas/WebhookSubscription' }
+        signing_secret:
+          type: string
+          description: The per-subscription signing secret. Shown once; use it to verify X-Margince-Signature.
+
+    CreateWebhookSubscriptionRequest:
+      type: object
+      required: [target_url, event_types]
+      properties:
+        target_url: { type: string, format: uri, description: HTTPS-only; http:// is rejected. }
+        event_types:
+          type: array
+          minItems: 1
+          items: { type: string }
+          description: At least one event type from the published catalog.
+
+    UpdateWebhookSubscriptionRequest:
+      type: object
+      description: A partial update; omitted fields keep their stored value. Use it to pause/resume or re-target the event set.
+      properties:
+        state: { type: string, enum: [active, paused] }
+        event_types:
+          type: array
+          minItems: 1
+          items: { type: string }
+
+    WebhookSubscriptionListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/WebhookSubscription' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    WebhookDelivery:
+      type: object
+      description: >-
+        One delivery attempt log (`webhook_delivery`) — the inspectable dead-letter
+        surface. At-least-once with idempotency: exactly one row per (subscription, event).
+      required: [id, subscription_id, event_id, event_type, status, attempts]
+      properties:
+        id: { type: string, format: uuid }
+        subscription_id: { type: string, format: uuid }
+        event_id: { type: string, format: uuid }
+        event_type: { type: string }
+        status: { type: string, enum: [pending, delivered, retrying, dead_lettered] }
+        attempts: { type: integer }
+        last_status_code: { type: [integer, 'null'] }
+        last_error: { type: [string, 'null'] }
+        next_retry_at: { type: [string, 'null'], format: date-time }
+        delivered_at: { type: [string, 'null'], format: date-time }
+        dead_lettered_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    WebhookDeliveryListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/WebhookDelivery' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
 
     # ---- capture connectors (per-user OAuth mail/calendar; RC-8, CAP-WIRE-1) ----
     CaptureConnection:

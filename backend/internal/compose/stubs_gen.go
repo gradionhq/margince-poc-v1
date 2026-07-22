@@ -975,3 +975,35 @@ func (stubs) RejectVoiceProfileVersion(w nethttp.ResponseWriter, r *nethttp.Requ
 func (stubs) RollbackVoiceProfileVersion(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, profileVersion crmcontracts.VoiceProfileVersionNumber, params crmcontracts.RollbackVoiceProfileVersionParams) {
 	httperr.NotImplemented(w, r, "RollbackVoiceProfileVersion")
 }
+
+func (stubs) ListWebhookSubscriptions(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListWebhookSubscriptionsParams) {
+	httperr.NotImplemented(w, r, "ListWebhookSubscriptions")
+}
+
+func (stubs) CreateWebhookSubscription(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "CreateWebhookSubscription")
+}
+
+func (stubs) ArchiveWebhookSubscription(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ArchiveWebhookSubscription")
+}
+
+func (stubs) GetWebhookSubscription(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetWebhookSubscription")
+}
+
+func (stubs) UpdateWebhookSubscription(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.UpdateWebhookSubscriptionParams) {
+	httperr.NotImplemented(w, r, "UpdateWebhookSubscription")
+}
+
+func (stubs) ListWebhookDeliveries(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ListWebhookDeliveriesParams) {
+	httperr.NotImplemented(w, r, "ListWebhookDeliveries")
+}
+
+func (stubs) ReplayWebhookDelivery(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, deliveryId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "ReplayWebhookDelivery")
+}
+
+func (stubs) RotateWebhookSecret(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "RotateWebhookSecret")
+}
