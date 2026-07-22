@@ -25,6 +25,14 @@ import (
 // payloads (the one spelling of the payload key).
 const fieldKind = "kind"
 
+// activityCapturedPayload builds the activity.captured event for the
+// direct-log path (this package's only emit site of the event's two) — it
+// never names a source_system, which is exclusive to the capture
+// auto-create path (capture/sink.go's own local builder).
+func activityCapturedPayload(kind string) crmcontracts.WebhookPayloadActivityCaptured {
+	return crmcontracts.WebhookPayloadActivityCaptured{Kind: kind}
+}
+
 // ActivityLinkInput ties one activity to a person, organization or deal.
 type ActivityLinkInput struct {
 	EntityType string // person | organization | deal
@@ -127,7 +135,7 @@ func logActivityInTx(ctx context.Context, tx pgx.Tx, in LogActivityInput) (crmco
 	}
 	// activity.captured is the first-class verb — emitted instead of a
 	// generic activity.created, never in addition (events.md §1).
-	if err := storekit.Emit(ctx, tx, auditID, "activity.captured", "activity", id.UUID, map[string]any{fieldKind: in.Kind}); err != nil {
+	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, activityCapturedPayload(in.Kind)); err != nil {
 		return crmcontracts.Activity{}, false, err
 	}
 	out, err := readActivity(ctx, tx, id, storekit.LiveOnly)

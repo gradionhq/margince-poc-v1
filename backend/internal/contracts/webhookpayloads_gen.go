@@ -10,12 +10,16 @@ import (
 
 // Defines values for SubscribableEventType.
 const (
+	ActivityArchived     SubscribableEventType = "activity.archived"
+	ActivityCaptured     SubscribableEventType = "activity.captured"
+	ActivityUpdated      SubscribableEventType = "activity.updated"
 	DealArchived         SubscribableEventType = "deal.archived"
 	DealCreated          SubscribableEventType = "deal.created"
 	DealOwnerChanged     SubscribableEventType = "deal.owner_changed"
 	DealRestored         SubscribableEventType = "deal.restored"
 	DealStageChanged     SubscribableEventType = "deal.stage_changed"
 	DealUpdated          SubscribableEventType = "deal.updated"
+	EngagementReply      SubscribableEventType = "engagement.reply"
 	LeadCreated          SubscribableEventType = "lead.created"
 	LeadDisqualified     SubscribableEventType = "lead.disqualified"
 	LeadPromoted         SubscribableEventType = "lead.promoted"
@@ -45,6 +49,12 @@ const (
 // Valid indicates whether the value is a known member of the SubscribableEventType enum.
 func (e SubscribableEventType) Valid() bool {
 	switch e {
+	case ActivityArchived:
+		return true
+	case ActivityCaptured:
+		return true
+	case ActivityUpdated:
+		return true
 	case DealArchived:
 		return true
 	case DealCreated:
@@ -56,6 +66,8 @@ func (e SubscribableEventType) Valid() bool {
 	case DealStageChanged:
 		return true
 	case DealUpdated:
+		return true
+	case EngagementReply:
 		return true
 	case LeadCreated:
 		return true
@@ -110,8 +122,44 @@ func (e SubscribableEventType) Valid() bool {
 	}
 }
 
-// SubscribableEventType The closed set of domain events a webhook subscription can select. Phase 4 fills this out family by family; today it carries the pilot event plus the deal family (Task 5a-i), the offer family (Task 5a-ii), the pipeline/stage config family (Task 5a-iii), and the person/organization family (Task 5b-personorg), and the lead family (Task 5b-lead).
+// SubscribableEventType The closed set of domain events a webhook subscription can select. Phase 4 fills this out family by family; today it carries the pilot event plus the deal family (Task 5a-i), the offer family (Task 5a-ii), the pipeline/stage config family (Task 5a-iii), and the person/organization family (Task 5b-personorg), the lead family (Task 5b-lead), and the activities family (Task 5c).
 type SubscribableEventType string
+
+// WebhookActivityChangedFields activity.updated's BOUNDED delta: UpdateActivity's known mutable fields (subject, body, occurred_at, due_at, remind_at, assignee_id, is_done) each carried only when this update touched them, plus RelinkActivity's relinked target — a fixed, KNOWN key set (unlike person/organization/deal/lead.updated's genuinely open patch), so it is typed rather than an open map.
+type WebhookActivityChangedFields struct {
+	// AssigneeId The activity's new assignee (absent when this update did not touch it).
+	AssigneeId *openapi_types.UUID `json:"assignee_id,omitempty"`
+
+	// Body Whether the body was touched (a presence flag, not the content — bodies can be large and are never echoed onto the wire).
+	Body *bool `json:"body,omitempty"`
+
+	// DueAt The activity's new due_at (absent when this update did not touch it).
+	DueAt *time.Time `json:"due_at,omitempty"`
+
+	// IsDone The activity's new completion state (absent when this update did not touch it).
+	IsDone *bool `json:"is_done,omitempty"`
+
+	// OccurredAt The activity's new occurred_at (absent when this update did not touch it).
+	OccurredAt *time.Time `json:"occurred_at,omitempty"`
+
+	// Relinked The entity an activity was relinked onto (activities/lifecycle.go's RelinkActivity) — an association change, not a re-capture, so it travels as one changed_fields key rather than its own event verb.
+	Relinked *WebhookActivityRelinkedRef `json:"relinked,omitempty"`
+
+	// RemindAt The activity's new remind_at (absent when this update did not touch it).
+	RemindAt *time.Time `json:"remind_at,omitempty"`
+
+	// Subject The activity's new subject (absent when this update did not touch it).
+	Subject *string `json:"subject,omitempty"`
+}
+
+// WebhookActivityRelinkedRef The entity an activity was relinked onto (activities/lifecycle.go's RelinkActivity) — an association change, not a re-capture, so it travels as one changed_fields key rather than its own event verb.
+type WebhookActivityRelinkedRef struct {
+	// EntityId The relink target's id.
+	EntityId openapi_types.UUID `json:"entity_id"`
+
+	// EntityType The relink target's kind (person | organization | deal | lead).
+	EntityType string `json:"entity_type"`
+}
 
 // WebhookActor Who or what caused the event, as exposed publicly.
 type WebhookActor struct {
@@ -153,6 +201,24 @@ type WebhookEntityRef struct {
 
 	// Type Entity kind (e.g. deal, person, organization).
 	Type string `json:"type"`
+}
+
+// WebhookPayloadActivityArchived Payload for activity.archived — an activity was archived. Carries no data.
+type WebhookPayloadActivityArchived struct{}
+
+// WebhookPayloadActivityCaptured Payload for activity.captured — the first-class capture verb, emitted instead of (never alongside) a generic activity.created (events.md §1). Two emit sites: the direct-log path (activities/activity.go) that sets kind only, and the capture ingestion path (capture/sink.go) that also names its originating source system.
+type WebhookPayloadActivityCaptured struct {
+	// Kind The activity kind (email | call | meeting | note | whatsapp | telegram). Decoded by automation/handlers_event.go's post_meeting_recap trigger — this field's JSON key is a binding contract, not just documentation.
+	Kind string `json:"kind"`
+
+	// SourceSystem The originating source system (capture ingestion only; absent on a direct log).
+	SourceSystem *string `json:"source_system,omitempty"`
+}
+
+// WebhookPayloadActivityUpdated Payload for activity.updated — a BOUNDED delta (unlike the person/organization/deal/lead family's genuinely open patch): UpdateActivity and RelinkActivity together cover a fixed, KNOWN set of inner keys, so changed_fields is a typed struct here, not an open map.
+type WebhookPayloadActivityUpdated struct {
+	// ChangedFields activity.updated's BOUNDED delta: UpdateActivity's known mutable fields (subject, body, occurred_at, due_at, remind_at, assignee_id, is_done) each carried only when this update touched them, plus RelinkActivity's relinked target — a fixed, KNOWN key set (unlike person/organization/deal/lead.updated's genuinely open patch), so it is typed rather than an open map.
+	ChangedFields WebhookActivityChangedFields `json:"changed_fields"`
 }
 
 // WebhookPayloadDealArchived Payload for deal.archived — a deal was archived. Carries no data.
@@ -204,6 +270,24 @@ type WebhookPayloadDealStageChanged struct {
 type WebhookPayloadDealUpdated struct {
 	// ChangedFields Field name → new value for whatever this update touched, incl. runtime cf_* custom fields.
 	ChangedFields map[string]interface{} `json:"changed_fields"`
+}
+
+// WebhookPayloadEngagementReply Payload for engagement.reply — CAP-FORMULA-1: an inbound message in a thread we previously wrote outbound in is a reply, feeding the engagement signal scoring (capture/sink.go's emitReply).
+type WebhookPayloadEngagementReply struct {
+	// Channel The channel the reply arrived on (today always email).
+	Channel string `json:"channel"`
+
+	// ContactId The already-known person behind the counterparty address (absent when the counterparty resolves only in a follow-up ensure).
+	ContactId *openapi_types.UUID `json:"contact_id,omitempty"`
+
+	// IdempotencyKey The capture natural key (source_system:source_id) this reply was detected from.
+	IdempotencyKey string `json:"idempotency_key"`
+
+	// MatchedOutboundActivityId The prior outbound activity this inbound message replies to.
+	MatchedOutboundActivityId openapi_types.UUID `json:"matched_outbound_activity_id"`
+
+	// OccurredAt When the reply activity occurred.
+	OccurredAt time.Time `json:"occurred_at"`
 }
 
 // WebhookPayloadLeadCreated Payload for lead.created — a lead was created. Two emit sites: a direct create (people/lead.go) that sets no fields, and the capture auto-create engine (capture/sink.go) that names its originating source system; source_system is therefore optional.
@@ -482,6 +566,18 @@ type WebhookPipelineCreatedStage struct {
 	Semantic string `json:"semantic"`
 }
 
+func (WebhookPayloadActivityArchived) EventType() string { return "activity.archived" }
+
+func (WebhookPayloadActivityArchived) EntityType() string { return "activity" }
+
+func (WebhookPayloadActivityCaptured) EventType() string { return "activity.captured" }
+
+func (WebhookPayloadActivityCaptured) EntityType() string { return "activity" }
+
+func (WebhookPayloadActivityUpdated) EventType() string { return "activity.updated" }
+
+func (WebhookPayloadActivityUpdated) EntityType() string { return "activity" }
+
 func (WebhookPayloadDealArchived) EventType() string { return "deal.archived" }
 
 func (WebhookPayloadDealArchived) EntityType() string { return "deal" }
@@ -505,6 +601,10 @@ func (WebhookPayloadDealStageChanged) EntityType() string { return "deal" }
 func (WebhookPayloadDealUpdated) EventType() string { return "deal.updated" }
 
 func (WebhookPayloadDealUpdated) EntityType() string { return "deal" }
+
+func (WebhookPayloadEngagementReply) EventType() string { return "engagement.reply" }
+
+func (WebhookPayloadEngagementReply) EntityType() string { return "activity" }
 
 func (WebhookPayloadLeadCreated) EventType() string { return "lead.created" }
 
@@ -608,12 +708,16 @@ func (WebhookPayloadStageUpdated) EntityType() string { return "stage" }
 // both the coverage gate (every subscribable event type must be a key here)
 // and the version gate (VersionOf(type) must equal this map's value).
 var WebhookPayloadVersions = map[string]int{
+	"activity.archived":     1,
+	"activity.captured":     1,
+	"activity.updated":      1,
 	"deal.archived":         1,
 	"deal.created":          1,
 	"deal.owner_changed":    1,
 	"deal.restored":         1,
 	"deal.stage_changed":    1,
 	"deal.updated":          1,
+	"engagement.reply":      1,
 	"lead.created":          1,
 	"lead.disqualified":     1,
 	"lead.promoted":         1,

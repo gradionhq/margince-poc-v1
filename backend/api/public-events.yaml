@@ -25,8 +25,8 @@ components:
         Phase 4 fills this out family by family; today it carries the
         pilot event plus the deal family (Task 5a-i), the offer family
         (Task 5a-ii), the pipeline/stage config family (Task 5a-iii), and
-        the person/organization family (Task 5b-personorg), and the lead
-        family (Task 5b-lead).
+        the person/organization family (Task 5b-personorg), the lead
+        family (Task 5b-lead), and the activities family (Task 5c).
       enum:
         - deal.created
         - deal.owner_changed
@@ -58,6 +58,10 @@ components:
         - lead.disqualified
         - lead.promoted
         - lead.updated
+        - activity.captured
+        - activity.archived
+        - activity.updated
+        - engagement.reply
 
     WebhookActor:
       type: object
@@ -850,4 +854,158 @@ components:
           description: >-
             Field name → new value for whatever this update touched,
             incl. runtime cf_* custom fields.
+      additionalProperties: false
+
+    WebhookPayloadActivityCaptured:
+      type: object
+      x-event-type: activity.captured
+      x-entity-type: activity
+      x-version: 1
+      description: >-
+        Payload for activity.captured — the first-class capture verb,
+        emitted instead of (never alongside) a generic activity.created
+        (events.md §1). Two emit sites: the direct-log path
+        (activities/activity.go) that sets kind only, and the capture
+        ingestion path (capture/sink.go) that also names its originating
+        source system.
+      required:
+        - kind
+      properties:
+        kind:
+          type: string
+          description: >-
+            The activity kind (email | call | meeting | note | whatsapp
+            | telegram). Decoded by automation/handlers_event.go's
+            post_meeting_recap trigger — this field's JSON key is a
+            binding contract, not just documentation.
+        source_system:
+          type: string
+          description: >-
+            The originating source system (capture ingestion only;
+            absent on a direct log).
+      additionalProperties: false
+
+    WebhookPayloadActivityArchived:
+      type: object
+      x-event-type: activity.archived
+      x-entity-type: activity
+      x-version: 1
+      description: Payload for activity.archived — an activity was archived. Carries no data.
+      additionalProperties: false
+
+    WebhookActivityRelinkedRef:
+      type: object
+      description: >-
+        The entity an activity was relinked onto (activities/lifecycle.go's
+        RelinkActivity) — an association change, not a re-capture, so it
+        travels as one changed_fields key rather than its own event verb.
+      required:
+        - entity_type
+        - entity_id
+      properties:
+        entity_type:
+          type: string
+          description: The relink target's kind (person | organization | deal | lead).
+        entity_id:
+          type: string
+          format: uuid
+          description: The relink target's id.
+      additionalProperties: false
+
+    WebhookActivityChangedFields:
+      type: object
+      description: >-
+        activity.updated's BOUNDED delta: UpdateActivity's known mutable
+        fields (subject, body, occurred_at, due_at, remind_at,
+        assignee_id, is_done) each carried only when this update touched
+        them, plus RelinkActivity's relinked target — a fixed, KNOWN key
+        set (unlike person/organization/deal/lead.updated's genuinely
+        open patch), so it is typed rather than an open map.
+      properties:
+        subject:
+          type: string
+          description: The activity's new subject (absent when this update did not touch it).
+        body:
+          type: boolean
+          description: >-
+            Whether the body was touched (a presence flag, not the
+            content — bodies can be large and are never echoed onto the
+            wire).
+        occurred_at:
+          type: string
+          format: date-time
+          description: The activity's new occurred_at (absent when this update did not touch it).
+        due_at:
+          type: string
+          format: date-time
+          description: The activity's new due_at (absent when this update did not touch it).
+        remind_at:
+          type: string
+          format: date-time
+          description: The activity's new remind_at (absent when this update did not touch it).
+        assignee_id:
+          type: string
+          format: uuid
+          description: The activity's new assignee (absent when this update did not touch it).
+        is_done:
+          type: boolean
+          description: The activity's new completion state (absent when this update did not touch it).
+        relinked:
+          $ref: '#/components/schemas/WebhookActivityRelinkedRef'
+      additionalProperties: false
+
+    WebhookPayloadActivityUpdated:
+      type: object
+      x-event-type: activity.updated
+      x-entity-type: activity
+      x-version: 1
+      description: >-
+        Payload for activity.updated — a BOUNDED delta (unlike the
+        person/organization/deal/lead family's genuinely open patch):
+        UpdateActivity and RelinkActivity together cover a fixed, KNOWN
+        set of inner keys, so changed_fields is a typed struct here, not
+        an open map.
+      required:
+        - changed_fields
+      properties:
+        changed_fields:
+          $ref: '#/components/schemas/WebhookActivityChangedFields'
+      additionalProperties: false
+
+    WebhookPayloadEngagementReply:
+      type: object
+      x-event-type: engagement.reply
+      x-entity-type: activity
+      x-version: 1
+      description: >-
+        Payload for engagement.reply — CAP-FORMULA-1: an inbound message
+        in a thread we previously wrote outbound in is a reply, feeding
+        the engagement signal scoring (capture/sink.go's emitReply).
+      required:
+        - matched_outbound_activity_id
+        - channel
+        - occurred_at
+        - idempotency_key
+      properties:
+        matched_outbound_activity_id:
+          type: string
+          format: uuid
+          description: The prior outbound activity this inbound message replies to.
+        channel:
+          type: string
+          description: The channel the reply arrived on (today always email).
+        occurred_at:
+          type: string
+          format: date-time
+          description: When the reply activity occurred.
+        idempotency_key:
+          type: string
+          description: The capture natural key (source_system:source_id) this reply was detected from.
+        contact_id:
+          type: string
+          format: uuid
+          description: >-
+            The already-known person behind the counterparty address
+            (absent when the counterparty resolves only in a follow-up
+            ensure).
       additionalProperties: false

@@ -332,3 +332,48 @@ func TestLeadUpdatedWireSnapshot(t *testing.T) {
 	}
 	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
 }
+
+// activitySnapshotMatched is a fixed, memorable UUID so the activities
+// family's golden snapshots (webhooks Task 5c) are stable across test
+// runs — a real ids.NewV7() would churn the fixtures on every regeneration
+// for no reason.
+var activitySnapshotMatched = uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc")
+
+// TestActivityCapturedWireSnapshot pins the activity.captured wire shape
+// (webhooks Task 5c, activities family), sampled with the capture-site
+// subset (kind + source_system both set).
+func TestActivityCapturedWireSnapshot(t *testing.T) {
+	sourceSystem := "gmail"
+	sample := crmcontracts.WebhookPayloadActivityCaptured{
+		Kind:         "email",
+		SourceSystem: &sourceSystem,
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestActivityUpdatedWireSnapshot pins the activity.updated wire shape —
+// the BOUNDED changed_fields struct, sampled with subject and is_done
+// touched so the snapshot also pins that an untouched field is OMITTED,
+// not nulled.
+func TestActivityUpdatedWireSnapshot(t *testing.T) {
+	subject := "Follow-up call"
+	isDone := true
+	sample := crmcontracts.WebhookPayloadActivityUpdated{
+		ChangedFields: crmcontracts.WebhookActivityChangedFields{
+			Subject: &subject,
+			IsDone:  &isDone,
+		},
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestEngagementReplyWireSnapshot pins the engagement.reply wire shape.
+func TestEngagementReplyWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadEngagementReply{
+		MatchedOutboundActivityId: activitySnapshotMatched,
+		Channel:                   "email",
+		OccurredAt:                time.Date(2026, 7, 22, 9, 30, 0, 0, time.UTC),
+		IdempotencyKey:            "gmail:msg-42",
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
