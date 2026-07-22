@@ -574,6 +574,39 @@ function OnboardingCoordinator() {
     [draft.values.website],
   );
 
+  // A page refresh must not forget a durable build: the profile's version
+  // list is the server truth (active when it auto-activated, candidate when
+  // it awaits review), so the voice step's forward action reflects what
+  // actually exists instead of this mount's local memory.
+  const voiceBuiltProbe = useQuery({
+    queryKey: ["onboarding-voice-built"],
+    queryFn: async (): Promise<boolean> => {
+      const list = await api.GET("/voice-profiles");
+      if (list.error) {
+        throw new Error(problemMessage(list.error));
+      }
+      const profileId = list.data.data[0]?.id;
+      if (!profileId) {
+        return false;
+      }
+      const versions = await api.GET("/voice-profiles/{id}/versions", {
+        params: { path: { id: profileId } },
+      });
+      if (versions.error) {
+        throw new Error(problemMessage(versions.error));
+      }
+      return versions.data.data.some(
+        (version) =>
+          version.status === "active" || version.status === "candidate",
+      );
+    },
+  });
+  useEffect(() => {
+    if (voiceBuiltProbe.data) {
+      setVoiceBuilt(true);
+    }
+  }, [voiceBuiltProbe.data]);
+
   const existing = useCompany(true);
   const wizardState = useQuery({
     queryKey: ["onboarding-state"],
