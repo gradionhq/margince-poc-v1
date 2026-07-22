@@ -14,9 +14,9 @@ import (
 // Pack codes in this file use ISO user-assigned codes (z*) unique per
 // test: the jurisdiction registry is process-global, so a code
 // registered here stays registered for the test binary's lifetime.
-type fakePack struct{ code string }
+type fakePack struct{ code jurisdiction.Code }
 
-func (p fakePack) Code() string                    { return p.code }
+func (p fakePack) Code() jurisdiction.Code         { return p.code }
 func (fakePack) Retention() jurisdiction.Retention { return nil }
 
 func TestRegisterExtensionsAppliesDeclaredCapabilities(t *testing.T) {
@@ -52,7 +52,7 @@ func TestRegisterExtensionsRejectsADuplicateUnit(t *testing.T) {
 
 func TestRegisterExtensionsRejectsAMissingVersion(t *testing.T) {
 	err := RegisterExtensions([]extension.Extension{{Name: "unversioned"}})
-	if err == nil || !strings.Contains(err.Error(), "declares no version") {
+	if err == nil || !strings.Contains(err.Error(), "version is empty") {
 		t.Fatalf("err = %v, want the missing-version rejection", err)
 	}
 }

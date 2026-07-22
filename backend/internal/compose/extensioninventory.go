@@ -56,7 +56,7 @@ func ObserveExtensionInventory(ctx context.Context, pool *pgxpool.Pool, log *slo
 
 	current := make([]observedExtension, 0, len(exts))
 	for _, e := range exts {
-		current = append(current, observedExtension{Name: e.Name, Version: e.Version})
+		current = append(current, observedExtension{Name: string(e.Name), Version: string(e.Version)})
 	}
 	slices.SortFunc(current, func(a, b observedExtension) int {
 		return strings.Compare(a.Name, b.Name)

@@ -29,6 +29,6 @@ func New() extension.Extension {
 // fixture can never collide with a real jurisdiction pack.
 type pack struct{}
 
-func (pack) Code() string { return "zz" }
+func (pack) Code() jurisdiction.Code { return "zz" }
 
 func (pack) Retention() jurisdiction.Retention { return nil }

@@ -35,21 +35,25 @@ type Retention = pub.Retention
 // RetentionClass is the published retention-class shape, aliased like Pack.
 type RetentionClass = pub.RetentionClass
 
+// Code is the published jurisdiction-code type, aliased like Pack.
+type Code = pub.Code
+
+// Period is the published calendar-period type, aliased like Pack.
+type Period = pub.Period
+
 var (
 	mu    sync.RWMutex
-	packs = map[string]Pack{}
+	packs = map[Code]Pack{}
 )
 
-// Register is called from a pack's init(); a duplicate code — or one
-// outside the documented lower-case ISO 3166-1 alpha-2 shape, which For
-// could never resolve canonically — is a wiring defect and fails fast at
-// boot.
+// Register is called from a pack's init(); a duplicate or invalid code
+// (Code.Validate) is a wiring defect and fails fast at boot.
 func Register(p Pack) {
 	mu.Lock()
 	defer mu.Unlock()
 	code := p.Code()
-	if len(code) != 2 || code[0] < 'a' || code[0] > 'z' || code[1] < 'a' || code[1] > 'z' {
-		panic(fmt.Sprintf("jurisdiction: pack code %q is not a lower-case ISO 3166-1 alpha-2 code", code))
+	if err := code.Validate(); err != nil {
+		panic(fmt.Sprintf("jurisdiction: %v", err))
 	}
 	if _, dup := packs[code]; dup {
 		panic(fmt.Sprintf("jurisdiction: pack %q registered twice", code))
@@ -59,7 +63,9 @@ func Register(p Pack) {
 
 // For returns the pack for a code; ok is false when the running binary
 // was not compiled with it.
-func For(code string) (Pack, bool) {
+//
+//nolint:ireturn // Pack IS the seam: packs are interface implementations behind one registry; returning the interface is the design.
+func For(code Code) (Pack, bool) {
 	mu.RLock()
 	defer mu.RUnlock()
 	p, ok := packs[code]

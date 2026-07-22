@@ -150,9 +150,16 @@ func currentManifest(root string, files map[string][]byte) (manifest, error) {
 // materializeWorkSum lets the go command write go.work.sum for the
 // composed workspace: `go list -m all` resolves the full module graph and
 // records any hash beyond the members' go.sum files; a dependency-free
-// composition legitimately produces no file.
+// composition legitimately produces no file. The binary is resolved from
+// the running toolchain's GOROOT, never PATH — this generator runs in
+// build pipelines, and a writable PATH entry must not choose which go
+// resolves the composed graph.
 func materializeWorkSum(root, outRoot string) error {
-	cmd := exec.Command("go", "list", "-m", "all")
+	goRoot := runtime.GOROOT()
+	if goRoot == "" {
+		return fmt.Errorf("cannot locate the go toolchain (empty GOROOT)")
+	}
+	cmd := exec.Command(filepath.Join(goRoot, "bin", "go"), "list", "-m", "all")
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(), "GOWORK="+filepath.Join(outRoot, "go.work"))
 	if out, err := cmd.CombinedOutput(); err != nil {

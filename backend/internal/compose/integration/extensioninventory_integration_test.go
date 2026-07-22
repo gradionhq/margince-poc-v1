@@ -29,7 +29,7 @@ func TestExtensionInventoryLogsOnlyChanges(t *testing.T) {
 			t.Fatalf("ObserveExtensionInventory: %v", err)
 		}
 	}
-	unit := func(version string) extension.Extension {
+	unit := func(version extension.Version) extension.Extension {
 		return extension.Extension{Name: "crm-hello", Version: version}
 	}
 	rows := func() int {

@@ -172,8 +172,8 @@ func extensionsGen(units []extensionUnit) []byte {
 // whose Name disagrees with the directory it shipped in is a wiring
 // defect and aborts the boot.
 func mustBe(dir string, e extension.Extension) extension.Extension {
-	if e.Name != dir {
-		panic("composition: extensions/" + dir + " declares Name \"" + e.Name + "\" — the unit name is its directory name (ADR-0069 §2)")
+	if string(e.Name) != dir {
+		panic("composition: extensions/" + dir + " declares Name \"" + string(e.Name) + "\" — the unit name is its directory name (ADR-0069 §2)")
 	}
 	return e
 }
