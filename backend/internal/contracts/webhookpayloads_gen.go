@@ -10,20 +10,35 @@ import (
 
 // Defines values for SubscribableEventType.
 const (
+	DealArchived     SubscribableEventType = "deal.archived"
+	DealCreated      SubscribableEventType = "deal.created"
+	DealOwnerChanged SubscribableEventType = "deal.owner_changed"
+	DealRestored     SubscribableEventType = "deal.restored"
 	DealStageChanged SubscribableEventType = "deal.stage_changed"
+	DealUpdated      SubscribableEventType = "deal.updated"
 )
 
 // Valid indicates whether the value is a known member of the SubscribableEventType enum.
 func (e SubscribableEventType) Valid() bool {
 	switch e {
+	case DealArchived:
+		return true
+	case DealCreated:
+		return true
+	case DealOwnerChanged:
+		return true
+	case DealRestored:
+		return true
 	case DealStageChanged:
+		return true
+	case DealUpdated:
 		return true
 	default:
 		return false
 	}
 }
 
-// SubscribableEventType The closed set of domain events a webhook subscription can select. Phase 4 fills this out; today it carries the pilot event only.
+// SubscribableEventType The closed set of domain events a webhook subscription can select. Phase 4 fills this out family by family; today it carries the pilot event plus the deal family (Task 5a-i).
 type SubscribableEventType string
 
 // WebhookActor Who or what caused the event, as exposed publicly.
@@ -68,24 +83,80 @@ type WebhookEntityRef struct {
 	Type string `json:"type"`
 }
 
-// WebhookPayloadDealStageChanged Payload for deal.stage_changed — a deal advanced between stages.
+// WebhookPayloadDealArchived Payload for deal.archived — a deal was archived. Carries no data.
+type WebhookPayloadDealArchived struct{}
+
+// WebhookPayloadDealCreated Payload for deal.created — a deal was opened.
+type WebhookPayloadDealCreated struct {
+	// Name The deal's name at creation.
+	Name string `json:"name"`
+}
+
+// WebhookPayloadDealOwnerChanged Payload for deal.owner_changed — the deal's owner was reassigned. Emitted instead of (never alongside) deal.updated for the owner_id field (events.md §5.3).
+type WebhookPayloadDealOwnerChanged struct {
+	// FromOwnerId The previous owner (absent when the deal had none).
+	FromOwnerId *openapi_types.UUID `json:"from_owner_id,omitempty"`
+
+	// ToOwnerId The new owner.
+	ToOwnerId openapi_types.UUID `json:"to_owner_id"`
+}
+
+// WebhookPayloadDealRestored Payload for deal.restored. Never emitted today (no restore path exists for deal); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it.
+type WebhookPayloadDealRestored struct{}
+
+// WebhookPayloadDealStageChanged Payload for deal.stage_changed — a deal advanced between stages. Carries the amount/win-probability snapshot frozen at the moment of the move so consumers (the trajectory view, the overnight stalled/forecast sweep, the automation trigger keyed on to_status) never need a read-back.
 type WebhookPayloadDealStageChanged struct {
-	// DealId The deal that moved.
-	DealId openapi_types.UUID `json:"deal_id"`
+	// AmountMinorAtChange The deal's amount, frozen at the moment of the move.
+	AmountMinorAtChange *int64 `json:"amount_minor_at_change,omitempty"`
+
+	// CurrencyAtChange The deal's currency, frozen at the moment of the move.
+	CurrencyAtChange *string `json:"currency_at_change,omitempty"`
 
 	// FromStageId Stage the deal left (absent on first placement).
 	FromStageId *openapi_types.UUID `json:"from_stage_id,omitempty"`
 
-	// PipelineId Pipeline the deal belongs to.
-	PipelineId openapi_types.UUID `json:"pipeline_id"`
+	// FromStatus Deal status before the move (open | won | lost).
+	FromStatus string `json:"from_status"`
 
 	// ToStageId Stage the deal entered.
 	ToStageId openapi_types.UUID `json:"to_stage_id"`
+
+	// ToStatus Deal status after the move (open | won | lost) — the field the automation trigger keys on (automation/handlers_event.go).
+	ToStatus string `json:"to_status"`
+
+	// WinProbability The target stage's win probability, frozen at the moment of the move.
+	WinProbability int `json:"win_probability"`
 }
+
+// WebhookPayloadDealUpdated Payload for deal.updated — an OPEN envelope: its emit sites carry divergent shapes (a flat column patch, an accepted-offer amount sync, a close-date-correction note, a relationship delta), so the honest shape is a change-set map rather than a fixed field list.
+type WebhookPayloadDealUpdated struct {
+	// ChangedFields Field name → new value for whatever this update touched, incl. runtime cf_* custom fields.
+	ChangedFields map[string]interface{} `json:"changed_fields"`
+}
+
+func (WebhookPayloadDealArchived) EventType() string { return "deal.archived" }
+
+func (WebhookPayloadDealArchived) EntityType() string { return "deal" }
+
+func (WebhookPayloadDealCreated) EventType() string { return "deal.created" }
+
+func (WebhookPayloadDealCreated) EntityType() string { return "deal" }
+
+func (WebhookPayloadDealOwnerChanged) EventType() string { return "deal.owner_changed" }
+
+func (WebhookPayloadDealOwnerChanged) EntityType() string { return "deal" }
+
+func (WebhookPayloadDealRestored) EventType() string { return "deal.restored" }
+
+func (WebhookPayloadDealRestored) EntityType() string { return "deal" }
 
 func (WebhookPayloadDealStageChanged) EventType() string { return "deal.stage_changed" }
 
 func (WebhookPayloadDealStageChanged) EntityType() string { return "deal" }
+
+func (WebhookPayloadDealUpdated) EventType() string { return "deal.updated" }
+
+func (WebhookPayloadDealUpdated) EntityType() string { return "deal" }
 
 // WebhookPayloadVersions maps every subscribable event type carrying a
 // WebhookPayload<Event> schema to that schema's x-version extension
@@ -93,5 +164,10 @@ func (WebhookPayloadDealStageChanged) EntityType() string { return "deal" }
 // both the coverage gate (every subscribable event type must be a key here)
 // and the version gate (VersionOf(type) must equal this map's value).
 var WebhookPayloadVersions = map[string]int{
+	"deal.archived":      1,
+	"deal.created":       1,
+	"deal.owner_changed": 1,
+	"deal.restored":      1,
 	"deal.stage_changed": 1,
+	"deal.updated":       1,
 }

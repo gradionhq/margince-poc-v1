@@ -91,6 +91,10 @@ func generateSource(specYAML []byte, pkg string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("codegen: %w", err)
 	}
+	body, err = structifyEmptyEventPayloads(body, spec)
+	if err != nil {
+		return "", err
+	}
 
 	methods, versions, err := eventMethodsAndVersions(spec)
 	if err != nil {
@@ -129,6 +133,52 @@ func restampBanner(body, pkg string) string {
 	// No recognizable package clause: fall back to prepending the banner so
 	// the failure surfaces at compile time rather than silently mis-stamping.
 	return banner + "\n" + body
+}
+
+// structifyEmptyEventPayloads rewrites a nil-payload event's generated type
+// from oapi-codegen's universal fallback for a zero-property object —
+// `type X = map[string]interface{}` — into a real empty struct. That fallback
+// fires regardless of `additionalProperties: false` (oapi-codegen only
+// special-cases additionalProperties when the schema ALSO has properties),
+// so every nil-payload event (deal.archived and its many `{}`-payload
+// siblings) would otherwise generate as a type ALIAS to a builtin map type.
+// Go forbids attaching a method to such an alias (the receiver base type
+// must be a type defined in this package, and an alias to a foreign/builtin
+// type has no such identity), so EventType()/EntityType() below would fail
+// to compile the instant a nil-payload schema carried the event extensions —
+// exactly the case this generator exists to catch at compile time, not
+// silently miscompile itself. Only schemas that are BOTH event-tagged AND
+// genuinely empty (no properties) are rewritten; every other schema's
+// map/struct choice is left exactly as oapi-codegen decided.
+func structifyEmptyEventPayloads(body string, spec *openapi3.T) (string, error) {
+	if spec.Components == nil {
+		return body, nil
+	}
+	names := make([]string, 0, len(spec.Components.Schemas))
+	for name := range spec.Components.Schemas {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		ref := spec.Components.Schemas[name]
+		if ref == nil || ref.Value == nil {
+			continue
+		}
+		if _, hasEvent := ref.Value.Extensions["x-event-type"]; !hasEvent {
+			continue
+		}
+		if len(ref.Value.Properties) != 0 {
+			continue
+		}
+		from := "type " + name + " = map[string]interface{}"
+		to := "type " + name + " struct{}"
+		if !strings.Contains(body, from) {
+			return "", fmt.Errorf("structifying %q: expected generated alias %q not found (oapi-codegen's empty-object output shape may have changed)", name, from)
+		}
+		body = strings.Replace(body, from, to, 1)
+	}
+	return body, nil
 }
 
 // eventMethodsAndVersions walks every schema in one pass, returning two

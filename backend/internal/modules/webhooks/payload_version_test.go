@@ -66,25 +66,35 @@ func assertWireSnapshot(t *testing.T, eventType string, version int, value any) 
 		"wire shape for %s v%d drifted from the committed snapshot %s — a deliberate, reviewed shape change regenerates it with UPDATE_SNAPSHOTS=1; an accidental one is fixed instead", eventType, version, path)
 }
 
-// dealID/pipelineID/fromStageID/toStageID are fixed, memorable UUIDs so the
+// dealSnapshotFromStage/dealSnapshotToStage are fixed, memorable UUIDs so the
 // pilot's golden snapshot is stable across test runs — a real ids.NewV7()
 // would churn the fixture on every regeneration for no reason.
 var (
-	dealSnapshotDealID     = uuid.MustParse("11111111-1111-1111-1111-111111111111")
-	dealSnapshotPipelineID = uuid.MustParse("22222222-2222-2222-2222-222222222222")
-	dealSnapshotFromStage  = uuid.MustParse("33333333-3333-3333-3333-333333333333")
-	dealSnapshotToStage    = uuid.MustParse("44444444-4444-4444-4444-444444444444")
+	dealSnapshotFromStage = uuid.MustParse("33333333-3333-3333-3333-333333333333")
+	dealSnapshotToStage   = uuid.MustParse("44444444-4444-4444-4444-444444444444")
 )
 
 // TestDealStageChangedWireSnapshot pins the pilot payload's wire shape —
 // the one type Task 4 exercises end-to-end; every Phase-4 family task adds
-// its own event's snapshot test alongside its typed payload.
+// its own event's snapshot test alongside its typed payload. Reconciled in
+// Task 5a-i (webhooks deal family) from the placeholder
+// deal_id/pipeline_id/from_stage_id/to_stage_id shape to the fields
+// deal_advance.go actually emits (EMIT-INVENTORY.md): deal_id/pipeline_id
+// dropped (the entity ref already carries the deal id; the deal's
+// pipeline never changes on a stage move, so it is not part of the delta),
+// from_status/to_status/amount_minor_at_change/currency_at_change/
+// win_probability added.
 func TestDealStageChangedWireSnapshot(t *testing.T) {
+	amount := int64(250000)
+	currency := "EUR"
 	sample := crmcontracts.WebhookPayloadDealStageChanged{
-		DealId:      dealSnapshotDealID,
-		PipelineId:  dealSnapshotPipelineID,
-		FromStageId: &dealSnapshotFromStage,
-		ToStageId:   dealSnapshotToStage,
+		FromStageId:         &dealSnapshotFromStage,
+		ToStageId:           dealSnapshotToStage,
+		FromStatus:          "open",
+		ToStatus:            "won",
+		AmountMinorAtChange: &amount,
+		CurrencyAtChange:    &currency,
+		WinProbability:      100,
 	}
 	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
 }

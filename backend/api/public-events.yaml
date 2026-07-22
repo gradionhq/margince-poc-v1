@@ -22,9 +22,15 @@ components:
       type: string
       description: >-
         The closed set of domain events a webhook subscription can select.
-        Phase 4 fills this out; today it carries the pilot event only.
+        Phase 4 fills this out family by family; today it carries the
+        pilot event plus the deal family (Task 5a-i).
       enum:
+        - deal.created
+        - deal.owner_changed
         - deal.stage_changed
+        - deal.archived
+        - deal.updated
+        - deal.restored
 
     WebhookActor:
       type: object
@@ -92,25 +98,59 @@ components:
           description: The typed event payload (one of the WebhookPayload* schemas).
       additionalProperties: false
 
+    WebhookPayloadDealCreated:
+      type: object
+      x-event-type: deal.created
+      x-entity-type: deal
+      x-version: 1
+      description: Payload for deal.created — a deal was opened.
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: The deal's name at creation.
+      additionalProperties: false
+
+    WebhookPayloadDealOwnerChanged:
+      type: object
+      x-event-type: deal.owner_changed
+      x-entity-type: deal
+      x-version: 1
+      description: >-
+        Payload for deal.owner_changed — the deal's owner was reassigned.
+        Emitted instead of (never alongside) deal.updated for the owner_id
+        field (events.md §5.3).
+      required:
+        - to_owner_id
+      properties:
+        to_owner_id:
+          type: string
+          format: uuid
+          description: The new owner.
+        from_owner_id:
+          type: string
+          format: uuid
+          description: The previous owner (absent when the deal had none).
+      additionalProperties: false
+
     WebhookPayloadDealStageChanged:
       type: object
       x-event-type: deal.stage_changed
       x-entity-type: deal
       x-version: 1
-      description: Payload for deal.stage_changed — a deal advanced between stages.
+      description: >-
+        Payload for deal.stage_changed — a deal advanced between stages.
+        Carries the amount/win-probability snapshot frozen at the moment
+        of the move so consumers (the trajectory view, the overnight
+        stalled/forecast sweep, the automation trigger keyed on
+        to_status) never need a read-back.
       required:
-        - deal_id
-        - pipeline_id
         - to_stage_id
+        - from_status
+        - to_status
+        - win_probability
       properties:
-        deal_id:
-          type: string
-          format: uuid
-          description: The deal that moved.
-        pipeline_id:
-          type: string
-          format: uuid
-          description: Pipeline the deal belongs to.
         from_stage_id:
           type: string
           format: uuid
@@ -119,4 +159,63 @@ components:
           type: string
           format: uuid
           description: Stage the deal entered.
+        from_status:
+          type: string
+          description: Deal status before the move (open | won | lost).
+        to_status:
+          type: string
+          description: >-
+            Deal status after the move (open | won | lost) — the field
+            the automation trigger keys on (automation/handlers_event.go).
+        amount_minor_at_change:
+          type: integer
+          format: int64
+          description: The deal's amount, frozen at the moment of the move.
+        currency_at_change:
+          type: string
+          description: The deal's currency, frozen at the moment of the move.
+        win_probability:
+          type: integer
+          description: The target stage's win probability, frozen at the moment of the move.
+      additionalProperties: false
+
+    WebhookPayloadDealArchived:
+      type: object
+      x-event-type: deal.archived
+      x-entity-type: deal
+      x-version: 1
+      description: Payload for deal.archived — a deal was archived. Carries no data.
+      additionalProperties: false
+
+    WebhookPayloadDealUpdated:
+      type: object
+      x-event-type: deal.updated
+      x-entity-type: deal
+      x-version: 1
+      description: >-
+        Payload for deal.updated — an OPEN envelope: its emit sites carry
+        divergent shapes (a flat column patch, an accepted-offer amount
+        sync, a close-date-correction note, a relationship delta), so the
+        honest shape is a change-set map rather than a fixed field list.
+      required:
+        - changed_fields
+      properties:
+        changed_fields:
+          type: object
+          additionalProperties: true
+          description: >-
+            Field name → new value for whatever this update touched,
+            incl. runtime cf_* custom fields.
+      additionalProperties: false
+
+    WebhookPayloadDealRestored:
+      type: object
+      x-event-type: deal.restored
+      x-entity-type: deal
+      x-version: 1
+      description: >-
+        Payload for deal.restored. Never emitted today (no restore path
+        exists for deal); the schema is published so the type is a valid
+        subscription target and the coverage gate can name it explicitly
+        rather than silently omitting it.
       additionalProperties: false

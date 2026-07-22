@@ -40,6 +40,24 @@ components:
           type: string
 `
 
+// nilPayloadFixtureSpec is a standalone fixture (kept separate from
+// fixtureSpec so its longer event-type name never perturbs gofmt's map-
+// literal column alignment in the other tests' expected output): one
+// event-tagged schema with zero properties, the shape that used to
+// generate as oapi-codegen's default map[string]interface{} alias.
+const nilPayloadFixtureSpec = `openapi: 3.1.0
+info:
+  title: gen-payloads nil-payload fixture
+  version: "1"
+components:
+  schemas:
+    WebhookPayloadNil:
+      type: object
+      x-event-type: nil.happened
+      x-entity-type: widget3
+      additionalProperties: false
+`
+
 func TestGenerateSourceEmitsTypesAndEventMethods(t *testing.T) {
 	src, err := generateSource([]byte(fixtureSpec), "testpkg")
 	if err != nil {
@@ -94,5 +112,32 @@ func TestGenerateSourceEmitsWebhookPayloadVersions(t *testing.T) {
 	}
 	if strings.Contains(src, `"PlainThing"`) {
 		t.Errorf("WebhookPayloadVersions must not carry a plain (non-event) schema\n---\n%s", src)
+	}
+}
+
+// TestGenerateSourceStructifiesEmptyEventPayload proves a nil-payload event
+// schema (event-tagged, zero properties) generates as a real empty struct,
+// never oapi-codegen's default map[string]interface{} alias for an empty
+// object — a type alias to a builtin map cannot carry the EventType()/
+// EntityType() methods this generator projects below it, so the map shape
+// would fail to compile the moment those methods were appended.
+func TestGenerateSourceStructifiesEmptyEventPayload(t *testing.T) {
+	src, err := generateSource([]byte(nilPayloadFixtureSpec), "testpkg")
+	if err != nil {
+		t.Fatalf("generateSource: %v", err)
+	}
+	if !strings.Contains(src, "type WebhookPayloadNil struct{}") {
+		t.Errorf("generated source missing the structified empty type\n---\n%s", src)
+	}
+	if strings.Contains(src, "WebhookPayloadNil = map[string]interface{}") {
+		t.Errorf("generated source still aliases the nil-payload event to a map\n---\n%s", src)
+	}
+	for _, w := range []string{
+		`func (WebhookPayloadNil) EventType() string { return "nil.happened" }`,
+		`func (WebhookPayloadNil) EntityType() string { return "widget3" }`,
+	} {
+		if !strings.Contains(src, w) {
+			t.Errorf("generated source missing %q\n---\n%s", w, src)
+		}
 	}
 }

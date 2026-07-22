@@ -347,9 +347,18 @@ func emitRelationshipChange(ctx context.Context, tx pgx.Tx, action string, rel r
 	if err != nil {
 		return err
 	}
-	return storekit.Emit(ctx, tx, auditID, anchorObject+".updated", anchorObject, anchorID, map[string]any{
+	delta := map[string]any{
 		"delta": map[string]any{"relationship": map[string]any{"id": rel.ID, "kind": rel.Kind, "action": action}},
-	})
+	}
+	// deal.updated is migrated to the typed WebhookPayload* seam (webhooks
+	// Task 5a-i); person.updated/organization.updated stay on the legacy
+	// map-payload Emit until their own family task (5b) migrates them —
+	// this anchor is the one call site that fans out across all three, so
+	// it cannot switch wholesale before that.
+	if anchorObject == "deal" {
+		return storekit.EmitEvent(ctx, tx, auditID, anchorID, crmcontracts.WebhookPayloadDealUpdated{ChangedFields: delta})
+	}
+	return storekit.Emit(ctx, tx, auditID, anchorObject+".updated", anchorObject, anchorID, delta)
 }
 
 // EnsureDealVisible probes a deal id under the caller's row scope —

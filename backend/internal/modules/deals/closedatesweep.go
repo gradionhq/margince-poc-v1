@@ -27,6 +27,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -386,14 +387,14 @@ func (c *CloseDateCorrector) apply(ctx context.Context, cand closeDateCandidate,
 		if err != nil {
 			return fmt.Errorf("audit %s: %w", correction, err)
 		}
-		payload := map[string]any{"close_date_correction": correction}
+		changedFields := map[string]any{"close_date_correction": correction}
 		for field, v := range patch.After() {
-			payload[field] = v
+			changedFields[field] = v
 		}
 		for k, v := range extra {
-			payload[k] = v
+			changedFields[k] = v
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "deal.updated", "deal", cand.id.UUID, payload); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, cand.id.UUID, crmcontracts.WebhookPayloadDealUpdated{ChangedFields: changedFields}); err != nil {
 			return fmt.Errorf("emit %s: %w", correction, err)
 		}
 		return nil
