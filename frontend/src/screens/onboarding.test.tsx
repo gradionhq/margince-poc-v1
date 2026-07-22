@@ -283,10 +283,12 @@ function stubApi(options: StubOptions = {}) {
   return calls;
 }
 
-function render(ui: ReactNode) {
-  const client = new QueryClient({
+function render(
+  ui: ReactNode,
+  client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
-  });
+  }),
+) {
   return rtlRender(
     <QueryClientProvider client={client}>
       <LocaleProvider initial="en">{ui}</LocaleProvider>
@@ -369,6 +371,25 @@ beforeEach(() => {
 });
 
 describe("the optional website path", () => {
+  it("loads the detailed AI profile after the public login profile was cached", async () => {
+    const calls = stubApi();
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    client.setQueryData(["assistant-profile"], {
+      name: "Margince",
+      kind: "ai",
+      state: "configured",
+      inference_mode: "cloud",
+      providers: ["gemini"],
+    });
+
+    render(<OnboardingScreen />, client);
+
+    expect(await screen.findByText(/gemini\/gemini-3\.5-flash/)).toBeTruthy();
+    expect(requestTo(calls, "/ai/profile", "GET")).toBeTruthy();
+  });
+
   it("offers an honest choice between website reading and manual entry", async () => {
     stubApi();
     render(<OnboardingScreen />);

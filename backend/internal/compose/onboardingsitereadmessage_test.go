@@ -284,6 +284,32 @@ func TestCompanyConversationRejectsSuggestionsWithoutChangeIntent(t *testing.T) 
 	}
 }
 
+func TestCompanyConversationAllowsCitedSynthesisOnlyForInterpretiveFields(t *testing.T) {
+	known := map[string]companyReadEvidence{
+		"S1": {ID: "S1", Field: people.FactNamedCustomer, Value: "Shopware"},
+		"S2": {ID: "S2", Field: people.FactServedIndustry, Value: "industrial automation"},
+	}
+	icp := companyReadModelReply{
+		Kind: "recommendation", Message: "I suggest a focused ICP.", SourceIDs: []string{"S1", "S2"},
+		ProposedChanges: []companyReadProposedChange{{
+			Field: fieldICP, Value: "Digital commerce and industrial companies scaling engineering", Reason: "The customer and industry evidence support it.", SourceIDs: []string{"S1", "S2"},
+		}},
+	}
+	if err := validateCompanyReadReplyValue(icp, known, "suggest the ideal customer", newCompanyChangeAuthorization("suggest the ideal customer", nil, "")); err != nil {
+		t.Fatalf("cited ICP synthesis was rejected: %v", err)
+	}
+
+	legal := companyReadModelReply{
+		Kind: "recommendation", Message: "I suggest a legal name.", SourceIDs: []string{"S1"},
+		ProposedChanges: []companyReadProposedChange{{
+			Field: fieldLegalName, Value: "Shopware GmbH", Reason: "A customer was named.", SourceIDs: []string{"S1"},
+		}},
+	}
+	if err := validateCompanyReadReplyValue(legal, known, "suggest the legal company name", newCompanyChangeAuthorization("suggest the legal company name", nil, "")); err == nil {
+		t.Fatal("a synthesized legal identity was accepted")
+	}
+}
+
 func TestCompanyChangeAuthorizationUnderstandsAssertionsDirectAnswersAndFollowUps(t *testing.T) {
 	legalChange := companyReadProposedChange{Field: fieldLegalName, Value: "Acme GmbH"}
 	assertion := newCompanyChangeAuthorization("Our legal name is Acme GmbH", nil, "")
@@ -330,6 +356,11 @@ func TestCompanyChangeAuthorizationUnderstandsAssertionsDirectAnswersAndFollowUp
 		companyReadProposedChange{Field: fieldICP, Value: "Mid-market software companies"},
 	) {
 		t.Fatal("an explicit field recommendation request was rejected")
+	}
+	if !newCompanyChangeAuthorization("Based on the evidence, suggest the ideal customer", nil, "").allows(
+		companyReadProposedChange{Field: fieldICP, Value: "Mid-market software companies"},
+	) {
+		t.Fatal("an explicit suggestion request was rejected")
 	}
 	if newCompanyChangeAuthorization("What should our ICP be", nil, fieldDisplayName).allows(
 		companyReadProposedChange{Field: fieldDisplayName, Value: "Acme"},
