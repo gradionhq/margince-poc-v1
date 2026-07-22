@@ -287,7 +287,11 @@ up)
     [[ -n "$slug" ]] && psql_owner postgres -c "CREATE DATABASE \"${db}\"" 2>&1 || true
     ( cd backend && go run ./cmd/migrate up --dsn "$dev_owner_url" )
     echo "=== build api (once, before the readiness poll) ==="
-    ( cd backend && go build -o ../bin/api ./cmd/api )
+    # The composed workspace (ADR-0069): materialize build/composition/
+    # and build the role binaries against it, so an enabled extension set
+    # under extensions/ reaches the dev stack; vanilla composes empty.
+    ( cd backend && go run ./tools/gen-composition )
+    ( cd backend && GOWORK="$PWD/../build/composition/go.work" go build -o ../bin/api ./cmd/api )
     echo "=== servers ==="
   } >>"$log" 2>&1
 
@@ -443,7 +447,7 @@ up)
   # only ERASES data past its jurisdiction floor, so on a fresh dev database
   # it is a no-op. The long interval just stops it recurring during a dev
   # session.
-  ( cd backend && go build -o ../bin/worker ./cmd/worker ) >>"$log" 2>&1
+  ( cd backend && GOWORK="$PWD/../build/composition/go.work" go build -o ../bin/worker ./cmd/worker ) >>"$log" 2>&1
   worker_gmail_flags=()
   if [[ "$gmail_enabled" == "1" ]]; then
     # A short poll makes the demo mailbox responsive; the default is 2m.

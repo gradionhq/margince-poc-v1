@@ -17,20 +17,21 @@ func init() {
 
 type pack struct{}
 
-func (pack) Code() string { return "de" }
+func (pack) Code() jurisdiction.Code { return "de" }
 
 // Retention: the GoBD/AO/HGB statutory classes (§147 AO as amended
 // 2025: booking records 8 years; books/annual accounts 10; commercial
 // correspondence 6). The core engine treats these as FLOORS — a
-// workspace policy may keep longer, never destroy earlier.
+// workspace policy may keep longer, never destroy earlier. The spans
+// are calendar years (ISO 8601 periods), never day counts.
 func (pack) Retention() jurisdiction.Retention { return retention{} }
 
 type retention struct{}
 
 func (retention) Classes() []jurisdiction.RetentionClass {
 	return []jurisdiction.RetentionClass{
-		{Name: "commercial_correspondence", Years: 6},
-		{Name: "accounting_records", Years: 8},
-		{Name: "books_and_annual_accounts", Years: 10},
+		{Name: "commercial_correspondence", Keep: jurisdiction.Period{Years: 6}},
+		{Name: "accounting_records", Keep: jurisdiction.Period{Years: 8}},
+		{Name: "books_and_annual_accounts", Keep: jurisdiction.Period{Years: 10}},
 	}
 }
