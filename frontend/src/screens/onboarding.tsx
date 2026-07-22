@@ -1985,7 +1985,10 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
   const [paste, setPaste] = useState("");
   const [skipped, setSkipped] = useState<string[]>([]);
   const [speakerAsks, setSpeakerAsks] = useState<SpeakerAsk[]>([]);
-  const [probeError, setProbeError] = useState<string | null>(null);
+  // Per-file refusals: a corrected re-upload clears its own entry instead
+  // of one file's failure masking another's.
+  const [probeErrors, setProbeErrors] = useState<Record<string, string>>({});
+  const [probesInFlight, setProbesInFlight] = useState(0);
   const [dragOver, setDragOver] = useState(false);
   const [built, setBuilt] = useState(false);
   const [building, setBuilding] = useState(false);
@@ -2050,11 +2053,11 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
 
   // classifyUpload decides what one file honestly IS before anything counts:
   // the server preview detects transcript structure and counts each
-  // speaker's words, so a conversation never enters the meter whole — the
-  // owner is asked which speaker they are first (features/09 §B1.2).
+  // speaker's SPOKEN words (labels and timestamps are never words), so a
+  // conversation never enters the meter whole — the owner is asked which
+  // speaker they are first (features/09 §B1.2).
   async function classifyUpload(name: string, text: string) {
-    const totalWords = text.split(/\s+/).filter(Boolean).length;
-    if (totalWords === 0) {
+    if (text.split(/\s+/).filter(Boolean).length === 0) {
       return;
     }
     const ref = `onboarding:upload:${name}`;
@@ -2072,33 +2075,52 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
     if (!mounted.current) {
       return;
     }
+    setProbeErrors((prev) => {
+      const { [ref]: _cleared, ...rest } = prev;
+      return rest;
+    });
     const attributedWords = data.speakers.reduce(
       (sum, speaker) => sum + speaker.words,
       0,
     );
     // A .txt can be a pasted transcript too: treat it as one when the
-    // preview attributes most of its words to labelled speakers.
+    // preview attributes most of its spoken words to labelled speakers.
     const conversational =
       TRANSCRIPT_EXT.test(name) ||
-      (data.ingestible_as_transcript && attributedWords >= totalWords * 0.8);
+      (data.ingestible_as_transcript &&
+        attributedWords >= data.total_words * 0.8);
     if (conversational && data.ingestible_as_transcript) {
+      // A re-upload replaces any previously counted piece under this ref:
+      // nothing may stay in the meter while its replacement awaits the
+      // speaker answer.
+      setPieces((prev) => prev.filter((p) => p.ref !== ref));
       setSpeakerAsks((prev) => [
         ...prev.filter((ask) => ask.ref !== ref),
-        { ref, label: name, content: text, totalWords, preview: data },
+        {
+          ref,
+          label: name,
+          content: text,
+          totalWords: data.total_words,
+          preview: data,
+        },
       ]);
       return;
     }
     if (TRANSCRIPT_EXT.test(name)) {
       // Transcript-shaped but nobody is attributable: none of it can be
       // proven the owner's own words, so none of it is counted.
-      setProbeError(t("ob.s2.unattributed", { file: name }));
+      setPieces((prev) => prev.filter((p) => p.ref !== ref));
+      setProbeErrors((prev) => ({
+        ...prev,
+        [ref]: t("ob.s2.unattributed", { file: name }),
+      }));
       return;
     }
     addPiece({
       ref,
       label: name,
-      words: totalWords,
-      totalWords,
+      words: data.total_words,
+      totalWords: data.total_words,
       content: text,
       register: "general",
       kind: "document",
@@ -2116,12 +2138,22 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
         rejected.push(file.name);
         continue;
       }
+      setProbesInFlight((n) => n + 1);
       file
         .text()
         .then((text) => classifyUpload(file.name, text))
         .catch((err: unknown) => {
           if (mounted.current) {
-            setProbeError(err instanceof Error ? err.message : String(err));
+            setProbeErrors((prev) => ({
+              ...prev,
+              [`onboarding:upload:${file.name}`]:
+                err instanceof Error ? err.message : String(err),
+            }));
+          }
+        })
+        .finally(() => {
+          if (mounted.current) {
+            setProbesInFlight((n) => n - 1);
           }
         });
     }
@@ -2154,7 +2186,14 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
   };
 
   const quality = corpusQuality(corpus.total);
-  const canBuild = corpus.total >= VOICE_MIN_WORDS && !building;
+  // Building must wait for every upload to finish classifying and every
+  // speaker question to be answered — a build that silently omitted a file
+  // still being probed would misrepresent what the voice was made from.
+  const canBuild =
+    corpus.total >= VOICE_MIN_WORDS &&
+    !building &&
+    probesInFlight === 0 &&
+    speakerAsks.length === 0;
 
   async function ingest(profileId: string, piece: VoicePiece) {
     const { error } = await api.POST("/voice-profiles/{id}/sources", {
@@ -2459,14 +2498,15 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
             ))}
           </ul>
         )}
-        {probeError && (
+        {Object.entries(probeErrors).map(([ref, message]) => (
           <output
+            key={ref}
             className="ob-sub"
             style={{ display: "block", marginTop: "var(--space-2)" }}
           >
-            {probeError}
+            {message}
           </output>
-        )}
+        ))}
 
         <div className="field" style={{ marginTop: "var(--space-3)" }}>
           <label className="t-label" htmlFor="voice-paste">

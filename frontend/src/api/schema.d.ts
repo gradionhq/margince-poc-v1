@@ -8250,7 +8250,12 @@ export interface components {
             speakers_seen: string[];
         };
         VoiceCorpusPreviewRequest: {
-            /** @enum {string} */
+            /**
+             * @description Send transcript for anything conversational - the server detects the
+             *     concrete shape (vtt, srt, transcript JSON, or labelled plain text).
+             *     text skips speaker detection entirely.
+             * @enum {string}
+             */
             format: "text" | "transcript";
             content: string;
         };
@@ -15664,12 +15669,24 @@ export interface operations {
                     "application/json": {
                         source: components["schemas"]["VoiceCorpusSource"];
                         summary: components["schemas"]["VoiceCorpusSummary"];
-                        ingest_stats?: components["schemas"]["VoiceIngestStats"];
+                        ingest_stats: components["schemas"]["VoiceIngestStats"];
                     };
                 };
             };
             404: components["responses"]["NotFound"];
-            422: components["responses"]["ValidationError"];
+            /**
+             * @description Unusable input. details.errors[].code is stable and voiceable:
+             *     unattributed_transcript, speaker_label_required, speaker_not_found,
+             *     unsupported_format, or the generic invalid.
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     previewVoiceCorpusSource: {
@@ -15688,7 +15705,11 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Detected shape, per-speaker word counts, and transcript eligibility. */
+            /**
+             * @description Detected shape and per-speaker word counts. Word totals count spoken
+             *     text only - timestamps, cue counters, speaker labels and JSON keys are
+             *     serialization, never words.
+             */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -15698,7 +15719,18 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
-            422: components["responses"]["ValidationError"];
+            /**
+             * @description Unusable input. details.errors[].code is stable and voiceable:
+             *     unsupported_format, or the generic invalid.
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     deleteVoiceCorpusSource: {

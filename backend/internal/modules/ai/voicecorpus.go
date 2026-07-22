@@ -338,7 +338,14 @@ func timestampSpeakerLine(line string) (speaker string, ok bool) {
 	if !found || !clockTime(clock) {
 		return "", false
 	}
-	name := speakerCandidate(strings.TrimSpace(rest))
+	rest = strings.TrimSpace(rest)
+	// A header carries ONLY a name after the clock: short, few words. A
+	// dialogue line that happens to open with a time ("00:12 Great point
+	// everyone, let's continue") stays dialogue.
+	if len(rest) > 40 || len(strings.Fields(rest)) > 4 {
+		return "", false
+	}
+	name := speakerCandidate(rest)
 	if name == "" {
 		return "", false
 	}

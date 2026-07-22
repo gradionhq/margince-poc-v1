@@ -11018,11 +11018,17 @@ type VoiceBuildStatusCode string
 
 // VoiceCorpusPreviewRequest defines model for VoiceCorpusPreviewRequest.
 type VoiceCorpusPreviewRequest struct {
-	Content *string                         `json:"content,omitempty"`
-	Format  VoiceCorpusPreviewRequestFormat `json:"format"`
+	Content *string `json:"content,omitempty"`
+
+	// Format Send transcript for anything conversational - the server detects the
+	// concrete shape (vtt, srt, transcript JSON, or labelled plain text).
+	// text skips speaker detection entirely.
+	Format VoiceCorpusPreviewRequestFormat `json:"format"`
 }
 
-// VoiceCorpusPreviewRequestFormat defines model for VoiceCorpusPreviewRequest.Format.
+// VoiceCorpusPreviewRequestFormat Send transcript for anything conversational - the server detects the
+// concrete shape (vtt, srt, transcript JSON, or labelled plain text).
+// text skips speaker detection entirely.
 type VoiceCorpusPreviewRequestFormat string
 
 // VoiceCorpusPreviewResult Dry-run inspection of a candidate source; nothing is stored.

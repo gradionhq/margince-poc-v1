@@ -5412,13 +5412,20 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [source, summary]
+                required: [source, summary, ingest_stats]
                 properties:
                   source: { $ref: '#/components/schemas/VoiceCorpusSource' }
                   summary: { $ref: '#/components/schemas/VoiceCorpusSummary' }
                   ingest_stats: { $ref: '#/components/schemas/VoiceIngestStats' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/ValidationError' }
+        '422':
+          description: |
+            Unusable input. details.errors[].code is stable and voiceable:
+            unattributed_transcript, speaker_label_required, speaker_not_found,
+            unsupported_format, or the generic invalid.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   /voice-profiles/{id}/sources/preview:
     parameters:
@@ -5439,12 +5446,21 @@ paths:
             schema: { $ref: '#/components/schemas/VoiceCorpusPreviewRequest' }
       responses:
         '200':
-          description: Detected shape, per-speaker word counts, and transcript eligibility.
+          description: |
+            Detected shape and per-speaker word counts. Word totals count spoken
+            text only - timestamps, cue counters, speaker labels and JSON keys are
+            serialization, never words.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/VoiceCorpusPreviewResult' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/ValidationError' }
+        '422':
+          description: |
+            Unusable input. details.errors[].code is stable and voiceable:
+            unsupported_format, or the generic invalid.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   /voice-profiles/{id}/sources/{sourceId}:
     parameters:
@@ -11132,7 +11148,13 @@ components:
       type: object
       required: [format, content]
       properties:
-        format: { type: string, enum: [text, transcript] }
+        format:
+          type: string
+          enum: [text, transcript]
+          description: |
+            Send transcript for anything conversational - the server detects the
+            concrete shape (vtt, srt, transcript JSON, or labelled plain text).
+            text skips speaker detection entirely.
         content: { type: string, minLength: 1, maxLength: 1000000, writeOnly: true }
 
     VoiceCorpusPreviewResult:

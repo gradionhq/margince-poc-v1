@@ -371,6 +371,10 @@ func TestPreviewReportsSpeakersWithoutStoringAnything(t *testing.T) {
 	if lars.Label != "Lars" || lars.Turns != 2 || lars.Words != 5 {
 		t.Fatalf("lars = %+v", lars)
 	}
+	if preview.TotalWords != 9 || preview.UnattributedWords != 0 {
+		t.Fatalf("totals = %d/%d — word totals count spoken text only, never timestamps or headers",
+			preview.TotalWords, preview.UnattributedWords)
+	}
 	if anna.Label != "Anna" || anna.Turns != 1 || anna.Words != 4 {
 		t.Fatalf("anna = %+v", anna)
 	}
@@ -402,8 +406,8 @@ func TestIngestStatsTellTheKeptVersusDiscardedStory(t *testing.T) {
 	if stats.KeptWords != 4 || stats.KeptTurns != 2 || stats.DiscardedTurns != 1 {
 		t.Fatalf("stats = %+v", stats)
 	}
-	if stats.InputWords <= stats.KeptWords {
-		t.Fatalf("input %d must exceed kept %d — the counterparty's words were seen but not counted", stats.InputWords, stats.KeptWords)
+	if stats.InputWords != 8 {
+		t.Fatalf("input = %d, want 8 — spoken words only, labels are not words", stats.InputWords)
 	}
 	if len(stats.SpeakersSeen) != 2 {
 		t.Fatalf("speakers seen = %v", stats.SpeakersSeen)
@@ -461,5 +465,35 @@ func TestTimestampHeaderTranscriptsAttributeTheFollowingLines(t *testing.T) {
 	}
 	if strings.Contains(text, "erreiche") || !strings.Contains(text, "Bangkok") {
 		t.Fatalf("kept %q — only Lars's turns may survive", text)
+	}
+}
+
+func TestWrappedCueLinesFoldIntoOneTurn(t *testing.T) {
+	content := "Lars: first line of one turn\ncontinues on a wrapped line\nAnna: her reply"
+	preview, err := PreviewCorpusText("transcript", content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Speakers[0].Turns != 1 {
+		t.Fatalf("lars turns = %d, want 1 — a wrapped cue is one turn, not two", preview.Speakers[0].Turns)
+	}
+}
+
+func TestClockOpenedDialogueIsNotASpeakerHeader(t *testing.T) {
+	content := "00:00:03 Lars Jankowfsky\n00:12 Great point everyone, let us continue with the plan today.\nMore of the same turn."
+	preview, err := PreviewCorpusText("transcript", content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.Speakers) != 1 || preview.Speakers[0].Label != "Lars Jankowfsky" {
+		t.Fatalf("speakers = %+v — a long clock-opened dialogue line is not a header", preview.Speakers)
+	}
+}
+
+func TestPreviewRefusesAnUnknownWireFormat(t *testing.T) {
+	_, err := PreviewCorpusText("docx", "binary blob")
+	var ingest *CorpusIngestError
+	if !errors.As(err, &ingest) || ingest.Code != CorpusErrUnsupportedFormat {
+		t.Fatalf("err = %v, want unsupported_format", err)
 	}
 }
