@@ -1725,7 +1725,7 @@
 .ob-workbench-panel {
   width: min(1180px, calc(100vw - 48px));
   min-height: calc(100vh - 176px);
-  align-self: center;
+  margin-inline: calc((100% - min(1180px, calc(100vw - 48px))) / 2);
 }
 .ob-workbench-panel::before {
   opacity: 0.55;
@@ -1791,6 +1791,7 @@
   background: var(--accent);
   font-size: 13px;
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 .mw-conversation .ob-core-dialog {
   padding: 0;
@@ -2241,6 +2242,7 @@
   .ob-panel,
   .ob-spinner,
   .ob-core-live,
+  .mw-thinking span,
   .ob-core-choices button {
     animation: none;
     transition: none;

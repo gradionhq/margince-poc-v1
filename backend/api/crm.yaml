@@ -9869,6 +9869,19 @@ components:
       required: [message]
       properties:
         message: { type: string, minLength: 1, maxLength: 2000 }
+        history:
+          type: array
+          maxItems: 8
+          description: Bounded preceding turns, oldest first, so follow-up questions retain their conversational referent without creating durable chat state.
+          items: { $ref: '#/components/schemas/CompanySiteReadConversationTurn' }
+
+    CompanySiteReadConversationTurn:
+      type: object
+      additionalProperties: false
+      required: [role, message]
+      properties:
+        role: { type: string, enum: [user, assistant] }
+        message: { type: string, minLength: 1, maxLength: 4000 }
 
     CompanySiteReadMessageReply:
       type: object

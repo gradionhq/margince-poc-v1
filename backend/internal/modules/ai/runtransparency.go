@@ -4,6 +4,7 @@
 package ai
 
 import (
+	"cmp"
 	"context"
 	"sort"
 	"time"
@@ -42,11 +43,12 @@ type RunSummary struct {
 
 type runCall struct {
 	Task, Tier, Provider, ConfiguredModel, ServedModel string
+	ServedIdentitySource                               string
 	TokensIn, TokensOut                                int64
 	CachedTokens, CacheWriteTokens, ReasoningTokens    int64
 	LatencyMS                                          int64
 	OccurredAt                                         time.Time
-	RateFound                                          bool
+	IsTerminal, RateFound                              bool
 	Rate                                               ModelRate
 }
 
@@ -72,14 +74,14 @@ func (s *RunTransparency) Get(ctx context.Context, correlationID ids.UUID) (RunS
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT c.task, c.tier, c.provider, c.model_id, c.served_model,
+				c.served_identity_source,
 				c.tokens_in, c.tokens_out, c.cached_tokens, c.cache_write_tokens,
-				c.reasoning_tokens, c.latency_ms, c.occurred_at,
+				c.reasoning_tokens, c.latency_ms, c.occurred_at, c.is_terminal,
 				(r.id IS NOT NULL),
 				COALESCE(r.input_per_mtok_microusd, 0),
 				COALESCE(r.output_per_mtok_microusd, 0),
 				COALESCE(r.cache_read_per_mtok_microusd, 0),
-				COALESCE(r.cache_write_per_mtok_microusd, 0),
-				COALESCE(r.effective_date, c.occurred_at::date)
+				COALESCE(r.cache_write_per_mtok_microusd, 0)
 			FROM ai_call c
 			LEFT JOIN LATERAL (
 				SELECT mr.* FROM ai_model_rate mr
@@ -96,11 +98,11 @@ func (s *RunTransparency) Get(ctx context.Context, correlationID ids.UUID) (RunS
 		for rows.Next() {
 			var call runCall
 			if err := rows.Scan(&call.Task, &call.Tier, &call.Provider, &call.ConfiguredModel,
-				&call.ServedModel, &call.TokensIn, &call.TokensOut, &call.CachedTokens,
+				&call.ServedModel, &call.ServedIdentitySource, &call.TokensIn, &call.TokensOut, &call.CachedTokens,
 				&call.CacheWriteTokens, &call.ReasoningTokens, &call.LatencyMS,
-				&call.OccurredAt, &call.RateFound, &call.Rate.InputPerMTokMicroUSD,
+				&call.OccurredAt, &call.IsTerminal, &call.RateFound, &call.Rate.InputPerMTokMicroUSD,
 				&call.Rate.OutputPerMTokMicroUSD, &call.Rate.CacheReadPerMTokMicroUSD,
-				&call.Rate.CacheWritePerMTokMicroUSD, &call.Rate.EffectiveDate); err != nil {
+				&call.Rate.CacheWritePerMTokMicroUSD); err != nil {
 				return err
 			}
 			calls = append(calls, call)
@@ -121,12 +123,16 @@ func summarizeRun(calls []runCall) RunSummary {
 	summary := RunSummary{Currency: "USD", Models: []RunModelUsage{}}
 	grouped := make(map[runModelKey]*RunModelUsage)
 	for _, call := range calls {
-		key := runModelKey{call.Task, call.Tier, call.Provider, call.ConfiguredModel, call.ServedModel}
+		servedModel := call.ServedModel
+		if call.ServedIdentitySource != servedIdentitySourceResponse {
+			servedModel = ""
+		}
+		key := runModelKey{call.Task, call.Tier, call.Provider, call.ConfiguredModel, servedModel}
 		usage := grouped[key]
 		if usage == nil {
 			usage = &RunModelUsage{
 				Task: call.Task, Tier: call.Tier, Provider: call.Provider,
-				ConfiguredModel: call.ConfiguredModel, ServedModel: call.ServedModel,
+				ConfiguredModel: call.ConfiguredModel, ServedModel: servedModel,
 			}
 			grouped[key] = usage
 		}
@@ -136,7 +142,12 @@ func summarizeRun(calls []runCall) RunSummary {
 		usage.CachedTokens += call.CachedTokens
 		usage.CacheWriteTokens += call.CacheWriteTokens
 		usage.ReasoningTokens += call.ReasoningTokens
-		usage.LatencyMS += call.LatencyMS
+		// Attempt latency is cumulative from the logical call's start. Only the
+		// terminal row represents elapsed latency; summing retries double-counts.
+		if call.IsTerminal {
+			usage.LatencyMS += call.LatencyMS
+			summary.LatencyMS += call.LatencyMS
+		}
 		if call.OccurredAt.After(usage.LastUsedAt) {
 			usage.LastUsedAt = call.OccurredAt
 		}
@@ -157,16 +168,20 @@ func summarizeRun(calls []runCall) RunSummary {
 		summary.CallAttempts++
 		summary.TokensIn += call.TokensIn
 		summary.TokensOut += call.TokensOut
-		summary.LatencyMS += call.LatencyMS
 	}
 	for _, usage := range grouped {
 		summary.Models = append(summary.Models, *usage)
 	}
 	sort.Slice(summary.Models, func(i, j int) bool {
-		if summary.Models[i].LastUsedAt.Equal(summary.Models[j].LastUsedAt) {
-			return summary.Models[i].Task < summary.Models[j].Task
-		}
-		return summary.Models[i].LastUsedAt.Before(summary.Models[j].LastUsedAt)
+		left, right := summary.Models[i], summary.Models[j]
+		return cmp.Or(
+			left.LastUsedAt.Compare(right.LastUsedAt),
+			cmp.Compare(left.Task, right.Task),
+			cmp.Compare(left.Tier, right.Tier),
+			cmp.Compare(left.Provider, right.Provider),
+			cmp.Compare(left.ConfiguredModel, right.ConfiguredModel),
+			cmp.Compare(left.ServedModel, right.ServedModel),
+		) < 0
 	})
 	return summary
 }

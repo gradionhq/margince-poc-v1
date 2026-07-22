@@ -15,7 +15,7 @@ import {
   Sparkles,
   UsersRound,
 } from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Button } from "../design-system/atoms";
@@ -31,6 +31,10 @@ import { coldFieldLabel, problemMessage } from "./common";
 type CompanySiteRead = components["schemas"]["CompanySiteRead"];
 type AssistantProfile = components["schemas"]["AssistantProfile"];
 type MessageReply = components["schemas"]["CompanySiteReadMessageReply"];
+type AiRunSummary = components["schemas"]["AiRunSummary"];
+type ConversationTurn =
+  components["schemas"]["CompanySiteReadConversationTurn"];
+type Translate = ReturnType<typeof useT>;
 export type SuggestedCompanyChange =
   components["schemas"]["CompanySiteReadSuggestedChange"];
 
@@ -150,6 +154,25 @@ type ConversationEntry =
   | { role: "user"; message: string; id: string }
   | { role: "assistant"; reply: MessageReply; id: string };
 
+function configuredModelLabel(
+  runtime: AiRunSummary | undefined,
+  profile: AssistantProfile | undefined,
+  unavailable: string,
+) {
+  const models = runtime?.models
+    .map((model) => model.configured_model)
+    .filter((model, index, all) => model && all.indexOf(model) === index);
+  if (models?.length) return models.join(" + ");
+  if (profile?.providers.length) return profile.providers.join(" + ");
+  return unavailable;
+}
+
+function workbenchStatus(props: ReadCompanyStepProps, t: Translate) {
+  if (props.error) return t("ob.readStatus.failed");
+  if (props.read) return t(`ob.readStatus.${props.read.status}`);
+  return t("ob.ai.ready");
+}
+
 function WebsiteWorkbench(
   props: ReadCompanyStepProps &
     Readonly<{ running: boolean; terminal: boolean }>,
@@ -175,15 +198,11 @@ function WebsiteWorkbench(
         entry.role === "assistant",
     );
   const runtime = latestReply?.reply.ai_runtime ?? props.read?.ai_runtime;
-  const configuredModels = useMemo(() => {
-    const models = runtime?.models
-      .map((model) => model.configured_model)
-      .filter((model, index, all) => model && all.indexOf(model) === index);
-    if (models?.length) return models.join(" + ");
-    if (profile.data?.providers.length)
-      return profile.data.providers.join(" + ");
-    return t("ob.ai.runtimeUnavailable");
-  }, [profile.data, runtime, t]);
+  const configuredModels = configuredModelLabel(
+    runtime,
+    profile.data,
+    t("ob.ai.runtimeUnavailable"),
+  );
   const state = presenceState(props, props.running);
   const presentation = props.read
     ? coreReadPresentation(
@@ -196,19 +215,25 @@ function WebsiteWorkbench(
     : null;
 
   const send = useMutation({
-    mutationFn: async (message: string): Promise<MessageReply> => {
+    mutationFn: async ({
+      message,
+      history,
+    }: {
+      message: string;
+      history: ConversationTurn[];
+    }): Promise<MessageReply> => {
       if (!props.read) throw new Error(t("ob.ai.readFirst"));
       const { data, error } = await api.POST(
         "/company/site-reads/{readId}/messages",
         {
           params: { path: { readId: props.read.id } },
-          body: { message },
+          body: { message, history },
         },
       );
       if (error) throw new Error(problemMessage(error));
       return data;
     },
-    onMutate: (message) => {
+    onMutate: ({ message }) => {
       setEntries((current) => [
         ...current,
         { role: "user", message, id: crypto.randomUUID() },
@@ -225,7 +250,9 @@ function WebsiteWorkbench(
 
   const submitMessage = () => {
     const message = draft.trim();
-    if (message && !send.isPending) send.mutate(message);
+    if (message && !send.isPending) {
+      send.mutate({ message, history: conversationHistory(entries) });
+    }
   };
   const artifact = props.read ? (
     <div className="mw-review">
@@ -263,22 +290,21 @@ function WebsiteWorkbench(
         progress={coreProgress(props.read)}
         eyebrow={t("ob.ai.identity")}
         title={t("ob.ai.role")}
-        status={
-          props.read
-            ? t(`ob.readStatus.${props.read.status}`)
-            : t("ob.ai.ready")
-        }
+        status={workbenchStatus(props, t)}
         configured={configuredModels}
         locale={locale}
         runtime={runtime}
         runtimeLabels={{
           configured: t("ob.ai.configured"),
           used: t("ob.ai.modelsUsed"),
+          route: t("ob.ai.route"),
           calls: t("ob.ai.calls"),
           tokens: t("ob.ai.tokens"),
+          latency: t("ob.ai.latency"),
           estimatedCost: t("ob.ai.estimatedCost"),
           partial: t("ob.ai.partialEstimate"),
           awaiting: t("ob.ai.awaitingModel"),
+          unavailable: t("ob.ai.notAvailableYet"),
         }}
         artifact={artifact}
       >
@@ -307,16 +333,18 @@ function WebsiteWorkbench(
                 <p>{entry.reply.message}</p>
                 {entry.reply.citations.length > 0 && (
                   <div className="mw-citations">
-                    {entry.reply.citations.map((citation) => (
-                      <a
-                        key={`${citation.label}:${citation.url}`}
-                        href={citation.url}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {citation.label} <ExternalLink aria-hidden />
-                      </a>
-                    ))}
+                    {keyedCitations(entry.reply.citations).map(
+                      ({ citation, key }) => (
+                        <a
+                          key={`${entry.id}:${key}`}
+                          href={citation.url}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {citation.label} <ExternalLink aria-hidden />
+                        </a>
+                      ),
+                    )}
                   </div>
                 )}
                 {entry.reply.proposed_changes.length > 0 && (
@@ -378,7 +406,11 @@ function WebsiteWorkbench(
               aria-label={t("ob.ai.askPlaceholder")}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
+                if (
+                  event.key === "Enter" &&
+                  !event.shiftKey &&
+                  !event.nativeEvent.isComposing
+                ) {
                   event.preventDefault();
                   submitMessage();
                 }
@@ -414,11 +446,41 @@ function keyedSuggestedChanges(changes: ReadonlyArray<SuggestedCompanyChange>) {
   });
 }
 
+function keyedCitations(
+  citations: ReadonlyArray<MessageReply["citations"][number]>,
+) {
+  const occurrences = new Map<string, number>();
+  return citations.map((citation) => {
+    const identity = JSON.stringify([citation.label, citation.url]);
+    const occurrence = (occurrences.get(identity) ?? 0) + 1;
+    occurrences.set(identity, occurrence);
+    return { citation, key: `${identity}:${occurrence}` };
+  });
+}
+
+function conversationHistory(
+  entries: ReadonlyArray<ConversationEntry>,
+): ConversationTurn[] {
+  return entries
+    .slice(-8)
+    .map((entry) =>
+      entry.role === "user"
+        ? { role: "user", message: entry.message }
+        : { role: "assistant", message: entry.reply.message },
+    );
+}
+
 function AssistantBubble({ children }: Readonly<{ children: ReactNode }>) {
   const t = useT();
   return (
     <div className="mw-message-assistant">
-      <span className="mw-speaker">{t("ob.ai.speaker")}</span>
+      <span
+        className="mw-speaker"
+        role="img"
+        aria-label={t("ob.ai.speakerName")}
+      >
+        <span aria-hidden>{t("ob.ai.speaker")}</span>
+      </span>
       <div>{children}</div>
     </div>
   );
@@ -489,6 +551,7 @@ function ReadActivity({
   const t = useT();
   const latestPage = latestFetchedPage(read);
   const legalCount = read.legal_entities?.length ?? 0;
+  const findingCount = read.profile_fields.length + read.facts.length;
   return (
     <div className="mw-read-activity">
       {latestPage && read.status === "reading" && (
@@ -506,8 +569,8 @@ function ReadActivity({
           <b>{legalCount}</b> {t("ob.legalEntitiesFound")}
         </span>
         <span>
-          <b>{read.profile_fields.length + read.facts.length}</b>{" "}
-          {t("ob.ai.findings")}
+          <b>{findingCount}</b>{" "}
+          {t(findingCount === 1 ? "ob.ai.finding" : "ob.ai.findings")}
         </span>
       </div>
     </div>

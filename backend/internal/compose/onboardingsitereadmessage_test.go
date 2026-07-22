@@ -14,6 +14,7 @@ import (
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -21,19 +22,19 @@ import (
 )
 
 func TestCompanyReadReplyAcceptsReviewableChangesAndOnlyKnownSources(t *testing.T) {
-	known := map[string]struct{}{"S1": {}}
-	valid := `{"message":"I found the registered name.","proposed_changes":[{"field":"legal_name","value":"Acme GmbH","reason":"The legal notice states it."}],"source_ids":["S1"]}`
-	if err := validateCompanyReadReply(valid, known); err != nil {
+	known := map[string]companyReadEvidence{"S1": {ID: "S1", Value: "Acme GmbH", Quote: "Acme GmbH, HRB 12345"}}
+	valid := `{"message":"I found the registered name.","proposed_changes":[{"field":"legal_name","value":"Acme GmbH","reason":"The legal notice states it.","source_ids":["S1"]}],"source_ids":["S1"]}`
+	if err := validateCompanyReadReply(valid, known, "Which legal name did you find?"); err != nil {
 		t.Fatalf("valid reply rejected: %v", err)
 	}
 
 	unknown := `{"message":"I found it.","proposed_changes":[],"source_ids":["S9"]}`
-	if err := validateCompanyReadReply(unknown, known); err == nil {
+	if err := validateCompanyReadReply(unknown, known, "Find it"); err == nil {
 		t.Fatal("reply citing a URL outside the dossier was accepted")
 	}
 
-	unsupported := `{"message":"I can change it.","proposed_changes":[{"field":"website","value":"evil.example","reason":"requested"}],"source_ids":[]}`
-	if err := validateCompanyReadReply(unsupported, known); err == nil {
+	unsupported := `{"message":"I can change it.","proposed_changes":[{"field":"website","value":"evil.example","reason":"requested","source_ids":[]}],"source_ids":[]}`
+	if err := validateCompanyReadReply(unsupported, known, "Use evil.example"); err == nil {
 		t.Fatal("reply proposing a field outside the onboarding vocabulary was accepted")
 	}
 }
@@ -41,11 +42,15 @@ func TestCompanyReadReplyAcceptsReviewableChangesAndOnlyKnownSources(t *testing.
 func TestCompanyReadAnswerBuildsABoundedGroundedModelRequest(t *testing.T) {
 	brain := &replyBrainStub{response: model.Response{Text: `{
 		"message":" I found the legal name. ",
-		"proposed_changes":[{"field":"legal_name","value":"Acme GmbH","reason":"The legal notice states it."}],
+		"proposed_changes":[{"field":"legal_name","value":"Acme GmbH","reason":"The legal notice states it.","source_ids":["S1"]}],
 		"source_ids":["S1"]}`}}
 	engine := deepReadEngine{brain: brain}
+	history := []model.Message{
+		{Role: chatRoleUser, Content: "Did you find the imprint?"},
+		{Role: "assistant", Content: "Yes, I found one."},
+	}
 
-	got, err := engine.answerCompanySiteRead(context.Background(), "Which legal name did you find?", []companyReadEvidence{{
+	got, err := engine.answerCompanySiteRead(context.Background(), "Which legal name did you find?", history, []companyReadEvidence{{
 		ID: "S1", Kind: "legal_entity", Field: "legal_identity", Value: "Acme GmbH",
 		Quote: "Acme GmbH, HRB 12345", URL: "https://acme.example/imprint",
 	}})
@@ -59,14 +64,15 @@ func TestCompanyReadAnswerBuildsABoundedGroundedModelRequest(t *testing.T) {
 		len(brain.request.ResponseSchema) == 0 || brain.request.SecretStripper == nil {
 		t.Fatalf("model request lost its governed bounds: %+v", brain.request)
 	}
-	if len(brain.request.Messages) != 1 || !strings.Contains(brain.request.Messages[0].Content, "Which legal name") ||
-		!strings.Contains(brain.request.Messages[0].Content, "Acme GmbH") {
+	if len(brain.request.Messages) != 4 || !strings.Contains(brain.request.Messages[0].Content, "Acme GmbH") ||
+		brain.request.Messages[1].Content != "Did you find the imprint?" ||
+		brain.request.Messages[2].Role != "assistant" || brain.request.Messages[3].Content != "Which legal name did you find?" {
 		t.Fatalf("model request lost the administrator or dossier evidence: %+v", brain.request.Messages)
 	}
 
 	want := errors.New("provider unavailable")
 	engine.brain = &replyBrainStub{err: want}
-	if _, err := engine.answerCompanySiteRead(context.Background(), "Try again", nil); !errors.Is(err, want) {
+	if _, err := engine.answerCompanySiteRead(context.Background(), "Try again", nil, nil); !errors.Is(err, want) {
 		t.Fatalf("provider error = %v, want %v", err, want)
 	}
 }
@@ -103,7 +109,7 @@ func TestCompanyReadReplyMapsChangesCitationsAndExactRuntime(t *testing.T) {
 	now := time.Date(2026, 7, 22, 8, 0, 0, 0, time.UTC)
 	got := contractCompanyReadReply(companyReadModelReply{
 		Message:         " I found two grounded details. ",
-		ProposedChanges: []companyReadProposedChange{{Field: "legal_name", Value: " Acme GmbH ", Reason: " Imprint "}},
+		ProposedChanges: []companyReadProposedChange{{Field: "legal_name", Value: " Acme GmbH ", Reason: " Imprint ", SourceIDs: []string{"S1"}}},
 		SourceIDs:       []string{"S1", "S2"},
 	}, []companyReadEvidence{
 		{ID: "S1", Kind: "legal_entity", URL: "https://acme.example/imprint"},
@@ -135,25 +141,56 @@ func TestCompanyReadReplyMapsChangesCitationsAndExactRuntime(t *testing.T) {
 func TestCompanyReadReplyValidationRejectsEveryUnsafeShape(t *testing.T) {
 	tooMany := make([]companyReadProposedChange, companyReadChangeLimit+1)
 	for i := range tooMany {
-		tooMany[i] = companyReadProposedChange{Field: "icp", Value: "A", Reason: "B"}
+		tooMany[i] = companyReadProposedChange{Field: "icp", Value: "A", Reason: "B", SourceIDs: []string{}}
 	}
 	tests := map[string]companyReadModelReply{
 		"empty message":      {Message: " "},
 		"too many changes":   {Message: "Answer", ProposedChanges: tooMany},
-		"unsupported field":  {Message: "Answer", ProposedChanges: []companyReadProposedChange{{Field: "website", Value: "A", Reason: "B"}}},
-		"empty change value": {Message: "Answer", ProposedChanges: []companyReadProposedChange{{Field: "icp", Value: " ", Reason: "B"}}},
+		"unsupported field":  {Message: "Answer", ProposedChanges: []companyReadProposedChange{{Field: "website", Value: "A", Reason: "B", SourceIDs: []string{}}}},
+		"empty change value": {Message: "Answer", ProposedChanges: []companyReadProposedChange{{Field: "icp", Value: " ", Reason: "B", SourceIDs: []string{}}}},
 		"unknown source":     {Message: "Answer", SourceIDs: []string{"S9"}},
 		"duplicate source":   {Message: "Answer", SourceIDs: []string{"S1", "S1"}},
+		"fabricated uncited change": {Message: "Answer", ProposedChanges: []companyReadProposedChange{{
+			Field: "legal_name", Value: "Invented GmbH", Reason: "Claimed", SourceIDs: []string{},
+		}}},
+		"unrelated cited evidence": {Message: "Answer", SourceIDs: []string{"S1"}, ProposedChanges: []companyReadProposedChange{{
+			Field: "legal_name", Value: "Invented GmbH", Reason: "Claimed", SourceIDs: []string{"S1"},
+		}}},
+		"hidden change citation": {Message: "Answer", ProposedChanges: []companyReadProposedChange{{
+			Field: "legal_name", Value: "Acme GmbH", Reason: "Claimed", SourceIDs: []string{"S1"},
+		}}},
 	}
+	known := map[string]companyReadEvidence{"S1": {ID: "S1", Value: "Acme GmbH"}}
 	for name, reply := range tests {
 		t.Run(name, func(t *testing.T) {
-			if err := validateCompanyReadReplyValue(reply, map[string]struct{}{"S1": {}}); err == nil {
+			if err := validateCompanyReadReplyValue(reply, known, "Use administrator supplied value"); err == nil {
 				t.Fatalf("unsafe reply accepted: %+v", reply)
 			}
 		})
 	}
-	if err := validateCompanyReadReply("not json", nil); err == nil {
+	if err := validateCompanyReadReply("not json", nil, ""); err == nil {
 		t.Fatal("malformed JSON was accepted")
+	}
+	adminSupplied := companyReadModelReply{Message: "I can suggest that.", ProposedChanges: []companyReadProposedChange{{
+		Field: "legal_name", Value: "Admin GmbH", Reason: "You supplied it.", SourceIDs: []string{},
+	}}}
+	if err := validateCompanyReadReplyValue(adminSupplied, known, "Please use Admin GmbH"); err != nil {
+		t.Fatalf("administrator correction rejected: %v", err)
+	}
+}
+
+func TestCompanyReadConversationValidatesAndTrimsBoundedHistory(t *testing.T) {
+	turns := []crmcontracts.CompanySiteReadConversationTurn{
+		{Role: crmcontracts.CompanySiteReadConversationTurnRoleUser, Message: " Earlier question "},
+		{Role: crmcontracts.CompanySiteReadConversationTurnRoleAssistant, Message: " Earlier answer "},
+	}
+	history, err := companyReadConversation(&turns)
+	if err != nil || len(history) != 2 || history[0].Content != "Earlier question" || history[1].Role != "assistant" {
+		t.Fatalf("history = %+v, err = %v", history, err)
+	}
+	tooMany := make([]crmcontracts.CompanySiteReadConversationTurn, companyReadHistoryLimit+1)
+	if _, err := companyReadConversation(&tooMany); err == nil {
+		t.Fatal("oversized conversation history was accepted")
 	}
 }
 

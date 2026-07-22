@@ -1359,6 +1359,24 @@ func (e CompanySiteReadComparisonValueKind) Valid() bool {
 	}
 }
 
+// Defines values for CompanySiteReadConversationTurnRole.
+const (
+	CompanySiteReadConversationTurnRoleAssistant CompanySiteReadConversationTurnRole = "assistant"
+	CompanySiteReadConversationTurnRoleUser      CompanySiteReadConversationTurnRole = "user"
+)
+
+// Valid indicates whether the value is a known member of the CompanySiteReadConversationTurnRole enum.
+func (e CompanySiteReadConversationTurnRole) Valid() bool {
+	switch e {
+	case CompanySiteReadConversationTurnRoleAssistant:
+		return true
+	case CompanySiteReadConversationTurnRoleUser:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CompanySiteReadFactCategory.
 const (
 	CompanySiteReadFactCategoryCompany  CompanySiteReadFactCategory = "company"
@@ -5252,31 +5270,31 @@ func (e CaptureProvider) Valid() bool {
 
 // Defines values for ListActivitiesParamsKind.
 const (
-	Call     ListActivitiesParamsKind = "call"
-	Email    ListActivitiesParamsKind = "email"
-	Meeting  ListActivitiesParamsKind = "meeting"
-	Note     ListActivitiesParamsKind = "note"
-	Task     ListActivitiesParamsKind = "task"
-	Telegram ListActivitiesParamsKind = "telegram"
-	Whatsapp ListActivitiesParamsKind = "whatsapp"
+	ListActivitiesParamsKindCall     ListActivitiesParamsKind = "call"
+	ListActivitiesParamsKindEmail    ListActivitiesParamsKind = "email"
+	ListActivitiesParamsKindMeeting  ListActivitiesParamsKind = "meeting"
+	ListActivitiesParamsKindNote     ListActivitiesParamsKind = "note"
+	ListActivitiesParamsKindTask     ListActivitiesParamsKind = "task"
+	ListActivitiesParamsKindTelegram ListActivitiesParamsKind = "telegram"
+	ListActivitiesParamsKindWhatsapp ListActivitiesParamsKind = "whatsapp"
 )
 
 // Valid indicates whether the value is a known member of the ListActivitiesParamsKind enum.
 func (e ListActivitiesParamsKind) Valid() bool {
 	switch e {
-	case Call:
+	case ListActivitiesParamsKindCall:
 		return true
-	case Email:
+	case ListActivitiesParamsKindEmail:
 		return true
-	case Meeting:
+	case ListActivitiesParamsKindMeeting:
 		return true
-	case Note:
+	case ListActivitiesParamsKindNote:
 		return true
-	case Task:
+	case ListActivitiesParamsKindTask:
 		return true
-	case Telegram:
+	case ListActivitiesParamsKindTelegram:
 		return true
-	case Whatsapp:
+	case ListActivitiesParamsKindWhatsapp:
 		return true
 	default:
 		return false
@@ -7187,6 +7205,15 @@ type CompanySiteReadComparisonCurrentSource string
 // CompanySiteReadComparisonValueKind defines model for CompanySiteReadComparison.ValueKind.
 type CompanySiteReadComparisonValueKind string
 
+// CompanySiteReadConversationTurn defines model for CompanySiteReadConversationTurn.
+type CompanySiteReadConversationTurn struct {
+	Message string                              `json:"message"`
+	Role    CompanySiteReadConversationTurnRole `json:"role"`
+}
+
+// CompanySiteReadConversationTurnRole defines model for CompanySiteReadConversationTurn.Role.
+type CompanySiteReadConversationTurnRole string
+
 // CompanySiteReadFact defines model for CompanySiteReadFact.
 type CompanySiteReadFact struct {
 	Category        CompanySiteReadFactCategory `json:"category"`
@@ -7230,7 +7257,9 @@ type CompanySiteReadMessageReply struct {
 
 // CompanySiteReadMessageRequest defines model for CompanySiteReadMessageRequest.
 type CompanySiteReadMessageRequest struct {
-	Message string `json:"message"`
+	// History Bounded preceding turns, oldest first, so follow-up questions retain their conversational referent without creating durable chat state.
+	History *[]CompanySiteReadConversationTurn `json:"history,omitempty"`
+	Message string                             `json:"message"`
 }
 
 // CompanySiteReadPage defines model for CompanySiteReadPage.

@@ -7014,6 +7014,13 @@ export interface components {
         };
         CompanySiteReadMessageRequest: {
             message: string;
+            /** @description Bounded preceding turns, oldest first, so follow-up questions retain their conversational referent without creating durable chat state. */
+            history?: components["schemas"]["CompanySiteReadConversationTurn"][];
+        };
+        CompanySiteReadConversationTurn: {
+            /** @enum {string} */
+            role: "user" | "assistant";
+            message: string;
         };
         CompanySiteReadMessageReply: {
             message: string;

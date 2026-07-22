@@ -35,7 +35,14 @@ human must explicitly apply to the draft. The reusable workbench component is
 small enough for later AI-assisted product surfaces. Backend and frontend tests
 cover grouping, pricing, citation binding, model disclosure, conversation, and
 apply-on-approval behavior; the fully styled Storybook state passes automated
-accessibility checks.
+accessibility checks. Review hardening keeps the conversation to eight bounded
+turns, requires every suggested dossier change to carry evidence that contains
+its value (or a value the administrator stated), distinguishes configured from
+provider-reported model identity, and reports terminal-call latency without
+double-counting retries. The responsive workbench, localized empty states,
+keyboard/IME behavior, reduced motion, long messages, and citation identity are
+covered by the 610-test frontend lane; `make check` and all 18 real-Postgres
+integration packages pass with zero skips.
 
 **Website-ingestion quality and the Core research stage.** The onboarding
 read was benchmarked against Stripe, Notion, Linear, Personio, DeepL, Celonis,

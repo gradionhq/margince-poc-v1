@@ -568,6 +568,7 @@ describe("the optional website path", () => {
     const messageRequest = requestTo(calls, "/messages", "POST");
     expect(await messageRequest?.clone().json()).toEqual({
       message: "Which industry should we use?",
+      history: [],
     });
   });
 });

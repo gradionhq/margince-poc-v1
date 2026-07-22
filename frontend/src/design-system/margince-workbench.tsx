@@ -29,11 +29,14 @@ export function MarginceWorkbench({
   runtimeLabels: {
     configured: string;
     used: string;
+    route: string;
     calls: string;
     tokens: string;
+    latency: string;
     estimatedCost: string;
     partial: string;
     awaiting: string;
+    unavailable: string;
   };
   children: ReactNode;
   artifact?: ReactNode;
@@ -78,24 +81,32 @@ function RuntimeBar({
   locale: string;
   labels: {
     used: string;
+    route: string;
     calls: string;
     tokens: string;
+    latency: string;
     estimatedCost: string;
     partial: string;
     awaiting: string;
+    unavailable: string;
   };
 }>) {
   const models = runtime?.models ?? [];
   const used = models
-    .map((entry) => entry.served_model || entry.configured_model)
+    .map((entry) => entry.served_model)
     .filter((model, index, all) => model && all.indexOf(model) === index)
+    .join(" + ");
+  const routes = models
+    .map((entry) => `${entry.task} · ${entry.tier} · ${entry.provider}`)
+    .filter((route, index, all) => all.indexOf(route) === index)
     .join(" + ");
   return (
     <div className="mw-runtime">
       <RuntimeFact label={labels.used} value={used || labels.awaiting} />
+      <RuntimeFact label={labels.route} value={routes || labels.unavailable} />
       <RuntimeFact
         label={labels.calls}
-        value={runtime ? String(runtime.call_attempts) : "—"}
+        value={runtime ? String(runtime.call_attempts) : labels.unavailable}
       />
       <RuntimeFact
         label={labels.tokens}
@@ -104,7 +115,15 @@ function RuntimeBar({
             ? new Intl.NumberFormat(locale).format(
                 runtime.tokens_in + runtime.tokens_out,
               )
-            : "—"
+            : labels.unavailable
+        }
+      />
+      <RuntimeFact
+        label={labels.latency}
+        value={
+          runtime
+            ? `${new Intl.NumberFormat(locale).format(runtime.latency_ms)} ms`
+            : labels.unavailable
         }
       />
       <RuntimeFact
@@ -112,7 +131,7 @@ function RuntimeBar({
         value={
           runtime
             ? formatMicroUSD(runtime.estimated_cost_microusd, locale)
-            : "—"
+            : labels.unavailable
         }
         note={runtime?.unpriced_calls ? labels.partial : undefined}
       />

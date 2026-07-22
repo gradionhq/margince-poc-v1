@@ -32,15 +32,15 @@ func TestCompanySiteReadMessageUsesTheStoredDossierAndReturnsRuntime(t *testing.
 		VALUES ($1,'anthropic','claude-workbench-test',1000000,5000000,500000,2000000,$2)`, env.WS, usedAt)
 	env.WsExec(t, `
 		INSERT INTO ai_call (workspace_id, correlation_id, task, tier, provider, model_id,
-		  served_model, request_fingerprint, tokens_in, tokens_out, reasoning_tokens,
+		  served_model, served_identity_source, request_fingerprint, tokens_in, tokens_out, reasoning_tokens,
 		  cached_tokens, cache_write_tokens, latency_ms, occurred_at, logical_call_id)
-		VALUES ($1,$2,$3,$4,'anthropic','claude-workbench-test','claude-workbench-test-202607',$5,
+		VALUES ($1,$2,$3,$4,'anthropic','claude-workbench-test','claude-workbench-test-202607','response',$5,
 		  1000,100,20,200,50,750,$6,$7)`, env.WS, read.ID, string(ai.TaskColdStart),
 		string(ai.TierCheapCloud), "workbench-fingerprint", usedAt, read.ID)
 	human := env.As(env.Rep1, nil, integration.AdminPerms)
 	brain := &replyBrainStub{response: model.Response{Text: `{
 		"message":"I found the company name on the home page.",
-		"proposed_changes":[{"field":"display_name","value":"Acme","reason":"The page states it."}],
+		"proposed_changes":[{"field":"display_name","value":"Acme","reason":"The page states it.","source_ids":["S1"]}],
 		"source_ids":["S1"]}`}}
 	engine := &deepReadEngine{people: env.People, brain: brain, runtime: ai.NewRunTransparency(env.Pool)}
 
@@ -61,7 +61,7 @@ func TestCompanySiteReadMessageUsesTheStoredDossierAndReturnsRuntime(t *testing.
 		len(reply.AiRuntime.Models) != 1 || reply.AiRuntime.Models[0].ServedModel != "claude-workbench-test-202607" {
 		t.Fatalf("message reply = %+v", reply)
 	}
-	if !strings.Contains(brain.request.Messages[0].Content, "Which name did you find?") {
+	if !strings.Contains(brain.request.Messages[len(brain.request.Messages)-1].Content, "Which name did you find?") {
 		t.Fatalf("administrator message did not reach the model data frame: %+v", brain.request.Messages)
 	}
 

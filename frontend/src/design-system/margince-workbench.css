@@ -101,7 +101,9 @@
 
 .mw-runtime {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) repeat(3, minmax(100px, 0.7fr));
+  grid-template-columns:
+    minmax(0, 1.5fr) minmax(0, 1.4fr)
+    repeat(4, minmax(86px, 0.7fr));
   border-bottom: 1px solid var(--borderSubtle);
   background: color-mix(in srgb, var(--aiLight) 45%, var(--bgElevated));
 }
@@ -202,11 +204,11 @@
     grid-template-columns: 1fr 1fr;
   }
 
-  .mw-runtime > div:nth-child(2) {
+  .mw-runtime > div:nth-child(even) {
     border-right: 0;
   }
 
-  .mw-runtime > div:nth-child(-n + 2) {
+  .mw-runtime > div:nth-child(-n + 4) {
     border-bottom: 1px solid var(--borderSubtle);
   }
 
