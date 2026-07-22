@@ -21,11 +21,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
@@ -37,6 +39,17 @@ var voiceBuildPerms = principal.Permissions{
 		"voice_profile": {Create: true, Read: true, Update: true},
 	},
 	RowScope: principal.RowScopeTeam,
+}
+
+// voiceDraftPerms adds the activity grant the drafter needs on top of the
+// voice posture.
+var voiceDraftPerms = principal.Permissions{
+	RoleKeys: []string{"rep"},
+	Objects: map[string]principal.ObjectGrant{
+		"voice_profile": {Create: true, Read: true, Update: true},
+		"activity":      {Create: true, Read: true, Update: true},
+	},
+	RowScope: principal.RowScopeAll,
 }
 
 var sampleIDPattern = regexp.MustCompile(`<sample id="([^"]+)"`)
@@ -474,5 +487,110 @@ func TestVoiceDraftReadsAndLearningSignals(t *testing.T) {
 	}
 	if _, err := env.store.RejectDraft(env.owner, profile.ID, ref); err != nil {
 		t.Fatalf("rejecting a recorded draft: %v", err)
+	}
+}
+
+// voicedBrain scripts the drafting side: the build shapes are served by
+// scriptedBuildBrain, and reply drafts come back violating or clean.
+type voicedDraftBrain struct {
+	scriptedBuildBrain
+	alwaysViolate bool
+	draftCalls    int
+}
+
+func (b *voicedDraftBrain) Complete(ctx context.Context, req model.Request) (model.Response, error) {
+	if strings.Contains(req.System, "email reply") {
+		b.draftCalls++
+		body := "The plan holds. We ship Monday and the numbers back it."
+		if b.alwaysViolate {
+			body = "Here's the thing: it's not about tools, but transformation. What do you think?"
+		}
+		payload, err := json.Marshal(map[string]string{"subject": "Re: plan", "body": body})
+		if err != nil {
+			return model.Response{}, err
+		}
+		return model.Response{Text: string(payload)}, nil
+	}
+	return b.scriptedBuildBrain.Complete(ctx, req)
+}
+
+func seedReplyActivity(t *testing.T, env *voiceBuildEnv) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	err := database.WithWorkspaceTx(env.owner, env.e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `
+			INSERT INTO activity (id, workspace_id, kind, subject, body, source_system, source_id, source, captured_by)
+			VALUES ($1, $2, 'email', 'the plan', 'Can you confirm the plan?', 'gmail', $3, 'gmail:'||$3, 'connector:gmail')`,
+			id, env.e.WS, "voice-"+id.String())
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func builtVoiceEnv(t *testing.T, quote string) *voiceBuildEnv {
+	t.Helper()
+	env, build := seedVoiceBuild(t, quote, 6)
+	worker := newVoiceBuildWorker(env.e.Pool, &scriptedBuildBrain{judgeScore: 0.9, quote: quote}, slog.New(slog.DiscardHandler))
+	if err := worker.Work(context.Background(), voiceBuildJob(env, build)); err != nil {
+		t.Fatalf("build Work: %v", err)
+	}
+	return env
+}
+
+func TestReplyDraftCarriesVoiceProvenanceEndToEnd(t *testing.T) {
+	env := builtVoiceEnv(t, "Provenance quote.")
+	activity := seedReplyActivity(t, env)
+	drafter := newReplyDrafter(env.e.Pool, &voicedDraftBrain{scriptedBuildBrain: scriptedBuildBrain{judgeScore: 0.9}}, slog.New(slog.DiscardHandler))
+
+	draftCtx := env.e.As(env.e.Rep1, []ids.UUID{env.e.Team1}, voiceDraftPerms)
+	result, err := drafter.DraftEmailWithProvenance(draftCtx, activity, "confirm the plan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.AIGenerated || result.AIDisclosure == nil {
+		t.Fatalf("voiced draft must carry the Art. 50 stamp: %+v", result)
+	}
+	if result.VoiceProfileVersion == nil {
+		t.Fatalf("voiced draft must name the profile version that styled it: %+v", result)
+	}
+	summary, err := env.store.LearningSummary(env.owner, env.profile.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Drafted != 1 {
+		t.Fatalf("drafted signals = %d, want the served draft recorded once", summary.Drafted)
+	}
+
+	// The plain seam rides the same path minus the provenance.
+	subject, body, err := drafter.DraftEmail(draftCtx, activity, "confirm the plan")
+	if err != nil || subject == "" || body == "" {
+		t.Fatalf("plain seam: %q %q %v", subject, body, err)
+	}
+}
+
+func TestReplyDraftFallsBackAndRecordsRejectionWhenTheFloorHolds(t *testing.T) {
+	env := builtVoiceEnv(t, "Fallback quote.")
+	activity := seedReplyActivity(t, env)
+	drafter := newReplyDrafter(env.e.Pool, &voicedDraftBrain{
+		scriptedBuildBrain: scriptedBuildBrain{judgeScore: 0.9}, alwaysViolate: true,
+	}, slog.New(slog.DiscardHandler))
+
+	draftCtx := env.e.As(env.e.Rep1, []ids.UUID{env.e.Team1}, voiceDraftPerms)
+	result, err := drafter.DraftEmailWithProvenance(draftCtx, activity, "confirm the plan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.VoiceProfileVersion != nil {
+		t.Fatalf("a floor-failing voice draft must fall back without a voice stamp: %+v", result)
+	}
+	summary, err := env.store.LearningSummary(env.owner, env.profile.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Rejected != 1 {
+		t.Fatalf("rejected signals = %d, want the floor failure recorded", summary.Rejected)
 	}
 }
