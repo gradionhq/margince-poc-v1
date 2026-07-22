@@ -49,6 +49,9 @@ type DraftResult struct {
 	AIGenerated         bool
 	AIDisclosure        *string
 	VoiceProfileVersion *int
+	// DraftRef identifies this served voice draft for learning feedback
+	// (rejectVoiceDraft); nil when no voice profile styled it.
+	DraftRef *string
 }
 
 // ProvenanceEmailDrafter is the richer drafting seam: same draft, plus the
@@ -84,6 +87,7 @@ func (h Handlers) DraftEmail(w http.ResponseWriter, r *http.Request, id crmcontr
 		AiGenerated:         &result.AIGenerated,
 		AiDisclosure:        result.AIDisclosure,
 		VoiceProfileVersion: result.VoiceProfileVersion,
+		DraftRef:            result.DraftRef,
 	})
 }
 

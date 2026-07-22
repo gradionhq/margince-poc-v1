@@ -70,4 +70,7 @@ func TestVoiceLiveSmoke(t *testing.T) {
 	if artifact.Inference.ThinkingPattern == "" {
 		t.Fatal("live provider produced an empty thinking pattern")
 	}
+	if valid, ok := result.Evaluation["structured_output_valid"].(bool); !ok || !valid {
+		t.Fatalf("live provider returned malformed drafts or judge verdicts: %v", result.Evaluation)
+	}
 }

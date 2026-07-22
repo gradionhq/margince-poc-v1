@@ -40,6 +40,11 @@ type VoiceBuildOutcome struct {
 	// PredecessorWords is the previous version's corpus size; the change
 	// timeline records the difference, never the whole corpus as "added".
 	PredecessorWords int
+	// CorpusStats fingerprints the WHOLE corpus (held-out included) for the
+	// stored stats_json: the profile screen's "built from your corpus"
+	// numbers must count everything the user supplied, not the builder's
+	// share. Zero-value falls back to the artifact's builder stats.
+	CorpusStats VoiceStats
 	// EvaluatedPredecessor is the profile version the evaluation compared
 	// against (0 = none existed). If the active version moved while the
 	// evaluation ran, the comparison is stale and the candidate must not
@@ -176,7 +181,11 @@ func (s *VoiceStore) persistBuildVersion(ctx context.Context, tx pgx.Tx, build V
 		"sample_drafts": outcome.SampleDrafts,
 		"guidance":      outcome.Guidance,
 	}
-	statsJSON, err := json.Marshal(outcome.Artifact.Stats)
+	storedStats := outcome.CorpusStats
+	if storedStats.SampleCount == 0 {
+		storedStats = outcome.Artifact.Stats
+	}
+	statsJSON, err := json.Marshal(storedStats)
 	if err != nil {
 		return VoiceProfileVersion{}, fmt.Errorf("voice build stats encode: %w", err)
 	}

@@ -8124,14 +8124,17 @@ type EmailDraft struct {
 	// AiDisclosure The machine-readable Art. 50 disclosure line; non-null iff ai_generated=true.
 	AiDisclosure *string `json:"ai_disclosure,omitempty"`
 
-	// AiGenerated Art. 50 AI-assisted disclosure: true when a model produced this draft; stamped on the drafting call itself, never persisted.
-	AiGenerated         *bool                  `json:"ai_generated,omitempty"`
-	Body                string                 `json:"body"`
+	// AiGenerated Art. 50 AI-assisted disclosure: true when a model produced this draft; stamped on the drafting call itself, never persisted. Absent reads as false.
+	AiGenerated *bool  `json:"ai_generated,omitempty"`
+	Body        string `json:"body"`
+
+	// DraftRef Opaque reference identifying this served voice draft for learning feedback (rejectVoiceDraft); null when no voice profile styled it.
+	DraftRef            *string                `json:"draft_ref,omitempty"`
 	InReplyToActivityId *openapi_types.UUID    `json:"in_reply_to_activity_id,omitempty"`
 	Subject             string                 `json:"subject"`
 	To                  *[]openapi_types.Email `json:"to,omitempty"`
 
-	// VoiceProfileVersion The Voice DNA profile version that styled this draft ("your corpus · model vN" provenance); null when no ready voice profile shaped it.
+	// VoiceProfileVersion The Voice DNA PROFILE version (not a model version) that styled this draft — the "built from your corpus · vN" provenance; null when no ready voice profile shaped it.
 	VoiceProfileVersion *int `json:"voice_profile_version,omitempty"`
 }
 

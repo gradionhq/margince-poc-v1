@@ -155,5 +155,10 @@ func VersionExemplars(version VoiceProfileVersion) []VoiceExemplar {
 	if err := json.Unmarshal(encoded, &exemplars); err != nil {
 		return nil
 	}
+	// The two-example bound is a drafting safety contract, not a storage
+	// assumption: more examples teach the model to copy wording.
+	if len(exemplars) > 2 {
+		exemplars = exemplars[:2]
+	}
 	return exemplars
 }

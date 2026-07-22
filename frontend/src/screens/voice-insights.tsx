@@ -40,7 +40,11 @@ function asStringList(value: unknown): string[] {
 }
 
 export type VoiceSignatureMove = { move: string; quote: string };
-export type VoiceSampleDraft = { subject: string; body: string };
+export type VoiceSampleDraft = {
+  subject: string;
+  body: string;
+  score: number | null;
+};
 
 export type VoiceInsightsData = {
   identity: string | null;
@@ -50,6 +54,8 @@ export type VoiceInsightsData = {
   avoid: string[];
   sampleDrafts: VoiceSampleDraft[];
   nextBest: string | null;
+  nextBestKey: string | null;
+  nextBestWords: number | null;
   words: number | null;
   meanSentence: number | null;
   sources: number | null;
@@ -81,7 +87,11 @@ function parseSampleDrafts(value: unknown): VoiceSampleDraft[] {
     const record = asRecord(raw);
     const body = asString(record?.body);
     if (body) {
-      drafts.push({ subject: asString(record?.subject) ?? "", body });
+      drafts.push({
+        subject: asString(record?.subject) ?? "",
+        body,
+        score: asNumber(record?.voice_score),
+      });
     }
   }
   return drafts;
@@ -106,11 +116,35 @@ export function parseVoiceInsights(
     avoid: asStringList(inference.avoid),
     sampleDrafts,
     nextBest: asString(guidance.next_best),
+    nextBestKey: asString(guidance.next_best_key),
+    nextBestWords: asNumber(guidance.next_best_words),
     words: asNumber(statsJSON.word_count),
     meanSentence: asNumber(statsJSON.mean_sentence_words),
     sources: asNumber(statsJSON.sample_count),
     modelName: asString(version.model_name),
   };
+}
+
+// nextBestCopy localizes the guidance nudge from its structured key; an
+// unknown key (a newer server) falls back to the server's prose.
+function nextBestCopy(
+  t: ReturnType<typeof useT>,
+  data: VoiceInsightsData,
+): string | null {
+  switch (data.nextBestKey) {
+    case "add_transcript":
+      return t("voice.insights.next.addTranscript");
+    case "add_email":
+      return t("voice.insights.next.addEmail");
+    case "add_words":
+      return t("voice.insights.next.addWords", {
+        count: (data.nextBestWords ?? 0).toLocaleString(),
+      });
+    case "at_target":
+      return t("voice.insights.next.atTarget");
+    default:
+      return null;
+  }
 }
 
 // VoiceInsights is the impress surface both the onboarding success card and
@@ -129,7 +163,9 @@ export function VoiceInsights({
           ? ` · ${data.modelName}`
           : ""}
       </div>
-      {(data.words !== null || data.sources !== null) && (
+      {(data.words !== null ||
+        data.sources !== null ||
+        data.meanSentence !== null) && (
         <div className="vdna-stats t-small">
           {data.words !== null &&
             t("voice.insights.statWords", {
@@ -157,47 +193,79 @@ export function VoiceInsights({
           ))}
         </div>
       )}
-      {data.moves.length > 0 && (
-        <div className="vdna-moves">
-          <div className="vdna-label">
-            <Quote aria-hidden /> {t("voice.insights.movesLabel")}
-          </div>
+      <SignatureMoves moves={data.moves} />
+      {data.avoid.length > 0 && (
+        <div className="vdna-avoid">
+          <div className="vdna-label">{t("voice.insights.avoidLabel")}</div>
           <ul>
-            {data.moves.slice(0, 3).map((move) => (
-              <li key={move.move}>
-                <b>{move.move}</b>
-                <span className="vdna-quote">“{move.quote}”</span>
-              </li>
+            {data.avoid.map((rule) => (
+              <li key={rule}>{rule}</li>
             ))}
           </ul>
         </div>
       )}
-      {data.sampleDrafts.length > 0 && (
-        <div className="vdna-samples">
-          <div className="vdna-label">
-            <FileText aria-hidden /> {t("voice.insights.samplesLabel")}
-          </div>
-          {data.sampleDrafts.map((draft) => (
-            <div key={draft.body} className="vdna-sample card">
-              <div className="vdna-sample-head">
-                <span className="vdna-pill">
-                  {t("voice.insights.draftOnly")}
-                </span>
-                {draft.subject && <b>{draft.subject}</b>}
-              </div>
-              <p>{draft.body}</p>
-            </div>
-          ))}
-          <p className="t-small vdna-disclosure">
-            {t("voice.insights.disclosure")}
-          </p>
-        </div>
-      )}
-      {data.nextBest && (
+      <SampleDrafts drafts={data.sampleDrafts} />
+      {(data.nextBestKey || data.nextBest) && (
         <div className="vdna-nextbest">
-          <b>{t("voice.insights.nextBestLabel")}</b> {data.nextBest}
+          <b>{t("voice.insights.nextBestLabel")}</b>{" "}
+          {nextBestCopy(t, data) ?? data.nextBest}
         </div>
       )}
+    </div>
+  );
+}
+
+function SignatureMoves({ moves }: Readonly<{ moves: VoiceSignatureMove[] }>) {
+  const t = useT();
+  if (moves.length === 0) {
+    return null;
+  }
+  return (
+    <div className="vdna-moves">
+      <div className="vdna-label">
+        <Quote aria-hidden /> {t("voice.insights.movesLabel")}
+      </div>
+      <ul>
+        {moves.slice(0, 3).map((move) => (
+          <li key={move.move}>
+            <b>{move.move}</b>
+            <span className="vdna-quote">“{move.quote}”</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function SampleDrafts({ drafts }: Readonly<{ drafts: VoiceSampleDraft[] }>) {
+  const t = useT();
+  if (drafts.length === 0) {
+    return null;
+  }
+  return (
+    <div className="vdna-samples">
+      <div className="vdna-label">
+        <FileText aria-hidden /> {t("voice.insights.samplesLabel")}
+      </div>
+      {drafts.map((draft) => (
+        <div key={draft.body} className="vdna-sample card">
+          <div className="vdna-sample-head">
+            <span className="vdna-pill">{t("voice.insights.draftOnly")}</span>
+            {draft.subject && <b>{draft.subject}</b>}
+            {draft.score !== null && (
+              <span className="t-small vdna-score">
+                {t("voice.insights.voiceScore", {
+                  pct: Math.round(draft.score * 100),
+                })}
+              </span>
+            )}
+          </div>
+          <p>{draft.body}</p>
+        </div>
+      ))}
+      <p className="t-small vdna-disclosure">
+        {t("voice.insights.disclosure")}
+      </p>
     </div>
   );
 }

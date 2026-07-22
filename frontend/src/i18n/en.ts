@@ -1588,10 +1588,35 @@ export const en = {
   "settings.voice.register.spoken": "spoken",
   "settings.voice.register.general": "general",
   "settings.voice.bandDrop":
-    "Removing this drops your voice from {from} to {to}. Click again to confirm.",
+    "Removing this drops your voice from {from} to {to}. Confirm by activating remove again.",
+  "voice.insights.avoidLabel": "What your voice avoids",
+  "voice.insights.voiceScore": "voice match {pct}%",
+  "voice.insights.next.addTranscript":
+    "Add a call or meeting transcript \u2014 spoken words are your highest-signal source.",
+  "voice.insights.next.addEmail":
+    "Add sent emails \u2014 they are the primary source for how you write at work.",
+  "voice.insights.next.addWords":
+    "Add roughly {count} more words to reach the sharp band.",
+  "voice.insights.next.atTarget":
+    "Your corpus is at target; keep it fresh by adding recent writing occasionally.",
+  "voice.status.active": "active",
+  "voice.status.candidate": "awaiting review",
+  "voice.status.superseded": "superseded",
+  "voice.status.rejected": "rejected",
+  "voice.classification.routine": "routine change",
+  "voice.classification.material": "material change",
+  "voice.outcome.autoActivated": "activated automatically",
+  "voice.outcome.reviewRequired": "review required",
+  "voice.outcome.manuallyActivated": "activated by you",
+  "voice.outcome.rejected": "rejected",
+  "voice.outcome.rollback": "restored",
+  "voice.history.versionRow": "v{n} \u00b7",
+  "voice.history.loadMore": "Show older entries",
+  "ob.s2.candidateNote":
+    "This version is waiting for your review \u2014 apply or reject it under Settings \u2192 Voice.",
   "voice.insights.provenance": "Built from your corpus \u00b7 v{n}",
-  "voice.insights.statWords": "{count} words",
-  "voice.insights.statSources": "{count} sources",
+  "voice.insights.statWords": "Words: {count}",
+  "voice.insights.statSources": "Sources: {count}",
   "voice.insights.statSentence": "\u2248{count} words per sentence",
   "voice.insights.thinkingLabel": "How you think",
   "voice.insights.movesLabel": "Your signature moves \u2014 in your own words",
@@ -1609,7 +1634,7 @@ export const en = {
   "voice.history.deltasLabel": "What changed",
   "voice.history.deltaRow": "v{from} \u2192 v{to}",
   "voice.history.learning":
-    "Learning continuously: {drafted} drafts served \u00b7 {edited} edited before sending \u00b7 {rejected} rejected.",
+    "Learning continuously \u2014 drafts served: {drafted} \u00b7 edited before sending: {edited} \u00b7 rejected: {rejected}.",
   "voice.history.rollback": "Restore version {n}",
   "settings.voice.corpusEmpty": "No samples yet.",
   "settings.voice.excluded": "excluded",

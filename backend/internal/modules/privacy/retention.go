@@ -211,7 +211,64 @@ func (s *RetentionService) evaluateWorkspace(ctx context.Context) error {
 			}
 		}
 	}
-	return s.evaluateEmbedCallRetention(ctx)
+	if err := s.evaluateEmbedCallRetention(ctx); err != nil {
+		return err
+	}
+	return s.evaluateVoiceSignalRetention(ctx)
+}
+
+// voiceSignalRetention note: the deadline itself is stamped per row
+// (voice_learning_signal.retention_until, set at capture); this sweep only
+// honors it — the window is the ai module's fixed operational floor, not a
+// policy-configurable domain record.
+
+// evaluateVoiceSignalRetention erases the draft plaintext of over-age voice
+// learning signals: the counters row survives (the learning statistics stay
+// honest), the generated and final texts do not outlive their window.
+func (s *RetentionService) evaluateVoiceSignalRetention(ctx context.Context) error {
+	var due []ids.UUID
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			SELECT id FROM voice_learning_signal
+			WHERE retention_until < now() AND content_erased_at IS NULL
+			  AND (generated_original IS NOT NULL OR final_text IS NOT NULL)
+			LIMIT $1`, retentionBatch)
+		if err != nil {
+			return err
+		}
+		due, err = pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("retention voice_learning_signal: select: %w", err)
+	}
+	for _, id := range due {
+		if err := s.eraseVoiceSignalContent(ctx, id); err != nil {
+			return fmt.Errorf("retention voice_learning_signal on %s: %w", id, err)
+		}
+	}
+	return nil
+}
+
+func (s *RetentionService) eraseVoiceSignalContent(ctx context.Context, id ids.UUID) error {
+	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `
+			UPDATE voice_learning_signal
+			SET generated_original = NULL, final_text = NULL, content_erased_at = now(),
+			    version = version + 1, updated_at = now()
+			WHERE id = $1 AND content_erased_at IS NULL`, id); err != nil {
+			return err
+		}
+		auditID, err := storekit.AuditWithEvidence(ctx, tx, actionErase, "voice_learning_signal", id, nil, nil, map[string]any{
+			"retention_action": actionErase,
+		})
+		if err != nil {
+			return err
+		}
+		return storekit.Emit(ctx, tx, auditID, "retention.applied", "voice_learning_signal", id, map[string]any{
+			evidenceKeyAction: actionErase,
+		})
+	})
 }
 
 // evaluateEmbedCallRetention erases over-age embedding-kind ai_call trace

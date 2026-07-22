@@ -216,6 +216,7 @@ var crossStoreWrites = map[string]string{
 	"internal/modules/privacy:person":           "erasure/retention anonymize the person row in place in the single erasure transaction (Art. 17)",
 	"internal/modules/privacy:person_email":     "erasure deletes the subject's email channel rows in the single erasure transaction",
 	"internal/modules/privacy:person_social":    "erasure and retention delete the subject's social-handle rows in the same anonymization transaction",
+	"internal/modules/privacy:voice_learning_signal": "the nightly retention sweep erases over-age draft plaintext in place; the counters row survives (voice_draftread.go stamps the per-row deadline)",
 	"internal/modules/privacy:person_phone":     "erasure deletes the subject's phone channel rows in the single erasure transaction",
 	"internal/modules/privacy:lead":             "erasure/retention anonymize the subject's segregated lead rows in the same transaction",
 	"internal/modules/privacy:activity":         "retention archives/erases over-age timeline rows, and Art. 17 erasure redacts subject-only activity subject/body, in the single erasure/per-record transaction",

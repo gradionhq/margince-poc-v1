@@ -28,7 +28,8 @@
 }
 
 .vdna-provenance {
-  opacity: 0.8;
+  /* No opacity dimming: 12px text must keep the full .t-small contrast. */
+  font-weight: 500;
 }
 
 .vdna-thinking p {
@@ -73,6 +74,11 @@
   align-items: center;
   gap: var(--space-2);
   margin-bottom: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.vdna-sample-head b {
+  overflow-wrap: anywhere;
 }
 
 .vdna-pill {
@@ -86,6 +92,7 @@
 .vdna-sample p {
   white-space: pre-wrap;
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .vdna-disclosure {

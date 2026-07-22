@@ -1617,10 +1617,35 @@ export const de = {
   "settings.voice.register.spoken": "gesprochen",
   "settings.voice.register.general": "allgemein",
   "settings.voice.bandDrop":
-    "Das Entfernen stuft deine Stimme von {from} auf {to} zur\u00fcck. Zum Best\u00e4tigen erneut klicken.",
+    "Das Entfernen stuft deine Stimme von {from} auf {to} zur\u00fcck. Zum Best\u00e4tigen Entfernen erneut ausl\u00f6sen.",
+  "voice.insights.avoidLabel": "Was deine Stimme vermeidet",
+  "voice.insights.voiceScore": "Stimm-Treffer {pct}%",
+  "voice.insights.next.addTranscript":
+    "F\u00fcge ein Gespr\u00e4chs- oder Meeting-Transkript hinzu \u2014 gesprochene Worte sind dein st\u00e4rkstes Signal.",
+  "voice.insights.next.addEmail":
+    "F\u00fcge gesendete E-Mails hinzu \u2014 sie sind die wichtigste Quelle daf\u00fcr, wie du beruflich schreibst.",
+  "voice.insights.next.addWords":
+    "F\u00fcge etwa {count} weitere W\u00f6rter hinzu, um das scharfe Band zu erreichen.",
+  "voice.insights.next.atTarget":
+    "Dein Korpus ist am Ziel; halte ihn mit gelegentlichen neuen Texten frisch.",
+  "voice.status.active": "aktiv",
+  "voice.status.candidate": "wartet auf Pr\u00fcfung",
+  "voice.status.superseded": "abgel\u00f6st",
+  "voice.status.rejected": "abgelehnt",
+  "voice.classification.routine": "routinem\u00e4\u00dfige \u00c4nderung",
+  "voice.classification.material": "wesentliche \u00c4nderung",
+  "voice.outcome.autoActivated": "automatisch aktiviert",
+  "voice.outcome.reviewRequired": "Pr\u00fcfung erforderlich",
+  "voice.outcome.manuallyActivated": "von dir aktiviert",
+  "voice.outcome.rejected": "abgelehnt",
+  "voice.outcome.rollback": "wiederhergestellt",
+  "voice.history.versionRow": "v{n} \u00b7",
+  "voice.history.loadMore": "\u00c4ltere Eintr\u00e4ge anzeigen",
+  "ob.s2.candidateNote":
+    "Diese Version wartet auf deine Pr\u00fcfung \u2014 unter Einstellungen \u2192 Stimme anwenden oder ablehnen.",
   "voice.insights.provenance": "Aus deinem Korpus gebaut \u00b7 v{n}",
-  "voice.insights.statWords": "{count} W\u00f6rter",
-  "voice.insights.statSources": "{count} Quellen",
+  "voice.insights.statWords": "W\u00f6rter: {count}",
+  "voice.insights.statSources": "Quellen: {count}",
   "voice.insights.statSentence": "\u2248{count} W\u00f6rter pro Satz",
   "voice.insights.thinkingLabel": "Wie du denkst",
   "voice.insights.movesLabel":
@@ -1640,7 +1665,7 @@ export const de = {
   "voice.history.deltasLabel": "Was sich ge\u00e4ndert hat",
   "voice.history.deltaRow": "v{from} \u2192 v{to}",
   "voice.history.learning":
-    "Lernt kontinuierlich: {drafted} Entw\u00fcrfe erstellt \u00b7 {edited} vor dem Senden bearbeitet \u00b7 {rejected} abgelehnt.",
+    "Lernt kontinuierlich \u2014 erstellte Entw\u00fcrfe: {drafted} \u00b7 vor dem Senden bearbeitet: {edited} \u00b7 abgelehnt: {rejected}.",
   "voice.history.rollback": "Version {n} wiederherstellen",
   "settings.voice.corpusEmpty": "Noch keine Proben.",
   "settings.voice.excluded": "ausgeschlossen",

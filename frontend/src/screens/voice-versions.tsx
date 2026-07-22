@@ -4,7 +4,7 @@ import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, Button } from "../design-system/atoms";
-import { useT } from "../i18n";
+import { useLocale, useT } from "../i18n";
 import { problemMessage, QueryGate } from "./common";
 import { parseVoiceInsights, VoiceInsights } from "./voice-insights";
 import "./voice-dna.css";
@@ -12,6 +12,16 @@ import "./voice-dna.css";
 type VoiceProfileVersion = components["schemas"]["VoiceProfileVersion"];
 type VoiceProfileDelta = components["schemas"]["VoiceProfileDelta"];
 type VoiceLearningSummary = components["schemas"]["VoiceLearningSummary"];
+
+type VersionsPage = { items: VoiceProfileVersion[]; next: string | null };
+type DeltasPage = { items: VoiceProfileDelta[]; next: string | null };
+
+// mergeById accumulates keyset pages without duplicating rows when a page
+// is refetched after invalidation.
+function mergeById<T extends { id: string }>(prev: T[], page: T[]): T[] {
+  const seen = new Set(page.map((item) => item.id));
+  return [...prev.filter((item) => !seen.has(item.id)), ...page];
+}
 
 export function useVoiceVersions(profileId: string | undefined) {
   return useQuery({
@@ -110,7 +120,11 @@ function CandidateBanner({
           ))}
         </ul>
       )}
-      {error && <p className="t-small">{error}</p>}
+      {error && (
+        <p className="t-small" role="alert">
+          {error}
+        </p>
+      )}
       <div className="vdna-candidate-acts">
         <Button
           variant="primary"
@@ -139,19 +153,42 @@ export function VoiceHistory({
   onChanged,
 }: Readonly<{ profileId: string; onChanged: () => void }>) {
   const t = useT();
-  const versions = useVoiceVersions(profileId);
-  const deltas = useQuery({
-    queryKey: ["voice-deltas", profileId],
-    queryFn: async (): Promise<VoiceProfileDelta[]> => {
-      const { data, error } = await api.GET("/voice-profiles/{id}/deltas", {
-        params: { path: { id: profileId } },
+  const [versionCursor, setVersionCursor] = useState<string | undefined>();
+  const [deltaCursor, setDeltaCursor] = useState<string | undefined>();
+  const versions = useQuery({
+    queryKey: ["voice-versions", profileId, versionCursor ?? ""],
+    queryFn: async (): Promise<VersionsPage> => {
+      const { data, error } = await api.GET("/voice-profiles/{id}/versions", {
+        params: {
+          path: { id: profileId },
+          query: versionCursor ? { cursor: versionCursor } : {},
+        },
       });
       if (error) {
         throw new Error(problemMessage(error));
       }
-      return data.data;
+      setAllVersions((prev) => mergeById(prev, data.data));
+      return { items: data.data, next: data.page.next_cursor ?? null };
     },
   });
+  const [allVersions, setAllVersions] = useState<VoiceProfileVersion[]>([]);
+  const deltas = useQuery({
+    queryKey: ["voice-deltas", profileId, deltaCursor ?? ""],
+    queryFn: async (): Promise<DeltasPage> => {
+      const { data, error } = await api.GET("/voice-profiles/{id}/deltas", {
+        params: {
+          path: { id: profileId },
+          query: deltaCursor ? { cursor: deltaCursor } : {},
+        },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      setAllDeltas((prev) => mergeById(prev, data.data));
+      return { items: data.data, next: data.page.next_cursor ?? null };
+    },
+  });
+  const [allDeltas, setAllDeltas] = useState<VoiceProfileDelta[]>([]);
   const learning = useQuery({
     queryKey: ["voice-learning", profileId],
     queryFn: async (): Promise<VoiceLearningSummary> => {
@@ -171,42 +208,65 @@ export function VoiceHistory({
         <History aria-hidden /> {t("voice.history.label")}
       </div>
       <QueryGate query={versions}>
-        {(list) =>
-          list.length === 0 ? (
+        {(page) =>
+          allVersions.length === 0 ? (
             <p className="t-small">{t("voice.history.empty")}</p>
           ) : (
-            <ul className="vdna-list">
-              {list.map((version) => (
-                <VersionRow
-                  key={version.id}
-                  profileId={profileId}
-                  version={version}
-                  onChanged={onChanged}
-                />
-              ))}
-            </ul>
+            <div>
+              <ul className="vdna-list">
+                {[...allVersions]
+                  .sort((a, b) => b.profile_version - a.profile_version)
+                  .map((version) => (
+                    <VersionRow
+                      key={version.id}
+                      profileId={profileId}
+                      version={version}
+                      onChanged={onChanged}
+                    />
+                  ))}
+              </ul>
+              {page.next && (
+                <Button
+                  small
+                  onClick={() => setVersionCursor(page.next ?? undefined)}
+                >
+                  {t("voice.history.loadMore")}
+                </Button>
+              )}
+            </div>
           )
         }
       </QueryGate>
       <QueryGate query={deltas}>
-        {(list) =>
-          list.length === 0 ? null : (
+        {(page) =>
+          allDeltas.length === 0 ? null : (
             <div className="vdna-deltas">
               <div className="vdna-label">{t("voice.history.deltasLabel")}</div>
               <ul className="vdna-list">
-                {list.map((delta) => (
-                  <li key={delta.id} className="vdna-row">
-                    <span>
-                      {t("voice.history.deltaRow", {
-                        from: delta.from_version ?? 0,
-                        to: delta.to_version,
-                      })}
-                      {" · "}
-                      {delta.classification} · {delta.activation_outcome}
-                    </span>
-                  </li>
-                ))}
+                {[...allDeltas]
+                  .sort((a, b) => b.to_version - a.to_version)
+                  .map((delta) => (
+                    <li key={delta.id} className="vdna-row">
+                      <span>
+                        {t("voice.history.deltaRow", {
+                          from: delta.from_version ?? 0,
+                          to: delta.to_version,
+                        })}
+                        {" · "}
+                        {classificationLabel(t, delta.classification)} ·{" "}
+                        {outcomeLabel(t, delta.activation_outcome)}
+                      </span>
+                    </li>
+                  ))}
               </ul>
+              {page.next && (
+                <Button
+                  small
+                  onClick={() => setDeltaCursor(page.next ?? undefined)}
+                >
+                  {t("voice.history.loadMore")}
+                </Button>
+              )}
             </div>
           )
         }
@@ -257,12 +317,14 @@ function VersionRow({
     },
     onError: (e: Error) => setError(e.message),
   });
+  const locale = useLocale();
   return (
     <li className="vdna-row">
       <span>
-        v{version.profile_version} · <Badge>{version.status}</Badge>
+        {t("voice.history.versionRow", { n: version.profile_version })}{" "}
+        <Badge>{versionStatusLabel(t, version.status)}</Badge>
         {" · "}
-        {new Date(version.created_at).toLocaleDateString()}
+        {new Date(version.created_at).toLocaleDateString(locale)}
       </span>
       {version.status === "superseded" && (
         <button
@@ -278,7 +340,62 @@ function VersionRow({
           <RotateCcw aria-hidden />
         </button>
       )}
-      {error && <span className="t-small">{error}</span>}
+      {error && (
+        <span className="t-small" role="alert">
+          {error}
+        </span>
+      )}
     </li>
   );
+}
+
+// The wire vocabularies rendered through i18n; an unknown value (a newer
+// server) renders verbatim rather than hiding the row.
+function versionStatusLabel(
+  t: ReturnType<typeof useT>,
+  status: string,
+): string {
+  switch (status) {
+    case "active":
+      return t("voice.status.active");
+    case "candidate":
+      return t("voice.status.candidate");
+    case "superseded":
+      return t("voice.status.superseded");
+    case "rejected":
+      return t("voice.status.rejected");
+    default:
+      return status;
+  }
+}
+
+function classificationLabel(
+  t: ReturnType<typeof useT>,
+  value: string,
+): string {
+  switch (value) {
+    case "routine":
+      return t("voice.classification.routine");
+    case "material":
+      return t("voice.classification.material");
+    default:
+      return value;
+  }
+}
+
+function outcomeLabel(t: ReturnType<typeof useT>, value: string): string {
+  switch (value) {
+    case "auto_activated":
+      return t("voice.outcome.autoActivated");
+    case "review_required":
+      return t("voice.outcome.reviewRequired");
+    case "manually_activated":
+      return t("voice.outcome.manuallyActivated");
+    case "rejected":
+      return t("voice.outcome.rejected");
+    case "rollback":
+      return t("voice.outcome.rollback");
+    default:
+      return value;
+  }
 }

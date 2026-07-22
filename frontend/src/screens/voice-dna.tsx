@@ -142,14 +142,14 @@ function VoiceDnaBody({ profile }: Readonly<{ profile: VoiceProfile }>) {
         </span>
       </div>
 
-      {profile.status === "ready" ? (
-        <ActiveVoiceInsights
-          profileId={profile.id as string}
-          onChanged={invalidate}
-        />
-      ) : (
-        <DerivedVoice profile={profile} />
-      )}
+      {/* The insights panel also carries the candidate-review banner, so it
+          renders for EVERY profile state: a review-required first build must
+          be actionable while the profile is still collecting. */}
+      <ActiveVoiceInsights
+        profileId={profile.id as string}
+        onChanged={invalidate}
+      />
+      {profile.status !== "ready" && <DerivedVoice profile={profile} />}
       <PersonalityEditor profile={profile} onSaved={invalidate} />
       <CorpusSources profileId={profile.id as string} onChanged={invalidate} />
       <BuildControls profile={profile} onBuilt={invalidate} />
@@ -412,7 +412,7 @@ function SourceRow({
         {!source.included && ` · ${t("settings.voice.excluded")}`}
       </span>
       {armed && drops && (
-        <span className="t-small vdna-banddrop">
+        <span className="t-small vdna-banddrop" role="alert">
           {t("settings.voice.bandDrop", {
             from: bandLabel(t, summary.quality_band),
             to: bandLabel(t, bandAfter),

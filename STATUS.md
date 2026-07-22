@@ -33,7 +33,7 @@ placeholder constants, regressions and material drift land as
 review-required candidates, budget exhaustion defers to the router's own
 window, and a starter corpus too small for held-out scoring activates
 honestly as the starter voice (first build only). Reply drafting consumes
-the actor's active profile (personality doc first, two verbatim exemplars,
+the actor's active profile (personality doc first, up to two verbatim exemplars,
 stats as negative guardrails) behind the deterministic EN/DE anti-AI floor
 with one critic retry and a clean plain fallback that records a rejected
 learning signal; the draft response stamps `voice_profile_version` +
