@@ -72,14 +72,19 @@ func NewRetentionService(pool *pgxpool.Pool, blob blobstore.Store, log *slog.Log
 // email survives, a same-age note is erased), so flipping the classification
 // fails the build. Archive passes the zero period ("P0D") because archiving
 // RETAINS. $3 is an ISO 8601 date interval (jurisdiction.Period.String) and
-// $4 the calendar-year-end anchor flag (jurisdiction.Anchor): protection
-// holds while the anchor point plus the period is still ahead of now().
-// Postgres does the calendar arithmetic, so a six-YEAR statutory floor is
-// never shortened to 2190 days across leap years — and under §147(4) AO the
-// clock starts at the END of the record's calendar year, so a January
-// Handelsbrief keeps almost seven calendar years, never one day less.
+// $4 the calendar-year-end anchor flag (jurisdiction.Anchor). Postgres does
+// the calendar arithmetic, so a six-YEAR statutory floor is never shortened
+// to 2190 days across leap years — and under §147(4) AO the clock starts at
+// the END of the record's calendar year, so a January Handelsbrief keeps
+// almost seven calendar years, never one day less. The two branches
+// deliberately differ in form: clamped interval ADDITION loses days at month
+// ends (Jan-31 + 1 month = Feb-28), so the occurrence branch keeps the
+// conservative `occurred_at > now() - interval` shape (which
+// jurisdiction.Period.Cutoff mirrors); the year-end branch adds from Jan 1,
+// where nothing clamps, and matches RetentionClass.ProtectedSince.
 const commercialCorrespondenceFloor = `AND NOT (a.kind NOT IN ('task','note')
-		  AND (CASE WHEN $4 THEN date_trunc('year', a.occurred_at) + interval '1 year' ELSE a.occurred_at END) + $3::interval > now())`
+		  AND CASE WHEN $4 THEN date_trunc('year', a.occurred_at) + interval '1 year' + $3::interval > now()
+		           ELSE a.occurred_at > now() - $3::interval END)`
 
 // selectors name the records a (object_type, category) policy governs.
 // The closed map is deliberate: a policy row with a scope the engine

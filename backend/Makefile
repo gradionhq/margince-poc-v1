@@ -68,16 +68,14 @@ check-composition: composition ## Reproducibility gate: a clean regeneration mus
 # like core coverage does, instead of hiding behind an exclusion.
 test-extensions: composition ## Every enabled extension's own test lane (each unit is its own module — ./... never reaches them), on the composed workspace [EXT_COVER_OUT=<file> merges a coverage profile]
 	@set -e; found=0; out="$(if $(EXT_COVER_OUT),$(abspath $(EXT_COVER_OUT)))"; \
-	[ -z "$$out" ] || rm -f "$$out"; \
+	[ -z "$$out" ] || { rm -f "$$out"; tmp=$$(mktemp); trap 'rm -f "$$tmp"' EXIT; }; \
 	for mod in ../extensions/*/go.mod; do \
 		[ -e "$$mod" ] || continue; found=1; \
 		dir=$$(dirname "$$mod"); \
 		echo "== $$dir"; \
 		if [ -n "$$out" ]; then \
-			tmp=$$(mktemp); \
 			(cd "$$dir" && $(GOWORK_COMPOSED) $(GO) test -coverprofile="$$tmp" -coverpkg=./... ./...); \
 			if [ -s "$$out" ]; then tail -n +2 "$$tmp" >> "$$out"; else cp "$$tmp" "$$out"; fi; \
-			rm -f "$$tmp"; \
 		else \
 			(cd "$$dir" && $(GOWORK_COMPOSED) $(GO) test ./...); \
 		fi; \

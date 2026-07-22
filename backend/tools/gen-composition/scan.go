@@ -201,15 +201,20 @@ func (h *treeHasher) addFile(rel string) error {
 	return nil
 }
 
-// addFileOrEmpty records a file that may legitimately be absent —
-// absence digests as empty input, so the file appearing or vanishing
-// both register as a change.
+// addFileOrEmpty records a file that may legitimately be absent, with
+// an explicit absence MARKER — a zero-byte file and a missing file must
+// not share a digest, or presence itself would stop being part of the
+// input identity.
 func (h *treeHasher) addFileOrEmpty(rel string) error {
-	digest, err := digestFileOrEmpty(filepath.Join(h.root, filepath.FromSlash(rel)))
+	content, err := os.ReadFile(filepath.Join(h.root, filepath.FromSlash(rel)))
+	if os.IsNotExist(err) {
+		h.lines = append(h.lines, rel+"\x00absent")
+		return nil
+	}
 	if err != nil {
 		return err
 	}
-	h.lines = append(h.lines, rel+"\x00"+digest)
+	h.lines = append(h.lines, rel+"\x00"+digestBytes(content))
 	return nil
 }
 

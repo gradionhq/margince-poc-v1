@@ -37,11 +37,14 @@ import (
 // boot-time validation.
 var nameGrammar = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
-// maxNameLength bounds the unit name so every derived SQL identifier
-// stays inside PostgreSQL's 63-byte limit — a longer name would be
-// silently TRUNCATED there, and two long names could collide on one
-// role. 32 leaves ≥29 bytes for the `x_` prefix plus a table suffix
-// (`x_<name>_<table>`).
+// maxNameLength bounds the unit name's SHARE of PostgreSQL's 63-byte
+// identifier budget — a longer name would be silently TRUNCATED there,
+// and two long names could collide on one `x_<name>` role. 32 leaves 28
+// bytes for a table suffix in `x_<name>_<table>`; the suffix's own
+// share is enforced where tables are DECLARED — the extension-migration
+// slice (ADR-0069 §9) validates every complete derived identifier
+// against the full budget, since only the migration knows its table
+// names. The name cap alone deliberately does NOT claim that guarantee.
 const maxNameLength = 32
 
 // Name is the canonical extension name and must equal the

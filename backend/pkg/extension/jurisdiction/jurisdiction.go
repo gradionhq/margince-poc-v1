@@ -99,6 +99,14 @@ func (p Period) Validate() error {
 	if p.Years < 0 || p.Months < 0 || p.Days < 0 {
 		return fmt.Errorf("period %s carries a negative component — a retention floor reaches back, never forward", p)
 	}
+	// Statutory floors span decades, not millennia: the bound keeps every
+	// downstream computation (total-month arithmetic in Cutoff, interval
+	// parsing in Postgres) far from overflow, where a wrapped value would
+	// anchor the cutoff in the future and silently skip the floor.
+	const maxComponent = 1000
+	if p.Years > maxComponent || p.Months > maxComponent*12 || p.Days > maxComponent*366 {
+		return fmt.Errorf("period %s is implausibly long for a statutory floor (components cap at %d years)", p, maxComponent)
+	}
 	return nil
 }
 
