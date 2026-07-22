@@ -12,7 +12,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -299,9 +301,8 @@ func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
 		if err != nil {
 			return err
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "consent.changed", sub.entityType, sub.id, map[string]any{
-			"purpose_id": in.PurposeID, "purpose": purposeKey, "new_state": in.NewState,
-		}); err != nil {
+		if err := storekit.EmitEventForEntity(ctx, tx, auditID, sub.entityType, sub.id,
+			consentChangedPayload(in.PurposeID, purposeKey, in.NewState)); err != nil {
 			return err
 		}
 		out = State{PurposeID: in.PurposeID, PurposeKey: purposeKey, State: in.NewState,
@@ -309,6 +310,19 @@ func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
 		return nil
 	})
 	return out, err
+}
+
+// consentChangedPayload builds the consent.changed wire payload — the
+// subject travels separately (sub.entityType/sub.id, passed to
+// storekit.EmitEventForEntity), since this event's entity is dynamic
+// (person XOR lead): the payload itself only ever carries the
+// purpose/state triple.
+func consentChangedPayload(purposeID ids.PurposeID, purposeKey, newState string) crmcontracts.WebhookPayloadConsentChanged {
+	return crmcontracts.WebhookPayloadConsentChanged{
+		PurposeId: openapi_types.UUID(purposeID.UUID),
+		Purpose:   purposeKey,
+		NewState:  newState,
+	}
 }
 
 // loadConsentPurpose resolves the target purpose's key and DOI flag; an

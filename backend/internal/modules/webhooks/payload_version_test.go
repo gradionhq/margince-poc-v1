@@ -377,3 +377,38 @@ func TestEngagementReplyWireSnapshot(t *testing.T) {
 	}
 	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
 }
+
+// consentSnapshotPurposeID is a fixed, memorable UUID so the
+// consent/privacy family's golden snapshot (webhooks Task 5d) is stable
+// across test runs — a real ids.NewV7() would churn the fixture on every
+// regeneration for no reason.
+var consentSnapshotPurposeID = uuid.MustParse("dddddddd-dddd-dddd-dddd-dddddddddddd")
+
+// TestConsentChangedWireSnapshot pins the consent.changed wire shape
+// (webhooks Task 5d) — this event's entity is dynamic (person XOR lead),
+// so unlike every prior family the subject never appears in the payload
+// itself, only in the envelope's entity ref (storekit.EmitEventForEntity's
+// separate entityType argument).
+func TestConsentChangedWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadConsentChanged{
+		PurposeId: consentSnapshotPurposeID,
+		Purpose:   "marketing_email",
+		NewState:  "granted",
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestRetentionAppliedWireSnapshot pins the retention.applied wire shape —
+// like consent.changed, its entity is dynamic (ai_call / a policy's object
+// type / person, one per site), so the subject never appears in the
+// payload. Sampled with the policy-driven sweep's subset (action + policy,
+// no reason) since that is the only site that sets both optional fields
+// together.
+func TestRetentionAppliedWireSnapshot(t *testing.T) {
+	policy := consentSnapshotPurposeID
+	sample := crmcontracts.WebhookPayloadRetentionApplied{
+		Action: "archive",
+		Policy: &policy,
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}

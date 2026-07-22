@@ -13,6 +13,7 @@ const (
 	ActivityArchived     SubscribableEventType = "activity.archived"
 	ActivityCaptured     SubscribableEventType = "activity.captured"
 	ActivityUpdated      SubscribableEventType = "activity.updated"
+	ConsentChanged       SubscribableEventType = "consent.changed"
 	DealArchived         SubscribableEventType = "deal.archived"
 	DealCreated          SubscribableEventType = "deal.created"
 	DealOwnerChanged     SubscribableEventType = "deal.owner_changed"
@@ -41,6 +42,7 @@ const (
 	PipelineArchived     SubscribableEventType = "pipeline.archived"
 	PipelineCreated      SubscribableEventType = "pipeline.created"
 	PipelineUpdated      SubscribableEventType = "pipeline.updated"
+	RetentionApplied     SubscribableEventType = "retention.applied"
 	StageArchived        SubscribableEventType = "stage.archived"
 	StageCreated         SubscribableEventType = "stage.created"
 	StageUpdated         SubscribableEventType = "stage.updated"
@@ -54,6 +56,8 @@ func (e SubscribableEventType) Valid() bool {
 	case ActivityCaptured:
 		return true
 	case ActivityUpdated:
+		return true
+	case ConsentChanged:
 		return true
 	case DealArchived:
 		return true
@@ -111,6 +115,8 @@ func (e SubscribableEventType) Valid() bool {
 		return true
 	case PipelineUpdated:
 		return true
+	case RetentionApplied:
+		return true
 	case StageArchived:
 		return true
 	case StageCreated:
@@ -122,7 +128,7 @@ func (e SubscribableEventType) Valid() bool {
 	}
 }
 
-// SubscribableEventType The closed set of domain events a webhook subscription can select. Phase 4 fills this out family by family; today it carries the pilot event plus the deal family (Task 5a-i), the offer family (Task 5a-ii), the pipeline/stage config family (Task 5a-iii), and the person/organization family (Task 5b-personorg), the lead family (Task 5b-lead), and the activities family (Task 5c).
+// SubscribableEventType The closed set of domain events a webhook subscription can select. Phase 4 fills this out family by family; today it carries the pilot event plus the deal family (Task 5a-i), the offer family (Task 5a-ii), the pipeline/stage config family (Task 5a-iii), and the person/organization family (Task 5b-personorg), the lead family (Task 5b-lead), the activities family (Task 5c), and the consent/privacy family (Task 5d).
 type SubscribableEventType string
 
 // WebhookActivityChangedFields activity.updated's BOUNDED delta: UpdateActivity's known mutable fields (subject, body, occurred_at, due_at, remind_at, assignee_id, is_done) each carried only when this update touched them, plus RelinkActivity's relinked target — a fixed, KNOWN key set (unlike person/organization/deal/lead.updated's genuinely open patch), so it is typed rather than an open map.
@@ -219,6 +225,18 @@ type WebhookPayloadActivityCaptured struct {
 type WebhookPayloadActivityUpdated struct {
 	// ChangedFields activity.updated's BOUNDED delta: UpdateActivity's known mutable fields (subject, body, occurred_at, due_at, remind_at, assignee_id, is_done) each carried only when this update touched them, plus RelinkActivity's relinked target — a fixed, KNOWN key set (unlike person/organization/deal/lead.updated's genuinely open patch), so it is typed rather than an open map.
 	ChangedFields WebhookActivityChangedFields `json:"changed_fields"`
+}
+
+// WebhookPayloadConsentChanged Payload for consent.changed — a subject's per-purpose consent state was recorded (consent/store.go's Record). The subject is a person XOR a lead (data-model §7, before promotion) — a RUNTIME choice Record resolves via consentSubject, not a fixed type this schema can name, so this is the first dynamic-entity event (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and the emit site supplies the real entity type through storekit.EmitEventForEntity.
+type WebhookPayloadConsentChanged struct {
+	// NewState The state now on record (granted | withdrawn).
+	NewState string `json:"new_state"`
+
+	// Purpose The purpose's key (e.g. marketing_email).
+	Purpose string `json:"purpose"`
+
+	// PurposeId The consent purpose this state change applies to.
+	PurposeId openapi_types.UUID `json:"purpose_id"`
 }
 
 // WebhookPayloadDealArchived Payload for deal.archived — a deal was archived. Carries no data.
@@ -503,6 +521,18 @@ type WebhookPayloadPipelineUpdated struct {
 	ChangedFields map[string]interface{} `json:"changed_fields"`
 }
 
+// WebhookPayloadRetentionApplied Payload for retention.applied — a retention/erasure action ran against one record. Three emit sites, three different runtime subjects: the embed-call sweep (ai_call), a workspace's configured retention policy's object type (activity | deal | lead | person | ai_call_payload), and Art. 17 erasure (person) — none fixed enough for this schema to name, so this is dynamic-entity (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and each emit site supplies its own runtime entity type through storekit.EmitEventForEntity. policy/reason are a union across the three sites — the embed-call sweep sets neither, the policy-driven sweep sets policy only, Art. 17 erasure sets reason only.
+type WebhookPayloadRetentionApplied struct {
+	// Action The action that ran (archive | anonymize | erase).
+	Action string `json:"action"`
+
+	// Policy The retention policy that drove this action (absent for the fixed embed-call sweep and for Art. 17 erasure, neither of which is policy-configured).
+	Policy *openapi_types.UUID `json:"policy,omitempty"`
+
+	// Reason Why this action ran (Art. 17 erasure only — e.g. dsr_request; absent for both retention-sweep sites).
+	Reason *string `json:"reason,omitempty"`
+}
+
 // WebhookPayloadStageArchived Payload for stage.archived. Never emitted today (no archive path exists for stage); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it.
 type WebhookPayloadStageArchived struct{}
 
@@ -577,6 +607,10 @@ func (WebhookPayloadActivityCaptured) EntityType() string { return "activity" }
 func (WebhookPayloadActivityUpdated) EventType() string { return "activity.updated" }
 
 func (WebhookPayloadActivityUpdated) EntityType() string { return "activity" }
+
+func (WebhookPayloadConsentChanged) EventType() string { return "consent.changed" }
+
+func (WebhookPayloadConsentChanged) EntityType() string { return "dynamic" }
 
 func (WebhookPayloadDealArchived) EventType() string { return "deal.archived" }
 
@@ -690,6 +724,10 @@ func (WebhookPayloadPipelineUpdated) EventType() string { return "pipeline.updat
 
 func (WebhookPayloadPipelineUpdated) EntityType() string { return "pipeline" }
 
+func (WebhookPayloadRetentionApplied) EventType() string { return "retention.applied" }
+
+func (WebhookPayloadRetentionApplied) EntityType() string { return "dynamic" }
+
 func (WebhookPayloadStageArchived) EventType() string { return "stage.archived" }
 
 func (WebhookPayloadStageArchived) EntityType() string { return "stage" }
@@ -711,6 +749,7 @@ var WebhookPayloadVersions = map[string]int{
 	"activity.archived":     1,
 	"activity.captured":     1,
 	"activity.updated":      1,
+	"consent.changed":       1,
 	"deal.archived":         1,
 	"deal.created":          1,
 	"deal.owner_changed":    1,
@@ -739,6 +778,7 @@ var WebhookPayloadVersions = map[string]int{
 	"pipeline.archived":     1,
 	"pipeline.created":      1,
 	"pipeline.updated":      1,
+	"retention.applied":     1,
 	"stage.archived":        1,
 	"stage.created":         1,
 	"stage.updated":         1,

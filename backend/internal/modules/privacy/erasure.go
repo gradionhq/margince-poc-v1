@@ -40,11 +40,6 @@ const erasedName = "Erased Subject"
 // field-history projection cuts at audit rows carrying it.
 const actionErase = "erase"
 
-// evidenceKeyAction is the audit-evidence map key every retention/erasure
-// action stamps its verb under — shared so the key spelling can't drift
-// between call sites.
-const evidenceKeyAction = "action"
-
 // Eraser executes the shared erase path both the DSR surface and the
 // retention engine's 'erase' action ride.
 type Eraser struct {
@@ -145,9 +140,7 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err != nil {
 			return err
 		}
-		return storekit.Emit(ctx, tx, auditID, "retention.applied", "person", subject.UUID, map[string]any{
-			evidenceKeyAction: actionErase, "reason": reason,
-		})
+		return storekit.EmitEventForEntity(ctx, tx, auditID, "person", subject.UUID, retentionAppliedPayload(actionErase, nil, &reason))
 	})
 }
 
