@@ -25,9 +25,10 @@ maps the codebase and links everything below.
 - [connect-a-hubspot-overlay.md](how-to/connect-a-hubspot-overlay.md) — connect a workspace to a HubSpot portal in overlay (read + continuous sync) mode.
 - [connect-a-cloud-model-provider.md](how-to/connect-a-cloud-model-provider.md) — bind the AI lanes to a BYOK cloud key (Anthropic / OpenAI / Gemini / any OpenAI-compatible vendor).
 - [certify-an-ai-model.md](how-to/certify-an-ai-model.md) — certify a model against a task's scenario corpus and benchmark a candidate swap (`make e2e-ai`).
+- [register-a-webhook.md](how-to/register-a-webhook.md) — register an HTTPS endpoint for signed, retried outbound delivery of domain events, and verify/inspect/replay a delivery.
 
 ### Reference — look it up
-- [modules.md](reference/modules.md) — the 17 modules: what each owns, its tables, its HTTP surface.
+- [modules.md](reference/modules.md) — the modules: what each owns, its tables, its HTTP surface.
 - [platform-toolkit.md](reference/platform-toolkit.md) — the reusable `platform/*` + `shared/*` utilities.
 - [configuration.md](reference/configuration.md) — every binary flag and environment variable.
 - [make-targets.md](reference/make-targets.md) — every `make` target.
@@ -48,11 +49,12 @@ maps the codebase and links everything below.
 - [custom-fields.md](explanation/custom-fields.md) — the one runtime `ALTER TABLE` chokepoint: the closed type/object sets, the privilege boundary, and the `fieldcatalog` seam.
 - [overlay-augmentation.md](explanation/overlay-augmentation.md) — the two SoR modes, the frozen seam + inner incumbent seam, the mirror-as-cache, fail-closed visibility, and teardown for the HubSpot overlay (branch 1: read + continuous sync).
 - [automation.md](explanation/automation.md) — the closed 7×7 trigger/action catalog: the two vocabularies, the one firing path, the anchor occurrence key, and both permission gates.
+- [outbound-webhooks.md](explanation/outbound-webhooks.md) — the governed egress surface: subscription config vs. delivery engine, secret sealing, the retry/dead-letter state machine, and the owner-scope fan-out gate.
 
 ## Reading order for a new contributor
 
 1. [tutorials/getting-started.md](tutorials/getting-started.md) — get it running.
 2. [explanation/backend-onboarding.md](explanation/backend-onboarding.md) — the map + reading order hub.
 3. [architecture.md](explanation/architecture.md) → [contract-first.md](explanation/contract-first.md) → [authorization.md](explanation/authorization.md).
-4. Deep dives on demand: [write-backbone.md](explanation/write-backbone.md), [composition-layer.md](explanation/composition-layer.md), [agent-surface.md](explanation/agent-surface.md), [ai-runtime.md](explanation/ai-runtime.md), [company-context.md](explanation/company-context.md), [privacy-and-consent.md](explanation/privacy-and-consent.md), [custom-fields.md](explanation/custom-fields.md), [automation.md](explanation/automation.md), [reference/modules.md](reference/modules.md), [reference/platform-toolkit.md](reference/platform-toolkit.md).
+4. Deep dives on demand: [write-backbone.md](explanation/write-backbone.md), [composition-layer.md](explanation/composition-layer.md), [agent-surface.md](explanation/agent-surface.md), [ai-runtime.md](explanation/ai-runtime.md), [company-context.md](explanation/company-context.md), [privacy-and-consent.md](explanation/privacy-and-consent.md), [custom-fields.md](explanation/custom-fields.md), [automation.md](explanation/automation.md), [outbound-webhooks.md](explanation/outbound-webhooks.md), [reference/modules.md](reference/modules.md), [reference/platform-toolkit.md](reference/platform-toolkit.md).
 5. [CONTRIBUTING.md](../CONTRIBUTING.md) + [AGENTS.md](../AGENTS.md) — the PR loop and the binding engineering rules.

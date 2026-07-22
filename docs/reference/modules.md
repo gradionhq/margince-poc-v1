@@ -1,6 +1,6 @@
 # Module catalog
 
-The eighteen bounded capabilities under `backend/internal/modules/`. This is the "what owns what" map
+The nineteen bounded capabilities under `backend/internal/modules/`. This is the "what owns what" map
 — use it to find the module a change belongs to, or to place a new one. For the *why* of the module
 boundary (the DAG, the two spine shapes), see [explanation/architecture.md](../explanation/architecture.md);
 for the store/write mechanics every module shares, see
@@ -47,6 +47,7 @@ still answer a generated `501` until its handler lands; it is not an implementat
 | **quotas** | The quota aggregate (RD-T06) — a per-owner XOR per-team revenue target over an explicit period, with a human-set `target_minor` (never AI-guessed or server-computed). Workspace-shared config posture: governed by the `quota` object grant alone, never row-scoped. Audit-only writes (events.md defines no `quota.*` type). | Handlers→Store (`NewStore`) | `quota` | `/quotas` (+`/{id}`,`/{id}/attainment`) |
 | **de** | The German jurisdiction pack — GoBD statutory retention classes, registered in `init()` and pulled into an edge binary by a blank import. Core code never contains a jurisdiction string. | Jurisdiction pack (`ports/jurisdiction`, no Handlers/Store) | none | none (consumed by privacy's retention evaluator through the seam) |
 | **overlay** | The HubSpot-as-system-of-record adapter (branch 1: read + continuous sync) — binds the frozen `datasource` seam via an inner `incumbent.Incumbent` seam, mirrors a connected portal into a governed, T2-tagged, per-user-visibility-filtered read model, and meters/degrades force-fresh reads under the shared HubSpot rate budget. Connection lifecycle is admin/ops-only; every role reads status. Write verbs return `unsupported_by_sor` (write-back is a later branch). | Handlers→Service (`NewService`) + a seam-shaped substrate (mirror/backfill/reconcile/teardown, no HTTP of their own) | `incumbent_connection, overlay_mirror, overlay_association, mirror_user_map, mirror_visibility, overlay_write_ledger, overlay_tombstone, overlay_backfill_cursor, overlay_reconcile_watermark` | `/overlay/connection`, `/overlay/sync-status`, `/overlay/reconcile`, `/overlay/budget`, `/overlay/flip*` (stub) |
+| **webhooks** | The governed outbound egress surface (E10/S-E10.6) — tenant-registered HTTPS subscriptions to a subset of the published event catalog, and a delivery engine that fans matching domain events off `cg:webhooks` as HMAC-SHA256-signed POSTs, retried with exponential backoff, dead-lettered, and human-replayable. The per-subscription signing secret is AES-256-GCM-sealed at rest (shown once at create/rotate); the fan-out is owner-scoped (BYO-EVT-4 — a webhook never delivers an event its owner may not see); the dialer is SSRF-guarded. Managing subscriptions is admin/ops config; agent create/update is 🟡. Needs a deployment signing key — unconfigured, reads still list but secret paths answer 503. See [outbound-webhooks.md](../explanation/outbound-webhooks.md). | Handlers→Store (`NewStore`) for CRUD; a bus-consumer + retry-sweep `Deliverer` (worker-driven, no HTTP spine) | `webhook_subscription, webhook_delivery` | `/webhook-subscriptions` (+`/{id}`,`/{id}/rotate-secret`,`/{id}/deliveries`,`/{id}/deliveries/{deliveryId}/replay`) |
 
 Two tables are owned by the composition layer, not a module: `idempotency_key`
 (HTTP replay protection — transport plumbing) and `brief_run` (the morning-brief
@@ -79,6 +80,7 @@ A module never reaches a sibling; the composition root injects the edge (how tha
 - **consent's DSR erasure** ← privacy's `Eraser`.
 - **signals' relationship strength** ← people's store (adapter).
 - **activities' outbound gate** ← consent (the suppression gate) + people/consent public seams.
+- **webhooks' owner-scope fan-out** ← identity (the enqueue-time owner-visibility re-check via `authz.Resolver`).
 - **imap connect** ← capture's connector registry (adapter).
 - **filtered export** ← collections' saved-view/list source (adapter).
 

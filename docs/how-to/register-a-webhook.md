@@ -1,0 +1,190 @@
+# Register an outbound webhook
+
+Register an HTTPS endpoint to receive signed, retried deliveries of published domain events, then
+verify the signature, inspect deliveries, and replay a parked one. For the mental model (the config
+surface vs. the delivery engine, secret sealing, the retry/dead-letter state machine, the owner-scope
+fan-out gate), read [explanation/outbound-webhooks.md](../explanation/outbound-webhooks.md) first.
+
+**First-party, outbound only.** This registers a *subscription* Margince delivers to — it is not an
+inbound receiver and not a third-party app install. Deliveries are HMAC-SHA256-signed HTTP POSTs of the
+event envelope.
+
+> **Single-organization installation (ADR-0061/A107).** One installation serves one organization; the
+> server resolves its singleton organization itself, so no request selects a tenant — there is no
+> `X-Workspace-Slug` header. The `curl`s below carry only the session cookie. ("Workspace" still names
+> the internal RLS tenant these tables are scoped by.)
+
+## Prerequisites
+
+- **Admin or ops RBAC.** Managing subscriptions is organization-wide integration config (the same
+  posture as quotas), gated `admin`/`ops`-only; every role may *read* a subscription and its
+  deliveries.
+- **A deployment signing key must be configured** — `MARGINCE_WEBHOOK_KEY` (see step 1). Without it the
+  read surface still lists, but create/rotate/replay answer `503 webhooks_not_configured` and no
+  delivery runs.
+- **An HTTPS endpoint you control** that can verify an HMAC and return `2xx`. Plain `http://` targets
+  are rejected at create.
+
+## 1. Configure the deployment signing key
+
+The key seals every subscription's signing secret at rest (AES-256-GCM) — it is a **base64-encoded
+32-byte** key, shared by the api and the delivery worker. Mint one:
+
+```sh
+openssl rand -base64 32
+```
+
+Set it on both the api and the worker before boot (`--webhook-key` or `MARGINCE_WEBHOOK_KEY`). A
+wrong-length key is a **boot error**, never silently padded. Rotating this deployment key re-seals
+nothing automatically — treat it as long-lived; it is the per-subscription secret (step 5) you rotate
+operationally, not this one.
+
+```sh
+export MARGINCE_WEBHOOK_KEY="$(openssl rand -base64 32)"   # then (re)start the api + worker
+```
+
+In `make dev` the single-process api runs delivery inline (`--inline-relay`); in a split deployment the
+worker runs the `cg:webhooks` consumer + retry sweep. Either way the same key must be set on the
+process that delivers.
+
+## 2. Create a subscription
+
+```sh
+curl -X POST http://localhost:8080/v1/webhook-subscriptions \
+  --cookie 'crm_session=<admin or ops session>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "target_url": "https://example.test/hooks/margince",
+        "event_types": ["deal.stage_changed", "person.created"]
+      }'
+```
+
+- `target_url` **must be `https://`**.
+- `event_types` is a **non-empty subset of the published catalog** — an unknown type is a `422`, and
+  the entity-less capture-pipeline events (`capture.*`) are rejected (they name no subject to scope
+  delivery by). List the catalog against the running contract:
+  ```sh
+  grep -oE '"[a-z_]+\.[a-z_]+"' backend/api/crm.yaml | sort -u   # or read events.md §5
+  ```
+
+The `201` response is the subscription **plus the signing secret** — the ONLY time the plaintext
+appears:
+
+```json
+{
+  "subscription": { "id": "…", "target_url": "https://…", "event_types": ["…"],
+                    "state": "active", "version": 1, "owner_id": "…" },
+  "signing_secret": "whsec_…"
+}
+```
+
+**Store `signing_secret` now** — it is never shown again on any read. If you lose it, rotate (step 5);
+you cannot recover it. The `owner_id` is the acting human, stamped server-side — the fan-out only ever
+delivers events that owner may see.
+
+## 3. Verify the signature on your receiver
+
+Every delivery is a POST carrying three headers. Verify `X-Margince-Signature` against the **raw
+request body** (not a re-serialized copy) using the secret from step 2, and dedupe on
+`X-Margince-Delivery` (the bus is at-least-once; the delivery id is stable across retries):
+
+| Header | Meaning |
+|---|---|
+| `X-Margince-Event` | the event type, e.g. `deal.stage_changed` |
+| `X-Margince-Delivery` | the delivery id — your dedupe key |
+| `X-Margince-Signature` | `sha256=` + hex HMAC-SHA256 of the raw body |
+
+A minimal receiver check (Go):
+
+```go
+func verify(secret string, body []byte, sigHeader string) bool {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(body)
+	want := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(want), []byte(sigHeader))
+}
+```
+
+Return any `2xx` to acknowledge; any non-2xx (or a timeout — one attempt is bounded at 10s) is treated
+as a failure and retried.
+
+## 4. Inspect deliveries
+
+Every attempt is logged. List a subscription's deliveries newest-first — this is the dead-letter
+inspection surface:
+
+```sh
+curl --cookie 'crm_session=<session>' \
+  "http://localhost:8080/v1/webhook-subscriptions/<id>/deliveries?limit=50" \
+  | jq '.data[] | {event_type, status, attempts, last_status_code, last_error, next_retry_at}'
+```
+
+The `status` vocabulary is the state machine:
+
+- `pending` — freshly enqueued, first attempt imminent.
+- `delivered` — a `2xx` was received.
+- `retrying` — failed, parked with a `next_retry_at`; the sweeper re-attempts (backoff `1,2,4,8,16s`).
+- `dead_lettered` — the 6-attempt budget is spent; it will not retry on its own.
+
+`page.has_more` reports truncation honestly — the view never looks complete while older parked
+deliveries sit behind the limit.
+
+## 5. Replay a dead-lettered delivery
+
+Once you've fixed the receiver, replay a parked delivery. This is a **human, audited** action; it resets
+the attempt budget and re-sends the *stored* body (so it works even after the source event has aged off
+the bus):
+
+```sh
+curl -X POST --cookie 'crm_session=<admin or ops session>' \
+  http://localhost:8080/v1/webhook-subscriptions/<id>/deliveries/<deliveryId>/replay \
+  | jq '{status, attempts, last_status_code}'
+```
+
+## 6. Rotate the signing secret
+
+Rotation mints a new secret and returns it once; the prior secret **stops verifying immediately**, so
+roll it into your receiver before (or atomically with) the switch:
+
+```sh
+curl -X POST --cookie 'crm_session=<admin or ops session>' \
+  http://localhost:8080/v1/webhook-subscriptions/<id>/rotate-secret \
+  | jq -r '.signing_secret'
+```
+
+## 7. Pause, re-target, or archive
+
+Pause/resume and re-target run under an optimistic-concurrency guard — read the current `version` and
+pass it as `If-Match`:
+
+```sh
+# pause delivery without archiving
+curl -X PATCH --cookie 'crm_session=<admin or ops session>' \
+  -H 'If-Match: "1"' -H 'Content-Type: application/json' \
+  -d '{"state": "paused"}' \
+  http://localhost:8080/v1/webhook-subscriptions/<id>
+
+# archive — stops all delivery permanently
+curl -X DELETE --cookie 'crm_session=<admin or ops session>' \
+  http://localhost:8080/v1/webhook-subscriptions/<id>
+```
+
+A paused subscription holds its retries until it resumes; an archived one stops delivery and reads as
+`404` thereafter (existence-hiding). An empty PATCH (setting neither `state` nor `event_types`) is a
+`422`, not a silent no-op.
+
+## Verify end-to-end
+
+1. **The secret appears exactly once.** A `GET /webhook-subscriptions/<id>` never returns
+   `signing_secret` — confirm it is absent from every read.
+2. **A signed delivery arrives and verifies.** Trigger a subscribed event (e.g. advance a deal's stage
+   for `deal.stage_changed`), confirm your receiver got a POST, and confirm the HMAC verifies against
+   the raw body.
+3. **The owner-scope gate holds.** Register a subscription as a rep who can see only their own deals,
+   then trigger `deal.stage_changed` on a deal they cannot see — confirm **no** delivery is enqueued
+   for that subscription (it never escalates past what the owner may read in the UI).
+4. **Retry and dead-letter.** Point a subscription at an endpoint that returns `500`, trigger an event,
+   and watch the delivery walk `retrying → … → dead_lettered` over its backoff schedule; then fix the
+   endpoint and `replay` it to `delivered`.
+5. **The key-gate is honest.** Unset `MARGINCE_WEBHOOK_KEY` and restart: reads still list, but
+   create/rotate/replay answer `503 webhooks_not_configured` — never an unsigned delivery.
