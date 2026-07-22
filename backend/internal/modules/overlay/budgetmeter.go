@@ -24,9 +24,14 @@ package overlay
 // "Measured", not hard-capped: force_fresh reads Reserve (they shed once the
 // shared window crosses the threshold), but the poller lane Consumes
 // unconditionally — an incumbent it must mirror is not something to refuse
-// partway. So the shared count bounds what force_fresh will SPEND, and
-// reports how close the poller is to the ceiling, but it does not itself cap
-// the poller; a hard poller cap (a token bucket over this same shared row) is
+// partway. So the shared count bounds what force_fresh will SPEND against the
+// window; the poller only records its own accounting units into it, and those
+// units are approximate — reconcile.go Consumes len(page.Records)/
+// len(page.Deletions) (a per-record count), whereas real HubSpot quota is
+// spent per REQUEST (a page fetch, plus any enrichment calls). So the poller's
+// contribution tracks work done, not requests made, and can diverge from the
+// true quota ceiling. It does not itself cap the poller; a hard poller cap
+// with request-level metering (a token bucket over this same shared row) is
 // the coupled follow-up.
 //
 // The window is fixed (window_start + Window duration), not sliding: a
