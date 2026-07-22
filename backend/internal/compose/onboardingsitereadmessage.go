@@ -336,9 +336,6 @@ func looksLikeQuestion(message string) bool {
 	if strings.HasSuffix(normalized, "?") {
 		return true
 	}
-	if strings.Contains(normalized, " or ") || strings.Contains(normalized, " oder ") {
-		return true
-	}
 	for _, lead := range []string{
 		"what ", "which ", "who ", "where ", "when ", "why ", "how ", "is ", "are ", "am ",
 		"do ", "does ", "did ", "can ", "could ", "would ", "will ", "should ", "has ", "have ",

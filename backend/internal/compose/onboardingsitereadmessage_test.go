@@ -315,10 +315,10 @@ func TestCompanyChangeAuthorizationUnderstandsAssertionsDirectAnswersAndFollowUp
 	) {
 		t.Fatal("a question opened the deterministic direct-answer boundary")
 	}
-	if newCompanyChangeAuthorization("Acme or Acme GmbH", nil, fieldDisplayName).allows(
-		companyReadProposedChange{Field: fieldDisplayName, Value: "Acme"},
+	if !newCompanyChangeAuthorization("Startups or enterprises", nil, fieldICP).allows(
+		companyReadProposedChange{Field: fieldICP, Value: "Startups or enterprises"},
 	) {
-		t.Fatal("an unpunctuated choice question opened the deterministic direct-answer boundary")
+		t.Fatal("a legitimate direct answer containing a conjunction was rejected")
 	}
 
 	explicit := newCompanyChangeAuthorization("Please update our industry to Software", nil, "")
