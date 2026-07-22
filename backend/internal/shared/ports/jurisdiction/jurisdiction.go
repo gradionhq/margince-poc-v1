@@ -41,6 +41,20 @@ type Code = pub.Code
 // Period is the published calendar-period type, aliased like Pack.
 type Period = pub.Period
 
+// RetentionClassName is the published closed class vocabulary, aliased
+// like Pack; the named classes ride along so core engines consult the
+// same constants extensions declare.
+type RetentionClassName = pub.RetentionClassName
+
+const (
+	// CommercialCorrespondence is the published constant, re-exported.
+	CommercialCorrespondence = pub.CommercialCorrespondence
+	// AccountingRecords is the published constant, re-exported.
+	AccountingRecords = pub.AccountingRecords
+	// BooksAndAnnualAccounts is the published constant, re-exported.
+	BooksAndAnnualAccounts = pub.BooksAndAnnualAccounts
+)
+
 var (
 	mu    sync.RWMutex
 	packs = map[Code]Pack{}

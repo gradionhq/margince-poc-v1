@@ -46,7 +46,7 @@ GOWORK_COMPOSED := GOWORK=$(COMPOSITION_DIR)/go.work
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report test-db-up test-it test-integration-serial lint arch-lint vet gen gen-workflow drift composition check-composition db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql redis-cli tidy dev infra-down infra-logs infra-reset clean vuln tools tools-go hooks
+.PHONY: help check build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report test-db-up test-it test-integration-serial lint arch-lint vet gen gen-workflow drift composition check-composition test-extensions db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql redis-cli tidy dev infra-down infra-logs infra-reset clean vuln tools tools-go hooks
 
 help: ## List targets with their descriptions (the default goal)
 	@grep -hE '^[a-zA-Z][a-zA-Z0-9_-]*:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -55,14 +55,16 @@ help: ## List targets with their descriptions (the default goal)
 # cache exactly once. Fanning it out with the others makes every pass
 # compile that graph concurrently — the cache does not block a second
 # compiler on an in-flight entry, so parallel-from-cold multiplies the
-# work and LOSES to serial on a small runner (measured in CI). The four
-# analysis passes then fan out as pure readers of the warmed cache. drift
-# and check-composition stay last and serial: gen REWRITES *_gen.go,
+# work and LOSES to serial on a small runner (measured in CI). The
+# analysis passes then fan out as pure readers of the warmed cache
+# (test-extensions reads it too — its `composition` prerequisite runs
+# once inside the fan-out sub-make before the goals split). drift and
+# check-composition stay last and serial: gen REWRITES *_gen.go,
 # internal/contracts/ and build/composition/ in place — a
 # write-under-reader race for any pass still compiling them.
 check: ## The merge gate: everything a PR must pass
 	$(MAKE) build
-	$(MAKE) -j4 vet lint arch-lint test
+	$(MAKE) -j4 vet lint arch-lint test test-extensions
 	$(MAKE) drift
 	$(MAKE) check-composition
 
@@ -72,6 +74,16 @@ composition: ## Materialize build/composition/ from the enabled set under extens
 check-composition: composition ## Reproducibility gate: a clean regeneration must reproduce composition.json byte-for-byte
 	@$(GO) run ./tools/gen-composition -verify
 	@echo "OK: composition reproducible"
+
+test-extensions: composition ## Every enabled extension's own test lane (each unit is its own module — ./... never reaches them), on the composed workspace
+	@set -e; found=0; \
+	for mod in ../extensions/*/go.mod; do \
+		[ -e "$$mod" ] || continue; found=1; \
+		dir=$$(dirname "$$mod"); \
+		echo "== $$dir"; \
+		(cd "$$dir" && $(GOWORK_COMPOSED) $(GO) test ./...); \
+	done; \
+	[ "$$found" = "1" ] || echo "test-extensions: no enabled Go extensions"
 
 build: composition ## Compile every package (composed workspace)
 	$(GOWORK_COMPOSED) $(GO) build ./...

@@ -5,11 +5,12 @@
 
 package integration
 
-// The jurisdiction seam under the retention engine: with the DE pack
-// compiled in, a destructive retention action must not touch
-// commercial correspondence (email activities) younger than the GoBD
-// floor — however aggressive the workspace's own policy is. Archiving
-// is untouched: it RETAINS, which is what the statute wants.
+// The jurisdiction seam under the retention engine: with a pack
+// declaring a commercial-correspondence floor registered, a destructive
+// retention action must not touch commercial correspondence (email
+// activities) younger than that floor — however aggressive the
+// workspace's own policy is. Archiving is untouched: it RETAINS, which
+// is what the statute wants.
 
 import (
 	"context"
@@ -19,13 +20,37 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	// Registering the DE jurisdiction pack arms the GoBD retention floors
-	// this test exercises (ADR-0042: composition by require-set).
-	_ "github.com/gradionhq/margince/backend/internal/modules/de"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/jurisdiction"
 )
+
+// gobdFloorPack is the test's own six-calendar-year correspondence
+// floor — the same span the de extension declares. The engine is what
+// this suite proves; the de unit's statutory CONTENT is pinned by its
+// own test lane (extensions/de), and the backend never imports an
+// extension module (TestCompositionWiredOnlyFromCmd), so the floor is
+// registered here the way the boot reconciliation would.
+type gobdFloorPack struct{}
+
+func (gobdFloorPack) Code() jurisdiction.Code { return "zq" }
+
+func (gobdFloorPack) Retention() jurisdiction.Retention { return gobdFloorClasses{} }
+
+type gobdFloorClasses struct{}
+
+func (gobdFloorClasses) Classes() []jurisdiction.RetentionClass {
+	return []jurisdiction.RetentionClass{
+		{Name: jurisdiction.CommercialCorrespondence, Keep: jurisdiction.Period{Years: 6}},
+	}
+}
+
+// init mirrors the arming the composed boot performs: the registry is
+// process-global, so registering once arms the floor for this binary.
+func init() {
+	jurisdiction.Register(gobdFloorPack{})
+}
 
 func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 	e := Setup(t)

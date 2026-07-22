@@ -14,10 +14,23 @@ import (
 // Pack codes in this file use ISO user-assigned codes (z*) unique per
 // test: the jurisdiction registry is process-global, so a code
 // registered here stays registered for the test binary's lifetime.
-type fakePack struct{ code jurisdiction.Code }
+type fakePack struct {
+	code    jurisdiction.Code
+	classes []jurisdiction.RetentionClass
+}
 
-func (p fakePack) Code() jurisdiction.Code         { return p.code }
-func (fakePack) Retention() jurisdiction.Retention { return nil }
+func (p fakePack) Code() jurisdiction.Code { return p.code }
+
+func (p fakePack) Retention() jurisdiction.Retention {
+	if p.classes == nil {
+		return nil
+	}
+	return fakeRetention{classes: p.classes}
+}
+
+type fakeRetention struct{ classes []jurisdiction.RetentionClass }
+
+func (r fakeRetention) Classes() []jurisdiction.RetentionClass { return r.classes }
 
 func TestRegisterExtensionsAppliesDeclaredCapabilities(t *testing.T) {
 	err := RegisterExtensions([]extension.Extension{{
@@ -67,6 +80,27 @@ func TestRegisterExtensionsPreflightsDuplicateJurisdictions(t *testing.T) {
 	}
 	if _, ok := jurisdiction.For("zv"); ok {
 		t.Fatal("a duplicate-declared pack landed although the set was rejected")
+	}
+}
+
+// TestRegisterExtensionsRejectsAnUnknownRetentionClass: the class set is
+// closed (vocabulary registration is deferred, ADR-0069 §13) — a typo'd
+// or invented class would be a statutory floor that looks registered
+// while no engine ever consults it, so the boot refuses it.
+func TestRegisterExtensionsRejectsAnUnknownRetentionClass(t *testing.T) {
+	err := RegisterExtensions([]extension.Extension{{
+		Name:    "typo-floor",
+		Version: "0.0.1",
+		Jurisdictions: []jurisdiction.Pack{fakePack{
+			code:    "zu",
+			classes: []jurisdiction.RetentionClass{{Name: "comercial_correspondence", Keep: jurisdiction.Period{Years: 6}}},
+		}},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "not in the closed class set") {
+		t.Fatalf("err = %v, want the closed-set rejection", err)
+	}
+	if _, ok := jurisdiction.For("zu"); ok {
+		t.Fatal("the pack landed although its retention class failed validation")
 	}
 }
 
