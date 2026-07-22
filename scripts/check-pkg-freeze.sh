@@ -37,10 +37,21 @@ APIDIFF="${APIDIFF:-go run golang.org/x/exp/cmd/apidiff@v0.0.0-20260718201538-76
 
 if [ -n "${PKG_FREEZE_MODE:-}" ]; then
   MODE="$PKG_FREEZE_MODE"
-elif [ -n "$(git tag --list 'v[1-9]*' | head -1)" ]; then
-  MODE=enforce
 else
-  MODE=advisory
+  # The first STABLE v1+ release tag arms enforcement — exact release
+  # syntax only (vMAJOR.MINOR.PATCH, major ≥ 1), so a prerelease
+  # (v1.0.0-rc.1) or an unrelated v1* tag cannot arm it early. A failed
+  # tag enumeration fails the gate: an error must never silently weaken
+  # a release-enforcement threshold to advisory.
+  if ! RELEASE_TAGS="$(git tag --list 'v*')"; then
+    echo "FAIL: pkg-freeze — cannot enumerate release tags (git tag failed)" >&2
+    exit 1
+  fi
+  if printf '%s\n' "$RELEASE_TAGS" | grep -qE '^v[1-9][0-9]*\.[0-9]+\.[0-9]+$'; then
+    MODE=enforce
+  else
+    MODE=advisory
+  fi
 fi
 case "$MODE" in
   advisory | enforce) ;;
