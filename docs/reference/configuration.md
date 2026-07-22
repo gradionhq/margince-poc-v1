@@ -268,6 +268,52 @@ egress by construction). An editor with a YAML language server picks up
 (referenced from the example's first line) for autocomplete, enum
 validation, and hover docs; the parser remains the sole runtime authority.
 
+The `embeddings:` binding also takes `dimensions` — the vector width the
+provider is asked to emit. Default `1024`, matching the store's pgvector
+column; `0` or omitted means the default. An operator-set value validates
+into `[1, 2000]` (`ai.ParseRouting`) — out of range is a boot error, never a
+runtime one. Changing `dimensions` (or the provider/model) needs **no
+migration**: the embedding column is unbounded `vector`, so a config edit +
+restart (`make dev`) takes effect immediately — the next ingress and query
+both use the new width. Existing rows stay stamped under the old identity
+until re-embedded; see below.
+
+### Embedding binding changes & reindex
+
+Every embedding row is stamped with the identity (provider/model@dimensions)
+it was written under. On boot, the seed step plants the deployment's
+`embed_store_binding` marker at the configured identity; if the store was
+already populated under a **different** one — an operator changed the
+binding since the last boot — that mismatch is logged at **error** level (an
+admin must see it) and boot still succeeds. The store keeps serving reads
+correctly under whichever identity is already there; reindexing onto the new
+one is a deliberate ops action, never something boot forces.
+
+The mismatch surfaces two ways: `/readyz`'s `embed:` line (`active` |
+`needs_reindex` | `reembedding`) and an admin/ops-only banner in the
+frontend shell. Reconciling runs through three **human-only** routes
+(`x-agent-access: human-only` — a passport/agent principal never reaches
+them):
+
+- `GET /embeddings/reindex/status` — the binding marker plus a live
+  per-workspace pending-entity scan; readable by every role.
+- `GET /embeddings/reindex/preview` — the scope before the spend:
+  fleet-wide and per-workspace pending counts plus a cost estimate (always
+  `heuristic` — a work-shape token figure, never priced from observed
+  `ai_call` history) and each workspace's advisory budget-utilization
+  impact. The embed lane itself is budget-exempt (routing never queues or
+  degrades it), so this is disclosure only, never a block.
+- `POST /embeddings/reindex` — admin/ops-gated (the `embedding_reindex`
+  object's `update` grant). Claims the binding marker (`idle` →
+  `reembedding`) and enqueues one fleet-wide re-embed job, resumable by
+  construction (a content-hash + identity skip-compare makes revisiting an
+  already-current row free); one live reindex at a time (`409
+  reindex_running`).
+
+Correctness never depends on a reindex finishing: retrieval filters to the
+current identity, so rows still under a stale identity are simply hidden
+from search until re-embedded, never served as if current.
+
 Two operator gotchas, verified against current vendor docs:
 
 1. **`openai_compatible`'s embeddings lane 404s on OpenRouter, Groq, and
