@@ -92,7 +92,12 @@ make_clone() {
   db_admin recreate-db --name "$db" --template "$TEMPLATE_NAME" >/dev/null
 }
 
-drop_clone() { local db="$1"; db_admin drop-db --name "$db" >/dev/null 2>&1 || true; }
+# drop_clone db — remove a throwaway clone. Failures propagate (stderr and
+# status): a clone that cannot be dropped is a leaked database on the test
+# cluster, and callers fold that into their exit status instead of reporting
+# a green run. drop-db is WITH (FORCE), so a just-exited test process whose
+# backends linger can never flake the teardown — a failure here is real.
+drop_clone() { local db="$1"; db_admin drop-db --name "$db" >/dev/null; }
 
 # bucket_for SLOT [BASE] — DNS-compliant private MinIO bucket per slot (the store
 # auto-creates it). Hyphen, never underscore.

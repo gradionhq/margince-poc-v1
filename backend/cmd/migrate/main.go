@@ -158,7 +158,9 @@ func fitsIdentifier(ctx context.Context, conn *pgx.Conn, what, value string) err
 
 // recreateDB drops the named database if present and creates it fresh —
 // from --template when given (CREATE DATABASE ... TEMPLATE, a fast file
-// copy that needs no session connected to the template).
+// copy that needs no session connected to the template). The drop is WITH
+// (FORCE): a stale clone left by a crashed run may still hold sessions, and
+// starting over is exactly the caller's intent.
 func recreateDB(ctx context.Context, conn *pgx.Conn, name, template string, stdout io.Writer) error {
 	if name == "" {
 		return errors.New("migrate recreate-db: --name is required")
@@ -171,7 +173,7 @@ func recreateDB(ctx context.Context, conn *pgx.Conn, name, template string, stdo
 			return err
 		}
 	}
-	if _, err := conn.Exec(ctx, "DROP DATABASE IF EXISTS "+pgx.Identifier{name}.Sanitize()); err != nil {
+	if _, err := conn.Exec(ctx, "DROP DATABASE IF EXISTS "+pgx.Identifier{name}.Sanitize()+" WITH (FORCE)"); err != nil {
 		return fmt.Errorf("migrate recreate-db: dropping %q: %w", name, err)
 	}
 	create := "CREATE DATABASE " + pgx.Identifier{name}.Sanitize()
@@ -187,8 +189,11 @@ func recreateDB(ctx context.Context, conn *pgx.Conn, name, template string, stdo
 	return nil
 }
 
-// dropDB drops the named database if present; dropping an absent database
-// succeeds (IF EXISTS), so teardown paths need no pre-check.
+// dropDB drops the named database if present — WITH (FORCE), terminating
+// lingering sessions: the verb tears down throwaway clones right after a
+// test process exits, when its backends may not have noticed yet, and a
+// teardown that can lose that race would fail flakily. Dropping an absent
+// database succeeds (IF EXISTS), so teardown paths need no pre-check.
 func dropDB(ctx context.Context, conn *pgx.Conn, name string, stdout io.Writer) error {
 	if name == "" {
 		return errors.New("migrate drop-db: --name is required")
@@ -196,7 +201,7 @@ func dropDB(ctx context.Context, conn *pgx.Conn, name string, stdout io.Writer) 
 	if err := fitsIdentifier(ctx, conn, "migrate drop-db: --name", name); err != nil {
 		return err
 	}
-	if _, err := conn.Exec(ctx, "DROP DATABASE IF EXISTS "+pgx.Identifier{name}.Sanitize()); err != nil {
+	if _, err := conn.Exec(ctx, "DROP DATABASE IF EXISTS "+pgx.Identifier{name}.Sanitize()+" WITH (FORCE)"); err != nil {
 		return fmt.Errorf("migrate drop-db: dropping %q: %w", name, err)
 	}
 	if _, err := fmt.Fprintf(stdout, "dropped %s\n", name); err != nil {

@@ -115,7 +115,10 @@ run_one() {
            MARGINCE_TEST_REDIS_DB="$redis_db" \
         go test -p 1 -tags=integration -v -count=1 -timeout="$IT_TIMEOUT" \
           "${cover_pre[@]+"${cover_pre[@]}"}" "$rel" "${cover_post[@]+"${cover_post[@]}"}" ) || st=$?
-    drop_clone "$db"
+    if ! drop_clone "$db"; then
+      echo "FAIL: clone db $db was not dropped — leaked on the test cluster"
+      if [[ "$st" -eq 0 ]]; then st=1; fi
+    fi
     echo "EXIT $st"
   } > "$log" 2>&1
 }

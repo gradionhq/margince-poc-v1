@@ -133,6 +133,31 @@ func TestDropDBSucceedsWhenTheDatabaseIsAbsent(t *testing.T) {
 	}
 }
 
+func TestDropDBTerminatesLingeringSessions(t *testing.T) {
+	// Teardown runs right after a test process exits, when its backends may
+	// not have gone yet — and drop_clone now propagates failures, so a drop
+	// that could lose that race would fail the lane flakily. WITH (FORCE)
+	// makes the drop win: the session dies, not the teardown.
+	maint, base, withDB := testDSNs(t)
+	name := base + "_verbs_lingering"
+	t.Cleanup(func() { mustMigrate(t, "drop-db", "--dsn", maint, "--name", name) })
+
+	mustMigrate(t, "recreate-db", "--dsn", maint, "--name", name)
+	conn, err := pgx.Connect(context.Background(), withDB(name))
+	if err != nil {
+		t.Fatalf("opening the lingering session: %v", err)
+	}
+	// Deliberately not closed before the drop — the drop must win anyway.
+
+	mustMigrate(t, "drop-db", "--dsn", maint, "--name", name)
+	if out := mustMigrate(t, "db-exists", "--dsn", maint, "--name", name); out != "false\n" {
+		t.Fatalf("db-exists after force-dropping printed %q, want %q", out, "false\n")
+	}
+	if _, err := conn.Exec(context.Background(), "SELECT 1"); err == nil {
+		t.Fatal("the lingering session survived drop-db — WITH (FORCE) must terminate it")
+	}
+}
+
 func TestDBExistsPrintsTheLiteralAnswerTheLaneParses(t *testing.T) {
 	// ensure_template string-compares this stdout — it is a wire contract
 	// between the binary and scripts/lib-testdb.sh, not cosmetics.
