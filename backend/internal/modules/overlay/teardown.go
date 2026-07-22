@@ -37,6 +37,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -109,6 +110,18 @@ func (s *Service) Disconnect(ctx context.Context) error {
 	return nil
 }
 
+// incumbentDisconnectedPayload builds the incumbent.disconnected wire
+// payload. Unlike the mirror.* events, this event's subject is always
+// the incumbent_connection row itself — a fixed type — so it is emitted
+// via the plain storekit.EmitEvent.
+func incumbentDisconnectedPayload(incumbent, region, status string) crmcontracts.WebhookPayloadIncumbentDisconnected {
+	return crmcontracts.WebhookPayloadIncumbentDisconnected{
+		Incumbent: incumbent,
+		Region:    region,
+		Status:    status,
+	}
+}
+
 // revokeConnection selects the workspace's active incumbent_connection
 // row FOR UPDATE, flips it to revoked, and writes the write-shape
 // Audit+Emit pair — the first half of Disconnect's transaction.
@@ -141,7 +154,8 @@ func revokeConnection(ctx context.Context, tx pgx.Tx) (credentialRef string, err
 	if auditErr != nil {
 		return "", fmt.Errorf("overlay: auditing the disconnect: %w", auditErr)
 	}
-	if emitErr := storekit.Emit(ctx, tx, auditID, "incumbent.disconnected", "incumbent_connection", connID, after); emitErr != nil {
+	if emitErr := storekit.EmitEvent(ctx, tx, auditID, connID,
+		incumbentDisconnectedPayload(incumbent, region, statusRevoked)); emitErr != nil {
 		return "", fmt.Errorf("overlay: emitting incumbent.disconnected: %w", emitErr)
 	}
 	return credentialRef, nil

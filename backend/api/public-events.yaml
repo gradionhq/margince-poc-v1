@@ -28,7 +28,8 @@ components:
         the person/organization family (Task 5b-personorg), the lead
         family (Task 5b-lead), the activities family (Task 5c), the
         consent/privacy family (Task 5d), the signals family (Task 5e), the
-        ai voice family (Task 5f), and the identity family (Task 5g).
+        ai voice family (Task 5f), the identity family (Task 5g), and the
+        overlay family (Task 5h).
       enum:
         - deal.created
         - deal.owner_changed
@@ -81,6 +82,12 @@ components:
         - role.changed
         - passport.revoked
         - onboarding.state_changed
+        - mirror.conflict
+        - mirror.budget_degraded
+        - mirror.deleted
+        - mirror.write_rejected
+        - incumbent.connected
+        - incumbent.disconnected
 
     WebhookActor:
       type: object
@@ -1656,4 +1663,171 @@ components:
         completed:
           type: boolean
           description: Whether the wizard was completed as of this checkpoint.
+      additionalProperties: false
+
+    WebhookPayloadMirrorConflict:
+      type: object
+      x-event-type: mirror.conflict
+      x-entity-type: dynamic
+      x-version: 1
+      description: >-
+        Payload for mirror.conflict — the reconcile poller (overlay/
+        reconcile.go's emitMirrorConflict) observed the incumbent CRM had
+        moved a record the mirror's own baseline still called current, an
+        overwrite-worthy divergence (OVA-EVT-1). object_class is the
+        RUNTIME canonical class of the record involved (e.g. "person",
+        "deal") — not a fixed type this schema can name — so this is a
+        dynamic-entity event (contract `x-entity-type: dynamic`): the
+        generated EntityType() is unused, and the emit site supplies the
+        real entity type through storekit.EmitEventForEntity.
+      required:
+        - object_class
+        - external_id
+        - prior_updated_at
+        - incumbent_updated_at
+      properties:
+        object_class:
+          type: string
+          description: The canonical Margince class of the diverged record.
+        external_id:
+          type: string
+          description: The record's incumbent-side natural key.
+        prior_updated_at:
+          type: string
+          format: date-time
+          description: The mirror's prior stored baseline timestamp.
+        incumbent_updated_at:
+          type: string
+          format: date-time
+          description: The incumbent's reported modification timestamp.
+      additionalProperties: false
+
+    WebhookPayloadMirrorBudgetDegraded:
+      type: object
+      x-event-type: mirror.budget_degraded
+      x-entity-type: dynamic
+      x-version: 1
+      description: >-
+        Payload for mirror.budget_degraded — a force-fresh read fell back
+        to the mirror because the workspace's shared OVB budget had
+        shed to the "shed" band (overlay/freshness.go's emitBudgetDegraded,
+        OVA-EVT-3). The event names the record the degraded read was
+        about; that record's class is a RUNTIME value (the read's own
+        entity ref), so this is a dynamic-entity event (contract
+        `x-entity-type: dynamic`): the generated EntityType() is unused,
+        and the emit site supplies the real entity type through
+        storekit.EmitEventForEntity.
+      required:
+        - band
+      properties:
+        band:
+          type: string
+          description: The budget band that forced the degrade (currently always "shed").
+      additionalProperties: false
+
+    WebhookPayloadMirrorDeleted:
+      type: object
+      x-event-type: mirror.deleted
+      x-entity-type: dynamic
+      x-version: 1
+      description: >-
+        Payload for mirror.deleted — continuous sync observed the
+        incumbent report a record deleted, and the mirror purged its
+        cached row, association edges, and visibility projection
+        (overlay/mirrordeletion.go). object_class is the RUNTIME
+        canonical class of the purged record, not a fixed type this
+        schema can name, so this is a dynamic-entity event (contract
+        `x-entity-type: dynamic`): the generated EntityType() is unused,
+        and the emit site supplies the real entity type through
+        storekit.EmitEventForEntity.
+      required:
+        - object_class
+        - external_id
+        - deleted_at
+      properties:
+        object_class:
+          type: string
+          description: The canonical Margince class of the purged record.
+        external_id:
+          type: string
+          description: The record's incumbent-side natural key.
+        deleted_at:
+          type: string
+          format: date-time
+          description: When the incumbent reported the deletion.
+      additionalProperties: false
+
+    WebhookPayloadMirrorWriteRejected:
+      type: object
+      x-event-type: mirror.write_rejected
+      x-entity-type: dynamic
+      x-version: 1
+      description: >-
+        Payload for mirror.write_rejected. Never emitted today — reserved
+        for branch 2 (writes to an overlay-mode workspace's incumbent
+        CRM, currently declared unsupported_by_sor); the schema is
+        published so the type is a valid subscription target and the
+        coverage gate can name it explicitly rather than silently
+        omitting it.
+      additionalProperties: false
+
+    WebhookPayloadIncumbentConnected:
+      type: object
+      x-event-type: incumbent.connected
+      x-entity-type: incumbent_connection
+      x-version: 1
+      description: >-
+        Payload for incumbent.connected — a workspace completed the
+        overlay-mode incumbent-CRM connect flow (overlay/connection.go's
+        insertConnection); the workspace flipped to x_sor_mode=overlay in
+        the same transaction. Unlike the mirror.* events above, this
+        event's subject is always the incumbent_connection row itself —
+        a fixed type — so it is emitted via the plain storekit.EmitEvent.
+      required:
+        - incumbent
+        - region
+        - scopes
+        - status
+      properties:
+        incumbent:
+          type: string
+          description: The incumbent CRM system connected (e.g. "hubspot").
+        region:
+          type: string
+          description: The incumbent account's data-residency region.
+        scopes:
+          type: array
+          items:
+            type: string
+          description: The least-privilege OAuth scope set granted.
+        status:
+          type: string
+          description: The connection's status after this change (active).
+      additionalProperties: false
+
+    WebhookPayloadIncumbentDisconnected:
+      type: object
+      x-event-type: incumbent.disconnected
+      x-entity-type: incumbent_connection
+      x-version: 1
+      description: >-
+        Payload for incumbent.disconnected — a workspace's active
+        incumbent-CRM connection was revoked (overlay/teardown.go's
+        Disconnect); mirror teardown and credential cleanup follow. This
+        event's subject is always the incumbent_connection row itself —
+        a fixed type — so it is emitted via the plain storekit.EmitEvent.
+      required:
+        - incumbent
+        - region
+        - status
+      properties:
+        incumbent:
+          type: string
+          description: The incumbent CRM system disconnected.
+        region:
+          type: string
+          description: The incumbent account's data-residency region.
+        status:
+          type: string
+          description: The connection's status after this change (revoked).
       additionalProperties: false

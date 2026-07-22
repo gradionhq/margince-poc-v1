@@ -1,0 +1,9 @@
+{
+  "incumbent": "hubspot",
+  "region": "eu",
+  "scopes": [
+    "crm.objects.contacts.read",
+    "crm.objects.deals.read"
+  ],
+  "status": "active"
+}

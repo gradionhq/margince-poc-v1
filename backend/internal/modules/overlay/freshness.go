@@ -10,10 +10,19 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
+
+// mirrorBudgetDegradedPayload builds the mirror.budget_degraded wire
+// payload — the subject travels separately (the read's own entity ref,
+// passed to storekit.EmitEventForEntity), since this event's entity is
+// dynamic (whichever record class the degraded read was about).
+func mirrorBudgetDegradedPayload(band string) crmcontracts.WebhookPayloadMirrorBudgetDegraded {
+	return crmcontracts.WebhookPayloadMirrorBudgetDegraded{Band: band}
+}
 
 // FreshnessReader is the real force-fresh read-through (design.md §4.5
 // S2): a Freshness call bypasses the mirror and re-reads the incumbent
@@ -253,8 +262,8 @@ func (f *FreshnessReader) emitBudgetDegraded(ctx context.Context, ref datasource
 		if err != nil {
 			return fmt.Errorf("overlay: logging the budget-degrade system event: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, logID, "mirror.budget_degraded", string(ref.Type), ref.ID,
-			map[string]any{"band": BandShed}); err != nil {
+		if err := storekit.EmitEventForEntity(ctx, tx, logID, string(ref.Type), ref.ID,
+			mirrorBudgetDegradedPayload(BandShed)); err != nil {
 			return fmt.Errorf("overlay: emitting mirror.budget_degraded: %w", err)
 		}
 		return nil

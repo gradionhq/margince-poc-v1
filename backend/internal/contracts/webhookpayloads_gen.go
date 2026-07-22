@@ -21,10 +21,16 @@ const (
 	DealStageChanged          SubscribableEventType = "deal.stage_changed"
 	DealUpdated               SubscribableEventType = "deal.updated"
 	EngagementReply           SubscribableEventType = "engagement.reply"
+	IncumbentConnected        SubscribableEventType = "incumbent.connected"
+	IncumbentDisconnected     SubscribableEventType = "incumbent.disconnected"
 	LeadCreated               SubscribableEventType = "lead.created"
 	LeadDisqualified          SubscribableEventType = "lead.disqualified"
 	LeadPromoted              SubscribableEventType = "lead.promoted"
 	LeadUpdated               SubscribableEventType = "lead.updated"
+	MirrorBudgetDegraded      SubscribableEventType = "mirror.budget_degraded"
+	MirrorConflict            SubscribableEventType = "mirror.conflict"
+	MirrorDeleted             SubscribableEventType = "mirror.deleted"
+	MirrorWriteRejected       SubscribableEventType = "mirror.write_rejected"
 	OfferAccepted             SubscribableEventType = "offer.accepted"
 	OfferCreated              SubscribableEventType = "offer.created"
 	OfferRejected             SubscribableEventType = "offer.rejected"
@@ -88,6 +94,10 @@ func (e SubscribableEventType) Valid() bool {
 		return true
 	case EngagementReply:
 		return true
+	case IncumbentConnected:
+		return true
+	case IncumbentDisconnected:
+		return true
 	case LeadCreated:
 		return true
 	case LeadDisqualified:
@@ -95,6 +105,14 @@ func (e SubscribableEventType) Valid() bool {
 	case LeadPromoted:
 		return true
 	case LeadUpdated:
+		return true
+	case MirrorBudgetDegraded:
+		return true
+	case MirrorConflict:
+		return true
+	case MirrorDeleted:
+		return true
+	case MirrorWriteRejected:
 		return true
 	case OfferAccepted:
 		return true
@@ -173,7 +191,7 @@ func (e SubscribableEventType) Valid() bool {
 	}
 }
 
-// SubscribableEventType The closed set of domain events a webhook subscription can select. Phase 4 fills this out family by family; today it carries the pilot event plus the deal family (Task 5a-i), the offer family (Task 5a-ii), the pipeline/stage config family (Task 5a-iii), and the person/organization family (Task 5b-personorg), the lead family (Task 5b-lead), the activities family (Task 5c), the consent/privacy family (Task 5d), the signals family (Task 5e), the ai voice family (Task 5f), and the identity family (Task 5g).
+// SubscribableEventType The closed set of domain events a webhook subscription can select. Phase 4 fills this out family by family; today it carries the pilot event plus the deal family (Task 5a-i), the offer family (Task 5a-ii), the pipeline/stage config family (Task 5a-iii), and the person/organization family (Task 5b-personorg), the lead family (Task 5b-lead), the activities family (Task 5c), the consent/privacy family (Task 5d), the signals family (Task 5e), the ai voice family (Task 5f), the identity family (Task 5g), and the overlay family (Task 5h).
 type SubscribableEventType string
 
 // WebhookActivityChangedFields activity.updated's BOUNDED delta: UpdateActivity's known mutable fields (subject, body, occurred_at, due_at, remind_at, assignee_id, is_done) each carried only when this update touched them, plus RelinkActivity's relinked target — a fixed, KNOWN key set (unlike person/organization/deal/lead.updated's genuinely open patch), so it is typed rather than an open map.
@@ -353,6 +371,33 @@ type WebhookPayloadEngagementReply struct {
 	OccurredAt time.Time `json:"occurred_at"`
 }
 
+// WebhookPayloadIncumbentConnected Payload for incumbent.connected — a workspace completed the overlay-mode incumbent-CRM connect flow (overlay/connection.go's insertConnection); the workspace flipped to x_sor_mode=overlay in the same transaction. Unlike the mirror.* events above, this event's subject is always the incumbent_connection row itself — a fixed type — so it is emitted via the plain storekit.EmitEvent.
+type WebhookPayloadIncumbentConnected struct {
+	// Incumbent The incumbent CRM system connected (e.g. "hubspot").
+	Incumbent string `json:"incumbent"`
+
+	// Region The incumbent account's data-residency region.
+	Region string `json:"region"`
+
+	// Scopes The least-privilege OAuth scope set granted.
+	Scopes []string `json:"scopes"`
+
+	// Status The connection's status after this change (active).
+	Status string `json:"status"`
+}
+
+// WebhookPayloadIncumbentDisconnected Payload for incumbent.disconnected — a workspace's active incumbent-CRM connection was revoked (overlay/teardown.go's Disconnect); mirror teardown and credential cleanup follow. This event's subject is always the incumbent_connection row itself — a fixed type — so it is emitted via the plain storekit.EmitEvent.
+type WebhookPayloadIncumbentDisconnected struct {
+	// Incumbent The incumbent CRM system disconnected.
+	Incumbent string `json:"incumbent"`
+
+	// Region The incumbent account's data-residency region.
+	Region string `json:"region"`
+
+	// Status The connection's status after this change (revoked).
+	Status string `json:"status"`
+}
+
 // WebhookPayloadLeadCreated Payload for lead.created — a lead was created. Two emit sites: a direct create (people/lead.go) that sets no fields, and the capture auto-create engine (capture/sink.go) that names its originating source system; source_system is therefore optional.
 type WebhookPayloadLeadCreated struct {
 	// SourceSystem The originating source system (capture auto-create only; absent on a direct create).
@@ -382,6 +427,42 @@ type WebhookPayloadLeadUpdated struct {
 	// ChangedFields Field name → new value for whatever this update touched, incl. runtime cf_* custom fields.
 	ChangedFields map[string]interface{} `json:"changed_fields"`
 }
+
+// WebhookPayloadMirrorBudgetDegraded Payload for mirror.budget_degraded — a force-fresh read fell back to the mirror because the workspace's shared OVB budget had shed to the "shed" band (overlay/freshness.go's emitBudgetDegraded, OVA-EVT-3). The event names the record the degraded read was about; that record's class is a RUNTIME value (the read's own entity ref), so this is a dynamic-entity event (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and the emit site supplies the real entity type through storekit.EmitEventForEntity.
+type WebhookPayloadMirrorBudgetDegraded struct {
+	// Band The budget band that forced the degrade (currently always "shed").
+	Band string `json:"band"`
+}
+
+// WebhookPayloadMirrorConflict Payload for mirror.conflict — the reconcile poller (overlay/ reconcile.go's emitMirrorConflict) observed the incumbent CRM had moved a record the mirror's own baseline still called current, an overwrite-worthy divergence (OVA-EVT-1). object_class is the RUNTIME canonical class of the record involved (e.g. "person", "deal") — not a fixed type this schema can name — so this is a dynamic-entity event (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and the emit site supplies the real entity type through storekit.EmitEventForEntity.
+type WebhookPayloadMirrorConflict struct {
+	// ExternalId The record's incumbent-side natural key.
+	ExternalId string `json:"external_id"`
+
+	// IncumbentUpdatedAt The incumbent's reported modification timestamp.
+	IncumbentUpdatedAt time.Time `json:"incumbent_updated_at"`
+
+	// ObjectClass The canonical Margince class of the diverged record.
+	ObjectClass string `json:"object_class"`
+
+	// PriorUpdatedAt The mirror's prior stored baseline timestamp.
+	PriorUpdatedAt time.Time `json:"prior_updated_at"`
+}
+
+// WebhookPayloadMirrorDeleted Payload for mirror.deleted — continuous sync observed the incumbent report a record deleted, and the mirror purged its cached row, association edges, and visibility projection (overlay/mirrordeletion.go). object_class is the RUNTIME canonical class of the purged record, not a fixed type this schema can name, so this is a dynamic-entity event (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and the emit site supplies the real entity type through storekit.EmitEventForEntity.
+type WebhookPayloadMirrorDeleted struct {
+	// DeletedAt When the incumbent reported the deletion.
+	DeletedAt time.Time `json:"deleted_at"`
+
+	// ExternalId The record's incumbent-side natural key.
+	ExternalId string `json:"external_id"`
+
+	// ObjectClass The canonical Margince class of the purged record.
+	ObjectClass string `json:"object_class"`
+}
+
+// WebhookPayloadMirrorWriteRejected Payload for mirror.write_rejected. Never emitted today — reserved for branch 2 (writes to an overlay-mode workspace's incumbent CRM, currently declared unsupported_by_sor); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it.
+type WebhookPayloadMirrorWriteRejected struct{}
 
 // WebhookPayloadOfferAccepted Payload for offer.accepted — a sent offer was accepted. The deal's headline amount is synced from this offer's gross in the same transaction (see deal.updated on the paired deal entity).
 type WebhookPayloadOfferAccepted struct {
@@ -958,6 +1039,14 @@ func (WebhookPayloadEngagementReply) EventType() string { return "engagement.rep
 
 func (WebhookPayloadEngagementReply) EntityType() string { return "activity" }
 
+func (WebhookPayloadIncumbentConnected) EventType() string { return "incumbent.connected" }
+
+func (WebhookPayloadIncumbentConnected) EntityType() string { return "incumbent_connection" }
+
+func (WebhookPayloadIncumbentDisconnected) EventType() string { return "incumbent.disconnected" }
+
+func (WebhookPayloadIncumbentDisconnected) EntityType() string { return "incumbent_connection" }
+
 func (WebhookPayloadLeadCreated) EventType() string { return "lead.created" }
 
 func (WebhookPayloadLeadCreated) EntityType() string { return "lead" }
@@ -973,6 +1062,22 @@ func (WebhookPayloadLeadPromoted) EntityType() string { return "lead" }
 func (WebhookPayloadLeadUpdated) EventType() string { return "lead.updated" }
 
 func (WebhookPayloadLeadUpdated) EntityType() string { return "lead" }
+
+func (WebhookPayloadMirrorBudgetDegraded) EventType() string { return "mirror.budget_degraded" }
+
+func (WebhookPayloadMirrorBudgetDegraded) EntityType() string { return "dynamic" }
+
+func (WebhookPayloadMirrorConflict) EventType() string { return "mirror.conflict" }
+
+func (WebhookPayloadMirrorConflict) EntityType() string { return "dynamic" }
+
+func (WebhookPayloadMirrorDeleted) EventType() string { return "mirror.deleted" }
+
+func (WebhookPayloadMirrorDeleted) EntityType() string { return "dynamic" }
+
+func (WebhookPayloadMirrorWriteRejected) EventType() string { return "mirror.write_rejected" }
+
+func (WebhookPayloadMirrorWriteRejected) EntityType() string { return "dynamic" }
 
 func (WebhookPayloadOfferAccepted) EventType() string { return "offer.accepted" }
 
@@ -1137,10 +1242,16 @@ var WebhookPayloadVersions = map[string]int{
 	"deal.stage_changed":           1,
 	"deal.updated":                 1,
 	"engagement.reply":             1,
+	"incumbent.connected":          1,
+	"incumbent.disconnected":       1,
 	"lead.created":                 1,
 	"lead.disqualified":            1,
 	"lead.promoted":                1,
 	"lead.updated":                 1,
+	"mirror.budget_degraded":       1,
+	"mirror.conflict":              1,
+	"mirror.deleted":               1,
+	"mirror.write_rejected":        1,
 	"offer.accepted":               1,
 	"offer.created":                1,
 	"offer.rejected":               1,

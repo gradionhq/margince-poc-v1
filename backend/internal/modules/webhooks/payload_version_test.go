@@ -649,3 +649,60 @@ func TestOnboardingStateChangedWireSnapshot(t *testing.T) {
 	}
 	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
 }
+
+// TestMirrorConflictWireSnapshot pins mirror.conflict's wire shape
+// (webhooks Task 5h, overlay family) — this event's entity is dynamic
+// (the runtime object class the reconcile sweep observed), so unlike the
+// static-entity families above, the subject class rides INSIDE the
+// payload (object_class) rather than only in the envelope's entity ref.
+func TestMirrorConflictWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadMirrorConflict{
+		ObjectClass:        "deal",
+		ExternalId:         "hs-4821",
+		PriorUpdatedAt:     time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC),
+		IncumbentUpdatedAt: time.Date(2026, 7, 22, 10, 0, 0, 0, time.UTC),
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestMirrorBudgetDegradedWireSnapshot pins mirror.budget_degraded's wire
+// shape — like mirror.conflict, dynamic-entity, so the subject class is
+// carried only by the envelope's entity ref, not this payload.
+func TestMirrorBudgetDegradedWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadMirrorBudgetDegraded{Band: "shed"}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestMirrorDeletedWireSnapshot pins mirror.deleted's wire shape.
+func TestMirrorDeletedWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadMirrorDeleted{
+		ObjectClass: "person",
+		ExternalId:  "hs-9931",
+		DeletedAt:   time.Date(2026, 7, 22, 11, 0, 0, 0, time.UTC),
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestIncumbentConnectedWireSnapshot pins incumbent.connected's wire
+// shape — this event's entity is static (incumbent_connection), unlike
+// the mirror.* family above.
+func TestIncumbentConnectedWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadIncumbentConnected{
+		Incumbent: "hubspot",
+		Region:    "eu",
+		Scopes:    []string{"crm.objects.contacts.read", "crm.objects.deals.read"},
+		Status:    "active",
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestIncumbentDisconnectedWireSnapshot pins incumbent.disconnected's
+// wire shape.
+func TestIncumbentDisconnectedWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadIncumbentDisconnected{
+		Incumbent: "hubspot",
+		Region:    "eu",
+		Status:    "revoked",
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}

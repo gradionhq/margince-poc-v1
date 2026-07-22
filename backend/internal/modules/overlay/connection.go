@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -290,6 +291,19 @@ func (in ConnectInput) validate() error {
 	return nil
 }
 
+// incumbentConnectedPayload builds the incumbent.connected wire payload.
+// Unlike the mirror.* events, this event's subject is always the
+// incumbent_connection row itself — a fixed type — so it is emitted via
+// the plain storekit.EmitEvent.
+func incumbentConnectedPayload(incumbent, region string, scopes []string, status string) crmcontracts.WebhookPayloadIncumbentConnected {
+	return crmcontracts.WebhookPayloadIncumbentConnected{
+		Incumbent: incumbent,
+		Region:    region,
+		Scopes:    scopes,
+		Status:    status,
+	}
+}
+
 // insertConnection runs Connect's write-shape transaction: the domain
 // row + Audit + Emit + the workspace mode flip, all in one
 // database.WithWorkspaceTx.
@@ -318,7 +332,8 @@ func (s *Service) insertConnection(ctx context.Context, in ConnectInput, ref key
 		if auditErr != nil {
 			return fmt.Errorf("overlay: auditing the incumbent connection: %w", auditErr)
 		}
-		if emitErr := storekit.Emit(ctx, tx, auditID, "incumbent.connected", "incumbent_connection", id, after); emitErr != nil {
+		if emitErr := storekit.EmitEvent(ctx, tx, auditID, id,
+			incumbentConnectedPayload(in.Incumbent, in.Region, leastPrivilegeHubSpotScopes, statusActive)); emitErr != nil {
 			return fmt.Errorf("overlay: emitting incumbent.connected: %w", emitErr)
 		}
 

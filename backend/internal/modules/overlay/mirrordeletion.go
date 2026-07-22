@@ -14,12 +14,26 @@ package overlay
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 )
+
+// mirrorDeletedPayload builds the mirror.deleted wire payload — the
+// subject travels separately (del.ObjectClass/id, passed to
+// storekit.EmitEventForEntity), since this event's entity is dynamic (the
+// runtime object class of the purged record).
+func mirrorDeletedPayload(objectClass, externalID string, deletedAt time.Time) crmcontracts.WebhookPayloadMirrorDeleted {
+	return crmcontracts.WebhookPayloadMirrorDeleted{
+		ObjectClass: objectClass,
+		ExternalId:  externalID,
+		DeletedAt:   deletedAt,
+	}
+}
 
 // PurgeRecord removes one incumbent-deleted record from the mirror — the
 // cache row, every association edge that names it on EITHER endpoint, and
@@ -86,7 +100,8 @@ func (s *MirrorStore) PurgeRecord(ctx context.Context, del Deletion) (bool, erro
 		if err != nil {
 			return fmt.Errorf("overlay: logging the mirror.deleted system event: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, logID, "mirror.deleted", del.ObjectClass, id, detail); err != nil {
+		if err := storekit.EmitEventForEntity(ctx, tx, logID, del.ObjectClass, id,
+			mirrorDeletedPayload(del.ObjectClass, del.ExternalID, del.DeletedAt)); err != nil {
 			return fmt.Errorf("overlay: emitting mirror.deleted: %w", err)
 		}
 		return nil
