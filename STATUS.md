@@ -22,6 +22,34 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**Voice DNA became a working engine, consumed by drafting, with the impress
+surface.** The queued `voice_build` row finally has an executor: a River
+worker claims it crash-safely (snapshot → extract → evaluate → activate,
+started_at-fenced terminal writes on a detached context), derives the
+artifact through one stylometry-grounded model pass whose quoted signature
+moves must appear verbatim in the exact corpus snapshot, and scores the
+candidate against held-out samples — real `evaluation_json` replaces the
+placeholder constants, regressions and material drift land as
+review-required candidates, budget exhaustion defers to the router's own
+window, and a starter corpus too small for held-out scoring activates
+honestly as the starter voice (first build only). Reply drafting consumes
+the actor's active profile (personality doc first, up to two verbatim exemplars,
+stats as negative guardrails) behind the deterministic EN/DE anti-AI floor
+with one critic retry and a clean plain fallback that records a rejected
+learning signal; the draft response stamps `voice_profile_version` +
+Art. 50 disclosure. Both the onboarding success card and Settings → Voice
+render the structured insights (thinking pattern as the headline, signature
+moves with the user's own quoted words, cached sample drafts with the
+draft-only pill, what-to-add-next guidance), and the settings screen gained
+candidate review, version history with rollback, the delta timeline, the
+learning counters, and a band-drop warning before source removal.
+Deferred to the next arc: automatic learning (sent-mail corpus capture, the
+auto-rebuild sweep). Spec reconciliation to raise upstream: the code's
+800-word build floor vs ONBOARD-PARAM-5's 4,000; the `ADR-0066` citation in
+`voice_constants.go` names an ADR absent from the spec repo; VOICE-WIRE-N-1
+still says no voice wire ops are pinned while 22 shipped; the pinned
+`held_out_prompts` const 5 cannot express a smaller actual run.
+
 **Conversational Margince AI workbench with exact run transparency.** The
 website-assisted company setup now presents Margince as a persistent,
 professional collaborator: a compact Core header identifies the configured AI,

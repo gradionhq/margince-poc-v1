@@ -249,17 +249,26 @@ func voiceGuidance(stats ai.VoiceStats) map[string]any {
 		gaps = append(gaps, "email")
 	}
 	next := ""
+	key := ""
+	words := 0
 	switch {
 	case len(gaps) > 0 && gaps[0] == "spoken":
+		key = "add_transcript"
 		next = "Add a call or meeting transcript — spoken words are your highest-signal source."
 	case len(gaps) > 0:
+		key = "add_email"
 		next = "Add sent emails — they are the primary source for how you write at work."
 	case stats.WordCount < ai.CorpusTargetWords:
-		next = fmt.Sprintf("Add roughly %d more words to reach the sharp band.", ai.CorpusTargetWords-stats.WordCount)
+		key = "add_words"
+		words = ai.CorpusTargetWords - stats.WordCount
+		next = fmt.Sprintf("Add roughly %d more words to reach the sharp band.", words)
 	default:
+		key = "at_target"
 		next = "Your corpus is at target; keep it fresh by adding recent writing occasionally."
 	}
-	return map[string]any{"next_best": next, "register_gaps": gaps}
+	// next_best_key + next_best_words let the UI localize the nudge; the
+	// English prose stays as the honest fallback for older clients.
+	return map[string]any{"next_best": next, "next_best_key": key, "next_best_words": words, "register_gaps": gaps}
 }
 
 func wordSet(values []string) map[string]bool {

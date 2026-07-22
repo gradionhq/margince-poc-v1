@@ -257,6 +257,7 @@ func (w *voiceBuildWorker) run(ctx, terminal context.Context, buildID ids.UUID, 
 	if err != nil {
 		return err
 	}
+	corpusStats := ai.AnalyzeVoice(input.Samples)
 	if err := w.store.SetBuildStage(ctx, buildID, "activate"); err != nil {
 		w.log.WarnContext(ctx, "voice build stage update failed", "build", buildID.String(), "err", err)
 	}
@@ -264,9 +265,11 @@ func (w *voiceBuildWorker) run(ctx, terminal context.Context, buildID ids.UUID, 
 		Artifact:     artifact,
 		Evaluation:   evaluated.Evaluation,
 		SampleDrafts: evaluated.SampleDrafts,
-		// Guidance reads the WHOLE corpus, held-out included — the nudge
-		// must never ask for a register the user already supplied.
-		Guidance:             voiceGuidance(ai.AnalyzeVoice(input.Samples)),
+		// Guidance and the stored stats read the WHOLE corpus, held-out
+		// included — the nudge must never ask for a register the user
+		// already supplied, and the profile screen counts everything.
+		Guidance:             voiceGuidance(corpusStats),
+		CorpusStats:          corpusStats,
 		PredecessorWords:     predecessorWordCount(predecessor),
 		EvaluatedPredecessor: evaluatedPredecessorVersion(predecessor),
 		Classification:       evaluated.Classification,

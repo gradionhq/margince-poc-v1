@@ -41,6 +41,27 @@ func (h Handlers) WithEmailDrafter(drafter EmailDrafter) Handlers {
 	return h
 }
 
+// DraftResult is one prepared draft with its provenance: whether a model
+// produced it (Art. 50 disclosure) and which Voice DNA version styled it.
+type DraftResult struct {
+	Subject             string
+	Body                string
+	AIGenerated         bool
+	AIDisclosure        *string
+	VoiceProfileVersion *int
+	// DraftRef identifies this served voice draft for learning feedback
+	// (rejectVoiceDraft); nil when no voice profile styled it.
+	DraftRef *string
+}
+
+// ProvenanceEmailDrafter is the richer drafting seam: same draft, plus the
+// provenance the HTTP response stamps. A drafter that implements it is
+// preferred over the plain EmailDrafter shape; the plain seam stays for
+// consumers (agents, automation) whose surfaces carry text only.
+type ProvenanceEmailDrafter interface {
+	DraftEmailWithProvenance(ctx context.Context, anchor ids.UUID, intent string) (DraftResult, error)
+}
+
 func (h Handlers) DraftEmail(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
 	var req struct {
 		Intent *string `json:"intent"`
@@ -52,7 +73,7 @@ func (h Handlers) DraftEmail(w http.ResponseWriter, r *http.Request, id crmcontr
 	if req.Intent != nil {
 		intent = *req.Intent
 	}
-	subject, body, err := h.prepareEmailDraft(r.Context(), ids.UUID(id), intent)
+	result, err := h.prepareEmailDraft(r.Context(), ids.UUID(id), intent)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -60,26 +81,34 @@ func (h Handlers) DraftEmail(w http.ResponseWriter, r *http.Request, id crmcontr
 
 	replyTo := openapi_types.UUID(ids.UUID(id))
 	httperr.WriteJSON(w, http.StatusOK, crmcontracts.EmailDraft{
-		Subject:             subject,
-		Body:                body,
+		Subject:             result.Subject,
+		Body:                result.Body,
 		InReplyToActivityId: &replyTo,
+		AiGenerated:         &result.AIGenerated,
+		AiDisclosure:        result.AIDisclosure,
+		VoiceProfileVersion: result.VoiceProfileVersion,
+		DraftRef:            result.DraftRef,
 	})
 }
 
-func (h Handlers) prepareEmailDraft(ctx context.Context, anchor ids.UUID, intent string) (string, string, error) {
+func (h Handlers) prepareEmailDraft(ctx context.Context, anchor ids.UUID, intent string) (DraftResult, error) {
+	if provenance, ok := h.emailDrafter.(ProvenanceEmailDrafter); ok {
+		return provenance.DraftEmailWithProvenance(ctx, anchor, intent)
+	}
 	if h.emailDrafter != nil {
-		return h.emailDrafter.DraftEmail(ctx, anchor, intent)
+		subject, body, err := h.emailDrafter.DraftEmail(ctx, anchor, intent)
+		return DraftResult{Subject: subject, Body: body}, err
 	}
 	activity, err := h.store.GetActivity(ctx, ids.From[ids.ActivityKind](anchor), storekit.LiveOnly)
 	if err != nil {
-		return "", "", err
+		return DraftResult{}, err
 	}
 	topic := ""
 	if activity.Subject != nil {
 		topic = *activity.Subject
 	}
 	subject, body := DeterministicEmailDraft(topic, intent)
-	return subject, body, nil
+	return DraftResult{Subject: subject, Body: body}, nil
 }
 
 // DeterministicEmailDraft is the shared no-model floor for every drafting
