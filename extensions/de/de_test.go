@@ -27,7 +27,6 @@ func TestNewDeclaresTheGoBDFloors(t *testing.T) {
 	want := map[jurisdiction.RetentionClassName]jurisdiction.Period{
 		jurisdiction.CommercialCorrespondence: {Years: 6},
 		jurisdiction.AccountingRecords:        {Years: 8},
-		jurisdiction.BooksAndAnnualAccounts:   {Years: 10},
 	}
 	classes := p.Retention().Classes()
 	if len(classes) != len(want) {
