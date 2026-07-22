@@ -35,7 +35,7 @@ indent() { sed 's/^/  /'; }
 # is a pseudo-version.
 APIDIFF="${APIDIFF:-go run golang.org/x/exp/cmd/apidiff@v0.0.0-20260718201538-764159d718ef}"
 
-if [ -n "${PKG_FREEZE_MODE:-}" ]; then
+if [[ -n "${PKG_FREEZE_MODE:-}" ]]; then
   MODE="$PKG_FREEZE_MODE"
 else
   # The first STABLE v1+ release tag arms enforcement — exact release
@@ -59,7 +59,7 @@ case "$MODE" in
 esac
 
 resolve_base_ref() {
-  if [ -n "${GITHUB_BASE_REF:-}" ] && git rev-parse -q --verify "origin/$GITHUB_BASE_REF" > /dev/null; then
+  if [[ -n "${GITHUB_BASE_REF:-}" ]] && git rev-parse -q --verify "origin/$GITHUB_BASE_REF" > /dev/null; then
     echo "origin/$GITHUB_BASE_REF"
     return 0
   fi
@@ -73,10 +73,10 @@ resolve_base_ref() {
 }
 
 BASE_REF="${PKG_FREEZE_BASE:-$(resolve_base_ref || true)}"
-if [ -z "$BASE_REF" ]; then
+if [[ -z "$BASE_REF" ]]; then
   # In CI a missing base ref is a broken checkout, never a skip; locally
   # it just means the remote was never fetched.
-  if [ "${CI:-}" = "true" ]; then
+  if [[ "${CI:-}" = "true" ]]; then
     echo "FAIL: pkg-freeze — no base ref (origin/main missing); fetch-depth must cover the merge base" >&2
     exit 1
   fi
@@ -87,7 +87,7 @@ fi
 BASE="$(git merge-base HEAD "$BASE_REF")"
 BASE12="$(git rev-parse --short=12 "$BASE")"
 
-if ! git ls-tree -d "$BASE" backend/pkg > /dev/null 2>&1 || [ -z "$(git ls-tree -d "$BASE" backend/pkg)" ]; then
+if ! git ls-tree -d "$BASE" backend/pkg > /dev/null 2>&1 || [[ -z "$(git ls-tree -d "$BASE" backend/pkg)" ]]; then
   echo "OK: pkg-freeze ($MODE) — no published surface at $BASE_REF merge-base; nothing frozen yet"
   exit 0
 fi
@@ -116,7 +116,7 @@ if ! OLD_PKGS="$(cd "$WORKTREE/backend" && go list ./pkg/... 2> "$golist_err")";
   fi
 fi
 rm -f "$golist_err"
-if [ -z "$OLD_PKGS" ]; then
+if [[ -z "$OLD_PKGS" ]]; then
   echo "OK: pkg-freeze ($MODE) — no published packages at the merge-base; nothing frozen yet"
   exit 0
 fi
@@ -129,7 +129,7 @@ count=0
 for pkg in $OLD_PKGS; do
   count=$((count + 1))
   rel="${pkg#github.com/gradionhq/margince/backend/}"
-  if [ ! -d "backend/$rel" ]; then
+  if [[ ! -d "backend/$rel" ]]; then
     echo "$pkg: package removed" >> "$removals"
     continue
   fi
@@ -139,8 +139,8 @@ for pkg in $OLD_PKGS; do
     | sed -e 's/^- //' -e "s|^|$pkg: |" >> "$findings"
 done
 
-if [ "$MODE" = "advisory" ]; then
-  if [ -s "$removals" ] || [ -s "$findings" ]; then
+if [[ "$MODE" = "advisory" ]]; then
+  if [[ -s "$removals" ]] || [[ -s "$findings" ]]; then
     echo "ADVISORY: pkg-freeze — incompatible published-surface changes vs $BASE_REF (design-fluid pre-v1.0.0; these HARD-FAIL from the first v1 release tag):"
     cat "$removals" "$findings" | indent
   else
@@ -155,9 +155,9 @@ allowed="$EXPORT_DIR/allowed"
 expired="$EXPORT_DIR/expired"
 : > "$allowed"
 : > "$expired"
-if [ -f "$ALLOWLIST" ]; then
+if [[ -f "$ALLOWLIST" ]]; then
   entries="$(awk '!/^[[:space:]]*(#|$)/' "$ALLOWLIST")"
-  if [ -n "$entries" ]; then
+  if [[ -n "$entries" ]]; then
     printf '%s\n' "$entries" | grep -E "^$BASE12 " | sed "s/^$BASE12 //" > "$allowed" || true
     printf '%s\n' "$entries" | grep -vE "^$BASE12 " > "$expired" || true
   fi
@@ -167,28 +167,28 @@ failed=0
 violations="$(grep -Fxv -f "$allowed" "$findings" || true)"
 unused="$(grep -Fxv -f "$findings" "$allowed" || true)"
 
-if [ -s "$removals" ]; then
+if [[ -s "$removals" ]]; then
   echo "FAIL: pkg-freeze — published package removed (never allowlistable; deprecate, then remove with its major cycle — ADR-0069 §3):" >&2
   indent < "$removals" >&2
   failed=1
 fi
-if [ -n "$violations" ]; then
+if [[ -n "$violations" ]]; then
   echo "FAIL: pkg-freeze — incompatible published-surface change vs $BASE_REF (merge-base $BASE12):" >&2
   echo "$violations" | indent >&2
   echo "A ratified change is recorded in $ALLOWLIST as this exact line (visible in the PR):" >&2
   echo "$violations" | sed "s/^/$BASE12 /" | indent >&2
   failed=1
 fi
-if [ -s "$expired" ]; then
+if [[ -s "$expired" ]]; then
   echo "WARN: pkg-freeze — allowlist entries bound to a superseded baseline (they can license nothing; remove them with the next allowlist edit):"
   indent < "$expired"
 fi
-if [ -n "$unused" ]; then
+if [[ -n "$unused" ]]; then
   echo "WARN: pkg-freeze — allowlist entries bound to the current baseline ($BASE12) match no finding (typo, or the change was reverted — remove them):"
   echo "$unused" | indent
 fi
 
-if [ "$failed" -ne 0 ]; then
+if [[ "$failed" -ne 0 ]]; then
   echo "pkg-freeze: the published surface changes additively or via versioned successors, never in place (EXT-P3)." >&2
   exit 1
 fi
