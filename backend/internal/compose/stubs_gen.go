@@ -532,6 +532,10 @@ func (stubs) MessageOnboardingCompany(w nethttp.ResponseWriter, r *nethttp.Reque
 	httperr.NotImplemented(w, r, "MessageOnboardingCompany")
 }
 
+func (stubs) GetOnboardingCompanyProposal(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetOnboardingCompanyProposal")
+}
+
 func (stubs) GetOnboardingState(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetOnboardingState")
 }

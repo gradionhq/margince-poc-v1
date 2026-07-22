@@ -30,6 +30,9 @@ type onboardingCompanyAssistant struct {
 	brain   completer
 	runtime runTransparencyReader
 	rollout *string
+	// voice backs the voice act's deterministic context; nil means the
+	// role wired no voice store and the act answers without corpus numbers.
+	voice onboardingVoiceReader
 }
 
 type onboardingStateReader interface {
@@ -76,7 +79,7 @@ func (a *onboardingCompanyAssistant) message(w http.ResponseWriter, r *http.Requ
 		httperr.Write(w, r, httperr.Validation("history", "invalid", validationErr.Error()))
 		return
 	}
-	evidence, runID, research, err := a.onboardingEvidence(r.Context(), state)
+	evidence, runID, research, read, comparisons, err := a.onboardingEvidence(r.Context(), state)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
@@ -94,24 +97,72 @@ func (a *onboardingCompanyAssistant) message(w http.ResponseWriter, r *http.Requ
 		conversation.NextRequired = remaining[0]
 	}
 
-	var answer companyReadModelReply
-	if isCompanyStatusQuestion(message) {
-		answer = companyReadModelReply{Kind: companyConversationStatus, Message: onboardingStatusMessage(string(req.Locale), research, len(remaining))}
-	} else {
-		callCtx := principal.WithCorrelationID(r.Context(), runID)
-		answer, err = a.answer(callCtx, message, history, conversation, string(req.Locale))
-		if err != nil {
-			httperr.Write(w, r, err)
-			return
-		}
+	act := onboardingRequestAct(req)
+	answer, clarify, actAction, err := a.converse(r.Context(), req, act, message, history, conversation, research, read, comparisons, runID)
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
 	}
 	runtime, err := a.runtime.Get(r.Context(), runID)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
 	}
-	response := onboardingCompanyReply(answer, evidence, remaining, research, runtime)
+	response := onboardingCompanyReply(act, answer, evidence, remaining, research, runtime)
+	response.Clarify = clarify
+	if actAction != nil {
+		response.AvailableAction = actAction
+	}
 	httperr.WriteJSON(w, http.StatusOK, response)
+}
+
+// converse routes the message to its act's answer path and returns the
+// reply plus the deterministic attachments the act produced: the
+// detected clarify question (company act) or the act's next action.
+func (a *onboardingCompanyAssistant) converse(ctx context.Context, req crmcontracts.OnboardingCompanyMessageRequest, act, message string, history []model.Message, conversation onboardingConversationContext, research onboardingResearchState, read *people.SiteRead, comparisons []people.SiteReadComparison, runID ids.UUID) (companyReadModelReply, *crmcontracts.OnboardingClarify, *crmcontracts.OnboardingCompanyMessageReplyAvailableAction, error) {
+	locale := string(req.Locale)
+	remaining := conversation.RemainingRequired
+	switch {
+	case act != string(crmcontracts.OnboardingActCompany):
+		voiceCtx, err := a.voiceContext(ctx)
+		if err != nil {
+			return companyReadModelReply{}, nil, nil, err
+		}
+		contextJSON, err := onboardingActContext(act, voiceCtx, a.voice != nil, research, remaining)
+		if err != nil {
+			return companyReadModelReply{}, nil, nil, err
+		}
+		answer, err := a.answerAct(principal.WithCorrelationID(ctx, runID), act, message, history, contextJSON, locale)
+		if err != nil {
+			return companyReadModelReply{}, nil, nil, err
+		}
+		return answer, nil, onboardingActAction(act, voiceCtx, a.voice != nil, research), nil
+	case isCompanyStatusQuestion(message):
+		return companyReadModelReply{Kind: companyConversationStatus, Message: onboardingStatusMessage(locale, research, len(remaining))}, nil, nil, nil
+	default:
+		answer, err := a.answer(principal.WithCorrelationID(ctx, runID), message, history, conversation, locale, req.SelectedOption)
+		if err != nil {
+			return companyReadModelReply{}, nil, nil, err
+		}
+		// A clarification carries the server-detected question when one
+		// exists: the model's prose stays, the options are never its own.
+		var clarify *crmcontracts.OnboardingClarify
+		if answer.Kind == "clarification" && read != nil {
+			if questions := onboardingClarifies(*read, comparisons, locale); len(questions) > 0 {
+				clarify = &questions[0]
+			}
+		}
+		return answer, clarify, nil, nil
+	}
+}
+
+// onboardingRequestAct resolves the request's act; absent means company.
+// Validity was checked at decode time.
+func onboardingRequestAct(req crmcontracts.OnboardingCompanyMessageRequest) string {
+	if req.Act == nil {
+		return string(crmcontracts.OnboardingActCompany)
+	}
+	return string(*req.Act)
 }
 
 func decodeOnboardingCompanyMessage(w http.ResponseWriter, r *http.Request) (crmcontracts.OnboardingCompanyMessageRequest, string, bool) {
@@ -138,7 +189,37 @@ func decodeOnboardingCompanyMessage(w http.ResponseWriter, r *http.Request) (crm
 			return req, "", false
 		}
 	}
+	if req.Act != nil && !req.Act.Valid() {
+		httperr.Write(w, r, httperr.Validation("act", "invalid", "act must be company, voice, results, or connect"))
+		return req, "", false
+	}
+	if req.SelectedOption != nil {
+		if field, code, detail := invalidOnboardingSelection(req); field != "" {
+			httperr.Write(w, r, httperr.Validation(field, code, detail))
+			return req, "", false
+		}
+	}
 	return req, message, true
+}
+
+// invalidOnboardingSelection checks the clarify-option echo: it exists
+// only in the company act, and it must name a real company field with a
+// non-empty value — the pair it authorizes verbatim.
+func invalidOnboardingSelection(req crmcontracts.OnboardingCompanyMessageRequest) (field, code, detail string) {
+	selection := *req.SelectedOption
+	if onboardingRequestAct(req) != string(crmcontracts.OnboardingActCompany) {
+		return "selected_option", "invalid", "a clarify selection applies only to the company act"
+	}
+	if strings.TrimSpace(selection.ClarifyId) == "" {
+		return "selected_option.clarify_id", "empty", "echo the clarify id the option belongs to"
+	}
+	if !crmcontracts.CompanySiteReadSuggestedChangeField(strings.TrimSpace(selection.Field)).Valid() {
+		return "selected_option.field", "invalid", "the selection must name a known company field"
+	}
+	if strings.TrimSpace(selection.Value) == "" {
+		return "selected_option.value", "empty", "the selection must carry the chosen value verbatim"
+	}
+	return "", "", ""
 }
 
 func oversizedOnboardingDraftField(draft crmcontracts.OnboardingCompanyDraft) string {
@@ -171,23 +252,23 @@ func oversizedOnboardingDraftField(draft crmcontracts.OnboardingCompanyDraft) st
 	return ""
 }
 
-func (a *onboardingCompanyAssistant) onboardingEvidence(ctx context.Context, state identity.OnboardingState) ([]companyReadEvidence, ids.UUID, onboardingResearchState, error) {
+func (a *onboardingCompanyAssistant) onboardingEvidence(ctx context.Context, state identity.OnboardingState) ([]companyReadEvidence, ids.UUID, onboardingResearchState, *people.SiteRead, []people.SiteReadComparison, error) {
 	if state.SiteReadID == nil {
-		return nil, state.ID, onboardingResearchState{ready: true}, nil
+		return nil, state.ID, onboardingResearchState{ready: true}, nil, nil, nil
 	}
-	read, _, err := a.people.GetCompanySiteRead(ctx, *state.SiteReadID)
+	read, comparisons, err := a.people.GetCompanySiteRead(ctx, *state.SiteReadID)
 	if err != nil {
-		return nil, ids.UUID{}, onboardingResearchState{}, err
+		return nil, ids.UUID{}, onboardingResearchState{}, nil, nil, err
 	}
 	research := onboardingResearchState{
 		status:    read.Status,
 		ready:     read.Status == siteReadWireStatusDone || read.Status == siteReadWireStatusPartial,
 		confirmed: read.ConfirmedAt != nil,
 	}
-	return companyReadEvidenceSet(read), read.ID, research, nil
+	return companyReadEvidenceSet(read), read.ID, research, &read, comparisons, nil
 }
 
-func (a *onboardingCompanyAssistant) answer(ctx context.Context, message string, history []model.Message, conversation onboardingConversationContext, locale string) (companyReadModelReply, error) {
+func (a *onboardingCompanyAssistant) answer(ctx context.Context, message string, history []model.Message, conversation onboardingConversationContext, locale string, selection *crmcontracts.OnboardingClarifySelection) (companyReadModelReply, error) {
 	contextJSON, err := json.Marshal(conversation)
 	if err != nil {
 		return companyReadModelReply{}, err
@@ -209,6 +290,12 @@ Respond in ` + locale + `.`,
 	}
 	statements := administratorConversation(history, message)
 	authorization := newCompanyChangeAuthorization(message, history, conversation.NextRequired)
+	if selection != nil {
+		// The clicked option IS an administrator statement: its value is
+		// explicitly supplied, and the grant covers exactly that pair.
+		statements += " " + selection.Value
+		authorization = authorization.withSelectedOption(selection.Field, selection.Value)
+	}
 	validate := func(text string) error { return validateCompanyReadReply(text, known, statements, authorization) }
 	var response model.Response
 	if structured, ok := a.brain.(validatedBrain); ok {
@@ -286,15 +373,19 @@ func onboardingStatusMessage(locale string, research onboardingResearchState, mi
 	return fmt.Sprintf("Yes. The company workspace is working. %d required details remain; nothing is saved yet.", missing)
 }
 
-func onboardingCompanyReply(answer companyReadModelReply, evidence []companyReadEvidence, remaining []string, research onboardingResearchState, runtime ai.RunSummary) crmcontracts.OnboardingCompanyMessageReply {
+func onboardingCompanyReply(act string, answer companyReadModelReply, evidence []companyReadEvidence, remaining []string, research onboardingResearchState, runtime ai.RunSummary) crmcontracts.OnboardingCompanyMessageReply {
 	base := contractCompanyReadReply(answer, evidence, runtime)
 	out := crmcontracts.OnboardingCompanyMessageReply{
-		Kind: base.Kind, Message: base.Message, ProposedChanges: base.ProposedChanges,
-		Citations: base.Citations, RemainingRequiredFields: make([]crmcontracts.OnboardingCompanyMessageReplyRemainingRequiredFields, len(remaining)),
+		Kind: base.Kind, Message: base.Message, Act: crmcontracts.OnboardingAct(act),
+		ProposedChanges: base.ProposedChanges,
+		Citations:       base.Citations, RemainingRequiredFields: make([]crmcontracts.OnboardingCompanyMessageReplyRemainingRequiredFields, len(remaining)),
 		AiRuntime: base.AiRuntime,
 	}
 	for i, field := range remaining {
 		out.RemainingRequiredFields[i] = crmcontracts.OnboardingCompanyMessageReplyRemainingRequiredFields(field)
+	}
+	if act != string(crmcontracts.OnboardingActCompany) {
+		return out
 	}
 	if len(remaining) > 0 {
 		next := crmcontracts.OnboardingCompanyMessageReplyNextRequiredField(remaining[0])

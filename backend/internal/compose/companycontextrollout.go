@@ -18,6 +18,9 @@ func WithCompanyContextRollout(rollout string) Option {
 	return func(s *Server, _ *pgxpool.Pool) {
 		s.rollout = rollout
 		s.companyContextRollout = rollout
+		if s.proposal != nil {
+			s.proposal.rollout = rollout
+		}
 	}
 }
 

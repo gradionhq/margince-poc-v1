@@ -3366,6 +3366,34 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
 
+  /onboarding/company/proposal:
+    get:
+      tags: [Organizations]
+      operationId: getOnboardingCompanyProposal
+      summary: The deterministic evidence-backed company proposal derived from the onboarding website read.
+      description: |
+        Serves the mapping the conversational shell presents: evidence-carrying profile fields at or
+        above the cold-start confidence floor, the read's facts for selection, the deterministically
+        detected open clarification questions, the required fields still missing from the resumable
+        draft, and the version/hash pair the confirm call must echo. Assembled without a model call —
+        every value, number, and option comes from the persisted read. `ready` is false while the
+        read is still queued, deferred, or running.
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      responses:
+        '200':
+          description: The current deterministic proposal snapshot.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OnboardingCompanyProposal' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: No onboarding state exists yet, or it references no website read.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
   # ----------------------------- /company -----------------------------------
   /company:
     get:
@@ -10455,6 +10483,16 @@ components:
           type: string
           enum: [en, de]
           x-enum-varnames: [OnboardingCompanyLocaleEN, OnboardingCompanyLocaleDE]
+        act:
+          $ref: '#/components/schemas/OnboardingAct'
+          default: company
+          description: Which onboarding act the conversation is in; omitted means company.
+        selected_option:
+          $ref: '#/components/schemas/OnboardingClarifySelection'
+          description: |
+            The clarify option the administrator clicked, echoed verbatim. Valid only in the company
+            act; it authorizes exactly one proposed change — the selected field with the selected
+            value — and nothing else.
         history:
           type: array
           maxItems: 8
@@ -10465,10 +10503,18 @@ components:
 
     OnboardingCompanyMessageReply:
       type: object
-      required: [kind, message, proposed_changes, citations, remaining_required_fields, ai_runtime]
+      required: [kind, message, act, proposed_changes, citations, remaining_required_fields, ai_runtime]
       properties:
         kind: { $ref: '#/components/schemas/CompanyConversationResponseKind' }
         message: { type: string, minLength: 1 }
+        act:
+          $ref: '#/components/schemas/OnboardingAct'
+          description: Echoes the act the request addressed.
+        clarify:
+          $ref: '#/components/schemas/OnboardingClarify'
+          description: |
+            A deterministically detected open question, attached only when the server's own
+            detectors found one — options are never model-invented.
         proposed_changes:
           type: array
           maxItems: 5
@@ -10489,9 +10535,86 @@ components:
             x-enum-varnames: [OnboardingRequiredDisplayName, OnboardingRequiredOfferSummary, OnboardingRequiredICP]
         available_action:
           type: [string, 'null']
-          enum: [null, confirm_company]
-          x-enum-varnames: [OnboardingAvailableActionNone, OnboardingAvailableActionConfirmCompany]
+          enum: [null, confirm_company, start_voice_build, upload_voice_source, connect_inbox, finish]
+          x-enum-varnames: [OnboardingAvailableActionNone, OnboardingAvailableActionConfirmCompany, OnboardingAvailableActionStartVoiceBuild, OnboardingAvailableActionUploadVoiceSource, OnboardingAvailableActionConnectInbox, OnboardingAvailableActionFinish]
         ai_runtime: { $ref: '#/components/schemas/AiRunSummary' }
+
+    OnboardingAct:
+      type: string
+      description: The four onboarding conversation acts.
+      enum: [company, voice, results, connect]
+      x-enum-varnames: [OnboardingActCompany, OnboardingActVoice, OnboardingActResults, OnboardingActConnect]
+
+    OnboardingClarify:
+      type: object
+      description: |
+        One server-detected open question with its closed option list. Options are produced
+        deterministically from the persisted read (legal-entity census, human-conflict
+        comparisons) — never by a model. Answers travel back either as `selected_option` on the
+        next message or as a CompanySiteReadResolution at confirm time.
+      required: [id, question, field, options]
+      properties:
+        id: { type: string, description: 'Stable per read draft version, e.g. clarify:<field>:<draft_version>.' }
+        question: { type: string }
+        field: { type: string, description: The profile field or comparison key the question resolves. }
+        options:
+          type: array
+          maxItems: 6
+          items: { $ref: '#/components/schemas/OnboardingClarifyOption' }
+        allow_free_text: { type: boolean, description: Whether typing a different value is also a valid answer. }
+
+    OnboardingClarifyOption:
+      type: object
+      required: [value, label]
+      properties:
+        value: { type: string, description: The exact string the selection authorizes — verbatim from the read or the current record. }
+        label: { type: string }
+        evidence_url: { type: [string, 'null'], format: uri }
+        evidence_snippet: { type: [string, 'null'] }
+        detail: { type: [string, 'null'], description: Provenance or disambiguation help for this option. }
+
+    OnboardingClarifySelection:
+      type: object
+      additionalProperties: false
+      required: [clarify_id, field, value]
+      properties:
+        clarify_id: { type: string }
+        field: { type: string }
+        value: { type: string }
+
+    OnboardingCompanyProposalField:
+      type: object
+      required: [field, value, confidence, evidence_snippet, source_url]
+      properties:
+        field: { type: string }
+        value: { type: string }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        evidence_snippet: { type: string, minLength: 1 }
+        source_url: { type: string, format: uri }
+
+    OnboardingCompanyProposal:
+      type: object
+      description: |
+        The deterministic "prepared mapping" snapshot the conversational shell narrates. Everything
+        here is computed from the persisted read — no model call. `draft_version` and
+        `proposal_hash` are the pair ConfirmCompanySiteRead must echo.
+      required: [ready]
+      properties:
+        ready: { type: boolean, description: False while the read is still queued, deferred, or running. }
+        fields:
+          type: array
+          items: { $ref: '#/components/schemas/OnboardingCompanyProposalField' }
+        facts:
+          type: array
+          items: { $ref: '#/components/schemas/CompanySiteReadFact' }
+        open_questions:
+          type: array
+          items: { $ref: '#/components/schemas/OnboardingClarify' }
+        remaining_required_fields:
+          type: array
+          items: { type: string }
+        draft_version: { type: integer }
+        proposal_hash: { type: string }
 
     CompanySiteRead:
       type: object

@@ -3297,10 +3297,38 @@ func (e OmittedExtractionFieldReason) Valid() bool {
 	}
 }
 
+// Defines values for OnboardingAct.
+const (
+	OnboardingActCompany OnboardingAct = "company"
+	OnboardingActConnect OnboardingAct = "connect"
+	OnboardingActResults OnboardingAct = "results"
+	OnboardingActVoice   OnboardingAct = "voice"
+)
+
+// Valid indicates whether the value is a known member of the OnboardingAct enum.
+func (e OnboardingAct) Valid() bool {
+	switch e {
+	case OnboardingActCompany:
+		return true
+	case OnboardingActConnect:
+		return true
+	case OnboardingActResults:
+		return true
+	case OnboardingActVoice:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for OnboardingCompanyMessageReplyAvailableAction.
 const (
-	OnboardingAvailableActionConfirmCompany OnboardingCompanyMessageReplyAvailableAction = "confirm_company"
-	OnboardingAvailableActionNone           OnboardingCompanyMessageReplyAvailableAction = "<nil>"
+	OnboardingAvailableActionConfirmCompany    OnboardingCompanyMessageReplyAvailableAction = "confirm_company"
+	OnboardingAvailableActionConnectInbox      OnboardingCompanyMessageReplyAvailableAction = "connect_inbox"
+	OnboardingAvailableActionFinish            OnboardingCompanyMessageReplyAvailableAction = "finish"
+	OnboardingAvailableActionNone              OnboardingCompanyMessageReplyAvailableAction = "<nil>"
+	OnboardingAvailableActionStartVoiceBuild   OnboardingCompanyMessageReplyAvailableAction = "start_voice_build"
+	OnboardingAvailableActionUploadVoiceSource OnboardingCompanyMessageReplyAvailableAction = "upload_voice_source"
 )
 
 // Valid indicates whether the value is a known member of the OnboardingCompanyMessageReplyAvailableAction enum.
@@ -3308,7 +3336,15 @@ func (e OnboardingCompanyMessageReplyAvailableAction) Valid() bool {
 	switch e {
 	case OnboardingAvailableActionConfirmCompany:
 		return true
+	case OnboardingAvailableActionConnectInbox:
+		return true
+	case OnboardingAvailableActionFinish:
+		return true
 	case OnboardingAvailableActionNone:
+		return true
+	case OnboardingAvailableActionStartVoiceBuild:
+		return true
+	case OnboardingAvailableActionUploadVoiceSource:
 		return true
 	default:
 		return false
@@ -9306,6 +9342,45 @@ type OmittedExtractionField struct {
 // OmittedExtractionFieldReason defines model for OmittedExtractionField.Reason.
 type OmittedExtractionFieldReason string
 
+// OnboardingAct The four onboarding conversation acts.
+type OnboardingAct string
+
+// OnboardingClarify One server-detected open question with its closed option list. Options are produced
+// deterministically from the persisted read (legal-entity census, human-conflict
+// comparisons) — never by a model. Answers travel back either as `selected_option` on the
+// next message or as a CompanySiteReadResolution at confirm time.
+type OnboardingClarify struct {
+	// AllowFreeText Whether typing a different value is also a valid answer.
+	AllowFreeText *bool `json:"allow_free_text,omitempty"`
+
+	// Field The profile field or comparison key the question resolves.
+	Field string `json:"field"`
+
+	// Id Stable per read draft version, e.g. clarify:<field>:<draft_version>.
+	Id       string                    `json:"id"`
+	Options  []OnboardingClarifyOption `json:"options"`
+	Question string                    `json:"question"`
+}
+
+// OnboardingClarifyOption defines model for OnboardingClarifyOption.
+type OnboardingClarifyOption struct {
+	// Detail Provenance or disambiguation help for this option.
+	Detail          *string `json:"detail,omitempty"`
+	EvidenceSnippet *string `json:"evidence_snippet,omitempty"`
+	EvidenceUrl     *string `json:"evidence_url,omitempty"`
+	Label           string  `json:"label"`
+
+	// Value The exact string the selection authorizes — verbatim from the read or the current record.
+	Value string `json:"value"`
+}
+
+// OnboardingClarifySelection defines model for OnboardingClarifySelection.
+type OnboardingClarifySelection struct {
+	ClarifyId string `json:"clarify_id"`
+	Field     string `json:"field"`
+	Value     string `json:"value"`
+}
+
 // OnboardingCompanyDraft Partial human-editable company input retained while the wizard is unfinished. Every field
 // is optional here because this is not confirmed company truth; confirmation uses the stricter
 // CompanyProfileInput or ConfirmCompanySiteReadRequest contract. Values are bounded because the
@@ -9331,10 +9406,19 @@ type OnboardingCompanyDraft struct {
 
 // OnboardingCompanyMessageReply defines model for OnboardingCompanyMessageReply.
 type OnboardingCompanyMessageReply struct {
+	// Act The four onboarding conversation acts.
+	Act OnboardingAct `json:"act"`
+
 	// AiRuntime Cumulative price-on-read transparency for model calls carrying one run correlation id.
-	AiRuntime               AiRunSummary                                           `json:"ai_runtime"`
-	AvailableAction         *OnboardingCompanyMessageReplyAvailableAction          `json:"available_action,omitempty"`
-	Citations               []CompanySiteReadCitation                              `json:"citations"`
+	AiRuntime       AiRunSummary                                  `json:"ai_runtime"`
+	AvailableAction *OnboardingCompanyMessageReplyAvailableAction `json:"available_action,omitempty"`
+	Citations       []CompanySiteReadCitation                     `json:"citations"`
+
+	// Clarify One server-detected open question with its closed option list. Options are produced
+	// deterministically from the persisted read (legal-entity census, human-conflict
+	// comparisons) — never by a model. Answers travel back either as `selected_option` on the
+	// next message or as a CompanySiteReadResolution at confirm time.
+	Clarify                 *OnboardingClarify                                     `json:"clarify,omitempty"`
 	Kind                    CompanyConversationResponseKind                        `json:"kind"`
 	Message                 string                                                 `json:"message"`
 	NextRequiredField       *OnboardingCompanyMessageReplyNextRequiredField        `json:"next_required_field,omitempty"`
@@ -9353,18 +9437,46 @@ type OnboardingCompanyMessageReplyRemainingRequiredFields string
 
 // OnboardingCompanyMessageRequest defines model for OnboardingCompanyMessageRequest.
 type OnboardingCompanyMessageRequest struct {
+	// Act The four onboarding conversation acts.
+	Act *OnboardingAct `json:"act,omitempty"`
+
 	// CompanyDraft Partial human-editable company input retained while the wizard is unfinished. Every field
 	// is optional here because this is not confirmed company truth; confirmation uses the stricter
 	// CompanyProfileInput or ConfirmCompanySiteReadRequest contract. Values are bounded because the
 	// same draft may be supplied as context to the conversational assistant.
-	CompanyDraft *OnboardingCompanyDraft               `json:"company_draft,omitempty"`
-	History      *[]CompanySiteReadConversationTurn    `json:"history,omitempty"`
-	Locale       OnboardingCompanyMessageRequestLocale `json:"locale"`
-	Message      string                                `json:"message"`
+	CompanyDraft   *OnboardingCompanyDraft               `json:"company_draft,omitempty"`
+	History        *[]CompanySiteReadConversationTurn    `json:"history,omitempty"`
+	Locale         OnboardingCompanyMessageRequestLocale `json:"locale"`
+	Message        string                                `json:"message"`
+	SelectedOption *OnboardingClarifySelection           `json:"selected_option,omitempty"`
 }
 
 // OnboardingCompanyMessageRequestLocale defines model for OnboardingCompanyMessageRequest.Locale.
 type OnboardingCompanyMessageRequestLocale string
+
+// OnboardingCompanyProposal The deterministic "prepared mapping" snapshot the conversational shell narrates. Everything
+// here is computed from the persisted read — no model call. `draft_version` and
+// `proposal_hash` are the pair ConfirmCompanySiteRead must echo.
+type OnboardingCompanyProposal struct {
+	DraftVersion  *int                              `json:"draft_version,omitempty"`
+	Facts         *[]CompanySiteReadFact            `json:"facts,omitempty"`
+	Fields        *[]OnboardingCompanyProposalField `json:"fields,omitempty"`
+	OpenQuestions *[]OnboardingClarify              `json:"open_questions,omitempty"`
+	ProposalHash  *string                           `json:"proposal_hash,omitempty"`
+
+	// Ready False while the read is still queued
+	Ready                   bool      `json:"ready"`
+	RemainingRequiredFields *[]string `json:"remaining_required_fields,omitempty"`
+}
+
+// OnboardingCompanyProposalField defines model for OnboardingCompanyProposalField.
+type OnboardingCompanyProposalField struct {
+	Confidence      float32 `json:"confidence"`
+	EvidenceSnippet string  `json:"evidence_snippet"`
+	Field           string  `json:"field"`
+	SourceUrl       string  `json:"source_url"`
+	Value           string  `json:"value"`
+}
 
 // OnboardingState defines model for OnboardingState.
 type OnboardingState struct {
@@ -18987,6 +19099,9 @@ type ServerInterface interface {
 	// Continue the scoped company-setup conversation with or without a website read.
 	// (POST /onboarding/company/messages)
 	MessageOnboardingCompany(w http.ResponseWriter, r *http.Request)
+	// The deterministic evidence-backed company proposal derived from the onboarding website read.
+	// (GET /onboarding/company/proposal)
+	GetOnboardingCompanyProposal(w http.ResponseWriter, r *http.Request)
 	// Get the acting user's resumable onboarding state.
 	// (GET /onboarding/state)
 	GetOnboardingState(w http.ResponseWriter, r *http.Request)
@@ -20136,6 +20251,12 @@ func (_ Unimplemented) SendOffer(w http.ResponseWriter, r *http.Request, id Id, 
 // Continue the scoped company-setup conversation with or without a website read.
 // (POST /onboarding/company/messages)
 func (_ Unimplemented) MessageOnboardingCompany(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The deterministic evidence-backed company proposal derived from the onboarding website read.
+// (GET /onboarding/company/proposal)
+func (_ Unimplemented) GetOnboardingCompanyProposal(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -26798,6 +26919,26 @@ func (siw *ServerInterfaceWrapper) MessageOnboardingCompany(w http.ResponseWrite
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.MessageOnboardingCompany(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetOnboardingCompanyProposal operation middleware
+func (siw *ServerInterfaceWrapper) GetOnboardingCompanyProposal(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOnboardingCompanyProposal(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -33484,6 +33625,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/onboarding/company/messages", wrapper.MessageOnboardingCompany)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/onboarding/company/proposal", wrapper.GetOnboardingCompanyProposal)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/onboarding/state", wrapper.GetOnboardingState)
