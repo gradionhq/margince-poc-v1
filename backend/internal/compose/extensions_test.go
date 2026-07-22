@@ -104,6 +104,26 @@ func TestRegisterExtensionsRejectsAnUnknownRetentionClass(t *testing.T) {
 	}
 }
 
+// TestRegisterExtensionsRejectsANegativePeriod: a negative floor would
+// anchor its cutoff in the future and silently shrink statutory
+// protection — the boot refuses the set.
+func TestRegisterExtensionsRejectsANegativePeriod(t *testing.T) {
+	err := RegisterExtensions([]extension.Extension{{
+		Name:    "future-floor",
+		Version: "0.0.1",
+		Jurisdictions: []jurisdiction.Pack{fakePack{
+			code:    "zt",
+			classes: []jurisdiction.RetentionClass{{Name: jurisdiction.CommercialCorrespondence, Keep: jurisdiction.Period{Years: -6}}},
+		}},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "negative component") {
+		t.Fatalf("err = %v, want the negative-component rejection", err)
+	}
+	if _, ok := jurisdiction.For("zt"); ok {
+		t.Fatal("the pack landed although its floor failed validation")
+	}
+}
+
 // TestNoCapabilityAppliesWhenTheSetIsInvalid: validation and application
 // are separate phases — a clean unit's capabilities must not land when a
 // later unit fails validation, or a crash-looping process would leave
