@@ -61,18 +61,19 @@ function newFieldEvents(
   const known = new Set((prev?.profile_fields ?? []).map((f) => f.field));
   return next.profile_fields
     .filter((field) => !known.has(field.field))
-    .map((field) => {
+    .map((field): NarrationEvent => {
       const labelKey = coldFieldLabelKey(field.field);
+      const params: Record<string, string | number> = {
+        value: previewValue(field.value),
+      };
+      if (!labelKey) {
+        params.field = field.field.replace(/_/g, " ");
+      }
       return {
-        kind: "say" as const,
+        kind: "say",
         id: `${next.id}:field:${field.field}`,
-        i18nKey: "ob.conv.read.learnedField" as const,
-        params: labelKey
-          ? { value: previewValue(field.value) }
-          : {
-              field: field.field.replace(/_/g, " "),
-              value: previewValue(field.value),
-            },
+        i18nKey: "ob.conv.read.learnedField",
+        params,
         ...(labelKey ? { paramKeys: { field: labelKey } } : {}),
         findingIds: [field.field],
       };
