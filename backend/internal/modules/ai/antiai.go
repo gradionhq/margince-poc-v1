@@ -10,6 +10,7 @@ package ai
 import (
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 // VoiceViolation is one deterministic tell a critic must remove.
@@ -60,15 +61,16 @@ func containsParentheticalDash(text string) bool {
 	return false
 }
 
-// isNumericRangeDash exempts a dash whose nearest non-space neighbours are
-// digits: "2024–2026" and the spaced "2024 – 2026" are ranges, not asides.
+// isNumericRangeDash exempts a dash whose nearest non-whitespace
+// neighbours are digits: "2024–2026" and the spaced "2024 – 2026" are
+// ranges, not asides — whatever whitespace (tab, no-break space) spans them.
 func isNumericRangeDash(runes []rune, i int) bool {
 	prev := i - 1
-	for prev >= 0 && runes[prev] == ' ' {
+	for prev >= 0 && unicode.IsSpace(runes[prev]) {
 		prev--
 	}
 	next := i + 1
-	for next < len(runes) && runes[next] == ' ' {
+	for next < len(runes) && unicode.IsSpace(runes[next]) {
 		next++
 	}
 	return prev >= 0 && runes[prev] >= '0' && runes[prev] <= '9' &&
@@ -87,7 +89,7 @@ func SanitizeAIPatterns(text string) string {
 				out = append(out, r)
 				continue
 			}
-			for len(out) > 0 && out[len(out)-1] == ' ' {
+			for len(out) > 0 && unicode.IsSpace(out[len(out)-1]) {
 				out = out[:len(out)-1]
 			}
 			// A comma splice only reads right between words. A dash at the
@@ -99,7 +101,7 @@ func SanitizeAIPatterns(text string) string {
 			if len(out) > 0 {
 				out = append(out, ' ')
 			}
-			for i+1 < len(runes) && runes[i+1] == ' ' {
+			for i+1 < len(runes) && unicode.IsSpace(runes[i+1]) {
 				i++
 			}
 			continue

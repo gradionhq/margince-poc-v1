@@ -40,6 +40,11 @@ type VoiceBuildOutcome struct {
 	// PredecessorWords is the previous version's corpus size; the change
 	// timeline records the difference, never the whole corpus as "added".
 	PredecessorWords int
+	// EvaluatedPredecessor is the profile version the evaluation compared
+	// against (0 = none existed). If the active version moved while the
+	// evaluation ran, the comparison is stale and the candidate must not
+	// auto-activate over a version it was never scored against.
+	EvaluatedPredecessor int
 }
 
 // CompleteBuild persists one immutable version row with its real evaluation
@@ -94,11 +99,7 @@ func (s *VoiceStore) CompleteBuild(ctx context.Context, buildID ids.UUID, claime
 		if err != nil {
 			return err
 		}
-		if currentHash != build.SourceHash && outcome.Action == voiceCandidateAutoActivated {
-			outcome.Action = voiceCandidateReviewRequired
-			outcome.ReviewReasons = append(outcome.ReviewReasons,
-				"the corpus changed while this build was running; review before activating")
-		}
+		outcome = demoteStaleOutcome(outcome, build, profile, currentHash)
 		now := s.now().UTC()
 		result, err = s.persistBuildVersion(ctx, tx, build, profile, outcome, actor.ID, now)
 		if err != nil {
@@ -126,6 +127,27 @@ func (s *VoiceStore) CompleteBuild(ctx context.Context, buildID ids.UUID, claime
 		return emitVoiceBuild(ctx, tx, auditID, finished)
 	})
 	return result, err
+}
+
+// demoteStaleOutcome reviews an auto-activation whose premises moved while
+// the build ran: an artifact from an obsolete corpus snapshot, or a
+// regression comparison against a version that is no longer the active one,
+// never silently replaces the active voice.
+func demoteStaleOutcome(outcome VoiceBuildOutcome, build VoiceBuild, profile VoiceProfile, currentHash string) VoiceBuildOutcome {
+	if outcome.Action != voiceCandidateAutoActivated {
+		return outcome
+	}
+	if currentHash != build.SourceHash {
+		outcome.Action = voiceCandidateReviewRequired
+		outcome.ReviewReasons = append(outcome.ReviewReasons,
+			"the corpus changed while this build was running; review before activating")
+	}
+	if profile.ProfileVersion != outcome.EvaluatedPredecessor {
+		outcome.Action = voiceCandidateReviewRequired
+		outcome.ReviewReasons = append(outcome.ReviewReasons,
+			"the active version changed while this build was evaluating; review before activating")
+	}
+	return outcome
 }
 
 func (s *VoiceStore) persistBuildVersion(ctx context.Context, tx pgx.Tx, build VoiceBuild, profile VoiceProfile, outcome VoiceBuildOutcome, actorID string, now time.Time) (VoiceProfileVersion, error) {

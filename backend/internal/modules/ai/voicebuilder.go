@@ -36,12 +36,13 @@ func SafeVoiceBuildFailure(err error) string {
 	}
 	text := strings.ToLower(err.Error())
 	switch {
-	// The word-floor message is our own and safe to show verbatim — but only
-	// when it did NOT travel through a model call, whose wrapped provider
-	// text could coincidentally match the same words.
-	case strings.Contains(text, "at least") && strings.Contains(text, "words") && !strings.Contains(text, "model call"):
+	// Only OUR OWN word-floor message is safe verbatim: match its exact
+	// prefix, never a keyword pair a wrapped provider error could
+	// coincidentally contain.
+	case strings.HasPrefix(text, "voice build needs at least"):
 		return err.Error()
-	case strings.Contains(text, "no model path"):
+	case strings.Contains(text, "no model path"), strings.Contains(text, "no bound"),
+		strings.Contains(text, "not bound"), strings.Contains(text, "unbound"):
 		return "Voice building is unavailable until an AI provider is configured."
 	default:
 		return "The voice model could not produce a valid profile. Your previous version is unchanged; try again."

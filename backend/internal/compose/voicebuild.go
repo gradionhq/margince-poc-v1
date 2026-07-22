@@ -214,6 +214,15 @@ func predecessorWordCount(predecessor *ai.VoiceProfileVersion) int {
 	return int(words)
 }
 
+// evaluatedPredecessorVersion names the version the evaluation compared
+// against, so activation can refuse a comparison that went stale mid-run.
+func evaluatedPredecessorVersion(predecessor *ai.VoiceProfileVersion) int {
+	if predecessor == nil {
+		return 0
+	}
+	return predecessor.ProfileVersion
+}
+
 // deferralDeadline honors the router's exact budget-window boundary when the
 // error carries one; the fixed fallback serves only a bare sentinel.
 func (w *voiceBuildWorker) deferralDeadline(err error) time.Time {
@@ -257,14 +266,15 @@ func (w *voiceBuildWorker) run(ctx, terminal context.Context, buildID ids.UUID, 
 		SampleDrafts: evaluated.SampleDrafts,
 		// Guidance reads the WHOLE corpus, held-out included — the nudge
 		// must never ask for a register the user already supplied.
-		Guidance:         voiceGuidance(ai.AnalyzeVoice(input.Samples)),
-		PredecessorWords: predecessorWordCount(predecessor),
-		Classification:   evaluated.Classification,
-		Action:           evaluated.Action,
-		StatusCode:       evaluated.StatusCode,
-		ReviewReasons:    evaluated.ReviewReasons,
-		ModelProvider:    "routed",
-		ModelName:        modelNameOrUnrecorded(artifact.ModelName),
+		Guidance:             voiceGuidance(ai.AnalyzeVoice(input.Samples)),
+		PredecessorWords:     predecessorWordCount(predecessor),
+		EvaluatedPredecessor: evaluatedPredecessorVersion(predecessor),
+		Classification:       evaluated.Classification,
+		Action:               evaluated.Action,
+		StatusCode:           evaluated.StatusCode,
+		ReviewReasons:        evaluated.ReviewReasons,
+		ModelProvider:        "routed",
+		ModelName:            modelNameOrUnrecorded(artifact.ModelName),
 	})
 	return err
 }
