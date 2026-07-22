@@ -554,11 +554,10 @@ function OnboardingCoordinator() {
   const [draft, setDraftState] = useState<CompanyDraft>(EMPTY_DRAFT);
   const draftRef = useRef<CompanyDraft>(EMPTY_DRAFT);
   const setDraft = useCallback((update: SetStateAction<CompanyDraft>) => {
-    setDraftState((previous) => {
-      const next = typeof update === "function" ? update(previous) : update;
-      draftRef.current = next;
-      return next;
-    });
+    const next =
+      typeof update === "function" ? update(draftRef.current) : update;
+    draftRef.current = next;
+    setDraftState(next);
   }, []);
   const [saveAttempted, setSaveAttempted] = useState(false);
   const [companySaved, setCompanySaved] = useState(false);

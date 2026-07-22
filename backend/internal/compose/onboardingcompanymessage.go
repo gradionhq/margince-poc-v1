@@ -83,7 +83,7 @@ func (a *onboardingCompanyAssistant) message(w http.ResponseWriter, r *http.Requ
 	}
 	currentDraft := state.CompanyDraft
 	if req.CompanyDraft != nil {
-		currentDraft = onboardingConversationDraftInput(*req.CompanyDraft)
+		currentDraft = onboardingDraftInput(*req.CompanyDraft)
 	}
 	remaining := remainingOnboardingFields(currentDraft)
 	conversation := onboardingConversationContext{
@@ -141,28 +141,7 @@ func decodeOnboardingCompanyMessage(w http.ResponseWriter, r *http.Request) (crm
 	return req, message, true
 }
 
-func onboardingConversationDraftInput(in crmcontracts.OnboardingCompanyConversationDraft) identity.OnboardingCompanyDraft {
-	return identity.OnboardingCompanyDraft{
-		DisplayName:       in.DisplayName,
-		OfferSummary:      in.OfferSummary,
-		ICP:               in.Icp,
-		ValueProposition:  in.ValueProposition,
-		USP:               in.Usp,
-		CustomerPains:     in.CustomerPains,
-		DesiredOutcomes:   in.DesiredOutcomes,
-		BuyingCenter:      in.BuyingCenter,
-		BuyingIntents:     in.BuyingIntents,
-		CommonObjections:  in.CommonObjections,
-		SalesMotion:       in.SalesMotion,
-		LegalName:         in.LegalName,
-		RegisteredAddress: in.RegisteredAddress,
-		RegisterVAT:       in.RegisterVat,
-		Industry:          in.Industry,
-		History:           in.History,
-	}
-}
-
-func oversizedOnboardingDraftField(draft crmcontracts.OnboardingCompanyConversationDraft) string {
+func oversizedOnboardingDraftField(draft crmcontracts.OnboardingCompanyDraft) string {
 	fields := []struct {
 		name  string
 		value *string

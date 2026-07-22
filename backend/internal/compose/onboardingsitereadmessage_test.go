@@ -166,7 +166,12 @@ func TestCompanyReadReplyValidationRejectsEveryUnsafeShape(t *testing.T) {
 	known := map[string]companyReadEvidence{"S1": {ID: "S1", Value: "Acme GmbH"}}
 	for name, reply := range tests {
 		t.Run(name, func(t *testing.T) {
-			authorization := newCompanyChangeAuthorization("Use administrator supplied value", nil, "")
+			authorizationMessage := "Use administrator supplied value"
+			if len(reply.ProposedChanges) > 0 {
+				change := reply.ProposedChanges[0]
+				authorizationMessage = "Set " + strings.ReplaceAll(change.Field, "_", " ") + " to " + change.Value
+			}
+			authorization := newCompanyChangeAuthorization(authorizationMessage, nil, "")
 			if err := validateCompanyReadReplyValue(reply, known, "Use administrator supplied value", authorization); err == nil {
 				t.Fatalf("unsafe reply accepted: %+v", reply)
 			}
@@ -178,7 +183,8 @@ func TestCompanyReadReplyValidationRejectsEveryUnsafeShape(t *testing.T) {
 	adminSupplied := companyReadModelReply{Kind: "correction", Message: "I can suggest that.", ProposedChanges: []companyReadProposedChange{{
 		Field: "legal_name", Value: "Admin GmbH", Reason: "You supplied it.", SourceIDs: []string{},
 	}}}
-	if err := validateCompanyReadReplyValue(adminSupplied, known, "Please use Admin GmbH", newCompanyChangeAuthorization("Please use Admin GmbH", nil, "")); err != nil {
+	adminStatement := "Please use Admin GmbH as our legal name"
+	if err := validateCompanyReadReplyValue(adminSupplied, known, adminStatement, newCompanyChangeAuthorization(adminStatement, nil, "")); err != nil {
 		t.Fatalf("administrator correction rejected: %v", err)
 	}
 }
@@ -287,6 +293,12 @@ func TestCompanyChangeAuthorizationUnderstandsAssertionsDirectAnswersAndFollowUp
 	if newCompanyChangeAuthorization("Is our legal name Acme GmbH?", nil, "").allows(legalChange) {
 		t.Fatal("a question was treated as an explicit correction")
 	}
+	if newCompanyChangeAuthorization("Is our legal name Acme GmbH", nil, "").allows(legalChange) {
+		t.Fatal("a question without punctuation was treated as an explicit correction")
+	}
+	if newCompanyChangeAuthorization("Tell me whether our legal name is Acme GmbH", nil, "").allows(legalChange) {
+		t.Fatal("an indirect question was treated as an explicit correction")
+	}
 
 	direct := newCompanyChangeAuthorization("Acme", nil, fieldDisplayName)
 	if !direct.allows(companyReadProposedChange{Field: fieldDisplayName, Value: "Acme"}) ||
@@ -298,13 +310,74 @@ func TestCompanyChangeAuthorizationUnderstandsAssertionsDirectAnswersAndFollowUp
 	) {
 		t.Fatal("an ordinary statement opened the direct-answer change boundary")
 	}
+	if newCompanyChangeAuthorization("Is Acme the right company name", nil, fieldDisplayName).allows(
+		companyReadProposedChange{Field: fieldDisplayName, Value: "Acme"},
+	) {
+		t.Fatal("a question opened the deterministic direct-answer boundary")
+	}
+	if newCompanyChangeAuthorization("Acme or Acme GmbH", nil, fieldDisplayName).allows(
+		companyReadProposedChange{Field: fieldDisplayName, Value: "Acme"},
+	) {
+		t.Fatal("an unpunctuated choice question opened the deterministic direct-answer boundary")
+	}
+
+	explicit := newCompanyChangeAuthorization("Please update our industry to Software", nil, "")
+	if !explicit.allows(companyReadProposedChange{Field: fieldIndustry, Value: "Software"}) ||
+		explicit.allows(companyReadProposedChange{Field: fieldLegalName, Value: "Acme GmbH"}) {
+		t.Fatal("an explicit change request was not confined to its named field")
+	}
+	if !newCompanyChangeAuthorization("What should our ICP be", nil, "").allows(
+		companyReadProposedChange{Field: fieldICP, Value: "Mid-market software companies"},
+	) {
+		t.Fatal("an explicit field recommendation request was rejected")
+	}
+	if newCompanyChangeAuthorization("What should our ICP be", nil, fieldDisplayName).allows(
+		companyReadProposedChange{Field: fieldDisplayName, Value: "Acme"},
+	) {
+		t.Fatal("the deterministic next field overrode a field explicitly named by the administrator")
+	}
 
 	history := []model.Message{
 		{Role: chatRoleUser, Content: "Please update our industry to software"},
 		{Role: "assistant", Content: "Should I apply that correction?"},
 	}
-	followUp := newCompanyChangeAuthorization("Yes please", history, "")
+	followUp := newCompanyChangeAuthorization("Yes, please", history, "")
 	if !followUp.allows(companyReadProposedChange{Field: fieldIndustry, Value: "Software"}) {
 		t.Fatal("a confirmation of the immediately preceding change request was rejected")
+	}
+	if followUp.allows(companyReadProposedChange{Field: fieldLegalName, Value: "Acme GmbH"}) {
+		t.Fatal("a confirmation authorized a field absent from the preceding change request")
+	}
+	germanHistory := []model.Message{{Role: chatRoleUser, Content: "Bitte aktualisiere unsere Branche auf Software"}}
+	if !newCompanyChangeAuthorization("Ja, bitte", germanHistory, "").allows(
+		companyReadProposedChange{Field: fieldIndustry, Value: "Software"},
+	) {
+		t.Fatal("a punctuated German confirmation was rejected")
+	}
+}
+
+func TestCompanyFieldMentionUnderstandsTheCompleteGermanVocabulary(t *testing.T) {
+	examples := map[string]string{
+		fieldDisplayName:       "Unser Firmenname ist Acme",
+		fieldLegalName:         "Unsere Firmierung ist Acme GmbH",
+		fieldRegisteredAddress: "Unsere Geschäftsanschrift ist Berlin",
+		fieldRegisterVat:       "Unsere Handelsregisternummer ist HRB 42",
+		fieldIndustry:          "Unsere Branche ist Software",
+		fieldHistory:           "Unsere Unternehmensgeschichte begann 2020",
+		fieldOfferSummary:      "Unser Leistungsangebot ist Beratung",
+		fieldICP:               "Unser ideales Kundenprofil sind Mittelständler",
+		fieldValueProposition:  "Unser Wertversprechen ist Zeitersparnis",
+		fieldUSP:               "Unser Alleinstellungsmerkmal ist Geschwindigkeit",
+		fieldCustomerPains:     "Die Kundenprobleme sind hohe Kosten",
+		fieldDesiredOutcomes:   "Die gewünschten Ergebnisse sind mehr Umsatz",
+		fieldBuyingCenter:      "Unser Einkaufsgremium umfasst IT und Einkauf",
+		fieldBuyingIntents:     "Die Kaufsignale sind konkrete Projektanfragen",
+		fieldCommonObjections:  "Die häufigen Einwände betreffen den Preis",
+		fieldSalesMotion:       "Unser Vertriebsmodell ist founder-led",
+	}
+	for field, message := range examples {
+		if !companyFieldMentioned(message, field) {
+			t.Errorf("German field %q was not recognized in %q", field, message)
+		}
 	}
 }

@@ -10030,31 +10030,8 @@ components:
       description: |
         Partial human-editable company input retained while the wizard is unfinished. Every field
         is optional here because this is not confirmed company truth; confirmation uses the stricter
-        CompanyProfileInput or ConfirmCompanySiteReadRequest contract.
-      properties:
-        display_name: { type: [string, 'null'] }
-        offer_summary: { type: [string, 'null'] }
-        icp: { type: [string, 'null'] }
-        value_proposition: { type: [string, 'null'] }
-        usp: { type: [string, 'null'] }
-        customer_pains: { type: [string, 'null'] }
-        desired_outcomes: { type: [string, 'null'] }
-        buying_center: { type: [string, 'null'] }
-        buying_intents: { type: [string, 'null'] }
-        common_objections: { type: [string, 'null'] }
-        sales_motion: { type: [string, 'null'] }
-        legal_name: { type: [string, 'null'] }
-        registered_address: { type: [string, 'null'] }
-        register_vat: { type: [string, 'null'] }
-        industry: { type: [string, 'null'] }
-        history: { type: [string, 'null'] }
-
-    OnboardingCompanyConversationDraft:
-      type: object
-      additionalProperties: false
-      description: |
-        A size-bounded copy of the administrator's current company draft supplied only as
-        conversational context. It does not change the persisted onboarding state contract.
+        CompanyProfileInput or ConfirmCompanySiteReadRequest contract. Values are bounded because the
+        same draft may be supplied as context to the conversational assistant.
       properties:
         display_name: { type: [string, 'null'], maxLength: 2000 }
         offer_summary: { type: [string, 'null'], maxLength: 2000 }
@@ -10440,7 +10417,7 @@ components:
           maxItems: 8
           items: { $ref: '#/components/schemas/CompanySiteReadConversationTurn' }
         company_draft:
-          $ref: '#/components/schemas/OnboardingCompanyConversationDraft'
+          $ref: '#/components/schemas/OnboardingCompanyDraft'
           description: The administrator's current unsaved artifact, used only as conversational context.
 
     OnboardingCompanyMessageReply:

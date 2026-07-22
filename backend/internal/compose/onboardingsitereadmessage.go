@@ -29,6 +29,7 @@ const (
 	companyReadHistoryLimit    = 8
 	companyReadHistoryMaxRunes = 4_000
 	companyConversationStatus  = "status"
+	companyProductTerm         = "product"
 )
 
 var companyReadMessageSchema = json.RawMessage(`{
@@ -249,17 +250,29 @@ func newCompanyChangeAuthorization(message string, history []model.Message, dire
 }
 
 func (a companyChangeAuthorization) allows(change companyReadProposedChange) bool {
-	if messageRequestsCompanyChanges(a.currentMessage) {
+	currentField := companyFieldMentioned(a.currentMessage, change.Field) ||
+		(a.directField == change.Field && !companyMessageMentionsKnownField(a.currentMessage))
+	if messageRequestsCompanyChanges(a.currentMessage) && currentField {
 		return true
 	}
-	if isCompanyChangeConfirmation(a.currentMessage) && messageRequestsCompanyChanges(a.previousRequest) {
+	if isCompanyChangeConfirmation(a.currentMessage) && messageRequestsCompanyChanges(a.previousRequest) &&
+		companyFieldMentioned(a.previousRequest, change.Field) {
 		return true
 	}
 	valueSuppliedNow := textContainsValue(a.currentMessage, change.Value)
-	if a.directField == change.Field && valueSuppliedNow {
+	if a.directField == change.Field && !looksLikeQuestion(a.currentMessage) && valueSuppliedNow {
 		return true
 	}
 	return !looksLikeQuestion(a.currentMessage) && valueSuppliedNow && companyFieldMentioned(a.currentMessage, change.Field)
+}
+
+func companyMessageMentionsKnownField(message string) bool {
+	for _, field := range extractionFieldNames {
+		if companyFieldMentioned(message, field) {
+			return true
+		}
+	}
+	return false
 }
 
 func messageRequestsCompanyChanges(message string) bool {
@@ -278,7 +291,8 @@ func messageRequestsCompanyChanges(message string) bool {
 }
 
 func isCompanyChangeConfirmation(message string) bool {
-	normalized := strings.ToLower(strings.Trim(strings.Join(strings.Fields(message), " "), "?!. "))
+	normalized := strings.ToLower(strings.Trim(strings.Join(strings.Fields(message), " "), "?!., "))
+	normalized = strings.ReplaceAll(normalized, ",", "")
 	switch normalized {
 	case "yes", "yes please", "correct", "that's right", "that is right", "ja", "ja bitte", "genau", "richtig":
 		return true
@@ -287,21 +301,28 @@ func isCompanyChangeConfirmation(message string) bool {
 	}
 }
 
+var companyFieldAliases = map[string][]string{
+	fieldDisplayName:       {"company name", "brand name", "firmenname", "unternehmensname", "kurzname", "anzeigename"},
+	fieldLegalName:         {"registered name", "legal company name", "rechtlicher name", "juristischer name", "firmierung", "eingetragener name", "gesetzlicher name"},
+	fieldRegisteredAddress: {"registered address", "registered office", "company address", "geschäftsanschrift", "geschäftsadresse", "firmenanschrift", "unternehmensanschrift", "unternehmensadresse", "geschäftssitz", "firmensitz", "anschrift", "adresse"},
+	fieldRegisterVat:       {"vat", "uid", "tax number", "company register", "ust-id", "umsatzsteuer", "handelsregister", "handelsregisternummer", "registernummer", "steuernummer"},
+	fieldIndustry:          {"industry", "sector", "branche", "industrie", "wirtschaftszweig"},
+	fieldHistory:           {"company history", "background", "unternehmensgeschichte", "firmengeschichte", "geschichte", "historie"},
+	fieldICP:               {"ideal customer", "ideal customer profile", "zielkunde", "zielkunden", "zielgruppe", "idealer kunde", "ideales kundenprofil"},
+	fieldOfferSummary:      {"what we offer", companyProductTerm, "service", "angebot", "produkt", "dienstleistung", "leistungsangebot"},
+	fieldValueProposition:  {"value proposition", "customer value", "wertversprechen", "nutzenversprechen", "kundennutzen"},
+	fieldUSP:               {"unique selling proposition", "differentiator", "alleinstellungsmerkmal", "differenzierungsmerkmal"},
+	fieldCustomerPains:     {"customer pain", "customer problem", "kundenproblem", "kundenprobleme", "herausforderungen", "schmerzpunkte"},
+	fieldDesiredOutcomes:   {"desired outcome", "customer outcome", "gewünschte ergebnisse", "gewünschten ergebnisse", "kundenziele", "kundenresultate"},
+	fieldBuyingCenter:      {"buying center", "decision makers", "einkaufsgremium", "kaufentscheider", "entscheidungsgremium"},
+	fieldBuyingIntents:     {"buying intent", "buying signal", "kaufabsicht", "kaufabsichten", "kaufsignal", "kaufsignale", "kaufinteresse"},
+	fieldCommonObjections:  {"common objection", "sales objection", "häufige einwände", "einwände", "kundenbedenken"},
+	fieldSalesMotion:       {"sales motion", "sales process", "go-to-market", "vertriebsmodell", "vertriebsprozess", "verkaufsprozess"},
+}
+
 func companyFieldMentioned(message, field string) bool {
 	normalized := strings.ToLower(strings.Join(strings.Fields(message), " "))
-	terms := []string{strings.ReplaceAll(field, "_", " ")}
-	switch field {
-	case fieldDisplayName:
-		terms = append(terms, "company name", "firmenname", "unternehmensname")
-	case fieldLegalName:
-		terms = append(terms, "registered name", "legal company name", "rechtlicher name", "juristischer name", "firmenname")
-	case fieldRegisterVat:
-		terms = append(terms, "vat", "uid", "tax number", "ust-id", "umsatzsteuer")
-	case fieldICP:
-		terms = append(terms, "ideal customer", "ideal customer profile", "zielkunde", "zielgruppe")
-	case fieldOfferSummary:
-		terms = append(terms, "what we offer", "product", "service", "angebot", "produkt")
-	}
+	terms := append([]string{strings.ReplaceAll(field, "_", " ")}, companyFieldAliases[field]...)
 	for _, term := range terms {
 		if strings.Contains(normalized, term) {
 			return true
@@ -311,7 +332,26 @@ func companyFieldMentioned(message, field string) bool {
 }
 
 func looksLikeQuestion(message string) bool {
-	return strings.HasSuffix(strings.TrimSpace(message), "?")
+	normalized := strings.ToLower(strings.TrimSpace(message))
+	if strings.HasSuffix(normalized, "?") {
+		return true
+	}
+	if strings.Contains(normalized, " or ") || strings.Contains(normalized, " oder ") {
+		return true
+	}
+	for _, lead := range []string{
+		"what ", "which ", "who ", "where ", "when ", "why ", "how ", "is ", "are ", "am ",
+		"do ", "does ", "did ", "can ", "could ", "would ", "will ", "should ", "has ", "have ",
+		"tell me ", "please tell me ", "i wonder ",
+		"was ", "welche ", "welcher ", "wer ", "wo ", "wann ", "warum ", "wie ", "ist ", "sind ",
+		"bin ", "kann ", "können ", "soll ", "sollte ", "hat ", "haben ", "stimmt ", "lautet ",
+		"sag mir ", "sage mir ", "bitte sag ", "ich frage mich ", "könntest ", "würdest ",
+	} {
+		if strings.HasPrefix(normalized, lead) {
+			return true
+		}
+	}
+	return false
 }
 
 func companyConversationKindValid(kind string) bool {
