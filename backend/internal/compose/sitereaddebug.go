@@ -268,7 +268,7 @@ func SiteReadDebugBrain(routingPath, modelOverride string, fake bool) (profile, 
 		router, err := ai.NewLocalRouter(ai.RoutingConfig{
 			Profile:    ai.ProfileCloudFrontier,
 			Tiers:      map[ai.Tier]ai.ProviderConfig{ai.TierCheapCloud: {Provider: provider, Model: modelName}},
-			Embeddings: ai.ProviderConfig{Provider: ai.ProviderFake},
+			Embeddings: ai.EmbeddingsConfig{ProviderConfig: ai.ProviderConfig{Provider: ai.ProviderFake}},
 		})
 		if err != nil {
 			return nil, nil, "", err

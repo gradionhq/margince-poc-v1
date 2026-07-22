@@ -28,7 +28,7 @@ func TestPublicProfileDerivesSafeRoutingPosture(t *testing.T) {
 			config: RoutingConfig{Tiers: map[Tier]ProviderConfig{
 				TierCheapCloud: {Provider: providerAnthropic},
 				TierPremium:    {Provider: providerAnthropic},
-			}, Embeddings: ProviderConfig{Provider: providerGemini}},
+			}, Embeddings: EmbeddingsConfig{ProviderConfig: ProviderConfig{Provider: providerGemini}}},
 			wantState: "configured", wantMode: "cloud", want: []string{"anthropic", "gemini"},
 		},
 		{
@@ -36,7 +36,7 @@ func TestPublicProfileDerivesSafeRoutingPosture(t *testing.T) {
 			state: "configured",
 			config: RoutingConfig{Tiers: map[Tier]ProviderConfig{
 				TierLocalSmall: {Provider: providerOllama},
-			}, Embeddings: ProviderConfig{Provider: providerOllama}},
+			}, Embeddings: EmbeddingsConfig{ProviderConfig: ProviderConfig{Provider: providerOllama}}},
 			wantState: "configured", wantMode: "local", want: []string{"ollama"},
 		},
 		{
@@ -45,7 +45,7 @@ func TestPublicProfileDerivesSafeRoutingPosture(t *testing.T) {
 			config: RoutingConfig{Tiers: map[Tier]ProviderConfig{
 				TierLocalSmall: {Provider: providerOllama},
 				TierPremium:    {Provider: providerAnthropic},
-			}, Embeddings: ProviderConfig{Provider: ProviderFake}},
+			}, Embeddings: EmbeddingsConfig{ProviderConfig: ProviderConfig{Provider: ProviderFake}}},
 			wantState: "configured", wantMode: "hybrid", want: []string{"anthropic", "ollama"},
 		},
 	}

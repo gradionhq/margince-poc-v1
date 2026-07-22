@@ -26,6 +26,6 @@ func FakeRoutingConfig() RoutingConfig {
 			TierCheapCloud: fake,
 			TierPremium:    fake,
 		},
-		Embeddings: fake,
+		Embeddings: EmbeddingsConfig{ProviderConfig: fake},
 	}
 }

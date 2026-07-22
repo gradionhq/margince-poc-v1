@@ -112,6 +112,7 @@ tiers:
 embeddings:
   provider: gemini
   model: gemini-embedding-001
+  dimensions: 1024   # optional; default 1024. The width the provider is asked to emit.
 
 # A fully-offline dev/test config needs no infrastructure at all:
 #   profile: eu_hosted

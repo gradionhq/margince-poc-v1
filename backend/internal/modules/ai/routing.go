@@ -25,12 +25,36 @@ const (
 	ProfileCloudFrontier Profile = "cloud_frontier"
 )
 
+// defaultEmbedDimensions is the vector width an embeddings binding gets when
+// it leaves `dimensions` unset (0) — matching the pgvector column the
+// committed example config already assumes.
+const defaultEmbedDimensions = 1024
+
+// maxEmbedDimensions bounds an operator-set `dimensions` from above (spec
+// ai-operational-spec.md §1.4); config/ai-routing.schema.json's generated
+// embeddingsBinding $def carries the same bound.
+const maxEmbedDimensions = 2000
+
+// EmbeddingsConfig is the embeddings-lane binding: the shared ProviderConfig
+// (provider/model/base_url, selectbrain.go) plus Dimensions, the vector width
+// the provider is asked to emit. Chat tiers have no notion of output width,
+// so Dimensions lives only here — never on the shared ProviderConfig every
+// chat tier also binds through, where it would be meaningless.
+type EmbeddingsConfig struct {
+	ProviderConfig `yaml:",inline"`
+	// Dimensions is the embedding vector width; 0 means "use the default"
+	// (defaultEmbedDimensions). ParseRouting validates it into [1,2000] and
+	// applies the default before any tier or role ever reads it — never
+	// left for a downstream caller to re-check.
+	Dimensions int `yaml:"dimensions"`
+}
+
 // RoutingConfig is the parsed ai-routing.yaml: the ONLY place vendor
 // names appear (§1.4). A malformed binding fails at startup, not on the
 // first model call at 3am.
 type RoutingConfig struct {
 	Tiers      map[Tier]ProviderConfig `yaml:"tiers"`
-	Embeddings ProviderConfig          `yaml:"embeddings"`
+	Embeddings EmbeddingsConfig        `yaml:"embeddings"`
 	Profile    Profile                 `yaml:"profile"`
 	// sourceHash is the sha256 digest of the raw yaml bytes this config was
 	// parsed from (spec §4) — the routing half of the ai_call_config
@@ -59,6 +83,15 @@ func ParseRouting(raw []byte) (RoutingConfig, error) {
 	dec.KnownFields(true)
 	if err := dec.Decode(&cfg); err != nil {
 		return RoutingConfig{}, fmt.Errorf("ai: routing config: %w", err)
+	}
+	// The ONE validation + defaulting site for embeddings.dimensions: both
+	// NewRouter and NewLocalRouter build their RoutingConfig through this
+	// function (LoadRoutingFile or a direct ParseRouting call), so neither
+	// role can construct a router with an out-of-range or undefaulted width.
+	if d := cfg.Embeddings.Dimensions; d < 0 || d > maxEmbedDimensions {
+		return RoutingConfig{}, fmt.Errorf("ai: routing config: embeddings dimensions %d out of range [1,%d]", d, maxEmbedDimensions)
+	} else if d == 0 {
+		cfg.Embeddings.Dimensions = defaultEmbedDimensions
 	}
 	if err := cfg.validate(); err != nil {
 		return RoutingConfig{}, err
@@ -170,7 +203,7 @@ func (cfg RoutingConfig) buildClients() (map[Tier]model.Client, model.Client, er
 		}
 		clients[tier] = client
 	}
-	embedder, err := SelectBrain(cfg.Embeddings)
+	embedder, err := SelectBrain(cfg.Embeddings.ProviderConfig)
 	if err != nil {
 		return nil, nil, fmt.Errorf("ai: embeddings lane: %w", err)
 	}

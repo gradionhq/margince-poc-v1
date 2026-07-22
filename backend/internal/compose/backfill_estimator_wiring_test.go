@@ -32,7 +32,7 @@ func TestWithBackfillEstimatorWiresThePromotedField(t *testing.T) {
 			ai.TierCheapCloud: {Provider: ai.ProviderFake, Model: "cloud-model"},
 			ai.TierPremium:    {Provider: ai.ProviderFake, Model: "premium-model"},
 		},
-		Embeddings: ai.ProviderConfig{Provider: ai.ProviderFake, Model: "embed-model"},
+		Embeddings: ai.EmbeddingsConfig{ProviderConfig: ai.ProviderConfig{Provider: ai.ProviderFake, Model: "embed-model"}},
 	})
 	if err != nil {
 		t.Fatalf("NewLocalRouter: %v", err)
