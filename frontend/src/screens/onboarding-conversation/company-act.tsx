@@ -203,6 +203,10 @@ export function CompanyAct({ state, dispatch }: CompanyActProps) {
     [proposal.data, selectOption],
   );
 
+  // The machine routes the answer itself: with the read outcome recorded
+  // (readCompleted) it proceeds straight to review; remaining open questions
+  // surface in the confirm card, since the run retired at the terminal and a
+  // post-terminal CLARIFY would be stale.
   const handleAnswer = useCallback(
     (questionId: string, value: string) => {
       dispatch({ type: "QUESTION_ANSWERED", questionId, value });
@@ -306,9 +310,16 @@ export function CompanyAct({ state, dispatch }: CompanyActProps) {
     return null;
   }, [lastEntry]);
 
+  // The manual path stays offered before any read and again after one ended
+  // without a usable dossier. The read's own status decides — not the
+  // machine's activeReadId, which is also null in the post-terminal window
+  // while the proposal concludes, where re-offering manual would be noise.
   const showManualChip =
     state.phase === "co.intro" ||
-    (state.phase === "co.reading" && state.activeReadId === null);
+    (state.phase === "co.reading" &&
+      (read === null ||
+        read.status === "failed" ||
+        read.status === "deferred"));
 
   return (
     <ConversationWorkbench

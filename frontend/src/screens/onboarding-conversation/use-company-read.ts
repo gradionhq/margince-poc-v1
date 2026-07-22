@@ -208,10 +208,12 @@ export function useCompanyRead({
     },
   });
 
-  // Concluding a successful read waits for the proposal: a server-detected
-  // open question must be asked while the run is still active (the machine
-  // retires the run at the terminal), then the outcome lands, and with no
-  // questions left the review opens straight away.
+  // Concluding a successful read waits for the proposal: the first
+  // server-detected open question must be asked BEFORE the terminal — the
+  // machine retires the run at the terminal, and a post-terminal CLARIFY is
+  // stale by its correlation guard. Then the outcome lands (readCompleted
+  // records it, so the eventual answer proceeds straight to review), and
+  // with no questions left the review opens straight away.
   useEffect(() => {
     const data = proposal.data;
     const terminal = pendingTerminal.current;
