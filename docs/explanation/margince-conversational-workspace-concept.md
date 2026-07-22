@@ -546,10 +546,11 @@ posture and is not silently enabled by this feature.
 ### Visible Company workspace
 
 ```text
-collecting → researching → resolving → ready → saving → confirmed
-                 │              ▲        │
-                 ├─ deferred ────┘        └─ stale → resolving
-                 └─ partial ───────────────→ resolving
+collecting ─┬→ researching → resolving → ready → saving → confirmed
+            │        │              ▲        │
+            │        ├─ deferred ────┘        └─ stale → resolving
+            │        └─ partial ───────────────→ resolving
+            └→ resolving (website-free conversation)
 ```
 
 - **collecting:** awaiting a URL or the next administrator answer.

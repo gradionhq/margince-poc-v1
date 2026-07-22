@@ -5,10 +5,13 @@ package ai
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 func TestPublicProfileDerivesSafeRoutingPosture(t *testing.T) {
@@ -108,12 +111,34 @@ func TestGetAiProfileReturnsAuthenticatedConfiguredModelsAndLocalDefaults(t *tes
 		},
 	}))
 	recorder := httptest.NewRecorder()
-	h.GetAiProfile(recorder, httptest.NewRequest("GET", "/v1/ai/profile", nil))
+	request := httptest.NewRequest("GET", "/v1/ai/profile", nil)
+	request = request.WithContext(principal.WithActor(request.Context(), principal.Principal{
+		Type: principal.PrincipalHuman,
+		Permissions: principal.Permissions{Objects: map[string]principal.ObjectGrant{
+			"automation": {Update: true},
+		}},
+	}))
+	h.GetAiProfile(recorder, request)
 
 	body := recorder.Body.String()
 	for _, expected := range []string{defaultOllamaModel, defaultVLLMModel, "claude-sonnet", `"tier":"premium"`} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("authenticated profile misses %q: %s", expected, body)
 		}
+	}
+}
+
+func TestGetAiProfileRequiresOperationalConfigurationGrant(t *testing.T) {
+	h := NewHandlers(nil, nil).WithPublicProfile(NewPublicProfile("configured", RoutingConfig{}))
+	request := httptest.NewRequest("GET", "/v1/ai/profile", nil)
+	request = request.WithContext(principal.WithActor(request.Context(), principal.Principal{
+		Type: principal.PrincipalHuman,
+	}))
+	recorder := httptest.NewRecorder()
+
+	h.GetAiProfile(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d: %s", recorder.Code, http.StatusForbidden, recorder.Body.String())
 	}
 }

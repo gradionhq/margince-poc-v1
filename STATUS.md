@@ -115,7 +115,9 @@ first-person status response with no apology or mutation.
 The reusable Core/workbench header separates the complete configured model
 bindings from the provider-served models actually used for this task, and shows
 the cumulative calls, tokens, terminal-call latency, estimated USD cost and any
-unpriced calls. A browser cold start against `gradion.com` streamed from 1 to 40
+unpriced calls. The authenticated detailed AI profile uses the same
+operational-configuration grant as AI call and usage telemetry; the anonymous
+assistant profile remains deliberately minimal. A browser cold start against `gradion.com` streamed from 1 to 40
 pages, surfaced five intact legal entities and 110 cited details, produced the
 offer and ICP, answered an ordinary chat message correctly, saved the chosen
 German legal entity, and advanced directly to Voice. That pass also exposed and

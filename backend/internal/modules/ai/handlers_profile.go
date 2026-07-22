@@ -8,7 +8,9 @@ import (
 	"sort"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // PublicProfile is the deliberately small pre-auth view of the process's AI
@@ -153,9 +155,14 @@ func (h Handlers) GetAssistantProfile(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// GetAiProfile implements (GET /ai/profile). Authentication is enforced by
-// the generated operation policy before this handler runs.
-func (h Handlers) GetAiProfile(w http.ResponseWriter, _ *http.Request) {
+// GetAiProfile implements (GET /ai/profile). The detailed deployment posture
+// shares the operational-config grant used by AI calls and usage; the public
+// assistant profile remains the deliberately smaller anonymous surface.
+func (h Handlers) GetAiProfile(w http.ResponseWriter, r *http.Request) {
+	if err := auth.Require(r.Context(), "automation", principal.ActionUpdate); err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
 	httperr.WriteJSON(w, http.StatusOK, crmcontracts.AiProfile{
 		Name: crmcontracts.AiProfileNameMargince, Kind: crmcontracts.AiProfileKindAi,
 		State:            crmcontracts.AiProfileState(h.publicProfile.State),
