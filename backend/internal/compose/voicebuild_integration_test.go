@@ -429,3 +429,50 @@ func TestVoiceBuildWorkWithoutABrainFailsClosed(t *testing.T) {
 		t.Fatalf("detail = %v, must tell the operator what to configure", finished.StatusDetail)
 	}
 }
+
+func TestVoiceDraftReadsAndLearningSignals(t *testing.T) {
+	quote := "The drafting read quote."
+	env, build := seedVoiceBuild(t, quote, 6)
+	ctx := env.workerCtx(t)
+	worker := newVoiceBuildWorker(env.e.Pool, &scriptedBuildBrain{judgeScore: 0.9, quote: quote}, slog.New(slog.DiscardHandler))
+	input, claimed, err := env.store.ClaimBuild(ctx, env.profile.ID, build.ID, time.Minute)
+	if err != nil || !claimed {
+		t.Fatalf("claim: %v claimed=%v", err, claimed)
+	}
+	if err := worker.run(ctx, ctx, build.ID, input); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	profile, version, found, err := env.store.ActiveVoiceForActor(env.owner)
+	if err != nil || !found {
+		t.Fatalf("ActiveVoiceForActor: %v found=%v", err, found)
+	}
+	if profile.ID != env.profile.ID || version.Status != "active" {
+		t.Fatalf("active voice = profile %s version status %s", profile.ID, version.Status)
+	}
+	if len(ai.VersionExemplars(version)) == 0 {
+		t.Fatal("the active version must carry decodable exemplars for drafting")
+	}
+	if stats := ai.DecodeVersionStats(version); stats.WordCount == 0 {
+		t.Fatalf("the active version must carry decodable stats, got %+v", stats)
+	}
+
+	// Another rep never reads someone else's voice: absence, not denial.
+	outsider := env.e.As(env.e.Rep3, []ids.UUID{env.e.Team2}, voiceBuildPerms)
+	if _, _, found, err := env.store.ActiveVoiceForActor(outsider); err != nil || found {
+		t.Fatalf("outsider ActiveVoiceForActor: %v found=%v, want clean absence", err, found)
+	}
+
+	// A served draft records once; the same reference replayed is idempotent,
+	// and a rejection lands on the recorded row.
+	ref := "replydraft:test:abc"
+	if err := env.store.RecordDraftedSignal(env.owner, profile.ID, version.ProfileVersion, ref, "draft body"); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.store.RecordDraftedSignal(env.owner, profile.ID, version.ProfileVersion, ref, "draft body"); err != nil {
+		t.Fatalf("a replayed draft reference must be idempotent: %v", err)
+	}
+	if _, err := env.store.RejectDraft(env.owner, profile.ID, ref); err != nil {
+		t.Fatalf("rejecting a recorded draft: %v", err)
+	}
+}

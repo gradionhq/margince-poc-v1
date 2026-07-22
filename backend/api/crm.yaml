@@ -8757,6 +8757,9 @@ components:
         body: { type: string }
         to: { type: array, items: { type: string, format: email } }
         in_reply_to_activity_id: { type: [string, 'null'], format: uuid }
+        ai_generated: { type: boolean, readOnly: true, default: false, description: 'Art. 50 AI-assisted disclosure: true when a model produced this draft; stamped on the drafting call itself, never persisted.' }
+        ai_disclosure: { type: [string, 'null'], readOnly: true, description: 'The machine-readable Art. 50 disclosure line; non-null iff ai_generated=true.' }
+        voice_profile_version: { type: [integer, 'null'], readOnly: true, description: 'The Voice DNA profile version that styled this draft ("your corpus · model vN" provenance); null when no ready voice profile shaped it.' }
 
     SendEmailRequest:
       type: object
