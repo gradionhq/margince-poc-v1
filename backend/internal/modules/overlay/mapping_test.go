@@ -179,13 +179,13 @@ func TestTransformLowercaseRejectsNonString(t *testing.T) {
 func TestTransformAmountToMinorRejectsNonStringAndUnparsable(t *testing.T) {
 	m := overlay.ObjectMapping{
 		Source: "deals", Target: "deal",
-		Fields: []overlay.FieldMapping{{From: []string{"amount"}, To: "amount_minor", Kind: overlay.TargetColumn, Transform: "amount_to_minor"}},
+		Fields: []overlay.FieldMapping{{From: []string{"amount", "deal_currency_code"}, To: "amount_minor", Kind: overlay.TargetAssembler, Transform: "amount_minor_by_currency"}},
 	}
-	if _, _, err := overlay.Apply(m, map[string]any{"amount": 12.5}); err == nil {
-		t.Fatal("Apply: want an error for amount_to_minor applied to a non-string value")
+	if _, _, err := overlay.Apply(m, map[string]any{"amount": 12.5, "deal_currency_code": "EUR"}); err == nil {
+		t.Fatal("Apply: want an error for amount_minor_by_currency applied to a non-string amount")
 	}
-	if _, _, err := overlay.Apply(m, map[string]any{"amount": "not-a-number"}); err == nil {
-		t.Fatal("Apply: want an error for amount_to_minor applied to an unparsable string")
+	if _, _, err := overlay.Apply(m, map[string]any{"amount": "not-a-number", "deal_currency_code": "EUR"}); err == nil {
+		t.Fatal("Apply: want an error for amount_minor_by_currency applied to an unparsable amount")
 	}
 }
 
@@ -278,7 +278,7 @@ func TestApplyRejectsUnknownTransform(t *testing.T) {
 }
 
 // TestApplyAmountToMinorRoundsNegativeHalfAwayFromZero pins the fix for
-// the amount_to_minor rounding bug: the old "int64(f*100+0.5)" idiom
+// the round-half-away-from-zero conversion (decimalStringToMinor): the old "int64(f*100+0.5)" idiom
 // rounds a NEGATIVE amount toward zero (truncation, not rounding),
 // understating the minor-unit magnitude of a deal's amount whenever the
 // source carries a refund/credit (negative) value. -12.567 minor-scaled
@@ -289,11 +289,11 @@ func TestApplyAmountToMinorRoundsNegativeHalfAwayFromZero(t *testing.T) {
 		Source: "deals",
 		Target: "deal",
 		Fields: []overlay.FieldMapping{
-			{From: []string{"amount"}, To: "amount_minor", Kind: overlay.TargetColumn, Transform: "amount_to_minor"},
+			{From: []string{"amount", "deal_currency_code"}, To: "amount_minor", Kind: overlay.TargetAssembler, Transform: "amount_minor_by_currency"},
 		},
 	}
 
-	out, _, err := overlay.Apply(m, map[string]any{"amount": "-12.567"})
+	out, _, err := overlay.Apply(m, map[string]any{"amount": "-12.567", "deal_currency_code": "EUR"})
 	if err != nil {
 		t.Fatalf("Apply returned an error: %v", err)
 	}
@@ -316,10 +316,10 @@ func TestApplyAmountToMinorIsExactNotFloat(t *testing.T) {
 		Source: "deals",
 		Target: "deal",
 		Fields: []overlay.FieldMapping{
-			{From: []string{"amount"}, To: "amount_minor", Kind: overlay.TargetColumn, Transform: "amount_to_minor"},
+			{From: []string{"amount", "deal_currency_code"}, To: "amount_minor", Kind: overlay.TargetAssembler, Transform: "amount_minor_by_currency"},
 		},
 	}
-	out, _, err := overlay.Apply(m, map[string]any{"amount": "1.005"})
+	out, _, err := overlay.Apply(m, map[string]any{"amount": "1.005", "deal_currency_code": "EUR"})
 	if err != nil {
 		t.Fatalf("Apply returned an error: %v", err)
 	}
@@ -336,7 +336,7 @@ func TestApplyAmountToMinorRejectsNonFiniteAndOverflow(t *testing.T) {
 		Source: "deals",
 		Target: "deal",
 		Fields: []overlay.FieldMapping{
-			{From: []string{"amount"}, To: "amount_minor", Kind: overlay.TargetColumn, Transform: "amount_to_minor"},
+			{From: []string{"amount", "deal_currency_code"}, To: "amount_minor", Kind: overlay.TargetAssembler, Transform: "amount_minor_by_currency"},
 		},
 	}
 	// Non-finite, non-numeric, overflow, AND the big.Rat forms that are not
@@ -349,7 +349,7 @@ func TestApplyAmountToMinorRejectsNonFiniteAndOverflow(t *testing.T) {
 		// big.Rat.SetString allocates for it (a resource-exhaustion guard).
 		"1e-1000000", "1e1000000", strings.Repeat("9", 100),
 	} {
-		if _, _, err := overlay.Apply(m, map[string]any{"amount": bad}); err == nil {
+		if _, _, err := overlay.Apply(m, map[string]any{"amount": bad, "deal_currency_code": "EUR"}); err == nil {
 			t.Errorf("Apply(amount=%q): want an error, got none", bad)
 		}
 	}
