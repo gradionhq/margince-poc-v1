@@ -31,10 +31,12 @@
 # out at the heaviest package (compose/integration is minutes of serial tests),
 # so each shard runs a deterministic round-robin slice of every package's
 # top-level Test functions via -run. Discovery is static (`func Test…` in the
-# package's *_test.go files) so it costs no compile; files under a different
-# lone build tag (e2e_llm, livesmoke) are skipped exactly as the compiler
-# skips them, and a constraint expression the grep cannot decide fails
-# discovery loudly instead of being silently mis-sliced. Shard teeth on top of
+# package's *_test.go files) so it costs no compile; files under the known
+# opt-in lane tags (e2e_llm, livesmoke) are skipped exactly as the compiler
+# skips them, and any other constraint — an expression, or a lone tag the
+# allowlist does not know (a satisfied built-in like linux or cgo would
+# compile but never be sliced) — fails discovery loudly instead of being
+# silently mis-sliced. Shard teeth on top of
 # the lane's own: the set of
 # tests a shard actually ran must equal its assigned slice, and
 # scripts/test-integration-reconcile.sh re-checks the union across shards
@@ -137,22 +139,27 @@ if (( SHARD_TOTAL > 0 )); then
     pkgdir="$d/${rel#./}"; [[ "$rel" = "." ]] && pkgdir="$d"
     for f in "$pkgdir"/*_test.go; do
       [[ -e "$f" ]] || continue
-      # Build-constrained files: a bare single tag is statically decidable —
-      # `integration` is in this lane's build, any other lone tag (e2e_llm,
-      # livesmoke: the paid opt-in lanes) is not, so that file's tests are
-      # skipped exactly as the compiler skips them. An expression with
-      # operators would need a real constraint evaluator: fail loudly (on
-      # stderr — stdout here feeds the sort) rather than guess and quietly
-      # mis-slice.
+      # Build-constrained files: only allowlisted lone tags are statically
+      # decidable — `integration` is in this lane's build, e2e_llm/livesmoke
+      # (the paid opt-in lanes) are not, so those files' tests are skipped
+      # exactly as the compiler skips them. Anything else — an expression
+      # with operators, or a lone tag the allowlist does not know — fails
+      # loudly (on stderr — stdout here feeds the sort) rather than guess:
+      # a satisfied built-in tag (linux, amd64, cgo, …) would compile under
+      # `go test` yet land in no slice, and the ran==assigned teeth cannot
+      # see a test that discovery itself never counted.
       skip_file=0
       while IFS= read -r expr; do
         [[ -n "$expr" ]] || continue
-        if [[ ! "$expr" =~ ^[A-Za-z0-9_.]+$ ]]; then
-          echo "FAIL: $f carries build constraint '$expr' — too complex for the static shard" >&2
-          echo "  discovery in scripts/test-integration-parallel.sh; teach it or simplify the constraint" >&2
-          exit 1
-        fi
-        [[ "$expr" = "integration" ]] || skip_file=1
+        case "$expr" in
+          integration) ;;
+          e2e_llm|livesmoke) skip_file=1 ;;
+          *)
+            echo "FAIL: $f carries build constraint '$expr' — not one the static shard discovery knows" >&2
+            echo "  teach the allowlist in scripts/test-integration-parallel.sh or simplify the constraint" >&2
+            exit 1
+            ;;
+        esac
       done < <(sed -n '/^package /q;p' "$f" | sed -nE 's|^//go:build ||p; s|^// \+build ||p')
       (( skip_file )) && continue
       # `|| true`: a helper-only test file with no Test functions is fine.
