@@ -30,7 +30,7 @@ func TestCompanySiteReadCarriesTheLegalCensus(t *testing.T) {
 		},
 	}
 
-	got := companySiteRead(read, nil)
+	got := companySiteRead(read, nil, nil)
 	if got.LegalEntities == nil {
 		t.Fatal("the census never reached the wire")
 	}
@@ -55,7 +55,7 @@ func TestCompanySiteReadCarriesTheLegalCensus(t *testing.T) {
 // A site with no legal notice states no entities: the array is empty, and
 // the client renders no choice rather than an empty question.
 func TestCompanySiteReadCensusIsEmptyWhenNothingWasRead(t *testing.T) {
-	got := companySiteRead(people.SiteRead{SeedURL: seedURL, Status: "done"}, nil)
+	got := companySiteRead(people.SiteRead{SeedURL: seedURL, Status: "done"}, nil, nil)
 	if got.LegalEntities == nil {
 		t.Fatal("the field must be present and empty, never null")
 	}

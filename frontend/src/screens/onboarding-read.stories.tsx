@@ -4,6 +4,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ReadCompanyStep } from "./onboarding-read";
 import { StoryProviders } from "./story-utils";
+import "./onboarding.css";
 
 const meta: Meta = {
   title: "Screens/Onboarding/Read",
@@ -75,6 +76,51 @@ const reading = {
   proposal_hash: "proposal-2",
   created_at: "2026-07-19T08:00:00Z",
   updated_at: "2026-07-19T08:00:04Z",
+  ai_runtime: {
+    currency: "USD" as const,
+    call_attempts: 4,
+    tokens_in: 3420,
+    tokens_out: 680,
+    latency_ms: 5240,
+    estimated_cost_microusd: 12_750,
+    unpriced_calls: 0,
+    models: [
+      {
+        task: "site_fact_extract",
+        tier: "cheap_cloud",
+        provider: "gemini",
+        configured_model: "gemini-3.1-flash-lite",
+        served_model: "gemini-3.1-flash-lite-2026-07",
+        call_attempts: 3,
+        tokens_in: 2100,
+        tokens_out: 390,
+        cached_tokens: 0,
+        cache_write_tokens: 0,
+        reasoning_tokens: 0,
+        latency_ms: 3020,
+        estimated_cost_microusd: 1110,
+        unpriced_calls: 0,
+        last_used_at: "2026-07-19T08:00:03Z",
+      },
+      {
+        task: "site_extract",
+        tier: "premium",
+        provider: "gemini",
+        configured_model: "gemini-3.5-flash",
+        served_model: "gemini-3.5-flash-2026-07",
+        call_attempts: 1,
+        tokens_in: 1320,
+        tokens_out: 290,
+        cached_tokens: 0,
+        cache_write_tokens: 0,
+        reasoning_tokens: 80,
+        latency_ms: 2220,
+        estimated_cost_microusd: 11640,
+        unpriced_calls: 0,
+        last_used_at: "2026-07-19T08:00:04Z",
+      },
+    ],
+  },
 };
 
 const partial = {
@@ -135,6 +181,7 @@ function ReadStory({
             onChooseManual={noAction}
             onStart={noAction}
             onContinue={noAction}
+            onApplyChanges={noAction}
           />
         </div>
       </div>

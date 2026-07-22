@@ -210,6 +210,21 @@ func (e AgentToolTier) Valid() bool {
 	}
 }
 
+// Defines values for AiRunSummaryCurrency.
+const (
+	USD AiRunSummaryCurrency = "USD"
+)
+
+// Valid indicates whether the value is a known member of the AiRunSummaryCurrency enum.
+func (e AiRunSummaryCurrency) Valid() bool {
+	switch e {
+	case USD:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AiUsageBudgetBand.
 const (
 	AiUsageBudgetBandDegraded AiUsageBudgetBand = "degraded"
@@ -1344,6 +1359,24 @@ func (e CompanySiteReadComparisonValueKind) Valid() bool {
 	}
 }
 
+// Defines values for CompanySiteReadConversationTurnRole.
+const (
+	CompanySiteReadConversationTurnRoleAssistant CompanySiteReadConversationTurnRole = "assistant"
+	CompanySiteReadConversationTurnRoleUser      CompanySiteReadConversationTurnRole = "user"
+)
+
+// Valid indicates whether the value is a known member of the CompanySiteReadConversationTurnRole enum.
+func (e CompanySiteReadConversationTurnRole) Valid() bool {
+	switch e {
+	case CompanySiteReadConversationTurnRoleAssistant:
+		return true
+	case CompanySiteReadConversationTurnRoleUser:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CompanySiteReadFactCategory.
 const (
 	CompanySiteReadFactCategoryCompany  CompanySiteReadFactCategory = "company"
@@ -1518,6 +1551,66 @@ func (e CompanySiteReadResolutionAction) Valid() bool {
 	case KeepCurrent:
 		return true
 	case UseValue:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompanySiteReadSuggestedChangeField.
+const (
+	BuyingCenter      CompanySiteReadSuggestedChangeField = "buying_center"
+	BuyingIntents     CompanySiteReadSuggestedChangeField = "buying_intents"
+	CommonObjections  CompanySiteReadSuggestedChangeField = "common_objections"
+	CustomerPains     CompanySiteReadSuggestedChangeField = "customer_pains"
+	DesiredOutcomes   CompanySiteReadSuggestedChangeField = "desired_outcomes"
+	DisplayName       CompanySiteReadSuggestedChangeField = "display_name"
+	History           CompanySiteReadSuggestedChangeField = "history"
+	Icp               CompanySiteReadSuggestedChangeField = "icp"
+	Industry          CompanySiteReadSuggestedChangeField = "industry"
+	LegalName         CompanySiteReadSuggestedChangeField = "legal_name"
+	OfferSummary      CompanySiteReadSuggestedChangeField = "offer_summary"
+	RegisterVat       CompanySiteReadSuggestedChangeField = "register_vat"
+	RegisteredAddress CompanySiteReadSuggestedChangeField = "registered_address"
+	SalesMotion       CompanySiteReadSuggestedChangeField = "sales_motion"
+	Usp               CompanySiteReadSuggestedChangeField = "usp"
+	ValueProposition  CompanySiteReadSuggestedChangeField = "value_proposition"
+)
+
+// Valid indicates whether the value is a known member of the CompanySiteReadSuggestedChangeField enum.
+func (e CompanySiteReadSuggestedChangeField) Valid() bool {
+	switch e {
+	case BuyingCenter:
+		return true
+	case BuyingIntents:
+		return true
+	case CommonObjections:
+		return true
+	case CustomerPains:
+		return true
+	case DesiredOutcomes:
+		return true
+	case DisplayName:
+		return true
+	case History:
+		return true
+	case Icp:
+		return true
+	case Industry:
+		return true
+	case LegalName:
+		return true
+	case OfferSummary:
+		return true
+	case RegisterVat:
+		return true
+	case RegisteredAddress:
+		return true
+	case SalesMotion:
+		return true
+	case Usp:
+		return true
+	case ValueProposition:
 		return true
 	default:
 		return false
@@ -5177,31 +5270,31 @@ func (e CaptureProvider) Valid() bool {
 
 // Defines values for ListActivitiesParamsKind.
 const (
-	Call     ListActivitiesParamsKind = "call"
-	Email    ListActivitiesParamsKind = "email"
-	Meeting  ListActivitiesParamsKind = "meeting"
-	Note     ListActivitiesParamsKind = "note"
-	Task     ListActivitiesParamsKind = "task"
-	Telegram ListActivitiesParamsKind = "telegram"
-	Whatsapp ListActivitiesParamsKind = "whatsapp"
+	ListActivitiesParamsKindCall     ListActivitiesParamsKind = "call"
+	ListActivitiesParamsKindEmail    ListActivitiesParamsKind = "email"
+	ListActivitiesParamsKindMeeting  ListActivitiesParamsKind = "meeting"
+	ListActivitiesParamsKindNote     ListActivitiesParamsKind = "note"
+	ListActivitiesParamsKindTask     ListActivitiesParamsKind = "task"
+	ListActivitiesParamsKindTelegram ListActivitiesParamsKind = "telegram"
+	ListActivitiesParamsKindWhatsapp ListActivitiesParamsKind = "whatsapp"
 )
 
 // Valid indicates whether the value is a known member of the ListActivitiesParamsKind enum.
 func (e ListActivitiesParamsKind) Valid() bool {
 	switch e {
-	case Call:
+	case ListActivitiesParamsKindCall:
 		return true
-	case Email:
+	case ListActivitiesParamsKindEmail:
 		return true
-	case Meeting:
+	case ListActivitiesParamsKindMeeting:
 		return true
-	case Note:
+	case ListActivitiesParamsKindNote:
 		return true
-	case Task:
+	case ListActivitiesParamsKindTask:
 		return true
-	case Telegram:
+	case ListActivitiesParamsKindTelegram:
 		return true
-	case Whatsapp:
+	case ListActivitiesParamsKindWhatsapp:
 		return true
 	default:
 		return false
@@ -6202,6 +6295,48 @@ type AiCallSummary struct {
 	TokensOut int    `json:"tokens_out"`
 }
 
+// AiRunModelUsage One task, route, and served-model slice within a correlated AI run.
+type AiRunModelUsage struct {
+	CacheWriteTokens int64 `json:"cache_write_tokens"`
+	CachedTokens     int64 `json:"cached_tokens"`
+	CallAttempts     int   `json:"call_attempts"`
+
+	// ConfiguredModel Provider model selected by the validated routing configuration.
+	ConfiguredModel string `json:"configured_model"`
+
+	// EstimatedCostMicrousd Price-sheet estimate in millionths of one US dollar.
+	EstimatedCostMicrousd int64     `json:"estimated_cost_microusd"`
+	LastUsedAt            time.Time `json:"last_used_at"`
+	LatencyMs             int64     `json:"latency_ms"`
+	Provider              string    `json:"provider"`
+	ReasoningTokens       int64     `json:"reasoning_tokens"`
+
+	// ServedModel Provider-reported model identity; empty only when no provider response supplied one.
+	ServedModel string `json:"served_model"`
+	Task        string `json:"task"`
+	Tier        string `json:"tier"`
+	TokensIn    int64  `json:"tokens_in"`
+	TokensOut   int64  `json:"tokens_out"`
+
+	// UnpricedCalls Calls with usage but no effective rate; never folded into a silent zero.
+	UnpricedCalls int `json:"unpriced_calls"`
+}
+
+// AiRunSummary Cumulative price-on-read transparency for model calls carrying one run correlation id.
+type AiRunSummary struct {
+	CallAttempts          int                  `json:"call_attempts"`
+	Currency              AiRunSummaryCurrency `json:"currency"`
+	EstimatedCostMicrousd int64                `json:"estimated_cost_microusd"`
+	LatencyMs             int64                `json:"latency_ms"`
+	Models                []AiRunModelUsage    `json:"models"`
+	TokensIn              int64                `json:"tokens_in"`
+	TokensOut             int64                `json:"tokens_out"`
+	UnpricedCalls         int                  `json:"unpriced_calls"`
+}
+
+// AiRunSummaryCurrency defines model for AiRunSummary.Currency.
+type AiRunSummaryCurrency string
+
 // AiUsage AI usage + budget (AIRT-WIRE-1): the AIRT-PARAM-33 meter aggregated per day × task × tier, plus the budget band. Token-denominated; cost_est_minor is computed on read from the workspace's ai_model_rate price sheet as of each call's day (ADR-0067, price-on-read) — omitted, never a fabricated 0, when a task line's window carries no priced call.
 type AiUsage struct {
 	Budget struct {
@@ -7000,6 +7135,9 @@ type CompanyProfileInput struct {
 
 // CompanySiteRead defines model for CompanySiteRead.
 type CompanySiteRead struct {
+	// AiRuntime Cumulative price-on-read transparency for model calls carrying one run correlation id.
+	AiRuntime *AiRunSummary `json:"ai_runtime,omitempty"`
+
 	// Comparisons Version-bound comparison against current confirmed company truth.
 	Comparisons  []CompanySiteReadComparison `json:"comparisons"`
 	CreatedAt    time.Time                   `json:"created_at"`
@@ -7040,6 +7178,12 @@ type CompanySiteReadStatusCode string
 // CompanySiteReadTargetKind defines model for CompanySiteRead.TargetKind.
 type CompanySiteReadTargetKind string
 
+// CompanySiteReadCitation defines model for CompanySiteReadCitation.
+type CompanySiteReadCitation struct {
+	Label string `json:"label"`
+	Url   string `json:"url"`
+}
+
 // CompanySiteReadComparison defines model for CompanySiteReadComparison.
 type CompanySiteReadComparison struct {
 	Classification CompanySiteReadComparisonClassification `json:"classification"`
@@ -7060,6 +7204,15 @@ type CompanySiteReadComparisonCurrentSource string
 
 // CompanySiteReadComparisonValueKind defines model for CompanySiteReadComparison.ValueKind.
 type CompanySiteReadComparisonValueKind string
+
+// CompanySiteReadConversationTurn defines model for CompanySiteReadConversationTurn.
+type CompanySiteReadConversationTurn struct {
+	Message string                              `json:"message"`
+	Role    CompanySiteReadConversationTurnRole `json:"role"`
+}
+
+// CompanySiteReadConversationTurnRole defines model for CompanySiteReadConversationTurn.Role.
+type CompanySiteReadConversationTurnRole string
 
 // CompanySiteReadFact defines model for CompanySiteReadFact.
 type CompanySiteReadFact struct {
@@ -7091,6 +7244,22 @@ type CompanySiteReadLegalEntity struct {
 	// RegisteredAddress Its registered address as printed; absent when the page states none for this entity.
 	RegisteredAddress *string `json:"registered_address,omitempty"`
 	SourceUrl         string  `json:"source_url"`
+}
+
+// CompanySiteReadMessageReply defines model for CompanySiteReadMessageReply.
+type CompanySiteReadMessageReply struct {
+	// AiRuntime Cumulative price-on-read transparency for model calls carrying one run correlation id.
+	AiRuntime       AiRunSummary                     `json:"ai_runtime"`
+	Citations       []CompanySiteReadCitation        `json:"citations"`
+	Message         string                           `json:"message"`
+	ProposedChanges []CompanySiteReadSuggestedChange `json:"proposed_changes"`
+}
+
+// CompanySiteReadMessageRequest defines model for CompanySiteReadMessageRequest.
+type CompanySiteReadMessageRequest struct {
+	// History Bounded preceding turns, oldest first, so follow-up questions retain their conversational referent without creating durable chat state.
+	History *[]CompanySiteReadConversationTurn `json:"history,omitempty"`
+	Message string                             `json:"message"`
 }
 
 // CompanySiteReadPage defines model for CompanySiteReadPage.
@@ -7135,6 +7304,16 @@ type CompanySiteReadResolution struct {
 
 // CompanySiteReadResolutionAction defines model for CompanySiteReadResolution.Action.
 type CompanySiteReadResolutionAction string
+
+// CompanySiteReadSuggestedChange defines model for CompanySiteReadSuggestedChange.
+type CompanySiteReadSuggestedChange struct {
+	Field  CompanySiteReadSuggestedChangeField `json:"field"`
+	Reason string                              `json:"reason"`
+	Value  string                              `json:"value"`
+}
+
+// CompanySiteReadSuggestedChangeField defines model for CompanySiteReadSuggestedChange.Field.
+type CompanySiteReadSuggestedChangeField string
 
 // ComputedField S-E15.8c formula-field display row (RD-AC-6/RD-AC-7/RD-AC-N-1) — a read-only,
 // database-computed value, never a runtime-authored expression. `computable: false` +
@@ -12567,6 +12746,9 @@ type StartCompanySiteReadJSONRequestBody = StartCompanySiteReadRequest
 // ConfirmCompanySiteReadJSONRequestBody defines body for ConfirmCompanySiteRead for application/json ContentType.
 type ConfirmCompanySiteReadJSONRequestBody = ConfirmCompanySiteReadRequest
 
+// MessageCompanySiteReadJSONRequestBody defines body for MessageCompanySiteRead for application/json ContentType.
+type MessageCompanySiteReadJSONRequestBody = CompanySiteReadMessageRequest
+
 // ConnectImapJSONRequestBody defines body for ConnectImap for application/json ContentType.
 type ConnectImapJSONRequestBody = ImapConnectRequest
 
@@ -17801,6 +17983,9 @@ type ServerInterface interface {
 	// Confirm a selected onboarding draft into the anchor company atomically.
 	// (POST /company/site-reads/{readId}/confirm)
 	ConfirmCompanySiteRead(w http.ResponseWriter, r *http.Request, readId openapi_types.UUID, params ConfirmCompanySiteReadParams)
+	// Ask Margince about a website read and receive reviewable company-field suggestions.
+	// (POST /company/site-reads/{readId}/messages)
+	MessageCompanySiteRead(w http.ResponseWriter, r *http.Request, readId openapi_types.UUID)
 	// List the calling user's capture connections + sync state.
 	// (GET /connectors)
 	ListConnectors(w http.ResponseWriter, r *http.Request)
@@ -18692,6 +18877,12 @@ func (_ Unimplemented) GetCompanySiteRead(w http.ResponseWriter, r *http.Request
 // Confirm a selected onboarding draft into the anchor company atomically.
 // (POST /company/site-reads/{readId}/confirm)
 func (_ Unimplemented) ConfirmCompanySiteRead(w http.ResponseWriter, r *http.Request, readId openapi_types.UUID, params ConfirmCompanySiteReadParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Ask Margince about a website read and receive reviewable company-field suggestions.
+// (POST /company/site-reads/{readId}/messages)
+func (_ Unimplemented) MessageCompanySiteRead(w http.ResponseWriter, r *http.Request, readId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -22112,6 +22303,38 @@ func (siw *ServerInterfaceWrapper) ConfirmCompanySiteRead(w http.ResponseWriter,
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ConfirmCompanySiteRead(w, r, readId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MessageCompanySiteRead operation middleware
+func (siw *ServerInterfaceWrapper) MessageCompanySiteRead(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "readId" -------------
+	var readId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "readId", chi.URLParam(r, "readId"), &readId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "readId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MessageCompanySiteRead(w, r, readId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -31649,6 +31872,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/company/site-reads/{readId}/confirm", wrapper.ConfirmCompanySiteRead)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/company/site-reads/{readId}/messages", wrapper.MessageCompanySiteRead)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/connectors", wrapper.ListConnectors)

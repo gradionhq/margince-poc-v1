@@ -1794,6 +1794,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/company/site-reads/{readId}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                readId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask Margince about a website read and receive reviewable company-field suggestions.
+         * @description Answers only from the selected dossier's grounded findings. Suggested changes are returned
+         *     as an inspectable artifact and are never written automatically; the administrator decides
+         *     which values enter the onboarding draft. Citations are server-bound to source URLs already
+         *     present in the dossier. The response carries the cumulative, price-on-read AI runtime for
+         *     this read so model identity and estimated provider spend stay visible in context.
+         */
+        post: operations["messageCompanySiteRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/company/site-reads/{readId}/confirm": {
         parameters: {
             query?: never;
@@ -6927,6 +6953,81 @@ export interface components {
              */
             disposition?: "separate_lead_proposal";
         };
+        /** @description One task, route, and served-model slice within a correlated AI run. */
+        AiRunModelUsage: {
+            task: string;
+            tier: string;
+            provider: string;
+            /** @description Provider model selected by the validated routing configuration. */
+            configured_model: string;
+            /** @description Provider-reported model identity; empty only when no provider response supplied one. */
+            served_model: string;
+            call_attempts: number;
+            /** Format: int64 */
+            tokens_in: number;
+            /** Format: int64 */
+            tokens_out: number;
+            /** Format: int64 */
+            cached_tokens: number;
+            /** Format: int64 */
+            cache_write_tokens: number;
+            /** Format: int64 */
+            reasoning_tokens: number;
+            /** Format: int64 */
+            latency_ms: number;
+            /**
+             * Format: int64
+             * @description Price-sheet estimate in millionths of one US dollar.
+             */
+            estimated_cost_microusd: number;
+            /** @description Calls with usage but no effective rate; never folded into a silent zero. */
+            unpriced_calls: number;
+            /** Format: date-time */
+            last_used_at: string;
+        };
+        /** @description Cumulative price-on-read transparency for model calls carrying one run correlation id. */
+        AiRunSummary: {
+            /** @enum {string} */
+            currency: "USD";
+            call_attempts: number;
+            /** Format: int64 */
+            tokens_in: number;
+            /** Format: int64 */
+            tokens_out: number;
+            /** Format: int64 */
+            latency_ms: number;
+            /** Format: int64 */
+            estimated_cost_microusd: number;
+            unpriced_calls: number;
+            models: components["schemas"]["AiRunModelUsage"][];
+        };
+        CompanySiteReadSuggestedChange: {
+            /** @enum {string} */
+            field: "display_name" | "offer_summary" | "icp" | "value_proposition" | "usp" | "customer_pains" | "desired_outcomes" | "buying_center" | "buying_intents" | "common_objections" | "sales_motion" | "legal_name" | "registered_address" | "register_vat" | "industry" | "history";
+            value: string;
+            reason: string;
+        };
+        CompanySiteReadCitation: {
+            label: string;
+            /** Format: uri */
+            url: string;
+        };
+        CompanySiteReadMessageRequest: {
+            message: string;
+            /** @description Bounded preceding turns, oldest first, so follow-up questions retain their conversational referent without creating durable chat state. */
+            history?: components["schemas"]["CompanySiteReadConversationTurn"][];
+        };
+        CompanySiteReadConversationTurn: {
+            /** @enum {string} */
+            role: "user" | "assistant";
+            message: string;
+        };
+        CompanySiteReadMessageReply: {
+            message: string;
+            proposed_changes: components["schemas"]["CompanySiteReadSuggestedChange"][];
+            citations: components["schemas"]["CompanySiteReadCitation"][];
+            ai_runtime: components["schemas"]["AiRunSummary"];
+        };
         CompanySiteRead: {
             /** Format: uuid */
             id: string;
@@ -6962,6 +7063,7 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+            ai_runtime?: components["schemas"]["AiRunSummary"];
         };
         ConfirmCompanySiteReadRequest: {
             draft_version: number;
@@ -12505,6 +12607,45 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    messageCompanySiteRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                readId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompanySiteReadMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Grounded conversational answer, optional proposed changes, and cumulative run transparency. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanySiteReadMessageReply"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description No conversational model path is configured for this process role. */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     confirmCompanySiteRead: {

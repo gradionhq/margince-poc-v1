@@ -6,6 +6,7 @@ package compose
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -14,9 +15,11 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -50,7 +53,7 @@ func (e *deepReadEngine) startCompanySiteRead(w http.ResponseWriter, r *http.Req
 		return
 	}
 	w.Header().Set("Location", "/v1/company/site-reads/"+read.ID.String())
-	httperr.WriteJSON(w, http.StatusAccepted, companySiteRead(read, nil))
+	httperr.WriteJSON(w, http.StatusAccepted, companySiteRead(read, nil, nil))
 }
 
 func (e *deepReadEngine) getCompanySiteRead(w http.ResponseWriter, r *http.Request, readID openapi_types.UUID) {
@@ -59,7 +62,35 @@ func (e *deepReadEngine) getCompanySiteRead(w http.ResponseWriter, r *http.Reque
 		httperr.Write(w, r, err)
 		return
 	}
-	httperr.WriteJSON(w, http.StatusOK, companySiteRead(read, comparisons))
+	summary, hasRuntime, err := e.companySiteReadRuntime(r.Context(), ids.UUID(readID))
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	var runtime *ai.RunSummary
+	if hasRuntime {
+		runtime = &summary
+	}
+	httperr.WriteJSON(w, http.StatusOK, companySiteRead(read, comparisons, runtime))
+}
+
+func (e *deepReadEngine) companySiteReadRuntime(ctx context.Context, readID ids.UUID) (ai.RunSummary, bool, error) {
+	if e.runtime == nil {
+		return ai.RunSummary{}, false, nil
+	}
+	summary, err := e.runtime.Get(ctx, readID)
+	if err == nil {
+		return summary, true, nil
+	}
+	if errors.Is(err, apperrors.ErrPermissionDenied) {
+		return ai.RunSummary{}, false, err
+	}
+	logger := e.log
+	if logger == nil {
+		logger = slog.Default()
+	}
+	logger.WarnContext(ctx, "AI runtime transparency unavailable", "read_id", readID, "err", err)
+	return ai.RunSummary{}, false, nil
 }
 
 func (e *deepReadEngine) confirmCompanySiteRead(w http.ResponseWriter, r *http.Request, readID openapi_types.UUID) {
@@ -156,7 +187,7 @@ func siteReadResolutions(in *[]crmcontracts.CompanySiteReadResolution) []people.
 	return out
 }
 
-func companySiteRead(read people.SiteRead, compared []people.SiteReadComparison) crmcontracts.CompanySiteRead {
+func companySiteRead(read people.SiteRead, compared []people.SiteReadComparison, runtime *ai.RunSummary) crmcontracts.CompanySiteRead {
 	pages := make([]crmcontracts.CompanySiteReadPage, 0, len(read.Pages)+len(read.Skipped))
 	for _, page := range read.Pages {
 		kind := crmcontracts.CompanySiteReadPageKind(page.Kind)
@@ -237,6 +268,15 @@ func companySiteRead(read people.SiteRead, compared []people.SiteReadComparison)
 		CreatedAt: read.CreatedAt, UpdatedAt: read.UpdatedAt, PagesRead: &read.PagesRead,
 		StatusDetail: read.StatusDetail, NextAttemptAt: read.NextAttemptAt,
 	}
+	attachCompanySiteReadOptionals(&out, read, runtime)
+	return out
+}
+
+func attachCompanySiteReadOptionals(out *crmcontracts.CompanySiteRead, read people.SiteRead, runtime *ai.RunSummary) {
+	if runtime != nil {
+		mapped := contractRunSummary(*runtime)
+		out.AiRuntime = &mapped
+	}
 	if read.StatusCode != nil {
 		code := crmcontracts.CompanySiteReadStatusCode(*read.StatusCode)
 		out.StatusCode = &code
@@ -249,7 +289,27 @@ func companySiteRead(read people.SiteRead, compared []people.SiteReadComparison)
 		phase := crmcontracts.CompanySiteReadPhase(*read.Phase)
 		out.Phase = &phase
 	}
-	return out
+}
+
+func contractRunSummary(summary ai.RunSummary) crmcontracts.AiRunSummary {
+	models := make([]crmcontracts.AiRunModelUsage, 0, len(summary.Models))
+	for _, usage := range summary.Models {
+		models = append(models, crmcontracts.AiRunModelUsage{
+			Task: usage.Task, Tier: usage.Tier, Provider: usage.Provider,
+			ConfiguredModel: usage.ConfiguredModel, ServedModel: usage.ServedModel,
+			CallAttempts: usage.CallAttempts, TokensIn: usage.TokensIn, TokensOut: usage.TokensOut,
+			CachedTokens: usage.CachedTokens, CacheWriteTokens: usage.CacheWriteTokens,
+			ReasoningTokens: usage.ReasoningTokens, LatencyMs: usage.LatencyMS,
+			EstimatedCostMicrousd: usage.EstimatedCostMicroUSD, UnpricedCalls: usage.UnpricedCalls,
+			LastUsedAt: usage.LastUsedAt,
+		})
+	}
+	return crmcontracts.AiRunSummary{
+		Currency:     crmcontracts.AiRunSummaryCurrency(summary.Currency),
+		CallAttempts: summary.CallAttempts, TokensIn: summary.TokensIn, TokensOut: summary.TokensOut,
+		LatencyMs: summary.LatencyMS, EstimatedCostMicrousd: summary.EstimatedCostMicroUSD,
+		UnpricedCalls: summary.UnpricedCalls, Models: models,
+	}
 }
 
 func contractSiteReadComparisons(compared []people.SiteReadComparison) []crmcontracts.CompanySiteReadComparison {
