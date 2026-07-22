@@ -83,15 +83,22 @@ func preflightJurisdictions(e extension.Extension, packCodes map[jurisdiction.Co
 }
 
 // preflightRetentionClasses validates one pack's declared floors: class
-// name, period, and anchor each carry their own published grammar.
+// name, period, and anchor each carry their own published grammar, and a
+// class may be declared once — two floors for the same class with
+// different Keep/Anchor would leave the engine picking one silently.
 func preflightRetentionClasses(unit extension.Name, code jurisdiction.Code, ret jurisdiction.Retention) error {
 	if ret == nil {
 		return nil
 	}
+	seen := make(map[jurisdiction.RetentionClassName]bool)
 	for _, class := range ret.Classes() {
 		if err := class.Name.Validate(); err != nil {
 			return fmt.Errorf("compose: extension %q, jurisdiction %q: %w", unit, code, err)
 		}
+		if seen[class.Name] {
+			return fmt.Errorf("compose: extension %q, jurisdiction %q declares retention class %q twice", unit, code, class.Name)
+		}
+		seen[class.Name] = true
 		if err := class.Keep.Validate(); err != nil {
 			return fmt.Errorf("compose: extension %q, jurisdiction %q, class %q: %w", unit, code, class.Name, err)
 		}

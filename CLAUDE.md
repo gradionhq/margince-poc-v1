@@ -289,7 +289,7 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   jurisdiction pack — GoBD calendar-year retention floors), first-party
   and enabled by default. `make composition` (run by every build lane)
   generates the ignored `build/composition/` wiring; `composition/` at
-  the root is the committed vanilla stub bare go commands resolve.
+  the root is the committed vanilla stub so bare go commands resolve.
 
 ## DO NOT TOUCH
 

@@ -144,6 +144,29 @@ func TestRegisterExtensionsRejectsAnUnknownAnchor(t *testing.T) {
 	}
 }
 
+// TestRegisterExtensionsRejectsADuplicateRetentionClass: one class, one
+// floor — a pack declaring the same class twice with different
+// Keep/Anchor values would leave the engine picking one silently.
+func TestRegisterExtensionsRejectsADuplicateRetentionClass(t *testing.T) {
+	err := RegisterExtensions([]extension.Extension{{
+		Name:    "double-floor",
+		Version: "0.0.1",
+		Jurisdictions: []jurisdiction.Pack{fakePack{
+			code: "zr",
+			classes: []jurisdiction.RetentionClass{
+				{Name: jurisdiction.CommercialCorrespondence, Keep: jurisdiction.Period{Years: 6}},
+				{Name: jurisdiction.CommercialCorrespondence, Keep: jurisdiction.Period{Years: 8}, Anchor: jurisdiction.AnchorCalendarYearEnd},
+			},
+		}},
+	}})
+	if err == nil || !strings.Contains(err.Error(), `declares retention class "commercial_correspondence" twice`) {
+		t.Fatalf("err = %v, want the duplicate-class rejection", err)
+	}
+	if _, ok := jurisdiction.For("zr"); ok {
+		t.Fatal("the pack landed although its retention classes failed validation")
+	}
+}
+
 // TestNoCapabilityAppliesWhenTheSetIsInvalid: validation and application
 // are separate phases — a clean unit's capabilities must not land when a
 // later unit fails validation, or a crash-looping process would leave
