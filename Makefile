@@ -3,7 +3,7 @@
 # The frontend lane is separate (`make frontend-check`) — it needs node+pnpm,
 # which not every backend machine has; CI runs both.
 
-.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot mcp-inspector frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction hooks
+.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot mcp-inspector frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -38,7 +38,7 @@ ai-routing-local:
 ## gates plus the backend gate (build, vet, lint, arch-lint, unit + fitness
 ## tests, contract drift). No frontend toolchain needed — this is what the CI
 ## deterministic-gates job runs.
-check-backend: check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction
+check-backend: check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze
 	$(MAKE) -C backend check
 
 ## check — the full merge gate: backend + frontend
@@ -280,6 +280,14 @@ rls-store-path:
 ## internal/shared/ports/jurisdiction). Comments citing a statute are allowed.
 no-jurisdiction:
 	@./scripts/check-no-jurisdiction.sh
+
+## pkg-freeze — published-surface freeze gate (ADR-0069 §3, EXT-P3): apidiff
+## on every backend/pkg package vs the merge-base (the extensions integration
+## branch while the arc holds there, else origin/main); an incompatible change
+## or a removed published package fails, additive growth passes. Deliberate,
+## reviewed exception: PKG_FREEZE_BASE=<ref>.
+pkg-freeze:
+	@./scripts/check-pkg-freeze.sh
 
 ## hooks — install the repo's git hooks (the pre-push craft-static gate).
 ## Run once after cloning.
