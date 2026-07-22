@@ -83,6 +83,69 @@ func TestDeriveVoiceBuildsAValidatedArtifact(t *testing.T) {
 	}
 }
 
+// validatedStubBrain also satisfies the optional CompleteValidated seam. It
+// exercises the validator the way the router does: the first candidate is
+// malformed, the second fabricates a quote, the third is the real answer —
+// so the test proves the builder both selects the validated pipeline and
+// hands it a validator that actually rejects bad output.
+type validatedStubBrain struct {
+	stubVoiceBrain
+	completeCalls  int
+	validatedCalls int
+	rejections     []error
+}
+
+func (s *validatedStubBrain) Complete(ctx context.Context, req model.Request) (model.Response, error) {
+	s.completeCalls++
+	return s.stubVoiceBrain.Complete(ctx, req)
+}
+
+func (s *validatedStubBrain) CompleteValidated(ctx context.Context, req model.Request, validate Validator) (model.Response, error) {
+	s.validatedCalls++
+	if err := validate("not json at all"); err != nil {
+		s.rejections = append(s.rejections, err)
+	}
+	fabricated := s.inference
+	fabricated.SignatureMoves = []VoiceSignatureMove{{
+		Move: "invented", Quote: "words the author never wrote", SampleID: "s-email",
+	}}
+	payload, err := json.Marshal(fabricated)
+	if err != nil {
+		return model.Response{}, err
+	}
+	if err := validate(string(payload)); err != nil {
+		s.rejections = append(s.rejections, err)
+	}
+	// The embedded stub is called directly: it is this fake's answer supply,
+	// not a routed Complete attempt, so completeCalls stays untouched.
+	resp, err := s.stubVoiceBrain.Complete(ctx, req)
+	if err != nil {
+		return model.Response{}, err
+	}
+	if err := validate(resp.Text); err != nil {
+		return model.Response{}, err
+	}
+	return resp, nil
+}
+
+func TestDeriveVoicePrefersTheValidatedPipeline(t *testing.T) {
+	brain := &validatedStubBrain{stubVoiceBrain: stubVoiceBrain{inference: validInference()}}
+	artifact, err := DeriveVoice(context.Background(), brain, "", "hash-1", builderSamples())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if brain.validatedCalls != 1 || brain.completeCalls != 0 {
+		t.Fatalf("validated=%d complete=%d — a validated brain must be driven only through CompleteValidated",
+			brain.validatedCalls, brain.completeCalls)
+	}
+	if len(brain.rejections) != 2 {
+		t.Fatalf("rejections = %d, want 2 — the supplied validator must refuse malformed JSON and a fabricated quote", len(brain.rejections))
+	}
+	if artifact.ModelName != "stub-model-1" {
+		t.Fatalf("artifact model = %q", artifact.ModelName)
+	}
+}
+
 func TestDeriveVoiceRejectsFabricatedEvidence(t *testing.T) {
 	cases := map[string]func(*VoiceInference){
 		"unknown evidence sample": func(v *VoiceInference) { v.Evidence = []string{"s-invented"} },

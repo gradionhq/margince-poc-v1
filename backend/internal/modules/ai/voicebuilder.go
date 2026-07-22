@@ -53,6 +53,32 @@ type voiceBrain interface {
 	Complete(context.Context, model.Request) (model.Response, error)
 }
 
+// validatedVoiceBrain is the optional §5.2 structured-output seam a routed
+// brain also satisfies (compose routerBrain.CompleteValidated): validate →
+// retry with the validator's error fed back → escalate one tier. The builder
+// prefers it because a single stochastic slip — one hallucinated quote or a
+// malformed JSON body — must cost a retry, not the whole build.
+type validatedVoiceBrain interface {
+	CompleteValidated(context.Context, model.Request, Validator) (model.Response, error)
+}
+
+// completeVoiceInference runs the builder call and returns a response whose
+// text already passed validate. A Complete-only brain (the offline fake, unit
+// fixtures) keeps the single-shot path with the same validation applied.
+func completeVoiceInference(ctx context.Context, brain voiceBrain, req model.Request, validate Validator) (model.Response, error) {
+	if validated, ok := brain.(validatedVoiceBrain); ok {
+		return validated.CompleteValidated(ctx, req, validate)
+	}
+	resp, err := brain.Complete(ctx, req)
+	if err != nil {
+		return model.Response{}, err
+	}
+	if err := validate(resp.Text); err != nil {
+		return model.Response{}, err
+	}
+	return resp, nil
+}
+
 // EscapeUntrustedTags neutralizes closing-tag sequences inside corpus or
 // draft text before it enters a delimited prompt block: embedded text can
 // then never end its evidence container and pose as instructions.
@@ -112,7 +138,14 @@ func DeriveVoice(ctx context.Context, brain voiceBrain, personality, sourceHash 
 	if err != nil {
 		return VoiceArtifact{}, err
 	}
-	resp, err := brain.Complete(ctx, model.Request{
+	validate := func(text string) error {
+		var candidate VoiceInference
+		if err := json.Unmarshal([]byte(Unfence(text)), &candidate); err != nil {
+			return fmt.Errorf("voice build returned invalid JSON: %w", err)
+		}
+		return validateVoiceInference(candidate, selected)
+	}
+	resp, err := completeVoiceInference(ctx, brain, model.Request{
 		System:   voiceSystemPrompt,
 		Messages: []model.Message{{Role: roleUser, Content: prompt}},
 		// The shared reasoning cap: a routed reasoning model spends output
@@ -120,16 +153,14 @@ func DeriveVoice(ctx context.Context, brain voiceBrain, personality, sourceHash 
 		MaxTokens:      ReasoningOutputMaxTokens,
 		ResponseSchema: voiceInferenceSchema(),
 		SecretStripper: NewSecretStripper(),
-	})
+	}, validate)
 	if err != nil {
 		return VoiceArtifact{}, fmt.Errorf("voice build model call: %w", err)
 	}
+	// validate already accepted this text; a parse here can no longer fail.
 	var inference VoiceInference
 	if err := json.Unmarshal([]byte(Unfence(resp.Text)), &inference); err != nil {
 		return VoiceArtifact{}, fmt.Errorf("voice build returned invalid JSON: %w", err)
-	}
-	if err := validateVoiceInference(inference, selected); err != nil {
-		return VoiceArtifact{}, err
 	}
 	exemplars := SelectExemplars(selected, stats)
 	return VoiceArtifact{
