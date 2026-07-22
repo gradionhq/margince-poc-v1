@@ -28,6 +28,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+indent() { sed 's/^/  /'; }
+
 # Pinned tool invocation (`go run` at an exact version, the
 # check-contract-breaking.sh pattern): x/exp carries no tags, so the pin
 # is a pseudo-version.
@@ -97,7 +99,7 @@ if ! OLD_PKGS="$(cd "$WORKTREE/backend" && go list ./pkg/... 2> "$golist_err")";
     OLD_PKGS=""
   else
     echo "FAIL: pkg-freeze — cannot load the baseline's published packages:" >&2
-    sed 's/^/  /' "$golist_err" >&2
+    indent < "$golist_err" >&2
     rm -f "$golist_err"
     exit 1
   fi
@@ -129,7 +131,7 @@ done
 if [ "$MODE" = "advisory" ]; then
   if [ -s "$removals" ] || [ -s "$findings" ]; then
     echo "ADVISORY: pkg-freeze — incompatible published-surface changes vs $BASE_REF (design-fluid pre-v1.0.0; these HARD-FAIL from the first v1 release tag):"
-    cat "$removals" "$findings" | sed 's/^/  /'
+    cat "$removals" "$findings" | indent
   else
     echo "OK: pkg-freeze (advisory) — published surface additive-or-unchanged vs $BASE_REF ($count packages)"
   fi
@@ -156,23 +158,23 @@ unused="$(grep -Fxv -f "$findings" "$allowed" || true)"
 
 if [ -s "$removals" ]; then
   echo "FAIL: pkg-freeze — published package removed (never allowlistable; deprecate, then remove with its major cycle — ADR-0069 §3):" >&2
-  sed 's/^/  /' "$removals" >&2
+  indent < "$removals" >&2
   failed=1
 fi
 if [ -n "$violations" ]; then
   echo "FAIL: pkg-freeze — incompatible published-surface change vs $BASE_REF (merge-base $BASE12):" >&2
-  echo "$violations" | sed 's/^/  /' >&2
+  echo "$violations" | indent >&2
   echo "A ratified change is recorded in $ALLOWLIST as this exact line (visible in the PR):" >&2
-  echo "$violations" | sed "s/^/  $BASE12 /" >&2
+  echo "$violations" | sed "s/^/$BASE12 /" | indent >&2
   failed=1
 fi
 if [ -s "$expired" ]; then
   echo "WARN: pkg-freeze — allowlist entries bound to a superseded baseline (they can license nothing; remove them with the next allowlist edit):"
-  sed 's/^/  /' "$expired"
+  indent < "$expired"
 fi
 if [ -n "$unused" ]; then
   echo "WARN: pkg-freeze — allowlist entries bound to the current baseline ($BASE12) match no finding (typo, or the change was reverted — remove them):"
-  echo "$unused" | sed 's/^/  /'
+  echo "$unused" | indent
 fi
 
 if [ "$failed" -ne 0 ]; then

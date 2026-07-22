@@ -149,7 +149,7 @@ func computeInputs(root string) (manifestInputs, error) {
 func coreDigest(root string) (string, error) {
 	h := newTreeHasher(root)
 	for _, rel := range []string{
-		"go.work",
+		goWorkFile,
 		"backend/api/crm.yaml",
 		"composition/go.mod",
 		"composition/extensions_gen.go",
@@ -158,11 +158,11 @@ func coreDigest(root string) (string, error) {
 			return "", err
 		}
 	}
-	raw, err := os.ReadFile(filepath.Join(root, "go.work"))
+	raw, err := os.ReadFile(filepath.Join(root, goWorkFile))
 	if err != nil {
 		return "", err
 	}
-	rootWork, err := modfile.ParseWork("go.work", raw, nil)
+	rootWork, err := modfile.ParseWork(goWorkFile, raw, nil)
 	if err != nil {
 		return "", fmt.Errorf("root go.work: %w", err)
 	}

@@ -59,8 +59,9 @@ func validateExtensionSet(exts []extension.Extension) error {
 
 // preflightJurisdictions checks one unit's declared packs for grammar,
 // duplicates within the composed set, collisions with core packs, and
-// retention classes outside the closed set — an unknown class would be
-// a statutory floor that looks registered while no engine consults it.
+// retention classes outside the closed vocabularies — an unknown class
+// (or anchor, or a negative period) would be a statutory floor that
+// looks registered while the engine misreads or ignores it.
 func preflightJurisdictions(e extension.Extension, packCodes map[jurisdiction.Code]extension.Name) error {
 	for _, p := range e.Jurisdictions {
 		code := p.Code()
@@ -73,20 +74,30 @@ func preflightJurisdictions(e extension.Extension, packCodes map[jurisdiction.Co
 		if _, taken := jurisdiction.For(code); taken {
 			return fmt.Errorf("compose: extension %q declares jurisdiction %q, which a core pack already registers", e.Name, code)
 		}
-		if ret := p.Retention(); ret != nil {
-			for _, class := range ret.Classes() {
-				if err := class.Name.Validate(); err != nil {
-					return fmt.Errorf("compose: extension %q, jurisdiction %q: %w", e.Name, code, err)
-				}
-				if err := class.Keep.Validate(); err != nil {
-					return fmt.Errorf("compose: extension %q, jurisdiction %q, class %q: %w", e.Name, code, class.Name, err)
-				}
-				if err := class.Anchor.Validate(); err != nil {
-					return fmt.Errorf("compose: extension %q, jurisdiction %q, class %q: %w", e.Name, code, class.Name, err)
-				}
-			}
+		if err := preflightRetentionClasses(e.Name, code, p.Retention()); err != nil {
+			return err
 		}
 		packCodes[code] = e.Name
+	}
+	return nil
+}
+
+// preflightRetentionClasses validates one pack's declared floors: class
+// name, period, and anchor each carry their own published grammar.
+func preflightRetentionClasses(unit extension.Name, code jurisdiction.Code, ret jurisdiction.Retention) error {
+	if ret == nil {
+		return nil
+	}
+	for _, class := range ret.Classes() {
+		if err := class.Name.Validate(); err != nil {
+			return fmt.Errorf("compose: extension %q, jurisdiction %q: %w", unit, code, err)
+		}
+		if err := class.Keep.Validate(); err != nil {
+			return fmt.Errorf("compose: extension %q, jurisdiction %q, class %q: %w", unit, code, class.Name, err)
+		}
+		if err := class.Anchor.Validate(); err != nil {
+			return fmt.Errorf("compose: extension %q, jurisdiction %q, class %q: %w", unit, code, class.Name, err)
+		}
 	}
 	return nil
 }
