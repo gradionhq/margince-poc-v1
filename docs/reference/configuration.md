@@ -26,6 +26,7 @@ stdio protocol channel). Log lines carry the per-request
 | `--addr` | — | `:8080` | listen address |
 | `--redis` | `MARGINCE_REDIS` | `localhost:56379` | Redis address (event bus) |
 | `--inline-relay` | — | `true` | run the outbox relay in-process; set `false` when `cmd/worker` runs it |
+| `--webhook-key` | `MARGINCE_WEBHOOK_KEY` | — | base64 32-byte key sealing outbound-webhook signing secrets at rest; unset = the mutating `/webhook-subscriptions` surface answers 503, never an unsigned fallback |
 | `--ai-routing` | `MARGINCE_AI_ROUTING` | — | path to `ai-routing.yaml`; enables the cold-start read-back, per-org enrichment, the Morning-Brief L2 re-order, and AI-drafted offer regeneration |
 | `--ai-fake` | — | `false` | offline fake model (dev/test only); drives the same AI surfaces as `--ai-routing` |
 | `--public-base-url` | `MARGINCE_PUBLIC_BASE_URL` | — | canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe / preference center); required to send marketing mail — a send refuses rather than derive the token-bearing link from the request Host — and for the Gmail/Graph OAuth callback |
@@ -58,6 +59,8 @@ Operational endpoints (served next to `/v1`):
 | `--retention-interval` | — | `24h` | retention evaluator pass interval |
 | `--time-scan-interval` | — | `1h` | clock-trigger automation scan interval (`no_activity_reminder` et al. — the River periodic job `TimeScanner.Scan` drives) |
 | `--close-date-interval` | — | `24h` | close-date hygiene sweep interval (INV-CLOSE-PAST) |
+| `--webhook-key` | `MARGINCE_WEBHOOK_KEY` | — | base64 32-byte key sealing outbound-webhook signing secrets; unset = the delivery worker stays off (no `cg:webhooks` consumer, no retry sweep) |
+| `--webhook-retry-interval` | — | `5s` | outbound-webhook retry-sweep tick interval |
 | `--reconcile-interval` | — | `24h` | overnight follow-up reconciliation pass interval |
 | `--deepread-max-pages` | `MARGINCE_DEEPREAD_MAX_PAGES` | `0` (= built-in 40) | deep-read crawl page cap |
 | `--deepread-max-bytes` | `MARGINCE_DEEPREAD_MAX_BYTES` | `0` (= built-in 32 MiB) | deep-read crawl aggregate byte cap |
