@@ -755,14 +755,28 @@ Open work, roughly in priority order:
     ~4h48m effective + rate-limit floor) + `DueOverlayConnections` due-gate +
     `reconcileConnection` distinguishing connection-level (abort+backoff) from
     per-object (log+skip) failures.
-  - **A5 disconnect-race fencing** — IN FLIGHT #166
-    (`fix/overlay-disconnect-fencing`). Opt-in `MirrorStore.WithFence()`: a
-    `FOR SHARE` assert on the active `incumbent_connection` row (fail-closed)
-    on every resurrection-risk write, contending with Disconnect's FOR UPDATE
-    so a mid-sweep write either commits-then-purged or aborts with
-    `ErrConnectionGone`; the sweep treats that as a clean stop. Covers the
-    tables the mirror tombstone cannot (associations, checkpoints, user-map)
-    + a tombstone-less new row. `mirrorcheckpoints.go` split out.
+  - **A5 disconnect-race fencing** — MERGED #166 (`d103080`). Opt-in
+    `MirrorStore.WithFence()`: a `FOR SHARE` assert on the active
+    `incumbent_connection` row (fail-closed) on every resurrection-risk write
+    (incl. `RecordSweep*`), contending with Disconnect's FOR UPDATE so a
+    mid-sweep write either commits-then-purged or aborts with
+    `ErrConnectionGone`; the sweep + worker treat that as a clean stop. Covers
+    the tables the mirror tombstone cannot (associations, checkpoints,
+    user-map, sync-state) + a tombstone-less new row. `mirrorcheckpoints.go`
+    split out.
+  - **A6.1 mapping-fidelity (value-level rules)** — IN FLIGHT
+    (`feat/overlay-mapping-fidelity-values`). OVA-MAP-2 (`hs_call_duration`
+    ms→seconds), OVA-MAP-3 (`full_name` assembled firstname+lastname → email
+    local part → placeholder, never empty; new `AlwaysEmit` assembler flag),
+    OVA-MAP-4 (deal `amount`→`amount_minor` scaled by the ISO-4217 exponent of
+    `deal_currency_code`, not a blanket ×100; null when no currency). New
+    transforms `uppercase`/`ms_to_seconds`/`full_name`/`amount_minor_by_currency`
+    (replacing `amount_to_minor`); golden OVA-AC-4 cases. Spec: foundation
+    #1124 (merged). **A6 remaining slices** (own PRs, structural):
+    OVA-MAP-1 engagement-class split (calls/meetings/emails/notes/tasks — needs
+    the IncumbentClassFor 5→activity disambiguation), OVA-MAP-5 leads via real
+    Leads API props + contact association, OVA-MAP-6 null overlay pipeline/stage
+    + `raw` + stage→`semantic` for advance-tier.
 
   Still open in 1b (the next branches, roughly in priority order):
   - **A3b** — token-bucket burst limiter (HubSpot 100–250/10s); shared

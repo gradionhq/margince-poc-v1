@@ -78,6 +78,13 @@ type FieldMapping struct {
 	Kind      TargetKind
 	Transform string
 	Resolve   string
+	// AlwaysEmit forces a TargetAssembler field to run its Transform even
+	// when the incumbent record carried NONE of its From properties, so the
+	// transform can synthesize a value from nothing — the shape a required,
+	// always-present display field with a fallback needs (person.full_name,
+	// OVA-MAP-3: never left empty). It is meaningless on the other kinds,
+	// whose absence-is-a-no-op behavior is exactly right.
+	AlwaysEmit bool
 }
 
 // ObjectMapping is the code-declared, test-guarded field map for one
@@ -108,10 +115,13 @@ type ObjectMapping struct {
 // lines (returning a typed error on mismatch). The `any` is the data
 // boundary itself, not a missing type — hence the per-transform waivers.
 var transforms = map[string]func(any) (any, error){
-	"lowercase":              transformLowercase,
-	"amount_to_minor":        transformAmountToMinor,
-	"employees_to_size_band": transformEmployeesToSizeBand,
-	"address_json":           transformAddressJSON,
+	"lowercase":                transformLowercase,
+	"uppercase":                transformUppercase,
+	"ms_to_seconds":            transformMsToSeconds,
+	"full_name":                transformFullName,
+	"amount_minor_by_currency": transformAmountMinorByCurrency,
+	"employees_to_size_band":   transformEmployeesToSizeBand,
+	"address_json":             transformAddressJSON,
 }
 
 //craft:ignore naked-any transform seam over untyped incoming JSON property values; asserts concrete type within
@@ -123,10 +133,127 @@ func transformLowercase(v any) (any, error) {
 	return strings.ToLower(s), nil
 }
 
-// transformAmountToMinor parses a HubSpot decimal-string amount (e.g.
-// "1234.5") into integer minor units, rounding half away from zero.
-// HubSpot always renders numeric properties as strings; valueFor already
-// treats an empty string as an absent property, so this never sees "".
+//craft:ignore naked-any transform seam over untyped incoming JSON property values; asserts concrete type within
+func transformUppercase(v any) (any, error) {
+	s, ok := v.(string)
+	if !ok {
+		return nil, fmt.Errorf("overlay: uppercase transform expects a string, got %T", v)
+	}
+	return strings.ToUpper(s), nil
+}
+
+// transformMsToSeconds divides a HubSpot millisecond duration string
+// (hs_call_duration) into integer seconds (OVA-MAP-2). Storing the raw
+// millisecond value inflates durations ×1000. valueFor already treats an
+// empty string as an absent property, so this never sees "".
+//
+//craft:ignore naked-any transform seam over untyped incoming JSON property values; asserts concrete type within
+func transformMsToSeconds(v any) (any, error) {
+	s, ok := v.(string)
+	if !ok {
+		return nil, fmt.Errorf("overlay: ms_to_seconds transform expects a string, got %T", v)
+	}
+	ms, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("overlay: ms_to_seconds could not parse %q as integer milliseconds: %w", s, err)
+	}
+	return ms / 1000, nil
+}
+
+// transformFullName assembles the required, always-present person.full_name
+// display field (OVA-MAP-3) from a gathered {firstname, lastname, email}
+// property set: firstname + ' ' + lastname trimmed of surrounding
+// whitespace, falling back to the primary email's local part, and only then
+// to a stable non-empty placeholder — a mirrored contact must never surface
+// with an empty full_name. Declared AlwaysEmit so it produces the placeholder
+// even for a contact that carried no name and no email at all.
+//
+//craft:ignore naked-any transform seam over untyped incoming JSON property values; asserts concrete type within
+func transformFullName(v any) (any, error) {
+	fields, ok := v.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("overlay: full_name transform expects a property map, got %T", v)
+	}
+	if name := strings.TrimSpace(stringField(fields, "firstname") + " " + stringField(fields, "lastname")); name != "" {
+		return name, nil
+	}
+	if email := strings.TrimSpace(stringField(fields, "email")); email != "" {
+		if local, _, found := strings.Cut(email, "@"); found && local != "" {
+			return local, nil
+		}
+		return email, nil
+	}
+	return "(unnamed contact)", nil
+}
+
+// transformAmountMinorByCurrency scales a HubSpot decimal-string deal amount
+// to integer minor units by the ISO-4217 minor-unit exponent of its
+// deal_currency_code (OVA-MAP-4) — never a blanket ×100. A deal with no
+// currency code (or no amount) maps amount_minor to null rather than guessing
+// an exponent. The currency column itself is mapped separately (uppercased).
+//
+//craft:ignore naked-any transform seam over untyped incoming JSON property values; asserts concrete type within
+func transformAmountMinorByCurrency(v any) (any, error) {
+	fields, ok := v.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("overlay: amount_minor_by_currency transform expects a property map, got %T", v)
+	}
+	code := strings.ToUpper(strings.TrimSpace(stringField(fields, "deal_currency_code")))
+	amountRaw, hasAmount := fields["amount"]
+	if hasAmount && code != "" {
+		amountStr, ok := amountRaw.(string)
+		if !ok {
+			return nil, fmt.Errorf("overlay: amount_minor_by_currency: amount expects a string, got %T", amountRaw)
+		}
+		if amount := strings.TrimSpace(amountStr); amount != "" {
+			scale := int64(1)
+			for i := 0; i < iso4217MinorUnitExponent(code); i++ {
+				scale *= 10
+			}
+			minor, err := decimalStringToMinor(amount, scale)
+			if err != nil {
+				return nil, fmt.Errorf("overlay: amount_minor_by_currency could not convert %q (%s): %w", amount, code, err)
+			}
+			return minor, nil
+		}
+	}
+	// No amount, no currency code to choose an exponent, or an empty amount:
+	// map amount_minor to null rather than guess a scale (OVA-MAP-4). A nil
+	// value with a nil error is exactly that "null, and not an error" —
+	// applyTransform lands it as a JSON null on the column.
+	return nil, nil //nolint:nilnil // deliberate: null amount_minor is a valid, non-error mapping result
+}
+
+// iso4217MinorUnitExponent returns a currency's minor-unit exponent. Two is
+// ISO-4217's own default and covers the vast majority; the exceptions are the
+// zero-decimal and three-decimal currencies enumerated here. Choosing the
+// exponent from the code — not a blanket ×100 — is what the money model
+// (data-semantics §1 / DM-CONV-9) requires.
+func iso4217MinorUnitExponent(code string) int {
+	switch code {
+	case "BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW", "PYG", "RWF", "UGX", "VND", "VUV", "XAF", "XOF", "XPF":
+		return 0
+	case "BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND":
+		return 3
+	default:
+		return 2
+	}
+}
+
+// stringField reads a string-valued property from a gathered assembler map,
+// answering "" for an absent or non-string value — the transforms above
+// treat "" as "not provided".
+//
+//craft:ignore naked-any gathered assembler values are decoded incumbent JSON, read by conventional key name
+func stringField(fields map[string]any, key string) string {
+	s, _ := fields[key].(string)
+	return s
+}
+
+// decimalStringToMinor converts an exact decimal string into integer minor
+// units at the given per-major-unit scale (100 for a two-decimal currency,
+// 1 for a zero-decimal currency, 1000 for a three-decimal one — chosen by
+// the caller from the deal's currency code), rounding half away from zero.
 //
 // The conversion is exact (math/big.Rat), NOT via float64: strconv.ParseFloat
 // introduces binary rounding error before the scale — "1.005" parses to
@@ -135,31 +262,6 @@ func transformLowercase(v any) (any, error) {
 // precisely. big.Rat.SetString also rejects non-finite tokens ("NaN",
 // "Inf") that a float parse would accept, and IsInt64 fences an amount too
 // large for the mirror column.
-//
-// Minor units are computed at the two-decimal (×100) exponent. Currencies
-// whose minor unit is not 1/100 (JPY has none, BHD/KWD use 1/1000) are
-// mirrored at the wrong magnitude; correcting that needs the deal's
-// currency code, which this value-level transform seam does not carry —
-// tracked for upstream reconciliation (the ×100 assumption is stated here,
-// never hidden).
-//
-//craft:ignore naked-any transform seam over untyped incoming JSON property values; asserts concrete type within
-func transformAmountToMinor(v any) (any, error) {
-	s, ok := v.(string)
-	if !ok {
-		return nil, fmt.Errorf("overlay: amount_to_minor transform expects a string, got %T", v)
-	}
-	minor, err := decimalStringToMinor(strings.TrimSpace(s), 100)
-	if err != nil {
-		return nil, fmt.Errorf("overlay: amount_to_minor could not convert %q: %w", s, err)
-	}
-	return minor, nil
-}
-
-// decimalStringToMinor converts an exact decimal string into integer minor
-// units at the given per-major-unit scale (100 for a two-decimal currency),
-// rounding half away from zero. It works on big.Rat so no binary float
-// error is ever introduced, and rejects a value that overflows int64.
 func decimalStringToMinor(s string, scale int64) (int64, error) {
 	if len(s) > maxAmountLen {
 		return 0, fmt.Errorf("amount too long")
@@ -341,7 +443,7 @@ func valueFor(f FieldMapping, raw map[string]any) (any, bool, error) {
 				present = true
 			}
 		}
-		if !present {
+		if !present && !f.AlwaysEmit {
 			return nil, false, nil
 		}
 		return applyTransform(f, gathered)

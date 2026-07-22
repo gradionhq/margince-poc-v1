@@ -97,14 +97,53 @@ func TestHubSpotContactMapping(t *testing.T) {
 		t.Errorf("UnmappedPolicy = %q, want %q", m.UnmappedPolicy, "flag")
 	}
 
-	// full_name is a target-side gap (mapping_hs.go doc comment): its
-	// source keys (firstname/lastname/email) are already consumed by
-	// other FieldMappings, so it produces no unmapped key — the only
-	// way to catch a silent drop is to pin the current absence here. A
-	// future full_name assembler must update this assertion, not just
-	// the doc comment.
-	if _, ok := out["full_name"]; ok {
-		t.Errorf("full_name = %v, want absent (no full_name assembler is declared yet)", out["full_name"])
+	// full_name is assembled from firstname + lastname, trimmed (OVA-MAP-3):
+	// a required, always-present display field, never left empty.
+	if got := out["full_name"]; got != "Christian Muller" {
+		t.Errorf("full_name = %v, want %q (assembled firstname + lastname)", got, "Christian Muller")
+	}
+}
+
+// TestHubSpotContactFullNameFidelity is the OVA-MAP-3 golden case set: a
+// mirrored contact's full_name is never empty. It is assembled from
+// firstname + lastname (trimmed), falling back to the primary email's local
+// part, and only then to a stable non-empty placeholder.
+func TestHubSpotContactFullNameFidelity(t *testing.T) {
+	m, ok := hubspot.Mapping("contacts")
+	if !ok {
+		t.Fatal("Mapping(contacts): want a declared mapping")
+	}
+	cases := []struct {
+		name string
+		raw  map[string]any
+		want string
+	}{
+		{"both names", map[string]any{"hs_object_id": "1", "firstname": "Ada", "lastname": "Lovelace"}, "Ada Lovelace"},
+		{"only lastname", map[string]any{"hs_object_id": "2", "firstname": "", "lastname": "Lovelace"}, "Lovelace"},
+		{"only firstname", map[string]any{"hs_object_id": "3", "firstname": "Ada", "lastname": ""}, "Ada"},
+		{"neither name, email present", map[string]any{"hs_object_id": "4", "firstname": "", "lastname": "", "email": "grace.hopper@navy.mil"}, "grace.hopper"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, _, err := overlay.Apply(m, tc.raw)
+			if err != nil {
+				t.Fatalf("Apply: %v", err)
+			}
+			if got := out["full_name"]; got != tc.want {
+				t.Errorf("full_name = %v, want %q", got, tc.want)
+			}
+		})
+	}
+
+	// Neither name nor email: full_name must still be non-empty (a stable
+	// placeholder), never absent or "".
+	out, _, err := overlay.Apply(m, map[string]any{"hs_object_id": "9999"})
+	if err != nil {
+		t.Fatalf("Apply (nameless, emailless): %v", err)
+	}
+	got, ok := out["full_name"].(string)
+	if !ok || got == "" {
+		t.Errorf("full_name for a nameless, emailless contact = %#v, want a non-empty placeholder string", out["full_name"])
 	}
 }
 
@@ -167,7 +206,7 @@ func TestHubSpotCompanyMapping(t *testing.T) {
 }
 
 // rawDeal is a §9-shaped HubSpot deal properties map, carrying a
-// negative amount to exercise the amount_to_minor transform's
+// negative amount to exercise the amount_minor_by_currency transform's
 // round-half-away-from-zero fix on the mapping path (not just Apply
 // unit-tested directly in overlay/mapping_test.go).
 func rawDeal() map[string]any {
@@ -226,6 +265,48 @@ func TestHubSpotDealMapping(t *testing.T) {
 	}
 }
 
+// TestHubSpotDealAmountCurrencyFidelity is the OVA-MAP-4 golden case set: a
+// deal amount is scaled to minor units by the ISO-4217 minor-unit exponent
+// of its deal_currency_code — never a blanket ×100. A ×100-everywhere
+// implementation fails on JPY (exponent 0) and BHD (exponent 3) by
+// construction. A deal with no currency code maps amount_minor to null.
+func TestHubSpotDealAmountCurrencyFidelity(t *testing.T) {
+	m, ok := hubspot.Mapping("deals")
+	if !ok {
+		t.Fatal("Mapping(deals): want a declared mapping")
+	}
+	cases := []struct {
+		name, amount, code string
+		want               int64
+	}{
+		{"JPY exponent 0", "1000", "JPY", 1000},
+		{"EUR exponent 2", "10.00", "EUR", 1000},
+		{"BHD exponent 3", "1.500", "BHD", 1500},
+		{"lowercase code uppercased", "10.00", "usd", 1000},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, _, err := overlay.Apply(m, map[string]any{"hs_object_id": "1", "amount": tc.amount, "deal_currency_code": tc.code})
+			if err != nil {
+				t.Fatalf("Apply: %v", err)
+			}
+			if got, ok := out["amount_minor"].(int64); !ok || got != tc.want {
+				t.Errorf("amount_minor for %s %s = %#v, want int64(%d)", tc.amount, tc.code, out["amount_minor"], tc.want)
+			}
+		})
+	}
+
+	// A deal amount with no currency code maps amount_minor to null (never a
+	// guessed exponent), per OVA-MAP-4.
+	out, _, err := overlay.Apply(m, map[string]any{"hs_object_id": "2", "amount": "10.00"})
+	if err != nil {
+		t.Fatalf("Apply (no currency): %v", err)
+	}
+	if v, present := out["amount_minor"]; present && v != nil {
+		t.Errorf("amount_minor with no currency code = %#v, want null (absent or nil), never a guessed ×100", v)
+	}
+}
+
 // rawEngagement is a HubSpot engagement properties map using the
 // property names design.md §9 names literally (no §11 spike capture
 // exists for engagements — see the engagementsMapping doc comment).
@@ -260,14 +341,34 @@ func TestHubSpotEngagementMapping(t *testing.T) {
 	if got := out["direction"]; got != "OUTBOUND" {
 		t.Errorf("direction = %v, want OUTBOUND", got)
 	}
-	if got := out["duration_seconds"]; got != "180000" {
-		t.Errorf("duration_seconds = %v, want the raw hs_call_duration", got)
+	if got, ok := out["duration_seconds"].(int64); !ok || got != 180 {
+		t.Errorf("duration_seconds = %#v, want int64(180) — hs_call_duration is milliseconds, divided to seconds (OVA-MAP-2)", out["duration_seconds"])
 	}
 	if got := out["external_id"]; got != "5501" {
 		t.Errorf("external_id = %v, want 5501", got)
 	}
 	if len(unmapped) != 0 {
 		t.Errorf("unmapped = %v, want none (every rawEngagement property is declared)", unmapped)
+	}
+}
+
+// TestHubSpotCallDurationFidelity is the OVA-MAP-2 golden case: hs_call_duration
+// is HubSpot milliseconds and must be divided to integer seconds before it
+// lands in duration_seconds — storing the raw millisecond value inflates
+// durations ×1000.
+func TestHubSpotCallDurationFidelity(t *testing.T) {
+	m, ok := hubspot.Mapping("engagements")
+	if !ok {
+		t.Fatal("Mapping(engagements): want a declared mapping")
+	}
+	out, _, err := overlay.Apply(m, map[string]any{
+		"hs_object_id": "1", "hs_engagement_type": "CALL", "hs_call_duration": "90000",
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if got, ok := out["duration_seconds"].(int64); !ok || got != 90 {
+		t.Errorf("duration_seconds = %#v, want int64(90) for hs_call_duration=90000ms", out["duration_seconds"])
 	}
 }
 

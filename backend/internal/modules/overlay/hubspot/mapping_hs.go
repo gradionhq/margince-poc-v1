@@ -35,11 +35,12 @@ const unmappedPolicyFlag = "flag"
 // named once so the mappings below select a value rather than retyping
 // the same literal, and so a future rename touches one declaration.
 const (
-	propEmail     = "email"
-	propName      = "name"
-	targetAddress = "address"
-	targetSubject = "subject"
-	targetBody    = "body"
+	propEmail      = "email"
+	propName       = "name"
+	targetAddress  = "address"
+	targetSubject  = "subject"
+	targetBody     = "body"
+	targetFullName = "full_name"
 )
 
 // Mapping returns the ObjectMapping for one HubSpot object class. An
@@ -87,28 +88,20 @@ func IncumbentClassFor(canonical string) (string, bool) {
 	return "", false
 }
 
-// contactsMapping is the design.md §9 contacts→person subset this task
-// ships. Two §9 fields are deferred because no closed-registry
-// transform covers them yet, and this task does not invent one — but
-// they are NOT equivalent gaps, and a caller must not treat them alike:
+// contactsMapping is the design.md §9 contacts→person subset. full_name is
+// assembled from firstname/lastname (falling back to the email local part,
+// then a stable placeholder) by the full_name transform, declared AlwaysEmit
+// so a required display field is never left empty (OVA-MAP-3). first_name and
+// last_name are still mapped through as-is (nullable), and email is still
+// consumed by person_email.email — the assembler is an ADDITIONAL reader of
+// those keys, so it adds no unmapped entry.
 //
-//   - social links (jsonb): its source properties are consumed by no
-//     other FieldMapping, so Apply's unmapped []string surfaces them —
-//     the "flag, never silently drop" policy (design §4.8) holds.
-//   - full_name (an N:1 assembler over firstname/lastname/email): its
-//     source keys (firstname, lastname, email) ARE already consumed by
-//     the first_name/last_name/person_email.email FieldMappings below.
-//     Omitting the assembler therefore produces NO unmapped key —
-//     person.full_name is silently left unpopulated with zero runtime
-//     signal. This is a target-side gap, invisible to the unmapped-key
-//     mechanism. TestHubSpotContactMapping asserts "full_name" is
-//     absent from Apply's output today so a future change that adds a
-//     full_name transform without updating that test fails loudly,
-//     rather than this comment being the only record of the gap.
-//
-// The phone/mobilephone properties (design §9: "phone→no column
-// (x_phone custom)") are the ordinary case: unmapped/flagged until the
-// x_ custom column lands.
+// One §9 field remains a deliberate gap: social links (jsonb) has no
+// closed-registry transform yet, and its source properties are consumed by
+// no FieldMapping, so Apply's unmapped []string surfaces them — the "flag,
+// never silently drop" policy (design §4.8) holds. The phone/mobilephone
+// properties (design §9: "phone→no column (x_phone custom)") are the same
+// ordinary case: unmapped/flagged until the x_ custom column lands.
 var contactsMapping = overlay.ObjectMapping{
 	Source:         objectClassContacts,
 	Target:         "person",
@@ -118,6 +111,13 @@ var contactsMapping = overlay.ObjectMapping{
 	Fields: []overlay.FieldMapping{
 		{From: []string{"firstname"}, To: "first_name", Kind: overlay.TargetColumn},
 		{From: []string{"lastname"}, To: "last_name", Kind: overlay.TargetColumn},
+		{
+			From:       []string{"firstname", "lastname", propEmail},
+			To:         targetFullName,
+			Kind:       overlay.TargetAssembler,
+			Transform:  "full_name",
+			AlwaysEmit: true,
+		},
 		{From: []string{"jobtitle"}, To: "title", Kind: overlay.TargetColumn},
 		{
 			From:      []string{propEmail},
@@ -190,13 +190,11 @@ var companiesMapping = overlay.ObjectMapping{
 //     deals→companies associations directly; there is no properties-map
 //     key for it, so it never appears in Apply's unmapped list either.
 //
-// amount_to_minor is wired here as a straight cents conversion (§9 calls
-// for "decimal→minor by currency exponent" — a currency-aware exponent
-// table, e.g. JPY has none, KWD has three — which is NOT in the closed
-// transform registry). Using the existing cents-only transform is a
-// known simplification for portals trading in two-decimal currencies;
-// a currency-aware transform is a reconciliation item for the spec, not
-// invented here.
+// amount_minor is assembled from amount + deal_currency_code and scaled by
+// the currency's ISO-4217 minor-unit exponent (OVA-MAP-4) — JPY ×1, EUR/USD
+// ×100, BHD ×1000 — never a blanket ×100; a deal with no currency code maps
+// amount_minor to null rather than guessing an exponent. currency carries the
+// code itself, uppercased.
 var dealsMapping = overlay.ObjectMapping{
 	Source:         objectClassDeals,
 	Target:         "deal",
@@ -206,12 +204,12 @@ var dealsMapping = overlay.ObjectMapping{
 	Fields: []overlay.FieldMapping{
 		{From: []string{"dealname"}, To: "name", Kind: overlay.TargetColumn},
 		{
-			From:      []string{"amount"},
+			From:      []string{"amount", "deal_currency_code"},
 			To:        "amount_minor",
-			Kind:      overlay.TargetColumn,
-			Transform: "amount_to_minor",
+			Kind:      overlay.TargetAssembler,
+			Transform: "amount_minor_by_currency",
 		},
-		{From: []string{"deal_currency_code"}, To: "currency", Kind: overlay.TargetColumn},
+		{From: []string{"deal_currency_code"}, To: "currency", Kind: overlay.TargetColumn, Transform: "uppercase"},
 		{From: []string{"pipeline"}, To: "pipeline_id", Kind: overlay.TargetColumn},
 		{From: []string{"dealstage"}, To: "stage_id", Kind: overlay.TargetColumn},
 		{From: []string{"closedate"}, To: "expected_close_date", Kind: overlay.TargetColumn},
@@ -253,7 +251,7 @@ var engagementsMapping = overlay.ObjectMapping{
 		{From: []string{"text"}, To: targetBody, Kind: overlay.TargetColumn},
 		{From: []string{"hs_timestamp"}, To: "occurred_at", Kind: overlay.TargetColumn},
 		{From: []string{"direction"}, To: "direction", Kind: overlay.TargetColumn},
-		{From: []string{"hs_call_duration"}, To: "duration_seconds", Kind: overlay.TargetColumn},
+		{From: []string{"hs_call_duration"}, To: "duration_seconds", Kind: overlay.TargetColumn, Transform: "ms_to_seconds"},
 		{From: []string{"hs_meeting_outcome"}, To: "meeting_status", Kind: overlay.TargetColumn},
 	},
 }
@@ -262,10 +260,12 @@ var engagementsMapping = overlay.ObjectMapping{
 // Leads object). `status` is a deliberate target-side gap: §9 calls for
 // mapping HubSpot's free-form lead status into the fixed
 // new/working/promoted/disqualified enum, which needs an enum-remapping
-// transform NOT in the closed registry ({lowercase, amount_to_minor,
+// transform NOT in the closed registry ({lowercase, uppercase,
+// ms_to_seconds, full_name, amount_minor_by_currency,
 // employees_to_size_band, address_json}) — per the "flag, don't invent"
-// rule this task does not add one. status is left unconsumed so Apply's
-// unmapped []string surfaces it, exactly like companies' domain.
+// rule this slice does not add one (the real Leads API mapping, OVA-MAP-5,
+// is a later slice). status is left unconsumed so Apply's unmapped []string
+// surfaces it, exactly like companies' domain.
 var leadsMapping = overlay.ObjectMapping{
 	Source:         objectClassLeads,
 	Target:         "lead",
@@ -273,7 +273,7 @@ var leadsMapping = overlay.ObjectMapping{
 	Baseline:       baselineHSLastModifiedDate,
 	UnmappedPolicy: unmappedPolicyFlag,
 	Fields: []overlay.FieldMapping{
-		{From: []string{propName}, To: "full_name", Kind: overlay.TargetColumn},
+		{From: []string{propName}, To: targetFullName, Kind: overlay.TargetColumn},
 		{From: []string{propEmail}, To: propEmail, Kind: overlay.TargetColumn},
 		{From: []string{"company"}, To: "company_name", Kind: overlay.TargetColumn},
 	},
