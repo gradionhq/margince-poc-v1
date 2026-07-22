@@ -8656,21 +8656,6 @@ export interface components {
         };
     };
     responses: {
-        /**
-         * @description The operation is specified in the contract but not yet wired in this build — a
-         *     loud 501, never a silent 404 or a half-working success. Used by a surface whose
-         *     contract ships ahead of its implementation (e.g. the outbound-webhook operations
-         *     until their delivery module lands); a generated client should model 501 as a
-         *     possible response for such an operation.
-         */
-        NotImplemented: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/problem+json": components["schemas"]["Problem"];
-            };
-        };
         /** @description No valid credential — a missing/invalid/expired `crm_session` cookie (human path) or a missing/invalid/expired bearer token (agent path). */
         Unauthorized: {
             headers: {
@@ -12200,7 +12185,6 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            501: components["responses"]["NotImplemented"];
         };
     };
     createWebhookSubscription: {
@@ -12239,7 +12223,6 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
-            501: components["responses"]["NotImplemented"];
         };
     };
     getWebhookSubscription: {
@@ -12266,7 +12249,6 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            501: components["responses"]["NotImplemented"];
         };
     };
     archiveWebhookSubscription: {
@@ -12293,7 +12275,6 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            501: components["responses"]["NotImplemented"];
         };
     };
     updateWebhookSubscription: {
@@ -12345,7 +12326,6 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
-            501: components["responses"]["NotImplemented"];
         };
     };
     rotateWebhookSecret: {
@@ -12372,7 +12352,6 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            501: components["responses"]["NotImplemented"];
         };
     };
     listWebhookDeliveries: {
@@ -12402,7 +12381,6 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            501: components["responses"]["NotImplemented"];
         };
     };
     replayWebhookDelivery: {
@@ -12430,7 +12408,6 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            501: components["responses"]["NotImplemented"];
         };
     };
     listTags: {

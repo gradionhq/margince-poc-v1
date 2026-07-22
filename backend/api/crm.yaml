@@ -2685,7 +2685,6 @@ paths:
               schema: { $ref: '#/components/schemas/WebhookSubscriptionListResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
-        '501': { $ref: '#/components/responses/NotImplemented' }
     post:
       tags: [Webhooks]
       operationId: createWebhookSubscription
@@ -2713,7 +2712,6 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
-        '501': { $ref: '#/components/responses/NotImplemented' }
 
   /webhook-subscriptions/{id}:
     parameters:
@@ -2733,7 +2731,6 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '501': { $ref: '#/components/responses/NotImplemented' }
     patch:
       tags: [Webhooks]
       operationId: updateWebhookSubscription
@@ -2762,7 +2759,6 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
-        '501': { $ref: '#/components/responses/NotImplemented' }
     delete:
       tags: [Webhooks]
       operationId: archiveWebhookSubscription
@@ -2778,7 +2774,6 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '501': { $ref: '#/components/responses/NotImplemented' }
 
   /webhook-subscriptions/{id}/rotate-secret:
     parameters:
@@ -2798,7 +2793,6 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '501': { $ref: '#/components/responses/NotImplemented' }
 
   /webhook-subscriptions/{id}/deliveries:
     parameters:
@@ -2820,7 +2814,6 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '501': { $ref: '#/components/responses/NotImplemented' }
 
   /webhook-subscriptions/{id}/deliveries/{deliveryId}/replay:
     parameters:
@@ -2844,7 +2837,6 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '501': { $ref: '#/components/responses/NotImplemented' }
 
   # ------------------------------ /tags -------------------------------------
   /tags:
@@ -7316,19 +7308,6 @@ components:
 
   # --------------------------- shared responses -----------------------------
   responses:
-    NotImplemented:
-      description: |
-        The operation is specified in the contract but not yet wired in this build — a
-        loud 501, never a silent 404 or a half-working success. Used by a surface whose
-        contract ships ahead of its implementation (e.g. the outbound-webhook operations
-        until their delivery module lands); a generated client should model 501 as a
-        possible response for such an operation.
-      content:
-        application/problem+json:
-          schema: { $ref: '#/components/schemas/Problem' }
-          examples:
-            not_implemented:
-              value: { type: 'https://errors.gradion.com/not_implemented', title: Not Implemented, status: 501, code: not_implemented, detail: operation is specified but not yet implemented. }
     Unauthorized:
       description: No valid credential — a missing/invalid/expired `crm_session` cookie (human path) or a missing/invalid/expired bearer token (agent path).
       content:

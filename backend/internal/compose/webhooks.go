@@ -4,51 +4,31 @@
 package compose
 
 import (
-	nethttp "net/http"
+	"log/slog"
 
-	openapi_types "github.com/oapi-codegen/runtime/types"
+	"github.com/jackc/pgx/v5/pgxpool"
 
-	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
 )
 
-// webhooksHandlers is the contract-first placeholder for the outbound
-// webhook surface (E10/S-E10.6, B-E10.13). The `/webhook-subscriptions`
-// contract ships one phase ahead of its module: until the `webhooks`
-// module lands (B-E10.13a-c) and shadows these operations, every call
-// answers a loud 501 — never a silent 404, and never a half-working
-// surface. It is embedded in Server so ServerInterface stays fully
-// covered; the module's real Handlers replace this whole set in phase 2.
-type webhooksHandlers struct{}
-
-func (webhooksHandlers) ListWebhookSubscriptions(w nethttp.ResponseWriter, r *nethttp.Request, _ crmcontracts.ListWebhookSubscriptionsParams) {
-	httperr.NotImplemented(w, r, "ListWebhookSubscriptions")
+// newWebhookHandlers builds the outbound-webhook transport (E10/S-E10.6,
+// B-E10.13). cipher may be nil: the read surface (list/get/deliveries)
+// still works, but any path that must seal or use a signing secret
+// (create/rotate, and delivery/replay) answers an honest 503 rather than
+// shipping an unsigned or guessable delivery. The api role supplies the
+// deployment key via WithWebhookSigningKey.
+func newWebhookHandlers(pool *pgxpool.Pool, cipher *webhooks.Cipher, log *slog.Logger) webhooks.Handlers {
+	store := webhooks.NewStore(pool, cipher)
+	deliverer := webhooks.NewDeliverer(store, webhooks.NewGuardedClient(), nil, log)
+	return webhooks.NewHandlers(store, deliverer)
 }
 
-func (webhooksHandlers) CreateWebhookSubscription(w nethttp.ResponseWriter, r *nethttp.Request, _ crmcontracts.CreateWebhookSubscriptionParams) {
-	httperr.NotImplemented(w, r, "CreateWebhookSubscription")
-}
-
-func (webhooksHandlers) GetWebhookSubscription(w nethttp.ResponseWriter, r *nethttp.Request, _ crmcontracts.Id) {
-	httperr.NotImplemented(w, r, "GetWebhookSubscription")
-}
-
-func (webhooksHandlers) UpdateWebhookSubscription(w nethttp.ResponseWriter, r *nethttp.Request, _ crmcontracts.Id, _ crmcontracts.UpdateWebhookSubscriptionParams) {
-	httperr.NotImplemented(w, r, "UpdateWebhookSubscription")
-}
-
-func (webhooksHandlers) ArchiveWebhookSubscription(w nethttp.ResponseWriter, r *nethttp.Request, _ crmcontracts.Id) {
-	httperr.NotImplemented(w, r, "ArchiveWebhookSubscription")
-}
-
-func (webhooksHandlers) RotateWebhookSecret(w nethttp.ResponseWriter, r *nethttp.Request, _ crmcontracts.Id) {
-	httperr.NotImplemented(w, r, "RotateWebhookSecret")
-}
-
-func (webhooksHandlers) ListWebhookDeliveries(w nethttp.ResponseWriter, r *nethttp.Request, _ crmcontracts.Id, _ crmcontracts.ListWebhookDeliveriesParams) {
-	httperr.NotImplemented(w, r, "ListWebhookDeliveries")
-}
-
-func (webhooksHandlers) ReplayWebhookDelivery(w nethttp.ResponseWriter, r *nethttp.Request, _ crmcontracts.Id, _ openapi_types.UUID) {
-	httperr.NotImplemented(w, r, "ReplayWebhookDelivery")
+// WithWebhookSigningKey enables the mutating outbound-webhook surface: the
+// 32-byte deployment key seals each subscription's signing secret at rest,
+// so create/rotate succeed and a parked delivery can be replayed and
+// signed. Without it those paths answer 503; the read surface still lists.
+func WithWebhookSigningKey(cipher *webhooks.Cipher) Option {
+	return func(s *Server, pool *pgxpool.Pool) {
+		s.webhooksHandlers = newWebhookHandlers(pool, cipher, s.log)
+	}
 }

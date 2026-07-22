@@ -10581,9 +10581,6 @@ type Forbidden = Problem
 // NotFound RFC 7807 problem+json with a stable machine `code` and structured `details`.
 type NotFound = Problem
 
-// NotImplemented RFC 7807 problem+json with a stable machine `code` and structured `details`.
-type NotImplemented = Problem
-
 // PermissionDenied RFC 7807 problem+json with a stable machine `code` and structured `details`.
 type PermissionDenied = Problem
 

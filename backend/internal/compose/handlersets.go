@@ -19,6 +19,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/quotas"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/modules/signals"
+	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
 )
 
 // Aliases give the embedded handler sets distinct field names; each
@@ -39,4 +40,5 @@ type (
 	customfieldsHandlers = customfields.Handlers
 	quotasHandlers       = quotas.Handlers
 	overlayHandlers      = overlay.Handlers
+	webhooksHandlers     = webhooks.Handlers
 )
