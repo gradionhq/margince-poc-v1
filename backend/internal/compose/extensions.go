@@ -21,6 +21,22 @@ import (
 // emission (ADR-0069 §5) and the approval filtering (§7) slot in: both
 // operate on the declared set before anything is applied.
 func RegisterExtensions(exts []extension.Extension) error {
+	if err := validateExtensionSet(exts); err != nil {
+		return err
+	}
+	for _, e := range exts {
+		for _, p := range e.Jurisdictions {
+			jurisdiction.Register(p)
+		}
+	}
+	return nil
+}
+
+// validateExtensionSet preflights every unit and every capability —
+// against the declared set AND the live registries — so the apply phase
+// cannot fail halfway: a mid-apply abort would leave an earlier unit's
+// capabilities registered while the boot reports failure.
+func validateExtensionSet(exts []extension.Extension) error {
 	seen := make(map[extension.Name]bool, len(exts))
 	packCodes := make(map[jurisdiction.Code]extension.Name, len(exts))
 	for _, e := range exts {
@@ -34,28 +50,28 @@ func RegisterExtensions(exts []extension.Extension) error {
 		if err := e.Version.Validate(); err != nil {
 			return fmt.Errorf("compose: extension %q: %w", e.Name, err)
 		}
-		// Every capability is preflighted here, against the declared set
-		// AND the live registry, so the apply loop below cannot fail
-		// halfway: a mid-apply abort would leave an earlier unit's packs
-		// registered while the boot reports failure.
-		for _, p := range e.Jurisdictions {
-			code := p.Code()
-			if err := code.Validate(); err != nil {
-				return fmt.Errorf("compose: extension %q: %w", e.Name, err)
-			}
-			if owner, dup := packCodes[code]; dup {
-				return fmt.Errorf("compose: extensions %q and %q both declare jurisdiction %q", owner, e.Name, code)
-			}
-			if _, taken := jurisdiction.For(code); taken {
-				return fmt.Errorf("compose: extension %q declares jurisdiction %q, which a core pack already registers", e.Name, code)
-			}
-			packCodes[code] = e.Name
+		if err := preflightJurisdictions(e, packCodes); err != nil {
+			return err
 		}
 	}
-	for _, e := range exts {
-		for _, p := range e.Jurisdictions {
-			jurisdiction.Register(p)
+	return nil
+}
+
+// preflightJurisdictions checks one unit's declared packs for grammar,
+// duplicates within the composed set, and collisions with core packs.
+func preflightJurisdictions(e extension.Extension, packCodes map[jurisdiction.Code]extension.Name) error {
+	for _, p := range e.Jurisdictions {
+		code := p.Code()
+		if err := code.Validate(); err != nil {
+			return fmt.Errorf("compose: extension %q: %w", e.Name, err)
 		}
+		if owner, dup := packCodes[code]; dup {
+			return fmt.Errorf("compose: extensions %q and %q both declare jurisdiction %q", owner, e.Name, code)
+		}
+		if _, taken := jurisdiction.For(code); taken {
+			return fmt.Errorf("compose: extension %q declares jurisdiction %q, which a core pack already registers", e.Name, code)
+		}
+		packCodes[code] = e.Name
 	}
 	return nil
 }
