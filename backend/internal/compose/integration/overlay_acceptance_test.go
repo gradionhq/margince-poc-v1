@@ -867,10 +867,26 @@ func TestAcceptance_OVA_AC_1_TeardownPurges(t *testing.T) {
 		t.Fatalf("fixture is broken: seeded mirror=%d association=%d, want both > 0", seededMirror, seededAssoc)
 	}
 
-	dispatcher := compose.NewDispatcher(compose.NewProvider(pool), compose.NewOverlayProvider(pool, compose.NewOverlayMeter(pool), nil), pool)
+	meter := compose.NewOverlayMeter(pool)
+	dispatcher := compose.NewDispatcher(compose.NewProvider(pool), compose.NewOverlayProvider(pool, meter, nil), pool)
 	preTeardown, err := dispatcher.Search(adminCtx, datasource.SearchQuery{EntityTypes: []datasource.EntityType{datasource.EntityDeal}, Limit: 10})
 	if err != nil || len(preTeardown.Records) != 1 {
 		t.Fatalf("expected the mapped admin to see the one backfilled deal before disconnect: err=%v records=%d", err, len(preTeardown.Records))
+	}
+
+	// Spend a budget unit so overlay_budget_window holds a row for this
+	// workspace BEFORE disconnect — otherwise the post-teardown "budget
+	// window is empty" assertion below would pass vacuously (no row to
+	// purge) and could not catch a budget that survives into a reconnect.
+	if err := meter.Consume(adminCtx, overlay.LanePoller, 1); err != nil {
+		t.Fatalf("seeding the overlay budget window: %v", err)
+	}
+	var seededBudget int
+	if err := e.owner.QueryRow(context.Background(), `SELECT count(*) FROM overlay_budget_window WHERE workspace_id = $1`, wsIDStr).Scan(&seededBudget); err != nil {
+		t.Fatalf("counting the seeded budget window row: %v", err)
+	}
+	if seededBudget != 1 {
+		t.Fatalf("fixture is broken: seeded budget window rows=%d, want 1", seededBudget)
 	}
 
 	if code := e.call(t, "DELETE", "/v1/overlay/connection", nil, nil, nil); code != http.StatusAccepted {
@@ -881,7 +897,7 @@ func TestAcceptance_OVA_AC_1_TeardownPurges(t *testing.T) {
 	// genuinely converged it (done=true) — a cursor surviving disconnect
 	// would short-circuit the next connection's initial mirror load.
 	counts := map[string]int{}
-	for _, table := range []string{"overlay_mirror", "overlay_association", "mirror_visibility", "mirror_user_map", "overlay_backfill_cursor", "overlay_reconcile_watermark"} {
+	for _, table := range []string{"overlay_mirror", "overlay_association", "mirror_visibility", "mirror_user_map", "overlay_backfill_cursor", "overlay_reconcile_watermark", "overlay_budget_window"} {
 		var n int
 		if err := e.owner.QueryRow(context.Background(), fmt.Sprintf(`SELECT count(*) FROM %s WHERE workspace_id = $1`, table), wsIDStr).Scan(&n); err != nil {
 			t.Fatalf("counting %s: %v", table, err)
