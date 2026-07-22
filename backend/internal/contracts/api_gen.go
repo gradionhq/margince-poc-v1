@@ -10706,9 +10706,9 @@ type WebhookSubscription struct {
 // WebhookSubscriptionState defines model for WebhookSubscription.State.
 type WebhookSubscriptionState string
 
-// WebhookSubscriptionCreated The create/rotate response — the subscription plus the `signing_secret`, which is shown EXACTLY ONCE and never retrievable again. Store it now: deliveries are signed (HMAC-SHA256) with it.
+// WebhookSubscriptionCreated The create/rotate response — the subscription plus the `signing_secret`, which is shown EXACTLY ONCE and never retrievable again. Store it now: deliveries are signed with it on the Standard Webhooks scheme (standardwebhooks.com).
 type WebhookSubscriptionCreated struct {
-	// SigningSecret The per-subscription signing secret. Shown once; use it to verify X-Margince-Signature.
+	// SigningSecret The per-subscription signing secret (`whsec_` + standard base64). Shown once; decode the base64 to raw bytes and use them as the HMAC-SHA256 key to verify the `webhook-signature` header against `{webhook-id}.{webhook-timestamp}.{raw body}` (Standard Webhooks — standardwebhooks.com).
 	SigningSecret string `json:"signing_secret"`
 
 	// Subscription An outbound webhook subscription (`webhook_subscription`): a tenant-configured target URL that receives signed HTTP POSTs for a chosen subset of the published event catalog. The signing secret is NEVER returned here — it is surfaced once, at create/rotate, in `WebhookSubscriptionCreated`.

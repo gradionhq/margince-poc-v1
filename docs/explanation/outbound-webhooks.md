@@ -2,10 +2,11 @@
 
 `internal/modules/webhooks` (E10/S-E10.6, A51, ADR — B-E10.13a-c + B-E10.15) is Margince's
 **first-party** outbound integration surface: a workspace registers an HTTPS target + a subset of the
-published event catalog, and a delivery worker fans matching domain events to it as HMAC-signed HTTP
-POSTs — retried with exponential backoff, parked in a dead-letter store, and replayable on demand. It
-is *first-party* (subscriptions live in the workspace), not a third-party app marketplace, and it is
-**outbound only** — this is not an inbound receiver (features/04 §3).
+published event catalog, and a delivery worker fans matching domain events to it as
+[Standard Webhooks](https://www.standardwebhooks.com/)-signed HTTP POSTs — retried with exponential
+backoff, parked in a dead-letter store, and replayable on demand. It is *first-party* (subscriptions
+live in the workspace), not a third-party app marketplace, and it is **outbound only** — this is not an
+inbound receiver (features/04 §3).
 
 For the one-paragraph version see [reference/modules.md](../reference/modules.md); to *register* one,
 jump to [how-to/register-a-webhook.md](../how-to/register-a-webhook.md); for the write shape every
@@ -30,7 +31,7 @@ POST /webhook-subscriptions                   domain write → outbox → relay 
         │                                              │                              (fail-closed; skips, never strands)
         └──────────────┬───────────────────────  enqueueForSubscriptions(visible)   ← idempotent on (ws, sub, event)
                        ▼                                │
-              webhook_delivery row              deliverOnce: sign (HMAC-SHA256) + POST
+              webhook_delivery row              deliverOnce: sign (Standard Webhooks) + POST
                                                         │
                     ┌───────────────────────────────────┴───────────────────────────┐
                     ▼                          ▼                                       ▼
@@ -76,43 +77,54 @@ and all reads are human-only.
 
 ## 2. The signing secret — sealed at rest, shown once
 
-Each subscription carries a per-subscription signing secret (`whsec_…`, 32 random bytes), used to
-HMAC-SHA256 the raw delivery body. The data model mandates it is **never stored plaintext**, naming the
-column a "vault ref". The PoC has no vault, so **the deployment key IS the vault**: an AES-256-GCM
-envelope over the secret, keyed by `MARGINCE_WEBHOOK_KEY` (`cipher.go`).
+Each subscription carries a per-subscription signing secret (`whsec_` + 32 random bytes as **standard**
+base64 — the Standard Webhooks compatibility requirement), used to HMAC-SHA256 each delivery attempt.
+The data model mandates it is **never stored plaintext**, naming the column a "vault ref". The PoC has
+no vault, so **the deployment key IS the vault**: an AES-256-GCM envelope over the secret, keyed by
+`MARGINCE_WEBHOOK_KEY` (`cipher.go`).
 
 ```text
 create/rotate:  generateSecret() → "whsec_…"  ──seal(key)──▶  signing_secret_ref (base64 nonce‖ciphertext)
                        │                                                    │
                 returned to caller ONCE                              stored, never re-shown
                                                                             │
-delivery:       payload ──HMAC-SHA256(open(ref))──▶  X-Margince-Signature: sha256=…
+delivery:       Sign(open(ref), id, ts, body) ──▶  webhook-signature: v1,<base64 HMAC>
 ```
 
 The plaintext exists in exactly two places and nowhere else: the create/rotate HTTP response, and
 transiently in the delivery signer (`open`ed per attempt). A wrong-length key is a **loud boot error**,
 never silently padded — a secret sealed under a guessable key is a security defect, not a degraded
 feature. A ciphertext that fails to open (wrong key, tamper) is surfaced, never treated as an empty
-secret (signing with an empty secret would ship an attacker-forgeable signature).
+secret (signing with an empty secret would ship an attacker-forgeable signature). Likewise, an
+undecodable secret (corrupt base64) is a real, surfaced `error` from `Sign` — never silently keyed with
+the raw prefixed string.
 
 **Rotation is immediate.** `RotateSecret` mints and seals a new secret and returns the plaintext once;
 the prior secret stops verifying at once, so a receiver must adopt the new value. The rotation is
-audited **without recording either secret value**.
+audited **without recording either secret value**. A secret minted before this scheme's migration was
+URL-safe base64 and can no longer decode under the standard alphabet — it stops signing, by design;
+the fix is a fresh subscription or a rotation (`how-to/register-a-webhook.md` §2, legacy note).
 
 ### The wire contract
 
-A receiver verifies `X-Margince-Signature` against the **raw request body** using its stored secret,
-and dedupes on `X-Margince-Delivery`:
+Delivery follows [Standard Webhooks](https://www.standardwebhooks.com/) — the scheme Anthropic, OpenAI,
+Stripe, and Svix share. A receiver verifies `webhook-signature` against
+`{webhook-id}.{webhook-timestamp}.{raw request body}` using its stored secret's **decoded bytes** as the
+HMAC key, and dedupes on `webhook-id`:
 
 | Header | Value |
 |---|---|
-| `X-Margince-Event` | the event type (e.g. `deal.stage_changed`) |
-| `X-Margince-Delivery` | the delivery id — stable across retries, the receiver's dedupe key |
-| `X-Margince-Signature` | `sha256=` + hex HMAC-SHA256 of the raw body under the secret |
+| `X-Margince-Event` | convenience only — the event type (e.g. `deal.stage_changed`) |
+| `webhook-id` | the delivery id — stable across retries, the receiver's dedupe key |
+| `webhook-timestamp` | unix seconds the CURRENT attempt was signed at — fresh every attempt, never reused across retries |
+| `webhook-signature` | `v1,` + base64 HMAC-SHA256 of `{webhook-id}.{webhook-timestamp}.{body}` |
 
-The `sha256=` scheme prefix names the MAC so a future rotation to another algorithm is distinguishable
-on the wire rather than an ambiguous hex blob; `whsec_` marks the secret so a leaked string is
-identifiable (mirroring the passport-token convention).
+The fresh-per-attempt timestamp is the replay defense: a receiver enforcing a tolerance window rejects a
+captured signature replayed later, even though `webhook-id` (and the body) stay identical across
+retries and replay. `v1,` names the scheme version so a future rotation to another MAC is
+distinguishable on the wire — today it is always a single-entry list (multi-secret rotation grace is
+deferred, A4); `whsec_` marks the secret so a leaked string is identifiable (mirroring the
+passport-token convention).
 
 ## 3. The delivery state machine
 

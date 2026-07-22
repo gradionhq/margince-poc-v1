@@ -6,8 +6,9 @@ surface vs. the delivery engine, secret sealing, the retry/dead-letter state mac
 fan-out gate), read [explanation/outbound-webhooks.md](../explanation/outbound-webhooks.md) first.
 
 **First-party, outbound only.** This registers a *subscription* Margince delivers to — it is not an
-inbound receiver and not a third-party app install. Deliveries are HMAC-SHA256-signed HTTP POSTs of the
-event envelope.
+inbound receiver and not a third-party app install. Deliveries are signed HTTP POSTs of the event
+envelope on the [Standard Webhooks](https://www.standardwebhooks.com/) scheme — the same convention
+used by Anthropic, OpenAI, Stripe, and Svix — so any off-the-shelf SW verifier library works unmodified.
 
 > **Single-organization installation (ADR-0061/A107).** One installation serves one organization; the
 > server resolves its singleton organization itself, so no request selects a tenant — there is no
@@ -82,25 +83,40 @@ appears:
 you cannot recover it. The `owner_id` is the acting human, stamped server-side — the fan-out only ever
 delivers events that owner may see.
 
+> **Legacy secrets (pre-Standard-Webhooks migration).** A subscription created before this scheme
+> shipped minted its secret with URL-safe base64; Standard Webhooks requires *standard* base64, so
+> that secret can no longer sign. It is not silently broken-and-unnoticed — deliveries simply stop
+> verifying against it. Fix: create a fresh subscription, or rotate the secret (step 6) on the existing
+> one; either mints a new standard-base64 `whsec_…` secret that works.
+
 ## 3. Verify the signature on your receiver
 
-Every delivery is a POST carrying three headers. Verify `X-Margince-Signature` against the **raw
-request body** (not a re-serialized copy) using the secret from step 2, and dedupe on
-`X-Margince-Delivery` (the bus is at-least-once; the delivery id is stable across retries):
+Every delivery is a POST carrying three [Standard Webhooks](https://www.standardwebhooks.com/) headers.
+Verify `webhook-signature` against `{webhook-id}.{webhook-timestamp}.{raw request body}` using the
+secret from step 2, and dedupe on `webhook-id` (the bus is at-least-once; the delivery id is stable
+across retries — `webhook-timestamp` is minted fresh on every attempt, so a captured signature cannot
+be replayed against a receiver that enforces a timestamp tolerance window):
 
 | Header | Meaning |
 |---|---|
-| `X-Margince-Event` | the event type, e.g. `deal.stage_changed` |
-| `X-Margince-Delivery` | the delivery id — your dedupe key |
-| `X-Margince-Signature` | `sha256=` + hex HMAC-SHA256 of the raw body |
+| `X-Margince-Event` | convenience only — the event type, e.g. `deal.stage_changed` |
+| `webhook-id` | the delivery id — your dedupe key, stable across retries |
+| `webhook-timestamp` | unix seconds when THIS attempt was signed — fresh every attempt |
+| `webhook-signature` | `v1,` + base64 HMAC-SHA256 of `{webhook-id}.{webhook-timestamp}.{body}`, keyed by the secret's decoded bytes |
 
-A minimal receiver check (Go):
+A minimal receiver check (Go) — note the secret is `whsec_`-stripped and **base64-decoded to bytes**
+before use as the HMAC key (the SW compatibility requirement):
 
 ```go
-func verify(secret string, body []byte, sigHeader string) bool {
-	mac := hmac.New(sha256.New, []byte(secret))
+func verify(secret, webhookID, webhookTimestamp string, body []byte, sigHeader string) bool {
+	key, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(secret, "whsec_"))
+	if err != nil {
+		return false
+	}
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(webhookID + "." + webhookTimestamp + "."))
 	mac.Write(body)
-	want := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+	want := "v1," + base64.StdEncoding.EncodeToString(mac.Sum(nil))
 	return hmac.Equal([]byte(want), []byte(sigHeader))
 }
 ```

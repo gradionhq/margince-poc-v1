@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -250,11 +251,22 @@ func (d *Deliverer) attempt(ctx context.Context, t attemptTarget) outcome {
 	if err != nil {
 		return outcome{failure: "building request: " + err.Error()}
 	}
+	// ts is minted fresh for THIS attempt (not the delivery's original enqueue
+	// time): Standard Webhooks' replay defense depends on the timestamp
+	// reflecting when the signature was actually produced, so a retry signs
+	// under its own clock reading, not a stale one.
+	ts := d.clock().Unix()
+	sig, err := Sign(secret, t.deliveryID.String(), ts, t.payload)
+	if err != nil {
+		d.log.Error("webhooks: signing delivery", "subscription", t.subID, "delivery", t.deliveryID, "err", err)
+		return outcome{failure: "signing delivery: " + err.Error()}
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "Margince-Webhooks/1")
 	req.Header.Set(HeaderEvent, t.eventType)
-	req.Header.Set(HeaderDelivery, t.deliveryID.String())
-	req.Header.Set(HeaderSignature, Sign(secret, t.payload))
+	req.Header.Set(HeaderWebhookID, t.deliveryID.String())
+	req.Header.Set(HeaderWebhookTimestamp, strconv.FormatInt(ts, 10))
+	req.Header.Set(HeaderWebhookSignature, sig)
 
 	resp, err := d.client.Do(req)
 	if err != nil {

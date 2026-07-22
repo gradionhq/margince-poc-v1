@@ -23,12 +23,13 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -86,7 +87,8 @@ type receiver struct {
 
 type receivedHit struct {
 	event     string
-	delivery  string
+	webhookID string
+	timestamp string
 	signature string
 	body      []byte
 }
@@ -106,8 +108,9 @@ func newReceiver(t *testing.T, status int) *receiver {
 		r.mu.Lock()
 		r.hits = append(r.hits, receivedHit{
 			event:     req.Header.Get(webhooks.HeaderEvent),
-			delivery:  req.Header.Get(webhooks.HeaderDelivery),
-			signature: req.Header.Get(webhooks.HeaderSignature),
+			webhookID: req.Header.Get(webhooks.HeaderWebhookID),
+			timestamp: req.Header.Get(webhooks.HeaderWebhookTimestamp),
+			signature: req.Header.Get(webhooks.HeaderWebhookSignature),
 			body:      body,
 		})
 		code := r.status
@@ -326,16 +329,44 @@ func TestWebhookDeliverySignedExactlyOnce(t *testing.T) {
 	if hit.event != "deal.created" {
 		t.Errorf("X-Margince-Event = %q, want deal.created", hit.event)
 	}
-	if hit.delivery == "" {
-		t.Error("X-Margince-Delivery header missing")
+	if hit.webhookID == "" {
+		t.Error("webhook-id header missing")
 	}
-	// The signature verifies against the returned secret over the raw body.
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(hit.body)
-	want := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+	if hit.timestamp == "" {
+		t.Error("webhook-timestamp header missing")
+	}
+	// The signature verifies against the returned secret over
+	// "{webhook-id}.{webhook-timestamp}.{body}" (Standard Webhooks scheme):
+	// independently recomputed here (not via webhooks.Sign) so the test
+	// would catch a regression in the production signer itself.
+	ts, err := strconv.ParseInt(hit.timestamp, 10, 64)
+	if err != nil {
+		t.Fatalf("webhook-timestamp %q is not a unix-seconds integer: %v", hit.timestamp, err)
+	}
+	want := verifySWSignature(t, secret, hit.webhookID, ts, hit.body)
 	if hit.signature != want {
-		t.Errorf("signature = %q, want %q (HMAC of the raw body under the subscription secret)", hit.signature, want)
+		t.Errorf("signature = %q, want %q (SW HMAC over id.timestamp.body under the subscription secret)", hit.signature, want)
 	}
+}
+
+// verifySWSignature independently recomputes the Standard Webhooks
+// "webhook-signature" value from the raw wire inputs — using this test's own
+// HMAC call, not webhooks.Sign — so the assertion actually exercises the
+// wire contract instead of the production code path signing against itself.
+func verifySWSignature(t *testing.T, secret, webhookID string, ts int64, body []byte) string {
+	t.Helper()
+	keyB64 := strings.TrimPrefix(secret, "whsec_")
+	key, err := base64.StdEncoding.DecodeString(keyB64)
+	if err != nil {
+		t.Fatalf("decoding signing secret: %v", err)
+	}
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(webhookID))
+	mac.Write([]byte("."))
+	mac.Write([]byte(strconv.FormatInt(ts, 10)))
+	mac.Write([]byte("."))
+	mac.Write(body)
+	return "v1," + base64.StdEncoding.EncodeToString(mac.Sum(nil))
 }
 
 // TestWebhookFanOutStopsAtRevokedOwner proves the delivery-time RBAC gate
@@ -423,7 +454,7 @@ func TestWebhookRetryThenDeadLetterThenReplay(t *testing.T) {
 	now := time.Now().UTC()
 	deliverer := newTestDeliverer(we, &now, rcv.server.Client())
 
-	subID, _ := we.createSubscription(t, rcv.server.URL+"/hook", []string{"deal.created"})
+	subID, secret := we.createSubscription(t, rcv.server.URL+"/hook", []string{"deal.created"})
 
 	// First attempt fails → the delivery is parked for retry, not dropped.
 	if err := deliverer.HandleEvent(context.Background(), makeEnvelope(we.wsID, "deal.created")); err != nil {
@@ -442,6 +473,33 @@ func TestWebhookRetryThenDeadLetterThenReplay(t *testing.T) {
 	assertDeliveryStatus(t, we, subID, "dead_lettered", 6)
 	if got := rcv.count.Load(); got != 6 {
 		t.Fatalf("endpoint saw %d attempts, want the 6-attempt budget", got)
+	}
+
+	// Same frozen body replayed on every retry: webhook-id is the delivery
+	// id and stays STABLE across attempts (a receiver dedupes on it), while
+	// webhook-timestamp is FRESH each time (replay defense) and each
+	// attempt's signature independently verifies against that attempt's own
+	// timestamp — a captured earlier signature would not match a later ts.
+	hits := rcv.snapshot()
+	if len(hits) != 6 {
+		t.Fatalf("recorded %d hits, want 6", len(hits))
+	}
+	seenTimestamps := map[string]bool{}
+	for i, h := range hits {
+		if h.webhookID != hits[0].webhookID {
+			t.Errorf("attempt %d webhook-id = %q, want stable %q across retries", i, h.webhookID, hits[0].webhookID)
+		}
+		if seenTimestamps[h.timestamp] {
+			t.Errorf("attempt %d reused timestamp %q seen in an earlier attempt (not fresh per attempt)", i, h.timestamp)
+		}
+		seenTimestamps[h.timestamp] = true
+		ts, err := strconv.ParseInt(h.timestamp, 10, 64)
+		if err != nil {
+			t.Fatalf("attempt %d webhook-timestamp %q not a unix-seconds integer: %v", i, h.timestamp, err)
+		}
+		if want := verifySWSignature(t, secret, h.webhookID, ts, h.body); h.signature != want {
+			t.Errorf("attempt %d signature = %q, want %q", i, h.signature, want)
+		}
 	}
 
 	// The endpoint recovers; a replay of the parked delivery succeeds.
@@ -483,6 +541,34 @@ func TestWebhookRetryThenDeadLetterThenReplay(t *testing.T) {
 	}
 	if replayed.Status != "delivered" {
 		t.Fatalf("after replay status = %q, want delivered (no silent loss)", replayed.Status)
+	}
+
+	// The replay re-sends the SAME frozen body under the SAME webhook-id
+	// (it is the same delivery, not a new one) but with a NEW timestamp —
+	// the exact "replayed frozen body still verifies with a new ts" case:
+	// a receiver that dedupes on webhook-id and enforces a timestamp
+	// tolerance window accepts this as a legitimate re-attempt, not a
+	// replay attack.
+	replayHits := rcv.snapshot()
+	if len(replayHits) == 0 {
+		t.Fatal("replay produced no receiver hit")
+	}
+	last := replayHits[len(replayHits)-1]
+	if last.webhookID != hits[0].webhookID {
+		t.Fatalf("replay webhook-id = %q, want the original delivery id %q", last.webhookID, hits[0].webhookID)
+	}
+	if seenTimestamps[last.timestamp] {
+		t.Fatalf("replay reused timestamp %q from an earlier attempt, want a fresh one", last.timestamp)
+	}
+	if !bytes.Equal(last.body, hits[0].body) {
+		t.Fatal("replay altered the frozen payload body")
+	}
+	replayTS, err := strconv.ParseInt(last.timestamp, 10, 64)
+	if err != nil {
+		t.Fatalf("replay webhook-timestamp %q not a unix-seconds integer: %v", last.timestamp, err)
+	}
+	if want := verifySWSignature(t, secret, last.webhookID, replayTS, last.body); last.signature != want {
+		t.Fatalf("replay signature = %q, want %q", last.signature, want)
 	}
 
 	// RunRetrySweep drives SweepOnce on a ticker until its context is done;

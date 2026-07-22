@@ -2697,7 +2697,8 @@ paths:
         principal's call is 🟡 — staged for human approval (ADR-0036), then redeemed with the
         `X-Approval-Token`; a human on a session registers directly. Every register/change/delete
         is audited. The `signing_secret` in the response is shown EXACTLY ONCE — deliveries are
-        HMAC-SHA256 signed with it (X-Margince-Signature). `target_url` must be https://.
+        signed with it on the Standard Webhooks scheme (verify the `webhook-signature` header).
+        `target_url` must be https://.
       parameters:
         - $ref: '#/components/parameters/ApprovalToken'
       requestBody:
@@ -7475,13 +7476,17 @@ components:
       description: >-
         The create/rotate response — the subscription plus the `signing_secret`, which is
         shown EXACTLY ONCE and never retrievable again. Store it now: deliveries are signed
-        (HMAC-SHA256) with it.
+        with it on the Standard Webhooks scheme (standardwebhooks.com).
       required: [subscription, signing_secret]
       properties:
         subscription: { $ref: '#/components/schemas/WebhookSubscription' }
         signing_secret:
           type: string
-          description: The per-subscription signing secret. Shown once; use it to verify X-Margince-Signature.
+          description: >-
+            The per-subscription signing secret (`whsec_` + standard base64). Shown once; decode
+            the base64 to raw bytes and use them as the HMAC-SHA256 key to verify the
+            `webhook-signature` header against `{webhook-id}.{webhook-timestamp}.{raw body}`
+            (Standard Webhooks — standardwebhooks.com).
 
     CreateWebhookSubscriptionRequest:
       type: object
