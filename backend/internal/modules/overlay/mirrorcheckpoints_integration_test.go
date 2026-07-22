@@ -42,7 +42,11 @@ func TestSaveReconcileWatermarkOnlyAdvances(t *testing.T) {
 	if err := store.SaveReconcileWatermark(ctx, "contacts", newest); err != nil {
 		t.Fatalf("save newest watermark: %v", err)
 	}
-	if got, _ := store.LoadReconcileWatermark(ctx, "contacts"); !got.Equal(newest) {
+	got, err = store.LoadReconcileWatermark(ctx, "contacts")
+	if err != nil {
+		t.Fatalf("reload watermark after advance: %v", err)
+	}
+	if !got.Equal(newest) {
 		t.Errorf("watermark = %v, want it to advance to %v", got, newest)
 	}
 }
