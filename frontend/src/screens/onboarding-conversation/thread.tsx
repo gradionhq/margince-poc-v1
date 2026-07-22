@@ -21,9 +21,13 @@ type ConversationThreadProps = Readonly<{
   onAnswer: (questionId: string, value: string) => void;
 }>;
 
-// How close (in device pixels) to the bottom edge still counts as "following
+// How close (in CSS pixels) to the bottom edge still counts as "following
 // the conversation" for auto-scroll purposes.
 const FOLLOW_THRESHOLD_PX = 96;
+
+// How long after a programmatic smooth scroll we stop attributing scroll
+// events to it, on browsers without the scrollend event.
+const PROGRAMMATIC_SCROLL_MS = 700;
 
 // The pending question can share its logical id with an earlier occurrence
 // (a re-asked clarify after a re-read); only the LAST matching card is live.
@@ -50,6 +54,9 @@ export function ConversationThread({
   const log = useRef<HTMLDivElement>(null);
   const end = useRef<HTMLDivElement>(null);
   const following = useRef(true);
+  // A programmatic smooth scroll fires intermediate scroll events; while it
+  // runs, they must not be read as the user scrolling away.
+  const scrollingProgrammatically = useRef(false);
 
   const lastEntryId = entries.at(-1)?.id;
   useEffect(() => {
@@ -57,11 +64,23 @@ export function ConversationThread({
     const reduceMotion =
       globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ??
       false;
+    scrollingProgrammatically.current = true;
     // jsdom has no scrollIntoView; in the browser it always exists.
     end.current?.scrollIntoView?.({
       block: "end",
       behavior: reduceMotion ? "auto" : "smooth",
     });
+    const settle = () => {
+      scrollingProgrammatically.current = false;
+    };
+    const node = log.current;
+    node?.addEventListener("scrollend", settle, { once: true });
+    const timer = globalThis.setTimeout(settle, PROGRAMMATIC_SCROLL_MS);
+    return () => {
+      globalThis.clearTimeout(timer);
+      node?.removeEventListener("scrollend", settle);
+      settle();
+    };
   }, [lastEntryId]);
 
   const liveQuestionEntryId = activeQuestionEntryId(entries, pendingQuestionId);
@@ -74,6 +93,7 @@ export function ConversationThread({
       aria-live="polite"
       aria-label={t("ob.conv.threadLabel")}
       onScroll={() => {
+        if (scrollingProgrammatically.current) return;
         const node = log.current;
         if (!node) return;
         following.current =

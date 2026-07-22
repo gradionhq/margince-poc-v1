@@ -33,13 +33,16 @@ export type ConversationPhase =
   | "cn.consent"
   | "cn.done";
 
+// Exactly one label source — a blank button is unrepresentable.
+type LabelSource =
+  | { labelKey: MessageKey; label?: never }
+  | { label: string; labelKey?: never };
+
 export type QuestionOption = {
   value: string;
-  labelKey?: MessageKey;
-  label?: string;
   detailKey?: MessageKey;
   params?: Record<string, string | number>;
-};
+} & LabelSource;
 
 export type ConversationQuestion = {
   id: string;
@@ -65,13 +68,15 @@ export type ThreadEntry =
       findingIds?: string[];
     }
   | { kind: "question"; id: string; question: ConversationQuestion }
-  | {
+  // A user turn says something — catalog copy XOR literal text, never blank.
+  | ({
       kind: "user";
       id: string;
-      i18nKey?: MessageKey;
-      text?: string;
       params?: Record<string, string | number>;
-    }
+    } & (
+      | { i18nKey: MessageKey; text?: never }
+      | { text: string; i18nKey?: never }
+    ))
   | {
       kind: "outcome";
       id: string;
@@ -90,11 +95,21 @@ export type ConversationState = {
   thread: ThreadEntry[];
   /** Monotonic entry-id sequence; see ThreadEntry. */
   seq: number;
-  /** The read run whose events are current; stale runs are ignored. */
+  /**
+   * The read run whose events are current. Null between URL_SUBMITTED and
+   * READ_STARTED and after a terminal is recorded — read events for ANY run
+   * are stale in those windows.
+   */
   activeReadId: string | null;
+  /** A ready/partial terminal was recorded; answering the last clarify (or
+   * REVIEW_READY) may proceed to review without waiting on a re-read. */
+  readCompleted: boolean;
+  /** The build run whose events are current; stale runs are ignored. */
+  activeBuildId: string | null;
   /** Last narrated build stage, so a repeated stage poll appends nothing. */
   lastBuildStage: BuildStage | null;
-  /** How the last voice build ended; only a failed build may be retried. */
+  /** How the last voice build ended: failed may be retried, deferred
+   * resumes on its own and its later events re-enter vo.building. */
   lastBuildStatus: BuildTerminalStatus | null;
 };
 
@@ -106,7 +121,15 @@ export type ConversationEvent =
   | { type: "START"; memberPath: boolean }
   | { type: "URL_SUBMITTED"; url: string }
   | { type: "READ_STARTED"; readId: string }
-  | { type: "NARRATION"; readId?: string; entry: NarrationEntry }
+  // Narration carries the id of the run that produced it: readId for
+  // site-read events, buildId for build events, neither for run-agnostic
+  // narration (corpus growth). Company phases DROP uncorrelated narration.
+  | {
+      type: "NARRATION";
+      readId?: string;
+      buildId?: string;
+      entry: NarrationEntry;
+    }
   | {
       type: "READ_TERMINAL";
       readId: string;
@@ -124,8 +147,8 @@ export type ConversationEvent =
   | { type: "VOICE_SKIPPED" }
   | { type: "UPLOAD_ADDED"; id: string; name: string }
   | { type: "SPEAKER_NEEDED"; question: ConversationQuestion }
-  | { type: "BUILD_STARTED" }
-  | { type: "BUILD_STAGE"; stage: BuildStage }
-  | { type: "BUILD_TERMINAL"; status: BuildTerminalStatus }
+  | { type: "BUILD_STARTED"; buildId: string }
+  | { type: "BUILD_STAGE"; buildId: string; stage: BuildStage }
+  | { type: "BUILD_TERMINAL"; buildId: string; status: BuildTerminalStatus }
   | { type: "RESULTS_CONTINUE" }
   | { type: "CONNECT_DONE" };

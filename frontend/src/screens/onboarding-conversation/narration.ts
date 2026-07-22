@@ -96,9 +96,14 @@ function newWarningEvents(
 }
 
 export function diffSiteRead(
-  prev: CompanySiteRead | null,
+  prevSnapshot: CompanySiteRead | null,
   next: CompanySiteRead,
 ): NarrationEvent[] {
+  // A snapshot from another run is no baseline: a NEW read diffs against
+  // nothing, so its findings narrate fresh and its terminal flushes even
+  // when the statuses happen to match.
+  const prev =
+    prevSnapshot !== null && prevSnapshot.id === next.id ? prevSnapshot : null;
   const events: NarrationEvent[] = [];
   const run = next.id;
 
@@ -152,9 +157,12 @@ export type VoiceBuildSnapshot = {
 };
 
 export function diffVoiceBuild(
-  prev: VoiceBuildSnapshot | null,
+  prevSnapshot: VoiceBuildSnapshot | null,
   next: VoiceBuildSnapshot,
 ): NarrationEvent[] {
+  // Dedupe is per build: a NEW build's identical status or stage is fresh.
+  const prev =
+    prevSnapshot !== null && prevSnapshot.id === next.id ? prevSnapshot : null;
   if (buildTerminals.has(next.status)) {
     // A poll repeating an already-seen terminal announces nothing.
     return prev?.status === next.status
