@@ -347,16 +347,16 @@ export function CompanyAct({ state, dispatch }: CompanyActProps) {
     return null;
   }, [lastEntry]);
 
-  // The manual path stays offered before any read and again after one ended
-  // without a usable dossier. The read's own status decides — not the
-  // machine's activeReadId, which is also null in the post-terminal window
-  // while the proposal concludes, where re-offering manual would be noise.
+  // The manual path stays offered before any read and again whenever the
+  // machine parked back in co.reading with the run retired — a failed or
+  // deferred terminal, including the poll-failure fallback where the last
+  // snapshot still claims "reading". A successful terminal never rests
+  // there: it proceeds to clarify or review in the same conclusion.
   const showManualChip =
     state.phase === "co.intro" ||
     (state.phase === "co.reading" &&
-      (read === null ||
-        read.status === "failed" ||
-        read.status === "deferred"));
+      state.activeReadId === null &&
+      !startRead.isPending);
 
   return (
     <ConversationWorkbench

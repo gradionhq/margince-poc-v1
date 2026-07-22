@@ -1316,6 +1316,8 @@ export const de = {
     "Ich konnte nicht alles lesen. Belegte Funde: {count}.",
   "ob.conv.read.failed":
     "Ich konnte diese Website nicht lesen. Probiere eine andere URL oder sag es mir direkt.",
+  "ob.conv.read.pollFailed":
+    "Ich habe die Verbindung beim Lesen verloren. Was ich schon gefunden habe, bleibt erhalten.",
   "ob.conv.read.deferred":
     "Das Einlesen pausiert gerade. Ich setze es automatisch fort.",
   "ob.conv.clarify.intro":

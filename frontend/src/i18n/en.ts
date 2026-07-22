@@ -1294,6 +1294,8 @@ export const en = {
     "I could not read that site. Try another URL, or tell me directly.",
   "ob.conv.read.deferred":
     "The read is paused for now. I will pick it up again automatically.",
+  "ob.conv.read.pollFailed":
+    "I lost the connection while reading. What I already found is kept.",
   "ob.conv.clarify.intro":
     "One thing I need you to decide. The site is ambiguous here.",
   "ob.conv.clarify.entity":

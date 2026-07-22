@@ -13398,7 +13398,10 @@ export interface operations {
     };
     getOnboardingCompanyProposal: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Language for the open questions' copy; option values are locale-invariant. */
+                locale?: "en" | "de";
+            };
             header?: never;
             path?: never;
             cookie?: never;

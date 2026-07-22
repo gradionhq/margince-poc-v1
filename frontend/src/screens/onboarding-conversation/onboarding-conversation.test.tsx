@@ -150,6 +150,8 @@ type StubOptions = {
   proposal?: Proposal;
   /** Error status for GET /onboarding/company/proposal (resilience tests). */
   proposalStatus?: number;
+  /** Error status for the site-read poll GET (resilience tests). */
+  pollStatus?: number;
   messageReply?: MessageReply;
 };
 
@@ -228,6 +230,12 @@ function stubApi(options: StubOptions = {}) {
         return jsonResponse(savedProfile);
       }
       if (path.includes("/company/site-reads/") && request.method === "GET") {
+        if (options.pollStatus !== undefined) {
+          return jsonResponse(
+            { detail: "read fetch failed" },
+            options.pollStatus,
+          );
+        }
         return jsonResponse(options.read ?? readyRead);
       }
       if (path.endsWith("/company") && request.method === "GET") {
@@ -490,6 +498,23 @@ describe("the conversational company act (behind the flag)", () => {
       await screen.findByRole("button", { name: /Accept all/ }),
     ).toBeTruthy();
     expect(within(confirmCardElement()).getByText("Gradion GmbH")).toBeTruthy();
+  });
+
+  it("concludes as failed with the manual path when the poll keeps erroring", async () => {
+    stubApi({ pollStatus: 500 });
+    render(<OnboardingScreen />);
+
+    await submitWebsite();
+
+    // The act never sits silent: one honest turn, the failed outcome, and
+    // the manual fallback back on offer.
+    expect(
+      await screen.findByText(/I lost the connection while reading/),
+    ).toBeTruthy();
+    expect(await screen.findByText(/I could not read that site/)).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /I would rather tell you directly/ }),
+    ).toBeTruthy();
   });
 
   it("never renders a proposal field without evidence in the confirm card", async () => {

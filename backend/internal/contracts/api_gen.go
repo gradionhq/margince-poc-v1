@@ -6198,6 +6198,24 @@ func (e ListListsParamsEntityType) Valid() bool {
 	}
 }
 
+// Defines values for GetOnboardingCompanyProposalParamsLocale.
+const (
+	OnboardingProposalLocaleDE GetOnboardingCompanyProposalParamsLocale = "de"
+	OnboardingProposalLocaleEN GetOnboardingCompanyProposalParamsLocale = "en"
+)
+
+// Valid indicates whether the value is a known member of the GetOnboardingCompanyProposalParamsLocale enum.
+func (e GetOnboardingCompanyProposalParamsLocale) Valid() bool {
+	switch e {
+	case OnboardingProposalLocaleDE:
+		return true
+	case OnboardingProposalLocaleEN:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GetOrganizationHierarchyRollupParamsScope.
 const (
 	GetOrganizationHierarchyRollupParamsScopeSelf GetOrganizationHierarchyRollupParamsScope = "self"
@@ -12504,6 +12522,15 @@ type SendOfferParams struct {
 	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
+
+// GetOnboardingCompanyProposalParams defines parameters for GetOnboardingCompanyProposal.
+type GetOnboardingCompanyProposalParams struct {
+	// Locale Language for the open questions' copy; option values are locale-invariant.
+	Locale *GetOnboardingCompanyProposalParamsLocale `form:"locale,omitempty" json:"locale,omitempty"`
+}
+
+// GetOnboardingCompanyProposalParamsLocale defines parameters for GetOnboardingCompanyProposal.
+type GetOnboardingCompanyProposalParamsLocale string
 
 // PutOnboardingStateParams defines parameters for PutOnboardingState.
 type PutOnboardingStateParams struct {
@@ -19101,7 +19128,7 @@ type ServerInterface interface {
 	MessageOnboardingCompany(w http.ResponseWriter, r *http.Request)
 	// The deterministic evidence-backed company proposal derived from the onboarding website read.
 	// (GET /onboarding/company/proposal)
-	GetOnboardingCompanyProposal(w http.ResponseWriter, r *http.Request)
+	GetOnboardingCompanyProposal(w http.ResponseWriter, r *http.Request, params GetOnboardingCompanyProposalParams)
 	// Get the acting user's resumable onboarding state.
 	// (GET /onboarding/state)
 	GetOnboardingState(w http.ResponseWriter, r *http.Request)
@@ -20256,7 +20283,7 @@ func (_ Unimplemented) MessageOnboardingCompany(w http.ResponseWriter, r *http.R
 
 // The deterministic evidence-backed company proposal derived from the onboarding website read.
 // (GET /onboarding/company/proposal)
-func (_ Unimplemented) GetOnboardingCompanyProposal(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) GetOnboardingCompanyProposal(w http.ResponseWriter, r *http.Request, params GetOnboardingCompanyProposalParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -26931,14 +26958,33 @@ func (siw *ServerInterfaceWrapper) MessageOnboardingCompany(w http.ResponseWrite
 // GetOnboardingCompanyProposal operation middleware
 func (siw *ServerInterfaceWrapper) GetOnboardingCompanyProposal(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetOnboardingCompanyProposalParams
+
+	// ------------- Optional query parameter "locale" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "locale", r.URL.Query(), &params.Locale, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "locale"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "locale", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetOnboardingCompanyProposal(w, r)
+		siw.Handler.GetOnboardingCompanyProposal(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {

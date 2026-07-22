@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { components } from "../../api/schema";
+import { useLocale } from "../../i18n";
 import { problemMessage } from "../common";
 import type { CompanyDraft } from "../onboarding";
 import { MAX_SELECTED_FACTS, prefill } from "../onboarding";
@@ -201,11 +202,46 @@ export function useCompanyRead({
     }
   }, [siteRead.data, handleSnapshot]);
 
+  // A persistently failing poll must not strand the act in co.reading:
+  // isError flips only after react-query exhausted its retries (a transient
+  // error that recovers never lands here), and only a still-active,
+  // not-yet-concluding run is concluded as failed — the machine's failed
+  // path then offers the manual/paste fallback.
+  useEffect(() => {
+    if (!siteRead.isError) {
+      return;
+    }
+    const activeReadId = machine.current.activeReadId;
+    if (activeReadId === null || pendingTerminal.current !== null) {
+      return;
+    }
+    dispatch({
+      type: "NARRATION",
+      readId: activeReadId,
+      entry: {
+        kind: "narration",
+        id: `${activeReadId}:poll-failed`,
+        i18nKey: "ob.conv.read.pollFailed",
+      },
+    });
+    dispatch({
+      type: "READ_TERMINAL",
+      readId: activeReadId,
+      status: "failed",
+      findings: prevSnapshot.current?.profile_fields.length ?? 0,
+    });
+  }, [siteRead.isError, dispatch, machine]);
+
+  const { locale } = useLocale();
   const proposal = useQuery({
-    queryKey: ["onboarding-company-proposal", readId],
+    queryKey: ["onboarding-company-proposal", readId, locale],
     enabled: proposalArmed,
     queryFn: async (): Promise<Proposal> => {
-      const { data, error } = await api.GET("/onboarding/company/proposal");
+      // The open questions' copy speaks the user's language; option values
+      // stay locale-invariant server-side.
+      const { data, error } = await api.GET("/onboarding/company/proposal", {
+        params: { query: { locale } },
+      });
       if (error) {
         throw new Error(problemMessage(error));
       }

@@ -38,10 +38,20 @@ type onboardingProposalEngine struct {
 	rollout string
 }
 
-func (e *onboardingProposalEngine) get(w http.ResponseWriter, r *http.Request) {
+func (e *onboardingProposalEngine) get(w http.ResponseWriter, r *http.Request, params crmcontracts.GetOnboardingCompanyProposalParams) {
 	if !companyContextOnboardingEnabled(e.rollout) {
 		httperr.NotImplemented(w, r, "getOnboardingCompanyProposal (company onboarding disabled)")
 		return
+	}
+	// Locale mirrors the message endpoint's posture: an explicit client
+	// concern, defaulting to English when absent.
+	locale := string(crmcontracts.OnboardingProposalLocaleEN)
+	if params.Locale != nil {
+		if !params.Locale.Valid() {
+			httperr.Write(w, r, httperr.Validation("locale", "invalid", "locale must be en or de"))
+			return
+		}
+		locale = string(*params.Locale)
 	}
 	state, err := e.state.Get(r.Context())
 	if err != nil {
@@ -59,14 +69,14 @@ func (e *onboardingProposalEngine) get(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, r, err)
 		return
 	}
-	httperr.WriteJSON(w, http.StatusOK, onboardingCompanyProposal(read, comparisons, state.CompanyDraft))
+	httperr.WriteJSON(w, http.StatusOK, onboardingCompanyProposal(read, comparisons, state.CompanyDraft, locale))
 }
 
 // onboardingCompanyProposal maps the dossier onto the contract payload.
 // It serves whatever the read has already grounded — a running read's
 // progressive draft included — with ready reporting whether the read
 // reached a terminal answer.
-func onboardingCompanyProposal(read people.SiteRead, comparisons []people.SiteReadComparison, draft identity.OnboardingCompanyDraft) crmcontracts.OnboardingCompanyProposal {
+func onboardingCompanyProposal(read people.SiteRead, comparisons []people.SiteReadComparison, draft identity.OnboardingCompanyDraft, locale string) crmcontracts.OnboardingCompanyProposal {
 	fields := make([]crmcontracts.OnboardingCompanyProposalField, 0, len(read.ProfileFields))
 	for _, field := range read.ProfileFields {
 		if field.Confidence < onboardingProposalConfidenceFloor || strings.TrimSpace(field.EvidenceSnippet) == "" {
@@ -87,7 +97,7 @@ func onboardingCompanyProposal(read people.SiteRead, comparisons []people.SiteRe
 			Confidence: fact.Confidence,
 		})
 	}
-	openQuestions := onboardingClarifies(read, comparisons, "en")
+	openQuestions := onboardingClarifies(read, comparisons, locale)
 	if openQuestions == nil {
 		openQuestions = []crmcontracts.OnboardingClarify{}
 	}
@@ -105,10 +115,10 @@ func onboardingCompanyProposal(read people.SiteRead, comparisons []people.SiteRe
 	}
 }
 
-func (h onboardingStateHandlers) GetOnboardingCompanyProposal(w http.ResponseWriter, r *http.Request) {
+func (h onboardingStateHandlers) GetOnboardingCompanyProposal(w http.ResponseWriter, r *http.Request, params crmcontracts.GetOnboardingCompanyProposalParams) {
 	if h.proposal == nil {
 		httperr.NotImplemented(w, r, "getOnboardingCompanyProposal (no proposal engine configured)")
 		return
 	}
-	h.proposal.get(w, r)
+	h.proposal.get(w, r, params)
 }

@@ -17,10 +17,11 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-func onboardingProposalRequest(engine *onboardingProposalEngine) *httptest.ResponseRecorder {
+func onboardingProposalRequest(engine *onboardingProposalEngine, locale *crmcontracts.GetOnboardingCompanyProposalParamsLocale) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(http.MethodGet, "/v1/onboarding/company/proposal", nil)
 	recorder := httptest.NewRecorder()
-	onboardingStateHandlers{proposal: engine}.GetOnboardingCompanyProposal(recorder, request)
+	onboardingStateHandlers{proposal: engine}.GetOnboardingCompanyProposal(recorder, request,
+		crmcontracts.GetOnboardingCompanyProposalParams{Locale: locale})
 	return recorder
 }
 
@@ -54,7 +55,7 @@ func TestOnboardingProposalServesTheDeterministicMapping(t *testing.T) {
 		rollout: companyContextRolloutOnboarding,
 	}
 
-	recorder := onboardingProposalRequest(engine)
+	recorder := onboardingProposalRequest(engine, nil)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
@@ -87,6 +88,41 @@ func TestOnboardingProposalServesTheDeterministicMapping(t *testing.T) {
 	}
 }
 
+func TestOnboardingProposalSpeaksTheRequestedLocale(t *testing.T) {
+	readID := ids.NewV7()
+	engine := &onboardingProposalEngine{
+		state: onboardingStateReaderStub{state: identity.OnboardingState{ID: ids.NewV7(), SiteReadID: &readID}},
+		people: onboardingSiteReadReaderStub{read: people.SiteRead{ID: readID, Status: siteReadWireStatusDone, LegalEntities: []people.SiteReadLegalEntity{
+			{Name: "Acme GmbH", SourceURL: "https://acme.example/legal"},
+			{Name: "Acme Holding AG", SourceURL: "https://acme.example/legal"},
+		}}},
+		rollout: companyContextRolloutOnboarding,
+	}
+	de := crmcontracts.OnboardingProposalLocaleDE
+	recorder := onboardingProposalRequest(engine, &de)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var proposal crmcontracts.OnboardingCompanyProposal
+	if err := json.Unmarshal(recorder.Body.Bytes(), &proposal); err != nil {
+		t.Fatalf("decode proposal: %v", err)
+	}
+	if proposal.OpenQuestions == nil || len(*proposal.OpenQuestions) != 1 ||
+		(*proposal.OpenQuestions)[0].Question != clarifyEntityQuestion("de") {
+		t.Fatalf("de open questions = %+v", proposal.OpenQuestions)
+	}
+	// Option values stay locale-invariant: they are the printed strings
+	// the selection must echo verbatim.
+	if (*proposal.OpenQuestions)[0].Options[0].Value != "Acme GmbH" {
+		t.Fatalf("de option values = %+v", (*proposal.OpenQuestions)[0].Options)
+	}
+
+	unknown := crmcontracts.GetOnboardingCompanyProposalParamsLocale("fr")
+	if recorder := onboardingProposalRequest(engine, &unknown); recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("unknown locale status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestOnboardingProposalReportsAnUnfinishedRead(t *testing.T) {
 	for _, status := range []string{"queued", siteReadStatusDeferred, "running"} {
 		t.Run(status, func(t *testing.T) {
@@ -96,7 +132,7 @@ func TestOnboardingProposalReportsAnUnfinishedRead(t *testing.T) {
 				people:  onboardingSiteReadReaderStub{read: people.SiteRead{ID: readID, Status: status}},
 				rollout: companyContextRolloutOnboarding,
 			}
-			recorder := onboardingProposalRequest(engine)
+			recorder := onboardingProposalRequest(engine, nil)
 			if recorder.Code != http.StatusOK {
 				t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 			}
@@ -138,7 +174,7 @@ func TestOnboardingProposalRefusesWhenThereIsNothingToProposeFrom(t *testing.T) 
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			recorder := onboardingProposalRequest(tc.engine)
+			recorder := onboardingProposalRequest(tc.engine, nil)
 			if recorder.Code != tc.want {
 				t.Fatalf("status = %d, want %d, body = %s", recorder.Code, tc.want, recorder.Body.String())
 			}
@@ -153,7 +189,7 @@ func TestOnboardingProposalPassesDependencyFailuresThrough(t *testing.T) {
 		people:  onboardingSiteReadReaderStub{err: errors.New("dossier unavailable")},
 		rollout: companyContextRolloutOnboarding,
 	}
-	if recorder := onboardingProposalRequest(engine); recorder.Code != http.StatusInternalServerError {
+	if recorder := onboardingProposalRequest(engine, nil); recorder.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 }

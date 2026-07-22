@@ -3380,6 +3380,16 @@ paths:
         read is still queued, deferred, or running.
       x-agent-access: human-only
       security: [ { cookieAuth: [] } ]
+      parameters:
+        - name: locale
+          in: query
+          required: false
+          description: Language for the open questions' copy; option values are locale-invariant.
+          schema:
+            type: string
+            enum: [en, de]
+            default: en
+            x-enum-varnames: [OnboardingProposalLocaleEN, OnboardingProposalLocaleDE]
       responses:
         '200':
           description: The current deterministic proposal snapshot.

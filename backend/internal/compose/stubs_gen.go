@@ -532,7 +532,7 @@ func (stubs) MessageOnboardingCompany(w nethttp.ResponseWriter, r *nethttp.Reque
 	httperr.NotImplemented(w, r, "MessageOnboardingCompany")
 }
 
-func (stubs) GetOnboardingCompanyProposal(w nethttp.ResponseWriter, r *nethttp.Request) {
+func (stubs) GetOnboardingCompanyProposal(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetOnboardingCompanyProposalParams) {
 	httperr.NotImplemented(w, r, "GetOnboardingCompanyProposal")
 }
 
