@@ -45,11 +45,14 @@ type MirrorSink interface {
 var backfillAssocTargets = func() map[string][]string {
 	m := map[string][]string{
 		IncumbentClassDeals: {IncumbentClassCompanies},
-		// A lead's required contact association (OVA-MAP-5): the edge is stored,
-		// and the adapter denormalizes the contact's email/company_name onto
-		// the lead record from the same association.
-		IncumbentClassLeads: {IncumbentClassContacts},
 	}
+	// A lead's contact association is NOT stored as an edge here: the adapter
+	// denormalizes the contact's email/company_name onto the lead record
+	// (adapter.enrichLeads, OVA-MAP-5), and there is no read-time association
+	// join over the edge yet — storing it would double the leads→contacts API
+	// lookup (enrichLeads already resolves it) and leave a stale edge on a
+	// later reassociation for no current reader. When a context-graph read
+	// over lead↔contact lands, persist the edge there.
 	for _, engagement := range incumbentEngagementClasses {
 		m[engagement] = []string{IncumbentClassContacts, IncumbentClassCompanies, IncumbentClassDeals, IncumbentClassLeads}
 	}

@@ -293,6 +293,39 @@ func TestAdapterEnrichLeadsDerivesContactFields(t *testing.T) {
 	}
 }
 
+// TestAdapterGetEnrichesLeadContactFields proves the force-fresh single-record
+// path returns the SAME shape as backfill (OVA-MAP-5): Get("leads", ...) also
+// denormalizes the associated contact's email/company_name, not a bare lead.
+func TestAdapterGetEnrichesLeadContactFields(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/crm/v3/objects/leads/batch/read":
+			_, _ = w.Write([]byte(`{"results":[{"id":"7701","properties":{
+				"hs_object_id":"7701","hs_lastmodifieddate":"2026-06-03T00:00:00.000Z","hs_lead_name":"Erika Musterfrau"}}]}`))
+		case "/crm/v4/objects/leads/7701/associations/contacts":
+			_, _ = w.Write([]byte(`{"results":[{"toObjectId":"555","associationTypes":[{"category":"HUBSPOT_DEFINED","typeId":1}]}]}`))
+		case "/crm/v3/objects/contacts/batch/read":
+			_, _ = w.Write([]byte(`{"results":[{"id":"555","properties":{"email":"erika@example.de","company":"Musterfrau Consulting"}}]}`))
+		default:
+			t.Errorf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	adapter := hubspot.NewAdapter(hubspot.NewClient("us", "test-token", hubspot.WithBaseURL(srv.URL)))
+	rec, err := adapter.Get(t.Context(), "leads", "7701")
+	if err != nil {
+		t.Fatalf("Get(leads): %v", err)
+	}
+	if rec.Fields["email"] != "erika@example.de" {
+		t.Errorf("email = %v, want the associated contact's email (force-fresh must enrich like backfill)", rec.Fields["email"])
+	}
+	if rec.Fields["company_name"] != "Musterfrau Consulting" {
+		t.Errorf("company_name = %v, want the associated contact's company", rec.Fields["company_name"])
+	}
+}
+
 // TestAdapterEnrichLeadsLeavesFieldsAbsentWithoutAssociation proves a lead
 // with no contact association keeps email/company_name absent (OVA-MAP-5:
 // null rather than invented), and never calls the contact batch-read.

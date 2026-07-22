@@ -349,12 +349,15 @@ var tasksMapping = overlay.ObjectMapping{
 // derived from the lead's REQUIRED contact association (adapter.enrichLeads),
 // with company_name staying free text (never an org FK, per the Lead schema).
 //
-// Two deliberate deferrals, both flagged (surfaced via Apply's unmapped list
-// or left at the wire default), never invented:
-//   - `hs_lead_label` → lead.status: mapping HubSpot's free-form label into
-//     the fixed status enum needs an enum-remapping transform not in the
-//     closed registry — the same "flag, don't invent" deferral the
-//     email-direction / meeting-status remaps take, pending a real capture.
+// Two deliberate deferrals, never invented:
+//   - `hs_lead_label` → lead.status: the raw label is REQUESTED and preserved
+//     in raw (under its own incumbent key), so it actually rides the mirror
+//     record rather than being silently dropped; the typed status enum remap
+//     still waits on a documented transform + a real capture, the same
+//     "flag, don't invent" deferral the email-direction / meeting-status
+//     remaps take. (A comment-only claim of "surfaced" would be false: a
+//     property no FieldMapping names is never requested from HubSpot, so it
+//     would never appear — mapping it to raw is what makes the deferral real.)
 //   - a lead with NO contact association keeps email/company_name null rather
 //     than inventing them.
 var leadsMapping = overlay.ObjectMapping{
@@ -365,6 +368,7 @@ var leadsMapping = overlay.ObjectMapping{
 	UnmappedPolicy: unmappedPolicyFlag,
 	Fields: []overlay.FieldMapping{
 		{From: []string{"hs_lead_name"}, To: targetFullName, Kind: overlay.TargetColumn},
+		{From: []string{"hs_lead_label"}, To: "hs_lead_label", Kind: overlay.TargetColumn},
 		ownerIDField,
 	},
 }

@@ -169,7 +169,19 @@ func (a *Adapter) Get(ctx context.Context, objectClass, externalID string) (over
 	if len(recs) == 0 {
 		return overlay.Record{}, fmt.Errorf("hubspot: no %s record with external id %s", objectClass, externalID)
 	}
-	return mapRecord(m, objectClass, recs[0])
+	rec, err := mapRecord(m, objectClass, recs[0])
+	if err != nil {
+		return overlay.Record{}, err
+	}
+	// A force-fresh single-record read must return the SAME shape as backfill
+	// / incremental (OVA-MAP-5): a lead's email/company_name are denormalized
+	// from its contact association, so enrich here too rather than returning a
+	// bare lead missing them.
+	enriched, err := a.enrichLeads(ctx, objectClass, []overlay.Record{rec})
+	if err != nil {
+		return overlay.Record{}, err
+	}
+	return enriched[0], nil
 }
 
 // Associations lists the v4 association edges from fromID (of fromClass)
@@ -231,6 +243,16 @@ var leadContactProps = []string{"email", "company"}
 // It resolves one association per lead (leads are low-volume; the
 // per-lead association lookup is bounded by the page size) and then batch-
 // reads the distinct contacts in a single call.
+//
+// Staleness bound (denormalization, not a live join): these fields refresh
+// when the LEAD is next swept — its own Modified watermark, or a backfill.
+// A contact-only email/company change (the lead's watermark unchanged) is
+// not observed until then, because the incremental sweep is per-object and
+// there is no contact→lead dependency propagation yet. That propagation
+// (re-ingesting a contact's associated leads when the contact changes) is
+// tracked with the incremental-association-sync work (A7), not built here;
+// a read-time association join, once it lands, would remove the bound
+// entirely.
 func (a *Adapter) enrichLeads(ctx context.Context, objectClass string, records []overlay.Record) ([]overlay.Record, error) {
 	if objectClass != objectClassLeads || len(records) == 0 {
 		return records, nil

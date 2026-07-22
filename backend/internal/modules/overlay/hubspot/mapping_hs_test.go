@@ -470,10 +470,14 @@ func TestHubSpotLeadMapping(t *testing.T) {
 		t.Errorf("company_name = %v, want absent from Apply (contact-association-derived)", out["company_name"])
 	}
 
-	// hs_lead_label → status needs an enum-remapping transform outside the
-	// closed registry — flagged (surfaced as unmapped), not invented.
-	if !containsString(unmapped, "hs_lead_label") {
-		t.Errorf("unmapped = %v, want it to contain %q (status enum remap deferred)", unmapped, "hs_lead_label")
+	// hs_lead_label is REQUESTED and preserved in raw under its incumbent key
+	// (so the deferral is real, not comment-only); the typed status enum remap
+	// is what's deferred, and the wire keeps status at its default until then.
+	if got := out["hs_lead_label"]; got != "NEW" {
+		t.Errorf("hs_lead_label = %v, want the raw incumbent label NEW preserved in the record", got)
+	}
+	if containsString(unmapped, "hs_lead_label") {
+		t.Errorf("unmapped = %v, must NOT contain hs_lead_label (it is mapped to raw, not dropped)", unmapped)
 	}
 }
 
