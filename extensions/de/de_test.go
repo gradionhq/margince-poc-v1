@@ -24,10 +24,10 @@ func TestNewDeclaresTheGoBDFloors(t *testing.T) {
 	if got := p.Code(); got != "de" {
 		t.Fatalf("pack code = %q, want de", got)
 	}
-	want := map[string]jurisdiction.Period{
-		"commercial_correspondence": {Years: 6},
-		"accounting_records":        {Years: 8},
-		"books_and_annual_accounts": {Years: 10},
+	want := map[jurisdiction.RetentionClassName]jurisdiction.Period{
+		jurisdiction.CommercialCorrespondence: {Years: 6},
+		jurisdiction.AccountingRecords:        {Years: 8},
+		jurisdiction.BooksAndAnnualAccounts:   {Years: 10},
 	}
 	classes := p.Retention().Classes()
 	if len(classes) != len(want) {

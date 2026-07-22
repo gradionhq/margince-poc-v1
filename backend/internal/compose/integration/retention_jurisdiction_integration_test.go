@@ -42,7 +42,7 @@ type gobdFloorClasses struct{}
 
 func (gobdFloorClasses) Classes() []jurisdiction.RetentionClass {
 	return []jurisdiction.RetentionClass{
-		{Name: "commercial_correspondence", Keep: jurisdiction.Period{Years: 6}},
+		{Name: jurisdiction.CommercialCorrespondence, Keep: jurisdiction.Period{Years: 6}},
 	}
 }
 

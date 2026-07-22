@@ -41,8 +41,8 @@ type retention struct{}
 
 func (retention) Classes() []jurisdiction.RetentionClass {
 	return []jurisdiction.RetentionClass{
-		{Name: "commercial_correspondence", Keep: jurisdiction.Period{Years: 6}},
-		{Name: "accounting_records", Keep: jurisdiction.Period{Years: 8}},
-		{Name: "books_and_annual_accounts", Keep: jurisdiction.Period{Years: 10}},
+		{Name: jurisdiction.CommercialCorrespondence, Keep: jurisdiction.Period{Years: 6}},
+		{Name: jurisdiction.AccountingRecords, Keep: jurisdiction.Period{Years: 8}},
+		{Name: jurisdiction.BooksAndAnnualAccounts, Keep: jurisdiction.Period{Years: 10}},
 	}
 }
