@@ -10,6 +10,8 @@
 //
 // Deliberately absent: locale/i18n. Locale is per-user and orthogonal to
 // jurisdiction (A57) — there is no LocaleBundle on this seam.
+//
+//margince:extension-surface
 package jurisdiction
 
 import (
