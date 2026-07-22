@@ -20,7 +20,7 @@ type VoiceViolation struct {
 
 var (
 	abstractContrast = regexp.MustCompile(`(?i)\b(?:it(?:'s| is)|this is)\s+not\b[^.!?]{0,100}\bbut\b|\bnot about\b[^.!?]{0,100}\bbut\b|\b(?:es (?:ist|geht)|das ist)\s+nicht\b[^.!?]{0,100}\bsondern\b|\bnicht um\b[^.!?]{0,100}\bsondern\b`)
-	cannedOpener     = regexp.MustCompile(`(?i)^\s*(?:here(?:'s| is) the thing|the truth is|let(?:'s| us) be honest|die wahrheit ist|mal ehrlich)\b`)
+	cannedOpener     = regexp.MustCompile(`(?i)^\s*(?:here(?:['’]s| is) the thing|the truth is|let(?:['’]s| us) be honest|die wahrheit ist|mal ehrlich)\b`)
 	genericCTA       = regexp.MustCompile(`(?i)\b(?:what do you think|agree\?|are you ready\?|is your (?:team|organization|unternehmen) ready|wie siehst du das\?|was denkst du\?)`)
 	aiEse            = regexp.MustCompile(`(?i)\b(?:delve|unlock|leverage|game[- ]changer|transformative|ever[- ]evolving|navigate the complexities|synergy|paradigm shift|ganzheitlich|bahnbrechend|in einer sich ständig wandelnden welt)\b`)
 )
@@ -90,7 +90,15 @@ func SanitizeAIPatterns(text string) string {
 			for len(out) > 0 && out[len(out)-1] == ' ' {
 				out = out[:len(out)-1]
 			}
-			out = append(out, ',', ' ')
+			// A comma splice only reads right between words. A dash at the
+			// start of the text or right after punctuation just disappears,
+			// leaving a single joining space.
+			if len(out) > 0 && !strings.ContainsRune(",;:.!?—–(\n", out[len(out)-1]) {
+				out = append(out, ',')
+			}
+			if len(out) > 0 {
+				out = append(out, ' ')
+			}
 			for i+1 < len(runes) && runes[i+1] == ' ' {
 				i++
 			}

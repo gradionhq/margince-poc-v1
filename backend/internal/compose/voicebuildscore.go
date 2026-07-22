@@ -137,11 +137,12 @@ func scoreVoiceCandidate(artifact ai.VoiceArtifact, drafts []voiceEvalDraft, har
 // no drafting scores, and an explicit note that evaluation did not run.
 func unevaluatedVoiceResult(artifact ai.VoiceArtifact, predecessor *ai.VoiceProfileVersion) voiceEvaluationResult {
 	drift := voiceDriftAgainst(artifact.Inference, predecessor)
+	classification, reasons := drift.classify()
 	note := "the corpus is too small to reserve held-out evaluation samples; add more sources to enable scoring"
 	result := voiceEvaluationResult{
-		Classification: voiceClassRoutine,
+		Classification: classification,
 		SampleDrafts:   []map[string]any{},
-		ReviewReasons:  []string{note},
+		ReviewReasons:  append(reasons, note),
 	}
 	if predecessor == nil {
 		result.Action = voiceActionAutoActivated

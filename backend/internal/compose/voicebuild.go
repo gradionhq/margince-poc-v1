@@ -199,6 +199,21 @@ func claimTime(input ai.VoiceBuildInput) time.Time {
 	return *input.Build.StartedAt
 }
 
+// predecessorWordCount reads the previous version's corpus size so the
+// change timeline can record what a rebuild ADDED, not the whole corpus. A
+// missing or malformed stats payload reads as zero — the delta then simply
+// reports the full corpus, which is the pre-existing honest fallback.
+func predecessorWordCount(predecessor *ai.VoiceProfileVersion) int {
+	if predecessor == nil {
+		return 0
+	}
+	words, ok := predecessor.StatsJSON["word_count"].(float64)
+	if !ok {
+		return 0
+	}
+	return int(words)
+}
+
 // deferralDeadline honors the router's exact budget-window boundary when the
 // error carries one; the fixed fallback serves only a bare sentinel.
 func (w *voiceBuildWorker) deferralDeadline(err error) time.Time {
@@ -237,16 +252,19 @@ func (w *voiceBuildWorker) run(ctx, terminal context.Context, buildID ids.UUID, 
 		w.log.WarnContext(ctx, "voice build stage update failed", "build", buildID.String(), "err", err)
 	}
 	_, err = w.store.CompleteBuild(terminal, buildID, claimTime(input), ai.VoiceBuildOutcome{
-		Artifact:       artifact,
-		Evaluation:     evaluated.Evaluation,
-		SampleDrafts:   evaluated.SampleDrafts,
-		Guidance:       voiceGuidance(artifact.Stats),
-		Classification: evaluated.Classification,
-		Action:         evaluated.Action,
-		StatusCode:     evaluated.StatusCode,
-		ReviewReasons:  evaluated.ReviewReasons,
-		ModelProvider:  "routed",
-		ModelName:      modelNameOrUnrecorded(artifact.ModelName),
+		Artifact:     artifact,
+		Evaluation:   evaluated.Evaluation,
+		SampleDrafts: evaluated.SampleDrafts,
+		// Guidance reads the WHOLE corpus, held-out included — the nudge
+		// must never ask for a register the user already supplied.
+		Guidance:         voiceGuidance(ai.AnalyzeVoice(input.Samples)),
+		PredecessorWords: predecessorWordCount(predecessor),
+		Classification:   evaluated.Classification,
+		Action:           evaluated.Action,
+		StatusCode:       evaluated.StatusCode,
+		ReviewReasons:    evaluated.ReviewReasons,
+		ModelProvider:    "routed",
+		ModelName:        modelNameOrUnrecorded(artifact.ModelName),
 	})
 	return err
 }

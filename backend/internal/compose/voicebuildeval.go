@@ -80,24 +80,26 @@ func splitVoiceHeldOut(samples []ai.VoiceSample, sourceHash string) (heldOut, bu
 	for _, sample := range ordered {
 		buildWords += sample.WordCount
 	}
+	// Two passes: register diversity first, then fill the remaining slots —
+	// a same-register tail must not leave reserved capacity unused.
 	seenRegisters := map[string]bool{}
-	for _, sample := range ordered {
-		if len(heldOut) == maxHeld {
-			break
-		}
-		if seenRegisters[sample.Register] && len(heldOut) >= 2 {
-			continue
-		}
-		if buildWords-sample.WordCount < ai.StarterVoiceWords {
-			continue
-		}
-		heldOut = append(heldOut, sample)
-		seenRegisters[sample.Register] = true
-		buildWords -= sample.WordCount
-	}
 	held := map[string]bool{}
-	for _, sample := range heldOut {
-		held[sample.ID] = true
+	for pass := 0; pass < 2 && len(heldOut) < maxHeld; pass++ {
+		for _, sample := range ordered {
+			if len(heldOut) == maxHeld {
+				break
+			}
+			if held[sample.ID] || (pass == 0 && seenRegisters[sample.Register]) {
+				continue
+			}
+			if buildWords-sample.WordCount < ai.StarterVoiceWords {
+				continue
+			}
+			heldOut = append(heldOut, sample)
+			held[sample.ID] = true
+			seenRegisters[sample.Register] = true
+			buildWords -= sample.WordCount
+		}
 	}
 	for _, sample := range ordered {
 		if !held[sample.ID] {
@@ -176,15 +178,20 @@ func evaluateVoiceCandidate(ctx context.Context, brain completer, artifact ai.Vo
 				return voiceEvaluationResult{}, fmt.Errorf("voice evaluation draft: %w", err)
 			}
 			var draft replyDraft
-			if err := json.Unmarshal([]byte(ai.Unfence(resp.Text)), &draft); err != nil || strings.TrimSpace(draft.Body) == "" {
+			if err := json.Unmarshal([]byte(ai.Unfence(resp.Text)), &draft); err != nil ||
+				strings.TrimSpace(draft.Subject) == "" || strings.TrimSpace(draft.Body) == "" {
 				structuredValid = false
 				drafts = append(drafts, voiceEvalDraft{prompt: prompt, score: 0})
 				bodies = append(bodies, "")
 				continue
 			}
+			// The floor covers the whole draft: a tell in the subject is as
+			// disqualifying as one in the body, and both are sanitized before
+			// anything is cached for the profile screen.
+			subject := ai.SanitizeAIPatterns(draft.Subject)
 			sanitized := ai.SanitizeAIPatterns(draft.Body)
-			hardFailures += len(ai.DetectAIPatterns(sanitized))
-			drafts = append(drafts, voiceEvalDraft{prompt: prompt, subject: draft.Subject, body: sanitized})
+			hardFailures += len(ai.DetectAIPatterns(subject + "\n" + sanitized))
+			drafts = append(drafts, voiceEvalDraft{prompt: prompt, subject: subject, body: sanitized})
 			bodies = append(bodies, sanitized)
 		}
 		judgeScores, judgeValid, err := judgeVoiceDrafts(ctx, brain, sample.Text, bodies)
@@ -215,9 +222,9 @@ func evaluateVoiceCandidate(ctx context.Context, brain completer, artifact ai.Vo
 // neutral fallback blend into a passing score.
 func judgeVoiceDrafts(ctx context.Context, brain completer, original string, bodies []string) ([]float64, bool, error) {
 	var payload strings.Builder
-	payload.WriteString("<author_sample>\n" + original + "\n</author_sample>\n")
+	payload.WriteString("<author_sample>\n" + ai.EscapeUntrustedTags(original) + "\n</author_sample>\n")
 	for i, body := range bodies {
-		fmt.Fprintf(&payload, "<draft index=\"%d\">\n%s\n</draft>\n", i+1, body)
+		fmt.Fprintf(&payload, "<draft index=\"%d\">\n%s\n</draft>\n", i+1, ai.EscapeUntrustedTags(body))
 	}
 	resp, err := brain.Complete(ctx, model.Request{
 		System:         voiceEvalJudgeSystem,

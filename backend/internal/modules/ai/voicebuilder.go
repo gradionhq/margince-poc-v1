@@ -52,6 +52,13 @@ type voiceBrain interface {
 	Complete(context.Context, model.Request) (model.Response, error)
 }
 
+// EscapeUntrustedTags neutralizes closing-tag sequences inside corpus or
+// draft text before it enters a delimited prompt block: embedded text can
+// then never end its evidence container and pose as instructions.
+func EscapeUntrustedTags(text string) string {
+	return strings.ReplaceAll(text, "</", `<\/`)
+}
+
 // VoiceSignatureMove is one falsifiable style pattern with its verbatim
 // proof: the quote must literally appear in the cited sample.
 type VoiceSignatureMove struct {
@@ -105,9 +112,11 @@ func DeriveVoice(ctx context.Context, brain voiceBrain, personality, sourceHash 
 		return VoiceArtifact{}, err
 	}
 	resp, err := brain.Complete(ctx, model.Request{
-		System:         voiceSystemPrompt,
-		Messages:       []model.Message{{Role: roleUser, Content: prompt}},
-		MaxTokens:      3000,
+		System:   voiceSystemPrompt,
+		Messages: []model.Message{{Role: roleUser, Content: prompt}},
+		// The shared reasoning cap: a routed reasoning model spends output
+		// tokens on thinking first, and a tighter cap truncates the JSON.
+		MaxTokens:      ReasoningOutputMaxTokens,
 		ResponseSchema: voiceInferenceSchema(),
 		SecretStripper: NewSecretStripper(),
 	})
@@ -123,7 +132,7 @@ func DeriveVoice(ctx context.Context, brain voiceBrain, personality, sourceHash 
 	}
 	exemplars := SelectExemplars(selected, stats)
 	return VoiceArtifact{
-		Markdown:   compileVoiceMarkdown(inference, stats, exemplars),
+		Markdown:   compileVoiceMarkdown(inference, stats),
 		Inference:  inference,
 		Stats:      stats,
 		Exemplars:  exemplars,
@@ -151,7 +160,7 @@ func voicePrompt(personality string, stats VoiceStats, samples []VoiceSample) (s
 	prompt.WriteString("\n\nRepresentative own-authored samples:\n")
 	for _, sample := range samples {
 		fmt.Fprintf(&prompt, "<sample id=%q kind=%q register=%q>\n%s\n</sample>\n",
-			sample.ID, sample.Kind, sample.Register, sample.Text)
+			sample.ID, sample.Kind, sample.Register, EscapeUntrustedTags(sample.Text))
 	}
 	prompt.WriteString("\nCite supporting sample ids in evidence and on every signature move. Do not quote or reproduce topic facts in the profile.")
 	return prompt.String(), nil
@@ -203,6 +212,9 @@ func validateVoiceInference(inference VoiceInference, samples []VoiceSample) err
 		}
 	}
 	for _, sig := range inference.SignatureMoves {
+		if strings.TrimSpace(sig.Move) == "" {
+			return errors.New("voice build signature move output has no name")
+		}
 		text, ok := known[sig.SampleID]
 		if !ok {
 			return fmt.Errorf("voice build signature move cited unknown sample %q", sig.SampleID)
@@ -222,12 +234,16 @@ func containsNormalized(text, quote string) bool {
 	return q != "" && strings.Contains(normalize(text), q)
 }
 
-func compileVoiceMarkdown(inference VoiceInference, stats VoiceStats, exemplars []VoiceExemplar) string {
+// compileVoiceMarkdown renders the derived artifact. The thinking pattern
+// leads — reproducing the thinking matters more than the words — and the
+// exemplars are deliberately NOT inlined: they live in profile_json and the
+// drafting prompt block appends them, so a draft never sees them twice.
+func compileVoiceMarkdown(inference VoiceInference, stats VoiceStats) string {
 	var out strings.Builder
-	out.WriteString("# Voice DNA\n\n## Identity\n\n")
-	out.WriteString(inference.IdentitySummary)
-	out.WriteString("\n\n## How you think\n\n")
+	out.WriteString("# Voice DNA\n\n## How you think\n\n")
 	out.WriteString(inference.ThinkingPattern)
+	out.WriteString("\n\n## Identity\n\n")
+	out.WriteString(inference.IdentitySummary)
 	writeVoiceList(&out, "Recurring themes", inference.ObservedObsessions)
 	out.WriteString("\n\n## Directness and structure\n\n")
 	out.WriteString(inference.Directness + " " + inference.Structure)
@@ -248,12 +264,6 @@ func compileVoiceMarkdown(inference VoiceInference, stats VoiceStats, exemplars 
 	out.WriteString("- Avoid canned openers, balanced consultant tricolons, generic engagement questions, and corporate filler.\n")
 	fmt.Fprintf(&out, "\n## Style metrics (diagnostic only — never generation targets)\n\n- %d words across %d sources\n- Mean sentence length: %.2f words\n- Median sentence length: %.2f words\n- Sentence-length variation: %.2f\n",
 		stats.WordCount, stats.SampleCount, stats.MeanSentenceWords, stats.MedianSentenceWords, stats.SentenceWordStdDev)
-	if len(exemplars) > 0 {
-		out.WriteString("\n## Real representative examples\n")
-		for _, exemplar := range exemplars {
-			fmt.Fprintf(&out, "\n> %s\n", strings.ReplaceAll(exemplar.Text, "\n", "\n> "))
-		}
-	}
 	return strings.TrimSpace(out.String()) + "\n"
 }
 

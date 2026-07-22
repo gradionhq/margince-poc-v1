@@ -37,6 +37,9 @@ type VoiceBuildOutcome struct {
 	ReviewReasons  []string
 	ModelProvider  string
 	ModelName      string
+	// PredecessorWords is the previous version's corpus size; the change
+	// timeline records the difference, never the whole corpus as "added".
+	PredecessorWords int
 }
 
 // CompleteBuild persists one immutable version row with its real evaluation
@@ -56,6 +59,22 @@ func (s *VoiceStore) CompleteBuild(ctx context.Context, buildID ids.UUID, claime
 	}
 	var result VoiceProfileVersion
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		// Lock order is profile THEN build — the same order every corpus
+		// mutation takes, so a concurrent corpus write cannot deadlock a
+		// completing build.
+		peek, err := scanVoiceBuild(tx.QueryRow(ctx, storekit.SQLf(`
+			SELECT %s FROM voice_build
+			WHERE id = $1 AND status = 'running' AND started_at = $2 AND archived_at IS NULL`,
+			voiceBuildColumns), buildID, claimedAt.UTC()))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if _, err := storekit.LockRow(ctx, tx, "voice_profile", peek.ProfileID, storekit.LiveOnly); err != nil {
+			return err
+		}
 		build, err := scanVoiceBuild(tx.QueryRow(ctx, storekit.SQLf(`
 			SELECT %s FROM voice_build
 			WHERE id = $1 AND status = 'running' AND started_at = $2 AND archived_at IS NULL
@@ -65,9 +84,6 @@ func (s *VoiceStore) CompleteBuild(ctx context.Context, buildID ids.UUID, claime
 			return nil
 		}
 		if err != nil {
-			return err
-		}
-		if _, err := storekit.LockRow(ctx, tx, "voice_profile", build.ProfileID, storekit.LiveOnly); err != nil {
 			return err
 		}
 		profile, err := s.visibleProfile(ctx, tx, build.ProfileID)
@@ -191,7 +207,7 @@ func (s *VoiceStore) persistBuildVersion(ctx context.Context, tx pgx.Tx, build V
 // predecessor — the "what changed" timeline row.
 func insertVoiceBuildDelta(ctx context.Context, tx pgx.Tx, build VoiceBuild, profile VoiceProfile, outcome VoiceBuildOutcome, nextVersion int) error {
 	delta := map[string]any{
-		voiceKeyWordsAdded:   outcome.Artifact.WordCount,
+		voiceKeyWordsAdded:   outcome.Artifact.WordCount - outcome.PredecessorWords,
 		voiceKeySourcesAdded: build.SourceCount,
 	}
 	for key, value := range outcome.Evaluation {

@@ -230,14 +230,20 @@ type VoiceExemplar struct {
 // the instruction half of the prompt.
 const exemplarWordCap = 150
 
-// SelectExemplars picks exactly two representative verbatim excerpts,
-// preferring distinct registers and the samples closest to the corpus's own
-// median sentence length — representative, never the outliers.
+// SelectExemplars picks at most two representative verbatim excerpts (a
+// one-sample corpus yields one), preferring distinct registers and the
+// samples closest to the corpus's own median sentence length —
+// representative, never the outliers.
 func SelectExemplars(samples []VoiceSample, stats VoiceStats) []VoiceExemplar {
 	ordered := append([]VoiceSample(nil), samples...)
+	// Distances are computed once per sample; sorting must compare cached
+	// values, not re-analyze the corpus per comparison.
+	distances := make(map[string]float64, len(ordered))
+	for _, sample := range ordered {
+		distances[sample.ID] = sampleMedianDistance(sample, stats.MedianSentenceWords)
+	}
 	sort.SliceStable(ordered, func(i, j int) bool {
-		di := sampleMedianDistance(ordered[i], stats.MedianSentenceWords)
-		dj := sampleMedianDistance(ordered[j], stats.MedianSentenceWords)
+		di, dj := distances[ordered[i].ID], distances[ordered[j].ID]
 		if di == dj {
 			return ordered[i].ID < ordered[j].ID
 		}
@@ -255,7 +261,7 @@ func SelectExemplars(samples []VoiceSample, stats VoiceStats) []VoiceExemplar {
 			if pass == 0 && seenRegisters[sample.Register] {
 				continue
 			}
-			text := excerptWords(sample.Text, exemplarWordCap)
+			text := verbatimExcerpt(sample.Text, exemplarWordCap)
 			if text == "" || containsExemplar(exemplars, text) {
 				continue
 			}
@@ -281,12 +287,23 @@ func sampleMedianDistance(sample VoiceSample, median float64) float64 {
 }
 
 func excerptWords(text string, limit int) string {
+	excerpt := verbatimExcerpt(text, limit)
+	if excerpt != "" && len(strings.Fields(text)) > limit {
+		return excerpt + " …"
+	}
+	return excerpt
+}
+
+// verbatimExcerpt bounds text to the author's own words and nothing else —
+// no synthetic ellipsis, because an exemplar teaches punctuation habits and
+// must stay character-honest.
+func verbatimExcerpt(text string, limit int) string {
 	words := strings.Fields(strings.TrimSpace(text))
 	if len(words) == 0 {
 		return ""
 	}
-	if len(words) <= limit {
-		return strings.Join(words, " ")
+	if len(words) > limit {
+		words = words[:limit]
 	}
-	return strings.Join(words[:limit], " ") + " …"
+	return strings.Join(words, " ")
 }

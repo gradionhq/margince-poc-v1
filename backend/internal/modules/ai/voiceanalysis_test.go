@@ -94,10 +94,10 @@ func TestSelectExemplarsTruncatesLongSamples(t *testing.T) {
 	if len(exemplars) != 1 {
 		t.Fatalf("exemplars = %d, want 1 from a one-sample corpus", len(exemplars))
 	}
-	if got := len(strings.Fields(exemplars[0].Text)); got > exemplarWordCap+1 {
+	if got := len(strings.Fields(exemplars[0].Text)); got > exemplarWordCap {
 		t.Fatalf("exemplar is %d words, cap is %d", got, exemplarWordCap)
 	}
-	if !strings.HasSuffix(exemplars[0].Text, "…") {
-		t.Fatal("a truncated exemplar must say so")
+	if !strings.Contains(strings.Join(strings.Fields(long), " "), exemplars[0].Text) {
+		t.Fatal("a truncated exemplar must stay a verbatim excerpt — no synthetic ellipsis")
 	}
 }
