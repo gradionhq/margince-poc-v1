@@ -9,7 +9,13 @@ func TestDetectAIPatternsFindsStructuralTellsWithoutFlaggingRanges(t *testing.T)
 	text := "Here's the thing: it's not about tools, but transformation — are you ready?"
 	violations := DetectAIPatterns(text)
 	want := map[string]bool{"parenthetical_dash": true, "abstract_contrast": true, "canned_opener": true, "generic_cta": true}
+	if len(violations) != len(want) {
+		t.Fatalf("violations = %+v, want exactly the %d expected codes", violations, len(want))
+	}
 	for _, violation := range violations {
+		if !want[violation.Code] {
+			t.Fatalf("unexpected violation %q in %+v", violation.Code, violations)
+		}
 		delete(want, violation.Code)
 	}
 	if len(want) != 0 {

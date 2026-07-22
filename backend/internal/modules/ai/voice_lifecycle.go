@@ -94,13 +94,15 @@ func (s *VoiceStore) CreateBuild(ctx context.Context, profileID ids.UUID, in Cre
 			return err
 		}
 		var totalWords, sourceCount int
-		var sourceHash string
 		if err := tx.QueryRow(ctx, `
-			SELECT coalesce(sum(word_count), 0)::int, count(*)::int,
-			       md5(coalesce(string_agg(content_hash, ',' ORDER BY source_ref), ''))
+			SELECT coalesce(sum(word_count), 0)::int, count(*)::int
 			FROM voice_corpus_source
 			WHERE voice_profile_id = $1 AND NOT excluded AND archived_at IS NULL
-			  AND content_erased_at IS NULL`, profileID).Scan(&totalWords, &sourceCount, &sourceHash); err != nil {
+			  AND content_erased_at IS NULL`, profileID).Scan(&totalWords, &sourceCount); err != nil {
+			return err
+		}
+		sourceHash, err := corpusSourceHash(ctx, tx, profileID)
+		if err != nil {
 			return err
 		}
 		if totalWords < StarterVoiceWords {

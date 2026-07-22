@@ -122,7 +122,6 @@ var unguardedByIDUpdates = map[string]string{
 	"internal/modules/signals:dropUnattributable":   "runs only inside resolveTx, under its signal row lock (storekit.LockRow before the terminal-state pre-read)",
 	"internal/modules/signals:resolveToOrg":         "runs only inside resolveTx, under its signal row lock (storekit.LockRow before the terminal-state pre-read)",
 	"internal/modules/signals:flagAmbiguous":        "runs only inside resolveTx, under its signal row lock (storekit.LockRow before the terminal-state pre-read)",
-	"internal/modules/ai:ClaimBuild":                "the WHERE status IN (queued,deferred) / stale-running predicate IS the CAS: a raced claim returns zero rows (ErrNoRows) and the loser stops",
 	"internal/modules/ai:SetBuildStage":             "stage is display-only forward progress; the status=running predicate makes a raced write a harmless no-op",
 	"internal/modules/ai:DeferBuild":                "the status=running predicate is the CAS: a build already finished or re-claimed matches zero rows and the deferral is dropped",
 	"internal/modules/ai:finishBuildTx":             "runs only under its callers' row lock — ClaimBuild's claim UPDATE or the FOR UPDATE pre-read in FailBuild/CompleteBuild, same transaction",

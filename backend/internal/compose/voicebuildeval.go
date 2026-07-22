@@ -187,9 +187,15 @@ func evaluateVoiceCandidate(ctx context.Context, brain completer, artifact ai.Vo
 			drafts = append(drafts, voiceEvalDraft{prompt: prompt, subject: draft.Subject, body: sanitized})
 			bodies = append(bodies, sanitized)
 		}
-		judgeScores, err := judgeVoiceDrafts(ctx, brain, sample.Text, bodies)
+		judgeScores, judgeValid, err := judgeVoiceDrafts(ctx, brain, sample.Text, bodies)
 		if err != nil {
 			return voiceEvaluationResult{}, err
+		}
+		if !judgeValid {
+			// A judge that returned no usable verdict leaves the candidate
+			// unscored on half its signal; that is invalid model output, and
+			// an unscored candidate must not auto-activate.
+			structuredValid = false
 		}
 		base := len(drafts) - len(bodies)
 		for i, judged := range judgeScores {
@@ -204,9 +210,10 @@ func evaluateVoiceCandidate(ctx context.Context, brain completer, artifact ai.Vo
 }
 
 // judgeVoiceDrafts scores one prompt's repeats against its held-out original
-// in ONE call; a malformed judge answer scores conservatively at 0.5, never
-// silently passing or failing the candidate.
-func judgeVoiceDrafts(ctx context.Context, brain completer, original string, bodies []string) ([]float64, error) {
+// in ONE call. A malformed judge answer scores neutrally at 0.5 AND reports
+// valid=false, so the caller blocks auto-activation instead of letting the
+// neutral fallback blend into a passing score.
+func judgeVoiceDrafts(ctx context.Context, brain completer, original string, bodies []string) ([]float64, bool, error) {
 	var payload strings.Builder
 	payload.WriteString("<author_sample>\n" + original + "\n</author_sample>\n")
 	for i, body := range bodies {
@@ -220,7 +227,7 @@ func judgeVoiceDrafts(ctx context.Context, brain completer, original string, bod
 		SecretStripper: ai.NewSecretStripper(),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("voice evaluation judge: %w", err)
+		return nil, false, fmt.Errorf("voice evaluation judge: %w", err)
 	}
 	var judged struct {
 		Scores []float64 `json:"scores"`
@@ -230,12 +237,12 @@ func judgeVoiceDrafts(ctx context.Context, brain completer, original string, bod
 		for i := range scores {
 			scores[i] = 0.5
 		}
-		return scores, nil
+		return scores, false, nil
 	}
 	for i := range scores {
 		scores[i] = clamp01(judged.Scores[i])
 	}
-	return scores, nil
+	return scores, true, nil
 }
 
 // stylometricProximity measures how close a draft's deterministic

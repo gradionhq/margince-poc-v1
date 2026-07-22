@@ -25,7 +25,9 @@ const (
 	voicePromptWordCap = 12000
 )
 
-var sentenceBoundary = regexp.MustCompile(`[.!?]+(?:\s+|$)`)
+// sentenceBoundary ends a sentence at terminal punctuation — the Unicode
+// ellipsis included — optionally followed by a closing quote or bracket.
+var sentenceBoundary = regexp.MustCompile(`[.!?…]+["')\]]*(?:\s+|$)`)
 
 // VoiceSample is one already consented, owner-only corpus source.
 type VoiceSample struct {
@@ -185,7 +187,7 @@ func SelectVoiceSamples(samples []VoiceSample) []VoiceSample {
 	var selected []VoiceSample
 	words := 0
 	for {
-		progress := false
+		consumed := false
 		for _, key := range keys {
 			group := groups[key]
 			if len(group) == 0 {
@@ -193,14 +195,22 @@ func SelectVoiceSamples(samples []VoiceSample) []VoiceSample {
 			}
 			sample := group[0]
 			groups[key] = group[1:]
+			consumed = true
+			if words == 0 && sample.WordCount > voicePromptWordCap {
+				// A single document-sized sample must not blow the prompt:
+				// take its bounded excerpt rather than the whole text.
+				sample.Text = excerptWords(sample.Text, voicePromptWordCap)
+				sample.WordCount = WordCount(sample.Text)
+			}
 			if words > 0 && words+sample.WordCount > voicePromptWordCap {
+				// Too big for the remaining budget; a smaller sample later in
+				// this or another group may still fit, so keep walking.
 				continue
 			}
 			selected = append(selected, sample)
 			words += sample.WordCount
-			progress = true
 		}
-		if !progress || words >= voicePromptWordCap {
+		if !consumed || words >= voicePromptWordCap {
 			break
 		}
 	}

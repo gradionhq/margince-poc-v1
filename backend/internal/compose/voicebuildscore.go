@@ -34,6 +34,10 @@ const (
 type voiceDrift struct {
 	identity, signature           float64
 	removedAvoid, removedRegister int
+	// unreadablePredecessor marks an existing predecessor whose stored
+	// inference cannot be decoded: similarity is then unknowable, and an
+	// unknowable comparison never auto-activates.
+	unreadablePredecessor bool
 }
 
 // classify names the drift material when the candidate reads like a
@@ -41,6 +45,10 @@ type voiceDrift struct {
 func (d voiceDrift) classify() (string, []string) {
 	classification := voiceClassRoutine
 	var reasons []string
+	if d.unreadablePredecessor {
+		classification = voiceClassMaterial
+		reasons = append(reasons, "the previous version's stored profile is not comparable; review before replacing it")
+	}
 	if d.identity < voiceEvalIdentityFloor {
 		classification = voiceClassMaterial
 		reasons = append(reasons, fmt.Sprintf("identity vocabulary shifted (jaccard %.2f)", d.identity))
@@ -163,7 +171,10 @@ func unevaluatedVoiceResult(artifact ai.VoiceArtifact, predecessor *ai.VoiceProf
 func voiceDriftAgainst(candidate ai.VoiceInference, predecessor *ai.VoiceProfileVersion) voiceDrift {
 	prior, ok := predecessorInference(predecessor)
 	if !ok {
-		return voiceDrift{identity: 1, signature: 1}
+		// A first build has full similarity by definition; an existing
+		// predecessor whose data cannot be read does NOT — that difference
+		// decides whether the candidate may auto-activate.
+		return voiceDrift{identity: 1, signature: 1, unreadablePredecessor: predecessor != nil}
 	}
 	return voiceDrift{
 		identity:        jaccard(wordSet(append(candidate.Vocabulary, candidate.IdentitySummary)), wordSet(append(prior.Vocabulary, prior.IdentitySummary))),

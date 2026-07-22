@@ -187,7 +187,7 @@ func TestVoiceBuildRunsToAnActiveVersion(t *testing.T) {
 	if err != nil || !claimed {
 		t.Fatalf("claim: %v claimed=%v", err, claimed)
 	}
-	if err := worker.run(ctx, build.ID, input); err != nil {
+	if err := worker.run(ctx, ctx, build.ID, input); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
@@ -259,12 +259,12 @@ func TestVoiceBuildDefersOnBudgetAndTheSweepFindsItWhenDue(t *testing.T) {
 	if err != nil || !claimed {
 		t.Fatalf("claim: %v claimed=%v", err, claimed)
 	}
-	runErr := worker.run(ctx, build.ID, input)
+	runErr := worker.run(ctx, ctx, build.ID, input)
 	if !errors.Is(runErr, ai.ErrBudgetDeferred) {
 		t.Fatalf("run under budget exhaustion = %v, want the sentinel", runErr)
 	}
 	past := time.Now().Add(-time.Minute)
-	if err := env.store.DeferBuild(ctx, build.ID, "budget window exhausted", past); err != nil {
+	if err := env.store.DeferBuild(ctx, build.ID, *input.Build.StartedAt, "budget window exhausted", past); err != nil {
 		t.Fatal(err)
 	}
 	deferred, err := env.store.GetBuild(env.owner, env.profile.ID, build.ID)
@@ -294,7 +294,7 @@ func TestVoiceBuildDefersOnBudgetAndTheSweepFindsItWhenDue(t *testing.T) {
 	if err != nil || !claimed {
 		t.Fatalf("re-claim: %v claimed=%v", err, claimed)
 	}
-	if err := healthy.run(ctx, build.ID, input); err != nil {
+	if err := healthy.run(ctx, ctx, build.ID, input); err != nil {
 		t.Fatalf("resumed run: %v", err)
 	}
 	finished, err := env.store.GetBuild(env.owner, env.profile.ID, build.ID)
@@ -316,7 +316,7 @@ func TestVoiceBuildStarterCorpusActivatesUnevaluated(t *testing.T) {
 	if err != nil || !claimed {
 		t.Fatalf("claim: %v claimed=%v", err, claimed)
 	}
-	if err := worker.run(ctx, build.ID, input); err != nil {
+	if err := worker.run(ctx, ctx, build.ID, input); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	finished, err := env.store.GetBuild(env.owner, env.profile.ID, build.ID)
