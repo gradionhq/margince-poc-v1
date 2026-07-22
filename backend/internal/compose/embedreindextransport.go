@@ -101,9 +101,8 @@ func (e *embedReindexEngine) currentIdentity() string {
 }
 
 // status answers the binding marker plus the derived reindex-needed
-// signal. Read is granted to every role (migration 0114) — the RBAC gate
-// still runs first so a de-permissioned role (or a future tightening of
-// the read grant) is enforced here, not assumed from the contract text.
+// signal. Read is admin/ops-only (migration 0114) — the RBAC gate runs
+// first so the grant is enforced here, not assumed from the contract text.
 func (e *embedReindexEngine) status(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := auth.Require(ctx, "embedding_reindex", principal.ActionRead); err != nil {
@@ -211,7 +210,7 @@ func (e *embedReindexEngine) confirm(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, r, err)
 		return
 	}
-	_, jobStatus, err := e.store.PopulatedIdentity(ctx)
+	_, jobStatus, _, err := e.store.PopulatedIdentity(ctx)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
@@ -263,7 +262,7 @@ func (e *embedReindexEngine) confirm(w http.ResponseWriter, r *http.Request) {
 // SAME read, so the client sees exactly what it would GET-poll next).
 func (e *embedReindexEngine) statusBody(ctx context.Context) (crmcontracts.EmbedReindexStatus, error) {
 	configured := e.currentIdentity()
-	populated, jobStatus, err := e.store.PopulatedIdentity(ctx)
+	populated, jobStatus, updatedAt, err := e.store.PopulatedIdentity(ctx)
 	if err != nil {
 		return crmcontracts.EmbedReindexStatus{}, err
 	}
@@ -294,6 +293,7 @@ func (e *embedReindexEngine) statusBody(ctx context.Context) (crmcontracts.Embed
 		ConfiguredIdentity: configured,
 		PopulatedIdentity:  populated,
 		Status:             crmcontracts.EmbedReindexStatusStatus(jobStatus),
+		UpdatedAt:          updatedAt,
 		ReindexNeeded:      needed,
 		EntitiesPending:    total,
 		PerWorkspace:       perWorkspace,

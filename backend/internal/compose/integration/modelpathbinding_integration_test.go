@@ -79,7 +79,7 @@ func TestNewModelPathSeedsBindingMarkerOnEmptyStore(t *testing.T) {
 	}
 
 	store := search.NewStore(e.Pool)
-	populated, status, err := store.PopulatedIdentity(context.Background())
+	populated, status, _, err := store.PopulatedIdentity(context.Background())
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestNewModelPathLogsLoudlyOnChangedBinding(t *testing.T) {
 	// SeedBinding's ON CONFLICT DO NOTHING must leave the marker untouched —
 	// the store still serves reads under the OLD identity; a reindex is an
 	// ops action this construction call never takes on its own.
-	populated, _, err := store.PopulatedIdentity(context.Background())
+	populated, _, _, err := store.PopulatedIdentity(context.Background())
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestNewModelPathUnboundEmbedLaneSkipsSeed(t *testing.T) {
 	}
 
 	store := search.NewStore(e.Pool)
-	if _, _, err := store.PopulatedIdentity(context.Background()); err == nil {
+	if _, _, _, err := store.PopulatedIdentity(context.Background()); err == nil {
 		t.Fatal("the binding marker must NOT exist — an unbound embed lane must skip the seed, not plant an empty identity")
 	}
 

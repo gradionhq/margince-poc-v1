@@ -111,7 +111,7 @@ func seedEmbedBinding(ctx context.Context, store *search.Store, router *ai.Route
 		log.Error("seeding embed binding marker failed", "error", err)
 		return
 	}
-	populated, _, err := store.PopulatedIdentity(ctx)
+	populated, _, _, err := store.PopulatedIdentity(ctx)
 	if err != nil {
 		log.Error("reading embed binding marker failed", "error", err)
 		return

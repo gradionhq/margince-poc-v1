@@ -8002,6 +8002,9 @@ type EmbedReindexStatus struct {
 
 	// Status The marker's own job-lifecycle state (embed_store_binding.status).
 	Status EmbedReindexStatusStatus `json:"status"`
+
+	// UpdatedAt When the marker last changed (embed_store_binding.updated_at) — while status is reembedding, how long the job has been running, the figure a stuck-job recovery affordance needs to show a human.
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // EmbedReindexStatusStatus The marker's own job-lifecycle state (embed_store_binding.status).

@@ -73,19 +73,21 @@ var (
 // overlay mode is live, the same as a quota's attainment read).
 // embedding_reindex has no create/delete surface at all — it is a single
 // deployment-level trigger, not a record kind — so only read and update
-// are ever granted: admin/ops may update (trigger a reindex; the
-// confirm route itself carries x-agent-access: human-only in the
-// contract, so this grant only ever fires from a human session, never
-// an agent), and every role reads it (any user's UI needs to show the
-// "reindex needed" banner, the same wide-read posture as quota's
-// attainment and overlay_connection's status).
+// are ever granted, and both are admin/ops-only: admin/ops may update
+// (trigger a reindex; the confirm route itself carries x-agent-access:
+// human-only in the contract, so this grant only ever fires from a
+// human session, never an agent), and admin/ops alone may read it — the
+// banner/card that consumes the read is itself ops-gated in the SPA, so
+// manager/rep/read_only have no legitimate consumer of this object and
+// get the zero grant, unlike quota's attainment or
+// overlay_connection's status which every role legitimately reads.
 var defaults = map[string]Document{
 	"admin": {
 		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate),
 		RowScope: principal.RowScopeAll,
 	},
 	"manager": {
-		Objects:  objects(crud, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, crud, readOnly, readOnly, readOnly, crud, readOnly, readOnly),
+		Objects:  objects(crud, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, crud, readOnly, readOnly, readOnly, crud, readOnly, grant{}),
 		RowScope: principal.RowScopeTeam,
 	},
 	"rep": {
@@ -125,14 +127,14 @@ var defaults = map[string]Document{
 			readOnly,
 			grant{Create: true, Read: true, Update: true},
 			readOnly,
-			readOnly),
+			grant{}),
 		RowScope: principal.RowScopeTeam,
 	},
 	"read_only": {
 		// A read-only role still owns its personal view state: saved views
 		// are P1-exempt per-user prefs (runtime-config-surface.md §3), not
 		// shared records, so full self-service is correct even here.
-		Objects:  objects(readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, crud, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly),
+		Objects:  objects(readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, crud, readOnly, readOnly, readOnly, readOnly, readOnly, grant{}),
 		RowScope: principal.RowScopeAll,
 	},
 	"ops": {

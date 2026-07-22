@@ -88,8 +88,8 @@ func TestEmbeddingReindexGrants(t *testing.T) {
 			t.Fatalf("role %q: %v", key, err)
 		}
 		merged := Merge(map[string]Document{key: doc})
-		if !merged.Allows("embedding_reindex", principal.ActionRead) {
-			t.Errorf("role %q should be able to read embedding_reindex (the reindex-needed banner is wide-read)", key)
+		if merged.Allows("embedding_reindex", principal.ActionRead) {
+			t.Errorf("role %q must not be able to read embedding_reindex (admin/ops-only)", key)
 		}
 		if merged.Allows("embedding_reindex", principal.ActionUpdate) {
 			t.Errorf("role %q must not be able to trigger a reindex", key)

@@ -7,22 +7,22 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, Button, SectionHeader } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
-import { formatMoney, formatNumber } from "../format/format";
+import { formatDuration, formatMoney, formatNumber } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import { bandTone } from "./aiusage";
 import { canConfigureAutomations, problemMessage, useMe } from "./common";
 
 // The v6 B2 embedding-reindex surface (ADR-0068 design §5.6-swap). The
-// status read is wide-granted to every role (migration 0114: "every role
-// reads it"), but the surface itself is ops/admin territory — a rep or
-// read_only user has nothing actionable to do with either the card or
-// EmbedReindexBanner (app/embedreindexbanner.tsx), which shares this
-// module's query key and gates on the same predicate. The two WRITE
-// actions — confirming a reindex and the always-available force rebuild —
-// are admin/ops-only server-side too (embedding_reindex object's update
-// grant), so this card hides both behind canConfigureAutomations: the same
-// admin/ops predicate the AI-runtime and automation cards already gate on,
-// rather than a button that could only ever 403.
+// status read is admin/ops-only server-side now (migration 0114:
+// manager/rep/read_only hold no grant at all on embedding_reindex), so
+// this card's status query is itself gated on canConfigureAutomations —
+// a non-ops role would otherwise get a 403 rendered as "status
+// unavailable" for a card it can never act on anyway. The card returns
+// null outright for a non-ops viewer, the same predicate
+// EmbedReindexBanner (app/embedreindexbanner.tsx) already gates its own
+// query on. The two WRITE actions — confirming a reindex and the
+// always-available force rebuild — are admin/ops-only server-side too
+// (embedding_reindex object's update grant).
 
 type ReindexStatus = components["schemas"]["EmbedReindexStatus"];
 type ReindexPreview = components["schemas"]["EmbedReindexPreview"];
@@ -107,6 +107,22 @@ function StatusHeader({
           })}
         </span>
       )}
+      {isRunning && (
+        // F2 recovery: a drift-cancelled/retry-discarded job can leave the
+        // marker stuck at reembedding with no live worker behind it — this
+        // is the affordance that lets an operator judge "stuck" from "still
+        // going" without curl, and Rebuild (below) stays enabled so they
+        // can act on that judgment (deals.tsx's own age-since-instant idiom:
+        // Date.now() minus the stored UTC instant, formatDuration'd).
+        <span className="t-small">
+          {t("embedreindex.reembeddingSince", {
+            duration: formatDuration(
+              Math.max(0, Date.now() - new Date(data.updated_at).getTime()),
+              locale,
+            ),
+          })}
+        </span>
+      )}
     </div>
   );
 }
@@ -131,10 +147,15 @@ function ReindexActions({
           {t("embedreindex.reviewCta")}
         </Button>
       )}
-      {/* Always available, independent of reindex_needed — the v6 B2
-          rebuild affordance: an operator may want to re-embed a
-          current-identity corpus anyway (e.g. after a data fix). */}
-      <Button small disabled={isRunning} onClick={onRebuild}>
+      {/* Always available, independent of reindex_needed AND of isRunning —
+          the v6 B2 rebuild affordance, and F2's stuck-marker recovery path:
+          a drift-cancelled or retry-discarded job leaves the marker stuck
+          at reembedding with no live worker behind it, so disabling Rebuild
+          while isRunning would make that state unrecoverable without curl.
+          Re-confirming with force:true is harmless either way — a genuinely
+          live job answers 409 reindex_running (shown as the modal's error),
+          a dead one re-enqueues (202). */}
+      <Button small onClick={onRebuild}>
         {t("embedreindex.rebuildCta")}
       </Button>
     </div>
@@ -212,6 +233,7 @@ export function EmbedReindexCard() {
 
   const status = useQuery({
     queryKey: embedReindexStatusQueryKey,
+    enabled: canWrite,
     queryFn: async (): Promise<ReindexStatus> => {
       const { data, error } = await api.GET("/embeddings/reindex/status");
       if (error) {
@@ -269,6 +291,16 @@ export function EmbedReindexCard() {
     },
   });
 
+  // Non-ops viewers hold no read grant on embedding_reindex server-side
+  // (migration 0114) and have nothing actionable to do with this card
+  // regardless — render nothing rather than a "status unavailable" card
+  // for a 403 that was always expected. This runs after every hook call
+  // above so the hooks-call-order stays unconditional; the query itself
+  // is `enabled: canWrite`, so no request even fires for this viewer.
+  if (!canWrite) {
+    return null;
+  }
+
   if (status.isPending) {
     return (
       <section className="card" style={{ marginBottom: "var(--space-4)" }}>
@@ -302,15 +334,16 @@ export function EmbedReindexCard() {
         sub={t("embedreindex.sub")}
       />
       <StatusHeader data={data} isRunning={isRunning} locale={locale} t={t} />
-      {canWrite && (
-        <ReindexActions
-          data={data}
-          isRunning={isRunning}
-          onReindex={() => setMode("reindex")}
-          onRebuild={() => setMode("rebuild")}
-          t={t}
-        />
-      )}
+      {/* canWrite is always true past the !canWrite early return above —
+          this card renders ReindexActions unconditionally, not gated
+          again, since a non-ops viewer never reaches this far. */}
+      <ReindexActions
+        data={data}
+        isRunning={isRunning}
+        onReindex={() => setMode("reindex")}
+        onRebuild={() => setMode("rebuild")}
+        t={t}
+      />
       <ConfirmModal
         open={mode !== null}
         onClose={() => setMode(null)}

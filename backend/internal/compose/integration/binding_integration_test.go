@@ -30,7 +30,7 @@ func TestSeedBindingOnEmptyStoreHasNoFirstBootWart(t *testing.T) {
 		t.Fatalf("SeedBinding: %v", err)
 	}
 
-	populated, status, err := e.store.PopulatedIdentity(ctx)
+	populated, status, _, err := e.store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestSeedBindingIsIdempotentAndConcurrentSafe(t *testing.T) {
 	if err := e.store.SeedBinding(ctx, second); err != nil {
 		t.Fatalf("second SeedBinding must no-op, not error: %v", err)
 	}
-	populated, _, err := e.store.PopulatedIdentity(ctx)
+	populated, _, _, err := e.store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestClaimAndEnqueueReembeddingRunsCallbackInOneTx(t *testing.T) {
 	if !ran {
 		t.Fatal("the enqueue callback must run inside the claim transaction")
 	}
-	_, status, err := e.store.PopulatedIdentity(ctx)
+	_, status, _, err := e.store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestClaimAndEnqueueReembeddingRunsCallbackInOneTx(t *testing.T) {
 	if !ran {
 		t.Fatal("the callback must still run when recovering a stuck reembedding row")
 	}
-	_, status, err = e.store.PopulatedIdentity(ctx)
+	_, status, _, err = e.store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestClaimAndEnqueueReembeddingRollsBackCASOnEnqueueError(t *testing.T) {
 
 	// The CAS must have rolled back with the failed callback — status
 	// stays idle, never left stranded in reembedding with no live job.
-	_, status, err := e.store.PopulatedIdentity(ctx)
+	_, status, _, err := e.store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestCompleteReembeddingOnlyFromReembeddingStatus(t *testing.T) {
 	if err := e.store.CompleteReembedding(ctx, completed); err != nil {
 		t.Fatalf("CompleteReembedding from idle: %v", err)
 	}
-	populated, status, err := e.store.PopulatedIdentity(ctx)
+	populated, status, _, err := e.store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestCompleteReembeddingOnlyFromReembeddingStatus(t *testing.T) {
 	if err := e.store.CompleteReembedding(ctx, completed); err != nil {
 		t.Fatalf("CompleteReembedding from reembedding: %v", err)
 	}
-	populated, status, err = e.store.PopulatedIdentity(ctx)
+	populated, status, _, err = e.store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}

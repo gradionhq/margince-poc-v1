@@ -1582,8 +1582,8 @@ export interface paths {
          *     (Task 9); `populated_identity` is what the store's embeddings were last completed under.
          *     `reindex_needed` is DERIVED fresh on every read, never a stored flag (search/binding.go) —
          *     true when the two identities differ or any live entity still lacks a current-identity
-         *     embedding row. Read is granted to every role (the `embedding_reindex` RBAC object, migration
-         *     0114); only the confirm route below is admin/ops-gated.
+         *     embedding row. Read and the confirm route below are both admin/ops-only (the
+         *     `embedding_reindex` RBAC object, migration 0114).
          */
         get: operations["EmbedReindexStatus"];
         put?: never;
@@ -4357,6 +4357,11 @@ export interface components {
              * @enum {string}
              */
             status: "idle" | "reembedding";
+            /**
+             * Format: date-time
+             * @description When the marker last changed (embed_store_binding.updated_at) — while status is reembedding, how long the job has been running, the figure a stuck-job recovery affordance needs to show a human.
+             */
+            updated_at: string;
             /** @description Derived fresh on every read (never a stored flag): true when configured_identity != populated_identity, or entities_pending > 0. */
             reindex_needed: boolean;
             /** @description Fleet-wide count of live entities lacking a current-identity embedding row. */

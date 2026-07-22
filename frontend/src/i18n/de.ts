@@ -1865,13 +1865,14 @@ export const de = {
 
   "embedreindex.title": "Suchindex",
   "embedreindex.sub":
-    "Der Neuindizierungsstatus des Embedding-Speichers — jeder kann ihn sehen; ihn zu starten oder neu aufzubauen ist nur admin/ops vorbehalten.",
+    "Der Neuindizierungsstatus des Embedding-Speichers — nur admin/ops, auch zum Ansehen.",
   "embedreindex.loading": "Indexstatus wird geprüft…",
   "embedreindex.statusUnavailable":
     "Der Indexstatus ist gerade nicht verfügbar.",
   "embedreindex.statusIdle": "Aktuell",
   "embedreindex.statusNeeded": "Neuindizierung erforderlich",
   "embedreindex.statusReembedding": "Neuindizierung läuft…",
+  "embedreindex.reembeddingSince": "Neuindizierung läuft seit {duration}",
   "embedreindex.entitiesPending": "{count} Einträge ausstehend",
   "embedreindex.workspacePending": "{count} ausstehend",
   "embedreindex.reviewCta": "Prüfen & neu indizieren",

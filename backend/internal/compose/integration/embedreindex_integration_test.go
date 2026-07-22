@@ -324,9 +324,9 @@ func TestEmbedReindexStatusAndPreviewReflectPendingEntities(t *testing.T) {
 }
 
 // TestEmbedReindexConfirmRequiresAdminOrOps proves the object RBAC gate:
-// a rep (read-only on embedding_reindex per migration 0114) sees status/
-// preview exactly like an admin, but confirm answers 403 — discharging
-// the rbacgate_test.go waiver's own promise that this transport is what
+// a rep (NO grant at all on embedding_reindex per migration 0114) is
+// refused status/preview AND confirm alike — discharging the
+// rbacgate_test.go waiver's own promise that this transport is what
 // gates search.Store's binding-marker methods.
 func TestEmbedReindexConfirmRequiresAdminOrOps(t *testing.T) {
 	router := embedReindexRouter(t, "reindex-rbac-v1")
@@ -338,11 +338,11 @@ func TestEmbedReindexConfirmRequiresAdminOrOps(t *testing.T) {
 
 	demoteToRep(t, e)
 
-	if status, _, _ := embedStatus(t, e); status != http.StatusOK {
-		t.Fatalf("rep status -> %d, want 200 (read is granted to every role)", status)
+	if status, _, problem := embedStatus(t, e); status != http.StatusForbidden || problem.Code != "permission_denied" {
+		t.Fatalf("rep status -> %d %+v, want 403 permission_denied (read is admin/ops-only)", status, problem)
 	}
-	if status, _, _ := embedPreview(t, e); status != http.StatusOK {
-		t.Fatalf("rep preview -> %d, want 200 (read is granted to every role)", status)
+	if status, _, problem := embedPreview(t, e); status != http.StatusForbidden || problem.Code != "permission_denied" {
+		t.Fatalf("rep preview -> %d %+v, want 403 permission_denied (read is admin/ops-only)", status, problem)
 	}
 	status, _, problem := embedConfirm(t, e, nil)
 	if status != http.StatusForbidden || problem.Code != "permission_denied" {

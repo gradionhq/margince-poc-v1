@@ -70,7 +70,7 @@ func TestReembedCorpusReembedsAllLiveEntitiesAndIsResumable(t *testing.T) {
 		t.Fatalf("ReembedCorpus: %v", err)
 	}
 
-	populated, status, err := e.store.PopulatedIdentity(ctx)
+	populated, status, _, err := e.store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestReembedCorpusIdentityDriftCancelsWithoutTouchingRows(t *testing.T) {
 	if got := e.storedEmbeddingModel(t, personID); got != staleRowIdentity {
 		t.Fatalf("drift guard must not touch existing rows, model = %q, want unchanged %q", got, staleRowIdentity)
 	}
-	_, status, err := e.store.PopulatedIdentity(ctx)
+	_, status, _, err := e.store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}

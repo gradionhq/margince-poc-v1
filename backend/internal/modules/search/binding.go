@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -63,17 +64,19 @@ func (s *Store) SeedBinding(ctx context.Context, configuredIdentity string) erro
 }
 
 // PopulatedIdentity is the one-PK read /readyz uses (Task 17): the marker's
-// own view of what the store is populated under, and the job lifecycle
-// status. It never joins the live entity scan — that cost belongs to the
-// ops status endpoint, not the readiness probe.
-func (s *Store) PopulatedIdentity(ctx context.Context) (identity string, status string, err error) {
+// own view of what the store is populated under, the job lifecycle status,
+// and when that status last changed (updatedAt — the figure a stuck-
+// "reembedding" recovery affordance shows a human as "reindexing since").
+// It never joins the live entity scan — that cost belongs to the ops
+// status endpoint, not the readiness probe.
+func (s *Store) PopulatedIdentity(ctx context.Context) (identity string, status string, updatedAt time.Time, err error) {
 	// rls-exempt: deployment metadata, no workspace_id
-	err = s.pool.QueryRow(ctx, `SELECT populated_identity, status FROM embed_store_binding WHERE singleton`).
-		Scan(&identity, &status)
+	err = s.pool.QueryRow(ctx, `SELECT populated_identity, status, updated_at FROM embed_store_binding WHERE singleton`).
+		Scan(&identity, &status, &updatedAt)
 	if err != nil {
-		return "", "", fmt.Errorf("search: reading binding marker: %w", err)
+		return "", "", time.Time{}, fmt.Errorf("search: reading binding marker: %w", err)
 	}
-	return identity, status, nil
+	return identity, status, updatedAt, nil
 }
 
 // ReindexNeeded is the DERIVED "does the store need a re-embed" signal
@@ -83,7 +86,7 @@ func (s *Store) PopulatedIdentity(ctx context.Context) (identity string, status 
 // late completion under a yet-different config are all honest by
 // construction instead of depending on someone remembering to clear a bit.
 func (s *Store) ReindexNeeded(ctx context.Context, configuredIdentity string) (bool, error) {
-	populated, _, err := s.PopulatedIdentity(ctx)
+	populated, _, _, err := s.PopulatedIdentity(ctx)
 	if err != nil {
 		return false, err
 	}

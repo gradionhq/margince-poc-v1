@@ -5,7 +5,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { EmbedReindexCard } from "./embedreindex";
+import { EmbedReindexCard, embedReindexStatusQueryKey } from "./embedreindex";
 
 type Handler = (body: unknown) => Response | Promise<Response>;
 
@@ -20,6 +20,7 @@ const STATUS_NEEDED = {
   configured_identity: "anthropic/voyage-3@1024",
   populated_identity: "anthropic/voyage-2@1024",
   status: "idle",
+  updated_at: "2026-07-21T12:00:00Z",
   reindex_needed: true,
   entities_pending: 42,
   per_workspace: [
@@ -41,6 +42,15 @@ const STATUS_IDLE = {
       entities_pending: 0,
     },
   ],
+};
+
+// A marker stuck at reembedding for well over a day — the F2 stuck-job
+// scenario: a drift-cancelled or retry-discarded job left no live worker
+// behind it, and the SPA is the only way an operator can even notice.
+const STATUS_STUCK_REEMBEDDING = {
+  ...STATUS_NEEDED,
+  status: "reembedding",
+  updated_at: "2026-07-20T00:00:00Z",
 };
 
 const PREVIEW = {
@@ -207,14 +217,68 @@ it("Rebuild index stays available even when no reindex is needed, and posts forc
   });
 });
 
-it("hides the confirm/rebuild actions for a role without the embedding_reindex write grant", async () => {
-  mount(["rep"], {
+it("F2: a stuck reembedding marker shows 'reindexing since' and keeps Rebuild enabled", () => {
+  // A drift-cancelled/retry-discarded job can leave the marker stuck at
+  // reembedding with no live worker behind it — the SPA must still let an
+  // operator judge "stuck" and re-kick it, not just show a spinner forever.
+  // Fake timers + a pre-seeded cache (inbox.test.tsx's own AC-7 idiom):
+  // Date.now() must be pinned for a deterministic duration, and seeding the
+  // cache directly means no async fetch race to unwind under fake timers.
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-07-22T00:00:00Z"));
+  try {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
+      },
+    });
+    client.setQueryData(["me"], {
+      user: { id: "u1", email: "a@example.test", display_name: "A" },
+      roles: ["ops"],
+    });
+    client.setQueryData(embedReindexStatusQueryKey, STATUS_STUCK_REEMBEDDING);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => json({ detail: "unused in this test" }, 404)),
+    );
+
+    render(
+      <QueryClientProvider client={client}>
+        <LocaleProvider initial="en">
+          <EmbedReindexCard />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText("Reindexing…")).toBeTruthy();
+    // updated_at is 2026-07-20T00:00:00Z, system time is 2026-07-22T00:00:00Z
+    // — a 2-day-old marker, formatDuration's absolute-day rendering.
+    expect(screen.getByText("Reindexing since 2d")).toBeTruthy();
+
+    // The Rebuild action stays enabled (not disabled) while reembedding —
+    // that's the re-kick affordance (force:true), not blocked by isRunning.
+    const rebuildButton = screen.getByRole("button", {
+      name: "Rebuild index",
+    });
+    expect(rebuildButton).toBeEnabled();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("renders nothing for a role without the embedding_reindex read grant", async () => {
+  const { requests } = mount(["rep"], {
     "GET /embeddings/reindex/status": () => json(STATUS_NEEDED),
   });
 
-  // The status read is wide-granted — a rep still sees it...
-  expect(await screen.findByText("Reindex needed")).toBeTruthy();
-  // ...but never the write affordances, which would only ever 403 for them.
+  // A rep holds no grant on embedding_reindex at all (migration 0114) —
+  // the card renders null rather than a 403 rendered as "unavailable",
+  // and the status query never even fires (enabled: canWrite).
+  await waitFor(() => expect(screen.queryByText("Search index")).toBeNull());
+  expect(screen.queryByText("Reindex needed")).toBeNull();
   expect(screen.queryByText("Review & reindex")).toBeNull();
   expect(screen.queryByText("Rebuild index")).toBeNull();
+  expect(requests.some((r) => r.url === "/embeddings/reindex/status")).toBe(
+    false,
+  );
 });

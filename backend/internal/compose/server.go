@@ -438,7 +438,7 @@ func (s Server) readyzEmbedState() func(context.Context) string {
 			// read (and without its error log) at all.
 			return embedStateUnknown
 		}
-		populated, status, err := engine.store.PopulatedIdentity(ctx)
+		populated, status, _, err := engine.store.PopulatedIdentity(ctx)
 		if err != nil {
 			// The marker read failing mid-request never gates readiness (the
 			// embed store still serves N+1 reads correctly under a stale or

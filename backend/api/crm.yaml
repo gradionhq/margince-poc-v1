@@ -2899,8 +2899,8 @@ paths:
         (Task 9); `populated_identity` is what the store's embeddings were last completed under.
         `reindex_needed` is DERIVED fresh on every read, never a stored flag (search/binding.go) —
         true when the two identities differ or any live entity still lacks a current-identity
-        embedding row. Read is granted to every role (the `embedding_reindex` RBAC object, migration
-        0114); only the confirm route below is admin/ops-gated.
+        embedding row. Read and the confirm route below are both admin/ops-only (the
+        `embedding_reindex` RBAC object, migration 0114).
       responses:
         '200':
           description: The binding marker + the fleet-wide and per-workspace pending counts.
@@ -7403,11 +7403,12 @@ components:
     EmbedReindexStatus:
       type: object
       description: 'The embed_store_binding marker (ADR-0068 design §5.6) plus the derived reindex-needed signal: every count is a live-scanned figure, never a stored counter.'
-      required: [configured_identity, populated_identity, status, reindex_needed, entities_pending, per_workspace]
+      required: [configured_identity, populated_identity, status, updated_at, reindex_needed, entities_pending, per_workspace]
       properties:
         configured_identity: { type: string, description: 'The live embed binding''s provider/model@dims (Task 9).' }
         populated_identity: { type: string, description: 'What the store''s embeddings were last completed under (embed_store_binding.populated_identity).' }
         status: { type: string, enum: [idle, reembedding], description: 'The marker''s own job-lifecycle state (embed_store_binding.status).' }
+        updated_at: { type: string, format: date-time, description: 'When the marker last changed (embed_store_binding.updated_at) — while status is reembedding, how long the job has been running, the figure a stuck-job recovery affordance needs to show a human.' }
         reindex_needed: { type: boolean, description: 'Derived fresh on every read (never a stored flag): true when configured_identity != populated_identity, or entities_pending > 0.' }
         entities_pending: { type: integer, description: 'Fleet-wide count of live entities lacking a current-identity embedding row.' }
         per_workspace:

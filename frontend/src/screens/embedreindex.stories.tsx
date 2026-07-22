@@ -10,6 +10,7 @@ const STATUS_NEEDED = {
   configured_identity: "anthropic/voyage-3@1024",
   populated_identity: "anthropic/voyage-2@1024",
   status: "idle",
+  updated_at: "2026-07-22T00:00:00Z",
   reindex_needed: true,
   entities_pending: 128,
   per_workspace: [
@@ -118,10 +119,10 @@ export const PreviewDialogWithEstimate: Story = {
   },
 };
 
-// The status read is wide-granted (every role), but the write affordances —
-// confirm and rebuild — are admin/ops-only: a rep sees the badge, never a
-// button that could only 403.
-export const ReadOnlyRoleSeesNoActions: Story = {
+// The status read is admin/ops-only server-side now (migration 0114): a rep
+// holds no grant on embedding_reindex at all, so the card renders nothing —
+// same predicate EmbedReindexBanner's own HiddenForNonOpsRole story gates on.
+export const HiddenForNonOpsRole: Story = {
   render: () => {
     installFetchStub({
       "GET /me": () =>

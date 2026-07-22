@@ -1832,12 +1832,13 @@ export const en = {
 
   "embedreindex.title": "Search index",
   "embedreindex.sub":
-    "The embedding store's reindex status — everyone can see it; starting or rebuilding it is admin/ops only.",
+    "The embedding store's reindex status — admin/ops only, including viewing it.",
   "embedreindex.loading": "Checking index status…",
   "embedreindex.statusUnavailable": "Index status is not available right now.",
   "embedreindex.statusIdle": "Up to date",
   "embedreindex.statusNeeded": "Reindex needed",
   "embedreindex.statusReembedding": "Reindexing…",
+  "embedreindex.reembeddingSince": "Reindexing since {duration}",
   "embedreindex.entitiesPending": "{count} entities pending",
   "embedreindex.workspacePending": "{count} pending",
   "embedreindex.reviewCta": "Review & reindex",
