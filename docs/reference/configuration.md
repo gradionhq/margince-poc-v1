@@ -26,6 +26,7 @@ stdio protocol channel). Log lines carry the per-request
 | `--addr` | — | `:8080` | listen address |
 | `--redis` | `MARGINCE_REDIS` | `localhost:56379` | Redis address (event bus) |
 | `--inline-relay` | — | `true` | run the outbox relay in-process; set `false` when `cmd/worker` runs it |
+| `--webhook-key` | `MARGINCE_WEBHOOK_KEY` | — | base64 32-byte key sealing outbound-webhook signing secrets at rest; unset = the mutating `/webhook-subscriptions` paths (create/rotate, replay) answer 503, never an unsigned fallback; the read surface still lists |
 | `--ai-routing` | `MARGINCE_AI_ROUTING` | — | path to `ai-routing.yaml`; enables the cold-start read-back, per-org enrichment, the Morning-Brief L2 re-order, and AI-drafted offer regeneration |
 | `--ai-fake` | — | `false` | offline fake model (dev/test only); drives the same AI surfaces as `--ai-routing` |
 | `--public-base-url` | `MARGINCE_PUBLIC_BASE_URL` | — | canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe / preference center); required to send marketing mail — a send refuses rather than derive the token-bearing link from the request Host — and for the Gmail/Graph OAuth callback |
@@ -58,6 +59,8 @@ Operational endpoints (served next to `/v1`):
 | `--retention-interval` | — | `24h` | retention evaluator pass interval |
 | `--time-scan-interval` | — | `1h` | clock-trigger automation scan interval (`no_activity_reminder` et al. — the River periodic job `TimeScanner.Scan` drives) |
 | `--close-date-interval` | — | `24h` | close-date hygiene sweep interval (INV-CLOSE-PAST) |
+| `--webhook-key` | `MARGINCE_WEBHOOK_KEY` | — | base64 32-byte key sealing outbound-webhook signing secrets; unset = the delivery worker stays off (no `cg:webhooks` consumer, no retry sweep) |
+| `--webhook-retry-interval` | — | `5s` | outbound-webhook retry-sweep tick interval |
 | `--reconcile-interval` | — | `24h` | overnight follow-up reconciliation pass interval |
 | `--deepread-max-pages` | `MARGINCE_DEEPREAD_MAX_PAGES` | `0` (= built-in 40) | deep-read crawl page cap |
 | `--deepread-max-bytes` | `MARGINCE_DEEPREAD_MAX_BYTES` | `0` (= built-in 32 MiB) | deep-read crawl aggregate byte cap |
@@ -196,13 +199,16 @@ It is deliberately not a flag: argv is world-readable.
 ```
 migrate <up|down> --dsn <owner-dsn> [--steps n]
 migrate reset-password --dsn <owner-dsn> --email <user-email>
+migrate <recreate-db|drop-db|db-exists> --dsn <owner-maintenance-dsn> --name <db> [--template <db>]
 ```
 
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
-| `--dsn` | `MARGINCE_DSN` | — (required) | Postgres DSN, **owner** role |
+| `--dsn` | `MARGINCE_DSN` | — (required) | Postgres DSN, **owner** role. For the db verbs it must name a maintenance database (`postgres`): `CREATE`/`DROP DATABASE` cannot run inside the database being dropped |
 | `--steps` | — | `1` | migrations to revert (`down` only) |
 | `--email` | — | — | user email (`reset-password` only): the operator break-glass (A107/ADR-0061 §9.1) — sets that user's password directly against the database, reading the new password from **stdin** (never argv); the way back in when the admin is locked out and no outbound email is configured |
+| `--name` | — | — | database name (`recreate-db`, `drop-db`, `db-exists` only): the integration lane's clone-per-package admin — drop-if-exists + create, drop-if-exists, or print `true`/`false`; the drops are `WITH (FORCE)`, so a lingering session dies rather than flaking the teardown. Runs on the same owner DSN the migrations and tests use, so the lane needs no host psql and an overridden `MARGINCE_TEST_DSN` targets one cluster throughout. A name (or template) over the server's identifier limit (63 bytes stock) is rejected, never silently truncated onto a different database |
+| `--template` | — | — | template database to copy (`recreate-db` only): `CREATE DATABASE … TEMPLATE`, a fast file copy |
 
 ## Other environment variables
 

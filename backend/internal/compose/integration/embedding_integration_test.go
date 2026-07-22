@@ -357,7 +357,7 @@ func TestUpsertRejectsZeroVector(t *testing.T) {
 // TestSimilarEntitiesFiltersIdentityAndDoesNotCrossDimCrash proves the
 // e.model = $identity predicate is BOTH a correctness fix and a
 // crash-safety pin (design §5.6/§5.8): the embedding column is unbounded
-// after migration 0113, so a store holding rows at two different widths
+// after migration 0114, so a store holding rows at two different widths
 // under two different bindings must (a) rank only the caller's own
 // identity's rows without erroring, and (b) the SAME comparison run
 // WITHOUT the identity filter — the shape SimilarEntities would run if

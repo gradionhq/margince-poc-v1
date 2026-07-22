@@ -56,11 +56,12 @@ func workflowEngineWithDrafter(pool *pgxpool.Pool, drafter activities.EmailDraft
 	// Executors ride the same per-workspace dispatch as every other
 	// datasource consumer: a starter firing for an overlay-mode
 	// workspace reads/writes through the overlay seam, not silently
-	// against the native tables that workspace no longer owns. This
-	// engine's own OVB meter is independent of the REST surface's
-	// (NewOverlayMeter's doc note).
+	// against the native tables that workspace no longer owns. The overlay
+	// provider here carries no live-incumbent resolver (the nil below), so
+	// a starter never triggers a force-fresh spend; its OVB meter is a
+	// fail-closed placeholder (no Redis), never charged.
 	ex := automation.Executors{
-		Provider:  NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, NewOverlayMeter(), nil), pool),
+		Provider:  NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, failClosedOverlayMeter(), nil), pool),
 		Approvals: automationApprovalsAdapter{svc: approvals.NewService(pool)},
 		Lists:     listsAdapter{store: collections.NewStore(pool)},
 		Comms: commsAdapter{

@@ -101,7 +101,7 @@ func (e *embedReindexEngine) currentIdentity() string {
 }
 
 // status answers the binding marker plus the derived reindex-needed
-// signal. Read is admin/ops-only (migration 0114) — the RBAC gate runs
+// signal. Read is admin/ops-only (migration 0115) — the RBAC gate runs
 // first so the grant is enforced here, not assumed from the contract text.
 func (e *embedReindexEngine) status(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

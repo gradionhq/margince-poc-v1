@@ -44,6 +44,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -83,6 +84,7 @@ type Server struct {
 	attachmentExtractionHandlers
 	overlayHandlers
 	embedReindexHandlers
+	webhooksHandlers
 
 	// gmailPush is the Pub/Sub push webhook, injected by WithGmailPush only
 	// when a subscription token is configured — the route is absent
@@ -144,15 +146,21 @@ type Server struct {
 	aiMetrics func(io.Writer)
 	aiState   string // the /readyz AI line (aistate.go); never a readiness gate
 
-	// overlayMeter is the ONE OVB meter this Server's REST surface
-	// spends against (contractAPI's Dispatcher force-fresh reads) and
-	// reports through (GetOverlayBudget, once WithKeyvault rebuilds
-	// overlayHandlers over it) — see compose/overlay.go's
-	// NewOverlayMeter doc on why these two must share an instance.
-	// Always non-nil (newServer constructs it unconditionally): a
-	// workspace never in overlay mode never spends against it, and a
-	// role with no vault simply never reaches GetOverlayBudget's 501.
-	overlayMeter *overlay.Meter
+	// overlayMeter is this Server's REST-surface OVB meter — what
+	// contractAPI's Dispatcher force-fresh reads spend against and what
+	// GetOverlayBudget reports (once WithKeyvault rebuilds overlayHandlers
+	// over it). Its windows live in Redis (see compose/overlay.go's
+	// NewOverlayMeter doc), so it shares a per-workspace-per-incumbent count
+	// with cmd/worker's poller meter over the same Redis; threading this one
+	// instance through both wiring points is convention, no longer a
+	// correctness requirement.
+	// Always non-nil (newServer constructs it unconditionally, fail-closed
+	// with no Redis): a role that never calls WithOverlayMeter answers shed
+	// for every force-fresh read (never spends live quota it cannot
+	// account for), and a role with no vault never reaches GetOverlayBudget
+	// at all. WithOverlayMeter Rebinds this shared pointer to the live
+	// Redis-backed meter at boot.
+	overlayMeter *overlaybudget.Meter
 	// overlayBackfillLimit bounds the overlay initial mirror backfill per
 	// object class (dev/demo — WithOverlayBackfillLimit); 0 is uncapped.
 	overlayBackfillLimit int
@@ -272,15 +280,21 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// WithExtractor rebuilds it together with the activities read so
 		// both surfaces answer from the SAME seam.
 		attachmentExtractionHandlers: attachmentExtractionHandlers{accept: NewExtractionAccept(pool, nil)},
-		log:                          log,
-		dealsStore:                   deals.NewStore(pool),
-		toolRegistry:                 NewRegistry(pool),
+		// Outbound webhooks (E10/S-E10.6): the read surface works
+		// unconditionally; create/rotate/replay need a deployment signing
+		// key, wired by WithWebhookSigningKey (the api role sources it from
+		// the environment). Without it those paths answer an honest 503.
+		webhooksHandlers: newWebhookHandlers(pool, nil, log),
+		log:              log,
+		dealsStore:       deals.NewStore(pool),
+		toolRegistry:     NewRegistry(pool),
 		// Constructed unconditionally: WithKeyvault rebuilds
 		// overlayHandlers over this SAME instance rather than minting a
 		// second one, and contractAPI's Dispatcher spends force-fresh
 		// reads against it too (see compose/overlay.go's NewOverlayMeter
-		// doc).
-		overlayMeter: NewOverlayMeter(),
+		// doc). Fail-closed until WithOverlayMeter Rebinds it with the live
+		// Redis client + config.
+		overlayMeter: failClosedOverlayMeter(),
 	}
 	// The overlay read dispatch is built with a nil live-incumbent resolver
 	// here (force-fresh degrades to the mirror). WithKeyvault injects the
@@ -417,47 +431,6 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH auth
 // renders "unknown" exactly like a marker-read failure does — Readyz's
 // body never distinguishes the two, only ever "was this readable right
 // now or not."
-// embedStateUnknown is readyzEmbedState's answer whenever there is no
-// embed lane to report on (engine nil or unbound) or the marker read
-// itself failed — three distinct causes, one line, matching the doc
-// comment above: Readyz's body never distinguishes them.
-const embedStateUnknown = "unknown"
-
-func (s Server) readyzEmbedState() func(context.Context) string {
-	engine := s.embedReindexHandlers.engine
-	return func(ctx context.Context) string {
-		if engine == nil {
-			return embedStateUnknown
-		}
-		if engine.currentIdentity() == "" {
-			// Unbound embed lane (--ai-fake, or any routing config that
-			// never declared an embeddings model) — brain.go's
-			// seedEmbedBinding never plants the marker for this shape, so
-			// reading it here would only ever error. Report the same
-			// embedStateUnknown an engine-nil role reports, without the
-			// read (and without its error log) at all.
-			return embedStateUnknown
-		}
-		populated, status, _, err := engine.store.PopulatedIdentity(ctx)
-		if err != nil {
-			// The marker read failing mid-request never gates readiness (the
-			// embed store still serves N+1 reads correctly under a stale or
-			// unreadable binding) — it only ever downgrades this one
-			// visibility line, so the failure is logged here rather than
-			// surfaced to the probe body.
-			slog.ErrorContext(ctx, "readyz: reading embed binding marker failed", "err", err)
-			return embedStateUnknown
-		}
-		if status == reembeddingStatus {
-			return "reembedding"
-		}
-		if populated == engine.currentIdentity() {
-			return "active"
-		}
-		return "needs_reindex"
-	}
-}
-
 // signalStrength bridges people's §4 relationship-strength computation to
 // the slice the warm room consumes (signals.StrengthSource). It carries
 // only the score and its bucket across the seam — the full explainable

@@ -1432,6 +1432,119 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/webhook-subscriptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the workspace's outbound webhook subscriptions. */
+        get: operations["listWebhookSubscriptions"];
+        put?: never;
+        /**
+         * Register an outbound webhook subscription (returns the signing secret once).
+         * @description Registers a target URL + event-type subset. Registering outbound egress, so an agent
+         *     principal's call is 🟡 — staged for human approval (ADR-0036), then redeemed with the
+         *     `X-Approval-Token`; a human on a session registers directly. Every register/change/delete
+         *     is audited. The `signing_secret` in the response is shown EXACTLY ONCE — deliveries are
+         *     HMAC-SHA256 signed with it (X-Margince-Signature). `target_url` must be https://.
+         */
+        post: operations["createWebhookSubscription"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/webhook-subscriptions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Get one webhook subscription by id. */
+        get: operations["getWebhookSubscription"];
+        put?: never;
+        post?: never;
+        /** Archive a webhook subscription (stops all delivery). */
+        delete: operations["archiveWebhookSubscription"];
+        options?: never;
+        head?: never;
+        /**
+         * Pause/resume a subscription or re-target its event set.
+         * @description A partial update (pause/resume or re-target the event set). Re-targeting can widen
+         *     outbound egress, so an agent principal's call is 🟡 — staged for approval and redeemed
+         *     with the `X-Approval-Token`; a human updates directly.
+         */
+        patch: operations["updateWebhookSubscription"];
+        trace?: never;
+    };
+    "/webhook-subscriptions/{id}/rotate-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rotate a subscription's signing secret (returns the new secret once). */
+        post: operations["rotateWebhookSecret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/webhook-subscriptions/{id}/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** List a subscription's delivery attempts (the dead-letter inspection surface). */
+        get: operations["listWebhookDeliveries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/webhook-subscriptions/{id}/deliveries/{deliveryId}/replay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                deliveryId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Replay a parked (dead-lettered) delivery. */
+        post: operations["replayWebhookDelivery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tags": {
         parameters: {
             query?: never;
@@ -1867,6 +1980,32 @@ export interface paths {
         get: operations["getCompanySiteRead"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/company/site-reads/{readId}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                readId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask Margince about a website read and receive reviewable company-field suggestions.
+         * @description Answers only from the selected dossier's grounded findings. Suggested changes are returned
+         *     as an inspectable artifact and are never written automatically; the administrator decides
+         *     which values enter the onboarding draft. Citations are server-bound to source URLs already
+         *     present in the dossier. The response carries the cumulative, price-on-read AI runtime for
+         *     this read so model identity and estimated provider spend stay visible in context.
+         */
+        post: operations["messageCompanySiteRead"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4202,6 +4341,89 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description An outbound webhook subscription (`webhook_subscription`): a tenant-configured target URL that receives signed HTTP POSTs for a chosen subset of the published event catalog. The signing secret is NEVER returned here — it is surfaced once, at create/rotate, in `WebhookSubscriptionCreated`. */
+        WebhookSubscription: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            workspace_id: string;
+            /** Format: uuid */
+            owner_id: string;
+            /**
+             * Format: uri
+             * @description HTTPS-only delivery endpoint.
+             */
+            target_url: string;
+            /** @description The subscribed event types, each from the published catalog (events.md §5). */
+            event_types: string[];
+            /** @enum {string} */
+            state: "active" | "paused";
+            /**
+             * Format: int64
+             * @description Optimistic-concurrency version; echo it in If-Match on update.
+             */
+            version: number;
+            /** Format: date-time */
+            created_at?: string;
+            /** Format: date-time */
+            updated_at?: string;
+            /** Format: date-time */
+            archived_at?: string | null;
+        };
+        /** @description The create/rotate response — the subscription plus the `signing_secret`, which is shown EXACTLY ONCE and never retrievable again. Store it now: deliveries are signed (HMAC-SHA256) with it. */
+        WebhookSubscriptionCreated: {
+            subscription: components["schemas"]["WebhookSubscription"];
+            /** @description The per-subscription signing secret. Shown once; use it to verify X-Margince-Signature. */
+            signing_secret: string;
+        };
+        CreateWebhookSubscriptionRequest: {
+            /**
+             * Format: uri
+             * @description HTTPS-only; http:// is rejected (the contract enforces the scheme, matching the store's check).
+             */
+            target_url: string;
+            /** @description At least one event type from the published catalog; a true set — duplicates are rejected. */
+            event_types: string[];
+        };
+        /** @description A partial update; omitted fields keep their stored value. Use it to pause/resume or re-target the event set. */
+        UpdateWebhookSubscriptionRequest: {
+            /** @enum {string} */
+            state?: "active" | "paused";
+            event_types?: string[];
+        };
+        WebhookSubscriptionListResponse: {
+            data: components["schemas"]["WebhookSubscription"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        /** @description One delivery attempt log (`webhook_delivery`) — the inspectable dead-letter surface. At-least-once with idempotency: exactly one row per (subscription, event). */
+        WebhookDelivery: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            subscription_id: string;
+            /** Format: uuid */
+            event_id: string;
+            event_type: string;
+            /** @enum {string} */
+            status: "pending" | "delivered" | "retrying" | "dead_lettered";
+            attempts: number;
+            last_status_code?: number | null;
+            last_error?: string | null;
+            /** Format: date-time */
+            next_retry_at?: string | null;
+            /** Format: date-time */
+            delivered_at?: string | null;
+            /** Format: date-time */
+            dead_lettered_at?: string | null;
+            /** Format: date-time */
+            created_at?: string;
+            /** Format: date-time */
+            updated_at?: string;
+        };
+        WebhookDeliveryListResponse: {
+            data: components["schemas"]["WebhookDelivery"][];
+            page: components["schemas"]["PageInfo"];
+        };
         /**
          * @description A per-user mail/calendar capture connection + sync state (capture.md CAP-DDL-2). The
          *     credential itself is NEVER in this shape — it lives encrypted in the vault, referenced only
@@ -7071,6 +7293,81 @@ export interface components {
              */
             disposition?: "separate_lead_proposal";
         };
+        /** @description One task, route, and served-model slice within a correlated AI run. */
+        AiRunModelUsage: {
+            task: string;
+            tier: string;
+            provider: string;
+            /** @description Provider model selected by the validated routing configuration. */
+            configured_model: string;
+            /** @description Provider-reported model identity; empty only when no provider response supplied one. */
+            served_model: string;
+            call_attempts: number;
+            /** Format: int64 */
+            tokens_in: number;
+            /** Format: int64 */
+            tokens_out: number;
+            /** Format: int64 */
+            cached_tokens: number;
+            /** Format: int64 */
+            cache_write_tokens: number;
+            /** Format: int64 */
+            reasoning_tokens: number;
+            /** Format: int64 */
+            latency_ms: number;
+            /**
+             * Format: int64
+             * @description Price-sheet estimate in millionths of one US dollar.
+             */
+            estimated_cost_microusd: number;
+            /** @description Calls with usage but no effective rate; never folded into a silent zero. */
+            unpriced_calls: number;
+            /** Format: date-time */
+            last_used_at: string;
+        };
+        /** @description Cumulative price-on-read transparency for model calls carrying one run correlation id. */
+        AiRunSummary: {
+            /** @enum {string} */
+            currency: "USD";
+            call_attempts: number;
+            /** Format: int64 */
+            tokens_in: number;
+            /** Format: int64 */
+            tokens_out: number;
+            /** Format: int64 */
+            latency_ms: number;
+            /** Format: int64 */
+            estimated_cost_microusd: number;
+            unpriced_calls: number;
+            models: components["schemas"]["AiRunModelUsage"][];
+        };
+        CompanySiteReadSuggestedChange: {
+            /** @enum {string} */
+            field: "display_name" | "offer_summary" | "icp" | "value_proposition" | "usp" | "customer_pains" | "desired_outcomes" | "buying_center" | "buying_intents" | "common_objections" | "sales_motion" | "legal_name" | "registered_address" | "register_vat" | "industry" | "history";
+            value: string;
+            reason: string;
+        };
+        CompanySiteReadCitation: {
+            label: string;
+            /** Format: uri */
+            url: string;
+        };
+        CompanySiteReadMessageRequest: {
+            message: string;
+            /** @description Bounded preceding turns, oldest first, so follow-up questions retain their conversational referent without creating durable chat state. */
+            history?: components["schemas"]["CompanySiteReadConversationTurn"][];
+        };
+        CompanySiteReadConversationTurn: {
+            /** @enum {string} */
+            role: "user" | "assistant";
+            message: string;
+        };
+        CompanySiteReadMessageReply: {
+            message: string;
+            proposed_changes: components["schemas"]["CompanySiteReadSuggestedChange"][];
+            citations: components["schemas"]["CompanySiteReadCitation"][];
+            ai_runtime: components["schemas"]["AiRunSummary"];
+        };
         CompanySiteRead: {
             /** Format: uuid */
             id: string;
@@ -7106,6 +7403,7 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+            ai_runtime?: components["schemas"]["AiRunSummary"];
         };
         ConfirmCompanySiteReadRequest: {
             draft_version: number;
@@ -12110,6 +12408,254 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    listWebhookSubscriptions: {
+        parameters: {
+            query?: {
+                /** @description Include soft-deleted (archived) rows. Default false. */
+                include_archived?: components["parameters"]["IncludeArchived"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Webhook subscriptions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookSubscriptionListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createWebhookSubscription: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
+                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
+                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+                 */
+                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWebhookSubscriptionRequest"];
+            };
+        };
+        responses: {
+            /** @description Created subscription plus the one-time signing secret. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookSubscriptionCreated"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getWebhookSubscription: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The subscription. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookSubscription"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    archiveWebhookSubscription: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archived subscription. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookSubscription"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateWebhookSubscription: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
+                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
+                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+                 */
+                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateWebhookSubscriptionRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated subscription. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookSubscription"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    rotateWebhookSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The subscription plus the new one-time signing secret. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookSubscriptionCreated"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listWebhookDeliveries: {
+        parameters: {
+            query?: {
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Delivery attempts, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookDeliveryListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    replayWebhookDelivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                deliveryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The delivery after the replay attempt. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookDelivery"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     listTags: {
         parameters: {
             query?: {
@@ -12720,6 +13266,45 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    messageCompanySiteRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                readId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompanySiteReadMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Grounded conversational answer, optional proposed changes, and cumulative run transparency. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanySiteReadMessageReply"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description No conversational model path is configured for this process role. */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     confirmCompanySiteRead: {

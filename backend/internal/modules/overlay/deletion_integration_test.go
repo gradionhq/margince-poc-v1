@@ -113,7 +113,7 @@ func TestReconcileDeletionsPurgesMirroredRecordAndEmits(t *testing.T) {
 	inc := &sweptRecords{deletions: []Deletion{{
 		ObjectClass: objectClass, ExternalID: externalID, DeletedAt: deletedAt,
 	}}}
-	meter := NewMeterWithClock(testMeterConfig(), time.Now)
+	meter := testBudgetMeter(t, "test-swept")
 
 	if err := ReconcileDeletions(ctx, inc, ms, meter, objectClass); err != nil {
 		t.Fatalf("ReconcileDeletions: %v", err)
@@ -132,8 +132,8 @@ func TestReconcileDeletionsPurgesMirroredRecordAndEmits(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("mirror.deleted outbox rows = %d, want exactly 1", n)
 	}
-	if snap := meter.Snapshot(ctx); snap.Consumed != 1 {
-		t.Fatalf("meter consumed = %d, want 1 (one poller-lane spend for the one deletion)", snap.Consumed)
+	if snap := meter.Snapshot(ctx, "test-swept"); snap.Consumed != 1 {
+		t.Fatalf("meter consumed = %d, want 1 (one poller REST charge for the one page fetch)", snap.Consumed)
 	}
 	// The process-wide deletion counter advanced — it is the value
 	// /metrics' margince_overlay_mirror_deleted_total reports. It is a
@@ -176,7 +176,7 @@ func TestReconcileDeletionsForUnmirroredRecordIsANoOp(t *testing.T) {
 	inc := &sweptRecords{deletions: []Deletion{{
 		ObjectClass: objectClass, ExternalID: externalID, DeletedAt: deletedAt,
 	}}}
-	meter := NewMeterWithClock(testMeterConfig(), time.Now)
+	meter := testBudgetMeter(t, "test-swept")
 
 	if err := ReconcileDeletions(ctx, inc, ms, meter, objectClass); err != nil {
 		t.Fatalf("ReconcileDeletions: %v", err)

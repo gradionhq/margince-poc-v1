@@ -54,10 +54,16 @@ func corpusSummary(ctx context.Context, tx pgx.Tx, profileID ids.UUID) (CorpusSu
 	return summary, nil
 }
 
+// corpusSourceHash fingerprints the included corpus AS THE BUILDER SEES IT:
+// content plus every builder-relevant manifest field (kind, register,
+// weight), so a manifest edit — not just a content edit — reads as a
+// changed corpus.
 func corpusSourceHash(ctx context.Context, tx pgx.Tx, profileID ids.UUID) (string, error) {
 	var hash string
 	err := tx.QueryRow(ctx, `
-		SELECT md5(coalesce(string_agg(content_hash, ',' ORDER BY source_ref), ''))
+		SELECT md5(coalesce(string_agg(
+		         content_hash || ':' || kind || ':' || register || ':' || weight::text,
+		         ',' ORDER BY source_ref), ''))
 		FROM voice_corpus_source
 		WHERE voice_profile_id = $1 AND NOT excluded AND archived_at IS NULL AND content_erased_at IS NULL`,
 		profileID).Scan(&hash)

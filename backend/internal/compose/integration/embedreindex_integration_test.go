@@ -48,6 +48,7 @@ type embedReindexStatusWire struct {
 	Status             string `json:"status"`
 	ReindexNeeded      bool   `json:"reindex_needed"`
 	EntitiesPending    int    `json:"entities_pending"`
+	UpdatedAt          string `json:"updated_at"`
 	PerWorkspace       []struct {
 		EntitiesPending int    `json:"entities_pending"`
 		WorkspaceID     string `json:"workspace_id"`
@@ -301,6 +302,12 @@ func TestEmbedReindexStatusAndPreviewReflectPendingEntities(t *testing.T) {
 	if st.EntitiesPending < 1 {
 		t.Fatalf("entities_pending = %d, want >= 1 (the seeded stale row)", st.EntitiesPending)
 	}
+	// updated_at is the "reindexing since" clock the SPA reads; it must be a
+	// real RFC3339 instant on the wire, not a zeroed/absent field — the
+	// binding row's updated_at is stamped on seed and every CAS.
+	if _, err := time.Parse(time.RFC3339, st.UpdatedAt); err != nil {
+		t.Fatalf("status.updated_at = %q, want a parseable RFC3339 instant: %v", st.UpdatedAt, err)
+	}
 	if len(st.PerWorkspace) != 1 || st.PerWorkspace[0].WorkspaceID != wsID || st.PerWorkspace[0].EntitiesPending != st.EntitiesPending {
 		t.Fatalf("per_workspace = %+v, want exactly one row for %s matching the fleet total %d", st.PerWorkspace, wsID, st.EntitiesPending)
 	}
@@ -324,7 +331,7 @@ func TestEmbedReindexStatusAndPreviewReflectPendingEntities(t *testing.T) {
 }
 
 // TestEmbedReindexConfirmRequiresAdminOrOps proves the object RBAC gate:
-// a rep (NO grant at all on embedding_reindex per migration 0114) is
+// a rep (NO grant at all on embedding_reindex per migration 0115) is
 // refused status/preview AND confirm alike — discharging the
 // rbacgate_test.go waiver's own promise that this transport is what
 // gates search.Store's binding-marker methods.

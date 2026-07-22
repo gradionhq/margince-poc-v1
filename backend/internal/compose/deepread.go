@@ -149,7 +149,10 @@ func deepReadWorkerCtx(ctx context.Context, args SiteDeepReadArgs) context.Conte
 		UserID:     requester,
 		OnBehalfOf: requester,
 	})
-	return principal.WithCorrelationID(ctx, ids.NewV7())
+	if args.SiteReadID.IsZero() {
+		return principal.WithCorrelationID(ctx, ids.NewV7())
+	}
+	return principal.WithCorrelationID(ctx, args.SiteReadID)
 }
 
 func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) error {

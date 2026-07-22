@@ -106,6 +106,7 @@ var unguardedByIDUpdates = map[string]string{
 	"internal/modules/people:ArchiveOrganization":   "absolute idempotent archive transition (org + child rows); concurrent archives converge, the visibility pre-read only feeds the response",
 	"internal/modules/people:ArchiveRelationship":   "absolute idempotent archive transition; the RETURNING + archived_at IS NULL predicate makes a lost race read as already archived",
 	"internal/modules/quotas:ArchiveQuota":          "absolute idempotent archive transition; concurrent archives converge, the visibility pre-read only feeds the response",
+	"internal/modules/webhooks:ArchiveSubscription": "absolute idempotent archive transition; the RETURNING + archived_at IS NULL predicate makes a lost race read as already archived (delivery stops at archive)",
 	"internal/modules/signals:ArchiveSignal":        "absolute idempotent archive transition; concurrent archives converge, the visibility pre-read only feeds the response",
 
 	// Writes that run UNDER a lock taken by their caller (or a lock the
@@ -122,6 +123,10 @@ var unguardedByIDUpdates = map[string]string{
 	"internal/modules/signals:dropUnattributable":   "runs only inside resolveTx, under its signal row lock (storekit.LockRow before the terminal-state pre-read)",
 	"internal/modules/signals:resolveToOrg":         "runs only inside resolveTx, under its signal row lock (storekit.LockRow before the terminal-state pre-read)",
 	"internal/modules/signals:flagAmbiguous":        "runs only inside resolveTx, under its signal row lock (storekit.LockRow before the terminal-state pre-read)",
+	"internal/modules/ai:SetBuildStage":             "stage is display-only forward progress; the status=running predicate makes a raced write a harmless no-op",
+	"internal/modules/ai:DeferBuild":                "the status=running predicate is the CAS: a build already finished or re-claimed matches zero rows and the deferral is dropped",
+	"internal/modules/ai:finishBuildTx":             "runs only under its callers' row lock — ClaimBuild's claim UPDATE or the FOR UPDATE pre-read in FailBuild/CompleteBuild, same transaction",
+	"internal/modules/ai:persistBuildVersion":       "runs only inside CompleteBuild's transaction, under its voice_profile row lock (storekit.LockRow before the pre-read)",
 
 	// Writes that are race-free by their own shape.
 	"internal/modules/activities:insertActivityLinks": "deal.last_activity_at is a single-statement monotone max (greatest of stored and new) — the value is computed inside the UPDATE, never from a pre-read, so concurrent writers converge on the maximum",

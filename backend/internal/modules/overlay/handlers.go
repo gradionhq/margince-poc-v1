@@ -20,6 +20,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -226,11 +227,16 @@ func (h Handlers) ReconcileOverlay(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 	if err := h.reconciler.Reconcile(ctx); err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
+		// Any context cancellation — our own reconcileTimeout (DeadlineExceeded)
+		// OR the caller abandoning the request (Canceled) — is a "cut off, retry"
+		// availability outcome, not an internal error: answer 503, never a
+		// misleading 500. Per-object-class progress already landed is retained,
+		// so a retry continues rather than restarts.
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			httperr.Write(w, r, &httperr.DetailedError{
 				Status: http.StatusServiceUnavailable,
 				Code:   "overlay_reconcile_timeout",
-				Detail: fmt.Sprintf("the mirror reconciliation sweep did not finish within %s and was cut off; per-object-class progress already landed is retained, retry to continue", reconcileTimeout),
+				Detail: fmt.Sprintf("the mirror reconciliation sweep was cut off before finishing (timeout %s or the request was canceled); per-object-class progress already landed is retained, retry to continue", reconcileTimeout),
 			})
 			return
 		}
@@ -257,8 +263,13 @@ func (h Handlers) GetOverlayBudget(w http.ResponseWriter, r *http.Request) {
 
 // budgetToWire maps the domain Budget onto the contract's OverlayBudget
 // shape — Consumed/Limit ride as float32 per the generated schema (an
-// OpenAPI integer-as-number artifact), never fractional in practice.
-func budgetToWire(b Budget) crmcontracts.OverlayBudget {
+// OpenAPI integer-as-number artifact), never fractional in practice. The
+// meter's per-source breakdown and the ~unknown headroom sentinel have no
+// field on this frozen wire shape (the admin budget surface that renders
+// them is a separate, unbuilt surface — overlay-budget chapter §"out of
+// scope"), so the endpoint reports the REST window's total, cap, and band
+// only; the breakdown stays internal to the meter.
+func budgetToWire(b overlaybudget.Budget) crmcontracts.OverlayBudget {
 	window := b.Window
 	consumed := float32(b.Consumed)
 	limit := float32(b.Limit)

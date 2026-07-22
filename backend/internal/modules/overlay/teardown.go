@@ -90,8 +90,21 @@ func (s *Service) Disconnect(ctx context.Context) error {
 	}
 	s.notifyModeFlip(ws)
 
+	// The disconnect is already committed and authoritative here (connection
+	// revoked, mirror purged, workspace flipped to native) — deleting the
+	// sealed credential is best-effort cleanup AFTER that commit, not part of
+	// it. Failing Disconnect on a vault error would be doubly wrong: it
+	// misreports a disconnect that DID happen, and it strands the caller — a
+	// retry finds no active connection (revokeConnection → ErrNotFound) and
+	// could never re-attempt this delete. So on failure, log the orphaned
+	// credential ref at ERROR for operational cleanup and return success. The
+	// blob is inert: a revoked, unreferenced, encrypted-at-rest secret, not an
+	// active exposure. The ref is a vault key, never the secret (safe to log).
+	// A durable outbox-driven retry keyed off the incumbent.disconnected event
+	// emitted above would remove even the manual step.
 	if err := s.vault.Delete(ctx, ids.From[ids.WorkspaceKind](ws), keyvault.Ref(ref)); err != nil {
-		return fmt.Errorf("overlay: deleting the sealed incumbent credential: %w", err)
+		s.log.ErrorContext(ctx, "overlay: disconnect committed, but deleting the sealed incumbent credential failed — the orphaned (revoked, inert) blob needs cleanup",
+			"workspace", ws.String(), "credential_ref", ref, "err", err)
 	}
 	return nil
 }
@@ -149,7 +162,11 @@ func revokeConnection(ctx context.Context, tx pgx.Tx) (credentialRef string, err
 // mirror load outright, and a stale watermark resumes the incremental
 // sweep past everything it never saw. A disconnected workspace's sync
 // state must read exactly as a never-connected one's does ("", not
-// started, epoch). No embeddings/context-graph/FTS tables exist
+// started, epoch). The OVB budget window is NOT purged here: it lives in
+// Redis now (overlay-budget chapter), not a workspace-scoped Postgres
+// table, and its fixed-window counters expire on their own TTL — there is
+// no PG row for this teardown to touch. No
+// embeddings/context-graph/FTS tables exist
 // yet in this build (the search module's retrieval store is a later
 // work package) — nothing here to purge on their behalf until that
 // lands.

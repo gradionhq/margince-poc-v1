@@ -23,11 +23,11 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 
@@ -37,9 +37,9 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
-	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/mailer"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 )
 
 func main() {
@@ -54,28 +54,30 @@ func main() {
 
 // apiConfig is the parsed boot configuration of the api process.
 type apiConfig struct {
-	dsn               string
-	configPath        string
-	schemaDSN         string
-	addr              string
-	redisAddr         string
-	inlineRelay       bool
-	routingPath       string
-	fakeBrain         bool
-	logLevel          string
-	logFormat         string
-	publicBaseURL     string
-	apiBaseURL        string
-	gmailClientID     string
-	gmailClientSecret string
-	gmailPushToken    string
-	gmailPushAudience string
-	gmailPushSA       string
-	gmailJWKSURL      string
-	graphClientID     string
-	graphClientSecret string
-	graphTenant       string
-	connectorStateKey string
+	dsn                  string
+	configPath           string
+	schemaDSN            string
+	addr                 string
+	redisAddr            string
+	inlineRelay          bool
+	routingPath          string
+	fakeBrain            bool
+	logLevel             string
+	logFormat            string
+	publicBaseURL        string
+	apiBaseURL           string
+	gmailClientID        string
+	gmailClientSecret    string
+	gmailPushToken       string
+	gmailPushAudience    string
+	gmailPushSA          string
+	gmailJWKSURL         string
+	graphClientID        string
+	graphClientSecret    string
+	graphTenant          string
+	connectorStateKey    string
+	webhookKey           string
+	webhookRetryInterval time.Duration
 }
 
 // parseAPIFlags parses and validates the boot flags; the DSN is the one
@@ -107,6 +109,8 @@ func parseAPIFlags(args []string) (apiConfig, error) {
 	fs.StringVar(&cfg.graphTenant, "graph-tenant", os.Getenv("MARGINCE_GRAPH_TENANT"), "Microsoft identity tenant for the consent endpoint (default: common — any organization)")
 	fs.StringVar(&cfg.apiBaseURL, "api-base-url", os.Getenv("MARGINCE_API_BASE_URL"), "the api's externally-reachable base for the OAuth callback redirect_uri; defaults to --public-base-url (same-origin deployments), set only when the api is on a different origin than the SPA (e.g. dev)")
 	fs.StringVar(&cfg.connectorStateKey, "connector-state-key", os.Getenv("MARGINCE_CONNECTOR_STATE_KEY"), "HMAC key (>=32 bytes) signing the OAuth connect `state`; required for the Gmail and Graph connect flows")
+	fs.StringVar(&cfg.webhookKey, "webhook-key", os.Getenv("MARGINCE_WEBHOOK_KEY"), "base64 32-byte key sealing outbound-webhook signing secrets; enables the mutating /webhook-subscriptions surface, and (with --inline-relay) the cg:webhooks delivery consumer + retry sweep. Empty = those paths answer 503 and no inline delivery runs.")
+	fs.DurationVar(&cfg.webhookRetryInterval, "webhook-retry-interval", 5*time.Second, "outbound-webhook retry-sweep tick interval (inline-relay only)")
 	if err := fs.Parse(args); err != nil {
 		return apiConfig{}, err
 	}
@@ -161,11 +165,38 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	opts = append(opts, resetOpts...)
 
+	// The signing key enables the mutating /webhook-subscriptions surface
+	// (create/rotate/replay); without it those paths answer an honest 503.
+	if cfg.webhookKey != "" {
+		webhookOpt, err := compose.WithWebhookKey(cfg.webhookKey)
+		if err != nil {
+			return fmt.Errorf("api: %w", err)
+		}
+		opts = append(opts, webhookOpt)
+	}
+
+	// The overlay budget meter records against Redis, the SAME server the
+	// worker's poller uses, so force-fresh reads (this role) and poller
+	// sweeps (cmd/worker) spend against ONE shared per-workspace-per-
+	// incumbent count. A LAZY client (no boot ping): a split-deployment api
+	// that cannot reach Redis must still boot — the meter then fails closed
+	// (force-fresh degrades to the mirror), never a hard boot dependency.
+	// cmd builds the meter (the raw-Redis dependency stays here, not in
+	// compose); WithOverlayMeter Rebinds the Server's shared instance to it.
+	overlayRDB := redis.NewClient(&redis.Options{Addr: cfg.redisAddr})
+	defer func() {
+		if err := overlayRDB.Close(); err != nil {
+			logger.Warn("overlay budget: closing the redis client", "err", err)
+		}
+	}()
+	overlayMeter := overlaybudget.New(overlayRDB, compose.OverlayBudgetConfig(deployCfg.EffectiveOverlayBudget()))
+	opts = append(opts, compose.WithOverlayMeter(overlayMeter))
+
 	stopRelay := func() {
 		// No inline relay to stop unless --inline-relay wires one below.
 	}
 	if cfg.inlineRelay {
-		busReady, stop, err := startInlineRelay(ctx, pool, cfg.redisAddr, logger)
+		busReady, stop, err := startInlineRelay(ctx, pool, cfg.redisAddr, cfg.webhookKey, cfg.webhookRetryInterval, logger)
 		if err != nil {
 			return err
 		}
@@ -195,17 +226,16 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		opts = append(opts, compose.WithBackfillEstimator(modelPath.Router()))
 	}
 
-	deepRead, err := deepReadOption(pool, logger)
+	enqueueOpts, err := jobEnqueueOptions(pool, logger, modelPath)
 	if err != nil {
 		return err
 	}
-	opts = append(opts, deepRead)
-
 	embedReindex, err := embedReindexOption(pool, modelPath, logger)
 	if err != nil {
 		return err
 	}
 	opts = append(opts, embedReindex)
+	opts = append(opts, enqueueOpts...)
 	opts = append(opts, compose.WithCompanyContextRollout(string(deployCfg.CompanyContext.EffectiveRollout())))
 
 	srv := &http.Server{
@@ -384,38 +414,6 @@ func withPoolMaxConns(dsn string, n int) string {
 		return dsn + sep + param
 	}
 	return dsn + " " + param
-}
-
-// startInlineRelay boots the in-process outbox relay. The bus is not
-// optional plumbing: without a relay every committed write strands its
-// outbox row, so an unreachable Redis fails the boot the same way an
-// unreachable Postgres does (B-EP04.1). The returned compose option makes
-// the bus a readiness dependency of THIS process (a split deployment's
-// api is ready on Postgres alone); the stop function runs after the HTTP
-// server shuts down, so late-committing requests usually ship before
-// exit — anything still unshipped waits durably in the outbox for the
-// next boot, and shutdown loses no events.
-func startInlineRelay(ctx context.Context, pool *pgxpool.Pool, redisAddr string, logger *slog.Logger) (compose.Option, func(), error) {
-	rdb, err := events.NewClient(ctx, redisAddr)
-	if err != nil {
-		return nil, nil, err
-	}
-	relayCtx, cancel := context.WithCancel(context.Background())
-	var relay sync.WaitGroup
-	relay.Go(func() {
-		events.NewRelay(pool, rdb, logger).Run(relayCtx)
-	})
-	stop := func() {
-		cancel()
-		relay.Wait()
-		if err := rdb.Close(); err != nil {
-			logger.Warn("closing bus client", "err", err)
-		}
-	}
-	busReady := compose.WithBusReady(func(ctx context.Context) error {
-		return rdb.Ping(ctx).Err()
-	})
-	return busReady, stop, nil
 }
 
 // envOr reads an environment variable with an explicit default, keeping

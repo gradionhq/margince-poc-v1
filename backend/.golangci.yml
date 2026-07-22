@@ -53,6 +53,15 @@ linters:
       # instead of rotting silently.
       rules:
         - name: package-comments
+  exclusions:
+    rules:
+      # Test files are exempt from gosec's hardcoded-credential heuristic
+      # (G101): fitness-test maps key on function names like RotateSecret and
+      # unit tests carry obvious fixture secrets — neither is a real
+      # credential. Mirrors the strict config's _test.go gosec exemption so
+      # the two passes agree (a nolint would read as unused under strict).
+      - path: '_test\.go$'
+        linters: [gosec]
 
 formatters:
   enable:

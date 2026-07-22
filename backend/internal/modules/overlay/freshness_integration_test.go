@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -88,14 +89,6 @@ func (s *stubIncumbent) Get(_ context.Context, objectClass, externalID string) (
 		return Record{}, fmt.Errorf("stubIncumbent: no record fixtured for %s/%s", objectClass, externalID)
 	}
 	return s.rec, nil
-}
-
-// testMeterConfig is a small, fast-to-exhaust budget: limit 10, warn at
-// 5, shed at 8 — big enough to tell "under threshold" (1 spend) apart
-// from "at/over shed" (8 spend) without either test relying on the
-// production DefaultMeterConfig's real-world size.
-func testMeterConfig() MeterConfig {
-	return MeterConfig{Window: time.Hour, Limit: 10, WarnFraction: 0.5, ShedFraction: 0.8}
 }
 
 // canonicalClass/incumbentClass are this file's fixed stand-ins for the
@@ -184,7 +177,7 @@ func TestFreshnessReaderUnderThresholdReadsLiveAndSpends(t *testing.T) {
 
 	inc := seedMirrorAndLiveFixture(ctx, t, ms, externalID, mirrorTime, liveTime)
 
-	meter := NewMeterWithClock(testMeterConfig(), time.Now)
+	meter := testBudgetMeter(t, "stub")
 	fr := NewFreshnessReader(func(context.Context) (Incumbent, error) { return inc, nil }, ms, meter, translatorFor(false))
 
 	id, err := externalIDToUUID(externalID)
@@ -207,12 +200,12 @@ func TestFreshnessReaderUnderThresholdReadsLiveAndSpends(t *testing.T) {
 		t.Fatalf("inc.Get call count = %d, want exactly 1 — via the translated incumbent class %q", inc.calls, incumbentClass)
 	}
 
-	snap := meter.Snapshot(ctx)
+	snap := meter.Snapshot(ctx, "stub")
 	if snap.Consumed != 1 {
 		t.Fatalf("meter consumed = %d, want 1 (one force_fresh spend)", snap.Consumed)
 	}
-	if snap.Band != BandOK {
-		t.Fatalf("band = %q, want %q after a single spend against limit %d", snap.Band, BandOK, snap.Limit)
+	if snap.Band != overlaybudget.BandOK {
+		t.Fatalf("band = %q, want %q after a single spend against limit %d", snap.Band, overlaybudget.BandOK, snap.Limit)
 	}
 }
 
@@ -232,7 +225,7 @@ func TestFreshnessReaderFailedLiveReadStillSpendsAndDegrades(t *testing.T) {
 	inc := seedMirrorAndLiveFixture(ctx, t, ms, externalID, mirrorTime, mirrorTime.Add(time.Hour))
 	inc.getErr = fmt.Errorf("hubspot: unreachable")
 
-	meter := NewMeterWithClock(testMeterConfig(), time.Now)
+	meter := testBudgetMeter(t, "stub")
 	fr := NewFreshnessReader(func(context.Context) (Incumbent, error) { return inc, nil }, ms, meter, translatorFor(false))
 
 	id, err := externalIDToUUID(externalID)
@@ -251,7 +244,7 @@ func TestFreshnessReaderFailedLiveReadStillSpendsAndDegrades(t *testing.T) {
 	if inc.calls != 1 {
 		t.Fatalf("inc.Get calls = %d, want 1 (the one failed live read)", inc.calls)
 	}
-	if snap := meter.Snapshot(ctx); snap.Consumed != 1 {
+	if snap := meter.Snapshot(ctx, "stub"); snap.Consumed != 1 {
 		t.Fatalf("meter consumed = %d, want 1 — a FAILED force-fresh read still spends its reserved unit", snap.Consumed)
 	}
 }
@@ -274,7 +267,7 @@ func TestFreshnessReaderNoIncumbentClassMappingDegradesHonestly(t *testing.T) {
 
 	inc := seedMirrorAndLiveFixture(ctx, t, ms, externalID, mirrorTime, liveTime)
 
-	meter := NewMeterWithClock(testMeterConfig(), time.Now)
+	meter := testBudgetMeter(t, "stub")
 	fr := NewFreshnessReader(func(context.Context) (Incumbent, error) { return inc, nil }, ms, meter, translatorFor(true)) // every canonical type misses
 
 	id, err := externalIDToUUID(externalID)
@@ -299,7 +292,7 @@ func TestFreshnessReaderNoIncumbentClassMappingDegradesHonestly(t *testing.T) {
 	if inc.calls != 0 {
 		t.Fatalf("inc.Get call count = %d, want 0 — a translator miss must never call the live incumbent", inc.calls)
 	}
-	if snap := meter.Snapshot(ctx); snap.Consumed != 0 {
+	if snap := meter.Snapshot(ctx, "stub"); snap.Consumed != 0 {
 		t.Fatalf("meter consumed = %d, want 0 — a wiring gap spends nothing", snap.Consumed)
 	}
 
@@ -333,15 +326,16 @@ func TestFreshnessReaderShedDegradesToMirrorAndEmitsBudgetDegraded(t *testing.T)
 
 	inc := seedMirrorAndLiveFixture(ctx, t, ms, externalID, mirrorTime, liveTime)
 
-	meter := NewMeterWithClock(testMeterConfig(), time.Now)
-	// Push the window straight to the shed band (limit 10, shed at 8)
-	// via a different lane — proving the meter's band is a total across
-	// lanes, not a per-lane count force_fresh alone would never reach.
-	if err := meter.Consume(ctx, LanePoller, 8); err != nil {
-		t.Fatalf("pre-loading the poller lane to shed: %v", err)
+	meter := testBudgetMeter(t, "stub")
+	// Push the REST window straight to the shed band (cap 10, shed at 8)
+	// via a DIFFERENT source (poller) — proving the band is the total
+	// across sources, not a per-source count the force_fresh source alone
+	// would never reach.
+	if err := meter.ConsumeREST(ctx, "stub", overlaybudget.SourcePoller, 8); err != nil {
+		t.Fatalf("pre-loading the poller source to shed: %v", err)
 	}
-	if got := meter.Band(ctx); got != BandShed {
-		t.Fatalf("meter.Band = %q after loading to the shed threshold, want %q", got, BandShed)
+	if got := meter.BandREST(ctx, "stub"); got != overlaybudget.BandShed {
+		t.Fatalf("BandREST = %q after loading to the shed threshold, want %q", got, overlaybudget.BandShed)
 	}
 
 	fr := NewFreshnessReader(func(context.Context) (Incumbent, error) { return inc, nil }, ms, meter, translatorFor(false))
@@ -369,7 +363,7 @@ func TestFreshnessReaderShedDegradesToMirrorAndEmitsBudgetDegraded(t *testing.T)
 		t.Fatalf("inc.Get call count = %d, want 0 — the shed path must never spend a live read", inc.calls)
 	}
 
-	snap := meter.Snapshot(ctx)
+	snap := meter.Snapshot(ctx, "stub")
 	if snap.Consumed != 8 {
 		t.Fatalf("meter consumed = %d, want unchanged at 8 (the shed path spends nothing)", snap.Consumed)
 	}

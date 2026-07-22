@@ -52,7 +52,7 @@ var pendingSources = map[string]pendingSource{
 // restarts idempotent — the marker is written once, ever, outside a
 // completed reindex.
 func (s *Store) SeedBinding(ctx context.Context, configuredIdentity string) error {
-	// rls-exempt: deployment metadata, no workspace_id (embed_store_binding, migration 0113) — this write must not ride a per-workspace GUC tx.
+	// rls-exempt: deployment metadata, no workspace_id (embed_store_binding, migration 0114) — this write must not ride a per-workspace GUC tx.
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO embed_store_binding (singleton, populated_identity, status)
 		VALUES (true, $1, 'idle')
@@ -187,7 +187,7 @@ func (s *Store) EntitiesPending(ctx context.Context, currentIdentity string) (in
 // embedding row at all (embedding.go:47-48, UpsertEmbedding's early
 // return), so without it such a row would count as pending forever —
 // counting the row's ABSENCE, rather than requiring a stale one, is what
-// also covers a wiped store (migration 0113's TRUNCATE) as a rebuild path.
+// also covers a wiped store (migration 0114's TRUNCATE) as a rebuild path.
 func (s *Store) pendingStats(ctx context.Context, currentIdentity string) (map[ids.WorkspaceID]int, map[ids.WorkspaceID]int64, error) {
 	workspaces, err := s.fleetWorkspaceIDs(ctx)
 	if err != nil {

@@ -38,6 +38,10 @@ import (
 type VoiceStore struct {
 	pool *pgxpool.Pool
 	now  func() time.Time
+	// enqueueBuild queues a freshly created build's job inside the creating
+	// transaction; nil when no job runner is configured (the row then stays
+	// honestly queued). Wired by WithBuildEnqueue.
+	enqueueBuild VoiceBuildEnqueue
 }
 
 func NewVoiceStore(pool *pgxpool.Pool) *VoiceStore {

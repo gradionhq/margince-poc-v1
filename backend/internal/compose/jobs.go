@@ -22,6 +22,7 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
@@ -29,6 +30,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -259,6 +261,13 @@ type JobRunnerConfig struct {
 	EnrichBrain     completer
 	OverlayVault    keyvault.Vault
 	OverlayInterval time.Duration
+	// OverlayMeter is the poller's OVB meter — built by cmd/worker over the
+	// SAME Redis the api's force-fresh meter uses, so both lanes share one
+	// per-workspace-per-incumbent count (keeping the raw-Redis dependency in
+	// the cmd tier, never compose). Nil makes the poller fail-closed (it
+	// still mirrors; its Consume* calls are silent no-ops with no Redis, so a
+	// nil meter means unmetered recording, never a refused sweep).
+	OverlayMeter *overlaybudget.Meter
 	// OverlayBackfillLimit bounds the initial mirror backfill at this many
 	// records per object class (dev/demo — MARGINCE_OVERLAY_BACKFILL_LIMIT);
 	// 0 (the default) is uncapped.
@@ -282,6 +291,11 @@ type JobRunnerConfig struct {
 	// rather than sitting queued forever behind a job no one can work —
 	// the same posture as DeepReadBrain.
 	Embedder search.Embedder
+	// VoiceBrain is the voice-build model lane (the worker's
+	// modelPath.VoiceBuild). May be nil: the build worker still registers,
+	// so a queued build on a brainless worker finishes failed with an
+	// actionable message instead of sitting queued forever.
+	VoiceBrain completer
 }
 
 // NewJobRunner wires the deals correctors and the automation time-scan
@@ -313,6 +327,11 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	// The deep read is not periodic — the api enqueues one job per started
 	// dossier; the worker role only needs the worker registered.
 	river.AddWorker(workers, newSiteDeepReadWorker(pool, cfg.DeepReadBrain, cfg.DeepReadFactBrain, log, cfg.DeepReadCaps))
+	// The voice build is not periodic — the api enqueues one job per created
+	// build; only the deferred-retry sweep ticks. Both register even with a
+	// nil brain so a queued build fails actionably instead of rotting.
+	river.AddWorker(workers, newVoiceBuildWorker(pool, cfg.VoiceBrain, log))
+	river.AddWorker(workers, &voiceBuildRetryWorker{store: ai.NewVoiceStore(pool), log: log})
 	river.AddWorker(workers, &closeDateSweepWorker{corrector: NewCloseDateCorrector(pool, log)})
 	river.AddWorker(workers, &followUpReconcileWorker{reconciler: NewFollowUpReconciler(pool, log)})
 	river.AddWorker(workers, &timeScanWorker{scanner: NewTimeScanner(pool, log)})
@@ -336,6 +355,11 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		river.NewPeriodicJob(
 			river.PeriodicInterval(cfg.TimeScanInterval),
 			func() (river.JobArgs, *river.InsertOpts) { return TimeScanArgs{}, sweepInsertOpts() },
+			&river.PeriodicJobOpts{RunOnStart: true},
+		),
+		river.NewPeriodicJob(
+			river.PeriodicInterval(voiceBuildRetryInterval),
+			func() (river.JobArgs, *river.InsertOpts) { return VoiceBuildRetryArgs{}, sweepInsertOpts() },
 			&river.PeriodicJobOpts{RunOnStart: true},
 		),
 	}
@@ -405,7 +429,13 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 
 	if cfg.OverlayVault != nil {
 		ms := overlay.NewMirrorStore(pool, unresolvedOwnerEmails{})
-		meter := overlay.NewMeter(overlay.DefaultMeterConfig())
+		// cmd/worker built the meter over the shared Redis (so the poller's
+		// spend and the api's force-fresh spend land on ONE count); fall back
+		// to a fail-closed meter if a role wired the poller without one.
+		meter := cfg.OverlayMeter
+		if meter == nil {
+			meter = failClosedOverlayMeter()
+		}
 		river.AddWorker(workers, &overlayReconcileWorker{pool: pool, vault: cfg.OverlayVault, ms: ms, meter: meter, log: log, newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit)})
 		periodic = append(periodic, river.NewPeriodicJob(
 			river.PeriodicInterval(cfg.OverlayInterval),
@@ -424,52 +454,4 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		Workers:      workers,
 		PeriodicJobs: periodic,
 	}, log)
-}
-
-// CaptureBackfillArgs pages ONE bounded backfill run (ADR-0063). Unique by
-// args while incomplete: start and any retry converge on one job.
-type CaptureBackfillArgs struct {
-	Workspace  string `json:"workspace"`
-	BackfillID string `json:"backfill_id"`
-}
-
-// Kind is the stable job identifier River persists in river_job.
-func (CaptureBackfillArgs) Kind() string { return "capture_backfill" }
-
-// captureBackfillWorker pages a run to completion, yielding between pages
-// (snooze) so a long mailbox never monopolizes a worker slot. A page error
-// returns nil after the engine recorded it — the run row owns its state.
-type captureBackfillWorker struct {
-	river.WorkerDefaults[CaptureBackfillArgs]
-	registry *capture.Registry
-	log      *slog.Logger
-}
-
-// backfillPagesPerTick bounds how many pages one Work invocation walks
-// before yielding the worker slot.
-const backfillPagesPerTick = 10
-
-func (w *captureBackfillWorker) Work(ctx context.Context, job *river.Job[CaptureBackfillArgs]) error {
-	ws, err := ids.Parse(job.Args.Workspace)
-	if err != nil {
-		return fmt.Errorf("capture_backfill: workspace id: %w", err)
-	}
-	bfID, err := ids.Parse(job.Args.BackfillID)
-	if err != nil {
-		return fmt.Errorf("capture_backfill: backfill id: %w", err)
-	}
-	wsCtx := principal.WithWorkspaceID(ctx, ws)
-	for i := 0; i < backfillPagesPerTick; i++ {
-		done, err := w.registry.RunBackfillStep(wsCtx, bfID)
-		if err != nil {
-			// The engine recorded the failure class on the run; the log
-			// carries the detail. The row owns retry policy, not River.
-			w.log.WarnContext(ctx, "capture backfill page failed", "backfill", job.Args.BackfillID, "err", err)
-			return nil
-		}
-		if done {
-			return nil
-		}
-	}
-	return river.JobSnooze(time.Second)
 }

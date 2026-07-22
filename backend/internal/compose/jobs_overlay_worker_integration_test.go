@@ -31,10 +31,22 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/fake"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget/budgettest"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
+
+// workerBudgetMeter builds a Redis-backed OVB meter for the "fake"
+// incumbent these worker tests sweep through — the poller's reconcile
+// reserves a search slot per page, so an unconfigured or fail-closed meter
+// would pace the sweep to a stop before it mirrors anything. The
+// raw-Redis dependency lives in budgettest (platform tier), never here.
+func workerBudgetMeter(t *testing.T) *overlaybudget.Meter {
+	t.Helper()
+	return budgettest.Meter(t, budgettest.SmallConfig("fake"))
+}
 
 // overlayAdminCtx binds a workspace admin with the overlay_connection
 // grant Connect requires (AdminPerms in the shared harness deliberately
@@ -73,7 +85,7 @@ func TestOverlayReconcileWorkerWorkNoOpsOverAnEmptyFleet(t *testing.T) {
 		pool:  e.Pool,
 		vault: keyvault.NewMemory(),
 		ms:    overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{}),
-		meter: overlay.NewMeter(overlay.DefaultMeterConfig()),
+		meter: workerBudgetMeter(t),
 		log:   slog.New(slog.DiscardHandler),
 	}
 
@@ -148,7 +160,7 @@ func TestWorkerBacksOffAConnectionLevelFailure(t *testing.T) {
 
 	w := &overlayReconcileWorker{
 		pool: e.Pool, vault: vault, ms: ms,
-		meter:        overlay.NewMeter(overlay.DefaultMeterConfig()),
+		meter:        workerBudgetMeter(t),
 		log:          slog.New(slog.DiscardHandler),
 		newIncumbent: func(_, _ string) overlay.Incumbent { return authFailingIncumbent{Adapter: fake.New()} },
 	}
@@ -217,7 +229,7 @@ func TestReconcileConnectionBackfillsAndSeedsViaFakeIncumbent(t *testing.T) {
 	}
 
 	sweepCtx := reconcileWorkerCtx(context.Background(), ids.From[ids.WorkspaceKind](e.WS))
-	if err := reconcileConnection(sweepCtx, vault, ms, overlay.NewMeter(overlay.DefaultMeterConfig()),
+	if err := reconcileConnection(sweepCtx, vault, ms, workerBudgetMeter(t),
 		slog.New(slog.DiscardHandler), d, func(_, _ string) overlay.Incumbent { return fakeInc }); err != nil {
 		t.Fatalf("reconcileConnection: %v", err)
 	}
@@ -291,7 +303,7 @@ func TestReconcileConnectionStopsCleanlyWhenDisconnectedMidSweep(t *testing.T) {
 	}
 
 	sweepCtx := reconcileWorkerCtx(context.Background(), ids.From[ids.WorkspaceKind](e.WS))
-	err = reconcileConnection(sweepCtx, vault, ms, overlay.NewMeter(overlay.DefaultMeterConfig()),
+	err = reconcileConnection(sweepCtx, vault, ms, workerBudgetMeter(t),
 		slog.New(slog.DiscardHandler), d, func(_, _ string) overlay.Incumbent { return fakeInc })
 	if !errors.Is(err, overlay.ErrConnectionGone) {
 		t.Fatalf("reconcileConnection over a revoked connection = %v, want overlay.ErrConnectionGone (clean stop)", err)
@@ -358,7 +370,7 @@ func TestWorkerCleanStopsOnMidSweepDisconnect(t *testing.T) {
 
 	w := &overlayReconcileWorker{
 		pool: e.Pool, vault: vault, ms: ms,
-		meter: overlay.NewMeter(overlay.DefaultMeterConfig()),
+		meter: workerBudgetMeter(t),
 		log:   slog.New(slog.DiscardHandler),
 		newIncumbent: func(_, _ string) overlay.Incumbent {
 			return &revokeOnOwnersIncumbent{Incumbent: fakeInc, pool: e.Pool}
@@ -406,7 +418,7 @@ func TestOnDemandReconcileRacingDisconnectAnswersModeNotOverlay(t *testing.T) {
 
 	r := overlayReconciler{
 		pool: e.Pool, vault: vault, ms: ms,
-		meter: overlay.NewMeter(overlay.DefaultMeterConfig()),
+		meter: workerBudgetMeter(t),
 		log:   slog.New(slog.DiscardHandler),
 		newIncumbent: func(_, _ string) overlay.Incumbent {
 			return &revokeOnOwnersIncumbent{Incumbent: fakeInc, pool: e.Pool}
@@ -456,7 +468,7 @@ func TestReconcileConnectionPurgesIncumbentDeletedRecord(t *testing.T) {
 
 	sweepCtx := reconcileWorkerCtx(context.Background(), ids.From[ids.WorkspaceKind](e.WS))
 	newInc := func(_, _ string) overlay.Incumbent { return fakeInc }
-	meter := overlay.NewMeter(overlay.DefaultMeterConfig())
+	meter := workerBudgetMeter(t)
 
 	// First sweep mirrors the live record; the mapped reader can see it.
 	if err := reconcileConnection(sweepCtx, vault, ms, meter, slog.New(slog.DiscardHandler), d, newInc); err != nil {

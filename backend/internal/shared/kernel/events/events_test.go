@@ -123,11 +123,12 @@ func TestGroupStreamSetsMatchSpecTable(t *testing.T) {
 		"cg:flow-bridge":     {"gw:events:crm:activity", "gw:events:crm:deal", "gw:events:crm:person"},
 		"cg:read-model":      all,
 		"cg:audit-stream":    all,
+		"cg:webhooks":        all,
 	}
 
 	groups := Groups()
 	if len(groups) != len(want) {
-		t.Fatalf("Groups() returned %d groups, want the seven events.md §4.3 groups", len(groups))
+		t.Fatalf("Groups() returned %d groups, want the events.md §4.3 groups plus the E10 outbound-webhook fan-out", len(groups))
 	}
 	for _, g := range groups {
 		if !reflect.DeepEqual(g.Streams, want[g.Name]) {
