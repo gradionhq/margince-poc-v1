@@ -155,6 +155,8 @@ export function VoiceHistory({
   const t = useT();
   const [versionCursor, setVersionCursor] = useState<string | undefined>();
   const [deltaCursor, setDeltaCursor] = useState<string | undefined>();
+  const [allVersions, setAllVersions] = useState<VoiceProfileVersion[]>([]);
+  const [allDeltas, setAllDeltas] = useState<VoiceProfileDelta[]>([]);
   const versions = useQuery({
     queryKey: ["voice-versions", profileId, versionCursor ?? ""],
     queryFn: async (): Promise<VersionsPage> => {
@@ -171,7 +173,6 @@ export function VoiceHistory({
       return { items: data.data, next: data.page.next_cursor ?? null };
     },
   });
-  const [allVersions, setAllVersions] = useState<VoiceProfileVersion[]>([]);
   const deltas = useQuery({
     queryKey: ["voice-deltas", profileId, deltaCursor ?? ""],
     queryFn: async (): Promise<DeltasPage> => {
@@ -188,7 +189,6 @@ export function VoiceHistory({
       return { items: data.data, next: data.page.next_cursor ?? null };
     },
   });
-  const [allDeltas, setAllDeltas] = useState<VoiceProfileDelta[]>([]);
   const learning = useQuery({
     queryKey: ["voice-learning", profileId],
     queryFn: async (): Promise<VoiceLearningSummary> => {
