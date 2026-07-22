@@ -1350,6 +1350,28 @@ export const de = {
   "ob.conv.consent":
     "Letzter Schritt: Was darf ich erfassen, und zu welchem Zweck? Nichts ist standardmäßig aktiv.",
   "ob.conv.done": "Einrichtung abgeschlossen. Dein CRM ist bereit.",
+  "ob.conv.composer": "Gib deine Website ein oder stell mir eine Frage",
+  "ob.conv.tellInstead": "Ich erzähle es dir lieber direkt",
+  "ob.conv.clarify.question": "{question}",
+  "ob.conv.clarify.optionDetail": "{detail}",
+  "ob.conv.review.title": "Firmenprofil, aus Quellen vorbereitet",
+  "ob.conv.review.openQuestions":
+    "Entscheide diese Punkte, bevor ich etwas speichere.",
+  "ob.conv.review.missing":
+    "Mir fehlt noch: {fields}. Ergänze das und ich kann speichern.",
+  "ob.conv.review.acceptAll": "Alles übernehmen",
+  "ob.conv.review.editDirectly": "Felder direkt bearbeiten",
+  "ob.conv.review.backToDossier": "Zurück zum Dossier",
+  "ob.conv.artifact.empty":
+    "Noch nichts gelesen. Nenn mir eine Website und dieses Panel füllt sich mit belegten Funden.",
+  "ob.conv.voice.stubBody":
+    "Stimm-Uploads laufen vorerst im klassischen Schritt weiter. Dieses Gespräch übernimmt sie in einer späteren Version.",
+  "ob.conv.voice.openClassic": "Klassischen Stimm-Schritt öffnen",
+  "ob.conv.results.continue": "Weiter",
+  "ob.conv.connect.stubBody":
+    "Die Postfach-Verbindung läuft vorerst im klassischen Schritt. Ohne deine Freigabe wird nichts erfasst.",
+  "ob.conv.connect.openClassic": "Klassischen Verbindungs-Schritt öffnen",
+  "ob.conv.connect.finish": "Ohne Verbindung abschließen",
 
   "auth.title": "Margince",
   "auth.checking": "Sitzung wird geprüft…",

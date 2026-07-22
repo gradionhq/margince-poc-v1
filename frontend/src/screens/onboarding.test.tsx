@@ -659,6 +659,7 @@ describe("the optional website path", () => {
       },
       messageReply: {
         kind: "recommendation",
+        act: "company",
         message:
           "I found evidence that industrial software is the clearest industry description.",
         proposed_changes: [

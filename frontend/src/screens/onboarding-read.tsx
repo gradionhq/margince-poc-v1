@@ -138,7 +138,7 @@ const tierKeys = {
   local_large: "ob.ai.tier.localLarge",
 } as const;
 
-function configuredModelLabel(
+export function configuredModelLabel(
   profile: AiProfile | undefined,
   unavailable: string,
   t: Translate,
@@ -359,11 +359,12 @@ function CompanyArtifact(props: ReadCompanyStepProps) {
   );
 }
 
-function useCompanyConversation(
+export function useCompanyConversation(
   mode: ReadCompanyStepProps["mode"],
   locale: "en" | "de",
   readFirstMessage: string,
   companyDraft: OnboardingCompanyDraft,
+  act: components["schemas"]["OnboardingAct"] = "company",
 ) {
   const [draft, setDraft] = useState("");
   const [entries, setEntries] = useState<ConversationEntry[]>([]);
@@ -377,7 +378,7 @@ function useCompanyConversation(
     }): Promise<MessageReply> => {
       if (!mode) throw new Error(readFirstMessage);
       const { data, error } = await api.POST("/onboarding/company/messages", {
-        body: { message, history, locale, company_draft: companyDraft },
+        body: { message, history, locale, act, company_draft: companyDraft },
       });
       if (error) throw new Error(problemMessage(error));
       return data;
@@ -405,7 +406,7 @@ function useCompanyConversation(
   return { draft, setDraft, entries, send, submit };
 }
 
-function ConversationEntries({
+export function ConversationEntries({
   entries,
   applied,
   onApply,
@@ -502,7 +503,7 @@ function keyedCitations(
   });
 }
 
-function conversationHistory(
+export function conversationHistory(
   entries: ReadonlyArray<ConversationEntry>,
 ): ConversationTurn[] {
   return entries
@@ -777,7 +778,7 @@ function readablePage(rawURL: string) {
   return path === "" ? pageURL.hostname : `${pageURL.hostname}${path}`;
 }
 
-function ReadEvidence({ read }: Readonly<{ read: CompanySiteRead }>) {
+export function ReadEvidence({ read }: Readonly<{ read: CompanySiteRead }>) {
   const t = useT();
   const legalEntities = read.legal_entities ?? [];
   const skippedPages = read.pages.filter((page) => page.status !== "fetched");
@@ -823,7 +824,11 @@ function ReadEvidence({ read }: Readonly<{ read: CompanySiteRead }>) {
           <p>{t("ob.coreFindingsBody")}</p>
           <div className="finding-grid">
             {read.profile_fields.map((field) => (
-              <article key={field.field} className="finding-card">
+              <article
+                key={field.field}
+                className="finding-card"
+                data-finding-id={field.field}
+              >
                 <div className="finding-label">
                   <Check aria-hidden /> {coldFieldLabel(field.field, t)}
                   <span>{Math.round(field.confidence * 100)}%</span>

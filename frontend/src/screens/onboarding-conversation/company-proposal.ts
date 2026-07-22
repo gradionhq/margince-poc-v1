@@ -1,0 +1,138 @@
+import type { components } from "../../api/schema";
+import type {
+  CompanyDraft,
+  CompanyFieldName,
+  CompanyForm,
+} from "../onboarding";
+import { REQUIRED_FIELDS } from "../onboarding";
+import type { ConversationQuestion } from "./conversation-machine";
+
+// Pure mappings between the server's proposal/clarify payloads and the
+// conversation machine's vocabulary. Nothing here renders or fetches; the
+// company act driver calls these and dispatches the results.
+
+type OnboardingClarify = components["schemas"]["OnboardingClarify"];
+type Comparison = components["schemas"]["CompanySiteReadComparison"];
+type Resolution = components["schemas"]["CompanySiteReadResolution"];
+type ProposalField = components["schemas"]["OnboardingCompanyProposalField"];
+type LegalEntity = components["schemas"]["CompanySiteReadLegalEntity"];
+type ColdField = components["schemas"]["ColdStartField"];
+
+export type ClarifyAnswer = {
+  clarifyId: string;
+  field: string;
+  value: string;
+};
+
+// A server clarify becomes a machine question: the deterministic server copy
+// rides verbatim as params through passthrough catalog keys, so the renderer
+// keeps its i18n-only contract without paraphrasing what the server asked.
+export function toMachineQuestion(
+  clarify: OnboardingClarify,
+): ConversationQuestion {
+  return {
+    id: clarify.id,
+    i18nKey: "ob.conv.clarify.question",
+    params: { question: clarify.question },
+    options: clarify.options.map((option) => {
+      const detail = option.detail ?? option.evidence_snippet ?? null;
+      return {
+        value: option.value,
+        label: option.label,
+        ...(detail === null
+          ? {}
+          : {
+              detailKey: "ob.conv.clarify.optionDetail" as const,
+              params: { detail },
+            }),
+      };
+    }),
+  };
+}
+
+// Evidence-or-omit: a proposal row without a verbatim snippet never renders.
+export function evidencedFields(
+  fields: readonly ProposalField[] | undefined,
+): ProposalField[] {
+  return (fields ?? []).filter((field) => field.evidence_snippet.trim() !== "");
+}
+
+// The proposal names fields as plain strings; only ones the form vocabulary
+// knows can be shown with the human's current draft value.
+export function isCompanyField(
+  field: string,
+  values: CompanyForm,
+): field is CompanyFieldName {
+  return field in values;
+}
+
+export function missingRequiredFields(values: CompanyForm): CompanyFieldName[] {
+  return REQUIRED_FIELDS.filter((field) => values[field].trim() === "");
+}
+
+// A clarify answered over a human_conflict comparison maps 1:1 onto the
+// confirm request's resolution vocabulary. Other clarifies (the legal-entity
+// choice) resolve through the profile values themselves and produce none.
+export function resolutionsFromAnswers(
+  comparisons: readonly Comparison[],
+  answers: readonly ClarifyAnswer[],
+): Resolution[] {
+  const resolutions: Resolution[] = [];
+  for (const answer of answers) {
+    const conflict = comparisons.find(
+      (comparison) =>
+        comparison.key === answer.field &&
+        comparison.classification === "human_conflict",
+    );
+    if (!conflict) {
+      continue;
+    }
+    if (answer.value === conflict.proposed_value) {
+      resolutions.push({ key: conflict.key, action: "accept_proposal" });
+    } else if (answer.value === (conflict.current_value ?? "")) {
+      resolutions.push({ key: conflict.key, action: "keep_current" });
+    } else {
+      resolutions.push({
+        key: conflict.key,
+        action: "use_value",
+        value: answer.value,
+      });
+    }
+  }
+  return resolutions;
+}
+
+// Choosing an entity fills one intact legal block and keeps its website
+// provenance (the read grounded it; the human only chose which block). A
+// detail the notice left blank is cleared rather than inherited. Mirrors the
+// classic coordinator's entity pick so both shells stamp provenance alike.
+export function draftWithLegalEntity(
+  draft: CompanyDraft,
+  entity: LegalEntity,
+): CompanyDraft {
+  const grounded = { ...draft.grounded };
+  const edited = new Set(draft.edited);
+  const values = { ...draft.values };
+  const applied: Array<[ColdField["field"], string]> = [
+    ["legal_name", entity.name],
+    ["registered_address", entity.registered_address ?? ""],
+    ["register_vat", entity.register_number ?? ""],
+  ];
+  for (const [field, value] of applied) {
+    values[field] = value;
+    edited.delete(field);
+    if (value === "") {
+      delete grounded[field];
+      continue;
+    }
+    grounded[field] = {
+      field,
+      value,
+      evidence_snippet: entity.evidence_snippet ?? value,
+      source_kind: "url",
+      source_url: entity.source_url,
+      confidence: 1,
+    };
+  }
+  return { values, grounded, edited };
+}

@@ -1326,6 +1326,26 @@ export const en = {
   "ob.conv.consent":
     "Last step: what may I capture, and for which purpose? Nothing is on by default.",
   "ob.conv.done": "Setup complete. Your CRM is ready.",
+  "ob.conv.composer": "Type your website address, or ask me a question",
+  "ob.conv.tellInstead": "I would rather tell you directly",
+  "ob.conv.clarify.question": "{question}",
+  "ob.conv.clarify.optionDetail": "{detail}",
+  "ob.conv.review.title": "Company profile, prepared from sources",
+  "ob.conv.review.openQuestions": "Decide these before I save anything.",
+  "ob.conv.review.missing": "I still need: {fields}. Add them and I can save.",
+  "ob.conv.review.acceptAll": "Accept all",
+  "ob.conv.review.editDirectly": "Edit fields directly",
+  "ob.conv.review.backToDossier": "Back to the dossier",
+  "ob.conv.artifact.empty":
+    "Nothing read yet. Give me a website and this panel fills with sourced findings.",
+  "ob.conv.voice.stubBody":
+    "Voice uploads continue in the classic step for now. This conversation picks them up in a later release.",
+  "ob.conv.voice.openClassic": "Open the classic voice step",
+  "ob.conv.results.continue": "Continue",
+  "ob.conv.connect.stubBody":
+    "Connecting your inbox continues in the classic step for now. Nothing is captured until you allow it there.",
+  "ob.conv.connect.openClassic": "Open the classic connect step",
+  "ob.conv.connect.finish": "Finish without connecting",
 
   "auth.title": "Margince",
   "auth.checking": "Checking your session…",
