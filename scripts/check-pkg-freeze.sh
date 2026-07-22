@@ -1,17 +1,29 @@
 #!/usr/bin/env bash
 # Published-surface freeze gate (ADR-0069 §3, EXT-P3; the ADR-0023
 # Amendment 2 patch-lane arm): backend/pkg is frozen published API from
-# its first consumer — it evolves additively or through versioned
+# its first release — it evolves additively or through versioned
 # successors, never in place. This gate apidiffs every published package
-# against the base revision and fails on any INCOMPATIBLE change
+# against the merge target and reports every INCOMPATIBLE change
 # (removed package, removed or re-signatured symbol, narrowed interface);
-# additive growth passes.
+# additive growth always passes.
 #
-# Baseline: the merge-base with the extensions integration branch while
-# the arc is held there (in-arc slices must not break each other), else
-# with origin/main — derived, never configured. Override with
-# PKG_FREEZE_BASE=<ref> for a deliberate, reviewed surface change; like
-# every deliberate break it must be visible in the PR, not silent.
+# TWO REGIMES, derived from the tree (no config):
+#   advisory — before the first v1+ release tag exists: the surface is
+#     design-fluid, incompatible changes print as ADVISORY and never
+#     block. What you see is what v1.0.0 will freeze.
+#   enforce  — from the first v1+ tag: incompatible changes FAIL. A
+#     ratified change is recorded in the allowlist as its exact apidiff
+#     finding BOUND to the merge-base sha it was ratified against (the
+#     gate prints the ready-to-paste line): once the ratifying PR
+#     merges, every future merge-base differs, so an entry can never
+#     license a recurring same-text finding or pre-authorize a future
+#     break. Superseded/unused entries warn until removed. Package
+#     REMOVALS are never allowlistable (deprecate-then-major cycle).
+# PKG_FREEZE_MODE=advisory|enforce overrides (testing the other regime).
+#
+# Baseline: the PR's merge target (origin/$GITHUB_BASE_REF in CI); the
+# local approximation is the extensions integration branch while the
+# arc holds there, else origin/main. PKG_FREEZE_BASE=<ref> overrides.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -21,7 +33,23 @@ cd "$ROOT"
 # is a pseudo-version.
 APIDIFF="${APIDIFF:-go run golang.org/x/exp/cmd/apidiff@v0.0.0-20260718201538-764159d718ef}"
 
+if [ -n "${PKG_FREEZE_MODE:-}" ]; then
+  MODE="$PKG_FREEZE_MODE"
+elif [ -n "$(git tag --list 'v[1-9]*' | head -1)" ]; then
+  MODE=enforce
+else
+  MODE=advisory
+fi
+case "$MODE" in
+  advisory | enforce) ;;
+  *) echo "check-pkg-freeze: unknown PKG_FREEZE_MODE='$MODE' (want advisory|enforce)" >&2; exit 2 ;;
+esac
+
 resolve_base_ref() {
+  if [ -n "${GITHUB_BASE_REF:-}" ] && git rev-parse -q --verify "origin/$GITHUB_BASE_REF" > /dev/null; then
+    echo "origin/$GITHUB_BASE_REF"
+    return 0
+  fi
   for ref in origin/feat/extensions-adr-0069 origin/main; do
     if git rev-parse -q --verify "$ref" > /dev/null; then
       echo "$ref"
@@ -44,53 +72,38 @@ if [ -z "$BASE_REF" ]; then
 fi
 
 BASE="$(git merge-base HEAD "$BASE_REF")"
+BASE12="$(git rev-parse --short=12 "$BASE")"
 
 if ! git ls-tree -d "$BASE" backend/pkg > /dev/null 2>&1 || [ -z "$(git ls-tree -d "$BASE" backend/pkg)" ]; then
-  echo "OK: pkg-freeze — no published surface at $BASE_REF merge-base; nothing frozen yet"
+  echo "OK: pkg-freeze ($MODE) — no published surface at $BASE_REF merge-base; nothing frozen yet"
   exit 0
 fi
 
 WORKTREE="$(mktemp -d "${TMPDIR:-/tmp}/pkg-freeze.XXXXXX")"
+EXPORT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pkg-freeze-export.XXXXXX")"
 cleanup() {
   git worktree remove --force "$WORKTREE" > /dev/null 2>&1 || true
-  rm -rf "$WORKTREE"
+  rm -rf "$WORKTREE" "$EXPORT_DIR"
 }
 trap cleanup EXIT
 git worktree add --detach --quiet "$WORKTREE" "$BASE"
 
 OLD_PKGS="$(cd "$WORKTREE/backend" && go list ./pkg/... 2> /dev/null || true)"
 if [ -z "$OLD_PKGS" ]; then
-  echo "OK: pkg-freeze — no published packages at the merge-base; nothing frozen yet"
+  echo "OK: pkg-freeze ($MODE) — no published packages at the merge-base; nothing frozen yet"
   exit 0
 fi
 
-EXPORT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pkg-freeze-export.XXXXXX")"
-trap 'cleanup; rm -rf "$EXPORT_DIR"' EXIT
-
-# A ratified surface change is recorded as its exact apidiff finding in
-# the allowlist (the contract gate's exception pattern): the entry only
-# ever matches that one change — the next incompatible edit is a new
-# finding and fails — and an entry matching nothing is itself a failure,
-# so the file can never accumulate stale permissions. Package removals
-# are NOT allowlistable: removal is the deprecate-then-major cycle.
-ALLOWLIST="${PKG_FREEZE_ALLOWLIST:-scripts/pkg-freeze-allowlist.txt}"
-allowed="$EXPORT_DIR/allowed"
-if [ -f "$ALLOWLIST" ]; then
-  grep -vE '^\s*(#|$)' "$ALLOWLIST" > "$allowed" || true
-else
-  : > "$allowed"
-fi
-
 findings="$EXPORT_DIR/findings"
+removals="$EXPORT_DIR/removals"
 : > "$findings"
-failed=0
+: > "$removals"
 count=0
 for pkg in $OLD_PKGS; do
   count=$((count + 1))
   rel="${pkg#github.com/gradionhq/margince/backend/}"
   if [ ! -d "backend/$rel" ]; then
-    echo "FAIL: pkg-freeze — published package $pkg was removed; published surface dies slowly (deprecate, then remove with its major cycle — ADR-0069 §3)" >&2
-    failed=1
+    echo "$pkg: package removed" >> "$removals"
     continue
   fi
   export_file="$EXPORT_DIR/$(echo "$pkg" | tr '/' '_').export"
@@ -99,23 +112,58 @@ for pkg in $OLD_PKGS; do
     | sed -e 's/^- //' -e "s|^|$pkg: |" >> "$findings"
 done
 
-violations="$(grep -Fxv -f "$allowed" "$findings" || true)"
-stale="$(grep -Fxv -f "$findings" "$allowed" || true)"
+if [ "$MODE" = "advisory" ]; then
+  if [ -s "$removals" ] || [ -s "$findings" ]; then
+    echo "ADVISORY: pkg-freeze — incompatible published-surface changes vs $BASE_REF (design-fluid pre-v1.0.0; these HARD-FAIL from the first v1 release tag):"
+    cat "$removals" "$findings" | sed 's/^/  /'
+  else
+    echo "OK: pkg-freeze (advisory) — published surface additive-or-unchanged vs $BASE_REF ($count packages)"
+  fi
+  exit 0
+fi
 
-if [ -n "$violations" ]; then
-  echo "FAIL: pkg-freeze — incompatible published-surface change vs $BASE_REF:" >&2
-  echo "$violations" | sed 's/^/  /' >&2
+# enforce: the allowlist licenses ratified findings, baseline-bound.
+ALLOWLIST="${PKG_FREEZE_ALLOWLIST:-scripts/pkg-freeze-allowlist.txt}"
+allowed="$EXPORT_DIR/allowed"
+expired="$EXPORT_DIR/expired"
+: > "$allowed"
+: > "$expired"
+if [ -f "$ALLOWLIST" ]; then
+  entries="$(grep -vE '^\s*(#|$)' "$ALLOWLIST" || true)"
+  if [ -n "$entries" ]; then
+    printf '%s\n' "$entries" | grep -E "^$BASE12 " | sed "s/^$BASE12 //" > "$allowed" || true
+    printf '%s\n' "$entries" | grep -vE "^$BASE12 " > "$expired" || true
+  fi
+fi
+
+failed=0
+violations="$(grep -Fxv -f "$allowed" "$findings" || true)"
+unused="$(grep -Fxv -f "$findings" "$allowed" || true)"
+
+if [ -s "$removals" ]; then
+  echo "FAIL: pkg-freeze — published package removed (never allowlistable; deprecate, then remove with its major cycle — ADR-0069 §3):" >&2
+  sed 's/^/  /' "$removals" >&2
   failed=1
 fi
-if [ -n "$stale" ]; then
-  echo "FAIL: pkg-freeze — allowlist entry matches no current finding (remove it, the ratified change has been absorbed):" >&2
-  echo "$stale" | sed 's/^/  /' >&2
+if [ -n "$violations" ]; then
+  echo "FAIL: pkg-freeze — incompatible published-surface change vs $BASE_REF (merge-base $BASE12):" >&2
+  echo "$violations" | sed 's/^/  /' >&2
+  echo "A ratified change is recorded in $ALLOWLIST as this exact line (visible in the PR):" >&2
+  echo "$violations" | sed "s/^/  $BASE12 /" >&2
   failed=1
+fi
+if [ -s "$expired" ]; then
+  echo "WARN: pkg-freeze — allowlist entries bound to a superseded baseline (they can license nothing; remove them with the next allowlist edit):"
+  sed 's/^/  /' "$expired"
+fi
+if [ -n "$unused" ]; then
+  echo "WARN: pkg-freeze — allowlist entries bound to the current baseline ($BASE12) match no finding (typo, or the change was reverted — remove them):"
+  echo "$unused" | sed 's/^/  /'
 fi
 
 if [ "$failed" -ne 0 ]; then
-  echo "pkg-freeze: the published surface changes additively or via versioned successors, never in place (EXT-P3). A ratified change is recorded as its exact finding line in $ALLOWLIST, visible in the PR." >&2
+  echo "pkg-freeze: the published surface changes additively or via versioned successors, never in place (EXT-P3)." >&2
   exit 1
 fi
-allowed_count="$(grep -c . "$allowed" || true)"
-echo "OK: pkg-freeze — published surface additive-or-unchanged vs $BASE_REF ($count packages, $allowed_count ratified exceptions)"
+active="$(($(grep -c . "$allowed" || true) - $(echo "$unused" | grep -c . || true)))"
+echo "OK: pkg-freeze (enforce) — published surface additive-or-unchanged vs $BASE_REF ($count packages, $active active exceptions)"
