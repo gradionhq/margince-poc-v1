@@ -179,11 +179,11 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		opts = append(opts, compose.WithBackfillEstimator(modelPath.Router()))
 	}
 
-	deepRead, err := deepReadOption(pool, logger, modelPath)
+	enqueueOpts, err := jobEnqueueOptions(pool, logger, modelPath)
 	if err != nil {
 		return err
 	}
-	opts = append(opts, deepRead)
+	opts = append(opts, enqueueOpts...)
 	opts = append(opts, compose.WithCompanyContextRollout(string(deployCfg.CompanyContext.EffectiveRollout())))
 
 	srv := &http.Server{
