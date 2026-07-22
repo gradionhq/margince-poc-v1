@@ -62,7 +62,7 @@ func composedFiles(root string) (map[string][]byte, error) {
 		return nil, err
 	}
 	return map[string][]byte{
-		"go.work":                    work,
+		goWorkFile:                   work,
 		"backend/go.mod":             composedGoMod(goVersion),
 		"backend/extensions_gen.go":  wiring,
 		"frontend/extensions.gen.ts": frontendGen(),
@@ -94,11 +94,11 @@ func canonicalGoSource(name string, src []byte) ([]byte, error) {
 // composition module, and each enabled extension module — sorted, paths
 // relative to build/composition/go.work.
 func composedWork(root string, units []extensionUnit) ([]byte, string, error) {
-	raw, err := os.ReadFile(filepath.Join(root, "go.work"))
+	raw, err := os.ReadFile(filepath.Join(root, goWorkFile))
 	if err != nil {
 		return nil, "", err
 	}
-	rootWork, err := modfile.ParseWork("go.work", raw, nil)
+	rootWork, err := modfile.ParseWork(goWorkFile, raw, nil)
 	if err != nil {
 		return nil, "", fmt.Errorf("root go.work: %w", err)
 	}
