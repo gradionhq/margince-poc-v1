@@ -177,3 +177,59 @@ func TestOfferSupersededWireSnapshot(t *testing.T) {
 	}
 	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
 }
+
+// pipelineSnapshotID/pipelineSnapshotStageID are fixed, memorable UUIDs so
+// the pipeline/stage config family's golden snapshots (Task 5a-iii) are
+// stable across test runs — a real ids.NewV7() would churn the fixtures
+// on every regeneration for no reason.
+var pipelineSnapshotStageID = uuid.MustParse("77777777-7777-7777-7777-777777777777")
+
+// TestPipelineCreatedWireSnapshot pins the pipeline.created wire shape
+// (webhooks Task 5a-iii, pipeline/stage config family).
+func TestPipelineCreatedWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadPipelineCreated{
+		Name:      "Sales",
+		IsDefault: true,
+		Stages: []crmcontracts.WebhookPipelineCreatedStage{
+			{Name: "New", Position: 0, Semantic: "open"},
+			{Name: "Won", Position: 1, Semantic: "won"},
+		},
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestPipelineUpdatedWireSnapshot pins the pipeline.updated wire shape —
+// the OPEN changed_fields envelope, sampled with the flat-patch shape
+// UpdatePipeline emits (the stage_positions reorder shape is the same
+// schema, just a different map value, so it needs no separate snapshot).
+func TestPipelineUpdatedWireSnapshot(t *testing.T) {
+	isDefault := true
+	sample := crmcontracts.WebhookPayloadPipelineUpdated{
+		ChangedFields: map[string]any{"name": "Enterprise Sales", "is_default": isDefault},
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestStageCreatedWireSnapshot pins the stage.created wire shape.
+func TestStageCreatedWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadStageCreated{
+		PipelineId:     pipelineSnapshotStageID,
+		Name:           "Negotiation",
+		Position:       2,
+		Semantic:       "open",
+		WinProbability: 40,
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestStageUpdatedWireSnapshot pins the stage.updated wire shape — the
+// BOUNDED delta, sampled with only name touched so the snapshot also pins
+// that an untouched semantic/win_probability is OMITTED, not nulled.
+func TestStageUpdatedWireSnapshot(t *testing.T) {
+	name := "Qualified"
+	sample := crmcontracts.WebhookPayloadStageUpdated{
+		PipelineId: pipelineSnapshotStageID,
+		Name:       &name,
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}

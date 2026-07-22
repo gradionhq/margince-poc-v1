@@ -23,8 +23,8 @@ components:
       description: >-
         The closed set of domain events a webhook subscription can select.
         Phase 4 fills this out family by family; today it carries the
-        pilot event plus the deal family (Task 5a-i) and the offer family
-        (Task 5a-ii).
+        pilot event plus the deal family (Task 5a-i), the offer family
+        (Task 5a-ii), and the pipeline/stage config family (Task 5a-iii).
       enum:
         - deal.created
         - deal.owner_changed
@@ -37,6 +37,12 @@ components:
         - offer.accepted
         - offer.rejected
         - offer.superseded
+        - pipeline.created
+        - pipeline.updated
+        - pipeline.archived
+        - stage.created
+        - stage.updated
+        - stage.archived
 
     WebhookActor:
       type: object
@@ -389,4 +395,161 @@ components:
         to_revision:
           type: integer
           description: The new revision number minted by the regenerate.
+      additionalProperties: false
+
+    WebhookPipelineCreatedStage:
+      type: object
+      description: >-
+        One initial stage as declared on a pipeline.created event — the
+        stage's own stage.created is NOT separately emitted for these
+        (events.md §5.3b: one pipeline.created carries the whole set).
+      required:
+        - name
+        - position
+        - semantic
+      properties:
+        name:
+          type: string
+          description: The stage's name.
+        position:
+          type: integer
+          description: The stage's position within the pipeline.
+        semantic:
+          type: string
+          description: The stage's semantic (open | won | lost).
+      additionalProperties: false
+
+    WebhookPayloadPipelineCreated:
+      type: object
+      x-event-type: pipeline.created
+      x-entity-type: pipeline
+      x-version: 1
+      description: >-
+        Payload for pipeline.created — a pipeline was created with its
+        initial stage set in the same transaction.
+      required:
+        - name
+        - is_default
+        - stages
+      properties:
+        name:
+          type: string
+          description: The pipeline's name.
+        is_default:
+          type: boolean
+          description: Whether this pipeline is the workspace default.
+        stages:
+          type: array
+          items: { $ref: '#/components/schemas/WebhookPipelineCreatedStage' }
+          description: The pipeline's initial stages, in the order created.
+      additionalProperties: false
+
+    WebhookPayloadPipelineUpdated:
+      type: object
+      x-event-type: pipeline.updated
+      x-entity-type: pipeline
+      x-version: 1
+      description: >-
+        Payload for pipeline.updated — an OPEN envelope: its emit sites
+        carry divergent shapes (a flat name/is_default/position patch from
+        UpdatePipeline, or a stage_positions reorder map from UpdateStage
+        when a stage's position changes), so the honest shape is a
+        change-set map rather than a fixed field list.
+      required:
+        - changed_fields
+      properties:
+        changed_fields:
+          type: object
+          additionalProperties: true
+          description: >-
+            Field name → new value for whatever this update touched
+            (name, is_default, position, or stage_positions).
+      additionalProperties: false
+
+    WebhookPayloadPipelineArchived:
+      type: object
+      x-event-type: pipeline.archived
+      x-entity-type: pipeline
+      x-version: 1
+      description: >-
+        Payload for pipeline.archived. Never emitted today (no archive
+        path exists for pipeline); the schema is published so the type is
+        a valid subscription target and the coverage gate can name it
+        explicitly rather than silently omitting it.
+      additionalProperties: false
+
+    WebhookPayloadStageCreated:
+      type: object
+      x-event-type: stage.created
+      x-entity-type: stage
+      x-version: 1
+      description: Payload for stage.created — a stage was added to a pipeline.
+      required:
+        - pipeline_id
+        - name
+        - position
+        - semantic
+        - win_probability
+      properties:
+        pipeline_id:
+          type: string
+          format: uuid
+          description: The pipeline this stage belongs to.
+        name:
+          type: string
+          description: The stage's name.
+        position:
+          type: integer
+          description: The stage's position within the pipeline.
+        semantic:
+          type: string
+          description: The stage's semantic (open | won | lost).
+        win_probability:
+          type: integer
+          description: The stage's win probability (won=100, lost=0, open=0..100).
+      additionalProperties: false
+
+    WebhookPayloadStageUpdated:
+      type: object
+      x-event-type: stage.updated
+      x-entity-type: stage
+      x-version: 1
+      description: >-
+        Payload for stage.updated — a BOUNDED delta: UpdateStage's known
+        mutable fields (name, semantic, win_probability) each carried only
+        when this update touched them. A position change is instead
+        published as ONE pipeline.updated with a stage_positions delta
+        (never an N-way stage.updated), so position never appears here.
+      required:
+        - pipeline_id
+      properties:
+        pipeline_id:
+          type: string
+          format: uuid
+          description: The pipeline this stage belongs to.
+        name:
+          type: string
+          description: The stage's new name (absent when this update did not touch it).
+        semantic:
+          type: string
+          description: >-
+            The stage's new semantic (absent when this update did not
+            touch it).
+        win_probability:
+          type: integer
+          description: >-
+            The stage's new win probability (absent when this update did
+            not touch it).
+      additionalProperties: false
+
+    WebhookPayloadStageArchived:
+      type: object
+      x-event-type: stage.archived
+      x-entity-type: stage
+      x-version: 1
+      description: >-
+        Payload for stage.archived. Never emitted today (no archive path
+        exists for stage); the schema is published so the type is a valid
+        subscription target and the coverage gate can name it explicitly
+        rather than silently omitting it.
       additionalProperties: false

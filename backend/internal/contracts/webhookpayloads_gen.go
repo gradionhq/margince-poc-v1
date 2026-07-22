@@ -21,6 +21,12 @@ const (
 	OfferRejected    SubscribableEventType = "offer.rejected"
 	OfferSent        SubscribableEventType = "offer.sent"
 	OfferSuperseded  SubscribableEventType = "offer.superseded"
+	PipelineArchived SubscribableEventType = "pipeline.archived"
+	PipelineCreated  SubscribableEventType = "pipeline.created"
+	PipelineUpdated  SubscribableEventType = "pipeline.updated"
+	StageArchived    SubscribableEventType = "stage.archived"
+	StageCreated     SubscribableEventType = "stage.created"
+	StageUpdated     SubscribableEventType = "stage.updated"
 )
 
 // Valid indicates whether the value is a known member of the SubscribableEventType enum.
@@ -48,12 +54,24 @@ func (e SubscribableEventType) Valid() bool {
 		return true
 	case OfferSuperseded:
 		return true
+	case PipelineArchived:
+		return true
+	case PipelineCreated:
+		return true
+	case PipelineUpdated:
+		return true
+	case StageArchived:
+		return true
+	case StageCreated:
+		return true
+	case StageUpdated:
+		return true
 	default:
 		return false
 	}
 }
 
-// SubscribableEventType The closed set of domain events a webhook subscription can select. Phase 4 fills this out family by family; today it carries the pilot event plus the deal family (Task 5a-i) and the offer family (Task 5a-ii).
+// SubscribableEventType The closed set of domain events a webhook subscription can select. Phase 4 fills this out family by family; today it carries the pilot event plus the deal family (Task 5a-i), the offer family (Task 5a-ii), and the pipeline/stage config family (Task 5a-iii).
 type SubscribableEventType string
 
 // WebhookActor Who or what caused the event, as exposed publicly.
@@ -236,6 +254,75 @@ type WebhookPayloadOfferSuperseded struct {
 	ToRevision int `json:"to_revision"`
 }
 
+// WebhookPayloadPipelineArchived Payload for pipeline.archived. Never emitted today (no archive path exists for pipeline); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it.
+type WebhookPayloadPipelineArchived struct{}
+
+// WebhookPayloadPipelineCreated Payload for pipeline.created — a pipeline was created with its initial stage set in the same transaction.
+type WebhookPayloadPipelineCreated struct {
+	// IsDefault Whether this pipeline is the workspace default.
+	IsDefault bool `json:"is_default"`
+
+	// Name The pipeline's name.
+	Name string `json:"name"`
+
+	// Stages The pipeline's initial stages, in the order created.
+	Stages []WebhookPipelineCreatedStage `json:"stages"`
+}
+
+// WebhookPayloadPipelineUpdated Payload for pipeline.updated — an OPEN envelope: its emit sites carry divergent shapes (a flat name/is_default/position patch from UpdatePipeline, or a stage_positions reorder map from UpdateStage when a stage's position changes), so the honest shape is a change-set map rather than a fixed field list.
+type WebhookPayloadPipelineUpdated struct {
+	// ChangedFields Field name → new value for whatever this update touched (name, is_default, position, or stage_positions).
+	ChangedFields map[string]interface{} `json:"changed_fields"`
+}
+
+// WebhookPayloadStageArchived Payload for stage.archived. Never emitted today (no archive path exists for stage); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it.
+type WebhookPayloadStageArchived struct{}
+
+// WebhookPayloadStageCreated Payload for stage.created — a stage was added to a pipeline.
+type WebhookPayloadStageCreated struct {
+	// Name The stage's name.
+	Name string `json:"name"`
+
+	// PipelineId The pipeline this stage belongs to.
+	PipelineId openapi_types.UUID `json:"pipeline_id"`
+
+	// Position The stage's position within the pipeline.
+	Position int `json:"position"`
+
+	// Semantic The stage's semantic (open | won | lost).
+	Semantic string `json:"semantic"`
+
+	// WinProbability The stage's win probability (won=100, lost=0, open=0..100).
+	WinProbability int `json:"win_probability"`
+}
+
+// WebhookPayloadStageUpdated Payload for stage.updated — a BOUNDED delta: UpdateStage's known mutable fields (name, semantic, win_probability) each carried only when this update touched them. A position change is instead published as ONE pipeline.updated with a stage_positions delta (never an N-way stage.updated), so position never appears here.
+type WebhookPayloadStageUpdated struct {
+	// Name The stage's new name (absent when this update did not touch it).
+	Name *string `json:"name,omitempty"`
+
+	// PipelineId The pipeline this stage belongs to.
+	PipelineId openapi_types.UUID `json:"pipeline_id"`
+
+	// Semantic The stage's new semantic (absent when this update did not touch it).
+	Semantic *string `json:"semantic,omitempty"`
+
+	// WinProbability The stage's new win probability (absent when this update did not touch it).
+	WinProbability *int `json:"win_probability,omitempty"`
+}
+
+// WebhookPipelineCreatedStage One initial stage as declared on a pipeline.created event — the stage's own stage.created is NOT separately emitted for these (events.md §5.3b: one pipeline.created carries the whole set).
+type WebhookPipelineCreatedStage struct {
+	// Name The stage's name.
+	Name string `json:"name"`
+
+	// Position The stage's position within the pipeline.
+	Position int `json:"position"`
+
+	// Semantic The stage's semantic (open | won | lost).
+	Semantic string `json:"semantic"`
+}
+
 func (WebhookPayloadDealArchived) EventType() string { return "deal.archived" }
 
 func (WebhookPayloadDealArchived) EntityType() string { return "deal" }
@@ -280,6 +367,30 @@ func (WebhookPayloadOfferSuperseded) EventType() string { return "offer.supersed
 
 func (WebhookPayloadOfferSuperseded) EntityType() string { return "offer" }
 
+func (WebhookPayloadPipelineArchived) EventType() string { return "pipeline.archived" }
+
+func (WebhookPayloadPipelineArchived) EntityType() string { return "pipeline" }
+
+func (WebhookPayloadPipelineCreated) EventType() string { return "pipeline.created" }
+
+func (WebhookPayloadPipelineCreated) EntityType() string { return "pipeline" }
+
+func (WebhookPayloadPipelineUpdated) EventType() string { return "pipeline.updated" }
+
+func (WebhookPayloadPipelineUpdated) EntityType() string { return "pipeline" }
+
+func (WebhookPayloadStageArchived) EventType() string { return "stage.archived" }
+
+func (WebhookPayloadStageArchived) EntityType() string { return "stage" }
+
+func (WebhookPayloadStageCreated) EventType() string { return "stage.created" }
+
+func (WebhookPayloadStageCreated) EntityType() string { return "stage" }
+
+func (WebhookPayloadStageUpdated) EventType() string { return "stage.updated" }
+
+func (WebhookPayloadStageUpdated) EntityType() string { return "stage" }
+
 // WebhookPayloadVersions maps every subscribable event type carrying a
 // WebhookPayload<Event> schema to that schema's x-version extension
 // (default 1 when absent). It is the single generated source of truth for
@@ -297,4 +408,10 @@ var WebhookPayloadVersions = map[string]int{
 	"offer.rejected":     1,
 	"offer.sent":         1,
 	"offer.superseded":   1,
+	"pipeline.archived":  1,
+	"pipeline.created":   1,
+	"pipeline.updated":   1,
+	"stage.archived":     1,
+	"stage.created":      1,
+	"stage.updated":      1,
 }

@@ -77,8 +77,8 @@ func (s *Store) UpdatePipeline(ctx context.Context, id ids.PipelineID, in Update
 		if err != nil {
 			return fmt.Errorf("audit pipeline update: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "pipeline.updated", "pipeline", id.UUID, map[string]any{
-			"delta": map[string]any{"name": in.Name, "is_default": in.IsDefault, "position": in.Position},
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.WebhookPayloadPipelineUpdated{
+			ChangedFields: map[string]any{"name": in.Name, "is_default": in.IsDefault, "position": in.Position},
 		}); err != nil {
 			return fmt.Errorf("emit pipeline.updated: %w", err)
 		}
@@ -146,10 +146,7 @@ func (s *Store) CreateStage(ctx context.Context, in CreateStageInput) (crmcontra
 		if err != nil {
 			return fmt.Errorf("audit stage create: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "stage.created", "stage", stageID.UUID, map[string]any{
-			"pipeline_id": in.PipelineID, "name": in.Name, "position": in.Position,
-			"semantic": in.Semantic, "win_probability": probability,
-		}); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, stageID.UUID, stageCreatedPayload(in.PipelineID, in.Name, in.Position, in.Semantic, probability)); err != nil {
 			return fmt.Errorf("emit stage.created: %w", err)
 		}
 		if out, err = readStage(ctx, tx, stageID, storekit.LiveOnly); err != nil {
@@ -158,6 +155,20 @@ func (s *Store) CreateStage(ctx context.Context, in CreateStageInput) (crmcontra
 		return nil
 	})
 	return out, err
+}
+
+// stageCreatedPayload builds the stage.created wire payload from
+// CreateStage's resolved inputs — the ONE place that maps the local
+// values onto the published schema, so a future field rename shows up
+// here rather than at an independently-drifting map literal.
+func stageCreatedPayload(pipelineID ids.PipelineID, name string, position int, semantic string, winProbability int) crmcontracts.WebhookPayloadStageCreated {
+	return crmcontracts.WebhookPayloadStageCreated{
+		PipelineId:     openapi_types.UUID(pipelineID.UUID),
+		Name:           name,
+		Position:       position,
+		Semantic:       semantic,
+		WinProbability: winProbability,
+	}
 }
 
 func (s *Store) GetStage(ctx context.Context, id ids.StageID) (crmcontracts.Stage, error) {
@@ -275,14 +286,11 @@ func (s *Store) UpdateStage(ctx context.Context, id ids.StageID, in UpdateStageI
 		// Reorders are pipeline-level facts (ONE pipeline.updated with
 		// the position delta); everything else is a stage.updated.
 		if in.Position != nil {
-			err = storekit.Emit(ctx, tx, auditID, "pipeline.updated", "pipeline", pipelineID.UUID, map[string]any{
-				"delta": map[string]any{"stage_positions": map[string]any{id.String(): *in.Position}},
+			err = storekit.EmitEvent(ctx, tx, auditID, pipelineID.UUID, crmcontracts.WebhookPayloadPipelineUpdated{
+				ChangedFields: map[string]any{"stage_positions": map[string]any{id.String(): *in.Position}},
 			})
 		} else {
-			err = storekit.Emit(ctx, tx, auditID, "stage.updated", "stage", id.UUID, map[string]any{
-				"pipeline_id": pipelineID,
-				"delta":       map[string]any{"name": in.Name, "semantic": in.Semantic, "win_probability": in.WinProbability},
-			})
+			err = storekit.EmitEvent(ctx, tx, auditID, id.UUID, stageUpdatedPayload(pipelineID, in))
 		}
 		if err != nil {
 			return fmt.Errorf("emit stage update: %w", err)
@@ -293,6 +301,22 @@ func (s *Store) UpdateStage(ctx context.Context, id ids.StageID, in UpdateStageI
 		return nil
 	})
 	return out, err
+}
+
+// stageUpdatedPayload builds the stage.updated wire payload from
+// UpdateStage's inputs — the ONE place that maps the local values onto
+// the published schema. It carries only the fields this update actually
+// touched (BOUNDED, not open — position never appears here: a position
+// change publishes a pipeline.updated instead, per the caller's branch),
+// so an untouched field stays a nil pointer and is omitted from the wire
+// body rather than marshaled as null.
+func stageUpdatedPayload(pipelineID ids.PipelineID, in UpdateStageInput) crmcontracts.WebhookPayloadStageUpdated {
+	return crmcontracts.WebhookPayloadStageUpdated{
+		PipelineId:     openapi_types.UUID(pipelineID.UUID),
+		Name:           in.Name,
+		Semantic:       in.Semantic,
+		WinProbability: in.WinProbability,
+	}
 }
 
 func readStage(ctx context.Context, tx pgx.Tx, id ids.StageID, archived storekit.ArchivedFilter) (crmcontracts.Stage, error) {
