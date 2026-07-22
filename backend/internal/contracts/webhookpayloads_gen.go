@@ -86,3 +86,12 @@ type WebhookPayloadDealStageChanged struct {
 func (WebhookPayloadDealStageChanged) EventType() string { return "deal.stage_changed" }
 
 func (WebhookPayloadDealStageChanged) EntityType() string { return "deal" }
+
+// WebhookPayloadVersions maps every subscribable event type carrying a
+// WebhookPayload<Event> schema to that schema's x-version extension
+// (default 1 when absent). It is the single generated source of truth for
+// both the coverage gate (every subscribable event type must be a key here)
+// and the version gate (VersionOf(type) must equal this map's value).
+var WebhookPayloadVersions = map[string]int{
+	"deal.stage_changed": 1,
+}

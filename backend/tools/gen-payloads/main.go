@@ -92,7 +92,7 @@ func generateSource(specYAML []byte, pkg string) (string, error) {
 		return "", fmt.Errorf("codegen: %w", err)
 	}
 
-	methods, err := eventMethods(spec)
+	methods, versions, err := eventMethodsAndVersions(spec)
 	if err != nil {
 		return "", err
 	}
@@ -100,6 +100,9 @@ func generateSource(specYAML []byte, pkg string) (string, error) {
 	assembled := restampBanner(body, pkg)
 	if methods != "" {
 		assembled += "\n" + methods
+	}
+	if versions != "" {
+		assembled += "\n" + versions
 	}
 
 	formatted, err := format.Source([]byte(assembled))
@@ -128,13 +131,21 @@ func restampBanner(body, pkg string) string {
 	return banner + "\n" + body
 }
 
-// eventMethods returns the sorted EventType()/EntityType() method block for
-// every schema carrying x-event-type / x-entity-type. The Go type name is the
-// component name (the source authors them as valid PascalCase identifiers,
-// which is exactly what oapi-codegen emits for such names).
-func eventMethods(spec *openapi3.T) (string, error) {
+// eventMethodsAndVersions walks every schema in one pass, returning two
+// generated blocks: the sorted EventType()/EntityType() method set for every
+// schema carrying x-event-type / x-entity-type (the Go type name is the
+// component name — the source authors them as valid PascalCase identifiers,
+// which is exactly what oapi-codegen emits for such names), and
+// WebhookPayloadVersions, the map from each such schema's event type to its
+// x-version extension (default 1 when absent). WebhookPayloadVersions is the
+// single generated source of truth both the coverage gate (every
+// subscribable event type must be a key) and the version gate (the catalog's
+// VersionOf must agree with the value) read — see
+// backend/internal/modules/webhooks/payload_coverage_test.go and
+// payload_version_test.go.
+func eventMethodsAndVersions(spec *openapi3.T) (methods, versions string, err error) {
 	if spec.Components == nil {
-		return "", nil
+		return "", "", nil
 	}
 	names := make([]string, 0, len(spec.Components.Schemas))
 	for name := range spec.Components.Schemas {
@@ -142,7 +153,8 @@ func eventMethods(spec *openapi3.T) (string, error) {
 	}
 	sort.Strings(names)
 
-	var b strings.Builder
+	var methodsB strings.Builder
+	var entries []payloadVersionEntry
 	for _, name := range names {
 		ref := spec.Components.Schemas[name]
 		if ref == nil || ref.Value == nil {
@@ -151,24 +163,55 @@ func eventMethods(spec *openapi3.T) (string, error) {
 		ext := ref.Value.Extensions
 		eventType, hasEvent, err := stringExtension(ext, "x-event-type", name)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
 		entityType, hasEntity, err := stringExtension(ext, "x-entity-type", name)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
 		if !hasEvent && !hasEntity {
 			continue
 		}
 		if hasEvent != hasEntity {
-			return "", fmt.Errorf("schema %q must declare both x-event-type and x-entity-type or neither", name)
+			return "", "", fmt.Errorf("schema %q must declare both x-event-type and x-entity-type or neither", name)
 		}
 		// A blank line between each method keeps gofmt from column-aligning
 		// adjacent single-line declarations (which would widen the ` { ` gap).
-		fmt.Fprintf(&b, "func (%s) EventType() string { return %q }\n\n", name, eventType)
-		fmt.Fprintf(&b, "func (%s) EntityType() string { return %q }\n\n", name, entityType)
+		fmt.Fprintf(&methodsB, "func (%s) EventType() string { return %q }\n\n", name, eventType)
+		fmt.Fprintf(&methodsB, "func (%s) EntityType() string { return %q }\n\n", name, entityType)
+
+		version, hasVersion, err := intExtension(ext, "x-version", name)
+		if err != nil {
+			return "", "", err
+		}
+		if !hasVersion {
+			version = 1
+		}
+		entries = append(entries, payloadVersionEntry{eventType: eventType, version: version})
 	}
-	return b.String(), nil
+	sort.Slice(entries, func(i, j int) bool { return entries[i].eventType < entries[j].eventType })
+
+	var versionsB strings.Builder
+	versionsB.WriteString("// WebhookPayloadVersions maps every subscribable event type carrying a\n")
+	versionsB.WriteString("// WebhookPayload<Event> schema to that schema's x-version extension\n")
+	versionsB.WriteString("// (default 1 when absent). It is the single generated source of truth for\n")
+	versionsB.WriteString("// both the coverage gate (every subscribable event type must be a key here)\n")
+	versionsB.WriteString("// and the version gate (VersionOf(type) must equal this map's value).\n")
+	versionsB.WriteString("var WebhookPayloadVersions = map[string]int{\n")
+	for _, e := range entries {
+		fmt.Fprintf(&versionsB, "\t%q: %d,\n", e.eventType, e.version)
+	}
+	versionsB.WriteString("}\n")
+
+	return methodsB.String(), versionsB.String(), nil
+}
+
+// payloadVersionEntry is one WebhookPayloadVersions row before it is
+// rendered — collected once per schema alongside its EventType()/EntityType()
+// methods so extension parsing is not duplicated across two passes.
+type payloadVersionEntry struct {
+	eventType string
+	version   int
 }
 
 // stringExtension reads an x- extension as a string. kin-openapi decodes
@@ -190,6 +233,29 @@ func stringExtension(ext map[string]any, key, schema string) (string, bool, erro
 		return s, true, nil
 	default:
 		return "", false, fmt.Errorf("schema %q: %s must be a string, got %T", schema, key, raw)
+	}
+}
+
+// intExtension reads an x- extension as an integer. encoding/json decodes a
+// bare JSON number into a Go float64 when the target is interface{} (kin-openapi's
+// extension map), so that is the expected shape; json.RawMessage is tolerated
+// for forward-compatibility, same as stringExtension.
+func intExtension(ext map[string]any, key, schema string) (int, bool, error) {
+	raw, ok := ext[key]
+	if !ok {
+		return 0, false, nil
+	}
+	switch v := raw.(type) {
+	case float64:
+		return int(v), true, nil
+	case json.RawMessage:
+		var n int
+		if err := json.Unmarshal(v, &n); err != nil {
+			return 0, false, fmt.Errorf("schema %q: %s must be an integer: %w", schema, key, err)
+		}
+		return n, true, nil
+	default:
+		return 0, false, fmt.Errorf("schema %q: %s must be an integer, got %T", schema, key, raw)
 	}
 }
 

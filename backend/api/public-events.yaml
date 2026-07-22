@@ -96,6 +96,7 @@ components:
       type: object
       x-event-type: deal.stage_changed
       x-entity-type: deal
+      x-version: 1
       description: Payload for deal.stage_changed — a deal advanced between stages.
       required:
         - deal_id
