@@ -190,6 +190,22 @@ jobs:
           cache-dependency-path: backend/go.sum
       # working-directory: . on the root-level steps — the workflow default
       # (backend) would resolve fixtures/ and extensions/ under backend/.
+      #
+      # The EMPTY installation stays a supported, proven state: with the
+      # tracked first-party units (extensions/de) moved aside, the
+      # composed wiring must be byte-identical to the committed vanilla
+      # stub and the composed build must pass — otherwise a regression
+      # that only breaks "remove the directory to disable" could merge,
+      # since the normal gates always see {de}.
+      - name: Vanilla lane (empty extensions/)
+        working-directory: .
+        run: |
+          stash="$RUNNER_TEMP/ext-stash"
+          mkdir -p "$stash"
+          find extensions -mindepth 1 -maxdepth 1 -type d -exec mv {} "$stash"/ \;
+          make -C backend composition build
+          cmp build/composition/backend/extensions_gen.go composition/extensions_gen.go
+          find "$stash" -mindepth 1 -maxdepth 1 -exec mv {} extensions/ \;
       - name: Enable the reference extension
         working-directory: .
         run: cp -R fixtures/extensions/crm-hello extensions/
@@ -528,7 +544,12 @@ jobs:
         env:
           MARGINCE_ENV: dev
         run: |
-          go run ./cmd/api --dsn "postgres://margince_app:margince_app_dev@localhost:55432/margince" \
+          # Composed boot (ADR-0069): a plain `go run` would resolve the
+          # vanilla composition stub and this lane would never boot with
+          # the enabled extensions (extensions/de ships by default).
+          go run ./tools/gen-composition
+          GOWORK="$PWD/../build/composition/go.work" \
+            go run ./cmd/api --dsn "postgres://margince_app:margince_app_dev@localhost:55432/margince" \
             --config "$RUNNER_TEMP/margince.yaml" \
             > "$RUNNER_TEMP/api.log" 2>&1 &
           for _ in $(seq 1 60); do

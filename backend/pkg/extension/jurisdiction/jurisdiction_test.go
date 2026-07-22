@@ -39,6 +39,22 @@ func TestPeriodStringIsAnISO8601DateInterval(t *testing.T) {
 	}
 }
 
+// TestPeriodValidateRefusesNegativeComponents: a negative component
+// renders as a Postgres-parseable interval whose cutoff lies in the
+// future — it would silently shrink a statutory floor.
+func TestPeriodValidateRefusesNegativeComponents(t *testing.T) {
+	for _, valid := range []Period{{}, {Years: 6}, {Years: 1, Months: 6, Days: 15}} {
+		if err := valid.Validate(); err != nil {
+			t.Errorf("Period%+v.Validate() = %v, want nil", valid, err)
+		}
+	}
+	for _, invalid := range []Period{{Years: -6}, {Months: -1}, {Days: -30}, {Years: 6, Days: -1}} {
+		if err := invalid.Validate(); err == nil {
+			t.Errorf("Period%+v.Validate() = nil, want the negative-component rejection", invalid)
+		}
+	}
+}
+
 // TestPeriodCutoffIsCalendarCorrect: the reason Period exists — six
 // calendar years anchored after a leap day reach exactly six years back,
 // not 2190 days (which would land ~1.5 days short and let destructive

@@ -78,6 +78,9 @@ func preflightJurisdictions(e extension.Extension, packCodes map[jurisdiction.Co
 				if err := class.Name.Validate(); err != nil {
 					return fmt.Errorf("compose: extension %q, jurisdiction %q: %w", e.Name, code, err)
 				}
+				if err := class.Keep.Validate(); err != nil {
+					return fmt.Errorf("compose: extension %q, jurisdiction %q, class %q: %w", e.Name, code, class.Name, err)
+				}
 			}
 		}
 		packCodes[code] = e.Name
