@@ -144,13 +144,13 @@ function configuredModelLabel(
   t: Translate,
 ) {
   const configured = profile?.configured_models
-    .map(
+    ?.map(
       (binding) =>
         `${binding.provider}/${binding.model} · ${t(tierKeys[binding.tier])}`,
     )
     .filter((binding, index, all) => binding && all.indexOf(binding) === index);
   if (configured?.length) return configured.join(" + ");
-  if (profile?.providers.length) return profile.providers.join(" + ");
+  if (profile?.providers?.length) return profile.providers.join(" + ");
   return unavailable;
 }
 
@@ -174,7 +174,7 @@ function WebsiteWorkbench(
   );
   const [applied, setApplied] = useState<Set<string>>(new Set());
   const profile = useQuery({
-    queryKey: ["assistant-profile"],
+    queryKey: ["ai-profile"],
     queryFn: async (): Promise<AiProfile> => {
       const { data, error } = await api.GET("/ai/profile");
       if (error) throw new Error(problemMessage(error));

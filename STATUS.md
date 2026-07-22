@@ -96,7 +96,12 @@ provider-reported model identity, and reports terminal-call latency without
 double-counting retries. The responsive workbench, localized empty states,
 keyboard/IME behavior, reduced motion, long messages, and citation identity are
 covered by the 610-test frontend lane; `make check` and all 18 real-Postgres
-integration packages pass with zero skips.
+integration packages pass with zero skips. A cold-start browser regression is
+also covered: the detailed authenticated model profile no longer collides with
+the smaller public login-profile cache, and explicit requests to suggest an
+interpretive field such as the ICP produce a cited approval card. Synthesized
+recommendations are limited to relevant dossier evidence; legal identity,
+registered address, and VAT/register values remain exact-evidence-only.
 
 **Unified conversational Company onboarding and live Margince workspace.** The
 visible wizard is now Company → Voice → Results → Connect; the separate Review
