@@ -147,6 +147,21 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	_, _ = fmt.Fprintln(stdout, "worker dispatching workflows (cg:workflows)")
 	background.Go(func() { runSubscriber(ctx, rdb, "cg:workflows", workflows.HandleEvent, logger) })
 
+	// Outbound-webhook delivery (E10/S-E10.6) runs only when a signing key
+	// is configured: it consumes cg:webhooks to fan matching events to
+	// subscribers — owner-scoped, so a webhook never delivers an event its
+	// owner may not see (BYO-EVT-4) — and sweeps due retries on a ticker.
+	// Without the key the delivery worker stays off entirely.
+	if cfg.webhookKey != "" {
+		deliverer, err := compose.NewWebhookDeliverer(pool, cfg.webhookKey, logger)
+		if err != nil {
+			return fmt.Errorf("worker: %w", err)
+		}
+		_, _ = fmt.Fprintf(stdout, "worker delivering outbound webhooks (cg:webhooks), retry sweep every %s\n", cfg.webhookRetryInterval)
+		background.Go(func() { runSubscriber(ctx, rdb, "cg:webhooks", deliverer.HandleEvent, logger) })
+		background.Go(func() { deliverer.RunRetrySweep(ctx, cfg.webhookRetryInterval) })
+	}
+
 	_, _ = fmt.Fprintf(stdout, "worker relaying outbox events to %s\n", cfg.redisAddr)
 	// Run until signalled; unshipped rows wait durably in the outbox for
 	// the next boot — shutdown loses no events.
