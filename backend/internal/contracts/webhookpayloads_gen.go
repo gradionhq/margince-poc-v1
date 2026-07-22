@@ -290,6 +290,75 @@ type WebhookPayloadActivityUpdated struct {
 	ChangedFields WebhookActivityChangedFields `json:"changed_fields"`
 }
 
+// WebhookPayloadApprovalDecided Payload for approval.decided — a human approved or rejected a staged approval (approvals/decide.go). verdict and edited_change are decoded BY NAME outside this module — automation's blocked-run consumer matches verdict (automation/engine_blocked.go), the Surface-B runner's resume consumer reads edited_change (compose/runnerservice.go) — see the JSON-tag regression tests in internal/modules/webhooks. edited/diff_hash/edited_change are present only on the ADR-0036 §4 modify-then-approve arm, where the human's edited payload replaced the staged change under a freshly computed diff_hash.
+type WebhookPayloadApprovalDecided struct {
+	// DecidedBy The deciding human's user id.
+	DecidedBy openapi_types.UUID `json:"decided_by"`
+
+	// DiffHash The edited change's freshly computed diff_hash (present only on the modify-then-approve arm).
+	DiffHash *string `json:"diff_hash,omitempty"`
+
+	// Edited True when the human edited the proposed change before approving (present only on the modify-then-approve arm).
+	Edited *bool `json:"edited,omitempty"`
+
+	// EditedChange The human's edited version of the proposed change (present only on the modify-then-approve arm) — an OPEN object: its shape is whatever the staged kind's proposed_change carries, so it stays a raw map rather than a narrowly typed struct (the runner's resume consumer decodes it as json.RawMessage off the wire; a fixed struct here would drop fields a future staging kind adds).
+	EditedChange *map[string]interface{} `json:"edited_change,omitempty"`
+
+	// Kind The decided staging's kind.
+	Kind string `json:"kind"`
+
+	// Verdict The decision outcome (approved | rejected).
+	Verdict string `json:"verdict"`
+}
+
+// WebhookPayloadApprovalRequested Payload for approval.requested — an agent's 🟡 call was staged pending a human decision (ADR-0036, approvals/staging.go's StageInTx). The staged approval row's own id is the event's entity ref; this payload names what was staged, its polymorphic target, and when the staging lapses into expired if undecided.
+type WebhookPayloadApprovalRequested struct {
+	// ExpiresAt When this staging lapses into expired if undecided.
+	ExpiresAt time.Time `json:"expires_at"`
+
+	// Kind The staged tool/kind name (e.g. advance_deal).
+	Kind string `json:"kind"`
+
+	// Summary The human-readable summary the inbox shows.
+	Summary string `json:"summary"`
+
+	// TargetEntityId The polymorphic entity id the staged action targets; absent when the staging names no single target row.
+	TargetEntityId *openapi_types.UUID `json:"target_entity_id,omitempty"`
+
+	// TargetEntityType The polymorphic entity type the staged action targets.
+	TargetEntityType string `json:"target_entity_type"`
+}
+
+// WebhookPayloadColdstartAccepted Payload for coldstart.accepted — a human accepted a staged cold-start read-back (approvals/decide.go's kind-decided echo, emitted on the same audit row as approval.decided).
+type WebhookPayloadColdstartAccepted struct {
+	// ApprovalId The decided approval's id (same as the envelope's entity ref).
+	ApprovalId openapi_types.UUID `json:"approval_id"`
+
+	// DecidedBy The deciding human's user id.
+	DecidedBy openapi_types.UUID `json:"decided_by"`
+}
+
+// WebhookPayloadColdstartReadBackProposed Payload for coldstart.read_back_proposed — a cold-start read-back was staged as a "coldstart" approval (compose/coldstart.go's stage, carried through approvals/staging.go's Announce alongside approval.requested on the same audit row). Carries only the read-back's shape, never the extracted field values or the pasted source text/statement — tenant data never rides an announced event.
+type WebhookPayloadColdstartReadBackProposed struct {
+	// FieldCount How many fields the read-back grounded.
+	FieldCount int `json:"field_count"`
+
+	// SourceKind The read-back's source kind (text | self_description); absent for a url-kind read-back, which sets source_url instead.
+	SourceKind *string `json:"source_kind,omitempty"`
+
+	// SourceUrl The read-back's source URL (url-kind read-backs only).
+	SourceUrl *string `json:"source_url,omitempty"`
+}
+
+// WebhookPayloadColdstartRejected Payload for coldstart.rejected — a human rejected a staged cold-start read-back (approvals/decide.go's kind-decided echo, emitted on the same audit row as approval.decided).
+type WebhookPayloadColdstartRejected struct {
+	// ApprovalId The decided approval's id (same as the envelope's entity ref).
+	ApprovalId openapi_types.UUID `json:"approval_id"`
+
+	// DecidedBy The deciding human's user id.
+	DecidedBy openapi_types.UUID `json:"decided_by"`
+}
+
 // WebhookPayloadConsentChanged Payload for consent.changed — a subject's per-purpose consent state was recorded (consent/store.go's Record). The subject is a person XOR a lead (data-model §7, before promotion) — a RUNTIME choice Record resolves via consentSubject, not a fixed type this schema can name, so this is the first dynamic-entity event (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and the emit site supplies the real entity type through storekit.EmitEventForEntity.
 type WebhookPayloadConsentChanged struct {
 	// NewState The state now on record (granted | withdrawn).
@@ -1007,6 +1076,28 @@ func (WebhookPayloadActivityUpdated) EventType() string { return "activity.updat
 
 func (WebhookPayloadActivityUpdated) EntityType() string { return "activity" }
 
+func (WebhookPayloadApprovalDecided) EventType() string { return "approval.decided" }
+
+func (WebhookPayloadApprovalDecided) EntityType() string { return "approval" }
+
+func (WebhookPayloadApprovalRequested) EventType() string { return "approval.requested" }
+
+func (WebhookPayloadApprovalRequested) EntityType() string { return "approval" }
+
+func (WebhookPayloadColdstartAccepted) EventType() string { return "coldstart.accepted" }
+
+func (WebhookPayloadColdstartAccepted) EntityType() string { return "approval" }
+
+func (WebhookPayloadColdstartReadBackProposed) EventType() string {
+	return "coldstart.read_back_proposed"
+}
+
+func (WebhookPayloadColdstartReadBackProposed) EntityType() string { return "approval" }
+
+func (WebhookPayloadColdstartRejected) EventType() string { return "coldstart.rejected" }
+
+func (WebhookPayloadColdstartRejected) EntityType() string { return "approval" }
+
 func (WebhookPayloadConsentChanged) EventType() string { return "consent.changed" }
 
 func (WebhookPayloadConsentChanged) EntityType() string { return "dynamic" }
@@ -1234,6 +1325,11 @@ var WebhookPayloadVersions = map[string]int{
 	"activity.archived":            1,
 	"activity.captured":            1,
 	"activity.updated":             1,
+	"approval.decided":             1,
+	"approval.requested":           1,
+	"coldstart.accepted":           1,
+	"coldstart.read_back_proposed": 1,
+	"coldstart.rejected":           1,
 	"consent.changed":              1,
 	"deal.archived":                1,
 	"deal.created":                 1,

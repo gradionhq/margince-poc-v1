@@ -1831,3 +1831,170 @@ components:
           type: string
           description: The connection's status after this change (revoked).
       additionalProperties: false
+
+    WebhookPayloadApprovalRequested:
+      type: object
+      x-event-type: approval.requested
+      x-entity-type: approval
+      x-version: 1
+      description: >-
+        Payload for approval.requested — an agent's 🟡 call was staged
+        pending a human decision (ADR-0036, approvals/staging.go's
+        StageInTx). The staged approval row's own id is the event's
+        entity ref; this payload names what was staged, its polymorphic
+        target, and when the staging lapses into expired if undecided.
+      required:
+        - kind
+        - summary
+        - target_entity_type
+        - expires_at
+      properties:
+        kind:
+          type: string
+          description: The staged tool/kind name (e.g. advance_deal).
+        summary:
+          type: string
+          description: The human-readable summary the inbox shows.
+        target_entity_type:
+          type: string
+          description: The polymorphic entity type the staged action targets.
+        target_entity_id:
+          type: string
+          format: uuid
+          description: >-
+            The polymorphic entity id the staged action targets; absent
+            when the staging names no single target row.
+        expires_at:
+          type: string
+          format: date-time
+          description: When this staging lapses into expired if undecided.
+      additionalProperties: false
+
+    WebhookPayloadApprovalDecided:
+      type: object
+      x-event-type: approval.decided
+      x-entity-type: approval
+      x-version: 1
+      description: >-
+        Payload for approval.decided — a human approved or rejected a
+        staged approval (approvals/decide.go). verdict and edited_change
+        are decoded BY NAME outside this module — automation's
+        blocked-run consumer matches verdict (automation/engine_blocked.go),
+        the Surface-B runner's resume consumer reads edited_change
+        (compose/runnerservice.go) — see the JSON-tag regression tests in
+        internal/modules/webhooks. edited/diff_hash/edited_change are
+        present only on the ADR-0036 §4 modify-then-approve arm, where the
+        human's edited payload replaced the staged change under a freshly
+        computed diff_hash.
+      required:
+        - kind
+        - verdict
+        - decided_by
+      properties:
+        kind:
+          type: string
+          description: The decided staging's kind.
+        verdict:
+          type: string
+          description: The decision outcome (approved | rejected).
+        decided_by:
+          type: string
+          format: uuid
+          description: The deciding human's user id.
+        edited:
+          type: boolean
+          description: >-
+            True when the human edited the proposed change before
+            approving (present only on the modify-then-approve arm).
+        diff_hash:
+          type: string
+          description: >-
+            The edited change's freshly computed diff_hash (present only
+            on the modify-then-approve arm).
+        edited_change:
+          type: object
+          additionalProperties: true
+          description: >-
+            The human's edited version of the proposed change (present
+            only on the modify-then-approve arm) — an OPEN object: its
+            shape is whatever the staged kind's proposed_change carries,
+            so it stays a raw map rather than a narrowly typed struct
+            (the runner's resume consumer decodes it as json.RawMessage
+            off the wire; a fixed struct here would drop fields a future
+            staging kind adds).
+      additionalProperties: false
+
+    WebhookPayloadColdstartReadBackProposed:
+      type: object
+      x-event-type: coldstart.read_back_proposed
+      x-entity-type: approval
+      x-version: 1
+      description: >-
+        Payload for coldstart.read_back_proposed — a cold-start read-back
+        was staged as a "coldstart" approval (compose/coldstart.go's
+        stage, carried through approvals/staging.go's Announce alongside
+        approval.requested on the same audit row). Carries only the
+        read-back's shape, never the extracted field values or the
+        pasted source text/statement — tenant data never rides an
+        announced event.
+      required:
+        - field_count
+      properties:
+        field_count:
+          type: integer
+          description: How many fields the read-back grounded.
+        source_url:
+          type: string
+          description: The read-back's source URL (url-kind read-backs only).
+        source_kind:
+          type: string
+          description: >-
+            The read-back's source kind (text | self_description); absent
+            for a url-kind read-back, which sets source_url instead.
+      additionalProperties: false
+
+    WebhookPayloadColdstartAccepted:
+      type: object
+      x-event-type: coldstart.accepted
+      x-entity-type: approval
+      x-version: 1
+      description: >-
+        Payload for coldstart.accepted — a human accepted a staged
+        cold-start read-back (approvals/decide.go's kind-decided echo,
+        emitted on the same audit row as approval.decided).
+      required:
+        - approval_id
+        - decided_by
+      properties:
+        approval_id:
+          type: string
+          format: uuid
+          description: The decided approval's id (same as the envelope's entity ref).
+        decided_by:
+          type: string
+          format: uuid
+          description: The deciding human's user id.
+      additionalProperties: false
+
+    WebhookPayloadColdstartRejected:
+      type: object
+      x-event-type: coldstart.rejected
+      x-entity-type: approval
+      x-version: 1
+      description: >-
+        Payload for coldstart.rejected — a human rejected a staged
+        cold-start read-back (approvals/decide.go's kind-decided echo,
+        emitted on the same audit row as approval.decided).
+      required:
+        - approval_id
+        - decided_by
+      properties:
+        approval_id:
+          type: string
+          format: uuid
+          description: The decided approval's id (same as the envelope's entity ref).
+        decided_by:
+          type: string
+          format: uuid
+          description: The deciding human's user id.
+      additionalProperties: false

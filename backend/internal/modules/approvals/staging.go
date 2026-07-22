@@ -11,8 +11,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -43,10 +46,12 @@ type StageInput struct {
 	Announce []AnnouncedEvent
 }
 
-// AnnouncedEvent is one extra catalog event a staging carries.
+// AnnouncedEvent is one extra catalog event a staging carries. Payload
+// names its own event type (events.Payload.EventType()), the same seam
+// storekit.EmitEvent uses — a caller cannot pair the wrong payload with
+// an announced event without failing to compile.
 type AnnouncedEvent struct {
-	Type    string
-	Payload map[string]any
+	Payload events.Payload
 }
 
 // Stage records a pending approval for the context's agent principal and
@@ -121,21 +126,33 @@ func (s *Service) StageInTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.
 	if err != nil {
 		return ids.ApprovalID{}, err
 	}
-	if err := s.emit(ctx, tx, p, auditID, "approval.requested", id.UUID, map[string]any{
-		approvalKeyKind:      in.Kind,
-		"summary":            in.Summary,
-		"target_entity_type": in.TargetType,
-		"target_entity_id":   nullUUID(in.TargetID),
-		"expires_at":         s.now().UTC().Add(stagingTTL),
-	}); err != nil {
+	requested := crmcontracts.WebhookPayloadApprovalRequested{
+		Kind:             in.Kind,
+		Summary:          in.Summary,
+		TargetEntityType: in.TargetType,
+		TargetEntityId:   optionalTargetID(in.TargetID),
+		ExpiresAt:        s.now().UTC().Add(stagingTTL),
+	}
+	if err := s.emit(ctx, tx, p, auditID, id.UUID, requested); err != nil {
 		return ids.ApprovalID{}, err
 	}
 	for _, announce := range in.Announce {
-		if err := s.emit(ctx, tx, p, auditID, announce.Type, id.UUID, announce.Payload); err != nil {
+		if err := s.emit(ctx, tx, p, auditID, id.UUID, announce.Payload); err != nil {
 			return ids.ApprovalID{}, err
 		}
 	}
 	return id, nil
+}
+
+// optionalTargetID converts the staging's polymorphic target id to the
+// public payload's optional wire type — nil for the zero id (a staging
+// with no single target row), never the zero UUID rendered as a value.
+func optionalTargetID(id ids.UUID) *openapi_types.UUID {
+	if id.IsZero() {
+		return nil
+	}
+	v := openapi_types.UUID(id)
+	return &v
 }
 
 // HasPendingFor reports whether a live pending staging of this kind,

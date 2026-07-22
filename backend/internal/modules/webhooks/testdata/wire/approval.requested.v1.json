@@ -1,0 +1,7 @@
+{
+  "expires_at": "2026-07-23T12:00:00Z",
+  "kind": "advance_deal",
+  "summary": "Advance Acme GmbH to Negotiation",
+  "target_entity_id": "00000000-0000-0000-0000-0000000000c1",
+  "target_entity_type": "deal"
+}

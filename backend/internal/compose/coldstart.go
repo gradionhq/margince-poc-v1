@@ -145,23 +145,25 @@ func coldStartProposalKind(req crmcontracts.ColdStartRequest) crmcontracts.ColdS
 	}
 }
 
-// coldStartStagingNotice builds the approval's human summary and its announced
-// payload. The pasted text / statement is tenant data and never announced —
-// only its kind and how much it grounded.
-func coldStartStagingNotice(req crmcontracts.ColdStartRequest, kind crmcontracts.ColdStartProposalSourceKind, fieldCount int) (string, map[string]any) {
+// coldStartStagingNotice builds the approval's human summary and its
+// announced coldstart.read_back_proposed payload. The pasted text /
+// statement is tenant data and never announced — only its kind and how
+// much it grounded.
+func coldStartStagingNotice(req crmcontracts.ColdStartRequest, kind crmcontracts.ColdStartProposalSourceKind, fieldCount int) (string, crmcontracts.WebhookPayloadColdstartReadBackProposed) {
 	if req.Url != nil {
-		return "Cold-start read-back of " + *req.Url, map[string]any{
-			"source_url":  *req.Url,
-			"field_count": fieldCount,
+		return "Cold-start read-back of " + *req.Url, crmcontracts.WebhookPayloadColdstartReadBackProposed{
+			SourceUrl:  req.Url,
+			FieldCount: fieldCount,
 		}
 	}
 	subject := "pasted text"
 	if kind == crmcontracts.ColdStartProposalSourceKindSelfDescription {
 		subject = "a self-description"
 	}
-	return "Cold-start read-back of " + subject, map[string]any{
-		"source_kind": string(kind),
-		"field_count": fieldCount,
+	sourceKind := string(kind)
+	return "Cold-start read-back of " + subject, crmcontracts.WebhookPayloadColdstartReadBackProposed{
+		SourceKind: &sourceKind,
+		FieldCount: fieldCount,
 	}
 }
 
@@ -169,7 +171,7 @@ func coldStartStagingNotice(req crmcontracts.ColdStartRequest, kind crmcontracts
 // IS the proposal (ADR-0036: staged rows are the authority object), so the
 // proposal id is the approval id. Identical for every input kind: 🟡 always,
 // auto-write never.
-func (e *coldStartEngine) stage(ctx context.Context, proposal crmcontracts.ColdStartProposal, summary string, announce map[string]any) (crmcontracts.ColdStartProposal, error) {
+func (e *coldStartEngine) stage(ctx context.Context, proposal crmcontracts.ColdStartProposal, summary string, announce crmcontracts.WebhookPayloadColdstartReadBackProposed) (crmcontracts.ColdStartProposal, error) {
 	proposedChange, err := json.Marshal(proposal)
 	if err != nil {
 		return crmcontracts.ColdStartProposal{}, err
@@ -181,7 +183,6 @@ func (e *coldStartEngine) stage(ctx context.Context, proposal crmcontracts.ColdS
 		DiffHash:       hex.EncodeToString(digest[:]),
 		Summary:        summary,
 		Announce: []approvals.AnnouncedEvent{{
-			Type:    "coldstart.read_back_proposed",
 			Payload: announce,
 		}},
 	})

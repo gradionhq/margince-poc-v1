@@ -13,9 +13,12 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -67,10 +70,24 @@ var decisionGrants = map[string][]struct {
 	"deal_follow_up": {{"activity", principal.ActionCreate}},
 }
 
+// decidedEcho builds the approved/rejected payload a kind's decision
+// echoes, given the decided approval's own id and the deciding human's
+// user id — the fixed shape every decided-echo carries today.
+type decidedEcho struct {
+	approved, rejected func(approvalID, decidedBy openapi_types.UUID) events.Payload
+}
+
 // kindDecidedEvents names the domain event a decision echoes for kinds
 // whose lifecycle the event catalog tracks beyond approval.decided.
-var kindDecidedEvents = map[string]struct{ approved, rejected string }{
-	"coldstart": {approved: "coldstart.accepted", rejected: "coldstart.rejected"},
+var kindDecidedEvents = map[string]decidedEcho{
+	"coldstart": {
+		approved: func(approvalID, decidedBy openapi_types.UUID) events.Payload {
+			return crmcontracts.WebhookPayloadColdstartAccepted{ApprovalId: approvalID, DecidedBy: decidedBy}
+		},
+		rejected: func(approvalID, decidedBy openapi_types.UUID) events.Payload {
+			return crmcontracts.WebhookPayloadColdstartRejected{ApprovalId: approvalID, DecidedBy: decidedBy}
+		},
+	},
 }
 
 // decidable is the ONE visibility-and-authority predicate for the inbox

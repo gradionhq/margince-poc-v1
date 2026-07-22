@@ -706,3 +706,117 @@ func TestIncumbentDisconnectedWireSnapshot(t *testing.T) {
 	}
 	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
 }
+
+// approvalSnapshotTargetID/approvalSnapshotDecidedBy are fixed, memorable
+// UUIDs so the approvals/coldstart family's golden snapshots (webhooks
+// Task 5-approvals, the second emit path — approvals.Service.emit) are
+// stable across test runs — a real ids.NewV7() would churn the fixtures
+// on every regeneration for no reason.
+var (
+	approvalSnapshotTargetID  = uuid.MustParse("00000000-0000-0000-0000-0000000000c1")
+	approvalSnapshotDecidedBy = uuid.MustParse("00000000-0000-0000-0000-0000000000c2")
+	approvalSnapshotID        = uuid.MustParse("00000000-0000-0000-0000-0000000000c3")
+)
+
+// TestApprovalRequestedWireSnapshot pins approval.requested's wire shape
+// — sampled with target_entity_id set, the branch that carries every
+// optional field.
+func TestApprovalRequestedWireSnapshot(t *testing.T) {
+	targetID := openapi_types.UUID(approvalSnapshotTargetID)
+	sample := crmcontracts.WebhookPayloadApprovalRequested{
+		Kind:             "advance_deal",
+		Summary:          "Advance Acme GmbH to Negotiation",
+		TargetEntityType: "deal",
+		TargetEntityId:   &targetID,
+		ExpiresAt:        time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC),
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestApprovalDecidedWireSnapshot pins approval.decided's wire shape —
+// sampled with the ADR-0036 §4 modify-then-approve arm (edited set),
+// which carries every optional field.
+func TestApprovalDecidedWireSnapshot(t *testing.T) {
+	edited := true
+	diffHash := "sha256:abc123"
+	editedChange := map[string]interface{}{"stage_id": approvalSnapshotTargetID.String()}
+	sample := crmcontracts.WebhookPayloadApprovalDecided{
+		Kind:         "advance_deal",
+		Verdict:      "approved",
+		DecidedBy:    openapi_types.UUID(approvalSnapshotDecidedBy),
+		Edited:       &edited,
+		DiffHash:     &diffHash,
+		EditedChange: &editedChange,
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestApprovalDecidedKeyBindingIsStable is the A9 key-binding regression
+// test: automation/engine_blocked.go's HandleApprovalDecided decodes
+// approval.decided's outbox payload by the literal JSON key "verdict",
+// and compose/runnerservice.go's HandleEvent decodes "edited_change" —
+// both read the generic map/struct the bus hands every subscriber, never
+// crmcontracts.WebhookPayloadApprovalDecided itself (automation and
+// compose/runnerservice cannot import each other's payload-construction
+// module). A future rename of either field must break THIS test, not
+// silently stop those consumers from matching. edited_change must also
+// stay a raw/open JSON object (not a narrowly typed struct) — this test
+// proves an arbitrary edited-change shape survives round-tripping
+// undisturbed.
+func TestApprovalDecidedKeyBindingIsStable(t *testing.T) {
+	editedChange := map[string]interface{}{
+		"stage_id": approvalSnapshotTargetID.String(),
+		"note":     "moved after the call",
+		"nested":   map[string]interface{}{"amount_minor": float64(50000)},
+	}
+	sample := crmcontracts.WebhookPayloadApprovalDecided{
+		Kind:         "advance_deal",
+		Verdict:      "rejected",
+		DecidedBy:    openapi_types.UUID(approvalSnapshotDecidedBy),
+		EditedChange: &editedChange,
+	}
+	raw, err := json.Marshal(sample)
+	require.NoError(t, err)
+
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(raw, &decoded))
+	verdict, ok := decoded["verdict"]
+	require.True(t, ok, `expected JSON key "verdict" (bound in automation/engine_blocked.go) in %s`, raw)
+	require.Equal(t, "rejected", verdict)
+
+	got, ok := decoded["edited_change"]
+	require.True(t, ok, `expected JSON key "edited_change" (bound in compose/runnerservice.go) in %s`, raw)
+	gotObj, ok := got.(map[string]any)
+	require.True(t, ok, "edited_change must decode as an open JSON object, got %T", got)
+	require.Equal(t, "moved after the call", gotObj["note"], "edited_change must carry an arbitrary shape verbatim, not a narrowly typed struct")
+}
+
+// TestColdstartReadBackProposedWireSnapshot pins
+// coldstart.read_back_proposed's wire shape — sampled with the url-kind
+// read-back branch (source_url set, source_kind absent).
+func TestColdstartReadBackProposedWireSnapshot(t *testing.T) {
+	sourceURL := "https://acme.example"
+	sample := crmcontracts.WebhookPayloadColdstartReadBackProposed{
+		FieldCount: 4,
+		SourceUrl:  &sourceURL,
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestColdstartAcceptedWireSnapshot pins coldstart.accepted's wire shape.
+func TestColdstartAcceptedWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadColdstartAccepted{
+		ApprovalId: openapi_types.UUID(approvalSnapshotID),
+		DecidedBy:  openapi_types.UUID(approvalSnapshotDecidedBy),
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestColdstartRejectedWireSnapshot pins coldstart.rejected's wire shape.
+func TestColdstartRejectedWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadColdstartRejected{
+		ApprovalId: openapi_types.UUID(approvalSnapshotID),
+		DecidedBy:  openapi_types.UUID(approvalSnapshotDecidedBy),
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
