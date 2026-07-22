@@ -375,12 +375,18 @@ func TestHubSpotCallFieldFidelity(t *testing.T) {
 	out, _, err := overlay.Apply(m, map[string]any{
 		"hs_object_id": "5501", "hs_call_title": "Intro", "hs_call_body": "Discussed scope",
 		"hs_timestamp": "2026-06-02T09:00:00.000Z", "hs_call_direction": "OUTBOUND", "hs_call_duration": "90000",
+		"hubspot_owner_id": "owner-9",
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 	if got := out["kind"]; got != "call" {
 		t.Errorf("kind = %v, want call", got)
+	}
+	// Every engagement class maps the owner (else the activity ingests but
+	// no visibility grant is ever projected — the original OVA-MAP-1 defect).
+	if got := out["owner_id"]; got != "owner-9" {
+		t.Errorf("owner_id = %v, want owner-9 (engagement classes must map the owner)", got)
 	}
 	if got := out["subject"]; got != "Intro" {
 		t.Errorf("subject = %v, want Intro (from hs_call_title)", got)
@@ -393,6 +399,31 @@ func TestHubSpotCallFieldFidelity(t *testing.T) {
 	}
 	if got, ok := out["duration_seconds"].(int64); !ok || got != 90 {
 		t.Errorf("duration_seconds = %#v, want int64(90) — hs_call_duration ms→s (OVA-MAP-2)", out["duration_seconds"])
+	}
+}
+
+// TestHubSpotTaskTimestampFidelity is the OVA-MAP-8 golden case: a task's
+// hs_timestamp is its DUE time, so it maps to due_at, and occurred_at comes
+// from the task's creation — never the deadline.
+func TestHubSpotTaskTimestampFidelity(t *testing.T) {
+	m, ok := hubspot.Mapping("tasks")
+	if !ok {
+		t.Fatal("Mapping(tasks): want a declared mapping")
+	}
+	const due = "2026-07-10T17:00:00.000Z"
+	const created = "2026-07-01T08:30:00.000Z"
+	out, _, err := overlay.Apply(m, map[string]any{
+		"hs_object_id": "7001", "hs_task_subject": "Follow up",
+		"hs_timestamp": due, "hs_createdate": created,
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if got := out["due_at"]; got != due {
+		t.Errorf("due_at = %v, want the hs_timestamp value %q", got, due)
+	}
+	if got := out["occurred_at"]; got != created {
+		t.Errorf("occurred_at = %v, want the hs_createdate value %q (never the deadline)", got, created)
 	}
 }
 

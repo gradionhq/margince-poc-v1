@@ -243,6 +243,9 @@ func transformEmployeesToSizeBand(v any) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("overlay: employees_to_size_band could not parse %q as an integer", s)
 	}
+	// Buckets are the Organization.size_band enum verbatim (crm.yaml):
+	// a label outside that set is dropped by the typed response, so the
+	// boundaries must match the contract exactly, not an approximation.
 	switch {
 	case n <= 10:
 		return "1-10", nil
@@ -250,10 +253,14 @@ func transformEmployeesToSizeBand(v any) (any, error) {
 		return "11-50", nil
 	case n <= 200:
 		return "51-200", nil
+	case n <= 500:
+		return "201-500", nil
 	case n <= 1000:
-		return "201-1000", nil
+		return "501-1000", nil
+	case n <= 5000:
+		return "1001-5000", nil
 	default:
-		return "1001+", nil
+		return "5000+", nil
 	}
 }
 

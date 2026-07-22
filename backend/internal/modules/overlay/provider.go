@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -73,22 +74,49 @@ func errNoMirrorStore() error {
 // seam assumes a UUID-native identity, which overlay's incumbent natural
 // key is not: the natural key has no UUID of its own, so this bridge
 // packs the numeric id rather than persisting a mapping table.
+// A namespaced activity id ("<class>:<numeric>", OVA-MAP-7) does not fit the
+// numeric-packing bridge on its own, so the source class is packed as a small
+// 1-based code (its index in IncumbentEngagementClasses) into byte 7, just
+// above the numeric id in bytes 8..15. Code 0 is the un-namespaced case
+// (contacts/companies/deals/leads), so their bridge is byte-for-byte
+// unchanged. The bridge stays exactly reversible — no persisted mapping
+// table — which is what lets a force-fresh recover which class to re-fetch.
 func externalIDToUUID(externalID string) (ids.UUID, error) {
-	n, err := strconv.ParseUint(externalID, 10, 64)
+	numeric := externalID
+	var code byte
+	if class, rest, namespaced := strings.Cut(externalID, ":"); namespaced {
+		idx := slices.Index(IncumbentEngagementClasses, class)
+		if idx < 0 {
+			return ids.UUID{}, fmt.Errorf("overlay: external id %q names an unknown activity class — cannot bridge it to the frozen EntityRef.ID shape", externalID)
+		}
+		// idx+1 is at most len(IncumbentEngagementClasses) (five); the mask is
+		// a no-op that makes the byte narrowing provably in-range.
+		code = byte((idx + 1) & 0xff)
+		numeric = rest
+	}
+	n, err := strconv.ParseUint(numeric, 10, 64)
 	if err != nil {
 		return ids.UUID{}, fmt.Errorf("overlay: external id %q is not numeric — cannot bridge it to the frozen EntityRef.ID shape", externalID)
 	}
 	var u ids.UUID
+	u[7] = code
 	binary.BigEndian.PutUint64(u[8:], n)
 	return u, nil
 }
 
-// uuidToExternalID reverses externalIDToUUID. It never errors: every
-// ids.UUID has a well-defined low-8-bytes integer, even one this package
-// never minted itself (that ref simply won't resolve to a mirror row,
-// which Get/Read report as apperrors.ErrNotFound like any other miss).
+// uuidToExternalID reverses externalIDToUUID, re-forming the "<class>:<id>"
+// namespace from the class code in byte 7 (OVA-MAP-7). It never errors:
+// every ids.UUID has a well-defined code+integer, even one this package
+// never minted itself (an unknown code degrades to the bare numeric, which
+// simply won't resolve to a mirror row — Get/Read report apperrors.ErrNotFound
+// like any other miss).
 func uuidToExternalID(id ids.UUID) string {
-	return strconv.FormatUint(binary.BigEndian.Uint64(id[8:]), 10)
+	numeric := strconv.FormatUint(binary.BigEndian.Uint64(id[8:]), 10)
+	code := int(id[7])
+	if code >= 1 && code <= len(IncumbentEngagementClasses) {
+		return IncumbentEngagementClasses[code-1] + ":" + numeric
+	}
+	return numeric
 }
 
 // recordFromRow builds a datasource.Record literally from a mirror Row

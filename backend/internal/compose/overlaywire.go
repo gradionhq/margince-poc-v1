@@ -261,6 +261,18 @@ func overlayWireActivity(ctx context.Context, rec datasource.Record) (crmcontrac
 	if ms := crmcontracts.ActivityMeetingStatus(strings.ToLower(fieldString(fields, "meeting_status"))); ms.Valid() {
 		act.MeetingStatus = &ms
 	}
+	// duration_seconds (meeting/call) is already stored in canonical seconds
+	// by the ms_to_seconds mapping transform (OVA-MAP-2) — surface it as-is,
+	// never re-divide.
+	if secs, ok := fieldInt64(fields, "duration_seconds"); ok {
+		d := int(secs)
+		act.DurationSeconds = &d
+	}
+	// due_at (task) is the deadline the tasks mapping lands from hs_timestamp
+	// (OVA-MAP-8); occurred_at above already comes from the task's creation.
+	if due, ok := overlayTime(fields, "due_at"); ok {
+		act.DueAt = &due
+	}
 	return act, nil
 }
 

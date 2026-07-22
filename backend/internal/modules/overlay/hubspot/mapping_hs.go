@@ -109,6 +109,18 @@ func IncumbentClassesFor(canonical string) ([]string, bool) {
 	return classes, len(classes) > 0
 }
 
+// ownerIDField maps HubSpot's hubspot_owner_id onto the mirror owner_id,
+// resolved to an app_user through mirror_user_map. EVERY mirrored object
+// class carries it: ProjectOwnerVisibility grants the owner's seats
+// visibility from this field, so a class that omitted it would ingest rows
+// that no one can ever see (the OVA-MAP-1 activities' original defect).
+var ownerIDField = overlay.FieldMapping{
+	From:    []string{"hubspot_owner_id"},
+	To:      "owner_id",
+	Kind:    overlay.TargetColumn,
+	Resolve: "mirror_user_map",
+}
+
 // contactsMapping is the design.md §9 contacts→person subset. full_name is
 // assembled from firstname/lastname (falling back to the email local part,
 // then a stable placeholder) by the full_name transform, declared AlwaysEmit
@@ -146,12 +158,7 @@ var contactsMapping = overlay.ObjectMapping{
 			Kind:      overlay.TargetChild,
 			Transform: "lowercase",
 		},
-		{
-			From:    []string{"hubspot_owner_id"},
-			To:      "owner_id",
-			Kind:    overlay.TargetColumn,
-			Resolve: "mirror_user_map",
-		},
+		ownerIDField,
 		{
 			From:      []string{"address", "city", "state", "zip", "country"},
 			To:        targetAddress,
@@ -180,12 +187,7 @@ var companiesMapping = overlay.ObjectMapping{
 			Kind:      overlay.TargetColumn,
 			Transform: "employees_to_size_band",
 		},
-		{
-			From:    []string{"hubspot_owner_id"},
-			To:      "owner_id",
-			Kind:    overlay.TargetColumn,
-			Resolve: "mirror_user_map",
-		},
+		ownerIDField,
 		{
 			From:      []string{"address", "city", "state", "zip", "country"},
 			To:        targetAddress,
@@ -268,6 +270,7 @@ var callsMapping = overlay.ObjectMapping{
 		{From: []string{propHSTimestamp}, To: targetOccurred, Kind: overlay.TargetColumn},
 		{From: []string{"hs_call_direction"}, To: "direction", Kind: overlay.TargetColumn},
 		{From: []string{"hs_call_duration"}, To: "duration_seconds", Kind: overlay.TargetColumn, Transform: "ms_to_seconds"},
+		ownerIDField,
 	},
 }
 
@@ -283,6 +286,7 @@ var meetingsMapping = overlay.ObjectMapping{
 		{From: []string{"hs_meeting_body"}, To: targetBody, Kind: overlay.TargetColumn},
 		{From: []string{"hs_meeting_start_time"}, To: targetOccurred, Kind: overlay.TargetColumn},
 		{From: []string{"hs_meeting_outcome"}, To: "meeting_status", Kind: overlay.TargetColumn},
+		ownerIDField,
 	},
 }
 
@@ -298,6 +302,7 @@ var emailsMapping = overlay.ObjectMapping{
 		{From: []string{"hs_email_text"}, To: targetBody, Kind: overlay.TargetColumn},
 		{From: []string{propHSTimestamp}, To: targetOccurred, Kind: overlay.TargetColumn},
 		{From: []string{"hs_email_direction"}, To: "direction", Kind: overlay.TargetColumn},
+		ownerIDField,
 	},
 }
 
@@ -311,9 +316,15 @@ var notesMapping = overlay.ObjectMapping{
 	Fields: []overlay.FieldMapping{
 		{From: []string{"hs_note_body"}, To: targetBody, Kind: overlay.TargetColumn},
 		{From: []string{propHSTimestamp}, To: targetOccurred, Kind: overlay.TargetColumn},
+		ownerIDField,
 	},
 }
 
+// tasksMapping differs from the other four engagement classes on the
+// timestamp (OVA-MAP-8): a task's hs_timestamp is its DUE time, not its
+// occurrence, so it maps to due_at (task-only per the Activity schema) and
+// occurred_at is sourced from the task's creation timestamp — mapping the due
+// time to occurred_at would date the task to its deadline.
 var tasksMapping = overlay.ObjectMapping{
 	Source:         objectClassTasks,
 	Target:         activityTarget,
@@ -324,7 +335,9 @@ var tasksMapping = overlay.ObjectMapping{
 	Fields: []overlay.FieldMapping{
 		{From: []string{"hs_task_subject"}, To: targetSubject, Kind: overlay.TargetColumn},
 		{From: []string{"hs_task_body"}, To: targetBody, Kind: overlay.TargetColumn},
-		{From: []string{propHSTimestamp}, To: targetOccurred, Kind: overlay.TargetColumn},
+		{From: []string{propHSTimestamp}, To: "due_at", Kind: overlay.TargetColumn},
+		{From: []string{"hs_createdate"}, To: targetOccurred, Kind: overlay.TargetColumn},
+		ownerIDField,
 	},
 }
 

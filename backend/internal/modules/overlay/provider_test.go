@@ -149,7 +149,13 @@ func TestProviderFreshnessRequiresAMirrorStoreOrReader(t *testing.T) {
 // on to satisfy the frozen EntityRef.ID type against the mirror's
 // string-keyed natural key.
 func TestExternalIDUUIDBridgeRoundTrips(t *testing.T) {
-	for _, externalID := range []string{"0", "1", "100214862042", "18446744073709551615"} {
+	// Bare numeric ids (contacts/companies/deals/leads) AND the OVA-MAP-7
+	// class-namespaced activity ids both round-trip exactly.
+	ids := []string{"0", "1", "100214862042", "18446744073709551615"}
+	for _, class := range IncumbentEngagementClasses {
+		ids = append(ids, class+":123", class+":0")
+	}
+	for _, externalID := range ids {
 		id, err := externalIDToUUID(externalID)
 		if err != nil {
 			t.Fatalf("externalIDToUUID(%q): %v", externalID, err)
@@ -158,6 +164,42 @@ func TestExternalIDUUIDBridgeRoundTrips(t *testing.T) {
 		if got != externalID {
 			t.Fatalf("round trip: externalIDToUUID(%q) -> uuidToExternalID = %q", externalID, got)
 		}
+	}
+}
+
+// TestExternalIDUUIDBridgeNamespaceAvoidsCrossClassCollision is the OVA-MAP-7
+// proof at the identity bridge: two activities from different engagement
+// classes that share a numeric HubSpot id (unique only per-type) must bridge
+// to DISTINCT UUIDs, so neither overwrites the other on the mirror key.
+func TestExternalIDUUIDBridgeNamespaceAvoidsCrossClassCollision(t *testing.T) {
+	callID, err := externalIDToUUID("calls:123")
+	if err != nil {
+		t.Fatalf("externalIDToUUID(calls:123): %v", err)
+	}
+	meetingID, err := externalIDToUUID("meetings:123")
+	if err != nil {
+		t.Fatalf("externalIDToUUID(meetings:123): %v", err)
+	}
+	if callID == meetingID {
+		t.Fatal("calls:123 and meetings:123 bridged to the SAME UUID — a cross-class collision (OVA-MAP-7)")
+	}
+	// The bare numeric id (a contact) must not collide with either namespaced
+	// activity carrying the same number.
+	bare, err := externalIDToUUID("123")
+	if err != nil {
+		t.Fatalf("externalIDToUUID(123): %v", err)
+	}
+	if bare == callID || bare == meetingID {
+		t.Fatal("a bare id 123 collided with a namespaced activity id sharing the number")
+	}
+}
+
+// TestExternalIDUUIDBridgeRejectsUnknownActivityClass proves an id naming a
+// class this build does not know is a clean error, never a silently-wrong
+// bridge.
+func TestExternalIDUUIDBridgeRejectsUnknownActivityClass(t *testing.T) {
+	if _, err := externalIDToUUID("widgets:123"); err == nil {
+		t.Fatal("externalIDToUUID(widgets:123): want an error for an unknown activity class, got nil")
 	}
 }
 

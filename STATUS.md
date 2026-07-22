@@ -783,6 +783,15 @@ Open work, roughly in priority order:
     (`IncumbentClassesFor`): `activity` ← all five, so `backfillCompleteFor`
     requires all five cursors done and force-fresh honestly degrades a
     multi-source type to the mirror. Extracted `transforms.go` (file-length).
+    **Reworked against the merged pin (foundation #1131, OVA-MAP-7/8):** the
+    activity mirror `external_id` is namespaced `<class>:<id>` (adapter
+    produces/strips it; the UUID bridge packs a 1-based class code in byte 7,
+    reversibly — fixes the cross-class id collision AND lets force-fresh
+    recover the class); the five engagement mappings now carry the owner field
+    (were ingesting invisible); task `hs_timestamp`→`due_at` with `occurred_at`
+    from `hs_createdate`; the wire projection surfaces `duration_seconds` +
+    `due_at`; `size_band` buckets fixed to the contract enum
+    (201-500/501-1000/1001-5000/5000+).
   - **A6 remaining slices** (own PRs, structural): OVA-MAP-5 leads via real
     Leads API props + contact association, OVA-MAP-6 null overlay pipeline/stage
     + `raw` + stage→`semantic` for advance-tier.
