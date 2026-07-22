@@ -109,6 +109,7 @@ func NewLocalRouter(cfg RoutingConfig, opts ...LocalOption) (*Router, error) {
 	router := assembleRouter(clients, embedder, cfg.Profile, &memoryMeter{}, StaticBudget(o.monthlyBudget), o.callStore, meta, o.capturePayloads, nil)
 	router.cacheOff = o.cacheOff
 	router.installConfigSnapshot(cfg.sourceHash)
+	router.embedDims = cfg.Embeddings.Dimensions
 	return router, nil
 }
 

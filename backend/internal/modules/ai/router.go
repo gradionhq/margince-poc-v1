@@ -69,6 +69,14 @@ type Router struct {
 	// then skips EnsureConfig and leaves every attempt's ConfigHash nil.
 	configSnapshot ConfigSnapshot
 	configHash     string
+	// embedDims is the configured embeddings binding's vector width
+	// (RoutingConfig.Embeddings.Dimensions, defaulted/validated once by
+	// ParseRouting). Zero value on a Router assembled without a
+	// RoutingConfig (assembleRouter directly, most unit tests): Embed then
+	// leaves a caller-unset Dimensions at 0, same as before this field
+	// existed, and each adapter's own zero-value behavior (provider
+	// default) still applies.
+	embedDims int
 }
 
 // installConfigSnapshot computes and stores this Router's config-snapshot
@@ -101,6 +109,7 @@ func NewRouter(cfg RoutingConfig, meter *Meter, budget BudgetPolicy, calls callS
 	meta := embedInclusiveMeta(cfg)
 	router := assembleRouter(clients, embedder, cfg.Profile, meter, budget, calls, meta, capturePayloads, log)
 	router.installConfigSnapshot(cfg.sourceHash)
+	router.embedDims = cfg.Embeddings.Dimensions
 	return router, nil
 }
 
@@ -257,6 +266,13 @@ func (r *Router) Embed(ctx context.Context, req model.EmbedRequest) (model.Embed
 		stripped[i] = string(clean)
 	}
 	req.Inputs = stripped
+	if req.Dimensions == 0 {
+		// The configured embeddings binding's width (defaulted/validated
+		// once by ParseRouting) is the operator's choice — a caller that
+		// names no explicit width gets that configured one, never a
+		// silent per-adapter default the operator never set.
+		req.Dimensions = r.embedDims
+	}
 
 	start := r.now()
 	res, err := r.embedder.Embed(ctx, req)
@@ -299,9 +315,6 @@ func (r *Router) Embed(ctx context.Context, req model.EmbedRequest) (model.Embed
 	}
 	return res, nil
 }
-
-// EmbedDims reports the embedding lane's vector width.
-func (r *Router) EmbedDims() int { return r.embedder.Caps().EmbedDims }
 
 // Invalidate drops a workspace's cached results — the hook the §6
 // record-change invalidation rides (wired from event consumers).
