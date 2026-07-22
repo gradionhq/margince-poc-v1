@@ -79,7 +79,11 @@ func NewDeliverer(store *Store, client HTTPDoer, clock func() time.Time, resolve
 // enqueue failure (which recorded nothing) is returned, so the bus entry
 // redelivers and the idempotent enqueue makes it a no-op.
 func (d *Deliverer) HandleEvent(ctx context.Context, env kevents.Envelope) error {
-	body, err := json.Marshal(env)
+	wire, err := toWireEnvelope(env)
+	if err != nil {
+		return fmt.Errorf("webhooks: mapping envelope %s to the public wire shape: %w", env.EventID, err)
+	}
+	body, err := json.Marshal(wire)
 	if err != nil {
 		return fmt.Errorf("webhooks: marshaling envelope %s: %w", env.EventID, err)
 	}

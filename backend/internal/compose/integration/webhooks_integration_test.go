@@ -613,14 +613,14 @@ func mustParseUUID(t *testing.T, s string) ids.UUID {
 
 // TestDealStageChangedPayloadConformsToPublicSchema is the Phase-4
 // conformance gate (A7, payload-`data` only — the envelope-level assertion
-// follows in Phase 5 once Task 6's toWireEnvelope exists): a REAL event, one
-// the deals module emits by actually advancing a deal through HTTP, must
-// validate against the published WebhookPayloadDealStageChanged component
-// schema in api/public-events.yaml. This is deliberately independent of any
-// Go struct — it re-derives the schema from the SAME source file
-// gen-payloads compiles, so a payload that satisfies the generated Go type
-// but drifted from the documented wire contract (or vice versa) is still
-// caught.
+// follows in TestWebhookDeliveryEnvelopeConformsToPublicSchema below, now that
+// Task 6's toWireEnvelope exists): a REAL event, one the deals module emits
+// by actually advancing a deal through HTTP, must validate against the
+// published WebhookPayloadDealStageChanged component schema in
+// api/public-events.yaml. This is deliberately independent of any Go struct —
+// it re-derives the schema from the SAME source file gen-payloads compiles,
+// so a payload that satisfies the generated Go type but drifted from the
+// documented wire contract (or vice versa) is still caught.
 func TestDealStageChangedPayloadConformsToPublicSchema(t *testing.T) {
 	we := setupWebhooks(t)
 	stages := discoverSeededPipeline(t, we.env)
@@ -633,17 +633,51 @@ func TestDealStageChangedPayloadConformsToPublicSchema(t *testing.T) {
 	}
 }
 
-// realEventPayload reads back the most recent outbox envelope of eventType
-// naming entityID as its subject and returns its `payload` decoded as
-// generic JSON (any) — schema.VisitJSON's expected input shape. It queries
-// through the owner connection (the same RLS-bypassing role every other
-// direct event_outbox assertion in this package uses) rather than through
-// the delivery engine, because the point here is the event AS STAGED by the
-// domain write, not anything the (still envelope-shaped, pre-toWireEnvelope)
-// delivery body wraps it in.
-//
-//craft:ignore naked-any generic JSON is exactly the input schema.VisitJSON expects — the payload shape varies per event type, so there is no concrete type to name here
-func realEventPayload(t *testing.T, we *webhookEnv, eventType, entityID string) any {
+// TestWebhookDeliveryEnvelopeConformsToPublicSchema is the ENVELOPE-level half
+// of the A7 conformance gate (Task 6/Phase 5): the actual HTTP body the
+// delivery engine POSTs for a real deal.stage_changed event — the exact
+// bytes toWireEnvelope + json.Marshal produce, delivered by HandleEvent
+// itself, not a hand-built fixture — must validate against the published
+// WebhookDeliveryEnvelope component schema in api/public-events.yaml. The
+// event fed to HandleEvent is read back from the outbox (realEventEnvelope),
+// so this is the SAME internal envelope a bus consumer would receive in
+// production, proving the mapping end to end rather than only at the unit
+// level (wireenvelope_test.go covers the pure mapping in isolation).
+func TestWebhookDeliveryEnvelopeConformsToPublicSchema(t *testing.T) {
+	we := setupWebhooks(t)
+	stages := discoverSeededPipeline(t, we.env)
+	dealID := exerciseDealToWon(t, we.env, stages)
+	env := realEventEnvelope(t, we, "deal.stage_changed", dealID)
+
+	rcv := newReceiver(t, http.StatusOK)
+	now := time.Now().UTC()
+	deliverer := newTestDeliverer(we, &now, rcv.server.Client())
+	we.createSubscription(t, rcv.server.URL+"/hook", []string{"deal.stage_changed"})
+
+	if err := deliverer.HandleEvent(context.Background(), env); err != nil {
+		t.Fatalf("handling the real deal.stage_changed event: %v", err)
+	}
+	hits := rcv.snapshot()
+	if len(hits) != 1 {
+		t.Fatalf("got %d deliveries for the real event, want exactly 1", len(hits))
+	}
+
+	var delivered any
+	if err := json.Unmarshal(hits[0].body, &delivered); err != nil {
+		t.Fatalf("the delivered body is not valid JSON: %v", err)
+	}
+	schema := publicEventSchema(t, "WebhookDeliveryEnvelope")
+	if err := schema.VisitJSON(delivered); err != nil {
+		t.Fatalf("the real delivered envelope does not conform to WebhookDeliveryEnvelope: %v", err)
+	}
+}
+
+// realEventEnvelope reads back the most recent outbox envelope of eventType
+// naming entityID as its subject, decoded into the internal kevents.Envelope
+// shape — the same row a bus consumer (HandleEvent, in production) would
+// receive. It queries through the owner connection (the same RLS-bypassing
+// role every other direct event_outbox assertion in this package uses).
+func realEventEnvelope(t *testing.T, we *webhookEnv, eventType, entityID string) kevents.Envelope {
 	t.Helper()
 	var raw []byte
 	err := we.owner.QueryRow(context.Background(),
@@ -658,6 +692,18 @@ func realEventPayload(t *testing.T, we *webhookEnv, eventType, entityID string) 
 	if err := json.Unmarshal(raw, &env); err != nil {
 		t.Fatalf("unmarshaling the %s envelope: %v", eventType, err)
 	}
+	return env
+}
+
+// realEventPayload returns the AS-STAGED payload of the real envelope
+// realEventEnvelope reads, decoded as generic JSON (any) —
+// schema.VisitJSON's expected input shape. The point here is the event as
+// the domain write staged it, not anything a delivery body wraps it in.
+//
+//craft:ignore naked-any generic JSON is exactly the input schema.VisitJSON expects — the payload shape varies per event type, so there is no concrete type to name here
+func realEventPayload(t *testing.T, we *webhookEnv, eventType, entityID string) any {
+	t.Helper()
+	env := realEventEnvelope(t, we, eventType, entityID)
 	if len(env.Payload) == 0 {
 		t.Fatalf("%s envelope for entity %s carries no payload", eventType, entityID)
 	}
