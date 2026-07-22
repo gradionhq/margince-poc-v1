@@ -1,0 +1,309 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package ai
+
+// The deterministic half of voice building. Measurements are computed from
+// the user's own normalized text and given to the model as evidence; the model
+// never invents the corpus statistics or the representative examples.
+
+import (
+	"math"
+	"regexp"
+	"sort"
+	"strings"
+	"unicode"
+)
+
+const (
+	// VoiceBuilderVersion pins the deterministic analyzer/prompt contract a
+	// stored version row was built under.
+	VoiceBuilderVersion = 1
+	// StarterVoiceWords is the honest minimum for a provisional profile —
+	// the same floor CreateBuild enforces before queueing.
+	StarterVoiceWords  = 800
+	voicePromptWordCap = 12000
+)
+
+// sentenceBoundary ends a sentence at terminal punctuation — the Unicode
+// ellipsis included — optionally followed by a closing quote or bracket.
+var sentenceBoundary = regexp.MustCompile(`[.!?…]+["')\]]*(?:\s+|$)`)
+
+// VoiceSample is one already consented, owner-only corpus source.
+type VoiceSample struct {
+	ID        string  `json:"id"`
+	Kind      string  `json:"kind"`
+	Register  string  `json:"register"`
+	Weight    float64 `json:"weight"`
+	Text      string  `json:"text"`
+	WordCount int     `json:"word_count"`
+}
+
+// VoiceStats is the deterministic style fingerprint used both by the model
+// and by the evaluation gate. Rates are per 100 words. Its JSON tags are the
+// pinned stats_json shape a stored version row carries.
+type VoiceStats struct {
+	SampleCount           int            `json:"sample_count"`
+	WordCount             int            `json:"word_count"`
+	SentenceCount         int            `json:"sentence_count"`
+	MeanSentenceWords     float64        `json:"mean_sentence_words"`
+	MedianSentenceWords   float64        `json:"median_sentence_words"`
+	SentenceWordStdDev    float64        `json:"sentence_word_stddev"`
+	EmDashPer100Words     float64        `json:"em_dash_per_100_words"`
+	QuestionPer100Words   float64        `json:"question_per_100_words"`
+	ExclaimPer100Words    float64        `json:"exclaim_per_100_words"`
+	EllipsisPer100Words   float64        `json:"ellipsis_per_100_words"`
+	LineBreaksPer100Words float64        `json:"line_breaks_per_100_words"`
+	RegisterWords         map[string]int `json:"register_words"`
+	TopWords              []string       `json:"top_words"`
+}
+
+// AnalyzeVoice derives stable measurements without model judgment.
+func AnalyzeVoice(samples []VoiceSample) VoiceStats {
+	stats := VoiceStats{SampleCount: len(samples), RegisterWords: map[string]int{}}
+	wordFreq := map[string]int{}
+	var sentenceLengths []int
+	var emDashes, questions, exclaims, ellipses, lineBreaks int
+	for _, sample := range samples {
+		words := strings.Fields(sample.Text)
+		stats.WordCount += len(words)
+		stats.RegisterWords[sample.Register] += len(words)
+		for _, word := range words {
+			normalized := normalizeStyleWord(word)
+			if len([]rune(normalized)) >= 4 {
+				wordFreq[normalized]++
+			}
+		}
+		for _, sentence := range sentenceBoundary.Split(sample.Text, -1) {
+			if count := len(strings.Fields(sentence)); count > 0 {
+				sentenceLengths = append(sentenceLengths, count)
+			}
+		}
+		emDashes += strings.Count(sample.Text, "—") + strings.Count(sample.Text, "–")
+		questions += strings.Count(sample.Text, "?")
+		exclaims += strings.Count(sample.Text, "!")
+		ellipses += strings.Count(sample.Text, "…") + strings.Count(sample.Text, "...")
+		lineBreaks += strings.Count(sample.Text, "\n")
+	}
+	stats.SentenceCount = len(sentenceLengths)
+	stats.MeanSentenceWords, stats.MedianSentenceWords, stats.SentenceWordStdDev = distribution(sentenceLengths)
+	stats.EmDashPer100Words = per100(emDashes, stats.WordCount)
+	stats.QuestionPer100Words = per100(questions, stats.WordCount)
+	stats.ExclaimPer100Words = per100(exclaims, stats.WordCount)
+	stats.EllipsisPer100Words = per100(ellipses, stats.WordCount)
+	stats.LineBreaksPer100Words = per100(lineBreaks, stats.WordCount)
+	stats.TopWords = topStyleWords(wordFreq, 12)
+	return stats
+}
+
+func normalizeStyleWord(word string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+			return unicode.ToLower(r)
+		}
+		return -1
+	}, word)
+}
+
+func distribution(values []int) (float64, float64, float64) {
+	if len(values) == 0 {
+		return 0, 0, 0
+	}
+	sorted := append([]int(nil), values...)
+	sort.Ints(sorted)
+	var sum float64
+	for _, value := range sorted {
+		sum += float64(value)
+	}
+	mean := sum / float64(len(sorted))
+	median := float64(sorted[len(sorted)/2])
+	if len(sorted)%2 == 0 {
+		median = float64(sorted[len(sorted)/2-1]+sorted[len(sorted)/2]) / 2
+	}
+	var variance float64
+	for _, value := range sorted {
+		delta := float64(value) - mean
+		variance += delta * delta
+	}
+	return round2(mean), round2(median), round2(math.Sqrt(variance / float64(len(sorted))))
+}
+
+func per100(count, words int) float64 {
+	if words == 0 {
+		return 0
+	}
+	return round2(float64(count) * 100 / float64(words))
+}
+
+func round2(value float64) float64 { return math.Round(value*100) / 100 }
+
+type wordFrequency struct {
+	word  string
+	count int
+}
+
+func topStyleWords(freq map[string]int, limit int) []string {
+	items := make([]wordFrequency, 0, len(freq))
+	for word, count := range freq {
+		items = append(items, wordFrequency{word: word, count: count})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].count == items[j].count {
+			return items[i].word < items[j].word
+		}
+		return items[i].count > items[j].count
+	})
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		result = append(result, item.word)
+	}
+	return result
+}
+
+// SelectVoiceSamples bounds prompt size while preserving kind/register
+// diversity. Each group gets a turn before weighting can add more samples.
+func SelectVoiceSamples(samples []VoiceSample) []VoiceSample {
+	ordered := append([]VoiceSample(nil), samples...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		left := ordered[i].Register + ":" + ordered[i].Kind
+		right := ordered[j].Register + ":" + ordered[j].Kind
+		if left == right {
+			return ordered[i].Weight > ordered[j].Weight
+		}
+		return left < right
+	})
+	groups := map[string][]VoiceSample{}
+	var keys []string
+	for _, sample := range ordered {
+		key := sample.Register + ":" + sample.Kind
+		if _, ok := groups[key]; !ok {
+			keys = append(keys, key)
+		}
+		groups[key] = append(groups[key], sample)
+	}
+	var selected []VoiceSample
+	words := 0
+	for {
+		consumed := false
+		for _, key := range keys {
+			group := groups[key]
+			if len(group) == 0 {
+				continue
+			}
+			sample := group[0]
+			groups[key] = group[1:]
+			consumed = true
+			if words == 0 && sample.WordCount > voicePromptWordCap {
+				// A single document-sized sample must not blow the prompt:
+				// take its bounded excerpt rather than the whole text.
+				sample.Text = excerptWords(sample.Text, voicePromptWordCap)
+				sample.WordCount = WordCount(sample.Text)
+			}
+			if words > 0 && words+sample.WordCount > voicePromptWordCap {
+				// Too big for the remaining budget; a smaller sample later in
+				// this or another group may still fit, so keep walking.
+				continue
+			}
+			selected = append(selected, sample)
+			words += sample.WordCount
+		}
+		if !consumed || words >= voicePromptWordCap {
+			break
+		}
+	}
+	return selected
+}
+
+// VoiceExemplar is one verbatim few-shot excerpt drafting injects. Exactly
+// two are kept per build: more teach the model to copy wording instead of
+// thinking.
+type VoiceExemplar struct {
+	Register string `json:"register"`
+	Kind     string `json:"kind"`
+	Text     string `json:"text"`
+}
+
+// exemplarWordCap bounds one exemplar; a whole letter as a few-shot drowns
+// the instruction half of the prompt.
+const exemplarWordCap = 150
+
+// SelectExemplars picks at most two representative verbatim excerpts (a
+// one-sample corpus yields one), preferring distinct registers and the
+// samples closest to the corpus's own median sentence length —
+// representative, never the outliers.
+func SelectExemplars(samples []VoiceSample, stats VoiceStats) []VoiceExemplar {
+	ordered := append([]VoiceSample(nil), samples...)
+	// Distances are computed once per sample; sorting must compare cached
+	// values, not re-analyze the corpus per comparison.
+	distances := make(map[string]float64, len(ordered))
+	for _, sample := range ordered {
+		distances[sample.ID] = sampleMedianDistance(sample, stats.MedianSentenceWords)
+	}
+	sort.SliceStable(ordered, func(i, j int) bool {
+		di, dj := distances[ordered[i].ID], distances[ordered[j].ID]
+		if di == dj {
+			return ordered[i].ID < ordered[j].ID
+		}
+		return di < dj
+	})
+	seenRegisters := map[string]bool{}
+	exemplars := make([]VoiceExemplar, 0, 2)
+	for pass := 0; pass < 2 && len(exemplars) < 2; pass++ {
+		for _, sample := range ordered {
+			if len(exemplars) == 2 {
+				break
+			}
+			// First pass: one exemplar per register. Second pass: fill from
+			// whatever remains when the corpus has fewer registers than slots.
+			if pass == 0 && seenRegisters[sample.Register] {
+				continue
+			}
+			text := verbatimExcerpt(sample.Text, exemplarWordCap)
+			if text == "" || containsExemplar(exemplars, text) {
+				continue
+			}
+			exemplars = append(exemplars, VoiceExemplar{Register: sample.Register, Kind: sample.Kind, Text: text})
+			seenRegisters[sample.Register] = true
+		}
+	}
+	return exemplars
+}
+
+func containsExemplar(exemplars []VoiceExemplar, text string) bool {
+	for _, e := range exemplars {
+		if e.Text == text {
+			return true
+		}
+	}
+	return false
+}
+
+func sampleMedianDistance(sample VoiceSample, median float64) float64 {
+	stats := AnalyzeVoice([]VoiceSample{sample})
+	return math.Abs(stats.MedianSentenceWords - median)
+}
+
+func excerptWords(text string, limit int) string {
+	excerpt := verbatimExcerpt(text, limit)
+	if excerpt != "" && len(strings.Fields(text)) > limit {
+		return excerpt + " …"
+	}
+	return excerpt
+}
+
+// verbatimExcerpt bounds text to the author's own words and nothing else —
+// no synthetic ellipsis, because an exemplar teaches punctuation habits and
+// must stay character-honest.
+func verbatimExcerpt(text string, limit int) string {
+	words := strings.Fields(strings.TrimSpace(text))
+	if len(words) == 0 {
+		return ""
+	}
+	if len(words) > limit {
+		words = words[:limit]
+	}
+	return strings.Join(words, " ")
+}

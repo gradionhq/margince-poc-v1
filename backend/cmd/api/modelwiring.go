@@ -99,16 +99,20 @@ func offerDraftOptions(pool *pgxpool.Pool, modelPath *compose.ModelPath) []compo
 	return []compose.Option{compose.WithOfferDraft(modelPath.OfferDraft, retriever)}
 }
 
-// deepReadOption wires the deep-read transport over an insert-only River
-// client: the api enqueues the crawl for the worker role, it never works
-// jobs (jobs.NewInserter documents that Start is never called on it).
-func deepReadOption(pool *pgxpool.Pool, logger *slog.Logger, modelPath *compose.ModelPath) (compose.Option, error) {
+// jobEnqueueOptions wires the api-role transports that hand work to the
+// worker role over an insert-only River client — the deep-read start and
+// the voice-build create both enqueue, they never work jobs
+// (jobs.NewInserter documents that Start is never called on it). The deep
+// read additionally carries the cold-start completer when this role has a
+// model path (the workbench read-back); nil keeps it enqueue-only.
+func jobEnqueueOptions(pool *pgxpool.Pool, logger *slog.Logger, modelPath *compose.ModelPath) ([]compose.Option, error) {
 	inserter, err := jobs.NewInserter(pool, logger)
 	if err != nil {
 		return nil, err
 	}
-	if modelPath == nil {
-		return compose.WithDeepRead(inserter, nil), nil
+	deepRead := compose.WithDeepRead(inserter, nil)
+	if modelPath != nil {
+		deepRead = compose.WithDeepRead(inserter, modelPath.ColdStart)
 	}
-	return compose.WithDeepRead(inserter, modelPath.ColdStart), nil
+	return []compose.Option{deepRead, compose.WithVoiceBuildEnqueue(inserter)}, nil
 }

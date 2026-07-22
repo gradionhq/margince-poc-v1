@@ -123,6 +123,10 @@ var unguardedByIDUpdates = map[string]string{
 	"internal/modules/signals:dropUnattributable":   "runs only inside resolveTx, under its signal row lock (storekit.LockRow before the terminal-state pre-read)",
 	"internal/modules/signals:resolveToOrg":         "runs only inside resolveTx, under its signal row lock (storekit.LockRow before the terminal-state pre-read)",
 	"internal/modules/signals:flagAmbiguous":        "runs only inside resolveTx, under its signal row lock (storekit.LockRow before the terminal-state pre-read)",
+	"internal/modules/ai:SetBuildStage":             "stage is display-only forward progress; the status=running predicate makes a raced write a harmless no-op",
+	"internal/modules/ai:DeferBuild":                "the status=running predicate is the CAS: a build already finished or re-claimed matches zero rows and the deferral is dropped",
+	"internal/modules/ai:finishBuildTx":             "runs only under its callers' row lock — ClaimBuild's claim UPDATE or the FOR UPDATE pre-read in FailBuild/CompleteBuild, same transaction",
+	"internal/modules/ai:persistBuildVersion":       "runs only inside CompleteBuild's transaction, under its voice_profile row lock (storekit.LockRow before the pre-read)",
 
 	// Writes that are race-free by their own shape.
 	"internal/modules/activities:insertActivityLinks": "deal.last_activity_at is a single-statement monotone max (greatest of stored and new) — the value is computed inside the UPDATE, never from a pre-read, so concurrent writers converge on the maximum",
