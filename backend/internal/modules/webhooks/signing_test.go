@@ -12,7 +12,7 @@ import (
 )
 
 func TestSignMatchesIndependentHMAC(t *testing.T) {
-	secret := "whsec_test-secret" //nolint:gosec // G101: test fixture, not a real credential
+	secret := "whsec_test-secret"
 	body := []byte(`{"event_id":"abc","type":"deal.created"}`)
 
 	got := Sign(secret, body)

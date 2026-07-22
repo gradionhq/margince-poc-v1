@@ -19,7 +19,7 @@ func TestCipherSealOpenRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	secret := "whsec_round-trip" //nolint:gosec // G101: test fixture, not a real credential
+	secret := "whsec_round-trip"
 	sealed, err := c.seal(secret)
 	if err != nil {
 		t.Fatal(err)

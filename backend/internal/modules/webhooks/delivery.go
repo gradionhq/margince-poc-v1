@@ -7,15 +7,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/authz"
 )
 
 const (
@@ -45,35 +48,60 @@ func backoff(attempts int) time.Duration {
 // transport and the signing cipher — the two capabilities a delivery
 // needs that a plain CRUD store does not.
 type Deliverer struct {
-	store  *Store
-	client HTTPDoer
-	clock  func() time.Time
-	log    *slog.Logger
+	store    *Store
+	client   HTTPDoer
+	clock    func() time.Time
+	resolver authz.Resolver
+	log      *slog.Logger
 }
 
 // NewDeliverer wires the delivery engine. A nil clock defaults to the wall
 // clock; tests inject a controllable one so the backoff schedule is
-// deterministic (no sleeps).
-func NewDeliverer(store *Store, client HTTPDoer, clock func() time.Time, log *slog.Logger) *Deliverer {
+// deterministic (no sleeps). resolver bounds the fan-out to each
+// subscription owner's row scope (B-E10.15/BYO-EVT-4); it is required on
+// the bus-consumer path (HandleEvent) and may be nil on a replay-only
+// deliverer (Replay re-sends an already-authorized delivery, it never
+// fans out).
+func NewDeliverer(store *Store, client HTTPDoer, clock func() time.Time, resolver authz.Resolver, log *slog.Logger) *Deliverer {
 	if clock == nil {
 		clock = time.Now
 	}
-	return &Deliverer{store: store, client: client, clock: clock, log: log}
+	return &Deliverer{store: store, client: client, clock: clock, resolver: resolver, log: log}
 }
 
-// HandleEvent is the cg:webhooks consumer entry point: enqueue one pending
-// delivery per matching active subscription (idempotent on the bus
-// event), then attempt each immediately. Per-target HTTP failures are
-// recorded as retrying and left to the sweeper — only an enqueue failure
-// (which recorded nothing) is returned, so the bus entry redelivers and
-// the idempotent enqueue makes it a no-op.
+// HandleEvent is the cg:webhooks consumer entry point: for each active
+// subscription matching the event's type, deliver ONLY if the
+// subscription's owner may see the event's subject (BYO-EVT-4 — no
+// privilege escalation via a webhook), enqueue one pending delivery
+// (idempotent on the bus event), then attempt each immediately. Per-target
+// HTTP failures are recorded as retrying and left to the sweeper — only an
+// enqueue failure (which recorded nothing) is returned, so the bus entry
+// redelivers and the idempotent enqueue makes it a no-op.
 func (d *Deliverer) HandleEvent(ctx context.Context, env kevents.Envelope) error {
 	body, err := json.Marshal(env)
 	if err != nil {
 		return fmt.Errorf("webhooks: marshaling envelope %s: %w", env.EventID, err)
 	}
 	wsCtx := d.systemContext(ctx, env.WorkspaceID)
-	targets, err := d.store.enqueueMatching(wsCtx, env.Type, env.EventID, body)
+	cands, err := d.store.matchingSubscriptions(wsCtx, env.Type)
+	if err != nil {
+		return fmt.Errorf("webhooks: matching subscriptions for %s: %w", env.Type, err)
+	}
+	visible := make([]ids.UUID, 0, len(cands))
+	for _, c := range cands {
+		ok, err := d.ownerCanSee(wsCtx, env, c.ownerID)
+		if err != nil {
+			// One owner's resolver/visibility failure must not strand the
+			// rest of the fan-out; skip it (fail-closed for this sub) and
+			// let the bus redelivery re-evaluate on the next pass.
+			d.log.Error("webhooks: owner visibility check", "subscription", c.id, "owner", c.ownerID, "event", env.EventID, "err", err)
+			continue
+		}
+		if ok {
+			visible = append(visible, c.id)
+		}
+	}
+	targets, err := d.store.enqueueForSubscriptions(wsCtx, visible, env.Type, env.EventID, body)
 	if err != nil {
 		return fmt.Errorf("webhooks: enqueue for %s: %w", env.Type, err)
 	}
@@ -81,6 +109,38 @@ func (d *Deliverer) HandleEvent(ctx context.Context, env kevents.Envelope) error
 		d.deliverOnce(wsCtx, t)
 	}
 	return nil
+}
+
+// ownerCanSee resolves the subscription owner's LIVE RBAC and reports
+// whether the event's subject entity is within that principal's row scope
+// (BYO-EVT-4), enforced at delivery time so a mid-session revocation binds.
+// A deactivated/absent owner (ErrNotFound) sees nothing — fan-out to a
+// revoked principal stops at once.
+func (d *Deliverer) ownerCanSee(ctx context.Context, env kevents.Envelope, ownerID ids.UUID) (bool, error) {
+	if env.Entity.Type == "" || env.Entity.ID.IsZero() {
+		// An entity-less event names no subject to scope by; such types are
+		// excluded from the subscribable catalog (validateEventTypes), so a
+		// subscription can never match one — defensive.
+		return false, nil
+	}
+	if d.resolver == nil {
+		return false, errors.New("webhooks: no principal resolver configured for owner-scoped fan-out")
+	}
+	rbac, err := d.resolver.EffectiveRBAC(ctx, env.WorkspaceID, ownerID)
+	if errors.Is(err, apperrors.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	ownerCtx := principal.WithActor(ctx, principal.Principal{
+		Type:        principal.PrincipalHuman,
+		ID:          "human:" + ownerID.String(),
+		UserID:      ownerID,
+		TeamIDs:     rbac.TeamIDs,
+		Permissions: rbac.Permissions,
+	})
+	return d.store.entityVisibleTo(ownerCtx, env.Entity.Type, env.Entity.ID)
 }
 
 // RunRetrySweep re-attempts due retries on a ticker until ctx is

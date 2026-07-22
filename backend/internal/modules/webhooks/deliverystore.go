@@ -140,20 +140,57 @@ type attemptTarget struct {
 	priorAttempts int
 }
 
-// enqueueMatching creates a pending delivery per active subscription whose
-// event_types include the envelope's type, idempotently: the (workspace,
-// subscription, event) unique key means a redelivered bus event conflicts
-// and yields no new row — so it never double-POSTs. It returns only the
-// freshly-created rows to attempt now. Runs in the envelope's workspace.
-func (s *Store) enqueueMatching(ctx context.Context, eventType string, eventID ids.UUID, body []byte) ([]attemptTarget, error) {
+// subCandidate is one active subscription matching an event's type, with
+// the owning principal the fan-out is bounded to (B-E10.15/BYO-EVT-4).
+type subCandidate struct {
+	id      ids.UUID
+	ownerID ids.UUID
+}
+
+// matchingSubscriptions returns the active subscriptions in the envelope's
+// workspace whose event_types include this type, each with its owner —
+// the fan-out candidate set BEFORE the owner-visibility filter. Runs in
+// the envelope's workspace under the tenant GUC.
+func (s *Store) matchingSubscriptions(ctx context.Context, eventType string) ([]subCandidate, error) {
+	var out []subCandidate
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			SELECT id, owner_id FROM webhook_subscription
+			WHERE state = 'active' AND archived_at IS NULL
+			  AND event_types @> ARRAY[$1]::text[]`, eventType)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var c subCandidate
+			if err := rows.Scan(&c.id, &c.ownerID); err != nil {
+				return err
+			}
+			out = append(out, c)
+		}
+		return rows.Err()
+	})
+	return out, err
+}
+
+// enqueueForSubscriptions creates a pending delivery for each named
+// subscription, idempotently: the (workspace, subscription, event) unique
+// key means a redelivered bus event conflicts and yields no new row — so
+// it never double-POSTs. It returns only the freshly-created rows to
+// attempt now. subIDs is the visibility-filtered set (BYO-EVT-4). Runs in
+// the envelope's workspace.
+func (s *Store) enqueueForSubscriptions(ctx context.Context, subIDs []ids.UUID, eventType string, eventID ids.UUID, body []byte) ([]attemptTarget, error) {
+	if len(subIDs) == 0 {
+		return nil, nil
+	}
 	var targets []attemptTarget
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			WITH matched AS (
 				SELECT id, target_url, signing_secret_ref
 				FROM webhook_subscription
-				WHERE state = 'active' AND archived_at IS NULL
-				  AND event_types @> ARRAY[$1]::text[]
+				WHERE id = ANY($4::uuid[]) AND state = 'active' AND archived_at IS NULL
 			), created AS (
 				INSERT INTO webhook_delivery
 				  (workspace_id, subscription_id, event_id, event_type, payload, status)
@@ -165,7 +202,7 @@ func (s *Store) enqueueMatching(ctx context.Context, eventType string, eventID i
 			)
 			SELECT c.id, c.subscription_id, m.target_url, m.signing_secret_ref
 			FROM created c JOIN matched m ON m.id = c.subscription_id`,
-			eventType, eventID, body)
+			eventType, eventID, body, subIDs)
 		if err != nil {
 			return err
 		}
@@ -182,12 +219,44 @@ func (s *Store) enqueueMatching(ctx context.Context, eventType string, eventID i
 	return targets, err
 }
 
+// entityVisibleTo reports whether the entity an event names is visible to
+// ownerCtx's principal under the row-scope gate (BYO-EVT-4: fan-out never
+// escalates past what the owner may see). Person/organization/deal/lead
+// scope by owner+grant; activity by its link-walk; signal by its subject.
+// Any other entity type is a workspace-level fact (pipeline/stage config,
+// identity, audit, …) with no per-owner row scope — visible to every live
+// member, so it delivers. Out of scope reads as not-visible (ErrNotFound),
+// never an error that would strand the whole fan-out.
+func (s *Store) entityVisibleTo(ctx context.Context, entityType string, entityID ids.UUID) (bool, error) {
+	var probe func(context.Context, pgx.Tx) error
+	switch entityType {
+	case "person", "organization", "deal", "lead":
+		probe = func(ctx context.Context, tx pgx.Tx) error { return auth.EnsureVisible(ctx, tx, entityType, entityID) }
+	case "activity":
+		probe = func(ctx context.Context, tx pgx.Tx) error { return auth.EnsureActivityVisible(ctx, tx, entityID) }
+	case "signal":
+		probe = func(ctx context.Context, tx pgx.Tx) error { return auth.EnsureSignalVisible(ctx, tx, entityID) }
+	default:
+		return true, nil
+	}
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error { return probe(ctx, tx) })
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, apperrors.ErrNotFound):
+		return false, nil
+	default:
+		return false, err
+	}
+}
+
 // liveWorkspaces lists the tenants a sweep pass iterates. Like the
 // retention evaluator, it reads the workspace root directly (that table is
 // the tenant resolver, not RLS-scoped record data) and is bounded by fleet
 // size, not tenant data volume — each workspace's due rows are then read
 // under its own GUC, never cross-tenant.
 func (s *Store) liveWorkspaces(ctx context.Context) ([]ids.UUID, error) {
+	// rls-exempt: the retry sweeper enumerates live tenants to scan each under its own GUC (the retention-evaluator precedent); the workspace root is the tenant resolver, not RLS-scoped record data.
 	rows, err := s.pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
 	if err != nil {
 		return nil, err

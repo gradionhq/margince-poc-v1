@@ -37,6 +37,11 @@ import (
 // integration config; the store gates every entry point on it.
 const rbacObject = "webhook_subscription"
 
+// fieldEventTypes is the wire/column name of the subscribed event-type set —
+// named once so the validation errors, the audit before/after image, and the
+// update patch all spell it identically.
+const fieldEventTypes = "event_types"
+
 // Store owns the webhook tables and their write shape. cipher may be nil
 // when the deployment configured no signing key: read paths still work
 // (metadata never includes the secret), but any path that must seal or
@@ -47,6 +52,8 @@ type Store struct {
 	cipher *Cipher
 }
 
+// NewStore wires the webhook tables over a pool; cipher may be nil when no
+// deployment signing key is configured (read paths work, secret paths 503).
 func NewStore(pool *pgxpool.Pool, cipher *Cipher) *Store {
 	return &Store{pool: pool, cipher: cipher}
 }
@@ -110,12 +117,19 @@ func owner(ctx context.Context) (ids.UUID, error) {
 // unknown type is a client error, not a silently-never-delivered rule.
 func validateEventTypes(types []string) error {
 	if len(types) == 0 {
-		return &BadInputError{Field: "event_types", Reason: "must name at least one event type"}
+		return &BadInputError{Field: fieldEventTypes, Reason: "must name at least one event type"}
 	}
 	catalog := kevents.Types()
 	for _, t := range types {
 		if !slices.Contains(catalog, t) {
-			return &BadInputError{Field: "event_types", Reason: fmt.Sprintf("%q is not a published event type", t)}
+			return &BadInputError{Field: fieldEventTypes, Reason: fmt.Sprintf("%q is not a published event type", t)}
+		}
+		// A pipeline event (capture.received and its siblings) carries no
+		// subject entity, so the owner-scoped fan-out (BYO-EVT-4) has
+		// nothing to bound delivery by — these are internal pipeline proofs,
+		// not integrator-facing domain facts, and are not subscribable.
+		if kevents.IsPipelineEvent(t) {
+			return &BadInputError{Field: fieldEventTypes, Reason: fmt.Sprintf("%q is an internal pipeline event and cannot be subscribed to", t)}
 		}
 	}
 	return nil
@@ -170,7 +184,7 @@ func (s *Store) CreateSubscription(ctx context.Context, in CreateSubscriptionInp
 			return err
 		}
 		_, err = storekit.Audit(ctx, tx, "create", rbacObject, out.ID, nil, map[string]any{
-			"target_url": out.TargetURL, "event_types": out.EventTypes,
+			"target_url": out.TargetURL, fieldEventTypes: out.EventTypes,
 		})
 		return err
 	})
@@ -180,6 +194,8 @@ func (s *Store) CreateSubscription(ctx context.Context, in CreateSubscriptionInp
 	return out, secret, nil
 }
 
+// ListSubscriptions returns the workspace's subscriptions (RBAC-read-gated),
+// newest first, optionally including archived rows.
 func (s *Store) ListSubscriptions(ctx context.Context, archived storekit.ArchivedFilter) ([]Subscription, error) {
 	if err := auth.Require(ctx, rbacObject, principal.ActionRead); err != nil {
 		return nil, err
@@ -208,6 +224,8 @@ func (s *Store) ListSubscriptions(ctx context.Context, archived storekit.Archive
 	return out, err
 }
 
+// GetSubscription returns one live subscription by id; an archived, absent,
+// or out-of-workspace row reads as ErrNotFound (existence-hiding).
 func (s *Store) GetSubscription(ctx context.Context, id ids.UUID) (Subscription, error) {
 	if err := auth.Require(ctx, rbacObject, principal.ActionRead); err != nil {
 		return Subscription{}, err
@@ -235,6 +253,8 @@ type UpdateSubscriptionInput struct {
 	IfVersion  *int64
 }
 
+// UpdateSubscription pauses/resumes or re-targets a subscription under an
+// optimistic-concurrency guard, auditing the before/after image.
 func (s *Store) UpdateSubscription(ctx context.Context, id ids.UUID, in UpdateSubscriptionInput) (Subscription, error) {
 	if err := auth.Require(ctx, rbacObject, principal.ActionUpdate); err != nil {
 		return Subscription{}, err
@@ -262,7 +282,7 @@ func (s *Store) UpdateSubscription(ctx context.Context, id ids.UUID, in UpdateSu
 			p.Set("state", current.State, *in.State)
 		}
 		if in.EventTypes != nil {
-			p.Set("event_types", current.EventTypes, *in.EventTypes)
+			p.Set(fieldEventTypes, current.EventTypes, *in.EventTypes)
 		}
 		if p.Empty() {
 			out = current
@@ -325,6 +345,8 @@ func (s *Store) RotateSecret(ctx context.Context, id ids.UUID) (Subscription, st
 	return out, secret, nil
 }
 
+// ArchiveSubscription soft-archives a subscription (delivery stops at
+// archive); an already-archived or absent row reads as ErrNotFound.
 func (s *Store) ArchiveSubscription(ctx context.Context, id ids.UUID) (Subscription, error) {
 	if err := auth.Require(ctx, rbacObject, principal.ActionDelete); err != nil {
 		return Subscription{}, err

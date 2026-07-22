@@ -29,6 +29,8 @@ func NewHandlers(store *Store, deliverer *Deliverer) Handlers {
 	return Handlers{store: store, deliverer: deliverer}
 }
 
+// ListWebhookSubscriptions lists the workspace's subscriptions (RBAC-gated,
+// existence-hiding); the signing secret is never in this view.
 func (h Handlers) ListWebhookSubscriptions(w http.ResponseWriter, r *http.Request, params crmcontracts.ListWebhookSubscriptionsParams) {
 	archived := storekit.LiveOnly
 	if params.IncludeArchived != nil && *params.IncludeArchived {
@@ -48,6 +50,8 @@ func (h Handlers) ListWebhookSubscriptions(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+// CreateWebhookSubscription registers a subscription and returns the
+// one-time signing secret; 503 when no deployment key is configured.
 func (h Handlers) CreateWebhookSubscription(w http.ResponseWriter, r *http.Request, _ crmcontracts.CreateWebhookSubscriptionParams) {
 	var req crmcontracts.CreateWebhookSubscriptionRequest
 	if !httperr.Decode(w, r, &req) {
@@ -64,6 +68,8 @@ func (h Handlers) CreateWebhookSubscription(w http.ResponseWriter, r *http.Reque
 	httperr.WriteJSON(w, http.StatusCreated, wireCreated(sub, secret))
 }
 
+// GetWebhookSubscription returns one subscription by id, or 404 when it is
+// archived, absent, or outside the caller's scope (existence-hiding).
 func (h Handlers) GetWebhookSubscription(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
 	sub, err := h.store.GetSubscription(r.Context(), ids.UUID(id))
 	if err != nil {
@@ -73,6 +79,8 @@ func (h Handlers) GetWebhookSubscription(w http.ResponseWriter, r *http.Request,
 	httperr.WriteJSON(w, http.StatusOK, wireSubscription(sub))
 }
 
+// UpdateWebhookSubscription pauses/resumes or re-targets a subscription,
+// guarded by the If-Match version.
 func (h Handlers) UpdateWebhookSubscription(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.UpdateWebhookSubscriptionParams) {
 	ifVersion, ok := httperr.IfMatchVersion(w, r)
 	if !ok {
@@ -95,6 +103,7 @@ func (h Handlers) UpdateWebhookSubscription(w http.ResponseWriter, r *http.Reque
 	httperr.WriteJSON(w, http.StatusOK, wireSubscription(sub))
 }
 
+// ArchiveWebhookSubscription archives a subscription, stopping all delivery.
 func (h Handlers) ArchiveWebhookSubscription(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
 	sub, err := h.store.ArchiveSubscription(r.Context(), ids.UUID(id))
 	if err != nil {
@@ -104,6 +113,8 @@ func (h Handlers) ArchiveWebhookSubscription(w http.ResponseWriter, r *http.Requ
 	httperr.WriteJSON(w, http.StatusOK, wireSubscription(sub))
 }
 
+// RotateWebhookSecret mints a new signing secret and returns it once; 503
+// when no deployment key is configured.
 func (h Handlers) RotateWebhookSecret(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
 	sub, secret, err := h.store.RotateSecret(r.Context(), ids.UUID(id))
 	if err != nil {
@@ -113,6 +124,8 @@ func (h Handlers) RotateWebhookSecret(w http.ResponseWriter, r *http.Request, id
 	httperr.WriteJSON(w, http.StatusOK, wireCreated(sub, secret))
 }
 
+// ListWebhookDeliveries returns a subscription's delivery attempts
+// newest-first — the dead-letter inspection surface.
 func (h Handlers) ListWebhookDeliveries(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, params crmcontracts.ListWebhookDeliveriesParams) {
 	limit := 0
 	if params.Limit != nil {
@@ -132,12 +145,14 @@ func (h Handlers) ListWebhookDeliveries(w http.ResponseWriter, r *http.Request, 
 	})
 }
 
-func (h Handlers) ReplayWebhookDelivery(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, deliveryId openapi_types.UUID) {
+// ReplayWebhookDelivery re-attempts a parked delivery on demand; 503 when
+// no deployment key is configured to sign it.
+func (h Handlers) ReplayWebhookDelivery(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, deliveryID openapi_types.UUID) {
 	if h.deliverer == nil {
 		writeErr(w, r, ErrNotConfigured)
 		return
 	}
-	delivery, err := h.deliverer.Replay(r.Context(), ids.UUID(id), ids.UUID(deliveryId))
+	delivery, err := h.deliverer.Replay(r.Context(), ids.UUID(id), ids.UUID(deliveryID))
 	if err != nil {
 		writeErr(w, r, err)
 		return
