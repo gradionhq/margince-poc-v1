@@ -260,7 +260,7 @@ func (s *RetentionService) eraseVoiceSignalContent(ctx context.Context, id ids.U
 			return err
 		}
 		auditID, err := storekit.AuditWithEvidence(ctx, tx, actionErase, "voice_learning_signal", id, nil, nil, map[string]any{
-			"retention_action": actionErase,
+			evidenceKeyRetentionAction: actionErase,
 		})
 		if err != nil {
 			return err
@@ -309,7 +309,7 @@ func (s *RetentionService) eraseEmbedCall(ctx context.Context, id ids.UUID) erro
 			return err
 		}
 		auditID, err := storekit.AuditWithEvidence(ctx, tx, actionErase, "ai_call", id, nil, nil, map[string]any{
-			"retention_action": actionErase, "retain_days": embedCallRetention,
+			evidenceKeyRetentionAction: actionErase, "retain_days": embedCallRetention,
 		})
 		if err != nil {
 			return err
@@ -404,7 +404,7 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 		// archive must carry no payload the field-history diff could
 		// mistake for record fields.
 		auditID, err := storekit.AuditWithEvidence(ctx, tx, pol.Action, pol.ObjectType, id, nil, nil, map[string]any{
-			"retention_action": pol.Action, "policy": pol.ID, "retain_days": pol.RetainDays,
+			evidenceKeyRetentionAction: pol.Action, "policy": pol.ID, "retain_days": pol.RetainDays,
 		})
 		if err != nil {
 			return err
