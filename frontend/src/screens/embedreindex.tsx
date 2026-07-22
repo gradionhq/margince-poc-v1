@@ -271,7 +271,7 @@ export function EmbedReindexCard() {
 
   if (status.isPending) {
     return (
-      <section className="card" style={{ marginBottom: 14 }}>
+      <section className="card" style={{ marginBottom: "var(--space-4)" }}>
         <SectionHeader
           title={t("embedreindex.title")}
           sub={t("embedreindex.sub")}
@@ -282,7 +282,7 @@ export function EmbedReindexCard() {
   }
   if (status.isError || !status.data) {
     return (
-      <section className="card" style={{ marginBottom: 14 }}>
+      <section className="card" style={{ marginBottom: "var(--space-4)" }}>
         <SectionHeader
           title={t("embedreindex.title")}
           sub={t("embedreindex.sub")}
@@ -296,7 +296,7 @@ export function EmbedReindexCard() {
   const isRunning = data.status === "reembedding";
 
   return (
-    <section className="card" style={{ marginBottom: 14 }}>
+    <section className="card" style={{ marginBottom: "var(--space-4)" }}>
       <SectionHeader
         title={t("embedreindex.title")}
         sub={t("embedreindex.sub")}
