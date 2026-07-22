@@ -31,11 +31,20 @@ import (
 // as ingestSQL/upsertAssocSQL so a caller with no workspace GUC set
 // fails the NOT NULL constraint rather than checkpointing under a null
 // tenant.
+// done is sticky-true (done = old.done OR excluded.done): a converged
+// backfill must never be knocked back to pending by an out-of-order save
+// from a slower concurrent pass (the periodic poller racing an on-demand
+// reconcile) — that would re-list the whole incumbent. Within one
+// connection's life done only ever goes false→true (a reconnect purges the
+// row and starts fresh), so OR-ing is monotonic, never sticky at the wrong
+// value.
 const upsertBackfillCursorSQL = `
 INSERT INTO overlay_backfill_cursor (workspace_id, object_class, cursor, done, updated_at)
 VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, $2, $3, now())
 ON CONFLICT (workspace_id, object_class) DO UPDATE
-   SET cursor = EXCLUDED.cursor, done = EXCLUDED.done, updated_at = now()`
+   SET cursor = EXCLUDED.cursor,
+       done = overlay_backfill_cursor.done OR EXCLUDED.done,
+       updated_at = now()`
 
 // SaveBackfillCursor persists Backfill's (overlay/backfill.go) list
 // cursor for objectClass after each page — the checkpoint a restart
@@ -86,11 +95,17 @@ func (s *MirrorStore) LoadBackfillCursor(ctx context.Context, objectClass string
 // timestamp the incremental sweep keeps advancing forever, so it lives
 // in its own table (overlay_reconcile_watermark) rather than overloading
 // the backfill cursor's "cursor" column with a second meaning.
+// The watermark only ever advances (WHERE excluded.watermark > current): an
+// older pass committing after a newer one must not move it backward, which
+// would re-sweep the window between and, worse, risk re-ingesting records a
+// newer pass already saw. The same monotonic-progress discipline ingestSQL's
+// staleness guard applies to a mirror row (mirrorstore.go).
 const upsertReconcileWatermarkSQL = `
 INSERT INTO overlay_reconcile_watermark (workspace_id, object_class, watermark, updated_at)
 VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, $2, now())
 ON CONFLICT (workspace_id, object_class) DO UPDATE
-   SET watermark = EXCLUDED.watermark, updated_at = now()`
+   SET watermark = EXCLUDED.watermark, updated_at = now()
+   WHERE EXCLUDED.watermark > overlay_reconcile_watermark.watermark`
 
 // SaveReconcileWatermark persists Reconcile's new watermark for
 // objectClass after a sweep pass — the checkpoint the next scheduled

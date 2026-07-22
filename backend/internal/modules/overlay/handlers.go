@@ -226,11 +226,16 @@ func (h Handlers) ReconcileOverlay(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 	if err := h.reconciler.Reconcile(ctx); err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
+		// Any context cancellation — our own reconcileTimeout (DeadlineExceeded)
+		// OR the caller abandoning the request (Canceled) — is a "cut off, retry"
+		// availability outcome, not an internal error: answer 503, never a
+		// misleading 500. Per-object-class progress already landed is retained,
+		// so a retry continues rather than restarts.
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			httperr.Write(w, r, &httperr.DetailedError{
 				Status: http.StatusServiceUnavailable,
 				Code:   "overlay_reconcile_timeout",
-				Detail: fmt.Sprintf("the mirror reconciliation sweep did not finish within %s and was cut off; per-object-class progress already landed is retained, retry to continue", reconcileTimeout),
+				Detail: fmt.Sprintf("the mirror reconciliation sweep was cut off before finishing (timeout %s or the request was canceled); per-object-class progress already landed is retained, retry to continue", reconcileTimeout),
 			})
 			return
 		}

@@ -107,6 +107,21 @@ func TestReconcileOverlayMapsATimedOutSweepToServiceUnavailable(t *testing.T) {
 	}
 }
 
+// TestReconcileOverlayMapsACanceledSweepToServiceUnavailable proves a
+// caller-abandoned sweep (context.Canceled) is also an availability outcome
+// (503, "cut off, retry"), not a misleading opaque 500 (A4b).
+func TestReconcileOverlayMapsACanceledSweepToServiceUnavailable(t *testing.T) {
+	reconciler := &fakeReconciler{err: context.Canceled}
+	h := NewHandlers(nil).WithReconciler(reconciler)
+	w := httptest.NewRecorder()
+
+	h.ReconcileOverlay(w, requestAs(principal.ObjectGrant{Read: true, Update: true}))
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want %d for a canceled sweep", w.Code, http.StatusServiceUnavailable)
+	}
+}
+
 // TestReconcileOverlaySurfacesANonTimeoutReconcileError proves an
 // ordinary reconcile failure (e.g. apperrors.ErrModeNotOverlay when the
 // workspace has no active connection) still rides the normal sentinel
