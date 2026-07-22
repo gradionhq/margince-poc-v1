@@ -22,6 +22,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"io"
 	"log/slog"
@@ -190,6 +191,26 @@ func (we *webhookEnv) createSubscription(t *testing.T, target string, eventTypes
 	return created.Subscription.ID, created.SigningSecret
 }
 
+// TestNewWebhookDelivererBuildsFromKey covers the process-role deliverer
+// builder both roles use: a valid key yields a deliverer; a non-base64 or
+// wrong-length key fails the boot loudly.
+func TestNewWebhookDelivererBuildsFromKey(t *testing.T) {
+	we := setupWebhooks(t)
+	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	valid := base64.StdEncoding.EncodeToString(make([]byte, webhooks.WebhookKeyBytes))
+	d, err := compose.NewWebhookDeliverer(we.pool, valid, log)
+	if err != nil || d == nil {
+		t.Fatalf("NewWebhookDeliverer(valid) d=%v err=%v", d, err)
+	}
+	if _, err := compose.NewWebhookDeliverer(we.pool, "not base64!!!", log); err == nil {
+		t.Fatal("NewWebhookDeliverer must reject a non-base64 key")
+	}
+	if _, err := compose.NewWebhookDeliverer(we.pool, base64.StdEncoding.EncodeToString(make([]byte, 16)), log); err == nil {
+		t.Fatal("NewWebhookDeliverer must reject a wrong-length key")
+	}
+}
+
 func TestWebhookSubscriptionCRUDOverHTTP(t *testing.T) {
 	we := setupWebhooks(t)
 
@@ -213,6 +234,23 @@ func TestWebhookSubscriptionCRUDOverHTTP(t *testing.T) {
 	}
 
 	subID, secret := we.createSubscription(t, "https://ok.example/hook", []string{"deal.created"})
+
+	// The list surface returns the subscription (and never the secret).
+	var list struct {
+		Data []struct {
+			ID            string `json:"id"`
+			SigningSecret string `json:"signing_secret"`
+		} `json:"data"`
+	}
+	if status := we.call(t, "GET", "/v1/webhook-subscriptions", nil, nil, &list); status != http.StatusOK {
+		t.Fatalf("list → %d", status)
+	}
+	if len(list.Data) != 1 || list.Data[0].ID != subID {
+		t.Fatalf("list did not return the created subscription: %+v", list.Data)
+	}
+	if list.Data[0].SigningSecret != "" {
+		t.Fatal("list leaked the signing secret")
+	}
 
 	// The secret is NEVER returned by a read.
 	var got map[string]any
@@ -343,7 +381,7 @@ func TestWebhookFanOutFailsClosedForUnclassifiedSubject(t *testing.T) {
 	now := time.Now().UTC()
 	deliverer := newTestDeliverer(we, &now, rcv.server.Client())
 
-	we.createSubscription(t, rcv.server.URL+"/hook", []string{"deal.created"})
+	we.createSubscription(t, rcv.server.URL+"/hook", []string{"deal.created", "offer.created"})
 
 	// An unclassified subject type falls through to the fail-closed default
 	// → zero deliveries (no silent fan-out-to-everyone for a new subject).
@@ -352,6 +390,15 @@ func TestWebhookFanOutFailsClosedForUnclassifiedSubject(t *testing.T) {
 	}
 	if n := rcv.count.Load(); n != 0 {
 		t.Fatalf("unclassified subject produced %d POSTs, want 0 (fail-closed)", n)
+	}
+
+	// An offer is scoped through its parent deal; an offer that does not
+	// resolve (no such row) is denied, not fanned out.
+	if err := deliverer.HandleEvent(context.Background(), makeEnvelopeFor(we.wsID, "offer.created", "offer")); err != nil {
+		t.Fatalf("handle unresolved offer: %v", err)
+	}
+	if n := rcv.count.Load(); n != 0 {
+		t.Fatalf("unresolved offer produced %d POSTs, want 0 (fail-closed via parent deal)", n)
 	}
 
 	// A genuinely workspace-level subject (pipeline config, no per-owner
@@ -407,6 +454,15 @@ func TestWebhookRetryThenDeadLetterThenReplay(t *testing.T) {
 	}
 	deliveryID := deliveries.Data[0].ID
 
+	// The HTTP replay endpoint runs the same engine under the api's
+	// guarded client (which refuses the loopback receiver by design), so it
+	// answers 200 with the re-attempted delivery — exercising the handler
+	// path; the direct-engine replay below then proves the delivered path
+	// against the injectable (unguarded) test client.
+	if status := we.call(t, "POST", "/v1/webhook-subscriptions/"+subID+"/deliveries/"+deliveryID+"/replay", nil, nil, nil); status != http.StatusOK {
+		t.Fatalf("http replay → %d, want 200", status)
+	}
+
 	// Replay the parked delivery through the engine. A system principal
 	// satisfies the gate and the workspace is bound; the direct-engine call
 	// reaches the loopback receiver (the api role's deliverer uses the
@@ -422,6 +478,13 @@ func TestWebhookRetryThenDeadLetterThenReplay(t *testing.T) {
 	if replayed.Status != "delivered" {
 		t.Fatalf("after replay status = %q, want delivered (no silent loss)", replayed.Status)
 	}
+
+	// RunRetrySweep drives SweepOnce on a ticker until its context is done;
+	// an already-cancelled context runs one pass then returns, exercising
+	// the loop without a real sleep.
+	cctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	deliverer.RunRetrySweep(cctx, time.Hour)
 }
 
 func assertDeliveryStatus(t *testing.T, we *webhookEnv, subID, wantStatus string, wantAttempts int) {
