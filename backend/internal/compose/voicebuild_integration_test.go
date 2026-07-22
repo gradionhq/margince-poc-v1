@@ -367,9 +367,28 @@ func TestVoiceBuildWorkEndToEnd(t *testing.T) {
 		t.Fatalf("build after Work = %+v, want succeeded", finished)
 	}
 
-	// A redelivered job for the terminal row is a clean no-op.
+	// A redelivered job for the terminal row is a clean no-op: nothing on
+	// the build row moves and no second version appears.
+	versionsBefore, err := env.store.ListVersions(env.owner, env.profile.ID, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := worker.Work(context.Background(), voiceBuildJob(env, build)); err != nil {
 		t.Fatalf("redelivered Work on a terminal build: %v", err)
+	}
+	after, err := env.store.GetBuild(env.owner, env.profile.ID, build.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Version != finished.Version || after.Status != finished.Status {
+		t.Fatalf("redelivery moved the build row: %+v -> %+v", finished, after)
+	}
+	versionsAfter, err := env.store.ListVersions(env.owner, env.profile.ID, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(versionsAfter.Items) != len(versionsBefore.Items) {
+		t.Fatalf("redelivery created a version: %d -> %d", len(versionsBefore.Items), len(versionsAfter.Items))
 	}
 }
 

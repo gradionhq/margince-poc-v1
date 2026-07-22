@@ -80,6 +80,12 @@ func (s *VoiceStore) ClaimBuild(ctx context.Context, profileID, buildID ids.UUID
 	claimed := false
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		now := s.now().UTC()
+		// Lock order is profile THEN build — the same order CompleteBuild
+		// and every corpus mutation take, so a concurrent claim and
+		// completion can never deadlock each other.
+		if _, err := storekit.LockRow(ctx, tx, "voice_profile", profileID, storekit.LiveOnly); err != nil {
+			return err
+		}
 		// A deferred row is claimable only once its budget window reopens —
 		// a duplicate or early job delivery must not defeat the backoff.
 		build, err := scanVoiceBuild(tx.QueryRow(ctx, storekit.SQLf(`
@@ -109,12 +115,6 @@ func (s *VoiceStore) ClaimBuild(ctx context.Context, profileID, buildID ids.UUID
 			return nil
 		}
 		if err != nil {
-			return err
-		}
-		// The profile row lock serializes this snapshot against corpus
-		// mutations: the hash check and the sample read below must see one
-		// consistent corpus, not two READ COMMITTED points in time.
-		if _, err := storekit.LockRow(ctx, tx, "voice_profile", profileID, storekit.LiveOnly); err != nil {
 			return err
 		}
 		profile, err := s.visibleProfile(ctx, tx, profileID)

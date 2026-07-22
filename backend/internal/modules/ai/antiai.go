@@ -61,16 +61,23 @@ func containsParentheticalDash(text string) bool {
 	return false
 }
 
-// isNumericRangeDash exempts a dash whose nearest non-whitespace
-// neighbours are digits: "2024–2026" and the spaced "2024 – 2026" are
-// ranges, not asides — whatever whitespace (tab, no-break space) spans them.
+// isInlineSpace matches whitespace WITHIN a line: line breaks are structure
+// (paragraphs, list items) and never bridge or collapse around a dash.
+func isInlineSpace(r rune) bool {
+	return unicode.IsSpace(r) && r != '\n' && r != '\r'
+}
+
+// isNumericRangeDash exempts a dash whose nearest non-space neighbours on
+// the SAME line are digits: "2024–2026" and the spaced "2024 – 2026" are
+// ranges, not asides — whatever inline whitespace (tab, no-break space)
+// spans them.
 func isNumericRangeDash(runes []rune, i int) bool {
 	prev := i - 1
-	for prev >= 0 && unicode.IsSpace(runes[prev]) {
+	for prev >= 0 && isInlineSpace(runes[prev]) {
 		prev--
 	}
 	next := i + 1
-	for next < len(runes) && unicode.IsSpace(runes[next]) {
+	for next < len(runes) && isInlineSpace(runes[next]) {
 		next++
 	}
 	return prev >= 0 && runes[prev] >= '0' && runes[prev] <= '9' &&
@@ -89,19 +96,20 @@ func SanitizeAIPatterns(text string) string {
 				out = append(out, r)
 				continue
 			}
-			for len(out) > 0 && unicode.IsSpace(out[len(out)-1]) {
+			for len(out) > 0 && isInlineSpace(out[len(out)-1]) {
 				out = out[:len(out)-1]
 			}
-			// A comma splice only reads right between words. A dash at the
-			// start of the text or right after punctuation just disappears,
-			// leaving a single joining space.
+			// A comma splice only reads right between words on one line. A
+			// dash at the start of the text, of a line (a list item), or
+			// right after punctuation just disappears; line breaks always
+			// survive — they are structure, not spacing.
 			if len(out) > 0 && !strings.ContainsRune(",;:.!?—–(\n", out[len(out)-1]) {
 				out = append(out, ',')
 			}
-			if len(out) > 0 {
+			if len(out) > 0 && out[len(out)-1] != '\n' {
 				out = append(out, ' ')
 			}
-			for i+1 < len(runes) && unicode.IsSpace(runes[i+1]) {
+			for i+1 < len(runes) && isInlineSpace(runes[i+1]) {
 				i++
 			}
 			continue

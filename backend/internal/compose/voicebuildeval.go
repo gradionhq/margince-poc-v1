@@ -113,14 +113,19 @@ func splitVoiceHeldOut(samples []ai.VoiceSample, sourceHash string) (heldOut, bu
 // consumption arc) production drafting share: identity docs first, exactly
 // two verbatim exemplars, stats last as negative guardrails.
 func voiceDraftPromptBlock(personality, profileMD string, exemplars []ai.VoiceExemplar, stats ai.VoiceStats) string {
+	// Everything in this block descends from corpus text (the artifact
+	// carries verbatim quotes and exemplars ARE corpus excerpts): every
+	// piece gets the same closing-tag neutralization the builder and judge
+	// payloads get, so embedded text cannot end the block and pose as
+	// instructions.
 	var block strings.Builder
 	block.WriteString("<voice_profile>\n")
 	if strings.TrimSpace(personality) != "" {
-		block.WriteString("Human-authored identity (highest priority):\n" + strings.TrimSpace(personality) + "\n\n")
+		block.WriteString("Human-authored identity (highest priority):\n" + ai.EscapeUntrustedTags(strings.TrimSpace(personality)) + "\n\n")
 	}
-	block.WriteString(strings.TrimSpace(profileMD))
+	block.WriteString(ai.EscapeUntrustedTags(strings.TrimSpace(profileMD)))
 	for _, exemplar := range exemplars {
-		fmt.Fprintf(&block, "\n\nVerbatim example (%s %s):\n%s", exemplar.Register, exemplar.Kind, exemplar.Text)
+		fmt.Fprintf(&block, "\n\nVerbatim example (%s %s):\n%s", exemplar.Register, exemplar.Kind, ai.EscapeUntrustedTags(exemplar.Text))
 	}
 	fmt.Fprintf(&block, "\n\nStylometric guardrails — limits, NOT targets: mean sentence length ≈ %.0f words (do not write a wall of short sentences to hit it), em dashes per 100 words ≈ %.2f (at 0, treat them as forbidden).",
 		stats.MeanSentenceWords, stats.EmDashPer100Words)
@@ -187,10 +192,12 @@ func evaluateVoiceCandidate(ctx context.Context, brain completer, artifact ai.Vo
 			}
 			// The floor covers the whole draft: a tell in the subject is as
 			// disqualifying as one in the body, and both are sanitized before
-			// anything is cached for the profile screen.
+			// anything is cached for the profile screen. Each is checked
+			// SEPARATELY — the canned-opener rule anchors at text start, and
+			// a concatenation would hide a canned opener in the body.
 			subject := ai.SanitizeAIPatterns(draft.Subject)
 			sanitized := ai.SanitizeAIPatterns(draft.Body)
-			hardFailures += len(ai.DetectAIPatterns(subject + "\n" + sanitized))
+			hardFailures += len(ai.DetectAIPatterns(subject)) + len(ai.DetectAIPatterns(sanitized))
 			drafts = append(drafts, voiceEvalDraft{prompt: prompt, subject: subject, body: sanitized})
 			bodies = append(bodies, sanitized)
 		}
