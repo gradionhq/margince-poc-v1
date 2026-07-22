@@ -379,7 +379,7 @@ func TestBackfillWire(t *testing.T) {
 		if out.EstimatedAiTokens == nil || *out.EstimatedAiTokens <= 0 {
 			t.Fatalf("estimated_ai_tokens = %+v, want floor tokens > 0", out.EstimatedAiTokens)
 		}
-		if out.EstimateQuality == nil || *out.EstimateQuality != crmcontracts.Heuristic {
+		if out.EstimateQuality == nil || *out.EstimateQuality != crmcontracts.BackfillPreviewEstimateQualityHeuristic {
 			t.Fatalf("estimate_quality = %+v, want heuristic (cold-start floor)", out.EstimateQuality)
 		}
 		if out.EstimatedCostMinor != nil {

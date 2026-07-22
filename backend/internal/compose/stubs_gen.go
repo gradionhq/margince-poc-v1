@@ -380,6 +380,18 @@ func (stubs) GetMorningDigest(w nethttp.ResponseWriter, r *nethttp.Request, para
 	httperr.NotImplemented(w, r, "GetMorningDigest")
 }
 
+func (stubs) EmbedReindexStart(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "EmbedReindexStart")
+}
+
+func (stubs) EmbedReindexPreview(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "EmbedReindexPreview")
+}
+
+func (stubs) EmbedReindexStatus(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "EmbedReindexStatus")
+}
+
 func (stubs) CreateFilteredExport(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "CreateFilteredExport")
 }

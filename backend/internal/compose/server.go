@@ -82,6 +82,7 @@ type Server struct {
 	quotasHandlers
 	attachmentExtractionHandlers
 	overlayHandlers
+	embedReindexHandlers
 
 	// gmailPush is the Pub/Sub push webhook, injected by WithGmailPush only
 	// when a subscription token is configured — the route is absent
