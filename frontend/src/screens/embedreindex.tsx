@@ -14,14 +14,15 @@ import { canConfigureAutomations, problemMessage, useMe } from "./common";
 
 // The v6 B2 embedding-reindex surface (ADR-0068 design §5.6-swap). The
 // status read is wide-granted to every role (migration 0114: "every role
-// reads it — any user's UI needs to show the reindex-needed banner"), so
-// EmbedReindexBanner (app/embedreindexbanner.tsx) carries no role gate of
-// its own and shares this module's query key. The two WRITE actions —
-// confirming a reindex and the always-available force rebuild — are
-// admin/ops-only server-side (embedding_reindex object's update grant), so
-// this card hides both behind canConfigureAutomations: the same admin/ops
-// predicate the AI-runtime and automation cards already gate on, rather
-// than a button that could only ever 403.
+// reads it"), but the surface itself is ops/admin territory — a rep or
+// read_only user has nothing actionable to do with either the card or
+// EmbedReindexBanner (app/embedreindexbanner.tsx), which shares this
+// module's query key and gates on the same predicate. The two WRITE
+// actions — confirming a reindex and the always-available force rebuild —
+// are admin/ops-only server-side too (embedding_reindex object's update
+// grant), so this card hides both behind canConfigureAutomations: the same
+// admin/ops predicate the AI-runtime and automation cards already gate on,
+// rather than a button that could only ever 403.
 
 type ReindexStatus = components["schemas"]["EmbedReindexStatus"];
 type ReindexPreview = components["schemas"]["EmbedReindexPreview"];

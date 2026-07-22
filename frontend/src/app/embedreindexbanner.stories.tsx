@@ -9,9 +9,19 @@ import {
 } from "../screens/story-utils";
 import { EmbedReindexBanner } from "./embedreindexbanner";
 
+function admin(overrides: Record<string, unknown> = {}) {
+  return () =>
+    jsonResponse({
+      user: { id: "u1", email: "admin@example.test", display_name: "Admin" },
+      roles: ["admin"],
+      ...overrides,
+    });
+}
+
 function story(reindexNeeded: boolean) {
   return () => {
     installFetchStub({
+      "GET /me": admin(),
       "GET /embeddings/reindex/status": () =>
         jsonResponse({
           configured_identity: "anthropic/voyage-3@1024",
@@ -41,3 +51,31 @@ type Story = StoryObj<typeof EmbedReindexBanner>;
 
 export const Needed: Story = { render: story(true) };
 export const UpToDate: Story = { render: story(false) };
+
+// Gated to ops/admin, same as EconomyBanner: a rep sees nothing, even when
+// the status read reports reindex_needed: true.
+export const HiddenForNonOpsRole: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /me": () =>
+        jsonResponse({
+          user: { id: "u2", email: "rep@example.test", display_name: "Rep" },
+          roles: ["rep"],
+        }),
+      "GET /embeddings/reindex/status": () =>
+        jsonResponse({
+          configured_identity: "anthropic/voyage-3@1024",
+          populated_identity: "anthropic/voyage-2@1024",
+          status: "idle",
+          reindex_needed: true,
+          entities_pending: 128,
+          per_workspace: [],
+        }),
+    });
+    return (
+      <StoryProviders>
+        <EmbedReindexBanner />
+      </StoryProviders>
+    );
+  },
+};

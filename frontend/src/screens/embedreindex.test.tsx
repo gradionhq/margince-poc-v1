@@ -76,7 +76,7 @@ function mount(
       let body: unknown = null;
       const rawBody = request
         ? await request.clone().text()
-        : (init?.body as string | undefined);
+        : String(init?.body ?? "");
       if (rawBody) {
         try {
           body = JSON.parse(rawBody);
