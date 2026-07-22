@@ -4,6 +4,7 @@ import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { useLogout } from "../screens/common";
 import { EconomyBanner } from "./economybanner";
+import { EmbedReindexBanner } from "./embedreindexbanner";
 import { NAV, RAIL_LESS_SCREENS } from "./nav";
 import { type Route, routeHash, useRoute } from "./router";
 import "./shell.css";
@@ -217,8 +218,9 @@ export function Shell({
           actions={topBarActions}
         />
         {/* Public, onboarding, and preference routes are intentionally
-            railless; this admin-workflow advisory belongs only here. */}
+            railless; these advisories belong only here. */}
         <EconomyBanner />
+        <EmbedReindexBanner />
         <div className="scroll">{children}</div>
       </main>
     </div>

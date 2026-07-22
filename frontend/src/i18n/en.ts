@@ -1826,6 +1826,37 @@ export const en = {
   "quotas.archive.title": "Archive quota",
   "quotas.archive.confirm":
     "Archiving drops this quota from the list and stops tracking its attainment. Archived quotas can't be edited.",
+
+  "reindexbanner.needed": "Reindex needed",
+  "reindexbanner.link": "Review in settings",
+
+  "embedreindex.title": "Search index",
+  "embedreindex.sub":
+    "The embedding store's reindex status — everyone can see it; starting or rebuilding it is admin/ops only.",
+  "embedreindex.loading": "Checking index status…",
+  "embedreindex.statusUnavailable": "Index status is not available right now.",
+  "embedreindex.statusIdle": "Up to date",
+  "embedreindex.statusNeeded": "Reindex needed",
+  "embedreindex.statusReembedding": "Reindexing…",
+  "embedreindex.entitiesPending": "{count} entities pending",
+  "embedreindex.workspacePending": "{count} pending",
+  "embedreindex.reviewCta": "Review & reindex",
+  "embedreindex.rebuildCta": "Rebuild index",
+  "embedreindex.confirmTitle": "Start the reindex",
+  "embedreindex.rebuildTitle": "Rebuild the search index",
+  "embedreindex.confirmCta": "Start reindex",
+  "embedreindex.rebuildConfirmCta": "Rebuild now",
+  "embedreindex.starting": "Starting…",
+  "embedreindex.previewLoading": "Estimating scope…",
+  "embedreindex.estimateEntities": "Entities to (re)embed:",
+  "embedreindex.estimateTokens": "Estimated AI tokens:",
+  "embedreindex.estimateCost": "Estimated cost:",
+  "embedreindex.estimateQualityHeuristic":
+    "Heuristic estimate — a cold work-shape floor, not observed spend.",
+  "embedreindex.utilizationTitle": "Per-workspace budget impact",
+  "embedreindex.impact.normal": "normal",
+  "embedreindex.impact.degraded": "would enter economy mode",
+  "embedreindex.impact.queued": "would be queued",
 } as const;
 
 export type MessageKey = keyof typeof en;
