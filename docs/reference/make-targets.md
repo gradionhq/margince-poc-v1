@@ -52,8 +52,10 @@ UAT guides call by name (`docs/target-minimum-setup.md §3`). `check-q`,
 | `test-integration-serial` | Escape hatch: the old sequential lane on the shared `margince_test` DB (for debugging a parallel-isolation issue) |
 | `lint` | `golangci-lint run` (depguard, gosec, misspell, revive, gofmt) |
 | `arch-lint` | go-arch-lint over `.go-arch-lint.yml` — a hard gate on the import DAG |
-| `gen` | Regenerate everything derived from `api/crm.yaml` (contract types, 501 stubs, agent-policy table) |
+| `gen` | Regenerate everything derived from `api/crm.yaml` (contract types, 501 stubs, agent-policy table) and the extension composition |
 | `drift` | `gen`, then fail if any generated file changed — the contract drift gate |
+| `composition` | Materialize `build/composition/` from the enabled set under `extensions/` (ADR-0069). Every build/test lane depends on it and runs under `GOWORK=build/composition/go.work`, so an enabled extension is compiled in and a stale composition is never built; vanilla composes empty with unchanged output |
+| `check-composition` | `composition`, then `gen-composition -verify`: a clean regeneration must reproduce `composition.json`'s recorded input digests and output hashes byte-for-byte (the drift gate for ignored composition output) |
 | `gen-workflow` | `make gen-workflow NAME=<snake_case_handler_name>` — scaffold a new automation `workflow.Handler` + its test stub (write-once; refuses to overwrite an existing scaffold). See [how-to/create-a-workflow.md](../how-to/create-a-workflow.md) |
 
 The root `make check` runs the backend gate above **and** these deterministic
