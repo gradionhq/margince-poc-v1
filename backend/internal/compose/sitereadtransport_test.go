@@ -36,7 +36,7 @@ func TestDeferredSiteReadMetadataReachesBothWireShapes(t *testing.T) {
 		t.Fatalf("deferred organization report lost scheduling metadata: %+v", report)
 	}
 
-	company := companySiteRead(read, nil)
+	company := companySiteRead(read, nil, nil)
 	if company.Status != crmcontracts.CompanySiteReadStatusDeferred ||
 		company.StatusCode == nil || *company.StatusCode != crmcontracts.CompanySiteReadStatusCodeBudgetDeferred ||
 		company.StatusDetail == nil || *company.StatusDetail != statusDetail ||

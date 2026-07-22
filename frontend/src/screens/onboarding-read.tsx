@@ -1,28 +1,42 @@
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   ArrowRight,
   Building2,
   Check,
   Circle,
+  ExternalLink,
   FileSearch,
   Globe2,
   Info,
   PackageSearch,
   PenLine,
+  Send,
   ShieldCheck,
+  Sparkles,
   UsersRound,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
+import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Button } from "../design-system/atoms";
 import {
   MarginceCoreScene,
   type MarginceCoreState,
 } from "../design-system/margince-core";
+import { MarginceWorkbench } from "../design-system/margince-workbench";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
-import { coldFieldLabel } from "./common";
+import { coldFieldLabel, problemMessage } from "./common";
 
 type CompanySiteRead = components["schemas"]["CompanySiteRead"];
+type AssistantProfile = components["schemas"]["AssistantProfile"];
+type MessageReply = components["schemas"]["CompanySiteReadMessageReply"];
+type AiRunSummary = components["schemas"]["AiRunSummary"];
+type ConversationTurn =
+  components["schemas"]["CompanySiteReadConversationTurn"];
+type Translate = ReturnType<typeof useT>;
+export type SuggestedCompanyChange =
+  components["schemas"]["CompanySiteReadSuggestedChange"];
 
 type ReadCompanyStepProps = Readonly<{
   mode: "website" | "manual" | null;
@@ -38,6 +52,7 @@ type ReadCompanyStepProps = Readonly<{
   onChooseManual: () => void;
   onStart: () => void;
   onContinue: () => void;
+  onApplyChanges: (changes: SuggestedCompanyChange[]) => void;
 }>;
 
 const terminalStatuses = new Set<CompanySiteRead["status"]>([
@@ -60,7 +75,6 @@ const manualFallbackStatuses = new Set<CompanySiteRead["status"]>([
   "reading",
   "deferred",
 ]);
-
 function presenceState(
   props: ReadCompanyStepProps,
   running: boolean,
@@ -104,13 +118,18 @@ function coreProgress(read: CompanySiteRead | null): number | undefined {
 // below it, where quotes and controls remain readable instead of being squeezed
 // into a decorative shape.
 export function ReadCompanyStep(props: ReadCompanyStepProps) {
-  const t = useT();
   const running =
     props.pending ||
     props.read?.status === "queued" ||
     props.read?.status === "deferred" ||
     props.read?.status === "reading";
   const terminal = props.read ? terminalStatuses.has(props.read.status) : false;
+
+  if (props.mode === "website") {
+    return (
+      <WebsiteWorkbench {...props} running={running} terminal={terminal} />
+    );
+  }
 
   return (
     <section className="ob-panel ob-read-panel">
@@ -126,43 +145,435 @@ export function ReadCompanyStep(props: ReadCompanyStepProps) {
           />
         )}
         {props.mode === "manual" && props.manualContent}
-        {props.mode === "website" && !props.read && !props.error && (
-          <WebsitePrompt {...props} running={running} />
-        )}
-        {props.mode === "website" && props.error && (
-          <CoreFailure detail={props.error} onManual={props.onChooseManual} />
-        )}
-        {props.mode === "website" && props.read && (
-          <CoreReadProgress
-            read={props.read}
-            refreshing={props.refreshing}
-            onManual={props.onChooseManual}
-          />
-        )}
       </MarginceCoreScene>
+    </section>
+  );
+}
 
-      {props.read && <ReadEvidence read={props.read} />}
+type ConversationEntry =
+  | { role: "user"; message: string; id: string }
+  | { role: "assistant"; reply: MessageReply; id: string };
 
-      {props.mode === "website" &&
-        (terminal || (props.read?.profile_fields.length ?? 0) > 0) && (
-          <div className="read-actions">
-            <button
-              type="button"
-              className="wiz-later"
-              onClick={props.onChooseManual}
-            >
-              {t("ob.continueManual")}
-            </button>
+function configuredModelLabel(
+  runtime: AiRunSummary | undefined,
+  profile: AssistantProfile | undefined,
+  unavailable: string,
+) {
+  const models = runtime?.models
+    .map((model) => model.configured_model)
+    .filter((model, index, all) => model && all.indexOf(model) === index);
+  if (models?.length) return models.join(" + ");
+  if (profile?.providers.length) return profile.providers.join(" + ");
+  return unavailable;
+}
+
+function workbenchStatus(props: ReadCompanyStepProps, t: Translate) {
+  if (props.error) return t("ob.readStatus.failed");
+  if (props.read) return t(`ob.readStatus.${props.read.status}`);
+  return t("ob.ai.ready");
+}
+
+function WebsiteWorkbench(
+  props: ReadCompanyStepProps &
+    Readonly<{ running: boolean; terminal: boolean }>,
+) {
+  const t = useT();
+  const { locale } = useLocale();
+  const [draft, setDraft] = useState("");
+  const [entries, setEntries] = useState<ConversationEntry[]>([]);
+  const [applied, setApplied] = useState<Set<string>>(new Set());
+  const profile = useQuery({
+    queryKey: ["assistant-profile"],
+    queryFn: async (): Promise<AssistantProfile> => {
+      const { data, error } = await api.GET("/assistant/profile");
+      if (error) throw new Error(problemMessage(error));
+      return data;
+    },
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+  const latestReply = [...entries]
+    .reverse()
+    .find(
+      (entry): entry is Extract<ConversationEntry, { role: "assistant" }> =>
+        entry.role === "assistant",
+    );
+  const runtime = latestReply?.reply.ai_runtime ?? props.read?.ai_runtime;
+  const configuredModels = configuredModelLabel(
+    runtime,
+    profile.data,
+    t("ob.ai.runtimeUnavailable"),
+  );
+  const state = presenceState(props, props.running);
+  const presentation = props.read
+    ? coreReadPresentation(
+        props.read,
+        props.read.phase ?? null,
+        new URL(props.read.root_url).hostname,
+        props.read.profile_fields.length + props.read.facts.length,
+        t,
+      )
+    : null;
+
+  const send = useMutation({
+    mutationFn: async ({
+      message,
+      history,
+    }: {
+      message: string;
+      history: ConversationTurn[];
+    }): Promise<MessageReply> => {
+      if (!props.read) throw new Error(t("ob.ai.readFirst"));
+      const { data, error } = await api.POST(
+        "/company/site-reads/{readId}/messages",
+        {
+          params: { path: { readId: props.read.id } },
+          body: { message, history },
+        },
+      );
+      if (error) throw new Error(problemMessage(error));
+      return data;
+    },
+    onMutate: ({ message }) => {
+      setEntries((current) => [
+        ...current,
+        { role: "user", message, id: crypto.randomUUID() },
+      ]);
+      setDraft("");
+    },
+    onSuccess: (reply) => {
+      setEntries((current) => [
+        ...current,
+        { role: "assistant", reply, id: crypto.randomUUID() },
+      ]);
+    },
+  });
+
+  const submitMessage = () => {
+    const message = draft.trim();
+    if (message && !send.isPending) {
+      send.mutate({ message, history: conversationHistory(entries) });
+    }
+  };
+  const artifact = props.read ? (
+    <div className="mw-review">
+      <div className="mw-review-heading">
+        <span>{t("ob.ai.liveArtifact")}</span>
+        <h2>{t("ob.ai.companyKnowledge")}</h2>
+        <p>{t("ob.ai.companyKnowledgeBody")}</p>
+      </div>
+      <ReadEvidence read={props.read} />
+      {(props.terminal || props.read.profile_fields.length > 0) && (
+        <div className="read-actions">
+          <button
+            type="button"
+            className="wiz-later"
+            onClick={props.onChooseManual}
+          >
+            {t("ob.continueManual")}
+          </button>
+          <Button
+            variant="primary"
+            disabled={props.read.profile_fields.length === 0}
+            onClick={props.onContinue}
+          >
+            {t("ob.reviewFindings")} <ArrowRight aria-hidden />
+          </Button>
+        </div>
+      )}
+    </div>
+  ) : undefined;
+
+  return (
+    <section className="ob-panel ob-read-panel ob-workbench-panel">
+      <MarginceWorkbench
+        state={state}
+        progress={coreProgress(props.read)}
+        eyebrow={t("ob.ai.identity")}
+        title={t("ob.ai.role")}
+        status={workbenchStatus(props, t)}
+        configured={configuredModels}
+        locale={locale}
+        runtime={runtime}
+        runtimeLabels={{
+          configured: t("ob.ai.configured"),
+          used: t("ob.ai.modelsUsed"),
+          route: t("ob.ai.route"),
+          calls: t("ob.ai.calls"),
+          tokens: t("ob.ai.tokens"),
+          latency: t("ob.ai.latency"),
+          estimatedCost: t("ob.ai.estimatedCost"),
+          partial: t("ob.ai.partialEstimate"),
+          awaiting: t("ob.ai.awaitingModel"),
+          unavailable: t("ob.ai.notAvailableYet"),
+        }}
+        artifact={artifact}
+      >
+        <div className="mw-thread" aria-live="polite">
+          <AssistantBubble>
+            <WebsiteStatusMessage
+              read={props.read}
+              error={props.error}
+              presentation={presentation}
+              refreshing={props.refreshing}
+              locale={locale}
+              onManual={props.onChooseManual}
+            />
+          </AssistantBubble>
+
+          {!props.read && !props.error && (
+            <WebsiteComposer {...props} running={props.running} />
+          )}
+          {entries.map((entry) =>
+            entry.role === "user" ? (
+              <div className="mw-message-user" key={entry.id}>
+                {entry.message}
+              </div>
+            ) : (
+              <AssistantBubble key={entry.id}>
+                <p>{entry.reply.message}</p>
+                {entry.reply.citations.length > 0 && (
+                  <div className="mw-citations">
+                    {keyedCitations(entry.reply.citations).map(
+                      ({ citation, key }) => (
+                        <a
+                          key={`${entry.id}:${key}`}
+                          href={citation.url}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {citation.label} <ExternalLink aria-hidden />
+                        </a>
+                      ),
+                    )}
+                  </div>
+                )}
+                {entry.reply.proposed_changes.length > 0 && (
+                  <div className="mw-proposal">
+                    <div>
+                      <Sparkles aria-hidden />
+                      <strong>{t("ob.ai.suggestedChanges")}</strong>
+                    </div>
+                    <ul>
+                      {keyedSuggestedChanges(entry.reply.proposed_changes).map(
+                        ({ change, key }) => (
+                          <li key={`${entry.id}:${key}`}>
+                            <span>{coldFieldLabel(change.field, t)}</span>
+                            <strong>{change.value}</strong>
+                            <small>{change.reason}</small>
+                          </li>
+                        ),
+                      )}
+                    </ul>
+                    <Button
+                      small
+                      variant="primary"
+                      disabled={applied.has(entry.id)}
+                      onClick={() => {
+                        props.onApplyChanges(entry.reply.proposed_changes);
+                        setApplied((current) => new Set(current).add(entry.id));
+                      }}
+                    >
+                      {applied.has(entry.id)
+                        ? t("ob.ai.applied")
+                        : t("ob.ai.applyChanges")}
+                    </Button>
+                  </div>
+                )}
+              </AssistantBubble>
+            ),
+          )}
+          {send.isPending && (
+            <AssistantBubble>
+              <p className="mw-thinking">
+                <span aria-hidden /> {t("ob.ai.thinking")}
+              </p>
+            </AssistantBubble>
+          )}
+          {send.isError && (
+            <p className="mw-send-error" role="alert">
+              {send.error.message}
+            </p>
+          )}
+        </div>
+
+        {props.read && (
+          <div className="mw-composer">
+            <textarea
+              value={draft}
+              maxLength={2000}
+              rows={2}
+              placeholder={t("ob.ai.askPlaceholder")}
+              aria-label={t("ob.ai.askPlaceholder")}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (
+                  event.key === "Enter" &&
+                  !event.shiftKey &&
+                  !event.nativeEvent.isComposing
+                ) {
+                  event.preventDefault();
+                  submitMessage();
+                }
+              }}
+            />
             <Button
               variant="primary"
-              disabled={(props.read?.profile_fields.length ?? 0) === 0}
-              onClick={props.onContinue}
+              aria-label={t("ob.ai.send")}
+              disabled={!draft.trim() || send.isPending}
+              onClick={submitMessage}
             >
-              {t("ob.reviewFindings")} <ArrowRight aria-hidden />
+              <Send aria-hidden />
             </Button>
+            <small>{t("ob.ai.reviewBoundary")}</small>
           </div>
         )}
+      </MarginceWorkbench>
     </section>
+  );
+}
+
+function keyedSuggestedChanges(changes: ReadonlyArray<SuggestedCompanyChange>) {
+  const occurrences = new Map<string, number>();
+  return changes.map((change) => {
+    const identity = JSON.stringify([
+      change.field,
+      change.value,
+      change.reason,
+    ]);
+    const occurrence = (occurrences.get(identity) ?? 0) + 1;
+    occurrences.set(identity, occurrence);
+    return { change, key: `${identity}:${occurrence}` };
+  });
+}
+
+function keyedCitations(
+  citations: ReadonlyArray<MessageReply["citations"][number]>,
+) {
+  const occurrences = new Map<string, number>();
+  return citations.map((citation) => {
+    const identity = JSON.stringify([citation.label, citation.url]);
+    const occurrence = (occurrences.get(identity) ?? 0) + 1;
+    occurrences.set(identity, occurrence);
+    return { citation, key: `${identity}:${occurrence}` };
+  });
+}
+
+function conversationHistory(
+  entries: ReadonlyArray<ConversationEntry>,
+): ConversationTurn[] {
+  return entries
+    .slice(-8)
+    .map((entry) =>
+      entry.role === "user"
+        ? { role: "user", message: entry.message }
+        : { role: "assistant", message: entry.reply.message },
+    );
+}
+
+function AssistantBubble({ children }: Readonly<{ children: ReactNode }>) {
+  const t = useT();
+  return (
+    <div className="mw-message-assistant">
+      <span
+        className="mw-speaker"
+        role="img"
+        aria-label={t("ob.ai.speakerName")}
+      >
+        <span aria-hidden>{t("ob.ai.speaker")}</span>
+      </span>
+      <div>{children}</div>
+    </div>
+  );
+}
+
+function WebsiteStatusMessage({
+  read,
+  error,
+  presentation,
+  refreshing,
+  locale,
+  onManual,
+}: Readonly<{
+  read: CompanySiteRead | null;
+  error: string | null;
+  presentation: ReturnType<typeof coreReadPresentation> | null;
+  refreshing: boolean;
+  locale: "de" | "en";
+  onManual: () => void;
+}>) {
+  const t = useT();
+  if (error) {
+    return (
+      <>
+        <h2>{t("ob.failTitle")}</h2>
+        <p>{t("ob.coreFailedBody")}</p>
+        <p className="mw-error-detail">{error}</p>
+        <button type="button" className="ob-core-link" onClick={onManual}>
+          {t("ob.continueManual")}
+        </button>
+      </>
+    );
+  }
+  if (!read || !presentation) {
+    return (
+      <>
+        <h2>{t("ob.coreWebsiteTitle")}</h2>
+        <p>{t("ob.coreWebsiteBody")}</p>
+        <CoreJourney active={0} />
+      </>
+    );
+  }
+  return (
+    <>
+      <h2>{presentation.title}</h2>
+      <p>{presentation.body}</p>
+      <ReadActivity read={read} refreshing={refreshing} />
+      {read.status === "deferred" && read.next_attempt_at && (
+        <p className="mw-resume">
+          {t("deepread.resumesAt", {
+            when: formatDateTime(read.next_attempt_at, locale, "Europe/Berlin"),
+          })}
+        </p>
+      )}
+      {manualFallbackStatuses.has(read.status) && (
+        <button type="button" className="ob-core-link" onClick={onManual}>
+          {t("ob.readManual")}
+        </button>
+      )}
+    </>
+  );
+}
+
+function ReadActivity({
+  read,
+  refreshing,
+}: Readonly<{ read: CompanySiteRead; refreshing: boolean }>) {
+  const t = useT();
+  const latestPage = latestFetchedPage(read);
+  const legalCount = read.legal_entities?.length ?? 0;
+  const findingCount = read.profile_fields.length + read.facts.length;
+  return (
+    <div className="mw-read-activity">
+      {latestPage && read.status === "reading" && (
+        <p>
+          {refreshing && <span className="ob-core-live" aria-hidden />}
+          <FileSearch aria-hidden /> {t("ob.coreReadingPage")}{" "}
+          <strong>{readablePage(latestPage.url)}</strong>
+        </p>
+      )}
+      <div>
+        <span>
+          <b>{read.pages_read ?? 0}</b> {t("ob.pagesRead")}
+        </span>
+        <span>
+          <b>{legalCount}</b> {t("ob.legalEntitiesFound")}
+        </span>
+        <span>
+          <b>{findingCount}</b>{" "}
+          {t(findingCount === 1 ? "ob.ai.finding" : "ob.ai.findings")}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -204,7 +615,7 @@ function CoreIntroduction({
   );
 }
 
-function WebsitePrompt(
+function WebsiteComposer(
   props: ReadCompanyStepProps & Readonly<{ running: boolean }>,
 ) {
   const t = useT();
@@ -250,95 +661,6 @@ function WebsitePrompt(
       >
         {t("ob.continueManual")}
       </button>
-    </div>
-  );
-}
-
-function CoreFailure({
-  detail,
-  onManual,
-}: Readonly<{ detail: string; onManual: () => void }>) {
-  const t = useT();
-  return (
-    <div className="ob-core-dialog" role="alert">
-      <div className="ob-core-kicker">{t("ob.readStatus.failed")}</div>
-      <h1>{t("ob.failTitle")}</h1>
-      <p>{t("ob.coreFailedBody")}</p>
-      <p className="ob-core-detail">{detail}</p>
-      <button type="button" className="ob-core-link" onClick={onManual}>
-        {t("ob.continueManual")}
-      </button>
-    </div>
-  );
-}
-
-function CoreReadProgress({
-  read,
-  refreshing,
-  onManual,
-}: Readonly<{
-  read: CompanySiteRead;
-  refreshing: boolean;
-  onManual: () => void;
-}>) {
-  const t = useT();
-  const { locale } = useLocale();
-  const fetchedPages = read.pages.filter((page) => page.status === "fetched");
-  const legalEntities = read.legal_entities ?? [];
-  const pagesRead = terminalStatuses.has(read.status)
-    ? fetchedPages.length
-    : (read.pages_read ?? fetchedPages.length);
-  const findings = read.profile_fields.length + read.facts.length;
-  const host = new URL(read.root_url).hostname;
-  const phase = read.phase ?? (read.status === "queued" ? "crawling" : null);
-  const latestPage = latestFetchedPage(read);
-  const presentation = coreReadPresentation(read, phase, host, findings, t);
-
-  return (
-    <div className="ob-core-dialog" aria-live="polite">
-      <div className="ob-core-kicker">
-        {refreshing && read.status !== "deferred" && (
-          <span className="ob-core-live" aria-hidden />
-        )}
-        {t(`ob.readStatus.${read.status}`)}
-      </div>
-      <h1>{presentation.title}</h1>
-      <p>{presentation.body}</p>
-      <CoreJourney active={presentation.journeyStage} />
-      {latestPage && read.status === "reading" && (
-        <div className="ob-core-activity">
-          <FileSearch aria-hidden />
-          <span>
-            {t("ob.coreReadingPage")} <b>{readablePage(latestPage.url)}</b>
-          </span>
-        </div>
-      )}
-      {read.status === "deferred" && read.next_attempt_at && (
-        <p className="ob-core-detail">
-          {t("deepread.resumesAt", {
-            when: formatDateTime(read.next_attempt_at, locale, "Europe/Berlin"),
-          })}
-        </p>
-      )}
-      <div className="ob-core-metrics">
-        <span>
-          <b>{pagesRead}</b> {t("ob.pagesRead")}
-        </span>
-        <span>
-          <b>{legalEntities.length}</b> {t("ob.legalEntitiesFound")}
-        </span>
-        <span>
-          <b>{read.profile_fields.length}</b> {t("ob.profileFindings")}
-        </span>
-        <span>
-          <b>{read.facts.length}</b> {t("ob.usefulFacts")}
-        </span>
-      </div>
-      {manualFallbackStatuses.has(read.status) && (
-        <button type="button" className="ob-core-link" onClick={onManual}>
-          {t("ob.readManual")}
-        </button>
-      )}
     </div>
   );
 }

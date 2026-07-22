@@ -3419,6 +3419,45 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /company/site-reads/{readId}/messages:
+    parameters:
+      - name: readId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Organizations, AI]
+      operationId: messageCompanySiteRead
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Ask Margince about a website read and receive reviewable company-field suggestions.
+      description: |
+        Answers only from the selected dossier's grounded findings. Suggested changes are returned
+        as an inspectable artifact and are never written automatically; the administrator decides
+        which values enter the onboarding draft. Citations are server-bound to source URLs already
+        present in the dossier. The response carries the cumulative, price-on-read AI runtime for
+        this read so model identity and estimated provider spend stay visible in context.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CompanySiteReadMessageRequest' }
+      responses:
+        '200':
+          description: Grounded conversational answer, optional proposed changes, and cumulative run transparency.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanySiteReadMessageReply' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '501':
+          description: No conversational model path is configured for this process role.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
   /company/site-reads/{readId}/confirm:
     parameters:
       - name: readId
@@ -10045,6 +10084,92 @@ components:
         evidence_url: { type: string, format: uri }
         disposition: { type: string, enum: [separate_lead_proposal], description: People never enter company context or contact records through company confirmation. }
 
+    AiRunModelUsage:
+      type: object
+      description: One task, route, and served-model slice within a correlated AI run.
+      required: [task, tier, provider, configured_model, served_model, call_attempts, tokens_in, tokens_out, cached_tokens, cache_write_tokens, reasoning_tokens, latency_ms, estimated_cost_microusd, unpriced_calls, last_used_at]
+      properties:
+        task: { type: string }
+        tier: { type: string }
+        provider: { type: string }
+        configured_model: { type: string, description: Provider model selected by the validated routing configuration. }
+        served_model: { type: string, description: Provider-reported model identity; empty only when no provider response supplied one. }
+        call_attempts: { type: integer, minimum: 0 }
+        tokens_in: { type: integer, format: int64, minimum: 0 }
+        tokens_out: { type: integer, format: int64, minimum: 0 }
+        cached_tokens: { type: integer, format: int64, minimum: 0 }
+        cache_write_tokens: { type: integer, format: int64, minimum: 0 }
+        reasoning_tokens: { type: integer, format: int64, minimum: 0 }
+        latency_ms: { type: integer, format: int64, minimum: 0 }
+        estimated_cost_microusd: { type: integer, format: int64, minimum: 0, description: Price-sheet estimate in millionths of one US dollar. }
+        unpriced_calls: { type: integer, minimum: 0, description: Calls with usage but no effective rate; never folded into a silent zero. }
+        last_used_at: { type: string, format: date-time }
+
+    AiRunSummary:
+      type: object
+      description: Cumulative price-on-read transparency for model calls carrying one run correlation id.
+      required: [currency, call_attempts, tokens_in, tokens_out, latency_ms, estimated_cost_microusd, unpriced_calls, models]
+      properties:
+        currency: { type: string, enum: [USD] }
+        call_attempts: { type: integer, minimum: 0 }
+        tokens_in: { type: integer, format: int64, minimum: 0 }
+        tokens_out: { type: integer, format: int64, minimum: 0 }
+        latency_ms: { type: integer, format: int64, minimum: 0 }
+        estimated_cost_microusd: { type: integer, format: int64, minimum: 0 }
+        unpriced_calls: { type: integer, minimum: 0 }
+        models:
+          type: array
+          items: { $ref: '#/components/schemas/AiRunModelUsage' }
+
+    CompanySiteReadSuggestedChange:
+      type: object
+      required: [field, value, reason]
+      properties:
+        field: { type: string, enum: [display_name, offer_summary, icp, value_proposition, usp, customer_pains, desired_outcomes, buying_center, buying_intents, common_objections, sales_motion, legal_name, registered_address, register_vat, industry, history] }
+        value: { type: string, minLength: 1 }
+        reason: { type: string, minLength: 1 }
+
+    CompanySiteReadCitation:
+      type: object
+      required: [label, url]
+      properties:
+        label: { type: string }
+        url: { type: string, format: uri }
+
+    CompanySiteReadMessageRequest:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message: { type: string, minLength: 1, maxLength: 2000 }
+        history:
+          type: array
+          maxItems: 8
+          description: Bounded preceding turns, oldest first, so follow-up questions retain their conversational referent without creating durable chat state.
+          items: { $ref: '#/components/schemas/CompanySiteReadConversationTurn' }
+
+    CompanySiteReadConversationTurn:
+      type: object
+      additionalProperties: false
+      required: [role, message]
+      properties:
+        role: { type: string, enum: [user, assistant] }
+        message: { type: string, minLength: 1, maxLength: 4000 }
+
+    CompanySiteReadMessageReply:
+      type: object
+      required: [message, proposed_changes, citations, ai_runtime]
+      properties:
+        message: { type: string }
+        proposed_changes:
+          type: array
+          maxItems: 5
+          items: { $ref: '#/components/schemas/CompanySiteReadSuggestedChange' }
+        citations:
+          type: array
+          items: { $ref: '#/components/schemas/CompanySiteReadCitation' }
+        ai_runtime: { $ref: '#/components/schemas/AiRunSummary' }
+
     CompanySiteRead:
       type: object
       required: [id, target_kind, root_url, status, status_code, status_detail, next_attempt_at, pages, profile_fields, facts, comparisons, people, warnings, draft_version, proposal_hash, created_at, updated_at]
@@ -10090,6 +10215,7 @@ components:
         proposal_hash: { type: string }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+        ai_runtime: { $ref: '#/components/schemas/AiRunSummary' }
 
     ConfirmCompanySiteReadRequest:
       type: object

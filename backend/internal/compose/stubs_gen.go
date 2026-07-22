@@ -248,6 +248,10 @@ func (stubs) ConfirmCompanySiteRead(w nethttp.ResponseWriter, r *nethttp.Request
 	httperr.NotImplemented(w, r, "ConfirmCompanySiteRead")
 }
 
+func (stubs) MessageCompanySiteRead(w nethttp.ResponseWriter, r *nethttp.Request, readId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "MessageCompanySiteRead")
+}
+
 func (stubs) ListConnectors(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ListConnectors")
 }

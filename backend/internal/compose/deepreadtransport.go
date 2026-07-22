@@ -11,6 +11,7 @@ package compose
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/url"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/riverqueue/river"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -33,6 +35,10 @@ import (
 // tests fake it to count inserts.
 type deepReadEnqueuer interface {
 	EnqueueTx(ctx context.Context, tx pgx.Tx, args river.JobArgs, opts *river.InsertOpts) error
+}
+
+type runTransparencyReader interface {
+	Get(ctx context.Context, correlationID ids.UUID) (ai.RunSummary, error)
 }
 
 // decodeSeedOverride reads the optional body override and validates it; it
@@ -62,7 +68,10 @@ func decodeSeedOverride(w http.ResponseWriter, r *http.Request) (string, bool) {
 type deepReadEngine struct {
 	people    *people.Store
 	approvals *approvals.Service
+	runtime   runTransparencyReader
+	brain     completer
 	enqueue   deepReadEnqueuer
+	log       *slog.Logger
 }
 
 // start resolves the seed URL (body override, else the org's own domain),
@@ -191,9 +200,12 @@ func requestedBy(ctx context.Context) string {
 // queues the crawl job through the insert-only runner (the api never
 // crawls in-request — the worker role does), report serves the poll.
 // Without it both operations stay their explicit 501.
-func WithDeepRead(inserter *jobs.Runner) Option {
+func WithDeepRead(inserter *jobs.Runner, brain completer) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
-		engine := &deepReadEngine{people: people.NewStore(pool), approvals: approvals.NewService(pool), enqueue: inserter}
+		engine := &deepReadEngine{
+			people: people.NewStore(pool), approvals: approvals.NewService(pool),
+			runtime: ai.NewRunTransparency(pool), brain: brain, enqueue: inserter, log: s.log,
+		}
 		rollout := s.companyContextRollout
 		s.siteReadHandlers = siteReadHandlers{engine: engine, start: engine.start, report: engine.report, companyContextRollout: rollout}
 	}

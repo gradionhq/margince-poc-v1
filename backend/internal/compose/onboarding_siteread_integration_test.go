@@ -10,8 +10,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,12 +22,19 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
+
+type failingRunTransparency struct{ err error }
+
+func (f failingRunTransparency) Get(context.Context, ids.UUID) (ai.RunSummary, error) {
+	return ai.RunSummary{}, f.err
+}
 
 func onboardingDraft(t *testing.T, e *integration.Env) people.SiteRead {
 	t.Helper()
@@ -66,7 +75,7 @@ func finishOnboardingDraft(t *testing.T, e *integration.Env, read people.SiteRea
 	if err != nil {
 		t.Fatal(err)
 	}
-	workerCtx := deepReadWorkerCtx(context.Background(), SiteDeepReadArgs{WorkspaceID: e.WS})
+	workerCtx := deepReadWorkerCtx(context.Background(), SiteDeepReadArgs{WorkspaceID: e.WS, SiteReadID: read.ID})
 	stopped := "page_cap"
 	if err := e.People.FinishSiteRead(workerCtx, read.ID, people.FinishSiteReadInput{
 		Status: "partial", FactCount: len(fields) + len(facts), ProfileFields: fields,
@@ -171,6 +180,33 @@ func TestOnboardingSiteReadTransportStartsPollsAndConfirmsTheDraft(t *testing.T)
 	}
 	if confirmed.Status != crmcontracts.CompanySiteReadStatusConfirmed || confirmed.OrganizationId == nil {
 		t.Fatalf("confirmed dossier = %+v, want confirmed and bound", confirmed)
+	}
+}
+
+func TestOnboardingSiteReadPollKeepsTheDossierWhenOptionalRuntimeTelemetryFails(t *testing.T) {
+	e := integration.Setup(t)
+	human := e.As(e.Rep1, nil, integration.AdminPerms)
+	ready := onboardingDraft(t, e)
+	engine := newDeepReadTestEngine(e, &fakeInserter{})
+	var logs bytes.Buffer
+	engine.log = slog.New(slog.NewTextHandler(&logs, nil))
+	engine.runtime = failingRunTransparency{err: errors.New("telemetry store unavailable")}
+
+	poll := httptest.NewRequest(http.MethodGet, "/v1/company/site-reads/"+ready.ID.String(), nil).WithContext(human)
+	recorder := httptest.NewRecorder()
+	engine.getCompanySiteRead(recorder, poll, openapi_types.UUID(ready.ID))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("optional telemetry failure hid the dossier: %d %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(logs.String(), "AI runtime transparency unavailable") {
+		t.Fatalf("telemetry failure was not observable: %s", logs.String())
+	}
+
+	engine.runtime = failingRunTransparency{err: apperrors.ErrPermissionDenied}
+	denied := httptest.NewRecorder()
+	engine.getCompanySiteRead(denied, poll, openapi_types.UUID(ready.ID))
+	if denied.Code != http.StatusForbidden {
+		t.Fatalf("runtime authorization denial = %d, want 403", denied.Code)
 	}
 }
 
