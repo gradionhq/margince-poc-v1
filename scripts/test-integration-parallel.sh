@@ -115,11 +115,14 @@ run_one() {
            MARGINCE_TEST_REDIS_DB="$redis_db" \
         go test -p 1 -tags=integration -v -count=1 -timeout="$IT_TIMEOUT" \
           "${cover_pre[@]+"${cover_pre[@]}"}" "$rel" "${cover_post[@]+"${cover_post[@]}"}" ) || st=$?
-    drop_clone "$db"
+    if ! drop_clone "$db"; then
+      echo "FAIL: clone db $db was not dropped — leaked on the test cluster"
+      if [[ "$st" -eq 0 ]]; then st=1; fi
+    fi
     echo "EXIT $st"
   } > "$log" 2>&1
 }
-export -f run_one owner_clone_dsn app_clone_dsn make_clone drop_clone pg_admin bucket_for
+export -f run_one owner_clone_dsn app_clone_dsn make_clone drop_clone db_admin bucket_for
 
 # Fan out with a bounded worker pool. nl numbers the lines → stable per-job db
 # names + logs.
