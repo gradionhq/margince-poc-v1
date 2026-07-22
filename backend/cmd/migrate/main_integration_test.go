@@ -102,10 +102,10 @@ func tableExists(t *testing.T, dsn, table string) bool {
 func TestRecreateDBCopiesTheTemplateAndStartsOverOnAnExistingDatabase(t *testing.T) {
 	maint, base, withDB := testDSNs(t)
 	tpl, clone := base+"_verbs_tpl", base+"_verbs_clone"
-	t.Cleanup(func() {
-		mustMigrate(t, "drop-db", "--dsn", maint, "--name", clone)
-		mustMigrate(t, "drop-db", "--dsn", maint, "--name", tpl)
-	})
+	// Separate cleanups: a Fatalf in one (mustMigrate) must not skip the
+	// other. LIFO order still drops the clone before its template.
+	t.Cleanup(func() { mustMigrate(t, "drop-db", "--dsn", maint, "--name", tpl) })
+	t.Cleanup(func() { mustMigrate(t, "drop-db", "--dsn", maint, "--name", clone) })
 
 	mustMigrate(t, "recreate-db", "--dsn", maint, "--name", tpl)
 	// A marker table distinguishes a real template copy from a blank create.
