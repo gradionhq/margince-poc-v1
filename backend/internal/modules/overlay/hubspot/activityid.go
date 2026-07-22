@@ -31,6 +31,12 @@ func isEngagementClass(objectClass string) bool { return engagementClasses[objec
 // ("calls", "123") → "calls:123". Any other class keeps its bare incumbent
 // id, so contacts/companies/deals/leads are unchanged.
 func mirrorActivityExternalID(objectClass, incumbentID string) string {
+	// An empty id stays empty — never "<class>:" — so a malformed/omitted
+	// incumbent id still fails the non-empty guards downstream (UpsertAssoc,
+	// the mirror key) instead of being coined into a bogus namespaced id.
+	if incumbentID == "" {
+		return ""
+	}
 	if isEngagementClass(objectClass) {
 		return objectClass + ":" + incumbentID
 	}

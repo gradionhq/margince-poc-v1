@@ -188,6 +188,29 @@ func TestOverlayWireActivitySurfacesDurationAndDueAt(t *testing.T) {
 	}
 }
 
+// TestOverlayWireTitlePrefersCanonicalFullName locks in the search-title
+// precedence: when a person carries a canonical full_name that differs from
+// first+last (the email-local/placeholder fallback, or an incumbent that set
+// full_name independently), the search hit's title is the canonical value —
+// matching the person detail — not a separately re-derived name.
+func TestOverlayWireTitlePrefersCanonicalFullName(t *testing.T) {
+	rec := wireRecord(t, datasource.EntityPerson, map[string]any{
+		"full_name": "grace.hopper", "first_name": "", "last_name": "",
+		"person_email": map[string]any{"email": "grace.hopper@navy.mil"},
+	})
+	person, err := overlayWirePerson(wireCtx(), rec)
+	if err != nil {
+		t.Fatalf("overlayWirePerson: %v", err)
+	}
+	title := overlayWireTitle(datasource.EntityPerson, *person.Raw)
+	if title != "grace.hopper" {
+		t.Errorf("search title = %q, want the canonical full_name %q (must match the person detail)", title, "grace.hopper")
+	}
+	if person.FullName != title {
+		t.Errorf("person detail full_name %q and search title %q diverge", person.FullName, title)
+	}
+}
+
 func TestOverlayWireTitlePicksThePerTypeDisplayField(t *testing.T) {
 	for _, tc := range []struct {
 		et     datasource.EntityType
