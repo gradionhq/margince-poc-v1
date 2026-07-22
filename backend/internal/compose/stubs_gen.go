@@ -976,6 +976,10 @@ func (stubs) IngestVoiceCorpusSource(w nethttp.ResponseWriter, r *nethttp.Reques
 	httperr.NotImplemented(w, r, "IngestVoiceCorpusSource")
 }
 
+func (stubs) PreviewVoiceCorpusSource(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "PreviewVoiceCorpusSource")
+}
+
 func (stubs) DeleteVoiceCorpusSource(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, sourceId openapi_types.UUID, params crmcontracts.DeleteVoiceCorpusSourceParams) {
 	httperr.NotImplemented(w, r, "DeleteVoiceCorpusSource")
 }

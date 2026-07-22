@@ -5412,12 +5412,55 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [source, summary]
+                required: [source, summary, ingest_stats]
                 properties:
                   source: { $ref: '#/components/schemas/VoiceCorpusSource' }
                   summary: { $ref: '#/components/schemas/VoiceCorpusSummary' }
+                  ingest_stats: { $ref: '#/components/schemas/VoiceIngestStats' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/ValidationError' }
+        '422':
+          description: |
+            Unusable input. details.errors[].code is stable and voiceable:
+            unattributed_transcript, speaker_label_required, speaker_not_found,
+            unsupported_format, or the generic invalid.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /voice-profiles/{id}/sources/preview:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Voice]
+      operationId: previewVoiceCorpusSource
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Dry-run one candidate source; detect its shape and speakers without storing anything.
+      description: |
+        Answers "who is speaking in this file?" before ingest, so the owner can be asked
+        which speaker they are. Pure inspection - no persistence, no model call.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VoiceCorpusPreviewRequest' }
+      responses:
+        '200':
+          description: |
+            Detected shape and per-speaker word counts. Word totals count spoken
+            text only - timestamps, cue counters, speaker labels and JSON keys are
+            serialization, never words.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceCorpusPreviewResult' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: |
+            Unusable input. details.errors[].code is stable and voiceable:
+            unsupported_format, or the generic invalid.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   /voice-profiles/{id}/sources/{sourceId}:
     parameters:
@@ -11072,7 +11115,13 @@ components:
         weight: { type: number, minimum: 0, maximum: 2, default: 1 }
         source_label: { type: string, minLength: 1, maxLength: 255 }
         source_ref: { type: string, minLength: 1, maxLength: 512 }
-        format: { type: string, enum: [text, transcript] }
+        format:
+          type: string
+          enum: [text, transcript]
+          description: |
+            Send `transcript` for anything conversational — .vtt, .srt, transcript JSON,
+            and speaker-labelled plain text ("Name: …" lines) alike; the server detects
+            the concrete shape. `text` is for single-author prose only.
         speaker_label: { type: [string, 'null'], description: Required for transcript format; only this speaker is retained. }
         occurred_at: { type: [string, 'null'], format: date-time }
         content: { type: string, minLength: 1, maxLength: 1000000, writeOnly: true }
@@ -11083,6 +11132,49 @@ components:
       properties:
         included: { type: boolean }
         weight: { type: number, minimum: 0, maximum: 2 }
+
+    VoiceIngestStats:
+      type: object
+      description: What the speaker filter did to one ingested source; kept words are the only words that count.
+      required: [input_words, kept_words, kept_turns, discarded_turns, speakers_seen]
+      properties:
+        input_words: { type: integer, minimum: 0 }
+        kept_words: { type: integer, minimum: 0 }
+        kept_turns: { type: integer, minimum: 0 }
+        discarded_turns: { type: integer, minimum: 0 }
+        speakers_seen: { type: array, items: { type: string } }
+
+    VoiceCorpusPreviewRequest:
+      type: object
+      required: [format, content]
+      properties:
+        format:
+          type: string
+          enum: [text, transcript]
+          description: |
+            Send transcript for anything conversational - the server detects the
+            concrete shape (vtt, srt, transcript JSON, or labelled plain text).
+            text skips speaker detection entirely.
+        content: { type: string, minLength: 1, maxLength: 1000000, writeOnly: true }
+
+    VoiceCorpusPreviewResult:
+      type: object
+      description: Dry-run inspection of a candidate source; nothing is stored.
+      required: [detected_format, total_words, speakers, unattributed_words, ingestible_as_transcript]
+      properties:
+        detected_format: { type: string, enum: [txt, vtt, srt, json] }
+        total_words: { type: integer, minimum: 0 }
+        speakers:
+          type: array
+          items:
+            type: object
+            required: [label, turns, words]
+            properties:
+              label: { type: string }
+              turns: { type: integer, minimum: 0 }
+              words: { type: integer, minimum: 0 }
+        unattributed_words: { type: integer, minimum: 0 }
+        ingestible_as_transcript: { type: boolean }
 
     VoiceCorpusSummary:
       type: object

@@ -1,0 +1,142 @@
+/* Conversation thread pieces. Colours and spacing read tokens only. */
+
+.ob-conv-thread {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
+.ob-conv-narration {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  max-width: 44rem;
+}
+
+.ob-conv-narration p {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bgCard);
+  border-radius: var(--r-md);
+  color: var(--textContent);
+  font: 400 0.9375rem / 1.5 var(--f-body);
+}
+
+.ob-conv-speaker {
+  flex: none;
+  display: grid;
+  place-items: center;
+  inline-size: var(--space-6);
+  block-size: var(--space-6);
+  border-radius: var(--r-full);
+  background: var(--aiLight);
+  color: var(--aiText);
+  font: 600 0.75rem / 1 var(--f-display);
+}
+
+.ob-conv-user {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  align-self: flex-end;
+  max-width: 40rem;
+  color: var(--textSecondary);
+}
+
+.ob-conv-user p {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--accentLight);
+  border-radius: var(--r-md);
+  color: var(--textPrimary);
+  font: 400 0.9375rem / 1.5 var(--f-body);
+}
+
+.ob-conv-user svg {
+  flex: none;
+  inline-size: var(--space-4);
+  block-size: var(--space-4);
+  margin-block-start: var(--space-2);
+}
+
+.ob-conv-outcome {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-inline-start: var(--space-1) solid var(--success);
+  border-radius: var(--r-sm);
+  background: var(--bgElevated);
+  color: var(--textPrimary);
+}
+
+.ob-conv-outcome p {
+  margin: 0;
+  font: 500 0.9375rem / 1.4 var(--f-body);
+}
+
+.ob-conv-outcome svg {
+  flex: none;
+  inline-size: var(--space-4);
+  block-size: var(--space-4);
+  color: var(--success);
+}
+
+.ob-conv-question {
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--aiMed);
+  border-radius: var(--r-md);
+  background: var(--aiLight);
+  max-width: 44rem;
+}
+
+.ob-conv-question legend {
+  padding-inline: var(--space-1);
+  color: var(--textPrimary);
+  font: 500 0.9375rem / 1.4 var(--f-body);
+}
+
+.ob-conv-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block-start: var(--space-2);
+}
+
+.ob-conv-option {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  /* Long or translated labels wrap inside a bounded chip instead of forcing
+   * the thread to scroll horizontally. */
+  white-space: normal;
+  text-align: start;
+  max-width: 24rem;
+  height: auto;
+}
+
+.ob-conv-option small {
+  color: var(--textSecondary);
+}
+
+.ob-conv-outcome[data-tone="deferred"] {
+  border-inline-start-color: var(--warnBorder);
+}
+
+.ob-conv-outcome[data-tone="deferred"] svg {
+  color: var(--warn);
+}
+
+.ob-conv-outcome[data-tone="failure"] {
+  border-inline-start-color: var(--danger);
+}
+
+.ob-conv-outcome[data-tone="failure"] svg {
+  color: var(--danger);
+}

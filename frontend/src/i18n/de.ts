@@ -1106,6 +1106,11 @@ export const de = {
     ".txt .md .vtt .srt .json · nur Text · wir behalten nur deine Redeanteile",
   "ob.s2.dropSkipped":
     "{files} übersprungen — kein Textformat. Als .txt/.md konvertieren oder den Text direkt einfügen.",
+  "ob.s2.speakerAsk": "Wer bist du in {file}?",
+  "ob.s2.speakerOption": "{name} · Wörter: {words} · Redeanteile: {turns}",
+  "ob.s2.keptOnly": "{kept} von {total} gezählt — nur was {speaker} gesagt hat",
+  "ob.s2.unattributed":
+    "In {file} kann ich nicht erkennen, wer was sagt — deshalb zählt nichts davon. Ergänze Sprecher-Labels oder füge nur deine eigenen Worte ein.",
   "ob.reg.spoken": "gesprochen",
   "ob.reg.written": "geschrieben",
   "ob.reg.casual": "locker",
@@ -1292,6 +1297,59 @@ export const de = {
   "ob.s4.enterCrm": "Ins CRM",
   "ob.s4.connectFailed": "Dieses Postfach ließ sich nicht verbinden",
   "ob.s4.skipLater": "Erstmal überspringen — später verbinden",
+
+  "ob.conv.threadLabel": "Einrichtungsgespräch",
+  "ob.conv.welcome":
+    "Hallo, ich bin Margince. Ich richte dein CRM ein, indem ich lese, was über dein Unternehmen bereits belegt ist, und zeige zu allem eine Quelle.",
+  "ob.conv.welcomeMember":
+    "Hallo, ich bin Margince. Dein Team ist schon eingerichtet. Zwei kurze Schritte, dann bist du drin.",
+  "ob.conv.askUrl":
+    "Wo soll ich mit dem Lesen beginnen? Deine Website eignet sich am besten.",
+  "ob.conv.read.started": "Ich lese jetzt {host}. Ich sage dir, was ich finde.",
+  "ob.conv.read.pages": "Bisher gelesene Seiten: {pages}.",
+  "ob.conv.read.learnedField": "{field} gelernt: {value}",
+  "ob.conv.read.extracting":
+    "Das Durchsuchen ist fertig. Jetzt werte ich aus, was die Website über dein Geschäft sagt.",
+  "ob.conv.read.warning": "Hinweis: {warning}",
+  "ob.conv.read.done": "Fertig gelesen. Belegte Funde: {count}.",
+  "ob.conv.read.partial":
+    "Ich konnte nicht alles lesen. Belegte Funde: {count}.",
+  "ob.conv.read.failed":
+    "Ich konnte diese Website nicht lesen. Probiere eine andere URL oder sag es mir direkt.",
+  "ob.conv.read.deferred":
+    "Das Einlesen pausiert gerade. Ich setze es automatisch fort.",
+  "ob.conv.clarify.intro":
+    "Eine Sache musst du entscheiden. Die Website ist hier nicht eindeutig.",
+  "ob.conv.clarify.entity":
+    "Die Website nennt mehr als eine juristische Person. Für welche ist diese Installation?",
+  "ob.conv.review.ready":
+    "Ich habe die Zuordnung vorbereitet. Prüfe sie und bestätige, was stimmt.",
+  "ob.conv.company.confirmed":
+    "Firmenprofil bestätigt. Alles Gespeicherte trägt seine Quelle.",
+  "ob.conv.manual.chosen": "Ich tippe es selbst ein.",
+  "ob.conv.voice.invite":
+    "Soll ich lernen, wie du schreibst? Teile ein paar eigene Texte, dann klingen Entwürfe nach dir.",
+  "ob.conv.voice.optIn": "Ja, lerne meine Stimme.",
+  "ob.conv.voice.skipped": "Stimme erstmal überspringen.",
+  "ob.conv.voice.uploadAdded": "{name} hinzugefügt.",
+  "ob.conv.voice.speakerQuestion":
+    "Dieses Transkript hat mehrere Sprecher. Wer davon bist du? Nur deine eigenen Worte zählen.",
+  "ob.conv.corpus.words": "Eigene Worte jetzt im Korpus: {words}.",
+  "ob.conv.corpus.band": "Korpusqualität ist jetzt {band}.",
+  "ob.conv.build.snapshot": "Ich friere deinen Korpus ein.",
+  "ob.conv.build.extract": "Ich suche deine typischen Formulierungen.",
+  "ob.conv.build.evaluate": "Ich teste Entwürfe gegen zurückgehaltene Proben.",
+  "ob.conv.build.activate": "Ich aktiviere dein Stimmprofil.",
+  "ob.conv.build.succeeded": "Dein Stimmprofil ist fertig.",
+  "ob.conv.build.deferred":
+    "Der Aufbau wartet auf Budget. Er läuft automatisch an.",
+  "ob.conv.build.failed":
+    "Der Aufbau wurde nicht fertig. Deine Texte bleiben erhalten, du kannst es jederzeit erneut versuchen.",
+  "ob.conv.recap":
+    "Das weiß dein CRM jetzt, mit einer Quelle zu jedem Eintrag.",
+  "ob.conv.consent":
+    "Letzter Schritt: Was darf ich erfassen, und zu welchem Zweck? Nichts ist standardmäßig aktiv.",
+  "ob.conv.done": "Einrichtung abgeschlossen. Dein CRM ist bereit.",
 
   "auth.title": "Margince",
   "auth.checking": "Sitzung wird geprüft…",
