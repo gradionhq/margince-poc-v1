@@ -445,3 +445,21 @@ func TestCorpusRefusalsCarryStableMachineCodes(t *testing.T) {
 		})
 	}
 }
+
+func TestTimestampHeaderTranscriptsAttributeTheFollowingLines(t *testing.T) {
+	content := "00:00:00 Daniel Pohlmann\nEbenso, wo erreiche ich dich?\n00:00:03 Lars Jankowfsky\nDu, ich bin heute in Bangkok.\n00:00:38 Lars Jankowfsky\nUnd dann war ich einen Tag unterwegs.\n00:00:49 Daniel Pohlmann\nDann machen wir das entspannt."
+	preview, err := PreviewCorpusText("transcript", content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.Speakers) != 2 {
+		t.Fatalf("speakers = %+v, want the two meeting participants", preview.Speakers)
+	}
+	text, err := NormalizeCorpusText("srt", content, "Lars Jankowfsky", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(text, "erreiche") || !strings.Contains(text, "Bangkok") {
+		t.Fatalf("kept %q — only Lars's turns may survive", text)
+	}
+}

@@ -294,6 +294,10 @@ func parseSRT(content string) []speakerTurn {
 		case strings.Contains(trimmed, "-->") || isCueIdentifier(trimmed):
 			continue
 		}
+		if speaker, ok := timestampSpeakerLine(trimmed); ok {
+			current = speaker
+			continue
+		}
 		speaker, text := splitSpeakerLine(trimmed)
 		if speaker != "" {
 			current = speaker
@@ -324,6 +328,40 @@ func splitSpeakerLine(line string) (speaker, text string) {
 		}
 	}
 	return "", strings.TrimSpace(line)
+}
+
+// timestampSpeakerLine recognizes the "00:03:12 Name" header line the
+// meeting exporters (Fathom, Teams, Otter) emit: a leading clock time,
+// then the speaker whose turn follows on the next lines.
+func timestampSpeakerLine(line string) (speaker string, ok bool) {
+	clock, rest, found := strings.Cut(line, " ")
+	if !found || !clockTime(clock) {
+		return "", false
+	}
+	name := speakerCandidate(strings.TrimSpace(rest))
+	if name == "" {
+		return "", false
+	}
+	return name, true
+}
+
+// clockTime matches mm:ss or hh:mm:ss with 1-2 digit groups.
+func clockTime(s string) bool {
+	parts := strings.Split(s, ":")
+	if len(parts) < 2 || len(parts) > 3 {
+		return false
+	}
+	for _, part := range parts {
+		if part == "" || len(part) > 2 {
+			return false
+		}
+		for _, r := range part {
+			if r < '0' || r > '9' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // speakerCandidate accepts a name-shaped prefix: it must start with a
