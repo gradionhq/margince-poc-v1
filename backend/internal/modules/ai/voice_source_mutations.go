@@ -8,7 +8,9 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -16,6 +18,28 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
+
+// voiceCorpusChangedPayload builds voice.corpus_changed's typed payload — a
+// UNION across four emit sites (source updated/removed/ingested, or the
+// whole corpus cleared). sourceID/origin/register are nil on the clear
+// site, which has no single touched source.
+func voiceCorpusChangedPayload(profileID ids.UUID, sourceID *ids.UUID, action string, origin, register *string,
+	wordDelta, sourceCount int, sourceHash string) crmcontracts.WebhookPayloadVoiceCorpusChanged {
+	payload := crmcontracts.WebhookPayloadVoiceCorpusChanged{
+		ProfileId:   openapi_types.UUID(profileID),
+		Action:      action,
+		Origin:      origin,
+		Register:    register,
+		WordDelta:   wordDelta,
+		SourceCount: sourceCount,
+		SourceHash:  sourceHash,
+	}
+	if sourceID != nil {
+		id := openapi_types.UUID(*sourceID)
+		payload.SourceId = &id
+	}
+	return payload
+}
 
 // UpdateSource flips a manifest row's inclusion or weight without rebuilding.
 func (s *VoiceStore) UpdateSource(ctx context.Context, profileID, sourceID ids.UUID, in UpdateSourceInput) (VoiceCorpusSource, CorpusSummary, error) {
@@ -119,11 +143,9 @@ func (s *VoiceStore) recordSourceUpdate(ctx context.Context, tx pgx.Tx, profile 
 		return CorpusSummary{}, err
 	}
 	action, wordDelta := sourceInclusionChange(before, source)
-	err = storekit.Emit(ctx, tx, auditID, "voice.corpus_changed", "voice_profile", profile.ID, map[string]any{
-		voiceKeyProfileID: profile.ID, voiceKeySourceID: source.ID, voiceKeyAction: action,
-		voiceKeyOrigin: source.Origin, voiceKeyRegister: source.Register, voiceKeyWordDelta: wordDelta,
-		voiceKeySourceCount: summary.SourceCount, voiceKeySourceHash: sourceHash,
-	})
+	err = storekit.EmitEvent(ctx, tx, auditID, profile.ID,
+		voiceCorpusChangedPayload(profile.ID, &source.ID, action, &source.Origin, &source.Register,
+			wordDelta, summary.SourceCount, sourceHash))
 	if err != nil {
 		return CorpusSummary{}, err
 	}
@@ -196,11 +218,9 @@ func (s *VoiceStore) DeleteSource(ctx context.Context, profileID, sourceID ids.U
 		if !before.Excluded {
 			wordDelta = -before.WordCount
 		}
-		return storekit.Emit(ctx, tx, auditID, "voice.corpus_changed", "voice_profile", profileID, map[string]any{
-			voiceKeyProfileID: profileID, voiceKeySourceID: sourceID, voiceKeyAction: "removed",
-			voiceKeyOrigin: before.Origin, voiceKeyRegister: before.Register, voiceKeyWordDelta: wordDelta,
-			voiceKeySourceCount: summary.SourceCount, voiceKeySourceHash: hash,
-		})
+		return storekit.EmitEvent(ctx, tx, auditID, profileID,
+			voiceCorpusChangedPayload(profileID, &sourceID, "removed", &before.Origin, &before.Register,
+				wordDelta, summary.SourceCount, hash))
 	})
 	return removed, err
 }
@@ -264,10 +284,9 @@ func (s *VoiceStore) ClearCorpus(ctx context.Context, profileID ids.UUID, ifVers
 		if err != nil {
 			return err
 		}
-		return storekit.Emit(ctx, tx, auditID, "voice.corpus_changed", "voice_profile", profileID, map[string]any{
-			voiceKeyProfileID: profileID, voiceKeyAction: "cleared", voiceKeyWordDelta: 0,
-			voiceKeySourceCount: 0, voiceKeySourceHash: "d41d8cd98f00b204e9800998ecf8427e",
-		})
+		return storekit.EmitEvent(ctx, tx, auditID, profileID,
+			voiceCorpusChangedPayload(profileID, nil, "cleared", nil, nil, 0, 0,
+				"d41d8cd98f00b204e9800998ecf8427e"))
 	})
 	return cleared, err
 }

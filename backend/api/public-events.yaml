@@ -27,7 +27,8 @@ components:
         (Task 5a-ii), the pipeline/stage config family (Task 5a-iii), and
         the person/organization family (Task 5b-personorg), the lead
         family (Task 5b-lead), the activities family (Task 5c), the
-        consent/privacy family (Task 5d), and the signals family (Task 5e).
+        consent/privacy family (Task 5d), the signals family (Task 5e), and
+        the ai voice family (Task 5f).
       enum:
         - deal.created
         - deal.owner_changed
@@ -67,6 +68,13 @@ components:
         - retention.applied
         - signal.detected
         - signal.resolved
+        - voice.profile_created
+        - voice.profile_updated
+        - voice.profile_archived
+        - voice.corpus_changed
+        - voice.build_changed
+        - voice.version_changed
+        - voice.draft_outcome_recorded
 
     WebhookActor:
       type: object
@@ -1185,4 +1193,287 @@ components:
         match_confidence:
           type: number
           description: The top candidate's match confidence (0–1).
+      additionalProperties: false
+
+    WebhookPayloadVoiceProfileCreated:
+      type: object
+      x-event-type: voice.profile_created
+      x-entity-type: voice_profile
+      x-version: 1
+      description: >-
+        Payload for voice.profile_created — the admitted human opened their
+        one personal Voice DNA profile (ai/voice.go's CreateProfile). Always
+        starts collecting, at maturity zero, with automatic learning off.
+      required:
+        - profile_id
+        - owner_id
+        - maturity
+        - auto_learning_enabled
+      properties:
+        profile_id:
+          type: string
+          format: uuid
+          description: The created profile.
+        owner_id:
+          type: string
+          format: uuid
+          description: The human who owns this profile.
+        maturity:
+          type: string
+          description: The corpus maturity band at creation (collecting, at zero words).
+        auto_learning_enabled:
+          type: boolean
+          description: Whether automatic learning starts enabled (always false at creation).
+      additionalProperties: false
+
+    WebhookPayloadVoiceProfileUpdated:
+      type: object
+      x-event-type: voice.profile_updated
+      x-entity-type: voice_profile
+      x-version: 1
+      description: >-
+        Payload for voice.profile_updated — the owner replaced their
+        human-authored preferences and/or their automatic-learning opt-in
+        (ai/voice.go's UpdateProfile). action names which of the two (or
+        both) this update touched.
+      required:
+        - profile_id
+        - action
+        - version
+        - maturity
+      properties:
+        profile_id:
+          type: string
+          format: uuid
+          description: The updated profile.
+        action:
+          type: string
+          description: >-
+            What this update did (preferences_replaced | learning_enabled |
+            learning_disabled).
+        version:
+          type: integer
+          format: int64
+          description: The profile row's optimistic-concurrency version after this update.
+        maturity:
+          type: string
+          description: The corpus maturity band as of this update.
+      additionalProperties: false
+
+    WebhookPayloadVoiceProfileArchived:
+      type: object
+      x-event-type: voice.profile_archived
+      x-entity-type: voice_profile
+      x-version: 1
+      description: >-
+        Payload for voice.profile_archived — the owner's profile was
+        soft-deleted (ai/voice.go's ArchiveProfile).
+      required:
+        - profile_id
+        - owner_id
+        - profile_version
+      properties:
+        profile_id:
+          type: string
+          format: uuid
+          description: The archived profile.
+        owner_id:
+          type: string
+          format: uuid
+          description: The human who owned this profile.
+        profile_version:
+          type: integer
+          description: The profile's derived-artifact version at the moment it was archived.
+      additionalProperties: false
+
+    WebhookPayloadVoiceCorpusChanged:
+      type: object
+      x-event-type: voice.corpus_changed
+      x-entity-type: voice_profile
+      x-version: 1
+      description: >-
+        Payload for voice.corpus_changed — a UNION across four emit sites
+        that all mutate the corpus feeding a profile's build: a source's
+        inclusion/weight was updated (voice_source_mutations.go's
+        recordSourceUpdate), a source was removed (RemoveSource), a source
+        was ingested/re-ingested (voice_source_store.go's
+        recordSourceIngest), or the whole corpus was cleared
+        (voice_source_mutations.go's ClearCorpus). source_id/origin/register
+        name the touched source and are therefore absent on the clear site,
+        which acts on the corpus as a whole.
+      required:
+        - profile_id
+        - action
+        - word_delta
+        - source_count
+        - source_hash
+      properties:
+        profile_id:
+          type: string
+          format: uuid
+          description: The profile whose corpus changed.
+        source_id:
+          type: string
+          format: uuid
+          description: >-
+            The source this change touched (absent on the clear site, which
+            has no single source).
+        action:
+          type: string
+          description: >-
+            What happened to the corpus (included | excluded | removed |
+            cleared).
+        origin:
+          type: string
+          description: >-
+            The touched source's origin (manual | capture) (absent on the
+            clear site).
+        register:
+          type: string
+          description: >-
+            The touched source's register (email | social | long_form |
+            spoken | general) (absent on the clear site).
+        word_delta:
+          type: integer
+          description: The eligible-word-count change this action caused (may be negative).
+        source_count:
+          type: integer
+          description: The corpus's eligible source count after this change.
+        source_hash:
+          type: string
+          description: The corpus's content hash after this change.
+      additionalProperties: false
+
+    WebhookPayloadVoiceBuildChanged:
+      type: object
+      x-event-type: voice.build_changed
+      x-entity-type: voice_profile
+      x-version: 1
+      description: >-
+        Payload for voice.build_changed — a Voice DNA build was queued or an
+        already-pending one was returned in place of a duplicate request
+        (ai/voice_lifecycle.go's RequestBuild). stage/result_version/
+        status_code/next_attempt_at describe an in-flight or deferred build
+        and are therefore absent on a freshly-queued one.
+      required:
+        - profile_id
+        - build_id
+        - reason
+        - status
+        - source_hash
+        - source_count
+        - candidate_action
+      properties:
+        profile_id:
+          type: string
+          format: uuid
+          description: The profile this build belongs to.
+        build_id:
+          type: string
+          format: uuid
+          description: The build row.
+        reason:
+          type: string
+          description: The human-approved reason for this build (onboarding | manual).
+        status:
+          type: string
+          description: The build's status (queued | deferred | running | completed | failed).
+        stage:
+          type: string
+          description: The build's current pipeline stage (absent before it starts running).
+        source_hash:
+          type: string
+          description: The corpus content hash this build was requested against.
+        source_count:
+          type: integer
+          description: The corpus's eligible source count this build was requested against.
+        result_version:
+          type: integer
+          description: >-
+            The profile version this build produced (absent until the
+            build completes).
+        candidate_action:
+          type: string
+          description: The recommended next step for this build's candidate.
+        status_code:
+          type: string
+          description: A machine-readable status detail code (absent unless the build failed or deferred).
+        next_attempt_at:
+          type: string
+          format: date-time
+          description: When a deferred build will next be attempted (absent unless deferred).
+      additionalProperties: false
+
+    WebhookPayloadVoiceVersionChanged:
+      type: object
+      x-event-type: voice.version_changed
+      x-entity-type: voice_profile
+      x-version: 1
+      description: >-
+        Payload for voice.version_changed — a derived Voice DNA version's
+        status changed: minted as a candidate, manually activated, rejected,
+        or restored by rollback (ai/voice_versions.go). predecessor_version
+        is absent for a profile's first version, which has none.
+      required:
+        - profile_id
+        - profile_version
+        - status
+        - reason
+        - classification
+        - activation_outcome
+      properties:
+        profile_id:
+          type: string
+          format: uuid
+          description: The profile this version belongs to.
+        profile_version:
+          type: integer
+          description: This version's number.
+        status:
+          type: string
+          description: The version's status after this change (candidate | active | superseded | rejected).
+        reason:
+          type: string
+          description: Why this version was produced (e.g. build | rollback).
+        predecessor_version:
+          type: integer
+          description: The version this one supersedes (absent for a profile's first version).
+        classification:
+          type: string
+          description: The delta's classification against its predecessor (routine | material).
+        activation_outcome:
+          type: string
+          description: >-
+            What happened to this version (auto_activated | manually_activated
+            | rejected | rollback).
+      additionalProperties: false
+
+    WebhookPayloadVoiceDraftOutcomeRecorded:
+      type: object
+      x-event-type: voice.draft_outcome_recorded
+      x-entity-type: voice_profile
+      x-version: 1
+      description: >-
+        Payload for voice.draft_outcome_recorded — a drafted-with-voice
+        signal's outcome was recorded (ai/voice_history.go's
+        RecordDraftOutcome), feeding the automatic-learning corpus.
+      required:
+        - profile_id
+        - outcome
+        - qualifies_as_source
+        - transformation_count
+      properties:
+        profile_id:
+          type: string
+          format: uuid
+          description: The profile this learning signal belongs to.
+        outcome:
+          type: string
+          description: The recorded outcome (drafted | sent_unedited | sent_edited | rejected).
+        qualifies_as_source:
+          type: boolean
+          description: Whether this draft's final text qualifies as a future corpus source.
+        transformation_count:
+          type: integer
+          description: How many transformation edits were applied before send (0 for rejected).
       additionalProperties: false

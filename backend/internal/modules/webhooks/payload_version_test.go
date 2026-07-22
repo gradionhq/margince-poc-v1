@@ -459,3 +459,114 @@ func TestSignalResolvedWireSnapshot(t *testing.T) {
 	}
 	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
 }
+
+// voiceSnapshotProfileID/voiceSnapshotOwnerID/voiceSnapshotSourceID/
+// voiceSnapshotBuildID are fixed, memorable UUIDs so the ai voice family's
+// golden snapshots (webhooks Task 5f) are stable across test runs.
+var (
+	voiceSnapshotProfileID = uuid.MustParse("00000000-0000-0000-0000-0000000000a1")
+	voiceSnapshotOwnerID   = uuid.MustParse("00000000-0000-0000-0000-0000000000a2")
+	voiceSnapshotSourceID  = uuid.MustParse("00000000-0000-0000-0000-0000000000a3")
+	voiceSnapshotBuildID   = uuid.MustParse("00000000-0000-0000-0000-0000000000a4")
+)
+
+// TestVoiceProfileCreatedWireSnapshot pins voice.profile_created's wire shape.
+func TestVoiceProfileCreatedWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadVoiceProfileCreated{
+		ProfileId:           voiceSnapshotProfileID,
+		OwnerId:             voiceSnapshotOwnerID,
+		Maturity:            "collecting",
+		AutoLearningEnabled: false,
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestVoiceProfileUpdatedWireSnapshot pins voice.profile_updated's wire shape.
+func TestVoiceProfileUpdatedWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadVoiceProfileUpdated{
+		ProfileId: voiceSnapshotProfileID,
+		Action:    "preferences_replaced",
+		Version:   3,
+		Maturity:  "developing",
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestVoiceProfileArchivedWireSnapshot pins voice.profile_archived's wire shape.
+func TestVoiceProfileArchivedWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadVoiceProfileArchived{
+		ProfileId:      voiceSnapshotProfileID,
+		OwnerId:        voiceSnapshotOwnerID,
+		ProfileVersion: 2,
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestVoiceCorpusChangedWireSnapshot pins voice.corpus_changed's wire shape
+// — sampled with the source-touching (not clear) branch, which sets every
+// optional field.
+func TestVoiceCorpusChangedWireSnapshot(t *testing.T) {
+	origin, register := "manual", "email"
+	sample := crmcontracts.WebhookPayloadVoiceCorpusChanged{
+		ProfileId:   voiceSnapshotProfileID,
+		SourceId:    &voiceSnapshotSourceID,
+		Action:      "included",
+		Origin:      &origin,
+		Register:    &register,
+		WordDelta:   120,
+		SourceCount: 4,
+		SourceHash:  "abc123",
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestVoiceBuildChangedWireSnapshot pins voice.build_changed's wire shape —
+// sampled with the deferred branch, which sets every optional field.
+func TestVoiceBuildChangedWireSnapshot(t *testing.T) {
+	stage := "extracting"
+	resultVersion := 5
+	statusCode := "rate_limited"
+	nextAttempt := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
+	sample := crmcontracts.WebhookPayloadVoiceBuildChanged{
+		ProfileId:       voiceSnapshotProfileID,
+		BuildId:         voiceSnapshotBuildID,
+		Reason:          "onboarding",
+		Status:          "deferred",
+		Stage:           &stage,
+		SourceHash:      "abc123",
+		SourceCount:     4,
+		ResultVersion:   &resultVersion,
+		CandidateAction: "retry",
+		StatusCode:      &statusCode,
+		NextAttemptAt:   &nextAttempt,
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestVoiceVersionChangedWireSnapshot pins voice.version_changed's wire
+// shape — sampled with the rollback branch, which sets predecessor_version.
+func TestVoiceVersionChangedWireSnapshot(t *testing.T) {
+	predecessor := 4
+	sample := crmcontracts.WebhookPayloadVoiceVersionChanged{
+		ProfileId:          voiceSnapshotProfileID,
+		ProfileVersion:     5,
+		Status:             "active",
+		Reason:             "rollback",
+		PredecessorVersion: &predecessor,
+		Classification:     "routine",
+		ActivationOutcome:  "rollback",
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestVoiceDraftOutcomeRecordedWireSnapshot pins
+// voice.draft_outcome_recorded's wire shape.
+func TestVoiceDraftOutcomeRecordedWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadVoiceDraftOutcomeRecorded{
+		ProfileId:           voiceSnapshotProfileID,
+		Outcome:             "sent_edited",
+		QualifiesAsSource:   true,
+		TransformationCount: 2,
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}

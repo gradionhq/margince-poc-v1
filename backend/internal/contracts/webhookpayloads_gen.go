@@ -10,44 +10,51 @@ import (
 
 // Defines values for SubscribableEventType.
 const (
-	ActivityArchived     SubscribableEventType = "activity.archived"
-	ActivityCaptured     SubscribableEventType = "activity.captured"
-	ActivityUpdated      SubscribableEventType = "activity.updated"
-	ConsentChanged       SubscribableEventType = "consent.changed"
-	DealArchived         SubscribableEventType = "deal.archived"
-	DealCreated          SubscribableEventType = "deal.created"
-	DealOwnerChanged     SubscribableEventType = "deal.owner_changed"
-	DealRestored         SubscribableEventType = "deal.restored"
-	DealStageChanged     SubscribableEventType = "deal.stage_changed"
-	DealUpdated          SubscribableEventType = "deal.updated"
-	EngagementReply      SubscribableEventType = "engagement.reply"
-	LeadCreated          SubscribableEventType = "lead.created"
-	LeadDisqualified     SubscribableEventType = "lead.disqualified"
-	LeadPromoted         SubscribableEventType = "lead.promoted"
-	LeadUpdated          SubscribableEventType = "lead.updated"
-	OfferAccepted        SubscribableEventType = "offer.accepted"
-	OfferCreated         SubscribableEventType = "offer.created"
-	OfferRejected        SubscribableEventType = "offer.rejected"
-	OfferSent            SubscribableEventType = "offer.sent"
-	OfferSuperseded      SubscribableEventType = "offer.superseded"
-	OrganizationArchived SubscribableEventType = "organization.archived"
-	OrganizationCreated  SubscribableEventType = "organization.created"
-	OrganizationMerged   SubscribableEventType = "organization.merged"
-	OrganizationUpdated  SubscribableEventType = "organization.updated"
-	PersonArchived       SubscribableEventType = "person.archived"
-	PersonCreated        SubscribableEventType = "person.created"
-	PersonMerged         SubscribableEventType = "person.merged"
-	PersonRestored       SubscribableEventType = "person.restored"
-	PersonUpdated        SubscribableEventType = "person.updated"
-	PipelineArchived     SubscribableEventType = "pipeline.archived"
-	PipelineCreated      SubscribableEventType = "pipeline.created"
-	PipelineUpdated      SubscribableEventType = "pipeline.updated"
-	RetentionApplied     SubscribableEventType = "retention.applied"
-	SignalDetected       SubscribableEventType = "signal.detected"
-	SignalResolved       SubscribableEventType = "signal.resolved"
-	StageArchived        SubscribableEventType = "stage.archived"
-	StageCreated         SubscribableEventType = "stage.created"
-	StageUpdated         SubscribableEventType = "stage.updated"
+	ActivityArchived          SubscribableEventType = "activity.archived"
+	ActivityCaptured          SubscribableEventType = "activity.captured"
+	ActivityUpdated           SubscribableEventType = "activity.updated"
+	ConsentChanged            SubscribableEventType = "consent.changed"
+	DealArchived              SubscribableEventType = "deal.archived"
+	DealCreated               SubscribableEventType = "deal.created"
+	DealOwnerChanged          SubscribableEventType = "deal.owner_changed"
+	DealRestored              SubscribableEventType = "deal.restored"
+	DealStageChanged          SubscribableEventType = "deal.stage_changed"
+	DealUpdated               SubscribableEventType = "deal.updated"
+	EngagementReply           SubscribableEventType = "engagement.reply"
+	LeadCreated               SubscribableEventType = "lead.created"
+	LeadDisqualified          SubscribableEventType = "lead.disqualified"
+	LeadPromoted              SubscribableEventType = "lead.promoted"
+	LeadUpdated               SubscribableEventType = "lead.updated"
+	OfferAccepted             SubscribableEventType = "offer.accepted"
+	OfferCreated              SubscribableEventType = "offer.created"
+	OfferRejected             SubscribableEventType = "offer.rejected"
+	OfferSent                 SubscribableEventType = "offer.sent"
+	OfferSuperseded           SubscribableEventType = "offer.superseded"
+	OrganizationArchived      SubscribableEventType = "organization.archived"
+	OrganizationCreated       SubscribableEventType = "organization.created"
+	OrganizationMerged        SubscribableEventType = "organization.merged"
+	OrganizationUpdated       SubscribableEventType = "organization.updated"
+	PersonArchived            SubscribableEventType = "person.archived"
+	PersonCreated             SubscribableEventType = "person.created"
+	PersonMerged              SubscribableEventType = "person.merged"
+	PersonRestored            SubscribableEventType = "person.restored"
+	PersonUpdated             SubscribableEventType = "person.updated"
+	PipelineArchived          SubscribableEventType = "pipeline.archived"
+	PipelineCreated           SubscribableEventType = "pipeline.created"
+	PipelineUpdated           SubscribableEventType = "pipeline.updated"
+	RetentionApplied          SubscribableEventType = "retention.applied"
+	SignalDetected            SubscribableEventType = "signal.detected"
+	SignalResolved            SubscribableEventType = "signal.resolved"
+	StageArchived             SubscribableEventType = "stage.archived"
+	StageCreated              SubscribableEventType = "stage.created"
+	StageUpdated              SubscribableEventType = "stage.updated"
+	VoiceBuildChanged         SubscribableEventType = "voice.build_changed"
+	VoiceCorpusChanged        SubscribableEventType = "voice.corpus_changed"
+	VoiceDraftOutcomeRecorded SubscribableEventType = "voice.draft_outcome_recorded"
+	VoiceProfileArchived      SubscribableEventType = "voice.profile_archived"
+	VoiceProfileCreated       SubscribableEventType = "voice.profile_created"
+	VoiceProfileUpdated       SubscribableEventType = "voice.profile_updated"
+	VoiceVersionChanged       SubscribableEventType = "voice.version_changed"
 )
 
 // Valid indicates whether the value is a known member of the SubscribableEventType enum.
@@ -129,12 +136,26 @@ func (e SubscribableEventType) Valid() bool {
 		return true
 	case StageUpdated:
 		return true
+	case VoiceBuildChanged:
+		return true
+	case VoiceCorpusChanged:
+		return true
+	case VoiceDraftOutcomeRecorded:
+		return true
+	case VoiceProfileArchived:
+		return true
+	case VoiceProfileCreated:
+		return true
+	case VoiceProfileUpdated:
+		return true
+	case VoiceVersionChanged:
+		return true
 	default:
 		return false
 	}
 }
 
-// SubscribableEventType The closed set of domain events a webhook subscription can select. Phase 4 fills this out family by family; today it carries the pilot event plus the deal family (Task 5a-i), the offer family (Task 5a-ii), the pipeline/stage config family (Task 5a-iii), and the person/organization family (Task 5b-personorg), the lead family (Task 5b-lead), the activities family (Task 5c), the consent/privacy family (Task 5d), and the signals family (Task 5e).
+// SubscribableEventType The closed set of domain events a webhook subscription can select. Phase 4 fills this out family by family; today it carries the pilot event plus the deal family (Task 5a-i), the offer family (Task 5a-ii), the pipeline/stage config family (Task 5a-iii), and the person/organization family (Task 5b-personorg), the lead family (Task 5b-lead), the activities family (Task 5c), the consent/privacy family (Task 5d), the signals family (Task 5e), and the ai voice family (Task 5f).
 type SubscribableEventType string
 
 // WebhookActivityChangedFields activity.updated's BOUNDED delta: UpdateActivity's known mutable fields (subject, body, occurred_at, due_at, remind_at, assignee_id, is_done) each carried only when this update touched them, plus RelinkActivity's relinked target — a fixed, KNOWN key set (unlike person/organization/deal/lead.updated's genuinely open patch), so it is typed rather than an open map.
@@ -623,6 +644,150 @@ type WebhookPayloadStageUpdated struct {
 	WinProbability *int `json:"win_probability,omitempty"`
 }
 
+// WebhookPayloadVoiceBuildChanged Payload for voice.build_changed — a Voice DNA build was queued or an already-pending one was returned in place of a duplicate request (ai/voice_lifecycle.go's RequestBuild). stage/result_version/ status_code/next_attempt_at describe an in-flight or deferred build and are therefore absent on a freshly-queued one.
+type WebhookPayloadVoiceBuildChanged struct {
+	// BuildId The build row.
+	BuildId openapi_types.UUID `json:"build_id"`
+
+	// CandidateAction The recommended next step for this build's candidate.
+	CandidateAction string `json:"candidate_action"`
+
+	// NextAttemptAt When a deferred build will next be attempted (absent unless deferred).
+	NextAttemptAt *time.Time `json:"next_attempt_at,omitempty"`
+
+	// ProfileId The profile this build belongs to.
+	ProfileId openapi_types.UUID `json:"profile_id"`
+
+	// Reason The human-approved reason for this build (onboarding | manual).
+	Reason string `json:"reason"`
+
+	// ResultVersion The profile version this build produced (absent until the build completes).
+	ResultVersion *int `json:"result_version,omitempty"`
+
+	// SourceCount The corpus's eligible source count this build was requested against.
+	SourceCount int `json:"source_count"`
+
+	// SourceHash The corpus content hash this build was requested against.
+	SourceHash string `json:"source_hash"`
+
+	// Stage The build's current pipeline stage (absent before it starts running).
+	Stage *string `json:"stage,omitempty"`
+
+	// Status The build's status (queued | deferred | running | completed | failed).
+	Status string `json:"status"`
+
+	// StatusCode A machine-readable status detail code (absent unless the build failed or deferred).
+	StatusCode *string `json:"status_code,omitempty"`
+}
+
+// WebhookPayloadVoiceCorpusChanged Payload for voice.corpus_changed — a UNION across four emit sites that all mutate the corpus feeding a profile's build: a source's inclusion/weight was updated (voice_source_mutations.go's recordSourceUpdate), a source was removed (RemoveSource), a source was ingested/re-ingested (voice_source_store.go's recordSourceIngest), or the whole corpus was cleared (voice_source_mutations.go's ClearCorpus). source_id/origin/register name the touched source and are therefore absent on the clear site, which acts on the corpus as a whole.
+type WebhookPayloadVoiceCorpusChanged struct {
+	// Action What happened to the corpus (included | excluded | removed | cleared).
+	Action string `json:"action"`
+
+	// Origin The touched source's origin (manual | capture) (absent on the clear site).
+	Origin *string `json:"origin,omitempty"`
+
+	// ProfileId The profile whose corpus changed.
+	ProfileId openapi_types.UUID `json:"profile_id"`
+
+	// Register The touched source's register (email | social | long_form | spoken | general) (absent on the clear site).
+	Register *string `json:"register,omitempty"`
+
+	// SourceCount The corpus's eligible source count after this change.
+	SourceCount int `json:"source_count"`
+
+	// SourceHash The corpus's content hash after this change.
+	SourceHash string `json:"source_hash"`
+
+	// SourceId The source this change touched (absent on the clear site, which has no single source).
+	SourceId *openapi_types.UUID `json:"source_id,omitempty"`
+
+	// WordDelta The eligible-word-count change this action caused (may be negative).
+	WordDelta int `json:"word_delta"`
+}
+
+// WebhookPayloadVoiceDraftOutcomeRecorded Payload for voice.draft_outcome_recorded — a drafted-with-voice signal's outcome was recorded (ai/voice_history.go's RecordDraftOutcome), feeding the automatic-learning corpus.
+type WebhookPayloadVoiceDraftOutcomeRecorded struct {
+	// Outcome The recorded outcome (drafted | sent_unedited | sent_edited | rejected).
+	Outcome string `json:"outcome"`
+
+	// ProfileId The profile this learning signal belongs to.
+	ProfileId openapi_types.UUID `json:"profile_id"`
+
+	// QualifiesAsSource Whether this draft's final text qualifies as a future corpus source.
+	QualifiesAsSource bool `json:"qualifies_as_source"`
+
+	// TransformationCount How many transformation edits were applied before send (0 for rejected).
+	TransformationCount int `json:"transformation_count"`
+}
+
+// WebhookPayloadVoiceProfileArchived Payload for voice.profile_archived — the owner's profile was soft-deleted (ai/voice.go's ArchiveProfile).
+type WebhookPayloadVoiceProfileArchived struct {
+	// OwnerId The human who owned this profile.
+	OwnerId openapi_types.UUID `json:"owner_id"`
+
+	// ProfileId The archived profile.
+	ProfileId openapi_types.UUID `json:"profile_id"`
+
+	// ProfileVersion The profile's derived-artifact version at the moment it was archived.
+	ProfileVersion int `json:"profile_version"`
+}
+
+// WebhookPayloadVoiceProfileCreated Payload for voice.profile_created — the admitted human opened their one personal Voice DNA profile (ai/voice.go's CreateProfile). Always starts collecting, at maturity zero, with automatic learning off.
+type WebhookPayloadVoiceProfileCreated struct {
+	// AutoLearningEnabled Whether automatic learning starts enabled (always false at creation).
+	AutoLearningEnabled bool `json:"auto_learning_enabled"`
+
+	// Maturity The corpus maturity band at creation (collecting, at zero words).
+	Maturity string `json:"maturity"`
+
+	// OwnerId The human who owns this profile.
+	OwnerId openapi_types.UUID `json:"owner_id"`
+
+	// ProfileId The created profile.
+	ProfileId openapi_types.UUID `json:"profile_id"`
+}
+
+// WebhookPayloadVoiceProfileUpdated Payload for voice.profile_updated — the owner replaced their human-authored preferences and/or their automatic-learning opt-in (ai/voice.go's UpdateProfile). action names which of the two (or both) this update touched.
+type WebhookPayloadVoiceProfileUpdated struct {
+	// Action What this update did (preferences_replaced | learning_enabled | learning_disabled).
+	Action string `json:"action"`
+
+	// Maturity The corpus maturity band as of this update.
+	Maturity string `json:"maturity"`
+
+	// ProfileId The updated profile.
+	ProfileId openapi_types.UUID `json:"profile_id"`
+
+	// Version The profile row's optimistic-concurrency version after this update.
+	Version int64 `json:"version"`
+}
+
+// WebhookPayloadVoiceVersionChanged Payload for voice.version_changed — a derived Voice DNA version's status changed: minted as a candidate, manually activated, rejected, or restored by rollback (ai/voice_versions.go). predecessor_version is absent for a profile's first version, which has none.
+type WebhookPayloadVoiceVersionChanged struct {
+	// ActivationOutcome What happened to this version (auto_activated | manually_activated | rejected | rollback).
+	ActivationOutcome string `json:"activation_outcome"`
+
+	// Classification The delta's classification against its predecessor (routine | material).
+	Classification string `json:"classification"`
+
+	// PredecessorVersion The version this one supersedes (absent for a profile's first version).
+	PredecessorVersion *int `json:"predecessor_version,omitempty"`
+
+	// ProfileId The profile this version belongs to.
+	ProfileId openapi_types.UUID `json:"profile_id"`
+
+	// ProfileVersion This version's number.
+	ProfileVersion int `json:"profile_version"`
+
+	// Reason Why this version was produced (e.g. build | rollback).
+	Reason string `json:"reason"`
+
+	// Status The version's status after this change (candidate | active | superseded | rejected).
+	Status string `json:"status"`
+}
+
 // WebhookPersonMergedRelinkCounts How many child rows on each side were repointed from the merged- away person onto the survivor (people/merge.go relinkCounts).
 type WebhookPersonMergedRelinkCounts struct {
 	// ActivityLinks activity_link rows relinked.
@@ -802,48 +967,85 @@ func (WebhookPayloadStageUpdated) EventType() string { return "stage.updated" }
 
 func (WebhookPayloadStageUpdated) EntityType() string { return "stage" }
 
+func (WebhookPayloadVoiceBuildChanged) EventType() string { return "voice.build_changed" }
+
+func (WebhookPayloadVoiceBuildChanged) EntityType() string { return "voice_profile" }
+
+func (WebhookPayloadVoiceCorpusChanged) EventType() string { return "voice.corpus_changed" }
+
+func (WebhookPayloadVoiceCorpusChanged) EntityType() string { return "voice_profile" }
+
+func (WebhookPayloadVoiceDraftOutcomeRecorded) EventType() string {
+	return "voice.draft_outcome_recorded"
+}
+
+func (WebhookPayloadVoiceDraftOutcomeRecorded) EntityType() string { return "voice_profile" }
+
+func (WebhookPayloadVoiceProfileArchived) EventType() string { return "voice.profile_archived" }
+
+func (WebhookPayloadVoiceProfileArchived) EntityType() string { return "voice_profile" }
+
+func (WebhookPayloadVoiceProfileCreated) EventType() string { return "voice.profile_created" }
+
+func (WebhookPayloadVoiceProfileCreated) EntityType() string { return "voice_profile" }
+
+func (WebhookPayloadVoiceProfileUpdated) EventType() string { return "voice.profile_updated" }
+
+func (WebhookPayloadVoiceProfileUpdated) EntityType() string { return "voice_profile" }
+
+func (WebhookPayloadVoiceVersionChanged) EventType() string { return "voice.version_changed" }
+
+func (WebhookPayloadVoiceVersionChanged) EntityType() string { return "voice_profile" }
+
 // WebhookPayloadVersions maps every subscribable event type carrying a
 // WebhookPayload<Event> schema to that schema's x-version extension
 // (default 1 when absent). It is the single generated source of truth for
 // both the coverage gate (every subscribable event type must be a key here)
 // and the version gate (VersionOf(type) must equal this map's value).
 var WebhookPayloadVersions = map[string]int{
-	"activity.archived":     1,
-	"activity.captured":     1,
-	"activity.updated":      1,
-	"consent.changed":       1,
-	"deal.archived":         1,
-	"deal.created":          1,
-	"deal.owner_changed":    1,
-	"deal.restored":         1,
-	"deal.stage_changed":    1,
-	"deal.updated":          1,
-	"engagement.reply":      1,
-	"lead.created":          1,
-	"lead.disqualified":     1,
-	"lead.promoted":         1,
-	"lead.updated":          1,
-	"offer.accepted":        1,
-	"offer.created":         1,
-	"offer.rejected":        1,
-	"offer.sent":            1,
-	"offer.superseded":      1,
-	"organization.archived": 1,
-	"organization.created":  1,
-	"organization.merged":   1,
-	"organization.updated":  1,
-	"person.archived":       1,
-	"person.created":        1,
-	"person.merged":         1,
-	"person.restored":       1,
-	"person.updated":        1,
-	"pipeline.archived":     1,
-	"pipeline.created":      1,
-	"pipeline.updated":      1,
-	"retention.applied":     1,
-	"signal.detected":       1,
-	"signal.resolved":       1,
-	"stage.archived":        1,
-	"stage.created":         1,
-	"stage.updated":         1,
+	"activity.archived":            1,
+	"activity.captured":            1,
+	"activity.updated":             1,
+	"consent.changed":              1,
+	"deal.archived":                1,
+	"deal.created":                 1,
+	"deal.owner_changed":           1,
+	"deal.restored":                1,
+	"deal.stage_changed":           1,
+	"deal.updated":                 1,
+	"engagement.reply":             1,
+	"lead.created":                 1,
+	"lead.disqualified":            1,
+	"lead.promoted":                1,
+	"lead.updated":                 1,
+	"offer.accepted":               1,
+	"offer.created":                1,
+	"offer.rejected":               1,
+	"offer.sent":                   1,
+	"offer.superseded":             1,
+	"organization.archived":        1,
+	"organization.created":         1,
+	"organization.merged":          1,
+	"organization.updated":         1,
+	"person.archived":              1,
+	"person.created":               1,
+	"person.merged":                1,
+	"person.restored":              1,
+	"person.updated":               1,
+	"pipeline.archived":            1,
+	"pipeline.created":             1,
+	"pipeline.updated":             1,
+	"retention.applied":            1,
+	"signal.detected":              1,
+	"signal.resolved":              1,
+	"stage.archived":               1,
+	"stage.created":                1,
+	"stage.updated":                1,
+	"voice.build_changed":          1,
+	"voice.corpus_changed":         1,
+	"voice.draft_outcome_recorded": 1,
+	"voice.profile_archived":       1,
+	"voice.profile_created":        1,
+	"voice.profile_updated":        1,
+	"voice.version_changed":        1,
 }

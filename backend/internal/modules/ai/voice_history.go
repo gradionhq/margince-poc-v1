@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -258,13 +260,22 @@ func (s *VoiceStore) RejectDraft(ctx context.Context, profileID ids.UUID, draftR
 		if err != nil {
 			return err
 		}
-		return storekit.Emit(ctx, tx, auditID, "voice.draft_outcome_recorded", "voice_profile", profileID, map[string]any{
-			voiceKeyProfileID: profileID, voiceKeyOutcome: voiceOutcomeRejected, "qualifies_as_source": false,
-			"transformation_count": 0,
-		})
+		return storekit.EmitEvent(ctx, tx, auditID, profileID,
+			voiceDraftOutcomeRecordedPayload(profileID, voiceOutcomeRejected, false, 0))
 	})
 	if err != nil {
 		return VoiceLearningSummary{}, err
 	}
 	return s.LearningSummary(ctx, profileID)
+}
+
+// voiceDraftOutcomeRecordedPayload builds voice.draft_outcome_recorded's
+// typed payload.
+func voiceDraftOutcomeRecordedPayload(profileID ids.UUID, outcome string, qualifiesAsSource bool, transformationCount int) crmcontracts.WebhookPayloadVoiceDraftOutcomeRecorded {
+	return crmcontracts.WebhookPayloadVoiceDraftOutcomeRecorded{
+		ProfileId:           openapi_types.UUID(profileID),
+		Outcome:             outcome,
+		QualifiesAsSource:   qualifiesAsSource,
+		TransformationCount: transformationCount,
+	}
 }
