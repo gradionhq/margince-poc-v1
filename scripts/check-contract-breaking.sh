@@ -18,10 +18,19 @@ cd "$ROOT"
 CRM_YAML="${CRM_YAML:-backend/api/crm.yaml}"
 BASE_REF="${1:-origin/main}"
 
-# The pinned tool invocation. `go run` at an exact version keeps the gate
-# reproducible without a PATH install; `make tools` also installs the same
-# version as a binary for direct use — bump both pins together.
-OASDIFF="${OASDIFF:-go run github.com/oasdiff/oasdiff@v1.22.0}"
+# Tool resolution, same order as the backend Makefile's gate binaries:
+# prefer the pinned install from `make tools` (CI restores it from cache —
+# the `go run` fallback re-downloads and recompiles oasdiff on every run),
+# fall back to `go run` at the exact version so a fresh machine still
+# gates. Bump this pin and the Makefile's OASDIFF_VERSION together.
+if [[ -z "${OASDIFF:-}" ]]; then
+  OASDIFF_BIN="$(go env GOPATH)/bin/oasdiff"
+  if [[ -x "$OASDIFF_BIN" ]]; then
+    OASDIFF="$OASDIFF_BIN"
+  else
+    OASDIFF="go run github.com/oasdiff/oasdiff@v1.22.0"
+  fi
+fi
 
 # Stance: 'stable' (default) blocks the merge on any breaking change;
 # 'pre-live' prints them but passes (for a deliberate spec re-sync).

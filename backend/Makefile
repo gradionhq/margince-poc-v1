@@ -162,9 +162,15 @@ lint: ## golangci-lint: repo-wide baseline + new-code strict set
 
 # Layer C of the boundary stack — a HARD gate: a forbidden import edge
 # fails `make check`, it is never advisory.
+# Same binary resolution as GOLANGCI_LINT above: prefer the pinned install
+# from `make tools` (CI restores it from cache), fall back to a pinned
+# `go run` so a fresh machine still gates — that fallback re-downloads and
+# recompiles the tool on every run, which is exactly what the install avoids.
 GO_ARCH_LINT_VERSION ?= v1.12.0
+GO_ARCH_LINT_BIN := $(shell $(GO) env GOPATH)/bin/go-arch-lint
+GO_ARCH_LINT ?= $(shell test -x $(GO_ARCH_LINT_BIN) && echo $(GO_ARCH_LINT_BIN) || echo "$(GO) run github.com/fe3dback/go-arch-lint@$(GO_ARCH_LINT_VERSION)")
 arch-lint: ## Import-boundary lint (go-arch-lint over .go-arch-lint.yml)
-	$(GO) run github.com/fe3dback/go-arch-lint@$(GO_ARCH_LINT_VERSION) check
+	$(GO_ARCH_LINT) check
 
 # The stub and agent-policy generators run here explicitly (not via
 # `go generate ./...`): internal/compose is generated INTO, and its own
@@ -191,8 +197,10 @@ gen-workflow: ## Scaffold a new workflow.Handler: make gen-workflow NAME=flag_id
 # version is PINNED — `@latest` makes the scan non-reproducible (a tool
 # upgrade could change findings between two runs of the same commit).
 GOVULNCHECK_VERSION ?= v1.1.4
+GOVULNCHECK_BIN := $(shell $(GO) env GOPATH)/bin/govulncheck
+GOVULNCHECK ?= $(shell test -x $(GOVULNCHECK_BIN) && echo $(GOVULNCHECK_BIN) || echo "$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)")
 vuln: ## Scan dependencies for known vulnerabilities (govulncheck)
-	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+	$(GOVULNCHECK) ./...
 
 # Fresh-machine bootstrap. golangci-lint is the one gate binary `make check`
 # runs from an install rather than a pinned `go run`; the lint target
