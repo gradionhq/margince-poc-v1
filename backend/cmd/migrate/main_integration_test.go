@@ -148,6 +148,12 @@ func TestDropDBTerminatesLingeringSessions(t *testing.T) {
 		t.Fatalf("opening the lingering session: %v", err)
 	}
 	// Deliberately not closed before the drop — the drop must win anyway.
+	// The cleanup only releases the client-side socket afterwards: by then
+	// the server has terminated the session, so Close may or may not report
+	// an error depending on whether the conn noticed, and neither answer
+	// carries signal.
+	//craft:ignore swallowed-errors Close on a force-terminated session frees the client fd; its error is noise either way
+	t.Cleanup(func() { _ = conn.Close(context.Background()) })
 
 	mustMigrate(t, "drop-db", "--dsn", maint, "--name", name)
 	if out := mustMigrate(t, "db-exists", "--dsn", maint, "--name", name); out != "false\n" {
