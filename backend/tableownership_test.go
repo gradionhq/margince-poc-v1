@@ -157,7 +157,6 @@ var tableOwners = map[string]string{
 	"overlay_backfill_cursor":     "internal/modules/overlay",
 	"overlay_reconcile_watermark": "internal/modules/overlay",
 	"overlay_sync_state":          "internal/modules/overlay",
-	"overlay_budget_window":       "internal/modules/overlay",
 	// compose (HTTP replay protection is transport plumbing, not domain;
 	// the brief read model is the cross-module ranker's own snapshot —
 	// deals + people strength + activities compose only here)

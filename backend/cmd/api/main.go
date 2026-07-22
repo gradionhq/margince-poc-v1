@@ -41,6 +41,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/mailer"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 )
 
@@ -176,6 +177,23 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		}
 		opts = append(opts, webhookOpt)
 	}
+
+	// The overlay budget meter records against Redis, the SAME server the
+	// worker's poller uses, so force-fresh reads (this role) and poller
+	// sweeps (cmd/worker) spend against ONE shared per-workspace-per-
+	// incumbent count. A LAZY client (no boot ping): a split-deployment api
+	// that cannot reach Redis must still boot — the meter then fails closed
+	// (force-fresh degrades to the mirror), never a hard boot dependency.
+	// cmd builds the meter (the raw-Redis dependency stays here, not in
+	// compose); WithOverlayMeter Rebinds the Server's shared instance to it.
+	overlayRDB := redis.NewClient(&redis.Options{Addr: cfg.redisAddr})
+	defer func() {
+		if err := overlayRDB.Close(); err != nil {
+			logger.Warn("overlay budget: closing the redis client", "err", err)
+		}
+	}()
+	overlayMeter := overlaybudget.New(overlayRDB, compose.OverlayBudgetConfig(deployCfg.EffectiveOverlayBudget()))
+	opts = append(opts, compose.WithOverlayMeter(overlayMeter))
 
 	stopRelay := func() {
 		// No inline relay to stop unless --inline-relay wires one below.

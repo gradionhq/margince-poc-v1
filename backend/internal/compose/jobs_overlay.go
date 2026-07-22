@@ -16,6 +16,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/hubspot"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -69,7 +70,7 @@ type overlayReconcileWorker struct {
 	pool         *pgxpool.Pool
 	vault        keyvault.Vault
 	ms           *overlay.MirrorStore
-	meter        *overlay.Meter
+	meter        *overlaybudget.Meter
 	log          *slog.Logger
 	newIncumbent func(region, token string) overlay.Incumbent
 }
@@ -175,7 +176,7 @@ func isConnectionLevelIncumbentError(err error) bool {
 // sweep and returns an error, which the periodic caller records as a
 // backoff (overlay_sync_state) so a dead or throttled connection is not
 // re-swept hot every tick.
-func reconcileConnection(ctx context.Context, vault keyvault.Vault, ms *overlay.MirrorStore, meter *overlay.Meter, log *slog.Logger, d overlay.DueOverlayConnection, newIncumbent func(region, token string) overlay.Incumbent) error {
+func reconcileConnection(ctx context.Context, vault keyvault.Vault, ms *overlay.MirrorStore, meter *overlaybudget.Meter, log *slog.Logger, d overlay.DueOverlayConnection, newIncumbent func(region, token string) overlay.Incumbent) error {
 	if d.Incumbent != "hubspot" {
 		// Branch 1 wires only HubSpot (design.md §2 D2/D3) — a connection
 		// row naming any other incumbent has no adapter here; an honest,
@@ -285,7 +286,7 @@ func reconcileConnection(ctx context.Context, vault keyvault.Vault, ms *overlay.
 // mapping/data defect, a DB read/write blip) is logged and skips the rest of
 // THIS class with a nil return, so the connection-level loop moves on to the
 // next class.
-func sweepObjectClass(ctx context.Context, inc overlay.Incumbent, ms *overlay.MirrorStore, meter *overlay.Meter, log *slog.Logger, workspace, objectClass string) error {
+func sweepObjectClass(ctx context.Context, inc overlay.Incumbent, ms *overlay.MirrorStore, meter *overlaybudget.Meter, log *slog.Logger, workspace, objectClass string) error {
 	// Initial full load before the incremental sweep: Backfill lists the
 	// object class id-cursor style AND fetches its associations (design.md
 	// §4.4), checkpointing overlay_backfill_cursor so SyncStatus's
