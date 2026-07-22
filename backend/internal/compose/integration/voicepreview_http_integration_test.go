@@ -11,6 +11,8 @@ package integration
 // machine code — the surface a conversational client narrates from.
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"testing"
 )
@@ -62,19 +64,43 @@ func TestVoiceCorpusPreviewAndIngestStatsHTTP(t *testing.T) {
 	if len(preview.Speakers) != 2 {
 		t.Fatalf("speakers = %+v, want both meeting participants", preview.Speakers)
 	}
-	lars := preview.Speakers[0]
+	lars, anna := preview.Speakers[0], preview.Speakers[1]
 	if lars.Label != "Lars Jankowfsky" || lars.Turns != 2 || lars.Words != 14 {
 		t.Fatalf("lars = %+v, want 14 spoken words over 2 turns", lars)
+	}
+	if anna.Label != "Anna Schmidt" || anna.Turns != 1 || anna.Words != 7 {
+		t.Fatalf("anna = %+v, want her 7 words in 1 turn", anna)
 	}
 	if preview.TotalWords != 21 || preview.UnattributedWords != 0 {
 		t.Fatalf("totals = %d/%d — spoken words only, headers are never words",
 			preview.TotalWords, preview.UnattributedWords)
 	}
 
+	// The raw request keeps the response headers: the refusal contract is
+	// the 422 body AND its problem+json media type.
+	rawBody, err := json.Marshal(anyMap{"format": "docx", "content": "binary"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest("POST", e.ts.URL+base+"/sources/preview", bytes.NewReader(rawBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := e.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeBody(t, resp)
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("unknown format preview → %d, want 422", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/problem+json" {
+		t.Fatalf("refusal media type = %q, want application/problem+json", ct)
+	}
 	var refused problemWire
-	if status := e.call(t, "POST", base+"/sources/preview",
-		anyMap{"format": "docx", "content": "binary"}, nil, &refused); status != http.StatusUnprocessableEntity {
-		t.Fatalf("unknown format preview → %d, want 422", status)
+	if err := json.NewDecoder(resp.Body).Decode(&refused); err != nil {
+		t.Fatal(err)
 	}
 	if len(refused.Details.Errors) != 1 || refused.Details.Errors[0].Code != "unsupported_format" {
 		t.Fatalf("refusal = %+v, want the stable unsupported_format code", refused)
@@ -104,8 +130,8 @@ func TestVoiceCorpusPreviewAndIngestStatsHTTP(t *testing.T) {
 	if stats.InputWords != 21 || stats.KeptWords != 14 || stats.KeptTurns != 2 || stats.DiscardedTurns != 1 {
 		t.Fatalf("ingest_stats = %+v — the kept-versus-discarded story must match the filter", stats)
 	}
-	if len(stats.SpeakersSeen) != 2 {
-		t.Fatalf("speakers_seen = %v", stats.SpeakersSeen)
+	if len(stats.SpeakersSeen) != 2 || stats.SpeakersSeen[0] != "Lars Jankowfsky" || stats.SpeakersSeen[1] != "Anna Schmidt" {
+		t.Fatalf("speakers_seen = %v, want both participants in first-seen order", stats.SpeakersSeen)
 	}
 
 	var unlabeled problemWire
