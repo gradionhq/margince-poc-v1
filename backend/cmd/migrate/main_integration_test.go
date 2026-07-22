@@ -234,6 +234,25 @@ func TestDBVerbsRejectNamesTheServerWouldTruncate(t *testing.T) {
 	}
 }
 
+func TestRecreateDBRefusesATemplateNamingTheDatabaseItself(t *testing.T) {
+	// recreate-db drops before it creates, so --template equal to --name
+	// would destroy the template and then copy from nothing. The refusal
+	// must come before the drop: the existing database survives.
+	maint, base, withDB := testDSNs(t)
+	name := base + "_verbs_self_tpl"
+	t.Cleanup(func() { mustMigrate(t, "drop-db", "--dsn", maint, "--name", name) })
+
+	mustMigrate(t, "recreate-db", "--dsn", maint, "--name", name)
+	stamp(t, withDB(name), "CREATE TABLE survivor_marker (id int)")
+
+	if _, err := migrateCmd(t, "recreate-db", "--dsn", maint, "--name", name, "--template", name); err == nil || !strings.Contains(err.Error(), "distinct template") {
+		t.Fatalf("recreate-db with --template equal to --name: got %v, want a refusal asking for a distinct template", err)
+	}
+	if !tableExists(t, withDB(name), "survivor_marker") {
+		t.Fatal("recreate-db with --template equal to --name dropped the database — the refusal must come before the destructive drop")
+	}
+}
+
 func TestDBVerbsRequireAName(t *testing.T) {
 	maint, _, _ := testDSNs(t)
 	for _, verb := range []string{"recreate-db", "drop-db", "db-exists"} {

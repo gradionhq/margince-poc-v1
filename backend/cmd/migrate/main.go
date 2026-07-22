@@ -94,7 +94,9 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 			}
 			reverted += more
 		}
-		_, _ = fmt.Fprintf(stdout, "reverted %d migration(s)\n", reverted)
+		if _, err := fmt.Fprintf(stdout, "reverted %d migration(s)\n", reverted); err != nil {
+			return fmt.Errorf("migrate down: writing the confirmation: %w", err)
+		}
 		return nil
 	case "reset-password":
 		return resetPassword(ctx, conn, *email, os.Stdin, stdout)
@@ -127,7 +129,9 @@ func up(ctx context.Context, conn *pgx.Conn, dsn string, core, custom dbmigrate.
 	if err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(stdout, "applied %d core+custom + %d river migration(s); schema is at head\n", applied, riverApplied)
+	if _, err := fmt.Fprintf(stdout, "applied %d core+custom + %d river migration(s); schema is at head\n", applied, riverApplied); err != nil {
+		return fmt.Errorf("migrate up: writing the confirmation: %w", err)
+	}
 	return nil
 }
 
@@ -171,6 +175,13 @@ func recreateDB(ctx context.Context, conn *pgx.Conn, name, template string, stdo
 	if template != "" {
 		if err := fitsIdentifier(ctx, conn, "migrate recreate-db: --template", template); err != nil {
 			return err
+		}
+		// The drop runs before the create: recreating a database from itself
+		// would destroy the template first and then copy from nothing. The
+		// compare uses the sanitized forms — the same normalization the DDL
+		// below splices — so two spellings of one datname cannot slip past.
+		if (pgx.Identifier{template}).Sanitize() == (pgx.Identifier{name}).Sanitize() {
+			return fmt.Errorf("migrate recreate-db: --template %q is the database being recreated — the drop would destroy the template before the create can copy it; pass a distinct template", template)
 		}
 	}
 	if _, err := conn.Exec(ctx, "DROP DATABASE IF EXISTS "+pgx.Identifier{name}.Sanitize()+" WITH (FORCE)"); err != nil {
