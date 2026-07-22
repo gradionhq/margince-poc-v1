@@ -392,7 +392,10 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 
 	if cfg.OverlayVault != nil {
 		ms := overlay.NewMirrorStore(pool, unresolvedOwnerEmails{})
-		meter := overlay.NewMeter(pool, overlay.DefaultMeterConfig())
+		// The SAME construction helper the REST/MCP/workflow surfaces use,
+		// so the poller lane can never drift onto a different meter config
+		// or backing than the rest of this process's overlay surfaces.
+		meter := NewOverlayMeter(pool)
 		river.AddWorker(workers, &overlayReconcileWorker{pool: pool, vault: cfg.OverlayVault, ms: ms, meter: meter, log: log, newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit)})
 		periodic = append(periodic, river.NewPeriodicJob(
 			river.PeriodicInterval(cfg.OverlayInterval),

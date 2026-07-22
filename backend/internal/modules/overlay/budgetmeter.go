@@ -16,10 +16,18 @@ package overlay
 // row per workspace. ADR-0054/A69 runs cmd/api (this meter's force_fresh
 // caller) and cmd/worker (the poller caller) as two DISTINCT OS processes;
 // both read and advance the SAME row, so a workspace's combined spend against
-// its ONE real HubSpot quota is bounded by Limit — not (process count)×Limit,
-// the "don't starve the shared quota" hole a per-process in-memory counter
-// had by construction — and GET /overlay/budget reflects the poller's spend,
-// not just the reading process's.
+// its ONE real HubSpot quota is measured against ONE shared Limit — not
+// (process count)×Limit, the "don't starve the shared quota" hole a
+// per-process in-memory counter had by construction — and GET /overlay/budget
+// reflects the poller's spend, not just the reading process's.
+//
+// "Measured", not hard-capped: force_fresh reads Reserve (they shed once the
+// shared window crosses the threshold), but the poller lane Consumes
+// unconditionally — an incumbent it must mirror is not something to refuse
+// partway. So the shared count bounds what force_fresh will SPEND, and
+// reports how close the poller is to the ceiling, but it does not itself cap
+// the poller; a hard poller cap (a token bucket over this same shared row) is
+// the coupled follow-up.
 //
 // The window is fixed (window_start + Window duration), not sliding: a
 // consume/reserve whose clock reads past window_start+Window rolls the window

@@ -45,11 +45,13 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// Provider exactly as before, an overlay-mode workspace's reads land
 	// on the mirror (design.md §4.2/§4.6) — chosen per call from
 	// ctx, never fixed at registry construction time. This registry's own
-	// OVB meter shares the REST surface's per-workspace count — the
-	// window lives in Postgres now (NewOverlayMeter's doc), so the MCP
-	// tool surface's force-fresh spend and contractAPI's Dispatcher's
-	// draw on the SAME budget rather than each on a private in-process
-	// counter.
+	// OVB meter is backed by the SAME shared per-workspace window as
+	// contractAPI's Dispatcher (the window lives in Postgres now —
+	// NewOverlayMeter's doc), not a private in-process counter. The MCP
+	// overlay provider carries no live-incumbent resolver (the nil below)
+	// and agent tools never call the freshness path, so this surface
+	// incurs no force-fresh spend of its own today; the shared backing is
+	// what matters if it ever does.
 	provider := NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, NewOverlayMeter(pool), nil), pool)
 	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate)
 	agents.RegisterCoreTools(registry, provider, provider, provider, fieldOwnership{pool: pool})
