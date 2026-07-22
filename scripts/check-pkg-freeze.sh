@@ -67,23 +67,31 @@ fi
 EXPORT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pkg-freeze-export.XXXXXX")"
 trap 'cleanup; rm -rf "$EXPORT_DIR"' EXIT
 
-# A ratified surface change is recorded as its exact apidiff finding in
-# the allowlist (the contract gate's exception pattern): the entry only
-# ever matches that one change — the next incompatible edit is a new
-# finding and fails. An entry matching nothing is reported as absorbed
-# in EVERY run (a warning, not a failure): the baseline absorbs a
-# ratified change the instant its PR merges, so failing on staleness
-# would redden the merged branch and every innocent sibling while the
-# cleanup could never have ridden the ratifying PR itself. An absorbed
-# entry licenses nothing — its finding no longer exists against the
-# baseline. Package removals are NOT allowlistable: removal is the
-# deprecate-then-major cycle.
+# A ratified surface change is recorded in the allowlist (the contract
+# gate's exception pattern) as `<baseline-sha12> <package>: <finding>` —
+# the exact apidiff finding BOUND to the merge-base commit it was
+# ratified against. The binding is what makes an entry incapable of
+# licensing anything later: the moment the ratifying PR merges, every
+# future merge-base is a different commit, so the entry is provably
+# expired — it cannot reactivate when a same-text finding recurs
+# (remove → reintroduce → remove again) and cannot pre-authorize a
+# future break. Expired entries warn (never fail: the baseline moves
+# past an entry the instant its PR merges, so failing would redden the
+# merged branch and every innocent sibling while the cleanup could not
+# have ridden the ratifying PR). Package removals are NOT allowlistable:
+# removal is the deprecate-then-major cycle.
+BASE12="$(git rev-parse --short=12 "$BASE")"
 ALLOWLIST="${PKG_FREEZE_ALLOWLIST:-scripts/pkg-freeze-allowlist.txt}"
 allowed="$EXPORT_DIR/allowed"
+expired="$EXPORT_DIR/expired"
+: > "$allowed"
+: > "$expired"
 if [ -f "$ALLOWLIST" ]; then
-  grep -vE '^\s*(#|$)' "$ALLOWLIST" > "$allowed" || true
-else
-  : > "$allowed"
+  entries="$(grep -vE '^\s*(#|$)' "$ALLOWLIST" || true)"
+  if [ -n "$entries" ]; then
+    printf '%s\n' "$entries" | grep -E "^$BASE12 " | sed "s/^$BASE12 //" > "$allowed" || true
+    printf '%s\n' "$entries" | grep -vE "^$BASE12 " > "$expired" || true
+  fi
 fi
 
 findings="$EXPORT_DIR/findings"
@@ -105,21 +113,27 @@ for pkg in $OLD_PKGS; do
 done
 
 violations="$(grep -Fxv -f "$allowed" "$findings" || true)"
-stale="$(grep -Fxv -f "$findings" "$allowed" || true)"
+unused="$(grep -Fxv -f "$findings" "$allowed" || true)"
 
 if [ -n "$violations" ]; then
-  echo "FAIL: pkg-freeze — incompatible published-surface change vs $BASE_REF:" >&2
+  echo "FAIL: pkg-freeze — incompatible published-surface change vs $BASE_REF (merge-base $BASE12):" >&2
   echo "$violations" | sed 's/^/  /' >&2
+  echo "A ratified change is recorded in $ALLOWLIST as this exact line (visible in the PR):" >&2
+  echo "$violations" | sed "s/^/  $BASE12 /" >&2
   failed=1
 fi
-if [ -n "$stale" ]; then
-  echo "WARN: pkg-freeze — allowlist entries absorbed by $BASE_REF (they license nothing anymore; remove them with the next allowlist edit):"
-  echo "$stale" | sed 's/^/  /'
+if [ -s "$expired" ]; then
+  echo "WARN: pkg-freeze — allowlist entries bound to a superseded baseline (they can license nothing; remove them with the next allowlist edit):"
+  sed 's/^/  /' "$expired"
+fi
+if [ -n "$unused" ]; then
+  echo "WARN: pkg-freeze — allowlist entries bound to the current baseline ($BASE12) match no finding (typo, or the change was reverted — remove them):"
+  echo "$unused" | sed 's/^/  /'
 fi
 
 if [ "$failed" -ne 0 ]; then
-  echo "pkg-freeze: the published surface changes additively or via versioned successors, never in place (EXT-P3). A ratified change is recorded as its exact finding line in $ALLOWLIST, visible in the PR." >&2
+  echo "pkg-freeze: the published surface changes additively or via versioned successors, never in place (EXT-P3)." >&2
   exit 1
 fi
-active="$(($(grep -c . "$allowed" || true) - $(echo "$stale" | grep -c . || true)))"
+active="$(($(grep -c . "$allowed" || true) - $(echo "$unused" | grep -c . || true)))"
 echo "OK: pkg-freeze — published surface additive-or-unchanged vs $BASE_REF ($count packages, $active active exceptions)"

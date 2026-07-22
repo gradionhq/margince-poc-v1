@@ -1,9 +1,11 @@
-# Ratified published-surface changes (check-pkg-freeze.sh): one exact
-# apidiff finding per line, `<package>: <finding>`. An entry only ever
-# matches the one ratified change — the next incompatible edit is a new
-# finding and fails. An absorbed entry (matching nothing against the
-# current baseline) licenses nothing and is WARNED about in every gate
-# run until removed. Package removals are never allowlistable
+# Ratified published-surface changes (check-pkg-freeze.sh):
+# `<baseline-sha12> <package>: <finding>` — the exact apidiff finding
+# BOUND to the merge-base commit it was ratified against (the gate
+# prints the ready-to-paste line on failure). The binding is the
+# guarantee: once the ratifying PR merges, every future merge-base is a
+# different commit, so an entry can never license a later same-text
+# finding or pre-authorize a future break; superseded entries warn
+# until removed. Package removals are never allowlistable
 # (deprecate-then-major cycle, ADR-0069 §3).
 #
 # PR #195 follow-up (margince-foundation#1160): the retention-class
@@ -12,4 +14,4 @@
 # the constant leaves the closed set. Ratified pre-freeze while the de
 # unit, the only consumer, changes in the same change set. Remove once
 # the extensions arc merges to main and the baseline absorbs it.
-github.com/gradionhq/margince/backend/pkg/extension/jurisdiction: BooksAndAnnualAccounts: removed
+f19c666ed270 github.com/gradionhq/margince/backend/pkg/extension/jurisdiction: BooksAndAnnualAccounts: removed
