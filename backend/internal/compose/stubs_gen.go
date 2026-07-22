@@ -980,7 +980,7 @@ func (stubs) ListWebhookSubscriptions(w nethttp.ResponseWriter, r *nethttp.Reque
 	httperr.NotImplemented(w, r, "ListWebhookSubscriptions")
 }
 
-func (stubs) CreateWebhookSubscription(w nethttp.ResponseWriter, r *nethttp.Request) {
+func (stubs) CreateWebhookSubscription(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.CreateWebhookSubscriptionParams) {
 	httperr.NotImplemented(w, r, "CreateWebhookSubscription")
 }
 

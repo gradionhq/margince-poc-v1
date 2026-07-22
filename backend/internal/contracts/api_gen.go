@@ -7713,7 +7713,7 @@ type CreateVoiceProfileRequest struct {
 
 // CreateWebhookSubscriptionRequest defines model for CreateWebhookSubscriptionRequest.
 type CreateWebhookSubscriptionRequest struct {
-	// EventTypes At least one event type from the published catalog.
+	// EventTypes At least one event type from the published catalog; a true set — duplicates are rejected.
 	EventTypes []string `json:"event_types"`
 
 	// TargetUrl HTTPS-only; http:// is rejected.
@@ -10579,6 +10579,9 @@ type Forbidden = Problem
 // NotFound RFC 7807 problem+json with a stable machine `code` and structured `details`.
 type NotFound = Problem
 
+// NotImplemented RFC 7807 problem+json with a stable machine `code` and structured `details`.
+type NotImplemented = Problem
+
 // PermissionDenied RFC 7807 problem+json with a stable machine `code` and structured `details`.
 type PermissionDenied = Problem
 
@@ -12644,8 +12647,29 @@ type ListWebhookSubscriptionsParams struct {
 	IncludeArchived *IncludeArchived `form:"include_archived,omitempty" json:"include_archived,omitempty"`
 }
 
+// CreateWebhookSubscriptionParams defines parameters for CreateWebhookSubscription.
+type CreateWebhookSubscriptionParams struct {
+	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
+	// POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+	// compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+	// principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+	// expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
+	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
+}
+
 // UpdateWebhookSubscriptionParams defines parameters for UpdateWebhookSubscription.
 type UpdateWebhookSubscriptionParams struct {
+	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
+	// POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+	// compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+	// principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+	// expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
+	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
+
 	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
 	// the last-seen entity `version`. If the row's current `version` differs, the write is
 	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
@@ -18520,7 +18544,7 @@ type ServerInterface interface {
 	ListWebhookSubscriptions(w http.ResponseWriter, r *http.Request, params ListWebhookSubscriptionsParams)
 	// Register an outbound webhook subscription (returns the signing secret once).
 	// (POST /webhook-subscriptions)
-	CreateWebhookSubscription(w http.ResponseWriter, r *http.Request)
+	CreateWebhookSubscription(w http.ResponseWriter, r *http.Request, params CreateWebhookSubscriptionParams)
 	// Archive a webhook subscription (stops all delivery).
 	// (DELETE /webhook-subscriptions/{id})
 	ArchiveWebhookSubscription(w http.ResponseWriter, r *http.Request, id Id)
@@ -19987,7 +20011,7 @@ func (_ Unimplemented) ListWebhookSubscriptions(w http.ResponseWriter, r *http.R
 
 // Register an outbound webhook subscription (returns the signing secret once).
 // (POST /webhook-subscriptions)
-func (_ Unimplemented) CreateWebhookSubscription(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) CreateWebhookSubscription(w http.ResponseWriter, r *http.Request, params CreateWebhookSubscriptionParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -31648,6 +31672,9 @@ func (siw *ServerInterfaceWrapper) ListWebhookSubscriptions(w http.ResponseWrite
 // CreateWebhookSubscription operation middleware
 func (siw *ServerInterfaceWrapper) CreateWebhookSubscription(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
@@ -31656,8 +31683,32 @@ func (siw *ServerInterfaceWrapper) CreateWebhookSubscription(w http.ResponseWrit
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateWebhookSubscriptionParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "X-Approval-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Approval-Token")]; found {
+		var XApprovalToken ApprovalToken
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Approval-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Approval-Token", valueList[0], &XApprovalToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Approval-Token", Err: err})
+			return
+		}
+
+		params.XApprovalToken = &XApprovalToken
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateWebhookSubscription(w, r)
+		siw.Handler.CreateWebhookSubscription(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -31758,6 +31809,25 @@ func (siw *ServerInterfaceWrapper) UpdateWebhookSubscription(w http.ResponseWrit
 	var params UpdateWebhookSubscriptionParams
 
 	headers := r.Header
+
+	// ------------- Optional header parameter "X-Approval-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Approval-Token")]; found {
+		var XApprovalToken ApprovalToken
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Approval-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Approval-Token", valueList[0], &XApprovalToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Approval-Token", Err: err})
+			return
+		}
+
+		params.XApprovalToken = &XApprovalToken
+
+	}
 
 	// ------------- Optional header parameter "If-Match" -------------
 	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {

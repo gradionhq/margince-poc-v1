@@ -25,7 +25,7 @@ func (webhooksHandlers) ListWebhookSubscriptions(w nethttp.ResponseWriter, r *ne
 	httperr.NotImplemented(w, r, "ListWebhookSubscriptions")
 }
 
-func (webhooksHandlers) CreateWebhookSubscription(w nethttp.ResponseWriter, r *nethttp.Request) {
+func (webhooksHandlers) CreateWebhookSubscription(w nethttp.ResponseWriter, r *nethttp.Request, _ crmcontracts.CreateWebhookSubscriptionParams) {
 	httperr.NotImplemented(w, r, "CreateWebhookSubscription")
 }
 

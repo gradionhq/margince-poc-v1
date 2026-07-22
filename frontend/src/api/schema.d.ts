@@ -1445,10 +1445,10 @@ export interface paths {
         /**
          * Register an outbound webhook subscription (returns the signing secret once).
          * @description Registers a target URL + event-type subset. Registering outbound egress, so an agent
-         *     principal's call is 🟡 — staged for human approval (ADR-0036); a human on a session
-         *     registers directly. Every register/change/delete is audited. The `signing_secret` in the
-         *     response is shown EXACTLY ONCE — deliveries are HMAC-SHA256 signed with it
-         *     (X-Margince-Signature). `target_url` must be https://.
+         *     principal's call is 🟡 — staged for human approval (ADR-0036), then redeemed with the
+         *     `X-Approval-Token`; a human on a session registers directly. Every register/change/delete
+         *     is audited. The `signing_secret` in the response is shown EXACTLY ONCE — deliveries are
+         *     HMAC-SHA256 signed with it (X-Margince-Signature). `target_url` must be https://.
          */
         post: operations["createWebhookSubscription"];
         delete?: never;
@@ -1478,8 +1478,8 @@ export interface paths {
         /**
          * Pause/resume a subscription or re-target its event set.
          * @description A partial update (pause/resume or re-target the event set). Re-targeting can widen
-         *     outbound egress, so an agent principal's call is 🟡 — staged for approval; a human
-         *     updates directly.
+         *     outbound egress, so an agent principal's call is 🟡 — staged for approval and redeemed
+         *     with the `X-Approval-Token`; a human updates directly.
          */
         patch: operations["updateWebhookSubscription"];
         trace?: never;
@@ -4277,7 +4277,7 @@ export interface components {
              * @description HTTPS-only; http:// is rejected.
              */
             target_url: string;
-            /** @description At least one event type from the published catalog. */
+            /** @description At least one event type from the published catalog; a true set — duplicates are rejected. */
             event_types: string[];
         };
         /** @description A partial update; omitted fields keep their stored value. Use it to pause/resume or re-target the event set. */
@@ -8653,6 +8653,21 @@ export interface components {
         };
     };
     responses: {
+        /**
+         * @description The operation is specified in the contract but not yet wired in this build — a
+         *     loud 501, never a silent 404 or a half-working success. Used by a surface whose
+         *     contract ships ahead of its implementation (e.g. the outbound-webhook operations
+         *     until their delivery module lands); a generated client should model 501 as a
+         *     possible response for such an operation.
+         */
+        NotImplemented: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
         /** @description No valid credential — a missing/invalid/expired `crm_session` cookie (human path) or a missing/invalid/expired bearer token (agent path). */
         Unauthorized: {
             headers: {
@@ -12182,12 +12197,24 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            501: components["responses"]["NotImplemented"];
         };
     };
     createWebhookSubscription: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
+                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
+                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+                 */
+                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -12209,6 +12236,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+            501: components["responses"]["NotImplemented"];
         };
     };
     getWebhookSubscription: {
@@ -12232,8 +12260,10 @@ export interface operations {
                     "application/json": components["schemas"]["WebhookSubscription"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            501: components["responses"]["NotImplemented"];
         };
     };
     archiveWebhookSubscription: {
@@ -12257,14 +12287,26 @@ export interface operations {
                     "application/json": components["schemas"]["WebhookSubscription"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            501: components["responses"]["NotImplemented"];
         };
     };
     updateWebhookSubscription: {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
+                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
+                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+                 */
+                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
                 /**
                  * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
                  *     the last-seen entity `version`. If the row's current `version` differs, the write is
@@ -12295,10 +12337,12 @@ export interface operations {
                     "application/json": components["schemas"]["WebhookSubscription"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
+            501: components["responses"]["NotImplemented"];
         };
     };
     rotateWebhookSecret: {
@@ -12322,8 +12366,10 @@ export interface operations {
                     "application/json": components["schemas"]["WebhookSubscriptionCreated"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            501: components["responses"]["NotImplemented"];
         };
     };
     listWebhookDeliveries: {
@@ -12350,8 +12396,10 @@ export interface operations {
                     "application/json": components["schemas"]["WebhookDeliveryListResponse"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            501: components["responses"]["NotImplemented"];
         };
     };
     replayWebhookDelivery: {
@@ -12376,8 +12424,10 @@ export interface operations {
                     "application/json": components["schemas"]["WebhookDelivery"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            501: components["responses"]["NotImplemented"];
         };
     };
     listTags: {

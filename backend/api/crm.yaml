@@ -2685,6 +2685,7 @@ paths:
               schema: { $ref: '#/components/schemas/WebhookSubscriptionListResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
     post:
       tags: [Webhooks]
       operationId: createWebhookSubscription
@@ -2692,10 +2693,12 @@ paths:
       summary: Register an outbound webhook subscription (returns the signing secret once).
       description: |
         Registers a target URL + event-type subset. Registering outbound egress, so an agent
-        principal's call is 🟡 — staged for human approval (ADR-0036); a human on a session
-        registers directly. Every register/change/delete is audited. The `signing_secret` in the
-        response is shown EXACTLY ONCE — deliveries are HMAC-SHA256 signed with it
-        (X-Margince-Signature). `target_url` must be https://.
+        principal's call is 🟡 — staged for human approval (ADR-0036), then redeemed with the
+        `X-Approval-Token`; a human on a session registers directly. Every register/change/delete
+        is audited. The `signing_secret` in the response is shown EXACTLY ONCE — deliveries are
+        HMAC-SHA256 signed with it (X-Margince-Signature). `target_url` must be https://.
+      parameters:
+        - $ref: '#/components/parameters/ApprovalToken'
       requestBody:
         required: true
         content:
@@ -2710,6 +2713,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
 
   /webhook-subscriptions/{id}:
     parameters:
@@ -2726,8 +2730,10 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/WebhookSubscription' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
     patch:
       tags: [Webhooks]
       operationId: updateWebhookSubscription
@@ -2735,9 +2741,10 @@ paths:
       summary: Pause/resume a subscription or re-target its event set.
       description: |
         A partial update (pause/resume or re-target the event set). Re-targeting can widen
-        outbound egress, so an agent principal's call is 🟡 — staged for approval; a human
-        updates directly.
+        outbound egress, so an agent principal's call is 🟡 — staged for approval and redeemed
+        with the `X-Approval-Token`; a human updates directly.
       parameters:
+        - $ref: '#/components/parameters/ApprovalToken'
         - $ref: '#/components/parameters/IfMatch'
       requestBody:
         required: true
@@ -2750,10 +2757,12 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/WebhookSubscription' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
     delete:
       tags: [Webhooks]
       operationId: archiveWebhookSubscription
@@ -2766,8 +2775,10 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/WebhookSubscription' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
 
   /webhook-subscriptions/{id}/rotate-secret:
     parameters:
@@ -2784,8 +2795,10 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/WebhookSubscriptionCreated' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
 
   /webhook-subscriptions/{id}/deliveries:
     parameters:
@@ -2804,8 +2817,10 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/WebhookDeliveryListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
 
   /webhook-subscriptions/{id}/deliveries/{deliveryId}/replay:
     parameters:
@@ -2826,8 +2841,10 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/WebhookDelivery' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
 
   # ------------------------------ /tags -------------------------------------
   /tags:
@@ -7299,6 +7316,19 @@ components:
 
   # --------------------------- shared responses -----------------------------
   responses:
+    NotImplemented:
+      description: |
+        The operation is specified in the contract but not yet wired in this build — a
+        loud 501, never a silent 404 or a half-working success. Used by a surface whose
+        contract ships ahead of its implementation (e.g. the outbound-webhook operations
+        until their delivery module lands); a generated client should model 501 as a
+        possible response for such an operation.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            not_implemented:
+              value: { type: 'https://errors.gradion.com/not_implemented', title: Not Implemented, status: 501, code: not_implemented, detail: operation is specified but not yet implemented. }
     Unauthorized:
       description: No valid credential — a missing/invalid/expired `crm_session` cookie (human path) or a missing/invalid/expired bearer token (agent path).
       content:
@@ -7441,8 +7471,9 @@ components:
         event_types:
           type: array
           minItems: 1
+          uniqueItems: true
           items: { type: string }
-          description: At least one event type from the published catalog.
+          description: At least one event type from the published catalog; a true set — duplicates are rejected.
 
     UpdateWebhookSubscriptionRequest:
       type: object
@@ -7452,6 +7483,7 @@ components:
         event_types:
           type: array
           minItems: 1
+          uniqueItems: true
           items: { type: string }
 
     WebhookSubscriptionListResponse:
