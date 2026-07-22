@@ -5,9 +5,10 @@
 # this file cannot accumulate permissions. Package removals are never
 # allowlistable (deprecate-then-major cycle, ADR-0069 §3).
 #
-# PR #195 review: the retention-class vocabulary becomes a typed closed
-# set (RetentionClassName constants + preflight validation) — ratified
-# pre-freeze while the de unit, the only consumer, changes in the same
-# change set. Remove once the extensions arc merges to main and the
-# baseline absorbs it.
-github.com/gradionhq/margince/backend/pkg/extension/jurisdiction: RetentionClass.Name: changed from string to RetentionClassName
+# PR #195 follow-up (margince-foundation#1160): the retention-class
+# vocabulary shrinks to the spec-derivable minimum — Bücher/Abschlüsse
+# binds on no record type a CRM holds (absent from DEPACK-PARAM-5), so
+# the constant leaves the closed set. Ratified pre-freeze while the de
+# unit, the only consumer, changes in the same change set. Remove once
+# the extensions arc merges to main and the baseline absorbs it.
+github.com/gradionhq/margince/backend/pkg/extension/jurisdiction: BooksAndAnnualAccounts: removed

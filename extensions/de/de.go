@@ -30,11 +30,15 @@ type pack struct{}
 
 func (pack) Code() jurisdiction.Code { return "de" }
 
-// Retention: the GoBD/AO/HGB statutory classes (§147 AO as amended
-// 2025: booking records 8 years; books/annual accounts 10; commercial
-// correspondence 6). The core engine treats these as FLOORS — a
-// workspace policy may keep longer, never destroy earlier. The spans
-// are calendar years (ISO 8601 periods), never day counts.
+// Retention: the GoBD/AO statutory floors for the record classes the
+// product can hold (§147 AO as amended 2025: booking records 8 years;
+// commercial correspondence 6). The core engine treats these as
+// FLOORS — a workspace policy may keep longer, never destroy earlier.
+// The spans are calendar years (ISO 8601 periods), never day counts.
+// Bücher/Abschlüsse (10 yr) are deliberately absent: a CRM holds no
+// books or annual accounts, and a floor no record can carry would be
+// documentation posing as enforcement (reconciliation:
+// margince-foundation#1160).
 func (pack) Retention() jurisdiction.Retention { return retention{} }
 
 type retention struct{}
@@ -43,6 +47,5 @@ func (retention) Classes() []jurisdiction.RetentionClass {
 	return []jurisdiction.RetentionClass{
 		{Name: jurisdiction.CommercialCorrespondence, Keep: jurisdiction.Period{Years: 6}},
 		{Name: jurisdiction.AccountingRecords, Keep: jurisdiction.Period{Years: 8}},
-		{Name: jurisdiction.BooksAndAnnualAccounts, Keep: jurisdiction.Period{Years: 10}},
 	}
 }

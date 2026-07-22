@@ -51,8 +51,6 @@ const (
 	CommercialCorrespondence = pub.CommercialCorrespondence
 	// AccountingRecords is the published constant, re-exported.
 	AccountingRecords = pub.AccountingRecords
-	// BooksAndAnnualAccounts is the published constant, re-exported.
-	BooksAndAnnualAccounts = pub.BooksAndAnnualAccounts
 )
 
 var (
