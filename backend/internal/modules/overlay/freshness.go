@@ -36,7 +36,7 @@ type FreshnessReader struct {
 	resolveIncumbent func(ctx context.Context) (Incumbent, error)
 	ms               *MirrorStore
 	meter            *Meter
-	// toIncumbentClass translates a CANONICAL entity-type name (e.g.
+	// toIncumbentClasses translates a CANONICAL entity-type name (e.g.
 	// "person", the datasource.EntityRef.Type this reader is called
 	// with) to the INCUMBENT's own object class (e.g. "contacts") — the
 	// Incumbent seam is asymmetric by design: Backfill/Modified/Get take
@@ -47,22 +47,29 @@ type FreshnessReader struct {
 	// by whatever string it's given (a fake), but errors against a real
 	// adapter (hubspot.Adapter.Get rejects any class it has no declared
 	// mapping for). Compose wires this from the incumbent's own mapping
-	// registry (e.g. hubspot.IncumbentClassFor) when it constructs a
+	// registry (e.g. hubspot.IncumbentClassesFor) when it constructs a
 	// FreshnessReader over a real Adapter.
-	toIncumbentClass func(canonical string) (incumbentClass string, ok bool)
+	//
+	// It is PLURAL because a canonical type can map to more than one
+	// incumbent class ("activity" ← the five v3 engagement classes,
+	// OVA-MAP-1). A single-record force-fresh needs exactly ONE class, so
+	// Read degrades a multi-source type to the mirror (the mirror row does
+	// not record which engagement class it came from — a tracked follow-up;
+	// no force-fresh caller exists yet).
+	toIncumbentClasses func(canonical string) (incumbentClasses []string, ok bool)
 }
 
 // NewFreshnessReader constructs a FreshnessReader over resolveIncumbent
 // (the per-request live-incumbent resolver — see the field doc), ms (the
-// mirror fallback), meter (the OVB budget gate), and toIncumbentClass (the
+// mirror fallback), meter (the OVB budget gate), and toIncumbentClasses (the
 // canonical->incumbent class translator Read needs before every inc.Get).
-// resolveIncumbent, meter, and toIncumbentClass may each be nil in tests or
+// resolveIncumbent, meter, and toIncumbentClasses may each be nil in tests or
 // roles that don't exercise the live path: a nil resolver degrades every
 // read to the mirror, and a nil translator treats every canonical type as
 // having no incumbent class (both honest degrades, never a silent
 // authority claim or canonical-name pass-through).
-func NewFreshnessReader(resolveIncumbent func(context.Context) (Incumbent, error), ms *MirrorStore, meter *Meter, toIncumbentClass func(string) (string, bool)) *FreshnessReader {
-	return &FreshnessReader{resolveIncumbent: resolveIncumbent, ms: ms, meter: meter, toIncumbentClass: toIncumbentClass}
+func NewFreshnessReader(resolveIncumbent func(context.Context) (Incumbent, error), ms *MirrorStore, meter *Meter, toIncumbentClasses func(string) ([]string, bool)) *FreshnessReader {
+	return &FreshnessReader{resolveIncumbent: resolveIncumbent, ms: ms, meter: meter, toIncumbentClasses: toIncumbentClasses}
 }
 
 // SetIncumbentResolver installs the per-request live-incumbent resolver
@@ -175,15 +182,23 @@ func (f *FreshnessReader) Read(ctx context.Context, ref datasource.EntityRef) (d
 	return datasource.FreshnessInfo{LastSyncedAt: rec.ModifiedAt, Authoritative: true}, nil
 }
 
-// incumbentClassFor answers f's translator for canonical, treating a nil
-// translator (no constructor argument given) the same as a translator
-// that declares no mapping for anything: ok=false, never a fabricated
-// pass-through of canonical itself.
+// incumbentClassFor answers the SINGLE incumbent class a force-fresh of
+// canonical must fetch from. A nil translator (no constructor argument
+// given) declares no mapping for anything (ok=false, never a fabricated
+// pass-through of canonical itself). A canonical type backed by MORE than
+// one incumbent class ("activity" ← the five engagement classes) is
+// under-determined for a single-record fetch — the mirror row does not
+// record which class it came from — so it also answers ok=false and Read
+// degrades to the mirror rather than guessing a class.
 func (f *FreshnessReader) incumbentClassFor(canonical string) (string, bool) {
-	if f.toIncumbentClass == nil {
+	if f.toIncumbentClasses == nil {
 		return "", false
 	}
-	return f.toIncumbentClass(canonical)
+	classes, ok := f.toIncumbentClasses(canonical)
+	if !ok || len(classes) != 1 {
+		return "", false
+	}
+	return classes[0], true
 }
 
 // mirrorFreshness answers ref's freshness from the mirror row alone,

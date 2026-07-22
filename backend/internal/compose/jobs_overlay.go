@@ -30,13 +30,16 @@ type OverlayReconcileArgs struct{}
 // Kind is the stable job identifier River persists in river_job.
 func (OverlayReconcileArgs) Kind() string { return "overlay_reconcile" }
 
-// overlayObjectClasses are the five HubSpot object classes design.md §9
-// maps — the poller sweeps each, per due connection, resuming each
-// object class's own persisted watermark.
-var overlayObjectClasses = []string{
-	overlay.IncumbentClassContacts, overlay.IncumbentClassCompanies, overlay.IncumbentClassDeals,
-	overlay.IncumbentClassEngagements, overlay.IncumbentClassLeads,
-}
+// overlayObjectClasses are the HubSpot object classes design.md §9 maps —
+// the poller sweeps each, per due connection, resuming each object class's
+// own persisted watermark. The five engagement classes
+// (calls/meetings/emails/notes/tasks) are swept separately: HubSpot v3 has
+// no generic engagements object, and each maps to its own activity kind
+// (OVA-MAP-1).
+var overlayObjectClasses = append([]string{
+	overlay.IncumbentClassContacts, overlay.IncumbentClassCompanies,
+	overlay.IncumbentClassDeals, overlay.IncumbentClassLeads,
+}, overlay.IncumbentEngagementClasses()...)
 
 // overlayReconcileWorker walks every overlay-mode workspace's active
 // incumbent connection (overlay.DueOverlayConnections — the same

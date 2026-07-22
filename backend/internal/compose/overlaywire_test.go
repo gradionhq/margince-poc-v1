@@ -160,6 +160,57 @@ func TestOverlayWireActivityWithoutTimestampFallsBackToSyncInstant(t *testing.T)
 	}
 }
 
+// TestOverlayWireActivitySurfacesDurationAndDueAt proves the wire assembler
+// now consumes the canonical fields the mapping lands: duration_seconds
+// (already seconds, OVA-MAP-2 — never re-divided) and a task's due_at
+// (OVA-MAP-8), rather than dropping them into raw only.
+func TestOverlayWireActivitySurfacesDurationAndDueAt(t *testing.T) {
+	rec := wireRecord(t, datasource.EntityActivity, map[string]any{
+		"kind": "call", "occurred_at": "2026-06-02T09:00:00.000Z", "duration_seconds": int64(90),
+	})
+	act, err := overlayWireActivity(wireCtx(), rec)
+	if err != nil {
+		t.Fatalf("overlayWireActivity: %v", err)
+	}
+	if act.DurationSeconds == nil || *act.DurationSeconds != 90 {
+		t.Errorf("DurationSeconds = %v, want 90 (surfaced in seconds, not re-divided)", act.DurationSeconds)
+	}
+
+	task := wireRecord(t, datasource.EntityActivity, map[string]any{
+		"kind": "task", "occurred_at": "2026-07-01T08:30:00.000Z", "due_at": "2026-07-10T17:00:00.000Z",
+	})
+	tact, err := overlayWireActivity(wireCtx(), task)
+	if err != nil {
+		t.Fatalf("overlayWireActivity(task): %v", err)
+	}
+	if tact.DueAt == nil || !tact.DueAt.Equal(time.Date(2026, 7, 10, 17, 0, 0, 0, time.UTC)) {
+		t.Errorf("DueAt = %v, want the task deadline surfaced", tact.DueAt)
+	}
+}
+
+// TestOverlayWireTitlePrefersCanonicalFullName locks in the search-title
+// precedence: when a person carries a canonical full_name that differs from
+// first+last (the email-local/placeholder fallback, or an incumbent that set
+// full_name independently), the search hit's title is the canonical value —
+// matching the person detail — not a separately re-derived name.
+func TestOverlayWireTitlePrefersCanonicalFullName(t *testing.T) {
+	rec := wireRecord(t, datasource.EntityPerson, map[string]any{
+		"full_name": "grace.hopper", "first_name": "", "last_name": "",
+		"person_email": map[string]any{"email": "grace.hopper@navy.mil"},
+	})
+	person, err := overlayWirePerson(wireCtx(), rec)
+	if err != nil {
+		t.Fatalf("overlayWirePerson: %v", err)
+	}
+	title := overlayWireTitle(datasource.EntityPerson, *person.Raw)
+	if title != "grace.hopper" {
+		t.Errorf("search title = %q, want the canonical full_name %q (must match the person detail)", title, "grace.hopper")
+	}
+	if person.FullName != title {
+		t.Errorf("person detail full_name %q and search title %q diverge", person.FullName, title)
+	}
+}
+
 func TestOverlayWireTitlePicksThePerTypeDisplayField(t *testing.T) {
 	for _, tc := range []struct {
 		et     datasource.EntityType

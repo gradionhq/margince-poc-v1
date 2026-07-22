@@ -63,7 +63,7 @@ func NewOverlayHandlers(pool *pgxpool.Pool, vault keyvault.Vault, meter *overlay
 	incumbent := overlayIncumbentFactory(backfillLimit)
 	svc := overlay.NewService(pool, vault, ms).
 		WithBudgetMeter(meter).
-		WithIncumbentClassTranslator(hubspot.IncumbentClassFor).
+		WithIncumbentClassesTranslator(hubspot.IncumbentClassesFor).
 		WithIncumbentFactory(incumbent).
 		WithModeFlipObserver(onModeFlip).
 		WithLogger(log)
@@ -86,7 +86,7 @@ func hubspotIncumbentFactory(region, token string) overlay.Incumbent {
 
 // NewOverlayProvider builds the overlay-mode read seam Dispatcher routes
 // to: a MirrorStore over pool plus a FreshnessReader wired with the
-// canonical->incumbent translator (hubspot.IncumbentClassFor) and meter
+// canonical->incumbent translator (hubspot.IncumbentClassesFor) and meter
 // (the shared OVB accounting — see NewOverlayMeter's doc on which meter
 // instance a caller must pass).
 //
@@ -101,7 +101,7 @@ func hubspotIncumbentFactory(region, token string) overlay.Incumbent {
 // faked authority claim.
 func NewOverlayProvider(pool *pgxpool.Pool, meter *overlay.Meter, resolveIncumbent func(context.Context) (overlay.Incumbent, error)) *overlay.Provider {
 	ms := overlay.NewMirrorStore(pool, unresolvedOwnerEmails{})
-	ff := overlay.NewFreshnessReader(resolveIncumbent, ms, meter, hubspot.IncumbentClassFor)
+	ff := overlay.NewFreshnessReader(resolveIncumbent, ms, meter, hubspot.IncumbentClassesFor)
 	return overlay.NewProvider(ms, ff)
 }
 

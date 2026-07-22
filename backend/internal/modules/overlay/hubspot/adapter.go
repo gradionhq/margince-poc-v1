@@ -133,7 +133,9 @@ func (a *Adapter) Deletions(ctx context.Context, objectClass string, since time.
 			continue
 		}
 		deletions = append(deletions, overlay.Deletion{
-			ExternalID:  r.ID,
+			// Namespace the id so the purge matches the namespaced mirror row
+			// (OVA-MAP-7); a bare id would miss an engagement activity entirely.
+			ExternalID:  mirrorActivityExternalID(objectClass, r.ID),
 			ObjectClass: m.Target,
 			DeletedAt:   deletedAt,
 		})
@@ -149,7 +151,9 @@ func (a *Adapter) Get(ctx context.Context, objectClass, externalID string) (over
 	if err != nil {
 		return overlay.Record{}, err
 	}
-	recs, err := a.client.BatchRead(ctx, objectClass, []string{externalID}, propertyNames(m))
+	// externalID arrives as the MIRROR id (namespaced for an engagement
+	// class, OVA-MAP-7); the HubSpot API needs the raw object id.
+	recs, err := a.client.BatchRead(ctx, objectClass, []string{incumbentActivityID(objectClass, externalID)}, propertyNames(m))
 	if err != nil {
 		return overlay.Record{}, err
 	}
@@ -163,7 +167,24 @@ func (a *Adapter) Get(ctx context.Context, objectClass, externalID string) (over
 // to every linked record of toClass, tagging each edge with the forward
 // direction this query resolves.
 func (a *Adapter) Associations(ctx context.Context, fromClass, fromID, toClass string) ([]overlay.Assoc, error) {
-	assocs, err := a.client.Associations(ctx, fromClass, fromID, toClass)
+	// The stored edge carries CANONICAL endpoint types (m.Target: "activity",
+	// "person", …), not the incumbent class names — so it references the same
+	// (object_class, external_id) identity the mirror rows and PurgeRecord use
+	// (a "calls" edge under from_type would never be cleaned up when the
+	// activity is purged, nor join the mirror on read).
+	fromMapping, err := mappingFor(fromClass)
+	if err != nil {
+		return nil, err
+	}
+	toMapping, err := mappingFor(toClass)
+	if err != nil {
+		return nil, err
+	}
+	// fromID is the MIRROR id (namespaced for an engagement class,
+	// OVA-MAP-7). The v4 API needs the raw object id, but the stored edge
+	// must reference the activity by its namespaced mirror id so it joins the
+	// mirror row — so query with the raw id and keep the namespaced FromID.
+	assocs, err := a.client.Associations(ctx, fromClass, incumbentActivityID(fromClass, fromID), toClass)
 	if err != nil {
 		return nil, err
 	}
@@ -171,10 +192,13 @@ func (a *Adapter) Associations(ctx context.Context, fromClass, fromID, toClass s
 	for _, assoc := range assocs {
 		for _, t := range assoc.Types {
 			out = append(out, overlay.Assoc{
-				FromType:  fromClass,
-				FromID:    fromID,
-				ToType:    toClass,
-				ToID:      assoc.ToObjectID,
+				FromType: fromMapping.Target,
+				FromID:   fromID,
+				ToType:   toMapping.Target,
+				// Namespace the target id too when the target is an engagement
+				// class, so an activity-targeting edge joins/purges the
+				// namespaced mirror row (a no-op for non-engagement targets).
+				ToID:      mirrorActivityExternalID(toClass, assoc.ToObjectID),
 				TypeID:    t.TypeID,
 				Category:  t.Category,
 				Label:     t.Label,
@@ -212,7 +236,7 @@ func (a *Adapter) Owners(ctx context.Context) ([]overlay.OwnerRef, error) {
 
 // mappingFor resolves objectClass's mapping with a direct membership
 // check against objectMappings (mapping_hs.go) — the same slice
-// IncumbentClassFor derives its reverse lookup from, so this function
+// IncumbentClassesFor derives its reverse lookup from, so this function
 // never drifts against what Mapping's switch actually declares as new
 // object classes are added. A recover()-based guard around Mapping's
 // panic-on-unknown-source was rejected: it would swallow ANY future
@@ -287,6 +311,11 @@ func mapRecord(m overlay.ObjectMapping, objectClass string, raw ObjectRecord) (o
 	if externalID == "" {
 		externalID = raw.ID
 	}
+	// Namespace an engagement id by its source class for the mirror key
+	// (OVA-MAP-7): the five engagement classes share the canonical "activity"
+	// type, and HubSpot ids are unique per-type only, so a bare id would let a
+	// call and a meeting collide.
+	externalID = mirrorActivityExternalID(objectClass, externalID)
 
 	modifiedAt, err := parseWatermark(out["last_synced_at"])
 	if err != nil {

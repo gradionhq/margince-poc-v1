@@ -54,9 +54,11 @@ func overlayRecordFields(rec datasource.Record) (map[string]any, error) {
 }
 
 // overlayWirePerson assembles the contract Person from a mirror record.
-// full_name is derived first+last (the mapper lands the parts, not the
-// join); a person the incumbent kept nameless falls back to their mapped
-// email, then to the honest "Unnamed". Structured child rows (emails,
+// full_name is the canonical value the mapper assembled (OVA-MAP-3:
+// first+last → email local part → placeholder); it is reused as-is so the
+// wire cannot diverge from the mirror, with a first+last → email → "Unnamed"
+// re-derivation kept only as a fallback for a pre-mapping mirror row that
+// carries no full_name. Structured child rows (emails,
 // phones) are NOT fabricated: the contract's PersonEmail demands a row
 // identity/type/position the mirror does not hold, so the mapped email
 // stays in raw rather than riding a made-up child row.
@@ -70,7 +72,14 @@ func overlayWirePerson(ctx context.Context, rec datasource.Record) (crmcontracts
 		return crmcontracts.Person{}, err
 	}
 	syncedAt := rec.Freshness.LastSyncedAt
-	fullName := strings.TrimSpace(strings.TrimSpace(fieldString(fields, "first_name")) + " " + strings.TrimSpace(fieldString(fields, "last_name")))
+	// Prefer the canonical full_name the mapping already assembled (OVA-MAP-3:
+	// firstname+lastname → email local part → stable placeholder) so the wire
+	// value cannot diverge from what was mirrored. The re-derivation below is
+	// only a fallback for a mirror row that predates the full_name mapping.
+	fullName := fieldString(fields, "full_name")
+	if fullName == "" {
+		fullName = strings.TrimSpace(strings.TrimSpace(fieldString(fields, "first_name")) + " " + strings.TrimSpace(fieldString(fields, "last_name")))
+	}
 	if fullName == "" {
 		fullName = overlayPersonEmail(fields)
 	}
@@ -261,6 +270,18 @@ func overlayWireActivity(ctx context.Context, rec datasource.Record) (crmcontrac
 	if ms := crmcontracts.ActivityMeetingStatus(strings.ToLower(fieldString(fields, "meeting_status"))); ms.Valid() {
 		act.MeetingStatus = &ms
 	}
+	// duration_seconds (meeting/call) is already stored in canonical seconds
+	// by the ms_to_seconds mapping transform (OVA-MAP-2) — surface it as-is,
+	// never re-divide.
+	if secs, ok := fieldInt64(fields, "duration_seconds"); ok {
+		d := int(secs)
+		act.DurationSeconds = &d
+	}
+	// due_at (task) is the deadline the tasks mapping lands from hs_timestamp
+	// (OVA-MAP-8); occurred_at above already comes from the task's creation.
+	if due, ok := overlayTime(fields, "due_at"); ok {
+		act.DueAt = &due
+	}
 	return act, nil
 }
 
@@ -269,6 +290,12 @@ func overlayWireActivity(ctx context.Context, rec datasource.Record) (crmcontrac
 func overlayWireTitle(et datasource.EntityType, fields map[string]any) string {
 	switch et {
 	case datasource.EntityPerson:
+		// Prefer the canonical full_name the mapping assembled (OVA-MAP-3), so
+		// a search hit's title matches the person-detail full_name; re-derive
+		// only for a pre-mapping mirror row that carries no full_name.
+		if name := strings.TrimSpace(fieldString(fields, "full_name")); name != "" {
+			return name
+		}
 		name := strings.TrimSpace(strings.TrimSpace(fieldString(fields, "first_name")) + " " + strings.TrimSpace(fieldString(fields, "last_name")))
 		if name == "" {
 			name = overlayPersonEmail(fields)

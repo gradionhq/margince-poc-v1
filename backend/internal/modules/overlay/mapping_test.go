@@ -207,9 +207,13 @@ func TestTransformEmployeesToSizeBandBuckets(t *testing.T) {
 		{"50", "11-50"},
 		{"51", "51-200"},
 		{"200", "51-200"},
-		{"201", "201-1000"},
-		{"1000", "201-1000"},
-		{"1001", "1001+"},
+		{"201", "201-500"},
+		{"500", "201-500"},
+		{"501", "501-1000"},
+		{"1000", "501-1000"},
+		{"1001", "1001-5000"},
+		{"5000", "1001-5000"},
+		{"5001", "5000+"},
 	}
 	for _, tt := range tests {
 		out, _, err := overlay.Apply(m, map[string]any{"numberofemployees": tt.n})
@@ -226,6 +230,11 @@ func TestTransformEmployeesToSizeBandBuckets(t *testing.T) {
 	}
 	if _, _, err := overlay.Apply(m, map[string]any{"numberofemployees": "not-a-number"}); err == nil {
 		t.Fatal("Apply: want an error for employees_to_size_band applied to an unparsable string")
+	}
+	for _, nonPositive := range []string{"0", "-5"} {
+		if _, _, err := overlay.Apply(m, map[string]any{"numberofemployees": nonPositive}); err == nil {
+			t.Fatalf("Apply: want an error for a non-positive headcount %q (never labeled 1-10)", nonPositive)
+		}
 	}
 }
 

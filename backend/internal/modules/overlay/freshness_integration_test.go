@@ -113,16 +113,16 @@ const (
 )
 
 // translatorFor returns a canonical->incumbent translator that answers
-// ok=true only for canonicalClass — a real hubspot.IncumbentClassFor
+// ok=true only for canonicalClass — a real hubspot.IncumbentClassesFor
 // stand-in scoped to this file's one fixtured mapping, plus miss=true
 // on request so the third test below can prove the honest-degrade path
 // a genuine translator miss takes.
-func translatorFor(miss bool) func(string) (string, bool) {
-	return func(canonical string) (string, bool) {
+func translatorFor(miss bool) func(string) ([]string, bool) {
+	return func(canonical string) ([]string, bool) {
 		if miss || canonical != canonicalClass {
-			return "", false
+			return nil, false
 		}
-		return incumbentClass, true
+		return []string{incumbentClass}, true
 	}
 }
 
