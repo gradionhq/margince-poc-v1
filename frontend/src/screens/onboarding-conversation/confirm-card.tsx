@@ -135,9 +135,18 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
         />
       )}
       {props.error && (
-        <p className="mw-send-error" role="alert">
-          {props.error}
-        </p>
+        // A failed save speaks as Margince, not as a bare server string
+        // floating in the card; the safe problem detail rides as a param.
+        <div role="alert">
+          <NarrationBubble
+            entry={{
+              kind: "narration",
+              id: "review:confirm-failed",
+              i18nKey: "ob.conv.review.confirmFailed",
+              params: { detail: props.error },
+            }}
+          />
+        </div>
       )}
       <div className="ob-conv-confirm-actions">
         <Button

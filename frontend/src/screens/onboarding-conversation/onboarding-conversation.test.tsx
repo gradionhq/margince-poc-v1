@@ -442,6 +442,11 @@ describe("the conversational company act (behind the flag)", () => {
       .json()) as Record<string, unknown>;
     expect(body.draft_version).toBe(2);
     expect(body.proposal_hash).toBe("proposal-2");
+    // The composer-typed bare domain reaches the profile as the canonical
+    // URL, exactly like the classic form's website field.
+    expect((body.profile as Record<string, unknown>).website).toBe(
+      "https://gradion.com",
+    );
     expect(await screen.findByText(/Company profile confirmed/)).toBeTruthy();
     // The machine advanced into the voice act invitation.
     expect(

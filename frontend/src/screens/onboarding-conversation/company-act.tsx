@@ -293,6 +293,10 @@ export function CompanyAct({ state, dispatch }: CompanyActProps) {
       (state.phase === "co.intro" || state.phase === "co.reading")
     ) {
       conversation.setDraft("");
+      // The composer is this shell's website field: the confirm contract
+      // sends the profile's website like the classic form does, so the
+      // canonical URL lands in the draft the moment it is submitted.
+      setDraft((current) => changeDraftField(current, "website", norm.full));
       dispatch({ type: "URL_SUBMITTED", url: norm.full });
       startRead.mutate(norm.full);
       return;

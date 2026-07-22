@@ -1338,6 +1338,8 @@ export const en = {
   "ob.conv.review.backToDossier": "Back to the dossier",
   "ob.conv.review.proposalFallback":
     "I could not load the prepared mapping. Review what I read directly; every field keeps its source.",
+  "ob.conv.review.confirmFailed":
+    "I could not save that yet: {detail} Fix it and accept again.",
   "ob.conv.artifact.empty":
     "Nothing read yet. Give me a website and this panel fills with sourced findings.",
   "ob.conv.voice.stubBody":
