@@ -16,6 +16,11 @@ const (
 	DealRestored     SubscribableEventType = "deal.restored"
 	DealStageChanged SubscribableEventType = "deal.stage_changed"
 	DealUpdated      SubscribableEventType = "deal.updated"
+	OfferAccepted    SubscribableEventType = "offer.accepted"
+	OfferCreated     SubscribableEventType = "offer.created"
+	OfferRejected    SubscribableEventType = "offer.rejected"
+	OfferSent        SubscribableEventType = "offer.sent"
+	OfferSuperseded  SubscribableEventType = "offer.superseded"
 )
 
 // Valid indicates whether the value is a known member of the SubscribableEventType enum.
@@ -33,12 +38,22 @@ func (e SubscribableEventType) Valid() bool {
 		return true
 	case DealUpdated:
 		return true
+	case OfferAccepted:
+		return true
+	case OfferCreated:
+		return true
+	case OfferRejected:
+		return true
+	case OfferSent:
+		return true
+	case OfferSuperseded:
+		return true
 	default:
 		return false
 	}
 }
 
-// SubscribableEventType The closed set of domain events a webhook subscription can select. Phase 4 fills this out family by family; today it carries the pilot event plus the deal family (Task 5a-i).
+// SubscribableEventType The closed set of domain events a webhook subscription can select. Phase 4 fills this out family by family; today it carries the pilot event plus the deal family (Task 5a-i) and the offer family (Task 5a-ii).
 type SubscribableEventType string
 
 // WebhookActor Who or what caused the event, as exposed publicly.
@@ -134,6 +149,93 @@ type WebhookPayloadDealUpdated struct {
 	ChangedFields map[string]interface{} `json:"changed_fields"`
 }
 
+// WebhookPayloadOfferAccepted Payload for offer.accepted — a sent offer was accepted. The deal's headline amount is synced from this offer's gross in the same transaction (see deal.updated on the paired deal entity).
+type WebhookPayloadOfferAccepted struct {
+	// DealId The deal this offer belongs to.
+	DealId openapi_types.UUID `json:"deal_id"`
+
+	// GrossMinor The offer's gross total, now also the deal's amount.
+	GrossMinor *int64 `json:"gross_minor,omitempty"`
+
+	// OfferId The accepted offer.
+	OfferId openapi_types.UUID `json:"offer_id"`
+
+	// Revision This offer's revision number.
+	Revision *int `json:"revision,omitempty"`
+}
+
+// WebhookPayloadOfferCreated Payload for offer.created — a new Angebot revision was opened (either the first revision, via CreateOffer, or a fresh draft revision minted by RegenerateOffer).
+type WebhookPayloadOfferCreated struct {
+	// CapturedBy The principal that created this revision.
+	CapturedBy string `json:"captured_by"`
+
+	// Currency The offer's currency.
+	Currency string `json:"currency"`
+
+	// DealId The deal this offer belongs to.
+	DealId openapi_types.UUID `json:"deal_id"`
+
+	// OfferId The created offer revision.
+	OfferId openapi_types.UUID `json:"offer_id"`
+
+	// Revision This offer's revision number (1 for a first offer).
+	Revision int `json:"revision"`
+
+	// Source Where this offer originated (e.g. manual, ai).
+	Source string `json:"source"`
+}
+
+// WebhookPayloadOfferRejected Payload for offer.rejected — a sent offer was rejected.
+type WebhookPayloadOfferRejected struct {
+	// DealId The deal this offer belongs to.
+	DealId openapi_types.UUID `json:"deal_id"`
+
+	// OfferId The rejected offer.
+	OfferId openapi_types.UUID `json:"offer_id"`
+
+	// Reason The optional rejection reason (absent when none was given).
+	Reason *string `json:"reason,omitempty"`
+
+	// Revision This offer's revision number.
+	Revision *int `json:"revision,omitempty"`
+}
+
+// WebhookPayloadOfferSent Payload for offer.sent — a draft offer left the workspace. Carries the FX rate frozen at send time (RT-PR-C2) so consumers never need a read-back for the native-currency-to-base conversion.
+type WebhookPayloadOfferSent struct {
+	// DealId The deal this offer belongs to.
+	DealId openapi_types.UUID `json:"deal_id"`
+
+	// FxRateToBase Native→base rate frozen at send (RT-PR-C2). Decimal-as-string to avoid float rounding.
+	FxRateToBase string `json:"fx_rate_to_base"`
+
+	// GrossMinor The offer's gross total at send time.
+	GrossMinor *int64 `json:"gross_minor,omitempty"`
+
+	// OfferId The sent offer.
+	OfferId openapi_types.UUID `json:"offer_id"`
+
+	// Revision This offer's revision number.
+	Revision *int `json:"revision,omitempty"`
+
+	// ValidUntil The offer's validity date (absent when unset).
+	ValidUntil *openapi_types.Date `json:"valid_until,omitempty"`
+}
+
+// WebhookPayloadOfferSuperseded Payload for offer.superseded — a sent offer was regenerated into a fresh draft revision (B-E03.19) and marked superseded; the new revision arrives as its own offer.created event.
+type WebhookPayloadOfferSuperseded struct {
+	// DealId The deal this offer belongs to.
+	DealId openapi_types.UUID `json:"deal_id"`
+
+	// FromRevision The superseded revision number.
+	FromRevision *int `json:"from_revision,omitempty"`
+
+	// OfferId The superseded (prior) offer revision.
+	OfferId openapi_types.UUID `json:"offer_id"`
+
+	// ToRevision The new revision number minted by the regenerate.
+	ToRevision int `json:"to_revision"`
+}
+
 func (WebhookPayloadDealArchived) EventType() string { return "deal.archived" }
 
 func (WebhookPayloadDealArchived) EntityType() string { return "deal" }
@@ -158,6 +260,26 @@ func (WebhookPayloadDealUpdated) EventType() string { return "deal.updated" }
 
 func (WebhookPayloadDealUpdated) EntityType() string { return "deal" }
 
+func (WebhookPayloadOfferAccepted) EventType() string { return "offer.accepted" }
+
+func (WebhookPayloadOfferAccepted) EntityType() string { return "offer" }
+
+func (WebhookPayloadOfferCreated) EventType() string { return "offer.created" }
+
+func (WebhookPayloadOfferCreated) EntityType() string { return "offer" }
+
+func (WebhookPayloadOfferRejected) EventType() string { return "offer.rejected" }
+
+func (WebhookPayloadOfferRejected) EntityType() string { return "offer" }
+
+func (WebhookPayloadOfferSent) EventType() string { return "offer.sent" }
+
+func (WebhookPayloadOfferSent) EntityType() string { return "offer" }
+
+func (WebhookPayloadOfferSuperseded) EventType() string { return "offer.superseded" }
+
+func (WebhookPayloadOfferSuperseded) EntityType() string { return "offer" }
+
 // WebhookPayloadVersions maps every subscribable event type carrying a
 // WebhookPayload<Event> schema to that schema's x-version extension
 // (default 1 when absent). It is the single generated source of truth for
@@ -170,4 +292,9 @@ var WebhookPayloadVersions = map[string]int{
 	"deal.restored":      1,
 	"deal.stage_changed": 1,
 	"deal.updated":       1,
+	"offer.accepted":     1,
+	"offer.created":      1,
+	"offer.rejected":     1,
+	"offer.sent":         1,
+	"offer.superseded":   1,
 }

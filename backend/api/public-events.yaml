@@ -23,7 +23,8 @@ components:
       description: >-
         The closed set of domain events a webhook subscription can select.
         Phase 4 fills this out family by family; today it carries the
-        pilot event plus the deal family (Task 5a-i).
+        pilot event plus the deal family (Task 5a-i) and the offer family
+        (Task 5a-ii).
       enum:
         - deal.created
         - deal.owner_changed
@@ -31,6 +32,11 @@ components:
         - deal.archived
         - deal.updated
         - deal.restored
+        - offer.created
+        - offer.sent
+        - offer.accepted
+        - offer.rejected
+        - offer.superseded
 
     WebhookActor:
       type: object
@@ -218,4 +224,169 @@ components:
         exists for deal); the schema is published so the type is a valid
         subscription target and the coverage gate can name it explicitly
         rather than silently omitting it.
+      additionalProperties: false
+
+    WebhookPayloadOfferCreated:
+      type: object
+      x-event-type: offer.created
+      x-entity-type: offer
+      x-version: 1
+      description: >-
+        Payload for offer.created — a new Angebot revision was opened
+        (either the first revision, via CreateOffer, or a fresh draft
+        revision minted by RegenerateOffer).
+      required:
+        - offer_id
+        - deal_id
+        - revision
+        - currency
+        - source
+        - captured_by
+      properties:
+        offer_id:
+          type: string
+          format: uuid
+          description: The created offer revision.
+        deal_id:
+          type: string
+          format: uuid
+          description: The deal this offer belongs to.
+        revision:
+          type: integer
+          description: This offer's revision number (1 for a first offer).
+        currency:
+          type: string
+          description: The offer's currency.
+        source:
+          type: string
+          description: Where this offer originated (e.g. manual, ai).
+        captured_by:
+          type: string
+          description: The principal that created this revision.
+      additionalProperties: false
+
+    WebhookPayloadOfferSent:
+      type: object
+      x-event-type: offer.sent
+      x-entity-type: offer
+      x-version: 1
+      description: >-
+        Payload for offer.sent — a draft offer left the workspace. Carries
+        the FX rate frozen at send time (RT-PR-C2) so consumers never need
+        a read-back for the native-currency-to-base conversion.
+      required:
+        - offer_id
+        - deal_id
+        - fx_rate_to_base
+      properties:
+        offer_id:
+          type: string
+          format: uuid
+          description: The sent offer.
+        deal_id:
+          type: string
+          format: uuid
+          description: The deal this offer belongs to.
+        revision:
+          type: integer
+          description: This offer's revision number.
+        gross_minor:
+          type: integer
+          format: int64
+          description: The offer's gross total at send time.
+        fx_rate_to_base:
+          type: string
+          description: >-
+            Native→base rate frozen at send (RT-PR-C2). Decimal-as-string
+            to avoid float rounding.
+        valid_until:
+          type: string
+          format: date
+          description: The offer's validity date (absent when unset).
+      additionalProperties: false
+
+    WebhookPayloadOfferAccepted:
+      type: object
+      x-event-type: offer.accepted
+      x-entity-type: offer
+      x-version: 1
+      description: >-
+        Payload for offer.accepted — a sent offer was accepted. The deal's
+        headline amount is synced from this offer's gross in the same
+        transaction (see deal.updated on the paired deal entity).
+      required:
+        - offer_id
+        - deal_id
+      properties:
+        offer_id:
+          type: string
+          format: uuid
+          description: The accepted offer.
+        deal_id:
+          type: string
+          format: uuid
+          description: The deal this offer belongs to.
+        revision:
+          type: integer
+          description: This offer's revision number.
+        gross_minor:
+          type: integer
+          format: int64
+          description: The offer's gross total, now also the deal's amount.
+      additionalProperties: false
+
+    WebhookPayloadOfferRejected:
+      type: object
+      x-event-type: offer.rejected
+      x-entity-type: offer
+      x-version: 1
+      description: Payload for offer.rejected — a sent offer was rejected.
+      required:
+        - offer_id
+        - deal_id
+      properties:
+        offer_id:
+          type: string
+          format: uuid
+          description: The rejected offer.
+        deal_id:
+          type: string
+          format: uuid
+          description: The deal this offer belongs to.
+        revision:
+          type: integer
+          description: This offer's revision number.
+        reason:
+          type: string
+          description: The optional rejection reason (absent when none was given).
+      additionalProperties: false
+
+    WebhookPayloadOfferSuperseded:
+      type: object
+      x-event-type: offer.superseded
+      x-entity-type: offer
+      x-version: 1
+      description: >-
+        Payload for offer.superseded — a sent offer was regenerated into a
+        fresh draft revision (B-E03.19) and marked superseded; the new
+        revision arrives as its own offer.created event.
+      required:
+        - offer_id
+        - deal_id
+        - to_revision
+      properties:
+        offer_id:
+          type: string
+          format: uuid
+          description: The superseded (prior) offer revision.
+        deal_id:
+          type: string
+          format: uuid
+          description: The deal this offer belongs to.
+        from_revision:
+          type: integer
+          description: The superseded revision number.
+        to_revision:
+          type: integer
+          description: The new revision number minted by the regenerate.
       additionalProperties: false

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -84,10 +85,7 @@ func (s *Store) SendOffer(ctx context.Context, id ids.OfferID, ifVersion *int64)
 		if err != nil {
 			return fmt.Errorf("audit offer send: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "offer.sent", "offer", id.UUID, map[string]any{
-			"offer_id": id, "deal_id": current.DealId, "revision": current.Revision,
-			"gross_minor": current.GrossMinor, "fx_rate_to_base": rate, "valid_until": current.ValidUntil,
-		}); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, offerSentPayload(current, rate)); err != nil {
 			return fmt.Errorf("emit offer.sent: %w", err)
 		}
 		if out, err = readOfferWithLines(ctx, tx, id, storekit.LiveOnly); err != nil {
@@ -96,6 +94,22 @@ func (s *Store) SendOffer(ctx context.Context, id ids.OfferID, ifVersion *int64)
 		return nil
 	})
 	return out, err
+}
+
+// offerSentPayload builds the offer.sent wire payload from the pre-send
+// offer snapshot and the FX rate frozen for this send — the ONE place that
+// maps SendOffer's local values onto the published schema, so a future
+// field rename shows up here (and at its call site) rather than at a
+// map literal that drifts silently from the schema.
+func offerSentPayload(current crmcontracts.Offer, rate string) crmcontracts.WebhookPayloadOfferSent {
+	return crmcontracts.WebhookPayloadOfferSent{
+		OfferId:      current.Id,
+		DealId:       current.DealId,
+		Revision:     current.Revision,
+		GrossMinor:   current.GrossMinor,
+		FxRateToBase: rate,
+		ValidUntil:   current.ValidUntil,
+	}
 }
 
 // sendSnapshots captures the buyer and issuer legal blocks at send time:
@@ -170,14 +184,14 @@ func (s *Store) AcceptOffer(ctx context.Context, id ids.OfferID, ifVersion *int6
 		if err != nil {
 			return fmt.Errorf("audit offer accept: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "offer.accepted", "offer", id.UUID, map[string]any{
-			"offer_id": id, "deal_id": current.DealId, "revision": current.Revision,
-			"gross_minor": current.GrossMinor,
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.WebhookPayloadOfferAccepted{
+			OfferId: current.Id, DealId: current.DealId, Revision: current.Revision,
+			GrossMinor: current.GrossMinor,
 		}); err != nil {
 			return fmt.Errorf("emit offer.accepted: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "deal.updated", "deal", dealID.UUID, map[string]any{
-			"amount_minor": current.GrossMinor, "currency": current.Currency,
+		if err := storekit.EmitEvent(ctx, tx, auditID, dealID.UUID, crmcontracts.WebhookPayloadDealUpdated{
+			ChangedFields: map[string]any{"amount_minor": current.GrossMinor, "currency": current.Currency},
 		}); err != nil {
 			return fmt.Errorf("emit paired deal.updated: %w", err)
 		}
@@ -257,13 +271,13 @@ func (s *Store) RejectOffer(ctx context.Context, id ids.OfferID, reason *string,
 		if err != nil {
 			return fmt.Errorf("audit offer reject: %w", err)
 		}
-		payload := map[string]any{
-			"offer_id": id, "deal_id": current.DealId, "revision": current.Revision,
+		payload := crmcontracts.WebhookPayloadOfferRejected{
+			OfferId: current.Id, DealId: current.DealId, Revision: current.Revision,
 		}
 		if reason != nil {
-			payload["reason"] = *reason
+			payload.Reason = reason
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "offer.rejected", "offer", id.UUID, payload); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, payload); err != nil {
 			return fmt.Errorf("emit offer.rejected: %w", err)
 		}
 		if out, err = readOfferWithLines(ctx, tx, id, storekit.LiveOnly); err != nil {
@@ -324,15 +338,15 @@ func (s *Store) RegenerateOffer(ctx context.Context, id ids.OfferID) (crmcontrac
 		if err != nil {
 			return fmt.Errorf("audit offer regenerate: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "offer.superseded", "offer", id.UUID, map[string]any{
-			"offer_id": id, "deal_id": current.DealId,
-			"from_revision": current.Revision, "to_revision": nextRevision,
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.WebhookPayloadOfferSuperseded{
+			OfferId: current.Id, DealId: current.DealId,
+			FromRevision: current.Revision, ToRevision: nextRevision,
 		}); err != nil {
 			return fmt.Errorf("emit offer.superseded: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "offer.created", "offer", newID.UUID, map[string]any{
-			"offer_id": newID, "deal_id": current.DealId, "revision": nextRevision,
-			"currency": current.Currency, "source": current.Source, "captured_by": by,
+		if err := storekit.EmitEvent(ctx, tx, auditID, newID.UUID, crmcontracts.WebhookPayloadOfferCreated{
+			OfferId: openapi_types.UUID(newID.UUID), DealId: current.DealId, Revision: nextRevision,
+			Currency: current.Currency, Source: current.Source, CapturedBy: by,
 		}); err != nil {
 			return fmt.Errorf("emit offer.created for new revision: %w", err)
 		}

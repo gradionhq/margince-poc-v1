@@ -18,8 +18,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/stretchr/testify/require"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -95,6 +97,83 @@ func TestDealStageChangedWireSnapshot(t *testing.T) {
 		AmountMinorAtChange: &amount,
 		CurrencyAtChange:    &currency,
 		WinProbability:      100,
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// offerSnapshotOfferID/offerSnapshotDealID are fixed, memorable UUIDs so the
+// offer family's golden snapshots (Task 5a-ii) are stable across test
+// runs — a real ids.NewV7() would churn the fixtures on every regeneration
+// for no reason.
+var (
+	offerSnapshotOfferID = uuid.MustParse("55555555-5555-5555-5555-555555555555")
+	offerSnapshotDealID  = uuid.MustParse("66666666-6666-6666-6666-666666666666")
+)
+
+// TestOfferCreatedWireSnapshot pins the offer.created wire shape (webhooks
+// Task 5a-ii, offer family).
+func TestOfferCreatedWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadOfferCreated{
+		OfferId:    offerSnapshotOfferID,
+		DealId:     offerSnapshotDealID,
+		Revision:   1,
+		Currency:   "EUR",
+		Source:     "manual",
+		CapturedBy: "user_123",
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestOfferSentWireSnapshot pins the offer.sent wire shape.
+func TestOfferSentWireSnapshot(t *testing.T) {
+	revision := 1
+	gross := int64(500000)
+	validUntil := openapi_types.Date{Time: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)}
+	sample := crmcontracts.WebhookPayloadOfferSent{
+		OfferId:      offerSnapshotOfferID,
+		DealId:       offerSnapshotDealID,
+		Revision:     &revision,
+		GrossMinor:   &gross,
+		FxRateToBase: "1.0842",
+		ValidUntil:   &validUntil,
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestOfferAcceptedWireSnapshot pins the offer.accepted wire shape.
+func TestOfferAcceptedWireSnapshot(t *testing.T) {
+	revision := 1
+	gross := int64(500000)
+	sample := crmcontracts.WebhookPayloadOfferAccepted{
+		OfferId:    offerSnapshotOfferID,
+		DealId:     offerSnapshotDealID,
+		Revision:   &revision,
+		GrossMinor: &gross,
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestOfferRejectedWireSnapshot pins the offer.rejected wire shape.
+func TestOfferRejectedWireSnapshot(t *testing.T) {
+	revision := 1
+	reason := "price too high"
+	sample := crmcontracts.WebhookPayloadOfferRejected{
+		OfferId:  offerSnapshotOfferID,
+		DealId:   offerSnapshotDealID,
+		Revision: &revision,
+		Reason:   &reason,
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestOfferSupersededWireSnapshot pins the offer.superseded wire shape.
+func TestOfferSupersededWireSnapshot(t *testing.T) {
+	fromRevision := 1
+	sample := crmcontracts.WebhookPayloadOfferSuperseded{
+		OfferId:      offerSnapshotOfferID,
+		DealId:       offerSnapshotDealID,
+		FromRevision: &fromRevision,
+		ToRevision:   2,
 	}
 	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
 }
