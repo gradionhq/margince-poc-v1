@@ -136,30 +136,51 @@ func (e *embedReindexEngine) preview(w http.ResponseWriter, r *http.Request) {
 	httperr.WriteJSON(w, http.StatusOK, embedReindexPreviewWire(perWorkspace, total, e.clock.Now()))
 }
 
-// embedReindexStartRequest is the confirm body: the identity the SPA
-// previewed against (compared to what's configured NOW, catching an
-// operator who changed the embed binding between preview and confirm —
-// empty skips the check, e.g. a force-reindex issued with no prior
-// preview) and the explicit force flag, the v6 B2 "rebuild index"
-// affordance that lets an operator re-run even when nothing is derived
-// as pending.
-type embedReindexStartRequest struct {
-	PreviewedIdentity string `json:"previewed_identity"`
-	Force             bool   `json:"force"`
-}
-
-// decodeEmbedReindexStart reads the optional confirm body; an empty body
-// is the zero request (no drift check, no force) — it writes the
-// problem response itself and reports whether the caller may proceed.
-func decodeEmbedReindexStart(w http.ResponseWriter, r *http.Request) (embedReindexStartRequest, bool) {
+// decodeEmbedReindexStart reads the optional confirm body (the contract's
+// EmbedReindexStartRequest: previewed_identity compared to what's
+// configured NOW, catching an operator who changed the embed binding
+// between preview and confirm; force, the v6 B2 "rebuild index"
+// affordance). An empty body is the zero request (no drift check, no
+// force) — it writes the problem response itself and reports whether the
+// caller may proceed.
+func decodeEmbedReindexStart(w http.ResponseWriter, r *http.Request) (crmcontracts.EmbedReindexStartRequest, bool) {
 	if r.ContentLength == 0 {
-		return embedReindexStartRequest{}, true
+		return crmcontracts.EmbedReindexStartRequest{}, true
 	}
-	var req embedReindexStartRequest
+	var req crmcontracts.EmbedReindexStartRequest
 	if !httperr.Decode(w, r, &req) {
-		return embedReindexStartRequest{}, false
+		return crmcontracts.EmbedReindexStartRequest{}, false
 	}
 	return req, true
+}
+
+// embedReindexDriftError answers the 409 when the caller's previewed
+// identity no longer matches what's configured now — nil previewedIdentity
+// (absent body field) or an empty string both mean "no prior preview to
+// compare against," so no check runs.
+func embedReindexDriftError(previewedIdentity *string, configured string) error {
+	if previewedIdentity == nil || *previewedIdentity == "" || *previewedIdentity == configured {
+		return nil
+	}
+	return &httperr.DetailedError{
+		Status: http.StatusConflict,
+		Code:   "reindex_identity_drift",
+		Detail: "the embed binding changed since this reindex was previewed; preview again before confirming",
+	}
+}
+
+// embedReindexNotNeededError answers the 409 that stops a no-op confirm: no
+// pending work, no reindex already in flight, and the caller didn't pass
+// force.
+func embedReindexNotNeededError(needed bool, jobStatus string, force bool) error {
+	if needed || jobStatus == reembeddingStatus || force {
+		return nil
+	}
+	return &httperr.DetailedError{
+		Status: http.StatusConflict,
+		Code:   "reindex_not_needed",
+		Detail: "the store is already current under the configured embed binding; pass force to rebuild anyway",
+	}
 }
 
 // confirm claims the binding marker and enqueues the fleet-wide re-embed
@@ -179,14 +200,11 @@ func (e *embedReindexEngine) confirm(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configured := e.currentIdentity()
-	if req.PreviewedIdentity != "" && req.PreviewedIdentity != configured {
-		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusConflict,
-			Code:   "reindex_identity_drift",
-			Detail: "the embed binding changed since this reindex was previewed; preview again before confirming",
-		})
+	if driftErr := embedReindexDriftError(req.PreviewedIdentity, configured); driftErr != nil {
+		httperr.Write(w, r, driftErr)
 		return
 	}
+	force := req.Force != nil && *req.Force
 
 	needed, err := e.store.ReindexNeeded(ctx, configured)
 	if err != nil {
@@ -198,15 +216,16 @@ func (e *embedReindexEngine) confirm(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, r, err)
 		return
 	}
-	if !needed && jobStatus != reembeddingStatus && !req.Force {
-		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusConflict,
-			Code:   "reindex_not_needed",
-			Detail: "the store is already current under the configured embed binding; pass force to rebuild anyway",
-		})
+	if notNeededErr := embedReindexNotNeededError(needed, jobStatus, force); notNeededErr != nil {
+		httperr.Write(w, r, notNeededErr)
 		return
 	}
 
+	// A config change while a prior job is still reembedding can make
+	// EnqueueTxUnique (ByArgs:true) enqueue a second, differently-identitied
+	// job here instead of 409-ing — self-healing: that job's argsIdentity
+	// != the worker's live EmbedIdentity() cancels it on pickup
+	// (reembed.go's ErrIdentityDrift → river.JobCancel).
 	err = e.store.ClaimAndEnqueueReembedding(ctx, func(tx pgx.Tx) error {
 		inserted, enqErr := e.enqueue.EnqueueTxUnique(ctx, tx, embedReindexArgs{Identity: configured},
 			&river.InsertOpts{UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeSweepStates}})

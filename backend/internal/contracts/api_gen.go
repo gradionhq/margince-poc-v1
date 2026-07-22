@@ -7971,6 +7971,15 @@ type EmbedReindexPreviewEstimateQuality string
 // EmbedReindexPreviewPerWorkspaceUtilizationImpact The AIRT-PARAM-9..11 budget band this workspace would land in were its estimated_ai_tokens added to its current spent_tokens — a disclosure only; the reindex proceeds fleet-wide regardless of any one workspace's band.
 type EmbedReindexPreviewPerWorkspaceUtilizationImpact string
 
+// EmbedReindexStartRequest Optional confirm body. With no body, no drift check runs and force is off.
+type EmbedReindexStartRequest struct {
+	// Force Rebuild the index even when nothing is derived as pending (the v6 B2 affordance).
+	Force *bool `json:"force,omitempty"`
+
+	// PreviewedIdentity The identity the SPA previewed against; compared to the currently-configured identity — mismatch is a 409 (the operator changed the embed binding between preview and confirm). Omitted or empty skips the check.
+	PreviewedIdentity *string `json:"previewed_identity,omitempty"`
+}
+
 // EmbedReindexStatus The embed_store_binding marker (ADR-0068 design §5.6) plus the derived reindex-needed signal: every count is a live-scanned figure, never a stored counter.
 type EmbedReindexStatus struct {
 	// ConfiguredIdentity The live embed binding's provider/model@dims (Task 9).
@@ -12730,6 +12739,9 @@ type CreateOfferJSONRequestBody = CreateOfferRequest
 
 // DisposeDedupeCandidateJSONRequestBody defines body for DisposeDedupeCandidate for application/json ContentType.
 type DisposeDedupeCandidateJSONRequestBody = DedupeDispositionRequest
+
+// EmbedReindexStartJSONRequestBody defines body for EmbedReindexStart for application/json ContentType.
+type EmbedReindexStartJSONRequestBody = EmbedReindexStartRequest
 
 // CreateFilteredExportJSONRequestBody defines body for CreateFilteredExport for application/json ContentType.
 type CreateFilteredExportJSONRequestBody = FilteredExportRequest

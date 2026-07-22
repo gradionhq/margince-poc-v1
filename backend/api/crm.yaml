@@ -2950,6 +2950,11 @@ paths:
         already-current row free, so a crash, a retry, or a deliberate second run all cost nothing
         for entities already done. One live reindex fleet-wide at a time (`409 reindex_running`);
         admin/ops only (the `embedding_reindex` RBAC object's `update` grant).
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmbedReindexStartRequest' }
       responses:
         '202':
           description: Reindex claimed and enqueued.
@@ -7439,6 +7444,12 @@ components:
                 type: string
                 enum: [normal, degraded, queued]
                 description: 'The AIRT-PARAM-9..11 budget band this workspace would land in were its estimated_ai_tokens added to its current spent_tokens — a disclosure only; the reindex proceeds fleet-wide regardless of any one workspace''s band.'
+    EmbedReindexStartRequest:
+      type: object
+      description: Optional confirm body. With no body, no drift check runs and force is off.
+      properties:
+        previewed_identity: { type: string, description: 'The identity the SPA previewed against; compared to the currently-configured identity — mismatch is a 409 (the operator changed the embed binding between preview and confirm). Omitted or empty skips the check.' }
+        force: { type: boolean, description: 'Rebuild the index even when nothing is derived as pending (the v6 B2 affordance).' }
     MorningDigest:
       type: object
       description: 'The CAP-DDL-6 payload: what capture did overnight and what awaits the human (CAP-WIRE-6).'
