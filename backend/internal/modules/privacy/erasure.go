@@ -45,6 +45,10 @@ const actionErase = "erase"
 // between call sites.
 const evidenceKeyAction = "action"
 
+// evidenceKeyRetentionAction is the audit-evidence key naming which
+// retention action ran; one spelling across every sweep.
+const evidenceKeyRetentionAction = "retention_action"
+
 // Eraser executes the shared erase path both the DSR surface and the
 // retention engine's 'erase' action ride.
 type Eraser struct {

@@ -56,6 +56,7 @@ import {
 } from "./company-context";
 import { confidenceLevel } from "./inbox";
 import { ReadCompanyStep } from "./onboarding-read";
+import { parseVoiceInsights, VoiceInsights } from "./voice-insights";
 import "./onboarding.css";
 
 const STEPS = [
@@ -1798,6 +1799,70 @@ type VoicePiece = {
 const VOICE_MIN_WORDS = 800;
 const PASTE_REF = "onboarding:paste";
 
+// pickBuiltVersion names the version the build just produced: the highest
+// numbered active-or-candidate row — active when it auto-activated,
+// candidate when it awaits review.
+function pickBuiltVersion(
+  items: components["schemas"]["VoiceProfileVersion"][],
+): components["schemas"]["VoiceProfileVersion"] | null {
+  let built: components["schemas"]["VoiceProfileVersion"] | null = null;
+  for (const version of items) {
+    if (version.status !== "active" && version.status !== "candidate") {
+      continue;
+    }
+    if (!built || version.profile_version > built.profile_version) {
+      built = version;
+    }
+  }
+  return built;
+}
+
+// BuiltVoiceBody renders what the finished build produced: the structured
+// insights of the just-built version (with a review note when it is a
+// candidate), the raw artifact as fallback, or the honest empty line.
+function BuiltVoiceBody({
+  builtVersion,
+  derivedMD,
+}: Readonly<{
+  builtVersion: components["schemas"]["VoiceProfileVersion"] | null;
+  derivedMD: string | null;
+}>) {
+  const t = useT();
+  if (builtVersion) {
+    return (
+      <div>
+        {builtVersion.status === "candidate" && (
+          <p className="t-small" style={{ marginTop: 8 }}>
+            {t("ob.s2.candidateNote")}
+          </p>
+        )}
+        <VoiceInsights
+          data={parseVoiceInsights(builtVersion)}
+          profileVersion={builtVersion.profile_version}
+        />
+      </div>
+    );
+  }
+  if (derivedMD) {
+    return (
+      <p
+        style={{
+          marginTop: "var(--space-3)",
+          lineHeight: 1.55,
+          whiteSpace: "pre-wrap",
+        }}
+      >
+        {derivedMD}
+      </p>
+    );
+  }
+  return (
+    <p style={{ marginTop: "var(--space-3)", lineHeight: 1.55 }}>
+      {t("ob.s2.builtEmpty")}
+    </p>
+  );
+}
+
 function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
   const t = useT();
   const [optedIn, setOptedIn] = useState(false);
@@ -1810,6 +1875,9 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
   const [buildError, setBuildError] = useState<string | null>(null);
   const [derived, setDerived] = useState<
     components["schemas"]["VoiceProfile"] | null
+  >(null);
+  const [activeVersion, setActiveVersion] = useState<
+    components["schemas"]["VoiceProfileVersion"] | null
   >(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -1999,10 +2067,25 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
       const profile = await api.GET("/voice-profiles/{id}", {
         params: { path: { id: profileId } },
       });
+      // The structured insights (thinking pattern, signature moves, sample
+      // drafts) live on the JUST-BUILT version row — active when it
+      // auto-activated, candidate when it needs review. A failed or thrown
+      // read degrades to the plain artifact text, never blocks the step.
+      let builtVersion: components["schemas"]["VoiceProfileVersion"] | null =
+        null;
+      try {
+        const versions = await api.GET("/voice-profiles/{id}/versions", {
+          params: { path: { id: profileId } },
+        });
+        builtVersion = pickBuiltVersion(versions.data?.data ?? []);
+      } catch {
+        builtVersion = null;
+      }
       if (!mounted.current) {
         return;
       }
       setDerived(profile.data ?? null);
+      setActiveVersion(builtVersion);
     }
     setBuilt(true);
     onBuilt();
@@ -2238,21 +2321,10 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
                   })}
                 </span>
               </div>
-              {derived?.voice_profile_md ? (
-                <p
-                  style={{
-                    marginTop: "var(--space-3)",
-                    lineHeight: 1.55,
-                    whiteSpace: "pre-wrap",
-                  }}
-                >
-                  {derived.voice_profile_md}
-                </p>
-              ) : (
-                <p style={{ marginTop: "var(--space-3)", lineHeight: 1.55 }}>
-                  {t("ob.s2.builtEmpty")}
-                </p>
-              )}
+              <BuiltVoiceBody
+                builtVersion={activeVersion}
+                derivedMD={derived?.voice_profile_md ?? null}
+              />
               <p
                 className="t-small"
                 style={{ marginTop: 11, fontStyle: "italic" }}
