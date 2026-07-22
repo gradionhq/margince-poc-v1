@@ -77,7 +77,7 @@
 }
 
 .mw-configured {
-  max-width: 280px;
+  max-width: 370px;
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--railHover);
   border-radius: var(--r-md);
@@ -91,12 +91,11 @@
 .mw-configured strong {
   display: block;
   margin-top: var(--space-1);
-  overflow: hidden;
   color: var(--railIconActive);
   font-family: var(--f-mono);
   font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .mw-runtime {
@@ -127,6 +126,13 @@
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.mw-runtime > div:nth-child(-n + 2) strong {
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 .mw-runtime span {
@@ -181,6 +187,22 @@
   .mw-artifact {
     border-top: 1px solid var(--borderSubtle);
     border-left: 0;
+  }
+}
+
+@media (min-width: 901px) {
+  .mw-body.has-artifact {
+    height: clamp(480px, calc(100vh - 282px), 680px);
+    min-height: 0;
+  }
+
+  .mw-body.has-artifact .mw-conversation,
+  .mw-body.has-artifact .mw-artifact {
+    min-height: 0;
+  }
+
+  .mw-body.has-artifact .mw-conversation {
+    overflow: hidden;
   }
 }
 

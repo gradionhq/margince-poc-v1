@@ -210,6 +210,114 @@ func (e AgentToolTier) Valid() bool {
 	}
 }
 
+// Defines values for AiProfileInferenceMode.
+const (
+	AiProfileInferenceModeCloud       AiProfileInferenceMode = "cloud"
+	AiProfileInferenceModeDevelopment AiProfileInferenceMode = "development"
+	AiProfileInferenceModeHybrid      AiProfileInferenceMode = "hybrid"
+	AiProfileInferenceModeLocal       AiProfileInferenceMode = "local"
+	AiProfileInferenceModeNone        AiProfileInferenceMode = "none"
+)
+
+// Valid indicates whether the value is a known member of the AiProfileInferenceMode enum.
+func (e AiProfileInferenceMode) Valid() bool {
+	switch e {
+	case AiProfileInferenceModeCloud:
+		return true
+	case AiProfileInferenceModeDevelopment:
+		return true
+	case AiProfileInferenceModeHybrid:
+		return true
+	case AiProfileInferenceModeLocal:
+		return true
+	case AiProfileInferenceModeNone:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AiProfileKind.
+const (
+	AiProfileKindAi AiProfileKind = "ai"
+)
+
+// Valid indicates whether the value is a known member of the AiProfileKind enum.
+func (e AiProfileKind) Valid() bool {
+	switch e {
+	case AiProfileKindAi:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AiProfileName.
+const (
+	AiProfileNameMargince AiProfileName = "Margince"
+)
+
+// Valid indicates whether the value is a known member of the AiProfileName enum.
+func (e AiProfileName) Valid() bool {
+	switch e {
+	case AiProfileNameMargince:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AiProfileProviders.
+const (
+	AiProfileProvidersAnthropic        AiProfileProviders = "anthropic"
+	AiProfileProvidersGemini           AiProfileProviders = "gemini"
+	AiProfileProvidersOllama           AiProfileProviders = "ollama"
+	AiProfileProvidersOpenai           AiProfileProviders = "openai"
+	AiProfileProvidersOpenaiCompatible AiProfileProviders = "openai_compatible"
+	AiProfileProvidersVllm             AiProfileProviders = "vllm"
+)
+
+// Valid indicates whether the value is a known member of the AiProfileProviders enum.
+func (e AiProfileProviders) Valid() bool {
+	switch e {
+	case AiProfileProvidersAnthropic:
+		return true
+	case AiProfileProvidersGemini:
+		return true
+	case AiProfileProvidersOllama:
+		return true
+	case AiProfileProvidersOpenai:
+		return true
+	case AiProfileProvidersOpenaiCompatible:
+		return true
+	case AiProfileProvidersVllm:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AiProfileState.
+const (
+	AiProfileStateConfigured   AiProfileState = "configured"
+	AiProfileStateDevelopment  AiProfileState = "development"
+	AiProfileStateUnconfigured AiProfileState = "unconfigured"
+)
+
+// Valid indicates whether the value is a known member of the AiProfileState enum.
+func (e AiProfileState) Valid() bool {
+	switch e {
+	case AiProfileStateConfigured:
+		return true
+	case AiProfileStateDevelopment:
+		return true
+	case AiProfileStateUnconfigured:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AiRunSummaryCurrency.
 const (
 	USD AiRunSummaryCurrency = "USD"
@@ -324,6 +432,60 @@ func (e ApprovalStatus) Valid() bool {
 	}
 }
 
+// Defines values for AssistantConfiguredModelProvider.
+const (
+	AssistantModelProviderAnthropic        AssistantConfiguredModelProvider = "anthropic"
+	AssistantModelProviderGemini           AssistantConfiguredModelProvider = "gemini"
+	AssistantModelProviderOllama           AssistantConfiguredModelProvider = "ollama"
+	AssistantModelProviderOpenAI           AssistantConfiguredModelProvider = "openai"
+	AssistantModelProviderOpenAICompatible AssistantConfiguredModelProvider = "openai_compatible"
+	AssistantModelProviderVLLM             AssistantConfiguredModelProvider = "vllm"
+)
+
+// Valid indicates whether the value is a known member of the AssistantConfiguredModelProvider enum.
+func (e AssistantConfiguredModelProvider) Valid() bool {
+	switch e {
+	case AssistantModelProviderAnthropic:
+		return true
+	case AssistantModelProviderGemini:
+		return true
+	case AssistantModelProviderOllama:
+		return true
+	case AssistantModelProviderOpenAI:
+		return true
+	case AssistantModelProviderOpenAICompatible:
+		return true
+	case AssistantModelProviderVLLM:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AssistantConfiguredModelTier.
+const (
+	AssistantModelTierCheapCloud AssistantConfiguredModelTier = "cheap_cloud"
+	AssistantModelTierLocalLarge AssistantConfiguredModelTier = "local_large"
+	AssistantModelTierLocalSmall AssistantConfiguredModelTier = "local_small"
+	AssistantModelTierPremium    AssistantConfiguredModelTier = "premium"
+)
+
+// Valid indicates whether the value is a known member of the AssistantConfiguredModelTier enum.
+func (e AssistantConfiguredModelTier) Valid() bool {
+	switch e {
+	case AssistantModelTierCheapCloud:
+		return true
+	case AssistantModelTierLocalLarge:
+		return true
+	case AssistantModelTierLocalSmall:
+		return true
+	case AssistantModelTierPremium:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AssistantProfileInferenceMode.
 const (
 	AssistantProfileInferenceModeCloud       AssistantProfileInferenceMode = "cloud"
@@ -353,13 +515,13 @@ func (e AssistantProfileInferenceMode) Valid() bool {
 
 // Defines values for AssistantProfileKind.
 const (
-	Ai AssistantProfileKind = "ai"
+	AssistantProfileKindAi AssistantProfileKind = "ai"
 )
 
 // Valid indicates whether the value is a known member of the AssistantProfileKind enum.
 func (e AssistantProfileKind) Valid() bool {
 	switch e {
-	case Ai:
+	case AssistantProfileKindAi:
 		return true
 	default:
 		return false
@@ -368,13 +530,13 @@ func (e AssistantProfileKind) Valid() bool {
 
 // Defines values for AssistantProfileName.
 const (
-	Margince AssistantProfileName = "Margince"
+	AssistantProfileNameMargince AssistantProfileName = "Margince"
 )
 
 // Valid indicates whether the value is a known member of the AssistantProfileName enum.
 func (e AssistantProfileName) Valid() bool {
 	switch e {
-	case Margince:
+	case AssistantProfileNameMargince:
 		return true
 	default:
 		return false
@@ -383,28 +545,28 @@ func (e AssistantProfileName) Valid() bool {
 
 // Defines values for AssistantProfileProviders.
 const (
-	Anthropic        AssistantProfileProviders = "anthropic"
-	Gemini           AssistantProfileProviders = "gemini"
-	Ollama           AssistantProfileProviders = "ollama"
-	Openai           AssistantProfileProviders = "openai"
-	OpenaiCompatible AssistantProfileProviders = "openai_compatible"
-	Vllm             AssistantProfileProviders = "vllm"
+	AssistantProfileProvidersAnthropic        AssistantProfileProviders = "anthropic"
+	AssistantProfileProvidersGemini           AssistantProfileProviders = "gemini"
+	AssistantProfileProvidersOllama           AssistantProfileProviders = "ollama"
+	AssistantProfileProvidersOpenai           AssistantProfileProviders = "openai"
+	AssistantProfileProvidersOpenaiCompatible AssistantProfileProviders = "openai_compatible"
+	AssistantProfileProvidersVllm             AssistantProfileProviders = "vllm"
 )
 
 // Valid indicates whether the value is a known member of the AssistantProfileProviders enum.
 func (e AssistantProfileProviders) Valid() bool {
 	switch e {
-	case Anthropic:
+	case AssistantProfileProvidersAnthropic:
 		return true
-	case Gemini:
+	case AssistantProfileProvidersGemini:
 		return true
-	case Ollama:
+	case AssistantProfileProvidersOllama:
 		return true
-	case Openai:
+	case AssistantProfileProvidersOpenai:
 		return true
-	case OpenaiCompatible:
+	case AssistantProfileProvidersOpenaiCompatible:
 		return true
-	case Vllm:
+	case AssistantProfileProvidersVllm:
 		return true
 	default:
 		return false
@@ -1113,6 +1275,39 @@ func (e CompanyContextScopeScope) Valid() bool {
 	case CompanyContextScopeScopeProof:
 		return true
 	case CompanyContextScopeScopeSales:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompanyConversationResponseKind.
+const (
+	CompanyConversationAnswer         CompanyConversationResponseKind = "answer"
+	CompanyConversationClarification  CompanyConversationResponseKind = "clarification"
+	CompanyConversationConfirmation   CompanyConversationResponseKind = "confirmation"
+	CompanyConversationCorrection     CompanyConversationResponseKind = "correction"
+	CompanyConversationOffTopic       CompanyConversationResponseKind = "off_topic"
+	CompanyConversationRecommendation CompanyConversationResponseKind = "recommendation"
+	CompanyConversationStatus         CompanyConversationResponseKind = "status"
+)
+
+// Valid indicates whether the value is a known member of the CompanyConversationResponseKind enum.
+func (e CompanyConversationResponseKind) Valid() bool {
+	switch e {
+	case CompanyConversationAnswer:
+		return true
+	case CompanyConversationClarification:
+		return true
+	case CompanyConversationConfirmation:
+		return true
+	case CompanyConversationCorrection:
+		return true
+	case CompanyConversationOffTopic:
+		return true
+	case CompanyConversationRecommendation:
+		return true
+	case CompanyConversationStatus:
 		return true
 	default:
 		return false
@@ -3096,6 +3291,87 @@ const (
 func (e OmittedExtractionFieldReason) Valid() bool {
 	switch e {
 	case NotStatedInFile:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OnboardingCompanyMessageReplyAvailableAction.
+const (
+	OnboardingAvailableActionConfirmCompany OnboardingCompanyMessageReplyAvailableAction = "confirm_company"
+	OnboardingAvailableActionNone           OnboardingCompanyMessageReplyAvailableAction = "<nil>"
+)
+
+// Valid indicates whether the value is a known member of the OnboardingCompanyMessageReplyAvailableAction enum.
+func (e OnboardingCompanyMessageReplyAvailableAction) Valid() bool {
+	switch e {
+	case OnboardingAvailableActionConfirmCompany:
+		return true
+	case OnboardingAvailableActionNone:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OnboardingCompanyMessageReplyNextRequiredField.
+const (
+	OnboardingNextRequiredDisplayName  OnboardingCompanyMessageReplyNextRequiredField = "display_name"
+	OnboardingNextRequiredICP          OnboardingCompanyMessageReplyNextRequiredField = "icp"
+	OnboardingNextRequiredNone         OnboardingCompanyMessageReplyNextRequiredField = "<nil>"
+	OnboardingNextRequiredOfferSummary OnboardingCompanyMessageReplyNextRequiredField = "offer_summary"
+)
+
+// Valid indicates whether the value is a known member of the OnboardingCompanyMessageReplyNextRequiredField enum.
+func (e OnboardingCompanyMessageReplyNextRequiredField) Valid() bool {
+	switch e {
+	case OnboardingNextRequiredDisplayName:
+		return true
+	case OnboardingNextRequiredICP:
+		return true
+	case OnboardingNextRequiredNone:
+		return true
+	case OnboardingNextRequiredOfferSummary:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OnboardingCompanyMessageReplyRemainingRequiredFields.
+const (
+	OnboardingRequiredDisplayName  OnboardingCompanyMessageReplyRemainingRequiredFields = "display_name"
+	OnboardingRequiredICP          OnboardingCompanyMessageReplyRemainingRequiredFields = "icp"
+	OnboardingRequiredOfferSummary OnboardingCompanyMessageReplyRemainingRequiredFields = "offer_summary"
+)
+
+// Valid indicates whether the value is a known member of the OnboardingCompanyMessageReplyRemainingRequiredFields enum.
+func (e OnboardingCompanyMessageReplyRemainingRequiredFields) Valid() bool {
+	switch e {
+	case OnboardingRequiredDisplayName:
+		return true
+	case OnboardingRequiredICP:
+		return true
+	case OnboardingRequiredOfferSummary:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OnboardingCompanyMessageRequestLocale.
+const (
+	OnboardingCompanyLocaleDE OnboardingCompanyMessageRequestLocale = "de"
+	OnboardingCompanyLocaleEN OnboardingCompanyMessageRequestLocale = "en"
+)
+
+// Valid indicates whether the value is a known member of the OnboardingCompanyMessageRequestLocale enum.
+func (e OnboardingCompanyMessageRequestLocale) Valid() bool {
+	switch e {
+	case OnboardingCompanyLocaleDE:
+		return true
+	case OnboardingCompanyLocaleEN:
 		return true
 	default:
 		return false
@@ -6409,6 +6685,34 @@ type AiCallSummary struct {
 	TokensOut int    `json:"tokens_out"`
 }
 
+// AiProfile defines model for AiProfile.
+type AiProfile struct {
+	// ConfiguredModels Authenticated tier-to-model bindings. Credentials and endpoints never appear here.
+	ConfiguredModels []AssistantConfiguredModel `json:"configured_models"`
+	InferenceMode    AiProfileInferenceMode     `json:"inference_mode"`
+	Kind             AiProfileKind              `json:"kind"`
+	Name             AiProfileName              `json:"name"`
+
+	// Providers Distinct configured provider keys, sorted; fake is never returned.
+	Providers []AiProfileProviders `json:"providers"`
+	State     AiProfileState       `json:"state"`
+}
+
+// AiProfileInferenceMode defines model for AiProfile.InferenceMode.
+type AiProfileInferenceMode string
+
+// AiProfileKind defines model for AiProfile.Kind.
+type AiProfileKind string
+
+// AiProfileName defines model for AiProfile.Name.
+type AiProfileName string
+
+// AiProfileProviders defines model for AiProfile.Providers.
+type AiProfileProviders string
+
+// AiProfileState defines model for AiProfile.State.
+type AiProfileState string
+
 // AiRunModelUsage One task, route, and served-model slice within a correlated AI run.
 type AiRunModelUsage struct {
 	CacheWriteTokens int64 `json:"cache_write_tokens"`
@@ -6572,6 +6876,19 @@ type ApproveRequest struct {
 	// EditedPayload Optional edits — the edited payload is re-admitted, then it executes (edit-then-send).
 	EditedPayload *map[string]interface{} `json:"edited_payload,omitempty"`
 }
+
+// AssistantConfiguredModel defines model for AssistantConfiguredModel.
+type AssistantConfiguredModel struct {
+	Model    string                           `json:"model"`
+	Provider AssistantConfiguredModelProvider `json:"provider"`
+	Tier     AssistantConfiguredModelTier     `json:"tier"`
+}
+
+// AssistantConfiguredModelProvider defines model for AssistantConfiguredModel.Provider.
+type AssistantConfiguredModelProvider string
+
+// AssistantConfiguredModelTier defines model for AssistantConfiguredModel.Tier.
+type AssistantConfiguredModelTier string
 
 // AssistantProfile defines model for AssistantProfile.
 type AssistantProfile struct {
@@ -7143,6 +7460,9 @@ type CompanyContextScope struct {
 // CompanyContextScopeScope defines model for CompanyContextScope.Scope.
 type CompanyContextScopeScope string
 
+// CompanyConversationResponseKind defines model for CompanyConversationResponseKind.
+type CompanyConversationResponseKind string
+
 // CompanyProfile The installation's own company. The flat properties remain compatibility aliases for the
 // existing form; `fields` and `facts` are the provenance-bearing source records used by new
 // clients and by CompanyContext. New onboarding considers the profile minimum-complete when
@@ -7365,6 +7685,7 @@ type CompanySiteReadMessageReply struct {
 	// AiRuntime Cumulative price-on-read transparency for model calls carrying one run correlation id.
 	AiRuntime       AiRunSummary                     `json:"ai_runtime"`
 	Citations       []CompanySiteReadCitation        `json:"citations"`
+	Kind            CompanyConversationResponseKind  `json:"kind"`
 	Message         string                           `json:"message"`
 	ProposedChanges []CompanySiteReadSuggestedChange `json:"proposed_changes"`
 }
@@ -8939,7 +9260,8 @@ type OmittedExtractionFieldReason string
 
 // OnboardingCompanyDraft Partial human-editable company input retained while the wizard is unfinished. Every field
 // is optional here because this is not confirmed company truth; confirmation uses the stricter
-// CompanyProfileInput or ConfirmCompanySiteReadRequest contract.
+// CompanyProfileInput or ConfirmCompanySiteReadRequest contract. Values are bounded because the
+// same draft may be supplied as context to the conversational assistant.
 type OnboardingCompanyDraft struct {
 	BuyingCenter      *string `json:"buying_center,omitempty"`
 	BuyingIntents     *string `json:"buying_intents,omitempty"`
@@ -8959,11 +9281,49 @@ type OnboardingCompanyDraft struct {
 	ValueProposition  *string `json:"value_proposition,omitempty"`
 }
 
+// OnboardingCompanyMessageReply defines model for OnboardingCompanyMessageReply.
+type OnboardingCompanyMessageReply struct {
+	// AiRuntime Cumulative price-on-read transparency for model calls carrying one run correlation id.
+	AiRuntime               AiRunSummary                                           `json:"ai_runtime"`
+	AvailableAction         *OnboardingCompanyMessageReplyAvailableAction          `json:"available_action,omitempty"`
+	Citations               []CompanySiteReadCitation                              `json:"citations"`
+	Kind                    CompanyConversationResponseKind                        `json:"kind"`
+	Message                 string                                                 `json:"message"`
+	NextRequiredField       *OnboardingCompanyMessageReplyNextRequiredField        `json:"next_required_field,omitempty"`
+	ProposedChanges         []CompanySiteReadSuggestedChange                       `json:"proposed_changes"`
+	RemainingRequiredFields []OnboardingCompanyMessageReplyRemainingRequiredFields `json:"remaining_required_fields"`
+}
+
+// OnboardingCompanyMessageReplyAvailableAction defines model for OnboardingCompanyMessageReply.AvailableAction.
+type OnboardingCompanyMessageReplyAvailableAction string
+
+// OnboardingCompanyMessageReplyNextRequiredField defines model for OnboardingCompanyMessageReply.NextRequiredField.
+type OnboardingCompanyMessageReplyNextRequiredField string
+
+// OnboardingCompanyMessageReplyRemainingRequiredFields defines model for OnboardingCompanyMessageReply.RemainingRequiredFields.
+type OnboardingCompanyMessageReplyRemainingRequiredFields string
+
+// OnboardingCompanyMessageRequest defines model for OnboardingCompanyMessageRequest.
+type OnboardingCompanyMessageRequest struct {
+	// CompanyDraft Partial human-editable company input retained while the wizard is unfinished. Every field
+	// is optional here because this is not confirmed company truth; confirmation uses the stricter
+	// CompanyProfileInput or ConfirmCompanySiteReadRequest contract. Values are bounded because the
+	// same draft may be supplied as context to the conversational assistant.
+	CompanyDraft *OnboardingCompanyDraft               `json:"company_draft,omitempty"`
+	History      *[]CompanySiteReadConversationTurn    `json:"history,omitempty"`
+	Locale       OnboardingCompanyMessageRequestLocale `json:"locale"`
+	Message      string                                `json:"message"`
+}
+
+// OnboardingCompanyMessageRequestLocale defines model for OnboardingCompanyMessageRequest.Locale.
+type OnboardingCompanyMessageRequestLocale string
+
 // OnboardingState defines model for OnboardingState.
 type OnboardingState struct {
 	// CompanyDraft Partial human-editable company input retained while the wizard is unfinished. Every field
 	// is optional here because this is not confirmed company truth; confirmation uses the stricter
-	// CompanyProfileInput or ConfirmCompanySiteReadRequest contract.
+	// CompanyProfileInput or ConfirmCompanySiteReadRequest contract. Values are bounded because the
+	// same draft may be supplied as context to the conversational assistant.
 	CompanyDraft     OnboardingCompanyDraft     `json:"company_draft"`
 	CompletedAt      *time.Time                 `json:"completed_at,omitempty"`
 	ConnectSkipped   bool                       `json:"connect_skipped"`
@@ -9530,7 +9890,8 @@ type PromoteLeadResponse struct {
 type PutOnboardingStateRequest struct {
 	// CompanyDraft Partial human-editable company input retained while the wizard is unfinished. Every field
 	// is optional here because this is not confirmed company truth; confirmation uses the stricter
-	// CompanyProfileInput or ConfirmCompanySiteReadRequest contract.
+	// CompanyProfileInput or ConfirmCompanySiteReadRequest contract. Values are bounded because the
+	// same draft may be supplied as context to the conversational assistant.
 	CompanyDraft   OnboardingCompanyDraft `json:"company_draft"`
 	ConnectSkipped bool                   `json:"connect_skipped"`
 
@@ -13159,6 +13520,9 @@ type UpdateOfferLineItemJSONRequestBody = UpdateOfferLineItemRequest
 
 // RejectOfferJSONRequestBody defines body for RejectOffer for application/json ContentType.
 type RejectOfferJSONRequestBody = RejectOfferRequest
+
+// MessageOnboardingCompanyJSONRequestBody defines body for MessageOnboardingCompany for application/json ContentType.
+type MessageOnboardingCompanyJSONRequestBody = OnboardingCompanyMessageRequest
 
 // PutOnboardingStateJSONRequestBody defines body for PutOnboardingState for application/json ContentType.
 type PutOnboardingStateJSONRequestBody = PutOnboardingStateRequest
@@ -18181,6 +18545,9 @@ type ServerInterface interface {
 	// One call — attempt ladder, routing identity, context provenance, captured payload.
 	// (GET /ai/calls/{id})
 	GetAiCall(w http.ResponseWriter, r *http.Request, id Id)
+	// Authenticated AI configuration posture for transparent human-facing workspaces.
+	// (GET /ai/profile)
+	GetAiProfile(w http.ResponseWriter, r *http.Request)
 	// AI usage + budget — the spend is never invisible.
 	// (GET /ai/usage)
 	GetAiUsage(w http.ResponseWriter, r *http.Request, params GetAiUsageParams)
@@ -18526,6 +18893,9 @@ type ServerInterface interface {
 	// Send a draft offer (🟡 — leaves the workspace; freezes FX + buyer/issuer snapshot).
 	// (POST /offers/{id}/send)
 	SendOffer(w http.ResponseWriter, r *http.Request, id Id, params SendOfferParams)
+	// Continue the scoped company-setup conversation with or without a website read.
+	// (POST /onboarding/company/messages)
+	MessageOnboardingCompany(w http.ResponseWriter, r *http.Request)
 	// Get the acting user's resumable onboarding state.
 	// (GET /onboarding/state)
 	GetOnboardingState(w http.ResponseWriter, r *http.Request)
@@ -18970,6 +19340,12 @@ func (_ Unimplemented) ListAiCalls(w http.ResponseWriter, r *http.Request, param
 // One call — attempt ladder, routing identity, context provenance, captured payload.
 // (GET /ai/calls/{id})
 func (_ Unimplemented) GetAiCall(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Authenticated AI configuration posture for transparent human-facing workspaces.
+// (GET /ai/profile)
+func (_ Unimplemented) GetAiProfile(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -19660,6 +20036,12 @@ func (_ Unimplemented) RenderOffer(w http.ResponseWriter, r *http.Request, id Id
 // Send a draft offer (🟡 — leaves the workspace; freezes FX + buyer/issuer snapshot).
 // (POST /offers/{id}/send)
 func (_ Unimplemented) SendOffer(w http.ResponseWriter, r *http.Request, id Id, params SendOfferParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Continue the scoped company-setup conversation with or without a website read.
+// (POST /onboarding/company/messages)
+func (_ Unimplemented) MessageOnboardingCompany(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -21038,6 +21420,26 @@ func (siw *ServerInterfaceWrapper) GetAiCall(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetAiCall(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAiProfile operation middleware
+func (siw *ServerInterfaceWrapper) GetAiProfile(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAiProfile(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -26276,6 +26678,26 @@ func (siw *ServerInterfaceWrapper) SendOffer(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SendOffer(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MessageOnboardingCompany operation middleware
+func (siw *ServerInterfaceWrapper) MessageOnboardingCompany(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MessageOnboardingCompany(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -32581,6 +33003,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/ai/calls/{id}", wrapper.GetAiCall)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/ai/profile", wrapper.GetAiProfile)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/ai/usage", wrapper.GetAiUsage)
 	})
 	r.Group(func(r chi.Router) {
@@ -32924,6 +33349,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/offers/{id}/send", wrapper.SendOffer)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/onboarding/company/messages", wrapper.MessageOnboardingCompany)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/onboarding/state", wrapper.GetOnboardingState)

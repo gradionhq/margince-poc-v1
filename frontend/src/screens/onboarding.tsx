@@ -31,6 +31,8 @@ import {
 import {
   type ChangeEvent,
   type ReactNode,
+  type SetStateAction,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -60,8 +62,7 @@ import { parseVoiceInsights, VoiceInsights } from "./voice-insights";
 import "./onboarding.css";
 
 const STEPS = [
-  { key: "read", label: "ob.read" },
-  { key: "confirm", label: "ob.confirm" },
+  { key: "read", label: "ob.company" },
   { key: "voice", label: "ob.voice" },
   { key: "results", label: "ob.results" },
   { key: "connect", label: "ob.connect" },
@@ -140,12 +141,6 @@ type ManualQuestion = Readonly<{
 
 const MANUAL_QUESTIONS: readonly ManualQuestion[] = [
   {
-    field: "display_name",
-    chapter: "ob.manualChapterLegal",
-    prompt: "ob.manual.display_name",
-    hint: "ob.manual.display_nameHint",
-  },
-  {
     field: "legal_name",
     chapter: "ob.manualChapterLegal",
     prompt: "ob.manual.legal_name",
@@ -165,6 +160,26 @@ const MANUAL_QUESTIONS: readonly ManualQuestion[] = [
     hint: "ob.manual.register_vatHint",
   },
   {
+    field: "display_name",
+    chapter: "ob.manualChapterLegal",
+    prompt: "ob.manual.display_name",
+    hint: "ob.manual.display_nameHint",
+  },
+  {
+    field: "offer_summary",
+    chapter: "ob.manualChapterOffer",
+    prompt: "ob.manual.offer_summary",
+    hint: "ob.manual.offer_summaryHint",
+    multiline: true,
+  },
+  {
+    field: "icp",
+    chapter: "ob.manualChapterCustomer",
+    prompt: "ob.manual.icp",
+    hint: "ob.manual.icpHint",
+    multiline: true,
+  },
+  {
     field: "industry",
     chapter: "ob.manualChapterLegal",
     prompt: "ob.manual.industry",
@@ -175,13 +190,6 @@ const MANUAL_QUESTIONS: readonly ManualQuestion[] = [
     chapter: "ob.manualChapterLegal",
     prompt: "ob.manual.history",
     hint: "ob.manual.historyHint",
-    multiline: true,
-  },
-  {
-    field: "offer_summary",
-    chapter: "ob.manualChapterOffer",
-    prompt: "ob.manual.offer_summary",
-    hint: "ob.manual.offer_summaryHint",
     multiline: true,
   },
   {
@@ -196,13 +204,6 @@ const MANUAL_QUESTIONS: readonly ManualQuestion[] = [
     chapter: "ob.manualChapterOffer",
     prompt: "ob.manual.usp",
     hint: "ob.manual.uspHint",
-    multiline: true,
-  },
-  {
-    field: "icp",
-    chapter: "ob.manualChapterCustomer",
-    prompt: "ob.manual.icp",
-    hint: "ob.manual.icpHint",
     multiline: true,
   },
   {
@@ -365,6 +366,22 @@ function prefill(
   return { values, grounded, edited: draft.edited };
 }
 
+function changeDraftField(
+  draft: CompanyDraft,
+  field: CompanyFieldName,
+  value: string,
+): CompanyDraft {
+  const grounded = { ...draft.grounded };
+  if (field in grounded) {
+    delete grounded[field as ColdField["field"]];
+  }
+  return {
+    values: { ...draft.values, [field]: value },
+    grounded,
+    edited: new Set(draft.edited).add(field),
+  };
+}
+
 // URL normalization/validation (S-E01.1: scheme/host/dedupe, honest invalid).
 function normalizeUrl(raw: string): {
   ok: boolean;
@@ -488,6 +505,9 @@ function restoredWizardStep(
   if (routeID === "connect") {
     return null;
   }
+  if (state.step === "confirm") {
+    return 0;
+  }
   const index = STEPS.findIndex((candidate) => candidate.key === state.step);
   return index >= 0 ? index : null;
 }
@@ -525,16 +545,24 @@ function OnboardingCoordinator() {
   const t = useT();
   const queryClient = useQueryClient();
   const route = useRoute();
-  const [step, setStep] = useState(route.id === "connect" ? 4 : 0);
+  const [step, setStep] = useState(route.id === "connect" ? 3 : 0);
   const connectOutcome =
     route.id === "connect" && route.id2 ? route.id2 : undefined;
   const [voiceBuilt, setVoiceBuilt] = useState(false);
   // Company-step state lives HERE, not in the step component: stepping back
   // and forward must not destroy what the user typed.
-  const [draft, setDraft] = useState<CompanyDraft>(EMPTY_DRAFT);
+  const [draft, setDraftState] = useState<CompanyDraft>(EMPTY_DRAFT);
+  const draftRef = useRef<CompanyDraft>(EMPTY_DRAFT);
+  const setDraft = useCallback((update: SetStateAction<CompanyDraft>) => {
+    const next =
+      typeof update === "function" ? update(draftRef.current) : update;
+    draftRef.current = next;
+    setDraftState(next);
+  }, []);
   const [saveAttempted, setSaveAttempted] = useState(false);
   const [companySaved, setCompanySaved] = useState(false);
   const [sourceMode, setSourceMode] = useState<SourceMode | null>(null);
+  const sourceModeRef = useRef<SourceMode | null>(null);
   const [siteReadID, setSiteReadID] = useState<string | null>(null);
   const [selectedFactKeys, setSelectedFactKeys] = useState<string[]>([]);
   const [voiceSkipped, setVoiceSkipped] = useState(false);
@@ -573,61 +601,75 @@ function OnboardingCoordinator() {
   const persistQueue = useRef<Promise<boolean>>(Promise.resolve(true));
   const seeded = useRef(false);
 
-  const persistState = (
-    nextStep: number,
-    overrides: Partial<{
-      sourceMode: SourceMode | null;
-      siteReadID: string | null;
-      selectedFactKeys: string[];
-      voiceSkipped: boolean;
-      connectSkipped: boolean;
-    }> = {},
-  ) => {
-    const mode =
-      overrides.sourceMode === undefined ? sourceMode : overrides.sourceMode;
-    const readID =
-      overrides.siteReadID === undefined ? siteReadID : overrides.siteReadID;
-    const factKeys = overrides.selectedFactKeys ?? selectedFactKeys;
-    const skippedVoice = overrides.voiceSkipped ?? voiceSkipped;
-    const skippedConnect = overrides.connectSkipped ?? connectSkipped;
-    const values = draft.values;
-    persistQueue.current = persistQueue.current.then(async () => {
-      try {
-        const data = await writeWizardState(
-          wizardStateBody({
-            expectedVersion: stateVersion.current,
-            nextStep,
-            mode,
-            readID,
-            norm,
-            values,
-            factKeys,
-            skippedVoice,
-            skippedConnect,
-          }),
-        );
-        stateVersion.current = data.version;
-        statePath.current = data.path;
-        queryClient.setQueryData(["onboarding-state"], data);
-        setStateConflict(null);
-        return true;
-      } catch (error) {
-        if (error instanceof WizardStateWriteError && error.status === 409) {
-          setStateConflict(t("ob.stateConflict"));
-          seeded.current = false;
-          await queryClient.invalidateQueries({
-            queryKey: ["onboarding-state"],
-          });
+  const persistState = useCallback(
+    (
+      nextStep: number,
+      overrides: Partial<{
+        sourceMode: SourceMode | null;
+        siteReadID: string | null;
+        selectedFactKeys: string[];
+        voiceSkipped: boolean;
+        connectSkipped: boolean;
+        values: CompanyForm;
+      }> = {},
+    ) => {
+      const mode =
+        overrides.sourceMode === undefined ? sourceMode : overrides.sourceMode;
+      const readID =
+        overrides.siteReadID === undefined ? siteReadID : overrides.siteReadID;
+      const factKeys = overrides.selectedFactKeys ?? selectedFactKeys;
+      const skippedVoice = overrides.voiceSkipped ?? voiceSkipped;
+      const skippedConnect = overrides.connectSkipped ?? connectSkipped;
+      const values = overrides.values ?? draft.values;
+      persistQueue.current = persistQueue.current.then(async () => {
+        try {
+          const data = await writeWizardState(
+            wizardStateBody({
+              expectedVersion: stateVersion.current,
+              nextStep,
+              mode,
+              readID,
+              norm,
+              values,
+              factKeys,
+              skippedVoice,
+              skippedConnect,
+            }),
+          );
+          stateVersion.current = data.version;
+          statePath.current = data.path;
+          queryClient.setQueryData(["onboarding-state"], data);
+          setStateConflict(null);
+          return true;
+        } catch (error) {
+          if (error instanceof WizardStateWriteError && error.status === 409) {
+            setStateConflict(t("ob.stateConflict"));
+            seeded.current = false;
+            await queryClient.invalidateQueries({
+              queryKey: ["onboarding-state"],
+            });
+            return false;
+          }
+          setStateConflict(
+            error instanceof Error ? error.message : t("ob.stateSaveFailed"),
+          );
           return false;
         }
-        setStateConflict(
-          error instanceof Error ? error.message : t("ob.stateSaveFailed"),
-        );
-        return false;
-      }
-    });
-    return persistQueue.current;
-  };
+      });
+      return persistQueue.current;
+    },
+    [
+      connectSkipped,
+      draft.values,
+      norm,
+      queryClient,
+      selectedFactKeys,
+      siteReadID,
+      sourceMode,
+      t,
+      voiceSkipped,
+    ],
+  );
 
   useEffect(() => {
     if (seeded.current || existing.isPending || wizardState.isPending) {
@@ -638,7 +680,9 @@ function OnboardingCoordinator() {
     if (saved) {
       stateVersion.current = saved.version;
       statePath.current = saved.path;
-      setSourceMode(saved.source_mode ?? null);
+      const savedMode = saved.source_mode ?? null;
+      setSourceMode(savedMode);
+      sourceModeRef.current = savedMode;
       setSiteReadID(saved.site_read_id ?? null);
       setSelectedFactKeys(saved.selected_fact_keys);
       setVoiceSkipped(saved.voice_skipped);
@@ -660,7 +704,7 @@ function OnboardingCoordinator() {
         edited: new Set(),
       });
       if (route.id !== "connect") {
-        setStep(2);
+        setStep(1);
       }
     }
     setCompanySaved(Boolean(existing.data));
@@ -668,6 +712,7 @@ function OnboardingCoordinator() {
     existing.data,
     existing.isPending,
     route.id,
+    setDraft,
     wizardState.data,
     wizardState.isPending,
   ]);
@@ -688,6 +733,9 @@ function OnboardingCoordinator() {
       return data;
     },
     onSuccess: (data) => {
+      if (sourceModeRef.current !== "website") {
+        return;
+      }
       setSiteReadID(data.id);
       // Starting a read replaces the previous site's findings, so nothing
       // of it may survive: the fact selection goes, the legal trio the
@@ -696,7 +744,10 @@ function OnboardingCoordinator() {
       // resets because draft_version counts within ONE dossier — a new
       // read can open at a version the old one already passed.
       appliedReadVersion.current = 0;
-      setSelectedFactKeys([]);
+      const factKeys = [
+        ...new Set(data.facts.map((fact) => fact.value_key)),
+      ].slice(0, MAX_SELECTED_FACTS);
+      setSelectedFactKeys(factKeys);
       setDraft((prev) => {
         const values = { ...prev.values };
         const edited = new Set(prev.edited);
@@ -709,7 +760,7 @@ function OnboardingCoordinator() {
       persistState(0, {
         sourceMode: "website",
         siteReadID: data.id,
-        selectedFactKeys: [],
+        selectedFactKeys: factKeys,
       });
     },
   });
@@ -737,22 +788,29 @@ function OnboardingCoordinator() {
 
   useEffect(() => {
     const read = siteRead.data;
-    if (!read || read.draft_version <= appliedReadVersion.current) {
+    if (
+      sourceMode !== "website" ||
+      !read ||
+      read.draft_version <= appliedReadVersion.current
+    ) {
       return;
     }
     appliedReadVersion.current = read.draft_version;
-    setDraft((prev) => prefill(prev, read.profile_fields));
+    const nextDraft = prefill(draftRef.current, read.profile_fields);
+    setDraft(nextDraft);
     // A value key can name more than one fact — the same company can be
     // both a partner and a named customer — and the API takes a SET of
     // keys, so the selection folds the repeats rather than sending a
     // duplicate it would reject.
-    setSelectedFactKeys(
-      [...new Set(read.facts.map((fact) => fact.value_key))].slice(
-        0,
-        MAX_SELECTED_FACTS,
-      ),
-    );
-  }, [siteRead.data]);
+    const factKeys = [
+      ...new Set(read.facts.map((fact) => fact.value_key)),
+    ].slice(0, MAX_SELECTED_FACTS);
+    setSelectedFactKeys(factKeys);
+    persistState(0, {
+      selectedFactKeys: factKeys,
+      values: nextDraft.values,
+    });
+  }, [siteRead.data, persistState, setDraft, sourceMode]);
 
   const go = (next: number, persist = true) => {
     if (next < 0 || next >= STEPS.length) {
@@ -800,19 +858,7 @@ function OnboardingCoordinator() {
     });
 
   const setField = (field: CompanyFieldName, value: string) =>
-    setDraft((prev) => {
-      // Typing into a pre-filled field makes the value the human's assertion —
-      // it stops claiming the site's snippet as its evidence.
-      const grounded = { ...prev.grounded };
-      if (field in grounded) {
-        delete grounded[field as ColdField["field"]];
-      }
-      return {
-        values: { ...prev.values, [field]: value },
-        grounded,
-        edited: new Set(prev.edited).add(field),
-      };
-    });
+    setDraft((prev) => changeDraftField(prev, field, value));
 
   const save = useMutation({
     mutationFn: async (): Promise<CompanyProfile> => {
@@ -861,7 +907,7 @@ function OnboardingCoordinator() {
       // The server owns the stored shape (a full URL is reduced to its bare
       // domain) — show what was actually saved, not what was typed.
       setDraft((prev) => ({ ...prev, values: formFromProfile(profile) }));
-      go(2);
+      go(1);
     },
   });
 
@@ -870,9 +916,23 @@ function OnboardingCoordinator() {
   const missingRequired = REQUIRED_FIELDS.filter(
     (field) => draft.values[field].trim() === "",
   );
-  const saveCompany = () => {
+  const websiteResearchReady =
+    sourceMode !== "website" ||
+    siteRead.data?.status === "ready" ||
+    siteRead.data?.status === "partial";
+  const saveCompany = async () => {
     setSaveAttempted(true);
-    if (missingRequired.length > 0) {
+    if (missingRequired.length > 0 || !websiteResearchReady) {
+      return;
+    }
+    if (
+      sourceMode === "manual" &&
+      !(await persistState(0, {
+        sourceMode: "manual",
+        siteReadID: null,
+        values: draft.values,
+      }))
+    ) {
       return;
     }
     save.mutate();
@@ -949,6 +1009,7 @@ function OnboardingCoordinator() {
                   ? siteRead.error.message
                   : null
             }
+            companyDraft={onboardingDraftPayload(draft.values)}
             manualContent={
               sourceMode === "manual" ? (
                 <ManualCompanyInterview
@@ -961,6 +1022,7 @@ function OnboardingCoordinator() {
                     })
                   }
                   onBackToChoice={() => {
+                    sourceModeRef.current = null;
                     setSourceMode(null);
                     persistState(0, {
                       sourceMode: null,
@@ -968,22 +1030,20 @@ function OnboardingCoordinator() {
                     });
                   }}
                   onComplete={() => {
-                    persistState(1, {
+                    persistState(0, {
                       sourceMode: "manual",
                       siteReadID: null,
                     });
-                    go(1, false);
                   }}
                 />
               ) : null
             }
             onWebsiteChange={(value) => setField("website", value)}
-            onChooseWebsite={() => {
-              setSourceMode("website");
-              persistState(0, { sourceMode: "website" });
-            }}
             onChooseManual={() => {
+              sourceModeRef.current = "manual";
               setSourceMode("manual");
+              setSiteReadID(null);
+              appliedReadVersion.current = 0;
               setSelectedFactKeys([]);
               persistState(0, {
                 sourceMode: "manual",
@@ -991,44 +1051,57 @@ function OnboardingCoordinator() {
                 selectedFactKeys: [],
               });
             }}
-            onStart={() => startRead.mutate()}
+            onStart={() => {
+              sourceModeRef.current = "website";
+              setSourceMode("website");
+              startRead.mutate();
+            }}
             onApplyChanges={(changes) => {
+              let nextDraft = draft;
               for (const change of changes) {
-                setField(change.field, change.value);
+                nextDraft = changeDraftField(
+                  nextDraft,
+                  change.field,
+                  change.value,
+                );
               }
+              setDraft(nextDraft);
+              persistState(0, { values: nextDraft.values });
             }}
-            onContinue={() => {
-              persistState(1, { sourceMode: "website", selectedFactKeys });
-              go(1, false);
-            }}
+            reviewContent={
+              sourceMode !== null ? (
+                <CompanyStep
+                  embedded
+                  draft={draft}
+                  setField={setField}
+                  saved={companySaved}
+                  saveError={save.isError ? save.error.message : null}
+                  missingRequired={saveAttempted ? missingRequired : []}
+                  read={siteRead.data ?? null}
+                  onPickEntity={setLegalEntity}
+                  selectedFactKeys={selectedFactKeys}
+                  setSelectedFactKeys={(keys) => {
+                    setSelectedFactKeys(keys);
+                    persistState(0, { selectedFactKeys: keys });
+                  }}
+                  onFieldBlur={() => persistState(0)}
+                />
+              ) : null
+            }
+            confirmPending={save.isPending}
+            confirmDisabled={!websiteResearchReady}
+            onConfirm={saveCompany}
           />
         )}
-        {step === 1 && (
-          <CompanyStep
-            draft={draft}
-            setField={setField}
-            saved={companySaved}
-            saveError={save.isError ? save.error.message : null}
-            missingRequired={saveAttempted ? missingRequired : []}
-            read={siteRead.data ?? null}
-            onPickEntity={setLegalEntity}
-            selectedFactKeys={selectedFactKeys}
-            setSelectedFactKeys={(keys) => {
-              setSelectedFactKeys(keys);
-              persistState(1, { selectedFactKeys: keys });
-            }}
-            onFieldBlur={() => persistState(1)}
-          />
-        )}
-        {step === 2 && <VoiceStep onBuilt={() => setVoiceBuilt(true)} />}
-        {step === 3 && (
+        {step === 1 && <VoiceStep onBuilt={() => setVoiceBuilt(true)} />}
+        {step === 2 && (
           <ResultsStep
             voiceBuilt={voiceBuilt}
             profileSaved={companySaved}
             profile={existing.data ?? undefined}
           />
         )}
-        {step === 4 && (
+        {step === 3 && (
           <ConnectStep outcome={connectOutcome} onComplete={finishOnboarding} />
         )}
 
@@ -1036,12 +1109,10 @@ function OnboardingCoordinator() {
           <Footer
             step={step}
             go={go}
-            onSaveCompany={saveCompany}
-            savePending={save.isPending}
             memberPath={memberPath}
             onSkipVoice={() => {
               setVoiceSkipped(true);
-              const next = memberPath ? 4 : 3;
+              const next = memberPath ? 3 : 2;
               persistState(next, { voiceSkipped: true });
               go(next, false);
             }}
@@ -1057,24 +1128,20 @@ function OnboardingCoordinator() {
 function Footer({
   step,
   go,
-  onSaveCompany,
-  savePending,
   memberPath,
   onSkipVoice,
 }: Readonly<{
   step: number;
   go: (n: number, persist?: boolean) => void;
-  onSaveCompany: () => void;
-  savePending: boolean;
   memberPath: boolean;
   onSkipVoice: () => void;
 }>) {
   const t = useT();
   let backTarget: number | null = step - 1;
-  if (memberPath && step === 2) {
+  if (memberPath && step === 1) {
     backTarget = null;
-  } else if (memberPath && step === 4) {
-    backTarget = 2;
+  } else if (memberPath && step === 3) {
+    backTarget = 1;
   }
   return (
     <div className="wiz-foot">
@@ -1091,34 +1158,17 @@ function Footer({
       )}
       <span className="grow" />
       {step === 1 && (
-        <Button
-          variant="primary"
-          disabled={savePending}
-          onClick={onSaveCompany}
-        >
-          {savePending ? (
-            <>
-              <span className="ob-spinner" /> {t("ob.s1.saving")}
-            </>
-          ) : (
-            <>
-              {t("ob.next")} <ArrowRight aria-hidden />
-            </>
-          )}
-        </Button>
-      )}
-      {step === 2 && (
         <>
           <button type="button" className="wiz-later" onClick={onSkipVoice}>
             {t("ob.skipStep")}
           </button>
-          <Button variant="primary" onClick={() => go(memberPath ? 4 : 3)}>
+          <Button variant="primary" onClick={() => go(memberPath ? 3 : 2)}>
             {t("ob.next")} <ArrowRight aria-hidden />
           </Button>
         </>
       )}
-      {step === 3 && (
-        <Button variant="primary" onClick={() => go(4)}>
+      {step === 2 && (
+        <Button variant="primary" onClick={() => go(3)}>
           {t("ob.s3.cta")} <ArrowRight aria-hidden />
         </Button>
       )}
@@ -1249,6 +1299,7 @@ function CompanyStep({
   setSelectedFactKeys,
   onPickEntity,
   onFieldBlur,
+  embedded = false,
 }: Readonly<{
   draft: CompanyDraft;
   setField: (field: CompanyFieldName, value: string) => void;
@@ -1260,14 +1311,19 @@ function CompanyStep({
   selectedFactKeys: readonly string[];
   setSelectedFactKeys: (keys: string[]) => void;
   onFieldBlur: () => void;
+  embedded?: boolean;
 }>) {
   const t = useT();
 
   return (
-    <section className="ob-panel">
-      <div className="kick">{t("ob.s1.kick")}</div>
-      <h1 className="ttl">{t("ob.s1.title")}</h1>
-      <p className="ob-sub">{t("ob.s1.sub")}</p>
+    <section className={embedded ? "ob-company-review" : "ob-panel"}>
+      {!embedded && (
+        <>
+          <div className="kick">{t("ob.s1.kick")}</div>
+          <h1 className="ttl">{t("ob.s1.title")}</h1>
+          <p className="ob-sub">{t("ob.s1.sub")}</p>
+        </>
+      )}
 
       <div className="confirm-origin">
         <ShieldCheck aria-hidden />

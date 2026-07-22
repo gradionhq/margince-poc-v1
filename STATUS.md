@@ -98,6 +98,35 @@ keyboard/IME behavior, reduced motion, long messages, and citation identity are
 covered by the 610-test frontend lane; `make check` and all 18 real-Postgres
 integration packages pass with zero skips.
 
+**Unified conversational Company onboarding and live Margince workspace.** The
+visible wizard is now Company → Voice → Results → Connect; the separate Review
+screen is gone. Website research, one-question-at-a-time manual collection,
+live discoveries, the proposed company profile, corrections, legal-entity
+choice, and confirmation share one responsive workbench. The right-hand
+artifact fills while the crawler runs and keeps legal identity, address and
+register/VAT data ahead of offer, products, ICP, pains, outcomes, positioning,
+history, industry and sales motion. Confirmation saves directly and advances
+to Voice. A typed, bounded company-conversation endpoint covers both modes;
+ordinary/status/off-topic replies cannot smuggle proposed changes, while an
+explicit correction or recommendation remains evidence-checked and
+human-approved. The regression phrase “Does this work?” now returns a factual
+first-person status response with no apology or mutation.
+
+The reusable Core/workbench header separates the complete configured model
+bindings from the provider-served models actually used for this task, and shows
+the cumulative calls, tokens, terminal-call latency, estimated USD cost and any
+unpriced calls. The authenticated detailed AI profile uses the same
+operational-configuration grant as AI call and usage telemetry; the anonymous
+assistant profile remains deliberately minimal. A browser cold start against
+`gradion.com` streamed from 1 to 40
+pages, surfaced five intact legal entities and 110 cited details, produced the
+offer and ICP, answered an ordinary chat message correctly, saved the chosen
+German legal entity, and advanced directly to Voice. That pass also exposed and
+fixed the ingestion regression: a single `http.Client` page timeout was being
+misread as the crawler's global deadline. Page timeouts now record that page as
+unreadable and discovery continues; the irreplaceable seed and sitemap each get
+one bounded transient retry, with localized company/legal probes as fallback.
+
 **Website-ingestion quality and the Core research stage.** The onboarding
 read was benchmarked against Stripe, Notion, Linear, Personio, DeepL, Celonis,
 Contentful, Forto, GetYourGuide, and Miro, then tuned against the same corpus.
@@ -720,11 +749,17 @@ Open work, roughly in priority order:
   surviving output is the legal census is recorded as failed, because the
   survivor check ignores `merged.entities`.
 
-- **Onboarding UI — restructured, not redesigned.** The company step lost its
-  advertorial copy and the hundred evidence cards moved below the form (collapsed
-  behind a count), but the five-step wizard itself is unchanged. A rethink of the
-  flow is still open, as is the server-side binding that would let the entity
-  picker honestly claim site provenance for the legal trio.
+- **Conversational Company workspace — baseline implemented; reconciliation open.**
+  [The consolidated concept](docs/explanation/margince-conversational-workspace-concept.md)
+  replaces the website/manual chooser and separate Review step with one scoped
+  conversation: optional live website research, legal-first website-free
+  collection, a progressively filled company artifact, corrections and
+  version-bound confirmation in place. It also defines abuse controls and a
+  reusable `assistantflow` direction proven by onboarding plus company-context
+  maintenance. The four-step Company → Voice → Results → Connect baseline is
+  implemented. Remaining upstream reconciliation covers the canonical wizard
+  description, legal must-resolve semantics, response-intent vocabulary, and
+  compatibility contract for the reusable framework.
 
 - **Voice DNA follow-ons** — the lifecycle, the real onboarding step and the
   settings surface are merged (see *Recently landed*). Still open: the

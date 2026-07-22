@@ -44,6 +44,7 @@ maps the codebase and links everything below.
 - [agent-surface.md](explanation/agent-surface.md) — the Surface-B reasoning loop and the model runtime.
 - [ai-runtime.md](explanation/ai-runtime.md) — the AI task contract, tiers/ladders, the routing config, the one Router gate, honest tracing, and certification.
 - [company-context.md](explanation/company-context.md) — the five-step onboarding wizard, the governed company profile (profile fields, facts, site reads), and how bounded company context reaches AI tasks.
+- [margince-conversational-workspace-concept.md](explanation/margince-conversational-workspace-concept.md) — the implemented unified Company onboarding conversation—optional live website research, website-free collection, scoped interaction safety, and in-workspace confirmation—plus the planned reusable Margince interaction framework.
 - [privacy-and-consent.md](explanation/privacy-and-consent.md) — the consent gate and the GDPR engines (erasure / SAR / retention).
 - [custom-fields.md](explanation/custom-fields.md) — the one runtime `ALTER TABLE` chokepoint: the closed type/object sets, the privilege boundary, and the `fieldcatalog` seam.
 - [overlay-augmentation.md](explanation/overlay-augmentation.md) — the two SoR modes, the frozen seam + inner incumbent seam, the mirror-as-cache, fail-closed visibility, and teardown for the HubSpot overlay (branch 1: read + continuous sync).
