@@ -5424,7 +5424,7 @@ paths:
             unattributed_transcript, speaker_label_required, speaker_not_found,
             unsupported_format, or the generic invalid.
           content:
-            application/json:
+            application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
 
   /voice-profiles/{id}/sources/preview:
@@ -5459,7 +5459,7 @@ paths:
             Unusable input. details.errors[].code is stable and voiceable:
             unsupported_format, or the generic invalid.
           content:
-            application/json:
+            application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
 
   /voice-profiles/{id}/sources/{sourceId}:

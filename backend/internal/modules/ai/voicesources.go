@@ -146,7 +146,7 @@ func prepareSource(in IngestSourceInput) (preparedSource, error) {
 	}
 	format := in.Format
 	switch format {
-	case "", "text":
+	case "", corpusWireFormatText:
 		format = corpusFormatTxt
 	case voiceSourceKindTranscript:
 		format = transcriptCorpusFormat(in.Content)

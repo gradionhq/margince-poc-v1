@@ -13,6 +13,10 @@ package ai
 
 import "strings"
 
+// corpusWireFormatText is the wire-level format discriminator (ingest and
+// preview requests): plain single-author prose, no speaker structure.
+const corpusWireFormatText = "text"
+
 // CorpusSpeaker aggregates one detected speaker in a previewed source.
 // Turns counts logical turns: consecutive lines of the same speaker (a
 // wrapped cue) fold into one.
@@ -44,7 +48,7 @@ func PreviewCorpusText(format, content string) (CorpusPreview, error) {
 	}
 	var concrete string
 	switch format {
-	case "", "text":
+	case "", corpusWireFormatText:
 		concrete = corpusFormatTxt
 	case voiceSourceKindTranscript:
 		concrete = transcriptCorpusFormat(content)
@@ -65,7 +69,6 @@ func PreviewCorpusText(format, content string) (CorpusPreview, error) {
 	preview := CorpusPreview{DetectedFormat: concrete}
 	index := map[string]int{}
 	previousSpeaker := ""
-	newRun := true
 	for _, turn := range turns {
 		words := WordCount(turn.Text)
 		preview.TotalWords += words
@@ -75,7 +78,7 @@ func PreviewCorpusText(format, content string) (CorpusPreview, error) {
 			continue
 		}
 		key := normalizeSpeaker(turn.Speaker)
-		newRun = key != previousSpeaker
+		newRun := key != previousSpeaker
 		previousSpeaker = key
 		at, seen := index[key]
 		if !seen {
