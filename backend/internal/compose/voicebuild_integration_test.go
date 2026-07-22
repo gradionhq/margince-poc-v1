@@ -21,6 +21,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
+
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -335,5 +338,75 @@ func TestVoiceBuildStarterCorpusActivatesUnevaluated(t *testing.T) {
 	}
 	if len(active.ReviewReasons) == 0 || !strings.Contains(active.ReviewReasons[0], "too small") {
 		t.Fatalf("review reasons = %v, must state that evaluation did not run", active.ReviewReasons)
+	}
+}
+
+func voiceBuildJob(env *voiceBuildEnv, build ai.VoiceBuild) *river.Job[VoiceBuildArgs] {
+	return &river.Job[VoiceBuildArgs]{
+		JobRow: &rivertype.JobRow{},
+		Args: VoiceBuildArgs{
+			Workspace: env.e.WS.String(), ProfileID: env.profile.ID.String(),
+			BuildID: build.ID.String(), RequestedBy: env.e.Rep1.String(),
+		},
+	}
+}
+
+func TestVoiceBuildWorkEndToEnd(t *testing.T) {
+	quote := "Work-path quote."
+	env, build := seedVoiceBuild(t, quote, 6)
+	worker := newVoiceBuildWorker(env.e.Pool, &scriptedBuildBrain{judgeScore: 0.9, quote: quote}, slog.New(slog.DiscardHandler))
+
+	if err := worker.Work(context.Background(), voiceBuildJob(env, build)); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	finished, err := env.store.GetBuild(env.owner, env.profile.ID, build.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finished.Status != "succeeded" {
+		t.Fatalf("build after Work = %+v, want succeeded", finished)
+	}
+
+	// A redelivered job for the terminal row is a clean no-op.
+	if err := worker.Work(context.Background(), voiceBuildJob(env, build)); err != nil {
+		t.Fatalf("redelivered Work on a terminal build: %v", err)
+	}
+}
+
+func TestVoiceBuildWorkSnoozesWhileAnotherClaimIsLive(t *testing.T) {
+	env, build := seedVoiceBuild(t, "Contended quote.", 6)
+	ctx := env.workerCtx(t)
+	if _, claimed, err := env.store.ClaimBuild(ctx, env.profile.ID, build.ID, time.Minute); err != nil || !claimed {
+		t.Fatalf("rival claim: %v claimed=%v", err, claimed)
+	}
+	worker := newVoiceBuildWorker(env.e.Pool, &scriptedBuildBrain{judgeScore: 0.9, quote: "Contended quote."}, slog.New(slog.DiscardHandler))
+	err := worker.Work(context.Background(), voiceBuildJob(env, build))
+	if err == nil {
+		t.Fatal("a live rival claim must snooze the job, never succeed it — success would strand the build")
+	}
+	current, getErr := env.store.GetBuild(env.owner, env.profile.ID, build.ID)
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if current.Status != "running" {
+		t.Fatalf("build = %s, the rival's claim must be untouched", current.Status)
+	}
+}
+
+func TestVoiceBuildWorkWithoutABrainFailsClosed(t *testing.T) {
+	env, build := seedVoiceBuild(t, "Brainless quote.", 6)
+	worker := newVoiceBuildWorker(env.e.Pool, nil, slog.New(slog.DiscardHandler))
+	if err := worker.Work(context.Background(), voiceBuildJob(env, build)); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	finished, err := env.store.GetBuild(env.owner, env.profile.ID, build.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finished.Status != "failed" || finished.StatusCode == nil || *finished.StatusCode != "model_unavailable" {
+		t.Fatalf("brainless build = %+v, want failed/model_unavailable", finished)
+	}
+	if finished.StatusDetail == nil || !strings.Contains(*finished.StatusDetail, "AI provider") {
+		t.Fatalf("detail = %v, must tell the operator what to configure", finished.StatusDetail)
 	}
 }
