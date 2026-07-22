@@ -64,7 +64,7 @@ iso_hits="$(grep -rnE "$iso" "$scan" --include='*.go' 2>/dev/null \
   | strip_comments | grep -E "$iso" || true)"
 
 if [[ -n "$hits" ]] || [[ -n "$iso_hits" ]]; then
-  echo "FAIL: jurisdiction-specific strings in core (move to the jurisdiction pack, extensions/de):"
+  echo "FAIL: jurisdiction-specific strings in core (move to the owning jurisdiction pack under extensions/<jurisdiction>):"
   [[ -n "$hits" ]] && echo "$hits"
   [[ -n "$iso_hits" ]] && echo "$iso_hits"
   exit 1

@@ -78,13 +78,22 @@ check-composition: composition ## Reproducibility gate: a clean regeneration mus
 	@$(GO) run ./tools/gen-composition -verify
 	@echo "OK: composition reproducible"
 
-test-extensions: composition ## Every enabled extension's own test lane (each unit is its own module — ./... never reaches them), on the composed workspace
-	@set -e; found=0; \
+# EXT_COVER_OUT (optional): merge every unit's -coverprofile into ONE
+# report — first-party extension coverage reaches the Sonar quality gate
+# like core coverage does, instead of hiding behind an exclusion.
+test-extensions: composition ## Every enabled extension's own test lane (each unit is its own module — ./... never reaches them), on the composed workspace [EXT_COVER_OUT=<file> merges a coverage profile]
+	@set -e; found=0; out="$(if $(EXT_COVER_OUT),$(abspath $(EXT_COVER_OUT)))"; \
+	[ -z "$$out" ] || { rm -f "$$out"; tmp=$$(mktemp); trap 'rm -f "$$tmp"' EXIT; }; \
 	for mod in ../extensions/*/go.mod; do \
 		[ -e "$$mod" ] || continue; found=1; \
 		dir=$$(dirname "$$mod"); \
 		echo "== $$dir"; \
-		(cd "$$dir" && $(GOWORK_COMPOSED) $(GO) test ./...); \
+		if [ -n "$$out" ]; then \
+			(cd "$$dir" && $(GOWORK_COMPOSED) $(GO) test -coverprofile="$$tmp" -coverpkg=./... ./...); \
+			if [ -s "$$out" ]; then tail -n +2 "$$tmp" >> "$$out"; else cp "$$tmp" "$$out"; fi; \
+		else \
+			(cd "$$dir" && $(GOWORK_COMPOSED) $(GO) test ./...); \
+		fi; \
 	done; \
 	[ "$$found" = "1" ] || echo "test-extensions: no enabled Go extensions"
 

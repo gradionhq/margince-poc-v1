@@ -124,6 +124,26 @@ func TestRegisterExtensionsRejectsANegativePeriod(t *testing.T) {
 	}
 }
 
+// TestRegisterExtensionsRejectsAnUnknownAnchor: anchors are a closed
+// set — an invented anchor would be a floor whose start the engine
+// silently misreads.
+func TestRegisterExtensionsRejectsAnUnknownAnchor(t *testing.T) {
+	err := RegisterExtensions([]extension.Extension{{
+		Name:    "odd-anchor",
+		Version: "0.0.1",
+		Jurisdictions: []jurisdiction.Pack{fakePack{
+			code:    "zs",
+			classes: []jurisdiction.RetentionClass{{Name: jurisdiction.CommercialCorrespondence, Keep: jurisdiction.Period{Years: 6}, Anchor: "fiscal_year_end"}},
+		}},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "closed anchor set") {
+		t.Fatalf("err = %v, want the closed-anchor rejection", err)
+	}
+	if _, ok := jurisdiction.For("zs"); ok {
+		t.Fatal("the pack landed although its anchor failed validation")
+	}
+}
+
 // TestNoCapabilityAppliesWhenTheSetIsInvalid: validation and application
 // are separate phases — a clean unit's capabilities must not land when a
 // later unit fails validation, or a crash-looping process would leave

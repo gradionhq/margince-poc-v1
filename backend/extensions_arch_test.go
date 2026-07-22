@@ -197,6 +197,21 @@ func TestSurfaceMarkerLivesOnlyUnderPkg(t *testing.T) {
 	}
 }
 
+// compositionWiringFiles are the ONLY files that may import the
+// composed extension set — the role mains themselves (an explicit
+// allowlist, not a cmd/ prefix: any other file under cmd/ importing it
+// would be a second composition entry point slipping in unnoticed) —
+// and `required` marks the mains that MUST wire it: a role silently
+// dropping the import would serve without the enabled extensions.
+// migrate is permitted but not yet required — it joins when the
+// extension migration namespace lands (ADR-0069 §9).
+var compositionWiringFiles = map[string]bool{
+	"cmd/api/main.go":     true,
+	"cmd/worker/main.go":  true,
+	"cmd/mcp/main.go":     true,
+	"cmd/migrate/main.go": false,
+}
+
 // TestCompositionWiredOnlyFromCmd: the backend imports the composed
 // extension set exactly at the four role mains — anywhere else would be
 // a second composition path — and never imports an extension module
@@ -204,19 +219,28 @@ func TestSurfaceMarkerLivesOnlyUnderPkg(t *testing.T) {
 // compose file, ADR-0069 §3).
 func TestCompositionWiredOnlyFromCmd(t *testing.T) {
 	extMods := extensionModulePaths(t, extensionTrees(t))
+	wired := map[string]bool{}
 	for file, imports := range goImports(t, ".") {
 		if strings.HasPrefix(file, "tools/") {
 			continue // the generator authors these strings; it wires nothing
 		}
 		for _, imp := range imports {
-			if imp == compositionModulePath && !strings.HasPrefix(file, "cmd/") {
-				t.Errorf("%s imports the composition module: only cmd/<role> mains wire the composed extension set", file)
+			if imp == compositionModulePath {
+				if _, allowed := compositionWiringFiles[file]; !allowed {
+					t.Errorf("%s imports the composition module: only the role mains (cmd/<role>/main.go) wire the composed extension set", file)
+				}
+				wired[file] = true
 			}
 			for _, mod := range extMods {
 				if imp == mod || strings.HasPrefix(imp, mod+"/") {
 					t.Errorf("%s imports extension module %s: the backend reaches extensions only through the generated composition", file, mod)
 				}
 			}
+		}
+	}
+	for file, required := range compositionWiringFiles {
+		if required && !wired[file] {
+			t.Errorf("%s no longer imports the composition module: this role would boot WITHOUT the enabled extensions", file)
 		}
 	}
 }

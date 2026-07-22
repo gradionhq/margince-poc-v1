@@ -42,7 +42,7 @@ type gobdFloorClasses struct{}
 
 func (gobdFloorClasses) Classes() []jurisdiction.RetentionClass {
 	return []jurisdiction.RetentionClass{
-		{Name: jurisdiction.CommercialCorrespondence, Keep: jurisdiction.Period{Years: 6}},
+		{Name: jurisdiction.CommercialCorrespondence, Keep: jurisdiction.Period{Years: 6}, Anchor: jurisdiction.AnchorCalendarYearEnd},
 	}
 }
 
@@ -54,7 +54,7 @@ func init() {
 
 func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 	e := Setup(t)
-	email, note := ids.NewV7(), ids.NewV7()
+	email, note, janEmail := ids.NewV7(), ids.NewV7(), ids.NewV7()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
 		wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
@@ -69,10 +69,20 @@ func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 			email); err != nil {
 			return err
 		}
-		_, err := tx.Exec(ctx, `
+		if _, err := tx.Exec(ctx, `
 			INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
 			VALUES ($1, `+wsClause+`, 'note', 'Old scratch note', 'ephemeral', now() - interval '400 days', 'capture', 'connector:t')`,
-			note)
+			note); err != nil {
+			return err
+		}
+		// The §147(4) boundary: a January email six-and-a-half years old.
+		// An occurrence-anchored 6y floor would already expose it; the
+		// calendar-year-end anchor keeps it until its year's end + 6y.
+		_, err := tx.Exec(ctx, `
+			INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
+			VALUES ($1, `+wsClause+`, 'email', 'January Handelsbrief', 'commercial content',
+			        date_trunc('year', now() - interval '6 years') + interval '14 days', 'capture', 'connector:t')`,
+			janEmail)
 		return err
 	})
 	if err != nil {
@@ -84,9 +94,12 @@ func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var emailBody, noteBody *string
+	var emailBody, noteBody, janBody *string
 	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(context.Background(), `SELECT body FROM activity WHERE id = $1`, email).Scan(&emailBody); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(context.Background(), `SELECT body FROM activity WHERE id = $1`, janEmail).Scan(&janBody); err != nil {
 			return err
 		}
 		return tx.QueryRow(context.Background(), `SELECT body FROM activity WHERE id = $1`, note).Scan(&noteBody)
@@ -96,6 +109,9 @@ func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 	}
 	if emailBody == nil {
 		t.Error("the GoBD floor failed: a 400-day-old email was destroyed against the 6-year statute")
+	}
+	if janBody == nil {
+		t.Error("the §147(4) anchor failed: a January email inside its calendar-year-end window was destroyed (occurrence anchoring erases it ~11 months early)")
 	}
 	if noteBody != nil {
 		t.Error("the floor over-shielded: a plain note past the policy age survived")

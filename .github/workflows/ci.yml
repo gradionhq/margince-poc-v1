@@ -238,10 +238,20 @@ jobs:
         working-directory: .
         run: make -C backend build test check-composition
       # Tree-derived: every enabled unit's own module lane (the committed
-      # first-party extensions AND the copied-in reference fixture).
-      - name: Extension self-test lanes
+      # first-party extensions AND the copied-in reference fixture). The
+      # same run emits the merged coverage profile the sonarcloud job
+      # consumes — extension units are their own modules, unreachable by
+      # the shard profiles, and this job runs PARALLEL to the shard
+      # fleet, so coverage costs no extra test run and no fan-in latency.
+      - name: Extension self-test lanes (+ coverage)
         working-directory: .
-        run: make -C backend test-extensions
+        run: make -C backend test-extensions EXT_COVER_OUT="$PWD/backend/coverage-extensions.out"
+      - name: Upload extension coverage
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: go-coverage-extensions
+          path: backend/coverage-extensions.out
+          if-no-files-found: ignore
 
   # The code-craftsmanship gate (ADR-0045) runs only after the deterministic
   # gates are green — a red build must never be judged on style.
@@ -471,12 +481,13 @@ jobs:
     # Analysis" check over a broken build (result == 'failure' fails this
     # condition, so the scan is skipped); the PR is already red, so nothing that
     # wasn't already blocked is blocked.
-    needs: [deterministic-gates, integration, frontend]
+    needs: [deterministic-gates, integration, frontend, extension-reference]
     if: >-
       !cancelled()
       && (needs.deterministic-gates.result == 'success' || needs.deterministic-gates.result == 'skipped')
       && (needs.integration.result == 'success' || needs.integration.result == 'skipped')
       && (needs.frontend.result == 'success' || needs.frontend.result == 'skipped')
+      && (needs.extension-reference.result == 'success' || needs.extension-reference.result == 'skipped')
       && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     defaults:
@@ -491,16 +502,23 @@ jobs:
           persist-credentials: false
           # Full history so SonarCloud can attribute blame / compute new code.
           fetch-depth: 0
-      # Coverage the integration + frontend jobs already produced. Each download
-      # is guarded on its producer having run (a skipped area uploaded nothing);
-      # if-no-files-found tolerates the gap so the scan still posts. The paths
-      # match sonar-project.properties (backend/coverage.out,
+      # Coverage the integration + frontend + extension-reference jobs already
+      # produced. Each download is guarded on its producer having run (a
+      # skipped area uploaded nothing); if-no-files-found tolerates the gap so
+      # the scan still posts. The paths match sonar-project.properties
+      # (backend/coverage.out, backend/coverage-extensions.out,
       # frontend/coverage/lcov.info).
       - name: Download Go coverage
         if: ${{ env.SONAR_TOKEN != '' && needs.integration.result == 'success' }}
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: go-coverage
+          path: backend
+      - name: Download extension coverage
+        if: ${{ env.SONAR_TOKEN != '' && needs.extension-reference.result == 'success' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: go-coverage-extensions
           path: backend
       - name: Download FE coverage
         if: ${{ env.SONAR_TOKEN != '' && needs.frontend.result == 'success' }}

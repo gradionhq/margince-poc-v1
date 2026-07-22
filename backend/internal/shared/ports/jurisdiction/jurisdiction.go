@@ -53,6 +53,16 @@ const (
 	AccountingRecords = pub.AccountingRecords
 )
 
+// Anchor is the published retention-anchor type, aliased like Pack.
+type Anchor = pub.Anchor
+
+const (
+	// AnchorOccurrence is the published constant, re-exported.
+	AnchorOccurrence = pub.AnchorOccurrence
+	// AnchorCalendarYearEnd is the published constant, re-exported.
+	AnchorCalendarYearEnd = pub.AnchorCalendarYearEnd
+)
+
 var (
 	mu    sync.RWMutex
 	packs = map[Code]Pack{}

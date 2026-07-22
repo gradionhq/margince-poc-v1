@@ -3,13 +3,22 @@
 
 package extension
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestNameValidate(t *testing.T) {
 	for _, valid := range []Name{"de", "crm-hello", "a2-b3-c4"} {
 		if err := valid.Validate(); err != nil {
 			t.Errorf("Name(%q).Validate() = %v, want nil", valid, err)
 		}
+	}
+	if long := Name(strings.Repeat("a", 33)); long.Validate() == nil {
+		t.Error("a 33-character name passed validation — SQL identifiers derived from it would risk 63-byte truncation collisions")
+	}
+	if atCap := Name(strings.Repeat("a", 32)); atCap.Validate() != nil {
+		t.Error("a 32-character name must pass — that is the documented cap")
 	}
 	for _, invalid := range []Name{"", "Bad_Name", "-foo", "foo-", "foo--bar", "über", "a b"} {
 		if err := invalid.Validate(); err == nil {
