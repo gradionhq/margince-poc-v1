@@ -142,8 +142,8 @@ func TestHubSpotContactFullNameFidelity(t *testing.T) {
 		t.Fatalf("Apply (nameless, emailless): %v", err)
 	}
 	got, ok := out["full_name"].(string)
-	if !ok || got == "" {
-		t.Errorf("full_name for a nameless, emailless contact = %#v, want a non-empty placeholder string", out["full_name"])
+	if !ok || got != "(unnamed contact)" {
+		t.Errorf("full_name for a nameless, emailless contact = %#v, want the stable placeholder %q", out["full_name"], "(unnamed contact)")
 	}
 }
 
@@ -282,6 +282,7 @@ func TestHubSpotDealAmountCurrencyFidelity(t *testing.T) {
 		{"JPY exponent 0", "1000", "JPY", 1000},
 		{"EUR exponent 2", "10.00", "EUR", 1000},
 		{"BHD exponent 3", "1.500", "BHD", 1500},
+		{"CLF exponent 4", "1.5000", "CLF", 15000},
 		{"lowercase code uppercased", "10.00", "usd", 1000},
 	}
 	for _, tc := range cases {

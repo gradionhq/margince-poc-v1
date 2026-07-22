@@ -174,7 +174,12 @@ func transformFullName(v any) (any, error) {
 	if !ok {
 		return nil, fmt.Errorf("overlay: full_name transform expects a property map, got %T", v)
 	}
-	if name := strings.TrimSpace(stringField(fields, "firstname") + " " + stringField(fields, "lastname")); name != "" {
+	// Trim each component before joining so a property carrying boundary
+	// whitespace ("Ada ") does not leave a doubled internal space after the
+	// join, while a genuine internal space ("Mary Jane") is preserved.
+	firstName := strings.TrimSpace(stringField(fields, "firstname"))
+	lastName := strings.TrimSpace(stringField(fields, "lastname"))
+	if name := strings.TrimSpace(firstName + " " + lastName); name != "" {
 		return name, nil
 	}
 	if email := strings.TrimSpace(stringField(fields, "email")); email != "" {
@@ -234,10 +239,12 @@ func transformAmountMinorByCurrency(v any) (any, error) {
 // (data-semantics §1 / DM-CONV-9) requires.
 func iso4217MinorUnitExponent(code string) int {
 	switch code {
-	case "BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW", "PYG", "RWF", "UGX", "VND", "VUV", "XAF", "XOF", "XPF":
+	case "BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW", "PYG", "RWF", "UGX", "UYI", "VND", "VUV", "XAF", "XOF", "XPF":
 		return 0
 	case "BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND":
 		return 3
+	case "CLF", "UYW":
+		return 4
 	default:
 		return 2
 	}
