@@ -22,6 +22,32 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**The CI integration lane is sharded per test across twelve runners.** The
+single-runner lane took ~6.5 minutes and floored at `compose/integration`
+(minutes of serial tests), so package-level parallelism could not shorten
+it further. `INTEGRATION_SHARD=k/N` in
+`scripts/test-integration-parallel.sh` now runs a deterministic round-robin
+slice of every package's top-level Test functions via `-run`; discovery is
+static, allowlists lone build tags (`integration` in; the opt-in lanes
+`e2e_llm`/`livesmoke` skipped exactly as the compiler skips them), and
+fails loudly on any other constraint. Each shard proves it ran exactly its
+assigned slice, and the `integration` fan-in job — same required-check
+name, so branch protection is unchanged — runs
+`scripts/test-integration-reconcile.sh` to prove the slices are complete
+and disjoint against one discovery before merging the binary coverage pods
+(shards plus the new unit-coverage job) into the `coverage.out` SonarCloud
+reads. Slices are count-based; `INTEGRATION_JOBS=16` per runner (the lane
+is DB-bound, not core-bound) removes the heavy-tail straggler that
+count-based slices dealt at 8 and 12 shards, and twelve runners stay under
+the org's concurrent-runner ceiling that queued shards at sixteen.
+Measured: backend PR wall-clock ~8m → ~5m, the lane itself 6m30s → 3m20s.
+Rounded out by two fixes the fleet surfaced: a gate-binaries cache hit now
+skips `make tools` in deterministic-gates (~40s — `go install` re-proves an
+existing binary against a cold build cache), and the compose Postgres
+healthcheck probes TCP instead of the unix socket the entrypoint's
+temporary first-boot server also serves (twelve fresh first-boots per push
+turned that latent race live).
+
 **Voice DNA became a working engine, consumed by drafting, with the impress
 surface.** The queued `voice_build` row finally has an executor: a River
 worker claims it crash-safely (snapshot → extract → evaluate → activate,
