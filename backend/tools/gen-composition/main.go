@@ -41,6 +41,14 @@ func main() {
 	}
 }
 
+// The composition's fixed artifact names, spelled once — they appear as
+// output keys, on-disk paths, and gate messages alike.
+const (
+	manifestFile  = "composition.json"
+	goWorkFile    = "go.work"
+	goWorkSumFile = "go.work.sum"
+)
+
 // manifest is composition.json: the digest binding that replaces the
 // committed-file drift gate for ignored composition output (the ADR's
 // "regenerate-don't-merge" rule made checkable).
@@ -125,7 +133,7 @@ func generate(root string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(outRoot, "composition.json"), encoded, 0o644) // #nosec G306 -- generated build artifact
+	return os.WriteFile(filepath.Join(outRoot, manifestFile), encoded, 0o644) // #nosec G306 -- generated build artifact
 }
 
 // currentManifest assembles composition.json content for the given
@@ -139,11 +147,11 @@ func currentManifest(root string, files map[string][]byte) (manifest, error) {
 	for rel, content := range files {
 		outputs[rel] = digestBytes(content)
 	}
-	sumDigest, err := digestFileOrEmpty(filepath.Join(root, "build", "composition", "go.work.sum"))
+	sumDigest, err := digestFileOrEmpty(filepath.Join(root, "build", "composition", goWorkSumFile))
 	if err != nil {
 		return manifest{}, err
 	}
-	outputs["go.work.sum"] = sumDigest
+	outputs[goWorkSumFile] = sumDigest
 	return manifest{Schema: 1, Toolchain: runtime.Version(), Inputs: inputs, Outputs: outputs}, nil
 }
 
@@ -161,7 +169,7 @@ func materializeWorkSum(root, outRoot string) error {
 	}
 	cmd := exec.Command(filepath.Join(goRoot, "bin", "go"), "list", "-m", "all")
 	cmd.Dir = root
-	cmd.Env = append(os.Environ(), "GOWORK="+filepath.Join(outRoot, "go.work"))
+	cmd.Env = append(os.Environ(), "GOWORK="+filepath.Join(outRoot, goWorkFile))
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("resolving the composed workspace (go list -m all): %v\n%s", err, out)
 	}
@@ -182,7 +190,7 @@ func verifyOutputs(root string, recorded manifest) error {
 		return err
 	}
 	if recorded.Schema != 1 {
-		return fmt.Errorf("composition.json carries schema %d, this tool writes schema 1 — run 'make gen'", recorded.Schema)
+		return fmt.Errorf("%s carries schema %d, this tool writes schema 1 — run 'make gen'", manifestFile, recorded.Schema)
 	}
 	files, err := composedFiles(root)
 	if err != nil {
@@ -195,6 +203,19 @@ func verifyOutputs(root string, recorded manifest) error {
 	if current.Toolchain != recorded.Toolchain {
 		return fmt.Errorf("composition built with %s, verifying with %s — run 'make gen'", recorded.Toolchain, current.Toolchain)
 	}
+	if err := verifyRecordedOutputs(root, current, recorded); err != nil {
+		return err
+	}
+	if err := verifyManifestBytes(root, current); err != nil {
+		return err
+	}
+	return verifyNoExtraFiles(root, current.Outputs)
+}
+
+// verifyRecordedOutputs holds every regenerated output against the
+// recorded hash AND the bytes on disk (go.work.sum only against the
+// record — regeneration does not re-run the go command).
+func verifyRecordedOutputs(root string, current, recorded manifest) error {
 	names := make([]string, 0, len(current.Outputs))
 	for rel := range current.Outputs {
 		names = append(names, rel)
@@ -208,25 +229,33 @@ func verifyOutputs(root string, recorded manifest) error {
 		if err != nil {
 			return err
 		}
-		if rel != "go.work.sum" && onDisk != current.Outputs[rel] {
+		if rel != goWorkSumFile && onDisk != current.Outputs[rel] {
 			return fmt.Errorf("output %s on disk differs from its regeneration — hand-edited? run 'make gen'", rel)
 		}
 	}
-	if extra := len(recorded.Outputs) - len(current.Outputs); extra != 0 {
-		return fmt.Errorf("composition.json records %d outputs, regeneration produced %d — run 'make gen'", len(recorded.Outputs), len(current.Outputs))
+	if len(recorded.Outputs) != len(current.Outputs) {
+		return fmt.Errorf("%s records %d outputs, regeneration produced %d — run 'make gen'", manifestFile, len(recorded.Outputs), len(current.Outputs))
 	}
+	return nil
+}
+
+// verifyManifestBytes requires the on-disk composition.json to be
+// byte-identical to the regenerated manifest's encoding — a hand edit,
+// an unknown field, or a foreign encoder fails even when the semantic
+// content agrees.
+func verifyManifestBytes(root string, current manifest) error {
 	encoded, err := encodeManifest(current)
 	if err != nil {
 		return err
 	}
-	raw, err := os.ReadFile(filepath.Join(root, "build", "composition", "composition.json"))
+	raw, err := os.ReadFile(filepath.Join(root, "build", "composition", manifestFile))
 	if err != nil {
 		return err
 	}
 	if !bytes.Equal(raw, encoded) {
-		return fmt.Errorf("composition.json on disk differs from its re-encoding — hand-edited? run 'make gen'")
+		return fmt.Errorf("%s on disk differs from its re-encoding — hand-edited? run 'make gen'", manifestFile)
 	}
-	return verifyNoExtraFiles(root, current.Outputs)
+	return nil
 }
 
 // verifyNoExtraFiles walks build/composition/ and rejects anything the
@@ -234,7 +263,7 @@ func verifyOutputs(root string, recorded manifest) error {
 // regular files.
 func verifyNoExtraFiles(root string, outputs map[string]string) error {
 	outRoot := filepath.Join(root, "build", "composition")
-	expected := map[string]bool{"composition.json": true}
+	expected := map[string]bool{manifestFile: true}
 	for rel := range outputs {
 		expected[rel] = true
 	}
@@ -276,7 +305,7 @@ func stubMatchesVanilla(root string) error {
 }
 
 func readManifest(root string) (manifest, error) {
-	raw, err := os.ReadFile(filepath.Join(root, "build", "composition", "composition.json"))
+	raw, err := os.ReadFile(filepath.Join(root, "build", "composition", manifestFile))
 	if err != nil {
 		return manifest{}, fmt.Errorf("no composition manifest (%v)", err)
 	}
