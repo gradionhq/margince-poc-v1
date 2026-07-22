@@ -69,6 +69,7 @@ root gates (each is a small script; all merge-blocking):
 | `go-file-length` | Hard 500-LOC cap on hand-written Go, ratcheted via `scripts/go-file-length-waivers.txt` |
 | `rls-store-path` | No `internal/modules` statement addresses the superuser pool directly (RLS bypass); `// rls-exempt: <reason>` is the escape for a genuinely cross-workspace query |
 | `no-jurisdiction` | No country-specific regulatory identifier (XRechnung/ZUGFeRD/DATEV/…) or ISO-3166 code in core **code**, only in the jurisdiction seam (`internal/modules/de`, `internal/shared/ports/jurisdiction`); statute citations in comments are allowed |
+| `pkg-freeze` | Published-surface freeze (ADR-0069 §3, EXT-P3): apidiff on every `backend/pkg` package vs the merge-base (the extensions integration branch while the arc holds there, else `origin/main`) — an incompatible change or removed published package fails, additive growth passes. Deliberate exception: `PKG_FREEZE_BASE=<ref>` |
 
 ## Occasional
 
