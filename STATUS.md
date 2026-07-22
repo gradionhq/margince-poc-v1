@@ -22,6 +22,21 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**Conversational Margince AI workbench with exact run transparency.** The
+website-assisted company setup now presents Margince as a persistent,
+professional collaborator: a compact Core header identifies the configured AI,
+the exact provider-served model(s), calls, tokens, latency, and estimated USD
+provider cost for the current research dossier. Cost is computed from the same
+effective-dated model rates and canonical four-bucket pricing used by AI usage;
+missing rates are shown as unpriced rather than as a false zero. The research
+stage separates conversation from evidence, supports grounded follow-up
+questions, and presents cited field suggestions as a reviewable artifact that a
+human must explicitly apply to the draft. The reusable workbench component is
+small enough for later AI-assisted product surfaces. Backend and frontend tests
+cover grouping, pricing, citation binding, model disclosure, conversation, and
+apply-on-approval behavior; the fully styled Storybook state passes automated
+accessibility checks.
+
 **Website-ingestion quality and the Core research stage.** The onboarding
 read was benchmarked against Stripe, Notion, Linear, Personio, DeepL, Celonis,
 Contentful, Forto, GetYourGuide, and Miro, then tuned against the same corpus.

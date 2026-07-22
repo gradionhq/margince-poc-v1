@@ -1719,6 +1719,303 @@
   gap: 14px;
   margin-top: 18px;
 }
+
+/* The workbench is Margince's reusable interaction pattern: identity and
+   runtime stay fixed while conversation and the reviewable artifact move. */
+.ob-workbench-panel {
+  width: min(1180px, calc(100vw - 48px));
+  min-height: calc(100vh - 176px);
+  align-self: center;
+}
+.ob-workbench-panel::before {
+  opacity: 0.55;
+}
+.mw-thread {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-4);
+  overflow: auto;
+}
+.mw-message-assistant {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-3);
+}
+.mw-speaker {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  color: var(--railIconActive);
+  border-radius: var(--r-full);
+  background: linear-gradient(145deg, var(--ai), var(--accent));
+  font-family: var(--f-display);
+  font-size: 13px;
+  font-weight: 650;
+}
+.mw-message-assistant > div {
+  padding: var(--space-3) var(--space-4);
+  color: var(--textContent);
+  border: 1px solid var(--borderSubtle);
+  border-radius: 4px var(--r-md) var(--r-md) var(--r-md);
+  background: var(--bgElevated);
+  box-shadow: var(--shadow-card);
+}
+.mw-message-assistant h2,
+.mw-message-assistant p {
+  margin: 0;
+}
+.mw-message-assistant h2 {
+  color: var(--textPrimary);
+  font-family: var(--f-display);
+  font-size: 19px;
+  font-weight: 580;
+  line-height: 1.25;
+}
+.mw-message-assistant h2 + p,
+.mw-message-assistant p + p {
+  margin-top: var(--space-2);
+}
+.mw-message-assistant p {
+  font-size: 13px;
+  line-height: 1.55;
+}
+.mw-message-user {
+  max-width: 82%;
+  align-self: flex-end;
+  padding: var(--space-3) var(--space-4);
+  color: var(--textOnAccent);
+  border-radius: var(--r-md) 4px var(--r-md) var(--r-md);
+  background: var(--accent);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.mw-conversation .ob-core-dialog {
+  padding: 0;
+  color: var(--textContent);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.mw-conversation .ob-core-dialog h1 {
+  display: none;
+}
+.mw-conversation .ob-core-dialog > p,
+.mw-conversation .ob-core-kicker,
+.mw-conversation .ob-core-journey,
+.mw-conversation .ob-core-url-note {
+  display: none;
+}
+.mw-conversation .ob-core-url {
+  margin-top: 0;
+  border-color: var(--borderStrong);
+  background: var(--bgHover);
+}
+.mw-conversation .ob-core-url span,
+.mw-conversation .ob-core-url input {
+  color: var(--textPrimary);
+}
+.mw-conversation .ob-core-dialog > .btn {
+  margin-top: var(--space-2);
+}
+.mw-conversation .ob-core-link {
+  color: var(--textSecondary);
+}
+.mw-read-activity {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--borderSubtle);
+}
+.mw-read-activity > p {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--aiText);
+  font-family: var(--f-mono);
+  font-size: 10px;
+}
+.mw-read-activity > p svg {
+  width: 14px;
+  flex: none;
+}
+.mw-read-activity > p strong {
+  overflow: hidden;
+  color: var(--textContent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mw-read-activity > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.mw-read-activity > div span {
+  padding: var(--space-1) var(--space-2);
+  color: var(--textSecondary);
+  border-radius: var(--r-full);
+  background: var(--bgHover);
+  font-size: 10px;
+}
+.mw-read-activity b {
+  color: var(--textPrimary);
+}
+.mw-composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--borderSubtle);
+}
+.mw-composer textarea {
+  min-height: 54px;
+  padding: var(--space-3);
+  color: var(--textPrimary);
+  border: 1px solid var(--borderStrong);
+  border-radius: var(--r-md);
+  outline: 0;
+  background: var(--bgPage);
+  resize: none;
+  font: inherit;
+  font-size: 13px;
+}
+.mw-composer textarea:focus {
+  border-color: var(--ai);
+  box-shadow: 0 0 0 3px var(--aiLight);
+}
+.mw-composer .btn {
+  width: 44px;
+  align-self: stretch;
+  justify-content: center;
+  padding: 0;
+}
+.mw-composer .btn svg {
+  width: 16px;
+}
+.mw-composer > small {
+  grid-column: 1 / -1;
+  color: var(--textSecondary);
+  font-size: 10px;
+}
+.mw-thinking {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--aiText);
+}
+.mw-thinking span {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--r-full);
+  background: var(--ai);
+  animation: ob-core-live 1.4s ease-in-out infinite;
+}
+.mw-send-error,
+.mw-error-detail {
+  color: var(--danger);
+  font-size: 11px;
+}
+.mw-citations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.mw-citations a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  color: var(--aiText);
+  border-radius: var(--r-full);
+  background: var(--aiLight);
+  font-size: 10px;
+  text-decoration: none;
+}
+.mw-citations svg {
+  width: 11px;
+}
+.mw-proposal {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--aiMed);
+  border-radius: var(--r-md);
+  background: var(--aiLight);
+}
+.mw-proposal > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--aiText);
+  font-size: 11px;
+}
+.mw-proposal svg {
+  width: 14px;
+}
+.mw-proposal ul {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+  padding: 0;
+  list-style: none;
+}
+.mw-proposal li {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border-radius: var(--r-sm);
+  background: var(--bgElevated);
+}
+.mw-proposal li span,
+.mw-proposal li small {
+  color: var(--textSecondary);
+  font-size: 10px;
+}
+.mw-proposal li strong {
+  color: var(--textPrimary);
+  font-size: 12px;
+}
+.mw-review-heading {
+  padding: var(--space-2) var(--space-1) var(--space-3);
+}
+.mw-review-heading span {
+  color: var(--aiText);
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.mw-review-heading h2 {
+  margin: var(--space-1) 0 0;
+  font-family: var(--f-display);
+  font-size: 20px;
+}
+.mw-review-heading p {
+  margin: var(--space-1) 0 0;
+  color: var(--textSecondary);
+  font-size: 11px;
+}
+.mw-review .core-findings {
+  margin-top: 0;
+  box-shadow: none;
+}
+.mw-review .read-actions {
+  position: sticky;
+  bottom: 0;
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--bgElevated) 94%, transparent);
+  backdrop-filter: blur(10px);
+}
 /* The legal-entity choice sits at the top of the identity group: it is a
    question, not a field, and answering it fills the three fields under it. */
 .legal-choice {

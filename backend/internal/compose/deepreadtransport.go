@@ -20,6 +20,7 @@ import (
 	"github.com/riverqueue/river"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -62,6 +63,8 @@ func decodeSeedOverride(w http.ResponseWriter, r *http.Request) (string, bool) {
 type deepReadEngine struct {
 	people    *people.Store
 	approvals *approvals.Service
+	runtime   *ai.RunTransparency
+	brain     completer
 	enqueue   deepReadEnqueuer
 }
 
@@ -191,9 +194,12 @@ func requestedBy(ctx context.Context) string {
 // queues the crawl job through the insert-only runner (the api never
 // crawls in-request — the worker role does), report serves the poll.
 // Without it both operations stay their explicit 501.
-func WithDeepRead(inserter *jobs.Runner) Option {
+func WithDeepRead(inserter *jobs.Runner, brain completer) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
-		engine := &deepReadEngine{people: people.NewStore(pool), approvals: approvals.NewService(pool), enqueue: inserter}
+		engine := &deepReadEngine{
+			people: people.NewStore(pool), approvals: approvals.NewService(pool),
+			runtime: ai.NewRunTransparency(pool), brain: brain, enqueue: inserter,
+		}
 		rollout := s.companyContextRollout
 		s.siteReadHandlers = siteReadHandlers{engine: engine, start: engine.start, report: engine.report, companyContextRollout: rollout}
 	}

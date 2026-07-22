@@ -14,6 +14,7 @@ import { LocaleProvider } from "../i18n";
 import { OnboardingScreen } from "./onboarding";
 
 type CompanySiteRead = components["schemas"]["CompanySiteRead"];
+type MessageReply = components["schemas"]["CompanySiteReadMessageReply"];
 
 const savedProfile = {
   organization_id: "018f3a1b-0000-7000-8000-0000000000a1",
@@ -124,6 +125,7 @@ type StubOptions = {
   readStartError?: { detail: string; status: number };
   saveError?: { detail: string; status: number };
   conflictOnce?: boolean;
+  messageReply?: MessageReply;
 };
 
 function jsonResponse(body: unknown, status = 200) {
@@ -146,6 +148,13 @@ function stubApi(options: StubOptions = {}) {
     vi.fn(async (request: Request) => {
       calls.push(request);
       const path = requestPath(request);
+      if (path.endsWith("/assistant/profile")) {
+        return jsonResponse({
+          state: "configured",
+          inference_mode: "cloud",
+          providers: ["gemini"],
+        });
+      }
       if (path.endsWith("/onboarding/state") && request.method === "GET") {
         return options.state
           ? jsonResponse(options.state)
@@ -179,6 +188,29 @@ function stubApi(options: StubOptions = {}) {
       }
       if (path.includes("/company/site-reads/") && path.endsWith("/confirm")) {
         return jsonResponse(savedProfile);
+      }
+      if (
+        path.includes("/company/site-reads/") &&
+        path.endsWith("/messages") &&
+        request.method === "POST"
+      ) {
+        return jsonResponse(
+          options.messageReply ?? {
+            message: "I can help you review what I found.",
+            proposed_changes: [],
+            citations: [],
+            ai_runtime: {
+              currency: "USD",
+              call_attempts: 1,
+              tokens_in: 120,
+              tokens_out: 30,
+              latency_ms: 800,
+              estimated_cost_microusd: 0,
+              unpriced_calls: 0,
+              models: [],
+            },
+          },
+        );
       }
       if (path.includes("/company/site-reads/") && request.method === "GET") {
         return jsonResponse(options.read ?? readyRead);
@@ -446,6 +478,97 @@ describe("the optional website path", () => {
     expect(
       screen.getByRole("button", { name: /Tell me yourself/ }),
     ).toBeTruthy();
+  });
+
+  it("shows exact run transparency and applies conversational suggestions only after approval", async () => {
+    const calls = stubApi({
+      messageReply: {
+        message:
+          "I found evidence that industrial software is the clearest industry description.",
+        proposed_changes: [
+          {
+            field: "industry",
+            value: "Industrial software",
+            reason: "This matches the company's stated market.",
+          },
+        ],
+        citations: [{ label: "industry", url: "https://gradion.com/about" }],
+        ai_runtime: {
+          currency: "USD",
+          call_attempts: 3,
+          tokens_in: 1800,
+          tokens_out: 240,
+          latency_ms: 2300,
+          estimated_cost_microusd: 3500,
+          unpriced_calls: 0,
+          models: [
+            {
+              task: "cold_start",
+              tier: "premium",
+              provider: "gemini",
+              configured_model: "gemini-3.5-flash",
+              served_model: "gemini-3.5-flash-2026-07",
+              call_attempts: 3,
+              tokens_in: 1800,
+              tokens_out: 240,
+              cached_tokens: 0,
+              cache_write_tokens: 0,
+              reasoning_tokens: 0,
+              latency_ms: 2300,
+              estimated_cost_microusd: 3500,
+              unpriced_calls: 0,
+              last_used_at: "2026-07-19T08:00:02Z",
+            },
+          ],
+        },
+      },
+    });
+    render(<OnboardingScreen />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Read my website/ }),
+    );
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Website" }),
+      "gradion.com",
+    );
+    await userEvent.click(
+      screen
+        .getAllByRole("button", { name: /Read my website/ })
+        .at(-1) as HTMLElement,
+    );
+    const composer = await screen.findByRole("textbox", {
+      name: /Ask me about a finding/,
+    });
+    await userEvent.type(composer, "Which industry should we use?");
+    await userEvent.click(
+      screen.getByRole("button", { name: /Send to Margince/ }),
+    );
+
+    expect(
+      await screen.findByText(/industrial software is the clearest/),
+    ).toBeTruthy();
+    expect(screen.getByText("gemini-3.5-flash-2026-07")).toBeTruthy();
+    expect(screen.getByText("$0.0035")).toBeTruthy();
+    expect(screen.getByText("Industrial software")).toBeTruthy();
+    await userEvent.click(
+      screen.getByRole("button", { name: /Apply to my draft/ }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Review what I found/ }),
+    );
+    expect(
+      (
+        screen.getByRole("textbox", {
+          name: /Industry/,
+        }) as HTMLInputElement
+      ).value,
+    ).toBe("Industrial software");
+
+    const messageRequest = requestTo(calls, "/messages", "POST");
+    expect(await messageRequest?.clone().json()).toEqual({
+      message: "Which industry should we use?",
+    });
   });
 });
 

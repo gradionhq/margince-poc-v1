@@ -102,10 +102,13 @@ func offerDraftOptions(pool *pgxpool.Pool, modelPath *compose.ModelPath) []compo
 // deepReadOption wires the deep-read transport over an insert-only River
 // client: the api enqueues the crawl for the worker role, it never works
 // jobs (jobs.NewInserter documents that Start is never called on it).
-func deepReadOption(pool *pgxpool.Pool, logger *slog.Logger) (compose.Option, error) {
+func deepReadOption(pool *pgxpool.Pool, logger *slog.Logger, modelPath *compose.ModelPath) (compose.Option, error) {
 	inserter, err := jobs.NewInserter(pool, logger)
 	if err != nil {
 		return nil, err
 	}
-	return compose.WithDeepRead(inserter), nil
+	if modelPath == nil {
+		return compose.WithDeepRead(inserter, nil), nil
+	}
+	return compose.WithDeepRead(inserter, modelPath.ColdStart), nil
 }

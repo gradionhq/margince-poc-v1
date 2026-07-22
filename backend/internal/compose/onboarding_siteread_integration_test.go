@@ -66,7 +66,7 @@ func finishOnboardingDraft(t *testing.T, e *integration.Env, read people.SiteRea
 	if err != nil {
 		t.Fatal(err)
 	}
-	workerCtx := deepReadWorkerCtx(context.Background(), SiteDeepReadArgs{WorkspaceID: e.WS})
+	workerCtx := deepReadWorkerCtx(context.Background(), SiteDeepReadArgs{WorkspaceID: e.WS, SiteReadID: read.ID})
 	stopped := "page_cap"
 	if err := e.People.FinishSiteRead(workerCtx, read.ID, people.FinishSiteReadInput{
 		Status: "partial", FactCount: len(fields) + len(facts), ProfileFields: fields,

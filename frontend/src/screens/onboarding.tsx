@@ -991,6 +991,11 @@ function OnboardingCoordinator() {
               });
             }}
             onStart={() => startRead.mutate()}
+            onApplyChanges={(changes) => {
+              for (const change of changes) {
+                setField(change.field, change.value);
+              }
+            }}
             onContinue={() => {
               persistState(1, { sourceMode: "website", selectedFactKeys });
               go(1, false);

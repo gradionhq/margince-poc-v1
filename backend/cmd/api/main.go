@@ -195,7 +195,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		opts = append(opts, compose.WithBackfillEstimator(modelPath.Router()))
 	}
 
-	deepRead, err := deepReadOption(pool, logger)
+	deepRead, err := deepReadOption(pool, logger, modelPath)
 	if err != nil {
 		return err
 	}
