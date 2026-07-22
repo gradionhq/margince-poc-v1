@@ -22,9 +22,22 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget/budgettest"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
+
+// testBudgetMeter builds a Redis-backed OVB meter with a small,
+// fast-to-exhaust budget for each named incumbent (budgettest.SmallConfig).
+// The names must match the test incumbent's Name() — the meter selects
+// config by incumbent, and an unconfigured name fails closed (which would
+// silently no-op a sweep). The raw-Redis dependency lives in budgettest
+// (platform tier), never in this module.
+func testBudgetMeter(t *testing.T, incumbents ...string) *overlaybudget.Meter {
+	t.Helper()
+	return budgettest.Meter(t, budgettest.SmallConfig(incumbents...))
+}
 
 // testWorkspaceCtx mints a fresh workspace + one human app_user over the
 // real integration Postgres, and returns a context bound to both (the

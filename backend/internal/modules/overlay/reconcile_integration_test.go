@@ -161,7 +161,7 @@ func TestReconcileOverwritesDivergedNonDirtyRowAndEmitsConflict(t *testing.T) {
 		Fields:     map[string]any{"display_name": "New Name"},
 		ModifiedAt: newBaseline,
 	}}}
-	meter := NewMeterWithClock(pool, testMeterConfig(), time.Now)
+	meter := testBudgetMeter(t, "test-swept")
 
 	watermark, err := Reconcile(ctx, inc, ms, meter, objectClass, oldBaseline.Add(-time.Second))
 	if err != nil {
@@ -190,8 +190,8 @@ func TestReconcileOverwritesDivergedNonDirtyRowAndEmitsConflict(t *testing.T) {
 		t.Fatalf("mirror.conflict outbox rows = %d, want exactly 1", eventCount)
 	}
 
-	if snap := meter.Snapshot(ctx); snap.Consumed != 1 {
-		t.Fatalf("meter consumed = %d, want 1 (one poller-lane spend for the one swept record)", snap.Consumed)
+	if snap := meter.Snapshot(ctx, "test-swept"); snap.Consumed != 1 {
+		t.Fatalf("meter consumed = %d, want 1 (one poller REST charge for the one page fetch)", snap.Consumed)
 	}
 }
 
@@ -226,7 +226,7 @@ func TestReconcileNeverClobbersADirtyRow(t *testing.T) {
 		Fields:     map[string]any{"display_name": "Incumbent Overwrite Attempt"},
 		ModifiedAt: newBaseline,
 	}}}
-	meter := NewMeterWithClock(pool, testMeterConfig(), time.Now)
+	meter := testBudgetMeter(t, "test-swept")
 
 	if _, err := Reconcile(ctx, inc, ms, meter, objectClass, oldBaseline.Add(-time.Second)); err != nil {
 		t.Fatalf("Reconcile: %v", err)

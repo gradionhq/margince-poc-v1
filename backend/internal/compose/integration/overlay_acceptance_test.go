@@ -52,6 +52,8 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/fake"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget/budgettest"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -223,14 +225,18 @@ func TestAcceptance_AC_OV_1_NoIncumbentImportAboveSeam(t *testing.T) {
 	}
 }
 
-// acceptanceMeterConfig is a small, fast-to-exhaust OVB budget for this
-// suite's deterministic meter-based classification proofs (AC-OV-3/7) —
-// the same shape overlay's own unexported testMeterConfig
-// (freshness_integration_test.go) uses, duplicated here since that
-// identifier belongs to package overlay and this suite lives in package
-// integration.
-func acceptanceMeterConfig() overlay.MeterConfig {
-	return overlay.MeterConfig{Window: time.Hour, Limit: 10, WarnFraction: 0.5, ShedFraction: 0.8}
+// acceptanceIncumbent is the incumbent name this suite's meter-based
+// proofs (AC-OV-3/7) charge against — the fake adapter's own Name().
+const acceptanceIncumbent = "fake"
+
+// acceptanceBudgetMeter builds a Redis-backed OVB meter with a small,
+// fast-to-exhaust REST budget (cap 10, warn at 5, shed at 8) for the fake
+// incumbent — the deterministic thresholds AC-OV-3/7 assert against. The
+// raw-Redis dependency lives in budgettest (platform tier), never in this
+// compose suite.
+func acceptanceBudgetMeter(t *testing.T) *overlaybudget.Meter {
+	t.Helper()
+	return budgettest.Meter(t, budgettest.SmallConfig(acceptanceIncumbent))
 }
 
 // contactsTranslator is a fixed canonical->incumbent class translator
@@ -467,15 +473,15 @@ func TestAcceptance_AC_OV_3_MirrorReadMeetsBudget(t *testing.T) {
 	liveRec.ObjectClass = overlay.IncumbentClassContacts
 	fakeInc.Seed(overlay.IncumbentClassContacts, liveRec)
 
-	meter := overlay.NewMeterWithClock(e.Pool, acceptanceMeterConfig(), time.Now)
+	meter := acceptanceBudgetMeter(t)
 	ff := overlay.NewFreshnessReader(func(context.Context) (overlay.Incumbent, error) { return fakeInc, nil }, mirror, meter, contactsTranslator)
 	fullProvider := overlay.NewProvider(mirror, ff)
 
-	before := meter.Snapshot(ctx)
+	before := meter.Snapshot(ctx, acceptanceIncumbent)
 	if _, err := fullProvider.Read(ctx, ref); err != nil {
 		t.Fatalf("mirror-served Read: %v", err)
 	}
-	afterMirrorRead := meter.Snapshot(ctx)
+	afterMirrorRead := meter.Snapshot(ctx, acceptanceIncumbent)
 	if afterMirrorRead.Consumed != before.Consumed {
 		t.Fatalf("a mirror-served Read spent %d OVB units (before=%d) — it must ride the same always-available native-mode read budget, never the overlay-perf-addendum meter", afterMirrorRead.Consumed, before.Consumed)
 	}
@@ -487,7 +493,7 @@ func TestAcceptance_AC_OV_3_MirrorReadMeetsBudget(t *testing.T) {
 	if !freshInfo.Authoritative {
 		t.Fatal("a force-fresh read under threshold must reach the live incumbent and answer Authoritative:true")
 	}
-	afterForceFresh := meter.Snapshot(ctx)
+	afterForceFresh := meter.Snapshot(ctx, acceptanceIncumbent)
 	if afterForceFresh.Consumed != before.Consumed+1 {
 		t.Fatalf("force-fresh Consumed = %d, want %d (exactly one force_fresh-lane spend) — the addendum bucket must record it, distinctly from the mirror read above", afterForceFresh.Consumed, before.Consumed+1)
 	}
@@ -533,15 +539,15 @@ func TestAcceptance_AC_OV_7_ForceFreshDegrades(t *testing.T) {
 	liveRec.ObjectClass = overlay.IncumbentClassContacts
 	fakeInc.Seed(overlay.IncumbentClassContacts, liveRec)
 
-	meter := overlay.NewMeterWithClock(e.Pool, acceptanceMeterConfig(), time.Now)
+	meter := acceptanceBudgetMeter(t)
 	// Push the window to shed (limit 10, shed at 8) via the POLLER lane —
 	// proving Band is a total across lanes, never reachable by a
 	// force-fresh spend alone.
-	if err := meter.Consume(ctx, overlay.LanePoller, 8); err != nil {
+	if err := meter.ConsumeREST(ctx, acceptanceIncumbent, overlaybudget.SourcePoller, 8); err != nil {
 		t.Fatalf("pre-loading the poller lane to shed: %v", err)
 	}
-	if got := meter.Band(ctx); got != overlay.BandShed {
-		t.Fatalf("meter.Band = %q after loading to the shed threshold, want %q", got, overlay.BandShed)
+	if got := meter.BandREST(ctx, acceptanceIncumbent); got != overlaybudget.BandShed {
+		t.Fatalf("meter.Band = %q after loading to the shed threshold, want %q", got, overlaybudget.BandShed)
 	}
 
 	ff := overlay.NewFreshnessReader(func(context.Context) (overlay.Incumbent, error) { return fakeInc, nil }, mirror, meter, contactsTranslator)
@@ -556,7 +562,7 @@ func TestAcceptance_AC_OV_7_ForceFreshDegrades(t *testing.T) {
 		t.Fatal("under the shed band, force-fresh must degrade to the mirror — never Authoritative:true")
 	}
 
-	snap := meter.Snapshot(ctx)
+	snap := meter.Snapshot(ctx, acceptanceIncumbent)
 	if snap.Consumed != 8 {
 		t.Fatalf("meter Consumed = %d, want unchanged at 8 — the shed path must spend nothing on the force_fresh lane (proof the live incumbent was never reached)", snap.Consumed)
 	}
@@ -652,7 +658,7 @@ func TestAcceptance_AC_OV_8_IncumbentWinsConflict(t *testing.T) {
 	reverseRec.OwnerExternalID = "owner-1"
 	fakeInc.Seed(overlay.IncumbentClassCompanies, reverseRec)
 
-	meter := overlay.NewMeterWithClock(e.Pool, acceptanceMeterConfig(), time.Now)
+	meter := acceptanceBudgetMeter(t)
 	since := oldBaseline.Add(-time.Second)
 	if _, err := overlay.Reconcile(ctx, fakeInc, mirror, meter, overlay.IncumbentClassCompanies, since); err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -774,7 +780,7 @@ func TestAcceptance_AC_OV_11_FailClosedVisibility_ReadSubset(t *testing.T) {
 
 	t.Run("an unmapped user sees zero rows through the composed dispatcher (existence-hiding)", func(t *testing.T) {
 		unmappedCtx := overlayActorCtx(ws, seedUnmappedAppUser(t, ws))
-		d := compose.NewDispatcher(compose.NewProvider(e.Pool), compose.NewOverlayProvider(e.Pool, compose.NewOverlayMeter(e.Pool), nil), e.Pool)
+		d := compose.NewDispatcher(compose.NewProvider(e.Pool), compose.NewOverlayProvider(e.Pool, overlaybudget.New(nil, nil), nil), e.Pool)
 		if _, err := d.Search(unmappedCtx, datasource.SearchQuery{EntityTypes: []datasource.EntityType{datasource.EntityPerson}, Limit: 10}); !errors.Is(err, apperrors.ErrNotFound) {
 			t.Fatalf("dispatched Search for an unmapped user = %v, want apperrors.ErrNotFound (existence-hiding, zero rows)", err)
 		}
@@ -867,27 +873,16 @@ func TestAcceptance_OVA_AC_1_TeardownPurges(t *testing.T) {
 		t.Fatalf("fixture is broken: seeded mirror=%d association=%d, want both > 0", seededMirror, seededAssoc)
 	}
 
-	meter := compose.NewOverlayMeter(pool)
-	dispatcher := compose.NewDispatcher(compose.NewProvider(pool), compose.NewOverlayProvider(pool, meter, nil), pool)
+	dispatcher := compose.NewDispatcher(compose.NewProvider(pool), compose.NewOverlayProvider(pool, overlaybudget.New(nil, nil), nil), pool)
 	preTeardown, err := dispatcher.Search(adminCtx, datasource.SearchQuery{EntityTypes: []datasource.EntityType{datasource.EntityDeal}, Limit: 10})
 	if err != nil || len(preTeardown.Records) != 1 {
 		t.Fatalf("expected the mapped admin to see the one backfilled deal before disconnect: err=%v records=%d", err, len(preTeardown.Records))
 	}
 
-	// Spend a budget unit so overlay_budget_window holds a row for this
-	// workspace BEFORE disconnect — otherwise the post-teardown "budget
-	// window is empty" assertion below would pass vacuously (no row to
-	// purge) and could not catch a budget that survives into a reconnect.
-	if err := meter.Consume(adminCtx, overlay.LanePoller, 1); err != nil {
-		t.Fatalf("seeding the overlay budget window: %v", err)
-	}
-	var seededBudget int
-	if err := e.owner.QueryRow(context.Background(), `SELECT count(*) FROM overlay_budget_window WHERE workspace_id = $1`, wsIDStr).Scan(&seededBudget); err != nil {
-		t.Fatalf("counting the seeded budget window row: %v", err)
-	}
-	if seededBudget != 1 {
-		t.Fatalf("fixture is broken: seeded budget window rows=%d, want 1", seededBudget)
-	}
+	// The OVB budget window is NOT in the teardown purge list: it lives in
+	// Redis now (overlay-budget chapter), not a workspace-scoped Postgres
+	// table, and its fixed-window counters expire on their own TTL. There
+	// is no PG row for disconnect to purge.
 
 	if code := e.call(t, "DELETE", "/v1/overlay/connection", nil, nil, nil); code != http.StatusAccepted {
 		t.Fatalf("disconnect overlay = %d, want 202", code)
@@ -897,7 +892,7 @@ func TestAcceptance_OVA_AC_1_TeardownPurges(t *testing.T) {
 	// genuinely converged it (done=true) — a cursor surviving disconnect
 	// would short-circuit the next connection's initial mirror load.
 	counts := map[string]int{}
-	for _, table := range []string{"overlay_mirror", "overlay_association", "mirror_visibility", "mirror_user_map", "overlay_backfill_cursor", "overlay_reconcile_watermark", "overlay_budget_window"} {
+	for _, table := range []string{"overlay_mirror", "overlay_association", "mirror_visibility", "mirror_user_map", "overlay_backfill_cursor", "overlay_reconcile_watermark"} {
 		var n int
 		if err := e.owner.QueryRow(context.Background(), fmt.Sprintf(`SELECT count(*) FROM %s WHERE workspace_id = $1`, table), wsIDStr).Scan(&n); err != nil {
 			t.Fatalf("counting %s: %v", table, err)
@@ -940,7 +935,7 @@ func TestAcceptance_OVA_AC_1_TeardownPurges(t *testing.T) {
 		principal.WithCorrelationID(principal.WithWorkspaceID(context.Background(), wsID), ids.NewV7()),
 		principal.Principal{Type: principal.PrincipalHuman, ID: "human:" + adminID.String(), UserID: adminID, Permissions: AdminPerms},
 	)
-	postDisconnectDispatcher := compose.NewDispatcher(compose.NewProvider(pool), compose.NewOverlayProvider(pool, compose.NewOverlayMeter(pool), nil), pool)
+	postDisconnectDispatcher := compose.NewDispatcher(compose.NewProvider(pool), compose.NewOverlayProvider(pool, overlaybudget.New(nil, nil), nil), pool)
 	postTeardown, err := postDisconnectDispatcher.Search(adminNativeCtx, datasource.SearchQuery{EntityTypes: []datasource.EntityType{datasource.EntityDeal}, Limit: 10})
 	if err != nil {
 		t.Fatalf("post-disconnect dispatched Search: %v", err)

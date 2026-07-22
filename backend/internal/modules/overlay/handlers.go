@@ -20,6 +20,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -262,8 +263,13 @@ func (h Handlers) GetOverlayBudget(w http.ResponseWriter, r *http.Request) {
 
 // budgetToWire maps the domain Budget onto the contract's OverlayBudget
 // shape — Consumed/Limit ride as float32 per the generated schema (an
-// OpenAPI integer-as-number artifact), never fractional in practice.
-func budgetToWire(b Budget) crmcontracts.OverlayBudget {
+// OpenAPI integer-as-number artifact), never fractional in practice. The
+// meter's per-source breakdown and the ~unknown headroom sentinel have no
+// field on this frozen wire shape (the admin budget surface that renders
+// them is a separate, unbuilt surface — overlay-budget chapter §"out of
+// scope"), so the endpoint reports the REST window's total, cap, and band
+// only; the breakdown stays internal to the meter.
+func budgetToWire(b overlaybudget.Budget) crmcontracts.OverlayBudget {
 	window := b.Window
 	consumed := float32(b.Consumed)
 	limit := float32(b.Limit)
