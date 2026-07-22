@@ -131,6 +131,7 @@ jobs:
       # to either reseeds, otherwise a hit skips the compile. arch is in the key
       # so a binary built for one runner CPU is never restored onto another.
       - name: Cache the gate binaries
+        id: gate-binaries
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: ~/go/bin
@@ -138,14 +139,19 @@ jobs:
       # Install the pinned gate binaries (golangci-lint, go-arch-lint, oasdiff) so
       # `make check` runs golangci and the oasdiff contract gate itself — one run
       # of every gate, instead of the golangci-lint-action + per-gate steps that
-      # `make check` then re-ran as its prerequisites. On a cache hit `go install
-      # ...@version` finds each binary already current and skips the compile, so
-      # the step is near-instant; the PATH export runs regardless.
+      # `make check` then re-ran as its prerequisites. Skipped entirely on a
+      # cache hit: the key hashes the pinned versions (backend/Makefile) and
+      # the toolchain (backend/go.mod), so a hit proves the binaries current —
+      # and `go install ...@version` would NOT short-circuit on an existing
+      # binary; it recomputes the whole build against a cold build cache
+      # (~75s), since setup-go's caches are keyed to the product module, not
+      # the tools' dependency graphs. The PATH export runs regardless.
       - name: Install the pinned gate binaries
+        if: steps.gate-binaries.outputs.cache-hit != 'true'
         working-directory: .
-        run: |
-          make tools
-          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+        run: make tools
+      - name: Gate binaries onto PATH
+        run: echo "$HOME/go/bin" >> "$GITHUB_PATH"
       # The backend half of the merge gate in one pass:
       # check-craft-doc, image pins, contract-breaking, test-lanes, file-length,
       # RLS store-path, jurisdiction isolation, then the backend gate (build,
