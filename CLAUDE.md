@@ -71,7 +71,8 @@ make check-backend      # backend half: build, vet, lint (baseline + new-code
                         # strict), arch-lint, unit + fitness tests, contract drift,
                         # plus the root script gates (craft drift, image pins,
                         # contract-breaking, test-lanes, file-length, rls-store-path,
-                        # no-jurisdiction). This is what CI's deterministic-gates runs.
+                        # no-jurisdiction, pkg-freeze). This is what CI's
+                        # deterministic-gates runs.
 make check-fe           # frontend half (biome + vitest + tsc + build)
 make test-integration   # real-Postgres lane: RLS gates + HTTP end-to-end (needs db-up).
                         # Parallel — each package on its own throwaway clone db; ends

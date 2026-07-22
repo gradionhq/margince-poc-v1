@@ -18,6 +18,8 @@
 // suites keep compiling (EXT-P3: grow additively, never in place). New
 // gains a Deps parameter through a versioned successor when the first
 // capability needs injected dependencies.
+//
+//margince:extension-surface
 package extension
 
 import (
