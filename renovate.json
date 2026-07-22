@@ -8,6 +8,8 @@
   "postUpdateOptions": ["gomodTidy"],
   "prConcurrentLimit": 5,
   "platformAutomerge": true,
+  "minimumReleaseAge": "7 days",
+  "internalChecksFilter": "strict",
   "packageRules": [
     {
       "matchManagers": ["gomod"],
