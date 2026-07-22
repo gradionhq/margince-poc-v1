@@ -252,12 +252,19 @@ func (s *RetentionService) evaluateVoiceSignalRetention(ctx context.Context) err
 
 func (s *RetentionService) eraseVoiceSignalContent(ctx context.Context, id ids.UUID) error {
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `
+		// The content_erased_at predicate is the CAS: a rival sweep that
+		// already erased this row matches zero rows, and nothing is audited
+		// twice for one erasure.
+		tag, err := tx.Exec(ctx, `
 			UPDATE voice_learning_signal
 			SET generated_original = NULL, final_text = NULL, content_erased_at = now(),
 			    version = version + 1, updated_at = now()
-			WHERE id = $1 AND content_erased_at IS NULL`, id); err != nil {
+			WHERE id = $1 AND content_erased_at IS NULL`, id)
+		if err != nil {
 			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return nil
 		}
 		auditID, err := storekit.AuditWithEvidence(ctx, tx, actionErase, "voice_learning_signal", id, nil, nil, map[string]any{
 			evidenceKeyRetentionAction: actionErase,
