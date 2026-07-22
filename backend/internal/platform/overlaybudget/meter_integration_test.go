@@ -169,36 +169,37 @@ func TestWorkspaceAndIncumbentIsolation(t *testing.T) {
 	}
 }
 
-func TestSearchBurstGateDeclinesPerSecondThenRollsOver(t *testing.T) {
+func TestSearchWindowMeteredAndRollsOverPerSecond(t *testing.T) {
 	rdb := testRedis(t)
 	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
 	clock := func() time.Time { return now }
 	m := overlaybudget.NewWithClock(rdb, testCfg(), clock)
 	ctx := wsCtx()
 
-	// Search cap 5, shed threshold = floor(0.9*5) = 4. Slots 1..4 allowed,
-	// the 5th declined within the same second.
-	for i := 1; i <= 4; i++ {
-		ok, err := m.ReserveSearch(ctx, testIncumbent, 1)
-		if err != nil || !ok {
-			t.Fatalf("ReserveSearch #%d: ok=%v err=%v", i, ok, err)
+	// The search window is METERED, not gated (the poller cannot abort a
+	// paginated scan). Record 5 requests in one second; with cap 5 the band
+	// crosses to shed (5 >= floor(0.9*5)=4) but recording never declines.
+	for i := 0; i < 5; i++ {
+		if err := m.ConsumeSearch(ctx, testIncumbent, 1); err != nil {
+			t.Fatalf("ConsumeSearch #%d: %v", i, err)
 		}
 	}
-	ok, err := m.ReserveSearch(ctx, testIncumbent, 1)
-	if err != nil {
-		t.Fatalf("ReserveSearch (shed): %v", err)
+	snap := m.Snapshot(ctx, testIncumbent)
+	if snap.SearchConsumed != 5 {
+		t.Fatalf("search consumed = %d, want 5", snap.SearchConsumed)
 	}
-	if ok {
-		t.Fatal("ReserveSearch past the per-second shed threshold was allowed, want declined")
+	if snap.SearchBand != overlaybudget.BandShed {
+		t.Fatalf("search band at 5/5 = %q, want shed", snap.SearchBand)
 	}
-	// Advance the clock one second: a fresh per-second window, allowed again.
+
+	// Advance one second: a fresh per-second window (fixed 1s bucket).
 	now = now.Add(time.Second)
-	ok, err = m.ReserveSearch(ctx, testIncumbent, 1)
-	if err != nil {
-		t.Fatalf("ReserveSearch (next second): %v", err)
+	rolled := m.Snapshot(ctx, testIncumbent)
+	if rolled.SearchConsumed != 0 {
+		t.Fatalf("search consumed after 1s rollover = %d, want 0", rolled.SearchConsumed)
 	}
-	if !ok {
-		t.Fatal("ReserveSearch in a fresh per-second window was declined, want allowed")
+	if rolled.SearchBand != overlaybudget.BandOK {
+		t.Fatalf("search band after rollover = %q, want ok", rolled.SearchBand)
 	}
 }
 
@@ -261,8 +262,10 @@ func TestFailClosed(t *testing.T) {
 	if ok, _ := m.ReserveREST(bare, testIncumbent, overlaybudget.SourceForceFresh, 1); ok {
 		t.Fatal("ReserveREST with no workspace was allowed, want declined")
 	}
-	if ok, _ := m.ReserveSearch(bare, testIncumbent, 1); ok {
-		t.Fatal("ReserveSearch with no workspace was allowed, want declined")
+	// ConsumeSearch/ConsumeREST no-op (record nothing) with no workspace —
+	// they never error, and the read side stays fail-closed shed above.
+	if err := m.ConsumeSearch(bare, testIncumbent, 1); err != nil {
+		t.Fatalf("ConsumeSearch with no workspace should be a silent no-op, got %v", err)
 	}
 
 	// Unconfigured incumbent → shed / declined.

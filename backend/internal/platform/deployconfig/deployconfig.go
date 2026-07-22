@@ -110,9 +110,11 @@ type OverlayBudget map[string]IncumbentBudget
 // integrations we cannot see — OVB-PARAM-3), plus the warn/shed fractions
 // of the cap (OVB-PARAM-1/2) shared by both windows.
 type IncumbentBudget struct {
-	// Search is the per-second search-API window (the burst limiter).
+	// Search is the per-second search-API window (fixed 1s bucket).
 	Search WindowBudget `yaml:"search"`
-	// REST is the daily REST-allocation window (the day budget).
+	// REST is the daily REST-allocation window — a fixed UTC-day bucket
+	// (resets at UTC midnight), the meter's "fixed-window counters with
+	// expiry" mechanism, not a sliding 24h window.
 	REST WindowBudget `yaml:"rest"`
 	// WarnFraction/ShedFraction are the consumed/cap ratios at which a
 	// charge answers warn then shed (OVB-PARAM-1/2). Zero means "use the

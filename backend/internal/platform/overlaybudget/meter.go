@@ -98,10 +98,12 @@ type IncumbentConfig struct {
 // config. compose builds it from deployconfig.EffectiveOverlayBudget.
 type Config map[string]IncumbentConfig
 
-// Budget is the meter's snapshot of one incumbent's current REST (daily)
-// window — the shape the admin budget surface and GetOverlayBudget read.
-// Headroom is always the unknown sentinel (see the package doc); the
-// per-source Breakdown sums to Consumed (OVB-AC-5).
+// Budget is the meter's snapshot of one incumbent's windows — the shape
+// the admin budget surface and GetOverlayBudget read. The REST (daily)
+// figures (Window/Consumed/Limit/Band + the per-source Breakdown, which
+// sums to Consumed, OVB-AC-5) are what GET /overlay/budget surfaces; the
+// Search* (per-second) figures feed the separate admin surface. Headroom
+// is always the unknown sentinel (see the package doc).
 type Budget struct {
 	Window    string
 	Consumed  int
@@ -109,6 +111,12 @@ type Budget struct {
 	Band      string
 	Headroom  string
 	Breakdown map[Source]int
+	// SearchWindow/SearchConsumed/SearchLimit/SearchBand report the
+	// per-second Search-API window (metered, not gated in branch 1).
+	SearchWindow   string
+	SearchConsumed int
+	SearchLimit    int
+	SearchBand     string
 }
 
 // Meter is the OVB consumption meter. The zero value is not usable;

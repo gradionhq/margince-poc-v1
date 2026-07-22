@@ -72,13 +72,15 @@ func Reconcile(ctx context.Context, inc Incumbent, ms *MirrorStore, meter *overl
 	watermark := since
 	cursor := ""
 	for {
-		if paced, err := chargeSearchRequest(ctx, meter, incumbent, objectClass); err != nil {
-			return watermark, err
-		} else if !paced {
-			// Per-second search-burst budget exhausted: pace by stopping this
-			// sweep and resuming from the persisted watermark on the next
-			// tick, rather than tripping the incumbent's per-second 429.
-			return watermark, nil
+		// Meter the Search-API request we are about to make BEFORE the
+		// fetch (so a request that then errors still counts — the HTTP call
+		// spent quota either way): a Modified page is a Search-API call, so
+		// it charges BOTH the per-second search window and the daily REST
+		// total on the poller source. This never aborts the scan: the poller
+		// mirrors and cannot skip a page mid-pagination without stranding
+		// later pages, so it records its spend and runs to completion.
+		if err := meterPollerSearch(ctx, meter, incumbent); err != nil {
+			return watermark, fmt.Errorf("overlay: reconcile %s: metering the poller sweep: %w", objectClass, err)
 		}
 
 		page, err := inc.Modified(ctx, objectClass, since, cursor)
@@ -98,29 +100,19 @@ func Reconcile(ctx context.Context, inc Incumbent, ms *MirrorStore, meter *overl
 	}
 }
 
-// chargeSearchRequest meters one incumbent search-API request (a Modified/
-// Deletions page fetch) against BOTH windows: it reserves a per-second
-// search-window slot (the burst limiter — a declined reservation returns
-// paced=false so the caller stops the sweep and resumes next tick) and, if
-// allowed, records the same request against the daily REST window on the
-// poller source (unconditional — the poller mirrors, it does not refuse
-// the day budget, but its spend is still counted). A nil meter is a no-op
-// (paced=true) for roles/tests that do not wire one.
-func chargeSearchRequest(ctx context.Context, meter *overlaybudget.Meter, incumbent, objectClass string) (paced bool, err error) {
+// meterPollerSearch records one poller Search-API request (a Modified page
+// fetch): the per-second search window AND the daily REST total on the
+// poller source (a Search call counts against both the incumbent's
+// per-second and daily allocations). Unconditional — the poller mirrors and
+// never refuses; a nil meter is a no-op for roles/tests that wire none.
+func meterPollerSearch(ctx context.Context, meter *overlaybudget.Meter, incumbent string) error {
 	if meter == nil {
-		return true, nil
+		return nil
 	}
-	allowed, rErr := meter.ReserveSearch(ctx, incumbent, 1)
-	if rErr != nil {
-		return false, fmt.Errorf("overlay: reconcile %s: reserving a search slot: %w", objectClass, rErr)
+	if err := meter.ConsumeSearch(ctx, incumbent, 1); err != nil {
+		return err
 	}
-	if !allowed {
-		return false, nil
-	}
-	if cErr := meter.ConsumeREST(ctx, incumbent, overlaybudget.SourcePoller, 1); cErr != nil {
-		return false, fmt.Errorf("overlay: reconcile %s: metering the poller REST charge: %w", objectClass, cErr)
-	}
-	return true, nil
+	return meter.ConsumeREST(ctx, incumbent, overlaybudget.SourcePoller, 1)
 }
 
 // reconcilePage lands every record of one Modified page and answers the
@@ -198,14 +190,17 @@ func ReconcileDeletions(ctx context.Context, inc Incumbent, ms *MirrorStore, met
 	incumbent := inc.Name()
 	cursor := ""
 	for {
-		if paced, err := chargeSearchRequest(ctx, meter, incumbent, objectClass); err != nil {
-			return err
-		} else if !paced {
-			// Per-second burst budget exhausted: stop the deletion sweep and
-			// resume it on the next tick (the feed is full-scanned from the
-			// epoch every pass and PurgeRecord is idempotent, so a partial
-			// pass loses nothing).
-			return nil
+		// The deletion feed is a REST list (ListArchived), NOT a Search-API
+		// call, so it charges only the daily REST window on the poller
+		// source — never the per-second search window. Metered before the
+		// fetch (a request that errors still spent quota), unconditional (the
+		// poller never aborts a paginated scan: this feed is full-scanned
+		// from the epoch every pass, and aborting mid-scan would strand later
+		// pages' deletions as permanently readable).
+		if meter != nil {
+			if err := meter.ConsumeREST(ctx, incumbent, overlaybudget.SourcePoller, 1); err != nil {
+				return fmt.Errorf("overlay: reconcile %s: metering the deletion sweep: %w", objectClass, err)
+			}
 		}
 
 		page, err := inc.Deletions(ctx, objectClass, time.Time{}, cursor)

@@ -263,8 +263,8 @@ type JobRunnerConfig struct {
 	// SAME Redis the api's force-fresh meter uses, so both lanes share one
 	// per-workspace-per-incumbent count (keeping the raw-Redis dependency in
 	// the cmd tier, never compose). Nil makes the poller fail-closed (it
-	// still mirrors; ConsumeREST is a silent no-op and ReserveSearch
-	// declines, pacing the sweep to a stop rather than spending unmetered).
+	// still mirrors; its Consume* calls are silent no-ops with no Redis, so a
+	// nil meter means unmetered recording, never a refused sweep).
 	OverlayMeter *overlaybudget.Meter
 	// OverlayBackfillLimit bounds the initial mirror backfill at this many
 	// records per object class (dev/demo — MARGINCE_OVERLAY_BACKFILL_LIMIT);
