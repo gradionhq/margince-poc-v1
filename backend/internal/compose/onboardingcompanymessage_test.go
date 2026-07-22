@@ -171,6 +171,7 @@ func TestOnboardingCompanyMessageRejectsInvalidRequestsAtTheirBoundary(t *testin
 		"malformed body":    {assistant: onboardingCompanyAssistant{state: validState, brain: &replyBrainStub{}, runtime: &onboardingRuntimeStub{}}, body: "{"},
 		"empty message":     {assistant: onboardingCompanyAssistant{state: validState, brain: &replyBrainStub{}, runtime: &onboardingRuntimeStub{}}, body: `{"message":"  ","locale":"en"}`},
 		"oversized message": {assistant: onboardingCompanyAssistant{state: validState, brain: &replyBrainStub{}, runtime: &onboardingRuntimeStub{}}, body: `{"message":"` + strings.Repeat("x", companyReadMessageMaxRunes+1) + `","locale":"en"}`},
+		"oversized draft":   {assistant: onboardingCompanyAssistant{state: validState, brain: &replyBrainStub{}, runtime: &onboardingRuntimeStub{}}, body: `{"message":"Hello","locale":"en","company_draft":{"icp":"` + strings.Repeat("x", onboardingCompanyDraftMaxRunes+1) + `"}}`},
 		"invalid history":   {assistant: onboardingCompanyAssistant{state: validState, brain: &replyBrainStub{}, runtime: &onboardingRuntimeStub{}}, body: `{"message":"Hello","locale":"en","history":[{"role":"user","message":""}]}`},
 		"missing locale":    {assistant: onboardingCompanyAssistant{state: validState, brain: &replyBrainStub{}, runtime: &onboardingRuntimeStub{}}, body: `{"message":"Hello"}`},
 		"unknown locale":    {assistant: onboardingCompanyAssistant{state: validState, brain: &replyBrainStub{}, runtime: &onboardingRuntimeStub{}}, body: `{"message":"Hello","locale":"fr"}`},

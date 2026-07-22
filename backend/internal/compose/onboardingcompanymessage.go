@@ -22,6 +22,8 @@ import (
 
 var onboardingRequiredFields = []string{fieldDisplayName, fieldOfferSummary, fieldICP}
 
+const onboardingCompanyDraftMaxRunes = 2_000
+
 type onboardingCompanyAssistant struct {
 	state   onboardingStateReader
 	people  onboardingSiteReadReader
@@ -81,7 +83,7 @@ func (a *onboardingCompanyAssistant) message(w http.ResponseWriter, r *http.Requ
 	}
 	currentDraft := state.CompanyDraft
 	if req.CompanyDraft != nil {
-		currentDraft = onboardingDraftInput(*req.CompanyDraft)
+		currentDraft = onboardingConversationDraftInput(*req.CompanyDraft)
 	}
 	remaining := remainingOnboardingFields(currentDraft)
 	conversation := onboardingConversationContext{
@@ -130,7 +132,64 @@ func decodeOnboardingCompanyMessage(w http.ResponseWriter, r *http.Request) (crm
 		httperr.Write(w, r, httperr.Validation("message", "too_long", "message must be at most 2000 characters"))
 		return req, "", false
 	}
+	if req.CompanyDraft != nil {
+		if field := oversizedOnboardingDraftField(*req.CompanyDraft); field != "" {
+			httperr.Write(w, r, httperr.Validation("company_draft."+field, "too_long", "each company draft field must be at most 2000 characters"))
+			return req, "", false
+		}
+	}
 	return req, message, true
+}
+
+func onboardingConversationDraftInput(in crmcontracts.OnboardingCompanyConversationDraft) identity.OnboardingCompanyDraft {
+	return identity.OnboardingCompanyDraft{
+		DisplayName:       in.DisplayName,
+		OfferSummary:      in.OfferSummary,
+		ICP:               in.Icp,
+		ValueProposition:  in.ValueProposition,
+		USP:               in.Usp,
+		CustomerPains:     in.CustomerPains,
+		DesiredOutcomes:   in.DesiredOutcomes,
+		BuyingCenter:      in.BuyingCenter,
+		BuyingIntents:     in.BuyingIntents,
+		CommonObjections:  in.CommonObjections,
+		SalesMotion:       in.SalesMotion,
+		LegalName:         in.LegalName,
+		RegisteredAddress: in.RegisteredAddress,
+		RegisterVAT:       in.RegisterVat,
+		Industry:          in.Industry,
+		History:           in.History,
+	}
+}
+
+func oversizedOnboardingDraftField(draft crmcontracts.OnboardingCompanyConversationDraft) string {
+	fields := []struct {
+		name  string
+		value *string
+	}{
+		{fieldDisplayName, draft.DisplayName},
+		{fieldOfferSummary, draft.OfferSummary},
+		{fieldICP, draft.Icp},
+		{fieldValueProposition, draft.ValueProposition},
+		{fieldUSP, draft.Usp},
+		{fieldCustomerPains, draft.CustomerPains},
+		{fieldDesiredOutcomes, draft.DesiredOutcomes},
+		{fieldBuyingCenter, draft.BuyingCenter},
+		{fieldBuyingIntents, draft.BuyingIntents},
+		{fieldCommonObjections, draft.CommonObjections},
+		{fieldSalesMotion, draft.SalesMotion},
+		{fieldLegalName, draft.LegalName},
+		{fieldRegisteredAddress, draft.RegisteredAddress},
+		{fieldRegisterVat, draft.RegisterVat},
+		{fieldIndustry, draft.Industry},
+		{fieldHistory, draft.History},
+	}
+	for _, field := range fields {
+		if field.value != nil && len([]rune(*field.value)) > onboardingCompanyDraftMaxRunes {
+			return field.name
+		}
+	}
+	return ""
 }
 
 func (a *onboardingCompanyAssistant) onboardingEvidence(ctx context.Context, state identity.OnboardingState) ([]companyReadEvidence, ids.UUID, onboardingResearchState, error) {
@@ -170,8 +229,8 @@ Respond in ` + locale + `.`,
 		known[source.ID] = source
 	}
 	statements := administratorConversation(history, message)
-	allowChanges := messageRequestsCompanyChanges(message) || (conversation.NextRequired != "" && !looksLikeQuestion(message))
-	validate := func(text string) error { return validateCompanyReadReply(text, known, statements, allowChanges) }
+	authorization := newCompanyChangeAuthorization(message, history, conversation.NextRequired)
+	validate := func(text string) error { return validateCompanyReadReply(text, known, statements, authorization) }
 	var response model.Response
 	if structured, ok := a.brain.(validatedBrain); ok {
 		response, err = structured.CompleteValidated(ctx, req, validate)
@@ -185,7 +244,7 @@ Respond in ` + locale + `.`,
 	if err := json.Unmarshal([]byte(ai.Unfence(response.Text)), &reply); err != nil {
 		return companyReadModelReply{}, fmt.Errorf("compose: onboarding company answer is not valid JSON: %w", err)
 	}
-	if err := validateCompanyReadReplyValue(reply, known, statements, allowChanges); err != nil {
+	if err := validateCompanyReadReplyValue(reply, known, statements, authorization); err != nil {
 		return companyReadModelReply{}, err
 	}
 	return reply, nil
@@ -210,7 +269,12 @@ func remainingOnboardingFields(draft identity.OnboardingCompanyDraft) []string {
 func isCompanyStatusQuestion(message string) bool {
 	normalized := strings.ToLower(strings.Join(strings.Fields(message), " "))
 	normalized = strings.TrimRight(normalized, "?!. ")
-	for _, phrase := range []string{"does this work", "is this working", "what is the status", "funktioniert das", "klappt das", "wie ist der status"} {
+	for _, phrase := range []string{
+		"does this work", "does this work now", "is this working", "is this working now", "is this working yet",
+		"what is the status", "what is the status now", "what is the status of the website research", "what is the status of website research",
+		"funktioniert das", "funktioniert das jetzt", "klappt das", "klappt das jetzt", "wie ist der status", "wie ist jetzt der status",
+		"wie ist der status der web-recherche", "wie ist der status der website-recherche",
+	} {
 		if normalized == phrase {
 			return true
 		}

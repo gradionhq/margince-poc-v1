@@ -31,6 +31,7 @@ import {
 import {
   type ChangeEvent,
   type ReactNode,
+  type SetStateAction,
   useCallback,
   useEffect,
   useMemo,
@@ -550,7 +551,15 @@ function OnboardingCoordinator() {
   const [voiceBuilt, setVoiceBuilt] = useState(false);
   // Company-step state lives HERE, not in the step component: stepping back
   // and forward must not destroy what the user typed.
-  const [draft, setDraft] = useState<CompanyDraft>(EMPTY_DRAFT);
+  const [draft, setDraftState] = useState<CompanyDraft>(EMPTY_DRAFT);
+  const draftRef = useRef<CompanyDraft>(EMPTY_DRAFT);
+  const setDraft = useCallback((update: SetStateAction<CompanyDraft>) => {
+    setDraftState((previous) => {
+      const next = typeof update === "function" ? update(previous) : update;
+      draftRef.current = next;
+      return next;
+    });
+  }, []);
   const [saveAttempted, setSaveAttempted] = useState(false);
   const [companySaved, setCompanySaved] = useState(false);
   const [sourceMode, setSourceMode] = useState<SourceMode | null>(null);
@@ -704,6 +713,7 @@ function OnboardingCoordinator() {
     existing.data,
     existing.isPending,
     route.id,
+    setDraft,
     wizardState.data,
     wizardState.isPending,
   ]);
@@ -787,7 +797,7 @@ function OnboardingCoordinator() {
       return;
     }
     appliedReadVersion.current = read.draft_version;
-    const nextDraft = prefill(draft, read.profile_fields);
+    const nextDraft = prefill(draftRef.current, read.profile_fields);
     setDraft(nextDraft);
     // A value key can name more than one fact — the same company can be
     // both a partner and a named customer — and the API takes a SET of
@@ -801,7 +811,7 @@ function OnboardingCoordinator() {
       selectedFactKeys: factKeys,
       values: nextDraft.values,
     });
-  }, [draft, siteRead.data, persistState, sourceMode]);
+  }, [siteRead.data, persistState, setDraft, sourceMode]);
 
   const go = (next: number, persist = true) => {
     if (next < 0 || next >= STEPS.length) {

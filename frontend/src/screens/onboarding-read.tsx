@@ -71,6 +71,8 @@ const manualFallbackStatuses = new Set<CompanySiteRead["status"]>([
   "queued",
   "reading",
   "deferred",
+  "failed",
+  "abandoned",
 ]);
 function presenceState(
   props: ReadCompanyStepProps,

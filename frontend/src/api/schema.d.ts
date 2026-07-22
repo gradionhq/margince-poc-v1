@@ -7104,6 +7104,28 @@ export interface components {
             industry?: string | null;
             history?: string | null;
         };
+        /**
+         * @description A size-bounded copy of the administrator's current company draft supplied only as
+         *     conversational context. It does not change the persisted onboarding state contract.
+         */
+        OnboardingCompanyConversationDraft: {
+            display_name?: string | null;
+            offer_summary?: string | null;
+            icp?: string | null;
+            value_proposition?: string | null;
+            usp?: string | null;
+            customer_pains?: string | null;
+            desired_outcomes?: string | null;
+            buying_center?: string | null;
+            buying_intents?: string | null;
+            common_objections?: string | null;
+            sales_motion?: string | null;
+            legal_name?: string | null;
+            registered_address?: string | null;
+            register_vat?: string | null;
+            industry?: string | null;
+            history?: string | null;
+        };
         PutOnboardingStateRequest: {
             /** @description Zero creates; otherwise the version last read. */
             expected_version: number;
@@ -7451,7 +7473,7 @@ export interface components {
             locale: "en" | "de";
             history?: components["schemas"]["CompanySiteReadConversationTurn"][];
             /** @description The administrator's current unsaved artifact, used only as conversational context. */
-            company_draft?: components["schemas"]["OnboardingCompanyDraft"];
+            company_draft?: components["schemas"]["OnboardingCompanyConversationDraft"];
         };
         OnboardingCompanyMessageReply: {
             kind: components["schemas"]["CompanyConversationResponseKind"];

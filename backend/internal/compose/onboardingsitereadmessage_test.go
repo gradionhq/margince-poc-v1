@@ -24,17 +24,18 @@ import (
 func TestCompanyReadReplyAcceptsReviewableChangesAndOnlyKnownSources(t *testing.T) {
 	known := map[string]companyReadEvidence{"S1": {ID: "S1", Value: "Acme GmbH", Quote: "Acme GmbH, HRB 12345"}}
 	valid := `{"kind":"recommendation","message":"I found the registered name.","proposed_changes":[{"field":"legal_name","value":"Acme GmbH","reason":"The legal notice states it.","source_ids":["S1"]}],"source_ids":["S1"]}`
-	if err := validateCompanyReadReply(valid, known, "Which legal name did you find?", true); err != nil {
+	changeRequest := newCompanyChangeAuthorization("Please update the legal name to Acme GmbH", nil, "")
+	if err := validateCompanyReadReply(valid, known, "Please update the legal name to Acme GmbH", changeRequest); err != nil {
 		t.Fatalf("valid reply rejected: %v", err)
 	}
 
 	unknown := `{"kind":"answer","message":"I found it.","proposed_changes":[],"source_ids":["S9"]}`
-	if err := validateCompanyReadReply(unknown, known, "Find it", false); err == nil {
+	if err := validateCompanyReadReply(unknown, known, "Find it", companyChangeAuthorization{}); err == nil {
 		t.Fatal("reply citing a URL outside the dossier was accepted")
 	}
 
 	unsupported := `{"kind":"correction","message":"I can change it.","proposed_changes":[{"field":"website","value":"evil.example","reason":"requested","source_ids":[]}],"source_ids":[]}`
-	if err := validateCompanyReadReply(unsupported, known, "Use evil.example", true); err == nil {
+	if err := validateCompanyReadReply(unsupported, known, "Use evil.example", newCompanyChangeAuthorization("Use evil.example", nil, "")); err == nil {
 		t.Fatal("reply proposing a field outside the onboarding vocabulary was accepted")
 	}
 }
@@ -165,18 +166,19 @@ func TestCompanyReadReplyValidationRejectsEveryUnsafeShape(t *testing.T) {
 	known := map[string]companyReadEvidence{"S1": {ID: "S1", Value: "Acme GmbH"}}
 	for name, reply := range tests {
 		t.Run(name, func(t *testing.T) {
-			if err := validateCompanyReadReplyValue(reply, known, "Use administrator supplied value", true); err == nil {
+			authorization := newCompanyChangeAuthorization("Use administrator supplied value", nil, "")
+			if err := validateCompanyReadReplyValue(reply, known, "Use administrator supplied value", authorization); err == nil {
 				t.Fatalf("unsafe reply accepted: %+v", reply)
 			}
 		})
 	}
-	if err := validateCompanyReadReply("not json", nil, "", false); err == nil {
+	if err := validateCompanyReadReply("not json", nil, "", companyChangeAuthorization{}); err == nil {
 		t.Fatal("malformed JSON was accepted")
 	}
 	adminSupplied := companyReadModelReply{Kind: "correction", Message: "I can suggest that.", ProposedChanges: []companyReadProposedChange{{
 		Field: "legal_name", Value: "Admin GmbH", Reason: "You supplied it.", SourceIDs: []string{},
 	}}}
-	if err := validateCompanyReadReplyValue(adminSupplied, known, "Please use Admin GmbH", true); err != nil {
+	if err := validateCompanyReadReplyValue(adminSupplied, known, "Please use Admin GmbH", newCompanyChangeAuthorization("Please use Admin GmbH", nil, "")); err != nil {
 		t.Fatalf("administrator correction rejected: %v", err)
 	}
 }
@@ -228,7 +230,10 @@ func TestWithDeepReadWiresConversationAndRuntimeFromTheSameOption(t *testing.T) 
 }
 
 func TestOnboardingCompanyStatusQuestionsNeverBecomeChanges(t *testing.T) {
-	for _, question := range []string{"Does this work?", "Is this working?", "Wie ist der Status?", "Funktioniert das?"} {
+	for _, question := range []string{
+		"Does this work?", "Is this working?", "Is this working now?", "What is the status of the website research?",
+		"Wie ist der Status?", "Funktioniert das?", "Funktioniert das jetzt?", "Wie ist der Status der Web-Recherche?",
+	} {
 		if !isCompanyStatusQuestion(question) {
 			t.Fatalf("status question %q was not recognized", question)
 		}
@@ -256,7 +261,7 @@ func TestCompanyConversationRejectsAChangeHiddenInAStatusReply(t *testing.T) {
 			Field: "industry", Value: "Software", Reason: "You said so", SourceIDs: []string{},
 		}},
 	}
-	if err := validateCompanyReadReplyValue(reply, nil, "Software", true); err == nil {
+	if err := validateCompanyReadReplyValue(reply, nil, "Software", newCompanyChangeAuthorization("Software", nil, fieldIndustry)); err == nil {
 		t.Fatal("status reply carrying a proposed change was accepted")
 	}
 }
@@ -268,7 +273,38 @@ func TestCompanyConversationRejectsSuggestionsWithoutChangeIntent(t *testing.T) 
 		}}, SourceIDs: []string{"S1"},
 	}
 	known := map[string]companyReadEvidence{"S1": {ID: "S1", Value: "Software"}}
-	if err := validateCompanyReadReplyValue(reply, known, "Does this work?", false); err == nil {
+	if err := validateCompanyReadReplyValue(reply, known, "Does this work?", companyChangeAuthorization{currentMessage: "Does this work?"}); err == nil {
 		t.Fatal("an ordinary question produced a change proposal")
+	}
+}
+
+func TestCompanyChangeAuthorizationUnderstandsAssertionsDirectAnswersAndFollowUps(t *testing.T) {
+	legalChange := companyReadProposedChange{Field: fieldLegalName, Value: "Acme GmbH"}
+	assertion := newCompanyChangeAuthorization("Our legal name is Acme GmbH", nil, "")
+	if !assertion.allows(legalChange) {
+		t.Fatal("a natural explicit correction was rejected")
+	}
+	if newCompanyChangeAuthorization("Is our legal name Acme GmbH?", nil, "").allows(legalChange) {
+		t.Fatal("a question was treated as an explicit correction")
+	}
+
+	direct := newCompanyChangeAuthorization("Acme", nil, fieldDisplayName)
+	if !direct.allows(companyReadProposedChange{Field: fieldDisplayName, Value: "Acme"}) ||
+		direct.allows(companyReadProposedChange{Field: fieldIndustry, Value: "Acme"}) {
+		t.Fatal("a direct answer was not confined to the deterministic next field")
+	}
+	if newCompanyChangeAuthorization("Tell me about the findings", nil, fieldDisplayName).allows(
+		companyReadProposedChange{Field: fieldDisplayName, Value: "Acme"},
+	) {
+		t.Fatal("an ordinary statement opened the direct-answer change boundary")
+	}
+
+	history := []model.Message{
+		{Role: chatRoleUser, Content: "Please update our industry to software"},
+		{Role: "assistant", Content: "Should I apply that correction?"},
+	}
+	followUp := newCompanyChangeAuthorization("Yes please", history, "")
+	if !followUp.allows(companyReadProposedChange{Field: fieldIndustry, Value: "Software"}) {
+		t.Fatal("a confirmation of the immediately preceding change request was rejected")
 	}
 }

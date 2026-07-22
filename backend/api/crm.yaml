@@ -10049,6 +10049,30 @@ components:
         industry: { type: [string, 'null'] }
         history: { type: [string, 'null'] }
 
+    OnboardingCompanyConversationDraft:
+      type: object
+      additionalProperties: false
+      description: |
+        A size-bounded copy of the administrator's current company draft supplied only as
+        conversational context. It does not change the persisted onboarding state contract.
+      properties:
+        display_name: { type: [string, 'null'], maxLength: 2000 }
+        offer_summary: { type: [string, 'null'], maxLength: 2000 }
+        icp: { type: [string, 'null'], maxLength: 2000 }
+        value_proposition: { type: [string, 'null'], maxLength: 2000 }
+        usp: { type: [string, 'null'], maxLength: 2000 }
+        customer_pains: { type: [string, 'null'], maxLength: 2000 }
+        desired_outcomes: { type: [string, 'null'], maxLength: 2000 }
+        buying_center: { type: [string, 'null'], maxLength: 2000 }
+        buying_intents: { type: [string, 'null'], maxLength: 2000 }
+        common_objections: { type: [string, 'null'], maxLength: 2000 }
+        sales_motion: { type: [string, 'null'], maxLength: 2000 }
+        legal_name: { type: [string, 'null'], maxLength: 2000 }
+        registered_address: { type: [string, 'null'], maxLength: 2000 }
+        register_vat: { type: [string, 'null'], maxLength: 2000 }
+        industry: { type: [string, 'null'], maxLength: 2000 }
+        history: { type: [string, 'null'], maxLength: 2000 }
+
     PutOnboardingStateRequest:
       type: object
       additionalProperties: false
@@ -10416,7 +10440,7 @@ components:
           maxItems: 8
           items: { $ref: '#/components/schemas/CompanySiteReadConversationTurn' }
         company_draft:
-          $ref: '#/components/schemas/OnboardingCompanyDraft'
+          $ref: '#/components/schemas/OnboardingCompanyConversationDraft'
           description: The administrator's current unsaved artifact, used only as conversational context.
 
     OnboardingCompanyMessageReply:

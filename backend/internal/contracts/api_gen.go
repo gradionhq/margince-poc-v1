@@ -9258,6 +9258,27 @@ type OmittedExtractionField struct {
 // OmittedExtractionFieldReason defines model for OmittedExtractionField.Reason.
 type OmittedExtractionFieldReason string
 
+// OnboardingCompanyConversationDraft A size-bounded copy of the administrator's current company draft supplied only as
+// conversational context. It does not change the persisted onboarding state contract.
+type OnboardingCompanyConversationDraft struct {
+	BuyingCenter      *string `json:"buying_center,omitempty"`
+	BuyingIntents     *string `json:"buying_intents,omitempty"`
+	CommonObjections  *string `json:"common_objections,omitempty"`
+	CustomerPains     *string `json:"customer_pains,omitempty"`
+	DesiredOutcomes   *string `json:"desired_outcomes,omitempty"`
+	DisplayName       *string `json:"display_name,omitempty"`
+	History           *string `json:"history,omitempty"`
+	Icp               *string `json:"icp,omitempty"`
+	Industry          *string `json:"industry,omitempty"`
+	LegalName         *string `json:"legal_name,omitempty"`
+	OfferSummary      *string `json:"offer_summary,omitempty"`
+	RegisterVat       *string `json:"register_vat,omitempty"`
+	RegisteredAddress *string `json:"registered_address,omitempty"`
+	SalesMotion       *string `json:"sales_motion,omitempty"`
+	Usp               *string `json:"usp,omitempty"`
+	ValueProposition  *string `json:"value_proposition,omitempty"`
+}
+
 // OnboardingCompanyDraft Partial human-editable company input retained while the wizard is unfinished. Every field
 // is optional here because this is not confirmed company truth; confirmation uses the stricter
 // CompanyProfileInput or ConfirmCompanySiteReadRequest contract.
@@ -9304,10 +9325,9 @@ type OnboardingCompanyMessageReplyRemainingRequiredFields string
 
 // OnboardingCompanyMessageRequest defines model for OnboardingCompanyMessageRequest.
 type OnboardingCompanyMessageRequest struct {
-	// CompanyDraft Partial human-editable company input retained while the wizard is unfinished. Every field
-	// is optional here because this is not confirmed company truth; confirmation uses the stricter
-	// CompanyProfileInput or ConfirmCompanySiteReadRequest contract.
-	CompanyDraft *OnboardingCompanyDraft               `json:"company_draft,omitempty"`
+	// CompanyDraft A size-bounded copy of the administrator's current company draft supplied only as
+	// conversational context. It does not change the persisted onboarding state contract.
+	CompanyDraft *OnboardingCompanyConversationDraft   `json:"company_draft,omitempty"`
 	History      *[]CompanySiteReadConversationTurn    `json:"history,omitempty"`
 	Locale       OnboardingCompanyMessageRequestLocale `json:"locale"`
 	Message      string                                `json:"message"`

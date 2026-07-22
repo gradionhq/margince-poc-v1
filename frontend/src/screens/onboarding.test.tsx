@@ -118,7 +118,7 @@ const manyFactsRead = {
   })),
 } satisfies CompanySiteRead;
 
-const readingCompleteRead = {
+const populatedReadingRead = {
   ...readyRead,
   status: "reading",
   phase: "extracting",
@@ -147,6 +147,7 @@ type StubOptions = {
   company?: typeof savedProfile | null;
   state?: Record<string, unknown> | null;
   read?: CompanySiteRead;
+  readSequence?: CompanySiteRead[];
   readStartError?: { detail: string; status: number };
   saveError?: { detail: string; status: number };
   conflictOnce?: boolean;
@@ -168,6 +169,7 @@ function stubApi(options: StubOptions = {}) {
   const calls: Request[] = [];
   let version = 0;
   let conflictPending = options.conflictOnce ?? false;
+  let readIndex = 0;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (request: Request) => {
@@ -218,7 +220,10 @@ function stubApi(options: StubOptions = {}) {
             options.readStartError.status,
           );
         }
-        return jsonResponse(options.read ?? readyRead, 202);
+        return jsonResponse(
+          options.readSequence?.[0] ?? options.read ?? readyRead,
+          202,
+        );
       }
       if (path.includes("/company/site-reads/") && path.endsWith("/confirm")) {
         return jsonResponse(savedProfile);
@@ -250,6 +255,12 @@ function stubApi(options: StubOptions = {}) {
         );
       }
       if (path.includes("/company/site-reads/") && request.method === "GET") {
+        const sequence = options.readSequence;
+        if (sequence && sequence.length > 0) {
+          const read = sequence[Math.min(readIndex, sequence.length - 1)];
+          readIndex += 1;
+          return jsonResponse(read);
+        }
         return jsonResponse(options.read ?? readyRead);
       }
       if (path.endsWith("/company") && request.method === "GET") {
@@ -397,7 +408,7 @@ describe("the optional website path", () => {
   });
 
   it("cannot confirm streamed website values before the dossier is ready", async () => {
-    const calls = stubApi({ read: readingCompleteRead });
+    const calls = stubApi({ read: populatedReadingRead });
     render(<OnboardingScreen />);
 
     await readWebsite();
@@ -408,6 +419,42 @@ describe("the optional website path", () => {
     await userEvent.click(confirm);
     expect(requestTo(calls, "/company", "PUT")).toBeUndefined();
     expect(requestTo(calls, "/confirm", "POST")).toBeUndefined();
+  });
+
+  it("preserves administrator typing when a newer streamed dossier arrives", async () => {
+    const completedRead = {
+      ...populatedReadingRead,
+      status: "ready",
+      phase: null,
+      draft_version: 2,
+      profile_fields: populatedReadingRead.profile_fields.map((field) =>
+        field.field === "icp"
+          ? { ...field, value: "Enterprise manufacturers" }
+          : field,
+      ),
+    } as const satisfies CompanySiteRead;
+    const calls = stubApi({
+      readSequence: [populatedReadingRead, completedRead],
+    });
+    render(<OnboardingScreen />);
+
+    await readWebsite();
+    const icp = screen.getByLabelText(/Ideal customer/) as HTMLTextAreaElement;
+    await userEvent.clear(icp);
+    await userEvent.type(icp, "Owner-led manufacturers");
+
+    await waitFor(
+      () => {
+        const reads = calls.filter(
+          (request) =>
+            request.method === "GET" &&
+            request.url.includes("/company/site-reads/"),
+        );
+        expect(reads.length).toBeGreaterThanOrEqual(2);
+      },
+      { timeout: 3_000 },
+    );
+    expect(icp.value).toBe("Owner-led manufacturers");
   });
 
   it("caps the default fact selection at the server limit", async () => {
@@ -489,6 +536,38 @@ describe("the optional website path", () => {
         name: /What is the full registered legal name/,
       }),
     ).toBeTruthy();
+  });
+
+  it("offers manual recovery after website research fails", async () => {
+    const calls = stubApi({
+      read: {
+        ...populatedReadingRead,
+        status: "failed",
+        phase: null,
+        status_code: null,
+        status_detail: "The website stopped responding.",
+      },
+    });
+    render(<OnboardingScreen />);
+
+    await readWebsite();
+    await userEvent.click(
+      screen
+        .getAllByRole("button", { name: /Tell me yourself/ })
+        .at(-1) as HTMLElement,
+    );
+    await waitFor(async () => {
+      const stateWrites = calls.filter(
+        (request) =>
+          request.url.includes("/onboarding/state") && request.method === "PUT",
+      );
+      const body = (await stateWrites.at(-1)?.clone().json()) as Record<
+        string,
+        unknown
+      >;
+      expect(body.source_mode).toBe("manual");
+      expect(body.site_read_id).toBeNull();
+    });
   });
 
   it("shows a deferred read as scheduled work and keeps the manual path available", async () => {

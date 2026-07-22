@@ -301,7 +301,7 @@ Proposed changes: none
 ## Confirmation
 
 When all completion-critical fields are resolved—and, if research was
-started, the website read is terminal—Margince writes:
+started, the website read is ready or partial—Margince writes:
 
 > I'm ready to store 14 company details and 27 supported facts. Nothing has
 > been saved yet.
@@ -317,6 +317,8 @@ dossier version and proposal hash, writes the company, selected fields and
 facts in one audited transaction, and marks that dossier confirmed. A manual
 flow has no dossier to mark; it confirms the current onboarding-draft version
 through the audited company write after the required fields are resolved.
+Failed or abandoned research offers an explicit **Continue manually** action;
+that clears the dossier binding before the manual confirmation path is enabled.
 
 Typing the exact active command “Confirm and save” may invoke the same action
 when the UI has a current ready proposal. A vague “yes” asks for clarification.
