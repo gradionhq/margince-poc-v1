@@ -341,16 +341,25 @@ var tasksMapping = overlay.ObjectMapping{
 	},
 }
 
-// leadsMapping is the design.md §9 leads→lead subset (portals with the
-// Leads object). `status` is a deliberate target-side gap: §9 calls for
-// mapping HubSpot's free-form lead status into the fixed
-// new/working/promoted/disqualified enum, which needs an enum-remapping
-// transform NOT in the closed registry ({lowercase, uppercase,
-// ms_to_seconds, full_name, amount_minor_by_currency,
-// employees_to_size_band, address_json}) — per the "flag, don't invent"
-// rule this slice does not add one (the real Leads API mapping, OVA-MAP-5,
-// is a later slice). status is left unconsumed so Apply's unmapped []string
-// surfaces it, exactly like companies' domain.
+// leadsMapping is the leads→lead subset via the REAL HubSpot Leads object
+// properties (OVA-MAP-5): a standard lead carries its own `hs_lead_name`
+// (→ full_name), never the `name`/`email`/`company` a contact carries — those
+// property names do not exist on the Leads object and were the prior mapping's
+// invention. A lead's email and company_name are NOT lead properties: they are
+// derived from the lead's REQUIRED contact association (adapter.enrichLeads),
+// with company_name staying free text (never an org FK, per the Lead schema).
+//
+// Two deliberate deferrals, never invented:
+//   - `hs_lead_label` → lead.status: the raw label is REQUESTED and preserved
+//     in raw (under its own incumbent key), so it actually rides the mirror
+//     record rather than being silently dropped; the typed status enum remap
+//     still waits on a documented transform + a real capture, the same
+//     "flag, don't invent" deferral the email-direction / meeting-status
+//     remaps take. (A comment-only claim of "surfaced" would be false: a
+//     property no FieldMapping names is never requested from HubSpot, so it
+//     would never appear — mapping it to raw is what makes the deferral real.)
+//   - a lead with NO contact association keeps email/company_name null rather
+//     than inventing them.
 var leadsMapping = overlay.ObjectMapping{
 	Source:         objectClassLeads,
 	Target:         "lead",
@@ -358,8 +367,8 @@ var leadsMapping = overlay.ObjectMapping{
 	Baseline:       baselineHSLastModifiedDate,
 	UnmappedPolicy: unmappedPolicyFlag,
 	Fields: []overlay.FieldMapping{
-		{From: []string{propName}, To: targetFullName, Kind: overlay.TargetColumn},
-		{From: []string{propEmail}, To: propEmail, Kind: overlay.TargetColumn},
-		{From: []string{"company"}, To: "company_name", Kind: overlay.TargetColumn},
+		{From: []string{"hs_lead_name"}, To: targetFullName, Kind: overlay.TargetColumn},
+		{From: []string{"hs_lead_label"}, To: "hs_lead_label", Kind: overlay.TargetColumn},
+		ownerIDField,
 	},
 }
