@@ -16,6 +16,10 @@ const (
 	DealRestored         SubscribableEventType = "deal.restored"
 	DealStageChanged     SubscribableEventType = "deal.stage_changed"
 	DealUpdated          SubscribableEventType = "deal.updated"
+	LeadCreated          SubscribableEventType = "lead.created"
+	LeadDisqualified     SubscribableEventType = "lead.disqualified"
+	LeadPromoted         SubscribableEventType = "lead.promoted"
+	LeadUpdated          SubscribableEventType = "lead.updated"
 	OfferAccepted        SubscribableEventType = "offer.accepted"
 	OfferCreated         SubscribableEventType = "offer.created"
 	OfferRejected        SubscribableEventType = "offer.rejected"
@@ -52,6 +56,14 @@ func (e SubscribableEventType) Valid() bool {
 	case DealStageChanged:
 		return true
 	case DealUpdated:
+		return true
+	case LeadCreated:
+		return true
+	case LeadDisqualified:
+		return true
+	case LeadPromoted:
+		return true
+	case LeadUpdated:
 		return true
 	case OfferAccepted:
 		return true
@@ -98,7 +110,7 @@ func (e SubscribableEventType) Valid() bool {
 	}
 }
 
-// SubscribableEventType The closed set of domain events a webhook subscription can select. Phase 4 fills this out family by family; today it carries the pilot event plus the deal family (Task 5a-i), the offer family (Task 5a-ii), the pipeline/stage config family (Task 5a-iii), and the person/organization family (Task 5b-personorg). lead.* is a separate task (5b-lead) and is not yet listed.
+// SubscribableEventType The closed set of domain events a webhook subscription can select. Phase 4 fills this out family by family; today it carries the pilot event plus the deal family (Task 5a-i), the offer family (Task 5a-ii), the pipeline/stage config family (Task 5a-iii), and the person/organization family (Task 5b-personorg), and the lead family (Task 5b-lead).
 type SubscribableEventType string
 
 // WebhookActor Who or what caused the event, as exposed publicly.
@@ -190,6 +202,36 @@ type WebhookPayloadDealStageChanged struct {
 
 // WebhookPayloadDealUpdated Payload for deal.updated — an OPEN envelope: its emit sites carry divergent shapes (a flat column patch, an accepted-offer amount sync, a close-date-correction note, a relationship delta), so the honest shape is a change-set map rather than a fixed field list.
 type WebhookPayloadDealUpdated struct {
+	// ChangedFields Field name → new value for whatever this update touched, incl. runtime cf_* custom fields.
+	ChangedFields map[string]interface{} `json:"changed_fields"`
+}
+
+// WebhookPayloadLeadCreated Payload for lead.created — a lead was created. Two emit sites: a direct create (people/lead.go) that sets no fields, and the capture auto-create engine (capture/sink.go) that names its originating source system; source_system is therefore optional.
+type WebhookPayloadLeadCreated struct {
+	// SourceSystem The originating source system (capture auto-create only; absent on a direct create).
+	SourceSystem *string `json:"source_system,omitempty"`
+}
+
+// WebhookPayloadLeadDisqualified Payload for lead.disqualified — a lead was disqualified. Carries no data.
+type WebhookPayloadLeadDisqualified struct{}
+
+// WebhookPayloadLeadPromoted Payload for lead.promoted — the lead's genuine-engagement promotion into the context graph (events.md §5.5); its own verb, never a lead.updated, since neither person.created nor person.updated on its own says a lead crossed this line.
+type WebhookPayloadLeadPromoted struct {
+	// DedupeOutcome Whether promotion created a new person or merged into an existing one: created or merged.
+	DedupeOutcome string `json:"dedupe_outcome"`
+
+	// EvidenceRef The inbound activity that evidenced the trigger (absent for a human_qualify with no linked activity).
+	EvidenceRef *openapi_types.UUID `json:"evidence_ref,omitempty"`
+
+	// PromotedPersonId The person this lead promoted into (fresh or an existing survivor).
+	PromotedPersonId openapi_types.UUID `json:"promoted_person_id"`
+
+	// Trigger The genuine-engagement trigger that authorized promotion: inbound_reply, meeting_booked, meeting_held, or human_qualify.
+	Trigger string `json:"trigger"`
+}
+
+// WebhookPayloadLeadUpdated Payload for lead.updated — an OPEN envelope: emit sites carry divergent shapes (a flat column patch that includes runtime cf_* custom-field columns, and behavioral-recompute/routing deltas), so the honest shape is a change-set map rather than a fixed field list.
+type WebhookPayloadLeadUpdated struct {
 	// ChangedFields Field name → new value for whatever this update touched, incl. runtime cf_* custom fields.
 	ChangedFields map[string]interface{} `json:"changed_fields"`
 }
@@ -464,6 +506,22 @@ func (WebhookPayloadDealUpdated) EventType() string { return "deal.updated" }
 
 func (WebhookPayloadDealUpdated) EntityType() string { return "deal" }
 
+func (WebhookPayloadLeadCreated) EventType() string { return "lead.created" }
+
+func (WebhookPayloadLeadCreated) EntityType() string { return "lead" }
+
+func (WebhookPayloadLeadDisqualified) EventType() string { return "lead.disqualified" }
+
+func (WebhookPayloadLeadDisqualified) EntityType() string { return "lead" }
+
+func (WebhookPayloadLeadPromoted) EventType() string { return "lead.promoted" }
+
+func (WebhookPayloadLeadPromoted) EntityType() string { return "lead" }
+
+func (WebhookPayloadLeadUpdated) EventType() string { return "lead.updated" }
+
+func (WebhookPayloadLeadUpdated) EntityType() string { return "lead" }
+
 func (WebhookPayloadOfferAccepted) EventType() string { return "offer.accepted" }
 
 func (WebhookPayloadOfferAccepted) EntityType() string { return "offer" }
@@ -556,6 +614,10 @@ var WebhookPayloadVersions = map[string]int{
 	"deal.restored":         1,
 	"deal.stage_changed":    1,
 	"deal.updated":          1,
+	"lead.created":          1,
+	"lead.disqualified":     1,
+	"lead.promoted":         1,
+	"lead.updated":          1,
 	"offer.accepted":        1,
 	"offer.created":         1,
 	"offer.rejected":        1,

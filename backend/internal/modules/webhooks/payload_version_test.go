@@ -299,3 +299,36 @@ func TestOrganizationUpdatedWireSnapshot(t *testing.T) {
 	}
 	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
 }
+
+// leadSnapshotPersonID is a fixed, memorable UUID so the lead family's
+// golden snapshot (webhooks Task 5b-lead) is stable across test runs —
+// a real ids.NewV7() would churn the fixture on every regeneration for
+// no reason.
+var leadSnapshotPersonID = uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+
+// TestLeadPromotedWireSnapshot pins the lead.promoted wire shape
+// (webhooks Task 5b-lead, lead family), sampled with an evidence_ref set.
+func TestLeadPromotedWireSnapshot(t *testing.T) {
+	evidenceRef := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+	sample := crmcontracts.WebhookPayloadLeadPromoted{
+		PromotedPersonId: leadSnapshotPersonID,
+		DedupeOutcome:    "created",
+		Trigger:          "inbound_reply",
+		EvidenceRef:      &evidenceRef,
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestLeadUpdatedWireSnapshot pins the lead.updated wire shape — the
+// OPEN changed_fields envelope, sampled with a runtime cf_* custom-field
+// key alongside a routing delta, proving the open map carries both
+// verbatim.
+func TestLeadUpdatedWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadLeadUpdated{
+		ChangedFields: map[string]any{
+			"delta":              map[string]any{"owner_id": leadSnapshotPersonID},
+			"cf_lead_source_ref": "partner-9f2",
+		},
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}

@@ -120,7 +120,7 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 		if err != nil {
 			return fmt.Errorf("audit lead create: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "lead.created", "lead", id.UUID, nil); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.WebhookPayloadLeadCreated{}); err != nil {
 			return fmt.Errorf("emit lead.created: %w", err)
 		}
 		if out, err = readLead(ctx, tx, id, storekit.LiveOnly, active); err != nil {
@@ -424,7 +424,7 @@ func (s *Store) DisqualifyLead(ctx context.Context, id ids.LeadID) (crmcontracts
 		if err != nil {
 			return err
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "lead.disqualified", "lead", id.UUID, nil); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.WebhookPayloadLeadDisqualified{}); err != nil {
 			return err
 		}
 		out, err = readLead(ctx, tx, id, storekit.IncludeArchived, active)

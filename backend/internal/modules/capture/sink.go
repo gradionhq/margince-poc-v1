@@ -17,6 +17,8 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -301,12 +303,18 @@ func (s *Sink) captureLead(ctx context.Context, tx pgx.Tx, rec connector.Normali
 	if err != nil {
 		return datasource.EntityRef{}, nil, nil, err
 	}
-	if err := storekit.Emit(ctx, tx, auditID, "lead.created", "lead", id.UUID, map[string]any{
-		"source_system": rec.NaturalKey.SourceSystem,
-	}); err != nil {
+	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, leadCreatedCapturePayload(rec.NaturalKey.SourceSystem)); err != nil {
 		return datasource.EntityRef{}, nil, nil, err
 	}
 	return ref, nil, nil, nil
+}
+
+// leadCreatedCapturePayload builds the lead.created event for the
+// capture auto-create path — the one emit site (of the event's two)
+// that names an originating source system; the direct-create path
+// (people/lead.go) sets no fields at all.
+func leadCreatedCapturePayload(sourceSystem string) crmcontracts.WebhookPayloadLeadCreated {
+	return crmcontracts.WebhookPayloadLeadCreated{SourceSystem: &sourceSystem}
 }
 
 func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields ActivityFields) (ids.ActivityID, bool, error) {

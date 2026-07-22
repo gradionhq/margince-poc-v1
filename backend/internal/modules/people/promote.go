@@ -227,12 +227,7 @@ func finalizeLeadPromotion(ctx context.Context, tx pgx.Tx, id ids.LeadID, in Pro
 
 	// lead.promoted is the first-class verb (events.md §5.5) — the
 	// moment the context graph adds the node; never a lead.updated.
-	if err := storekit.Emit(ctx, tx, auditID, "lead.promoted", "lead", id.UUID, map[string]any{
-		"promoted_person_id": personID,
-		"dedupe_outcome":     outcome,
-		"trigger":            in.Trigger,
-		"evidence_ref":       in.EvidenceActivityID,
-	}); err != nil {
+	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, leadPromotedPayload(personID, outcome, in.Trigger, in.EvidenceActivityID)); err != nil {
 		return crmcontracts.Person{}, fmt.Errorf("emit lead.promoted: %w", err)
 	}
 	personPayload := promotedPersonPayload(person, merged, id)
@@ -254,6 +249,22 @@ func promotedPersonPayload(person crmcontracts.Person, merged bool, leadID ids.L
 		return crmcontracts.WebhookPayloadPersonUpdated{ChangedFields: map[string]any{"converted_from_lead_id": leadID}}
 	}
 	return crmcontracts.WebhookPayloadPersonCreated{FullName: person.FullName}
+}
+
+// leadPromotedPayload builds the lead-side event a promotion emits —
+// its own verb (events.md §5.5), never a lead.updated. evidenceActivityID
+// is nil for a human_qualify with no linked activity; the wire field is
+// then omitted rather than marshaled as null.
+func leadPromotedPayload(personID ids.PersonID, outcome, trigger string, evidenceActivityID *ids.ActivityID) crmcontracts.WebhookPayloadLeadPromoted {
+	p := crmcontracts.WebhookPayloadLeadPromoted{
+		PromotedPersonId: openapi_types.UUID(personID.UUID),
+		DedupeOutcome:    outcome,
+		Trigger:          trigger,
+	}
+	if evidenceActivityID != nil {
+		p.EvidenceRef = uuidPtr(&evidenceActivityID.UUID)
+	}
+	return p
 }
 
 // promotableLead loads the lead and enforces every promotion guard:

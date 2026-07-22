@@ -22,6 +22,8 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
@@ -84,8 +86,8 @@ func recomputeLeadScoreTx(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, now
 		if err != nil {
 			return err
 		}
-		return storekit.Emit(ctx, tx, auditID, "lead.updated", "lead", leadID.UUID, map[string]any{
-			"delta": map[string]any{"score_computed": machine},
+		return storekit.EmitEvent(ctx, tx, auditID, leadID.UUID, crmcontracts.WebhookPayloadLeadUpdated{
+			ChangedFields: map[string]any{"delta": map[string]any{"score_computed": machine}},
 		})
 	}
 
@@ -100,8 +102,8 @@ func recomputeLeadScoreTx(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, now
 	if err != nil {
 		return err
 	}
-	return storekit.Emit(ctx, tx, auditID, "lead.updated", "lead", leadID.UUID, map[string]any{
-		"delta": map[string]any{"score": machine},
+	return storekit.EmitEvent(ctx, tx, auditID, leadID.UUID, crmcontracts.WebhookPayloadLeadUpdated{
+		ChangedFields: map[string]any{"delta": map[string]any{"score": machine}},
 	})
 }
 

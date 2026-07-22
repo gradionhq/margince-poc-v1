@@ -25,8 +25,8 @@ components:
         Phase 4 fills this out family by family; today it carries the
         pilot event plus the deal family (Task 5a-i), the offer family
         (Task 5a-ii), the pipeline/stage config family (Task 5a-iii), and
-        the person/organization family (Task 5b-personorg). lead.* is a
-        separate task (5b-lead) and is not yet listed.
+        the person/organization family (Task 5b-personorg), and the lead
+        family (Task 5b-lead).
       enum:
         - deal.created
         - deal.owner_changed
@@ -54,6 +54,10 @@ components:
         - organization.archived
         - organization.merged
         - organization.updated
+        - lead.created
+        - lead.disqualified
+        - lead.promoted
+        - lead.updated
 
     WebhookActor:
       type: object
@@ -758,6 +762,85 @@ components:
         delta, enrichment/deep-read applies, a relationship delta), so
         the honest shape is a change-set map rather than a fixed field
         list.
+      required:
+        - changed_fields
+      properties:
+        changed_fields:
+          type: object
+          additionalProperties: true
+          description: >-
+            Field name → new value for whatever this update touched,
+            incl. runtime cf_* custom fields.
+      additionalProperties: false
+
+    WebhookPayloadLeadCreated:
+      type: object
+      x-event-type: lead.created
+      x-entity-type: lead
+      x-version: 1
+      description: >-
+        Payload for lead.created — a lead was created. Two emit sites: a
+        direct create (people/lead.go) that sets no fields, and the
+        capture auto-create engine (capture/sink.go) that names its
+        originating source system; source_system is therefore optional.
+      properties:
+        source_system:
+          type: string
+          description: >-
+            The originating source system (capture auto-create only;
+            absent on a direct create).
+      additionalProperties: false
+
+    WebhookPayloadLeadDisqualified:
+      type: object
+      x-event-type: lead.disqualified
+      x-entity-type: lead
+      x-version: 1
+      description: Payload for lead.disqualified — a lead was disqualified. Carries no data.
+      additionalProperties: false
+
+    WebhookPayloadLeadPromoted:
+      type: object
+      x-event-type: lead.promoted
+      x-entity-type: lead
+      x-version: 1
+      description: >-
+        Payload for lead.promoted — the lead's genuine-engagement
+        promotion into the context graph (events.md §5.5); its own verb,
+        never a lead.updated, since neither person.created nor
+        person.updated on its own says a lead crossed this line.
+      required:
+        - promoted_person_id
+        - dedupe_outcome
+        - trigger
+      properties:
+        promoted_person_id:
+          type: string
+          format: uuid
+          description: The person this lead promoted into (fresh or an existing survivor).
+        dedupe_outcome:
+          type: string
+          description: 'Whether promotion created a new person or merged into an existing one: created or merged.'
+        trigger:
+          type: string
+          description: 'The genuine-engagement trigger that authorized promotion: inbound_reply, meeting_booked, meeting_held, or human_qualify.'
+        evidence_ref:
+          type: string
+          format: uuid
+          description: The inbound activity that evidenced the trigger (absent for a human_qualify with no linked activity).
+      additionalProperties: false
+
+    WebhookPayloadLeadUpdated:
+      type: object
+      x-event-type: lead.updated
+      x-entity-type: lead
+      x-version: 1
+      description: >-
+        Payload for lead.updated — an OPEN envelope: emit sites carry
+        divergent shapes (a flat column patch that includes runtime cf_*
+        custom-field columns, and behavioral-recompute/routing deltas),
+        so the honest shape is a change-set map rather than a fixed
+        field list.
       required:
         - changed_fields
       properties:
