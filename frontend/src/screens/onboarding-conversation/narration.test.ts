@@ -76,7 +76,9 @@ describe("diffSiteRead", () => {
     expect(events).toEqual([
       {
         kind: "say",
-        id: `${READ_ID}:pages:5`,
+        // Stable per-run counter id: the count travels only in params, so
+        // the machine replaces the earlier pages bubble in place.
+        id: `${READ_ID}:pages`,
         i18nKey: "ob.conv.read.pages",
         params: { pages: 5 },
       },
@@ -274,7 +276,8 @@ describe("diffCorpus", () => {
     expect(diffCorpus(summary(400, "thin"), summary(1240, "good"))).toEqual([
       {
         kind: "say",
-        id: "words:1240",
+        // Stable counter id: the latest total replaces the earlier bubble.
+        id: "words",
         i18nKey: "ob.conv.corpus.words",
         params: { words: 1240 },
       },

@@ -195,8 +195,23 @@ function applyEvent(
         activeReadId: event.readId,
         readCompleted: false,
       });
-    case "NARRATION":
+    case "NARRATION": {
+      // A monotonic counter (pages read, corpus words) narrates under ONE
+      // stable semantic id with the count in params: a fresh emission
+      // REPLACES the earlier bubble in place — same position, same stamped
+      // id (so React keys hold) — instead of stacking near-identical lines.
+      const index = state.thread.findIndex(
+        (entry) =>
+          entry.kind === "narration" &&
+          entry.id.slice(entry.id.indexOf(":") + 1) === event.entry.id,
+      );
+      if (index !== -1) {
+        const thread = [...state.thread];
+        thread[index] = { ...event.entry, id: state.thread[index].id };
+        return { ...state, thread };
+      }
       return withEntries(state, {}, [event.entry]);
+    }
     case "READ_TERMINAL":
       return applyReadTerminal(state, event);
     case "CLARIFY":

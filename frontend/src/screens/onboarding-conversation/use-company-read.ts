@@ -36,6 +36,9 @@ type UseCompanyReadArgs = Readonly<{
   setDraft: (update: SetStateAction<CompanyDraft>) => void;
   setSelectedFactKeys: (keys: string[]) => void;
   answers: readonly ClarifyAnswer[];
+  /** Fired once per started read, before the first poll concludes anything —
+   * the shell persists wizard state here so the proposal join can resolve. */
+  onReadStarted: (read: CompanySiteRead) => void;
 }>;
 
 export function useCompanyRead({
@@ -44,6 +47,7 @@ export function useCompanyRead({
   setDraft,
   setSelectedFactKeys,
   answers,
+  onReadStarted,
 }: UseCompanyReadArgs) {
   const [readId, setReadId] = useState<string | null>(null);
   const [proposalArmed, setProposalArmed] = useState(false);
@@ -148,6 +152,7 @@ export function useCompanyRead({
       return data;
     },
     onSuccess: (data) => {
+      onReadStarted(data);
       setReadId(data.id);
       // draft_version counts within ONE dossier; a new read starts over.
       appliedReadVersion.current = 0;
@@ -213,11 +218,31 @@ export function useCompanyRead({
   // machine retires the run at the terminal, and a post-terminal CLARIFY is
   // stale by its correlation guard. Then the outcome lands (readCompleted
   // records it, so the eventual answer proceeds straight to review), and
-  // with no questions left the review opens straight away.
+  // with no questions left the review opens straight away. A proposal
+  // failure must never stall the act: the outcome still lands and the
+  // review builds from the site-read snapshot, after one honest turn.
   useEffect(() => {
-    const data = proposal.data;
     const terminal = pendingTerminal.current;
-    if (!data || !terminal) {
+    if (!terminal) {
+      return;
+    }
+    if (proposal.isError) {
+      pendingTerminal.current = null;
+      dispatch({
+        type: "NARRATION",
+        readId: terminal.readId,
+        entry: {
+          kind: "narration",
+          id: `${terminal.readId}:proposal-fallback`,
+          i18nKey: "ob.conv.review.proposalFallback",
+        },
+      });
+      dispatch({ type: "READ_TERMINAL", ...terminal });
+      dispatch({ type: "REVIEW_READY" });
+      return;
+    }
+    const data = proposal.data;
+    if (!data) {
       return;
     }
     pendingTerminal.current = null;
@@ -237,7 +262,7 @@ export function useCompanyRead({
     if (open.length === 0) {
       dispatch({ type: "REVIEW_READY" });
     }
-  }, [proposal.data, answers, dispatch]);
+  }, [proposal.data, proposal.isError, answers, dispatch]);
 
   return { startRead, siteRead, proposal, prevSnapshot };
 }

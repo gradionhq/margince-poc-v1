@@ -253,6 +253,53 @@ describe("compile-time XOR contracts", () => {
   });
 });
 
+describe("narration replace-in-place", () => {
+  it("a repeated semantic id updates the existing bubble instead of stacking", () => {
+    const counter = (pages: number) =>
+      ({
+        type: "NARRATION",
+        readId: "r1",
+        entry: {
+          kind: "narration",
+          id: "r1:pages",
+          i18nKey: "ob.conv.read.pages",
+          params: { pages },
+        },
+      }) satisfies ConversationEvent;
+    let state = run([
+      { type: "START", memberPath: false },
+      { type: "READ_STARTED", readId: "r1" },
+      counter(1),
+      {
+        type: "NARRATION",
+        readId: "r1",
+        entry: {
+          kind: "narration",
+          id: "r1:field:industry",
+          i18nKey: "ob.conv.read.learnedField",
+          params: { value: "Robotics" },
+        },
+      },
+    ]);
+    const before = state.thread.length;
+    const stampedId = state.thread.find((entry) =>
+      entry.id.endsWith(":r1:pages"),
+    )?.id;
+
+    state = conversationReducer(state, counter(7));
+
+    // Latest params win; position and stamped id (the React key) hold, so
+    // the counter never reorders below later narration.
+    expect(state.thread.length).toBe(before);
+    const updated = state.thread.find((entry) => entry.id === stampedId);
+    expect(updated).toMatchObject({
+      kind: "narration",
+      params: { pages: 7 },
+    });
+    expect(state.thread.at(-1)?.id.endsWith(":r1:field:industry")).toBe(true);
+  });
+});
+
 describe("thread cap", () => {
   it("caps the thread and drops the oldest narration before anything else", () => {
     let state = run([

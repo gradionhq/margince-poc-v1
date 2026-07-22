@@ -466,7 +466,7 @@ class WizardStateWriteError extends Error {
   }
 }
 
-async function writeWizardState(body: PutOnboardingState) {
+export async function writeWizardState(body: PutOnboardingState) {
   const { data, error, response } = await api.PUT("/onboarding/state", {
     params: { header: { "Idempotency-Key": crypto.randomUUID() } },
     body,
@@ -477,7 +477,7 @@ async function writeWizardState(body: PutOnboardingState) {
   return data;
 }
 
-function wizardStateBody(input: {
+export function wizardStateBody(input: {
   expectedVersion: number;
   nextStep: number;
   mode: SourceMode | null;

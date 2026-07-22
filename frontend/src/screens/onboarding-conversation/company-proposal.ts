@@ -50,6 +50,31 @@ export function toMachineQuestion(
   };
 }
 
+// The review card's payload when the proposal endpoint is unavailable: the
+// same deterministic mapping, computed client-side from the site-read
+// snapshot the poll already delivered. Evidence-or-omit still holds via
+// evidencedFields; open questions are unknown here, so none are asked, and
+// confirm keeps the read's own draft_version + proposal_hash pair.
+export function proposalFromRead(
+  read: components["schemas"]["CompanySiteRead"],
+): components["schemas"]["OnboardingCompanyProposal"] {
+  return {
+    ready: true,
+    fields: read.profile_fields.map((field) => ({
+      field: field.field,
+      value: field.value,
+      confidence: field.confidence,
+      evidence_snippet: field.evidence_snippet,
+      source_url: field.source_url ?? read.root_url,
+    })),
+    facts: [...read.facts],
+    open_questions: [],
+    remaining_required_fields: [],
+    draft_version: read.draft_version,
+    proposal_hash: read.proposal_hash,
+  };
+}
+
 // Evidence-or-omit: a proposal row without a verbatim snippet never renders.
 export function evidencedFields(
   fields: readonly ProposalField[] | undefined,

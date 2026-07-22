@@ -1336,6 +1336,8 @@ export const en = {
   "ob.conv.review.acceptAll": "Accept all",
   "ob.conv.review.editDirectly": "Edit fields directly",
   "ob.conv.review.backToDossier": "Back to the dossier",
+  "ob.conv.review.proposalFallback":
+    "I could not load the prepared mapping. Review what I read directly; every field keeps its source.",
   "ob.conv.artifact.empty":
     "Nothing read yet. Give me a website and this panel fills with sourced findings.",
   "ob.conv.voice.stubBody":

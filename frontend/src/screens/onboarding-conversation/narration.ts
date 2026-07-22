@@ -107,14 +107,15 @@ export function diffSiteRead(
   const events: NarrationEvent[] = [];
   const run = next.id;
 
-  // Page progress coalesces: one event per poll that saw growth, carrying the
-  // running total rather than one bubble per page.
+  // Page progress is a monotonic counter: its id is stable per run and only
+  // the params carry the count, so the machine REPLACES the earlier bubble
+  // in place instead of stacking one near-identical line per poll.
   const prevPages = prev?.pages_read ?? 0;
   const nextPages = next.pages_read ?? 0;
   if (nextPages > prevPages) {
     events.push({
       kind: "say",
-      id: `${run}:pages:${nextPages}`,
+      id: `${run}:pages`,
       i18nKey: "ob.conv.read.pages",
       params: { pages: nextPages },
     });
@@ -195,9 +196,11 @@ export function diffCorpus(
   const events: NarrationEvent[] = [];
   const prevWords = prev?.total_words ?? 0;
   if (next.total_words > prevWords) {
+    // Monotonic counter: stable id, count in params, so a fresh total
+    // replaces the earlier bubble in place (see the machine's NARRATION).
     events.push({
       kind: "say",
-      id: `words:${next.total_words}`,
+      id: "words",
       i18nKey: "ob.conv.corpus.words",
       params: { words: next.total_words },
     });

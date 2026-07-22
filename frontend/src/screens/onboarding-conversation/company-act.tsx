@@ -27,6 +27,7 @@ import type { ClarifyAnswer } from "./company-proposal";
 import {
   draftWithLegalEntity,
   missingRequiredFields,
+  proposalFromRead,
   resolutionsFromAnswers,
 } from "./company-proposal";
 import { CompanyConfirmCard } from "./confirm-card";
@@ -37,6 +38,7 @@ import type {
 import { NarrationBubble } from "./entries";
 import { ConversationThread } from "./thread";
 import { useCompanyRead } from "./use-company-read";
+import { useWizardStatePersist } from "./use-wizard-state";
 import { ConversationWorkbench } from "./workbench";
 
 // The company act driver: the read lifecycle lives in useCompanyRead; this
@@ -112,12 +114,27 @@ export function CompanyAct({ state, dispatch }: CompanyActProps) {
   const machine = useRef(state);
   machine.current = state;
 
+  const { persistReadStart } = useWizardStatePersist();
+  // The proposal endpoint joins through persisted wizard state, so the
+  // running read is recorded the moment it starts.
+  const onReadStarted = useCallback(
+    (started: CompanySiteRead) => {
+      void persistReadStart({
+        url: started.root_url,
+        readId: started.id,
+        values: draftRef.current.values,
+      });
+    },
+    [persistReadStart],
+  );
+
   const { startRead, siteRead, proposal, prevSnapshot } = useCompanyRead({
     dispatch,
     machine,
     setDraft,
     setSelectedFactKeys,
     answers,
+    onReadStarted,
   });
 
   const applyChanges = useCallback(
@@ -229,7 +246,10 @@ export function CompanyAct({ state, dispatch }: CompanyActProps) {
         industry: values.industry.trim(),
       };
       const read = prevSnapshot.current;
-      const proposalData = proposal.data;
+      // When the proposal endpoint failed, the read snapshot carries the same
+      // version pair, so the staged-confirm contract still holds.
+      const proposalData =
+        proposal.data ?? (read !== null ? proposalFromRead(read) : undefined);
       const result =
         read !== null &&
         (read.status === "ready" || read.status === "partial") &&
@@ -282,6 +302,19 @@ export function CompanyAct({ state, dispatch }: CompanyActProps) {
 
   const read = siteRead.data ?? startRead.data ?? null;
   const missing = missingRequiredFields(draft.values);
+
+  // The review renders even when the proposal endpoint failed: the site-read
+  // snapshot carries the same evidence-gated mapping, just with no
+  // server-detected open questions.
+  const reviewProposal = useMemo(() => {
+    if (proposal.data) {
+      return proposal.data;
+    }
+    if (read && (read.status === "ready" || read.status === "partial")) {
+      return proposalFromRead(read);
+    }
+    return null;
+  }, [proposal.data, read]);
 
   // The runtime bar keeps the live read total unless a later chat reply saw
   // more calls — a reply is a point-in-time copy, never a freeze.
@@ -402,9 +435,9 @@ export function CompanyAct({ state, dispatch }: CompanyActProps) {
             {conversation.send.error.message}
           </p>
         )}
-        {state.phase === "co.review" && proposal.data && (
+        {state.phase === "co.review" && reviewProposal && (
           <CompanyConfirmCard
-            proposal={proposal.data}
+            proposal={reviewProposal}
             draft={draft}
             answers={answers}
             pendingQuestionId={state.pendingQuestion?.id ?? null}

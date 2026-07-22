@@ -148,6 +148,8 @@ type StubOptions = {
   startRead?: CompanySiteRead;
   read?: CompanySiteRead;
   proposal?: Proposal;
+  /** Error status for GET /onboarding/company/proposal (resilience tests). */
+  proposalStatus?: number;
   messageReply?: MessageReply;
 };
 
@@ -205,6 +207,12 @@ function stubApi(options: StubOptions = {}) {
         });
       }
       if (path.endsWith("/onboarding/company/proposal")) {
+        if (options.proposalStatus !== undefined) {
+          return jsonResponse(
+            { detail: "no proposal" },
+            options.proposalStatus,
+          );
+        }
         return jsonResponse(options.proposal ?? proposalFor(readyRead));
       }
       if (
@@ -439,6 +447,44 @@ describe("the conversational company act (behind the flag)", () => {
     expect(
       await screen.findByText(/Want me to learn how you write\?/),
     ).toBeTruthy();
+  });
+
+  it("persists wizard state on read start so the proposal endpoint can join", async () => {
+    const calls = stubApi();
+    render(<OnboardingScreen />);
+
+    await submitWebsite();
+
+    await waitFor(() => {
+      expect(requestsTo(calls, "/onboarding/state", "PUT").length).toBe(1);
+    });
+    const body = (await requestsTo(calls, "/onboarding/state", "PUT")[0]
+      .clone()
+      .json()) as Record<string, unknown>;
+    expect(body.site_read_id).toBe(READ_ID);
+    expect(body.source_mode).toBe("website");
+    expect(body.step).toBe("read");
+    expect(body.website_url).toBe("https://gradion.com");
+  });
+
+  it("still concludes and reviews from the snapshot when the proposal fails", async () => {
+    stubApi({ proposalStatus: 404 });
+    render(<OnboardingScreen />);
+
+    await submitWebsite();
+
+    // The act never stalls: one honest turn, the outcome, and a review card
+    // built from the site-read snapshot itself.
+    expect(
+      await screen.findByText(/I could not load the prepared mapping/),
+    ).toBeTruthy();
+    expect(
+      await screen.findByText(/Finished reading\. Findings with sources: 4\./),
+    ).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: /Accept all/ }),
+    ).toBeTruthy();
+    expect(within(confirmCardElement()).getByText("Gradion GmbH")).toBeTruthy();
   });
 
   it("never renders a proposal field without evidence in the confirm card", async () => {
