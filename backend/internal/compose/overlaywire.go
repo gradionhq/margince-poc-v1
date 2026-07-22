@@ -135,14 +135,14 @@ func overlayWireOrganization(ctx context.Context, rec datasource.Record) (crmcon
 }
 
 // overlayWireDeal assembles the contract Deal from a mirror record.
-// pipeline_id/stage_id are REQUIRED as row UUIDs by the contract, but
-// the mirror holds the incumbent's own string identifiers (HubSpot
-// pipeline/stage keys) that reference no native row — they ride raw,
-// and the UUID slots stay zero: an honest "no native pipeline/stage row
-// exists in overlay mode", never a fabricated reference. status is
-// derived from HubSpot's canonical closed-stage keys (closedwon/
-// closedlost); a custom pipeline's closed stages answer open until the
-// design §9 stage-semantic derivation lands with the write path.
+// pipeline_id/stage_id are NULL in overlay mode (OVA-MAP-6): the contract
+// makes them nullable ([string,'null']), and an overlay-mirror deal has no
+// native Margince pipeline/stage row to reference — so the wire leaves both
+// nil (never a fabricated/zero UUID, a forbidden dangling FK). The
+// incumbent's own pipeline/dealstage identifiers ride raw. status is derived
+// from HubSpot's canonical closed-stage keys (closedwon/closedlost); a custom
+// pipeline's closed stages answer open until the stage-semantic derivation
+// lands with the write path (branch 2).
 func overlayWireDeal(ctx context.Context, rec datasource.Record) (crmcontracts.Deal, error) {
 	fields, err := overlayRecordFields(rec)
 	if err != nil {

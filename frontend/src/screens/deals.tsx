@@ -117,7 +117,7 @@ type DealFilters = {
   // pipeline/stage/owner/org filters) with a 422 — so in overlay we send none
   // of them and let the deals list come back flat. The screen forces the table
   // view and hides the pickers to match (a stage-keyed board cannot place a
-  // mirror deal, whose pipeline/stage is the zero UUID).
+  // mirror deal, whose pipeline/stage is null in overlay, OVA-MAP-6).
   overlay: boolean;
 };
 
@@ -125,7 +125,7 @@ type DealFilters = {
 // every dial except the two the cache can honor, so overlay mode sends only
 // those and the list comes back flat (the screen forces the table view and
 // hides the pickers to match — a stage-keyed board cannot place a mirror deal,
-// whose pipeline/stage is the zero UUID).
+// whose pipeline/stage is null in overlay, OVA-MAP-6).
 function dealsQueryParams(f: DealFilters) {
   const base = { limit: 100, include_archived: f.includeArchived || undefined };
   if (f.overlay) {
@@ -559,7 +559,7 @@ export function DealsScreen({
     overlay,
   });
   // A stage-keyed board cannot place a mirror deal (its pipeline/stage is the
-  // zero UUID), so overlay mode opens on the flat table and hides the toggle
+  // null pipeline/stage), so overlay mode opens on the flat table and hides the toggle
   // (below) — the mode is fixed for the page's life, so a static initial value
   // is enough.
   const [view, setView] = useState<"board" | "table">(
@@ -928,7 +928,10 @@ function DealTable({
           {
             key: "stage",
             header: t("deals.stage"),
-            render: (deal: Deal) => stageName.get(deal.stage_id) ?? "",
+            // stage_id is null for an overlay-mirror deal (OVA-MAP-6) — no
+            // native stage row to name; a native deal always has one.
+            render: (deal: Deal) =>
+              deal.stage_id ? (stageName.get(deal.stage_id) ?? "") : "",
           },
           {
             key: "amount",
