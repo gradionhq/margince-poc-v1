@@ -1110,6 +1110,7 @@ function OnboardingCoordinator() {
             step={step}
             go={go}
             memberPath={memberPath}
+            voiceBuilt={voiceBuilt}
             onSkipVoice={() => {
               setVoiceSkipped(true);
               const next = memberPath ? 3 : 2;
@@ -1129,11 +1130,13 @@ function Footer({
   step,
   go,
   memberPath,
+  voiceBuilt,
   onSkipVoice,
 }: Readonly<{
   step: number;
   go: (n: number, persist?: boolean) => void;
   memberPath: boolean;
+  voiceBuilt: boolean;
   onSkipVoice: () => void;
 }>) {
   const t = useT();
@@ -1157,16 +1160,19 @@ function Footer({
         <span />
       )}
       <span className="grow" />
-      {step === 1 && (
-        <>
-          <button type="button" className="wiz-later" onClick={onSkipVoice}>
-            {t("ob.skipStep")}
-          </button>
+      {/* The forward action tells the truth about the step's outcome: only a
+          built (or honestly deferred) voice earns "Continue" — without one the
+          way forward IS skipping, and the button says so. */}
+      {step === 1 &&
+        (voiceBuilt ? (
           <Button variant="primary" onClick={() => go(memberPath ? 3 : 2)}>
             {t("ob.next")} <ArrowRight aria-hidden />
           </Button>
-        </>
-      )}
+        ) : (
+          <Button variant="ghost" onClick={onSkipVoice}>
+            {t("ob.skipStep")} <ArrowRight aria-hidden />
+          </Button>
+        ))}
       {step === 2 && (
         <Button variant="primary" onClick={() => go(3)}>
           {t("ob.s3.cta")} <ArrowRight aria-hidden />
@@ -1925,6 +1931,7 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
   const [pieces, setPieces] = useState<VoicePiece[]>([]);
   const [paste, setPaste] = useState("");
   const [skipped, setSkipped] = useState<string[]>([]);
+  const [dragOver, setDragOver] = useState(false);
   const [built, setBuilt] = useState(false);
   const [building, setBuilding] = useState(false);
   const [deferred, setDeferred] = useState(false);
@@ -1969,8 +1976,9 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
     };
   }, [pieces, pasteWords]);
 
-  const onFiles = (e: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
+  // One intake for both entry paths — the file picker and a drag&drop onto
+  // the dropzone feed the exact same corpus pipeline.
+  const addFiles = (files: File[]) => {
     const rejected: string[] = [];
     for (const file of files) {
       // V1 corpus is text only (features/09 §B1.1): the meter counts the real
@@ -2005,6 +2013,10 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
       });
     }
     setSkipped(rejected);
+  };
+
+  const onFiles = (e: ChangeEvent<HTMLInputElement>) => {
+    addFiles(Array.from(e.target.files ?? []));
     e.target.value = "";
   };
 
@@ -2226,8 +2238,20 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
 
         <button
           type="button"
-          className="dropzone"
+          className={`dropzone${dragOver ? " dragover" : ""}`}
           onClick={() => fileRef.current?.click()}
+          // preventDefault on dragover is what makes the zone a legal drop
+          // target — without it the browser navigates to the dropped file.
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragOver(false);
+            addFiles(Array.from(e.dataTransfer.files));
+          }}
         >
           <span className="dz-ic">
             <UploadCloud aria-hidden />

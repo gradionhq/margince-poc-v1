@@ -697,7 +697,8 @@
   transition: 0.15s;
 }
 .dropzone:hover,
-.dropzone:focus-visible {
+.dropzone:focus-visible,
+.dropzone.dragover {
   border-color: var(--accent);
   background: var(--accentLight);
 }
