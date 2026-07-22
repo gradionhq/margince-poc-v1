@@ -40,12 +40,17 @@ export MARGINCE_ENV          ?= dev
 help: ## List targets with their descriptions (the default goal)
 	@grep -hE '^[a-zA-Z][a-zA-Z0-9_-]*:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
 
-# The five analysis passes share no outputs and only read the tree — Go's
-# build cache is concurrency-safe — so they fan out together. drift stays
-# behind them: gen REWRITES *_gen.go and internal/contracts/ in place,
-# a write-under-reader race for any pass still compiling those files.
+# build runs ALONE first: it compiles the dependency graph into the build
+# cache exactly once. Fanning it out with the others makes every pass
+# compile that graph concurrently — the cache does not block a second
+# compiler on an in-flight entry, so parallel-from-cold multiplies the
+# work and LOSES to serial on a small runner (measured in CI). The four
+# analysis passes then fan out as pure readers of the warmed cache. drift
+# stays last and serial: gen REWRITES *_gen.go and internal/contracts/ in
+# place, a write-under-reader race for any pass still compiling them.
 check: ## The merge gate: everything a PR must pass
-	$(MAKE) -j5 build vet lint arch-lint test
+	$(MAKE) build
+	$(MAKE) -j4 vet lint arch-lint test
 	$(MAKE) drift
 
 build: ## Compile every package
