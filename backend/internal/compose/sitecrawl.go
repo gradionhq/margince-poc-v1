@@ -13,7 +13,9 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"time"
 
@@ -143,7 +145,6 @@ var wellKnownProbes = []struct {
 	{"/de/impressum", crmcontracts.SiteReadPageKindImpressum},
 	{"/en/imprint", crmcontracts.SiteReadPageKindImpressum},
 	{"/en/legal-notice", crmcontracts.SiteReadPageKindImpressum},
-	{"/en/terms-of-service", crmcontracts.SiteReadPageKindImpressum},
 	{"/legal-notice", crmcontracts.SiteReadPageKindImpressum},
 	{"/de/publisher", crmcontracts.SiteReadPageKindImpressum},
 	{"/publisher", crmcontracts.SiteReadPageKindImpressum},
@@ -153,6 +154,7 @@ var wellKnownProbes = []struct {
 	// Some sites publish no identity page; one policy document is the
 	// bounded fallback because its publisher block still identifies the
 	// contracting entity. Probe one only — never crawl the whole library.
+	{"/en/terms-of-service", crmcontracts.SiteReadPageKindImpressum},
 	{"/legal/terms", crmcontracts.SiteReadPageKindImpressum},
 	{"/legal/terms-of-service", crmcontracts.SiteReadPageKindImpressum},
 	{"/legal/aup", crmcontracts.SiteReadPageKindImpressum},
@@ -199,7 +201,7 @@ func (c *siteCrawler) CrawlStream(ctx context.Context, seedURL string, onPage fu
 	pacer := c.newPacer()
 
 	seedPage, err := c.fetchPaced(ctx, pacer, seedURL)
-	if err != nil {
+	if transientCrawlError(ctx, err) {
 		// The landing page is the only irreplaceable discovery source. One
 		// immediate retry absorbs a transient edge/CDN timeout while the crawl's
 		// wall deadline still bounds the attempt.
@@ -269,6 +271,17 @@ func (c *siteCrawler) CrawlStream(ctx context.Context, seedURL string, onPage fu
 	}
 	run.crawl.TotalBytes = run.totalBytes
 	return run.crawl, nil
+}
+
+func transientCrawlError(ctx context.Context, err error) bool {
+	if err == nil || ctx.Err() != nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var networkError net.Error
+	return errors.As(err, &networkError) && networkError.Timeout()
 }
 
 // selectWave marks and returns the next wave: the highest-priority
@@ -368,7 +381,7 @@ func (r *crawlRun) discover(ctx context.Context, origin string, seedPage webread
 		r.queue = append(r.queue, crawlCandidate{url: origin + probe.path, kind: probe.kind, probe: true})
 	}
 	sitemapLocs, err := r.crawler.fetch.FetchSitemap(ctx, origin)
-	if err != nil {
+	if transientCrawlError(ctx, err) {
 		// A single slow sitemap response must not collapse an SPA site to its
 		// landing page. Retry once without delaying; the crawl's wall deadline
 		// remains the governing bound.

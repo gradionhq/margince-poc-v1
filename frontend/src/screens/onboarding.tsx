@@ -365,6 +365,22 @@ function prefill(
   return { values, grounded, edited: draft.edited };
 }
 
+function changeDraftField(
+  draft: CompanyDraft,
+  field: CompanyFieldName,
+  value: string,
+): CompanyDraft {
+  const grounded = { ...draft.grounded };
+  if (field in grounded) {
+    delete grounded[field as ColdField["field"]];
+  }
+  return {
+    values: { ...draft.values, [field]: value },
+    grounded,
+    edited: new Set(draft.edited).add(field),
+  };
+}
+
 // URL normalization/validation (S-E01.1: scheme/host/dedupe, honest invalid).
 function normalizeUrl(raw: string): {
   ok: boolean;
@@ -538,6 +554,7 @@ function OnboardingCoordinator() {
   const [saveAttempted, setSaveAttempted] = useState(false);
   const [companySaved, setCompanySaved] = useState(false);
   const [sourceMode, setSourceMode] = useState<SourceMode | null>(null);
+  const sourceModeRef = useRef<SourceMode | null>(null);
   const [siteReadID, setSiteReadID] = useState<string | null>(null);
   const [selectedFactKeys, setSelectedFactKeys] = useState<string[]>([]);
   const [voiceSkipped, setVoiceSkipped] = useState(false);
@@ -585,6 +602,7 @@ function OnboardingCoordinator() {
         selectedFactKeys: string[];
         voiceSkipped: boolean;
         connectSkipped: boolean;
+        values: CompanyForm;
       }> = {},
     ) => {
       const mode =
@@ -594,7 +612,7 @@ function OnboardingCoordinator() {
       const factKeys = overrides.selectedFactKeys ?? selectedFactKeys;
       const skippedVoice = overrides.voiceSkipped ?? voiceSkipped;
       const skippedConnect = overrides.connectSkipped ?? connectSkipped;
-      const values = draft.values;
+      const values = overrides.values ?? draft.values;
       persistQueue.current = persistQueue.current.then(async () => {
         try {
           const data = await writeWizardState(
@@ -654,7 +672,9 @@ function OnboardingCoordinator() {
     if (saved) {
       stateVersion.current = saved.version;
       statePath.current = saved.path;
-      setSourceMode(saved.source_mode ?? null);
+      const savedMode = saved.source_mode ?? null;
+      setSourceMode(savedMode);
+      sourceModeRef.current = savedMode;
       setSiteReadID(saved.site_read_id ?? null);
       setSelectedFactKeys(saved.selected_fact_keys);
       setVoiceSkipped(saved.voice_skipped);
@@ -704,6 +724,9 @@ function OnboardingCoordinator() {
       return data;
     },
     onSuccess: (data) => {
+      if (sourceModeRef.current !== "website") {
+        return;
+      }
       setSiteReadID(data.id);
       // Starting a read replaces the previous site's findings, so nothing
       // of it may survive: the fact selection goes, the legal trio the
@@ -756,11 +779,16 @@ function OnboardingCoordinator() {
 
   useEffect(() => {
     const read = siteRead.data;
-    if (!read || read.draft_version <= appliedReadVersion.current) {
+    if (
+      sourceMode !== "website" ||
+      !read ||
+      read.draft_version <= appliedReadVersion.current
+    ) {
       return;
     }
     appliedReadVersion.current = read.draft_version;
-    setDraft((prev) => prefill(prev, read.profile_fields));
+    const nextDraft = prefill(draft, read.profile_fields);
+    setDraft(nextDraft);
     // A value key can name more than one fact — the same company can be
     // both a partner and a named customer — and the API takes a SET of
     // keys, so the selection folds the repeats rather than sending a
@@ -769,8 +797,11 @@ function OnboardingCoordinator() {
       ...new Set(read.facts.map((fact) => fact.value_key)),
     ].slice(0, MAX_SELECTED_FACTS);
     setSelectedFactKeys(factKeys);
-    persistState(0, { selectedFactKeys: factKeys });
-  }, [siteRead.data, persistState]);
+    persistState(0, {
+      selectedFactKeys: factKeys,
+      values: nextDraft.values,
+    });
+  }, [draft, siteRead.data, persistState, sourceMode]);
 
   const go = (next: number, persist = true) => {
     if (next < 0 || next >= STEPS.length) {
@@ -818,19 +849,7 @@ function OnboardingCoordinator() {
     });
 
   const setField = (field: CompanyFieldName, value: string) =>
-    setDraft((prev) => {
-      // Typing into a pre-filled field makes the value the human's assertion —
-      // it stops claiming the site's snippet as its evidence.
-      const grounded = { ...prev.grounded };
-      if (field in grounded) {
-        delete grounded[field as ColdField["field"]];
-      }
-      return {
-        values: { ...prev.values, [field]: value },
-        grounded,
-        edited: new Set(prev.edited).add(field),
-      };
-    });
+    setDraft((prev) => changeDraftField(prev, field, value));
 
   const save = useMutation({
     mutationFn: async (): Promise<CompanyProfile> => {
@@ -888,9 +907,23 @@ function OnboardingCoordinator() {
   const missingRequired = REQUIRED_FIELDS.filter(
     (field) => draft.values[field].trim() === "",
   );
-  const saveCompany = () => {
+  const websiteResearchReady =
+    sourceMode !== "website" ||
+    siteRead.data?.status === "ready" ||
+    siteRead.data?.status === "partial";
+  const saveCompany = async () => {
     setSaveAttempted(true);
-    if (missingRequired.length > 0) {
+    if (missingRequired.length > 0 || !websiteResearchReady) {
+      return;
+    }
+    if (
+      sourceMode === "manual" &&
+      !(await persistState(0, {
+        sourceMode: "manual",
+        siteReadID: null,
+        values: draft.values,
+      }))
+    ) {
       return;
     }
     save.mutate();
@@ -967,6 +1000,7 @@ function OnboardingCoordinator() {
                   ? siteRead.error.message
                   : null
             }
+            companyDraft={onboardingDraftPayload(draft.values)}
             manualContent={
               sourceMode === "manual" ? (
                 <ManualCompanyInterview
@@ -979,6 +1013,7 @@ function OnboardingCoordinator() {
                     })
                   }
                   onBackToChoice={() => {
+                    sourceModeRef.current = null;
                     setSourceMode(null);
                     persistState(0, {
                       sourceMode: null,
@@ -996,7 +1031,10 @@ function OnboardingCoordinator() {
             }
             onWebsiteChange={(value) => setField("website", value)}
             onChooseManual={() => {
+              sourceModeRef.current = "manual";
               setSourceMode("manual");
+              setSiteReadID(null);
+              appliedReadVersion.current = 0;
               setSelectedFactKeys([]);
               persistState(0, {
                 sourceMode: "manual",
@@ -1005,13 +1043,21 @@ function OnboardingCoordinator() {
               });
             }}
             onStart={() => {
+              sourceModeRef.current = "website";
               setSourceMode("website");
               startRead.mutate();
             }}
             onApplyChanges={(changes) => {
+              let nextDraft = draft;
               for (const change of changes) {
-                setField(change.field, change.value);
+                nextDraft = changeDraftField(
+                  nextDraft,
+                  change.field,
+                  change.value,
+                );
               }
+              setDraft(nextDraft);
+              persistState(0, { values: nextDraft.values });
             }}
             reviewContent={
               sourceMode !== null ? (
@@ -1034,7 +1080,7 @@ function OnboardingCoordinator() {
               ) : null
             }
             confirmPending={save.isPending}
-            confirmDisabled={false}
+            confirmDisabled={!websiteResearchReady}
             onConfirm={saveCompany}
           />
         )}

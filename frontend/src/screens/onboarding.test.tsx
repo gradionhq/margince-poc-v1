@@ -118,6 +118,31 @@ const manyFactsRead = {
   })),
 } satisfies CompanySiteRead;
 
+const readingCompleteRead = {
+  ...readyRead,
+  status: "reading",
+  phase: "extracting",
+  profile_fields: [
+    ...readyRead.profile_fields,
+    {
+      field: "display_name",
+      value: "Gradion",
+      evidence_snippet: "Gradion",
+      source_kind: "url",
+      source_url: "https://gradion.com",
+      confidence: 1,
+    },
+    {
+      field: "offer_summary",
+      value: "Revenue software",
+      evidence_snippet: "Revenue software",
+      source_kind: "url",
+      source_url: "https://gradion.com",
+      confidence: 1,
+    },
+  ],
+} as const satisfies CompanySiteRead;
+
 type StubOptions = {
   company?: typeof savedProfile | null;
   state?: Record<string, unknown> | null;
@@ -148,8 +173,10 @@ function stubApi(options: StubOptions = {}) {
     vi.fn(async (request: Request) => {
       calls.push(request);
       const path = requestPath(request);
-      if (path.endsWith("/assistant/profile")) {
+      if (path.endsWith("/ai/profile")) {
         return jsonResponse({
+          name: "Margince",
+          kind: "ai",
           state: "configured",
           inference_mode: "cloud",
           providers: ["gemini"],
@@ -367,6 +394,20 @@ describe("the optional website path", () => {
       (screen.getByLabelText(/Register \/ VAT ID/) as HTMLInputElement).value,
     ).toBe("HRB 12345 · DE123456789");
     expect(screen.getAllByText(/founded year/i).length).toBeGreaterThan(0);
+  });
+
+  it("cannot confirm streamed website values before the dossier is ready", async () => {
+    const calls = stubApi({ read: readingCompleteRead });
+    render(<OnboardingScreen />);
+
+    await readWebsite();
+    const confirm = screen.getByRole("button", {
+      name: /Confirm and save company/,
+    }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    await userEvent.click(confirm);
+    expect(requestTo(calls, "/company", "PUT")).toBeUndefined();
+    expect(requestTo(calls, "/confirm", "POST")).toBeUndefined();
   });
 
   it("caps the default fact selection at the server limit", async () => {
@@ -596,10 +637,16 @@ describe("the optional website path", () => {
     ).toBe("Industrial software");
 
     const messageRequest = requestTo(calls, "/messages", "POST");
-    expect(await messageRequest?.clone().json()).toEqual({
+    expect(await messageRequest?.clone().json()).toMatchObject({
       message: "Which industry should we use?",
       history: [],
       locale: "en",
+      company_draft: {
+        legal_name: "Gradion GmbH",
+        registered_address: "Hauptstrasse 1, 10115 Berlin",
+        register_vat: "HRB 12345 · DE123456789",
+        icp: "Mid-market manufacturers",
+      },
     });
   });
 });

@@ -2326,6 +2326,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ai/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Authenticated AI configuration posture for transparent human-facing workspaces.
+         * @description The configured tier-to-provider-to-model bindings used by the deployment. This is an
+         *     authenticated administrative surface: the anonymous assistant presence deliberately
+         *     omits model ids, tiers, routes, and provider bindings. Runtime call summaries remain the
+         *     authority for which model actually served a specific task and its measured cost.
+         */
+        get: operations["getAiProfile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ai/calls": {
         parameters: {
             query?: never;
@@ -6551,7 +6574,19 @@ export interface components {
             inference_mode: "cloud" | "local" | "hybrid" | "none" | "development";
             /** @description Distinct configured provider keys, sorted; fake is never returned. */
             providers: ("anthropic" | "gemini" | "ollama" | "openai" | "openai_compatible" | "vllm")[];
-            /** @description Public tier-to-model bindings. Provider credentials and endpoints never appear here. */
+        };
+        AiProfile: {
+            /** @enum {string} */
+            name: "Margince";
+            /** @enum {string} */
+            kind: "ai";
+            /** @enum {string} */
+            state: "configured" | "unconfigured" | "development";
+            /** @enum {string} */
+            inference_mode: "cloud" | "local" | "hybrid" | "none" | "development";
+            /** @description Distinct configured provider keys, sorted; fake is never returned. */
+            providers: ("anthropic" | "gemini" | "ollama" | "openai" | "openai_compatible" | "vllm")[];
+            /** @description Authenticated tier-to-model bindings. Credentials and endpoints never appear here. */
             configured_models: components["schemas"]["AssistantConfiguredModel"][];
         };
         AssistantConfiguredModel: {
@@ -7415,6 +7450,8 @@ export interface components {
             /** @enum {string} */
             locale: "en" | "de";
             history?: components["schemas"]["CompanySiteReadConversationTurn"][];
+            /** @description The administrator's current unsaved artifact, used only as conversational context. */
+            company_draft?: components["schemas"]["OnboardingCompanyDraft"];
         };
         OnboardingCompanyMessageReply: {
             kind: components["schemas"]["CompanyConversationResponseKind"];
@@ -13797,6 +13834,28 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["PermissionDenied"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    getAiProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authenticated configured-model posture. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiProfile"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
         };
     };
     listAiCalls: {

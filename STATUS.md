@@ -746,16 +746,17 @@ Open work, roughly in priority order:
   surviving output is the legal census is recorded as failed, because the
   survivor check ignores `merged.entities`.
 
-- **Conversational Company workspace — concept ready, implementation open.**
+- **Conversational Company workspace — baseline implemented; reconciliation open.**
   [The consolidated concept](docs/explanation/margince-conversational-workspace-concept.md)
   replaces the website/manual chooser and separate Review step with one scoped
   conversation: optional live website research, legal-first website-free
   collection, a progressively filled company artifact, corrections and
   version-bound confirmation in place. It also defines abuse controls and a
   reusable `assistantflow` direction proven by onboarding plus company-context
-  maintenance. This remains proposed until the four-step wizard, legal
-  must-resolve semantics, response intents, and compatibility contract are
-  reconciled upstream; no implementation has begun.
+  maintenance. The four-step Company → Voice → Results → Connect baseline is
+  implemented. Remaining upstream reconciliation covers the canonical wizard
+  description, legal must-resolve semantics, response-intent vocabulary, and
+  compatibility contract for the reusable framework.
 
 - **Voice DNA follow-ons** — the lifecycle, the real onboarding step and the
   settings surface are merged (see *Recently landed*). Still open: the

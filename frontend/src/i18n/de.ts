@@ -913,6 +913,10 @@ export const de = {
   "ob.ai.awaitingModel": "Nach meinem ersten Modellaufruf sichtbar",
   "ob.ai.notAvailableYet": "Noch nicht verfügbar",
   "ob.ai.runtimeUnavailable": "Laufzeitdetails nicht verfügbar",
+  "ob.ai.tier.localSmall": "lokal, schnell",
+  "ob.ai.tier.cheapCloud": "Cloud, effizient",
+  "ob.ai.tier.premium": "Premium-Reasoning",
+  "ob.ai.tier.localLarge": "lokal, erweitert",
   "ob.ai.readFirst": "Starte zuerst die Firmeneinrichtung.",
   "ob.ai.liveArtifact": "Lebendes, prüfbares Ergebnis",
   "ob.ai.companyKnowledge": "Was ich über dein Unternehmen verstehe",
@@ -1153,7 +1157,7 @@ export const de = {
   "ob.s2.vpFootnote":
     "Aus {count} Wörtern gebaut. Verbinde als Nächstes dein Postfach, und deine gesendete Post schärft das weiter — dann lernt es aus jeder E-Mail weiter.",
 
-  "ob.s3.kick": "Schritt 4 von 5",
+  "ob.s3.kick": "Schritt 3 von 4",
   "ob.s3.title": "Sieh, was du gebaut hast —",
   "ob.s3.titleEm": "ganz ohne Anbindung.",
   "ob.s3.sub":
@@ -1188,7 +1192,7 @@ export const de = {
     "Noch immer nichts verbunden. Du bestimmst, wann sich das ändert.",
   "ob.s3.cta": "Postfach verbinden",
 
-  "ob.s4.kick": "Schritt 5 von 5 · der letzte Schritt",
+  "ob.s4.kick": "Schritt 4 von 4 · der letzte Schritt",
   "ob.s4.title": "Bereit,",
   "ob.s4.titleEm": "es zum Leben zu erwecken?",
   "ob.s4.sub":

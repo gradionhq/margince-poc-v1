@@ -45,7 +45,7 @@ func TestCompanySiteReadMessageUsesTheStoredDossierAndReturnsRuntime(t *testing.
 		"source_ids":["S1"]}`}}
 	engine := &deepReadEngine{people: env.People, brain: brain, runtime: ai.NewRunTransparency(env.Pool)}
 
-	request := companyReadMessageRequest(human, t, read.ID.String(), "Which name did you find?")
+	request := companyReadMessageRequest(human, t, read.ID.String(), "Please update the display name to Acme from the website.")
 	recorder := httptest.NewRecorder()
 	engine.messageCompanySiteRead(recorder, request, openapi_types.UUID(read.ID))
 	if recorder.Code != http.StatusOK {
@@ -62,7 +62,7 @@ func TestCompanySiteReadMessageUsesTheStoredDossierAndReturnsRuntime(t *testing.
 		len(reply.AiRuntime.Models) != 1 || reply.AiRuntime.Models[0].ServedModel != "claude-workbench-test-202607" {
 		t.Fatalf("message reply = %+v", reply)
 	}
-	if !strings.Contains(brain.request.Messages[len(brain.request.Messages)-1].Content, "Which name did you find?") {
+	if !strings.Contains(brain.request.Messages[len(brain.request.Messages)-1].Content, "Please update the display name to Acme from the website.") {
 		t.Fatalf("administrator message did not reach the model data frame: %+v", brain.request.Messages)
 	}
 

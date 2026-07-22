@@ -221,19 +221,9 @@ func debugProposal(seedURL string, mergedFields []evidencedField, mergedFacts []
 	if len(mergedFields)+len(mergedFacts) == 0 {
 		return nil
 	}
-	fields := make([]people.DeepReadField, len(mergedFields))
-	for i, f := range mergedFields {
-		fields[i] = people.DeepReadField{
-			Field:           f.Field,
-			Value:           f.Value,
-			EvidenceSnippet: f.EvidenceSnippet,
-			SourceURL:       f.SourceURL,
-			Confidence:      f.Confidence,
-		}
-	}
 	return &people.DeepReadProposal{
 		SourceURL: seedURL,
-		Fields:    fields,
+		Fields:    deepReadFields(mergedFields),
 		Facts:     mergedFacts,
 	}
 }

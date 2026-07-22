@@ -95,6 +95,7 @@
   font-family: var(--f-mono);
   font-size: 11px;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .mw-runtime {

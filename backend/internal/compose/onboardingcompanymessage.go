@@ -27,6 +27,7 @@ type onboardingCompanyAssistant struct {
 	people  onboardingSiteReadReader
 	brain   completer
 	runtime runTransparencyReader
+	rollout *string
 }
 
 type onboardingStateReader interface {
@@ -44,22 +45,23 @@ type onboardingConversationContext struct {
 	RemainingRequired []string                        `json:"remaining_required_fields"`
 }
 
+type onboardingResearchState struct {
+	status    string
+	ready     bool
+	confirmed bool
+}
+
 func (a *onboardingCompanyAssistant) message(w http.ResponseWriter, r *http.Request) {
 	if a == nil || a.brain == nil || a.runtime == nil {
 		httperr.NotImplemented(w, r, "messageOnboardingCompany (no model path configured)")
 		return
 	}
-	var req crmcontracts.OnboardingCompanyMessageRequest
-	if !httperr.Decode(w, r, &req) {
+	if a.rollout != nil && !companyContextOnboardingEnabled(*a.rollout) {
+		httperr.NotImplemented(w, r, "messageOnboardingCompany (company onboarding disabled)")
 		return
 	}
-	message := strings.TrimSpace(req.Message)
-	if message == "" {
-		httperr.Write(w, r, httperr.Validation("message", "empty", "write a company-setup message for Margince"))
-		return
-	}
-	if len([]rune(message)) > companyReadMessageMaxRunes {
-		httperr.Write(w, r, httperr.Validation("message", "too_long", "message must be at most 2000 characters"))
+	req, message, ok := decodeOnboardingCompanyMessage(w, r)
+	if !ok {
 		return
 	}
 	state, err := a.state.Get(r.Context())
@@ -72,14 +74,18 @@ func (a *onboardingCompanyAssistant) message(w http.ResponseWriter, r *http.Requ
 		httperr.Write(w, r, httperr.Validation("history", "invalid", validationErr.Error()))
 		return
 	}
-	evidence, runID, readReady, err := a.onboardingEvidence(r.Context(), state)
+	evidence, runID, research, err := a.onboardingEvidence(r.Context(), state)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
 	}
-	remaining := remainingOnboardingFields(state.CompanyDraft)
+	currentDraft := state.CompanyDraft
+	if req.CompanyDraft != nil {
+		currentDraft = onboardingDraftInput(*req.CompanyDraft)
+	}
+	remaining := remainingOnboardingFields(currentDraft)
 	conversation := onboardingConversationContext{
-		Dossier: evidence, CurrentDraft: state.CompanyDraft,
+		Dossier: evidence, CurrentDraft: currentDraft,
 		RemainingRequired: remaining,
 	}
 	if len(remaining) > 0 {
@@ -88,10 +94,10 @@ func (a *onboardingCompanyAssistant) message(w http.ResponseWriter, r *http.Requ
 
 	var answer companyReadModelReply
 	if isCompanyStatusQuestion(message) {
-		answer = companyReadModelReply{Kind: companyConversationStatus, Message: onboardingStatusMessage(string(req.Locale), readReady, len(remaining))}
+		answer = companyReadModelReply{Kind: companyConversationStatus, Message: onboardingStatusMessage(string(req.Locale), research, len(remaining))}
 	} else {
 		callCtx := principal.WithCorrelationID(r.Context(), runID)
-		answer, err = a.answer(callCtx, message, history, conversation)
+		answer, err = a.answer(callCtx, message, history, conversation, string(req.Locale))
 		if err != nil {
 			httperr.Write(w, r, err)
 			return
@@ -102,23 +108,48 @@ func (a *onboardingCompanyAssistant) message(w http.ResponseWriter, r *http.Requ
 		httperr.Write(w, r, err)
 		return
 	}
-	response := onboardingCompanyReply(answer, evidence, remaining, readReady, runtime)
+	response := onboardingCompanyReply(answer, evidence, remaining, research, runtime)
 	httperr.WriteJSON(w, http.StatusOK, response)
 }
 
-func (a *onboardingCompanyAssistant) onboardingEvidence(ctx context.Context, state identity.OnboardingState) ([]companyReadEvidence, ids.UUID, bool, error) {
+func decodeOnboardingCompanyMessage(w http.ResponseWriter, r *http.Request) (crmcontracts.OnboardingCompanyMessageRequest, string, bool) {
+	var req crmcontracts.OnboardingCompanyMessageRequest
+	if !httperr.Decode(w, r, &req) {
+		return req, "", false
+	}
+	if !req.Locale.Valid() {
+		httperr.Write(w, r, httperr.Validation("locale", "invalid", "locale must be en or de"))
+		return req, "", false
+	}
+	message := strings.TrimSpace(req.Message)
+	if message == "" {
+		httperr.Write(w, r, httperr.Validation("message", "empty", "write a company-setup message for Margince"))
+		return req, "", false
+	}
+	if len([]rune(message)) > companyReadMessageMaxRunes {
+		httperr.Write(w, r, httperr.Validation("message", "too_long", "message must be at most 2000 characters"))
+		return req, "", false
+	}
+	return req, message, true
+}
+
+func (a *onboardingCompanyAssistant) onboardingEvidence(ctx context.Context, state identity.OnboardingState) ([]companyReadEvidence, ids.UUID, onboardingResearchState, error) {
 	if state.SiteReadID == nil {
-		return nil, state.ID, true, nil
+		return nil, state.ID, onboardingResearchState{ready: true}, nil
 	}
 	read, _, err := a.people.GetCompanySiteRead(ctx, *state.SiteReadID)
 	if err != nil {
-		return nil, ids.UUID{}, false, err
+		return nil, ids.UUID{}, onboardingResearchState{}, err
 	}
-	ready := read.Status == siteReadWireStatusDone || read.Status == siteReadWireStatusPartial || read.ConfirmedAt != nil
-	return companyReadEvidenceSet(read), read.ID, ready, nil
+	research := onboardingResearchState{
+		status:    read.Status,
+		ready:     read.Status == siteReadWireStatusDone || read.Status == siteReadWireStatusPartial,
+		confirmed: read.ConfirmedAt != nil,
+	}
+	return companyReadEvidenceSet(read), read.ID, research, nil
 }
 
-func (a *onboardingCompanyAssistant) answer(ctx context.Context, message string, history []model.Message, conversation onboardingConversationContext) (companyReadModelReply, error) {
+func (a *onboardingCompanyAssistant) answer(ctx context.Context, message string, history []model.Message, conversation onboardingConversationContext, locale string) (companyReadModelReply, error) {
 	contextJSON, err := json.Marshal(conversation)
 	if err != nil {
 		return companyReadModelReply{}, err
@@ -129,7 +160,8 @@ func (a *onboardingCompanyAssistant) answer(ctx context.Context, message string,
 	messages = append(messages, model.Message{Role: chatRoleUser, Content: message})
 	req := model.Request{
 		System: companyReadMessageSystem + `
-The current_company_draft is application state, not an administrator statement. remaining_required_fields is the deterministic completion plan. If the administrator directly answers next_required_field, classify the response as correction and propose that exact value for that field. After answering an in-scope question, briefly return to the next required field.`,
+The current_company_draft is application state, not an administrator statement. remaining_required_fields is the deterministic completion plan. If the administrator directly answers next_required_field, classify the response as correction and propose that exact value for that field. After answering an in-scope question, briefly return to the next required field.
+Respond in ` + locale + `.`,
 		Messages: messages, MaxTokens: ai.ReasoningOutputMaxTokens,
 		ResponseSchema: companyReadMessageSchema, SecretStripper: ai.NewSecretStripper(),
 	}
@@ -138,7 +170,8 @@ The current_company_draft is application state, not an administrator statement. 
 		known[source.ID] = source
 	}
 	statements := administratorConversation(history, message)
-	validate := func(text string) error { return validateCompanyReadReply(text, known, statements) }
+	allowChanges := messageRequestsCompanyChanges(message) || (conversation.NextRequired != "" && !looksLikeQuestion(message))
+	validate := func(text string) error { return validateCompanyReadReply(text, known, statements, allowChanges) }
 	var response model.Response
 	if structured, ok := a.brain.(validatedBrain); ok {
 		response, err = structured.CompleteValidated(ctx, req, validate)
@@ -152,7 +185,7 @@ The current_company_draft is application state, not an administrator statement. 
 	if err := json.Unmarshal([]byte(ai.Unfence(response.Text)), &reply); err != nil {
 		return companyReadModelReply{}, fmt.Errorf("compose: onboarding company answer is not valid JSON: %w", err)
 	}
-	if err := validateCompanyReadReplyValue(reply, known, statements); err != nil {
+	if err := validateCompanyReadReplyValue(reply, known, statements, allowChanges); err != nil {
 		return companyReadModelReply{}, err
 	}
 	return reply, nil
@@ -176,28 +209,41 @@ func remainingOnboardingFields(draft identity.OnboardingCompanyDraft) []string {
 
 func isCompanyStatusQuestion(message string) bool {
 	normalized := strings.ToLower(strings.Join(strings.Fields(message), " "))
+	normalized = strings.TrimRight(normalized, "?!. ")
 	for _, phrase := range []string{"does this work", "is this working", "what is the status", "funktioniert das", "klappt das", "wie ist der status"} {
-		if strings.Contains(normalized, phrase) {
+		if normalized == phrase {
 			return true
 		}
 	}
 	return false
 }
 
-func onboardingStatusMessage(locale string, readReady bool, missing int) string {
+func onboardingStatusMessage(locale string, research onboardingResearchState, missing int) string {
 	if locale == "de" {
-		if !readReady {
+		if research.confirmed {
+			return "Ja. Ich habe das bestätigte Unternehmensprofil gespeichert."
+		}
+		if research.status == siteReadWireStatusFailed {
+			return fmt.Sprintf("Meine Web-Recherche ist beendet, konnte aber nicht abgeschlossen werden. Wir können die %d fehlenden Pflichtangaben hier gemeinsam manuell ergänzen; gespeichert ist noch nichts.", missing)
+		}
+		if !research.ready {
 			return "Ja. Ich recherchiere noch und zeige neue belegte Funde im Unternehmensentwurf. Gespeichert ist noch nichts."
 		}
 		return fmt.Sprintf("Ja. Meine Recherche funktioniert. Es fehlen noch %d Pflichtangaben; gespeichert ist noch nichts.", missing)
 	}
-	if !readReady {
+	if research.confirmed {
+		return "Yes. I saved the confirmed company profile."
+	}
+	if research.status == siteReadWireStatusFailed {
+		return fmt.Sprintf("My website research has stopped without completing. We can fill the %d missing required details together here; nothing is saved yet.", missing)
+	}
+	if !research.ready {
 		return "Yes. I'm still researching and will add grounded findings to the company draft as they arrive. Nothing is saved yet."
 	}
 	return fmt.Sprintf("Yes. The company workspace is working. %d required details remain; nothing is saved yet.", missing)
 }
 
-func onboardingCompanyReply(answer companyReadModelReply, evidence []companyReadEvidence, remaining []string, readReady bool, runtime ai.RunSummary) crmcontracts.OnboardingCompanyMessageReply {
+func onboardingCompanyReply(answer companyReadModelReply, evidence []companyReadEvidence, remaining []string, research onboardingResearchState, runtime ai.RunSummary) crmcontracts.OnboardingCompanyMessageReply {
 	base := contractCompanyReadReply(answer, evidence, runtime)
 	out := crmcontracts.OnboardingCompanyMessageReply{
 		Kind: base.Kind, Message: base.Message, ProposedChanges: base.ProposedChanges,
@@ -210,7 +256,7 @@ func onboardingCompanyReply(answer companyReadModelReply, evidence []companyRead
 	if len(remaining) > 0 {
 		next := crmcontracts.OnboardingCompanyMessageReplyNextRequiredField(remaining[0])
 		out.NextRequiredField = &next
-	} else if readReady {
+	} else if research.ready && !research.confirmed {
 		action := crmcontracts.OnboardingAvailableActionConfirmCompany
 		out.AvailableAction = &action
 	}

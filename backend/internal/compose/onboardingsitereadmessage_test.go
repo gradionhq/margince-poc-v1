@@ -24,17 +24,17 @@ import (
 func TestCompanyReadReplyAcceptsReviewableChangesAndOnlyKnownSources(t *testing.T) {
 	known := map[string]companyReadEvidence{"S1": {ID: "S1", Value: "Acme GmbH", Quote: "Acme GmbH, HRB 12345"}}
 	valid := `{"kind":"recommendation","message":"I found the registered name.","proposed_changes":[{"field":"legal_name","value":"Acme GmbH","reason":"The legal notice states it.","source_ids":["S1"]}],"source_ids":["S1"]}`
-	if err := validateCompanyReadReply(valid, known, "Which legal name did you find?"); err != nil {
+	if err := validateCompanyReadReply(valid, known, "Which legal name did you find?", true); err != nil {
 		t.Fatalf("valid reply rejected: %v", err)
 	}
 
 	unknown := `{"kind":"answer","message":"I found it.","proposed_changes":[],"source_ids":["S9"]}`
-	if err := validateCompanyReadReply(unknown, known, "Find it"); err == nil {
+	if err := validateCompanyReadReply(unknown, known, "Find it", false); err == nil {
 		t.Fatal("reply citing a URL outside the dossier was accepted")
 	}
 
 	unsupported := `{"kind":"correction","message":"I can change it.","proposed_changes":[{"field":"website","value":"evil.example","reason":"requested","source_ids":[]}],"source_ids":[]}`
-	if err := validateCompanyReadReply(unsupported, known, "Use evil.example"); err == nil {
+	if err := validateCompanyReadReply(unsupported, known, "Use evil.example", true); err == nil {
 		t.Fatal("reply proposing a field outside the onboarding vocabulary was accepted")
 	}
 }
@@ -51,7 +51,7 @@ func TestCompanyReadAnswerBuildsABoundedGroundedModelRequest(t *testing.T) {
 		{Role: "assistant", Content: "Yes, I found one."},
 	}
 
-	got, err := engine.answerCompanySiteRead(context.Background(), "Which legal name did you find?", history, []companyReadEvidence{{
+	got, err := engine.answerCompanySiteRead(context.Background(), "Please update the legal name to Acme GmbH.", history, []companyReadEvidence{{
 		ID: "S1", Kind: "legal_entity", Field: "legal_identity", Value: "Acme GmbH",
 		Quote: "Acme GmbH, HRB 12345", URL: "https://acme.example/imprint",
 	}})
@@ -67,7 +67,7 @@ func TestCompanyReadAnswerBuildsABoundedGroundedModelRequest(t *testing.T) {
 	}
 	if len(brain.request.Messages) != 4 || !strings.Contains(brain.request.Messages[0].Content, "Acme GmbH") ||
 		brain.request.Messages[1].Content != "Did you find the imprint?" ||
-		brain.request.Messages[2].Role != "assistant" || brain.request.Messages[3].Content != "Which legal name did you find?" {
+		brain.request.Messages[2].Role != "assistant" || brain.request.Messages[3].Content != "Please update the legal name to Acme GmbH." {
 		t.Fatalf("model request lost the administrator or dossier evidence: %+v", brain.request.Messages)
 	}
 
@@ -165,18 +165,18 @@ func TestCompanyReadReplyValidationRejectsEveryUnsafeShape(t *testing.T) {
 	known := map[string]companyReadEvidence{"S1": {ID: "S1", Value: "Acme GmbH"}}
 	for name, reply := range tests {
 		t.Run(name, func(t *testing.T) {
-			if err := validateCompanyReadReplyValue(reply, known, "Use administrator supplied value"); err == nil {
+			if err := validateCompanyReadReplyValue(reply, known, "Use administrator supplied value", true); err == nil {
 				t.Fatalf("unsafe reply accepted: %+v", reply)
 			}
 		})
 	}
-	if err := validateCompanyReadReply("not json", nil, ""); err == nil {
+	if err := validateCompanyReadReply("not json", nil, "", false); err == nil {
 		t.Fatal("malformed JSON was accepted")
 	}
 	adminSupplied := companyReadModelReply{Kind: "correction", Message: "I can suggest that.", ProposedChanges: []companyReadProposedChange{{
 		Field: "legal_name", Value: "Admin GmbH", Reason: "You supplied it.", SourceIDs: []string{},
 	}}}
-	if err := validateCompanyReadReplyValue(adminSupplied, known, "Please use Admin GmbH"); err != nil {
+	if err := validateCompanyReadReplyValue(adminSupplied, known, "Please use Admin GmbH", true); err != nil {
 		t.Fatalf("administrator correction rejected: %v", err)
 	}
 }
@@ -228,7 +228,7 @@ func TestWithDeepReadWiresConversationAndRuntimeFromTheSameOption(t *testing.T) 
 }
 
 func TestOnboardingCompanyStatusQuestionsNeverBecomeChanges(t *testing.T) {
-	for _, question := range []string{"Does this work?", "Is this working now?", "Wie ist der Status?", "Funktioniert das?"} {
+	for _, question := range []string{"Does this work?", "Is this working?", "Wie ist der Status?", "Funktioniert das?"} {
 		if !isCompanyStatusQuestion(question) {
 			t.Fatalf("status question %q was not recognized", question)
 		}
@@ -236,10 +236,13 @@ func TestOnboardingCompanyStatusQuestionsNeverBecomeChanges(t *testing.T) {
 	if isCompanyStatusQuestion("Change our sales status to active") {
 		t.Fatal("an ordinary company correction was classified as a status question")
 	}
+	if isCompanyStatusQuestion("Does this work with Salesforce?") {
+		t.Fatal("an in-scope company question was classified as a workspace status question")
+	}
 
 	reply := onboardingCompanyReply(companyReadModelReply{
-		Kind: "status", Message: onboardingStatusMessage("en", true, 2),
-	}, nil, []string{"display_name", "icp"}, true, ai.RunSummary{Currency: "USD"})
+		Kind: "status", Message: onboardingStatusMessage("en", onboardingResearchState{ready: true}, 2),
+	}, nil, []string{"display_name", "icp"}, onboardingResearchState{ready: true}, ai.RunSummary{Currency: "USD"})
 	if reply.Kind != crmcontracts.CompanyConversationStatus || len(reply.ProposedChanges) != 0 ||
 		reply.NextRequiredField == nil || *reply.NextRequiredField != crmcontracts.OnboardingNextRequiredDisplayName ||
 		reply.AvailableAction != nil {
@@ -253,7 +256,19 @@ func TestCompanyConversationRejectsAChangeHiddenInAStatusReply(t *testing.T) {
 			Field: "industry", Value: "Software", Reason: "You said so", SourceIDs: []string{},
 		}},
 	}
-	if err := validateCompanyReadReplyValue(reply, nil, "Software"); err == nil {
+	if err := validateCompanyReadReplyValue(reply, nil, "Software", true); err == nil {
 		t.Fatal("status reply carrying a proposed change was accepted")
+	}
+}
+
+func TestCompanyConversationRejectsSuggestionsWithoutChangeIntent(t *testing.T) {
+	reply := companyReadModelReply{
+		Kind: "recommendation", Message: "I suggest an update.", ProposedChanges: []companyReadProposedChange{{
+			Field: "industry", Value: "Software", Reason: "The dossier says so", SourceIDs: []string{"S1"},
+		}}, SourceIDs: []string{"S1"},
+	}
+	known := map[string]companyReadEvidence{"S1": {ID: "S1", Value: "Software"}}
+	if err := validateCompanyReadReplyValue(reply, known, "Does this work?", false); err == nil {
+		t.Fatal("an ordinary question produced a change proposal")
 	}
 }

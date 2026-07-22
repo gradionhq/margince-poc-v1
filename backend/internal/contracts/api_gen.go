@@ -210,6 +210,114 @@ func (e AgentToolTier) Valid() bool {
 	}
 }
 
+// Defines values for AiProfileInferenceMode.
+const (
+	AiProfileInferenceModeCloud       AiProfileInferenceMode = "cloud"
+	AiProfileInferenceModeDevelopment AiProfileInferenceMode = "development"
+	AiProfileInferenceModeHybrid      AiProfileInferenceMode = "hybrid"
+	AiProfileInferenceModeLocal       AiProfileInferenceMode = "local"
+	AiProfileInferenceModeNone        AiProfileInferenceMode = "none"
+)
+
+// Valid indicates whether the value is a known member of the AiProfileInferenceMode enum.
+func (e AiProfileInferenceMode) Valid() bool {
+	switch e {
+	case AiProfileInferenceModeCloud:
+		return true
+	case AiProfileInferenceModeDevelopment:
+		return true
+	case AiProfileInferenceModeHybrid:
+		return true
+	case AiProfileInferenceModeLocal:
+		return true
+	case AiProfileInferenceModeNone:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AiProfileKind.
+const (
+	AiProfileKindAi AiProfileKind = "ai"
+)
+
+// Valid indicates whether the value is a known member of the AiProfileKind enum.
+func (e AiProfileKind) Valid() bool {
+	switch e {
+	case AiProfileKindAi:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AiProfileName.
+const (
+	AiProfileNameMargince AiProfileName = "Margince"
+)
+
+// Valid indicates whether the value is a known member of the AiProfileName enum.
+func (e AiProfileName) Valid() bool {
+	switch e {
+	case AiProfileNameMargince:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AiProfileProviders.
+const (
+	AiProfileProvidersAnthropic        AiProfileProviders = "anthropic"
+	AiProfileProvidersGemini           AiProfileProviders = "gemini"
+	AiProfileProvidersOllama           AiProfileProviders = "ollama"
+	AiProfileProvidersOpenai           AiProfileProviders = "openai"
+	AiProfileProvidersOpenaiCompatible AiProfileProviders = "openai_compatible"
+	AiProfileProvidersVllm             AiProfileProviders = "vllm"
+)
+
+// Valid indicates whether the value is a known member of the AiProfileProviders enum.
+func (e AiProfileProviders) Valid() bool {
+	switch e {
+	case AiProfileProvidersAnthropic:
+		return true
+	case AiProfileProvidersGemini:
+		return true
+	case AiProfileProvidersOllama:
+		return true
+	case AiProfileProvidersOpenai:
+		return true
+	case AiProfileProvidersOpenaiCompatible:
+		return true
+	case AiProfileProvidersVllm:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AiProfileState.
+const (
+	AiProfileStateConfigured   AiProfileState = "configured"
+	AiProfileStateDevelopment  AiProfileState = "development"
+	AiProfileStateUnconfigured AiProfileState = "unconfigured"
+)
+
+// Valid indicates whether the value is a known member of the AiProfileState enum.
+func (e AiProfileState) Valid() bool {
+	switch e {
+	case AiProfileStateConfigured:
+		return true
+	case AiProfileStateDevelopment:
+		return true
+	case AiProfileStateUnconfigured:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AiRunSummaryCurrency.
 const (
 	USD AiRunSummaryCurrency = "USD"
@@ -407,13 +515,13 @@ func (e AssistantProfileInferenceMode) Valid() bool {
 
 // Defines values for AssistantProfileKind.
 const (
-	Ai AssistantProfileKind = "ai"
+	AssistantProfileKindAi AssistantProfileKind = "ai"
 )
 
 // Valid indicates whether the value is a known member of the AssistantProfileKind enum.
 func (e AssistantProfileKind) Valid() bool {
 	switch e {
-	case Ai:
+	case AssistantProfileKindAi:
 		return true
 	default:
 		return false
@@ -422,13 +530,13 @@ func (e AssistantProfileKind) Valid() bool {
 
 // Defines values for AssistantProfileName.
 const (
-	Margince AssistantProfileName = "Margince"
+	AssistantProfileNameMargince AssistantProfileName = "Margince"
 )
 
 // Valid indicates whether the value is a known member of the AssistantProfileName enum.
 func (e AssistantProfileName) Valid() bool {
 	switch e {
-	case Margince:
+	case AssistantProfileNameMargince:
 		return true
 	default:
 		return false
@@ -437,28 +545,28 @@ func (e AssistantProfileName) Valid() bool {
 
 // Defines values for AssistantProfileProviders.
 const (
-	Anthropic        AssistantProfileProviders = "anthropic"
-	Gemini           AssistantProfileProviders = "gemini"
-	Ollama           AssistantProfileProviders = "ollama"
-	Openai           AssistantProfileProviders = "openai"
-	OpenaiCompatible AssistantProfileProviders = "openai_compatible"
-	Vllm             AssistantProfileProviders = "vllm"
+	AssistantProfileProvidersAnthropic        AssistantProfileProviders = "anthropic"
+	AssistantProfileProvidersGemini           AssistantProfileProviders = "gemini"
+	AssistantProfileProvidersOllama           AssistantProfileProviders = "ollama"
+	AssistantProfileProvidersOpenai           AssistantProfileProviders = "openai"
+	AssistantProfileProvidersOpenaiCompatible AssistantProfileProviders = "openai_compatible"
+	AssistantProfileProvidersVllm             AssistantProfileProviders = "vllm"
 )
 
 // Valid indicates whether the value is a known member of the AssistantProfileProviders enum.
 func (e AssistantProfileProviders) Valid() bool {
 	switch e {
-	case Anthropic:
+	case AssistantProfileProvidersAnthropic:
 		return true
-	case Gemini:
+	case AssistantProfileProvidersGemini:
 		return true
-	case Ollama:
+	case AssistantProfileProvidersOllama:
 		return true
-	case Openai:
+	case AssistantProfileProvidersOpenai:
 		return true
-	case OpenaiCompatible:
+	case AssistantProfileProvidersOpenaiCompatible:
 		return true
-	case Vllm:
+	case AssistantProfileProvidersVllm:
 		return true
 	default:
 		return false
@@ -6577,6 +6685,34 @@ type AiCallSummary struct {
 	TokensOut int    `json:"tokens_out"`
 }
 
+// AiProfile defines model for AiProfile.
+type AiProfile struct {
+	// ConfiguredModels Authenticated tier-to-model bindings. Credentials and endpoints never appear here.
+	ConfiguredModels []AssistantConfiguredModel `json:"configured_models"`
+	InferenceMode    AiProfileInferenceMode     `json:"inference_mode"`
+	Kind             AiProfileKind              `json:"kind"`
+	Name             AiProfileName              `json:"name"`
+
+	// Providers Distinct configured provider keys, sorted; fake is never returned.
+	Providers []AiProfileProviders `json:"providers"`
+	State     AiProfileState       `json:"state"`
+}
+
+// AiProfileInferenceMode defines model for AiProfile.InferenceMode.
+type AiProfileInferenceMode string
+
+// AiProfileKind defines model for AiProfile.Kind.
+type AiProfileKind string
+
+// AiProfileName defines model for AiProfile.Name.
+type AiProfileName string
+
+// AiProfileProviders defines model for AiProfile.Providers.
+type AiProfileProviders string
+
+// AiProfileState defines model for AiProfile.State.
+type AiProfileState string
+
 // AiRunModelUsage One task, route, and served-model slice within a correlated AI run.
 type AiRunModelUsage struct {
 	CacheWriteTokens int64 `json:"cache_write_tokens"`
@@ -6756,11 +6892,9 @@ type AssistantConfiguredModelTier string
 
 // AssistantProfile defines model for AssistantProfile.
 type AssistantProfile struct {
-	// ConfiguredModels Public tier-to-model bindings. Provider credentials and endpoints never appear here.
-	ConfiguredModels []AssistantConfiguredModel    `json:"configured_models"`
-	InferenceMode    AssistantProfileInferenceMode `json:"inference_mode"`
-	Kind             AssistantProfileKind          `json:"kind"`
-	Name             AssistantProfileName          `json:"name"`
+	InferenceMode AssistantProfileInferenceMode `json:"inference_mode"`
+	Kind          AssistantProfileKind          `json:"kind"`
+	Name          AssistantProfileName          `json:"name"`
 
 	// Providers Distinct configured provider keys, sorted; fake is never returned.
 	Providers []AssistantProfileProviders `json:"providers"`
@@ -9170,9 +9304,13 @@ type OnboardingCompanyMessageReplyRemainingRequiredFields string
 
 // OnboardingCompanyMessageRequest defines model for OnboardingCompanyMessageRequest.
 type OnboardingCompanyMessageRequest struct {
-	History *[]CompanySiteReadConversationTurn    `json:"history,omitempty"`
-	Locale  OnboardingCompanyMessageRequestLocale `json:"locale"`
-	Message string                                `json:"message"`
+	// CompanyDraft Partial human-editable company input retained while the wizard is unfinished. Every field
+	// is optional here because this is not confirmed company truth; confirmation uses the stricter
+	// CompanyProfileInput or ConfirmCompanySiteReadRequest contract.
+	CompanyDraft *OnboardingCompanyDraft               `json:"company_draft,omitempty"`
+	History      *[]CompanySiteReadConversationTurn    `json:"history,omitempty"`
+	Locale       OnboardingCompanyMessageRequestLocale `json:"locale"`
+	Message      string                                `json:"message"`
 }
 
 // OnboardingCompanyMessageRequestLocale defines model for OnboardingCompanyMessageRequest.Locale.
@@ -18403,6 +18541,9 @@ type ServerInterface interface {
 	// One call — attempt ladder, routing identity, context provenance, captured payload.
 	// (GET /ai/calls/{id})
 	GetAiCall(w http.ResponseWriter, r *http.Request, id Id)
+	// Authenticated AI configuration posture for transparent human-facing workspaces.
+	// (GET /ai/profile)
+	GetAiProfile(w http.ResponseWriter, r *http.Request)
 	// AI usage + budget — the spend is never invisible.
 	// (GET /ai/usage)
 	GetAiUsage(w http.ResponseWriter, r *http.Request, params GetAiUsageParams)
@@ -19195,6 +19336,12 @@ func (_ Unimplemented) ListAiCalls(w http.ResponseWriter, r *http.Request, param
 // One call — attempt ladder, routing identity, context provenance, captured payload.
 // (GET /ai/calls/{id})
 func (_ Unimplemented) GetAiCall(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Authenticated AI configuration posture for transparent human-facing workspaces.
+// (GET /ai/profile)
+func (_ Unimplemented) GetAiProfile(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -21269,6 +21416,26 @@ func (siw *ServerInterfaceWrapper) GetAiCall(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetAiCall(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAiProfile operation middleware
+func (siw *ServerInterfaceWrapper) GetAiProfile(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAiProfile(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -32830,6 +32997,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/ai/calls/{id}", wrapper.GetAiCall)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/ai/profile", wrapper.GetAiProfile)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/ai/usage", wrapper.GetAiUsage)

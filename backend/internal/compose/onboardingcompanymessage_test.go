@@ -172,6 +172,8 @@ func TestOnboardingCompanyMessageRejectsInvalidRequestsAtTheirBoundary(t *testin
 		"empty message":     {assistant: onboardingCompanyAssistant{state: validState, brain: &replyBrainStub{}, runtime: &onboardingRuntimeStub{}}, body: `{"message":"  ","locale":"en"}`},
 		"oversized message": {assistant: onboardingCompanyAssistant{state: validState, brain: &replyBrainStub{}, runtime: &onboardingRuntimeStub{}}, body: `{"message":"` + strings.Repeat("x", companyReadMessageMaxRunes+1) + `","locale":"en"}`},
 		"invalid history":   {assistant: onboardingCompanyAssistant{state: validState, brain: &replyBrainStub{}, runtime: &onboardingRuntimeStub{}}, body: `{"message":"Hello","locale":"en","history":[{"role":"user","message":""}]}`},
+		"missing locale":    {assistant: onboardingCompanyAssistant{state: validState, brain: &replyBrainStub{}, runtime: &onboardingRuntimeStub{}}, body: `{"message":"Hello"}`},
+		"unknown locale":    {assistant: onboardingCompanyAssistant{state: validState, brain: &replyBrainStub{}, runtime: &onboardingRuntimeStub{}}, body: `{"message":"Hello","locale":"fr"}`},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -180,6 +182,45 @@ func TestOnboardingCompanyMessageRejectsInvalidRequestsAtTheirBoundary(t *testin
 				t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 			}
 		})
+	}
+}
+
+func TestOnboardingCompanyMessageUsesTheLiveDraftAndRequestedLanguage(t *testing.T) {
+	brain := &validatedOnboardingBrainStub{response: model.Response{Text: `{
+		"kind":"answer","message":"Das passt.","proposed_changes":[],"source_ids":[]}`}}
+	assistant := onboardingCompanyAssistant{
+		state:  onboardingStateReaderStub{state: identity.OnboardingState{ID: ids.NewV7()}},
+		people: onboardingSiteReadReaderStub{}, brain: brain,
+		runtime: &onboardingRuntimeStub{summary: ai.RunSummary{Currency: "USD"}},
+	}
+	recorder := onboardingCompanyRequest(&assistant, `{
+		"message":"Passt das für den Mittelstand?","locale":"de",
+		"company_draft":{"display_name":"Acme","offer_summary":"CRM","icp":"Mittelstand"}}`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var reply crmcontracts.OnboardingCompanyMessageReply
+	if err := json.Unmarshal(recorder.Body.Bytes(), &reply); err != nil {
+		t.Fatal(err)
+	}
+	if len(reply.RemainingRequiredFields) != 0 || reply.AvailableAction == nil {
+		t.Fatalf("live draft was not used: %+v", reply)
+	}
+	if !strings.Contains(brain.request.System, "Respond in de.") ||
+		!strings.Contains(brain.request.Messages[0].Content, `"display_name":"Acme"`) {
+		t.Fatalf("locale or live draft missing from model request: %+v", brain.request)
+	}
+}
+
+func TestOnboardingCompanyMessageHonorsTheRequestTimeRollout(t *testing.T) {
+	rollout := companyContextRolloutOff
+	assistant := onboardingCompanyAssistant{
+		state: onboardingStateReaderStub{state: identity.OnboardingState{ID: ids.NewV7()}},
+		brain: &replyBrainStub{}, runtime: &onboardingRuntimeStub{}, rollout: &rollout,
+	}
+	recorder := onboardingCompanyRequest(&assistant, `{"message":"Hello","locale":"en"}`)
+	if recorder.Code != http.StatusNotImplemented {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -242,9 +283,15 @@ func TestOnboardingStatusMessagesCoverBothLocalesAndResearchStates(t *testing.T)
 		{locale: "de", readReady: false, want: "recherchiere noch"},
 		{locale: "de", readReady: true, want: "2 Pflichtangaben"},
 	} {
-		if got := onboardingStatusMessage(tc.locale, tc.readReady, 2); !strings.Contains(got, tc.want) {
+		if got := onboardingStatusMessage(tc.locale, onboardingResearchState{ready: tc.readReady}, 2); !strings.Contains(got, tc.want) {
 			t.Fatalf("onboardingStatusMessage(%q, %v) = %q", tc.locale, tc.readReady, got)
 		}
+	}
+	if got := onboardingStatusMessage("en", onboardingResearchState{status: siteReadWireStatusFailed}, 2); !strings.Contains(got, "stopped") {
+		t.Fatalf("failed research status = %q", got)
+	}
+	if got := onboardingStatusMessage("en", onboardingResearchState{confirmed: true}, 0); !strings.Contains(got, "saved") {
+		t.Fatalf("confirmed research status = %q", got)
 	}
 }
 

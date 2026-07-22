@@ -45,7 +45,6 @@ function stubApi(
     state: "unconfigured",
     inference_mode: "none",
     providers: [],
-    configured_models: [],
   }),
 ) {
   const calls: Request[] = [];
@@ -86,10 +85,6 @@ describe("AuthScreen login", () => {
         state: "configured",
         inference_mode: "hybrid",
         providers: ["anthropic", "ollama"],
-        configured_models: [
-          { tier: "premium", provider: "anthropic", model: "claude-sonnet" },
-          { tier: "local_small", provider: "ollama", model: "gemma3" },
-        ],
       }),
     );
     render(<AuthScreen onAuthed={vi.fn()} />);
@@ -102,9 +97,7 @@ describe("AuthScreen login", () => {
     ).toBeTruthy();
     expect(await screen.findByText("Configured")).toBeTruthy();
     expect(
-      screen.getByText(
-        "claude-sonnet · premium + gemma3 · local_small · hybrid routing",
-      ),
+      screen.getByText("Anthropic + Ollama · hybrid routing"),
     ).toBeTruthy();
     expect(screen.queryByText(/online|running|healthy/i)).toBeNull();
   });

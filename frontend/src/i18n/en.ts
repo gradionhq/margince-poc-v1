@@ -896,6 +896,10 @@ export const en = {
   "ob.ai.awaitingModel": "Shown after my first model call",
   "ob.ai.notAvailableYet": "Not available yet",
   "ob.ai.runtimeUnavailable": "Runtime details unavailable",
+  "ob.ai.tier.localSmall": "local, fast",
+  "ob.ai.tier.cheapCloud": "cloud, efficient",
+  "ob.ai.tier.premium": "premium reasoning",
+  "ob.ai.tier.localLarge": "local, advanced",
   "ob.ai.readFirst": "Start company setup before asking about it.",
   "ob.ai.liveArtifact": "Live, reviewable artifact",
   "ob.ai.companyKnowledge": "What I understand about your company",
@@ -1132,7 +1136,7 @@ export const en = {
   "ob.s2.vpFootnote":
     "Built from {count} words. Connect your inbox next and your sent email pushes this sharper — then it keeps learning from every email you send.",
 
-  "ob.s3.kick": "Step 4 of 5",
+  "ob.s3.kick": "Step 3 of 4",
   "ob.s3.title": "Look what you've built —",
   "ob.s3.titleEm": "with nothing connected.",
   "ob.s3.sub":
@@ -1166,7 +1170,7 @@ export const en = {
     "Still nothing connected. You're in control of when that changes.",
   "ob.s3.cta": "Connect my inbox",
 
-  "ob.s4.kick": "Step 5 of 5 · the last step",
+  "ob.s4.kick": "Step 4 of 4 · the last step",
   "ob.s4.title": "Ready to",
   "ob.s4.titleEm": "bring it to life?",
   "ob.s4.sub":

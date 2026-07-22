@@ -23,7 +23,8 @@ import { useLocale, useT } from "../i18n";
 import { coldFieldLabel, problemMessage } from "./common";
 
 type CompanySiteRead = components["schemas"]["CompanySiteRead"];
-type AssistantProfile = components["schemas"]["AssistantProfile"];
+type AiProfile = components["schemas"]["AiProfile"];
+type OnboardingCompanyDraft = components["schemas"]["OnboardingCompanyDraft"];
 type MessageReply = components["schemas"]["OnboardingCompanyMessageReply"];
 type ConversationTurn =
   components["schemas"]["CompanySiteReadConversationTurn"];
@@ -39,6 +40,7 @@ type ReadCompanyStepProps = Readonly<{
   pending: boolean;
   refreshing: boolean;
   error: string | null;
+  companyDraft: OnboardingCompanyDraft;
   manualContent?: ReactNode;
   reviewContent?: ReactNode;
   confirmPending: boolean;
@@ -127,12 +129,23 @@ type ConversationEntry =
   | { role: "user"; message: string; id: string }
   | { role: "assistant"; reply: MessageReply; id: string };
 
+const tierKeys = {
+  local_small: "ob.ai.tier.localSmall",
+  cheap_cloud: "ob.ai.tier.cheapCloud",
+  premium: "ob.ai.tier.premium",
+  local_large: "ob.ai.tier.localLarge",
+} as const;
+
 function configuredModelLabel(
-  profile: AssistantProfile | undefined,
+  profile: AiProfile | undefined,
   unavailable: string,
+  t: Translate,
 ) {
   const configured = profile?.configured_models
-    .map((binding) => `${binding.model} · ${binding.tier}`)
+    .map(
+      (binding) =>
+        `${binding.provider}/${binding.model} · ${t(tierKeys[binding.tier])}`,
+    )
     .filter((binding, index, all) => binding && all.indexOf(binding) === index);
   if (configured?.length) return configured.join(" + ");
   if (profile?.providers.length) return profile.providers.join(" + ");
@@ -155,12 +168,13 @@ function WebsiteWorkbench(
     props.mode,
     locale,
     t("ob.ai.readFirst"),
+    props.companyDraft,
   );
   const [applied, setApplied] = useState<Set<string>>(new Set());
   const profile = useQuery({
     queryKey: ["assistant-profile"],
-    queryFn: async (): Promise<AssistantProfile> => {
-      const { data, error } = await api.GET("/assistant/profile");
+    queryFn: async (): Promise<AiProfile> => {
+      const { data, error } = await api.GET("/ai/profile");
       if (error) throw new Error(problemMessage(error));
       return data;
     },
@@ -174,10 +188,17 @@ function WebsiteWorkbench(
     );
   // The dossier keeps accumulating calls while a website read runs. A chat
   // reply is only a point-in-time copy, so it must not freeze the live total.
-  const runtime = props.read?.ai_runtime ?? latestReply?.reply.ai_runtime;
+  const readRuntime = props.read?.ai_runtime;
+  const replyRuntime = latestReply?.reply.ai_runtime;
+  const runtime =
+    replyRuntime &&
+    (!readRuntime || replyRuntime.call_attempts >= readRuntime.call_attempts)
+      ? replyRuntime
+      : readRuntime;
   const configuredModels = configuredModelLabel(
     profile.data,
     t("ob.ai.runtimeUnavailable"),
+    t,
   );
   const state = presenceState(props, props.running);
   const presentation = props.read
@@ -340,6 +361,7 @@ function useCompanyConversation(
   mode: ReadCompanyStepProps["mode"],
   locale: "en" | "de",
   readFirstMessage: string,
+  companyDraft: OnboardingCompanyDraft,
 ) {
   const [draft, setDraft] = useState("");
   const [entries, setEntries] = useState<ConversationEntry[]>([]);
@@ -353,7 +375,7 @@ function useCompanyConversation(
     }): Promise<MessageReply> => {
       if (!mode) throw new Error(readFirstMessage);
       const { data, error } = await api.POST("/onboarding/company/messages", {
-        body: { message, history, locale },
+        body: { message, history, locale, company_draft: companyDraft },
       });
       if (error) throw new Error(problemMessage(error));
       return data;

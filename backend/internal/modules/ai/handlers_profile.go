@@ -63,10 +63,17 @@ func publicConfiguredModels(cfg RoutingConfig) []crmcontracts.AssistantConfigure
 		if !ok {
 			continue
 		}
+		modelID := binding.Model
+		switch binding.Provider {
+		case providerOllama:
+			modelID = defaulted(modelID, defaultOllamaModel)
+		case providerVLLM:
+			modelID = defaulted(modelID, defaultVLLMModel)
+		}
 		models = append(models, crmcontracts.AssistantConfiguredModel{
 			Tier:     crmcontracts.AssistantConfiguredModelTier(tier),
 			Provider: crmcontracts.AssistantConfiguredModelProvider(provider),
-			Model:    binding.Model,
+			Model:    modelID,
 		})
 	}
 	return models
@@ -140,11 +147,28 @@ func (h Handlers) WithPublicProfile(profile PublicProfile) Handlers {
 // GetAssistantProfile implements (GET /assistant/profile).
 func (h Handlers) GetAssistantProfile(w http.ResponseWriter, _ *http.Request) {
 	httperr.WriteJSON(w, http.StatusOK, crmcontracts.AssistantProfile{
-		Name:             crmcontracts.Margince,
-		Kind:             crmcontracts.Ai,
-		State:            h.publicProfile.State,
-		InferenceMode:    h.publicProfile.InferenceMode,
-		Providers:        h.publicProfile.Providers,
+		Name: crmcontracts.AssistantProfileNameMargince, Kind: crmcontracts.AssistantProfileKindAi,
+		State: h.publicProfile.State, InferenceMode: h.publicProfile.InferenceMode,
+		Providers: h.publicProfile.Providers,
+	})
+}
+
+// GetAiProfile implements (GET /ai/profile). Authentication is enforced by
+// the generated operation policy before this handler runs.
+func (h Handlers) GetAiProfile(w http.ResponseWriter, _ *http.Request) {
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.AiProfile{
+		Name: crmcontracts.AiProfileNameMargince, Kind: crmcontracts.AiProfileKindAi,
+		State:            crmcontracts.AiProfileState(h.publicProfile.State),
+		InferenceMode:    crmcontracts.AiProfileInferenceMode(h.publicProfile.InferenceMode),
+		Providers:        makeAiProfileProviders(h.publicProfile.Providers),
 		ConfiguredModels: h.publicProfile.ConfiguredModels,
 	})
+}
+
+func makeAiProfileProviders(in []crmcontracts.AssistantProfileProviders) []crmcontracts.AiProfileProviders {
+	out := make([]crmcontracts.AiProfileProviders, len(in))
+	for i, provider := range in {
+		out[i] = crmcontracts.AiProfileProviders(provider)
+	}
+	return out
 }

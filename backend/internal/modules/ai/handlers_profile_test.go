@@ -78,7 +78,7 @@ func TestGetAssistantProfileReturnsOnlyPublicFields(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	wantKeys := []string{"configured_models", "inference_mode", "kind", "name", "providers", "state"}
+	wantKeys := []string{"inference_mode", "kind", "name", "providers", "state"}
 	for _, key := range wantKeys {
 		if _, ok := body[key]; !ok {
 			t.Errorf("response misses %q: %s", key, recorder.Body.String())
@@ -92,8 +92,28 @@ func TestGetAssistantProfileReturnsOnlyPublicFields(t *testing.T) {
 			t.Errorf("response contains forbidden %q detail: %s", forbidden, recorder.Body.String())
 		}
 	}
-	if !strings.Contains(recorder.Body.String(), `"model":"claude-sonnet"`) ||
-		!strings.Contains(recorder.Body.String(), `"tier":"premium"`) {
-		t.Fatalf("response hides configured model routing: %s", recorder.Body.String())
+	for _, forbidden := range []string{"claude-sonnet", "gemma3", "premium", "local_small"} {
+		if strings.Contains(recorder.Body.String(), forbidden) {
+			t.Fatalf("public response exposes %q: %s", forbidden, recorder.Body.String())
+		}
+	}
+}
+
+func TestGetAiProfileReturnsAuthenticatedConfiguredModelsAndLocalDefaults(t *testing.T) {
+	h := NewHandlers(nil, nil).WithPublicProfile(NewPublicProfile("configured", RoutingConfig{
+		Tiers: map[Tier]ProviderConfig{
+			TierLocalSmall: {Provider: providerOllama},
+			TierLocalLarge: {Provider: providerVLLM},
+			TierPremium:    {Provider: providerAnthropic, Model: "claude-sonnet"},
+		},
+	}))
+	recorder := httptest.NewRecorder()
+	h.GetAiProfile(recorder, httptest.NewRequest("GET", "/v1/ai/profile", nil))
+
+	body := recorder.Body.String()
+	for _, expected := range []string{defaultOllamaModel, defaultVLLMModel, "claude-sonnet", `"tier":"premium"`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("authenticated profile misses %q: %s", expected, body)
+		}
 	}
 }

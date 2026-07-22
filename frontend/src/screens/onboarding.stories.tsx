@@ -3,6 +3,7 @@
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { OnboardingScreen } from "./onboarding";
+import { configuredAiProfile } from "./onboarding.stories.fixtures";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 
 const meta: Meta = {
@@ -46,27 +47,7 @@ function wizardState(step: "confirm" | "results") {
 
 function FullScreenStory({ step }: Readonly<{ step: "confirm" | "results" }>) {
   installFetchStub({
-    "GET /assistant/profile": () =>
-      jsonResponse({
-        name: "Margince",
-        kind: "ai",
-        state: "configured",
-        inference_mode: "hybrid",
-        providers: ["gemini", "ollama"],
-        configured_models: [
-          {
-            tier: "cheap_cloud",
-            provider: "gemini",
-            model: "gemini-3.1-flash-lite",
-          },
-          { tier: "local_small", provider: "ollama", model: "gemma3" },
-          {
-            tier: "premium",
-            provider: "gemini",
-            model: "gemini-3.5-flash",
-          },
-        ],
-      }),
+    "GET /ai/profile": () => jsonResponse(configuredAiProfile),
     "GET /company": () => jsonResponse(company),
     "GET /onboarding/state": () => jsonResponse(wizardState(step)),
   });

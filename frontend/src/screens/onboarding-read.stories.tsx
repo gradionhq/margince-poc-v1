@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { configuredAiProfile } from "./onboarding.stories.fixtures";
 import { ReadCompanyStep } from "./onboarding-read";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 import "./onboarding.css";
@@ -165,27 +166,7 @@ function ReadStory({
   error?: string | null;
 }>) {
   installFetchStub({
-    "GET /assistant/profile": () =>
-      jsonResponse({
-        name: "Margince",
-        kind: "ai",
-        state: "configured",
-        inference_mode: "hybrid",
-        providers: ["gemini", "ollama"],
-        configured_models: [
-          {
-            tier: "cheap_cloud",
-            provider: "gemini",
-            model: "gemini-3.1-flash-lite",
-          },
-          { tier: "local_small", provider: "ollama", model: "gemma3" },
-          {
-            tier: "premium",
-            provider: "gemini",
-            model: "gemini-3.5-flash",
-          },
-        ],
-      }),
+    "GET /ai/profile": () => jsonResponse(configuredAiProfile),
   });
   return (
     <StoryProviders>
@@ -199,6 +180,7 @@ function ReadStory({
             pending={false}
             refreshing={read?.status === "reading"}
             error={error}
+            companyDraft={{}}
             confirmPending={false}
             confirmDisabled={false}
             onWebsiteChange={noAction}

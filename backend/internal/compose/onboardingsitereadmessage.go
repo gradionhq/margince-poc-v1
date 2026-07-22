@@ -137,7 +137,10 @@ func (e *deepReadEngine) answerCompanySiteRead(ctx context.Context, message stri
 		known[source.ID] = source
 	}
 	administratorStatements := administratorConversation(history, message)
-	validate := func(text string) error { return validateCompanyReadReply(text, known, administratorStatements) }
+	allowChanges := messageRequestsCompanyChanges(message)
+	validate := func(text string) error {
+		return validateCompanyReadReply(text, known, administratorStatements, allowChanges)
+	}
 	var response model.Response
 	if structured, ok := e.brain.(validatedBrain); ok {
 		response, err = structured.CompleteValidated(ctx, req, validate)
@@ -151,21 +154,32 @@ func (e *deepReadEngine) answerCompanySiteRead(ctx context.Context, message stri
 	if err := json.Unmarshal([]byte(ai.Unfence(response.Text)), &reply); err != nil {
 		return companyReadModelReply{}, fmt.Errorf("compose: company read answer is not valid JSON: %w", err)
 	}
-	if err := validateCompanyReadReplyValue(reply, known, administratorStatements); err != nil {
+	if err := validateCompanyReadReplyValue(reply, known, administratorStatements, allowChanges); err != nil {
 		return companyReadModelReply{}, err
 	}
 	return reply, nil
 }
 
-func validateCompanyReadReply(text string, known map[string]companyReadEvidence, administratorStatements string) error {
+func validateCompanyReadReply(text string, known map[string]companyReadEvidence, administratorStatements string, allowChanges bool) error {
 	var reply companyReadModelReply
 	if err := json.Unmarshal([]byte(ai.Unfence(text)), &reply); err != nil {
 		return fmt.Errorf("output must be a company-read reply object: %w", err)
 	}
-	return validateCompanyReadReplyValue(reply, known, administratorStatements)
+	return validateCompanyReadReplyValue(reply, known, administratorStatements, allowChanges)
 }
 
-func validateCompanyReadReplyValue(reply companyReadModelReply, known map[string]companyReadEvidence, administratorStatements string) error {
+func validateCompanyReadReplyValue(reply companyReadModelReply, known map[string]companyReadEvidence, administratorStatements string, allowChanges bool) error {
+	if err := validateCompanyReadReplyShape(reply, allowChanges); err != nil {
+		return err
+	}
+	globalSources, err := validateCompanyReadSourceIDs(reply.SourceIDs, known)
+	if err != nil {
+		return err
+	}
+	return validateCompanyReadChanges(reply.ProposedChanges, globalSources, known, administratorStatements)
+}
+
+func validateCompanyReadReplyShape(reply companyReadModelReply, allowChanges bool) error {
 	if !companyConversationKindValid(reply.Kind) {
 		return fmt.Errorf("compose: company read answer has unsupported response kind %q", reply.Kind)
 	}
@@ -175,14 +189,17 @@ func validateCompanyReadReplyValue(reply companyReadModelReply, known map[string
 	if len(reply.ProposedChanges) > companyReadChangeLimit {
 		return fmt.Errorf("compose: company read answer proposes more than %d changes", companyReadChangeLimit)
 	}
+	if len(reply.ProposedChanges) > 0 && !allowChanges {
+		return fmt.Errorf("compose: company read answer proposes changes without an administrator change request")
+	}
 	if len(reply.ProposedChanges) > 0 && reply.Kind != "recommendation" && reply.Kind != "correction" {
 		return fmt.Errorf("compose: company read %s answer may not propose changes", reply.Kind)
 	}
-	globalSources, err := validateCompanyReadSourceIDs(reply.SourceIDs, known)
-	if err != nil {
-		return err
-	}
-	for _, change := range reply.ProposedChanges {
+	return nil
+}
+
+func validateCompanyReadChanges(changes []companyReadProposedChange, globalSources map[string]struct{}, known map[string]companyReadEvidence, administratorStatements string) error {
+	for _, change := range changes {
 		if !crmcontracts.CompanySiteReadSuggestedChangeField(change.Field).Valid() {
 			return fmt.Errorf("compose: company read answer proposes unsupported field %q", change.Field)
 		}
@@ -212,6 +229,25 @@ func validateCompanyReadReplyValue(reply companyReadModelReply, known map[string
 		}
 	}
 	return nil
+}
+
+func messageRequestsCompanyChanges(message string) bool {
+	normalized := strings.ToLower(strings.Join(strings.Fields(message), " "))
+	for _, phrase := range []string{
+		"change ", "correct ", "update ", "replace ", "set ", "use ", "add ", "store ",
+		"what should", "should we", "please change", "please update", "please add",
+		"ändere ", "korrigiere ", "aktualisiere ", "ersetze ", "setze ", "nutze ", "füge ", "speichere ",
+		"was soll", "sollten wir", "bitte ändern", "bitte aktualisieren", "bitte ergänzen",
+	} {
+		if strings.Contains(normalized, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+func looksLikeQuestion(message string) bool {
+	return strings.HasSuffix(strings.TrimSpace(message), "?")
 }
 
 func companyConversationKindValid(kind string) bool {

@@ -143,12 +143,15 @@ func TestCrawlWithoutASeedPageIsAFailureNotAPartialRead(t *testing.T) {
 	if _, err := testSiteCrawler(site).Crawl(context.Background(), seedURL); err == nil {
 		t.Fatal("a crawl whose seed page failed returned a result")
 	}
+	if site.pageCalls[seedURL] != 1 {
+		t.Fatalf("hard seed failure was retried %d times", site.pageCalls[seedURL])
+	}
 }
 
 func TestCrawlRetriesATransientSeedFailure(t *testing.T) {
 	site := &fakeSite{
 		pages:      seedOnly(),
-		pageErrors: map[string][]error{seedURL: {errors.New("temporary edge timeout")}},
+		pageErrors: map[string][]error{seedURL: {context.DeadlineExceeded}},
 	}
 	crawl, err := testSiteCrawler(site).Crawl(context.Background(), seedURL)
 	if err != nil {
@@ -199,7 +202,7 @@ func TestCrawlRetriesATransientSitemapFailure(t *testing.T) {
 	site := &fakeSite{
 		pages:         seedOnly(),
 		sitemap:       []string{pageURL},
-		sitemapErrors: []error{errors.New("temporary sitemap failure")},
+		sitemapErrors: []error{context.DeadlineExceeded},
 	}
 	site.pages[pageURL] = fakeSitePage{text: readable("Recovered sitemap page")}
 

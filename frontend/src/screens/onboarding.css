@@ -2018,14 +2018,9 @@
   box-shadow: none;
 }
 .ob-company-review {
-  margin-top: var(--space-5);
+  margin-top: var(--space-6);
   padding-top: var(--space-4);
   border-top: 1px solid var(--borderSubtle);
-}
-.ob-company-review-title {
-  margin: var(--space-1) 0 0;
-  font-family: var(--f-display);
-  font-size: 20px;
 }
 .ob-company-review .ob-companyform {
   display: grid;
@@ -2056,7 +2051,7 @@
   font-size: 11px;
 }
 .live-fact-preview {
-  margin-top: var(--space-5);
+  margin-top: var(--space-6);
 }
 @media (max-width: 640px) {
   .ob-company-review .ob-companyform {

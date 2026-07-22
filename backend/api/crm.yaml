@@ -3924,6 +3924,27 @@ paths:
         '403': { $ref: '#/components/responses/PermissionDenied' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /ai/profile:
+    get:
+      tags: [AI]
+      operationId: getAiProfile
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Authenticated AI configuration posture for transparent human-facing workspaces.
+      description: |
+        The configured tier-to-provider-to-model bindings used by the deployment. This is an
+        authenticated administrative surface: the anonymous assistant presence deliberately
+        omits model ids, tiers, routes, and provider bindings. Runtime call summaries remain the
+        authority for which model actually served a specific task and its measured cost.
+      responses:
+        '200':
+          description: Authenticated configured-model posture.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiProfile' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+
   /ai/calls:
     get:
       tags: [AI]
@@ -9466,6 +9487,21 @@ components:
     AssistantProfile:
       type: object
       additionalProperties: false
+      required: [name, kind, state, inference_mode, providers]
+      properties:
+        name: { type: string, enum: [Margince] }
+        kind: { type: string, enum: [ai] }
+        state: { type: string, enum: [configured, unconfigured, development] }
+        inference_mode: { type: string, enum: [cloud, local, hybrid, none, development] }
+        providers:
+          type: array
+          uniqueItems: true
+          description: Distinct configured provider keys, sorted; fake is never returned.
+          items: { type: string, enum: [anthropic, gemini, ollama, openai, openai_compatible, vllm] }
+
+    AiProfile:
+      type: object
+      additionalProperties: false
       required: [name, kind, state, inference_mode, providers, configured_models]
       properties:
         name: { type: string, enum: [Margince] }
@@ -9479,7 +9515,7 @@ components:
           items: { type: string, enum: [anthropic, gemini, ollama, openai, openai_compatible, vllm] }
         configured_models:
           type: array
-          description: Public tier-to-model bindings. Provider credentials and endpoints never appear here.
+          description: Authenticated tier-to-model bindings. Credentials and endpoints never appear here.
           items: { $ref: '#/components/schemas/AssistantConfiguredModel' }
 
     AssistantConfiguredModel:
@@ -10379,6 +10415,9 @@ components:
           type: array
           maxItems: 8
           items: { $ref: '#/components/schemas/CompanySiteReadConversationTurn' }
+        company_draft:
+          $ref: '#/components/schemas/OnboardingCompanyDraft'
+          description: The administrator's current unsaved artifact, used only as conversational context.
 
     OnboardingCompanyMessageReply:
       type: object

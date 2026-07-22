@@ -155,7 +155,7 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 	// The crawl is done but its pages' extraction lanes are not: hold the
 	// page count and move the phase, so the SPA stops showing "discovering"
 	// while the model is the only thing still working.
-	progress(sitePhaseExtracting, crawl.Pages)
+	progress(sitePhaseExtracting, append([]crawlPage(nil), crawl.Pages...))
 	fireProfile() // a small crawl may end below the trigger
 	wg.Wait()
 	profileWg.Wait()

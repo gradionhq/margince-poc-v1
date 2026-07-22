@@ -300,8 +300,8 @@ Proposed changes: none
 
 ## Confirmation
 
-When all completion-critical fields are resolved and a website read is
-terminal, Margince writes:
+When all completion-critical fields are resolved—and, if research was
+started, the website read is terminal—Margince writes:
 
 > I'm ready to store 14 company details and 27 supported facts. Nothing has
 > been saved yet.
@@ -311,10 +311,12 @@ The message contains:
 - **Confirm and save**
 - **I want to change something**
 
-The same primary action is available at the bottom of the artifact. Both call
-the existing version-bound confirmation path. The server independently checks
-the dossier version and proposal hash, writes the company, selected fields and
-facts in one audited transaction, and marks the dossier confirmed.
+The same primary action is available at the bottom of the artifact. A research
+flow calls the existing version-bound confirmation path: the server checks the
+dossier version and proposal hash, writes the company, selected fields and
+facts in one audited transaction, and marks that dossier confirmed. A manual
+flow has no dossier to mark; it confirms the current onboarding-draft version
+through the audited company write after the required fields are resolved.
 
 Typing the exact active command “Confirm and save” may invoke the same action
 when the UI has a current ready proposal. A vague “yes” asks for clarification.
@@ -438,10 +440,11 @@ The framework owns:
 
 ### Workflow-adapter responsibilities
 
-Each adapter declares:
+Each adapter is registered in the closed workflow-scope registry and declares:
 
 - allowed intents;
-- readable context and its token budget;
+- readable context and its token budget, sourced only through the governed
+  CompanyContext path when company data is in scope;
 - required-field or task progression;
 - typed proposal vocabulary;
 - evidence and provenance rules;
@@ -450,7 +453,9 @@ Each adapter declares:
 - product-specific copy and artifact rendering.
 
 An adapter receives no tools or actions by default. Missing policy is a startup
-or fitness-test failure, not permissive behavior.
+or fitness-test failure, not permissive behavior. The registry also binds the
+applicable CompanyContext rollout gate and propagates the context fingerprint
+into runtime transparency; an adapter cannot substitute an ad-hoc company read.
 
 ### Backend placement
 
