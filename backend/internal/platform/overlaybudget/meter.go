@@ -65,6 +65,19 @@ const (
 // allSources is the fixed attribution set the breakdown reads back.
 var allSources = []Source{SourceForceFresh, SourcePoller, SourceCapture}
 
+// known reports whether s is one of the fixed attribution sources Snapshot
+// reads back. A charge to an unknown source would be recorded in Redis but
+// never summed into the reported total/breakdown, silently hiding spend —
+// so the write APIs refuse it.
+func (s Source) known() bool {
+	for _, k := range allSources {
+		if s == k {
+			return true
+		}
+	}
+	return false
+}
+
 // Band is the meter's three-state answer to a charge/read.
 const (
 	BandOK   = "ok"
@@ -148,6 +161,7 @@ func New(rdb *redis.Client, cfg Config) *Meter {
 func (m *Meter) RebindFrom(src *Meter) {
 	m.rdb = src.rdb
 	m.cfg = src.cfg
+	m.now = src.now
 }
 
 // NewWithClock takes the clock as a dependency so the fixed-window bucket a
@@ -166,25 +180,28 @@ const (
 )
 
 // band computes ok/warn/shed for consumed against a window's cap and the
-// configured fractions. A non-positive cap can never be "under budget" —
-// it fails closed to shed rather than dividing by zero or reading as free.
+// configured fractions. It uses the SAME integer thresholds the reserve
+// gate does (threshold), so the band the budget endpoint reports and the
+// point at which ReserveREST declines can never disagree at a non-integral
+// fraction*cap. A non-positive cap can never be "under budget" — it fails
+// closed to shed rather than dividing by zero or reading as free.
 func (ic IncumbentConfig) band(consumed, limit int) string {
 	switch {
 	case limit <= 0:
 		return BandShed
-	case float64(consumed) >= ic.ShedFraction*float64(limit):
+	case consumed >= threshold(ic.ShedFraction, limit):
 		return BandShed
-	case float64(consumed) >= ic.WarnFraction*float64(limit):
+	case consumed >= threshold(ic.WarnFraction, limit):
 		return BandWarn
 	default:
 		return BandOK
 	}
 }
 
-// shedThreshold is the count at or over which a window sheds — the integer
-// floor of shedFraction*limit. A reservation is declined at or over it
-// (OVB-AC-2).
-func shedThreshold(frac float64, limit int) int {
+// threshold is the integer count at or over which a fraction of a window's
+// cap is reached — the floor of frac*limit. The reserve gate and the band
+// computation both derive from it, so they agree exactly (OVB-AC-2).
+func threshold(frac float64, limit int) int {
 	return int(frac * float64(limit))
 }
 

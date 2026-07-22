@@ -16,14 +16,11 @@ package overlaybudget_test
 
 import (
 	"context"
-	"os"
-	"strconv"
 	"testing"
 	"time"
 
-	"github.com/redis/go-redis/v9"
-
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget/budgettest"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -45,43 +42,6 @@ func testCfg() overlaybudget.Config {
 	}
 }
 
-func testRedisDB(t *testing.T) int {
-	t.Helper()
-	raw := os.Getenv("MARGINCE_TEST_REDIS_DB")
-	if raw == "" {
-		return 15
-	}
-	db, err := strconv.Atoi(raw)
-	if err != nil || db < 1 || db > 15 {
-		t.Fatalf("MARGINCE_TEST_REDIS_DB=%q is not a Redis db index in 1..15", raw)
-	}
-	return db
-}
-
-// testRedis returns a flushed client on the isolated test db, failing
-// loudly (never skipping) when Redis is not provisioned.
-func testRedis(t *testing.T) *redis.Client {
-	t.Helper()
-	addr := os.Getenv("MARGINCE_TEST_REDIS")
-	if addr == "" {
-		t.Fatal("MARGINCE_TEST_REDIS not set — run `make db-up` (integration tests fail loudly, they never skip)")
-	}
-	rdb := redis.NewClient(&redis.Options{Addr: addr, DB: testRedisDB(t)})
-	ctx := t.Context()
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		t.Fatalf("redis at %s unreachable — run `make db-up`: %v", addr, err)
-	}
-	if err := rdb.FlushDB(ctx).Err(); err != nil {
-		t.Fatalf("flushing test redis db: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := rdb.Close(); err != nil {
-			t.Errorf("closing redis: %v", err)
-		}
-	})
-	return rdb
-}
-
 // wsCtx binds a fresh workspace id — each test gets its own so counters
 // never leak between tests (the meter keys on the workspace).
 func wsCtx() context.Context {
@@ -91,7 +51,7 @@ func wsCtx() context.Context {
 func fixedClock(at time.Time) func() time.Time { return func() time.Time { return at } }
 
 func TestReserveRESTDeclinesAtShedAndRecordsBelow(t *testing.T) {
-	rdb := testRedis(t)
+	rdb := budgettest.Client(t)
 	m := overlaybudget.NewWithClock(rdb, testCfg(), fixedClock(time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)))
 	ctx := wsCtx()
 
@@ -123,7 +83,7 @@ func TestReserveRESTDeclinesAtShedAndRecordsBelow(t *testing.T) {
 }
 
 func TestBreakdownSumsToRESTTotal(t *testing.T) {
-	rdb := testRedis(t)
+	rdb := budgettest.Client(t)
 	m := overlaybudget.NewWithClock(rdb, testCfg(), fixedClock(time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)))
 	ctx := wsCtx()
 
@@ -148,7 +108,7 @@ func TestBreakdownSumsToRESTTotal(t *testing.T) {
 }
 
 func TestWorkspaceAndIncumbentIsolation(t *testing.T) {
-	rdb := testRedis(t)
+	rdb := budgettest.Client(t)
 	m := overlaybudget.NewWithClock(rdb, twoIncumbentCfg(), fixedClock(time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)))
 	ctxA, ctxB := wsCtx(), wsCtx()
 
@@ -170,7 +130,7 @@ func TestWorkspaceAndIncumbentIsolation(t *testing.T) {
 }
 
 func TestSearchWindowMeteredAndRollsOverPerSecond(t *testing.T) {
-	rdb := testRedis(t)
+	rdb := budgettest.Client(t)
 	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
 	clock := func() time.Time { return now }
 	m := overlaybudget.NewWithClock(rdb, testCfg(), clock)
@@ -204,7 +164,7 @@ func TestSearchWindowMeteredAndRollsOverPerSecond(t *testing.T) {
 }
 
 func TestRESTWindowRollsOverAtDayBoundary(t *testing.T) {
-	rdb := testRedis(t)
+	rdb := budgettest.Client(t)
 	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
 	clock := func() time.Time { return now }
 	m := overlaybudget.NewWithClock(rdb, testCfg(), clock)
@@ -227,7 +187,7 @@ func TestRESTWindowRollsOverAtDayBoundary(t *testing.T) {
 }
 
 func TestBandCrossesWarnAndShed(t *testing.T) {
-	rdb := testRedis(t)
+	rdb := budgettest.Client(t)
 	m := overlaybudget.NewWithClock(rdb, testCfg(), fixedClock(time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)))
 	ctx := wsCtx()
 
@@ -250,7 +210,7 @@ func TestBandCrossesWarnAndShed(t *testing.T) {
 }
 
 func TestFailClosed(t *testing.T) {
-	rdb := testRedis(t)
+	rdb := budgettest.Client(t)
 	cfg := testCfg()
 	m := overlaybudget.NewWithClock(rdb, cfg, fixedClock(time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)))
 

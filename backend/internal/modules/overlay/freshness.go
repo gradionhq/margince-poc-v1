@@ -70,6 +70,14 @@ type FreshnessReader struct {
 // having no incumbent class (both honest degrades, never a silent
 // authority claim or canonical-name pass-through).
 func NewFreshnessReader(resolveIncumbent func(context.Context) (Incumbent, error), ms *MirrorStore, meter *overlaybudget.Meter, toIncumbentClasses func(string) ([]string, bool)) *FreshnessReader {
+	// A nil meter normalizes to a fail-closed one (no Redis): force-fresh
+	// then always sheds to the mirror rather than doing an UNMETERED live
+	// read. This makes accidental live-path miswiring (a resolver present
+	// but no meter) fail closed instead of silently spending unaccounted
+	// incumbent quota.
+	if meter == nil {
+		meter = overlaybudget.New(nil, nil)
+	}
 	return &FreshnessReader{resolveIncumbent: resolveIncumbent, ms: ms, meter: meter, toIncumbentClasses: toIncumbentClasses}
 }
 
@@ -162,15 +170,15 @@ func (f *FreshnessReader) Read(ctx context.Context, ref datasource.EntityRef) (d
 	// collectively overshoot the budget; and because the unit is reserved up
 	// front, a live read that later FAILS still counts (its HTTP call spent
 	// quota either way). A shed reservation (the REST window is at or over
-	// its shed threshold) degrades to the mirror and emits the budget event.
-	if f.meter != nil {
-		allowed, rErr := f.meter.ReserveREST(ctx, inc.Name(), overlaybudget.SourceForceFresh, 1)
-		if rErr != nil {
-			return datasource.FreshnessInfo{}, rErr
-		}
-		if !allowed {
-			return f.degradeForShed(ctx, ref)
-		}
+	// its shed threshold) degrades to the mirror row already loaded above
+	// (never re-reading it) and emits the budget event. The meter is always
+	// non-nil (NewFreshnessReader normalizes nil to fail-closed).
+	allowed, rErr := f.meter.ReserveREST(ctx, inc.Name(), overlaybudget.SourceForceFresh, 1)
+	if rErr != nil {
+		return datasource.FreshnessInfo{}, rErr
+	}
+	if !allowed {
+		return f.degradeForShed(ctx, ref, mirror)
 	}
 
 	rec, err := inc.Get(ctx, incumbentClass, uuidToExternalID(ref.ID))
@@ -205,31 +213,20 @@ func (f *FreshnessReader) incumbentClassFor(canonical string) (string, bool) {
 	return classes[0], true
 }
 
-// mirrorFreshness answers ref's freshness from the mirror row alone,
-// honestly labelled Authoritative:false (T2 — the mirror never claims
-// the authority only a live incumbent read carries).
-func (f *FreshnessReader) mirrorFreshness(ctx context.Context, ref datasource.EntityRef) (datasource.FreshnessInfo, error) {
-	row, err := f.ms.Get(ctx, string(ref.Type), uuidToExternalID(ref.ID))
-	if err != nil {
-		return datasource.FreshnessInfo{}, err
-	}
-	return datasource.FreshnessInfo{LastSyncedAt: row.LastSyncedAt, Authoritative: false}, nil
-}
-
-// degradeForShed answers the mirror fallback AND records the shed
-// decision as a mirror.budget_degraded event — the two must not
-// diverge (an emitted event with no matching degrade, or a degrade with
-// no event, would each be a different kind of dishonest), so this is
-// the ONE call site that does both.
-func (f *FreshnessReader) degradeForShed(ctx context.Context, ref datasource.EntityRef) (datasource.FreshnessInfo, error) {
-	info, err := f.mirrorFreshness(ctx, ref)
-	if err != nil {
-		return datasource.FreshnessInfo{}, err
-	}
+// degradeForShed records the shed decision as a mirror.budget_degraded
+// event and answers the mirror fallback the caller ALREADY loaded — the
+// two must not diverge (an emitted event with no matching degrade, or a
+// degrade with no event, would each be a different kind of dishonest), so
+// this is the ONE call site that emits. It takes the mirror value Read
+// loaded up front rather than re-reading it: a second Get would be an
+// extra round trip AND a TOCTOU window (a deletion/visibility change
+// between the two reads could turn an already-validated fallback into an
+// error).
+func (f *FreshnessReader) degradeForShed(ctx context.Context, ref datasource.EntityRef, mirror datasource.FreshnessInfo) (datasource.FreshnessInfo, error) {
 	if err := f.emitBudgetDegraded(ctx, ref); err != nil {
 		return datasource.FreshnessInfo{}, err
 	}
-	return info, nil
+	return mirror, nil
 }
 
 // emitBudgetDegraded stages mirror.budget_degraded (events catalog,

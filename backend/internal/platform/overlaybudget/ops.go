@@ -84,6 +84,9 @@ func (m *Meter) ReserveREST(ctx context.Context, incumbent string, source Source
 	if n <= 0 {
 		return false, fmt.Errorf("overlaybudget: ReserveREST requires a positive count, got %d", n)
 	}
+	if !source.known() {
+		return false, fmt.Errorf("overlaybudget: unknown REST charge source %q — Snapshot only reads the fixed attribution set, so an unknown source would silently omit its spend", source)
+	}
 	ws, ic, ok := m.resolve(ctx, incumbent)
 	if !ok {
 		return false, nil
@@ -91,8 +94,8 @@ func (m *Meter) ReserveREST(ctx context.Context, incumbent string, source Source
 	day := m.now().UTC().Unix() / 86400
 	total := restTotalKey(ws, incumbent, day)
 	src := restSourceKey(ws, incumbent, day, source)
-	threshold := shedThreshold(ic.ShedFraction, ic.REST.Cap)
-	res, err := reserveRestScript.Run(ctx, m.rdb, []string{total, src}, n, threshold, int(restTTL.Seconds())).Int()
+	shed := threshold(ic.ShedFraction, ic.REST.Cap)
+	res, err := reserveRestScript.Run(ctx, m.rdb, []string{total, src}, n, shed, int(restTTL.Seconds())).Int()
 	if err != nil {
 		return false, fmt.Errorf("overlaybudget: reserving a REST charge: %w", err)
 	}
@@ -109,6 +112,9 @@ func (m *Meter) ReserveREST(ctx context.Context, incumbent string, source Source
 func (m *Meter) ConsumeREST(ctx context.Context, incumbent string, source Source, n int) error {
 	if n <= 0 {
 		return nil
+	}
+	if !source.known() {
+		return fmt.Errorf("overlaybudget: unknown REST charge source %q — Snapshot only reads the fixed attribution set, so an unknown source would silently omit its spend", source)
 	}
 	ws, _, ok := m.resolve(ctx, incumbent)
 	if !ok {
@@ -183,13 +189,19 @@ func (m *Meter) readCounter(ctx context.Context, key string) (int, error) {
 // admin budget surface. A no-Redis/no-config/no-workspace meter or a Redis
 // error answers the same fail-closed shed band with zero consumption.
 func (m *Meter) Snapshot(ctx context.Context, incumbent string) Budget {
-	shed := Budget{
-		Window: "24h", Band: BandShed, Headroom: UnknownHeadroom, Breakdown: map[Source]int{},
-		SearchWindow: "1s", SearchBand: BandShed,
+	// shedFn builds a fail-closed snapshot: shed band, zero consumption, but
+	// the REAL caps when config resolved (a Redis read failure must not
+	// misreport the configured limit as zero — limit stays 0 only when no
+	// config was found at all).
+	shedFn := func(ic IncumbentConfig) Budget {
+		return Budget{
+			Window: "24h", Limit: ic.REST.Cap, Band: BandShed, Headroom: UnknownHeadroom, Breakdown: map[Source]int{},
+			SearchWindow: "1s", SearchLimit: ic.Search.Cap, SearchBand: BandShed,
+		}
 	}
 	ws, ic, ok := m.resolve(ctx, incumbent)
 	if !ok {
-		return shed
+		return shedFn(IncumbentConfig{})
 	}
 	day := m.now().UTC().Unix() / 86400
 	breakdown := make(map[Source]int, len(allSources))
@@ -197,14 +209,14 @@ func (m *Meter) Snapshot(ctx context.Context, incumbent string) Budget {
 	for _, s := range allSources {
 		v, err := m.readCounter(ctx, restSourceKey(ws, incumbent, day, s))
 		if err != nil {
-			return shed
+			return shedFn(ic)
 		}
 		breakdown[s] = v
 		sum += v
 	}
 	search, err := m.readCounter(ctx, searchKey(ws, incumbent, m.now().UTC().Unix()))
 	if err != nil {
-		return shed
+		return shedFn(ic)
 	}
 	return Budget{
 		Window:         "24h",

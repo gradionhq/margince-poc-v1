@@ -40,17 +40,19 @@ func Client(t *testing.T) *redis.Client {
 		db = n
 	}
 	rdb := redis.NewClient(&redis.Options{Addr: addr, DB: db})
+	// Register cleanup immediately, before the fatal Ping/FlushDB paths, so
+	// a setup failure still closes the client instead of leaking it.
+	t.Cleanup(func() {
+		if err := rdb.Close(); err != nil {
+			t.Errorf("closing redis: %v", err)
+		}
+	})
 	if err := rdb.Ping(t.Context()).Err(); err != nil {
 		t.Fatalf("redis at %s unreachable — run `make db-up`: %v", addr, err)
 	}
 	if err := rdb.FlushDB(t.Context()).Err(); err != nil {
 		t.Fatalf("flushing test redis db: %v", err)
 	}
-	t.Cleanup(func() {
-		if err := rdb.Close(); err != nil {
-			t.Errorf("closing redis: %v", err)
-		}
-	})
 	return rdb
 }
 
