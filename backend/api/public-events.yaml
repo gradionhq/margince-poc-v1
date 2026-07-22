@@ -1998,3 +1998,19 @@ components:
           format: uuid
           description: The deciding human's user id.
       additionalProperties: false
+
+    WebhookPayloadAuditAppended:
+      type: object
+      x-event-type: audit.appended
+      x-entity-type: audit
+      x-version: 1
+      description: >-
+        Payload for audit.appended — not currently delivered: there is no
+        emit site for this type, and none is planned for V1. It exists so
+        the §5 catalog (events.Types()) is completely covered by a payload
+        schema (the whole-catalog coverage gate), never carrying a
+        subscribable type with no contract. An empty payload by design —
+        the audit ledger row it would announce is workspace-level (its
+        subject is resolved back under the receiver's own scope), so no
+        record detail rides the event.
+      additionalProperties: false

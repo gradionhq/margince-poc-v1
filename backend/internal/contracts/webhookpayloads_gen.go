@@ -329,6 +329,9 @@ type WebhookPayloadApprovalRequested struct {
 	TargetEntityType string `json:"target_entity_type"`
 }
 
+// WebhookPayloadAuditAppended Payload for audit.appended — not currently delivered: there is no emit site for this type, and none is planned for V1. It exists so the §5 catalog (events.Types()) is completely covered by a payload schema (the whole-catalog coverage gate), never carrying a subscribable type with no contract. An empty payload by design — the audit ledger row it would announce is workspace-level (its subject is resolved back under the receiver's own scope), so no record detail rides the event.
+type WebhookPayloadAuditAppended struct{}
+
 // WebhookPayloadColdstartAccepted Payload for coldstart.accepted — a human accepted a staged cold-start read-back (approvals/decide.go's kind-decided echo, emitted on the same audit row as approval.decided).
 type WebhookPayloadColdstartAccepted struct {
 	// ApprovalId The decided approval's id (same as the envelope's entity ref).
@@ -1084,6 +1087,10 @@ func (WebhookPayloadApprovalRequested) EventType() string { return "approval.req
 
 func (WebhookPayloadApprovalRequested) EntityType() string { return "approval" }
 
+func (WebhookPayloadAuditAppended) EventType() string { return "audit.appended" }
+
+func (WebhookPayloadAuditAppended) EntityType() string { return "audit" }
+
 func (WebhookPayloadColdstartAccepted) EventType() string { return "coldstart.accepted" }
 
 func (WebhookPayloadColdstartAccepted) EntityType() string { return "approval" }
@@ -1327,6 +1334,7 @@ var WebhookPayloadVersions = map[string]int{
 	"activity.updated":             1,
 	"approval.decided":             1,
 	"approval.requested":           1,
+	"audit.appended":               1,
 	"coldstart.accepted":           1,
 	"coldstart.read_back_proposed": 1,
 	"coldstart.rejected":           1,

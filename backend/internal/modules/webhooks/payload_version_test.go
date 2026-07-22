@@ -3,14 +3,14 @@
 
 package webhooks
 
-// The version gate pairs with payload_coverage_test.go: coverage proves
-// every subscribable type HAS a schema; this file proves the schema's
-// declared version agrees with the runtime catalog (events.VersionOf), and
-// pins each registered type's wire SHAPE with a golden snapshot under
-// testdata/wire/<type>.v<n>.json. The snapshot is an additive-only ratchet:
-// a field renamed or removed changes the marshaled bytes and fails the
-// comparison, forcing a reviewed regeneration (UPDATE_SNAPSHOTS=1) rather
-// than letting a breaking wire change slip through unnoticed.
+// This file pins each registered type's wire SHAPE with a golden snapshot
+// under testdata/wire/<type>.v<n>.json. The snapshot is an additive-only
+// ratchet: a field renamed or removed changes the marshaled bytes and fails
+// the comparison, forcing a reviewed regeneration (UPDATE_SNAPSHOTS=1)
+// rather than letting a breaking wire change slip through unnoticed. The
+// cross-cutting registry gates it used to pair with — whole-catalog payload
+// coverage, no-orphan, and version agreement with events.VersionOf — now
+// live in the authoritative root fitness test backend/publicevents_test.go.
 
 import (
 	"encoding/json"
@@ -27,19 +27,6 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 )
-
-// TestWebhookPayloadVersionsMatchEventCatalog proves the generated
-// registry's version for every registered type agrees with the runtime
-// event catalog (internal/shared/kernel/events) that publishers actually
-// stamp envelopes from. A mismatch here means the contract's x-version and
-// catalog.go's version drifted apart — exactly the split-source-of-truth
-// bug this registry exists to prevent.
-func TestWebhookPayloadVersionsMatchEventCatalog(t *testing.T) {
-	for tp, wantVersion := range crmcontracts.WebhookPayloadVersions {
-		require.Equal(t, events.VersionOf(tp), wantVersion,
-			"event catalog version for %q disagrees with the generated WebhookPayloadVersions entry", tp)
-	}
-}
 
 // assertWireSnapshot marshals value (a payload struct) and compares it
 // byte-for-byte against the committed golden file at

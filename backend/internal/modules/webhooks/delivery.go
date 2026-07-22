@@ -145,7 +145,7 @@ func (d *Deliverer) ownerCanSee(ctx context.Context, env kevents.Envelope, owner
 		TeamIDs:     rbac.TeamIDs,
 		Permissions: rbac.Permissions,
 	})
-	return d.store.entityVisibleTo(ownerCtx, env.Entity.Type, env.Entity.ID)
+	return d.store.entityVisibleTo(ownerCtx, env.Type, env.Entity.Type, env.Entity.ID)
 }
 
 // RunRetrySweep re-attempts due retries on a ticker until ctx is

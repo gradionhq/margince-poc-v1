@@ -240,6 +240,80 @@ func TestOwnerCanSeeEarlyReturns(t *testing.T) {
 	}
 }
 
+// TestEntityVisibleToClassification pins the fan-out visibility classifier
+// for the branches that resolve WITHOUT touching the pool: the event-keyed
+// deferral (mirror.*), the workspace-level allow-list, the entity-keyed
+// deferral (retention telemetry), and the fail-closed default. A nil pool
+// is deliberate — any case that reached a row-scope probe would panic, so
+// this also proves the event-first ordering short-circuits before the
+// object_class collision could route a mirror.* subject into a probe.
+func TestEntityVisibleToClassification(t *testing.T) {
+	s := NewStore(nil, nil)
+	for _, tc := range []struct {
+		name       string
+		eventType  string
+		entityType string
+		want       bool
+	}{
+		// mirror.* is deferred by EVENT even when its runtime object_class
+		// collides with a row-scoped entity name — caught before any probe.
+		{"mirror.conflict over deal object_class", "mirror.conflict", "deal", false},
+		{"mirror.budget_degraded over person object_class", "mirror.budget_degraded", "person", false},
+		{"mirror.deleted over organization object_class", "mirror.deleted", "organization", false},
+		{"mirror.write_rejected over lead object_class", "mirror.write_rejected", "lead", false},
+		// retention telemetry subjects are deferred by ENTITY.
+		{"retention.applied over ai_call", "retention.applied", "ai_call", false},
+		{"retention.applied over ai_call_payload", "retention.applied", "ai_call_payload", false},
+		// Workspace-level subjects deliver to any live owner. The runtime
+		// entity strings are the emit sites' — not the dotted event prefix.
+		{"user (user.* / role.changed)", "role.changed", "user", true},
+		{"passport", "passport.revoked", "passport", true},
+		{"onboarding wizard state", "onboarding.state_changed", "onboarding_wizard_state", true},
+		{"incumbent connection", "incumbent.connected", "incumbent_connection", true},
+		{"audit ledger", "audit.appended", "audit", true},
+		{"pipeline config", "pipeline.created", "pipeline", true},
+		{"stage config", "stage.updated", "stage", true},
+		{"approval / coldstart echo", "coldstart.accepted", "approval", true},
+		// An unclassified subject is fail-closed — never delivered.
+		{"unclassified subject", "made.up", "widget", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := s.entityVisibleTo(context.Background(), tc.eventType, tc.entityType, ids.NewV7())
+			if err != nil {
+				t.Fatalf("entityVisibleTo(%q, %q) errored: %v", tc.eventType, tc.entityType, err)
+			}
+			if got != tc.want {
+				t.Fatalf("entityVisibleTo(%q, %q) = %v, want %v", tc.eventType, tc.entityType, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRowScopedSubjectsRouteToProbes guards the note that consent.changed
+// (person|lead) and retention.applied (person|lead|deal|activity) must
+// still hit their row-scope probes: their runtime entity type is NEITHER
+// deferred NOR workspace-level, so entityVisibleTo falls through to the
+// probe switch rather than short-circuiting. Asserting the map memberships
+// (not the DB probe itself — that is the integration lane's job) keeps this
+// a pure, DB-free guard against a future edit that would silently reclassify
+// a row-scoped subject into fan-out-to-everyone or a blanket deferral.
+func TestRowScopedSubjectsRouteToProbes(t *testing.T) {
+	if _, deferred := deferredDeliveryEvents["consent.changed"]; deferred {
+		t.Error("consent.changed must NOT be event-deferred — its person/lead subject is row-scope probed")
+	}
+	if _, deferred := deferredDeliveryEvents["retention.applied"]; deferred {
+		t.Error("retention.applied must NOT be event-deferred — its person/lead/deal/activity subjects are row-scope probed")
+	}
+	for _, entity := range []string{"person", "organization", "deal", "lead", "activity", "voice_profile", "signal", "offer"} {
+		if _, ws := workspaceLevelEntities[entity]; ws {
+			t.Errorf("row-scoped subject %q must not be in workspaceLevelEntities (would fan out to everyone)", entity)
+		}
+		if _, def := deferredDeliveryEntities[entity]; def {
+			t.Errorf("row-scoped subject %q must not be in deferredDeliveryEntities (would never deliver)", entity)
+		}
+	}
+}
+
 func TestOwnerResolvesHumanBehindTheCall(t *testing.T) {
 	user := ids.NewV7()
 	onBehalf := ids.NewV7()
