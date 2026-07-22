@@ -166,15 +166,22 @@ lint: ## golangci-lint: repo-wide baseline + new-code strict set
 		echo "SKIP strict lint: origin/main not found — fetch it to arm the new-code gate"; \
 	fi
 
+# Gate-tool resolution: prefer the install from `make tools` (CI restores
+# it from cache), but only when its embedded module version (`go version
+# -m`) matches the pin — a stale local install must never gate at a
+# version CI does not run. Anything else falls back to a pinned `go run`,
+# which re-downloads and recompiles the tool on every invocation: correct
+# on a fresh machine, waste everywhere else.
+#   $(call resolve-gate-tool,<binary>,<module regex>,<version>,<install path>)
+GATE_BIN_DIR := $(or $(shell $(GO) env GOBIN),$(shell $(GO) env GOPATH)/bin)
+resolve-gate-tool = $(shell $(GO) version -m '$(GATE_BIN_DIR)/$(1)' 2>/dev/null \
+	| grep -qE '[[:space:]]mod[[:space:]]+$(2)[[:space:]]+$(3)([[:space:]]|$$)' \
+	&& echo '$(GATE_BIN_DIR)/$(1)' || echo "$(GO) run $(4)@$(3)")
+
 # Layer C of the boundary stack — a HARD gate: a forbidden import edge
 # fails `make check`, it is never advisory.
-# Same binary resolution as GOLANGCI_LINT above: prefer the pinned install
-# from `make tools` (CI restores it from cache), fall back to a pinned
-# `go run` so a fresh machine still gates — that fallback re-downloads and
-# recompiles the tool on every run, which is exactly what the install avoids.
 GO_ARCH_LINT_VERSION ?= v1.12.0
-GO_ARCH_LINT_BIN := $(shell $(GO) env GOPATH)/bin/go-arch-lint
-GO_ARCH_LINT ?= $(shell test -x $(GO_ARCH_LINT_BIN) && echo $(GO_ARCH_LINT_BIN) || echo "$(GO) run github.com/fe3dback/go-arch-lint@$(GO_ARCH_LINT_VERSION)")
+GO_ARCH_LINT ?= $(call resolve-gate-tool,go-arch-lint,github\.com/fe3dback/go-arch-lint,$(GO_ARCH_LINT_VERSION),github.com/fe3dback/go-arch-lint)
 arch-lint: ## Import-boundary lint (go-arch-lint over .go-arch-lint.yml)
 	$(GO_ARCH_LINT) check
 
@@ -202,9 +209,10 @@ gen-workflow: ## Scaffold a new workflow.Handler: make gen-workflow NAME=flag_id
 # `make check`, so a missing network never blocks a local build. The
 # version is PINNED — `@latest` makes the scan non-reproducible (a tool
 # upgrade could change findings between two runs of the same commit).
+# govulncheck's module is golang.org/x/vuln; the binary installs from the
+# cmd/ subpath — resolve-gate-tool takes both.
 GOVULNCHECK_VERSION ?= v1.1.4
-GOVULNCHECK_BIN := $(shell $(GO) env GOPATH)/bin/govulncheck
-GOVULNCHECK ?= $(shell test -x $(GOVULNCHECK_BIN) && echo $(GOVULNCHECK_BIN) || echo "$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)")
+GOVULNCHECK ?= $(call resolve-gate-tool,govulncheck,golang\.org/x/vuln,$(GOVULNCHECK_VERSION),golang.org/x/vuln/cmd/govulncheck)
 vuln: ## Scan dependencies for known vulnerabilities (govulncheck)
 	$(GOVULNCHECK) ./...
 

@@ -19,16 +19,26 @@ CRM_YAML="${CRM_YAML:-backend/api/crm.yaml}"
 BASE_REF="${1:-origin/main}"
 
 # Tool resolution, same order as the backend Makefile's gate binaries:
-# prefer the pinned install from `make tools` (CI restores it from cache —
-# the `go run` fallback re-downloads and recompiles oasdiff on every run),
-# fall back to `go run` at the exact version so a fresh machine still
-# gates. Bump this pin and the Makefile's OASDIFF_VERSION together.
-if [[ -z "${OASDIFF:-}" ]]; then
-  OASDIFF_BIN="$(go env GOPATH)/bin/oasdiff"
-  if [[ -x "$OASDIFF_BIN" ]]; then
-    OASDIFF="$OASDIFF_BIN"
+# prefer the install from `make tools` (CI restores it from cache — the
+# `go run` fallback re-downloads and recompiles oasdiff on every run), but
+# only when its embedded module version (`go version -m`) matches the pin,
+# so a stale local install can never gate at a version CI does not run;
+# anything else falls back to `go run` at the exact version. Bump this pin
+# and the Makefile's OASDIFF_VERSION together. The command is an array —
+# the binary path may contain spaces, the fallback is three words — and
+# an OASDIFF env override still wins, split on words (it names a command,
+# possibly with arguments).
+OASDIFF_VERSION="v1.22.0"
+if [[ -n "${OASDIFF:-}" ]]; then
+  read -r -a OASDIFF_CMD <<< "$OASDIFF"
+else
+  BIN_DIR="$(go env GOBIN)"
+  [[ -n "$BIN_DIR" ]] || BIN_DIR="$(go env GOPATH)/bin"
+  if go version -m "$BIN_DIR/oasdiff" 2>/dev/null \
+      | grep -qE "[[:space:]]mod[[:space:]]+github\.com/oasdiff/oasdiff[[:space:]]+${OASDIFF_VERSION}([[:space:]]|\$)"; then
+    OASDIFF_CMD=("$BIN_DIR/oasdiff")
   else
-    OASDIFF="go run github.com/oasdiff/oasdiff@v1.22.0"
+    OASDIFF_CMD=(go run "github.com/oasdiff/oasdiff@${OASDIFF_VERSION}")
   fi
 fi
 
@@ -81,13 +91,13 @@ if [ "$CONTRACT_STABILITY" = pre-live ] || [ "$ALLOWLISTED_RESYNC" = 1 ]; then
   # Advisory stance: print every change (oasdiff without --fail-on never
   # exits non-zero on findings) so the deliberate breaks stay visible in
   # the log, but do not block.
-  $OASDIFF breaking "$BASE_REF:$CRM_YAML" "$CRM_YAML" -f text
+  "${OASDIFF_CMD[@]}" breaking "$BASE_REF:$CRM_YAML" "$CRM_YAML" -f text
   if [ "$ALLOWLISTED_RESYNC" = 1 ]; then
     echo "contract-breaking-check: advisory — this exact pre-live contract resync is ratified; any later contract edit restores the stable gate"
   else
     echo "contract-breaking-check: advisory (CONTRACT_STABILITY=pre-live) — breaking change(s) printed above, if any, are deliberately permitted for this run"
   fi
-elif $OASDIFF breaking "$BASE_REF:$CRM_YAML" "$CRM_YAML" --fail-on ERR -f text; then
+elif "${OASDIFF_CMD[@]}" breaking "$BASE_REF:$CRM_YAML" "$CRM_YAML" --fail-on ERR -f text; then
   echo "contract-breaking-check: no breaking API changes since $BASE_REF"
 else
   echo "contract-breaking-check: breaking API change(s) since $BASE_REF — deprecate instead of removing, or run a deliberate re-sync with CONTRACT_STABILITY=pre-live" >&2
