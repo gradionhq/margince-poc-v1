@@ -45,19 +45,21 @@ parse_test_dsn() {
   local a_tail="${a_body#*/}"
   A_QUERY=""; local a_db="${a_tail%%\?*}"; [[ "$a_tail" != "$a_db" ]] && A_QUERY="${a_tail#*\?}"
 
-  # psql admin target: the owner role against the maintenance `postgres` db, so
-  # CREATE/DROP DATABASE never runs inside the database being dropped.
+  # psql admin identity: the owner role, run against the maintenance `postgres`
+  # db so CREATE/DROP DATABASE never runs inside the database being dropped.
   local hostcreds="${owner#*://}"; hostcreds="${hostcreds%%/*}"   # user:pass@host:port
-  local userpass="${hostcreds%@*}" hostport="${hostcreds#*@}"
-  PGADMIN_USER="${userpass%%:*}"; PGADMIN_PASS="${userpass#*:}"
-  PGADMIN_HOST="${hostport%%:*}"; PGADMIN_PORT="${hostport#*:}"
-  [[ "$PGADMIN_PORT" = "$hostport" ]] && PGADMIN_PORT=5432
+  local userpass="${hostcreds%@*}"
+  PGADMIN_USER="${userpass%%:*}"
 
-  export O_PREFIX O_QUERY A_PREFIX A_QUERY TEMPLATE_DB \
-         PGADMIN_USER PGADMIN_PASS PGADMIN_HOST PGADMIN_PORT
+  export O_PREFIX O_QUERY A_PREFIX A_QUERY TEMPLATE_DB PGADMIN_USER
 }
 
-pg_admin() { PGPASSWORD="$PGADMIN_PASS" psql -h "$PGADMIN_HOST" -p "$PGADMIN_PORT" -U "$PGADMIN_USER" -d postgres "$@"; }
+# psql is NOT a host requirement (hosts need Go + Docker only): admin SQL runs
+# inside the compose postgres container, the same way scripts/dev.sh does.
+pg_admin() {
+  docker compose -f infra/docker-compose.dev.yml exec -T postgres \
+    psql -U "$PGADMIN_USER" -d postgres "$@"
+}
 
 # The migrated template every per-package clone is copied from. Exported so the
 # xargs -P worker subshells (fresh bash processes) see it — make_clone reads it.
