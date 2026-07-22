@@ -90,8 +90,21 @@ func (s *Service) Disconnect(ctx context.Context) error {
 	}
 	s.notifyModeFlip(ws)
 
+	// The disconnect is already committed and authoritative here (connection
+	// revoked, mirror purged, workspace flipped to native) — deleting the
+	// sealed credential is best-effort cleanup AFTER that commit, not part of
+	// it. Failing Disconnect on a vault error would be doubly wrong: it
+	// misreports a disconnect that DID happen, and it strands the caller — a
+	// retry finds no active connection (revokeConnection → ErrNotFound) and
+	// could never re-attempt this delete. So on failure, log the orphaned
+	// credential ref at ERROR for operational cleanup and return success. The
+	// blob is inert: a revoked, unreferenced, encrypted-at-rest secret, not an
+	// active exposure. The ref is a vault key, never the secret (safe to log).
+	// A durable outbox-driven retry keyed off the incumbent.disconnected event
+	// emitted above would remove even the manual step.
 	if err := s.vault.Delete(ctx, ids.From[ids.WorkspaceKind](ws), keyvault.Ref(ref)); err != nil {
-		return fmt.Errorf("overlay: deleting the sealed incumbent credential: %w", err)
+		s.log.ErrorContext(ctx, "overlay: disconnect committed, but deleting the sealed incumbent credential failed — the orphaned (revoked, inert) blob needs cleanup",
+			"workspace", ws.String(), "credential_ref", ref, "err", err)
 	}
 	return nil
 }

@@ -11,10 +11,13 @@ package overlay
 // exactly like a passing one.
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -318,6 +321,77 @@ func TestFencedSyncWritesAbortOnceTheConnectionIsRevoked(t *testing.T) {
 		if n != 0 {
 			t.Errorf("%s holds %d row(s) after fenced writes on a disconnected workspace, want 0 — the fence must resurrect nothing", tbl, n)
 		}
+	}
+}
+
+// deleteFailingVault wraps a real vault but fails every Delete — the
+// transient-vault-failure the A5b guard handles. Put/Get delegate, so
+// Connect still seals + the connection is real; only the disconnect-time
+// credential cleanup fails.
+type deleteFailingVault struct {
+	keyvault.Vault
+	err error
+}
+
+func (v deleteFailingVault) Delete(context.Context, ids.WorkspaceID, keyvault.Ref) error {
+	return v.err
+}
+
+// TestDisconnectCommitsEvenWhenVaultDeleteFails proves A5b: the disconnect is
+// committed and authoritative once its tx lands, so a failure deleting the
+// (now-inert) sealed credential afterward must NOT report the disconnect as
+// failed — it succeeded — nor strand the caller (a retry would find no active
+// connection). The DB teardown stands; the orphaned blob is logged, not
+// surfaced as an error.
+func TestDisconnectCommitsEvenWhenVaultDeleteFails(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	vault := deleteFailingVault{Vault: keyvault.NewMemory(), err: errors.New("vault unreachable")}
+	store := NewMirrorStore(pool, noOwnerEmails{})
+	// Capture ERROR logs: the cleanup ERROR is the ONLY recovery signal for
+	// the orphaned blob while a durable retry is deferred, so the test must
+	// verify it fires with the attributes ops needs (level ERROR filters out
+	// Connect's best-effort WARN seeding, leaving just the cleanup record).
+	var logbuf bytes.Buffer
+	svc := NewService(pool, vault, store).
+		WithLogger(slog.New(slog.NewTextHandler(&logbuf, &slog.HandlerOptions{Level: slog.LevelError})))
+
+	if _, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "pat-a5b"}); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	var credentialRef string
+	queryRowWS(ctx, t, pool,
+		`SELECT credential_ref FROM incumbent_connection WHERE workspace_id = $1`, []any{ws}, &credentialRef)
+
+	// Disconnect must SUCCEED despite the vault delete failing.
+	if err := svc.Disconnect(ctx); err != nil {
+		t.Fatalf("Disconnect returned %v, want nil — a failed credential cleanup must not fail an already-committed disconnect", err)
+	}
+
+	// The cleanup failure is surfaced at ERROR with the workspace + credential
+	// ref — without this, the orphaned blob is invisible to ops.
+	logged := logbuf.String()
+	if !strings.Contains(logged, "level=ERROR") {
+		t.Errorf("no ERROR log for the failed credential cleanup — the orphaned blob would be invisible to ops; got: %q", logged)
+	}
+	if !strings.Contains(logged, ws.String()) || !strings.Contains(logged, credentialRef) {
+		t.Errorf("the cleanup ERROR log must carry workspace + credential_ref for manual purge; got: %q", logged)
+	}
+
+	// The authoritative teardown committed: connection revoked, mode native.
+	var status, sorMode string
+	queryRowWS(ctx, t, pool,
+		`SELECT status FROM incumbent_connection WHERE workspace_id = $1`, []any{ws}, &status)
+	queryRowWS(ctx, t, pool,
+		`SELECT x_sor_mode FROM workspace WHERE id = $1`, []any{ws}, &sorMode)
+	if status != "revoked" || sorMode != "native" {
+		t.Errorf("after disconnect: connection status=%q, sor_mode=%q — want revoked/native (the teardown must commit regardless of vault cleanup)", status, sorMode)
+	}
+
+	// A retry answers ErrNotFound (already disconnected) — proving the vault
+	// failure did not leave the connection re-disconnectable, which is exactly
+	// why the delete cannot be a fatal, retry-driven step.
+	if err := svc.Disconnect(ctx); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Errorf("second Disconnect = %v, want ErrNotFound (the first one committed)", err)
 	}
 }
 
