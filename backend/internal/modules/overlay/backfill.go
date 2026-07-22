@@ -45,6 +45,10 @@ type MirrorSink interface {
 var backfillAssocTargets = func() map[string][]string {
 	m := map[string][]string{
 		IncumbentClassDeals: {IncumbentClassCompanies},
+		// A lead's required contact association (OVA-MAP-5): the edge is stored,
+		// and the adapter denormalizes the contact's email/company_name onto
+		// the lead record from the same association.
+		IncumbentClassLeads: {IncumbentClassContacts},
 	}
 	for _, engagement := range incumbentEngagementClasses {
 		m[engagement] = []string{IncumbentClassContacts, IncumbentClassCompanies, IncumbentClassDeals, IncumbentClassLeads}

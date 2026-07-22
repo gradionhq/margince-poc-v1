@@ -249,6 +249,83 @@ func TestAdapterGetNoResultsErrorsCleanly(t *testing.T) {
 	}
 }
 
+// TestAdapterEnrichLeadsDerivesContactFields is the OVA-MAP-5 golden proof:
+// a lead's full_name comes from the real hs_lead_name property, and its
+// email/company_name are denormalized from the contact reached through the
+// lead's required contact association — never from non-existent lead
+// properties.
+func TestAdapterEnrichLeadsDerivesContactFields(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/crm/v3/objects/leads":
+			_, _ = w.Write([]byte(`{"results":[{"id":"7701","properties":{
+				"hs_object_id":"7701","hs_lastmodifieddate":"2026-06-03T00:00:00.000Z",
+				"hs_lead_name":"Erika Musterfrau","hubspot_owner_id":"owner-3"}}]}`))
+		case "/crm/v4/objects/leads/7701/associations/contacts":
+			_, _ = w.Write([]byte(`{"results":[{"toObjectId":"555","associationTypes":[{"category":"HUBSPOT_DEFINED","typeId":1}]}]}`))
+		case "/crm/v3/objects/contacts/batch/read":
+			_, _ = w.Write([]byte(`{"results":[{"id":"555","properties":{
+				"email":"Erika@Example.DE","company":"Musterfrau Consulting"}}]}`))
+		default:
+			t.Errorf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	adapter := hubspot.NewAdapter(hubspot.NewClient("us", "test-token", hubspot.WithBaseURL(srv.URL)))
+	page, err := adapter.Backfill(t.Context(), "leads", "")
+	if err != nil {
+		t.Fatalf("Backfill(leads): %v", err)
+	}
+	if len(page.Records) != 1 {
+		t.Fatalf("len(records) = %d, want 1", len(page.Records))
+	}
+	f := page.Records[0].Fields
+	if f["full_name"] != "Erika Musterfrau" {
+		t.Errorf("full_name = %v, want Erika Musterfrau (from hs_lead_name)", f["full_name"])
+	}
+	if f["email"] != "erika@example.de" {
+		t.Errorf("email = %v, want erika@example.de (lowercased, from the associated contact)", f["email"])
+	}
+	if f["company_name"] != "Musterfrau Consulting" {
+		t.Errorf("company_name = %v, want the associated contact's company", f["company_name"])
+	}
+}
+
+// TestAdapterEnrichLeadsLeavesFieldsAbsentWithoutAssociation proves a lead
+// with no contact association keeps email/company_name absent (OVA-MAP-5:
+// null rather than invented), and never calls the contact batch-read.
+func TestAdapterEnrichLeadsLeavesFieldsAbsentWithoutAssociation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/crm/v3/objects/leads":
+			_, _ = w.Write([]byte(`{"results":[{"id":"7702","properties":{"hs_object_id":"7702","hs_lastmodifieddate":"2026-06-03T00:00:00.000Z","hs_lead_name":"No Contact"}}]}`))
+		case r.URL.Path == "/crm/v4/objects/leads/7702/associations/contacts":
+			_, _ = w.Write([]byte(`{"results":[]}`))
+		case strings.HasSuffix(r.URL.Path, "/batch/read"):
+			t.Errorf("batch/read must not be called when a lead has no contact association")
+		default:
+			t.Errorf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	adapter := hubspot.NewAdapter(hubspot.NewClient("us", "test-token", hubspot.WithBaseURL(srv.URL)))
+	page, err := adapter.Backfill(t.Context(), "leads", "")
+	if err != nil {
+		t.Fatalf("Backfill(leads): %v", err)
+	}
+	f := page.Records[0].Fields
+	if _, present := f["email"]; present {
+		t.Errorf("email = %v, want absent for a lead with no contact association", f["email"])
+	}
+	if _, present := f["company_name"]; present {
+		t.Errorf("company_name = %v, want absent for a lead with no contact association", f["company_name"])
+	}
+}
+
 // TestAdapterAssociationsNamespacesEngagementEndpoints proves an
 // engagement-to-engagement edge namespaces BOTH endpoints (OVA-MAP-7): the
 // stored edge references the namespaced mirror ids so it joins/purges with

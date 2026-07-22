@@ -427,15 +427,18 @@ func TestHubSpotTaskTimestampFidelity(t *testing.T) {
 	}
 }
 
-// rawLead is a §9-shaped HubSpot lead properties map.
+// rawLead is a HubSpot Leads-object properties map using the REAL Leads API
+// property names (OVA-MAP-5) — hs_lead_name / hs_lead_label — never the
+// name/email/company a contact carries (those do not exist on the Leads
+// object). email and company_name are NOT lead properties: they come from
+// the associated contact (see TestAdapterEnrichLeadsDerivesContactFields).
 func rawLead() map[string]any {
 	return map[string]any{
 		"hs_object_id":        "7701",
 		"hs_lastmodifieddate": "2026-06-03T00:00:00.000Z",
-		"name":                "Erika Musterfrau",
-		"email":               "erika@example.de",
-		"company":             "Musterfrau Consulting",
-		"status":              "NEW",
+		"hs_lead_name":        "Erika Musterfrau",
+		"hs_lead_label":       "NEW",
+		"hubspot_owner_id":    "owner-3",
 	}
 }
 
@@ -450,20 +453,27 @@ func TestHubSpotLeadMapping(t *testing.T) {
 		t.Fatalf("Apply returned an error: %v", err)
 	}
 
+	// full_name comes from the real hs_lead_name property (OVA-MAP-5).
 	if got := out["full_name"]; got != "Erika Musterfrau" {
-		t.Errorf("full_name = %v, want Erika Musterfrau", got)
+		t.Errorf("full_name = %v, want Erika Musterfrau (from hs_lead_name)", got)
 	}
-	if got := out["email"]; got != "erika@example.de" {
-		t.Errorf("email = %v, want erika@example.de", got)
+	// The lead maps its owner (visibility), like every other class.
+	if got := out["owner_id"]; got != "owner-3" {
+		t.Errorf("owner_id = %v, want owner-3", got)
 	}
-	if got := out["company_name"]; got != "Musterfrau Consulting" {
-		t.Errorf("company_name = %v, want Musterfrau Consulting", got)
+	// email / company_name are NOT lead properties — Apply leaves them absent;
+	// they are denormalized from the associated contact by the adapter.
+	if _, present := out["email"]; present {
+		t.Errorf("email = %v, want absent from Apply (it is contact-association-derived, not a lead property)", out["email"])
+	}
+	if _, present := out["company_name"]; present {
+		t.Errorf("company_name = %v, want absent from Apply (contact-association-derived)", out["company_name"])
 	}
 
-	// status needs an enum-remapping transform outside the closed
-	// registry (mapping_hs.go doc comment) — flagged, not invented.
-	if !containsString(unmapped, "status") {
-		t.Errorf("unmapped = %v, want it to contain %q", unmapped, "status")
+	// hs_lead_label → status needs an enum-remapping transform outside the
+	// closed registry — flagged (surfaced as unmapped), not invented.
+	if !containsString(unmapped, "hs_lead_label") {
+		t.Errorf("unmapped = %v, want it to contain %q (status enum remap deferred)", unmapped, "hs_lead_label")
 	}
 }
 
