@@ -23,11 +23,13 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,6 +37,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
@@ -606,4 +609,82 @@ func mustParseUUID(t *testing.T, s string) ids.UUID {
 		t.Fatalf("parse uuid %q: %v", s, err)
 	}
 	return u
+}
+
+// TestDealStageChangedPayloadConformsToPublicSchema is the Phase-4
+// conformance gate (A7, payload-`data` only — the envelope-level assertion
+// follows in Phase 5 once Task 6's toWireEnvelope exists): a REAL event, one
+// the deals module emits by actually advancing a deal through HTTP, must
+// validate against the published WebhookPayloadDealStageChanged component
+// schema in api/public-events.yaml. This is deliberately independent of any
+// Go struct — it re-derives the schema from the SAME source file
+// gen-payloads compiles, so a payload that satisfies the generated Go type
+// but drifted from the documented wire contract (or vice versa) is still
+// caught.
+func TestDealStageChangedPayloadConformsToPublicSchema(t *testing.T) {
+	we := setupWebhooks(t)
+	stages := discoverSeededPipeline(t, we.env)
+	dealID := exerciseDealToWon(t, we.env, stages)
+
+	data := realEventPayload(t, we, "deal.stage_changed", dealID)
+	schema := publicEventSchema(t, "WebhookPayloadDealStageChanged")
+	if err := schema.VisitJSON(data); err != nil {
+		t.Fatalf("the real deal.stage_changed payload does not conform to its published schema: %v", err)
+	}
+}
+
+// realEventPayload reads back the most recent outbox envelope of eventType
+// naming entityID as its subject and returns its `payload` decoded as
+// generic JSON (any) — schema.VisitJSON's expected input shape. It queries
+// through the owner connection (the same RLS-bypassing role every other
+// direct event_outbox assertion in this package uses) rather than through
+// the delivery engine, because the point here is the event AS STAGED by the
+// domain write, not anything the (still envelope-shaped, pre-toWireEnvelope)
+// delivery body wraps it in.
+//
+//craft:ignore naked-any generic JSON is exactly the input schema.VisitJSON expects — the payload shape varies per event type, so there is no concrete type to name here
+func realEventPayload(t *testing.T, we *webhookEnv, eventType, entityID string) any {
+	t.Helper()
+	var raw []byte
+	err := we.owner.QueryRow(context.Background(),
+		`SELECT envelope FROM event_outbox
+		 WHERE envelope->>'type' = $1 AND envelope->'entity'->>'id' = $2
+		 ORDER BY seq DESC LIMIT 1`,
+		eventType, entityID).Scan(&raw)
+	if err != nil {
+		t.Fatalf("reading the real %s envelope for entity %s: %v", eventType, entityID, err)
+	}
+	var env kevents.Envelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		t.Fatalf("unmarshaling the %s envelope: %v", eventType, err)
+	}
+	if len(env.Payload) == 0 {
+		t.Fatalf("%s envelope for entity %s carries no payload", eventType, entityID)
+	}
+	var data any
+	if err := json.Unmarshal(env.Payload, &data); err != nil {
+		t.Fatalf("unmarshaling the %s payload as generic JSON: %v", eventType, err)
+	}
+	return data
+}
+
+// publicEventSchema loads api/public-events.yaml — the SAME file
+// gen-payloads compiles into crmcontracts — and returns the named
+// component schema. kin-openapi (already a repo dependency, driving
+// gen-payloads) loads this 3.1 document directly: none of today's schemas
+// use a 3.1-only construct kin-openapi's 3.0-oriented loader can't parse, so
+// no downgrade step is needed here (unlike gen-payloads, which also feeds
+// oapi-codegen's stricter 3.0 subset).
+func publicEventSchema(t *testing.T, name string) *openapi3.Schema {
+	t.Helper()
+	loader := openapi3.NewLoader()
+	doc, err := loader.LoadFromFile(filepath.Join(backendModuleRoot(t), "api", "public-events.yaml"))
+	if err != nil {
+		t.Fatalf("loading api/public-events.yaml: %v", err)
+	}
+	ref, ok := doc.Components.Schemas[name]
+	if !ok || ref.Value == nil {
+		t.Fatalf("api/public-events.yaml has no component schema %q", name)
+	}
+	return ref.Value
 }
