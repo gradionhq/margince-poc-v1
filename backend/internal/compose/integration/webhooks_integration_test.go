@@ -159,6 +159,15 @@ func makeEnvelope(wsID ids.UUID, eventType string) kevents.Envelope {
 	}
 }
 
+// makeEnvelopeFor is makeEnvelope with an explicit subject entity type —
+// used to prove the fan-out's fail-closed classification (an unclassified
+// subject is never delivered; a workspace-level subject is).
+func makeEnvelopeFor(wsID ids.UUID, eventType, entityType string) kevents.Envelope {
+	env := makeEnvelope(wsID, eventType)
+	env.Entity = kevents.EntityRef{Type: entityType, ID: ids.NewV7()}
+	return env
+}
+
 // createSubscription registers a subscription over HTTP and returns its id
 // and the one-time signing secret.
 func (we *webhookEnv) createSubscription(t *testing.T, target string, eventTypes []string) (string, string) {
@@ -320,6 +329,38 @@ func TestWebhookFanOutStopsAtRevokedOwner(t *testing.T) {
 	}
 	if n := rcv.count.Load(); n != 0 {
 		t.Fatalf("a revoked owner still received %d POSTs, want 0 (fan-out must stop at delivery time)", n)
+	}
+}
+
+// TestWebhookFanOutFailsClosedForUnclassifiedSubject proves the delivery
+// gate is fail-closed (BYO-EVT-4): a matching event whose subject type has
+// no row-scope probe and is not on the workspace-level allow-list is NOT
+// delivered — even to a row_scope=all owner — while a genuinely
+// workspace-level subject (pipeline config) still is.
+func TestWebhookFanOutFailsClosedForUnclassifiedSubject(t *testing.T) {
+	we := setupWebhooks(t)
+	rcv := newReceiver(t, http.StatusOK)
+	now := time.Now().UTC()
+	deliverer := newTestDeliverer(we, &now, rcv.server.Client())
+
+	we.createSubscription(t, rcv.server.URL+"/hook", []string{"deal.created"})
+
+	// An unclassified subject type falls through to the fail-closed default
+	// → zero deliveries (no silent fan-out-to-everyone for a new subject).
+	if err := deliverer.HandleEvent(context.Background(), makeEnvelopeFor(we.wsID, "deal.created", "mystery_object")); err != nil {
+		t.Fatalf("handle unclassified: %v", err)
+	}
+	if n := rcv.count.Load(); n != 0 {
+		t.Fatalf("unclassified subject produced %d POSTs, want 0 (fail-closed)", n)
+	}
+
+	// A genuinely workspace-level subject (pipeline config, no per-owner
+	// scope) IS delivered to a live owner.
+	if err := deliverer.HandleEvent(context.Background(), makeEnvelopeFor(we.wsID, "deal.created", "pipeline")); err != nil {
+		t.Fatalf("handle workspace-level: %v", err)
+	}
+	if n := rcv.count.Load(); n != 1 {
+		t.Fatalf("workspace-level subject produced %d POSTs, want 1", n)
 	}
 }
 

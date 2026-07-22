@@ -113,9 +113,13 @@ func (d *Deliverer) HandleEvent(ctx context.Context, env kevents.Envelope) error
 
 // ownerCanSee resolves the subscription owner's LIVE RBAC and reports
 // whether the event's subject entity is within that principal's row scope
-// (BYO-EVT-4), enforced at delivery time so a mid-session revocation binds.
-// A deactivated/absent owner (ErrNotFound) sees nothing — fan-out to a
-// revoked principal stops at once.
+// (BYO-EVT-4). It is the gate at ENQUEUE time: a subscription's fan-out is
+// authorized against the owner's grants as they stand when the event
+// arrives, so a revocation that lands before the event stops delivery.
+// (A delivery, once enqueued, carries its frozen payload through retry and
+// replay without re-checking — those re-send an already-authorized
+// delivery to the owner's own endpoint, not a fresh fan-out.) A
+// deactivated/absent owner (ErrNotFound) sees nothing.
 func (d *Deliverer) ownerCanSee(ctx context.Context, env kevents.Envelope, ownerID ids.UUID) (bool, error) {
 	if env.Entity.Type == "" || env.Entity.ID.IsZero() {
 		// An entity-less event names no subject to scope by; such types are
