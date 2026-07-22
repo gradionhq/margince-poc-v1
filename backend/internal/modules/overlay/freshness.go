@@ -175,7 +175,15 @@ func (f *FreshnessReader) Read(ctx context.Context, ref datasource.EntityRef) (d
 	// non-nil (NewFreshnessReader normalizes nil to fail-closed).
 	allowed, rErr := f.meter.ReserveREST(ctx, inc.Name(), overlaybudget.SourceForceFresh, 1)
 	if rErr != nil {
-		return datasource.FreshnessInfo{}, rErr
+		// The budget system is unreachable (a Redis error). Fail closed —
+		// degrade to the mirror rather than hard-failing a force-fresh read
+		// over a metering outage — logging the error (never swallowing it,
+		// T2) before the honest fallback. This is the same shed-equivalent
+		// outcome a declined reservation takes: we could not confirm budget,
+		// so we do not spend a live call.
+		slog.WarnContext(ctx, "overlay: reserving the force-fresh budget failed, degrading to the mirror",
+			"entity_type", string(ref.Type), "incumbent", inc.Name(), "err", rErr)
+		return f.degradeForShed(ctx, ref, mirror)
 	}
 	if !allowed {
 		return f.degradeForShed(ctx, ref, mirror)

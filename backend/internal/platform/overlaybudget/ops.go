@@ -11,6 +11,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // Redis key layout, keyed per workspace + incumbent + window so one
@@ -199,9 +200,15 @@ func (m *Meter) Snapshot(ctx context.Context, incumbent string) Budget {
 			SearchWindow: "1s", SearchLimit: ic.Search.Cap, SearchBand: BandShed,
 		}
 	}
-	ws, ic, ok := m.resolve(ctx, incumbent)
-	if !ok {
-		return shedFn(IncumbentConfig{})
+	// Look the config up directly rather than through resolve(): resolve
+	// conflates "no Redis", "no workspace", and "unconfigured incumbent"
+	// into one false, which would drop a valid cap to zero on a Redis/
+	// workspace gap. Caps come from config (workspace-independent); only an
+	// actually-unconfigured incumbent reports zero limits.
+	ic, configured := m.cfg[incumbent]
+	ws, bound := principal.WorkspaceID(ctx)
+	if !configured || m.rdb == nil || !bound {
+		return shedFn(ic)
 	}
 	day := m.now().UTC().Unix() / 86400
 	breakdown := make(map[Source]int, len(allSources))

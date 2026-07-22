@@ -246,8 +246,19 @@ func TestFailClosed(t *testing.T) {
 	if ok, _ := noRedis.ReserveREST(ctx, testIncumbent, overlaybudget.SourceForceFresh, 1); ok {
 		t.Fatal("ReserveREST with no Redis was allowed, want declined")
 	}
-	if snap := noRedis.Snapshot(ctx, testIncumbent); snap.Band != overlaybudget.BandShed || snap.Consumed != 0 {
+	// A no-Redis Snapshot fails closed (shed, zero consumption) but still
+	// reports the CONFIGURED caps — a metering outage must not misreport a
+	// valid limit as zero (only an unconfigured incumbent reports zero).
+	snap := noRedis.Snapshot(ctx, testIncumbent)
+	if snap.Band != overlaybudget.BandShed || snap.Consumed != 0 {
 		t.Fatalf("Snapshot with no Redis = %+v, want shed/0", snap)
+	}
+	if snap.Limit != 10 || snap.SearchLimit != 5 {
+		t.Fatalf("Snapshot with no Redis lost the configured caps: rest=%d search=%d, want 10/5", snap.Limit, snap.SearchLimit)
+	}
+	// An unconfigured incumbent, by contrast, reports zero limits.
+	if un := noRedis.Snapshot(ctx, "unconfigured"); un.Limit != 0 || un.SearchLimit != 0 {
+		t.Fatalf("Snapshot for an unconfigured incumbent = rest=%d search=%d, want 0/0", un.Limit, un.SearchLimit)
 	}
 }
 
