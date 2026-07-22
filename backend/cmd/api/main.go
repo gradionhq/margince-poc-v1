@@ -27,6 +27,10 @@ import (
 	"syscall"
 	"time"
 
+	// The composed extension set (ADR-0069): the generated module under
+	// build/composition/ in a composed build, the committed vanilla stub
+	// in a bare one — same import path either way.
+	"github.com/gradionhq/margince/composition"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
@@ -132,6 +136,12 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
+	// Register the composed extension set before anything serves; a
+	// failing registration aborts the boot (ADR-0069 EXT-P4).
+	if err := compose.RegisterExtensions(composition.Extensions()); err != nil {
+		return err
+	}
+
 	handler, err := httpserver.LogHandler(stdout, cfg.logLevel, cfg.logFormat)
 	if err != nil {
 		return err
@@ -153,6 +163,12 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	if err := compose.EnsureInstallation(ctx, pool, logger, deployCfg); err != nil {
+		return err
+	}
+	// Record the composed extension set when it changed since the last
+	// boot — install/upgrade/removal happen in source, so this is where
+	// they become observable (ADR-0069 §5).
+	if err := compose.ObserveExtensionInventory(ctx, pool, logger, composition.Extensions()); err != nil {
 		return err
 	}
 

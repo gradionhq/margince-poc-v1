@@ -5,6 +5,16 @@ coverage.out
 .build/
 .DS_Store
 
+# ADR-0069 stable extension tier: build/composition/ is the ONE ignored
+# root for installation-dependent generated output (digest-gated by its
+# composition.json, never committed), and extensions/ is the
+# installation-owned enabled set — only the placeholder and the approval
+# lock belong to the vanilla tree.
+/build/
+/extensions/*
+!/extensions/.gitkeep
+!/extensions/approvals.lock
+
 # Compiled cmd binaries left in the module dir by `go build ./cmd/<role>`
 # (anchored so they never match the cmd/<role> source directories; the api
 # binary can't land here — backend/api/ is the OpenAPI contract directory).
