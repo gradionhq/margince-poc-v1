@@ -1275,6 +1275,59 @@ export const en = {
   "ob.s4.connectFailed": "Couldn't connect that mailbox",
   "ob.s4.skipLater": "Skip for now — I'll connect later",
 
+  "ob.conv.threadLabel": "Onboarding conversation",
+  "ob.conv.welcome":
+    "Hi, I am Margince. I set up your CRM by reading what is already true about your business, and I show a source for everything I keep.",
+  "ob.conv.welcomeMember":
+    "Hi, I am Margince. Your team is already set up. Two short steps and you are in.",
+  "ob.conv.askUrl": "Where should I start reading? Your website works best.",
+  "ob.conv.read.started": "Reading {host} now. I will tell you what I find.",
+  "ob.conv.read.pages": "Read {pages} pages so far.",
+  "ob.conv.read.learnedField": "Learned {field}: {value}",
+  "ob.conv.read.extracting":
+    "Done crawling. Now extracting what the site says about your business.",
+  "ob.conv.read.warning": "Heads up: {warning}",
+  "ob.conv.read.done":
+    "Finished reading. {count} findings, each with its source.",
+  "ob.conv.read.partial":
+    "I could not read everything, but I found {count} things with sources.",
+  "ob.conv.read.failed":
+    "I could not read that site. Try another URL, or tell me directly.",
+  "ob.conv.read.deferred":
+    "The read is paused for now. I will pick it up again automatically.",
+  "ob.conv.clarify.intro":
+    "One thing I need you to decide. The site is ambiguous here.",
+  "ob.conv.clarify.entity":
+    "The site names more than one legal entity. Which one is this installation?",
+  "ob.conv.review.ready":
+    "I prepared the mapping. Review it and confirm what is right.",
+  "ob.conv.company.confirmed":
+    "Company profile confirmed. Everything I stored carries its source.",
+  "ob.conv.manual.chosen": "I will type it in myself.",
+  "ob.conv.voice.invite":
+    "Want me to learn how you write? Share a few texts you wrote and drafts will sound like you.",
+  "ob.conv.voice.optIn": "Yes, learn my voice.",
+  "ob.conv.voice.skipped": "Skip voice for now.",
+  "ob.conv.voice.uploadAdded": "Added {name}.",
+  "ob.conv.voice.speakerQuestion":
+    "This transcript has several speakers. Which one is you? Only your own words count.",
+  "ob.conv.corpus.words": "Your corpus now holds {words} of your own words.",
+  "ob.conv.corpus.band": "Corpus quality moved to {band}.",
+  "ob.conv.build.snapshot": "Locking in your corpus.",
+  "ob.conv.build.extract": "Finding your signature moves.",
+  "ob.conv.build.evaluate": "Testing drafts against held out samples.",
+  "ob.conv.build.activate": "Activating your voice profile.",
+  "ob.conv.build.succeeded": "Your voice profile is ready.",
+  "ob.conv.build.deferred":
+    "The build is queued behind budget. It will run automatically.",
+  "ob.conv.build.failed":
+    "The build did not finish. Your texts are kept, you can retry anytime.",
+  "ob.conv.recap":
+    "Here is what your CRM knows now, with a source for every item.",
+  "ob.conv.consent":
+    "Last step: what may I capture, and for which purpose? Nothing is on by default.",
+  "ob.conv.done": "Setup complete. Your CRM is ready.",
+
   "auth.title": "Margince",
   "auth.checking": "Checking your session…",
   "auth.pageTitle": "Sign in · Margince",
