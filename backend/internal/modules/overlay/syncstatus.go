@@ -193,7 +193,10 @@ func (s *Service) backfillCompleteFor(ctx context.Context, tx pgx.Tx, canonicalO
 		return false, nil
 	}
 	incumbentClasses, ok := s.toIncumbentClasses(canonicalObjectClass)
-	if !ok {
+	if !ok || len(incumbentClasses) == 0 {
+		// An empty class set (however it arose) is "no class to confirm", so
+		// completeness is unconfirmed — never a vacuously-true report from a
+		// loop that ran zero iterations.
 		return false, nil
 	}
 	for _, incumbentClass := range incumbentClasses {
