@@ -4,6 +4,7 @@
 package hubspot_test
 
 import (
+	"slices"
 	"sort"
 	"testing"
 
@@ -319,33 +320,70 @@ func TestHubSpotDealAmountCurrencyFidelity(t *testing.T) {
 	}
 }
 
-// rawEngagement is a HubSpot engagement properties map using the
-// property names design.md §9 names literally (no §11 spike capture
-// exists for engagements — see the engagementsMapping doc comment).
-func rawEngagement() map[string]any {
-	return map[string]any{
-		"hs_object_id":        "5501",
-		"hs_lastmodifieddate": "2026-06-02T00:00:00.000Z",
-		"hs_engagement_type":  "CALL",
-		"hs_timestamp":        "2026-06-02T09:00:00.000Z",
-		"direction":           "OUTBOUND",
-		"hs_call_duration":    "180000",
+// TestHubSpotEngagementClassSplit is the OVA-MAP-1 golden suite: HubSpot v3
+// has no generic engagements object, so the five engagement object classes
+// are read separately and each maps to canonical "activity" with its OWN
+// fixed kind — never a generic/other fallback, and never a kind derived from
+// a record property. One fixture per class asserts the correct kind.
+func TestHubSpotEngagementClassSplit(t *testing.T) {
+	cases := []struct {
+		class string
+		raw   map[string]any
+		kind  string
+	}{
+		{"calls", map[string]any{"hs_object_id": "1", "hs_call_title": "Intro call", "hs_call_duration": "180000"}, "call"},
+		{"meetings", map[string]any{"hs_object_id": "2", "hs_meeting_title": "Kickoff", "hs_meeting_outcome": "COMPLETED"}, "meeting"},
+		{"emails", map[string]any{"hs_object_id": "3", "hs_email_subject": "Proposal"}, "email"},
+		{"notes", map[string]any{"hs_object_id": "4", "hs_note_body": "Left a voicemail"}, "note"},
+		{"tasks", map[string]any{"hs_object_id": "5", "hs_task_subject": "Follow up"}, "task"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.class, func(t *testing.T) {
+			m, ok := hubspot.Mapping(tc.class)
+			if !ok {
+				t.Fatalf("Mapping(%q): want a declared mapping", tc.class)
+			}
+			if m.Target != "activity" {
+				t.Errorf("Mapping(%q).Target = %q, want activity", tc.class, m.Target)
+			}
+			out, _, err := overlay.Apply(m, tc.raw)
+			if err != nil {
+				t.Fatalf("Apply(%q): %v", tc.class, err)
+			}
+			if got := out["kind"]; got != tc.kind {
+				t.Errorf("%q kind = %v, want %q (fixed by the object class, no generic fallback)", tc.class, got, tc.kind)
+			}
+		})
+	}
+
+	// The generic "engagements" object class no longer exists — v3 has no
+	// such endpoint, and mapping it would reintroduce the forbidden lossy
+	// class.
+	if _, ok := hubspot.Mapping("engagements"); ok {
+		t.Error(`Mapping("engagements"): want ok=false — v3 has no generic engagements object (OVA-MAP-1)`)
 	}
 }
 
-func TestHubSpotEngagementMapping(t *testing.T) {
-	m, ok := hubspot.Mapping("engagements")
+// TestHubSpotCallFieldFidelity pins the per-kind field mapping for a call:
+// the ms→seconds duration (OVA-MAP-2) and the documented hs_call_* property
+// names land on the activity columns.
+func TestHubSpotCallFieldFidelity(t *testing.T) {
+	m, ok := hubspot.Mapping("calls")
 	if !ok {
-		t.Fatalf("Mapping(%s): want a declared mapping, got ok=false", "engagements")
+		t.Fatal("Mapping(calls): want a declared mapping")
 	}
-
-	out, unmapped, err := overlay.Apply(m, rawEngagement())
+	out, _, err := overlay.Apply(m, map[string]any{
+		"hs_object_id": "5501", "hs_call_title": "Intro", "hs_call_body": "Discussed scope",
+		"hs_timestamp": "2026-06-02T09:00:00.000Z", "hs_call_direction": "OUTBOUND", "hs_call_duration": "90000",
+	})
 	if err != nil {
-		t.Fatalf("Apply returned an error: %v", err)
+		t.Fatalf("Apply: %v", err)
 	}
-
 	if got := out["kind"]; got != "call" {
-		t.Errorf("kind = %v, want call (lowercased from CALL)", got)
+		t.Errorf("kind = %v, want call", got)
+	}
+	if got := out["subject"]; got != "Intro" {
+		t.Errorf("subject = %v, want Intro (from hs_call_title)", got)
 	}
 	if got := out["occurred_at"]; got != "2026-06-02T09:00:00.000Z" {
 		t.Errorf("occurred_at = %v, want the hs_timestamp value", got)
@@ -353,34 +391,8 @@ func TestHubSpotEngagementMapping(t *testing.T) {
 	if got := out["direction"]; got != "OUTBOUND" {
 		t.Errorf("direction = %v, want OUTBOUND", got)
 	}
-	if got, ok := out["duration_seconds"].(int64); !ok || got != 180 {
-		t.Errorf("duration_seconds = %#v, want int64(180) — hs_call_duration is milliseconds, divided to seconds (OVA-MAP-2)", out["duration_seconds"])
-	}
-	if got := out["external_id"]; got != "5501" {
-		t.Errorf("external_id = %v, want 5501", got)
-	}
-	if len(unmapped) != 0 {
-		t.Errorf("unmapped = %v, want none (every rawEngagement property is declared)", unmapped)
-	}
-}
-
-// TestHubSpotCallDurationFidelity is the OVA-MAP-2 golden case: hs_call_duration
-// is HubSpot milliseconds and must be divided to integer seconds before it
-// lands in duration_seconds — storing the raw millisecond value inflates
-// durations ×1000.
-func TestHubSpotCallDurationFidelity(t *testing.T) {
-	m, ok := hubspot.Mapping("engagements")
-	if !ok {
-		t.Fatal("Mapping(engagements): want a declared mapping")
-	}
-	out, _, err := overlay.Apply(m, map[string]any{
-		"hs_object_id": "1", "hs_engagement_type": "CALL", "hs_call_duration": "90000",
-	})
-	if err != nil {
-		t.Fatalf("Apply: %v", err)
-	}
 	if got, ok := out["duration_seconds"].(int64); !ok || got != 90 {
-		t.Errorf("duration_seconds = %#v, want int64(90) for hs_call_duration=90000ms", out["duration_seconds"])
+		t.Errorf("duration_seconds = %#v, want int64(90) — hs_call_duration ms→s (OVA-MAP-2)", out["duration_seconds"])
 	}
 }
 
@@ -424,37 +436,38 @@ func TestHubSpotLeadMapping(t *testing.T) {
 	}
 }
 
-// TestIncumbentClassForReverseResolvesEveryMappedTarget proves
-// IncumbentClassFor's reverse lookup for every declared canonical target,
-// plus its honest ok=false for a canonical name with no declared mapping
-// — never a guessed answer (its own doc comment).
-func TestIncumbentClassForReverseResolvesEveryMappedTarget(t *testing.T) {
+// TestIncumbentClassesForReverseResolvesEveryMappedTarget proves
+// IncumbentClassesFor's reverse lookup for every declared canonical target,
+// plus its honest ok=false for a canonical name with no declared mapping —
+// never a guessed answer. "activity" resolves to ALL FIVE engagement classes
+// (OVA-MAP-1), the plural case the single-class predecessor could not express.
+func TestIncumbentClassesForReverseResolvesEveryMappedTarget(t *testing.T) {
 	tests := []struct {
 		canonical string
-		want      string
+		want      []string
 	}{
-		{"person", "contacts"},
-		{"organization", "companies"},
-		{"deal", "deals"},
-		{"activity", "engagements"},
-		{"lead", "leads"},
+		{"person", []string{"contacts"}},
+		{"organization", []string{"companies"}},
+		{"deal", []string{"deals"}},
+		{"lead", []string{"leads"}},
+		{"activity", []string{"calls", "meetings", "emails", "notes", "tasks"}},
 	}
 	for _, tt := range tests {
-		got, ok := hubspot.IncumbentClassFor(tt.canonical)
-		if !ok || got != tt.want {
-			t.Errorf("IncumbentClassFor(%q) = (%q, %v), want (%q, true)", tt.canonical, got, ok, tt.want)
+		got, ok := hubspot.IncumbentClassesFor(tt.canonical)
+		if !ok || !slices.Equal(got, tt.want) {
+			t.Errorf("IncumbentClassesFor(%q) = (%v, %v), want (%v, true)", tt.canonical, got, ok, tt.want)
 		}
 	}
 
-	if _, ok := hubspot.IncumbentClassFor("no-such-canonical-type"); ok {
-		t.Error("IncumbentClassFor: want ok=false for a canonical name with no declared mapping")
+	if _, ok := hubspot.IncumbentClassesFor("no-such-canonical-type"); ok {
+		t.Error("IncumbentClassesFor: want ok=false for a canonical name with no declared mapping")
 	}
 }
 
 // TestMappingReportsAnUndeclaredObjectClassAsAnHonestGap proves Mapping's
 // own documented contract: an object class outside the five §9 declares
 // answers ok=false rather than a zero ObjectMapping a caller might
-// silently apply — the same honest-gap contract IncumbentClassFor keeps.
+// silently apply — the same honest-gap contract IncumbentClassesFor keeps.
 func TestMappingReportsAnUndeclaredObjectClassAsAnHonestGap(t *testing.T) {
 	if _, ok := hubspot.Mapping("tickets"); ok {
 		t.Fatal("Mapping(\"tickets\"): want ok=false for an undeclared object class")

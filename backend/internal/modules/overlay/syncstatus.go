@@ -175,33 +175,43 @@ func aggregateState(f mirrorStateFlags) string {
 
 // backfillCompleteFor answers whether canonicalObjectClass's backfill has
 // converged (overlay_backfill_cursor.done), translating through
-// s.toIncumbentClass first (overlay_backfill_cursor is keyed by the
+// s.toIncumbentClasses first (overlay_backfill_cursor is keyed by the
 // INCUMBENT class name — see the Service doc). No translator wired or no
 // declared mapping for this class both answer (false, nil) — an honest
-// "not confirmed complete", never a guessed true. A missing cursor row
-// (backfill never ran) is the same honest false, but any other query
-// error is propagated rather than folded into it, so a real DB failure
-// fails the SyncStatus response instead of silently reporting incomplete
-// backfill as fact.
+// "not confirmed complete", never a guessed true.
+//
+// The translation is plural: a canonical type can be backed by several
+// incumbent classes ("activity" ← the five v3 engagement classes), and its
+// backfill is complete only when EVERY one of them has converged — so a
+// single lagging engagement class correctly reports activity as still
+// backfilling. A missing cursor row (a class whose backfill never ran) is
+// an honest false, but any other query error is propagated rather than
+// folded into it, so a real DB failure fails the SyncStatus response
+// instead of silently reporting incomplete backfill as fact.
 func (s *Service) backfillCompleteFor(ctx context.Context, tx pgx.Tx, canonicalObjectClass string) (bool, error) {
-	if s.toIncumbentClass == nil {
+	if s.toIncumbentClasses == nil {
 		return false, nil
 	}
-	incumbentClass, ok := s.toIncumbentClass(canonicalObjectClass)
+	incumbentClasses, ok := s.toIncumbentClasses(canonicalObjectClass)
 	if !ok {
 		return false, nil
 	}
-	var done bool
-	err := tx.QueryRow(ctx,
-		`SELECT done FROM overlay_backfill_cursor WHERE object_class = $1`, incumbentClass,
-	).Scan(&done)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
+	for _, incumbentClass := range incumbentClasses {
+		var done bool
+		err := tx.QueryRow(ctx,
+			`SELECT done FROM overlay_backfill_cursor WHERE object_class = $1`, incumbentClass,
+		).Scan(&done)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		if err != nil {
+			return false, fmt.Errorf("overlay: checking backfill completeness for %s (%s): %w", canonicalObjectClass, incumbentClass, err)
+		}
+		if !done {
+			return false, nil
+		}
 	}
-	if err != nil {
-		return false, fmt.Errorf("overlay: checking backfill completeness for %s: %w", canonicalObjectClass, err)
-	}
-	return done, nil
+	return true, nil
 }
 
 // Budget answers ctx's workspace current OVB consumption window (design

@@ -34,7 +34,7 @@ import (
 // above). objectClass is deliberately the SAME string for both the
 // Modified call and each seeded Record's ObjectClass — the
 // incumbent/canonical translation this seam demands in production
-// (hubspot.IncumbentClassFor) is proven separately by
+// (hubspot.IncumbentClassesFor) is proven separately by
 // freshness_integration_test.go's stubIncumbent; conflating the two here
 // would only add unrelated noise to what this file is proving.
 type sweptRecords struct {

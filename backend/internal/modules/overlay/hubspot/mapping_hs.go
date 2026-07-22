@@ -14,12 +14,22 @@ import "github.com/gradionhq/margince/backend/internal/modules/overlay"
 // §7) and with Backfill's association-target table (overlay/backfill.go),
 // so incumbent class names never drift across those three call sites.
 const (
-	objectClassContacts    = "contacts"
-	objectClassCompanies   = "companies"
-	objectClassDeals       = "deals"
-	objectClassEngagements = "engagements"
-	objectClassLeads       = "leads"
+	objectClassContacts  = "contacts"
+	objectClassCompanies = "companies"
+	objectClassDeals     = "deals"
+	objectClassLeads     = "leads"
+	// The five v3 engagement object classes (OVA-MAP-1) — read separately,
+	// each mapped to canonical "activity" with its own fixed kind.
+	objectClassCalls    = "calls"
+	objectClassMeetings = "meetings"
+	objectClassEmails   = "emails"
+	objectClassNotes    = "notes"
+	objectClassTasks    = "tasks"
 )
+
+// activityTarget is the canonical Margince type all five engagement classes
+// map onto.
+const activityTarget = "activity"
 
 // baselineHSLastModifiedDate is the watermark property every object
 // class but contacts uses (design.md §7, spike-confirmed) — shared with
@@ -35,17 +45,20 @@ const unmappedPolicyFlag = "flag"
 // named once so the mappings below select a value rather than retyping
 // the same literal, and so a future rename touches one declaration.
 const (
-	propEmail      = "email"
-	propName       = "name"
-	targetAddress  = "address"
-	targetSubject  = "subject"
-	targetBody     = "body"
-	targetFullName = "full_name"
+	propEmail       = "email"
+	propName        = "name"
+	targetAddress   = "address"
+	targetSubject   = "subject"
+	targetBody      = "body"
+	targetFullName  = "full_name"
+	targetKind      = "kind"
+	targetOccurred  = "occurred_at"
+	propHSTimestamp = "hs_timestamp"
 )
 
 // Mapping returns the ObjectMapping for one HubSpot object class. An
 // object class with no declared mapping (ok=false) is an honest gap, not
-// a guessed answer — the same "flag, never guess" contract IncumbentClassFor
+// a guessed answer — the same "flag, never guess" contract IncumbentClassesFor
 // keeps for the reverse direction; the caller decides what an undeclared
 // class means rather than the lookup crashing the process.
 func Mapping(source string) (overlay.ObjectMapping, bool) {
@@ -58,34 +71,42 @@ func Mapping(source string) (overlay.ObjectMapping, bool) {
 }
 
 // objectMappings is the enumerable registry Mapping's switch encodes by
-// hand; IncumbentClassFor (this file) and mappingFor (adapter.go) derive
+// hand; IncumbentClassesFor (this file) and mappingFor (adapter.go) derive
 // their lookups from THIS slice (never a second hand-written switch) so
 // every direction of the source↔target correspondence can never drift
 // against another as mappings are added.
 var objectMappings = []overlay.ObjectMapping{
-	contactsMapping, companiesMapping, dealsMapping, engagementsMapping, leadsMapping,
+	contactsMapping, companiesMapping, dealsMapping, leadsMapping,
+	callsMapping, meetingsMapping, emailsMapping, notesMapping, tasksMapping,
 }
 
-// IncumbentClassFor reverse-resolves canonical (a Margince entity-type
-// name, e.g. "person") to the HubSpot object class that maps onto it
+// IncumbentClassesFor reverse-resolves canonical (a Margince entity-type
+// name, e.g. "person") to the HubSpot object class(es) that map onto it
 // (e.g. "contacts"). This is the seam's asymmetry, made explicit: every
 // Incumbent method (Backfill/Modified/Get) takes an INCUMBENT class as
-// input, while Record.ObjectClass and the mirror's own object_class
-// column carry the CANONICAL name as output. A caller holding only the
-// canonical name (e.g. a datasource.EntityRef.Type from the frozen
-// SystemOfRecordProvider seam) must translate through this function
-// before calling into an Incumbent — passing the canonical name straight
-// through is exactly the mistake this function exists to prevent (see
-// FreshnessReader.Read in overlay/freshness.go, the first caller). A
-// canonical name with no declared mapping (ok=false) is an honest gap,
-// not a guessed answer.
-func IncumbentClassFor(canonical string) (string, bool) {
+// input, while Record.ObjectClass and the mirror's own object_class column
+// carry the CANONICAL name as output. A caller holding only the canonical
+// name (e.g. a datasource.EntityRef.Type from the frozen
+// SystemOfRecordProvider seam) must translate through this function before
+// calling into an Incumbent.
+//
+// The result is a SLICE because a canonical type can be backed by more than
+// one incumbent class: "activity" is the five v3 engagement classes
+// (calls/meetings/emails/notes/tasks) at once (OVA-MAP-1), so a completeness
+// question ("is activity fully backfilled?") means "are all five done", and
+// a single-record force-fresh of an activity is under-determined until the
+// mirror row records which class it came from (a tracked follow-up; no
+// force-fresh caller exists yet). Classes are returned in objectMappings
+// order. A canonical name with no declared mapping (ok=false) is an honest
+// gap, not a guessed answer.
+func IncumbentClassesFor(canonical string) ([]string, bool) {
+	var classes []string
 	for _, m := range objectMappings {
 		if m.Target == canonical {
-			return m.Source, true
+			classes = append(classes, m.Source)
 		}
 	}
-	return "", false
+	return classes, len(classes) > 0
 }
 
 // contactsMapping is the design.md §9 contacts→person subset. full_name is
@@ -216,43 +237,94 @@ var dealsMapping = overlay.ObjectMapping{
 	},
 }
 
-// engagementsMapping is the design.md §9 engagements→activity subset.
-// §11's spike capture has no engagement wire sample (only contacts,
-// companies, deals, pipelines, and associations were captured), so the
-// property names below are the ones §9's prose names literally
-// (hs_engagement_type, hs_timestamp, hs_call_duration,
-// hs_meeting_outcome — all real, documented HubSpot engagement
-// properties — plus subject/title and body/text, which §9 states as
-// either/or per engagement subtype). This is a reconciliation item for
-// upstream (contract-first, P3): a real HubSpot portal capture may
-// reveal per-subtype (note/email/call/meeting/task) property variance
-// this flat map can't express, at which point the map either grows
-// subtype-specific FieldMappings or the mapping IR grows a fourth kind —
-// neither invented here.
+// The five engagement→activity mappings (OVA-MAP-1). HubSpot v3 exposes no
+// generic engagements object: calls/meetings/emails/notes/tasks are each
+// their own /crm/v3/objects/<class> endpoint with their own typed
+// properties, and each lands on canonical "activity" with a FIXED kind
+// carried in Const (determined by the class read, never from a
+// hs_engagement_type field — a single lossy generic-engagement class is
+// forbidden). Per-kind field constraints hold exactly as for native
+// activities: meeting_status is meeting-only; call direction/duration are
+// call-only.
 //
-// subject/title and body/text are each declared as two FieldMappings
-// landing on the same target (subject, body respectively): when only one
-// of an either/or pair is present (the normal case — a call carries no
-// "title", a meeting carries no "subject"), the present one lands
-// untouched; if a raw record somehow carried both, the later FieldMapping
-// silently wins, a documented simplification, not a data-loss defect
-// (both would already report the "same" value on any real record).
-var engagementsMapping = overlay.ObjectMapping{
-	Source:         objectClassEngagements,
-	Target:         "activity",
+// The property names are the documented HubSpot v3 engagement properties
+// (hs_call_title/body/duration/direction, hs_meeting_title/body/outcome/
+// start_time, hs_email_subject/text/direction, hs_note_body, hs_task_subject/
+// body — all real). A live portal capture may still reveal per-class
+// property variance (e.g. task status/priority columns) beyond this subset;
+// per "flag, don't invent" anything not mapped surfaces via Apply's unmapped
+// list rather than being guessed into a column, and remains a contract-first
+// reconciliation item (P3).
+var callsMapping = overlay.ObjectMapping{
+	Source:         objectClassCalls,
+	Target:         activityTarget,
 	ExternalKey:    propHSObjectID,
 	Baseline:       baselineHSLastModifiedDate,
 	UnmappedPolicy: unmappedPolicyFlag,
+	Const:          map[string]any{targetKind: "call"},
 	Fields: []overlay.FieldMapping{
-		{From: []string{"hs_engagement_type"}, To: "kind", Kind: overlay.TargetColumn, Transform: "lowercase"},
-		{From: []string{targetSubject}, To: targetSubject, Kind: overlay.TargetColumn},
-		{From: []string{"title"}, To: targetSubject, Kind: overlay.TargetColumn},
-		{From: []string{targetBody}, To: targetBody, Kind: overlay.TargetColumn},
-		{From: []string{"text"}, To: targetBody, Kind: overlay.TargetColumn},
-		{From: []string{"hs_timestamp"}, To: "occurred_at", Kind: overlay.TargetColumn},
-		{From: []string{"direction"}, To: "direction", Kind: overlay.TargetColumn},
+		{From: []string{"hs_call_title"}, To: targetSubject, Kind: overlay.TargetColumn},
+		{From: []string{"hs_call_body"}, To: targetBody, Kind: overlay.TargetColumn},
+		{From: []string{propHSTimestamp}, To: targetOccurred, Kind: overlay.TargetColumn},
+		{From: []string{"hs_call_direction"}, To: "direction", Kind: overlay.TargetColumn},
 		{From: []string{"hs_call_duration"}, To: "duration_seconds", Kind: overlay.TargetColumn, Transform: "ms_to_seconds"},
+	},
+}
+
+var meetingsMapping = overlay.ObjectMapping{
+	Source:         objectClassMeetings,
+	Target:         activityTarget,
+	ExternalKey:    propHSObjectID,
+	Baseline:       baselineHSLastModifiedDate,
+	UnmappedPolicy: unmappedPolicyFlag,
+	Const:          map[string]any{targetKind: "meeting"},
+	Fields: []overlay.FieldMapping{
+		{From: []string{"hs_meeting_title"}, To: targetSubject, Kind: overlay.TargetColumn},
+		{From: []string{"hs_meeting_body"}, To: targetBody, Kind: overlay.TargetColumn},
+		{From: []string{"hs_meeting_start_time"}, To: targetOccurred, Kind: overlay.TargetColumn},
 		{From: []string{"hs_meeting_outcome"}, To: "meeting_status", Kind: overlay.TargetColumn},
+	},
+}
+
+var emailsMapping = overlay.ObjectMapping{
+	Source:         objectClassEmails,
+	Target:         activityTarget,
+	ExternalKey:    propHSObjectID,
+	Baseline:       baselineHSLastModifiedDate,
+	UnmappedPolicy: unmappedPolicyFlag,
+	Const:          map[string]any{targetKind: "email"},
+	Fields: []overlay.FieldMapping{
+		{From: []string{"hs_email_subject"}, To: targetSubject, Kind: overlay.TargetColumn},
+		{From: []string{"hs_email_text"}, To: targetBody, Kind: overlay.TargetColumn},
+		{From: []string{propHSTimestamp}, To: targetOccurred, Kind: overlay.TargetColumn},
+		{From: []string{"hs_email_direction"}, To: "direction", Kind: overlay.TargetColumn},
+	},
+}
+
+var notesMapping = overlay.ObjectMapping{
+	Source:         objectClassNotes,
+	Target:         activityTarget,
+	ExternalKey:    propHSObjectID,
+	Baseline:       baselineHSLastModifiedDate,
+	UnmappedPolicy: unmappedPolicyFlag,
+	Const:          map[string]any{targetKind: "note"},
+	Fields: []overlay.FieldMapping{
+		{From: []string{"hs_note_body"}, To: targetBody, Kind: overlay.TargetColumn},
+		{From: []string{propHSTimestamp}, To: targetOccurred, Kind: overlay.TargetColumn},
+	},
+}
+
+var tasksMapping = overlay.ObjectMapping{
+	Source:         objectClassTasks,
+	Target:         activityTarget,
+	ExternalKey:    propHSObjectID,
+	Baseline:       baselineHSLastModifiedDate,
+	UnmappedPolicy: unmappedPolicyFlag,
+	Const:          map[string]any{targetKind: "task"},
+	Fields: []overlay.FieldMapping{
+		{From: []string{"hs_task_subject"}, To: targetSubject, Kind: overlay.TargetColumn},
+		{From: []string{"hs_task_body"}, To: targetBody, Kind: overlay.TargetColumn},
+		{From: []string{propHSTimestamp}, To: targetOccurred, Kind: overlay.TargetColumn},
 	},
 }
 

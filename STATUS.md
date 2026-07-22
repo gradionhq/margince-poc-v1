@@ -764,17 +764,26 @@ Open work, roughly in priority order:
     the tables the mirror tombstone cannot (associations, checkpoints,
     user-map, sync-state) + a tombstone-less new row. `mirrorcheckpoints.go`
     split out.
-  - **A6.1 mapping-fidelity (value-level rules)** — IN FLIGHT
-    (`feat/overlay-mapping-fidelity-values`). OVA-MAP-2 (`hs_call_duration`
+  - **A6.1 mapping-fidelity (value-level rules)** — MERGED #173 (`ad905af`).
+    OVA-MAP-2 (`hs_call_duration`
     ms→seconds), OVA-MAP-3 (`full_name` assembled firstname+lastname → email
     local part → placeholder, never empty; new `AlwaysEmit` assembler flag),
     OVA-MAP-4 (deal `amount`→`amount_minor` scaled by the ISO-4217 exponent of
     `deal_currency_code`, not a blanket ×100; null when no currency). New
     transforms `uppercase`/`ms_to_seconds`/`full_name`/`amount_minor_by_currency`
     (replacing `amount_to_minor`); golden OVA-AC-4 cases. Spec: foundation
-    #1124 (merged). **A6 remaining slices** (own PRs, structural):
-    OVA-MAP-1 engagement-class split (calls/meetings/emails/notes/tasks — needs
-    the IncumbentClassFor 5→activity disambiguation), OVA-MAP-5 leads via real
+    #1124 (merged).
+  - **A6.2 engagement-class split (OVA-MAP-1)** — IN FLIGHT
+    (`feat/overlay-mapping-fidelity-engagements`). HubSpot v3 has no generic
+    engagements object, so the five classes (calls/meetings/emails/notes/tasks)
+    are swept separately — each its own `/crm/v3/objects/<class>` endpoint (the
+    old `engagements` class hit a non-existent path) — and each maps to
+    `activity` with a FIXED `kind` via a new `Const` mapping-IR field, no
+    generic fallback. The canonical→incumbent translator went **plural**
+    (`IncumbentClassesFor`): `activity` ← all five, so `backfillCompleteFor`
+    requires all five cursors done and force-fresh honestly degrades a
+    multi-source type to the mirror. Extracted `transforms.go` (file-length).
+  - **A6 remaining slices** (own PRs, structural): OVA-MAP-5 leads via real
     Leads API props + contact association, OVA-MAP-6 null overlay pipeline/stage
     + `raw` + stage→`semantic` for advance-tier.
 

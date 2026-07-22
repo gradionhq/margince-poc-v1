@@ -105,26 +105,27 @@ type ConnectInput struct {
 // teardown Disconnect drives (teardown.go). ms is threaded through so
 // the sync-status/budget/reconcile handlers can share this one
 // construction site rather than re-plumbing compose wiring later.
-// meter and toIncumbentClass are both optional (nil-safe): meter backs
+// meter and toIncumbentClasses are both optional (nil-safe): meter backs
 // GetOverlayBudget's Snapshot read — it MUST be
 // the SAME *Meter instance FreshnessReader's force-fresh lane consumes
 // against (compose/overlay.go wires this explicitly), or the budget read
-// would answer an always-empty window nothing ever fed. toIncumbentClass
+// would answer an always-empty window nothing ever fed. toIncumbentClasses
 // answers SyncStatus's per-object backfillComplete lookup (overlay_
 // backfill_cursor is keyed by the INCUMBENT class name, while overlay_
 // mirror — and this Service's own canonical-facing callers — are keyed
 // by the CANONICAL entity type; see freshness.go's identical seam for
 // why this package cannot resolve that translation itself: the concrete
 // mapping registry lives in the overlay/hubspot subpackage, which
-// imports THIS package, so the reverse import would cycle).
+// imports THIS package, so the reverse import would cycle). It is plural
+// because "activity" is backed by all five engagement classes at once.
 type Service struct {
-	pool             *pgxpool.Pool
-	vault            keyvault.Vault
-	ms               *MirrorStore
-	meter            *Meter
-	toIncumbentClass func(canonical string) (incumbentClass string, ok bool)
-	incumbent        func(region, token string) Incumbent
-	log              *slog.Logger
+	pool               *pgxpool.Pool
+	vault              keyvault.Vault
+	ms                 *MirrorStore
+	meter              *Meter
+	toIncumbentClasses func(canonical string) (incumbentClasses []string, ok bool)
+	incumbent          func(region, token string) Incumbent
+	log                *slog.Logger
 	// modeFlipped observes a committed x_sor_mode flip (Connect →
 	// overlay, Disconnect → native) so a mode-caching read dispatcher
 	// can drop its entry instead of serving the OLD mode for a cache
@@ -165,11 +166,13 @@ func (s *Service) WithBudgetMeter(meter *Meter) *Service {
 }
 
 // WithIncumbentClassTranslator wires the canonical->incumbent class
-// translator (e.g. hubspot.IncumbentClassFor) SyncStatus's backfill-
+// translator (e.g. hubspot.IncumbentClassesFor) SyncStatus's backfill-
 // completeness lookup needs — see the Service doc's cycle note on why
-// this package cannot hold that mapping itself.
-func (s *Service) WithIncumbentClassTranslator(fn func(string) (string, bool)) *Service {
-	s.toIncumbentClass = fn
+// this package cannot hold that mapping itself. It is plural: a canonical
+// type ("activity") can be backed by several incumbent classes (the five
+// engagement classes), and backfill is complete only when ALL of them are.
+func (s *Service) WithIncumbentClassTranslator(fn func(string) ([]string, bool)) *Service {
+	s.toIncumbentClasses = fn
 	return s
 }
 

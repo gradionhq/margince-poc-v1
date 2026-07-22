@@ -212,7 +212,7 @@ func (a *Adapter) Owners(ctx context.Context) ([]overlay.OwnerRef, error) {
 
 // mappingFor resolves objectClass's mapping with a direct membership
 // check against objectMappings (mapping_hs.go) — the same slice
-// IncumbentClassFor derives its reverse lookup from, so this function
+// IncumbentClassesFor derives its reverse lookup from, so this function
 // never drifts against what Mapping's switch actually declares as new
 // object classes are added. A recover()-based guard around Mapping's
 // panic-on-unknown-source was rejected: it would swallow ANY future

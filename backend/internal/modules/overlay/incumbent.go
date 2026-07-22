@@ -8,20 +8,37 @@ import (
 	"time"
 )
 
-// The five HubSpot incumbent object classes design.md §9 maps
+// The HubSpot incumbent object classes design.md §9 maps
 // (hubspot/mapping_hs.go's own objectClass* constants restate these —
 // duplicated across the seam boundary rather than exported from
 // hubspot, since a module never imports a sibling's internal naming,
 // and this package's own callers (backfill.go's association-target
 // table, compose/jobs.go's reconcile sweep) all need the same
 // incumbent vocabulary spelled once on THIS side of the seam).
+//
+// HubSpot v3 exposes no generic "engagements" object: the five engagement
+// object classes (calls/meetings/emails/notes/tasks) are read separately —
+// each is its own /crm/v3/objects/<class> endpoint — and each maps to a
+// distinct Margince activity kind (OVA-MAP-1). IncumbentEngagementClasses
+// groups them for the callers (the sweep list, the association-target table)
+// that treat the whole engagement family uniformly.
 const (
-	IncumbentClassContacts    = "contacts"
-	IncumbentClassCompanies   = "companies"
-	IncumbentClassDeals       = "deals"
-	IncumbentClassEngagements = "engagements"
-	IncumbentClassLeads       = "leads"
+	IncumbentClassContacts  = "contacts"
+	IncumbentClassCompanies = "companies"
+	IncumbentClassDeals     = "deals"
+	IncumbentClassLeads     = "leads"
+	IncumbentClassCalls     = "calls"
+	IncumbentClassMeetings  = "meetings"
+	IncumbentClassEmails    = "emails"
+	IncumbentClassNotes     = "notes"
+	IncumbentClassTasks     = "tasks"
 )
+
+// IncumbentEngagementClasses is the five v3 engagement object classes, in a
+// stable order, that all map onto the canonical "activity" type.
+var IncumbentEngagementClasses = []string{
+	IncumbentClassCalls, IncumbentClassMeetings, IncumbentClassEmails, IncumbentClassNotes, IncumbentClassTasks,
+}
 
 // Record is one incumbent-CRM object as read through the Incumbent seam:
 // the mirror ingest maps it into the workspace's mirrored cache row.

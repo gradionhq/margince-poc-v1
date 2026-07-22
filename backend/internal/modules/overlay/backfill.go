@@ -32,18 +32,25 @@ type MirrorSink interface {
 // association fetch on:
 //
 //   - deals→companies ("assoc→company→organization_id")
-//   - engagements→{contacts,companies,deals,leads} (§9: "assocs→
-//     activity_link" — activity_link is a polymorphic pointer, so an
-//     engagement's association can land on any of the other four
-//     canonical record types)
+//   - each engagement class (calls/meetings/emails/notes/tasks) →
+//     {contacts,companies,deals,leads} (§9: "assocs→activity_link" —
+//     activity_link is a polymorphic pointer, so an engagement's association
+//     can land on any of the other four canonical record types). HubSpot v3
+//     reads the five engagement classes separately (OVA-MAP-1), so each
+//     carries the same activity-link targets.
 //
 // An object class absent from this map has no §9-documented association
 // need yet, so Backfill fetches none for it rather than guessing at a
 // toClass no design section names.
-var backfillAssocTargets = map[string][]string{
-	IncumbentClassDeals:       {IncumbentClassCompanies},
-	IncumbentClassEngagements: {IncumbentClassContacts, IncumbentClassCompanies, IncumbentClassDeals, IncumbentClassLeads},
-}
+var backfillAssocTargets = func() map[string][]string {
+	m := map[string][]string{
+		IncumbentClassDeals: {IncumbentClassCompanies},
+	}
+	for _, engagement := range IncumbentEngagementClasses {
+		m[engagement] = []string{IncumbentClassContacts, IncumbentClassCompanies, IncumbentClassDeals, IncumbentClassLeads}
+	}
+	return m
+}()
 
 // Backfill lists objectClass's full record set from inc via its
 // list-cursor Backfill method, ingesting every page into ms and

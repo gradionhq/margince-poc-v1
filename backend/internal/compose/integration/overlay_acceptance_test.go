@@ -235,13 +235,13 @@ func acceptanceMeterConfig() overlay.MeterConfig {
 
 // contactsTranslator is a fixed canonical->incumbent class translator
 // scoped to this suite's one fixtured mapping (person -> contacts) — the
-// same role hubspot.IncumbentClassFor plays in production, stood in here
+// same role hubspot.IncumbentClassesFor plays in production, stood in here
 // so these tests never import the hubspot subpackage (see AC-OV-1 above).
-func contactsTranslator(canonical string) (string, bool) {
+func contactsTranslator(canonical string) ([]string, bool) {
 	if canonical == "person" {
-		return overlay.IncumbentClassContacts, true
+		return []string{overlay.IncumbentClassContacts}, true
 	}
-	return "", false
+	return nil, false
 }
 
 // TestAcceptance_AC_OV_2_BoundedEquivalence_ReadSubset proves design.md's
