@@ -179,7 +179,7 @@ func (s *Store) resolveTx(ctx context.Context, tx pgx.Tx, actor principal.Princi
 	if err != nil {
 		return crmcontracts.Signal{}, fmt.Errorf("read resolved signal: %w", err)
 	}
-	if err := storekit.Emit(ctx, tx, auditID, "signal.resolved", "signal", signalID.UUID, resolvedPayload(out, candidates)); err != nil {
+	if err := storekit.EmitEvent(ctx, tx, auditID, signalID.UUID, resolvedPayload(out, candidates)); err != nil {
 		return crmcontracts.Signal{}, fmt.Errorf("emit signal.resolved: %w", err)
 	}
 	return out, nil
@@ -458,20 +458,22 @@ func candidateDetail(cs []candidate, chosen *candidate) (string, error) {
 }
 
 // resolvedPayload is the events.md §5.11 signal.resolved shape.
-func resolvedPayload(sig crmcontracts.Signal, candidates []candidate) map[string]any {
-	payload := map[string]any{
-		"signal_id":        sig.Id,
-		"resolution_state": sig.ResolutionState,
+func resolvedPayload(sig crmcontracts.Signal, candidates []candidate) crmcontracts.WebhookPayloadSignalResolved {
+	payload := crmcontracts.WebhookPayloadSignalResolved{
+		SignalId:        sig.Id,
+		ResolutionState: string(sig.ResolutionState),
 	}
 	if sig.ResolvedOrgId != nil {
-		payload["resolved_org_id"] = *sig.ResolvedOrgId
+		payload.ResolvedOrgId = sig.ResolvedOrgId
 	}
 	if sig.ResolvedPersonId != nil {
-		payload["resolved_person_id"] = *sig.ResolvedPersonId
+		payload.ResolvedPersonId = sig.ResolvedPersonId
 	}
 	if len(candidates) > 0 {
-		payload["matched_on"] = candidates[0].MatchedOn
-		payload["match_confidence"] = candidates[0].Confidence
+		matchedOn := candidates[0].MatchedOn
+		payload.MatchedOn = &matchedOn
+		confidence := float32(candidates[0].Confidence)
+		payload.MatchConfidence = &confidence
 	}
 	return payload
 }

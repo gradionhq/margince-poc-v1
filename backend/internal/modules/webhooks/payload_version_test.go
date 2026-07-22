@@ -412,3 +412,50 @@ func TestRetentionAppliedWireSnapshot(t *testing.T) {
 	}
 	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
 }
+
+// signalSnapshotID/signalSnapshotOrgID are fixed, memorable UUIDs so the
+// signals family's golden snapshots (webhooks Task 5e) are stable across
+// test runs — a real ids.NewV7() would churn the fixtures on every
+// regeneration for no reason.
+var (
+	signalSnapshotID    = uuid.MustParse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")
+	signalSnapshotOrgID = uuid.MustParse("ffffffff-ffff-ffff-ffff-ffffffffffff")
+)
+
+// TestSignalDetectedWireSnapshot pins the signal.detected wire shape
+// (webhooks Task 5e) — sampled with a subject already known at creation
+// time, so subject_entity_type/subject_entity_id's wire keys (entity_type/
+// entity_id) both appear. This event's entity is static (signal), unlike
+// consent.changed/retention.applied: entity_type/entity_id here are DATA
+// fields naming the signal's SUBJECT, not the envelope's own entity ref.
+func TestSignalDetectedWireSnapshot(t *testing.T) {
+	entityType := "organization"
+	confidence := float32(0.95)
+	sample := crmcontracts.WebhookPayloadSignalDetected{
+		SignalId:             signalSnapshotID,
+		Kind:                 "champion_left",
+		SourceChannel:        "inbound",
+		ResolutionState:      "resolved",
+		Severity:             "warn",
+		SubjectEntityType:    &entityType,
+		SubjectEntityId:      &signalSnapshotOrgID,
+		ResolutionConfidence: &confidence,
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestSignalResolvedWireSnapshot pins the signal.resolved wire shape —
+// sampled with the single-candidate (resolved-to-org) shape, the branch
+// that sets every optional field.
+func TestSignalResolvedWireSnapshot(t *testing.T) {
+	matchedOn := "domain"
+	confidence := float32(0.95)
+	sample := crmcontracts.WebhookPayloadSignalResolved{
+		SignalId:        signalSnapshotID,
+		ResolutionState: "resolved",
+		ResolvedOrgId:   &signalSnapshotOrgID,
+		MatchedOn:       &matchedOn,
+		MatchConfidence: &confidence,
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}

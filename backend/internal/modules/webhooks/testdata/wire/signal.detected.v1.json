@@ -1,0 +1,10 @@
+{
+  "entity_id": "ffffffff-ffff-ffff-ffff-ffffffffffff",
+  "entity_type": "organization",
+  "kind": "champion_left",
+  "resolution_confidence": 0.95,
+  "resolution_state": "resolved",
+  "severity": "warn",
+  "signal_id": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+  "source_channel": "inbound"
+}

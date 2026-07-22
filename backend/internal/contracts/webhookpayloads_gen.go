@@ -43,6 +43,8 @@ const (
 	PipelineCreated      SubscribableEventType = "pipeline.created"
 	PipelineUpdated      SubscribableEventType = "pipeline.updated"
 	RetentionApplied     SubscribableEventType = "retention.applied"
+	SignalDetected       SubscribableEventType = "signal.detected"
+	SignalResolved       SubscribableEventType = "signal.resolved"
 	StageArchived        SubscribableEventType = "stage.archived"
 	StageCreated         SubscribableEventType = "stage.created"
 	StageUpdated         SubscribableEventType = "stage.updated"
@@ -117,6 +119,10 @@ func (e SubscribableEventType) Valid() bool {
 		return true
 	case RetentionApplied:
 		return true
+	case SignalDetected:
+		return true
+	case SignalResolved:
+		return true
 	case StageArchived:
 		return true
 	case StageCreated:
@@ -128,7 +134,7 @@ func (e SubscribableEventType) Valid() bool {
 	}
 }
 
-// SubscribableEventType The closed set of domain events a webhook subscription can select. Phase 4 fills this out family by family; today it carries the pilot event plus the deal family (Task 5a-i), the offer family (Task 5a-ii), the pipeline/stage config family (Task 5a-iii), and the person/organization family (Task 5b-personorg), the lead family (Task 5b-lead), the activities family (Task 5c), and the consent/privacy family (Task 5d).
+// SubscribableEventType The closed set of domain events a webhook subscription can select. Phase 4 fills this out family by family; today it carries the pilot event plus the deal family (Task 5a-i), the offer family (Task 5a-ii), the pipeline/stage config family (Task 5a-iii), and the person/organization family (Task 5b-personorg), the lead family (Task 5b-lead), the activities family (Task 5c), the consent/privacy family (Task 5d), and the signals family (Task 5e).
 type SubscribableEventType string
 
 // WebhookActivityChangedFields activity.updated's BOUNDED delta: UpdateActivity's known mutable fields (subject, body, occurred_at, due_at, remind_at, assignee_id, is_done) each carried only when this update touched them, plus RelinkActivity's relinked target — a fixed, KNOWN key set (unlike person/organization/deal/lead.updated's genuinely open patch), so it is typed rather than an open map.
@@ -533,6 +539,54 @@ type WebhookPayloadRetentionApplied struct {
 	Reason *string `json:"reason,omitempty"`
 }
 
+// WebhookPayloadSignalDetected Payload for signal.detected — a signal was created (signals/signal.go's CreateSignal). entity_type/entity_id are DATA fields naming the signal's subject (deal | organization | person) when one is already known at creation time — not the envelope's own entity ref, which is the signal itself (this event's entity type is the static "signal"). Both are absent on a raw signal (only a raw_ref), which enters unresolved and waits for the resolver; resolution_confidence is set only when the signal was created already resolved.
+type WebhookPayloadSignalDetected struct {
+	// SubjectEntityId The subject record's id — a payload data field, absent until a raw signal resolves.
+	SubjectEntityId *openapi_types.UUID `json:"entity_id,omitempty"`
+
+	// SubjectEntityType The subject record's type (deal | organization | person) — a payload data field, absent until a raw signal resolves (both entity fields set together). x-go-name avoids colliding with the generated EntityType() method, which names the ENVELOPE'S entity (always "signal"), not this data field.
+	SubjectEntityType *string `json:"entity_type,omitempty"`
+
+	// Kind The signal kind (stalled_deal | champion_left | reengagement | buying_intent | risk | other).
+	Kind string `json:"kind"`
+
+	// ResolutionConfidence The match confidence (0–1), set only when created already resolved.
+	ResolutionConfidence *float32 `json:"resolution_confidence,omitempty"`
+
+	// ResolutionState The raw→entity match outcome at creation time (resolved | low_confidence | unresolved | dropped).
+	ResolutionState string `json:"resolution_state"`
+
+	// Severity The signal's severity (info | warn | urgent).
+	Severity string `json:"severity"`
+
+	// SignalId The signal that was detected.
+	SignalId openapi_types.UUID `json:"signal_id"`
+
+	// SourceChannel Where the raw signal came from (derived | inbound | web | social | deal_room_engagement).
+	SourceChannel string `json:"source_channel"`
+}
+
+// WebhookPayloadSignalResolved Payload for signal.resolved — the resolver ran over a signal (signals/resolver.go's Resolve). The verdict IS the candidate count (P12): zero candidates drops the signal (resolved_org_id, resolved_person_id, matched_on, match_confidence all absent); exactly one resolves it to that org (resolved_org_id set, resolved_person_id set only under a recorded consent grant); several flags it low_confidence for review (matched_on/ match_confidence describe the top candidate, resolved_org_id stays absent).
+type WebhookPayloadSignalResolved struct {
+	// MatchConfidence The top candidate's match confidence (0–1).
+	MatchConfidence *float32 `json:"match_confidence,omitempty"`
+
+	// MatchedOn The match basis of the top candidate (domain | name | prior_interaction).
+	MatchedOn *string `json:"matched_on,omitempty"`
+
+	// ResolutionState The state after resolving (resolved | low_confidence | dropped).
+	ResolutionState string `json:"resolution_state"`
+
+	// ResolvedOrgId The organization the signal resolved to (absent when dropped or ambiguous).
+	ResolvedOrgId *openapi_types.UUID `json:"resolved_org_id,omitempty"`
+
+	// ResolvedPersonId The consent-gated person the signal resolved to (absent unless an existing person under a recorded consent grant matched).
+	ResolvedPersonId *openapi_types.UUID `json:"resolved_person_id,omitempty"`
+
+	// SignalId The signal the resolver ran over.
+	SignalId openapi_types.UUID `json:"signal_id"`
+}
+
 // WebhookPayloadStageArchived Payload for stage.archived. Never emitted today (no archive path exists for stage); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it.
 type WebhookPayloadStageArchived struct{}
 
@@ -728,6 +782,14 @@ func (WebhookPayloadRetentionApplied) EventType() string { return "retention.app
 
 func (WebhookPayloadRetentionApplied) EntityType() string { return "dynamic" }
 
+func (WebhookPayloadSignalDetected) EventType() string { return "signal.detected" }
+
+func (WebhookPayloadSignalDetected) EntityType() string { return "signal" }
+
+func (WebhookPayloadSignalResolved) EventType() string { return "signal.resolved" }
+
+func (WebhookPayloadSignalResolved) EntityType() string { return "signal" }
+
 func (WebhookPayloadStageArchived) EventType() string { return "stage.archived" }
 
 func (WebhookPayloadStageArchived) EntityType() string { return "stage" }
@@ -779,6 +841,8 @@ var WebhookPayloadVersions = map[string]int{
 	"pipeline.created":      1,
 	"pipeline.updated":      1,
 	"retention.applied":     1,
+	"signal.detected":       1,
+	"signal.resolved":       1,
 	"stage.archived":        1,
 	"stage.created":         1,
 	"stage.updated":         1,
