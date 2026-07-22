@@ -1,9 +1,10 @@
 # Ratified published-surface changes (check-pkg-freeze.sh): one exact
 # apidiff finding per line, `<package>: <finding>`. An entry only ever
 # matches the one ratified change — the next incompatible edit is a new
-# finding and fails — and an entry matching nothing fails as stale, so
-# this file cannot accumulate permissions. Package removals are never
-# allowlistable (deprecate-then-major cycle, ADR-0069 §3).
+# finding and fails. An absorbed entry (matching nothing against the
+# current baseline) licenses nothing and is WARNED about in every gate
+# run until removed. Package removals are never allowlistable
+# (deprecate-then-major cycle, ADR-0069 §3).
 #
 # PR #195 follow-up (margince-foundation#1160): the retention-class
 # vocabulary shrinks to the spec-derivable minimum — Bücher/Abschlüsse

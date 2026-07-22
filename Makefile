@@ -284,8 +284,9 @@ no-jurisdiction:
 ## pkg-freeze — published-surface freeze gate (ADR-0069 §3, EXT-P3): apidiff
 ## on every backend/pkg package vs the merge-base (the extensions integration
 ## branch while the arc holds there, else origin/main); an incompatible change
-## or a removed published package fails, additive growth passes. Deliberate,
-## reviewed exception: PKG_FREEZE_BASE=<ref>.
+## or a removed published package fails, additive growth passes. A ratified
+## change is its exact finding line in scripts/pkg-freeze-allowlist.txt;
+## absorbed entries warn until removed.
 pkg-freeze:
 	@./scripts/check-pkg-freeze.sh
 

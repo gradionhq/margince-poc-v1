@@ -70,9 +70,14 @@ trap 'cleanup; rm -rf "$EXPORT_DIR"' EXIT
 # A ratified surface change is recorded as its exact apidiff finding in
 # the allowlist (the contract gate's exception pattern): the entry only
 # ever matches that one change — the next incompatible edit is a new
-# finding and fails — and an entry matching nothing is itself a failure,
-# so the file can never accumulate stale permissions. Package removals
-# are NOT allowlistable: removal is the deprecate-then-major cycle.
+# finding and fails. An entry matching nothing is reported as absorbed
+# in EVERY run (a warning, not a failure): the baseline absorbs a
+# ratified change the instant its PR merges, so failing on staleness
+# would redden the merged branch and every innocent sibling while the
+# cleanup could never have ridden the ratifying PR itself. An absorbed
+# entry licenses nothing — its finding no longer exists against the
+# baseline. Package removals are NOT allowlistable: removal is the
+# deprecate-then-major cycle.
 ALLOWLIST="${PKG_FREEZE_ALLOWLIST:-scripts/pkg-freeze-allowlist.txt}"
 allowed="$EXPORT_DIR/allowed"
 if [ -f "$ALLOWLIST" ]; then
@@ -108,14 +113,13 @@ if [ -n "$violations" ]; then
   failed=1
 fi
 if [ -n "$stale" ]; then
-  echo "FAIL: pkg-freeze — allowlist entry matches no current finding (remove it, the ratified change has been absorbed):" >&2
-  echo "$stale" | sed 's/^/  /' >&2
-  failed=1
+  echo "WARN: pkg-freeze — allowlist entries absorbed by $BASE_REF (they license nothing anymore; remove them with the next allowlist edit):"
+  echo "$stale" | sed 's/^/  /'
 fi
 
 if [ "$failed" -ne 0 ]; then
   echo "pkg-freeze: the published surface changes additively or via versioned successors, never in place (EXT-P3). A ratified change is recorded as its exact finding line in $ALLOWLIST, visible in the PR." >&2
   exit 1
 fi
-allowed_count="$(grep -c . "$allowed" || true)"
-echo "OK: pkg-freeze — published surface additive-or-unchanged vs $BASE_REF ($count packages, $allowed_count ratified exceptions)"
+active="$(($(grep -c . "$allowed" || true) - $(echo "$stale" | grep -c . || true)))"
+echo "OK: pkg-freeze — published surface additive-or-unchanged vs $BASE_REF ($count packages, $active active exceptions)"
