@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { components } from "../../api/schema";
 import type { MessageKey } from "../../i18n/en";
-import type { BuildStage, BuildTerminalStatus } from "./conversation-machine";
+import { coldFieldLabelKey } from "../common";
+import type { BuildStage } from "./conversation-machine";
 
 type CompanySiteRead = components["schemas"]["CompanySiteRead"];
 type VoiceCorpusSummary = components["schemas"]["VoiceCorpusSummary"];
@@ -10,42 +11,95 @@ type VoiceBuildStatus = components["schemas"]["VoiceBuild"]["status"];
 // Narration is derived, never invented: every event below is a delta between
 // two server snapshots, and every parameter it carries comes from the server
 // payload. The queue paces delivery so a burst of findings reads like a
-// conversation, but terminal states always flush immediately; pacing may
-// delay honesty, never withhold it.
+// conversation.
+//
+// Terminal copy has ONE owner: the reducer's READ_TERMINAL / BUILD_TERMINAL
+// outcome entries. The diffs never narrate a terminal state themselves — on
+// a fresh terminal they emit a "flush" event, which drains all queued
+// progress narration immediately. Wiring contract for the shell: push the
+// diff output into the queue first (the flush drains it), THEN dispatch the
+// terminal machine event, so progress always lands before the outcome.
 
-export type NarrationEvent = {
-  /** Stable across repeated diffs of the same snapshot pair. */
+export type NarrationSayEvent = {
+  kind: "say";
+  /** Scoped to the run/operation, stable across repeated diffs. */
   id: string;
   i18nKey: MessageKey;
   params?: Record<string, string | number>;
+  /** Params that are i18n keys themselves; the renderer translates them. */
+  paramKeys?: Record<string, MessageKey>;
   findingIds?: string[];
-  /** Terminal states bypass pacing; the queue flushes everything queued. */
-  urgent?: boolean;
 };
+
+export type NarrationFlushEvent = { kind: "flush"; id: string };
+
+export type NarrationEvent = NarrationSayEvent | NarrationFlushEvent;
 
 const VALUE_PREVIEW_LIMIT = 80;
 
+// Truncates by Unicode code points so a surrogate pair is never split.
 function previewValue(value: string): string {
-  if (value.length <= VALUE_PREVIEW_LIMIT) return value;
-  return `${value.slice(0, VALUE_PREVIEW_LIMIT - 1)}…`;
+  const points = Array.from(value);
+  if (points.length <= VALUE_PREVIEW_LIMIT) return value;
+  return `${points.slice(0, VALUE_PREVIEW_LIMIT - 1).join("")}…`;
 }
 
-const readTerminalEvents: Partial<
-  Record<CompanySiteRead["status"], MessageKey>
-> = {
-  ready: "ob.conv.read.done",
-  confirmed: "ob.conv.read.done",
-  partial: "ob.conv.read.partial",
-  failed: "ob.conv.read.failed",
-  abandoned: "ob.conv.read.failed",
-  deferred: "ob.conv.read.deferred",
-};
+// The four states a running read can freshly end in. `confirmed` and
+// `abandoned` are post-outcome lifecycle states (the human already acted on
+// a terminal read) — transitioning into them announces nothing new.
+const freshReadTerminals = new Set<CompanySiteRead["status"]>([
+  "ready",
+  "partial",
+  "failed",
+  "deferred",
+]);
+
+function newFieldEvents(
+  prev: CompanySiteRead | null,
+  next: CompanySiteRead,
+): NarrationEvent[] {
+  const known = new Set((prev?.profile_fields ?? []).map((f) => f.field));
+  return next.profile_fields
+    .filter((field) => !known.has(field.field))
+    .map((field) => {
+      const labelKey = coldFieldLabelKey(field.field);
+      return {
+        kind: "say" as const,
+        id: `${next.id}:field:${field.field}`,
+        i18nKey: "ob.conv.read.learnedField" as const,
+        params: labelKey
+          ? { value: previewValue(field.value) }
+          : {
+              field: field.field.replace(/_/g, " "),
+              value: previewValue(field.value),
+            },
+        ...(labelKey ? { paramKeys: { field: labelKey } } : {}),
+        findingIds: [field.field],
+      };
+    });
+}
+
+function newWarningEvents(
+  prev: CompanySiteRead | null,
+  next: CompanySiteRead,
+): NarrationEvent[] {
+  const known = new Set(prev?.warnings ?? []);
+  return next.warnings
+    .filter((warning) => !known.has(warning))
+    .map((warning) => ({
+      kind: "say" as const,
+      id: `${next.id}:warning:${warning}`,
+      i18nKey: "ob.conv.read.warning" as const,
+      params: { warning },
+    }));
+}
 
 export function diffSiteRead(
   prev: CompanySiteRead | null,
   next: CompanySiteRead,
 ): NarrationEvent[] {
   const events: NarrationEvent[] = [];
+  const run = next.id;
 
   // Page progress coalesces: one event per poll that saw growth, carrying the
   // running total rather than one bubble per page.
@@ -53,49 +107,25 @@ export function diffSiteRead(
   const nextPages = next.pages_read ?? 0;
   if (nextPages > prevPages) {
     events.push({
-      id: `pages:${nextPages}`,
+      kind: "say",
+      id: `${run}:pages:${nextPages}`,
       i18nKey: "ob.conv.read.pages",
       params: { pages: nextPages },
     });
   }
 
   if (next.phase === "extracting" && prev?.phase !== "extracting") {
-    events.push({ id: "phase:extracting", i18nKey: "ob.conv.read.extracting" });
-  }
-
-  const knownFields = new Set(
-    (prev?.profile_fields ?? []).map((field) => field.field),
-  );
-  for (const field of next.profile_fields) {
-    if (knownFields.has(field.field)) continue;
     events.push({
-      id: `field:${field.field}`,
-      i18nKey: "ob.conv.read.learnedField",
-      params: { field: field.field, value: previewValue(field.value) },
-      findingIds: [field.field],
+      kind: "say",
+      id: `${run}:phase:extracting`,
+      i18nKey: "ob.conv.read.extracting",
     });
   }
 
-  const knownWarnings = new Set(prev?.warnings ?? []);
-  for (const warning of next.warnings) {
-    if (knownWarnings.has(warning)) continue;
-    events.push({
-      id: `warning:${warning}`,
-      i18nKey: "ob.conv.read.warning",
-      params: { warning },
-    });
-  }
+  events.push(...newFieldEvents(prev, next), ...newWarningEvents(prev, next));
 
-  const terminalKey = readTerminalEvents[next.status];
-  if (terminalKey && prev?.status !== next.status) {
-    events.push({
-      id: `status:${next.status}`,
-      i18nKey: terminalKey,
-      params: {
-        count: next.profile_fields.length + next.facts.length,
-      },
-      urgent: true,
-    });
+  if (freshReadTerminals.has(next.status) && prev?.status !== next.status) {
+    events.push({ kind: "flush", id: `${run}:flush:${next.status}` });
   }
 
   return events;
@@ -108,32 +138,46 @@ const buildStageEvents: Record<BuildStage, MessageKey> = {
   activate: "ob.conv.build.activate",
 };
 
-const buildTerminalEvents: Partial<Record<VoiceBuildStatus, MessageKey>> = {
-  succeeded: "ob.conv.build.succeeded",
-  failed: "ob.conv.build.failed",
-  deferred: "ob.conv.build.deferred",
+const buildTerminals = new Set<VoiceBuildStatus>([
+  "succeeded",
+  "failed",
+  "deferred",
+]);
+
+export type VoiceBuildSnapshot = {
+  id: string;
+  status: VoiceBuildStatus;
+  stage: BuildStage | null;
 };
 
 export function diffVoiceBuild(
-  prevStage: BuildStage | null,
-  nextStage: BuildStage | null,
-  status: VoiceBuildStatus,
+  prev: VoiceBuildSnapshot | null,
+  next: VoiceBuildSnapshot,
 ): NarrationEvent[] {
-  const terminalKey = buildTerminalEvents[status];
-  if (terminalKey) {
+  if (buildTerminals.has(next.status)) {
+    // A poll repeating an already-seen terminal announces nothing.
+    return prev?.status === next.status
+      ? []
+      : [{ kind: "flush", id: `${next.id}:flush:${next.status}` }];
+  }
+  if (next.stage && next.stage !== prev?.stage) {
     return [
       {
-        id: `build:${status as BuildTerminalStatus}`,
-        i18nKey: terminalKey,
-        urgent: true,
+        kind: "say",
+        id: `${next.id}:stage:${next.stage}`,
+        i18nKey: buildStageEvents[next.stage],
       },
     ];
   }
-  if (nextStage && nextStage !== prevStage) {
-    return [{ id: `stage:${nextStage}`, i18nKey: buildStageEvents[nextStage] }];
-  }
   return [];
 }
+
+const bandLabelKeys: Record<VoiceCorpusSummary["quality_band"], MessageKey> = {
+  thin: "settings.voice.bandThin",
+  good: "settings.voice.bandGood",
+  rich: "settings.voice.bandRich",
+  sharp: "settings.voice.bandSharp",
+};
 
 export function diffCorpus(
   prev: VoiceCorpusSummary | null,
@@ -143,6 +187,7 @@ export function diffCorpus(
   const prevWords = prev?.total_words ?? 0;
   if (next.total_words > prevWords) {
     events.push({
+      kind: "say",
       id: `words:${next.total_words}`,
       i18nKey: "ob.conv.corpus.words",
       params: { words: next.total_words },
@@ -150,9 +195,10 @@ export function diffCorpus(
   }
   if (prev && next.quality_band !== prev.quality_band) {
     events.push({
+      kind: "say",
       id: `band:${next.quality_band}`,
       i18nKey: "ob.conv.corpus.band",
-      params: { band: next.quality_band },
+      paramKeys: { band: bandLabelKeys[next.quality_band] },
     });
   }
   return events;
@@ -161,18 +207,18 @@ export function diffCorpus(
 export const DEFAULT_PACE_MS = 1800;
 
 type NarrationQueueOptions = {
-  onEmit: (event: NarrationEvent) => void;
+  onEmit: (event: NarrationSayEvent) => void;
   paceMs?: number;
 };
 
-// Paces narration to one bubble per paceMs so bursts stay readable. An urgent
-// event (a terminal state) drains the whole queue synchronously; the user is
-// never left watching a paced trickle after the outcome is already known.
+// Paces narration to one bubble per paceMs so bursts stay readable. A flush
+// event drains the whole queue synchronously; the user is never left
+// watching a paced trickle after the outcome is already known.
 export function useNarrationQueue({
   onEmit,
   paceMs = DEFAULT_PACE_MS,
 }: NarrationQueueOptions) {
-  const queue = useRef<NarrationEvent[]>([]);
+  const queue = useRef<NarrationSayEvent[]>([]);
   const timer = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
   const emit = useRef(onEmit);
   emit.current = onEmit;
@@ -204,9 +250,15 @@ export function useNarrationQueue({
 
   const push = useCallback(
     (events: readonly NarrationEvent[]) => {
-      if (events.length === 0) return;
-      queue.current.push(...events);
-      if (events.some((event) => event.urgent)) {
+      let sawFlush = false;
+      for (const event of events) {
+        if (event.kind === "flush") {
+          sawFlush = true;
+        } else {
+          queue.current.push(event);
+        }
+      }
+      if (sawFlush) {
         flush();
         return;
       }

@@ -397,3 +397,9 @@ export function coldFieldLabel(
   const key = COLD_FIELD_LABELS[field];
   return key ? t(key) : field.replace(/_/g, " ");
 }
+
+// For pure (non-rendering) callers that carry the label key until a component
+// translates it — same map, same fallback contract as coldFieldLabel.
+export function coldFieldLabelKey(field: string): MessageKey | undefined {
+  return COLD_FIELD_LABELS[field];
+}

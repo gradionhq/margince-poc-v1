@@ -1306,15 +1306,14 @@ export const de = {
   "ob.conv.askUrl":
     "Wo soll ich mit dem Lesen beginnen? Deine Website eignet sich am besten.",
   "ob.conv.read.started": "Ich lese jetzt {host}. Ich sage dir, was ich finde.",
-  "ob.conv.read.pages": "Bisher {pages} Seiten gelesen.",
-  "ob.conv.read.learnedField": "Gelernt {field}: {value}",
+  "ob.conv.read.pages": "Bisher gelesene Seiten: {pages}.",
+  "ob.conv.read.learnedField": "{field} gelernt: {value}",
   "ob.conv.read.extracting":
     "Das Durchsuchen ist fertig. Jetzt werte ich aus, was die Website über dein Geschäft sagt.",
   "ob.conv.read.warning": "Hinweis: {warning}",
-  "ob.conv.read.done":
-    "Fertig gelesen. {count} Funde, jeder mit seiner Quelle.",
+  "ob.conv.read.done": "Fertig gelesen. Belegte Funde: {count}.",
   "ob.conv.read.partial":
-    "Ich konnte nicht alles lesen, habe aber {count} belegte Angaben gefunden.",
+    "Ich konnte nicht alles lesen. Belegte Funde: {count}.",
   "ob.conv.read.failed":
     "Ich konnte diese Website nicht lesen. Probiere eine andere URL oder sag es mir direkt.",
   "ob.conv.read.deferred":
@@ -1322,7 +1321,7 @@ export const de = {
   "ob.conv.clarify.intro":
     "Eine Sache musst du entscheiden. Die Website ist hier nicht eindeutig.",
   "ob.conv.clarify.entity":
-    "Die Website nennt mehr als eine juristische Person. Welche gehört zu dieser Installation?",
+    "Die Website nennt mehr als eine juristische Person. Für welche ist diese Installation?",
   "ob.conv.review.ready":
     "Ich habe die Zuordnung vorbereitet. Prüfe sie und bestätige, was stimmt.",
   "ob.conv.company.confirmed":
@@ -1335,7 +1334,7 @@ export const de = {
   "ob.conv.voice.uploadAdded": "{name} hinzugefügt.",
   "ob.conv.voice.speakerQuestion":
     "Dieses Transkript hat mehrere Sprecher. Wer davon bist du? Nur deine eigenen Worte zählen.",
-  "ob.conv.corpus.words": "Dein Korpus enthält jetzt {words} eigene Worte.",
+  "ob.conv.corpus.words": "Eigene Worte jetzt im Korpus: {words}.",
   "ob.conv.corpus.band": "Korpusqualität ist jetzt {band}.",
   "ob.conv.build.snapshot": "Ich friere deinen Korpus ein.",
   "ob.conv.build.extract": "Ich suche deine typischen Formulierungen.",

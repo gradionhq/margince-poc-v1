@@ -1282,15 +1282,14 @@ export const en = {
     "Hi, I am Margince. Your team is already set up. Two short steps and you are in.",
   "ob.conv.askUrl": "Where should I start reading? Your website works best.",
   "ob.conv.read.started": "Reading {host} now. I will tell you what I find.",
-  "ob.conv.read.pages": "Read {pages} pages so far.",
+  "ob.conv.read.pages": "Pages read so far: {pages}.",
   "ob.conv.read.learnedField": "Learned {field}: {value}",
   "ob.conv.read.extracting":
     "Done crawling. Now extracting what the site says about your business.",
   "ob.conv.read.warning": "Heads up: {warning}",
-  "ob.conv.read.done":
-    "Finished reading. {count} findings, each with its source.",
+  "ob.conv.read.done": "Finished reading. Findings with sources: {count}.",
   "ob.conv.read.partial":
-    "I could not read everything, but I found {count} things with sources.",
+    "I could not read everything. Findings with sources: {count}.",
   "ob.conv.read.failed":
     "I could not read that site. Try another URL, or tell me directly.",
   "ob.conv.read.deferred":
@@ -1298,7 +1297,7 @@ export const en = {
   "ob.conv.clarify.intro":
     "One thing I need you to decide. The site is ambiguous here.",
   "ob.conv.clarify.entity":
-    "The site names more than one legal entity. Which one is this installation?",
+    "The site names more than one legal entity. Which one is this installation for?",
   "ob.conv.review.ready":
     "I prepared the mapping. Review it and confirm what is right.",
   "ob.conv.company.confirmed":
@@ -1311,17 +1310,17 @@ export const en = {
   "ob.conv.voice.uploadAdded": "Added {name}.",
   "ob.conv.voice.speakerQuestion":
     "This transcript has several speakers. Which one is you? Only your own words count.",
-  "ob.conv.corpus.words": "Your corpus now holds {words} of your own words.",
+  "ob.conv.corpus.words": "Own words in your corpus now: {words}.",
   "ob.conv.corpus.band": "Corpus quality moved to {band}.",
   "ob.conv.build.snapshot": "Locking in your corpus.",
   "ob.conv.build.extract": "Finding your signature moves.",
-  "ob.conv.build.evaluate": "Testing drafts against held out samples.",
+  "ob.conv.build.evaluate": "Testing drafts against held-out samples.",
   "ob.conv.build.activate": "Activating your voice profile.",
   "ob.conv.build.succeeded": "Your voice profile is ready.",
   "ob.conv.build.deferred":
     "The build is queued behind budget. It will run automatically.",
   "ob.conv.build.failed":
-    "The build did not finish. Your texts are kept, you can retry anytime.",
+    "The build did not finish. Your texts are kept and you can retry anytime.",
   "ob.conv.recap":
     "Here is what your CRM knows now, with a source for every item.",
   "ob.conv.consent":

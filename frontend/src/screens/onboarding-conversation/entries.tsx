@@ -1,16 +1,35 @@
-import { CircleCheck, CircleUserRound } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { CircleAlert, CircleCheck, CircleUserRound, Clock } from "lucide-react";
 import { Button } from "../../design-system/atoms";
 import { useT } from "../../i18n";
-import type { ConversationQuestion, ThreadEntry } from "./conversation-machine";
+import type { MessageKey } from "../../i18n/en";
+import type {
+  ConversationQuestion,
+  OutcomeTone,
+  ThreadEntry,
+} from "./conversation-machine";
 import "./conversation.css";
 
 // Presentational pieces for the conversation thread. Copy always resolves
 // through the i18n catalogs; server-derived values (option labels, params)
-// arrive as data and render verbatim.
+// arrive as data and render verbatim, while paramKeys are translated here.
 
 type NarrationEntry = Extract<ThreadEntry, { kind: "narration" }>;
 type UserEntry = Extract<ThreadEntry, { kind: "user" }>;
 type OutcomeEntry = Extract<ThreadEntry, { kind: "outcome" }>;
+
+type Translate = ReturnType<typeof useT>;
+
+function resolvedParams(
+  t: Translate,
+  params: Record<string, string | number> | undefined,
+  paramKeys: Record<string, MessageKey> | undefined,
+): Record<string, string | number> {
+  const translated = Object.fromEntries(
+    Object.entries(paramKeys ?? {}).map(([name, key]) => [name, t(key)]),
+  );
+  return { ...params, ...translated };
+}
 
 export function NarrationBubble({
   entry,
@@ -28,7 +47,9 @@ export function NarrationBubble({
       >
         <span aria-hidden>{t("ob.ai.speaker")}</span>
       </span>
-      <p>{t(entry.i18nKey, entry.params)}</p>
+      <p>
+        {t(entry.i18nKey, resolvedParams(t, entry.params, entry.paramKeys))}
+      </p>
     </div>
   );
 }
@@ -43,11 +64,20 @@ export function UserTurn({ entry }: Readonly<{ entry: UserEntry }>) {
   );
 }
 
+const outcomeIcons: Record<OutcomeTone, LucideIcon> = {
+  success: CircleCheck,
+  deferred: Clock,
+  failure: CircleAlert,
+};
+
+// No live-region role here: the surrounding thread is the announcing log,
+// and a nested one would double-announce every outcome.
 export function OutcomeCard({ entry }: Readonly<{ entry: OutcomeEntry }>) {
   const t = useT();
+  const Icon = outcomeIcons[entry.tone];
   return (
-    <div className="ob-conv-outcome" role="status">
-      <CircleCheck aria-hidden />
+    <div className="ob-conv-outcome" data-tone={entry.tone}>
+      <Icon aria-hidden />
       <p>{t(entry.i18nKey, entry.params)}</p>
     </div>
   );

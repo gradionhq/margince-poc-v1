@@ -113,8 +113,30 @@
   flex-direction: column;
   align-items: flex-start;
   gap: var(--space-1);
+  /* Long or translated labels wrap inside a bounded chip instead of forcing
+   * the thread to scroll horizontally. */
+  white-space: normal;
+  text-align: start;
+  max-width: 24rem;
+  height: auto;
 }
 
 .ob-conv-option small {
   color: var(--textSecondary);
+}
+
+.ob-conv-outcome[data-tone="deferred"] {
+  border-inline-start-color: var(--warnBorder);
+}
+
+.ob-conv-outcome[data-tone="deferred"] svg {
+  color: var(--warn);
+}
+
+.ob-conv-outcome[data-tone="failure"] {
+  border-inline-start-color: var(--danger);
+}
+
+.ob-conv-outcome[data-tone="failure"] svg {
+  color: var(--danger);
 }

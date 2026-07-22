@@ -24,9 +24,10 @@ type Story = StoryObj;
 
 const narration: Extract<ThreadEntry, { kind: "narration" }> = {
   kind: "narration",
-  id: "field:industry",
+  id: "1:field:industry",
   i18nKey: "ob.conv.read.learnedField",
-  params: { field: "industry", value: "Industrial robotics" },
+  params: { value: "Industrial robotics" },
+  paramKeys: { field: "ob.field.industry" },
   findingIds: ["industry"],
 };
 
@@ -51,8 +52,23 @@ const userTurn: Extract<ThreadEntry, { kind: "user" }> = {
 
 const outcome: Extract<ThreadEntry, { kind: "outcome" }> = {
   kind: "outcome",
-  id: "company:confirmed",
+  id: "4:company:confirmed",
   i18nKey: "ob.conv.company.confirmed",
+  tone: "success",
+};
+
+const deferredOutcome: Extract<ThreadEntry, { kind: "outcome" }> = {
+  kind: "outcome",
+  id: "5:build:deferred",
+  i18nKey: "ob.conv.build.deferred",
+  tone: "deferred",
+};
+
+const failureOutcome: Extract<ThreadEntry, { kind: "outcome" }> = {
+  kind: "outcome",
+  id: "6:read:failed",
+  i18nKey: "ob.conv.read.failed",
+  tone: "failure",
 };
 
 export const Narration: Story = {
@@ -79,13 +95,21 @@ export const Outcome: Story = {
   render: () => <OutcomeCard entry={outcome} />,
 };
 
+export const OutcomeDeferred: Story = {
+  render: () => <OutcomeCard entry={deferredOutcome} />,
+};
+
+export const OutcomeFailure: Story = {
+  render: () => <OutcomeCard entry={failureOutcome} />,
+};
+
 export const Thread: Story = {
   render: () => (
     <ConversationThread
       entries={[
         {
           kind: "narration",
-          id: "pages:5",
+          id: "0:pages:5",
           i18nKey: "ob.conv.read.pages",
           params: { pages: 5 },
         },
