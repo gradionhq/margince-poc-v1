@@ -33,9 +33,27 @@ var (
 	verifyInputs = flag.Bool("verify-inputs", false, "recompute input digests only and compare against composition.json; write nothing")
 )
 
+// genMode is the tool's three mutually exclusive operations; when both
+// verify flags are set, the full compare wins (it subsumes the input
+// probe).
+type genMode int
+
+const (
+	modeGenerate     genMode = iota
+	modeVerify               // regenerate in memory, compare manifest + files on disk
+	modeVerifyInputs         // recompute input digests only — the fast staleness probe
+)
+
 func main() {
 	flag.Parse()
-	if err := run(*rootPath, *verify, *verifyInputs); err != nil {
+	mode := modeGenerate
+	switch {
+	case *verify:
+		mode = modeVerify
+	case *verifyInputs:
+		mode = modeVerifyInputs
+	}
+	if err := run(*rootPath, mode); err != nil {
 		fmt.Fprintln(os.Stderr, "gen-composition:", err)
 		os.Exit(1)
 	}
@@ -72,29 +90,29 @@ type manifestExtRow struct {
 	Tree string `json:"tree"`
 }
 
-func run(root string, verifyAll, verifyIn bool) error {
+func run(root string, mode genMode) error {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return err
 	}
-	if verifyIn || verifyAll {
-		recorded, err := readManifest(root)
-		if err != nil {
-			return fmt.Errorf("%w — run 'make gen'", err)
-		}
-		current, err := computeInputs(root)
-		if err != nil {
-			return err
-		}
-		if err := compareInputs(recorded.Inputs, current); err != nil {
-			return fmt.Errorf("composition stale: %w — run 'make gen'", err)
-		}
-		if !verifyAll {
-			return nil
-		}
-		return verifyOutputs(root, recorded)
+	if mode == modeGenerate {
+		return generate(root)
 	}
-	return generate(root)
+	recorded, err := readManifest(root)
+	if err != nil {
+		return fmt.Errorf("%w — run 'make gen'", err)
+	}
+	current, err := computeInputs(root)
+	if err != nil {
+		return err
+	}
+	if err := compareInputs(recorded.Inputs, current); err != nil {
+		return fmt.Errorf("composition stale: %w — run 'make gen'", err)
+	}
+	if mode == modeVerifyInputs {
+		return nil
+	}
+	return verifyOutputs(root, recorded)
 }
 
 // generate rebuilds build/composition/ from scratch: deterministic
