@@ -247,6 +247,9 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 		// leaving it queued behind a job no one can work.
 		DeepReadBrain:     modelPath.SiteExtract,
 		DeepReadFactBrain: modelPath.SiteFactExtract,
+		// Same posture for the voice build: the worker registers with or
+		// without a model, failing picked-up builds actionably when brainless.
+		VoiceBrain: modelPath.VoiceBuild,
 		DeepReadCaps: compose.CrawlCaps{
 			MaxPages: cfg.deepReadMaxPages,
 			MaxBytes: cfg.deepReadMaxBytes,

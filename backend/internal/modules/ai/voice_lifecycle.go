@@ -9,6 +9,7 @@ package ai
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -102,8 +103,8 @@ func (s *VoiceStore) CreateBuild(ctx context.Context, profileID ids.UUID, in Cre
 			  AND content_erased_at IS NULL`, profileID).Scan(&totalWords, &sourceCount, &sourceHash); err != nil {
 			return err
 		}
-		if totalWords < 800 {
-			return &CorpusIngestError{Field: "corpus", Reason: "at least 800 eligible own-authored words are required"}
+		if totalWords < StarterVoiceWords {
+			return &CorpusIngestError{Field: "corpus", Reason: fmt.Sprintf("at least %d eligible own-authored words are required", StarterVoiceWords)}
 		}
 		build, err = scanVoiceBuild(tx.QueryRow(ctx, storekit.SQLf(`
 			INSERT INTO voice_build
@@ -132,7 +133,13 @@ func (s *VoiceStore) CreateBuild(ctx context.Context, profileID ids.UUID, in Cre
 		if err != nil {
 			return err
 		}
-		return emitVoiceBuild(ctx, tx, auditID, build)
+		if err := emitVoiceBuild(ctx, tx, auditID, build); err != nil {
+			return err
+		}
+		if s.enqueueBuild != nil {
+			return s.enqueueBuild(ctx, tx, build)
+		}
+		return nil
 	})
 	return build, err
 }
@@ -164,7 +171,7 @@ func emitVoiceBuild(ctx context.Context, tx pgx.Tx, auditID ids.UUID, build Voic
 		voiceKeyProfileID: build.ProfileID, "build_id": build.ID, voiceKeyReason: build.Reason,
 		voiceKeyStatus: build.Status, "stage": build.Stage, voiceKeySourceHash: build.SourceHash,
 		voiceKeySourceCount: build.SourceCount, "result_version": build.ResultVersion,
-		"candidate_action": build.CandidateAction, "status_code": build.StatusCode,
+		voiceKeyCandidateAction: build.CandidateAction, voiceKeyStatusCode: build.StatusCode,
 		"next_attempt_at": build.NextAttemptAt,
 	})
 }

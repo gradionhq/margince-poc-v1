@@ -51,7 +51,10 @@ type ModelPath struct {
 	CaptureClassify completer
 	// SignatureEnrich is the §2.9 evidence-or-omit field extraction lane.
 	SignatureEnrich completer
-	Embedder        search.Embedder // the retrieval embed lane
+	// VoiceBuild is the durable Voice DNA build lane: the builder pass and
+	// its evaluation drafts ride the same task label and budget.
+	VoiceBuild completer
+	Embedder   search.Embedder // the retrieval embed lane
 }
 
 // SetCompanyContextEnabled applies the operator's ordered task-rollout stage
@@ -112,6 +115,7 @@ func modelPathForRouter(router *ai.Router, companyContext *companyContextProvide
 		OfferDraft:      brain(ai.TaskOfferDraft),
 		CaptureClassify: brain(ai.TaskCaptureClassify),
 		SignatureEnrich: brain(ai.TaskEnrich),
+		VoiceBuild:      brain(ai.TaskVoiceBuild),
 		Embedder:        router,
 	}
 }

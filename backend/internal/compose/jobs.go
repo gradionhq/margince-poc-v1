@@ -22,6 +22,7 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
@@ -274,6 +275,11 @@ type JobRunnerConfig struct {
 	// DeepReadCaps bounds each deep-read crawl; the zero value takes the
 	// compose defaults (CrawlCaps.withDefaults).
 	DeepReadCaps CrawlCaps
+	// VoiceBrain is the voice-build model lane (the worker's
+	// modelPath.VoiceBuild). May be nil: the build worker still registers,
+	// so a queued build on a brainless worker finishes failed with an
+	// actionable message instead of sitting queued forever.
+	VoiceBrain completer
 }
 
 // NewJobRunner wires the deals correctors and the automation time-scan
@@ -305,6 +311,11 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	// The deep read is not periodic — the api enqueues one job per started
 	// dossier; the worker role only needs the worker registered.
 	river.AddWorker(workers, newSiteDeepReadWorker(pool, cfg.DeepReadBrain, cfg.DeepReadFactBrain, log, cfg.DeepReadCaps))
+	// The voice build is not periodic — the api enqueues one job per created
+	// build; only the deferred-retry sweep ticks. Both register even with a
+	// nil brain so a queued build fails actionably instead of rotting.
+	river.AddWorker(workers, newVoiceBuildWorker(pool, cfg.VoiceBrain, log))
+	river.AddWorker(workers, &voiceBuildRetryWorker{store: ai.NewVoiceStore(pool), log: log})
 	river.AddWorker(workers, &closeDateSweepWorker{corrector: NewCloseDateCorrector(pool, log)})
 	river.AddWorker(workers, &followUpReconcileWorker{reconciler: NewFollowUpReconciler(pool, log)})
 	river.AddWorker(workers, &timeScanWorker{scanner: NewTimeScanner(pool, log)})
@@ -323,6 +334,11 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		river.NewPeriodicJob(
 			river.PeriodicInterval(cfg.TimeScanInterval),
 			func() (river.JobArgs, *river.InsertOpts) { return TimeScanArgs{}, sweepInsertOpts() },
+			&river.PeriodicJobOpts{RunOnStart: true},
+		),
+		river.NewPeriodicJob(
+			river.PeriodicInterval(voiceBuildRetryInterval),
+			func() (river.JobArgs, *river.InsertOpts) { return VoiceBuildRetryArgs{}, sweepInsertOpts() },
 			&river.PeriodicJobOpts{RunOnStart: true},
 		),
 	}
