@@ -23,10 +23,18 @@ import (
 var onboardingRequiredFields = []string{fieldDisplayName, fieldOfferSummary, fieldICP}
 
 type onboardingCompanyAssistant struct {
-	state   *identity.OnboardingStore
-	people  *people.Store
+	state   onboardingStateReader
+	people  onboardingSiteReadReader
 	brain   completer
 	runtime runTransparencyReader
+}
+
+type onboardingStateReader interface {
+	Get(context.Context) (identity.OnboardingState, error)
+}
+
+type onboardingSiteReadReader interface {
+	GetCompanySiteRead(context.Context, ids.UUID) (people.SiteRead, []people.SiteReadComparison, error)
 }
 
 type onboardingConversationContext struct {
@@ -48,6 +56,10 @@ func (a *onboardingCompanyAssistant) message(w http.ResponseWriter, r *http.Requ
 	message := strings.TrimSpace(req.Message)
 	if message == "" {
 		httperr.Write(w, r, httperr.Validation("message", "empty", "write a company-setup message for Margince"))
+		return
+	}
+	if len([]rune(message)) > companyReadMessageMaxRunes {
+		httperr.Write(w, r, httperr.Validation("message", "too_long", "message must be at most 2000 characters"))
 		return
 	}
 	state, err := a.state.Get(r.Context())
