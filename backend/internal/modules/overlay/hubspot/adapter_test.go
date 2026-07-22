@@ -249,6 +249,46 @@ func TestAdapterGetNoResultsErrorsCleanly(t *testing.T) {
 	}
 }
 
+// TestAdapterAssociationsNamespacesEngagementEndpoints proves an
+// engagement-to-engagement edge namespaces BOTH endpoints (OVA-MAP-7): the
+// stored edge references the namespaced mirror ids so it joins/purges with
+// the activity mirror rows, and both endpoint types canonicalize to
+// "activity". The from side arrives already-namespaced (the mirror id
+// Backfill hands in); the query hits the raw object id; the to side is
+// namespaced from the raw association target.
+func TestAdapterAssociationsNamespacesEngagementEndpoints(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/crm/v4/objects/calls/123/associations/meetings" {
+			t.Fatalf("path = %q, want the RAW from id /crm/v4/objects/calls/123/associations/meetings", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"results": [ { "toObjectId": 456,
+			  "associationTypes": [ {"category":"HUBSPOT_DEFINED","typeId":9,"label":"Related"} ] } ]
+		}`))
+	}))
+	defer srv.Close()
+
+	adapter := hubspot.NewAdapter(hubspot.NewClient("us", "test-token", hubspot.WithBaseURL(srv.URL)))
+	// fromID arrives namespaced (as the mirror hands it back); the query above
+	// asserts it was stripped to the raw "123" for the API call.
+	assocs, err := adapter.Associations(t.Context(), "calls", "calls:123", "meetings")
+	if err != nil {
+		t.Fatalf("Associations: %v", err)
+	}
+	if len(assocs) != 1 {
+		t.Fatalf("len(assocs) = %d, want 1", len(assocs))
+	}
+	got := assocs[0]
+	want := overlay.Assoc{
+		FromType: "activity", FromID: "calls:123", ToType: "activity", ToID: "meetings:456",
+		TypeID: 9, Category: "HUBSPOT_DEFINED", Label: "Related", Direction: "forward",
+	}
+	if got != want {
+		t.Fatalf("assocs[0] = %#v, want %#v (both engagement endpoints namespaced + canonical type)", got, want)
+	}
+}
+
 // TestAdapterAssociationsPopulatesForwardDirection exercises
 // Associations' delegation to the v4 endpoint, one overlay.Assoc per
 // association-type label, each tagged with the forward direction this

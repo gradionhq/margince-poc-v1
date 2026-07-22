@@ -54,9 +54,11 @@ func overlayRecordFields(rec datasource.Record) (map[string]any, error) {
 }
 
 // overlayWirePerson assembles the contract Person from a mirror record.
-// full_name is derived first+last (the mapper lands the parts, not the
-// join); a person the incumbent kept nameless falls back to their mapped
-// email, then to the honest "Unnamed". Structured child rows (emails,
+// full_name is the canonical value the mapper assembled (OVA-MAP-3:
+// first+last → email local part → placeholder); it is reused as-is so the
+// wire cannot diverge from the mirror, with a first+last → email → "Unnamed"
+// re-derivation kept only as a fallback for a pre-mapping mirror row that
+// carries no full_name. Structured child rows (emails,
 // phones) are NOT fabricated: the contract's PersonEmail demands a row
 // identity/type/position the mirror does not hold, so the mapped email
 // stays in raw rather than riding a made-up child row.
@@ -288,6 +290,12 @@ func overlayWireActivity(ctx context.Context, rec datasource.Record) (crmcontrac
 func overlayWireTitle(et datasource.EntityType, fields map[string]any) string {
 	switch et {
 	case datasource.EntityPerson:
+		// Prefer the canonical full_name the mapping assembled (OVA-MAP-3), so
+		// a search hit's title matches the person-detail full_name; re-derive
+		// only for a pre-mapping mirror row that carries no full_name.
+		if name := strings.TrimSpace(fieldString(fields, "full_name")); name != "" {
+			return name
+		}
 		name := strings.TrimSpace(strings.TrimSpace(fieldString(fields, "first_name")) + " " + strings.TrimSpace(fieldString(fields, "last_name")))
 		if name == "" {
 			name = overlayPersonEmail(fields)

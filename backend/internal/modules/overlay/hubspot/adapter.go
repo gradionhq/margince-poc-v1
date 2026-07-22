@@ -192,10 +192,13 @@ func (a *Adapter) Associations(ctx context.Context, fromClass, fromID, toClass s
 	for _, assoc := range assocs {
 		for _, t := range assoc.Types {
 			out = append(out, overlay.Assoc{
-				FromType:  fromMapping.Target,
-				FromID:    fromID,
-				ToType:    toMapping.Target,
-				ToID:      assoc.ToObjectID,
+				FromType: fromMapping.Target,
+				FromID:   fromID,
+				ToType:   toMapping.Target,
+				// Namespace the target id too when the target is an engagement
+				// class, so an activity-targeting edge joins/purges the
+				// namespaced mirror row (a no-op for non-engagement targets).
+				ToID:      mirrorActivityExternalID(toClass, assoc.ToObjectID),
 				TypeID:    t.TypeID,
 				Category:  t.Category,
 				Label:     t.Label,
