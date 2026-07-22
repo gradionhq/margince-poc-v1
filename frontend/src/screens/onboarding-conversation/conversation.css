@@ -1,8 +1,13 @@
 /* Conversation thread pieces. Colours and spacing read tokens only. */
 
+/* The thread is the ACTUAL scroll container: inside a flex shell it must
+ * shrink (min-height: 0) so overflow happens here, where the follow-the-
+ * bottom scroll handler is listening, not on some ancestor. */
 .ob-conv-thread {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
   gap: var(--space-3);
   overflow-y: auto;
   padding: var(--space-4);
@@ -116,6 +121,7 @@
   /* Long or translated labels wrap inside a bounded chip instead of forcing
    * the thread to scroll horizontally. */
   white-space: normal;
+  overflow-wrap: anywhere;
   text-align: start;
   max-width: 24rem;
   height: auto;
