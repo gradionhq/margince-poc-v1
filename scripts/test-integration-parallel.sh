@@ -32,7 +32,7 @@
 # so each shard runs a deterministic round-robin slice of every package's
 # top-level Test functions via -run. Discovery is static (`func Test…` in the
 # package's *_test.go files) so it costs no compile; files under the known
-# opt-in lane tags (e2e_llm, livesmoke) are skipped exactly as the compiler
+# opt-in lane tags (e2e_llm, livesmoke, voicelive) are skipped exactly as the compiler
 # skips them, and any other constraint — an expression, or a lone tag the
 # allowlist does not know (a satisfied built-in like linux or cgo would
 # compile but never be sliced) — fails discovery loudly instead of being
@@ -140,8 +140,8 @@ if (( SHARD_TOTAL > 0 )); then
     for f in "$pkgdir"/*_test.go; do
       [[ -e "$f" ]] || continue
       # Build-constrained files: only allowlisted lone tags are statically
-      # decidable — `integration` is in this lane's build, e2e_llm/livesmoke
-      # (the paid opt-in lanes) are not, so those files' tests are skipped
+      # decidable — `integration` is in this lane's build, the manual opt-in
+      # lanes (e2e_llm, livesmoke, voicelive) are not, so those files' tests are skipped
       # exactly as the compiler skips them. Anything else — an expression
       # with operators, or a lone tag the allowlist does not know — fails
       # loudly (on stderr — stdout here feeds the sort) rather than guess:
@@ -153,7 +153,7 @@ if (( SHARD_TOTAL > 0 )); then
         [[ -n "$expr" ]] || continue
         case "$expr" in
           integration) ;;
-          e2e_llm|livesmoke) skip_file=1 ;;
+          e2e_llm|livesmoke|voicelive) skip_file=1 ;;
           *)
             echo "FAIL: $f carries build constraint '$expr' — not one the static shard discovery knows" >&2
             echo "  teach the allowlist in scripts/test-integration-parallel.sh or simplify the constraint" >&2

@@ -50,7 +50,7 @@ Consequences:
 
 ```
 changes ──┬─> deterministic-gates ──> craftsmanship
-          ├─> integration-shards (×16) ─────┬─> integration (fan-in) ──┐
+          ├─> integration-shards (×12) ─────┬─> integration (fan-in) ──┐
           ├─> integration-unit-coverage ────┘                          │
           ├─> vuln                                                     │
           ├─> frontend ──> uat                                         │
@@ -67,7 +67,7 @@ passes. The real-Postgres integration lane is the opposite — it runs **beside*
 `deterministic-gates`, not behind it: it is the longest lane in the pipeline,
 so serializing the two slowest jobs dominated PR wall-clock, and a broken
 build is still caught by `deterministic-gates` itself. And the lane is
-**sharded**: sixteen matrix runners each execute a deterministic per-test slice
+**sharded**: twelve matrix runners each execute a deterministic per-test slice
 (package-level splitting would floor at the heaviest package,
 `compose/integration`), and the `integration` fan-in reassembles them into the
 one required check.
@@ -81,7 +81,7 @@ one required check.
 | `deterministic-gates` | `make check-backend`: build, vet, lint (baseline + new-code strict), arch-lint, unit + root fitness tests (incl. `audit_log` enum coherence + the contract `$ref` pre-flight), generated-drift, and the script gates (image pins, contract-breaking, test-lanes, file-length, RLS store-path, jurisdiction isolation). Fetches full history so the diff-scoped gates have a base ref |
 | `craftsmanship` | `make craft-static` (blocker-only). Runs **after** `deterministic-gates` — a red build is never judged on style |
 | `craft-residue` | No unresolved `CRAFT-FIX`/`CRAFT-DISPUTE` markers reach `main` |
-| `integration shard (k/16)` | `make test-integration` with `INTEGRATION_SHARD=k/16`: a deterministic per-test round-robin slice of the whole integration lane. Slices are count-based, not duration-based, so the shard that draws the heavy tail of multi-second e2e tests runs well over the average; more slices shrink each draw, but only duration-aware packing would flatten it. Boots the dev compose stack (`make db-up`: digest-pinned Postgres 16 (pgvector) + Redis 7 + MinIO + the app role — one stack definition, no hand-mirrored GH services); each shard builds its own migrated `margince_test` template and clones per package. Uploads its slice manifests + binary coverage pods |
+| `integration shard (k/12)` | `make test-integration` with `INTEGRATION_SHARD=k/12`: a deterministic per-test round-robin slice of the whole integration lane. Slices are count-based, not duration-based; the heavy e2e tail lands on whichever shard draws it, and `INTEGRATION_JOBS=16` (the tests wait on Postgres, not cores) lets that shard chew through its slice instead of running minutes over its siblings. Boots the dev compose stack (`make db-up`: digest-pinned Postgres 16 (pgvector) + Redis 7 + MinIO + the app role — one stack definition, no hand-mirrored GH services); each shard builds its own migrated `margince_test` template and clones per package. Uploads its slice manifests + binary coverage pods |
 | `integration unit coverage` | The unit `-cover` pass over every package, binary coverage pods only. Needed because the shards run just the integration-tagged packages, and without it SonarCloud would see the unit-only packages at a false ~0% new-code coverage. No services (the test-lanes gate guarantees untagged tests open no real DB) |
 | `integration` | The fan-in — and the required check, under the same name the single-runner lane carried, so branch protection is unchanged. Asserts every shard + the unit pass succeeded (a failed shard must turn this check red, not skipped), then `scripts/test-integration-reconcile.sh` proves the slices add up: every shard present, identical discovery, union complete + disjoint. Merges all coverage pods into `coverage.out`, uploads `go-coverage` |
 | `vuln` | `make vuln` (govulncheck over all packages) |
