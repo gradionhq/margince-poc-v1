@@ -36,7 +36,11 @@ payload="$(cat)"
 root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [ -z "$root" ]; then exit 0; fi   # not a git repo → nothing to review
 
-state_file="$root/.git/margince-finish-review.state"
+# Per-worktree state: --absolute-git-dir resolves to .git/ in the main
+# checkout and .git/worktrees/<name>/ in a linked worktree, where $root/.git
+# is a file — a literal $root/.git/<name> write would fail there and kill the
+# hook before it could emit its block decision.
+state_file="$(git -C "$root" rev-parse --absolute-git-dir)/margince-finish-review.state"
 max_craft_attempts=3
 
 # --- the session transcript path (from the Stop payload) ------------------
@@ -107,14 +111,17 @@ while IFS= read -r f; do
 done <<< "$session_edits"
 if [ "${#edited[@]}" -eq 0 ]; then exit 0; fi   # this session issued no backend edits → not our turn
 
-# Keep only those with a real NET change still in the tree: an uncommitted
-# modification vs HEAD, or a new untracked file. An edit-then-revert nets to
-# nothing (clean vs HEAD) and drops out — the review must not fire on a file a
-# sibling committed or that this session put back exactly as it found it.
+# Keep only those with a real NET change still in the tree, measured against
+# the merge-base with origin/main — NOT against HEAD: the standard loop
+# commits within the turn, so a HEAD comparison nets committed work to zero
+# and the review would never fire. Committed-but-unmerged changes stay in
+# scope; an edit-then-revert still nets to nothing and drops out; a sibling
+# session's files never enter because the set is transcript-derived.
+base="$(git -C "$root" merge-base HEAD origin/main 2>/dev/null || git -C "$root" rev-parse HEAD)"
 files=()
 for f in "${edited[@]}"; do
-	if ! git -C "$root" diff --quiet HEAD -- "$f" 2>/dev/null; then
-		files+=("$f")   # tracked, has uncommitted changes
+	if ! git -C "$root" diff --quiet "$base" -- "$f" 2>/dev/null; then
+		files+=("$f")   # changed vs the merge-base — committed or not
 	elif [ -n "$(git -C "$root" ls-files --others --exclude-standard -- "$f")" ]; then
 		files+=("$f")   # new untracked file this session wrote
 	fi
