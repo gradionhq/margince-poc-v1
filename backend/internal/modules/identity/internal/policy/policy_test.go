@@ -68,6 +68,35 @@ func TestMergeUnionsGrantsAndWidensScope(t *testing.T) {
 	}
 }
 
+func TestEmbeddingReindexGrants(t *testing.T) {
+	for _, key := range []string{"admin", "ops"} {
+		doc, err := Parse(MustDefaultJSON(key))
+		if err != nil {
+			t.Fatalf("role %q: %v", key, err)
+		}
+		merged := Merge(map[string]Document{key: doc})
+		if !merged.Allows("embedding_reindex", principal.ActionUpdate) {
+			t.Errorf("role %q should be able to update embedding_reindex (trigger a reindex)", key)
+		}
+		if !merged.Allows("embedding_reindex", principal.ActionRead) {
+			t.Errorf("role %q should be able to read embedding_reindex", key)
+		}
+	}
+	for _, key := range []string{"manager", "rep", "read_only"} {
+		doc, err := Parse(MustDefaultJSON(key))
+		if err != nil {
+			t.Fatalf("role %q: %v", key, err)
+		}
+		merged := Merge(map[string]Document{key: doc})
+		if !merged.Allows("embedding_reindex", principal.ActionRead) {
+			t.Errorf("role %q should be able to read embedding_reindex (the reindex-needed banner is wide-read)", key)
+		}
+		if merged.Allows("embedding_reindex", principal.ActionUpdate) {
+			t.Errorf("role %q must not be able to trigger a reindex", key)
+		}
+	}
+}
+
 func TestZeroRolesDenyEverything(t *testing.T) {
 	merged := Merge(nil)
 	for _, object := range coreObjects {
