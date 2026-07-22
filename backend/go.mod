@@ -6,6 +6,16 @@ module github.com/gradionhq/margince/backend
 // choice, revisit if broader portability becomes a goal.
 go 1.26.5
 
+// The composed extension set (ADR-0069): a constant import path the role
+// binaries wire — api, worker and mcp today; migrate joins when the
+// extension migration namespace lands. Bare builds resolve the committed
+// vanilla stub via this replace, `make` lanes override it with the
+// generated module under build/composition/ via the generated go.work (a
+// workspace `use` wins over a member replace).
+require github.com/gradionhq/margince/composition v0.0.0
+
+replace github.com/gradionhq/margince/composition => ../composition
+
 require (
 	github.com/emersion/go-imap/v2 v2.0.0-beta.8
 	github.com/emersion/go-message v0.18.2

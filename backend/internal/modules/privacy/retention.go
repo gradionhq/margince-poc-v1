@@ -70,8 +70,21 @@ func NewRetentionService(pool *pgxpool.Pool, blob blobstore.Store, log *slog.Log
 // workspace policy like any other record. That boundary is not just prose:
 // TestStatutoryFloorShieldsCorrespondenceFromDestruction pins it (a 400-day
 // email survives, a same-age note is erased), so flipping the classification
-// fails the build. Archive passes floor 0 because archiving RETAINS.
-const commercialCorrespondenceFloor = `AND NOT (a.kind NOT IN ('task','note') AND a.occurred_at > now() - make_interval(days => $3))`
+// fails the build. Archive passes the zero period ("P0D") because archiving
+// RETAINS. $3 is an ISO 8601 date interval (jurisdiction.Period.String) and
+// $4 the calendar-year-end anchor flag (jurisdiction.Anchor). Postgres does
+// the calendar arithmetic, so a six-YEAR statutory floor is never shortened
+// to 2190 days across leap years — and under §147(4) AO the clock starts at
+// the END of the record's calendar year, so a January Handelsbrief keeps
+// almost seven calendar years, never one day less. The two branches
+// deliberately differ in form: clamped interval ADDITION loses days at month
+// ends (Jan-31 + 1 month = Feb-28), so the occurrence branch keeps the
+// conservative `occurred_at > now() - interval` shape (which
+// jurisdiction.Period.Cutoff mirrors); the year-end branch adds from Jan 1,
+// where nothing clamps, and matches RetentionClass.ProtectedSince.
+const commercialCorrespondenceFloor = `AND NOT (a.kind NOT IN ('task','note')
+		  AND CASE WHEN $4 THEN date_trunc('year', a.occurred_at) + interval '1 year' + $3::interval > now()
+		           ELSE a.occurred_at > now() - $3::interval END)`
 
 // selectors name the records a (object_type, category) policy governs.
 // The closed map is deliberate: a policy row with a scope the engine
@@ -171,6 +184,11 @@ func (s *RetentionService) evaluateWorkspace(ctx context.Context) error {
 		return err
 	}
 
+	// ONE reference instant per workspace pass: the strictest-floor
+	// comparison anchors mixed-unit periods at a timestamp, so a fresh
+	// time.Now() per policy could order the floors differently between
+	// two activity policies of the same run.
+	ref := time.Now()
 	for _, pol := range policies {
 		scope := pol.ObjectType + "/"
 		if pol.Category != nil {
@@ -184,11 +202,11 @@ func (s *RetentionService) evaluateWorkspace(ctx context.Context) error {
 		}
 		args := []any{pol.RetainDays, retentionBatch}
 		if pol.ObjectType == "activity" {
-			floor := 0
+			floor := jurisdiction.RetentionClass{}
 			if pol.Action != "archive" {
-				floor = statutoryCorrespondenceFloorDays()
+				floor = statutoryCorrespondenceFloor(ref)
 			}
-			args = append(args, floor)
+			args = append(args, floor.Keep.String(), floor.Anchor == jurisdiction.AnchorCalendarYearEnd)
 		}
 		// due stays untyped: the selector's entity varies by policy scope
 		// (lead, activity, person, deal), so the id kind is only known one
@@ -422,20 +440,26 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 	})
 }
 
-// statutoryCorrespondenceFloorDays is the strictest compiled-in pack's
-// commercial-correspondence class in days — the floor below which a
-// destructive retention action must not touch an email activity. Zero
-// when no pack declares one.
-func statutoryCorrespondenceFloorDays() int {
-	floor := 0
+// statutoryCorrespondenceFloor is the strictest compiled-in pack's
+// commercial-correspondence class — the boundary below which a
+// destructive retention action must not touch an email activity. The
+// floors are calendar periods with a declared ANCHOR, never day counts:
+// a Years*365 conversion would shorten a statutory floor across leap
+// years, and ignoring a calendar-year-end anchor (§147(4) AO) would
+// erase a January document almost a year early. Strictness is compared
+// as ProtectedSince at ref (the pass's evaluation time): mixed-unit
+// periods and mixed anchors only order against an instant. The zero
+// class means no pack declares one.
+func statutoryCorrespondenceFloor(ref time.Time) jurisdiction.RetentionClass {
+	floor := jurisdiction.RetentionClass{}
 	for _, pack := range jurisdiction.Applicable() {
 		retention := pack.Retention()
 		if retention == nil {
 			continue
 		}
 		for _, class := range retention.Classes() {
-			if class.Name == "commercial_correspondence" && class.Years*365 > floor {
-				floor = class.Years * 365
+			if class.Name == jurisdiction.CommercialCorrespondence && class.ProtectedSince(ref).Before(floor.ProtectedSince(ref)) {
+				floor = class
 			}
 		}
 	}

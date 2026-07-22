@@ -3,9 +3,14 @@
 
 // Package jurisdiction is the Tier-0 seam behind country packs
 // (architecture/14, ADR-0042): country-specific behavior lives in a
-// self-contained pack module (crm-de, …) composed in at compile time by
-// the edge binary's require-set. Core code never imports a pack and never
-// contains a jurisdiction string; packs register here in init().
+// self-contained pack composed in at compile time — today a module
+// registering in init(), migrating to the extension tier's Registry
+// (ADR-0069). Core code never imports a pack and never contains a
+// jurisdiction string. The pack CONTRACT (Pack, Retention,
+// RetentionClass) lives on the published surface
+// backend/pkg/extension/jurisdiction so extensions can implement it;
+// this package keeps the core-internal registry and re-exports the
+// types as aliases so core call sites stay put.
 //
 // Deliberately absent: locale/i18n. Locale is per-user and orthogonal to
 // jurisdiction (A57) — there is no LocaleBundle on this seam.
@@ -15,43 +20,63 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+
+	pub "github.com/gradionhq/margince/backend/pkg/extension/jurisdiction"
 )
 
-// Pack is one jurisdiction's compiled-in behavior set. Retention is the
-// only obligation packs carry today; the further ADR-0042 contributions
-// (FiscalFormatter, ConformityRegime, …) return when a work package pays
-// for them.
-type Pack interface {
-	// Code is the ISO 3166-1 alpha-2 code, lower-case ("de").
-	Code() string
+// Pack is the published pack contract
+// (backend/pkg/extension/jurisdiction), aliased so a pack registered by
+// an extension and one registered by a core module are the same type.
+type Pack = pub.Pack
 
-	// Retention returns the pack's statutory retention classes (GoBD in
-	// the DE pack); nil when the pack adds none.
-	Retention() Retention
-}
+// Retention is the published retention contract, aliased like Pack.
+type Retention = pub.Retention
 
-// Retention exposes statutory retention classes the core retention engine
-// consults; the engine stays core, the classes come from the pack.
-type Retention interface {
-	Classes() []RetentionClass
-}
+// RetentionClass is the published retention-class shape, aliased like Pack.
+type RetentionClass = pub.RetentionClass
 
-type RetentionClass struct {
-	Name  string
-	Years int
-}
+// Code is the published jurisdiction-code type, aliased like Pack.
+type Code = pub.Code
+
+// Period is the published calendar-period type, aliased like Pack.
+type Period = pub.Period
+
+// RetentionClassName is the published closed class vocabulary, aliased
+// like Pack; the named classes ride along so core engines consult the
+// same constants extensions declare.
+type RetentionClassName = pub.RetentionClassName
+
+const (
+	// CommercialCorrespondence is the published constant, re-exported.
+	CommercialCorrespondence = pub.CommercialCorrespondence
+	// AccountingRecords is the published constant, re-exported.
+	AccountingRecords = pub.AccountingRecords
+)
+
+// Anchor is the published retention-anchor type, aliased like Pack.
+type Anchor = pub.Anchor
+
+const (
+	// AnchorOccurrence is the published constant, re-exported.
+	AnchorOccurrence = pub.AnchorOccurrence
+	// AnchorCalendarYearEnd is the published constant, re-exported.
+	AnchorCalendarYearEnd = pub.AnchorCalendarYearEnd
+)
 
 var (
 	mu    sync.RWMutex
-	packs = map[string]Pack{}
+	packs = map[Code]Pack{}
 )
 
-// Register is called from a pack's init(); a duplicate code is a wiring
-// defect and fails fast at boot.
+// Register is called from a pack's init(); a duplicate or invalid code
+// (Code.Validate) is a wiring defect and fails fast at boot.
 func Register(p Pack) {
 	mu.Lock()
 	defer mu.Unlock()
 	code := p.Code()
+	if err := code.Validate(); err != nil {
+		panic(fmt.Sprintf("jurisdiction: %v", err))
+	}
 	if _, dup := packs[code]; dup {
 		panic(fmt.Sprintf("jurisdiction: pack %q registered twice", code))
 	}
@@ -60,7 +85,9 @@ func Register(p Pack) {
 
 // For returns the pack for a code; ok is false when the running binary
 // was not compiled with it.
-func For(code string) (Pack, bool) {
+//
+//nolint:ireturn // Pack IS the seam: packs are interface implementations behind one registry; returning the interface is the design.
+func For(code Code) (Pack, bool) {
 	mu.RLock()
 	defer mu.RUnlock()
 	p, ok := packs[code]
