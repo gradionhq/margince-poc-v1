@@ -152,7 +152,7 @@ func TestExternalIDUUIDBridgeRoundTrips(t *testing.T) {
 	// Bare numeric ids (contacts/companies/deals/leads) AND the OVA-MAP-7
 	// class-namespaced activity ids both round-trip exactly.
 	ids := []string{"0", "1", "100214862042", "18446744073709551615"}
-	for _, class := range IncumbentEngagementClasses {
+	for _, class := range incumbentEngagementClasses {
 		ids = append(ids, class+":123", class+":0")
 	}
 	for _, externalID := range ids {

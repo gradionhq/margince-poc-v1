@@ -92,6 +92,14 @@ type ObjectMapping struct {
 	Const map[string]any
 }
 
+// keyExternalID/keyLastSyncedAt are the two structural mirror targets Apply
+// writes directly (from ExternalKey/Baseline) — reserved, so a mapping's
+// Const may never claim them.
+const (
+	keyExternalID   = "external_id"
+	keyLastSyncedAt = "last_synced_at"
+)
+
 // Apply projects a raw incumbent record (a flat properties map, per the
 // wire shapes observed in design.md §11) through an ObjectMapping,
 // returning the mirror-shaped target map, the list of raw keys that
@@ -106,18 +114,21 @@ func Apply(m ObjectMapping, raw map[string]any) (map[string]any, []string, error
 	if m.ExternalKey != "" {
 		consumed[m.ExternalKey] = true
 		if v, ok := raw[m.ExternalKey]; ok {
-			out["external_id"] = v
+			out[keyExternalID] = v
 		}
 	}
 	if m.Baseline != "" {
 		consumed[m.Baseline] = true
 		if v, ok := raw[m.Baseline]; ok {
-			out["last_synced_at"] = v
+			out[keyLastSyncedAt] = v
 		}
 	}
 
 	for k, v := range m.Const {
-		if _, clash := out[k]; clash {
+		// Reserved structural targets are checked by NAME, not by whether this
+		// particular record happened to populate them — a Const must never
+		// substitute the mirror's identity or watermark.
+		if k == keyExternalID || k == keyLastSyncedAt {
 			return nil, nil, fmt.Errorf("overlay: const target %q collides with a structural key", k)
 		}
 		out[k] = v
@@ -127,7 +138,13 @@ func Apply(m ObjectMapping, raw map[string]any) (map[string]any, []string, error
 		for _, k := range f.From {
 			consumed[k] = true
 		}
-		if _, clash := m.Const[f.To]; clash {
+		// A TargetChild writes its PARENT key (out["person_email"]), not the
+		// dotted To — check the parent so a Const at that key is caught.
+		constTarget := f.To
+		if f.Kind == TargetChild {
+			constTarget, _, _ = strings.Cut(f.To, ".")
+		}
+		if _, clash := m.Const[constTarget]; clash {
 			return nil, nil, fmt.Errorf("overlay: field target %q collides with a const target", f.To)
 		}
 		if err := applyField(out, f, raw); err != nil {

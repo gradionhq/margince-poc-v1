@@ -63,7 +63,7 @@ func NewOverlayHandlers(pool *pgxpool.Pool, vault keyvault.Vault, meter *overlay
 	incumbent := overlayIncumbentFactory(backfillLimit)
 	svc := overlay.NewService(pool, vault, ms).
 		WithBudgetMeter(meter).
-		WithIncumbentClassTranslator(hubspot.IncumbentClassesFor).
+		WithIncumbentClassesTranslator(hubspot.IncumbentClassesFor).
 		WithIncumbentFactory(incumbent).
 		WithModeFlipObserver(onModeFlip).
 		WithLogger(log)

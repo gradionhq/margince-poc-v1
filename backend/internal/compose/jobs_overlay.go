@@ -39,7 +39,7 @@ func (OverlayReconcileArgs) Kind() string { return "overlay_reconcile" }
 var overlayObjectClasses = append([]string{
 	overlay.IncumbentClassContacts, overlay.IncumbentClassCompanies,
 	overlay.IncumbentClassDeals, overlay.IncumbentClassLeads,
-}, overlay.IncumbentEngagementClasses...)
+}, overlay.IncumbentEngagementClasses()...)
 
 // overlayReconcileWorker walks every overlay-mode workspace's active
 // incumbent connection (overlay.DueOverlayConnections — the same

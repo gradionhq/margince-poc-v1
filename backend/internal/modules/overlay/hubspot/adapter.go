@@ -167,6 +167,19 @@ func (a *Adapter) Get(ctx context.Context, objectClass, externalID string) (over
 // to every linked record of toClass, tagging each edge with the forward
 // direction this query resolves.
 func (a *Adapter) Associations(ctx context.Context, fromClass, fromID, toClass string) ([]overlay.Assoc, error) {
+	// The stored edge carries CANONICAL endpoint types (m.Target: "activity",
+	// "person", …), not the incumbent class names — so it references the same
+	// (object_class, external_id) identity the mirror rows and PurgeRecord use
+	// (a "calls" edge under from_type would never be cleaned up when the
+	// activity is purged, nor join the mirror on read).
+	fromMapping, err := mappingFor(fromClass)
+	if err != nil {
+		return nil, err
+	}
+	toMapping, err := mappingFor(toClass)
+	if err != nil {
+		return nil, err
+	}
 	// fromID is the MIRROR id (namespaced for an engagement class,
 	// OVA-MAP-7). The v4 API needs the raw object id, but the stored edge
 	// must reference the activity by its namespaced mirror id so it joins the
@@ -179,9 +192,9 @@ func (a *Adapter) Associations(ctx context.Context, fromClass, fromID, toClass s
 	for _, assoc := range assocs {
 		for _, t := range assoc.Types {
 			out = append(out, overlay.Assoc{
-				FromType:  fromClass,
+				FromType:  fromMapping.Target,
 				FromID:    fromID,
-				ToType:    toClass,
+				ToType:    toMapping.Target,
 				ToID:      assoc.ToObjectID,
 				TypeID:    t.TypeID,
 				Category:  t.Category,

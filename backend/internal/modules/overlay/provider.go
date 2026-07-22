@@ -76,7 +76,7 @@ func errNoMirrorStore() error {
 // packs the numeric id rather than persisting a mapping table.
 // A namespaced activity id ("<class>:<numeric>", OVA-MAP-7) does not fit the
 // numeric-packing bridge on its own, so the source class is packed as a small
-// 1-based code (its index in IncumbentEngagementClasses) into byte 7, just
+// 1-based code (its index in incumbentEngagementClasses) into byte 7, just
 // above the numeric id in bytes 8..15. Code 0 is the un-namespaced case
 // (contacts/companies/deals/leads), so their bridge is byte-for-byte
 // unchanged. The bridge stays exactly reversible — no persisted mapping
@@ -85,11 +85,11 @@ func externalIDToUUID(externalID string) (ids.UUID, error) {
 	numeric := externalID
 	var code byte
 	if class, rest, namespaced := strings.Cut(externalID, ":"); namespaced {
-		idx := slices.Index(IncumbentEngagementClasses, class)
+		idx := slices.Index(incumbentEngagementClasses, class)
 		if idx < 0 {
 			return ids.UUID{}, fmt.Errorf("overlay: external id %q names an unknown activity class — cannot bridge it to the frozen EntityRef.ID shape", externalID)
 		}
-		// idx+1 is at most len(IncumbentEngagementClasses) (five); the mask is
+		// idx+1 is at most len(incumbentEngagementClasses) (five); the mask is
 		// a no-op that makes the byte narrowing provably in-range.
 		code = byte((idx + 1) & 0xff)
 		numeric = rest
@@ -113,8 +113,8 @@ func externalIDToUUID(externalID string) (ids.UUID, error) {
 func uuidToExternalID(id ids.UUID) string {
 	numeric := strconv.FormatUint(binary.BigEndian.Uint64(id[8:]), 10)
 	code := int(id[7])
-	if code >= 1 && code <= len(IncumbentEngagementClasses) {
-		return IncumbentEngagementClasses[code-1] + ":" + numeric
+	if code >= 1 && code <= len(incumbentEngagementClasses) {
+		return incumbentEngagementClasses[code-1] + ":" + numeric
 	}
 	return numeric
 }

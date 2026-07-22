@@ -70,7 +70,14 @@ func overlayWirePerson(ctx context.Context, rec datasource.Record) (crmcontracts
 		return crmcontracts.Person{}, err
 	}
 	syncedAt := rec.Freshness.LastSyncedAt
-	fullName := strings.TrimSpace(strings.TrimSpace(fieldString(fields, "first_name")) + " " + strings.TrimSpace(fieldString(fields, "last_name")))
+	// Prefer the canonical full_name the mapping already assembled (OVA-MAP-3:
+	// firstname+lastname → email local part → stable placeholder) so the wire
+	// value cannot diverge from what was mirrored. The re-derivation below is
+	// only a fallback for a mirror row that predates the full_name mapping.
+	fullName := fieldString(fields, "full_name")
+	if fullName == "" {
+		fullName = strings.TrimSpace(strings.TrimSpace(fieldString(fields, "first_name")) + " " + strings.TrimSpace(fieldString(fields, "last_name")))
+	}
 	if fullName == "" {
 		fullName = overlayPersonEmail(fields)
 	}

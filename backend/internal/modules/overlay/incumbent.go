@@ -5,6 +5,7 @@ package overlay
 
 import (
 	"context"
+	"slices"
 	"time"
 )
 
@@ -34,10 +35,20 @@ const (
 	IncumbentClassTasks     = "tasks"
 )
 
-// IncumbentEngagementClasses is the five v3 engagement object classes, in a
-// stable order, that all map onto the canonical "activity" type.
-var IncumbentEngagementClasses = []string{
+// incumbentEngagementClasses is the private source of truth for the five v3
+// engagement object classes, in a stable order, that all map onto the
+// canonical "activity" type. It is private so no other package can mutate the
+// shared set; external callers get a fresh copy via IncumbentEngagementClasses.
+var incumbentEngagementClasses = []string{
 	IncumbentClassCalls, IncumbentClassMeetings, IncumbentClassEmails, IncumbentClassNotes, IncumbentClassTasks,
+}
+
+// IncumbentEngagementClasses returns the five engagement object classes in
+// their stable order — a FRESH copy each call, so a caller (the sweep list,
+// the association-target table) can range over it without any risk of
+// mutating the shared set.
+func IncumbentEngagementClasses() []string {
+	return slices.Clone(incumbentEngagementClasses)
 }
 
 // Record is one incumbent-CRM object as read through the Incumbent seam:

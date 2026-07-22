@@ -231,6 +231,11 @@ func TestTransformEmployeesToSizeBandBuckets(t *testing.T) {
 	if _, _, err := overlay.Apply(m, map[string]any{"numberofemployees": "not-a-number"}); err == nil {
 		t.Fatal("Apply: want an error for employees_to_size_band applied to an unparsable string")
 	}
+	for _, nonPositive := range []string{"0", "-5"} {
+		if _, _, err := overlay.Apply(m, map[string]any{"numberofemployees": nonPositive}); err == nil {
+			t.Fatalf("Apply: want an error for a non-positive headcount %q (never labeled 1-10)", nonPositive)
+		}
+	}
 }
 
 // TestTransformAddressJSONDropsEmptyAndNilFields proves

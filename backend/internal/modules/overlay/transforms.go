@@ -243,6 +243,11 @@ func transformEmployeesToSizeBand(v any) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("overlay: employees_to_size_band could not parse %q as an integer", s)
 	}
+	if n <= 0 {
+		// A zero or negative headcount is out-of-range source data, not the
+		// smallest band — inventing "1-10" from it would fabricate a size.
+		return nil, fmt.Errorf("overlay: employees_to_size_band got a non-positive headcount %d", n)
+	}
 	// Buckets are the Organization.size_band enum verbatim (crm.yaml):
 	// a label outside that set is dropped by the typed response, so the
 	// boundaries must match the contract exactly, not an approximation.

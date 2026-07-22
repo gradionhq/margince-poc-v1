@@ -46,7 +46,7 @@ var backfillAssocTargets = func() map[string][]string {
 	m := map[string][]string{
 		IncumbentClassDeals: {IncumbentClassCompanies},
 	}
-	for _, engagement := range IncumbentEngagementClasses {
+	for _, engagement := range incumbentEngagementClasses {
 		m[engagement] = []string{IncumbentClassContacts, IncumbentClassCompanies, IncumbentClassDeals, IncumbentClassLeads}
 	}
 	return m

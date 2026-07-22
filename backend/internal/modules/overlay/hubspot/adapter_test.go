@@ -277,8 +277,11 @@ func TestAdapterAssociationsPopulatesForwardDirection(t *testing.T) {
 		t.Fatalf("len(assocs) = %d, want 1", len(assocs))
 	}
 	got := assocs[0]
+	// Endpoint types are CANONICAL (deal/organization), not the incumbent
+	// class names — the stored edge must reference the same identity the
+	// mirror rows and PurgeRecord use (OVA-MAP-7 coherence).
 	want := overlay.Assoc{
-		FromType: "deals", FromID: "123", ToType: "companies", ToID: "61655665850",
+		FromType: "deal", FromID: "123", ToType: "organization", ToID: "61655665850",
 		TypeID: 5, Category: "HUBSPOT_DEFINED", Label: "Primary", Direction: "forward",
 	}
 	if got != want {

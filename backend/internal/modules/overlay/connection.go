@@ -165,13 +165,13 @@ func (s *Service) WithBudgetMeter(meter *Meter) *Service {
 	return s
 }
 
-// WithIncumbentClassTranslator wires the canonical->incumbent class
+// WithIncumbentClassesTranslator wires the canonical->incumbent class
 // translator (e.g. hubspot.IncumbentClassesFor) SyncStatus's backfill-
 // completeness lookup needs — see the Service doc's cycle note on why
 // this package cannot hold that mapping itself. It is plural: a canonical
 // type ("activity") can be backed by several incumbent classes (the five
 // engagement classes), and backfill is complete only when ALL of them are.
-func (s *Service) WithIncumbentClassTranslator(fn func(string) ([]string, bool)) *Service {
+func (s *Service) WithIncumbentClassesTranslator(fn func(string) ([]string, bool)) *Service {
 	s.toIncumbentClasses = fn
 	return s
 }
@@ -181,7 +181,7 @@ func (s *Service) WithIncumbentClassTranslator(fn func(string) ([]string, bool))
 // client) Connect uses to seed mirror_user_map from the owners directory
 // the moment an overlay is connected. compose injects it — the module
 // never selects a concrete incumbent itself (the same posture
-// WithIncumbentClassTranslator takes for the class mapping). Without it
+// WithIncumbentClassesTranslator takes for the class mapping). Without it
 // Connect skips connect-time seeding by omission; the reconcile poller's
 // own per-sweep seeding still fills mirror_user_map on its next tick.
 func (s *Service) WithIncumbentFactory(fn func(region, token string) Incumbent) *Service {
