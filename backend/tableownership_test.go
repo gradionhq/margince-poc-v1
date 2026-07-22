@@ -107,7 +107,8 @@ var tableOwners = map[string]string{
 	"workspace_email_domain": "internal/modules/capture",
 	"capture_digest":         "internal/modules/capture",
 	// search
-	"embedding": "internal/modules/search",
+	"embedding":           "internal/modules/search",
+	"embed_store_binding": "internal/modules/search",
 	// ai (voice DNA: the derived profile artifact + corpus manifest;
 	// the tracing spine: per-call metadata + opt-in captured payload)
 	"ai_usage":              "internal/modules/ai",
