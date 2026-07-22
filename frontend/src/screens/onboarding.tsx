@@ -1880,11 +1880,31 @@ const ACCEPTED_CORPUS_ATTR = ".txt,.md,.vtt,.srt,.json";
 type VoicePiece = {
   ref: string;
   label: string;
+  // words is what actually counts toward the voice: for a transcript, the
+  // server-computed word count of ONLY the owner's turns; totalWords is the
+  // whole file, kept so the honest "kept X of Y" line can be shown.
   words: number;
+  totalWords: number;
   content: string;
   register: components["schemas"]["IngestVoiceCorpusSourceRequest"]["register"];
   kind: components["schemas"]["IngestVoiceCorpusSourceRequest"]["kind"];
+  format: components["schemas"]["IngestVoiceCorpusSourceRequest"]["format"];
+  speakerLabel?: string;
 };
+
+type CorpusPreview = components["schemas"]["VoiceCorpusPreviewResult"];
+
+// A transcript whose speakers are known but whose owner is not yet: the
+// step asks "which of these is you?" before a single word is counted.
+type SpeakerAsk = {
+  ref: string;
+  label: string;
+  content: string;
+  totalWords: number;
+  preview: CorpusPreview;
+};
+
+const TRANSCRIPT_EXT = /\.(vtt|srt|json)$/i;
 
 // The corpus meter is honest: it counts only the real words the owner uploaded
 // or pasted here (the build ingests exactly these). Presets below are examples
@@ -1964,6 +1984,8 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
   const [pieces, setPieces] = useState<VoicePiece[]>([]);
   const [paste, setPaste] = useState("");
   const [skipped, setSkipped] = useState<string[]>([]);
+  const [speakerAsks, setSpeakerAsks] = useState<SpeakerAsk[]>([]);
+  const [probeError, setProbeError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [built, setBuilt] = useState(false);
   const [building, setBuilding] = useState(false);
@@ -2009,43 +2031,108 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
     };
   }, [pieces, pasteWords]);
 
+  const addPiece = (piece: VoicePiece) => {
+    setPieces((prev) => [...prev.filter((p) => p.ref !== piece.ref), piece]);
+  };
+
+  // classifyUpload decides what one file honestly IS before anything counts:
+  // the server preview detects transcript structure and counts each
+  // speaker's words, so a conversation never enters the meter whole — the
+  // owner is asked which speaker they are first (features/09 §B1.2).
+  async function classifyUpload(name: string, text: string) {
+    const totalWords = text.split(/\s+/).filter(Boolean).length;
+    if (totalWords === 0) {
+      return;
+    }
+    const ref = `onboarding:upload:${name}`;
+    const profileId = await ensureProfileId();
+    const { data, error } = await api.POST(
+      "/voice-profiles/{id}/sources/preview",
+      {
+        params: { path: { id: profileId } },
+        body: { format: "transcript", content: text },
+      },
+    );
+    if (error) {
+      throw new Error(problemMessage(error));
+    }
+    if (!mounted.current) {
+      return;
+    }
+    const attributedWords = data.speakers.reduce(
+      (sum, speaker) => sum + speaker.words,
+      0,
+    );
+    // A .txt can be a pasted transcript too: treat it as one when the
+    // preview attributes most of its words to labelled speakers.
+    const conversational =
+      TRANSCRIPT_EXT.test(name) ||
+      (data.ingestible_as_transcript && attributedWords >= totalWords * 0.8);
+    if (conversational && data.ingestible_as_transcript) {
+      setSpeakerAsks((prev) => [
+        ...prev.filter((ask) => ask.ref !== ref),
+        { ref, label: name, content: text, totalWords, preview: data },
+      ]);
+      return;
+    }
+    if (TRANSCRIPT_EXT.test(name)) {
+      // Transcript-shaped but nobody is attributable: none of it can be
+      // proven the owner's own words, so none of it is counted.
+      setProbeError(t("ob.s2.unattributed", { file: name }));
+      return;
+    }
+    addPiece({
+      ref,
+      label: name,
+      words: totalWords,
+      totalWords,
+      content: text,
+      register: "general",
+      kind: "document",
+      format: "text",
+    });
+  }
+
   // One intake for both entry paths — the file picker and a drag&drop onto
-  // the dropzone feed the exact same corpus pipeline.
+  // the dropzone feed the exact same corpus pipeline. V1 corpus is text only
+  // (features/09 §B1.1); binary documents (.docx/.pdf) are refused.
   const addFiles = (files: File[]) => {
     const rejected: string[] = [];
     for (const file of files) {
-      // V1 corpus is text only (features/09 §B1.1): the meter counts the real
-      // words of what was read — never an estimate — and the text is KEPT so
-      // the real build can ingest it. Binary documents (.docx/.pdf) are
-      // refused; deferred: B-E07.5c (server-side extraction).
       if (!ACCEPTED_CORPUS_FILE.test(file.name)) {
         rejected.push(file.name);
         continue;
       }
-      file.text().then((text) => {
-        if (!mounted.current) {
-          return;
-        }
-        const words = text.split(/\s+/).filter(Boolean).length;
-        if (words === 0) {
-          return;
-        }
-        const spoken = /\.(vtt|srt)$/i.test(file.name);
-        const ref = `onboarding:upload:${file.name}`;
-        setPieces((prev) => [
-          ...prev.filter((p) => p.ref !== ref),
-          {
-            ref,
-            label: file.name,
-            words,
-            content: text,
-            register: spoken ? "spoken" : "general",
-            kind: spoken ? "transcript" : "document",
-          },
-        ]);
-      });
+      file
+        .text()
+        .then((text) => classifyUpload(file.name, text))
+        .catch((err: unknown) => {
+          if (mounted.current) {
+            setProbeError(err instanceof Error ? err.message : String(err));
+          }
+        });
     }
     setSkipped(rejected);
+  };
+
+  // The owner named themselves: only THAT speaker's server-counted words
+  // enter the meter; the rest of the conversation contributes zero.
+  const resolveSpeaker = (
+    ask: SpeakerAsk,
+    speaker: CorpusPreview["speakers"][number],
+  ) => {
+    setSpeakerAsks((prev) => prev.filter((p) => p.ref !== ask.ref));
+    addPiece({
+      ref: ask.ref,
+      label: ask.label,
+      words: speaker.words,
+      totalWords: ask.totalWords,
+      content: ask.content,
+      register: "spoken",
+      kind: "transcript",
+      format: "transcript",
+      speakerLabel: speaker.label,
+    });
   };
 
   const onFiles = (e: ChangeEvent<HTMLInputElement>) => {
@@ -2065,7 +2152,8 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
         weight: 1,
         source_label: piece.label,
         source_ref: piece.ref,
-        format: "text",
+        format: piece.format,
+        speaker_label: piece.speakerLabel ?? null,
         content: piece.content,
       },
     });
@@ -2134,9 +2222,11 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
         ref: PASTE_REF,
         label: t("ob.s2.pasteSource"),
         words: pasteWords,
+        totalWords: pasteWords,
         content: paste,
         register: "general",
         kind: "other",
+        format: "text",
       });
     }
   }
@@ -2300,14 +2390,69 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
           accept={ACCEPTED_CORPUS_ATTR}
           onChange={onFiles}
         />
+        {speakerAsks.map((ask) => (
+          <fieldset
+            key={ask.ref}
+            className="card"
+            style={{
+              marginTop: "var(--space-2)",
+              padding: "var(--space-3)",
+              border: 0,
+            }}
+          >
+            <legend style={{ fontWeight: 600 }}>
+              {t("ob.s2.speakerAsk", { file: ask.label })}
+            </legend>
+            <div
+              style={{
+                display: "flex",
+                gap: "var(--space-2)",
+                flexWrap: "wrap",
+                marginTop: "var(--space-2)",
+              }}
+            >
+              {ask.preview.speakers.map((speaker) => (
+                <Button
+                  small
+                  key={speaker.label}
+                  onClick={() => resolveSpeaker(ask, speaker)}
+                >
+                  {t("ob.s2.speakerOption", {
+                    name: speaker.label,
+                    words: speaker.words.toLocaleString(),
+                    turns: speaker.turns,
+                  })}
+                </Button>
+              ))}
+            </div>
+          </fieldset>
+        ))}
         {pieces.length > 0 && (
           <ul className="vp-list" style={{ marginTop: 10 }}>
             {pieces.map((p) => (
               <li key={p.ref}>
                 <Check aria-hidden /> {p.label} · {p.words.toLocaleString()}
+                {p.speakerLabel && (
+                  <span className="t-small">
+                    {" "}
+                    {t("ob.s2.keptOnly", {
+                      kept: p.words.toLocaleString(),
+                      total: p.totalWords.toLocaleString(),
+                      speaker: p.speakerLabel,
+                    })}
+                  </span>
+                )}
               </li>
             ))}
           </ul>
+        )}
+        {probeError && (
+          <output
+            className="ob-sub"
+            style={{ display: "block", marginTop: "var(--space-2)" }}
+          >
+            {probeError}
+          </output>
         )}
 
         <div className="field" style={{ marginTop: "var(--space-3)" }}>

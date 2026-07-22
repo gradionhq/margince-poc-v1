@@ -1086,6 +1086,11 @@ export const en = {
     ".txt .md .vtt .srt .json · text only · we keep only your turns",
   "ob.s2.dropSkipped":
     "Skipped {files} — not a text format. Convert to .txt/.md or paste the text instead.",
+  "ob.s2.speakerAsk": "Which speaker are you in {file}?",
+  "ob.s2.speakerOption": "{name} · {words} words in {turns} turns",
+  "ob.s2.keptOnly": "kept {kept} of {total} words ({speaker}'s turns only)",
+  "ob.s2.unattributed":
+    "I can't tell who says what in {file}, so none of it is counted. Add speaker labels, or paste only your own words.",
   "ob.reg.spoken": "spoken",
   "ob.reg.written": "written",
   "ob.reg.casual": "casual",

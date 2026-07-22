@@ -3231,6 +3231,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/voice-profiles/{id}/sources/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dry-run one candidate source; detect its shape and speakers without storing anything.
+         * @description Answers "who is speaking in this file?" before ingest, so the owner can be asked
+         *     which speaker they are. Pure inspection - no persistence, no model call.
+         */
+        post: operations["previewVoiceCorpusSource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/voice-profiles/{id}/sources/{sourceId}": {
         parameters: {
             query?: never;
@@ -8200,7 +8224,12 @@ export interface components {
             weight: number;
             source_label: string;
             source_ref: string;
-            /** @enum {string} */
+            /**
+             * @description Send `transcript` for anything conversational — .vtt, .srt, transcript JSON,
+             *     and speaker-labelled plain text ("Name: …" lines) alike; the server detects
+             *     the concrete shape. `text` is for single-author prose only.
+             * @enum {string}
+             */
             format: "text" | "transcript";
             /** @description Required for transcript format; only this speaker is retained. */
             speaker_label?: string | null;
@@ -8211,6 +8240,32 @@ export interface components {
         UpdateVoiceCorpusSourceRequest: {
             included?: boolean;
             weight?: number;
+        };
+        /** @description What the speaker filter did to one ingested source; kept words are the only words that count. */
+        VoiceIngestStats: {
+            input_words: number;
+            kept_words: number;
+            kept_turns: number;
+            discarded_turns: number;
+            speakers_seen: string[];
+        };
+        VoiceCorpusPreviewRequest: {
+            /** @enum {string} */
+            format: "text" | "transcript";
+            content: string;
+        };
+        /** @description Dry-run inspection of a candidate source; nothing is stored. */
+        VoiceCorpusPreviewResult: {
+            /** @enum {string} */
+            detected_format: "txt" | "vtt" | "srt" | "json";
+            total_words: number;
+            speakers: {
+                label: string;
+                turns: number;
+                words: number;
+            }[];
+            unattributed_words: number;
+            ingestible_as_transcript: boolean;
         };
         VoiceCorpusSummary: {
             total_words: number;
@@ -15609,7 +15664,37 @@ export interface operations {
                     "application/json": {
                         source: components["schemas"]["VoiceCorpusSource"];
                         summary: components["schemas"]["VoiceCorpusSummary"];
+                        ingest_stats?: components["schemas"]["VoiceIngestStats"];
                     };
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    previewVoiceCorpusSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VoiceCorpusPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Detected shape, per-speaker word counts, and transcript eligibility. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceCorpusPreviewResult"];
                 };
             };
             404: components["responses"]["NotFound"];

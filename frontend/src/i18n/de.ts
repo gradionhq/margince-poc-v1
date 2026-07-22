@@ -1106,6 +1106,12 @@ export const de = {
     ".txt .md .vtt .srt .json · nur Text · wir behalten nur deine Redeanteile",
   "ob.s2.dropSkipped":
     "{files} übersprungen — kein Textformat. Als .txt/.md konvertieren oder den Text direkt einfügen.",
+  "ob.s2.speakerAsk": "Wer bist du in {file}?",
+  "ob.s2.speakerOption": "{name} · {words} Wörter in {turns} Redeanteilen",
+  "ob.s2.keptOnly":
+    "{kept} von {total} Wörtern behalten (nur die Redeanteile von {speaker})",
+  "ob.s2.unattributed":
+    "In {file} kann ich nicht erkennen, wer was sagt — deshalb zählt nichts davon. Ergänze Sprecher-Labels oder füge nur deine eigenen Worte ein.",
   "ob.reg.spoken": "gesprochen",
   "ob.reg.written": "geschrieben",
   "ob.reg.casual": "locker",
