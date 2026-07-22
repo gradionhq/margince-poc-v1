@@ -9,16 +9,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 
 	"golang.org/x/mod/modfile"
-)
 
-// extensionName mirrors compose.RegisterExtensions' unit-name rule
-// (ADR-0069 §2): the directory name keys namespaces at every layer.
-var extensionName = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+	"github.com/gradionhq/margince/backend/pkg/extension"
+)
 
 // extensionUnit is one enabled extension: a directory under extensions/.
 type extensionUnit struct {
@@ -51,8 +48,10 @@ func scanExtensions(root string) ([]extensionUnit, error) {
 			continue // approvals.lock, .gitkeep
 		}
 		name := entry.Name()
-		if !extensionName.MatchString(name) {
-			return nil, fmt.Errorf("extensions/%s: not a valid unit name (lower-case [a-z0-9-], ADR-0069 §2)", name)
+		// The ONE unit-name rule, published on the seam: scan-time
+		// acceptance must never drift from boot-time validation.
+		if err := extension.Name(name).Validate(); err != nil {
+			return nil, fmt.Errorf("extensions/%s: %w", name, err)
 		}
 		dir := filepath.Join(root, "extensions", name)
 		unit, err := scanUnit(name, dir)
@@ -141,20 +140,40 @@ func computeInputs(root string) (manifestInputs, error) {
 }
 
 // coreDigest covers exactly the committed inputs the composed outputs
-// derive from: the workspace members, the composition module contract
-// (stub + backend/go.mod), the base API contract, and the published
-// surface the extensions compile against.
+// derive from: the workspace definition plus EVERY member's go.mod and
+// go.sum (any member's dependency change can change the composed
+// go.work.sum `go list -m all` resolves — tracking only backend's would
+// let a tools/ or cli/ bump slip past `-verify`), the composition module
+// contract (stub), the base API contract, and the published surface the
+// extensions compile against.
 func coreDigest(root string) (string, error) {
 	h := newTreeHasher(root)
 	for _, rel := range []string{
-		"go.work",
-		"backend/go.mod",
-		"backend/go.sum",
+		goWorkFile,
 		"backend/api/crm.yaml",
 		"composition/go.mod",
 		"composition/extensions_gen.go",
 	} {
 		if err := h.addFile(rel); err != nil {
+			return "", err
+		}
+	}
+	raw, err := os.ReadFile(filepath.Join(root, goWorkFile))
+	if err != nil {
+		return "", err
+	}
+	rootWork, err := modfile.ParseWork(goWorkFile, raw, nil)
+	if err != nil {
+		return "", fmt.Errorf("root go.work: %w", err)
+	}
+	for _, use := range rootWork.Use {
+		member := strings.TrimPrefix(filepath.ToSlash(filepath.Clean(use.Path)), "./")
+		if err := h.addFile(member + "/go.mod"); err != nil {
+			return "", err
+		}
+		// go.sum may legitimately be absent (a dependency-free member);
+		// absence digests as empty, so appearing registers as a change.
+		if err := h.addFileOrEmpty(member + "/go.sum"); err != nil {
 			return "", err
 		}
 	}
@@ -175,6 +194,23 @@ func newTreeHasher(root string) *treeHasher { return &treeHasher{root: root} }
 
 func (h *treeHasher) addFile(rel string) error {
 	content, err := os.ReadFile(filepath.Join(h.root, filepath.FromSlash(rel)))
+	if err != nil {
+		return err
+	}
+	h.lines = append(h.lines, rel+"\x00"+digestBytes(content))
+	return nil
+}
+
+// addFileOrEmpty records a file that may legitimately be absent, with
+// an explicit absence MARKER — a zero-byte file and a missing file must
+// not share a digest, or presence itself would stop being part of the
+// input identity.
+func (h *treeHasher) addFileOrEmpty(rel string) error {
+	content, err := os.ReadFile(filepath.Join(h.root, filepath.FromSlash(rel)))
+	if os.IsNotExist(err) {
+		h.lines = append(h.lines, rel+"\x00absent")
+		return nil
+	}
 	if err != nil {
 		return err
 	}

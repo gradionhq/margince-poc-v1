@@ -28,6 +28,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+indent() { sed 's/^/  /'; }
+
 # Pinned tool invocation (`go run` at an exact version, the
 # check-contract-breaking.sh pattern): x/exp carries no tags, so the pin
 # is a pseudo-version.
@@ -35,10 +37,21 @@ APIDIFF="${APIDIFF:-go run golang.org/x/exp/cmd/apidiff@v0.0.0-20260718201538-76
 
 if [ -n "${PKG_FREEZE_MODE:-}" ]; then
   MODE="$PKG_FREEZE_MODE"
-elif [ -n "$(git tag --list 'v[1-9]*' | head -1)" ]; then
-  MODE=enforce
 else
-  MODE=advisory
+  # The first STABLE v1+ release tag arms enforcement — exact release
+  # syntax only (vMAJOR.MINOR.PATCH, major ≥ 1), so a prerelease
+  # (v1.0.0-rc.1) or an unrelated v1* tag cannot arm it early. A failed
+  # tag enumeration fails the gate: an error must never silently weaken
+  # a release-enforcement threshold to advisory.
+  if ! RELEASE_TAGS="$(git tag --list 'v*')"; then
+    echo "FAIL: pkg-freeze — cannot enumerate release tags (git tag failed)" >&2
+    exit 1
+  fi
+  if printf '%s\n' "$RELEASE_TAGS" | grep -qE '^v[1-9][0-9]*\.[0-9]+\.[0-9]+$'; then
+    MODE=enforce
+  else
+    MODE=advisory
+  fi
 fi
 case "$MODE" in
   advisory | enforce) ;;
@@ -88,7 +101,21 @@ cleanup() {
 trap cleanup EXIT
 git worktree add --detach --quiet "$WORKTREE" "$BASE"
 
-OLD_PKGS="$(cd "$WORKTREE/backend" && go list ./pkg/... 2> /dev/null || true)"
+# Fail-closed package discovery: a module or loading error must never
+# read as "nothing frozen" — only the go tool's own "matched no
+# packages" does.
+golist_err="$(mktemp "${TMPDIR:-/tmp}/pkg-freeze-golist.XXXXXX")"
+if ! OLD_PKGS="$(cd "$WORKTREE/backend" && go list ./pkg/... 2> "$golist_err")"; then
+  if grep -q "matched no packages" "$golist_err"; then
+    OLD_PKGS=""
+  else
+    echo "FAIL: pkg-freeze — cannot load the baseline's published packages:" >&2
+    indent < "$golist_err" >&2
+    rm -f "$golist_err"
+    exit 1
+  fi
+fi
+rm -f "$golist_err"
 if [ -z "$OLD_PKGS" ]; then
   echo "OK: pkg-freeze ($MODE) — no published packages at the merge-base; nothing frozen yet"
   exit 0
@@ -115,7 +142,7 @@ done
 if [ "$MODE" = "advisory" ]; then
   if [ -s "$removals" ] || [ -s "$findings" ]; then
     echo "ADVISORY: pkg-freeze — incompatible published-surface changes vs $BASE_REF (design-fluid pre-v1.0.0; these HARD-FAIL from the first v1 release tag):"
-    cat "$removals" "$findings" | sed 's/^/  /'
+    cat "$removals" "$findings" | indent
   else
     echo "OK: pkg-freeze (advisory) — published surface additive-or-unchanged vs $BASE_REF ($count packages)"
   fi
@@ -142,23 +169,23 @@ unused="$(grep -Fxv -f "$findings" "$allowed" || true)"
 
 if [ -s "$removals" ]; then
   echo "FAIL: pkg-freeze — published package removed (never allowlistable; deprecate, then remove with its major cycle — ADR-0069 §3):" >&2
-  sed 's/^/  /' "$removals" >&2
+  indent < "$removals" >&2
   failed=1
 fi
 if [ -n "$violations" ]; then
   echo "FAIL: pkg-freeze — incompatible published-surface change vs $BASE_REF (merge-base $BASE12):" >&2
-  echo "$violations" | sed 's/^/  /' >&2
+  echo "$violations" | indent >&2
   echo "A ratified change is recorded in $ALLOWLIST as this exact line (visible in the PR):" >&2
-  echo "$violations" | sed "s/^/  $BASE12 /" >&2
+  echo "$violations" | sed "s/^/$BASE12 /" | indent >&2
   failed=1
 fi
 if [ -s "$expired" ]; then
   echo "WARN: pkg-freeze — allowlist entries bound to a superseded baseline (they can license nothing; remove them with the next allowlist edit):"
-  sed 's/^/  /' "$expired"
+  indent < "$expired"
 fi
 if [ -n "$unused" ]; then
   echo "WARN: pkg-freeze — allowlist entries bound to the current baseline ($BASE12) match no finding (typo, or the change was reverted — remove them):"
-  echo "$unused" | sed 's/^/  /'
+  echo "$unused" | indent
 fi
 
 if [ "$failed" -ne 0 ]; then
