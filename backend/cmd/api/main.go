@@ -200,6 +200,12 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	opts = append(opts, deepRead)
+
+	embedReindex, err := embedReindexOption(pool, modelPath, logger)
+	if err != nil {
+		return err
+	}
+	opts = append(opts, embedReindex)
 	opts = append(opts, compose.WithCompanyContextRollout(string(deployCfg.CompanyContext.EffectiveRollout())))
 
 	srv := &http.Server{

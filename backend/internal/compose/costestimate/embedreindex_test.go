@@ -58,8 +58,12 @@ func testWorkspaceID(b byte) ids.WorkspaceID {
 	return ids.From[ids.WorkspaceKind](u)
 }
 
-func newEmbedEstimator(pending fakePending, rates fakeRates, model fakeEmbedModel, budget fakeMonthlyBudget, spent fakeSpent) *EmbedReindexEstimator {
-	return NewEmbedReindexEstimator(pending, rates, model, budget, spent, fixedClock{})
+// newEmbedEstimator wires the estimator over its fakes; spend is always
+// zero across this file's scenarios (each one prices from a clean
+// calendar-month baseline), so it is fixed here rather than threaded as
+// a parameter every call site would pass the same value for.
+func newEmbedEstimator(pending fakePending, rates fakeRates, model fakeEmbedModel, budget fakeMonthlyBudget) *EmbedReindexEstimator {
+	return NewEmbedReindexEstimator(pending, rates, model, budget, fakeSpent(0), fixedClock{})
 }
 
 // Case A — a workspace priced at a known embed ai_model_rate must carry a
@@ -73,7 +77,7 @@ func TestEstimateEmbedReindexPricesAtAKnownRate(t *testing.T) {
 	}
 	model := fakeEmbedModel{ref: ai.ModelRef{Provider: "gemini", Model: "embed"}, ok: true}
 	rates := fakeRates{rateKey("gemini", "embed"): pricedRate}
-	e := newEmbedEstimator(pending, rates, model, fakeMonthlyBudget(10_000_000), fakeSpent(0))
+	e := newEmbedEstimator(pending, rates, model, fakeMonthlyBudget(10_000_000))
 
 	rows, total, err := e.EstimateEmbedReindex(context.Background(), "gemini/embed@1024")
 	if err != nil {
@@ -124,7 +128,7 @@ func TestEstimateEmbedReindexNoRateIsNilNotZero(t *testing.T) {
 		tokens: map[ids.WorkspaceID]int64{ws: 500},
 	}
 	model := fakeEmbedModel{ref: ai.ModelRef{Provider: "gemini", Model: "embed"}, ok: true}
-	e := newEmbedEstimator(pending, fakeRates{}, model, fakeMonthlyBudget(10_000_000), fakeSpent(0))
+	e := newEmbedEstimator(pending, fakeRates{}, model, fakeMonthlyBudget(10_000_000))
 
 	rows, total, err := e.EstimateEmbedReindex(context.Background(), "gemini/embed@1024")
 	if err != nil {
@@ -150,7 +154,7 @@ func TestEstimateEmbedReindexUnboundEmbedLaneIsNilCost(t *testing.T) {
 		tokens: map[ids.WorkspaceID]int64{ws: 100},
 	}
 	model := fakeEmbedModel{ok: false} // nothing bound
-	e := newEmbedEstimator(pending, fakeRates{}, model, fakeMonthlyBudget(10_000_000), fakeSpent(0))
+	e := newEmbedEstimator(pending, fakeRates{}, model, fakeMonthlyBudget(10_000_000))
 
 	rows, total, err := e.EstimateEmbedReindex(context.Background(), "unbound@0")
 	if err != nil {
@@ -175,7 +179,7 @@ func TestEstimateEmbedReindexFoldsMultipleWorkspacesIntoTotal(t *testing.T) {
 	}
 	model := fakeEmbedModel{ref: ai.ModelRef{Provider: "gemini", Model: "embed"}, ok: true}
 	rates := fakeRates{rateKey("gemini", "embed"): pricedRate}
-	e := newEmbedEstimator(pending, rates, model, fakeMonthlyBudget(1_000_000), fakeSpent(0))
+	e := newEmbedEstimator(pending, rates, model, fakeMonthlyBudget(1_000_000))
 
 	rows, total, err := e.EstimateEmbedReindex(context.Background(), "gemini/embed@1024")
 	if err != nil {
@@ -207,7 +211,7 @@ func TestEstimateEmbedReindexUtilizationImpactReflectsSpendPlusShare(t *testing.
 		tokens: map[ids.WorkspaceID]int64{ws: 850}, // pushes spend from 0 to 850/1000 = 85%
 	}
 	model := fakeEmbedModel{ref: ai.ModelRef{Provider: "gemini", Model: "embed"}, ok: true}
-	e := newEmbedEstimator(pending, fakeRates{}, model, fakeMonthlyBudget(1_000), fakeSpent(0))
+	e := newEmbedEstimator(pending, fakeRates{}, model, fakeMonthlyBudget(1_000))
 
 	rows, _, err := e.EstimateEmbedReindex(context.Background(), "gemini/embed@1024")
 	if err != nil {

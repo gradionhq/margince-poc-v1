@@ -120,3 +120,13 @@ func (r *Runner) Stop(ctx context.Context) error {
 func (r *Runner) SubscribeCompleted() (<-chan *river.Event, func()) {
 	return r.client.Subscribe(river.EventKindJobCompleted)
 }
+
+// SubscribeCancelled delivers job-cancellation events (river.JobCancel) —
+// the counterpart to SubscribeCompleted for a job that deliberately stops
+// rather than finishing normally (e.g. the embed-reindex worker's
+// identity-drift guard, which must be observed as a cancellation, not
+// burn its retry budget). Subscribe before Start so no cancellation is
+// missed; call the returned cancel when done.
+func (r *Runner) SubscribeCancelled() (<-chan *river.Event, func()) {
+	return r.client.Subscribe(river.EventKindJobCancelled)
+}

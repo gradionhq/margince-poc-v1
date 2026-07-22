@@ -252,6 +252,11 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 			MaxBytes: cfg.deepReadMaxBytes,
 			Wall:     cfg.deepReadWall,
 		},
+		// The embed-reindex worker registers regardless: without an embed
+		// lane (nil Embedder) a picked-up job fails clearly rather than
+		// sitting queued forever behind a job no one can work — the same
+		// posture as DeepReadBrain above.
+		Embedder: modelPath.Embedder,
 	})
 	if err != nil {
 		return nil, err

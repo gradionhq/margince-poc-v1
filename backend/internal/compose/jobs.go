@@ -26,6 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -274,6 +275,13 @@ type JobRunnerConfig struct {
 	// DeepReadCaps bounds each deep-read crawl; the zero value takes the
 	// compose defaults (CrawlCaps.withDefaults).
 	DeepReadCaps CrawlCaps
+	// Embedder is the retrieval embed lane (ModelPath.Embedder) the
+	// embed-reindex worker re-embeds under. The worker registers
+	// regardless of whether this is nil: a picked-up embed_reindex job
+	// on a brainless worker role fails clearly (embedReindexWorker.Work)
+	// rather than sitting queued forever behind a job no one can work —
+	// the same posture as DeepReadBrain.
+	Embedder search.Embedder
 }
 
 // NewJobRunner wires the deals correctors and the automation time-scan
@@ -308,6 +316,11 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	river.AddWorker(workers, &closeDateSweepWorker{corrector: NewCloseDateCorrector(pool, log)})
 	river.AddWorker(workers, &followUpReconcileWorker{reconciler: NewFollowUpReconciler(pool, log)})
 	river.AddWorker(workers, &timeScanWorker{scanner: NewTimeScanner(pool, log)})
+	// The embed-reindex job is not periodic — the api enqueues one job per
+	// confirmed reindex (embedreindextransport.go); the worker role only
+	// needs the worker registered, same posture as the deep-read worker
+	// above.
+	river.AddWorker(workers, &embedReindexWorker{store: search.NewStore(pool), embedder: cfg.Embedder})
 
 	periodic := []*river.PeriodicJob{
 		river.NewPeriodicJob(
