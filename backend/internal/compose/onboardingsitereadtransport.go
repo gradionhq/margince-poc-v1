@@ -6,6 +6,7 @@ package compose
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -60,16 +62,35 @@ func (e *deepReadEngine) getCompanySiteRead(w http.ResponseWriter, r *http.Reque
 		httperr.Write(w, r, err)
 		return
 	}
+	summary, hasRuntime, err := e.companySiteReadRuntime(r.Context(), ids.UUID(readID))
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
 	var runtime *ai.RunSummary
-	if e.runtime != nil {
-		summary, runtimeErr := e.runtime.Get(r.Context(), ids.UUID(readID))
-		if runtimeErr != nil {
-			httperr.Write(w, r, runtimeErr)
-			return
-		}
+	if hasRuntime {
 		runtime = &summary
 	}
 	httperr.WriteJSON(w, http.StatusOK, companySiteRead(read, comparisons, runtime))
+}
+
+func (e *deepReadEngine) companySiteReadRuntime(ctx context.Context, readID ids.UUID) (ai.RunSummary, bool, error) {
+	if e.runtime == nil {
+		return ai.RunSummary{}, false, nil
+	}
+	summary, err := e.runtime.Get(ctx, readID)
+	if err == nil {
+		return summary, true, nil
+	}
+	if errors.Is(err, apperrors.ErrPermissionDenied) {
+		return ai.RunSummary{}, false, err
+	}
+	logger := e.log
+	if logger == nil {
+		logger = slog.Default()
+	}
+	logger.WarnContext(ctx, "AI runtime transparency unavailable", "read_id", readID, "err", err)
+	return ai.RunSummary{}, false, nil
 }
 
 func (e *deepReadEngine) confirmCompanySiteRead(w http.ResponseWriter, r *http.Request, readID openapi_types.UUID) {

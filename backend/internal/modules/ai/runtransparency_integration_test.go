@@ -53,7 +53,8 @@ func TestRunTransparencyReadsAndPricesOneCorrelatedProductRun(t *testing.T) {
 		t.Fatalf("run summary = %+v", summary)
 	}
 	if summary.Models[0].ConfiguredModel != "claude-run-model" ||
-		summary.Models[0].ServedModel != "claude-run-model-202607" || summary.EstimatedCostMicroUSD == 0 {
+		summary.Models[0].ServedModel != "claude-run-model-202607" ||
+		summary.EstimatedCostMicroUSD != 1_450 || summary.Models[0].EstimatedCostMicroUSD != 1_450 {
 		t.Fatalf("model/cost transparency = %+v", summary)
 	}
 

@@ -12,6 +12,7 @@ export function MarginceWorkbench({
   title,
   status,
   configured,
+  locale,
   runtime,
   runtimeLabels,
   children,
@@ -23,6 +24,7 @@ export function MarginceWorkbench({
   title: string;
   status: string;
   configured: string;
+  locale: string;
   runtime?: AiRunSummary;
   runtimeLabels: {
     configured: string;
@@ -57,7 +59,7 @@ export function MarginceWorkbench({
         </div>
       </header>
 
-      <RuntimeBar runtime={runtime} labels={runtimeLabels} />
+      <RuntimeBar runtime={runtime} labels={runtimeLabels} locale={locale} />
 
       <div className={`mw-body ${artifact ? "has-artifact" : ""}`}>
         <section className="mw-conversation">{children}</section>
@@ -70,8 +72,10 @@ export function MarginceWorkbench({
 function RuntimeBar({
   runtime,
   labels,
+  locale,
 }: Readonly<{
   runtime?: AiRunSummary;
+  locale: string;
   labels: {
     used: string;
     calls: string;
@@ -97,7 +101,7 @@ function RuntimeBar({
         label={labels.tokens}
         value={
           runtime
-            ? new Intl.NumberFormat().format(
+            ? new Intl.NumberFormat(locale).format(
                 runtime.tokens_in + runtime.tokens_out,
               )
             : "—"
@@ -105,7 +109,11 @@ function RuntimeBar({
       />
       <RuntimeFact
         label={labels.estimatedCost}
-        value={runtime ? formatMicroUSD(runtime.estimated_cost_microusd) : "—"}
+        value={
+          runtime
+            ? formatMicroUSD(runtime.estimated_cost_microusd, locale)
+            : "—"
+        }
         note={runtime?.unpriced_calls ? labels.partial : undefined}
       />
     </div>
@@ -126,8 +134,8 @@ function RuntimeFact({
   );
 }
 
-function formatMicroUSD(value: number) {
-  return new Intl.NumberFormat(undefined, {
+function formatMicroUSD(value: number, locale: string) {
+  return new Intl.NumberFormat(locale, {
     style: "currency",
     currency: "USD",
     minimumFractionDigits: value > 0 && value < 10_000 ? 4 : 2,

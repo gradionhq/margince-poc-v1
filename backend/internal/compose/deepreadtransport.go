@@ -11,6 +11,7 @@ package compose
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/url"
 
@@ -34,6 +35,10 @@ import (
 // tests fake it to count inserts.
 type deepReadEnqueuer interface {
 	EnqueueTx(ctx context.Context, tx pgx.Tx, args river.JobArgs, opts *river.InsertOpts) error
+}
+
+type runTransparencyReader interface {
+	Get(ctx context.Context, correlationID ids.UUID) (ai.RunSummary, error)
 }
 
 // decodeSeedOverride reads the optional body override and validates it; it
@@ -63,9 +68,10 @@ func decodeSeedOverride(w http.ResponseWriter, r *http.Request) (string, bool) {
 type deepReadEngine struct {
 	people    *people.Store
 	approvals *approvals.Service
-	runtime   *ai.RunTransparency
+	runtime   runTransparencyReader
 	brain     completer
 	enqueue   deepReadEnqueuer
+	log       *slog.Logger
 }
 
 // start resolves the seed URL (body override, else the org's own domain),
@@ -198,7 +204,7 @@ func WithDeepRead(inserter *jobs.Runner, brain completer) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		engine := &deepReadEngine{
 			people: people.NewStore(pool), approvals: approvals.NewService(pool),
-			runtime: ai.NewRunTransparency(pool), brain: brain, enqueue: inserter,
+			runtime: ai.NewRunTransparency(pool), brain: brain, enqueue: inserter, log: s.log,
 		}
 		rollout := s.companyContextRollout
 		s.siteReadHandlers = siteReadHandlers{engine: engine, start: engine.start, report: engine.report, companyContextRollout: rollout}

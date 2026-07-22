@@ -269,6 +269,7 @@ function WebsiteWorkbench(
             : t("ob.ai.ready")
         }
         configured={configuredModels}
+        locale={locale}
         runtime={runtime}
         runtimeLabels={{
           configured: t("ob.ai.configured"),
@@ -325,13 +326,15 @@ function WebsiteWorkbench(
                       <strong>{t("ob.ai.suggestedChanges")}</strong>
                     </div>
                     <ul>
-                      {entry.reply.proposed_changes.map((change) => (
-                        <li key={change.field}>
-                          <span>{coldFieldLabel(change.field, t)}</span>
-                          <strong>{change.value}</strong>
-                          <small>{change.reason}</small>
-                        </li>
-                      ))}
+                      {keyedSuggestedChanges(entry.reply.proposed_changes).map(
+                        ({ change, key }) => (
+                          <li key={`${entry.id}:${key}`}>
+                            <span>{coldFieldLabel(change.field, t)}</span>
+                            <strong>{change.value}</strong>
+                            <small>{change.reason}</small>
+                          </li>
+                        ),
+                      )}
                     </ul>
                     <Button
                       small
@@ -395,6 +398,20 @@ function WebsiteWorkbench(
       </MarginceWorkbench>
     </section>
   );
+}
+
+function keyedSuggestedChanges(changes: ReadonlyArray<SuggestedCompanyChange>) {
+  const occurrences = new Map<string, number>();
+  return changes.map((change) => {
+    const identity = JSON.stringify([
+      change.field,
+      change.value,
+      change.reason,
+    ]);
+    const occurrence = (occurrences.get(identity) ?? 0) + 1;
+    occurrences.set(identity, occurrence);
+    return { change, key: `${identity}:${occurrence}` };
+  });
 }
 
 function AssistantBubble({ children }: Readonly<{ children: ReactNode }>) {
