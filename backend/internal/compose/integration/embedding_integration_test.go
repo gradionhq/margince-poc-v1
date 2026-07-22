@@ -231,15 +231,17 @@ func TestEmbedGenMaintainsRowsFromEvents(t *testing.T) {
 	}
 }
 
-// storedEmbeddingModel reads the chunk-0 row's model column directly (the
-// owner connection bypasses RLS, same as seed) — the assertion surface
-// for "which binding actually produced this row" the tests below need.
-func (e *searchEnv) storedEmbeddingModel(t *testing.T, entityType string, entityID ids.UUID) string {
+// storedEmbeddingModel reads a person's chunk-0 row's model column
+// directly (the owner connection bypasses RLS, same as seed) — the
+// assertion surface for "which binding actually produced this row" the
+// tests below need. Every current caller checks a person row; narrow to
+// that instead of carrying an entityType parameter no test varies.
+func (e *searchEnv) storedEmbeddingModel(t *testing.T, entityID ids.UUID) string {
 	t.Helper()
 	var model string
 	err := e.owner.QueryRow(context.Background(),
-		`SELECT model FROM embedding WHERE workspace_id = $1 AND entity_type = $2 AND entity_id = $3 AND chunk_ix = 0`,
-		e.WS, entityType, entityID).Scan(&model)
+		`SELECT model FROM embedding WHERE workspace_id = $1 AND entity_type = 'person' AND entity_id = $2 AND chunk_ix = 0`,
+		e.WS, entityID).Scan(&model)
 	if err != nil {
 		t.Fatalf("reading stored embedding: %v", err)
 	}
@@ -263,7 +265,7 @@ func TestUpsertReembedsOnIdentityChange(t *testing.T) {
 		t.Fatalf("first upsert fresh=%v err=%v", fresh, err)
 	}
 	wantIdentityA, _ := embedderA.EmbedIdentity()
-	if gotModel := e.storedEmbeddingModel(t, "person", personID); gotModel != wantIdentityA {
+	if gotModel := e.storedEmbeddingModel(t, personID); gotModel != wantIdentityA {
 		t.Fatalf("stored model = %q, want %q", gotModel, wantIdentityA)
 	}
 
@@ -275,7 +277,7 @@ func TestUpsertReembedsOnIdentityChange(t *testing.T) {
 	if wantIdentityA == wantIdentityB {
 		t.Fatalf("test setup produced identical identities %q — no swap exercised", wantIdentityA)
 	}
-	if gotModel := e.storedEmbeddingModel(t, "person", personID); gotModel != wantIdentityB {
+	if gotModel := e.storedEmbeddingModel(t, personID); gotModel != wantIdentityB {
 		t.Fatalf("stored model after swap = %q, want %q", gotModel, wantIdentityB)
 	}
 }

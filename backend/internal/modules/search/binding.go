@@ -51,8 +51,7 @@ var pendingSources = map[string]pendingSource{
 // restarts idempotent — the marker is written once, ever, outside a
 // completed reindex.
 func (s *Store) SeedBinding(ctx context.Context, configuredIdentity string) error {
-	// rls-exempt: deployment metadata, no workspace_id (embed_store_binding,
-	// migration 0113) — this write must not ride a per-workspace GUC tx.
+	// rls-exempt: deployment metadata, no workspace_id (embed_store_binding, migration 0113) — this write must not ride a per-workspace GUC tx.
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO embed_store_binding (singleton, populated_identity, status)
 		VALUES (true, $1, 'idle')
@@ -187,25 +186,18 @@ func (s *Store) EntitiesPending(ctx context.Context, currentIdentity string) (in
 // counting the row's ABSENCE, rather than requiring a stale one, is what
 // also covers a wiped store (migration 0113's TRUNCATE) as a rebuild path.
 func (s *Store) pendingStats(ctx context.Context, currentIdentity string) (map[ids.WorkspaceID]int, map[ids.WorkspaceID]int64, error) {
-	// rls-exempt: fleet enumeration — the workspace table lists every
-	// tenant before the per-workspace tx below (retention.go:128 precedent).
-	rows, err := s.pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
+	workspaces, err := s.fleetWorkspaceIDs(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("search: enumerating workspaces: %w", err)
-	}
-	workspaces, err := pgx.CollectRows(rows, pgx.RowTo[ids.WorkspaceID])
-	if err != nil {
-		return nil, nil, fmt.Errorf("search: collecting workspaces: %w", err)
+		return nil, nil, err
 	}
 
 	counts := make(map[ids.WorkspaceID]int, len(workspaces))
 	tokens := make(map[ids.WorkspaceID]int64, len(workspaces))
 	for _, wsID := range workspaces {
-		wsCtx := principal.WithWorkspaceID(ctx, wsID.UUID)
 		// The generator reads AS the system, same posture as EmbedGen
 		// (embedgen.go:51-56): a rollup built through one caller's row
 		// scope would silently under-report entities the caller cannot see.
-		wsCtx = principal.WithActor(wsCtx, principal.Principal{Type: principal.PrincipalSystem, ID: "system"})
+		wsCtx := systemWorkspaceContext(ctx, wsID.UUID)
 
 		count, length, err := s.workspacePending(wsCtx, currentIdentity)
 		if err != nil {
@@ -215,6 +207,39 @@ func (s *Store) pendingStats(ctx context.Context, currentIdentity string) (map[i
 		tokens[wsID] = length / 4
 	}
 	return counts, tokens, nil
+}
+
+// systemPrincipalID names the one system actor every fleet-wide
+// maintenance pass (EmbedGen, pendingStats, ReembedCorpus) runs as — named
+// once so the three call sites share a single identity string instead of
+// three copies of the same literal drifting apart.
+const systemPrincipalID = "system"
+
+// systemWorkspaceContext binds ctx to wsID under the system principal: an
+// index or marker rebuilt through one caller's row scope would silently
+// omit records that caller cannot see, so every fleet-wide maintenance
+// pass (EmbedGen, pendingStats, ReembedCorpus) reads and writes as the
+// system actor instead.
+func systemWorkspaceContext(ctx context.Context, wsID ids.UUID) context.Context {
+	ctx = principal.WithWorkspaceID(ctx, wsID)
+	return principal.WithActor(ctx, principal.Principal{Type: principal.PrincipalSystem, ID: systemPrincipalID})
+}
+
+// fleetWorkspaceIDs lists every live tenant workspace as the system
+// principal — the shared enumeration both pendingStats (this file) and
+// ReembedCorpus (reembed.go) drive their per-workspace loop from, so the
+// two never risk enumerating a different fleet.
+func (s *Store) fleetWorkspaceIDs(ctx context.Context) ([]ids.WorkspaceID, error) {
+	// rls-exempt: fleet enumeration — the workspace table lists every tenant before the per-workspace tx each caller opens next (retention.go:128 precedent).
+	rows, err := s.pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
+	if err != nil {
+		return nil, fmt.Errorf("search: enumerating workspaces: %w", err)
+	}
+	workspaces, err := pgx.CollectRows(rows, pgx.RowTo[ids.WorkspaceID])
+	if err != nil {
+		return nil, fmt.Errorf("search: collecting workspaces: %w", err)
+	}
+	return workspaces, nil
 }
 
 // workspacePending runs one SET-form query per embeddable entity type,

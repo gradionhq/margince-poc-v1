@@ -100,6 +100,7 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/search:PendingByWorkspace":              "fleet rollup read as the system principal (mirrors EmbedGen, embedgen.go:51-56); consumed only by the compose preview/status surface, which is the gated entry point",
 	"internal/modules/search:TokenSumByWorkspace":             "fleet rollup read as the system principal, same posture as PendingByWorkspace — an aggregate SUM/COUNT, never row data",
 	"internal/modules/search:EntitiesPending":                 "totals PendingByWorkspace across the fleet; same system-principal posture, no row data",
+	"internal/modules/search:ReembedCorpus":                   "the River job body (Task 15) driven under the system principal, same posture as EmbedGen/PendingByWorkspace; the job's own enqueue (via ClaimAndEnqueueReembedding) is the gated entry point",
 	"internal/modules/customfields:ActiveColumns":             "called from inside a record store's own gated Get/List/Create/Update, whose object-level RBAC already ran; the column names/types it answers are workspace-visible schema (the same shape custom_field:read already exposes), not row data a second gate would need to narrow",
 	"internal/modules/people:WithFieldCatalog":                "composition-root wiring (injects the fieldcatalog reader the cf_* read/write paths use); no data access",
 	"internal/modules/deals:WithFieldCatalog":                 "composition-root wiring (injects the fieldcatalog reader the cf_* read/write paths use); no data access",

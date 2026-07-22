@@ -13,7 +13,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // EmbedGen keeps the vector store current: it consumes entity events
@@ -48,12 +47,11 @@ func (g *EmbedGen) HandleEvent(ctx context.Context, env kevents.Envelope) error 
 	if !embeddable || !contentChanging(env.Type) {
 		return nil
 	}
-	wsCtx := principal.WithWorkspaceID(ctx, env.WorkspaceID)
 	// The generator reads AS the system: embeddings are an index over
 	// the whole workspace, filtered per caller at QUERY time — an
 	// index built through one user's row scope would silently hide
 	// records from everyone else's retrieval.
-	wsCtx = principal.WithActor(wsCtx, principal.Principal{Type: principal.PrincipalSystem, ID: "system"})
+	wsCtx := systemWorkspaceContext(ctx, env.WorkspaceID)
 
 	var text string
 	err := database.WithWorkspaceTx(wsCtx, g.store.pool, func(tx pgx.Tx) error {
