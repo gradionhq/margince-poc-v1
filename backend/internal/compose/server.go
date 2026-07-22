@@ -417,11 +417,26 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH auth
 // renders "unknown" exactly like a marker-read failure does — Readyz's
 // body never distinguishes the two, only ever "was this readable right
 // now or not."
+// embedStateUnknown is readyzEmbedState's answer whenever there is no
+// embed lane to report on (engine nil or unbound) or the marker read
+// itself failed — three distinct causes, one line, matching the doc
+// comment above: Readyz's body never distinguishes them.
+const embedStateUnknown = "unknown"
+
 func (s Server) readyzEmbedState() func(context.Context) string {
 	engine := s.embedReindexHandlers.engine
 	return func(ctx context.Context) string {
 		if engine == nil {
-			return "unknown"
+			return embedStateUnknown
+		}
+		if engine.currentIdentity() == "" {
+			// Unbound embed lane (--ai-fake, or any routing config that
+			// never declared an embeddings model) — brain.go's
+			// seedEmbedBinding never plants the marker for this shape, so
+			// reading it here would only ever error. Report the same
+			// embedStateUnknown an engine-nil role reports, without the
+			// read (and without its error log) at all.
+			return embedStateUnknown
 		}
 		populated, status, err := engine.store.PopulatedIdentity(ctx)
 		if err != nil {
@@ -431,7 +446,7 @@ func (s Server) readyzEmbedState() func(context.Context) string {
 			// visibility line, so the failure is logged here rather than
 			// surfaced to the probe body.
 			slog.ErrorContext(ctx, "readyz: reading embed binding marker failed", "err", err)
-			return "unknown"
+			return embedStateUnknown
 		}
 		if status == reembeddingStatus {
 			return "reembedding"

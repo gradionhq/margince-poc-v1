@@ -399,12 +399,20 @@ func (h embedReindexHandlers) EmbedReindexStart(w http.ResponseWriter, r *http.R
 // embed lane's identity/estimator and an insert-only River client (the
 // api enqueues, the worker re-embeds — WithDeepRead's own split, this
 // module's own confirm/worker pair). Without a router (an AI-unconfigured
-// role) there is no embed lane to report on or trigger, so the three ops
-// stay their generated 501 — the same declared-by-omission posture as
-// WithColdStart/WithScrape.
+// role), OR with a router whose EmbedIdentity() is "" (--ai-fake, or any
+// routing config that never bound an embeddings model — brain.go's
+// seedEmbedBinding never plants a marker for this shape either), there is
+// no embed lane to report on or trigger, so the three ops stay their
+// generated 501 — the same declared-by-omission posture as
+// WithColdStart/WithScrape. Without this second self-gating nil, an
+// unbound router would still wire the handlers, and every one of them
+// would 500 reading a marker that was never seeded.
 func WithEmbedReindex(router *ai.Router, inserter *jobs.Runner) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		if router == nil || inserter == nil {
+			return
+		}
+		if identity, _ := router.EmbedIdentity(); identity == "" {
 			return
 		}
 		store := search.NewStore(pool)

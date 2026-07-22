@@ -60,6 +60,17 @@ func (s *Store) UpsertEmbedding(ctx context.Context, entityType string, entityID
 	sum := sha256.Sum256([]byte(text))
 	hash := hex.EncodeToString(sum[:])
 	identity, dims := embedder.EmbedIdentity()
+	if identity == "" {
+		// No embed lane bound (--ai-fake, or any routing config that never
+		// declared an embeddings model) — a legitimate deployment shape
+		// (brain.go's seedEmbedBinding carve-out), not an error. Embedding
+		// is a no-op system-wide when unbound: returning here before the
+		// transaction skips both the DB round-trip and the width guard
+		// below, which would otherwise fire on every call (dims stays 0,
+		// but Embed's own zero-width default fills a live-width vector) and
+		// keep EmbedGen.HandleEvent from ever acking, redelivering forever.
+		return false, nil
+	}
 
 	fresh := false
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {

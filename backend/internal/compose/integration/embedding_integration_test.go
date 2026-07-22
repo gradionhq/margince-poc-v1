@@ -422,3 +422,72 @@ func TestSimilarEntitiesFiltersIdentityAndDoesNotCrossDimCrash(t *testing.T) {
 		t.Fatalf("expected a dimension-mismatch error, got: %v", err)
 	}
 }
+
+// embedIdentityNeverCalled is a search.Embedder stub reporting the
+// legitimate unbound ("", 0) lane (--ai-fake, or any routing config that
+// never bound an embeddings model) whose Embed panics if ever invoked.
+// The F1 fix's whole premise is that neither UpsertEmbedding nor
+// HybridSearch may reach Embed on this lane — a panicking stub makes
+// "never called" a hard test failure rather than a call-count assertion
+// that could silently pass at zero for the wrong reason.
+type embedIdentityNeverCalled struct{}
+
+func (embedIdentityNeverCalled) Embed(context.Context, model.EmbedRequest) (model.Embeddings, error) {
+	panic("Embed must never be called on an unbound embed lane")
+}
+
+func (embedIdentityNeverCalled) EmbedIdentity() (string, int) { return "", 0 }
+
+// TestUpsertEmbeddingNoOpsAndWritesNoRowOnUnboundLane pins the F1 write-
+// seam fix against the real embedding table: an unbound embed lane must
+// leave UpsertEmbedding a clean no-op — no error, fresh=false, and no row
+// written for the entity — rather than the width-guard hard error
+// (dims==0 vs. the fake's own live-width default) that used to fire on
+// EVERY embedding write and keep search.EmbedGen.HandleEvent from ever
+// acking (platform/events' at-least-once bus then redelivers forever).
+func TestUpsertEmbeddingNoOpsAndWritesNoRowOnUnboundLane(t *testing.T) {
+	e := setupSearch(t)
+	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Unbound Person', 'manual', 'human:x')`)
+
+	fresh, err := e.store.UpsertEmbedding(e.Admin(), "person", personID, "Unbound Person", embedIdentityNeverCalled{})
+	if err != nil {
+		t.Fatalf("unbound lane must not error, got %v", err)
+	}
+	if fresh {
+		t.Fatal("unbound lane must not report fresh=true — nothing was embedded")
+	}
+
+	var count int
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT count(*) FROM embedding WHERE workspace_id = $1 AND entity_type = 'person' AND entity_id = $2`,
+		e.WS, personID).Scan(&count); err != nil {
+		t.Fatalf("counting embedding rows: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("unbound lane must write NO row, found %d", count)
+	}
+}
+
+// TestHybridSearchDegradesToLexicalOnUnboundLane is the query-side
+// counterpart: HybridSearch must degrade to the lexical lane alone on an
+// unbound embed lane — the SAME honest degrade a nil embedder already
+// gets — rather than calling Embed/SimilarEntities against a lane with
+// no live width or model.
+func TestHybridSearchDegradesToLexicalOnUnboundLane(t *testing.T) {
+	e := setupSearch(t)
+	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Lexical Only Grid', 'manual', 'human:x')`)
+
+	hits, err := e.store.HybridSearch(e.Admin(), "Lexical Only Grid", embedIdentityNeverCalled{}, 10)
+	if err != nil {
+		t.Fatalf("unbound lane must not error, got %v", err)
+	}
+	found := false
+	for _, h := range hits {
+		if h.ID == personID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("lexical lane must still find the seeded row on an unbound embed lane, got %+v", hits)
+	}
+}
