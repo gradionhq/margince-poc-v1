@@ -30,10 +30,12 @@ const (
 	OfferRejected             SubscribableEventType = "offer.rejected"
 	OfferSent                 SubscribableEventType = "offer.sent"
 	OfferSuperseded           SubscribableEventType = "offer.superseded"
+	OnboardingStateChanged    SubscribableEventType = "onboarding.state_changed"
 	OrganizationArchived      SubscribableEventType = "organization.archived"
 	OrganizationCreated       SubscribableEventType = "organization.created"
 	OrganizationMerged        SubscribableEventType = "organization.merged"
 	OrganizationUpdated       SubscribableEventType = "organization.updated"
+	PassportRevoked           SubscribableEventType = "passport.revoked"
 	PersonArchived            SubscribableEventType = "person.archived"
 	PersonCreated             SubscribableEventType = "person.created"
 	PersonMerged              SubscribableEventType = "person.merged"
@@ -43,11 +45,15 @@ const (
 	PipelineCreated           SubscribableEventType = "pipeline.created"
 	PipelineUpdated           SubscribableEventType = "pipeline.updated"
 	RetentionApplied          SubscribableEventType = "retention.applied"
+	RoleChanged               SubscribableEventType = "role.changed"
 	SignalDetected            SubscribableEventType = "signal.detected"
 	SignalResolved            SubscribableEventType = "signal.resolved"
 	StageArchived             SubscribableEventType = "stage.archived"
 	StageCreated              SubscribableEventType = "stage.created"
 	StageUpdated              SubscribableEventType = "stage.updated"
+	UserDeactivated           SubscribableEventType = "user.deactivated"
+	UserInvited               SubscribableEventType = "user.invited"
+	UserReactivated           SubscribableEventType = "user.reactivated"
 	VoiceBuildChanged         SubscribableEventType = "voice.build_changed"
 	VoiceCorpusChanged        SubscribableEventType = "voice.corpus_changed"
 	VoiceDraftOutcomeRecorded SubscribableEventType = "voice.draft_outcome_recorded"
@@ -100,6 +106,8 @@ func (e SubscribableEventType) Valid() bool {
 		return true
 	case OfferSuperseded:
 		return true
+	case OnboardingStateChanged:
+		return true
 	case OrganizationArchived:
 		return true
 	case OrganizationCreated:
@@ -107,6 +115,8 @@ func (e SubscribableEventType) Valid() bool {
 	case OrganizationMerged:
 		return true
 	case OrganizationUpdated:
+		return true
+	case PassportRevoked:
 		return true
 	case PersonArchived:
 		return true
@@ -126,6 +136,8 @@ func (e SubscribableEventType) Valid() bool {
 		return true
 	case RetentionApplied:
 		return true
+	case RoleChanged:
+		return true
 	case SignalDetected:
 		return true
 	case SignalResolved:
@@ -135,6 +147,12 @@ func (e SubscribableEventType) Valid() bool {
 	case StageCreated:
 		return true
 	case StageUpdated:
+		return true
+	case UserDeactivated:
+		return true
+	case UserInvited:
+		return true
+	case UserReactivated:
 		return true
 	case VoiceBuildChanged:
 		return true
@@ -155,7 +173,7 @@ func (e SubscribableEventType) Valid() bool {
 	}
 }
 
-// SubscribableEventType The closed set of domain events a webhook subscription can select. Phase 4 fills this out family by family; today it carries the pilot event plus the deal family (Task 5a-i), the offer family (Task 5a-ii), the pipeline/stage config family (Task 5a-iii), and the person/organization family (Task 5b-personorg), the lead family (Task 5b-lead), the activities family (Task 5c), the consent/privacy family (Task 5d), the signals family (Task 5e), and the ai voice family (Task 5f).
+// SubscribableEventType The closed set of domain events a webhook subscription can select. Phase 4 fills this out family by family; today it carries the pilot event plus the deal family (Task 5a-i), the offer family (Task 5a-ii), the pipeline/stage config family (Task 5a-iii), and the person/organization family (Task 5b-personorg), the lead family (Task 5b-lead), the activities family (Task 5c), the consent/privacy family (Task 5d), the signals family (Task 5e), the ai voice family (Task 5f), and the identity family (Task 5g).
 type SubscribableEventType string
 
 // WebhookActivityChangedFields activity.updated's BOUNDED delta: UpdateActivity's known mutable fields (subject, body, occurred_at, due_at, remind_at, assignee_id, is_done) each carried only when this update touched them, plus RelinkActivity's relinked target — a fixed, KNOWN key set (unlike person/organization/deal/lead.updated's genuinely open patch), so it is typed rather than an open map.
@@ -452,6 +470,30 @@ type WebhookPayloadOfferSuperseded struct {
 	ToRevision int `json:"to_revision"`
 }
 
+// WebhookPayloadOnboardingStateChanged Payload for onboarding.state_changed — the admitted human's wizard checkpoint was created or advanced (identity/onboarding.go's auditOnboardingState).
+type WebhookPayloadOnboardingStateChanged struct {
+	// Completed Whether the wizard was completed as of this checkpoint.
+	Completed bool `json:"completed"`
+
+	// ConnectSkipped Whether the incumbent-connect step was skipped.
+	ConnectSkipped bool `json:"connect_skipped"`
+
+	// Path The chosen onboarding path.
+	Path string `json:"path"`
+
+	// Step The wizard step this checkpoint reached.
+	Step string `json:"step"`
+
+	// UserId The human whose wizard state this is.
+	UserId openapi_types.UUID `json:"user_id"`
+
+	// Version The row's optimistic-concurrency version after this checkpoint.
+	Version int64 `json:"version"`
+
+	// VoiceSkipped Whether the voice-setup step was skipped.
+	VoiceSkipped bool `json:"voice_skipped"`
+}
+
 // WebhookPayloadOrganizationArchived Payload for organization.archived — an organization was archived. Carries no data.
 type WebhookPayloadOrganizationArchived struct{}
 
@@ -495,6 +537,15 @@ type WebhookPayloadOrganizationMerged struct {
 type WebhookPayloadOrganizationUpdated struct {
 	// ChangedFields Field name → new value for whatever this update touched, incl. runtime cf_* custom fields.
 	ChangedFields map[string]interface{} `json:"changed_fields"`
+}
+
+// WebhookPayloadPassportRevoked Payload for passport.revoked — an agent passport was hard-revoked (identity/passport.go's RevokePassport), so long-lived consumers drop it within one bus cycle.
+type WebhookPayloadPassportRevoked struct {
+	// By The human who revoked it (the granting user, or an admin).
+	By openapi_types.UUID `json:"by"`
+
+	// PassportId The revoked passport.
+	PassportId openapi_types.UUID `json:"passport_id"`
 }
 
 // WebhookPayloadPersonArchived Payload for person.archived — a person was archived. Carries no data.
@@ -558,6 +609,21 @@ type WebhookPayloadRetentionApplied struct {
 
 	// Reason Why this action ran (Art. 17 erasure only — e.g. dsr_request; absent for both retention-sweep sites).
 	Reason *string `json:"reason,omitempty"`
+}
+
+// WebhookPayloadRoleChanged Payload for role.changed — a member's role assignments were replaced with the single target system role (identity/users.go's ChangeUserRole). from_role rides the payload only when the previous state was a single role — a multi-role history has no one "from".
+type WebhookPayloadRoleChanged struct {
+	// By The admin who changed the role.
+	By openapi_types.UUID `json:"by"`
+
+	// FromRole The single prior role key (absent when the member held more than one role before this change).
+	FromRole *string `json:"from_role,omitempty"`
+
+	// ToRole The role key assigned.
+	ToRole string `json:"to_role"`
+
+	// UserId The member whose role changed.
+	UserId openapi_types.UUID `json:"user_id"`
 }
 
 // WebhookPayloadSignalDetected Payload for signal.detected — a signal was created (signals/signal.go's CreateSignal). entity_type/entity_id are DATA fields naming the signal's subject (deal | organization | person) when one is already known at creation time — not the envelope's own entity ref, which is the signal itself (this event's entity type is the static "signal"). Both are absent on a raw signal (only a raw_ref), which enters unresolved and waits for the resolver; resolution_confidence is set only when the signal was created already resolved.
@@ -642,6 +708,39 @@ type WebhookPayloadStageUpdated struct {
 
 	// WinProbability The stage's new win probability (absent when this update did not touch it).
 	WinProbability *int `json:"win_probability,omitempty"`
+}
+
+// WebhookPayloadUserDeactivated Payload for user.deactivated — a member's sessions and passports were hard-revoked (identity/users.go's DeactivateUser). reason is the operator-supplied free text, absent when none was given.
+type WebhookPayloadUserDeactivated struct {
+	// By The admin who deactivated the member.
+	By openapi_types.UUID `json:"by"`
+
+	// Reason The operator-supplied reason (absent when none was given).
+	Reason *string `json:"reason,omitempty"`
+
+	// UserId The deactivated member.
+	UserId openapi_types.UUID `json:"user_id"`
+}
+
+// WebhookPayloadUserInvited Payload for user.invited — an admin provisioned a new active member with a single-use set-password token (identity/users.go's InviteUser).
+type WebhookPayloadUserInvited struct {
+	// By The admin who issued the invite.
+	By openapi_types.UUID `json:"by"`
+
+	// Role The single system role key granted to the new member.
+	Role string `json:"role"`
+
+	// UserId The invited member.
+	UserId openapi_types.UUID `json:"user_id"`
+}
+
+// WebhookPayloadUserReactivated Payload for user.reactivated — a deactivated member was returned to active (identity/users.go's ReactivateUser).
+type WebhookPayloadUserReactivated struct {
+	// By The admin who reactivated the member.
+	By openapi_types.UUID `json:"by"`
+
+	// UserId The reactivated member.
+	UserId openapi_types.UUID `json:"user_id"`
 }
 
 // WebhookPayloadVoiceBuildChanged Payload for voice.build_changed — a Voice DNA build was queued or an already-pending one was returned in place of a duplicate request (ai/voice_lifecycle.go's RequestBuild). stage/result_version/ status_code/next_attempt_at describe an in-flight or deferred build and are therefore absent on a freshly-queued one.
@@ -895,6 +994,10 @@ func (WebhookPayloadOfferSuperseded) EventType() string { return "offer.supersed
 
 func (WebhookPayloadOfferSuperseded) EntityType() string { return "offer" }
 
+func (WebhookPayloadOnboardingStateChanged) EventType() string { return "onboarding.state_changed" }
+
+func (WebhookPayloadOnboardingStateChanged) EntityType() string { return "onboarding_wizard_state" }
+
 func (WebhookPayloadOrganizationArchived) EventType() string { return "organization.archived" }
 
 func (WebhookPayloadOrganizationArchived) EntityType() string { return "organization" }
@@ -910,6 +1013,10 @@ func (WebhookPayloadOrganizationMerged) EntityType() string { return "organizati
 func (WebhookPayloadOrganizationUpdated) EventType() string { return "organization.updated" }
 
 func (WebhookPayloadOrganizationUpdated) EntityType() string { return "organization" }
+
+func (WebhookPayloadPassportRevoked) EventType() string { return "passport.revoked" }
+
+func (WebhookPayloadPassportRevoked) EntityType() string { return "passport" }
 
 func (WebhookPayloadPersonArchived) EventType() string { return "person.archived" }
 
@@ -947,6 +1054,10 @@ func (WebhookPayloadRetentionApplied) EventType() string { return "retention.app
 
 func (WebhookPayloadRetentionApplied) EntityType() string { return "dynamic" }
 
+func (WebhookPayloadRoleChanged) EventType() string { return "role.changed" }
+
+func (WebhookPayloadRoleChanged) EntityType() string { return "user" }
+
 func (WebhookPayloadSignalDetected) EventType() string { return "signal.detected" }
 
 func (WebhookPayloadSignalDetected) EntityType() string { return "signal" }
@@ -966,6 +1077,18 @@ func (WebhookPayloadStageCreated) EntityType() string { return "stage" }
 func (WebhookPayloadStageUpdated) EventType() string { return "stage.updated" }
 
 func (WebhookPayloadStageUpdated) EntityType() string { return "stage" }
+
+func (WebhookPayloadUserDeactivated) EventType() string { return "user.deactivated" }
+
+func (WebhookPayloadUserDeactivated) EntityType() string { return "user" }
+
+func (WebhookPayloadUserInvited) EventType() string { return "user.invited" }
+
+func (WebhookPayloadUserInvited) EntityType() string { return "user" }
+
+func (WebhookPayloadUserReactivated) EventType() string { return "user.reactivated" }
+
+func (WebhookPayloadUserReactivated) EntityType() string { return "user" }
 
 func (WebhookPayloadVoiceBuildChanged) EventType() string { return "voice.build_changed" }
 
@@ -1023,10 +1146,12 @@ var WebhookPayloadVersions = map[string]int{
 	"offer.rejected":               1,
 	"offer.sent":                   1,
 	"offer.superseded":             1,
+	"onboarding.state_changed":     1,
 	"organization.archived":        1,
 	"organization.created":         1,
 	"organization.merged":          1,
 	"organization.updated":         1,
+	"passport.revoked":             1,
 	"person.archived":              1,
 	"person.created":               1,
 	"person.merged":                1,
@@ -1036,11 +1161,15 @@ var WebhookPayloadVersions = map[string]int{
 	"pipeline.created":             1,
 	"pipeline.updated":             1,
 	"retention.applied":            1,
+	"role.changed":                 1,
 	"signal.detected":              1,
 	"signal.resolved":              1,
 	"stage.archived":               1,
 	"stage.created":                1,
 	"stage.updated":                1,
+	"user.deactivated":             1,
+	"user.invited":                 1,
+	"user.reactivated":             1,
 	"voice.build_changed":          1,
 	"voice.corpus_changed":         1,
 	"voice.draft_outcome_recorded": 1,

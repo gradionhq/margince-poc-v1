@@ -16,7 +16,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -96,13 +98,22 @@ func (s *Service) InviteUser(ctx context.Context, actor Identity, in InviteUserI
 		if err != nil {
 			return err
 		}
-		return storekit.Emit(ctx, tx, auditID, "user.invited", "user", newUserID.UUID,
-			map[string]any{onboardingAuditUserID: newUserID, "role": in.Role, "by": actor.UserID})
+		return storekit.EmitEvent(ctx, tx, auditID, newUserID.UUID,
+			userInvitedPayload(newUserID, in.Role, actor.UserID))
 	})
 	if err != nil {
 		return ids.UserID{}, "", err
 	}
 	return newUserID, raw, nil
+}
+
+// userInvitedPayload builds user.invited's typed payload.
+func userInvitedPayload(userID ids.UserID, role string, by ids.UserID) crmcontracts.WebhookPayloadUserInvited {
+	return crmcontracts.WebhookPayloadUserInvited{
+		UserId: openapi_types.UUID(userID.UUID),
+		Role:   role,
+		By:     openapi_types.UUID(by.UUID),
+	}
 }
 
 // ReactivateUser returns a deactivated member to 'active' so they may sign in
@@ -142,9 +153,17 @@ func (s *Service) ReactivateUser(ctx context.Context, actor Identity, userID ids
 		if err != nil {
 			return err
 		}
-		return storekit.Emit(ctx, tx, auditID, "user.reactivated", "user", userID.UUID,
-			map[string]any{onboardingAuditUserID: userID, "by": actor.UserID})
+		return storekit.EmitEvent(ctx, tx, auditID, userID.UUID,
+			userReactivatedPayload(userID, actor.UserID))
 	})
+}
+
+// userReactivatedPayload builds user.reactivated's typed payload.
+func userReactivatedPayload(userID ids.UserID, by ids.UserID) crmcontracts.WebhookPayloadUserReactivated {
+	return crmcontracts.WebhookPayloadUserReactivated{
+		UserId: openapi_types.UUID(userID.UUID),
+		By:     openapi_types.UUID(by.UUID),
+	}
 }
 
 // lastActiveAdmin reports whether userID is an active admin and the ONLY one —
@@ -270,12 +289,19 @@ func (s *Service) DeactivateUser(ctx context.Context, actor Identity, in Deactiv
 		if err != nil {
 			return err
 		}
-		payload := map[string]any{"user_id": in.UserID, "by": actor.UserID}
-		if in.Reason != nil {
-			payload["reason"] = *in.Reason
-		}
-		return storekit.Emit(ctx, tx, auditID, "user.deactivated", "user", in.UserID.UUID, payload)
+		return storekit.EmitEvent(ctx, tx, auditID, in.UserID.UUID,
+			userDeactivatedPayload(in.UserID, actor.UserID, in.Reason))
 	})
+}
+
+// userDeactivatedPayload builds user.deactivated's typed payload. reason
+// rides the payload only when the operator supplied one.
+func userDeactivatedPayload(userID ids.UserID, by ids.UserID, reason *string) crmcontracts.WebhookPayloadUserDeactivated {
+	return crmcontracts.WebhookPayloadUserDeactivated{
+		UserId: openapi_types.UUID(userID.UUID),
+		By:     openapi_types.UUID(by.UUID),
+		Reason: reason,
+	}
 }
 
 // ChangeUserRole replaces the user's role assignments with the single
@@ -346,10 +372,23 @@ func (s *Service) ChangeUserRole(ctx context.Context, actor Identity, userID ids
 		if err != nil {
 			return err
 		}
-		payload := map[string]any{"user_id": userID, "to_role": toRole, "by": actor.UserID}
+		var fromRole *string
 		if len(fromRoles) == 1 {
-			payload["from_role"] = fromRoles[0]
+			fromRole = &fromRoles[0]
 		}
-		return storekit.Emit(ctx, tx, auditID, "role.changed", "user", userID.UUID, payload)
+		return storekit.EmitEvent(ctx, tx, auditID, userID.UUID,
+			roleChangedPayload(userID, toRole, actor.UserID, fromRole))
 	})
+}
+
+// roleChangedPayload builds role.changed's typed payload. fromRole rides
+// the payload only when the previous state was a single role — a
+// multi-role history has no one "from".
+func roleChangedPayload(userID ids.UserID, toRole string, by ids.UserID, fromRole *string) crmcontracts.WebhookPayloadRoleChanged {
+	return crmcontracts.WebhookPayloadRoleChanged{
+		UserId:   openapi_types.UUID(userID.UUID),
+		ToRole:   toRole,
+		By:       openapi_types.UUID(by.UUID),
+		FromRole: fromRole,
+	}
 }

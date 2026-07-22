@@ -19,7 +19,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -206,9 +208,17 @@ func (s *Service) RevokePassport(ctx context.Context, id Identity, passportID id
 		}
 		// agent_connection_id is omitted: the A1/local issuance path has
 		// no agent-connection storage (the hosted A2 surface adds it).
-		return storekit.Emit(ctx, tx, auditID, "passport.revoked", "passport", passportID.UUID,
-			map[string]any{"passport_id": passportID, "by": id.UserID})
+		return storekit.EmitEvent(ctx, tx, auditID, passportID.UUID,
+			passportRevokedPayload(passportID, id.UserID))
 	})
+}
+
+// passportRevokedPayload builds passport.revoked's typed payload.
+func passportRevokedPayload(passportID ids.PassportID, by ids.UserID) crmcontracts.WebhookPayloadPassportRevoked {
+	return crmcontracts.WebhookPayloadPassportRevoked{
+		PassportId: openapi_types.UUID(passportID.UUID),
+		By:         openapi_types.UUID(by.UUID),
+	}
 }
 
 // AgentIdentity is the resolved principal of a passport call: the

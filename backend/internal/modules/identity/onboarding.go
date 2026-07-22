@@ -14,7 +14,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -57,10 +59,9 @@ const (
 	// failing on its own output. The contract states it (crm.yaml's
 	// maxItems on selected_fact_keys) so a client sees the bound instead
 	// of discovering it as a 422.
-	MaxSelectedFacts      = 100
-	httpScheme            = "http"
-	httpsScheme           = "https"
-	onboardingAuditUserID = "user_id"
+	MaxSelectedFacts = 100
+	httpScheme       = "http"
+	httpsScheme      = "https"
 )
 
 var onboardingSteps = map[string]struct{}{
@@ -405,13 +406,28 @@ func auditOnboardingState(
 	if err != nil {
 		return err
 	}
-	payload := map[string]any{
-		onboardingAuditUserID: userID, "path": after.Path, "step": after.Step, "version": after.Version,
-		"voice_skipped": after.VoiceSkipped, "connect_skipped": after.ConnectSkipped,
-		"completed": after.CompletedAt != nil,
+	return storekit.EmitEvent(ctx, tx, auditID, after.ID, onboardingStateChangedPayload(
+		userID, after.Path, after.Step, after.Version,
+		after.VoiceSkipped, after.ConnectSkipped, after.CompletedAt != nil))
+}
+
+// onboardingStateChangedPayload builds onboarding.state_changed's typed
+// payload.
+func onboardingStateChangedPayload(
+	userID ids.UUID,
+	path, step string,
+	version int64,
+	voiceSkipped, connectSkipped, completed bool,
+) crmcontracts.WebhookPayloadOnboardingStateChanged {
+	return crmcontracts.WebhookPayloadOnboardingStateChanged{
+		UserId:         openapi_types.UUID(userID),
+		Path:           path,
+		Step:           step,
+		Version:        version,
+		VoiceSkipped:   voiceSkipped,
+		ConnectSkipped: connectSkipped,
+		Completed:      completed,
 	}
-	return storekit.Emit(ctx, tx, auditID, "onboarding.state_changed",
-		"onboarding_wizard_state", after.ID, payload)
 }
 
 func onboardingAuditImage(state OnboardingState) map[string]any {

@@ -27,8 +27,8 @@ components:
         (Task 5a-ii), the pipeline/stage config family (Task 5a-iii), and
         the person/organization family (Task 5b-personorg), the lead
         family (Task 5b-lead), the activities family (Task 5c), the
-        consent/privacy family (Task 5d), the signals family (Task 5e), and
-        the ai voice family (Task 5f).
+        consent/privacy family (Task 5d), the signals family (Task 5e), the
+        ai voice family (Task 5f), and the identity family (Task 5g).
       enum:
         - deal.created
         - deal.owner_changed
@@ -75,6 +75,12 @@ components:
         - voice.build_changed
         - voice.version_changed
         - voice.draft_outcome_recorded
+        - user.invited
+        - user.deactivated
+        - user.reactivated
+        - role.changed
+        - passport.revoked
+        - onboarding.state_changed
 
     WebhookActor:
       type: object
@@ -1476,4 +1482,178 @@ components:
         transformation_count:
           type: integer
           description: How many transformation edits were applied before send (0 for rejected).
+      additionalProperties: false
+
+    WebhookPayloadUserInvited:
+      type: object
+      x-event-type: user.invited
+      x-entity-type: user
+      x-version: 1
+      description: >-
+        Payload for user.invited — an admin provisioned a new active member
+        with a single-use set-password token (identity/users.go's
+        InviteUser).
+      required:
+        - user_id
+        - role
+        - by
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          description: The invited member.
+        role:
+          type: string
+          description: The single system role key granted to the new member.
+        by:
+          type: string
+          format: uuid
+          description: The admin who issued the invite.
+      additionalProperties: false
+
+    WebhookPayloadUserDeactivated:
+      type: object
+      x-event-type: user.deactivated
+      x-entity-type: user
+      x-version: 1
+      description: >-
+        Payload for user.deactivated — a member's sessions and passports
+        were hard-revoked (identity/users.go's DeactivateUser). reason is
+        the operator-supplied free text, absent when none was given.
+      required:
+        - user_id
+        - by
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          description: The deactivated member.
+        by:
+          type: string
+          format: uuid
+          description: The admin who deactivated the member.
+        reason:
+          type: string
+          description: The operator-supplied reason (absent when none was given).
+      additionalProperties: false
+
+    WebhookPayloadUserReactivated:
+      type: object
+      x-event-type: user.reactivated
+      x-entity-type: user
+      x-version: 1
+      description: >-
+        Payload for user.reactivated — a deactivated member was returned to
+        active (identity/users.go's ReactivateUser).
+      required:
+        - user_id
+        - by
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          description: The reactivated member.
+        by:
+          type: string
+          format: uuid
+          description: The admin who reactivated the member.
+      additionalProperties: false
+
+    WebhookPayloadRoleChanged:
+      type: object
+      x-event-type: role.changed
+      x-entity-type: user
+      x-version: 1
+      description: >-
+        Payload for role.changed — a member's role assignments were
+        replaced with the single target system role (identity/users.go's
+        ChangeUserRole). from_role rides the payload only when the previous
+        state was a single role — a multi-role history has no one "from".
+      required:
+        - user_id
+        - to_role
+        - by
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          description: The member whose role changed.
+        to_role:
+          type: string
+          description: The role key assigned.
+        by:
+          type: string
+          format: uuid
+          description: The admin who changed the role.
+        from_role:
+          type: string
+          description: >-
+            The single prior role key (absent when the member held more
+            than one role before this change).
+      additionalProperties: false
+
+    WebhookPayloadPassportRevoked:
+      type: object
+      x-event-type: passport.revoked
+      x-entity-type: passport
+      x-version: 1
+      description: >-
+        Payload for passport.revoked — an agent passport was hard-revoked
+        (identity/passport.go's RevokePassport), so long-lived consumers
+        drop it within one bus cycle.
+      required:
+        - passport_id
+        - by
+      properties:
+        passport_id:
+          type: string
+          format: uuid
+          description: The revoked passport.
+        by:
+          type: string
+          format: uuid
+          description: The human who revoked it (the granting user, or an admin).
+      additionalProperties: false
+
+    WebhookPayloadOnboardingStateChanged:
+      type: object
+      x-event-type: onboarding.state_changed
+      x-entity-type: onboarding_wizard_state
+      x-version: 1
+      description: >-
+        Payload for onboarding.state_changed — the admitted human's wizard
+        checkpoint was created or advanced (identity/onboarding.go's
+        auditOnboardingState).
+      required:
+        - user_id
+        - path
+        - step
+        - version
+        - voice_skipped
+        - connect_skipped
+        - completed
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          description: The human whose wizard state this is.
+        path:
+          type: string
+          description: The chosen onboarding path.
+        step:
+          type: string
+          description: The wizard step this checkpoint reached.
+        version:
+          type: integer
+          format: int64
+          description: The row's optimistic-concurrency version after this checkpoint.
+        voice_skipped:
+          type: boolean
+          description: Whether the voice-setup step was skipped.
+        connect_skipped:
+          type: boolean
+          description: Whether the incumbent-connect step was skipped.
+        completed:
+          type: boolean
+          description: Whether the wizard was completed as of this checkpoint.
       additionalProperties: false

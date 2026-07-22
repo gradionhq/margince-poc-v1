@@ -570,3 +570,82 @@ func TestVoiceDraftOutcomeRecordedWireSnapshot(t *testing.T) {
 	}
 	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
 }
+
+// identitySnapshotUserID/identitySnapshotActorID/identitySnapshotPassportID
+// are fixed, memorable UUIDs so the identity family's golden snapshots
+// (webhooks Task 5g) are stable across test runs — a real ids.NewV7()
+// would churn the fixtures on every regeneration for no reason.
+var (
+	identitySnapshotUserID     = uuid.MustParse("00000000-0000-0000-0000-0000000000b1")
+	identitySnapshotActorID    = uuid.MustParse("00000000-0000-0000-0000-0000000000b2")
+	identitySnapshotPassportID = uuid.MustParse("00000000-0000-0000-0000-0000000000b3")
+)
+
+// TestUserInvitedWireSnapshot pins user.invited's wire shape (webhooks
+// Task 5g, identity family).
+func TestUserInvitedWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadUserInvited{
+		UserId: identitySnapshotUserID,
+		Role:   "manager",
+		By:     identitySnapshotActorID,
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestUserDeactivatedWireSnapshot pins user.deactivated's wire shape —
+// sampled with reason set, the branch that carries every optional field.
+func TestUserDeactivatedWireSnapshot(t *testing.T) {
+	reason := "policy violation"
+	sample := crmcontracts.WebhookPayloadUserDeactivated{
+		UserId: identitySnapshotUserID,
+		By:     identitySnapshotActorID,
+		Reason: &reason,
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestUserReactivatedWireSnapshot pins user.reactivated's wire shape.
+func TestUserReactivatedWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadUserReactivated{
+		UserId: identitySnapshotUserID,
+		By:     identitySnapshotActorID,
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestRoleChangedWireSnapshot pins role.changed's wire shape — sampled
+// with from_role set, the branch that carries every optional field.
+func TestRoleChangedWireSnapshot(t *testing.T) {
+	fromRole := "member"
+	sample := crmcontracts.WebhookPayloadRoleChanged{
+		UserId:   identitySnapshotUserID,
+		ToRole:   "manager",
+		By:       identitySnapshotActorID,
+		FromRole: &fromRole,
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestPassportRevokedWireSnapshot pins passport.revoked's wire shape.
+func TestPassportRevokedWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadPassportRevoked{
+		PassportId: identitySnapshotPassportID,
+		By:         identitySnapshotActorID,
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// TestOnboardingStateChangedWireSnapshot pins onboarding.state_changed's
+// wire shape.
+func TestOnboardingStateChangedWireSnapshot(t *testing.T) {
+	sample := crmcontracts.WebhookPayloadOnboardingStateChanged{
+		UserId:         identitySnapshotUserID,
+		Path:           "member",
+		Step:           "connect",
+		Version:        3,
+		VoiceSkipped:   true,
+		ConnectSkipped: false,
+		Completed:      false,
+	}
+	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
