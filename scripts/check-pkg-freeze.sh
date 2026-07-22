@@ -67,6 +67,22 @@ fi
 EXPORT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pkg-freeze-export.XXXXXX")"
 trap 'cleanup; rm -rf "$EXPORT_DIR"' EXIT
 
+# A ratified surface change is recorded as its exact apidiff finding in
+# the allowlist (the contract gate's exception pattern): the entry only
+# ever matches that one change — the next incompatible edit is a new
+# finding and fails — and an entry matching nothing is itself a failure,
+# so the file can never accumulate stale permissions. Package removals
+# are NOT allowlistable: removal is the deprecate-then-major cycle.
+ALLOWLIST="${PKG_FREEZE_ALLOWLIST:-scripts/pkg-freeze-allowlist.txt}"
+allowed="$EXPORT_DIR/allowed"
+if [ -f "$ALLOWLIST" ]; then
+  grep -vE '^\s*(#|$)' "$ALLOWLIST" > "$allowed" || true
+else
+  : > "$allowed"
+fi
+
+findings="$EXPORT_DIR/findings"
+: > "$findings"
 failed=0
 count=0
 for pkg in $OLD_PKGS; do
@@ -79,16 +95,27 @@ for pkg in $OLD_PKGS; do
   fi
   export_file="$EXPORT_DIR/$(echo "$pkg" | tr '/' '_').export"
   (cd "$WORKTREE/backend" && $APIDIFF -w "$export_file" "./$rel")
-  incompatible="$(cd backend && $APIDIFF -incompatible "$export_file" "./$rel")"
-  if [ -n "$incompatible" ]; then
-    echo "FAIL: pkg-freeze — incompatible change in published package $pkg vs $BASE_REF:" >&2
-    echo "$incompatible" | sed 's/^/  /' >&2
-    failed=1
-  fi
+  (cd backend && $APIDIFF -incompatible "$export_file" "./$rel") \
+    | sed -e 's/^- //' -e "s|^|$pkg: |" >> "$findings"
 done
 
+violations="$(grep -Fxv -f "$allowed" "$findings" || true)"
+stale="$(grep -Fxv -f "$findings" "$allowed" || true)"
+
+if [ -n "$violations" ]; then
+  echo "FAIL: pkg-freeze — incompatible published-surface change vs $BASE_REF:" >&2
+  echo "$violations" | sed 's/^/  /' >&2
+  failed=1
+fi
+if [ -n "$stale" ]; then
+  echo "FAIL: pkg-freeze — allowlist entry matches no current finding (remove it, the ratified change has been absorbed):" >&2
+  echo "$stale" | sed 's/^/  /' >&2
+  failed=1
+fi
+
 if [ "$failed" -ne 0 ]; then
-  echo "pkg-freeze: the published surface changes additively or via versioned successors, never in place (EXT-P3). Deliberate, reviewed exception: PKG_FREEZE_BASE=<ref>." >&2
+  echo "pkg-freeze: the published surface changes additively or via versioned successors, never in place (EXT-P3). A ratified change is recorded as its exact finding line in $ALLOWLIST, visible in the PR." >&2
   exit 1
 fi
-echo "OK: pkg-freeze — published surface additive-or-unchanged vs $BASE_REF ($count packages)"
+allowed_count="$(grep -c . "$allowed" || true)"
+echo "OK: pkg-freeze — published surface additive-or-unchanged vs $BASE_REF ($count packages, $allowed_count ratified exceptions)"

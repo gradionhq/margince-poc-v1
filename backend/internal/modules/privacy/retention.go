@@ -441,7 +441,7 @@ func statutoryCorrespondenceFloor(ref time.Time) jurisdiction.Period {
 			continue
 		}
 		for _, class := range retention.Classes() {
-			if class.Name == "commercial_correspondence" && class.Keep.Cutoff(ref).Before(floor.Cutoff(ref)) {
+			if class.Name == jurisdiction.CommercialCorrespondence && class.Keep.Cutoff(ref).Before(floor.Cutoff(ref)) {
 				floor = class.Keep
 			}
 		}

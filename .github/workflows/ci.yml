@@ -196,9 +196,11 @@ jobs:
       - name: Composed build + unit lane
         working-directory: .
         run: make -C backend build test check-composition
-      - name: Extension self-test lane
-        working-directory: extensions/crm-hello
-        run: GOWORK="$GITHUB_WORKSPACE/build/composition/go.work" go test ./...
+      # Tree-derived: every enabled unit's own module lane (the committed
+      # first-party extensions AND the copied-in reference fixture).
+      - name: Extension self-test lanes
+        working-directory: .
+        run: make -C backend test-extensions
 
   # The code-craftsmanship gate (ADR-0045) runs only after the deterministic
   # gates are green — a red build must never be judged on style.

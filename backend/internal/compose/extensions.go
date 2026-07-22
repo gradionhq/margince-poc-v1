@@ -58,7 +58,9 @@ func validateExtensionSet(exts []extension.Extension) error {
 }
 
 // preflightJurisdictions checks one unit's declared packs for grammar,
-// duplicates within the composed set, and collisions with core packs.
+// duplicates within the composed set, collisions with core packs, and
+// retention classes outside the closed set — an unknown class would be
+// a statutory floor that looks registered while no engine consults it.
 func preflightJurisdictions(e extension.Extension, packCodes map[jurisdiction.Code]extension.Name) error {
 	for _, p := range e.Jurisdictions {
 		code := p.Code()
@@ -70,6 +72,13 @@ func preflightJurisdictions(e extension.Extension, packCodes map[jurisdiction.Co
 		}
 		if _, taken := jurisdiction.For(code); taken {
 			return fmt.Errorf("compose: extension %q declares jurisdiction %q, which a core pack already registers", e.Name, code)
+		}
+		if ret := p.Retention(); ret != nil {
+			for _, class := range ret.Classes() {
+				if err := class.Name.Validate(); err != nil {
+					return fmt.Errorf("compose: extension %q, jurisdiction %q: %w", e.Name, code, err)
+				}
+			}
 		}
 		packCodes[code] = e.Name
 	}

@@ -9,12 +9,15 @@ coverage.out
 # root for installation-dependent generated output (digest-gated by its
 # composition.json, never committed — anchored to the composition root so
 # an unrelated future /build asset is never silently hidden), and
-# extensions/ is the installation-owned enabled set — only the
-# placeholder and the approval lock belong to the vanilla tree.
+# extensions/ is the installation-owned enabled set. The vanilla tree
+# ships the placeholder, the approval lock, and the FIRST-PARTY units
+# enabled by default (extensions/de, the German jurisdiction pack —
+# presence under extensions/ IS the enablement).
 /build/composition/
 /extensions/*
 !/extensions/.gitkeep
 !/extensions/approvals.lock
+!/extensions/de
 
 # Compiled cmd binaries left in the module dir by `go build ./cmd/<role>`
 # (anchored so they never match the cmd/<role> source directories; the api
