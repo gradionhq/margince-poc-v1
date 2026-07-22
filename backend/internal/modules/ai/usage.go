@@ -64,9 +64,12 @@ const (
 	BandQueued   = "queued"
 )
 
-// budgetBand maps utilization onto the §1.3 band — the same thresholds
-// applyBudget enforces on the routing ladder.
-func budgetBand(spent, budget int64) string {
+// BudgetBand maps utilization onto the §1.3 band — the same thresholds
+// applyBudget enforces on the routing ladder. Exported so a cross-module
+// projection (compose/costestimate's embed-reindex preview, ADR-0068) can
+// disclose the SAME band a workspace's own spend would read, rather than
+// forking the 80%/100% thresholds into a second copy that could drift.
+func BudgetBand(spent, budget int64) string {
 	if budget <= 0 {
 		// Fail closed on misconfiguration, mirroring applyBudget: a zero
 		// budget reads as exhausted, never as unlimited.
@@ -119,7 +122,7 @@ func (m *Meter) UsageReport(ctx context.Context, budget BudgetPolicy, rates *Rat
 	status := BudgetStatus{
 		MonthlyTokens: monthly,
 		SpentTokens:   spent,
-		Band:          budgetBand(spent, monthly),
+		Band:          BudgetBand(spent, monthly),
 	}
 	return days, status, nil
 }

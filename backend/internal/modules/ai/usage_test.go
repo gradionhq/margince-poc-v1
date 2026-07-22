@@ -24,15 +24,15 @@ func TestBudgetBandWalksTheThresholds(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := budgetBand(tc.spent, budget); got != tc.want {
-				t.Fatalf("budgetBand(%d, %d) = %q, want %q", tc.spent, budget, got, tc.want)
+			if got := BudgetBand(tc.spent, budget); got != tc.want {
+				t.Fatalf("BudgetBand(%d, %d) = %q, want %q", tc.spent, budget, got, tc.want)
 			}
 		})
 	}
 }
 
 func TestBudgetBandFailsClosedOnNonPositiveBudget(t *testing.T) {
-	if got := budgetBand(0, 0); got != BandQueued {
+	if got := BudgetBand(0, 0); got != BandQueued {
 		t.Fatalf("a zero budget must read as exhausted, got %q", got)
 	}
 }
