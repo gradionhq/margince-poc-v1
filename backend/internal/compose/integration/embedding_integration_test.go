@@ -24,18 +24,65 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
-// fakeEmbedder wires fake through the router (compose.NewLocalModelPath),
-// the same seam production's Embedder lane rides, and hands back the
-// wrapped search.Embedder — fake itself stays available for .Calls()
-// assertions since it is the exact instance serving every call.
+// fakeEmbedDims is the width every named test binding below uses unless a
+// test deliberately wants a mismatch — matching FakeClient's own default
+// so nothing here depends on a magic number rediscovered elsewhere.
+const fakeEmbedDims = 1024
+
+// fakeEmbedder wires fake through the router (compose.NewLocalModelPath)
+// under a fixed named binding ("embed-fake"), the same seam production's
+// Embedder lane rides, and hands back the wrapped search.Embedder — fake
+// itself stays available for .Calls() assertions since it is the exact
+// instance serving every call. Naming the binding (rather than leaving
+// ai.FakeRoutingConfig's Embeddings.Model empty) matters now that
+// UpsertEmbedding stamps and gates on EmbedIdentity(): an unnamed binding
+// reports the legitimate-but-unhelpful "unbound lane" identity ("", 0),
+// which would fail every upsert's width guard once dims stop being a
+// fixed package constant.
 func fakeEmbedder(t *testing.T, fake *ai.FakeClient) search.Embedder {
 	t.Helper()
-	modelPath, err := compose.NewLocalModelPath(ai.FakeRoutingConfig(), ai.WithFakeClient(fake), ai.WithoutResultCache())
+	return fakeEmbedderNamed(t, fake, "embed-fake")
+}
+
+// fakeEmbedderNamed is fakeEmbedder with an explicit binding name, so a
+// test can stand up two distinct EmbedIdentity() values (a binding swap)
+// riding the SAME underlying fake client and dimension — the two "still
+// 1×1024, just a different model" scenarios TestUpsertReembeds... and
+// TestUpsertSkipsUnchanged... need. Width stays fakeEmbedDims throughout:
+// varying it is not what these tests are proving (the guard tests below
+// use stubEmbedder for that instead).
+func fakeEmbedderNamed(t *testing.T, fake *ai.FakeClient, modelName string) search.Embedder {
+	t.Helper()
+	cfg := ai.FakeRoutingConfig()
+	cfg.Embeddings = ai.EmbeddingsConfig{
+		ProviderConfig: ai.ProviderConfig{Provider: ai.ProviderFake, Model: modelName},
+		Dimensions:     fakeEmbedDims,
+	}
+	modelPath, err := compose.NewLocalModelPath(cfg, ai.WithFakeClient(fake), ai.WithoutResultCache())
 	if err != nil {
 		t.Fatalf("NewLocalModelPath: %v", err)
 	}
 	return modelPath.Embedder
 }
+
+// stubEmbedder is a minimal hand-rolled search.Embedder for the two guard
+// tests below: proving the width and zero-vector guards fire requires an
+// Embed call whose result deliberately disagrees with its own declared
+// identity — something the router+fake path can't produce (the fake
+// always honors the requested Dimensions), so these bypass the router
+// entirely and answer exactly what each test scripts.
+type stubEmbedder struct {
+	identity string
+	dims     int
+	vectors  [][]float32
+	resDims  int
+}
+
+func (s stubEmbedder) Embed(context.Context, model.EmbedRequest) (model.Embeddings, error) {
+	return model.Embeddings{Vectors: s.vectors, Dims: s.resDims}, nil
+}
+
+func (s stubEmbedder) EmbedIdentity() (string, int) { return s.identity, s.dims }
 
 func TestEmbeddingUpsertReusesUnchangedText(t *testing.T) {
 	e := setupSearch(t)
@@ -176,5 +223,126 @@ func TestEmbedGenMaintainsRowsFromEvents(t *testing.T) {
 	// A non-entity event is not ours.
 	if err := gen.HandleEvent(context.Background(), kevents.Envelope{Type: "approval.decided", WorkspaceID: e.WS, Entity: kevents.EntityRef{Type: "approval", ID: ids.NewV7()}}); err != nil {
 		t.Fatalf("foreign event must be a no-op, got %v", err)
+	}
+}
+
+// storedEmbeddingModel reads the chunk-0 row's model column directly (the
+// owner connection bypasses RLS, same as seed) — the assertion surface
+// for "which binding actually produced this row" the tests below need.
+func (e *searchEnv) storedEmbeddingModel(t *testing.T, entityType string, entityID ids.UUID) string {
+	t.Helper()
+	var model string
+	err := e.owner.QueryRow(context.Background(),
+		`SELECT model FROM embedding WHERE workspace_id = $1 AND entity_type = $2 AND entity_id = $3 AND chunk_ix = 0`,
+		e.WS, entityType, entityID).Scan(&model)
+	if err != nil {
+		t.Fatalf("reading stored embedding: %v", err)
+	}
+	return model
+}
+
+// TestUpsertReembedsOnIdentityChange proves a binding swap (same text,
+// different EmbedIdentity — the width-migration / model-swap scenario)
+// re-derives the row rather than trusting a hash match alone: skipping
+// on hash-only would leave every existing row stamped with a model that
+// no longer serves the workspace, indistinguishable from a live one.
+func TestUpsertReembedsOnIdentityChange(t *testing.T) {
+	e := setupSearch(t)
+	fake := ai.NewFakeClient()
+	embedderA := fakeEmbedderNamed(t, fake, "model-a")
+	embedderB := fakeEmbedderNamed(t, fake, "model-b")
+	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Identity Person', 'manual', 'human:x')`)
+
+	fresh, err := e.store.UpsertEmbedding(e.Admin(), "person", personID, "Same Text", embedderA)
+	if err != nil || !fresh {
+		t.Fatalf("first upsert fresh=%v err=%v", fresh, err)
+	}
+	wantIdentityA, _ := embedderA.EmbedIdentity()
+	if gotModel := e.storedEmbeddingModel(t, "person", personID); gotModel != wantIdentityA {
+		t.Fatalf("stored model = %q, want %q", gotModel, wantIdentityA)
+	}
+
+	fresh, err = e.store.UpsertEmbedding(e.Admin(), "person", personID, "Same Text", embedderB)
+	if err != nil || !fresh {
+		t.Fatalf("identity change did not re-embed unchanged text: fresh=%v err=%v", fresh, err)
+	}
+	wantIdentityB, _ := embedderB.EmbedIdentity()
+	if wantIdentityA == wantIdentityB {
+		t.Fatalf("test setup produced identical identities %q — no swap exercised", wantIdentityA)
+	}
+	if gotModel := e.storedEmbeddingModel(t, "person", personID); gotModel != wantIdentityB {
+		t.Fatalf("stored model after swap = %q, want %q", gotModel, wantIdentityB)
+	}
+}
+
+// TestUpsertSkipsUnchangedUnderSameIdentity proves the skip path costs no
+// model call when BOTH the hash and the identity are unchanged — the
+// counterpart to the re-embed test above, so a same-binding no-op stays
+// free even after this task adds the identity comparison.
+func TestUpsertSkipsUnchangedUnderSameIdentity(t *testing.T) {
+	e := setupSearch(t)
+	fake := ai.NewFakeClient()
+	embedder := fakeEmbedderNamed(t, fake, "model-c")
+	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Stable Person', 'manual', 'human:x')`)
+
+	fresh, err := e.store.UpsertEmbedding(e.Admin(), "person", personID, "Stable Text", embedder)
+	if err != nil || !fresh {
+		t.Fatalf("first upsert fresh=%v err=%v", fresh, err)
+	}
+	fresh, err = e.store.UpsertEmbedding(e.Admin(), "person", personID, "Stable Text", embedder)
+	if err != nil || fresh {
+		t.Fatalf("unchanged text+identity recomputed: fresh=%v err=%v", fresh, err)
+	}
+	if calls := len(fake.Calls()); calls != 1 {
+		t.Fatalf("embedder called %d times for unchanged text+identity, want 1 (no model spend on the skip)", calls)
+	}
+}
+
+// TestUpsertRejectsWidthMismatch proves a corrupt/misconfigured embedder
+// — one whose actual response width disagrees with its own declared
+// EmbedIdentity dims — fails loudly instead of writing an unrankable
+// vector into a column other rows expect at a fixed width.
+func TestUpsertRejectsWidthMismatch(t *testing.T) {
+	e := setupSearch(t)
+	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Width Mismatch', 'manual', 'human:x')`)
+	// dims (999) deliberately differs from resDims (1024): the declared
+	// identity and the actual response disagree, which the width guard
+	// must catch by comparing against the IDENTITY's width, not a fixed
+	// package constant that would happen to equal resDims here.
+	stub := stubEmbedder{
+		identity: "fake/mismatch@999", dims: 999,
+		vectors: [][]float32{make([]float32, 1024)}, resDims: 1024,
+	}
+
+	fresh, err := e.store.UpsertEmbedding(e.Admin(), "person", personID, "Width Mismatch Text", stub)
+	if err == nil {
+		t.Fatal("width mismatch must be a hard error")
+	}
+	if fresh {
+		t.Fatalf("width mismatch must not report fresh=true, got %v", fresh)
+	}
+}
+
+// TestUpsertRejectsZeroVector proves an all-zero vector — cosine
+// similarity against it is 0/0 = NaN, which a naive ORDER BY sim DESC
+// sorts FIRST, silently outranking every real match — is rejected before
+// it ever reaches storage.
+func TestUpsertRejectsZeroVector(t *testing.T) {
+	e := setupSearch(t)
+	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Zero Vector', 'manual', 'human:x')`)
+	// Width matches (1024/1024) so only the zero-vector guard can be what
+	// rejects this — a decoy width mismatch would leave the test proving
+	// the wrong guard fired.
+	stub := stubEmbedder{
+		identity: "fake/zero@1024", dims: 1024,
+		vectors: [][]float32{make([]float32, 1024)}, resDims: 1024,
+	}
+
+	fresh, err := e.store.UpsertEmbedding(e.Admin(), "person", personID, "Zero Vector Text", stub)
+	if err == nil {
+		t.Fatal("an all-zero vector must be a hard error")
+	}
+	if fresh {
+		t.Fatalf("zero vector must not report fresh=true, got %v", fresh)
 	}
 }

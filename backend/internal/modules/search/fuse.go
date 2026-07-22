@@ -40,7 +40,13 @@ func (s *Store) HybridSearch(ctx context.Context, query string, embedder Embedde
 		return hits, nil
 	}
 
-	queryEmb, err := embedder.Embed(ctx, model.EmbedRequest{Inputs: []string{query}, Dimensions: embeddingDims})
+	// Dimensions rides the SAME identity every stored row was embedded
+	// under (Task 8 adds the read-side identity filter that keeps a
+	// binding swap's stale rows out of this query's results); a fixed
+	// width here would silently mismatch a store re-derived at another
+	// width.
+	_, dims := embedder.EmbedIdentity()
+	queryEmb, err := embedder.Embed(ctx, model.EmbedRequest{Inputs: []string{query}, Dimensions: dims})
 	if err != nil {
 		return nil, fmt.Errorf("search: embedding the query: %w", err)
 	}

@@ -28,20 +28,27 @@ type Embedder interface {
 	EmbedIdentity() (identity string, dims int)
 }
 
-// embedModelLabel records which lane produced a row. The binding is
-// per-deployment config (one embedder per store — mixed models cannot
-// rank against each other); swapping it means wiping the store, which
-// the width-change custom migration forces anyway.
-const embedModelLabel = "embed-lane"
-
-// embeddingDims must match the migration's vector(1024) column; a
-// binding that produces another width fails loudly here instead of
-// storing unrankable vectors.
-const embeddingDims = 1024
+// isZero reports whether every vector component is exactly 0. Cosine
+// similarity against the zero vector is 0/0 = NaN, and a naive
+// `ORDER BY sim DESC` sorts NaN FIRST — silently outranking every real
+// match — so a zero vector must never reach storage.
+func isZero(vec []float32) bool {
+	for _, v := range vec {
+		if v != 0 {
+			return false
+		}
+	}
+	return true
+}
 
 // UpsertEmbedding maintains one entity's vector. Content-hash keyed
-// (ai-operational-spec §6): unchanged text costs NO model call — the
-// returned bool says whether an embedding was actually computed.
+// (ai-operational-spec §6): unchanged text under an unchanged embed
+// binding costs NO model call — the returned bool says whether an
+// embedding was actually computed. A text match under a CHANGED binding
+// (an operator swap to a different provider/model/width) still
+// re-embeds: skipping on hash alone would leave the row stamped with a
+// model no longer serving the workspace, indistinguishable from a live
+// one.
 func (s *Store) UpsertEmbedding(ctx context.Context, entityType string, entityID ids.UUID, text string, embedder Embedder) (bool, error) {
 	if !knownEntity(entityType) {
 		return false, fmt.Errorf("search: unembeddable entity type %q", entityType)
@@ -52,39 +59,54 @@ func (s *Store) UpsertEmbedding(ctx context.Context, entityType string, entityID
 	}
 	sum := sha256.Sum256([]byte(text))
 	hash := hex.EncodeToString(sum[:])
+	identity, dims := embedder.EmbedIdentity()
 
 	fresh := false
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		var existing string
+		var existingHash, existingModel string
 		err := tx.QueryRow(ctx, `
-			SELECT chunk_hash FROM embedding
+			SELECT chunk_hash, model FROM embedding
 			WHERE entity_type = $1 AND entity_id = $2 AND chunk_ix = 0`,
-			entityType, entityID).Scan(&existing)
-		if err == nil && existing == hash {
-			return nil // never re-embed unchanged text
+			entityType, entityID).Scan(&existingHash, &existingModel)
+		if err != nil {
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+			// No row yet: existingHash/existingModel stay "" — the honest
+			// "nothing stored" case, distinct from a real empty hash/model.
 		}
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return err
+		if existingHash == hash && existingModel == identity {
+			return nil // unchanged text, unchanged binding — never re-embed
 		}
 
-		res, err := embedder.Embed(ctx, model.EmbedRequest{Inputs: []string{text}, Dimensions: embeddingDims})
+		res, err := embedder.Embed(ctx, model.EmbedRequest{Inputs: []string{text}, Dimensions: dims})
 		if err != nil {
 			return fmt.Errorf("search: embed: %w", err)
 		}
-		if len(res.Vectors) != 1 || res.Dims != embeddingDims {
-			return fmt.Errorf("search: embedder returned %d vectors of width %d, need 1×%d", len(res.Vectors), res.Dims, embeddingDims)
+		if len(res.Vectors) != 1 || res.Dims != dims {
+			return fmt.Errorf("search: embedder returned %d vectors of width %d, need 1×%d", len(res.Vectors), res.Dims, dims)
 		}
-		_, err = tx.Exec(ctx, `
+		if isZero(res.Vectors[0]) {
+			return fmt.Errorf("search: embedder returned a zero vector (cosine NaN)")
+		}
+
+		// CAS on the hash read above ('' when no row existed): a
+		// concurrent writer that already advanced chunk_hash past what we
+		// read (a redelivered event racing this one, or another identity
+		// swap) already won — leave fresh=false rather than clobbering a
+		// row fresher than the one this call started from.
+		tag, err := tx.Exec(ctx, `
 			INSERT INTO embedding (workspace_id, entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, 0, $3, $4, $5::vector)
 			ON CONFLICT (workspace_id, entity_type, entity_id, chunk_ix)
 			DO UPDATE SET chunk_hash = EXCLUDED.chunk_hash, model = EXCLUDED.model,
-			              embedding = EXCLUDED.embedding, created_at = now()`,
-			entityType, entityID, hash, embedModelLabel, vectorLiteral(res.Vectors[0]))
+			              embedding = EXCLUDED.embedding, created_at = now()
+			WHERE embedding.chunk_hash IS NOT DISTINCT FROM $6`,
+			entityType, entityID, hash, identity, vectorLiteral(res.Vectors[0]), existingHash)
 		if err != nil {
 			return fmt.Errorf("search: upsert embedding: %w", err)
 		}
-		fresh = true
+		fresh = tag.RowsAffected() > 0
 		return nil
 	})
 	return fresh, err
