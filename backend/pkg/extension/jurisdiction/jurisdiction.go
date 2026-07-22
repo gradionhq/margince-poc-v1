@@ -88,30 +88,37 @@ type Retention interface {
 }
 
 // RetentionClassName names a statutory retention class the core engine
-// understands. The set is CLOSED: extensions supply floors for known
+// understands. The set is CLOSED and deliberately minimal: records are
+// CLASSIFIED INTO these classes with the record type as the derivation
+// input (germany-package DEPACK-PARAM-5 — "class derived from record
+// type, never free-set"), so a class exists only when a record type the
+// product holds derives into it. Extensions supply floors for known
 // classes, they do not add kinds — vocabulary registration is
 // deliberately deferred (ADR-0069 §13), and an unknown name would be a
 // floor that looks registered while no engine ever consults it.
 type RetentionClassName string
 
 const (
-	// CommercialCorrespondence is external business communication
-	// (GoBD Handelsbriefe: email, call, meeting, messaging).
+	// CommercialCorrespondence is external business communication (GoBD
+	// Handelsbriefe): email/call/meeting/messaging activities carry it
+	// today (the retention engine's activity floor); accepted and sent
+	// offers derive into it when the germany-package classification hook
+	// lands (DEPACK-PARAM-5: 6 yr, immutable).
 	CommercialCorrespondence RetentionClassName = "commercial_correspondence"
 
-	// AccountingRecords are booking records (§147 AO Buchungsbelege).
+	// AccountingRecords are booking records (§147 AO Buchungsbelege, 8
+	// calendar years as amended 2025): where invoices derive when they
+	// exist. The class stays in the statutory taxonomy while binding on
+	// no in-product invoice in V1 (DEPACK-PARAM-5 / A94) — that
+	// spec-pinned exception is the one declared-but-inert entry here.
 	AccountingRecords RetentionClassName = "accounting_records"
-
-	// BooksAndAnnualAccounts are books, inventories and annual accounts
-	// (§147 AO Bücher und Abschlüsse).
-	BooksAndAnnualAccounts RetentionClassName = "books_and_annual_accounts"
 )
 
 // Validate enforces membership in the closed set; the boot preflight
 // refuses a pack declaring a name no engine consults.
 func (n RetentionClassName) Validate() error {
 	switch n {
-	case CommercialCorrespondence, AccountingRecords, BooksAndAnnualAccounts:
+	case CommercialCorrespondence, AccountingRecords:
 		return nil
 	}
 	return fmt.Errorf("retention class %q is not in the closed class set — vocabulary registration is deferred (ADR-0069 §13)", string(n))
