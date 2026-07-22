@@ -290,7 +290,7 @@ up)
     # The composed workspace (ADR-0069): materialize build/composition/
     # and build the role binaries against it, so an enabled extension set
     # under extensions/ reaches the dev stack; vanilla composes empty.
-    ( cd backend && go run ./tools/gen-composition )
+    ( cd backend && GOWORK="$PWD/../go.work" go run ./tools/gen-composition )
     ( cd backend && GOWORK="$PWD/../build/composition/go.work" go build -o ../bin/api ./cmd/api )
     echo "=== servers ==="
   } >>"$log" 2>&1

@@ -71,7 +71,7 @@ echo "mcp-inspector: building bin/mcp…"
 # The composed workspace (ADR-0069): a plain `go build` would resolve the
 # vanilla composition stub and serve the tool surface WITHOUT the enabled
 # extensions — the mcp role composes like api and worker do in dev.sh.
-(cd backend && go run ./tools/gen-composition)
+(cd backend && GOWORK="$PWD/../go.work" go run ./tools/gen-composition)
 (cd backend && GOWORK="$PWD/../build/composition/go.work" go build -o ../bin/mcp ./cmd/mcp)
 
 echo "mcp-inspector: launching Inspector → workspace '${workspace}', database '${db}'"

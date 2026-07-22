@@ -82,6 +82,11 @@ jobs:
               - 'backend/**'
               - 'frontend/**'
               - 'infra/**'
+              # live-boot boots COMPOSED (ADR-0069): the enabled extension
+              # tree and the composition inputs shape the binary under test.
+              - 'extensions/**'
+              - 'fixtures/**'
+              - 'composition/**'
 
   # Every commit in a PR carries a Developer Certificate of Origin sign-off.
   # PR-only: the direct-to-main workflow signs off at push time, and history
@@ -546,8 +551,10 @@ jobs:
         run: |
           # Composed boot (ADR-0069): a plain `go run` would resolve the
           # vanilla composition stub and this lane would never boot with
-          # the enabled extensions (extensions/de ships by default).
-          go run ./tools/gen-composition
+          # the enabled extensions (extensions/de ships by default). The
+          # generator itself pins the ROOT workspace (the tool is its own
+          # module — a stray GOWORK would break its resolution).
+          GOWORK="$PWD/../go.work" go run ./tools/gen-composition
           GOWORK="$PWD/../build/composition/go.work" \
             go run ./cmd/api --dsn "postgres://margince_app:margince_app_dev@localhost:55432/margince" \
             --config "$RUNNER_TEMP/margince.yaml" \
