@@ -118,9 +118,10 @@ func writeFileAtomic(dir, path string, content []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Chmod(tmpName, 0o644); err != nil { // CreateTemp is 0600; match the committed mode
-		return err
-	}
+	// The temp keeps os.CreateTemp's 0600. Git records only the exec bit,
+	// not read bits, so this never shows as a diff against the committed
+	// 0644, and the build reads the manifest as its owner — no chmod to a
+	// world-readable literal is needed.
 	return os.Rename(tmpName, path)
 }
 
