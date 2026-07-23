@@ -23,6 +23,12 @@ secret:
     - "**/*.test.tsx"
     - "**/*.stories.tsx"
     - "**/*_test.go"
+    # tasks_gen.go (tools/gen-aitasks) embeds a SHA-256 of the AI task contract
+    # — `TaskContractHash`, a 64-char hex that changes whenever ai-tasks.yaml
+    # changes. It trips the generic high-entropy detector but is a content hash
+    # gating contract drift, never a credential. The file is fully generated
+    # (make gen) and drift-gated; scoped to the one generated file, not all *_gen.
+    - "**/tasks_gen.go"
   ignored-matches:
     - name: throwaway localhost dev DB password (margince_app_dev)
       match: margince_app_dev

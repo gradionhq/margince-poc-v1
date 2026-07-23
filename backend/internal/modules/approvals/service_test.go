@@ -180,3 +180,37 @@ func TestKindHasDecisionGrantsMatchesTheMap(t *testing.T) {
 		t.Error("an unknown kind must not report a mapping")
 	}
 }
+
+// A rate-refresh proposal targets the workspace itself and is decidable ONLY
+// in the workspace it names: a foreign or absent workspace context must not see
+// or decide it. This is the tenant-isolation floor for the fx_rate /
+// ai_model_rate branch of targetVisible, which touches no tx (the nil tx here
+// is never dereferenced) — the switch decides on the context workspace alone.
+func TestRateProposalDecidableOnlyForOwningWorkspace(t *testing.T) {
+	ws := ids.NewV7()
+	other := ids.NewV7()
+	for _, targetType := range []string{"fx_rate", "ai_model_rate"} {
+		tt := targetType
+		a := row{TargetType: &tt, TargetID: &ws}
+		cases := []struct {
+			name string
+			ctx  context.Context
+			want bool
+		}{
+			{"owning workspace", principal.WithWorkspaceID(context.Background(), ws), true},
+			{"foreign workspace", principal.WithWorkspaceID(context.Background(), other), false},
+			{"no workspace context", context.Background(), false},
+		}
+		for _, c := range cases {
+			t.Run(targetType+"/"+c.name, func(t *testing.T) {
+				got, err := targetVisible(c.ctx, nil, a)
+				if err != nil {
+					t.Fatalf("targetVisible: %v", err)
+				}
+				if got != c.want {
+					t.Errorf("decidable = %v, want %v", got, c.want)
+				}
+			})
+		}
+	}
+}

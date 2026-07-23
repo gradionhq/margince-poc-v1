@@ -74,10 +74,17 @@ func (s *Store) todayUTC() time.Time {
 // rate. Admin/ops-gated; append-forward (rejects a past effective date);
 // resolves ToCurrency to the workspace base and rejects from == base.
 func (s *Store) SetFxRate(ctx context.Context, in SetFxRateInput) (FxRateRow, error) {
+	// RBAC + pure input validation BEFORE acquiring a connection, so a denied
+	// (403) or malformed (422) write never depends on pool health or consumes
+	// a transaction.
+	from, effDate, err := s.prepareFxRate(ctx, in)
+	if err != nil {
+		return FxRateRow{}, err
+	}
 	var out FxRateRow
-	err := s.tx(ctx, func(tx pgx.Tx) error {
+	err = s.tx(ctx, func(tx pgx.Tx) error {
 		var e error
-		out, e = s.SetFxRateInTx(ctx, tx, in)
+		out, e = s.writeFxRate(ctx, tx, from, in.Rate, effDate)
 		return e
 	})
 	if err != nil {
@@ -93,22 +100,39 @@ func (s *Store) SetFxRate(ctx context.Context, in SetFxRateInput) (FxRateRow, er
 // past-date guard uses, so a cross-midnight approval cannot straddle two
 // calendar days. SetFxRate is the standalone-transaction wrapper.
 func (s *Store) SetFxRateInTx(ctx context.Context, tx pgx.Tx, in SetFxRateInput) (FxRateRow, error) {
-	if err := auth.Require(ctx, "fx_rate", principal.ActionCreate); err != nil {
+	from, effDate, err := s.prepareFxRate(ctx, in)
+	if err != nil {
 		return FxRateRow{}, err
+	}
+	return s.writeFxRate(ctx, tx, from, in.Rate, effDate)
+}
+
+// prepareFxRate runs the connection-free gates — RBAC admission and input
+// normalization (currency shape, positive rate, not-past) — and returns the
+// upper-cased from-currency and the UTC-truncated effective day. A zero
+// EffectiveDate resolves to today from one clock sample.
+func (s *Store) prepareFxRate(ctx context.Context, in SetFxRateInput) (from string, effDate time.Time, err error) {
+	if err := auth.Require(ctx, "fx_rate", principal.ActionCreate); err != nil {
+		return "", time.Time{}, err
 	}
 	today := s.todayUTC()
 	if in.EffectiveDate.IsZero() {
 		in.EffectiveDate = today
 	}
-	from, err := normalizeFxInput(in, today)
+	from, err = normalizeFxInput(in, today)
 	if err != nil {
-		return FxRateRow{}, err
+		return "", time.Time{}, err
 	}
 	// Persist the same UTC-truncated day the past-date guard checked, so a
 	// sub-day offset can never store a calendar date different from the one
 	// validated.
-	effDate := in.EffectiveDate.UTC().Truncate(24 * time.Hour)
+	return from, in.EffectiveDate.UTC().Truncate(24 * time.Hour), nil
+}
 
+// writeFxRate does the transactional body: resolve the workspace base, reject
+// from == base, upsert the append-forward row, and audit — all in the
+// caller-owned tx.
+func (s *Store) writeFxRate(ctx context.Context, tx pgx.Tx, from, rate string, effDate time.Time) (FxRateRow, error) {
 	var base string
 	if err := tx.QueryRow(ctx, `SELECT base_currency FROM workspace WHERE id = $1`,
 		storekit.MustWorkspace(ctx)).Scan(&base); err != nil {
@@ -128,7 +152,7 @@ func (s *Store) SetFxRateInTx(ctx context.Context, tx pgx.Tx, in SetFxRateInput)
 		ON CONFLICT (workspace_id, from_currency, to_currency, rate_date)
 		DO UPDATE SET rate = EXCLUDED.rate
 		RETURNING id, from_currency, to_currency, rate::text, rate_date`,
-		storekit.MustWorkspace(ctx), from, base, in.Rate, effDate,
+		storekit.MustWorkspace(ctx), from, base, rate, effDate,
 	).Scan(&fxID, &out.FromCurrency, &out.ToCurrency, &out.Rate, &out.RateDate); err != nil {
 		return FxRateRow{}, fmt.Errorf("upsert fx_rate: %w", err)
 	}
@@ -139,7 +163,7 @@ func (s *Store) SetFxRateInTx(ctx context.Context, tx pgx.Tx, in SetFxRateInput)
 	// writeshape_test.go; inventing an fx_rate.* verb on the deal stream
 	// would violate the closed catalog (contract-first, P3).
 	if _, err := storekit.Audit(ctx, tx, "create", "fx_rate", fxID, nil,
-		map[string]any{"from": from, "to": base, "rate": in.Rate, "date": effDate}); err != nil {
+		map[string]any{"from": from, "to": base, "rate": rate, "date": effDate}); err != nil {
 		return FxRateRow{}, fmt.Errorf("audit fx_rate create: %w", err)
 	}
 	return out, nil

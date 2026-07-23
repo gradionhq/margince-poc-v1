@@ -6,6 +6,7 @@ package ai
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -45,13 +46,26 @@ func (h Handlers) ListAiModelRates(w http.ResponseWriter, r *http.Request, param
 		httperr.Write(w, r, err)
 		return
 	}
-	provider := params.Provider != nil && *params.Provider != ""
-	modelID := params.ModelId != nil && *params.ModelId != ""
-	if provider != modelID {
+	// Distinguish parameter PRESENCE from a non-blank value: a blank or
+	// whitespace-only `?provider=` is treated as absent, so it can't slip
+	// through as "one half of the pair" or query an empty key.
+	provider, modelID := "", ""
+	if params.Provider != nil {
+		provider = strings.TrimSpace(*params.Provider)
+	}
+	if params.ModelId != nil {
+		modelID = strings.TrimSpace(*params.ModelId)
+	}
+	hasProvider, hasModel := provider != "", modelID != ""
+	if hasProvider != hasModel {
 		// One half of the history key without the other is ambiguous — reject
-		// it rather than silently returning the whole latest-price sheet, which
-		// would leak more cost data than the caller asked for.
-		httperr.Write(w, r, httperr.Validation("model_id", "rate_history_pair",
+		// it (naming the MISSING half) rather than silently returning the whole
+		// latest-price sheet, which would leak more cost data than requested.
+		missing := "provider"
+		if hasProvider {
+			missing = "model_id"
+		}
+		httperr.Write(w, r, httperr.Validation(missing, "rate_history_pair",
 			"provider and model_id must be supplied together to fetch a model's history"))
 		return
 	}
@@ -59,8 +73,8 @@ func (h Handlers) ListAiModelRates(w http.ResponseWriter, r *http.Request, param
 		rows []ModelRateRow
 		err  error
 	)
-	if provider && modelID {
-		rows, err = h.rates.ModelRateHistory(r.Context(), *params.Provider, *params.ModelId)
+	if hasProvider {
+		rows, err = h.rates.ModelRateHistory(r.Context(), provider, modelID)
 	} else {
 		rows, err = h.rates.ListLatestModelRates(r.Context())
 	}
