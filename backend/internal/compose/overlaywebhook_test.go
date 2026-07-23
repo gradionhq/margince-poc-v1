@@ -50,11 +50,21 @@ const testAppSecret = "test-app-secret"
 const boundPortal = "777"
 
 // signedWebhookRequest builds a POST with a valid HubSpot v3 signature over the
-// body — the same basis the handler reconstructs (https://<host><uri>).
+// body at the current time.
 func signedWebhookRequest(t *testing.T, body string) *http.Request {
 	t.Helper()
+	return signedWebhookRequestAt(t, body, time.Now())
+}
+
+// signedWebhookRequestAt is signedWebhookRequest with an explicit signing
+// timestamp, so a test can present a validly-signed request at a chosen time —
+// e.g. a correctly-signed but stale one, isolating the replay guard from the
+// signature check. The signature covers the same basis the handler
+// reconstructs (https://<host><uri> + body + timestamp).
+func signedWebhookRequestAt(t *testing.T, body string, at time.Time) *http.Request {
+	t.Helper()
 	r := httptest.NewRequest(http.MethodPost, "/webhooks/hubspot", strings.NewReader(body))
-	ts := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	ts := strconv.FormatInt(at.UnixMilli(), 10)
 	uri := "https://" + r.Host + r.URL.RequestURI()
 	mac := hmac.New(sha256.New, []byte(testAppSecret))
 	mac.Write([]byte(http.MethodPost))
@@ -196,9 +206,11 @@ func TestWebhookReceiverRejectsStaleOrMissingTimestamp(t *testing.T) {
 		t.Fatalf("missing timestamp: status = %d, want 401", rec.Code)
 	}
 
-	// A timestamp older than the skew window is a refused replay.
-	stale := httptest.NewRequest(http.MethodPost, "/webhooks/hubspot", strings.NewReader(`[]`))
-	stale.Header.Set("X-HubSpot-Request-Timestamp", strconv.FormatInt(time.Now().Add(-10*time.Minute).UnixMilli(), 10))
+	// A correctly-signed but too-old request is a refused replay. Signing it
+	// with the stale timestamp isolates the replay guard from the signature
+	// check — the 401 can only come from the timestamp being stale, so this
+	// regresses the guard's wiring, not merely the shared 401.
+	stale := signedWebhookRequestAt(t, `[]`, time.Now().Add(-10*time.Minute))
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, stale)
 	if rec.Code != http.StatusUnauthorized {
@@ -252,6 +264,18 @@ func TestWebhookReceiverBindsOncePerPortalInABatch(t *testing.T) {
 	}
 	if len(enq.jobs) != 2 {
 		t.Fatalf("two mapped events must enqueue two re-fetches, got %d", len(enq.jobs))
+	}
+	// Each event re-fetches its OWN record under its own class — a regression
+	// that enqueued the same args twice, or mapped the deal event to the wrong
+	// class, must fail here (not merely miscount).
+	want := []OverlayRefetchArgs{
+		{Workspace: ws.String(), IncumbentClass: "contacts", ExternalID: "1"},
+		{Workspace: ws.String(), IncumbentClass: "deals", ExternalID: "2"},
+	}
+	for i, w := range want {
+		if enq.jobs[i] != w {
+			t.Errorf("job[%d] = %+v, want %+v", i, enq.jobs[i], w)
+		}
 	}
 }
 
