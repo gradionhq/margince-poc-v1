@@ -162,6 +162,7 @@ func DeriveVoice(ctx context.Context, brain voiceBrain, personality, sourceHash 
 	if err := json.Unmarshal([]byte(Unfence(resp.Text)), &inference); err != nil {
 		return VoiceArtifact{}, fmt.Errorf("voice build returned invalid JSON: %w", err)
 	}
+	inference.Evidence = knownEvidenceOnly(inference.Evidence, selected)
 	exemplars := SelectExemplars(selected, stats)
 	return VoiceArtifact{
 		Markdown:   compileVoiceMarkdown(inference, stats),
@@ -194,7 +195,14 @@ func voicePrompt(personality string, stats VoiceStats, samples []VoiceSample) (s
 		fmt.Fprintf(&prompt, "<sample id=%q kind=%q register=%q>\n%s\n</sample>\n",
 			sample.ID, sample.Kind, sample.Register, EscapeUntrustedTags(sample.Text))
 	}
-	prompt.WriteString("\nCite supporting sample ids in evidence and on every signature move. Do not quote or reproduce topic facts in the profile.")
+	prompt.WriteString("\nValid sample ids: ")
+	for i, sample := range samples {
+		if i > 0 {
+			prompt.WriteString(", ")
+		}
+		prompt.WriteString(sample.ID)
+	}
+	prompt.WriteString(".\nevidence and every signature move sample_id must be one of these ids, copied exactly. Do not quote or reproduce topic facts in the profile.")
 	return prompt.String(), nil
 }
 
@@ -237,11 +245,6 @@ func validateVoiceInference(inference VoiceInference, samples []VoiceSample) err
 	known := make(map[string]string, len(samples))
 	for _, sample := range samples {
 		known[sample.ID] = sample.Text
-	}
-	for _, evidence := range inference.Evidence {
-		if _, ok := known[evidence]; !ok {
-			return fmt.Errorf("voice build cited unknown sample %q", evidence)
-		}
 	}
 	for _, sig := range inference.SignatureMoves {
 		if strings.TrimSpace(sig.Move) == "" {
@@ -309,4 +312,24 @@ func writeVoiceList(out *strings.Builder, title string, values []string) {
 			out.WriteString("- " + trimmed + "\n")
 		}
 	}
+}
+
+// knownEvidenceOnly keeps only citations that name a real sample. The
+// evidence list is supplementary (the artifact never renders it), and
+// models reliably slip descriptions into it despite feedback — dropping
+// the fabrications beats failing an otherwise-valid build over them. The
+// load-bearing citations (signature move sample_id + verbatim quote)
+// stay strictly validated.
+func knownEvidenceOnly(evidence []string, samples []VoiceSample) []string {
+	known := make(map[string]bool, len(samples))
+	for _, sample := range samples {
+		known[sample.ID] = true
+	}
+	kept := evidence[:0]
+	for _, id := range evidence {
+		if known[id] {
+			kept = append(kept, id)
+		}
+	}
+	return kept
 }

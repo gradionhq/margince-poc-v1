@@ -184,6 +184,9 @@ func (w *voiceBuildWorker) Work(ctx context.Context, job *river.Job[VoiceBuildAr
 			}
 			return nil
 		}
+		// The row carries only the safe detail; the OPERATOR needs the real
+		// cause or a repeated invalid_output is undiagnosable from any log.
+		w.log.WarnContext(ctx, "voice build error", "build", buildID.String(), "err", err)
 		return w.fail(terminal, buildID, claimedAt, failureStatusCode(err), ai.SafeVoiceBuildFailure(err))
 	}
 	return nil
