@@ -42,6 +42,33 @@ func TestStageIdentityValidation(t *testing.T) {
 			t.Fatalf("identity %s: err = %v, want non-empty-object refusal", identity, err)
 		}
 	}
+	// An identity the payload does not carry could never containment-match a
+	// stored proposed_change — supersession would be silently disabled.
+	if _, err := svc.Stage(context.Background(), StageInput{
+		Kind: "fx_rate_proposal", DiffHash: "h", JoinPending: true,
+		ProposedChange: json.RawMessage(`{"from_currency":"USD","rate":"1"}`),
+		Identity:       json.RawMessage(`{"from_currency":"GBP"}`),
+	}); err == nil || !strings.Contains(err.Error(), "not carried by ProposedChange") {
+		t.Fatalf("mismatched identity: err = %v, want not-carried refusal", err)
+	}
+}
+
+// Two spellings of one identity (key order, spacing) must canonicalize to the
+// same bytes: the advisory lock hashes those bytes, so a spelling difference
+// would let two stagers of one identity race past the per-identity section.
+func TestCanonicalIdentityNormalizesSpelling(t *testing.T) {
+	payload := json.RawMessage(`{"provider":"a","model_id":"m","rate":"1"}`)
+	a, err := canonicalIdentity(json.RawMessage(`{ "model_id":"m", "provider":"a" }`), payload)
+	if err != nil {
+		t.Fatalf("canonicalize a: %v", err)
+	}
+	b, err := canonicalIdentity(json.RawMessage(`{"provider":"a","model_id":"m"}`), payload)
+	if err != nil {
+		t.Fatalf("canonicalize b: %v", err)
+	}
+	if string(a) != string(b) {
+		t.Fatalf("canonical forms differ: %s vs %s", a, b)
+	}
 }
 
 // A pending staging past its expiry reads as expired everywhere — there

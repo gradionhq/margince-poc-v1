@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -70,13 +71,11 @@ func (s *Service) Stage(ctx context.Context, in StageInput) (ids.ApprovalID, err
 		if !in.JoinPending {
 			return ids.ApprovalID{}, errors.New("crmapprovals: Identity staging requires JoinPending")
 		}
-		// The supersede match is JSONB containment, and every object contains
-		// {} — an empty (or non-object) identity would withdraw EVERY live
-		// pending proposal of the kind+target, so refuse it up front.
-		var identity map[string]json.RawMessage
-		if err := json.Unmarshal(in.Identity, &identity); err != nil || len(identity) == 0 {
-			return ids.ApprovalID{}, errors.New("crmapprovals: Identity must be a non-empty JSON object")
+		canonical, err := canonicalIdentity(in.Identity, in.ProposedChange)
+		if err != nil {
+			return ids.ApprovalID{}, err
 		}
+		in.Identity = canonical
 	}
 	var id ids.ApprovalID
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
@@ -89,6 +88,37 @@ func (s *Service) Stage(ctx context.Context, in StageInput) (ids.ApprovalID, err
 		return err
 	})
 	return id, err
+}
+
+// canonicalIdentity validates and canonicalizes a staging identity. It must
+// be a non-empty JSON object — the supersede match is JSONB containment and
+// every object contains {}, so an empty (or non-object) identity would
+// withdraw EVERY live pending proposal of the kind+target — and each of its
+// fields must equal the same field of ProposedChange, because an identity
+// the payload does not carry could never containment-match and would
+// silently disable supersession for its proposals. Re-marshaling
+// canonicalizes key order and spacing, so the advisory lock (which hashes
+// the identity bytes) and the containment agree on what "same identity"
+// means across callers.
+func canonicalIdentity(identity, proposedChange json.RawMessage) (json.RawMessage, error) {
+	var idFields map[string]any
+	if err := json.Unmarshal(identity, &idFields); err != nil || len(idFields) == 0 {
+		return nil, errors.New("crmapprovals: Identity must be a non-empty JSON object")
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(proposedChange, &payload); err != nil {
+		return nil, errors.New("crmapprovals: Identity staging requires a JSON-object ProposedChange")
+	}
+	for field, want := range idFields {
+		if !reflect.DeepEqual(payload[field], want) {
+			return nil, fmt.Errorf("crmapprovals: Identity field %q is not carried by ProposedChange", field)
+		}
+	}
+	canonical, err := json.Marshal(idFields)
+	if err != nil {
+		return nil, fmt.Errorf("crmapprovals: canonicalize Identity: %w", err)
+	}
+	return canonical, nil
 }
 
 // stageOrJoinPendingInTx serializes one proposal identity and returns its live
@@ -148,8 +178,11 @@ func (s *Service) supersedePendingInTx(ctx context.Context, tx pgx.Tx, wsID ids.
 	if !ok {
 		return errors.New("crmapprovals: no actor bound to context")
 	}
+	// Backdating a full day (not a second) keeps the row expired under the
+	// APP clock too: effectiveStatus judges expiry with the service clock,
+	// which may trail the database by ordinary NTP skew — never by a day.
 	rows, err := tx.Query(ctx, `
-		UPDATE approval SET expires_at = now() - interval '1 second'
+		UPDATE approval SET expires_at = now() - interval '1 day'
 		WHERE workspace_id = $1 AND kind = $2 AND target_entity_id = $3
 		  AND status = 'pending' AND expires_at > now()
 		  AND id <> $4 AND proposed_change @> $5

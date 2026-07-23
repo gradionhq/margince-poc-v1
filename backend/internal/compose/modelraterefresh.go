@@ -130,9 +130,9 @@ func (m modelCostRefresh) run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("model refresh: read effective rates: %w", err)
 	}
-	currentByKey := make(map[string]ai.ModelRateRow, len(current))
+	currentByKey := make(map[modelIdentity]ai.ModelRateRow, len(current))
 	for _, r := range current {
-		currentByKey[r.Provider+"/"+r.ModelID] = r
+		currentByKey[modelIdentity{r.Provider, r.ModelID}] = r
 	}
 
 	ws := storekit.MustWorkspace(ctx)
@@ -230,10 +230,15 @@ func (m modelCostRefresh) extract(ctx context.Context, src pricingSource) ([]ext
 	return kept, nil
 }
 
+// modelIdentity keys the effective-sheet map by the composite identity as a
+// struct — a concatenated string key would let a provider containing "/"
+// alias another model's entry and attach the wrong expected prior.
+type modelIdentity struct{ provider, modelID string }
+
 // diffModel returns (currentInputForSummary, proposal, changed?) — changed is
 // true when the extracted model is new or any of its four µUSD buckets differ
 // from the sheet. An extracted price that fails validation drops the model.
-func diffModel(em extractedModel, current map[string]ai.ModelRateRow) (string, aiModelRateProposal, bool) {
+func diffModel(em extractedModel, current map[modelIdentity]ai.ModelRateRow) (string, aiModelRateProposal, bool) {
 	newMicro, ok := allMicro(em)
 	if !ok {
 		return "", aiModelRateProposal{}, false
@@ -243,7 +248,7 @@ func diffModel(em extractedModel, current map[string]ai.ModelRateRow) (string, a
 		InputUsd: em.InputUsd, OutputUsd: em.OutputUsd,
 		CacheReadUsd: em.CacheReadUsd, CacheWriteUsd: em.CacheWriteUsd,
 	}
-	cur, found := current[em.Provider+"/"+em.ModelID]
+	cur, found := current[modelIdentity{em.Provider, em.ModelID}]
 	if !found {
 		return "(new)", prop, true
 	}

@@ -238,15 +238,16 @@ func (s *RateStore) ListEffectiveModelRates(ctx context.Context) ([]ModelRateRow
 	if err := auth.Require(ctx, "ai_model_rate", principal.ActionRead); err != nil {
 		return nil, err
 	}
-	today := s.todayUTC()
 	var rows []ModelRateRow
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		// Sample "today" inside the transaction: a wait for a pooled
+		// connection across UTC midnight must not list yesterday's cutoff.
 		r, err := tx.Query(ctx, `
 			SELECT DISTINCT ON (provider, model_id)
 			       provider, model_id, input_per_mtok_microusd, output_per_mtok_microusd,
 			       cache_read_per_mtok_microusd, cache_write_per_mtok_microusd, effective_date
 			FROM ai_model_rate WHERE effective_date <= $1
-			ORDER BY provider, model_id, effective_date DESC`, today)
+			ORDER BY provider, model_id, effective_date DESC`, s.todayUTC())
 		if err != nil {
 			return fmt.Errorf("list effective ai_model_rate: %w", err)
 		}

@@ -235,13 +235,14 @@ func (s *Store) ListEffectiveFxRates(ctx context.Context) ([]FxRateRow, error) {
 	if err := auth.Require(ctx, "fx_rate", principal.ActionRead); err != nil {
 		return nil, err
 	}
-	today := s.todayUTC()
 	var rows []FxRateRow
 	err := s.tx(ctx, func(tx pgx.Tx) error {
+		// Sample "today" inside the transaction: a wait for a pooled
+		// connection across UTC midnight must not list yesterday's cutoff.
 		r, err := tx.Query(ctx, `
 			SELECT DISTINCT ON (from_currency) from_currency, to_currency, rate::text, rate_date
 			FROM fx_rate WHERE rate_date <= $1
-			ORDER BY from_currency, rate_date DESC`, today)
+			ORDER BY from_currency, rate_date DESC`, s.todayUTC())
 		if err != nil {
 			return fmt.Errorf("list effective fx_rate: %w", err)
 		}
