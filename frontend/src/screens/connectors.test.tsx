@@ -39,7 +39,14 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-function stubApi(connections: CaptureConnection[]) {
+type StubOpts = {
+  /** Fail the /connectors GET with this status (load-error path). */
+  listStatus?: number;
+  /** The connect (reconnect) POST response, or an error status. */
+  connect?: { authorize_url?: string } | { status: number };
+};
+
+function stubApi(connections: CaptureConnection[], opts: StubOpts = {}) {
   const calls: Request[] = [];
   vi.stubGlobal(
     "fetch",
@@ -47,7 +54,19 @@ function stubApi(connections: CaptureConnection[]) {
       calls.push(request);
       const path = new URL(request.url).pathname;
       if (path.endsWith("/connectors") && request.method === "GET") {
+        if (opts.listStatus) {
+          return jsonResponse({ detail: "boom" }, opts.listStatus);
+        }
         return jsonResponse({ data: connections });
+      }
+      if (path.endsWith("/connect") && request.method === "POST") {
+        const c = opts.connect ?? {
+          authorize_url: "https://accounts.google/x",
+        };
+        if ("status" in c) {
+          return jsonResponse({ detail: "connect failed" }, c.status);
+        }
+        return jsonResponse(c);
       }
       if (path.endsWith("/disconnect") && request.method === "POST") {
         return new Response(null, { status: 204 });
@@ -108,6 +127,48 @@ describe("the connected-inboxes card", () => {
     render(<ConnectorsCard />);
     expect(await screen.findByText("Needs reconnect")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Reconnect/ })).toBeTruthy();
+  });
+
+  it("shows an honest waiting line for a connection that has never synced", async () => {
+    stubApi([{ ...gmailConnected, last_synced_at: null }]);
+    render(<ConnectorsCard />);
+    expect(await screen.findByText(/Waiting for the first sync/)).toBeTruthy();
+  });
+
+  it("surfaces a load failure without crashing the card", async () => {
+    stubApi([], { listStatus: 500 });
+    render(<ConnectorsCard />);
+    expect(await screen.findByText(/Couldn't load|boom/)).toBeTruthy();
+  });
+
+  it("reconnect re-mints the consent URL and redirects", async () => {
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...globalThis.location, assign });
+    const calls = stubApi([gmailStale], {
+      connect: { authorize_url: "https://accounts.google/consent" },
+    });
+    render(<ConnectorsCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Reconnect/ }),
+    );
+    await waitFor(() =>
+      expect(requestsTo(calls, "/connect", "POST").length).toBe(1),
+    );
+    await waitFor(() =>
+      expect(assign).toHaveBeenCalledWith("https://accounts.google/consent"),
+    );
+  });
+
+  it("surfaces a failed reconnect instead of redirecting", async () => {
+    const calls = stubApi([gmailStale], { connect: { status: 502 } });
+    render(<ConnectorsCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Reconnect/ }),
+    );
+    await waitFor(() =>
+      expect(requestsTo(calls, "/connect", "POST").length).toBe(1),
+    );
+    expect(await screen.findByText(/connect failed/)).toBeTruthy();
   });
 
   it("disconnects only after an explicit confirm", async () => {

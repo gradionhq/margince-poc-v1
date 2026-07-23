@@ -76,6 +76,14 @@ function stubApi(options: StubOptions) {
         started = true;
         return jsonResponse(options.onStart ?? statusNone, 202);
       }
+      if (path.endsWith("/backfill") && request.method === "DELETE") {
+        // Cancelling advances the polled status to the next row (the
+        // cancelled snapshot the test queued after the running one).
+        if (statuses.length > 1) {
+          statuses.shift();
+        }
+        return jsonResponse(statuses[0]);
+      }
       if (path.endsWith("/backfill") && request.method === "GET") {
         if (started && options.onStart) {
           const row = statuses.length > 1 ? statuses.shift() : statuses[0];
@@ -182,6 +190,24 @@ describe("the connect-time backfill payoff", () => {
 
     expect(await screen.findByText(/History import complete/i)).toBeTruthy();
     expect(screen.getByText("512")).toBeTruthy();
+  });
+
+  it("lets the user stop a running import and reflects the cancelled state", async () => {
+    const calls = stubApi({
+      statuses: [
+        countsStatus("running", { captured: 20, messages_scanned: 40 }),
+        countsStatus("cancelled", { captured: 20, messages_scanned: 40 }),
+      ],
+    });
+    render(<BackfillPanel provider="gmail" />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Stop the import/ }),
+    );
+    await waitFor(() =>
+      expect(requestsTo(calls, "/backfill", "DELETE").length).toBe(1),
+    );
+    expect(await screen.findByText(/Stopped\./)).toBeTruthy();
   });
 
   it("surfaces an honest error class without hiding the counts captured so far", async () => {
