@@ -150,7 +150,7 @@ func (h *hubspotWebhookHandler) resolveWorkspace(r *http.Request, cache map[stri
 	if ws, seen := cache[portal]; seen {
 		return ws, ws != ""
 	}
-	ws, err := h.bind(r.Context(), "hubspot", portal)
+	ws, err := h.bind(r.Context(), incumbentHubSpot, portal)
 	if err != nil {
 		// ErrNotFound (unbound portal) OR a lookup error both mean "do not
 		// ingest": cache the miss so a batch of events for the same unbound

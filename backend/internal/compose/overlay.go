@@ -33,6 +33,12 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// incumbentHubSpot is the connection.Incumbent discriminator for HubSpot —
+// the one spelling the reconcile poller, the re-fetch worker, the webhook
+// binder, and the human-read shadow all gate on, so a role never routes an
+// overlay connection to the wrong adapter by a mistyped literal.
+const incumbentHubSpot = "hubspot"
+
 // failClosedOverlayMeter is the OVB meter a surface with no Redis-backed
 // meter uses: nil client, so every band sheds and every reservation is
 // declined (a role never spends live quota it cannot account for). The

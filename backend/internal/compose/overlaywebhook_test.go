@@ -32,12 +32,17 @@ type capturingEnqueuer struct {
 }
 
 func (c *capturingEnqueuer) Enqueue(_ context.Context, args river.JobArgs, opts *river.InsertOpts) error {
-	c.jobs = append(c.jobs, args.(OverlayRefetchArgs)) //nolint:forcetypeassert // the handler only ever enqueues OverlayRefetchArgs
+	c.jobs = append(c.jobs, args.(OverlayRefetchArgs))
 	c.opts = append(c.opts, opts)
 	return nil
 }
 
 const testAppSecret = "test-app-secret"
+
+// boundPortal is the portalId every test payload carries ("portalId":777) and
+// the one newTestWebhookHandler's bind resolves to a workspace — a foreign
+// portal returns ErrNotFound (fail-closed).
+const boundPortal = "777"
 
 // signedWebhookRequest builds a POST with a valid HubSpot v3 signature over the
 // body — the same basis the handler reconstructs (https://<host><uri>).
@@ -56,7 +61,7 @@ func signedWebhookRequest(t *testing.T, body string) *http.Request {
 	return r
 }
 
-func newTestWebhookHandler(enq *capturingEnqueuer, boundPortal string, boundWS ids.WorkspaceID) *hubspotWebhookHandler {
+func newTestWebhookHandler(enq *capturingEnqueuer, boundWS ids.WorkspaceID) *hubspotWebhookHandler {
 	return &hubspotWebhookHandler{
 		clientSecret: testAppSecret,
 		enqueue:      enq,
@@ -76,7 +81,7 @@ func newTestWebhookHandler(enq *capturingEnqueuer, boundPortal string, boundWS i
 func TestWebhookReceiverBoundSignalEnqueuesCoalescedRefetch(t *testing.T) {
 	enq := &capturingEnqueuer{}
 	ws := ids.New[ids.WorkspaceKind]()
-	h := newTestWebhookHandler(enq, "777", ws)
+	h := newTestWebhookHandler(enq, ws)
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, signedWebhookRequest(t, `[{"portalId":777,"objectId":42,"subscriptionType":"contact.propertyChange"}]`))
@@ -101,7 +106,7 @@ func TestWebhookReceiverBoundSignalEnqueuesCoalescedRefetch(t *testing.T) {
 // maps to no active connection ingests nothing (fail-closed, no cross-tenant).
 func TestWebhookReceiverRejectsUnboundPortal(t *testing.T) {
 	enq := &capturingEnqueuer{}
-	h := newTestWebhookHandler(enq, "777", ids.New[ids.WorkspaceKind]())
+	h := newTestWebhookHandler(enq, ids.New[ids.WorkspaceKind]())
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, signedWebhookRequest(t, `[{"portalId":999,"objectId":42,"subscriptionType":"contact.propertyChange"}]`))
@@ -118,7 +123,7 @@ func TestWebhookReceiverRejectsUnboundPortal(t *testing.T) {
 // rejected, nothing ingested.
 func TestWebhookReceiverRejectsBadSignature(t *testing.T) {
 	enq := &capturingEnqueuer{}
-	h := newTestWebhookHandler(enq, "777", ids.New[ids.WorkspaceKind]())
+	h := newTestWebhookHandler(enq, ids.New[ids.WorkspaceKind]())
 
 	r := signedWebhookRequest(t, `[{"portalId":777,"objectId":42,"subscriptionType":"contact.propertyChange"}]`)
 	r.Header.Set("X-HubSpot-Signature-v3", "deadbeef") // tamper
@@ -137,7 +142,7 @@ func TestWebhookReceiverRejectsBadSignature(t *testing.T) {
 // does not model is dropped (no guessed class), still 204.
 func TestWebhookReceiverDropsUnmappedSubscription(t *testing.T) {
 	enq := &capturingEnqueuer{}
-	h := newTestWebhookHandler(enq, "777", ids.New[ids.WorkspaceKind]())
+	h := newTestWebhookHandler(enq, ids.New[ids.WorkspaceKind]())
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, signedWebhookRequest(t, `[{"portalId":777,"objectId":42,"subscriptionType":"ticket.creation"}]`))

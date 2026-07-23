@@ -71,9 +71,9 @@ func ObjectClassForSubscription(subscriptionType string) (string, bool) {
 		return objectClassContacts, true
 	case "company":
 		return objectClassCompanies, true
-	case "deal":
+	case dealTarget:
 		return objectClassDeals, true
-	case "lead", "hs_lead":
+	case leadTarget, "hs_lead":
 		return objectClassLeads, true
 	default:
 		return "", false

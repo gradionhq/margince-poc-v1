@@ -27,9 +27,18 @@ const (
 	objectClassTasks    = "tasks"
 )
 
-// activityTarget is the canonical Margince type all five engagement classes
-// map onto.
-const activityTarget = "activity"
+// The canonical Margince record types (OVA-MAP-*): the ObjectMapping Targets
+// below, the mapWrite switch (mapwrite.go), and the webhook subscription map
+// (webhook.go) all select from this one set, so a canonical class name never
+// drifts across the read/write/signal call sites. activityTarget is the type
+// all five engagement classes map onto.
+const (
+	personTarget       = "person"
+	organizationTarget = "organization"
+	dealTarget         = "deal"
+	leadTarget         = "lead"
+	activityTarget     = "activity"
+)
 
 // baselineHSLastModifiedDate is the watermark property every object
 // class but contacts uses (design.md §7, spike-confirmed) — shared with
@@ -158,7 +167,7 @@ var ownerIDField = overlay.FieldMapping{
 // ordinary case: unmapped/flagged until the x_ custom column lands.
 var contactsMapping = overlay.ObjectMapping{
 	Source:         objectClassContacts,
-	Target:         "person",
+	Target:         personTarget,
 	ExternalKey:    propHSObjectID,
 	Baseline:       "lastmodifieddate",
 	UnmappedPolicy: unmappedPolicyFlag,
@@ -195,7 +204,7 @@ var contactsMapping = overlay.ObjectMapping{
 // "flag, never silently drop" treatment contacts' phone gets.
 var companiesMapping = overlay.ObjectMapping{
 	Source:         objectClassCompanies,
-	Target:         "organization",
+	Target:         organizationTarget,
 	ExternalKey:    propHSObjectID,
 	Baseline:       baselineHSLastModifiedDate,
 	UnmappedPolicy: unmappedPolicyFlag,
@@ -241,7 +250,7 @@ var companiesMapping = overlay.ObjectMapping{
 // code itself, uppercased.
 var dealsMapping = overlay.ObjectMapping{
 	Source:         objectClassDeals,
-	Target:         "deal",
+	Target:         dealTarget,
 	ExternalKey:    propHSObjectID,
 	Baseline:       baselineHSLastModifiedDate,
 	UnmappedPolicy: unmappedPolicyFlag,
@@ -383,7 +392,7 @@ var tasksMapping = overlay.ObjectMapping{
 //     than inventing them.
 var leadsMapping = overlay.ObjectMapping{
 	Source:         objectClassLeads,
-	Target:         "lead",
+	Target:         leadTarget,
 	ExternalKey:    propHSObjectID,
 	Baseline:       baselineHSLastModifiedDate,
 	UnmappedPolicy: unmappedPolicyFlag,

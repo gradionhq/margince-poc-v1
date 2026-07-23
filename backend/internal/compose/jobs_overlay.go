@@ -81,7 +81,7 @@ func (w *overlayRefetchWorker) Work(ctx context.Context, job *river.Job[OverlayR
 		}
 		return fmt.Errorf("overlay refetch: reading the active connection: %w", err)
 	}
-	if conn.Incumbent != "hubspot" {
+	if conn.Incumbent != incumbentHubSpot {
 		return nil
 	}
 	token, err := w.vault.Get(wsCtx, conn.Workspace, conn.CredentialRef)
@@ -259,7 +259,7 @@ func isConnectionLevelIncumbentError(err error) bool {
 // backoff (overlay_sync_state) so a dead or throttled connection is not
 // re-swept hot every tick.
 func reconcileConnection(ctx context.Context, vault keyvault.Vault, ms *overlay.MirrorStore, meter *overlaybudget.Meter, log *slog.Logger, d overlay.DueOverlayConnection, newIncumbent func(region, token string) overlay.Incumbent) error {
-	if d.Incumbent != "hubspot" {
+	if d.Incumbent != incumbentHubSpot {
 		// Branch 1 wires only HubSpot (design.md §2 D2/D3) — a connection
 		// row naming any other incumbent has no adapter here; an honest,
 		// named gap, never a guessed adapter.
