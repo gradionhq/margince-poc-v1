@@ -185,6 +185,11 @@ var (
 			// exists) — identity/internal/policy.go's real seed, mirrored
 			// here so the harness's admin fixture matches production.
 			"computed_field": {Read: true},
+			// fx_rate + ai_model_rate are admin/ops-only config surfaces
+			// (identity/internal/policy.go's real seed), mirrored here so
+			// the harness admin fixture can exercise the rate editors.
+			"fx_rate":       {Create: true, Read: true, Update: true, Delete: true},
+			"ai_model_rate": {Create: true, Read: true, Update: true, Delete: true},
 		},
 		RowScope: principal.RowScopeAll,
 	}

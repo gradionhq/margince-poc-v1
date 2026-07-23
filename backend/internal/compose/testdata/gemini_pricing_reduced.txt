@@ -1,0 +1,40 @@
+Start building free of charge with generous limits, then scale up with
+Gemini 3.6 Flash
+Paid Tier, per 1M tokens in USD
+Input price
+Free of charge
+$1.50
+Output price (including thinking tokens)
+Free of charge
+$7.50
+Free of charge
+$0.15
+$1.00 / 1,000,000 tokens per hour (storage price)
+5,000 prompts per month (free, shared across Gemini 3), then $14 / 1,000 search queries
+5,000 prompts per month (free, shared across Gemini 3), then $14 / 1,000 search queries
+Paid Tier, per 1M tokens in USD
+Input price
+$0.75
+Output price (including thinking tokens)
+$3.75
+$0.075
+$1.00 / 1,000,000 tokens per hour (storage price)
+5,000 requests per month (free, shared across Gemini 3), then $14 / 1,000 search queries
+5,000 requests per month (free, shared across Gemini 3), then $14 / 1,000 search queries
+Paid Tier, per 1M tokens in USD
+Input price
+$0.75
+Output price (including thinking tokens)
+$3.75
+$0.075
+$1.00 / 1,000,000 tokens per hour (storage price)
+5,000 requests per month (free, shared across Gemini 3), then $14 / 1,000 search queries
+5,000 requests per month (free, shared across Gemini 3), then $14 / 1,000 search queries
+Paid Tier, per 1M tokens in USD
+Input price
+Free of charge
+$2.70
+Output price (including thinking tokens)
+Free of charge
+$13.50
+Free of charge

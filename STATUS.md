@@ -22,6 +22,33 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**The Rates & costs editor (Phase 1, `feat/rates-costs`).** Admin/ops can now
+view and update the two effective-dated price sheets — `fx_rate` (deals) and
+`ai_model_rate` (ai) — from a new Settings "Rates & costs" tab. Strict
+append-forward: `effective_date` defaults to today, a past date is refused, a
+same-day write corrects in place, and there is **no delete** (a past-dated row
+is immutable — it prices historical rollups and AI calls). Two new admin/ops-only
+RBAC objects (+ a `0116` JSONB backfill for existing workspaces); four
+human-admin-only endpoints (`GET/POST /fx-rates`, `/ai-model-rates`,
+`x-agent-access: human-only`); prices speak USD/MTok on the wire, µUSD in the
+store; both writes are audit-only by ratification (EVT-NOEVT-3 — the closed
+event catalog has no fx/ai-pricing stream, the product rate-card precedent).
+Craft + security reviewed (1 craft blocker fixed: no build-invented event type;
+security clean). **Contract-first flag (P3):** these endpoints, and the Phase-2
+`rate_extract` task + proposal kinds still to come, do **not** exist in the
+upstream `margince-foundation` spec (whose posture is "operators edit rows
+directly") — raised for upstream reconciliation, not a silent divergence.
+**Phase 2 (async AI refresh) is built too.** Two admin-only "Refresh from
+sources" endpoints enqueue async River jobs: the FX producer fetches a
+structured JSON API (deterministic, netguard-guarded) and the model-cost
+producer crawls configured pricing pages via `webread` and AI-extracts prices
+with the new `rate_extract` task (**certified for Gemini** — reliability 1.00).
+Both diff against the sheet and stage 🟡 `fx_rate_proposal` /
+`ai_model_rate_proposal` approvals (registered in `approvals/authority.go`);
+approving applies through the Phase-1 write path (edit-before-approve works).
+Sources live in the deployment config's `rates:` block (`fx_source` + a
+provider→url `model_pricing` map); absent config = honest no-op.
+
 **The conversational onboarding is now THE onboarding; the classic
 wizard is deleted.** Onboarding is ONE Margince conversation. Landed:
 the corpus honesty layer (server speaker preview, kept-vs-discarded

@@ -21,6 +21,8 @@ type workerConfig struct {
 	dsn                  string
 	configPath           string
 	freemailExtra        []string
+	ratesFx              string
+	ratesModelPricing    map[string]string
 	redisAddr            string
 	routingPath          string
 	fakeBrain            bool

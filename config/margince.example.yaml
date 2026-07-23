@@ -30,6 +30,22 @@ bootstrap_admin:
 # ai:
 #   capture_payloads: true
 
+# Rates & costs "Refresh from sources" (optional, worker role). The admin can
+# trigger an async refresh that stages confirm-first proposals into the
+# approvals inbox — a human approves every change; nothing auto-applies.
+#   fx_source: the structured FX JSON API base URL ({base,rates}; ?base=&symbols=).
+#     Defaults to the free, no-key ECB source api.frankfurter.dev when unset.
+#   model_pricing: provider -> pricing-page URL the model-cost refresh crawls +
+#     AI-extracts (the rate_extract task, certified for Gemini). A plain GET must
+#     yield the price text — Google's docs page does; many marketing pages are
+#     JS-rendered and yield none. Absent = the model-cost refresh is a no-op.
+# rates:
+#   fx_source: https://api.frankfurter.dev/v1/latest
+#   model_pricing:
+#     gemini: https://ai.google.dev/gemini-api/docs/pricing
+#     # anthropic: https://docs.anthropic.com/en/docs/about-claude/pricing
+#     # openai: https://platform.openai.com/docs/pricing
+
 # Ordered company-context rollout (OPS-CFG-10). The default is onboarding;
 # moving backward disables reads/injection/surfaces but never deletes confirmed
 # company data. Stages include the prior stage: off < read < tasks < onboarding.
