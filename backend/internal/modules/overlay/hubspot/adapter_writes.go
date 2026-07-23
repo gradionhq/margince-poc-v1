@@ -144,3 +144,10 @@ func incumbentClassFor(canonicalClass, externalID string) (string, error) {
 	}
 	return classes[0], nil
 }
+
+// AccountID returns the HubSpot portal id for this connection's token — the
+// incumbent account identity recorded at connect (OVA-DDL-3) for the
+// webhook-as-signal tenant binding.
+func (a *Adapter) AccountID(ctx context.Context) (string, error) {
+	return a.client.AccountID(ctx)
+}

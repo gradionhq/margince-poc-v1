@@ -49,16 +49,16 @@ type writeMapping struct {
 //craft:ignore naked-any fields is the JSON-decoded canonical bag from the frozen datasource seam; the any is inherent to the decoded shape
 func mapWrite(canonicalClass string, fields map[string]any, forUpdate bool) (writeMapping, error) {
 	switch canonicalClass {
-	case "person":
+	case personTarget:
 		props, err := copyDirect(fields, personWriteFields, forUpdate)
 		return writeMapping{ObjectClass: objectClassContacts, Props: props}, err
-	case "organization":
+	case organizationTarget:
 		props, err := copyDirect(fields, organizationWriteFields, forUpdate)
 		return writeMapping{ObjectClass: objectClassCompanies, Props: props}, err
-	case "lead":
+	case leadTarget:
 		props, err := copyDirect(fields, leadWriteFields, forUpdate)
 		return writeMapping{ObjectClass: objectClassLeads, Props: props}, err
-	case "deal":
+	case dealTarget:
 		return mapWriteDeal(fields, forUpdate)
 	case activityTarget:
 		return mapWriteActivity(fields, forUpdate)

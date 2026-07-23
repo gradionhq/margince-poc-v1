@@ -286,3 +286,21 @@ func toObjectRecords(in []wireObject) []ObjectRecord {
 	}
 	return out
 }
+
+// AccountID returns the HubSpot portal (hub) id for the connected private-app
+// token — the incumbent account identity recorded at connect (OVA-DDL-3) so an
+// inbound webhook's portalId binds to this workspace. portalId arrives as a
+// JSON number; it is returned as its decimal string, matching the webhook
+// payload's own portalId rendering.
+func (c *Client) AccountID(ctx context.Context) (string, error) {
+	var out struct {
+		PortalID json.Number `json:"portalId"` //nolint:tagliatelle // HubSpot's wire format (camelCase); must match to decode
+	}
+	if err := c.do(ctx, http.MethodGet, "/account-info/v3/details", nil, &out); err != nil {
+		return "", err
+	}
+	if out.PortalID.String() == "" {
+		return "", fmt.Errorf("hubspot: account-info returned no portalId")
+	}
+	return out.PortalID.String(), nil
+}

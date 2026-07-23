@@ -233,13 +233,33 @@ func (s *Service) Connect(ctx context.Context, in ConnectInput) (Connection, err
 		return Connection{}, apperrors.ErrIncumbentAlreadyConnected
 	}
 
+	// Fetch the incumbent's portal id BEFORE sealing the token (it is a network
+	// call — never held inside a DB transaction, and kept OUT of the
+	// sealed-token window so a cancel/timeout here cannot orphan a vault entry)
+	// so the webhook-as-signal tenant binding is recorded at connect
+	// (OVA-DDL-3). Best-effort: a fetch failure or an incumbent with no account
+	// accessor leaves it null (the connection still works; the reconcile poller
+	// backfills the binding on its next sweep — see reconcileConnection) rather
+	// than failing the connect.
+	accountID := s.fetchPortalID(ctx, in)
+
 	ref, err := s.vault.Put(ctx, ids.From[ids.WorkspaceKind](ws), []byte(in.Token))
 	if err != nil {
 		return Connection{}, fmt.Errorf("overlay: sealing the incumbent credential: %w", err)
 	}
 
-	out, err := s.insertConnection(ctx, in, ref)
+	out, err := s.insertConnection(ctx, in, ref, accountID)
 	if err != nil {
+		// Clean up the just-sealed ref ONLY on the unique-violation path: a lost
+		// concurrent-connect race is the one insert failure that guarantees the
+		// row did NOT persist, so the ref is definitely orphaned and safe to
+		// delete. For any other error the commit outcome can be ambiguous (a row
+		// may have persisted before the client observed the failure) — deleting
+		// the ref then would strand a live connection's token. The portal fetch
+		// already moved ABOVE vault.Put, so the sealed-token window spans no
+		// network call; the residual orphan on a rare non-unique pre-commit error
+		// is inert (nothing references it) and preferable to deleting a
+		// possibly-live token.
 		if storekit.IsUniqueViolation(err) {
 			return Connection{}, s.cleanupOrphanedRef(ctx, ws, ref)
 		}
@@ -248,6 +268,35 @@ func (s *Service) Connect(ctx context.Context, in ConnectInput) (Connection, err
 	s.notifyModeFlip(ws)
 	s.seedUserMapOnConnect(ctx, in)
 	return out, nil
+}
+
+// incumbentAccountReader is the optional accessor an incumbent adapter exposes
+// to report its account/portal id (HubSpot's portalId). It is a narrow
+// type-assertion rather than a method on the Incumbent seam so the many
+// read-only test doubles that never need it take on no obligation.
+type incumbentAccountReader interface {
+	AccountID(ctx context.Context) (string, error)
+}
+
+// fetchPortalID best-effort resolves the incumbent's portal id for the
+// webhook tenant binding. It returns "" (→ stored NULL) when no incumbent
+// factory is wired, the adapter exposes no account accessor, or the fetch
+// fails — the connect still succeeds.
+func (s *Service) fetchPortalID(ctx context.Context, in ConnectInput) string {
+	if s.incumbent == nil {
+		return ""
+	}
+	acct, ok := s.incumbent(in.Region, in.Token).(incumbentAccountReader)
+	if !ok {
+		return ""
+	}
+	id, err := acct.AccountID(ctx)
+	if err != nil {
+		s.log.WarnContext(ctx, "overlay connect: fetching the incumbent portal id failed; webhook binding deferred",
+			"incumbent", in.Incumbent, "err", err)
+		return ""
+	}
+	return id
 }
 
 // seedUserMapOnConnect populates mirror_user_map from the incumbent's
@@ -308,17 +357,21 @@ func incumbentConnectedPayload(incumbent, region string, scopes []string, status
 // insertConnection runs Connect's write-shape transaction: the domain
 // row + Audit + Emit + the workspace mode flip, all in one
 // database.WithWorkspaceTx.
-func (s *Service) insertConnection(ctx context.Context, in ConnectInput, ref keyvault.Ref) (Connection, error) {
+func (s *Service) insertConnection(ctx context.Context, in ConnectInput, ref keyvault.Ref, accountID string) (Connection, error) {
 	var out Connection
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var id ids.UUID
 		var connectedAt time.Time
+		// NULLIF($5,'') stores a blank account id (the portal fetch failed or the
+		// incumbent exposes no account accessor) as NULL — "not bindable yet",
+		// never an empty-string portal a webhook could spuriously match — so the
+		// nullable binding needs no `any` at the call site.
 		if scanErr := tx.QueryRow(
 			ctx, `
-			INSERT INTO incumbent_connection (workspace_id, incumbent, region, credential_ref, scopes)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4)
+			INSERT INTO incumbent_connection (workspace_id, incumbent, region, credential_ref, scopes, incumbent_account_id)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, NULLIF($5, ''))
 			RETURNING id, connected_at`,
-			in.Incumbent, in.Region, string(ref), leastPrivilegeHubSpotScopes,
+			in.Incumbent, in.Region, string(ref), leastPrivilegeHubSpotScopes, accountID,
 		).Scan(&id, &connectedAt); scanErr != nil {
 			return scanErr
 		}
@@ -360,13 +413,19 @@ func (s *Service) insertConnection(ctx context.Context, in ConnectInput, ref key
 	return out, nil
 }
 
-// cleanupOrphanedRef deletes a vault ref this Connect attempt sealed but
-// lost the race to persist (the INSERT hit UNIQUE(workspace_id) after
-// vault.Put already ran) — Delete is idempotent, so this is safe to
-// retry. A cleanup failure is surfaced rather than masked, but never
+// cleanupOrphanedRef deletes a vault ref this Connect attempt sealed but lost
+// the UNIQUE(workspace_id) race to persist (the INSERT hit the unique
+// constraint after vault.Put already ran) — the row definitively did not
+// persist, so nothing references the ref. Delete is idempotent. It runs on a
+// context DETACHED from ctx's cancellation (context.WithoutCancel) so a
+// cancelled/timed-out Connect still removes what it sealed, but with its OWN
+// short deadline so a stalled vault cannot hang the request worker
+// indefinitely. A cleanup failure is surfaced rather than masked, but never
 // shadows the ErrIncumbentAlreadyConnected the caller actually needs.
 func (s *Service) cleanupOrphanedRef(ctx context.Context, ws ids.UUID, ref keyvault.Ref) error {
-	if delErr := s.vault.Delete(ctx, ids.From[ids.WorkspaceKind](ws), ref); delErr != nil {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if delErr := s.vault.Delete(cleanupCtx, ids.From[ids.WorkspaceKind](ws), ref); delErr != nil {
 		return fmt.Errorf("overlay: connect lost a concurrent race (already connected) and failed to clean up its orphaned vault entry: %w", delErr)
 	}
 	return apperrors.ErrIncumbentAlreadyConnected

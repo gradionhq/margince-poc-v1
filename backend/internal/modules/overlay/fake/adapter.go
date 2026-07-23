@@ -27,6 +27,7 @@ type Adapter struct {
 	assocs    map[assocKey][]overlay.Assoc
 	owners    map[string]string
 	deletions map[string][]overlay.Deletion
+	accountID string // the portal/account id AccountID reports (empty = unset)
 	// writeSeq drives deterministic Create ids and modified-at stamps for the
 	// write seam — a monotonic counter, never a real clock, so a test
 	// exercising write-back never flakes on wall-time (T11).
@@ -57,6 +58,16 @@ func New() *Adapter {
 func (a *Adapter) SeedOwner(ownerExternalID, email string) {
 	a.owners[ownerExternalID] = email
 }
+
+// SeedAccountID sets the portal/account id AccountID reports — the value the
+// webhook portal-binding backfill (overlay.BackfillPortalBinding) persists.
+func (a *Adapter) SeedAccountID(id string) { a.accountID = id }
+
+// AccountID reports the seeded portal/account id (OVA-DDL-3), letting the fake
+// stand in for hubspot.Adapter's incumbentAccountReader in the portal-binding
+// backfill path. An unset id returns "" with no error — the same "no account to
+// bind" no-op a real adapter with no accessor would produce.
+func (a *Adapter) AccountID(context.Context) (string, error) { return a.accountID, nil }
 
 // Rec builds an overlay.Record for externalID carrying fields, stamped
 // with the current time as ModifiedAt.

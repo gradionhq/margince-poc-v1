@@ -24,7 +24,20 @@ import (
 // owners to users, it never sweeps records. It lives inline (not
 // overlay/fake) because a package-overlay test cannot import a package
 // that imports overlay.
-type seedIncumbent struct{ owners map[string]string }
+type seedIncumbent struct {
+	owners   map[string]string
+	portalID string
+}
+
+// AccountID lets Connect record the portal binding (OVA-DDL-3) via its
+// incumbentAccountReader type-assertion; a blank portalID reports no account
+// (Connect stores NULL).
+func (s seedIncumbent) AccountID(context.Context) (string, error) {
+	if s.portalID == "" {
+		return "", fmt.Errorf("seedIncumbent: no portal id fixtured")
+	}
+	return s.portalID, nil
+}
 
 func (seedIncumbent) Name() string { return "hubspot" }
 func (seedIncumbent) Backfill(context.Context, string, string) (Page, error) {

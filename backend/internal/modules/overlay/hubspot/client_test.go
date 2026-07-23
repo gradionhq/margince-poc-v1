@@ -500,3 +500,55 @@ func TestNewClientRecordsRegion(t *testing.T) {
 		t.Fatalf("BaseURL() = %q, want https://api.hubapi.com", c.BaseURL())
 	}
 }
+
+func TestClientAccountIDParsesPortalID(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		mustWrite(t, w, `{"portalId": 24193752, "timeZone": "US/Eastern"}`)
+	}))
+	defer srv.Close()
+
+	c := hubspot.NewClient("us", "test-token", hubspot.WithBaseURL(srv.URL))
+	id, err := c.AccountID(t.Context())
+	if err != nil {
+		t.Fatalf("AccountID: %v", err)
+	}
+	// portalId arrives as a JSON number, returned as its decimal string so it
+	// matches the webhook payload's own portalId rendering (the binding key).
+	if id != "24193752" {
+		t.Errorf("AccountID = %q, want 24193752", id)
+	}
+	if gotPath != "/account-info/v3/details" {
+		t.Errorf("path = %q, want /account-info/v3/details", gotPath)
+	}
+}
+
+func TestClientAccountIDRejectsMissingPortalID(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		mustWrite(t, w, `{"timeZone": "US/Eastern"}`) // no portalId
+	}))
+	defer srv.Close()
+
+	c := hubspot.NewClient("us", "test-token", hubspot.WithBaseURL(srv.URL))
+	// Fail closed: never bind a webhook to an empty portal.
+	if _, err := c.AccountID(t.Context()); err == nil {
+		t.Error("a response with no portalId must error, not return an empty portal")
+	}
+}
+
+func TestClientAccountIDSurfacesUpstreamFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	c := hubspot.NewClient("us", "test-token", hubspot.WithBaseURL(srv.URL))
+	// An upstream failure must surface (the connect-time fetch treats it as
+	// best-effort, but the client itself must not mask it as an empty portal).
+	if _, err := c.AccountID(t.Context()); err == nil {
+		t.Error("an upstream 500 must surface as an error")
+	}
+}
