@@ -136,7 +136,7 @@ func TestEveryAuditedMutationEmitsAnEvent(t *testing.T) {
 							switch node.Sel.Name {
 							case "Audit", "AuditWithEvidence":
 								audits = true
-							case "Emit":
+							case "Emit", "EmitEvent", "EmitEventForEntity":
 								emits = true
 							}
 						}
@@ -198,8 +198,11 @@ func emissionBearingFunctions(fset *token.FileSet, dir string) (map[string]bool,
 			ast.Inspect(fn.Body, func(n ast.Node) bool {
 				switch node := n.(type) {
 				case *ast.SelectorExpr:
-					if pkg, ok := node.X.(*ast.Ident); ok && pkg.Name == "storekit" && node.Sel.Name == "Emit" {
-						emits[fn.Name.Name] = true
+					if pkg, ok := node.X.(*ast.Ident); ok && pkg.Name == "storekit" {
+						switch node.Sel.Name {
+						case "Emit", "EmitEvent", "EmitEventForEntity":
+							emits[fn.Name.Name] = true
+						}
 					}
 				case *ast.CallExpr:
 					if callee, ok := node.Fun.(*ast.Ident); ok {

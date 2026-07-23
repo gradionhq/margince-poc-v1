@@ -21,11 +21,25 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
+
+// mirrorConflictPayload builds the mirror.conflict wire payload — the
+// subject travels separately (rec.ObjectClass/id, passed to
+// storekit.EmitEventForEntity), since this event's entity is dynamic (the
+// runtime object class the reconcile sweep observed).
+func mirrorConflictPayload(objectClass, externalID string, priorUpdatedAt, incumbentUpdatedAt time.Time) crmcontracts.PublicEventMirrorConflict {
+	return crmcontracts.PublicEventMirrorConflict{
+		ObjectClass:        objectClass,
+		ExternalId:         externalID,
+		PriorUpdatedAt:     priorUpdatedAt,
+		IncumbentUpdatedAt: incumbentUpdatedAt,
+	}
+}
 
 // Reconcile sweeps objectClass's records modified at or after since via
 // inc.Modified, ingesting every page into ms and metering each page fetch
@@ -260,7 +274,8 @@ func emitMirrorConflict(ctx context.Context, ms *MirrorStore, rec Record, prior 
 		if err != nil {
 			return fmt.Errorf("overlay: reconcile: logging the mirror.conflict system event: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, logID, "mirror.conflict", rec.ObjectClass, id, detail); err != nil {
+		if err := storekit.EmitEventForEntity(ctx, tx, logID, rec.ObjectClass, id,
+			mirrorConflictPayload(rec.ObjectClass, rec.ExternalID, prior.UpdatedAtBaseline, rec.ModifiedAt)); err != nil {
 			return fmt.Errorf("overlay: reconcile: emitting mirror.conflict: %w", err)
 		}
 		return nil

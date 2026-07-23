@@ -240,6 +240,169 @@ func TestOwnerCanSeeEarlyReturns(t *testing.T) {
 	}
 }
 
+// TestEntityVisibleToClassification pins the fan-out visibility classifier
+// for the branches that resolve WITHOUT touching the pool: the event-keyed
+// deferral (mirror.*), the workspace-level allow-list, the entity-keyed
+// deferral (retention telemetry), and the fail-closed default. A nil pool
+// is deliberate — any case that reached a row-scope probe would panic, so
+// this also proves the event-first ordering short-circuits before the
+// object_class collision could route a mirror.* subject into a probe.
+func TestEntityVisibleToClassification(t *testing.T) {
+	s := NewStore(nil, nil)
+	for _, tc := range []struct {
+		name       string
+		eventType  string
+		entityType string
+		want       bool
+	}{
+		// mirror.* is deferred by EVENT even when its runtime object_class
+		// collides with a row-scoped entity name — caught before any probe.
+		{"mirror.conflict over deal object_class", "mirror.conflict", "deal", false},
+		{"mirror.budget_degraded over person object_class", "mirror.budget_degraded", "person", false},
+		{"mirror.deleted over organization object_class", "mirror.deleted", "organization", false},
+		{"mirror.write_rejected over lead object_class", "mirror.write_rejected", "lead", false},
+		// retention telemetry subjects are deferred by ENTITY.
+		{"retention.applied over ai_call", "retention.applied", "ai_call", false},
+		{"retention.applied over ai_call_payload", "retention.applied", "ai_call_payload", false},
+		// Workspace-level subjects deliver to any live owner. The runtime
+		// entity strings are the emit sites' — not the dotted event prefix.
+		{"user (user.* / role.changed)", "role.changed", "user", true},
+		{"passport", "passport.revoked", "passport", true},
+		{"onboarding wizard state", "onboarding.state_changed", "onboarding_wizard_state", true},
+		{"incumbent connection", "incumbent.connected", "incumbent_connection", true},
+		{"audit ledger", "audit.appended", "audit", true},
+		{"pipeline config", "pipeline.created", "pipeline", true},
+		{"stage config", "stage.updated", "stage", true},
+		// approval.*/coldstart.* (entity "approval") is intentionally absent
+		// here: it is target-visibility gated (approvalVisibleTo) and needs
+		// the pool, so it is proven in the integration lane, not this
+		// DB-free classification test.
+		// An unclassified subject is fail-closed — never delivered.
+		{"unclassified subject", "made.up", "widget", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := s.entityVisibleTo(context.Background(), tc.eventType, tc.entityType, ids.NewV7())
+			if err != nil {
+				t.Fatalf("entityVisibleTo(%q, %q) errored: %v", tc.eventType, tc.entityType, err)
+			}
+			if got != tc.want {
+				t.Fatalf("entityVisibleTo(%q, %q) = %v, want %v", tc.eventType, tc.entityType, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRowScopedSubjectsRouteToProbes guards the note that consent.changed
+// (person|lead) and retention.applied (person|lead|deal|activity) must
+// still hit their row-scope probes: their runtime entity type is NEITHER
+// deferred NOR workspace-level, so entityVisibleTo falls through to the
+// probe switch rather than short-circuiting. Asserting the map memberships
+// (not the DB probe itself — that is the integration lane's job) keeps this
+// a pure, DB-free guard against a future edit that would silently reclassify
+// a row-scoped subject into fan-out-to-everyone or a blanket deferral.
+func TestRowScopedSubjectsRouteToProbes(t *testing.T) {
+	if _, deferred := deferredDeliveryEvents["consent.changed"]; deferred {
+		t.Error("consent.changed must NOT be event-deferred — its person/lead subject is row-scope probed")
+	}
+	if _, deferred := deferredDeliveryEvents["retention.applied"]; deferred {
+		t.Error("retention.applied must NOT be event-deferred — its person/lead/deal/activity subjects are row-scope probed")
+	}
+	for _, entity := range []string{"person", "organization", "deal", "lead", "activity", "voice_profile", "signal", "offer", "approval"} {
+		if _, ws := workspaceLevelEntities[entity]; ws {
+			t.Errorf("row-scoped subject %q must not be in workspaceLevelEntities (would fan out to everyone)", entity)
+		}
+		if _, def := deferredDeliveryEntities[entity]; def {
+			t.Errorf("row-scoped subject %q must not be in deferredDeliveryEntities (would never deliver)", entity)
+		}
+	}
+}
+
+// TestRowScopedSubjectRequiresObjectReadCapability pins the P0 gate: a
+// fan-out owner whose LIVE role no longer grants <entity>.read must NOT
+// receive a row-scoped payload, even if a lingering row scope would still
+// match. entityVisibleTo mirrors the read path (auth.Require AND
+// auth.EnsureVisible), so an owner lacking the read grant is denied BEFORE
+// any pool probe — the nil pool here proves the short-circuit: were the
+// object-read half removed, RowScopeAll would drive EnsureVisible into the
+// nil pool and panic.
+func TestRowScopedSubjectRequiresObjectReadCapability(t *testing.T) {
+	s := NewStore(nil, nil) // nil pool: reaching a row-scope probe would panic
+
+	noRead := principal.Principal{
+		Type:   principal.PrincipalHuman,
+		UserID: ids.NewV7(),
+		Permissions: principal.Permissions{
+			// deal.update but explicitly NOT deal.read; row_scope=all would
+			// otherwise make every deal row visible.
+			Objects:  map[string]principal.ObjectGrant{"deal": {Update: true}},
+			RowScope: principal.RowScopeAll,
+		},
+	}
+	ctx := principal.WithActor(context.Background(), noRead)
+	if ok, err := s.entityVisibleTo(ctx, "deal.updated", "deal", ids.NewV7()); ok || err != nil {
+		t.Fatalf("entityVisibleTo without deal.read = (%v, %v), want (false, nil)", ok, err)
+	}
+
+	// The same owner WITH deal.read passes the object-read half and proceeds
+	// to the row-scope probe, which on a nil pool fails loudly (a panic or an
+	// error) — anything but the clean (false, nil) deny above. This proves the
+	// earlier denial came from the missing read grant, not from some other
+	// short-circuit that would also block a properly-granted owner.
+	withRead := noRead
+	withRead.Permissions.Objects = map[string]principal.ObjectGrant{"deal": {Read: true}}
+	func() {
+		//craft:ignore swallowed-errors recover's value is deliberately discarded: a nil-pool probe panic is itself proof the read gate admitted the call and reached the probe
+		defer func() { _ = recover() }()
+		ctx := principal.WithActor(context.Background(), withRead)
+		if ok, err := s.entityVisibleTo(ctx, "deal.updated", "deal", ids.NewV7()); !ok && err == nil {
+			t.Fatal("with deal.read, entityVisibleTo returned a clean deny — the read gate must have admitted it and reached the row-scope probe")
+		}
+	}()
+}
+
+// TestApprovalTargetRequiresObjectReadCapability pins the same P0 invariant on
+// the sibling approval-target path: an approval's envelope discloses the
+// target's details, so a fan-out owner whose LIVE role no longer grants
+// <target>.read must NOT receive it, even when a lingering row scope would
+// still match the target. approvalTargetVisible now mirrors entityVisibleTo
+// (object-read AND row-scope), so the missing read grant denies BEFORE any pool
+// probe — the nil pool proves the short-circuit: were the object-read half
+// dropped, RowScopeAll would drive the row-scope probe into the nil pool and
+// panic (the exact leak cubic flagged via the target path).
+func TestApprovalTargetRequiresObjectReadCapability(t *testing.T) {
+	s := NewStore(nil, nil) // nil pool: reaching a row-scope probe would panic
+
+	noRead := principal.Principal{
+		Type:   principal.PrincipalHuman,
+		UserID: ids.NewV7(),
+		Permissions: principal.Permissions{
+			// deal.update but explicitly NOT deal.read; row_scope=all would
+			// otherwise make every deal target visible.
+			Objects:  map[string]principal.ObjectGrant{"deal": {Update: true}},
+			RowScope: principal.RowScopeAll,
+		},
+	}
+	ctx := principal.WithActor(context.Background(), noRead)
+	if ok, err := s.approvalTargetVisible(ctx, "deal", ids.NewV7()); ok || err != nil {
+		t.Fatalf("approvalTargetVisible without deal.read = (%v, %v), want (false, nil)", ok, err)
+	}
+
+	// The same owner WITH deal.read passes the object-read half and proceeds to
+	// the row-scope probe, which on a nil pool fails loudly — anything but the
+	// clean (false, nil) deny above — proving the earlier denial came from the
+	// missing read grant, not some other short-circuit.
+	withRead := noRead
+	withRead.Permissions.Objects = map[string]principal.ObjectGrant{"deal": {Read: true}}
+	func() {
+		//craft:ignore swallowed-errors recover's value is deliberately discarded: a nil-pool probe panic is itself proof the read gate admitted the call and reached the probe
+		defer func() { _ = recover() }()
+		ctx := principal.WithActor(context.Background(), withRead)
+		if ok, err := s.approvalTargetVisible(ctx, "deal", ids.NewV7()); !ok && err == nil {
+			t.Fatal("with deal.read, approvalTargetVisible returned a clean deny — the read gate must have admitted it and reached the row-scope probe")
+		}
+	}()
+}
+
 func TestOwnerResolvesHumanBehindTheCall(t *testing.T) {
 	user := ids.NewV7()
 	onBehalf := ids.NewV7()

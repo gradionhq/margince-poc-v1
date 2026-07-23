@@ -76,14 +76,22 @@ func (s *Service) audit(ctx context.Context, tx pgx.Tx, p principal.Principal, a
 	return id, err
 }
 
-// emit stages one approval.* event in the transactional outbox, complete
-// envelope, exactly like every other module's writes.
-func (s *Service) emit(ctx context.Context, tx pgx.Tx, p principal.Principal, auditID ids.UUID, eventType string, entityID ids.UUID, payload map[string]any) error {
+// emit stages one approval.* / coldstart.* event in the transactional
+// outbox, complete envelope, exactly like every other module's writes:
+// unlike storekit.EmitEvent, this module's entity is always "approval"
+// (the staged row itself), so
+// that mapping stays hardcoded here rather than sourced from the
+// payload's EntityType(). eventType is sourced from payload.EventType()
+// instead of a separate string parameter — a caller cannot stage the
+// wrong payload for an event type without failing to compile, the same
+// guarantee storekit.EmitEvent gives every other module.
+func (s *Service) emit(ctx context.Context, tx pgx.Tx, p principal.Principal, auditID ids.UUID, entityID ids.UUID, payload events.Payload) error {
 	wsID, _ := principal.WorkspaceID(ctx)
 	correlationID, ok := principal.CorrelationID(ctx)
 	if !ok {
 		return errors.New("crmapprovals: no correlation id bound to context")
 	}
+	eventType := payload.EventType()
 	env := events.Envelope{
 		EventID:     ids.NewV7(),
 		Type:        eventType,

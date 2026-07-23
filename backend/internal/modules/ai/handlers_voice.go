@@ -358,7 +358,7 @@ func wireVoiceSource(s VoiceCorpusSource) crmcontracts.VoiceCorpusSource {
 func wireCorpusSummary(sum CorpusSummary) crmcontracts.VoiceCorpusSummary {
 	return crmcontracts.VoiceCorpusSummary{
 		TotalWords:    sum.TotalWords,
-		TargetWords:   sum.TargetWords,
+		TargetWords:   crmcontracts.VoiceCorpusSummaryTargetWords(sum.TargetWords),
 		QualityBand:   crmcontracts.VoiceCorpusSummaryQualityBand(sum.QualityBand),
 		Maturity:      crmcontracts.VoiceCorpusSummaryMaturity(sum.Maturity),
 		RegisterWords: sum.RegisterWords,

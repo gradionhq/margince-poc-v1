@@ -1448,7 +1448,8 @@ export interface paths {
          *     principal's call is 🟡 — staged for human approval (ADR-0036), then redeemed with the
          *     `X-Approval-Token`; a human on a session registers directly. Every register/change/delete
          *     is audited. The `signing_secret` in the response is shown EXACTLY ONCE — deliveries are
-         *     HMAC-SHA256 signed with it (X-Margince-Signature). `target_url` must be https://.
+         *     signed with it on the Standard Webhooks scheme (verify the `webhook-signature` header).
+         *     `target_url` must be https://.
          */
         post: operations["createWebhookSubscription"];
         delete?: never;
@@ -4464,10 +4465,10 @@ export interface components {
             /** Format: date-time */
             archived_at?: string | null;
         };
-        /** @description The create/rotate response — the subscription plus the `signing_secret`, which is shown EXACTLY ONCE and never retrievable again. Store it now: deliveries are signed (HMAC-SHA256) with it. */
+        /** @description The create/rotate response — the subscription plus the `signing_secret`, which is shown EXACTLY ONCE and never retrievable again. Store it now: deliveries are signed with it on the Standard Webhooks scheme (standardwebhooks.com). */
         WebhookSubscriptionCreated: {
             subscription: components["schemas"]["WebhookSubscription"];
-            /** @description The per-subscription signing secret. Shown once; use it to verify X-Margince-Signature. */
+            /** @description The per-subscription signing secret (`whsec_` + standard base64). Shown once; decode the base64 to raw bytes and use them as the HMAC-SHA256 key to verify the `webhook-signature` header against `{webhook-id}.{webhook-timestamp}.{raw body}` (Standard Webhooks — standardwebhooks.com). */
             signing_secret: string;
         };
         CreateWebhookSubscriptionRequest: {
@@ -4488,6 +4489,8 @@ export interface components {
         WebhookSubscriptionListResponse: {
             data: components["schemas"]["WebhookSubscription"][];
             page: components["schemas"]["PageInfo"];
+            /** @description Whether this deployment has a signing key configured. When false, subscriptions can be listed and inspected but create/rotate/replay are unavailable (they answer 503 webhooks_not_configured), so the UI renders a not-enabled state instead of controls that would only fail on click. */
+            delivery_enabled: boolean;
         };
         /** @description One delivery attempt log (`webhook_delivery`) — the inspectable dead-letter surface. At-least-once with idempotency: exactly one row per (subscription, event). */
         WebhookDelivery: {

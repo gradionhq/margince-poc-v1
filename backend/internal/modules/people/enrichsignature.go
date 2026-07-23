@@ -18,6 +18,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -79,8 +80,9 @@ func (s *Store) ApplySignatureFields(ctx context.Context, personID ids.PersonID,
 		if err != nil {
 			return err
 		}
-		return storekit.Emit(ctx, tx, auditID, "person.updated", entityPerson, personID.UUID,
-			map[string]any{auditKeyFields: appliedFields, auditKeySource: enrichSource})
+		return storekit.EmitEvent(ctx, tx, auditID, personID.UUID, crmcontracts.PublicEventPersonUpdated{
+			ChangedFields: map[string]any{auditKeyFields: appliedFields, auditKeySource: enrichSource},
+		})
 	})
 	if err != nil {
 		return SignatureApplyResult{}, err

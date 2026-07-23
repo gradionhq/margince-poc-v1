@@ -25,9 +25,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -214,9 +216,9 @@ func (s *Store) SaveCompany(ctx context.Context, in SaveCompanyInput) (Company, 
 		}
 		applied["display_name"] = in.DisplayName
 
-		action, eventType := actionUpdate, "organization.updated"
+		action := actionUpdate
 		if created {
-			action, eventType = "create", "organization.created"
+			action = "create"
 		}
 		auditID, err := storekit.Audit(ctx, tx, action, "organization", orgID.UUID, nil, map[string]any{
 			auditKeySource: companySourceHuman, "anchor": true, auditKeyFields: applied,
@@ -224,10 +226,9 @@ func (s *Store) SaveCompany(ctx context.Context, in SaveCompanyInput) (Company, 
 		if err != nil {
 			return fmt.Errorf("audit company save: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, eventType, "organization", orgID.UUID, map[string]any{
-			eventKeyDelta: applied, auditKeySource: companySourceHuman, "anchor": true, "captured_by": by,
-		}); err != nil {
-			return fmt.Errorf("emit %s: %w", eventType, err)
+		payload := companySaveEventPayload(created, applied, by)
+		if err := storekit.EmitEvent(ctx, tx, auditID, orgID.UUID, payload); err != nil {
+			return fmt.Errorf("emit %s: %w", payload.EventType(), err)
 		}
 
 		out, err = readCompany(ctx, tx, orgID)
@@ -237,6 +238,32 @@ func (s *Store) SaveCompany(ctx context.Context, in SaveCompanyInput) (Company, 
 		return Company{}, err
 	}
 	return out, nil
+}
+
+// companySaveEventPayload builds the organization-side event SaveCompany
+// emits — organization.created (the union struct) on the anchor's first
+// save, or an organization.updated changed_fields note on every later
+// one — the ONE place that maps the applied field delta onto the
+// published schema. The two shapes are different published events, not
+// variants of one, so the return type is the shared events.Payload seam.
+//
+//nolint:ireturn // dispatches to PublicEventOrganizationCreated vs Updated by the created condition; tested directly via the interface in person_organization_payload_test.go
+func companySaveEventPayload(created bool, applied map[string]any, by string) events.Payload {
+	if created {
+		source := companySourceHuman
+		anchor := true
+		return crmcontracts.PublicEventOrganizationCreated{
+			Delta:      &applied,
+			Source:     &source,
+			Anchor:     &anchor,
+			CapturedBy: &by,
+		}
+	}
+	return crmcontracts.PublicEventOrganizationUpdated{
+		ChangedFields: map[string]any{
+			eventKeyDelta: applied, auditKeySource: companySourceHuman, "anchor": true, "captured_by": by,
+		},
+	}
 }
 
 // anchorOrganization resolves the workspace's own organization, or ErrNotFound

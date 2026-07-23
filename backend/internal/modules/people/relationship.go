@@ -19,13 +19,13 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -102,7 +102,8 @@ func relationshipEndpointScope(ctx context.Context, alias string, arg func(any) 
 		clauses = append(clauses, fmt.Sprintf(
 			`(%[1]s.%[2]s IS NULL OR EXISTS (
 			   SELECT 1 FROM %[3]s ep WHERE ep.id = %[1]s.%[2]s AND ep.archived_at IS NULL AND %[4]s))`,
-			alias, endpoint.column, endpoint.table, predicate("ep")))
+			alias, endpoint.column, endpoint.table, predicate("ep"),
+		))
 	}
 	return "(" + strings.Join(clauses, " AND ") + ")", nil
 }
@@ -177,8 +178,10 @@ func ensureRelationshipEndpoints(ctx context.Context, tx pgx.Tx, in CreateRelati
 		table string
 		id    *ids.UUID
 	}{
-		{"person", untypedPtr(in.PersonID)}, {"organization", untypedPtr(in.OrganizationID)},
-		{"organization", untypedPtr(in.CounterpartyOrgID)}, {"deal", untypedPtr(in.DealID)},
+		{"person", untypedPtr(in.PersonID)},
+		{"organization", untypedPtr(in.OrganizationID)},
+		{"organization", untypedPtr(in.CounterpartyOrgID)},
+		{"deal", untypedPtr(in.DealID)},
 	} {
 		if ref.id == nil {
 			continue
@@ -347,9 +350,30 @@ func emitRelationshipChange(ctx context.Context, tx pgx.Tx, action string, rel r
 	if err != nil {
 		return err
 	}
-	return storekit.Emit(ctx, tx, auditID, anchorObject+".updated", anchorObject, anchorID, map[string]any{
+	changedFields := map[string]any{
 		"delta": map[string]any{"relationship": map[string]any{"id": rel.ID, "kind": rel.Kind, "action": action}},
-	})
+	}
+	return storekit.EmitEvent(ctx, tx, auditID, anchorID, relationshipUpdatedPayload(anchorObject, changedFields))
+}
+
+// relationshipUpdatedPayload builds the anchor's .updated event for a
+// relationship mutation — the same changed_fields delta wrapped in
+// whichever of the three anchors' published OPEN envelopes this edge
+// points at. All three (deal.updated, person.updated,
+// organization.updated) are OPEN envelopes with an identical
+// changed_fields shape, so the only real work here is picking the right
+// generated struct for the anchor.
+//
+//nolint:ireturn // dispatches to one of PublicEventDealUpdated/PersonUpdated/OrganizationUpdated by anchorObject; tested directly via the interface in person_organization_payload_test.go
+func relationshipUpdatedPayload(anchorObject string, changedFields map[string]any) events.Payload {
+	switch anchorObject {
+	case "deal":
+		return crmcontracts.PublicEventDealUpdated{ChangedFields: changedFields}
+	case "person":
+		return crmcontracts.PublicEventPersonUpdated{ChangedFields: changedFields}
+	default: // organization
+		return crmcontracts.PublicEventOrganizationUpdated{ChangedFields: changedFields}
+	}
 }
 
 // EnsureDealVisible probes a deal id under the caller's row scope —

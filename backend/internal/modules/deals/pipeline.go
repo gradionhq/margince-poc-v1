@@ -81,13 +81,7 @@ func createPipelineTx(ctx context.Context, tx pgx.Tx, in CreatePipelineInput) (c
 	}
 	// events.md §5.3b: config changes are first-class facts — one
 	// pipeline.created carries the whole stage set.
-	stages := make([]map[string]any, 0, len(in.Stages))
-	for _, st := range in.Stages {
-		stages = append(stages, map[string]any{"name": st.Name, "position": st.Position, "semantic": st.Semantic})
-	}
-	if err := storekit.Emit(ctx, tx, auditID, "pipeline.created", "pipeline", id.UUID, map[string]any{
-		"name": in.Name, "is_default": in.IsDefault, "stages": stages,
-	}); err != nil {
+	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, pipelineCreatedPayload(in.Name, in.IsDefault, in.Stages)); err != nil {
 		return crmcontracts.Pipeline{}, fmt.Errorf("emit pipeline.created: %w", err)
 	}
 	out, err := readPipeline(ctx, tx, id)
@@ -95,6 +89,18 @@ func createPipelineTx(ctx context.Context, tx pgx.Tx, in CreatePipelineInput) (c
 		return crmcontracts.Pipeline{}, fmt.Errorf("read created pipeline: %w", err)
 	}
 	return out, nil
+}
+
+// pipelineCreatedPayload builds the pipeline.created wire payload from
+// createPipelineTx's inputs — the ONE place that maps CreatePipeline's
+// local values onto the published schema, so a future field rename shows
+// up here rather than at an independently-drifting map literal.
+func pipelineCreatedPayload(name string, isDefault bool, stages []StageInput) crmcontracts.PublicEventPipelineCreated {
+	out := make([]crmcontracts.PublicEventPipelineCreatedStage, 0, len(stages))
+	for _, st := range stages {
+		out = append(out, crmcontracts.PublicEventPipelineCreatedStage{Name: st.Name, Position: st.Position, Semantic: st.Semantic})
+	}
+	return crmcontracts.PublicEventPipelineCreated{Name: name, IsDefault: isDefault, Stages: out}
 }
 
 func (s *Store) GetPipeline(ctx context.Context, id ids.PipelineID) (crmcontracts.Pipeline, error) {
@@ -266,7 +272,8 @@ func (s *Store) SeedPipelineTx(ctx context.Context, tx pgx.Tx, name string, open
 			Name: st.Name, Position: i + 1, Semantic: "open", WinProbability: st.WinProbability,
 		})
 	}
-	stages = append(stages,
+	stages = append(
+		stages,
 		StageInput{Name: "Won", Position: len(open) + 1, Semantic: "won", WinProbability: 100},
 		StageInput{Name: "Lost", Position: len(open) + 2, Semantic: "lost", WinProbability: 0},
 	)

@@ -21,6 +21,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -212,8 +213,9 @@ func (s *Store) RouteLead(ctx context.Context, leadID ids.LeadID, cfg RoutingCon
 		if err != nil {
 			return err
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "lead.updated", "lead", leadID.UUID,
-			map[string]any{"delta": map[string]any{"owner_id": chosen}}); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, leadID.UUID, crmcontracts.PublicEventLeadUpdated{
+			ChangedFields: map[string]any{eventKeyDelta: map[string]any{"owner_id": chosen}},
+		}); err != nil {
 			return err
 		}
 		decision = RoutingDecision{Assigned: true, OwnerID: chosen, Reason: reason}

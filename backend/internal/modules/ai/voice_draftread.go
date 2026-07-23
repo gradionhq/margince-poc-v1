@@ -117,11 +117,11 @@ func (s *VoiceStore) RecordDraftedSignal(ctx context.Context, profileID ids.UUID
 		if err != nil {
 			return err
 		}
-		return storekit.Emit(ctx, tx, auditID, "voice.draft_outcome_recorded", "voice_profile", profileID,
-			map[string]any{
-				voiceKeyProfileID: profileID, voiceKeyProfileVersion: profileVersion,
-				voiceKeyOutcome: voiceOutcomeDrafted,
-			})
+		// The drafted signal has not yet been sent, so it qualifies as no
+		// learning source and carries no transformations — the accept/edit
+		// feedback that later lands on this row is what sets those.
+		return storekit.EmitEvent(ctx, tx, auditID, profileID,
+			voiceDraftOutcomeRecordedPayload(profileID, voiceOutcomeDrafted))
 	})
 }
 

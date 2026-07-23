@@ -11,8 +11,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -43,10 +46,12 @@ type StageInput struct {
 	Announce []AnnouncedEvent
 }
 
-// AnnouncedEvent is one extra catalog event a staging carries.
+// AnnouncedEvent is one extra catalog event a staging carries. Payload
+// names its own event type (events.Payload.EventType()), the same seam
+// storekit.EmitEvent uses — a caller cannot pair the wrong payload with
+// an announced event without failing to compile.
 type AnnouncedEvent struct {
-	Type    string
-	Payload map[string]any
+	Payload events.Payload
 }
 
 // Stage records a pending approval for the context's agent principal and
@@ -105,14 +110,19 @@ func (s *Service) StageInTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.
 	}
 	wsID, _ := principal.WorkspaceID(ctx)
 	id := ids.New[ids.ApprovalKind]()
+	// Compute ONE absolute expiry and use it for BOTH the persisted row and
+	// the payload — deriving the row's expires_at from the DB now() while the
+	// payload used the app clock let approval.requested.data.expires_at drift
+	// from what the approval row actually stored.
+	expiresAt := s.now().UTC().Add(stagingTTL)
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO approval (id, workspace_id, kind, proposed_by, on_behalf_of, passport_id,
 			                       target_entity_type, target_entity_id, target_version,
 			                       summary, proposed_change, diff_hash, expires_at)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now() + $13::interval)`,
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 		id, wsID, in.Kind, p.ID, nullUUID(p.OnBehalfOf), nullUUID(p.PassportID),
 		nullStr(in.TargetType), nullUUID(in.TargetID), in.TargetVersion,
-		nullStr(in.Summary), in.ProposedChange, in.DiffHash, stagingTTL.String()); err != nil {
+		nullStr(in.Summary), in.ProposedChange, in.DiffHash, expiresAt); err != nil {
 		return ids.ApprovalID{}, err
 	}
 	auditID, err := s.audit(ctx, tx, p, "create", id.UUID, map[string]any{
@@ -121,21 +131,43 @@ func (s *Service) StageInTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.
 	if err != nil {
 		return ids.ApprovalID{}, err
 	}
-	if err := s.emit(ctx, tx, p, auditID, "approval.requested", id.UUID, map[string]any{
-		approvalKeyKind:      in.Kind,
-		"summary":            in.Summary,
-		"target_entity_type": in.TargetType,
-		"target_entity_id":   nullUUID(in.TargetID),
-		"expires_at":         s.now().UTC().Add(stagingTTL),
-	}); err != nil {
+	requested := crmcontracts.PublicEventApprovalRequested{
+		Kind:             in.Kind,
+		Summary:          in.Summary,
+		TargetEntityType: in.TargetType,
+		TargetEntityId:   optionalTargetID(in.TargetID),
+		ExpiresAt:        expiresAt,
+	}
+	if err := s.emit(ctx, tx, p, auditID, id.UUID, requested); err != nil {
 		return ids.ApprovalID{}, err
 	}
 	for _, announce := range in.Announce {
-		if err := s.emit(ctx, tx, p, auditID, announce.Type, id.UUID, announce.Payload); err != nil {
+		// emit() forces the entity type to "approval" (an announced event is
+		// an approval-scoped echo). A nil payload would panic on EventType(),
+		// and a non-approval payload would be mislabeled and misrouted at
+		// fan-out — so refuse both rather than emit an unroutable envelope.
+		if announce.Payload == nil {
+			return ids.ApprovalID{}, errors.New("crmapprovals: announced event has no payload")
+		}
+		if entityType := announce.Payload.EntityType(); entityType != "approval" {
+			return ids.ApprovalID{}, fmt.Errorf("crmapprovals: announced event payload has entity type %q, want approval", entityType)
+		}
+		if err := s.emit(ctx, tx, p, auditID, id.UUID, announce.Payload); err != nil {
 			return ids.ApprovalID{}, err
 		}
 	}
 	return id, nil
+}
+
+// optionalTargetID converts the staging's polymorphic target id to the
+// public payload's optional wire type — nil for the zero id (a staging
+// with no single target row), never the zero UUID rendered as a value.
+func optionalTargetID(id ids.UUID) *openapi_types.UUID {
+	if id.IsZero() {
+		return nil
+	}
+	v := openapi_types.UUID(id)
+	return &v
 }
 
 // HasPendingFor reports whether a live pending staging of this kind,

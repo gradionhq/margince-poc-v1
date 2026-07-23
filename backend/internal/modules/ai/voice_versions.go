@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -336,10 +338,20 @@ func (s *VoiceStore) RollbackVersion(ctx context.Context, profileID ids.UUID, so
 }
 
 func emitVoiceVersion(ctx context.Context, tx pgx.Tx, auditID ids.UUID, version VoiceProfileVersion, classification, outcome string) error {
-	return storekit.Emit(ctx, tx, auditID, "voice.version_changed", "voice_profile", version.ProfileID, map[string]any{
-		voiceKeyProfileID: version.ProfileID, voiceKeyProfileVersion: version.ProfileVersion,
-		voiceKeyStatus: version.Status, voiceKeyReason: version.Reason,
-		"predecessor_version": version.PredecessorVersion, "classification": classification,
-		"activation_outcome": outcome,
-	})
+	return storekit.EmitEvent(ctx, tx, auditID, version.ProfileID,
+		voiceVersionChangedPayload(version, classification, outcome))
+}
+
+// voiceVersionChangedPayload builds voice.version_changed's typed payload.
+// PredecessorVersion is nil for a profile's first version, which has none.
+func voiceVersionChangedPayload(version VoiceProfileVersion, classification, outcome string) crmcontracts.PublicEventVoiceVersionChanged {
+	return crmcontracts.PublicEventVoiceVersionChanged{
+		ProfileId:          openapi_types.UUID(version.ProfileID),
+		ProfileVersion:     version.ProfileVersion,
+		Status:             version.Status,
+		Reason:             version.Reason,
+		PredecessorVersion: version.PredecessorVersion,
+		Classification:     classification,
+		ActivationOutcome:  outcome,
+	}
 }
