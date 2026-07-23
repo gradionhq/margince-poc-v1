@@ -13,41 +13,17 @@ import (
 
 const repoRoot = "../../.."
 
-func realVocabulary(t *testing.T) map[string]string {
-	t.Helper()
-	vocab, err := publishedVocabulary(repoRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return vocab
-}
-
-// TestPublishedVocabularyDerivesFromTheSeamSource: the reader's constant
-// table comes from parsing the published package, so a constant added to
-// the seam is derivable without touching this tool.
-func TestPublishedVocabularyDerivesFromTheSeamSource(t *testing.T) {
-	vocab := realVocabulary(t)
-	for ident, want := range map[string]string{
-		"CommercialCorrespondence": "commercial_correspondence",
-		"AccountingRecords":        "accounting_records",
-		"AnchorOccurrence":         "occurrence",
-		"AnchorCalendarYearEnd":    "calendar_year_end",
-	} {
-		if got := vocab[ident]; got != want {
-			t.Errorf("vocab[%s] = %q, want %q", ident, got, want)
-		}
-	}
-}
-
 // TestDeManifestMatchesItsDerivation binds the committed artifact to the
 // committed declaration: the in-tree de unit must carry exactly the
-// manifest this generator derives from its source.
+// manifest this generator derives from its source — and, being a
+// jurisdiction-only pack (passive policy, requesting no autonomy tier), that
+// manifest is identity with an empty autonomy-tiers list.
 func TestDeManifestMatchesItsDerivation(t *testing.T) {
 	unit, err := scanUnit("de", filepath.Join(repoRoot, "extensions", "de"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	derived, err := deriveUnitManifest(unit, realVocabulary(t))
+	derived, err := deriveUnitManifest(unit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,12 +34,7 @@ func TestDeManifestMatchesItsDerivation(t *testing.T) {
 	if !bytes.Equal(derived, committed) {
 		t.Fatalf("extensions/de/%s differs from its derivation — run 'make gen'\n--- committed ---\n%s\n--- derived ---\n%s", unitManifestFile, committed, derived)
 	}
-	for _, want := range []string{
-		`"id": "jurisdiction/de"`,
-		`"keep": "P6Y"`,
-		`"keep": "P8Y"`,
-		`"anchor": "calendar_year_end"`,
-	} {
+	for _, want := range []string{`"name": "de"`, `"version": "1.0.0"`, `"autonomy_tiers": []`} {
 		if !strings.Contains(string(derived), want) {
 			t.Errorf("derived manifest misses %s:\n%s", want, derived)
 		}
@@ -71,7 +42,7 @@ func TestDeManifestMatchesItsDerivation(t *testing.T) {
 }
 
 // deriveSynthetic lays a one-file unit under a temp root and derives its
-// manifest with the real published vocabulary.
+// manifest.
 func deriveSynthetic(t *testing.T, name, source string) ([]byte, error) {
 	t.Helper()
 	root := t.TempDir()
@@ -83,10 +54,12 @@ func deriveSynthetic(t *testing.T, name, source string) ([]byte, error) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return deriveUnitManifest(unit, realVocabulary(t))
+	return deriveUnitManifest(unit)
 }
 
-const helloLikeSource = `package hello
+// jurisdictionOnlySource is the crm-hello / de declaration shape: a unit
+// whose only contribution is a jurisdiction pack.
+const jurisdictionOnlySource = `package hello
 
 import (
 	"github.com/gradionhq/margince/backend/pkg/extension"
@@ -108,29 +81,31 @@ func (pack) Code() jurisdiction.Code { return "zz" }
 func (pack) Retention() jurisdiction.Retention { return nil }
 `
 
-// TestDeriveUnitManifestHandlesANilRetentionPack: a pack declaring no
-// floors (the crm-hello fixture shape) yields an empty retention list,
-// never a null — the manifest schema stays uniform for consumers.
-func TestDeriveUnitManifestHandlesANilRetentionPack(t *testing.T) {
-	derived, err := deriveSynthetic(t, "hello", helloLikeSource)
+// TestJurisdictionPackRequestsNoAutonomyTier: a jurisdiction pack is
+// passive policy the core consults — it requests no scope or tier, so it
+// contributes NO autonomy-tier request. The Jurisdictions field is
+// recognized and skipped, never derived into an entry.
+func TestJurisdictionPackRequestsNoAutonomyTier(t *testing.T) {
+	derived, err := deriveSynthetic(t, "hello", jurisdictionOnlySource)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"id": "jurisdiction/zz"`, `"retention": []`, `"scopes": []`} {
-		if !strings.Contains(string(derived), want) {
-			t.Errorf("derived manifest misses %s:\n%s", want, derived)
-		}
+	if !strings.Contains(string(derived), `"autonomy_tiers": []`) {
+		t.Fatalf("a jurisdiction-only unit must declare no autonomy tier:\n%s", derived)
+	}
+	if strings.Contains(string(derived), "jurisdiction") {
+		t.Fatalf("the manifest leaked jurisdiction policy into the autonomy-tier surface:\n%s", derived)
 	}
 }
 
 // TestDeriveUnitManifestIsDeterministic: same source, same bytes — the
 // property the drift gate and the digest binding rest on.
 func TestDeriveUnitManifestIsDeterministic(t *testing.T) {
-	first, err := deriveSynthetic(t, "hello", helloLikeSource)
+	first, err := deriveSynthetic(t, "hello", jurisdictionOnlySource)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := deriveSynthetic(t, "hello", helloLikeSource)
+	second, err := deriveSynthetic(t, "hello", jurisdictionOnlySource)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,9 +129,10 @@ func nonLiteralNew(body string) string {
 	return nonLiteralHeader + "func New() extension.Extension {\n\treturn extension.Extension{\n" + body + "\n\t}\n}\n"
 }
 
-// nonLiteralCases: every computed value is a hard, positioned error — a
-// silent gap here would be a capability invisible to review while
-// present at boot.
+// nonLiteralCases: a declaration the reader cannot resolve statically is a
+// positioned error, never a manifest silently missing a claim — including
+// an UNRECOGNIZED field, which could be a future autonomy-tier request the
+// generator must be taught before it ships.
 var nonLiteralCases = []struct {
 	name    string
 	source  string
@@ -173,7 +149,7 @@ var nonLiteralCases = []struct {
 		wantErr: "Version must be a string literal",
 	},
 	{
-		name:    "unknown extension field",
+		name:    "unrecognized extension field fails closed",
 		source:  nonLiteralNew("\t\tName: \"x\",\n\t\tVersion: \"1.0.0\",\n\t\tFuture: nil,"),
 		wantErr: "field Future is not derivable",
 	},
@@ -181,77 +157,6 @@ var nonLiteralCases = []struct {
 		name:    "name differing from the directory",
 		source:  nonLiteralNew("\t\tName: \"other\",\n\t\tVersion: \"1.0.0\","),
 		wantErr: "the directory name IS the unit name",
-	},
-	{
-		name: "computed pack code",
-		source: nonLiteralNew("\t\tName: \"x\",\n\t\tVersion: \"1.0.0\",\n\t\tJurisdictions: []jurisdiction.Pack{pack{}},") + `type pack struct{}
-
-func (pack) Code() jurisdiction.Code { return code() }
-
-func code() jurisdiction.Code { return "zz" }
-
-func (pack) Retention() jurisdiction.Retention { return nil }
-`,
-		wantErr: "Code() must be a string literal",
-	},
-	{
-		name: "conditional retention",
-		source: nonLiteralNew("\t\tName: \"x\",\n\t\tVersion: \"1.0.0\",\n\t\tJurisdictions: []jurisdiction.Pack{pack{}},") + `type pack struct{}
-
-func (pack) Code() jurisdiction.Code { return "zz" }
-
-func (pack) Retention() jurisdiction.Retention {
-	if true {
-		return nil
-	}
-	return nil
-}
-`,
-		wantErr: "exactly one return statement",
-	},
-	{
-		name: "constant outside the published vocabulary",
-		source: nonLiteralNew("\t\tName: \"x\",\n\t\tVersion: \"1.0.0\",\n\t\tJurisdictions: []jurisdiction.Pack{pack{}},") + `type pack struct{}
-
-func (pack) Code() jurisdiction.Code { return "zz" }
-
-func (pack) Retention() jurisdiction.Retention { return ret{} }
-
-type ret struct{}
-
-const myClass = "commercial_correspondence"
-
-func (ret) Classes() []jurisdiction.RetentionClass {
-	return []jurisdiction.RetentionClass{{Name: myClass, Keep: jurisdiction.Period{Years: 6}}}
-}
-`,
-		wantErr: "expected a string literal or a published jurisdiction constant",
-	},
-	{
-		name: "negative period caught at gen time",
-		source: nonLiteralNew("\t\tName: \"x\",\n\t\tVersion: \"1.0.0\",\n\t\tJurisdictions: []jurisdiction.Pack{pack{}},") + `type pack struct{}
-
-func (pack) Code() jurisdiction.Code { return "zz" }
-
-func (pack) Retention() jurisdiction.Retention { return ret{} }
-
-type ret struct{}
-
-func (ret) Classes() []jurisdiction.RetentionClass {
-	return []jurisdiction.RetentionClass{{Name: jurisdiction.CommercialCorrespondence, Keep: jurisdiction.Period{Years: -6}}}
-}
-`,
-		wantErr: "negative component",
-	},
-	{
-		name: "duplicate capability id",
-		source: nonLiteralNew("\t\tName: \"x\",\n\t\tVersion: \"1.0.0\",\n\t\tJurisdictions: []jurisdiction.Pack{pack{}, pack{}},") + `type pack struct{}
-
-func (pack) Code() jurisdiction.Code { return "zz" }
-
-func (pack) Retention() jurisdiction.Retention { return nil }
-`,
-		wantErr: "capability jurisdiction/zz declared twice",
 	},
 }
 
