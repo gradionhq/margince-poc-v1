@@ -88,10 +88,14 @@ func TestAddTreeHashesEveryRegularFile(t *testing.T) {
 // the binary never sees, or trip the multiple-New guard.
 func TestDeriveUnitManifestIgnoresGoIgnoredFiles(t *testing.T) {
 	root := t.TempDir()
+	bogus := "package u\n\nimport \"github.com/gradionhq/margince/backend/pkg/extension\"\n\nfunc New() extension.Extension { return extension.Extension{Name: \"WRONG\", Version: \"9\"} }\n"
 	writeUnit(t, root, "u", map[string]string{
-		"go.mod":      "module example.test/ext/u\n\ngo 1.26.5\n",
-		"u.go":        "package u\n\nimport \"github.com/gradionhq/margince/backend/pkg/extension\"\n\nfunc New() extension.Extension { return extension.Extension{Name: \"u\", Version: \"1.0.0\"} }\n",
-		"_scratch.go": "package u\n\nimport \"github.com/gradionhq/margince/backend/pkg/extension\"\n\nfunc New() extension.Extension { return extension.Extension{Name: \"WRONG\", Version: \"9\"} }\n",
+		"go.mod": "module example.test/ext/u\n\ngo 1.26.5\n",
+		"u.go":   "package u\n\nimport \"github.com/gradionhq/margince/backend/pkg/extension\"\n\nfunc New() extension.Extension { return extension.Extension{Name: \"u\", Version: \"1.0.0\"} }\n",
+		// Both go/build name-ignored forms carry a bogus New(); neither may
+		// feed the scan (else the multiple-New guard would trip).
+		"_scratch.go": bogus,
+		".scratch.go": bogus,
 	})
 	unit, err := scanUnit("u", filepath.Join(root, "extensions", "u"))
 	if err != nil {
