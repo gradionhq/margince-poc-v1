@@ -20,6 +20,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -74,7 +78,7 @@ func (w *writeBackIncumbent) Update(context.Context, string, string, map[string]
 	return w.updateRec, w.updateErr
 }
 
-func (w *writeBackIncumbent) Archive(context.Context, string, string) error {
+func (w *writeBackIncumbent) Archive(context.Context, string, string, time.Time) error {
 	w.archived = true
 	return w.archiveErr
 }
@@ -95,6 +99,21 @@ func providerFor(ms *MirrorStore, inc Incumbent) *Provider {
 // seeded row's OwnerExternalID, so the mirror_visibility deny-join lets the
 // actor see the rows the write verbs operate on.
 const writebackOwner = "owner-1"
+
+// seedActiveConnection inserts the active incumbent_connection a connected
+// overlay workspace has — the row the write-back's disconnect fence
+// (mirrorWriteResult's WithFence) asserts before re-mirroring, so a write on a
+// connected workspace is not spuriously aborted as a teardown race.
+func seedActiveConnection(ctx context.Context, t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `INSERT INTO incumbent_connection (workspace_id, incumbent, region, credential_ref, status)
+			VALUES (current_setting('app.workspace_id')::uuid, 'hubspot', 'eu1', 'ref-writeback', 'active')`)
+		return err
+	}); err != nil {
+		t.Fatalf("seeding active connection: %v", err)
+	}
+}
 
 // mapActorToOwner maps the acting user to writebackOwner so the
 // mirror_visibility deny-join lets it see rows owned by that owner — the
@@ -117,6 +136,7 @@ func TestProviderCreateMirrorsIncumbentResult(t *testing.T) {
 	ctx, pool, _ := testWorkspaceCtx(t)
 	ms := NewMirrorStore(pool, noOwnerEmails{})
 	mapActorToOwner(ctx, t, ms)
+	seedActiveConnection(ctx, t, pool)
 
 	inc := &writeBackIncumbent{createRec: Record{
 		ObjectClass:     "person",
@@ -161,6 +181,7 @@ func TestProviderUpdateRejectsIncumbentSkewLeavingMirrorUntouched(t *testing.T) 
 	ctx, pool, _ := testWorkspaceCtx(t)
 	ms := NewMirrorStore(pool, noOwnerEmails{})
 	mapActorToOwner(ctx, t, ms)
+	seedActiveConnection(ctx, t, pool)
 
 	// Seed the mirror row the caller read (baseline captured here).
 	baseline := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
@@ -208,6 +229,7 @@ func TestProviderUpdateMirrorsResultOnAck(t *testing.T) {
 	ctx, pool, _ := testWorkspaceCtx(t)
 	ms := NewMirrorStore(pool, noOwnerEmails{})
 	mapActorToOwner(ctx, t, ms)
+	seedActiveConnection(ctx, t, pool)
 
 	baseline := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
 	if err := ms.Ingest(ctx, Record{
@@ -245,6 +267,7 @@ func TestProviderArchivePurgesMirror(t *testing.T) {
 	ctx, pool, _ := testWorkspaceCtx(t)
 	ms := NewMirrorStore(pool, noOwnerEmails{})
 	mapActorToOwner(ctx, t, ms)
+	seedActiveConnection(ctx, t, pool)
 
 	if err := ms.Ingest(ctx, Record{
 		ObjectClass: "person", ExternalID: "555",

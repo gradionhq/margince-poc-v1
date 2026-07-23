@@ -83,7 +83,7 @@ func (p *pagingCompanies) Update(context.Context, string, string, map[string]any
 	return Record{}, fmt.Errorf("pagingCompanies: Update is not fixtured")
 }
 
-func (p *pagingCompanies) Archive(context.Context, string, string) error {
+func (p *pagingCompanies) Archive(context.Context, string, string, time.Time) error {
 	return fmt.Errorf("pagingCompanies: Archive is not fixtured")
 }
 

@@ -28,7 +28,7 @@ import (
 //
 //craft:ignore naked-any fields is the JSON-decoded canonical bag from the datasource seam; the any is inherent to the decoded shape
 func (a *Adapter) Create(ctx context.Context, canonicalClass string, fields map[string]any) (overlay.Record, error) {
-	mw, err := mapWrite(canonicalClass, fields)
+	mw, err := mapWrite(canonicalClass, fields, false)
 	if err != nil {
 		return overlay.Record{}, err
 	}
@@ -58,21 +58,30 @@ func (a *Adapter) Create(ctx context.Context, canonicalClass string, fields map[
 //
 //craft:ignore naked-any fields is the JSON-decoded canonical patch from the datasource seam; the any is inherent to the decoded shape
 func (a *Adapter) Update(ctx context.Context, canonicalClass, externalID string, fields map[string]any, baseline time.Time) (overlay.Record, error) {
-	mw, err := mapWrite(canonicalClass, fields)
+	mw, err := mapWrite(canonicalClass, fields, true)
 	if err != nil {
 		return overlay.Record{}, err
 	}
-	// The current incumbent state is both the drift anchor and the record a
-	// read-only-only patch returns unchanged.
-	current, err := a.Get(ctx, mw.ObjectClass, externalID)
-	if err != nil {
-		return overlay.Record{}, err
+	// An activity's engagement class is fixed by its mirror id's "<class>:"
+	// prefix (OVA-MAP-7); a patch that carried a changed/inconsistent kind
+	// would make mapWrite target a different class than the record's identity.
+	// Refuse that mismatch rather than route a write to meetings/calls:123.
+	if canonicalClass == activityTarget {
+		want, err := incumbentClassFor(canonicalClass, externalID)
+		if err != nil {
+			return overlay.Record{}, err
+		}
+		if mw.ObjectClass != want {
+			return overlay.Record{}, fmt.Errorf("overlay: activity %s is a %s; its kind cannot be changed to a %s on update", externalID, want, mw.ObjectClass)
+		}
 	}
 	if len(mw.Props) == 0 {
-		return current, nil
+		// A read-only-only patch writes nothing; return the current record.
+		// No drift check — a no-op cannot lose a concurrent edit.
+		return a.Get(ctx, mw.ObjectClass, externalID)
 	}
-	if current.ModifiedAt.After(baseline) {
-		return overlay.Record{}, apperrors.ErrVersionSkew
+	if err := a.driftCheck(ctx, mw.ObjectClass, externalID, baseline); err != nil {
+		return overlay.Record{}, err
 	}
 	if _, err := a.client.UpdateObject(ctx, mw.ObjectClass, incumbentActivityID(mw.ObjectClass, externalID), mw.Props); err != nil {
 		return overlay.Record{}, err
@@ -83,16 +92,36 @@ func (a *Adapter) Update(ctx context.Context, canonicalClass, externalID string,
 	return a.Get(ctx, mw.ObjectClass, externalID)
 }
 
-// Archive removes a record from HubSpot via its own archive/delete. For an
-// activity the engagement class is recovered from the mirror id's "<class>:"
-// prefix (OVA-MAP-7); for the other object types it is the single incumbent
-// class the canonical type maps to.
-func (a *Adapter) Archive(ctx context.Context, canonicalClass, externalID string) error {
+// Archive removes a record from HubSpot via its own archive/delete, after the
+// SAME stored-baseline drift check Update applies: a stale mirror must not
+// delete a record a third party changed since it was mirrored (AC-OV-4). For
+// an activity the engagement class is recovered from the mirror id's
+// "<class>:" prefix (OVA-MAP-7); for the other object types it is the single
+// incumbent class the canonical type maps to.
+func (a *Adapter) Archive(ctx context.Context, canonicalClass, externalID string, baseline time.Time) error {
 	hsClass, err := incumbentClassFor(canonicalClass, externalID)
 	if err != nil {
 		return err
 	}
+	if err := a.driftCheck(ctx, hsClass, externalID, baseline); err != nil {
+		return err
+	}
 	return a.client.ArchiveObject(ctx, hsClass, incumbentActivityID(hsClass, externalID))
+}
+
+// driftCheck reads the incumbent's current record and refuses (ErrVersionSkew)
+// if it is newer than baseline — the stored-baseline lost-update guard shared
+// by Update and Archive. It is best-effort (non-atomic) per the Incumbent
+// contract: HubSpot v3 has no If-Match primitive.
+func (a *Adapter) driftCheck(ctx context.Context, hsClass, externalID string, baseline time.Time) error {
+	current, err := a.Get(ctx, hsClass, externalID)
+	if err != nil {
+		return err
+	}
+	if current.ModifiedAt.After(baseline) {
+		return apperrors.ErrVersionSkew
+	}
+	return nil
 }
 
 // incumbentClassFor resolves the HubSpot object class a canonical write

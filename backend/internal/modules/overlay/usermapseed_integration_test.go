@@ -67,7 +67,7 @@ func (seedIncumbent) Update(context.Context, string, string, map[string]any, tim
 	return Record{}, fmt.Errorf("seedIncumbent: Update is not fixtured")
 }
 
-func (seedIncumbent) Archive(context.Context, string, string) error {
+func (seedIncumbent) Archive(context.Context, string, string, time.Time) error {
 	return fmt.Errorf("seedIncumbent: Archive is not fixtured")
 }
 

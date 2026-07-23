@@ -8,15 +8,17 @@ package overlay
 // path (design.md §4.5, OVA-MAP-W). Create/Update/Archive project the
 // canonical write onto the incumbent BELOW the seam (the adapter's
 // mapWrite), write incumbent-first, and re-mirror the incumbent's returned
-// state; the drift check (AC-OV-4) lives in the adapter's Update. Merge,
-// PromoteLead, and AdvanceDeal stay unsupported (OVA-MAP-W6 + the missing
-// overlay stage-map) — see each method.
+// state; the drift check (AC-OV-4) lives in the adapter's Update/Archive.
+// Merge, PromoteLead, and AdvanceDeal stay unsupported (OVA-MAP-W6 + the
+// missing overlay stage-map) — see each method.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -25,45 +27,101 @@ import (
 )
 
 // errNoWriteIncumbent is the honest answer a supported write verb gives
-// when the Provider has no incumbent write resolver wired (only the
-// write-verb unit tests reach this) — a clear, actionable configuration
+// when the Provider has no incumbent write resolver wired, or the resolver
+// reports no active incumbent (disconnect/config race) — a clear, actionable
 // error rather than a nil-pointer panic, and NOT ErrUnsupportedBySoR
-// (Create/Update/Archive are supported verbs; the resolver is just absent).
+// (Create/Update/Archive are supported verbs; the incumbent is just absent).
 func errNoWriteIncumbent() error {
 	return fmt.Errorf("overlay: provider has no incumbent write resolver configured")
 }
 
-// writeIncumbent resolves the acting workspace's live incumbent for a
-// write. It never returns nil without an error.
+// writeIncumbent resolves the acting workspace's live incumbent for a write.
+// It never returns a nil Incumbent without an error: resolveOverlayIncumbent
+// legitimately answers (nil, nil) when the active connection is absent or not
+// HubSpot, which must fail closed here rather than nil-panic downstream.
 //
 //nolint:ireturn // resolving the incumbent seam interface IS the purpose — the write path is incumbent-agnostic by design (design.md §4.5)
 func (p *Provider) writeIncumbent(ctx context.Context) (Incumbent, error) {
 	if p.resolveIncumbent == nil {
 		return nil, errNoWriteIncumbent()
 	}
-	return p.resolveIncumbent(ctx)
+	inc, err := p.resolveIncumbent(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if inc == nil {
+		return nil, errNoWriteIncumbent()
+	}
+	return inc, nil
 }
 
-// canonicalFields normalizes the frozen seam's typed write payload
-// (CreateInput.Fields / UpdateInput.Patch — the contract request struct in
-// process, raw agent JSON over MCP) into the canonical field bag the
-// adapter's mapWrite projects onto incumbent properties. The keys are the
-// contract's JSON field names (first_name, amount_minor, kind, …), exactly
-// what mapWrite consumes. An empty payload is an empty bag, not an error —
-// the adapter decides whether a no-writable-field write is a no-op (Update)
-// or an error (Create).
-//
-//craft:ignore naked-any the frozen seam's write payload is declared any (ports/datasource); this normalizes it into the canonical bag
-func canonicalFields(v any) (map[string]any, error) {
+// writeContractTarget returns a fresh pointer to the contract request struct
+// for (entityType, forUpdate) — the type StrictDecode validates the write
+// payload against.
+func writeContractTarget(entityType datasource.EntityType, forUpdate bool) (any, error) {
+	switch entityType {
+	case datasource.EntityPerson:
+		if forUpdate {
+			return &crmcontracts.UpdatePersonRequest{}, nil
+		}
+		return &crmcontracts.CreatePersonRequest{}, nil
+	case datasource.EntityOrganization:
+		if forUpdate {
+			return &crmcontracts.UpdateOrganizationRequest{}, nil
+		}
+		return &crmcontracts.CreateOrganizationRequest{}, nil
+	case datasource.EntityDeal:
+		if forUpdate {
+			return &crmcontracts.UpdateDealRequest{}, nil
+		}
+		return &crmcontracts.CreateDealRequest{}, nil
+	case datasource.EntityLead:
+		if forUpdate {
+			return &crmcontracts.UpdateLeadRequest{}, nil
+		}
+		return &crmcontracts.CreateLeadRequest{}, nil
+	case datasource.EntityActivity:
+		if forUpdate {
+			return &crmcontracts.UpdateActivityRequest{}, nil
+		}
+		return &crmcontracts.CreateActivityRequest{}, nil
+	default:
+		return nil, &datasource.UnsupportedEntityError{Type: string(entityType)}
+	}
+}
+
+// decodeCanonical validates the frozen seam's typed write payload against the
+// entity's contract request struct and normalizes it into the canonical field
+// bag mapWrite consumes. StrictDecode rejects an unknown/misspelled field and
+// a wrong-typed value with an actionable 422 (the same guard the native
+// providers apply), rather than letting a typo silently no-op. The validated
+// struct is then re-marshalled and decoded with UseNumber, so a large
+// amount_minor survives as an exact integer instead of a lossy float64
+// round-trip. The result is always a non-nil map (a JSON-null patch decodes
+// to an empty struct → {}), so callers can inject fields without a nil-map
+// panic.
+func decodeCanonical(entityType datasource.EntityType, forUpdate bool, v any) (map[string]any, error) {
 	raw, err := datasource.RawFields(v)
 	if err != nil {
 		return nil, err
 	}
-	fields := map[string]any{}
-	if len(raw) == 0 {
-		return fields, nil
+	target, err := writeContractTarget(entityType, forUpdate)
+	if err != nil {
+		return nil, err
 	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	if len(raw) > 0 {
+		if err := datasource.StrictDecode(raw, target); err != nil {
+			return nil, err
+		}
+	}
+	reencoded, err := json.Marshal(target)
+	if err != nil {
+		return nil, fmt.Errorf("overlay: re-encoding validated write payload: %w", err)
+	}
+	dec := json.NewDecoder(bytes.NewReader(reencoded))
+	dec.UseNumber()
+	fields := map[string]any{}
+	if err := dec.Decode(&fields); err != nil {
 		return nil, fmt.Errorf("overlay: decoding write fields: %w", err)
 	}
 	return fields, nil
@@ -91,17 +149,14 @@ func (p *Provider) Create(ctx context.Context, in datasource.CreateInput) (datas
 	if err := auth.Require(ctx, string(in.EntityType), principal.ActionCreate); err != nil {
 		return datasource.EntityRef{}, err
 	}
+	if p.ms == nil {
+		return datasource.EntityRef{}, errNoMirrorStore()
+	}
 	inc, err := p.writeIncumbent(ctx)
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
-	// Assert the mirror store up front — like Update/Archive — so a mis-wired
-	// provider fails BEFORE POSTing to the incumbent, never leaving an
-	// orphaned incumbent record that was never mirrored.
-	if p.ms == nil {
-		return datasource.EntityRef{}, errNoMirrorStore()
-	}
-	fields, err := canonicalFields(in.Fields)
+	fields, err := decodeCanonical(in.EntityType, false, in.Fields)
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
@@ -109,7 +164,7 @@ func (p *Provider) Create(ctx context.Context, in datasource.CreateInput) (datas
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
-	if err := p.mirrorWriteResult(ctx, rec); err != nil {
+	if err := p.mirrorWriteResult(ctx, inc, rec); err != nil {
 		return datasource.EntityRef{}, err
 	}
 	id, err := externalIDToUUID(rec.ExternalID)
@@ -128,18 +183,17 @@ func (p *Provider) Create(ctx context.Context, in datasource.CreateInput) (datas
 // Overlay's optimistic concurrency IS this incumbent stored-baseline drift
 // check, not a mirror row version: an overlay read carries no integer
 // Version (recordFromRow), so in.IfVersion has nothing to compare against
-// here and the incumbent's own record clock is the authority (design.md
-// §4.5).
+// here and the incumbent's own record clock is the authority (design.md §4.5).
 func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datasource.EntityRef, error) {
 	if err := auth.Require(ctx, string(in.Ref.Type), principal.ActionUpdate); err != nil {
 		return datasource.EntityRef{}, err
 	}
+	if p.ms == nil {
+		return datasource.EntityRef{}, errNoMirrorStore()
+	}
 	inc, err := p.writeIncumbent(ctx)
 	if err != nil {
 		return datasource.EntityRef{}, err
-	}
-	if p.ms == nil {
-		return datasource.EntityRef{}, errNoMirrorStore()
 	}
 	externalID := uuidToExternalID(in.Ref.ID)
 	// The mirror row supplies both the row-scope visibility gate (Get is
@@ -149,70 +203,114 @@ func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datas
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
-	fields, err := canonicalFields(in.Patch)
+	fields, err := decodeCanonical(in.Ref.Type, true, in.Patch)
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
-	// An activity patch selects its incumbent engagement class by kind
-	// (OVA-MAP-W3); a partial patch may omit it, so carry the mirror row's
-	// kind forward — it is consistent with the namespaced external_id by
-	// construction (the read mapping set both from the source class).
-	if in.Ref.Type == datasource.EntityActivity {
+	if err := p.completeWritePatch(in.Ref.Type, fields, row); err != nil {
+		return datasource.EntityRef{}, err
+	}
+	rec, err := inc.Update(ctx, string(in.Ref.Type), externalID, fields, row.UpdatedAtBaseline)
+	if err != nil {
+		return datasource.EntityRef{}, err
+	}
+	if err := p.mirrorWriteResult(ctx, inc, rec); err != nil {
+		return datasource.EntityRef{}, err
+	}
+	return in.Ref, nil
+}
+
+// completeWritePatch fills in the cross-field context a partial patch needs to
+// project correctly:
+//   - Deal money is a PAIR — amount_minor scales to the incumbent's decimal
+//     `amount` only under its currency's exponent. A patch that carries one
+//     without the other is rejected rather than silently dropping the money
+//     change or reinterpreting the stored amount under a new exponent
+//     (both present, or neither).
+//   - An activity's kind is immutable and never in the patch (UpdateActivity
+//     has no kind field), so mapWriteActivity's class selector is carried
+//     forward from the mirror row — consistent with the namespaced external_id
+//     by construction (the read mapping set both from the source class).
+func (p *Provider) completeWritePatch(t datasource.EntityType, fields map[string]any, row Row) error {
+	switch t {
+	case datasource.EntityDeal:
+		_, hasAmount := fields["amount_minor"]
+		_, hasCurrency := fields["currency"]
+		if hasAmount != hasCurrency {
+			return fmt.Errorf("%w: a deal amount change must set amount_minor and currency together (the currency's exponent scales the amount)", apperrors.ErrConflict)
+		}
+	case datasource.EntityActivity:
 		if _, ok := fields["kind"]; !ok {
 			if kind, ok := row.Fields["kind"]; ok {
 				fields["kind"] = kind
 			}
 		}
 	}
-	rec, err := inc.Update(ctx, string(in.Ref.Type), externalID, fields, row.UpdatedAtBaseline)
-	if err != nil {
-		return datasource.EntityRef{}, err
-	}
-	if err := p.mirrorWriteResult(ctx, rec); err != nil {
-		return datasource.EntityRef{}, err
-	}
-	return in.Ref, nil
+	return nil
 }
 
-// Archive removes a record from the incumbent (its own archive/delete) and
-// purges the mirror row so it stops being readable, rather than lingering
-// visible until the next sync.
+// archivableTypes are the entity types overlay Archive supports — the same
+// set the native provider archives (person/organization/deal). A lead is
+// retired through its own lifecycle verbs, and an activity is not archivable
+// through this seam; both are refused before any incumbent call, matching the
+// frozen contract rather than issuing a destructive write the native path
+// would reject.
+var archivableTypes = map[datasource.EntityType]bool{
+	datasource.EntityPerson:       true,
+	datasource.EntityOrganization: true,
+	datasource.EntityDeal:         true,
+}
+
+// Archive removes a record from the incumbent (its own archive/delete) after
+// the stored-baseline drift check, then purges the mirror row so it stops
+// being readable rather than lingering visible until the next sync.
 func (p *Provider) Archive(ctx context.Context, r datasource.EntityRef) (datasource.EntityRef, error) {
-	if err := auth.Require(ctx, string(r.Type), principal.ActionDelete); err != nil {
-		return datasource.EntityRef{}, err
+	if !archivableTypes[r.Type] {
+		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(r.Type)}
 	}
-	inc, err := p.writeIncumbent(ctx)
-	if err != nil {
+	if err := auth.Require(ctx, string(r.Type), principal.ActionDelete); err != nil {
 		return datasource.EntityRef{}, err
 	}
 	if p.ms == nil {
 		return datasource.EntityRef{}, errNoMirrorStore()
 	}
+	inc, err := p.writeIncumbent(ctx)
+	if err != nil {
+		return datasource.EntityRef{}, err
+	}
 	externalID := uuidToExternalID(r.ID)
-	// Row-scope gate before the destructive incumbent call: a record the
-	// actor cannot see is ErrNotFound, never archived on their behalf.
-	if _, err := p.ms.Get(ctx, string(r.Type), externalID); err != nil {
+	// Row-scope gate + drift baseline: a record the actor cannot see is
+	// ErrNotFound, never archived on their behalf.
+	row, err := p.ms.Get(ctx, string(r.Type), externalID)
+	if err != nil {
 		return datasource.EntityRef{}, err
 	}
-	if err := inc.Archive(ctx, string(r.Type), externalID); err != nil {
+	if err := inc.Archive(ctx, string(r.Type), externalID, row.UpdatedAtBaseline); err != nil {
 		return datasource.EntityRef{}, err
 	}
-	if _, err := p.ms.PurgeRecord(ctx, Deletion{ObjectClass: string(r.Type), ExternalID: externalID}); err != nil {
+	// Purge through the disconnect fence so a teardown racing the archive
+	// cannot leave the row readable, matching the sync path.
+	if _, err := p.ms.WithFence().PurgeRecord(ctx, Deletion{ObjectClass: string(r.Type), ExternalID: externalID}); err != nil {
 		return datasource.EntityRef{}, err
 	}
 	return r, nil
 }
 
-// mirrorWriteResult ingests the incumbent's post-write state into the
-// mirror so a follow-up read sees the write without waiting for the sync
-// poller. Ingest's staleness guard admits it (the write bumped the
-// incumbent's baseline past the mirror's), and the mirror stays
-// non-authoritative (T2) — the incumbent remains the system of record.
-func (p *Provider) mirrorWriteResult(ctx context.Context, rec Record) error {
+// mirrorWriteResult ingests the incumbent's post-write state into the mirror
+// so a follow-up read sees the write without waiting for the sync poller.
+// It binds the store to the LIVE incumbent (WithResolver) so Ingest's owner
+// re-validation resolves against the real adapter — not the read-path
+// placeholder that always fails — and engages the disconnect fence
+// (WithFence) so a write landing after a Disconnect cannot repopulate the
+// purged mirror (it aborts with ErrConnectionGone). Ingest's staleness guard
+// admits the row (the write bumped the incumbent's baseline past the
+// mirror's), and the mirror stays non-authoritative (T2) — the incumbent
+// remains the system of record.
+func (p *Provider) mirrorWriteResult(ctx context.Context, inc Incumbent, rec Record) error {
 	if p.ms == nil {
 		return errNoMirrorStore()
 	}
-	return p.ms.Ingest(ctx, rec)
+	return p.ms.WithResolver(inc).WithFence().Ingest(ctx, rec)
 }
 
 // AdvanceDeal is unsupported in overlay V1: advancing an overlay deal

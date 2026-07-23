@@ -94,8 +94,10 @@ func testWorkspaceCtx(t *testing.T) (context.Context, *pgxpool.Pool, ids.UUID) {
 		Permissions: principal.Permissions{
 			RoleKeys: []string{"admin"},
 			// admin's identity/internal/policy default: full CRUD on
-			// overlay_connection plus Read on the mirrored entities —
-			// hand-built here (see overlayAdminObjectGrants) the same way
+			// overlay_connection AND on the mirrored entities (the entity
+			// write grants are what let the write-back verb tests exercise
+			// Create/Update/Archive) — hand-built here (see
+			// overlayAdminObjectGrants) the same way
 			// internal/modules/consent/dsr_integration_test.go's setupDSR
 			// declares its own object's grant, since this fixture builds a
 			// Principal directly rather than running it through policy.Merge.

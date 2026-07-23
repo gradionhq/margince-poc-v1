@@ -260,17 +260,25 @@ func (a *Adapter) Owners(_ context.Context) ([]overlay.OwnerRef, error) {
 }
 
 // Create appends a new record of canonicalClass from the field bag, stamping
-// a deterministic id and modified-at, and returns it — the write seam's
-// canonical-in/canonical-out contract. Records are keyed by canonical class
-// here (not the incumbent bucket the read feeds page by), matching the seam:
-// a real adapter maps the write back through mapRecord before it reaches the
-// mirror, so canonical is what a write returns.
+// a collision-free id and a strictly-increasing modified-at, and returns it —
+// the write seam's canonical-in/canonical-out contract. An empty field bag is
+// rejected, matching the real Incumbent.Create contract (a create must carry
+// something writable), so a fake-backed test can never pass on a write the
+// production adapter would reject.
+//
+// Records are keyed by CANONICAL class here (not the incumbent bucket the read
+// feed pages by): the fake cannot know the incumbent class mapping (that lives
+// in the hubspot adapter, which package fake cannot import), so its write
+// methods are canonical-keyed. Write-back integration that needs the incumbent
+// bucketing uses a purpose-built double instead of this fake.
 //
 //craft:ignore naked-any fields is the canonical field bag the seam carries; the any is inherent to the decoded shape
 func (a *Adapter) Create(_ context.Context, canonicalClass string, fields map[string]any) (overlay.Record, error) {
-	a.writeSeq++
+	if len(fields) == 0 {
+		return overlay.Record{}, fmt.Errorf("fake: cannot create a %s with no fields", canonicalClass)
+	}
 	rec := overlay.Record{
-		ExternalID:  fmt.Sprint(a.writeSeq),
+		ExternalID:  a.nextWriteID(),
 		ObjectClass: canonicalClass,
 		Fields:      fields,
 		ModifiedAt:  writeEpoch.Add(time.Duration(a.writeSeq) * time.Second),
@@ -279,10 +287,30 @@ func (a *Adapter) Create(_ context.Context, canonicalClass string, fields map[st
 	return rec, nil
 }
 
+// nextWriteID advances writeSeq to an id no existing record (seeded or
+// written, in any bucket) already uses, so a Create can never collide with a
+// seeded id and be mistaken for the existing row.
+func (a *Adapter) nextWriteID() string {
+	used := make(map[string]bool)
+	for _, recs := range a.records {
+		for _, r := range recs {
+			used[r.ExternalID] = true
+		}
+	}
+	for {
+		a.writeSeq++
+		if id := fmt.Sprint(a.writeSeq); !used[id] {
+			return id
+		}
+	}
+}
+
 // Update applies the drift check (ModifiedAt vs baseline — incumbent-wins,
-// AC-OV-4), then merges the patch fields onto the stored record and re-stamps
-// its modified-at. A patch of an unknown record is an error; a caller passing
-// no fields gets the record unchanged.
+// AC-OV-4), then merges the patch fields onto the stored record and advances
+// its modified-at PAST both the sequence epoch and the record's current stamp
+// (so a re-mirror is never rejected by the mirror's staleness guard for moving
+// the baseline backward). A patch of an unknown record is an error; a caller
+// passing no fields gets the record unchanged.
 //
 //craft:ignore naked-any fields is the canonical patch bag the seam carries; the any is inherent to the decoded shape
 func (a *Adapter) Update(_ context.Context, canonicalClass, externalID string, fields map[string]any, baseline time.Time) (overlay.Record, error) {
@@ -305,19 +333,28 @@ func (a *Adapter) Update(_ context.Context, canonicalClass, externalID string, f
 			merged[k] = v
 		}
 		a.writeSeq++
+		next := writeEpoch.Add(time.Duration(a.writeSeq) * time.Second)
+		if !next.After(recs[i].ModifiedAt) {
+			next = recs[i].ModifiedAt.Add(time.Nanosecond)
+		}
 		recs[i].Fields = merged
-		recs[i].ModifiedAt = writeEpoch.Add(time.Duration(a.writeSeq) * time.Second)
+		recs[i].ModifiedAt = next
 		return recs[i], nil
 	}
 	return overlay.Record{}, fmt.Errorf("fake: no %s record with external id %s to update", canonicalClass, externalID)
 }
 
-// Archive removes canonicalClass's record for externalID; an unknown record
-// is an error rather than a silent no-op.
-func (a *Adapter) Archive(_ context.Context, canonicalClass, externalID string) error {
+// Archive removes canonicalClass's record for externalID after the same
+// baseline drift check the real seam applies (incumbent-wins): a record newer
+// than baseline is not deleted (ErrVersionSkew). An unknown record is an error
+// rather than a silent no-op.
+func (a *Adapter) Archive(_ context.Context, canonicalClass, externalID string, baseline time.Time) error {
 	recs := a.records[canonicalClass]
 	for i := range recs {
 		if recs[i].ExternalID == externalID {
+			if recs[i].ModifiedAt.After(baseline) {
+				return apperrors.ErrVersionSkew
+			}
 			a.records[canonicalClass] = append(recs[:i], recs[i+1:]...)
 			return nil
 		}

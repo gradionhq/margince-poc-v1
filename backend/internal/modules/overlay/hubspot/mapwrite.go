@@ -4,6 +4,7 @@
 package hubspot
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -27,10 +28,11 @@ import (
 // writeMapping is one canonical→HubSpot write projection: the incumbent
 // object class the write targets and the HubSpot properties to set. Props
 // carries only WRITABLE properties — a canonical field flagged read-only by
-// OVA-MAP-W (full_name, occurred_at, lead email/company_name, deal
-// pipeline_id/stage_id, org size_band) never appears. An empty Props means
-// the write touched only read-only fields: a no-op the Provider surfaces to
-// the caller, never a POST/PATCH of a guessed value.
+// OVA-MAP-W (full_name, occurred_at, lead email/company_name/status, deal
+// pipeline_id/stage_id, org size_band, activity meeting_status) never
+// appears. An empty Props on a CREATE means the write touched only read-only
+// fields (the caller is told); on an UPDATE it means the patch changed
+// nothing writable.
 type writeMapping struct {
 	ObjectClass string
 	Props       map[string]string
@@ -38,23 +40,28 @@ type writeMapping struct {
 
 // mapWrite projects a canonical write (the entity type + the canonical field
 // bag, the JSON-decoded contract the frozen datasource seam carries) onto the
-// HubSpot object class and property set per OVA-MAP-W1..6. It is the inverse
-// of mapRecord and pure: no I/O, no transport — the golden write-mapping suite
-// (AC-OV-12) exercises it directly.
+// HubSpot object class and property set per OVA-MAP-W1..6. forUpdate selects
+// clear-semantics: on an update an explicit "" clears the incumbent property
+// (HubSpot's documented clear), while on a create an empty value is simply
+// nothing to set. It is pure: no I/O, no transport — the golden write-mapping
+// suite (AC-OV-12) exercises it directly.
 //
 //craft:ignore naked-any fields is the JSON-decoded canonical bag from the frozen datasource seam; the any is inherent to the decoded shape
-func mapWrite(canonicalClass string, fields map[string]any) (writeMapping, error) {
+func mapWrite(canonicalClass string, fields map[string]any, forUpdate bool) (writeMapping, error) {
 	switch canonicalClass {
 	case "person":
-		return writeMapping{ObjectClass: objectClassContacts, Props: copyDirect(fields, personWriteFields)}, nil
+		props, err := copyDirect(fields, personWriteFields, forUpdate)
+		return writeMapping{ObjectClass: objectClassContacts, Props: props}, err
 	case "organization":
-		return writeMapping{ObjectClass: objectClassCompanies, Props: copyDirect(fields, organizationWriteFields)}, nil
+		props, err := copyDirect(fields, organizationWriteFields, forUpdate)
+		return writeMapping{ObjectClass: objectClassCompanies, Props: props}, err
 	case "lead":
-		return writeMapping{ObjectClass: objectClassLeads, Props: copyDirect(fields, leadWriteFields)}, nil
+		props, err := copyDirect(fields, leadWriteFields, forUpdate)
+		return writeMapping{ObjectClass: objectClassLeads, Props: props}, err
 	case "deal":
-		return mapWriteDeal(fields)
+		return mapWriteDeal(fields, forUpdate)
 	case activityTarget:
-		return mapWriteActivity(fields)
+		return mapWriteActivity(fields, forUpdate)
 	default:
 		return writeMapping{}, fmt.Errorf("overlay: no HubSpot write mapping for canonical class %q", canonicalClass)
 	}
@@ -111,20 +118,61 @@ var leadWriteFields = []directWriteField{
 	{Canonical: targetFullName, HSProp: "hs_lead_name"},
 }
 
-// copyDirect projects the direct 1:1 fields present in the canonical bag onto
-// their HubSpot property names. A canonical field that is absent, JSON-null,
-// or empty-string is not written (nothing to set); a field not in the table is
-// read-only and silently skipped (its read-only-ness is the point).
+// stringProp reads a canonical STRING field's writable value. present reports
+// whether the key is present with a non-null value (an explicit "" is present
+// — the clear-field signal on updates). A present non-string value is a type
+// error, matching the native provider's StrictDecode 422 rather than
+// coercing a number/bool into a HubSpot string property.
 //
 //craft:ignore naked-any fields is the JSON-decoded canonical bag; the any is inherent to the decoded shape
-func copyDirect(fields map[string]any, table []directWriteField) map[string]string {
+func stringProp(fields map[string]any, key string) (val string, present bool, err error) {
+	raw, ok := fields[key]
+	if !ok || raw == nil {
+		return "", false, nil
+	}
+	s, isStr := raw.(string)
+	if !isStr {
+		return "", true, fmt.Errorf("overlay: field %q must be a string, got %T", key, raw)
+	}
+	return s, true, nil
+}
+
+// putString sets props[hsProp] from the canonical string field, honoring the
+// create/update clear-field rule: an explicit "" clears on update (sent) and
+// is skipped on create (nothing to set). Returns an error on a type violation.
+//
+//craft:ignore naked-any fields is the JSON-decoded canonical bag; the any is inherent to the decoded shape
+func putString(props map[string]string, fields map[string]any, canonical, hsProp string, forUpdate bool) error {
+	// An empty hsProp means the object class has no such writable property
+	// (e.g. a note has no subject) — the canonical field is read-only for this
+	// class and skipped, even though it is a valid contract field.
+	if hsProp == "" {
+		return nil
+	}
+	val, present, err := stringProp(fields, canonical)
+	if err != nil {
+		return err
+	}
+	if !present || (val == "" && !forUpdate) {
+		return nil
+	}
+	props[hsProp] = val
+	return nil
+}
+
+// copyDirect projects the direct 1:1 fields onto their HubSpot property names.
+// A canonical field that is absent or JSON-null is not written; an explicit
+// "" clears on update; a field not in the table is read-only and skipped.
+//
+//craft:ignore naked-any fields is the JSON-decoded canonical bag; the any is inherent to the decoded shape
+func copyDirect(fields map[string]any, table []directWriteField, forUpdate bool) (map[string]string, error) {
 	props := make(map[string]string)
 	for _, f := range table {
-		if s, ok := writableString(fields[f.Canonical]); ok {
-			props[f.HSProp] = s
+		if err := putString(props, fields, f.Canonical, f.HSProp, forUpdate); err != nil {
+			return nil, err
 		}
 	}
-	return props
+	return props, nil
 }
 
 // mapWriteDeal — OVA-MAP-W2. name/expected_close_date project directly;
@@ -133,18 +181,27 @@ func copyDirect(fields map[string]any, table []directWriteField) map[string]stri
 // currency sets deal_currency_code. pipeline_id/stage_id are read-only in
 // overlay (null per OVA-MAP-6/W4) and never written.
 //
+// amount and currency are a PAIR: a caller must supply currency to write
+// amount (the exponent chooses the decimal point), so the write-back engine
+// combines a partial deal patch with the mirror's current amount_minor/
+// currency BEFORE calling mapWrite (Provider.Update) — here, an amount_minor
+// with no currency writes no amount rather than guess an exponent.
+//
 //craft:ignore naked-any fields is the JSON-decoded canonical bag; the any is inherent to the decoded shape
-func mapWriteDeal(fields map[string]any) (writeMapping, error) {
-	props := copyDirect(fields, dealWriteFields)
+func mapWriteDeal(fields map[string]any, forUpdate bool) (writeMapping, error) {
+	props, err := copyDirect(fields, dealWriteFields, forUpdate)
+	if err != nil {
+		return writeMapping{}, err
+	}
 	currency := strings.ToUpper(strings.TrimSpace(stringField(fields, "currency")))
 	if currency != "" {
 		props["deal_currency_code"] = currency
 	}
-	// amount_minor + currency → decimal amount string. A null/absent
-	// amount_minor, or no currency to choose an exponent, writes no amount
-	// (never a guessed zero) — the inverse of transformAmountMinorByCurrency's
-	// null-not-guess rule.
-	if minor, ok := numericField(fields, "amount_minor"); ok && currency != "" {
+	minor, ok, err := numericField(fields, "amount_minor")
+	if err != nil {
+		return writeMapping{}, err
+	}
+	if ok && currency != "" {
 		props["amount"] = minorToDecimalString(minor, overlay.ISO4217MinorUnitExponent(currency))
 	}
 	return writeMapping{ObjectClass: objectClassDeals, Props: props}, nil
@@ -157,17 +214,16 @@ var dealWriteFields = []directWriteField{
 
 // mapWriteActivity — OVA-MAP-W3. kind selects the v3 engagement object class
 // the write targets (the inverse of OVA-MAP-1's class→kind); each class has
-// its own subject/body/direction property names (mirroring the five read
-// mappings). duration_seconds → hs_call_duration ×1000 (ms, call only); a
-// task's due_at → hs_timestamp (task only). occurred_at is NOT written for any
-// class: for a task the read sources it from hs_createdate (a genuine creation
-// stamp, OVA-MAP-8), and for calls/emails/meetings write-back of the
-// occurrence timestamp is a V1 deferral rather than risk moving an event's
-// time on the incumbent from a partial patch — a tracked follow-up, not a
-// nature-of-the-field claim.
+// its own subject/body/direction property names. duration_seconds →
+// hs_call_duration ×1000 (ms, call only); a task's due_at → hs_timestamp
+// (task only). occurred_at is read-only (OVA-MAP-8) and never written.
+// meeting_status is read-only: HubSpot's hs_meeting_outcome is a pinned
+// enum vocabulary, not the canonical status string, so — like lead status —
+// it awaits a documented bidirectional value map rather than sending a raw
+// canonical token.
 //
 //craft:ignore naked-any fields is the JSON-decoded canonical bag; the any is inherent to the decoded shape
-func mapWriteActivity(fields map[string]any) (writeMapping, error) {
+func mapWriteActivity(fields map[string]any, forUpdate bool) (writeMapping, error) {
 	kind := strings.TrimSpace(stringField(fields, "kind"))
 	if kind == "" {
 		return writeMapping{}, fmt.Errorf("overlay: an activity write carries no kind — cannot choose a HubSpot engagement object class")
@@ -177,110 +233,79 @@ func mapWriteActivity(fields map[string]any) (writeMapping, error) {
 		return writeMapping{}, fmt.Errorf("overlay: activity kind %q has no HubSpot engagement object class", kind)
 	}
 	props := make(map[string]string)
-	// The class's writable string props (subject/body/direction/
-	// meeting_status vary per class) project directly; a canonical field the
-	// class does not carry simply has no spec entry.
-	for canonical, hsProp := range spec.stringProps {
-		if s, ok := writableString(fields[canonical]); ok {
-			props[hsProp] = s
+	if err := putString(props, fields, targetSubject, spec.subjectProp, forUpdate); err != nil {
+		return writeMapping{}, err
+	}
+	if err := putString(props, fields, targetBody, spec.bodyProp, forUpdate); err != nil {
+		return writeMapping{}, err
+	}
+	if err := applyActivitySpecials(props, fields, spec, forUpdate); err != nil {
+		return writeMapping{}, err
+	}
+	return writeMapping{ObjectClass: spec.objectClass, Props: props}, nil
+}
+
+// applyActivitySpecials projects the per-class activity fields that are not a
+// plain string copy: direction (uppercased to HubSpot's pinned INBOUND/
+// OUTBOUND enum, the inverse of the lowercase canonical token), duration
+// (seconds → milliseconds), and a task's due_at (RFC3339 → epoch millis). A
+// class that does not carry a field has an empty/false spec entry and is
+// skipped.
+//
+//craft:ignore naked-any fields is the JSON-decoded canonical bag; the any is inherent to the decoded shape
+func applyActivitySpecials(props map[string]string, fields map[string]any, spec activityWriteSpec, forUpdate bool) error {
+	if spec.directionProp != "" {
+		val, present, err := stringProp(fields, targetDirection)
+		if err != nil {
+			return err
+		}
+		if present && (val != "" || forUpdate) {
+			props[spec.directionProp] = strings.ToUpper(val)
 		}
 	}
-	// duration_seconds → hs_call_duration ×1000 (call only).
 	if spec.hasDuration {
-		if secs, ok := numericField(fields, "duration_seconds"); ok {
+		secs, ok, err := numericField(fields, "duration_seconds")
+		if err != nil {
+			return err
+		}
+		if ok {
 			props["hs_call_duration"] = strconv.FormatInt(secs*1000, 10)
 		}
 	}
-	// due_at → hs_timestamp as epoch millis (task only). occurred_at is never
-	// written for any class.
 	if spec.hasDueAt {
 		ms, ok, err := rfc3339ToMillis(fields["due_at"])
 		if err != nil {
-			return writeMapping{}, err
+			return err
 		}
 		if ok {
 			props[propHSTimestamp] = ms
 		}
 	}
-	return writeMapping{ObjectClass: spec.objectClass, Props: props}, nil
+	return nil
 }
 
 // activityWriteSpec is one engagement class's write projection — the inverse
-// of the class's read ObjectMapping. stringProps maps each writable
-// canonical activity field to this class's HubSpot property; the two
-// booleans carry the special-cased duration (×1000) and due_at (epoch
-// millis) projections that are not plain string copies.
+// of the class's read ObjectMapping. An empty property name means the class
+// does not carry that field. meeting_status is deliberately absent (deferred,
+// see mapWriteActivity).
 type activityWriteSpec struct {
-	objectClass string
-	stringProps map[string]string
-	hasDuration bool
-	hasDueAt    bool
+	objectClass   string
+	subjectProp   string
+	bodyProp      string
+	directionProp string
+	hasDuration   bool
+	hasDueAt      bool
 }
 
 // activityWriteSpecs maps each canonical activity kind to its engagement
 // class's write projection, matching the read property names in
 // mapping_hs.go (calls/meetings/emails/notes/tasks).
 var activityWriteSpecs = map[string]activityWriteSpec{
-	kindCall:    {objectClass: objectClassCalls, stringProps: map[string]string{targetSubject: "hs_call_title", targetBody: "hs_call_body", targetDirection: "hs_call_direction"}, hasDuration: true},
-	kindMeeting: {objectClass: objectClassMeetings, stringProps: map[string]string{targetSubject: "hs_meeting_title", targetBody: "hs_meeting_body", "meeting_status": "hs_meeting_outcome"}},
-	kindEmail:   {objectClass: objectClassEmails, stringProps: map[string]string{targetSubject: "hs_email_subject", targetBody: "hs_email_text", targetDirection: "hs_email_direction"}},
-	kindNote:    {objectClass: objectClassNotes, stringProps: map[string]string{targetBody: "hs_note_body"}},
-	kindTask:    {objectClass: objectClassTasks, stringProps: map[string]string{targetSubject: "hs_task_subject", targetBody: "hs_task_body"}, hasDueAt: true},
-}
-
-// writableString reports a canonical field's string form when it carries a
-// non-empty writable value. An absent, JSON-null, or empty-string value is
-// "nothing to write" (ok=false), so it is never PATCHed. A numeric value is
-// rendered without a trailing ".0" so an integer stays an integer on the wire.
-//
-//craft:ignore naked-any v is a JSON-decoded canonical value; the any is inherent to the decoded shape
-func writableString(v any) (string, bool) {
-	switch t := v.(type) {
-	case nil:
-		return "", false
-	case string:
-		if strings.TrimSpace(t) == "" {
-			return "", false
-		}
-		return t, true
-	case float64:
-		return strconv.FormatFloat(t, 'f', -1, 64), true
-	case bool:
-		return strconv.FormatBool(t), true
-	default:
-		return "", false
-	}
-}
-
-// numericField reads an integer-valued canonical field. The canonical bag is
-// always JSON-decoded (canonicalFields → json.Unmarshal), so a number arrives
-// as float64; a null/absent/non-numeric value is ok=false.
-//
-//craft:ignore naked-any v is a JSON-decoded canonical value; the any is inherent to the decoded shape
-func numericField(fields map[string]any, key string) (int64, bool) {
-	f, ok := fields[key].(float64)
-	if !ok {
-		return 0, false
-	}
-	return int64(f), true
-}
-
-// rfc3339ToMillis parses a canonical RFC3339 timestamp (how a contract
-// time.Time marshals to JSON) into a HubSpot epoch-millis property string. A
-// null/absent value is (._, false, nil) — nothing to write. A present but
-// unparseable value is an error, never a silently dropped timestamp.
-//
-//craft:ignore naked-any v is a JSON-decoded canonical value; the any is inherent to the decoded shape
-func rfc3339ToMillis(v any) (string, bool, error) {
-	s, ok := v.(string)
-	if !ok || strings.TrimSpace(s) == "" {
-		return "", false, nil
-	}
-	ts, err := time.Parse(time.RFC3339, s)
-	if err != nil {
-		return "", false, fmt.Errorf("overlay: write timestamp %q is not RFC3339: %w", s, err)
-	}
-	return strconv.FormatInt(ts.UnixMilli(), 10), true, nil
+	kindCall:    {objectClass: objectClassCalls, subjectProp: "hs_call_title", bodyProp: "hs_call_body", directionProp: "hs_call_direction", hasDuration: true},
+	kindMeeting: {objectClass: objectClassMeetings, subjectProp: "hs_meeting_title", bodyProp: "hs_meeting_body"},
+	kindEmail:   {objectClass: objectClassEmails, subjectProp: "hs_email_subject", bodyProp: "hs_email_text", directionProp: "hs_email_direction"},
+	kindNote:    {objectClass: objectClassNotes, bodyProp: "hs_note_body"},
+	kindTask:    {objectClass: objectClassTasks, subjectProp: "hs_task_subject", bodyProp: "hs_task_body", hasDueAt: true},
 }
 
 // stringField reads a string-valued canonical property, answering "" for an
@@ -296,28 +321,81 @@ func stringField(fields map[string]any, key string) string {
 	return ""
 }
 
+// numericField reads an integer-valued canonical field WITHOUT the precision
+// loss of a float64 round-trip: the write path decodes the bag with
+// json.Decoder.UseNumber (canonicalFields), so a number arrives as a
+// json.Number and is parsed as a strict, range-checked int64. A plain float64
+// (the unit tests that build the bag directly) is accepted only when it is an
+// exact integer in int64 range — a fractional or out-of-range value is a type
+// error, never a silent truncation. A null/absent value is ok=false, nil error.
+//
+//craft:ignore naked-any v is the JSON-decoded canonical value; the any is inherent to the decoded shape
+func numericField(fields map[string]any, key string) (int64, bool, error) {
+	switch t := fields[key].(type) {
+	case nil:
+		return 0, false, nil
+	case json.Number:
+		n, err := t.Int64()
+		if err != nil {
+			return 0, true, fmt.Errorf("overlay: field %q is not an int64: %w", key, err)
+		}
+		return n, true, nil
+	case int64:
+		return t, true, nil
+	case int:
+		return int64(t), true, nil
+	case float64:
+		if t != float64(int64(t)) {
+			return 0, true, fmt.Errorf("overlay: field %q must be an integer, got %v", key, t)
+		}
+		return int64(t), true, nil
+	default:
+		return 0, true, fmt.Errorf("overlay: field %q must be a number, got %T", key, fields[key])
+	}
+}
+
+// rfc3339ToMillis parses a canonical RFC3339 timestamp (how a contract
+// time.Time marshals to JSON) into a HubSpot epoch-millis property string. A
+// null/absent value is ("", false, nil) — nothing to write. A present but
+// unparseable value is an error, never a silently dropped timestamp.
+//
+//craft:ignore naked-any v is a JSON-decoded canonical value; the any is inherent to the decoded shape
+func rfc3339ToMillis(v any) (string, bool, error) {
+	s, ok := v.(string)
+	if !ok || strings.TrimSpace(s) == "" {
+		return "", false, nil
+	}
+	ts, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return "", false, fmt.Errorf("overlay: write timestamp %q is not RFC3339: %w", s, err)
+	}
+	return strconv.FormatInt(ts.UnixMilli(), 10), true, nil
+}
+
 // minorToDecimalString is the inverse of decimalStringToMinor: it renders an
 // integer minor-unit amount back to the currency-decimal string HubSpot's
 // `amount` property expects, placing the decimal point by the ISO-4217
 // minor-unit exponent (exponent 0 → no point; 2 → "10.00"; 3 → "1.500"), never
 // a blanket ÷100.
 func minorToDecimalString(minor int64, exponent int) string {
-	if exponent <= 0 {
-		return strconv.FormatInt(minor, 10)
-	}
-	neg := minor < 0
+	// FormatInt renders the full magnitude of any int64 — including
+	// math.MinInt64, whose positive is not int64-representable — so the decimal
+	// point is inserted into the digit string with no int64→uint64 conversion
+	// to reason about.
+	s := strconv.FormatInt(minor, 10)
+	neg := strings.HasPrefix(s, "-")
 	if neg {
-		minor = -minor
+		s = s[1:]
 	}
-	digits := strconv.FormatInt(minor, 10)
-	// Left-pad so there are at least exponent+1 digits (a leading integer part).
-	for len(digits) <= exponent {
-		digits = "0" + digits
+	if exponent > 0 {
+		for len(s) <= exponent {
+			s = "0" + s
+		}
+		point := len(s) - exponent
+		s = s[:point] + "." + s[point:]
 	}
-	point := len(digits) - exponent
-	out := digits[:point] + "." + digits[point:]
 	if neg {
-		out = "-" + out
+		s = "-" + s
 	}
-	return out
+	return s
 }

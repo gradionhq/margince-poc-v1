@@ -162,8 +162,19 @@ type Incumbent interface {
 	// blind overwrite). externalID is the mirror id (namespaced for an activity,
 	// OVA-MAP-7). A patch of only read-only fields writes nothing and returns
 	// the current record unchanged.
+	//
+	// The V1 guarantee is BEST-EFFORT, not atomic: HubSpot v3 has no
+	// caller-supplied If-Match/ETag primitive, so the drift check is a
+	// non-atomic read-compare-write and a concurrent incumbent edit landing
+	// inside that window can still be overwritten. A true compare-and-write
+	// waits on the incumbent's own precondition primitive (SF/Dynamics ETag,
+	// S-E19.3/S-E20.3) — a documented fast-follow, not a regression here.
 	Update(ctx context.Context, canonicalClass, externalID string, fields map[string]any, baseline time.Time) (Record, error)
-	// Archive removes a record from the incumbent via its own archive/delete.
-	// externalID is the mirror id (namespaced for an activity).
-	Archive(ctx context.Context, canonicalClass, externalID string) error
+	// Archive removes a record from the incumbent via its own archive/delete,
+	// after the SAME stored-baseline drift check Update applies: archiving from
+	// a stale mirror must not delete a record a third party changed since we
+	// mirrored it (incumbent-wins → apperrors.ErrVersionSkew, nothing deleted).
+	// externalID is the mirror id (namespaced for an activity); baseline is the
+	// mirror row's lost-update baseline.
+	Archive(ctx context.Context, canonicalClass, externalID string, baseline time.Time) error
 }

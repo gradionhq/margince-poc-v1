@@ -138,22 +138,49 @@ func TestAdapterUpdateAppliesWhenBaselineFresh(t *testing.T) {
 // the object.
 func TestAdapterArchiveDeletes(t *testing.T) {
 	var deleted string
+	baseline := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodDelete {
+		switch {
+		case r.URL.Path == "/crm/v3/objects/contacts/batch/read":
+			// The drift anchor: current lastmodifieddate is at/before baseline.
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"results":[{"id":"555","properties":{"hs_object_id":"555",
+				"lastmodifieddate":"2026-05-01T00:00:00Z"}}]}`))
+		case r.Method == http.MethodDelete:
 			deleted = r.URL.Path
 			w.WriteHeader(http.StatusNoContent)
-			return
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
 		}
-		t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
 	}))
 	defer srv.Close()
 
 	adapter := hubspot.NewAdapter(hubspot.NewClient("us", "tok", hubspot.WithBaseURL(srv.URL)))
-	if err := adapter.Archive(t.Context(), "person", "555"); err != nil {
+	if err := adapter.Archive(t.Context(), "person", "555", baseline); err != nil {
 		t.Fatalf("Archive: %v", err)
 	}
 	if deleted != "/crm/v3/objects/contacts/555" {
 		t.Errorf("DELETE path = %q, want /crm/v3/objects/contacts/555", deleted)
+	}
+}
+
+// TestAdapterArchiveRefusesOnDrift: a record changed since the mirror baseline
+// is NOT deleted (incumbent-wins, AC-OV-4).
+func TestAdapterArchiveRefusesOnDrift(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			t.Error("a drifted archive must not DELETE")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"results":[{"id":"555","properties":{"hs_object_id":"555",
+			"lastmodifieddate":"2026-07-01T00:00:00Z"}}]}`))
+	}))
+	defer srv.Close()
+
+	adapter := hubspot.NewAdapter(hubspot.NewClient("us", "tok", hubspot.WithBaseURL(srv.URL)))
+	baseline := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC) // older than current 2026-07-01
+	if err := adapter.Archive(t.Context(), "person", "555", baseline); !errors.Is(err, apperrors.ErrVersionSkew) {
+		t.Fatalf("Archive on drift: err = %v, want ErrVersionSkew", err)
 	}
 }
 
@@ -162,18 +189,24 @@ func TestAdapterArchiveDeletes(t *testing.T) {
 // class from the prefix and DELETEs the raw id on that class's endpoint.
 func TestAdapterArchiveActivityResolvesClassFromNamespacedID(t *testing.T) {
 	var deleted string
+	baseline := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodDelete {
+		switch {
+		case r.URL.Path == "/crm/v3/objects/calls/batch/read":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"results":[{"id":"123","properties":{"hs_object_id":"123",
+				"hs_timestamp":"2026-05-01T00:00:00Z","hs_lastmodifieddate":"2026-05-01T00:00:00Z"}}]}`))
+		case r.Method == http.MethodDelete:
 			deleted = r.URL.Path
 			w.WriteHeader(http.StatusNoContent)
-			return
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
 		}
-		t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
 	}))
 	defer srv.Close()
 
 	adapter := hubspot.NewAdapter(hubspot.NewClient("us", "tok", hubspot.WithBaseURL(srv.URL)))
-	if err := adapter.Archive(t.Context(), "activity", "calls:123"); err != nil {
+	if err := adapter.Archive(t.Context(), "activity", "calls:123", baseline); err != nil {
 		t.Fatalf("Archive activity: %v", err)
 	}
 	if !strings.HasSuffix(deleted, "/crm/v3/objects/calls/123") {
@@ -224,7 +257,7 @@ func TestAdapterUpdateNoOpWhenOnlyReadOnlyFields(t *testing.T) {
 // single incumbent write class is an honest error, not a guessed endpoint.
 func TestAdapterArchiveRejectsUnknownClass(t *testing.T) {
 	adapter := hubspot.NewAdapter(hubspot.NewClient("us", "tok"))
-	if err := adapter.Archive(t.Context(), "widget", "1"); err == nil {
+	if err := adapter.Archive(t.Context(), "widget", "1", time.Time{}); err == nil {
 		t.Error("Archive of an unknown canonical class must error")
 	}
 }
@@ -234,7 +267,7 @@ func TestAdapterArchiveRejectsUnknownClass(t *testing.T) {
 // never a guessed class.
 func TestAdapterArchiveRejectsUnprefixedActivityID(t *testing.T) {
 	adapter := hubspot.NewAdapter(hubspot.NewClient("us", "tok"))
-	if err := adapter.Archive(t.Context(), "activity", "123"); err == nil {
+	if err := adapter.Archive(t.Context(), "activity", "123", time.Time{}); err == nil {
 		t.Error("Archive of an un-namespaced activity id must error")
 	}
 }

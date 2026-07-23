@@ -5,12 +5,14 @@ package fake_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/fake"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
 // fixedModified is a deterministic ModifiedAt for fixtures that don't
@@ -235,11 +237,16 @@ func TestFakeWriteBackRoundTrip(t *testing.T) {
 		t.Errorf("no-op Update should return the record unchanged, got %+v", same.Fields)
 	}
 
-	if err := f.Archive(ctx, "person", created.ExternalID); err != nil {
+	// Archiving with a baseline older than the record is refused (drift).
+	stale := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := f.Archive(ctx, "person", created.ExternalID, stale); !errors.Is(err, apperrors.ErrVersionSkew) {
+		t.Errorf("Archive with a stale baseline: err = %v, want ErrVersionSkew", err)
+	}
+	if err := f.Archive(ctx, "person", created.ExternalID, same.ModifiedAt); err != nil {
 		t.Fatalf("Archive: %v", err)
 	}
 	// Archiving a now-absent record is an error, never a silent no-op.
-	if err := f.Archive(ctx, "person", created.ExternalID); err == nil {
+	if err := f.Archive(ctx, "person", created.ExternalID, same.ModifiedAt); err == nil {
 		t.Error("Archive of an already-removed record must error")
 	}
 	// Updating an unknown record is an error too.

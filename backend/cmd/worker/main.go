@@ -128,7 +128,15 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	var background sync.WaitGroup
 	if modelPath.Agent != nil {
 		grounding := search.NewRetriever(search.NewStore(pool), modelPath.Embedder)
-		svc := compose.NewRunnerService(pool, modelPath.Agent, modelPath.DraftReply, grounding, logger)
+		// The Surface-B runner's agent tools reach overlay write-back through
+		// the workspace's own vaulted incumbent token; wire the FromEnv
+		// vault-backed resolver so an autonomous run can write back (nil vault
+		// → clean errNoWriteIncumbent, never a crash).
+		runnerVault, _, rverr := keyvault.FromEnv(pool)
+		if rverr != nil {
+			return rverr
+		}
+		svc := compose.NewRunnerService(pool, modelPath.Agent, modelPath.DraftReply, grounding, logger, compose.OverlayIncumbentResolver(pool, runnerVault))
 		_, _ = fmt.Fprintf(stdout, "worker running the Surface-B scheduler every %s\n", cfg.runnerInterval)
 		background.Go(func() { runScheduler(ctx, svc, cfg.runnerInterval, logger) })
 		background.Go(func() { runResumeSubscriber(ctx, rdb, svc, logger) })

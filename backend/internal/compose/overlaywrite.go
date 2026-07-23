@@ -78,14 +78,18 @@ type overlayModeChecker interface {
 	isOverlay(ctx context.Context) (bool, error)
 }
 
-// overlayWriteGuard refuses a mutating request that would write a mirrored
-// entity through the SoR seam when the workspace is in overlay mode,
-// answering the same unsupported_by_sor the Provider's write verbs and the
-// agent-tier dispatch already give. It is keyed off the generated
-// agentPolicies table (the contract's own op→tool classification), so the
-// guarded set never drifts from the contract. It runs for every principal
-// — the reason it is a standalone middleware rather than part of the
-// agent-only gate.
+// overlayWriteGuard refuses a mutating REST request whose native module
+// handler would write a mirrored entity's native table DIRECTLY (bypassing
+// the SoR seam) when the workspace is in overlay mode — those native tables
+// are empty in overlay, so the write would vanish and never reach the
+// incumbent. Write-back to the incumbent happens through the SoR seam
+// (the dispatcher + agent tool registry's Create/Update/Archive verbs), NOT
+// these native REST handlers, so refusing them here is correct; routing the
+// REST handlers to the write-back seam is a separate follow-up. The guarded
+// set is keyed off the generated agentPolicies table (the contract's own
+// op→tool classification), so it never drifts from the contract. It runs for
+// every principal — the reason it is a standalone middleware rather than part
+// of the agent-only gate.
 func overlayWriteGuard(mode overlayModeChecker) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

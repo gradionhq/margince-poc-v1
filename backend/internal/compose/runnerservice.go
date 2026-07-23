@@ -19,6 +19,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -47,12 +48,16 @@ type RunnerService struct {
 // NewRunnerService assembles the runner over the SAME governed registry
 // every other agent surface dispatches through — the two-directions
 // invariant is a property of this constructor: there is no other
-// registry to hand it.
-func NewRunnerService(pool *pgxpool.Pool, brain runner.Brain, draftBrain completer, retriever retrieval.Retriever, log *slog.Logger) *RunnerService {
+// registry to hand it. resolveIncumbent is the per-workspace live-incumbent
+// resolver the overlay write-back path reaches HubSpot through when a
+// Surface-B run's agent tool writes a record; the worker passes a FromEnv
+// vault-backed resolver, and nil degrades write-back to errNoWriteIncumbent
+// (reads and non-SoR tools are unaffected).
+func NewRunnerService(pool *pgxpool.Pool, brain runner.Brain, draftBrain completer, retriever retrieval.Retriever, log *slog.Logger, resolveIncumbent func(context.Context) (overlay.Incumbent, error)) *RunnerService {
 	return &RunnerService{
 		pool:      pool,
 		store:     runner.NewStore(pool),
-		runner:    runner.New(registryWithDraftBrain(pool, draftBrain), brain),
+		runner:    runner.New(registryWithDraftBrain(pool, draftBrain, resolveIncumbent), brain),
 		identity:  identity.NewService(pool),
 		retriever: retriever,
 		log:       log,

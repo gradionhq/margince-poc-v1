@@ -33,9 +33,10 @@ import (
 // overlay itself, needed for its unexported helpers (testWorkspaceCtx,
 // externalIDToUUID, noOwnerEmails) — cannot import it back without an
 // import cycle. Only Get is ever exercised by FreshnessReader.Read; the
-// other five Incumbent methods are declared unsupported so a test that
-// accidentally calls them fails loudly rather than returning a
-// fabricated answer.
+// other Incumbent methods (Backfill/Modified/Deletions/Associations/
+// OwnerEmail/Owners + the Create/Update/Archive write seam) are declared
+// unsupported so a test that accidentally calls them fails loudly rather
+// than returning a fabricated answer.
 //
 // stubIncumbent.objectClass is deliberately the INCUMBENT class (e.g.
 // "contacts"), never the canonical Margince name (e.g. "person") — this
@@ -84,7 +85,7 @@ func (s *stubIncumbent) Update(context.Context, string, string, map[string]any, 
 	return Record{}, fmt.Errorf("stubIncumbent: Update is not fixtured")
 }
 
-func (s *stubIncumbent) Archive(context.Context, string, string) error {
+func (s *stubIncumbent) Archive(context.Context, string, string, time.Time) error {
 	return fmt.Errorf("stubIncumbent: Archive is not fixtured")
 }
 
