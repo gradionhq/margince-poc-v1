@@ -28,11 +28,11 @@ func realVocabulary(t *testing.T) map[string]string {
 func TestPublishedVocabularyDerivesFromTheSeamSource(t *testing.T) {
 	vocab := realVocabulary(t)
 	for ident, want := range map[string]string{
-		"TierGreen":  "green",
-		"TierYellow": "yellow",
-		"ScopeRead":  "read",
-		"ScopeWrite": "write",
-		"ScopeSend":  "send",
+		"TierAutoExecute":          "green",
+		"TierConfirmationRequired": "yellow",
+		"ScopeRead":                "read",
+		"ScopeWrite":               "write",
+		"ScopeSend":                "send",
 	} {
 		if got := vocab[ident]; got != want {
 			t.Errorf("vocab[%s] = %q, want %q", ident, got, want)
@@ -163,7 +163,7 @@ func New() extension.Extension {
 // with a required scope becomes one autonomy-tier request whose
 // descriptor digest is present and stable across derivations.
 func TestToolDerivesIntoAutonomyTier(t *testing.T) {
-	src := toolUnitSource("\t\t\tName: \"sync_contacts\", Version: \"2.1.0\",\n\t\t\tTier: extension.TierGreen,\n\t\t\tRequiredScope: extension.ScopeWrite,")
+	src := toolUnitSource("\t\t\tName: \"sync_contacts\", Version: \"2.1.0\",\n\t\t\tTier: extension.TierAutoExecute,\n\t\t\tRequestedScope: extension.ScopeWrite,")
 	first, err := deriveSynthetic(t, "x", src)
 	if err != nil {
 		t.Fatal(err)
@@ -235,22 +235,22 @@ var nonLiteralCases = []struct {
 	},
 	{
 		name:    "tool tier outside the extension vocabulary",
-		source:  toolUnitSource("\t\t\tName: \"t\", Version: \"1.0.0\", Tier: \"dynamic\", RequiredScope: extension.ScopeRead,"),
+		source:  toolUnitSource("\t\t\tName: \"t\", Version: \"1.0.0\", Tier: \"dynamic\", RequestedScope: extension.ScopeRead,"),
 		wantErr: "not one an extension may request",
 	},
 	{
 		name:    "tool scope outside the passport vocabulary",
-		source:  toolUnitSource("\t\t\tName: \"t\", Version: \"1.0.0\", Tier: extension.TierGreen, RequiredScope: \"admin\","),
+		source:  toolUnitSource("\t\t\tName: \"t\", Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: \"admin\","),
 		wantErr: "not in the Passport scope vocabulary",
 	},
 	{
 		name:    "tool name is not a verb",
-		source:  toolUnitSource("\t\t\tName: \"Bad-Name\", Version: \"1.0.0\", Tier: extension.TierGreen, RequiredScope: extension.ScopeRead,"),
+		source:  toolUnitSource("\t\t\tName: \"Bad-Name\", Version: \"1.0.0\", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,"),
 		wantErr: "not a valid verb",
 	},
 	{
 		name:    "computed tool tier",
-		source:  toolUnitSource("\t\t\tName: \"t\", Version: \"1.0.0\", Tier: tierOf(), RequiredScope: extension.ScopeRead,") + "\nfunc tierOf() extension.Tier { return extension.TierGreen }\n",
+		source:  toolUnitSource("\t\t\tName: \"t\", Version: \"1.0.0\", Tier: tierOf(), RequestedScope: extension.ScopeRead,") + "\nfunc tierOf() extension.Tier { return extension.TierAutoExecute }\n",
 		wantErr: "published extension constant",
 	},
 }

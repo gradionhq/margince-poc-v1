@@ -26,10 +26,10 @@ func New() extension.Extension {
 		Version:       "0.1.0",
 		Jurisdictions: []jurisdiction.Pack{pack{}},
 		Tools: []extension.Tool{{
-			Name:          "hello_ping",
-			Version:       "1.0.0",
-			Tier:          extension.TierYellow,
-			RequiredScope: extension.ScopeRead,
+			Name:           "hello_ping",
+			Version:        "1.0.0",
+			Tier:           extension.TierConfirmationRequired,
+			RequestedScope: extension.ScopeRead,
 		}},
 	}
 }
