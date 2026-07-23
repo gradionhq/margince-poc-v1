@@ -22,6 +22,28 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**The conversational onboarding (flagged) + the honest voice corpus.**
+Onboarding is becoming ONE Margince conversation. Landed so far: the
+corpus honesty layer (server speaker preview, kept-vs-discarded ingest
+stats, diarizer/timestamp transcript parsing — only the owner's words
+ever count), the conversation primitives (pure act/phase machine with
+run-correlated events, poll-delta narration with a paced queue,
+thread/entry components), and the conversational COMPANY act behind the
+`conv` flag (`#/onboarding?conv` or localStorage `margince.conv`):
+narrated site read, deterministic clarify questions (legal entity /
+registered address / human-conflict) whose answered option is
+server-verified before it authorizes exactly that change, the proposal
+read (`GET /onboarding/company/proposal`), and the in-thread confirm
+card. The voice act joins in `feat/onboarding-voice-act` (upload-in-chat,
+speaker question, build narration) together with three builder fixes a
+live corpus surfaced: validator-rejected completions evict from the
+result cache, the builder prompt enumerates citable sample ids with
+fabricated supplementary citations dropped, and the worker logs the real
+build error. Classic wizard remains the default; flip is planned after
+the results/connect acts + restore (plan:
+`~/.claude/plans/while-you-are-waiting-snug-horizon.md` Phases 5-7 —
+restore must also stop deriving member-path from "company exists").
+
 **The CI integration lane is sharded per test across twelve runners.** The
 single-runner lane took ~6.5 minutes and floored at `compose/integration`
 (minutes of serial tests), so package-level parallelism could not shorten
