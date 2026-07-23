@@ -124,6 +124,12 @@ func (s *Store) prepareFxRate(ctx context.Context, in SetFxRateInput) (from stri
 // stays true at write time), resolve the workspace base, reject from == base,
 // upsert the append-forward row, and audit — all in the caller-owned tx.
 func (s *Store) writeFxRate(ctx context.Context, tx pgx.Tx, from string, in SetFxRateInput) (FxRateRow, error) {
+	// Serialize writers of this currency's sheet identity BEFORE sampling the
+	// clock: a write that waited here for a precondition-holding transaction
+	// must judge append-forward against the day it actually runs.
+	if err := storekit.LockWriteIdentity(ctx, tx, "fx_rate", from); err != nil {
+		return FxRateRow{}, err
+	}
 	today := s.todayUTC()
 	eff := in.EffectiveDate
 	if eff.IsZero() {
@@ -246,28 +252,35 @@ func (s *Store) ListEffectiveFxRates(ctx context.Context) ([]FxRateRow, error) {
 	return rows, err
 }
 
-// EffectiveFxRateInTx resolves the rate in force TODAY (store clock) for one
-// currency through a caller-owned transaction — the approval-effect
-// precondition read, which must see the same state the apply writes into.
-// found=false means no rate is in force, a materially different answer from
-// any value. Admin/ops read gate.
-func (s *Store) EffectiveFxRateInTx(ctx context.Context, tx pgx.Tx, fromCurrency string) (string, bool, error) {
+// EffectiveFxRateInTx resolves the rate in force for one currency through a
+// caller-owned transaction — the approval-effect precondition read, which
+// must see the same state the apply writes into. It takes the currency's
+// write-identity lock (so no standalone write can commit between this read
+// and the dependent write) and returns the day it sampled: the caller pins
+// its write to that SAME day, so a transaction that crosses UTC midnight
+// fails the append-forward guard instead of overwriting the new day's
+// scheduled row. found=false means no rate is in force, a materially
+// different answer from any value. Admin/ops read gate.
+func (s *Store) EffectiveFxRateInTx(ctx context.Context, tx pgx.Tx, fromCurrency string) (rate string, asOf time.Time, found bool, err error) {
 	if err := auth.Require(ctx, "fx_rate", principal.ActionRead); err != nil {
-		return "", false, err
+		return "", time.Time{}, false, err
 	}
 	from := strings.ToUpper(strings.TrimSpace(fromCurrency))
-	var rate string
-	err := tx.QueryRow(ctx, `
+	if err := storekit.LockWriteIdentity(ctx, tx, "fx_rate", from); err != nil {
+		return "", time.Time{}, false, err
+	}
+	asOf = s.todayUTC()
+	err = tx.QueryRow(ctx, `
 		SELECT rate::text FROM fx_rate
 		WHERE from_currency = $1 AND rate_date <= $2
-		ORDER BY rate_date DESC LIMIT 1`, from, s.todayUTC()).Scan(&rate)
+		ORDER BY rate_date DESC LIMIT 1`, from, asOf).Scan(&rate)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", false, nil
+		return "", asOf, false, nil
 	}
 	if err != nil {
-		return "", false, fmt.Errorf("effective fx_rate for %s: %w", from, err)
+		return "", time.Time{}, false, fmt.Errorf("effective fx_rate for %s: %w", from, err)
 	}
-	return rate, true, nil
+	return rate, asOf, true, nil
 }
 
 // FxRateHistory returns every effective-dated row for one pair, newest

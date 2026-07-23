@@ -141,6 +141,12 @@ func (s *RateStore) prepareModelRate(ctx context.Context, in SetModelRateInput) 
 // stays true at write time), then upsert the append-forward row and audit — all
 // in the caller-owned tx.
 func (s *RateStore) writeModelRate(ctx context.Context, tx pgx.Tx, p preparedModelRate, effectiveDate time.Time) (ModelRateRow, error) {
+	// Serialize writers of this model's sheet identity BEFORE sampling the
+	// clock: a write that waited here for a precondition-holding transaction
+	// must judge append-forward against the day it actually runs.
+	if err := storekit.LockWriteIdentity(ctx, tx, "ai_model_rate", p.provider+"/"+p.modelID); err != nil {
+		return ModelRateRow{}, err
+	}
 	today := s.todayUTC()
 	if effectiveDate.IsZero() {
 		effectiveDate = today

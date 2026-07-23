@@ -265,6 +265,22 @@ func MustWorkspace(ctx context.Context) ids.UUID {
 	return wsID
 }
 
+// LockWriteIdentity serializes every writer of one logical record identity
+// for the transaction (workspace-scoped pg advisory xact lock). A
+// precondition read and its dependent write must both run under it — READ
+// COMMITTED alone leaves a window where a concurrent standalone write
+// commits between the two statements and is silently overwritten. The lock
+// is reentrant within one transaction, so a caller that locked at its
+// precondition read may write through the same store path without deadlock.
+func LockWriteIdentity(ctx context.Context, tx pgx.Tx, entityType, identity string) error {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended(
+		$1 || ':' || $2::text || ':' || $3, 0))`,
+		entityType+"_write", MustWorkspace(ctx), identity); err != nil {
+		return fmt.Errorf("lock %s write identity: %w", entityType, err)
+	}
+	return nil
+}
+
 // JSONArg marshals a map for a jsonb parameter, passing NULL for nil.
 //
 //craft:ignore naked-any a jsonb bind parameter is either SQL NULL (nil) or raw bytes — pgx accepts both only as any

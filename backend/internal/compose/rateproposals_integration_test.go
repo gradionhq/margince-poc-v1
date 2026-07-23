@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
@@ -279,5 +280,82 @@ func TestModelRateProposalApplyMatchingPriorApplies(t *testing.T) {
 	}
 	if n := e.WsCount(t, `SELECT count(*) FROM ai_model_rate WHERE provider='acme' AND model_id='m2' AND input_per_mtok_microusd=6000000`); n != 1 {
 		t.Fatal("matching-prior model proposal must apply")
+	}
+}
+
+// An apply that crosses UTC midnight between the precondition read and the
+// write must refuse (the write is pinned to the day the precondition
+// sampled, so the append-forward guard fires) — never overwrite the new
+// day's already-scheduled row.
+func TestFxRateProposalApplyRefusesAcrossMidnight(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
+	seed := deals.NewStore(e.Pool)
+	tomorrow := time.Now().UTC().Add(24 * time.Hour)
+	seedFx(ctx, t, seed, "SEK", "1.0", time.Time{})
+	seedFx(ctx, t, seed, "SEK", "9.9", tomorrow)
+
+	// The effect store's clock crosses midnight right after the precondition
+	// read: first sample = today, every later sample = the next day.
+	calls := 0
+	crossing := deals.NewStore(e.Pool).WithClock(func() time.Time {
+		calls++
+		if calls == 1 {
+			return time.Now().UTC()
+		}
+		return time.Now().UTC().Add(24 * time.Hour)
+	})
+	svc := approvals.NewService(e.Pool)
+	svc.WithEffect(fxRateProposalKind, fxRateAcceptEffect(svc, crossing))
+
+	id := stageProposal(ctx, t, svc, fxRateProposalKind, fxRateTargetType, e.WS,
+		map[string]string{"from_currency": "SEK", "rate": "1.2", "expected_prior_rate": "1.0"}, "SEK")
+	if _, err := svc.Decide(ctx, id, true, nil); err == nil {
+		t.Fatal("cross-midnight apply succeeded, want append-forward refusal")
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM fx_rate WHERE from_currency='SEK' AND rate=9.9`); n != 1 {
+		t.Fatal("the next day's scheduled row must survive a cross-midnight apply")
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM fx_rate WHERE from_currency='SEK' AND rate=1.2`); n != 0 {
+		t.Fatal("a cross-midnight apply must write nothing")
+	}
+}
+
+// The model-rate mirror of the cross-midnight refusal.
+func TestModelRateProposalApplyRefusesAcrossMidnight(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
+	seed := ai.NewRateStore(e.Pool)
+	tomorrow := time.Now().UTC().Add(24 * time.Hour)
+	seedModelRate(ctx, t, seed, "acme", "mx", "5", time.Time{})
+	seedModelRate(ctx, t, seed, "acme", "mx", "9", tomorrow)
+
+	calls := 0
+	crossing := ai.NewRateStore(e.Pool).WithClock(func() time.Time {
+		calls++
+		if calls == 1 {
+			return time.Now().UTC()
+		}
+		return time.Now().UTC().Add(24 * time.Hour)
+	})
+	svc := approvals.NewService(e.Pool)
+	svc.WithEffect(aiModelRateProposalKind, aiModelRateAcceptEffect(svc, crossing))
+
+	id := stageProposal(ctx, t, svc, aiModelRateProposalKind, aiModelRateTargetType, e.WS,
+		map[string]any{
+			"provider": "acme", "model_id": "mx",
+			"input_per_mtok": "6", "output_per_mtok": "25", "cache_read_per_mtok": "0", "cache_write_per_mtok": "0",
+			"expected_prior": map[string]string{
+				"input_per_mtok": "5", "output_per_mtok": "25", "cache_read_per_mtok": "0", "cache_write_per_mtok": "0",
+			},
+		}, "acme/mx")
+	if _, err := svc.Decide(ctx, id, true, nil); err == nil {
+		t.Fatal("cross-midnight apply succeeded, want append-forward refusal")
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM ai_model_rate WHERE provider='acme' AND model_id='mx' AND input_per_mtok_microusd=9000000`); n != 1 {
+		t.Fatal("the next day's scheduled row must survive a cross-midnight apply")
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM ai_model_rate WHERE provider='acme' AND model_id='mx' AND input_per_mtok_microusd=6000000`); n != 0 {
+		t.Fatal("a cross-midnight apply must write nothing")
 	}
 }

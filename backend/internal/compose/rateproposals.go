@@ -132,7 +132,11 @@ func fxRateAcceptEffect(svc *approvals.Service, store *deals.Store) approvals.Ap
 			// moved since (manual write, competing approval), applying would
 			// silently restore a stale value — refuse and roll back instead. The
 			// decision itself stays on record; the remedy is a fresh refresh.
-			prior, found, err := store.EffectiveFxRateInTx(execCtx, tx, p.FromCurrency)
+			// The read holds the currency's write-identity lock and the write is
+			// pinned to the SAME sampled day, so neither a concurrent standalone
+			// write nor a UTC-midnight crossing can slip between check and apply
+			// (the past-date guard refuses the crossed-midnight case honestly).
+			prior, asOf, found, err := store.EffectiveFxRateInTx(execCtx, tx, p.FromCurrency)
 			if err != nil {
 				return err
 			}
@@ -140,7 +144,7 @@ func fxRateAcceptEffect(svc *approvals.Service, store *deals.Store) approvals.Ap
 				return err
 			}
 			_, err = store.SetFxRateInTx(execCtx, tx, deals.SetFxRateInput{
-				FromCurrency: p.FromCurrency, Rate: p.Rate,
+				FromCurrency: p.FromCurrency, Rate: p.Rate, EffectiveDate: asOf,
 			})
 			return err
 		})
@@ -184,7 +188,8 @@ func aiModelRateAcceptEffect(svc *approvals.Service, rates *ai.RateStore) approv
 			// Same precondition as the fx effect: the price in force must still
 			// be the one the diff was computed against, or applying restores a
 			// stale value — refuse and roll back, keep the decision on record.
-			cur, err := rates.EffectiveModelRateInTx(execCtx, tx, p.Provider, p.ModelID)
+			// Lock + same-day pinning as the fx effect (see fxRateAcceptEffect).
+			cur, asOf, err := rates.EffectiveModelRateInTx(execCtx, tx, p.Provider, p.ModelID)
 			if err != nil {
 				return err
 			}
@@ -195,6 +200,7 @@ func aiModelRateAcceptEffect(svc *approvals.Service, rates *ai.RateStore) approv
 				Provider: p.Provider, ModelID: p.ModelID,
 				InputUsd: p.InputUsd, OutputUsd: p.OutputUsd,
 				CacheReadUsd: p.CacheReadUsd, CacheWriteUsd: p.CacheWriteUsd,
+				EffectiveDate: asOf,
 			})
 			return err
 		})

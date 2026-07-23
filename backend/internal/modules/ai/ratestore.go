@@ -15,6 +15,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -60,17 +61,30 @@ func (s *RateStore) RateFor(ctx context.Context, provider, modelID string, day t
 	return rate, nil
 }
 
-// EffectiveModelRateInTx resolves the price in force TODAY (store clock) for
-// one model through a caller-owned transaction — the approval-effect
-// precondition read, which must see the same state the apply writes into.
-// (nil, nil) = unpriced, mirroring RateFor. Admin/ops read gate, matching the
-// fx sibling (EffectiveFxRateInTx): the precondition reads must gate
-// identically so the invariant survives a future caller.
-func (s *RateStore) EffectiveModelRateInTx(ctx context.Context, tx pgx.Tx, provider, modelID string) (*ModelRate, error) {
+// EffectiveModelRateInTx resolves the price in force for one model through a
+// caller-owned transaction — the approval-effect precondition read, which
+// must see the same state the apply writes into. It takes the model's
+// write-identity lock (so no standalone write can commit between this read
+// and the dependent write) and returns the day it sampled: the caller pins
+// its write to that SAME day, so a transaction that crosses UTC midnight
+// fails the append-forward guard instead of overwriting the new day's
+// scheduled row. A nil rate = unpriced, mirroring RateFor. Admin/ops read
+// gate, matching the fx sibling (EffectiveFxRateInTx): the precondition
+// reads must gate identically so the invariant survives a future caller.
+func (s *RateStore) EffectiveModelRateInTx(ctx context.Context, tx pgx.Tx, provider, modelID string) (*ModelRate, time.Time, error) {
 	if err := auth.Require(ctx, "ai_model_rate", principal.ActionRead); err != nil {
-		return nil, err
+		return nil, time.Time{}, err
 	}
-	return rateForInTx(ctx, tx, strings.TrimSpace(provider), strings.TrimSpace(modelID), s.todayUTC())
+	provider, modelID = strings.TrimSpace(provider), strings.TrimSpace(modelID)
+	if err := storekit.LockWriteIdentity(ctx, tx, "ai_model_rate", provider+"/"+modelID); err != nil {
+		return nil, time.Time{}, err
+	}
+	asOf := s.todayUTC()
+	rate, err := rateForInTx(ctx, tx, provider, modelID, asOf)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	return rate, asOf, nil
 }
 
 func rateForInTx(ctx context.Context, tx pgx.Tx, provider, modelID string, day time.Time) (*ModelRate, error) {
