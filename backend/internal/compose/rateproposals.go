@@ -5,6 +5,8 @@ package compose
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -43,6 +45,31 @@ type aiModelRateProposal struct {
 	OutputUsd     string `json:"output_per_mtok"`
 	CacheReadUsd  string `json:"cache_read_per_mtok"`
 	CacheWriteUsd string `json:"cache_write_per_mtok"`
+}
+
+// stageRateProposal marshals a proposal, computes its identity-bearing diff
+// hash (sha256 over the payload, per the scrape.go shape), guards per-identity
+// against an already-pending duplicate (HasPendingFor keyed on the workspace
+// target + this exact diff), and stages it. A duplicate is a silent no-op.
+func stageRateProposal(ctx context.Context, svc *approvals.Service, kind, targetType string, ws ids.UUID, payload any, summary string) error {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("compose: marshal %s: %w", kind, err)
+	}
+	digest := sha256.Sum256(raw)
+	hash := hex.EncodeToString(digest[:])
+	pending, err := svc.HasPendingFor(ctx, kind, ws, hash)
+	if err != nil {
+		return fmt.Errorf("compose: pending check %s: %w", kind, err)
+	}
+	if pending {
+		return nil
+	}
+	_, err = svc.Stage(ctx, approvals.StageInput{
+		Kind: kind, ProposedChange: raw, DiffHash: hash,
+		TargetType: targetType, TargetID: ws, Summary: summary,
+	})
+	return err
 }
 
 // rateRefreshActor binds the system principal a rate-refresh effect applies

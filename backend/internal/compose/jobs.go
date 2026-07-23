@@ -28,6 +28,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
+	"github.com/gradionhq/margince/backend/internal/platform/fxsource"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
@@ -296,6 +297,10 @@ type JobRunnerConfig struct {
 	// so a queued build on a brainless worker finishes failed with an
 	// actionable message instead of sitting queued forever.
 	VoiceBrain completer
+	// FxSourceURL is the structured FX JSON API the fx-rate refresh job
+	// fetches from; empty = the worker registers but the producer no-ops
+	// (honest: no source configured, nothing to propose).
+	FxSourceURL string
 }
 
 // NewJobRunner wires the deals correctors and the automation time-scan
@@ -340,6 +345,14 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	// needs the worker registered, same posture as the deep-read worker
 	// above.
 	river.AddWorker(workers, &embedReindexWorker{store: search.NewStore(pool), embedder: cfg.Embedder})
+	// The rate-refresh jobs are not periodic — the api enqueues one per admin
+	// "Refresh from sources" click; the worker registers regardless of whether
+	// a source is configured (a nil client no-ops honestly).
+	var fxClient *fxsource.Client
+	if cfg.FxSourceURL != "" {
+		fxClient = fxsource.New(cfg.FxSourceURL, nil)
+	}
+	river.AddWorker(workers, newFxRefreshWorker(pool, fxClient, log))
 
 	periodic := []*river.PeriodicJob{
 		river.NewPeriodicJob(
