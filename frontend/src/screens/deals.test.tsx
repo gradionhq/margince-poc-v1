@@ -424,6 +424,103 @@ describe("DealsScreen", () => {
       expect(screen.getByText("Moved to Proposal")).toBeTruthy(),
     );
   });
+
+  it("overlay mode paginates the flat mirror table through the keyset cursor", async () => {
+    const dealsCalls: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.includes("/me")) {
+        return jsonResponse({
+          user: {
+            id: "u-me",
+            email: "me@acme.test",
+            display_name: "Me",
+            workspace_id: "w",
+            timezone: "UTC",
+            status: "active",
+            is_agent: false,
+          },
+          roles: ["admin"],
+          teams: [],
+          system_of_record: { mode: "overlay" },
+        });
+      }
+      if (url.includes("/deals")) {
+        dealsCalls.push(url);
+        if (new URL(url, "http://t").searchParams.get("cursor")) {
+          return jsonResponse({
+            data: [deal({ id: "d2", name: "Second page deal" })],
+            page: { next_cursor: null, has_more: false },
+          });
+        }
+        return jsonResponse({
+          data: [deal({ id: "d1", name: "First page deal" })],
+          page: { next_cursor: "cursor-2", has_more: true },
+        });
+      }
+      // pipelines / agent-tools / organizations / context — all empty here.
+      return jsonResponse({ data: [], page: { next_cursor: null } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<DealsScreen />);
+
+    // Page one renders in the forced flat table, with the Load-more affordance.
+    expect(await screen.findByText("First page deal")).toBeTruthy();
+    const loadMore = await screen.findByRole("button", { name: /load more/i });
+
+    // Loading the next page appends it and carries the cursor from page one.
+    await userEvent.click(loadMore);
+    expect(await screen.findByText("Second page deal")).toBeTruthy();
+    expect(screen.getByText("First page deal")).toBeTruthy();
+    expect(dealsCalls.some((u) => u.includes("cursor=cursor-2"))).toBe(true);
+  });
+
+  it("overlay mode keeps the loaded rows when a Load-more page fails", async () => {
+    const dealsCalls: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.includes("/me")) {
+        return jsonResponse({
+          user: {
+            id: "u-me",
+            email: "me@acme.test",
+            display_name: "Me",
+            workspace_id: "w",
+            timezone: "UTC",
+            status: "active",
+            is_agent: false,
+          },
+          roles: ["admin"],
+          teams: [],
+          system_of_record: { mode: "overlay" },
+        });
+      }
+      if (url.includes("/deals")) {
+        dealsCalls.push(url);
+        if (new URL(url, "http://t").searchParams.get("cursor")) {
+          return jsonResponse({ title: "boom" }, 500); // the next page fails
+        }
+        return jsonResponse({
+          data: [deal({ id: "d1", name: "First page deal" })],
+          page: { next_cursor: "cursor-2", has_more: true },
+        });
+      }
+      return jsonResponse({ data: [], page: { next_cursor: null } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<DealsScreen />);
+
+    expect(await screen.findByText("First page deal")).toBeTruthy();
+    await userEvent.click(
+      await screen.findByRole("button", { name: /load more/i }),
+    );
+    // The next page errored, but the already-loaded page-one rows must
+    // survive — a transient later-page failure never discards usable results.
+    await waitFor(() =>
+      expect(dealsCalls.some((u) => u.includes("cursor=cursor-2"))).toBe(true),
+    );
+    expect(screen.getByText("First page deal")).toBeTruthy();
+  });
 });
 
 describe("DealsScreen filters", () => {
