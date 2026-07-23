@@ -154,6 +154,24 @@ check monitoring. Read-only working-tree inspection (`git status`, `git diff`,
    `gh pr merge <n> --squash`), then delete the branch. Never merge over
    a red or still-running check.
 
+### Never commit machine or session debris
+
+Only product — code, tests, docs, config templates — belongs in a commit.
+Before you `git add`, check `git status` for anything that is a build cache,
+a working note, or a screenshot, and leave it out:
+
+- **Build caches** — `.pnpm-store/`, `node_modules/`, compiled binaries.
+  Regenerable, machine-local, never tracked.
+- **Session scratch** — put working notes, plans, and intermediate output in
+  the session's scratchpad temp dir, **not** a `scratchpad/` at the repo root.
+- **Screenshots / captures** — a `*.png`/`*.jpg` you took to look at something
+  is debris; only assets a screen actually imports (e.g. `frontend/src/assets/`)
+  are product.
+
+`.gitignore` catches the known offenders (root-anchored images, `/.pnpm-store/`,
+`/scratchpad/`), but the rule is yours to keep — a new debris path it doesn't
+yet list must still stay out, and be added to `.gitignore` when you spot it.
+
 ## Layout (spec ADR-0054/A69 as amended: four `cmd/<role>` binaries + the §9 single-tx exception)
 
 The `backend/internal/{modules,platform,shared}` triad — the DAG is
