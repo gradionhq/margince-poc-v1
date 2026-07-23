@@ -6,7 +6,7 @@ package extension
 import "testing"
 
 func TestTierValidate(t *testing.T) {
-	for _, valid := range []Tier{TierGreen, TierYellow} {
+	for _, valid := range []Tier{TierAutoExecute, TierConfirmationRequired} {
 		if err := valid.Validate(); err != nil {
 			t.Errorf("Tier(%q).Validate() = %v, want nil", valid, err)
 		}
@@ -34,7 +34,7 @@ func TestScopeValidate(t *testing.T) {
 }
 
 func TestToolValidate(t *testing.T) {
-	valid := Tool{Name: "qualify_lead", Version: "1.0.0", Tier: TierGreen, RequiredScope: ScopeWrite}
+	valid := Tool{Name: "qualify_lead", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: ScopeWrite}
 	if err := valid.Validate(); err != nil {
 		t.Fatalf("a well-formed tool must validate: %v", err)
 	}
@@ -43,12 +43,12 @@ func TestToolValidate(t *testing.T) {
 		name string
 		tool Tool
 	}{
-		{"name not a verb", Tool{Name: "Bad-Name", Version: "1.0.0", Tier: TierGreen, RequiredScope: ScopeRead}},
-		{"empty name", Tool{Name: "", Version: "1.0.0", Tier: TierGreen, RequiredScope: ScopeRead}},
-		{"empty version", Tool{Name: "ping", Version: "", Tier: TierGreen, RequiredScope: ScopeRead}},
-		{"tier not requestable", Tool{Name: "ping", Version: "1.0.0", Tier: "dynamic", RequiredScope: ScopeRead}},
-		{"scope outside vocabulary", Tool{Name: "ping", Version: "1.0.0", Tier: TierGreen, RequiredScope: "admin"}},
-		{"missing scope", Tool{Name: "ping", Version: "1.0.0", Tier: TierGreen}},
+		{"name not a verb", Tool{Name: "Bad-Name", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: ScopeRead}},
+		{"empty name", Tool{Name: "", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: ScopeRead}},
+		{"empty version", Tool{Name: "ping", Version: "", Tier: TierAutoExecute, RequestedScope: ScopeRead}},
+		{"tier not requestable", Tool{Name: "ping", Version: "1.0.0", Tier: "dynamic", RequestedScope: ScopeRead}},
+		{"scope outside vocabulary", Tool{Name: "ping", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: "admin"}},
+		{"missing scope", Tool{Name: "ping", Version: "1.0.0", Tier: TierAutoExecute}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

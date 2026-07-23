@@ -342,7 +342,7 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (autonomyTierRequest, er
 			version, err = r.stringLit(kv.Value, "Tool.Version")
 		case "Tier":
 			tier, err = r.constValue(kv.Value, ext)
-		case "RequiredScope":
+		case "RequestedScope":
 			scope, err = r.constValue(kv.Value, ext)
 		default:
 			err = r.errAt(kv, "Tool field %s is not derivable by this generator", key.Name)
@@ -361,7 +361,7 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (autonomyTierRequest, er
 // the general §5 shape shared across governed kinds. Version is not part
 // of the descriptor: §7 binds resolutions to the digest, never a version.
 func (r *unitReader) toolRequest(at ast.Node, name, version, tier, scope string) (autonomyTierRequest, error) {
-	declared := extension.Tool{Name: name, Version: version, Tier: extension.Tier(tier), RequiredScope: extension.Scope(scope)}
+	declared := extension.Tool{Name: name, Version: version, Tier: extension.Tier(tier), RequestedScope: extension.Scope(scope)}
 	if err := declared.Validate(); err != nil {
 		return autonomyTierRequest{}, r.errAt(at, "%v", err)
 	}

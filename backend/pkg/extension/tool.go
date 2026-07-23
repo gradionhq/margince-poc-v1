@@ -9,20 +9,22 @@ import (
 )
 
 // Tier is the autonomy class an extension REQUESTS for a governed tool
-// (ADR-0026/A34): 🟢 auto-executes, 🟡 stages for confirm-first approval.
-// The values mirror the core RiskTier wire strings, which the boot
-// registration maps to the internal type. Argument-dependent (dynamic)
-// tiers are core-only — they need a resolver, which is behavior an
-// extension cannot declare statically — so an extension may request only
-// green or yellow. Per §7 the declared tier is a REQUEST an operator
-// resolves, never a fact: an unresolved request never lowers a bar.
+// (ADR-0026/A34): auto-execute runs without confirmation, confirmation-
+// required stages every call for human approval. The constant names are
+// semantic; their string values are the core "green"/"yellow" wire tiers,
+// which the boot registration maps to the internal RiskTier. A dynamic
+// (argument-dependent) tier needs a resolver — behavior a static
+// declaration cannot carry — so it is not requestable through this
+// surface. Per §7 the declared tier is a REQUEST an operator resolves,
+// never a fact: an unresolved request never lowers a bar.
 type Tier string
 
 const (
-	// TierGreen requests auto-execution (🟢).
-	TierGreen Tier = "green"
-	// TierYellow requests confirm-first staging (🟡).
-	TierYellow Tier = "yellow"
+	// TierAutoExecute runs without human confirmation (the 🟢 wire tier).
+	TierAutoExecute Tier = "green"
+	// TierConfirmationRequired stages every call for confirm-first human
+	// approval (the 🟡 wire tier).
+	TierConfirmationRequired Tier = "yellow"
 )
 
 // Validate refuses any tier an extension may not request; the manifest
@@ -30,10 +32,10 @@ const (
 // cannot drift from boot-time validation.
 func (t Tier) Validate() error {
 	switch t {
-	case TierGreen, TierYellow:
+	case TierAutoExecute, TierConfirmationRequired:
 		return nil
 	}
-	return fmt.Errorf("autonomy tier %q is not one an extension may request (green or yellow; dynamic tiers are core-only)", string(t))
+	return fmt.Errorf("autonomy tier %q is not one an extension may request — declare TierAutoExecute or TierConfirmationRequired (a dynamic per-call tier needs a resolver and is not declarable statically)", string(t))
 }
 
 // Scope is a Passport verb class a governed tool requires
@@ -86,10 +88,12 @@ type Tool struct {
 	Version string
 	// Tier is the requested autonomy class (green or yellow).
 	Tier Tier
-	// RequiredScope is the single Passport verb class the tool requires —
-	// one scope per tool, as core tools declare it (mcp.ToolSpec). A call
+	// RequestedScope is the single Passport verb class the tool requests —
+	// one scope per tool, as core tools declare it
+	// (mcp.ToolSpec.RequiredScope). Per §7 it is a REQUEST an operator
+	// resolves into an effective grant, not a fact; once effective, a call
 	// admits only when the granting principal holds it.
-	RequiredScope Scope
+	RequestedScope Scope
 }
 
 // Validate enforces the tool's grammar and vocabularies. Boot
@@ -105,7 +109,7 @@ func (t Tool) Validate() error {
 	if err := t.Tier.Validate(); err != nil {
 		return fmt.Errorf("tool %q: %w", t.Name, err)
 	}
-	if err := t.RequiredScope.Validate(); err != nil {
+	if err := t.RequestedScope.Validate(); err != nil {
 		return fmt.Errorf("tool %q: %w", t.Name, err)
 	}
 	return nil
