@@ -49,6 +49,22 @@ func (s *RateStore) todayUTC() time.Time {
 	return s.clock().UTC().Truncate(24 * time.Hour)
 }
 
+// modelRateMicroUSD converts the four USD/MTok string buckets to µUSD, failing
+// on the first invalid one (all typed 422s).
+func modelRateMicroUSD(in SetModelRateInput) (input, output, cacheRead, cacheWrite int64, err error) {
+	if input, err = UsdPerMTokToMicroUSD(in.InputUsd); err != nil {
+		return
+	}
+	if output, err = UsdPerMTokToMicroUSD(in.OutputUsd); err != nil {
+		return
+	}
+	if cacheRead, err = UsdPerMTokToMicroUSD(in.CacheReadUsd); err != nil {
+		return
+	}
+	cacheWrite, err = UsdPerMTokToMicroUSD(in.CacheWriteUsd)
+	return
+}
+
 // SetModelRate appends (or corrects, same UTC day) one effective-dated
 // model price. Admin/ops-gated; append-forward (rejects a past effective
 // date). Audit-only by ratification: the closed event catalog has no
@@ -68,19 +84,7 @@ func (s *RateStore) SetModelRate(ctx context.Context, in SetModelRateInput) (Mod
 	if in.EffectiveDate.UTC().Truncate(24 * time.Hour).Before(s.todayUTC()) {
 		return ModelRateRow{}, rateInvalid("effective_date", "rate_past", "effective_date cannot be in the past")
 	}
-	input, err := UsdPerMTokToMicroUSD(in.InputUsd)
-	if err != nil {
-		return ModelRateRow{}, err
-	}
-	output, err := UsdPerMTokToMicroUSD(in.OutputUsd)
-	if err != nil {
-		return ModelRateRow{}, err
-	}
-	cacheRead, err := UsdPerMTokToMicroUSD(in.CacheReadUsd)
-	if err != nil {
-		return ModelRateRow{}, err
-	}
-	cacheWrite, err := UsdPerMTokToMicroUSD(in.CacheWriteUsd)
+	input, output, cacheRead, cacheWrite, err := modelRateMicroUSD(in)
 	if err != nil {
 		return ModelRateRow{}, err
 	}

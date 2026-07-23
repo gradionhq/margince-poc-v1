@@ -76,7 +76,7 @@ func TestFxRatesOverHTTP(t *testing.T) {
 
 type aiModelRateDTO struct {
 	Provider          string `json:"provider"`
-	ModelId           string `json:"model_id"`
+	ModelID           string `json:"model_id"`
 	InputPerMtok      string `json:"input_per_mtok"`
 	OutputPerMtok     string `json:"output_per_mtok"`
 	CacheReadPerMtok  string `json:"cache_read_per_mtok"`
@@ -115,7 +115,7 @@ func TestAiModelRatesOverHTTP(t *testing.T) {
 	}
 	found := false
 	for _, row := range list.Data {
-		if row.Provider == "anthropic" && row.ModelId == "claude-opus-4-8" {
+		if row.Provider == "anthropic" && row.ModelID == "claude-opus-4-8" {
 			found = true
 			if row.InputPerMtok != "5" {
 				t.Fatalf("opus input = %q, want 5", row.InputPerMtok)
