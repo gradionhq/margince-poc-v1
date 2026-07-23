@@ -103,7 +103,10 @@ func (h Handlers) SetAiModelRate(w http.ResponseWriter, r *http.Request) {
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	effective := time.Now().UTC()
+	// Leave EffectiveDate zero when omitted — the store derives "today" from its
+	// in-transaction clock sample, so an omitted-date write that waits for the
+	// pool across UTC midnight isn't rejected as past against a stale now().
+	var effective time.Time
 	if req.EffectiveDate != nil {
 		effective = req.EffectiveDate.Time
 	}

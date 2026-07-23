@@ -36,7 +36,9 @@ func UsdPerMTokToMicroUSD(field, usd string) (int64, error) {
 	// 12 integer digits (not 13): the ×1e6 scale to µUSD keeps every accepted
 	// value within int64, so the advertised contract pattern and the server's
 	// accepted domain agree exactly (no schema-valid price is 422'd on overflow).
-	if !values.PlainDecimal(s, 12, 6) {
+	// s != usd rejects surrounding whitespace the anchored pattern also rejects,
+	// keeping that parity exact.
+	if s != usd || !values.PlainDecimal(s, 12, 6) {
 		return 0, rateInvalid(field, "rate_price_nonnegative",
 			field+" must be a plain non-negative decimal (USD per 1M tokens, up to 12 integer and 6 fractional digits)")
 	}

@@ -182,7 +182,9 @@ func normalizeFxCurrencyRate(in SetFxRateInput) (from string, err error) {
 		return "", fxInvalid("from_currency", "fx_rate_currency", "from_currency must be a 3-letter ISO code")
 	}
 	rate := strings.TrimSpace(in.Rate)
-	if !values.PlainDecimal(rate, 10, 10) {
+	// rate != in.Rate rejects surrounding whitespace the anchored contract
+	// pattern also rejects, so the server's accepted domain matches it exactly.
+	if rate != in.Rate || !values.PlainDecimal(rate, 10, 10) {
 		return "", fxInvalid("rate", "fx_rate_positive",
 			"rate must be a plain decimal (up to 10 integer and 10 fractional digits)")
 	}
