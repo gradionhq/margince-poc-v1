@@ -75,6 +75,18 @@ func canonicalFields(v any) (map[string]any, error) {
 // write path reaches the provider directly. The canonical write is
 // projected onto incumbent properties BELOW the seam (the adapter's
 // mapWrite, OVA-MAP-W); the Provider stays incumbent-agnostic.
+//
+// V1 retry-safety limitation: HubSpot's v3 object-create is a bare POST
+// with no caller-supplied idempotency key (no hs_unique_creation_key), so a
+// caller that retries after a mirror-write failure — the incumbent create
+// already committed, the follow-up Ingest did not — can mint a second
+// incumbent object. The orphaned first object is not lost (the reconcile
+// poller mirrors it on its next sweep), but a retried Create is NOT
+// idempotent in V1. Retry-safe create (search-before-create or an
+// alternate-key upsert, per S-E19.3/S-E20.3) is a fast-follow; overlay
+// write-back today is reached only through the 🟡 confirm-first agent path
+// (AC-OV-5), whose approval is human-gated and audited, so an unattended
+// retry storm is not the live exposure.
 func (p *Provider) Create(ctx context.Context, in datasource.CreateInput) (datasource.EntityRef, error) {
 	if err := auth.Require(ctx, string(in.EntityType), principal.ActionCreate); err != nil {
 		return datasource.EntityRef{}, err

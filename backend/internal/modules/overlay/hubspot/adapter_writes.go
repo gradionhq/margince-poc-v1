@@ -39,7 +39,12 @@ func (a *Adapter) Create(ctx context.Context, canonicalClass string, fields map[
 	if err != nil {
 		return overlay.Record{}, err
 	}
-	return a.mapWriteResult(ctx, mw.ObjectClass, created)
+	// Re-read the created record through the SAME path a sync read uses
+	// (a.Get requests the baseline watermark property), so the mirrored
+	// record's ModifiedAt is the object-specific baseline (lastmodifieddate /
+	// hs_lastmodifieddate / hs_timestamp) the drift check compares against —
+	// never HubSpot's top-level updatedAt, which can diverge from it.
+	return a.Get(ctx, mw.ObjectClass, mirrorActivityExternalID(mw.ObjectClass, created.ID))
 }
 
 // Update applies a canonical patch to an existing record after the
@@ -69,11 +74,13 @@ func (a *Adapter) Update(ctx context.Context, canonicalClass, externalID string,
 	if current.ModifiedAt.After(baseline) {
 		return overlay.Record{}, apperrors.ErrVersionSkew
 	}
-	updated, err := a.client.UpdateObject(ctx, mw.ObjectClass, incumbentActivityID(mw.ObjectClass, externalID), mw.Props)
-	if err != nil {
+	if _, err := a.client.UpdateObject(ctx, mw.ObjectClass, incumbentActivityID(mw.ObjectClass, externalID), mw.Props); err != nil {
 		return overlay.Record{}, err
 	}
-	return a.mapWriteResult(ctx, mw.ObjectClass, updated)
+	// Re-read through the sync-read path so the mirrored ModifiedAt is the
+	// baseline watermark property, consistent with reads and the drift check
+	// (see Create's note).
+	return a.Get(ctx, mw.ObjectClass, externalID)
 }
 
 // Archive removes a record from HubSpot via its own archive/delete. For an
@@ -86,26 +93,6 @@ func (a *Adapter) Archive(ctx context.Context, canonicalClass, externalID string
 		return err
 	}
 	return a.client.ArchiveObject(ctx, hsClass, incumbentActivityID(hsClass, externalID))
-}
-
-// mapWriteResult maps a create/update response object back to a canonical
-// overlay.Record and enriches a lead's association-derived fields, so a
-// write's result is the SAME shape a sync read produces — what the mirror
-// ingests as the record's post-write state.
-func (a *Adapter) mapWriteResult(ctx context.Context, hsClass string, obj ObjectRecord) (overlay.Record, error) {
-	m, err := mappingFor(hsClass)
-	if err != nil {
-		return overlay.Record{}, err
-	}
-	rec, err := mapRecord(m, hsClass, obj)
-	if err != nil {
-		return overlay.Record{}, err
-	}
-	enriched, err := a.enrichLeads(ctx, hsClass, []overlay.Record{rec})
-	if err != nil {
-		return overlay.Record{}, err
-	}
-	return enriched[0], nil
 }
 
 // incumbentClassFor resolves the HubSpot object class a canonical write

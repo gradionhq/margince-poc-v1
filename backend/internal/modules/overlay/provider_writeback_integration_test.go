@@ -15,6 +15,7 @@ package overlay
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -136,6 +137,15 @@ func TestProviderCreateMirrorsIncumbentResult(t *testing.T) {
 	rec, err := p.Read(ctx, ref)
 	if err != nil {
 		t.Fatalf("Read after Create: %v", err)
+	}
+	// The incumbent's returned state must actually be ingested — assert the
+	// field content, not just that a row exists.
+	var fields map[string]any
+	if err := json.Unmarshal(rec.Fields, &fields); err != nil {
+		t.Fatalf("decoding read-back fields: %v", err)
+	}
+	if fields["first_name"] != "Ada" {
+		t.Errorf("mirrored first_name = %v, want 'Ada' (the incumbent's created state)", fields["first_name"])
 	}
 	// A mirror read is never authoritative — the incumbent stays the SoR.
 	if rec.Freshness.Authoritative {

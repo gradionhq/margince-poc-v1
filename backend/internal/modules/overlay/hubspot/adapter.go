@@ -411,19 +411,7 @@ func mapRecord(m overlay.ObjectMapping, objectClass string, raw ObjectRecord) (o
 
 	modifiedAt, err := parseWatermark(out["last_synced_at"])
 	if err != nil {
-		// A write-back create/update response may carry the object's top-level
-		// updatedAt without echoing the baseline PROPERTY (contacts'
-		// lastmodifieddate, …) in its properties map. Fall back to updatedAt so
-		// the write response maps without a second fetch. A read always requests
-		// the baseline property (propertyNames), so this fallback only fires on
-		// the write path — a read with a genuinely missing watermark still surfaces.
-		if raw.UpdatedAt == "" {
-			return overlay.Record{}, fmt.Errorf("hubspot: %s record %s: %w", objectClass, raw.ID, err)
-		}
-		modifiedAt, err = time.Parse(time.RFC3339Nano, raw.UpdatedAt)
-		if err != nil {
-			return overlay.Record{}, fmt.Errorf("hubspot: %s record %s: parsing updatedAt %q: %w", objectClass, raw.ID, raw.UpdatedAt, err)
-		}
+		return overlay.Record{}, fmt.Errorf("hubspot: %s record %s: %w", objectClass, raw.ID, err)
 	}
 
 	ownerID, _ := out["owner_id"].(string)
