@@ -29,9 +29,19 @@ func New() extension.Extension {
 			Version:        "1.0.0",
 			Tier:           extension.TierAutoExecute,
 			RequestedScope: extension.ScopeRead,
-			InputSchema:    json.RawMessage(`{"type":"object","additionalProperties":false}`),
-			OutputSchema:   json.RawMessage(`{"type":"object","properties":{"quote":{"type":"string"}},"required":["quote"],"additionalProperties":false}`),
-			Handle:         quote,
+			InputSchema: json.RawMessage(`{
+  "type": "object",
+  "additionalProperties": false
+}`),
+			OutputSchema: json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "quote": {"type": "string"}
+  },
+  "required": ["quote"],
+  "additionalProperties": false
+}`),
+			Handle: quote,
 		}},
 	}
 }

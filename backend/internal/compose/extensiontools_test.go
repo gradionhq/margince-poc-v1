@@ -26,6 +26,7 @@ type fullSeat struct{}
 func (fullSeat) EffectiveRBAC(context.Context, ids.UUID, ids.UUID) (authz.RBAC, error) {
 	return authz.RBAC{}, nil
 }
+
 func (fullSeat) SeatType(context.Context, ids.UUID, ids.UUID) (principal.SeatType, error) {
 	return principal.SeatFull, nil
 }
