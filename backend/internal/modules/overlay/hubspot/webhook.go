@@ -68,28 +68,40 @@ const (
 	subPrefixDeal    = "deal"
 	subPrefixLead    = "lead"
 	subPrefixHSLead  = "hs_lead"
-	// subActionDeletion is the one action this signal lane deliberately does
-	// NOT act on: a re-fetch of a deleted record 404s and would leave the
-	// mirror row lingering (a doomed job that looks handled). Incumbent-side
-	// deletions are the poller's deletion-feed's job (it tombstones), so a
-	// deletion subscription is dropped here rather than enqueued.
-	subActionDeletion = "deletion"
+	// The deletion-family actions this signal lane deliberately does NOT act on:
+	// a re-fetch of a deleted record 404s and would leave the mirror row
+	// lingering (a doomed job that looks handled). Incumbent-side deletions are
+	// the poller's deletion-feed's job, so a deletion subscription is dropped
+	// here rather than enqueued. subActionPrivacyDeletion is HubSpot's GDPR
+	// hard-delete (contact.privacyDeletion) — the SAME "must not enter the
+	// re-fetch lane" rule, and MORE important to not mishandle (the mirror must
+	// not resurrect a privacy-deleted record); active purge of it belongs to the
+	// deletion/erasure path, not this re-fetch lane.
+	subActionDeletion        = "deletion"
+	subActionPrivacyDeletion = "privacyDeletion"
 )
+
+// isDeletionAction reports whether a subscription action is a deletion-family
+// one this lane drops (never re-fetches).
+func isDeletionAction(action string) bool {
+	return action == subActionDeletion || action == subActionPrivacyDeletion
+}
 
 // ObjectClassForSubscription maps a HubSpot subscriptionType (e.g.
 // "contact.propertyChange", "deal.creation") to the incumbent object class the
 // mirror re-fetches through — the prefix before the first dot names the object
 // type. ok=false means "not re-fetchable through this lane": either an
 // unrecognized object type (a type the mirror does not model — dropped, never
-// guessed) OR a deletion action (owned by the poller's deletion feed, not a
-// re-fetch). V1 covers the object types HubSpot webhooks deliver for
-// (contact/company/deal/lead); the five engagement classes have no standard
-// webhook subscription and are healed by the poller.
+// guessed) OR a deletion-family action (deletion / privacyDeletion — owned by
+// the poller's deletion/erasure path, not a re-fetch). V1 covers the object
+// types HubSpot webhooks deliver for (contact/company/deal/lead); the five
+// engagement classes have no standard webhook subscription and are healed by
+// the poller.
 func ObjectClassForSubscription(subscriptionType string) (string, bool) {
 	prefix, action, _ := strings.Cut(subscriptionType, ".")
-	if action == subActionDeletion {
+	if isDeletionAction(action) {
 		// Presented honestly as NOT handled by the re-fetch lane; the poller's
-		// deletion feed tombstones incumbent-deleted records.
+		// deletion feed / erasure path owns removing incumbent-deleted records.
 		return "", false
 	}
 	switch prefix {

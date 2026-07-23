@@ -173,9 +173,14 @@ func WorkspaceForPortal(ctx context.Context, pool *pgxpool.Pool, incumbent, incu
 // sweep checkpoints (overlay_sync_state, backfill cursors), this operational
 // binding metadata is a plain UPDATE, not a domain mutation through the
 // audit+outbox write shape. It never CHANGES an existing binding — only fills a
-// null — so it cannot silently re-point a portal. An adapter exposing no
-// account accessor, or a transient AccountID failure, is a no-op (the next
-// sweep retries); ctx is the caller's already-workspace-scoped sweep context.
+// null — so it cannot silently re-point a portal.
+//
+// Error contract: an adapter exposing no account accessor, or an already-bound
+// connection, or an adapter that resolves an empty id, is a silent no-op
+// (returns nil). A FAILED AccountID call (or the gating read) is SURFACED to the
+// caller — the reconcile sweep treats it as best-effort (logs and continues, so
+// the next sweep retries), but the error is returned rather than swallowed here
+// so a future caller can decide. ctx is the caller's workspace-scoped context.
 func BackfillPortalBinding(ctx context.Context, pool *pgxpool.Pool, inc Incumbent) error {
 	reader, ok := inc.(incumbentAccountReader)
 	if !ok {

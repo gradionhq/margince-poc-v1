@@ -71,4 +71,10 @@ func TestObjectClassForSubscription(t *testing.T) {
 	if _, ok := ObjectClassForSubscription("contact.deletion"); ok {
 		t.Error("a contact deletion must be ok=false too (dropped from the re-fetch lane)")
 	}
+	// HubSpot's GDPR hard-delete must ALSO be dropped from the re-fetch lane —
+	// re-fetching a privacy-deleted contact would 404 and leave its mirrored PII
+	// behind; the erasure path owns removing it, never a re-fetch.
+	if _, ok := ObjectClassForSubscription("contact.privacyDeletion"); ok {
+		t.Error("a privacyDeletion must be ok=false (never re-fetched; erasure path owns it)")
+	}
 }
