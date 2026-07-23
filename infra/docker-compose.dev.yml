@@ -5,9 +5,9 @@
 # service containers — change them everywhere or nowhere.
 #
 # Images are digest-pinned to the multi-arch INDEX digest (works on both
-# arm64 dev machines and amd64 CI), same pins as CI's service containers
-# (.github/workflows/ci.yml) — bump tag and digest together, everywhere or
-# nowhere. The check-image-pins gate fails a floating tag here.
+# arm64 dev machines and amd64 CI — CI's integration lane runs this same
+# compose file via `make db-up`, so these are the only pins). Bump tag and
+# digest together. The check-image-pins gate fails a floating tag here.
 #
 # The project name is repo-specific: a generic name (margince-dev) collides
 # with stale volumes from the frozen poc-era stack on machines that ran it,
@@ -29,7 +29,13 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U margince_owner -d margince"]
+      # Probe over TCP, never the unix socket: on first boot the entrypoint's
+      # temporary bootstrap server (initdb + init scripts) serves ONLY the
+      # socket, so a socket probe reports ready inside the window where that
+      # server is torn down before the real one starts — and a psql that
+      # trusts compose's Healthy lands on a missing socket. The TCP listener
+      # exists only on the final server.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U margince_owner -d margince"]
       interval: 2s
       timeout: 5s
       retries: 15

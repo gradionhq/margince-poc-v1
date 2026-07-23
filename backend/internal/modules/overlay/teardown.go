@@ -176,12 +176,10 @@ func revokeConnection(ctx context.Context, tx pgx.Tx) (credentialRef string, err
 // mirror load outright, and a stale watermark resumes the incremental
 // sweep past everything it never saw. A disconnected workspace's sync
 // state must read exactly as a never-connected one's does ("", not
-// started, epoch). The OVB budget window (overlay_budget_window) purges
-// for that same read-exactly-as-never-connected reason: it is spend
-// against the incumbent's quota, and a workspace with no incumbent has
-// no such spend — a retained window would misreport a disconnected
-// workspace as mid-consumption and, on a later reconnect, shed
-// force-fresh reads against a budget the prior connection spent. No
+// started, epoch). The OVB budget window is NOT purged here: it lives in
+// Redis now (overlay-budget chapter), not a workspace-scoped Postgres
+// table, and its fixed-window counters expire on their own TTL — there is
+// no PG row for this teardown to touch. No
 // embeddings/context-graph/FTS tables exist
 // yet in this build (the search module's retrieval store is a later
 // work package) — nothing here to purge on their behalf until that
@@ -226,9 +224,6 @@ func purgeMirror(ctx context.Context, tx pgx.Tx) error {
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM overlay_sync_state`); err != nil {
 		return fmt.Errorf("overlay: purging the sweep backoff state: %w", err)
-	}
-	if _, err := tx.Exec(ctx, `DELETE FROM overlay_budget_window`); err != nil {
-		return fmt.Errorf("overlay: purging the budget window: %w", err)
 	}
 	return nil
 }

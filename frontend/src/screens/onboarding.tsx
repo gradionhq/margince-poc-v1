@@ -31,6 +31,8 @@ import {
 import {
   type ChangeEvent,
   type ReactNode,
+  type SetStateAction,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -55,12 +57,16 @@ import {
   useCompanyContextCapabilities,
 } from "./company-context";
 import { confidenceLevel } from "./inbox";
+import {
+  conversationFlagEnabled,
+  OnboardingConversationScreen,
+} from "./onboarding-conversation/index";
 import { ReadCompanyStep } from "./onboarding-read";
+import { parseVoiceInsights, VoiceInsights } from "./voice-insights";
 import "./onboarding.css";
 
 const STEPS = [
-  { key: "read", label: "ob.read" },
-  { key: "confirm", label: "ob.confirm" },
+  { key: "read", label: "ob.company" },
   { key: "voice", label: "ob.voice" },
   { key: "results", label: "ob.results" },
   { key: "connect", label: "ob.connect" },
@@ -69,7 +75,7 @@ const STEPS = [
 const VOICE_TARGET = 30000;
 // The facts endpoint accepts at most this many selected keys; preselecting
 // more than the API takes would make the default state unsubmittable.
-const MAX_SELECTED_FACTS = 100;
+export const MAX_SELECTED_FACTS = 100;
 
 type CompanyProfile = components["schemas"]["CompanyProfile"];
 type ColdField = components["schemas"]["ColdStartField"];
@@ -112,18 +118,18 @@ const SALES_FIELDS = [
   "sales_motion",
 ] as const;
 
-type CompanyFieldName =
+export type CompanyFieldName =
   | "website"
   | (typeof LEGAL_IDENTITY_FIELDS)[number]
   | (typeof OFFER_FIELDS)[number]
   | (typeof CUSTOMER_FIELDS)[number]
   | (typeof SALES_FIELDS)[number];
-type CompanyForm = Record<CompanyFieldName, string>;
+export type CompanyForm = Record<CompanyFieldName, string>;
 
 // The universal semantic minimum is enough to tell later product calls who the
 // company is, what it sells, and to whom. Legal and registry details stay
 // optional until a workflow with a real invoicing or jurisdictional need asks.
-const REQUIRED_FIELDS = [
+export const REQUIRED_FIELDS = [
   "display_name",
   "offer_summary",
   "icp",
@@ -138,12 +144,6 @@ type ManualQuestion = Readonly<{
 }>;
 
 const MANUAL_QUESTIONS: readonly ManualQuestion[] = [
-  {
-    field: "display_name",
-    chapter: "ob.manualChapterLegal",
-    prompt: "ob.manual.display_name",
-    hint: "ob.manual.display_nameHint",
-  },
   {
     field: "legal_name",
     chapter: "ob.manualChapterLegal",
@@ -164,6 +164,26 @@ const MANUAL_QUESTIONS: readonly ManualQuestion[] = [
     hint: "ob.manual.register_vatHint",
   },
   {
+    field: "display_name",
+    chapter: "ob.manualChapterLegal",
+    prompt: "ob.manual.display_name",
+    hint: "ob.manual.display_nameHint",
+  },
+  {
+    field: "offer_summary",
+    chapter: "ob.manualChapterOffer",
+    prompt: "ob.manual.offer_summary",
+    hint: "ob.manual.offer_summaryHint",
+    multiline: true,
+  },
+  {
+    field: "icp",
+    chapter: "ob.manualChapterCustomer",
+    prompt: "ob.manual.icp",
+    hint: "ob.manual.icpHint",
+    multiline: true,
+  },
+  {
     field: "industry",
     chapter: "ob.manualChapterLegal",
     prompt: "ob.manual.industry",
@@ -174,13 +194,6 @@ const MANUAL_QUESTIONS: readonly ManualQuestion[] = [
     chapter: "ob.manualChapterLegal",
     prompt: "ob.manual.history",
     hint: "ob.manual.historyHint",
-    multiline: true,
-  },
-  {
-    field: "offer_summary",
-    chapter: "ob.manualChapterOffer",
-    prompt: "ob.manual.offer_summary",
-    hint: "ob.manual.offer_summaryHint",
     multiline: true,
   },
   {
@@ -195,13 +208,6 @@ const MANUAL_QUESTIONS: readonly ManualQuestion[] = [
     chapter: "ob.manualChapterOffer",
     prompt: "ob.manual.usp",
     hint: "ob.manual.uspHint",
-    multiline: true,
-  },
-  {
-    field: "icp",
-    chapter: "ob.manualChapterCustomer",
-    prompt: "ob.manual.icp",
-    hint: "ob.manual.icpHint",
     multiline: true,
   },
   {
@@ -254,7 +260,7 @@ type Grounded = Partial<Record<ColdField["field"], ColdField>>;
 
 // One state object, because the three parts move together: typing a value
 // drops its site grounding (the value is the human's now) and marks it typed.
-type CompanyDraft = {
+export type CompanyDraft = {
   values: CompanyForm;
   grounded: Grounded;
   edited: ReadonlySet<CompanyFieldName>;
@@ -280,7 +286,7 @@ const EMPTY_FORM: CompanyForm = {
   history: "",
 };
 
-const EMPTY_DRAFT: CompanyDraft = {
+export const EMPTY_DRAFT: CompanyDraft = {
   values: EMPTY_FORM,
   grounded: {},
   edited: new Set(),
@@ -290,7 +296,7 @@ function orEmpty(value: string | null | undefined): string {
   return value ?? "";
 }
 
-function formFromProfile(p: CompanyProfile): CompanyForm {
+export function formFromProfile(p: CompanyProfile): CompanyForm {
   return {
     display_name: p.display_name,
     website: orEmpty(p.website),
@@ -341,7 +347,7 @@ export function useCompany(enabled: boolean) {
 // cleared first, then the new read fills what it can quote — a field the new
 // site does not ground goes back to empty for manual entry (the no-guess
 // gate), and a field the human typed or edited keeps their text throughout.
-function prefill(
+export function prefill(
   draft: CompanyDraft,
   fields: readonly ColdField[],
 ): CompanyDraft {
@@ -364,8 +370,24 @@ function prefill(
   return { values, grounded, edited: draft.edited };
 }
 
+export function changeDraftField(
+  draft: CompanyDraft,
+  field: CompanyFieldName,
+  value: string,
+): CompanyDraft {
+  const grounded = { ...draft.grounded };
+  if (field in grounded) {
+    delete grounded[field as ColdField["field"]];
+  }
+  return {
+    values: { ...draft.values, [field]: value },
+    grounded,
+    edited: new Set(draft.edited).add(field),
+  };
+}
+
 // URL normalization/validation (S-E01.1: scheme/host/dedupe, honest invalid).
-function normalizeUrl(raw: string): {
+export function normalizeUrl(raw: string): {
   ok: boolean;
   host: string;
   full: string;
@@ -401,7 +423,7 @@ function optionalDraftValue(value: string): string | null {
   return trimmed === "" ? null : value;
 }
 
-function onboardingDraftPayload(values: CompanyForm) {
+export function onboardingDraftPayload(values: CompanyForm) {
   return {
     display_name: optionalDraftValue(values.display_name),
     offer_summary: optionalDraftValue(values.offer_summary),
@@ -444,7 +466,7 @@ class WizardStateWriteError extends Error {
   }
 }
 
-async function writeWizardState(body: PutOnboardingState) {
+export async function writeWizardState(body: PutOnboardingState) {
   const { data, error, response } = await api.PUT("/onboarding/state", {
     params: { header: { "Idempotency-Key": crypto.randomUUID() } },
     body,
@@ -455,7 +477,7 @@ async function writeWizardState(body: PutOnboardingState) {
   return data;
 }
 
-function wizardStateBody(input: {
+export function wizardStateBody(input: {
   expectedVersion: number;
   nextStep: number;
   mode: SourceMode | null;
@@ -487,6 +509,9 @@ function restoredWizardStep(
   if (routeID === "connect") {
     return null;
   }
+  if (state.step === "confirm") {
+    return 0;
+  }
   const index = STEPS.findIndex((candidate) => candidate.key === state.step);
   return index >= 0 ? index : null;
 }
@@ -516,6 +541,11 @@ export function OnboardingScreen() {
   if (capabilities.data && !capabilities.data.onboarding_enabled) {
     return <ManualCompanySetup />;
   }
+  // The conversational shell ships behind an opt-in flag until it covers the
+  // whole journey; the stepper coordinator stays the default experience.
+  if (conversationFlagEnabled()) {
+    return <OnboardingConversationScreen />;
+  }
   return <OnboardingCoordinator />;
 }
 
@@ -524,16 +554,24 @@ function OnboardingCoordinator() {
   const t = useT();
   const queryClient = useQueryClient();
   const route = useRoute();
-  const [step, setStep] = useState(route.id === "connect" ? 4 : 0);
+  const [step, setStep] = useState(route.id === "connect" ? 3 : 0);
   const connectOutcome =
     route.id === "connect" && route.id2 ? route.id2 : undefined;
   const [voiceBuilt, setVoiceBuilt] = useState(false);
   // Company-step state lives HERE, not in the step component: stepping back
   // and forward must not destroy what the user typed.
-  const [draft, setDraft] = useState<CompanyDraft>(EMPTY_DRAFT);
+  const [draft, setDraftState] = useState<CompanyDraft>(EMPTY_DRAFT);
+  const draftRef = useRef<CompanyDraft>(EMPTY_DRAFT);
+  const setDraft = useCallback((update: SetStateAction<CompanyDraft>) => {
+    const next =
+      typeof update === "function" ? update(draftRef.current) : update;
+    draftRef.current = next;
+    setDraftState(next);
+  }, []);
   const [saveAttempted, setSaveAttempted] = useState(false);
   const [companySaved, setCompanySaved] = useState(false);
   const [sourceMode, setSourceMode] = useState<SourceMode | null>(null);
+  const sourceModeRef = useRef<SourceMode | null>(null);
   const [siteReadID, setSiteReadID] = useState<string | null>(null);
   const [selectedFactKeys, setSelectedFactKeys] = useState<string[]>([]);
   const [voiceSkipped, setVoiceSkipped] = useState(false);
@@ -544,6 +582,39 @@ function OnboardingCoordinator() {
     () => normalizeUrl(draft.values.website),
     [draft.values.website],
   );
+
+  // A page refresh must not forget a durable build: the profile's version
+  // list is the server truth (active when it auto-activated, candidate when
+  // it awaits review), so the voice step's forward action reflects what
+  // actually exists instead of this mount's local memory.
+  const voiceBuiltProbe = useQuery({
+    queryKey: ["onboarding-voice-built"],
+    queryFn: async (): Promise<boolean> => {
+      const list = await api.GET("/voice-profiles");
+      if (list.error) {
+        throw new Error(problemMessage(list.error));
+      }
+      const profileId = list.data.data[0]?.id;
+      if (!profileId) {
+        return false;
+      }
+      const versions = await api.GET("/voice-profiles/{id}/versions", {
+        params: { path: { id: profileId } },
+      });
+      if (versions.error) {
+        throw new Error(problemMessage(versions.error));
+      }
+      return versions.data.data.some(
+        (version) =>
+          version.status === "active" || version.status === "candidate",
+      );
+    },
+  });
+  useEffect(() => {
+    if (voiceBuiltProbe.data) {
+      setVoiceBuilt(true);
+    }
+  }, [voiceBuiltProbe.data]);
 
   const existing = useCompany(true);
   const wizardState = useQuery({
@@ -572,61 +643,75 @@ function OnboardingCoordinator() {
   const persistQueue = useRef<Promise<boolean>>(Promise.resolve(true));
   const seeded = useRef(false);
 
-  const persistState = (
-    nextStep: number,
-    overrides: Partial<{
-      sourceMode: SourceMode | null;
-      siteReadID: string | null;
-      selectedFactKeys: string[];
-      voiceSkipped: boolean;
-      connectSkipped: boolean;
-    }> = {},
-  ) => {
-    const mode =
-      overrides.sourceMode === undefined ? sourceMode : overrides.sourceMode;
-    const readID =
-      overrides.siteReadID === undefined ? siteReadID : overrides.siteReadID;
-    const factKeys = overrides.selectedFactKeys ?? selectedFactKeys;
-    const skippedVoice = overrides.voiceSkipped ?? voiceSkipped;
-    const skippedConnect = overrides.connectSkipped ?? connectSkipped;
-    const values = draft.values;
-    persistQueue.current = persistQueue.current.then(async () => {
-      try {
-        const data = await writeWizardState(
-          wizardStateBody({
-            expectedVersion: stateVersion.current,
-            nextStep,
-            mode,
-            readID,
-            norm,
-            values,
-            factKeys,
-            skippedVoice,
-            skippedConnect,
-          }),
-        );
-        stateVersion.current = data.version;
-        statePath.current = data.path;
-        queryClient.setQueryData(["onboarding-state"], data);
-        setStateConflict(null);
-        return true;
-      } catch (error) {
-        if (error instanceof WizardStateWriteError && error.status === 409) {
-          setStateConflict(t("ob.stateConflict"));
-          seeded.current = false;
-          await queryClient.invalidateQueries({
-            queryKey: ["onboarding-state"],
-          });
+  const persistState = useCallback(
+    (
+      nextStep: number,
+      overrides: Partial<{
+        sourceMode: SourceMode | null;
+        siteReadID: string | null;
+        selectedFactKeys: string[];
+        voiceSkipped: boolean;
+        connectSkipped: boolean;
+        values: CompanyForm;
+      }> = {},
+    ) => {
+      const mode =
+        overrides.sourceMode === undefined ? sourceMode : overrides.sourceMode;
+      const readID =
+        overrides.siteReadID === undefined ? siteReadID : overrides.siteReadID;
+      const factKeys = overrides.selectedFactKeys ?? selectedFactKeys;
+      const skippedVoice = overrides.voiceSkipped ?? voiceSkipped;
+      const skippedConnect = overrides.connectSkipped ?? connectSkipped;
+      const values = overrides.values ?? draft.values;
+      persistQueue.current = persistQueue.current.then(async () => {
+        try {
+          const data = await writeWizardState(
+            wizardStateBody({
+              expectedVersion: stateVersion.current,
+              nextStep,
+              mode,
+              readID,
+              norm,
+              values,
+              factKeys,
+              skippedVoice,
+              skippedConnect,
+            }),
+          );
+          stateVersion.current = data.version;
+          statePath.current = data.path;
+          queryClient.setQueryData(["onboarding-state"], data);
+          setStateConflict(null);
+          return true;
+        } catch (error) {
+          if (error instanceof WizardStateWriteError && error.status === 409) {
+            setStateConflict(t("ob.stateConflict"));
+            seeded.current = false;
+            await queryClient.invalidateQueries({
+              queryKey: ["onboarding-state"],
+            });
+            return false;
+          }
+          setStateConflict(
+            error instanceof Error ? error.message : t("ob.stateSaveFailed"),
+          );
           return false;
         }
-        setStateConflict(
-          error instanceof Error ? error.message : t("ob.stateSaveFailed"),
-        );
-        return false;
-      }
-    });
-    return persistQueue.current;
-  };
+      });
+      return persistQueue.current;
+    },
+    [
+      connectSkipped,
+      draft.values,
+      norm,
+      queryClient,
+      selectedFactKeys,
+      siteReadID,
+      sourceMode,
+      t,
+      voiceSkipped,
+    ],
+  );
 
   useEffect(() => {
     if (seeded.current || existing.isPending || wizardState.isPending) {
@@ -637,7 +722,9 @@ function OnboardingCoordinator() {
     if (saved) {
       stateVersion.current = saved.version;
       statePath.current = saved.path;
-      setSourceMode(saved.source_mode ?? null);
+      const savedMode = saved.source_mode ?? null;
+      setSourceMode(savedMode);
+      sourceModeRef.current = savedMode;
       setSiteReadID(saved.site_read_id ?? null);
       setSelectedFactKeys(saved.selected_fact_keys);
       setVoiceSkipped(saved.voice_skipped);
@@ -659,7 +746,7 @@ function OnboardingCoordinator() {
         edited: new Set(),
       });
       if (route.id !== "connect") {
-        setStep(2);
+        setStep(1);
       }
     }
     setCompanySaved(Boolean(existing.data));
@@ -667,6 +754,7 @@ function OnboardingCoordinator() {
     existing.data,
     existing.isPending,
     route.id,
+    setDraft,
     wizardState.data,
     wizardState.isPending,
   ]);
@@ -687,6 +775,9 @@ function OnboardingCoordinator() {
       return data;
     },
     onSuccess: (data) => {
+      if (sourceModeRef.current !== "website") {
+        return;
+      }
       setSiteReadID(data.id);
       // Starting a read replaces the previous site's findings, so nothing
       // of it may survive: the fact selection goes, the legal trio the
@@ -695,7 +786,10 @@ function OnboardingCoordinator() {
       // resets because draft_version counts within ONE dossier — a new
       // read can open at a version the old one already passed.
       appliedReadVersion.current = 0;
-      setSelectedFactKeys([]);
+      const factKeys = [
+        ...new Set(data.facts.map((fact) => fact.value_key)),
+      ].slice(0, MAX_SELECTED_FACTS);
+      setSelectedFactKeys(factKeys);
       setDraft((prev) => {
         const values = { ...prev.values };
         const edited = new Set(prev.edited);
@@ -708,7 +802,7 @@ function OnboardingCoordinator() {
       persistState(0, {
         sourceMode: "website",
         siteReadID: data.id,
-        selectedFactKeys: [],
+        selectedFactKeys: factKeys,
       });
     },
   });
@@ -736,22 +830,29 @@ function OnboardingCoordinator() {
 
   useEffect(() => {
     const read = siteRead.data;
-    if (!read || read.draft_version <= appliedReadVersion.current) {
+    if (
+      sourceMode !== "website" ||
+      !read ||
+      read.draft_version <= appliedReadVersion.current
+    ) {
       return;
     }
     appliedReadVersion.current = read.draft_version;
-    setDraft((prev) => prefill(prev, read.profile_fields));
+    const nextDraft = prefill(draftRef.current, read.profile_fields);
+    setDraft(nextDraft);
     // A value key can name more than one fact — the same company can be
     // both a partner and a named customer — and the API takes a SET of
     // keys, so the selection folds the repeats rather than sending a
     // duplicate it would reject.
-    setSelectedFactKeys(
-      [...new Set(read.facts.map((fact) => fact.value_key))].slice(
-        0,
-        MAX_SELECTED_FACTS,
-      ),
-    );
-  }, [siteRead.data]);
+    const factKeys = [
+      ...new Set(read.facts.map((fact) => fact.value_key)),
+    ].slice(0, MAX_SELECTED_FACTS);
+    setSelectedFactKeys(factKeys);
+    persistState(0, {
+      selectedFactKeys: factKeys,
+      values: nextDraft.values,
+    });
+  }, [siteRead.data, persistState, setDraft, sourceMode]);
 
   const go = (next: number, persist = true) => {
     if (next < 0 || next >= STEPS.length) {
@@ -799,19 +900,7 @@ function OnboardingCoordinator() {
     });
 
   const setField = (field: CompanyFieldName, value: string) =>
-    setDraft((prev) => {
-      // Typing into a pre-filled field makes the value the human's assertion —
-      // it stops claiming the site's snippet as its evidence.
-      const grounded = { ...prev.grounded };
-      if (field in grounded) {
-        delete grounded[field as ColdField["field"]];
-      }
-      return {
-        values: { ...prev.values, [field]: value },
-        grounded,
-        edited: new Set(prev.edited).add(field),
-      };
-    });
+    setDraft((prev) => changeDraftField(prev, field, value));
 
   const save = useMutation({
     mutationFn: async (): Promise<CompanyProfile> => {
@@ -860,7 +949,7 @@ function OnboardingCoordinator() {
       // The server owns the stored shape (a full URL is reduced to its bare
       // domain) — show what was actually saved, not what was typed.
       setDraft((prev) => ({ ...prev, values: formFromProfile(profile) }));
-      go(2);
+      go(1);
     },
   });
 
@@ -869,9 +958,23 @@ function OnboardingCoordinator() {
   const missingRequired = REQUIRED_FIELDS.filter(
     (field) => draft.values[field].trim() === "",
   );
-  const saveCompany = () => {
+  const websiteResearchReady =
+    sourceMode !== "website" ||
+    siteRead.data?.status === "ready" ||
+    siteRead.data?.status === "partial";
+  const saveCompany = async () => {
     setSaveAttempted(true);
-    if (missingRequired.length > 0) {
+    if (missingRequired.length > 0 || !websiteResearchReady) {
+      return;
+    }
+    if (
+      sourceMode === "manual" &&
+      !(await persistState(0, {
+        sourceMode: "manual",
+        siteReadID: null,
+        values: draft.values,
+      }))
+    ) {
       return;
     }
     save.mutate();
@@ -948,6 +1051,7 @@ function OnboardingCoordinator() {
                   ? siteRead.error.message
                   : null
             }
+            companyDraft={onboardingDraftPayload(draft.values)}
             manualContent={
               sourceMode === "manual" ? (
                 <ManualCompanyInterview
@@ -960,6 +1064,7 @@ function OnboardingCoordinator() {
                     })
                   }
                   onBackToChoice={() => {
+                    sourceModeRef.current = null;
                     setSourceMode(null);
                     persistState(0, {
                       sourceMode: null,
@@ -967,22 +1072,20 @@ function OnboardingCoordinator() {
                     });
                   }}
                   onComplete={() => {
-                    persistState(1, {
+                    persistState(0, {
                       sourceMode: "manual",
                       siteReadID: null,
                     });
-                    go(1, false);
                   }}
                 />
               ) : null
             }
             onWebsiteChange={(value) => setField("website", value)}
-            onChooseWebsite={() => {
-              setSourceMode("website");
-              persistState(0, { sourceMode: "website" });
-            }}
             onChooseManual={() => {
+              sourceModeRef.current = "manual";
               setSourceMode("manual");
+              setSiteReadID(null);
+              appliedReadVersion.current = 0;
               setSelectedFactKeys([]);
               persistState(0, {
                 sourceMode: "manual",
@@ -990,44 +1093,57 @@ function OnboardingCoordinator() {
                 selectedFactKeys: [],
               });
             }}
-            onStart={() => startRead.mutate()}
+            onStart={() => {
+              sourceModeRef.current = "website";
+              setSourceMode("website");
+              startRead.mutate();
+            }}
             onApplyChanges={(changes) => {
+              let nextDraft = draft;
               for (const change of changes) {
-                setField(change.field, change.value);
+                nextDraft = changeDraftField(
+                  nextDraft,
+                  change.field,
+                  change.value,
+                );
               }
+              setDraft(nextDraft);
+              persistState(0, { values: nextDraft.values });
             }}
-            onContinue={() => {
-              persistState(1, { sourceMode: "website", selectedFactKeys });
-              go(1, false);
-            }}
+            reviewContent={
+              sourceMode !== null ? (
+                <CompanyStep
+                  embedded
+                  draft={draft}
+                  setField={setField}
+                  saved={companySaved}
+                  saveError={save.isError ? save.error.message : null}
+                  missingRequired={saveAttempted ? missingRequired : []}
+                  read={siteRead.data ?? null}
+                  onPickEntity={setLegalEntity}
+                  selectedFactKeys={selectedFactKeys}
+                  setSelectedFactKeys={(keys) => {
+                    setSelectedFactKeys(keys);
+                    persistState(0, { selectedFactKeys: keys });
+                  }}
+                  onFieldBlur={() => persistState(0)}
+                />
+              ) : null
+            }
+            confirmPending={save.isPending}
+            confirmDisabled={!websiteResearchReady}
+            onConfirm={saveCompany}
           />
         )}
-        {step === 1 && (
-          <CompanyStep
-            draft={draft}
-            setField={setField}
-            saved={companySaved}
-            saveError={save.isError ? save.error.message : null}
-            missingRequired={saveAttempted ? missingRequired : []}
-            read={siteRead.data ?? null}
-            onPickEntity={setLegalEntity}
-            selectedFactKeys={selectedFactKeys}
-            setSelectedFactKeys={(keys) => {
-              setSelectedFactKeys(keys);
-              persistState(1, { selectedFactKeys: keys });
-            }}
-            onFieldBlur={() => persistState(1)}
-          />
-        )}
-        {step === 2 && <VoiceStep onBuilt={() => setVoiceBuilt(true)} />}
-        {step === 3 && (
+        {step === 1 && <VoiceStep onBuilt={() => setVoiceBuilt(true)} />}
+        {step === 2 && (
           <ResultsStep
             voiceBuilt={voiceBuilt}
             profileSaved={companySaved}
             profile={existing.data ?? undefined}
           />
         )}
-        {step === 4 && (
+        {step === 3 && (
           <ConnectStep outcome={connectOutcome} onComplete={finishOnboarding} />
         )}
 
@@ -1035,12 +1151,11 @@ function OnboardingCoordinator() {
           <Footer
             step={step}
             go={go}
-            onSaveCompany={saveCompany}
-            savePending={save.isPending}
             memberPath={memberPath}
+            voiceBuilt={voiceBuilt}
             onSkipVoice={() => {
               setVoiceSkipped(true);
-              const next = memberPath ? 4 : 3;
+              const next = memberPath ? 3 : 2;
               persistState(next, { voiceSkipped: true });
               go(next, false);
             }}
@@ -1056,24 +1171,22 @@ function OnboardingCoordinator() {
 function Footer({
   step,
   go,
-  onSaveCompany,
-  savePending,
   memberPath,
+  voiceBuilt,
   onSkipVoice,
 }: Readonly<{
   step: number;
   go: (n: number, persist?: boolean) => void;
-  onSaveCompany: () => void;
-  savePending: boolean;
   memberPath: boolean;
+  voiceBuilt: boolean;
   onSkipVoice: () => void;
 }>) {
   const t = useT();
   let backTarget: number | null = step - 1;
-  if (memberPath && step === 2) {
+  if (memberPath && step === 1) {
     backTarget = null;
-  } else if (memberPath && step === 4) {
-    backTarget = 2;
+  } else if (memberPath && step === 3) {
+    backTarget = 1;
   }
   return (
     <div className="wiz-foot">
@@ -1089,35 +1202,21 @@ function Footer({
         <span />
       )}
       <span className="grow" />
-      {step === 1 && (
-        <Button
-          variant="primary"
-          disabled={savePending}
-          onClick={onSaveCompany}
-        >
-          {savePending ? (
-            <>
-              <span className="ob-spinner" /> {t("ob.s1.saving")}
-            </>
-          ) : (
-            <>
-              {t("ob.next")} <ArrowRight aria-hidden />
-            </>
-          )}
-        </Button>
-      )}
-      {step === 2 && (
-        <>
-          <button type="button" className="wiz-later" onClick={onSkipVoice}>
-            {t("ob.skipStep")}
-          </button>
-          <Button variant="primary" onClick={() => go(memberPath ? 4 : 3)}>
+      {/* The forward action tells the truth about the step's outcome: only a
+          built (or honestly deferred) voice earns "Continue" — without one the
+          way forward IS skipping, and the button says so. */}
+      {step === 1 &&
+        (voiceBuilt ? (
+          <Button variant="primary" onClick={() => go(memberPath ? 3 : 2)}>
             {t("ob.next")} <ArrowRight aria-hidden />
           </Button>
-        </>
-      )}
-      {step === 3 && (
-        <Button variant="primary" onClick={() => go(4)}>
+        ) : (
+          <Button variant="ghost" onClick={onSkipVoice}>
+            {t("ob.skipStep")} <ArrowRight aria-hidden />
+          </Button>
+        ))}
+      {step === 2 && (
+        <Button variant="primary" onClick={() => go(3)}>
           {t("ob.s3.cta")} <ArrowRight aria-hidden />
         </Button>
       )}
@@ -1127,7 +1226,7 @@ function Footer({
 
 // ---- step 1: company -------------------------------------------------------
 
-function ManualCompanyInterview({
+export function ManualCompanyInterview({
   values,
   setField,
   onPersist,
@@ -1237,7 +1336,7 @@ function ManualCompanyInterview({
   );
 }
 
-function CompanyStep({
+export function CompanyStep({
   draft,
   setField,
   read,
@@ -1248,6 +1347,7 @@ function CompanyStep({
   setSelectedFactKeys,
   onPickEntity,
   onFieldBlur,
+  embedded = false,
 }: Readonly<{
   draft: CompanyDraft;
   setField: (field: CompanyFieldName, value: string) => void;
@@ -1259,14 +1359,19 @@ function CompanyStep({
   selectedFactKeys: readonly string[];
   setSelectedFactKeys: (keys: string[]) => void;
   onFieldBlur: () => void;
+  embedded?: boolean;
 }>) {
   const t = useT();
 
   return (
-    <section className="ob-panel">
-      <div className="kick">{t("ob.s1.kick")}</div>
-      <h1 className="ttl">{t("ob.s1.title")}</h1>
-      <p className="ob-sub">{t("ob.s1.sub")}</p>
+    <section className={embedded ? "ob-company-review" : "ob-panel"}>
+      {!embedded && (
+        <>
+          <div className="kick">{t("ob.s1.kick")}</div>
+          <h1 className="ttl">{t("ob.s1.title")}</h1>
+          <p className="ob-sub">{t("ob.s1.sub")}</p>
+        </>
+      )}
 
       <div className="confirm-origin">
         <ShieldCheck aria-hidden />
@@ -1594,7 +1699,7 @@ export function WebsiteReadBar({
 
 // A field the read-back grounded and the human has not touched still carries
 // the site's evidence; anything else is the human's own.
-function groundingOf(
+export function groundingOf(
   draft: CompanyDraft,
   field: CompanyFieldName,
 ): ColdField | null {
@@ -1784,11 +1889,31 @@ const ACCEPTED_CORPUS_ATTR = ".txt,.md,.vtt,.srt,.json";
 type VoicePiece = {
   ref: string;
   label: string;
+  // words is what actually counts toward the voice: for a transcript, the
+  // server-computed word count of ONLY the owner's turns; totalWords is the
+  // whole file, kept so the honest "kept X of Y" line can be shown.
   words: number;
+  totalWords: number;
   content: string;
   register: components["schemas"]["IngestVoiceCorpusSourceRequest"]["register"];
   kind: components["schemas"]["IngestVoiceCorpusSourceRequest"]["kind"];
+  format: components["schemas"]["IngestVoiceCorpusSourceRequest"]["format"];
+  speakerLabel?: string;
 };
+
+type CorpusPreview = components["schemas"]["VoiceCorpusPreviewResult"];
+
+// A transcript whose speakers are known but whose owner is not yet: the
+// step asks "which of these is you?" before a single word is counted.
+type SpeakerAsk = {
+  ref: string;
+  label: string;
+  content: string;
+  totalWords: number;
+  preview: CorpusPreview;
+};
+
+const TRANSCRIPT_EXT = /\.(vtt|srt|json)$/i;
 
 // The corpus meter is honest: it counts only the real words the owner uploaded
 // or pasted here (the build ingests exactly these). Presets below are examples
@@ -1798,18 +1923,91 @@ type VoicePiece = {
 const VOICE_MIN_WORDS = 800;
 const PASTE_REF = "onboarding:paste";
 
+// pickBuiltVersion names the version the build just produced: the highest
+// numbered active-or-candidate row — active when it auto-activated,
+// candidate when it awaits review.
+function pickBuiltVersion(
+  items: components["schemas"]["VoiceProfileVersion"][],
+): components["schemas"]["VoiceProfileVersion"] | null {
+  let built: components["schemas"]["VoiceProfileVersion"] | null = null;
+  for (const version of items) {
+    if (version.status !== "active" && version.status !== "candidate") {
+      continue;
+    }
+    if (!built || version.profile_version > built.profile_version) {
+      built = version;
+    }
+  }
+  return built;
+}
+
+// BuiltVoiceBody renders what the finished build produced: the structured
+// insights of the just-built version (with a review note when it is a
+// candidate), the raw artifact as fallback, or the honest empty line.
+function BuiltVoiceBody({
+  builtVersion,
+  derivedMD,
+}: Readonly<{
+  builtVersion: components["schemas"]["VoiceProfileVersion"] | null;
+  derivedMD: string | null;
+}>) {
+  const t = useT();
+  if (builtVersion) {
+    return (
+      <div>
+        {builtVersion.status === "candidate" && (
+          <p className="t-small" style={{ marginTop: 8 }}>
+            {t("ob.s2.candidateNote")}
+          </p>
+        )}
+        <VoiceInsights
+          data={parseVoiceInsights(builtVersion)}
+          profileVersion={builtVersion.profile_version}
+        />
+      </div>
+    );
+  }
+  if (derivedMD) {
+    return (
+      <p
+        style={{
+          marginTop: "var(--space-3)",
+          lineHeight: 1.55,
+          whiteSpace: "pre-wrap",
+        }}
+      >
+        {derivedMD}
+      </p>
+    );
+  }
+  return (
+    <p style={{ marginTop: "var(--space-3)", lineHeight: 1.55 }}>
+      {t("ob.s2.builtEmpty")}
+    </p>
+  );
+}
+
 function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
   const t = useT();
   const [optedIn, setOptedIn] = useState(false);
   const [pieces, setPieces] = useState<VoicePiece[]>([]);
   const [paste, setPaste] = useState("");
   const [skipped, setSkipped] = useState<string[]>([]);
+  const [speakerAsks, setSpeakerAsks] = useState<SpeakerAsk[]>([]);
+  // Per-file refusals: a corrected re-upload clears its own entry instead
+  // of one file's failure masking another's.
+  const [probeErrors, setProbeErrors] = useState<Record<string, string>>({});
+  const [probesInFlight, setProbesInFlight] = useState(0);
+  const [dragOver, setDragOver] = useState(false);
   const [built, setBuilt] = useState(false);
   const [building, setBuilding] = useState(false);
   const [deferred, setDeferred] = useState(false);
   const [buildError, setBuildError] = useState<string | null>(null);
   const [derived, setDerived] = useState<
     components["schemas"]["VoiceProfile"] | null
+  >(null);
+  const [activeVersion, setActiveVersion] = useState<
+    components["schemas"]["VoiceProfileVersion"] | null
   >(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -1845,47 +2043,166 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
     };
   }, [pieces, pasteWords]);
 
-  const onFiles = (e: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
+  const addPiece = (piece: VoicePiece) => {
+    setPieces((prev) => [...prev.filter((p) => p.ref !== piece.ref), piece]);
+  };
+
+  // Parallel uploads share ONE profile resolution: concurrent
+  // ensureProfileId calls would race each other into the server's
+  // one-live-profile conflict. A failed resolution clears the slot so the
+  // next upload can retry rather than inheriting a dead promise.
+  const profileIdInFlight = useRef<Promise<string> | null>(null);
+  const sharedProfileId = () => {
+    profileIdInFlight.current ??= ensureProfileId().catch((err: unknown) => {
+      profileIdInFlight.current = null;
+      throw err;
+    });
+    return profileIdInFlight.current;
+  };
+
+  // classifyUpload decides what one file honestly IS before anything counts:
+  // the server preview detects transcript structure and counts each
+  // speaker's SPOKEN words (labels and timestamps are never words), so a
+  // conversation never enters the meter whole — the owner is asked which
+  // speaker they are first (features/09 §B1.2).
+  async function classifyUpload(name: string, text: string) {
+    if (text.split(/\s+/).filter(Boolean).length === 0) {
+      return;
+    }
+    const ref = `onboarding:upload:${name}`;
+    const profileId = await sharedProfileId();
+    const { data, error } = await api.POST(
+      "/voice-profiles/{id}/sources/preview",
+      {
+        params: { path: { id: profileId } },
+        body: { format: "transcript", content: text },
+      },
+    );
+    if (error) {
+      throw new Error(problemMessage(error));
+    }
+    if (!mounted.current) {
+      return;
+    }
+    setProbeErrors((prev) => {
+      const { [ref]: _cleared, ...rest } = prev;
+      return rest;
+    });
+    const attributedWords = data.speakers.reduce(
+      (sum, speaker) => sum + speaker.words,
+      0,
+    );
+    // A .txt can be a pasted transcript too: treat it as one when the
+    // preview attributes most of its spoken words to labelled speakers.
+    const conversational =
+      TRANSCRIPT_EXT.test(name) ||
+      (data.ingestible_as_transcript &&
+        attributedWords >= data.total_words * 0.8);
+    if (conversational && data.ingestible_as_transcript) {
+      // A re-upload replaces any previously counted piece under this ref:
+      // nothing may stay in the meter while its replacement awaits the
+      // speaker answer.
+      setPieces((prev) => prev.filter((p) => p.ref !== ref));
+      setSpeakerAsks((prev) => [
+        ...prev.filter((ask) => ask.ref !== ref),
+        {
+          ref,
+          label: name,
+          content: text,
+          totalWords: data.total_words,
+          preview: data,
+        },
+      ]);
+      return;
+    }
+    if (TRANSCRIPT_EXT.test(name)) {
+      // Transcript-shaped but nobody is attributable: none of it can be
+      // proven the owner's own words, so none of it is counted.
+      setPieces((prev) => prev.filter((p) => p.ref !== ref));
+      setProbeErrors((prev) => ({
+        ...prev,
+        [ref]: t("ob.s2.unattributed", { file: name }),
+      }));
+      return;
+    }
+    addPiece({
+      ref,
+      label: name,
+      words: data.total_words,
+      totalWords: data.total_words,
+      content: text,
+      register: "general",
+      kind: "document",
+      format: "text",
+    });
+  }
+
+  // One intake for both entry paths — the file picker and a drag&drop onto
+  // the dropzone feed the exact same corpus pipeline. V1 corpus is text only
+  // (features/09 §B1.1); binary documents (.docx/.pdf) are refused.
+  const addFiles = (files: File[]) => {
     const rejected: string[] = [];
     for (const file of files) {
-      // V1 corpus is text only (features/09 §B1.1): the meter counts the real
-      // words of what was read — never an estimate — and the text is KEPT so
-      // the real build can ingest it. Binary documents (.docx/.pdf) are
-      // refused; deferred: B-E07.5c (server-side extraction).
       if (!ACCEPTED_CORPUS_FILE.test(file.name)) {
         rejected.push(file.name);
         continue;
       }
-      file.text().then((text) => {
-        if (!mounted.current) {
-          return;
-        }
-        const words = text.split(/\s+/).filter(Boolean).length;
-        if (words === 0) {
-          return;
-        }
-        const spoken = /\.(vtt|srt)$/i.test(file.name);
-        const ref = `onboarding:upload:${file.name}`;
-        setPieces((prev) => [
-          ...prev.filter((p) => p.ref !== ref),
-          {
-            ref,
-            label: file.name,
-            words,
-            content: text,
-            register: spoken ? "spoken" : "general",
-            kind: spoken ? "transcript" : "document",
-          },
-        ]);
-      });
+      setProbesInFlight((n) => n + 1);
+      file
+        .text()
+        .then((text) => classifyUpload(file.name, text))
+        .catch((err: unknown) => {
+          if (mounted.current) {
+            setProbeErrors((prev) => ({
+              ...prev,
+              [`onboarding:upload:${file.name}`]:
+                err instanceof Error ? err.message : String(err),
+            }));
+          }
+        })
+        .finally(() => {
+          if (mounted.current) {
+            setProbesInFlight((n) => n - 1);
+          }
+        });
     }
     setSkipped(rejected);
+  };
+
+  // The owner named themselves: only THAT speaker's server-counted words
+  // enter the meter; the rest of the conversation contributes zero.
+  const resolveSpeaker = (
+    ask: SpeakerAsk,
+    speaker: CorpusPreview["speakers"][number],
+  ) => {
+    setSpeakerAsks((prev) => prev.filter((p) => p.ref !== ask.ref));
+    addPiece({
+      ref: ask.ref,
+      label: ask.label,
+      words: speaker.words,
+      totalWords: ask.totalWords,
+      content: ask.content,
+      register: "spoken",
+      kind: "transcript",
+      format: "transcript",
+      speakerLabel: speaker.label,
+    });
+  };
+
+  const onFiles = (e: ChangeEvent<HTMLInputElement>) => {
+    addFiles(Array.from(e.target.files ?? []));
     e.target.value = "";
   };
 
   const quality = corpusQuality(corpus.total);
-  const canBuild = corpus.total >= VOICE_MIN_WORDS && !building;
+  // Building must wait for every upload to finish classifying and every
+  // speaker question to be answered — a build that silently omitted a file
+  // still being probed would misrepresent what the voice was made from.
+  const canBuild =
+    corpus.total >= VOICE_MIN_WORDS &&
+    !building &&
+    probesInFlight === 0 &&
+    speakerAsks.length === 0;
 
   async function ingest(profileId: string, piece: VoicePiece) {
     const { error } = await api.POST("/voice-profiles/{id}/sources", {
@@ -1896,7 +2213,8 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
         weight: 1,
         source_label: piece.label,
         source_ref: piece.ref,
-        format: "text",
+        format: piece.format,
+        speaker_label: piece.speakerLabel ?? null,
         content: piece.content,
       },
     });
@@ -1965,9 +2283,11 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
         ref: PASTE_REF,
         label: t("ob.s2.pasteSource"),
         words: pasteWords,
+        totalWords: pasteWords,
         content: paste,
         register: "general",
         kind: "other",
+        format: "text",
       });
     }
   }
@@ -1999,10 +2319,25 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
       const profile = await api.GET("/voice-profiles/{id}", {
         params: { path: { id: profileId } },
       });
+      // The structured insights (thinking pattern, signature moves, sample
+      // drafts) live on the JUST-BUILT version row — active when it
+      // auto-activated, candidate when it needs review. A failed or thrown
+      // read degrades to the plain artifact text, never blocks the step.
+      let builtVersion: components["schemas"]["VoiceProfileVersion"] | null =
+        null;
+      try {
+        const versions = await api.GET("/voice-profiles/{id}/versions", {
+          params: { path: { id: profileId } },
+        });
+        builtVersion = pickBuiltVersion(versions.data?.data ?? []);
+      } catch {
+        builtVersion = null;
+      }
       if (!mounted.current) {
         return;
       }
       setDerived(profile.data ?? null);
+      setActiveVersion(builtVersion);
     }
     setBuilt(true);
     onBuilt();
@@ -2012,7 +2347,7 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
     setBuilding(true);
     setBuildError(null);
     try {
-      const profileId = await ensureProfileId();
+      const profileId = await sharedProfileId();
       await ingestCorpus(profileId);
       const outcome = await pollBuild(profileId, await startBuild(profileId));
       if (mounted.current) {
@@ -2087,8 +2422,20 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
 
         <button
           type="button"
-          className="dropzone"
+          className={`dropzone${dragOver ? " dragover" : ""}`}
           onClick={() => fileRef.current?.click()}
+          // preventDefault on dragover is what makes the zone a legal drop
+          // target — without it the browser navigates to the dropped file.
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragOver(false);
+            addFiles(Array.from(e.dataTransfer.files));
+          }}
         >
           <span className="dz-ic">
             <UploadCloud aria-hidden />
@@ -2104,15 +2451,71 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
           accept={ACCEPTED_CORPUS_ATTR}
           onChange={onFiles}
         />
+        {speakerAsks.map((ask) => (
+          <fieldset
+            key={ask.ref}
+            className="card"
+            style={{
+              marginTop: "var(--space-2)",
+              padding: "var(--space-3)",
+              border: 0,
+            }}
+          >
+            <legend style={{ fontWeight: 600 }}>
+              {t("ob.s2.speakerAsk", { file: ask.label })}
+            </legend>
+            <div
+              style={{
+                display: "flex",
+                gap: "var(--space-2)",
+                flexWrap: "wrap",
+                marginTop: "var(--space-2)",
+              }}
+            >
+              {ask.preview.speakers.map((speaker) => (
+                <Button
+                  small
+                  key={speaker.label}
+                  onClick={() => resolveSpeaker(ask, speaker)}
+                >
+                  {t("ob.s2.speakerOption", {
+                    name: speaker.label,
+                    words: speaker.words.toLocaleString(),
+                    turns: speaker.turns,
+                  })}
+                </Button>
+              ))}
+            </div>
+          </fieldset>
+        ))}
         {pieces.length > 0 && (
           <ul className="vp-list" style={{ marginTop: 10 }}>
             {pieces.map((p) => (
               <li key={p.ref}>
                 <Check aria-hidden /> {p.label} · {p.words.toLocaleString()}
+                {p.speakerLabel && (
+                  <span className="t-small">
+                    {" "}
+                    {t("ob.s2.keptOnly", {
+                      kept: p.words.toLocaleString(),
+                      total: p.totalWords.toLocaleString(),
+                      speaker: p.speakerLabel,
+                    })}
+                  </span>
+                )}
               </li>
             ))}
           </ul>
         )}
+        {Object.entries(probeErrors).map(([ref, message]) => (
+          <output
+            key={ref}
+            className="ob-sub"
+            style={{ display: "block", marginTop: "var(--space-2)" }}
+          >
+            {message}
+          </output>
+        ))}
 
         <div className="field" style={{ marginTop: "var(--space-3)" }}>
           <label className="t-label" htmlFor="voice-paste">
@@ -2238,21 +2641,10 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
                   })}
                 </span>
               </div>
-              {derived?.voice_profile_md ? (
-                <p
-                  style={{
-                    marginTop: "var(--space-3)",
-                    lineHeight: 1.55,
-                    whiteSpace: "pre-wrap",
-                  }}
-                >
-                  {derived.voice_profile_md}
-                </p>
-              ) : (
-                <p style={{ marginTop: "var(--space-3)", lineHeight: 1.55 }}>
-                  {t("ob.s2.builtEmpty")}
-                </p>
-              )}
+              <BuiltVoiceBody
+                builtVersion={activeVersion}
+                derivedMD={derived?.voice_profile_md ?? null}
+              />
               <p
                 className="t-small"
                 style={{ marginTop: 11, fontStyle: "italic" }}

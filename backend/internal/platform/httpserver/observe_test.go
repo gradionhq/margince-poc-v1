@@ -49,7 +49,7 @@ func TestReadyzReportsAIStateOnSuccessNeverAsAGate(t *testing.T) {
 		t.Run(state, func(t *testing.T) {
 			req := httptest.NewRequest("GET", "/readyz", nil)
 			rec := httptest.NewRecorder()
-			Readyz(state)(rec, req)
+			Readyz(state, nil)(rec, req)
 
 			if rec.Code != 200 {
 				t.Fatalf("AI state %q must never turn /readyz unready, got status %d", state, rec.Code)
@@ -69,12 +69,62 @@ func TestReadyzDependencyFailureStillReturns503RegardlessOfAIState(t *testing.T)
 	rec := httptest.NewRecorder()
 	failing := ReadyCheck{Name: "postgres", Check: func(context.Context) error { return errors.New("down") }}
 
-	Readyz("configured", failing)(rec, req)
+	Readyz("configured", nil, failing)(rec, req)
 
 	if rec.Code != 503 {
 		t.Fatalf("want 503 on a failed dependency check, got %d", rec.Code)
 	}
 	if !strings.Contains(rec.Body.String(), "postgres") {
 		t.Fatalf("body %q does not name the unready dependency", rec.Body.String())
+	}
+}
+
+// Readyz reports the embed store's binding posture on the 200 body the
+// same way it reports AI state (Task 17): a visibility line, never a
+// gate. A nil embedState (a role that never wires an embed lane) and an
+// embedState that has already turned its own marker-read failure into
+// "unknown" both render "embed: unknown" — Readyz never inspects why,
+// it only ever renders what the seam hands back.
+func TestReadyzReportsEmbedStateOnSuccessNeverAsAGate(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		fn   func(context.Context) string
+		want string
+	}{
+		{name: "active", fn: func(context.Context) string { return "active" }, want: "active"},
+		{name: "needs_reindex", fn: func(context.Context) string { return "needs_reindex" }, want: "needs_reindex"},
+		{name: "reembedding", fn: func(context.Context) string { return "reembedding" }, want: "reembedding"},
+		{name: "marker read error derives unknown", fn: func(context.Context) string { return "unknown" }, want: "unknown"},
+		{name: "nil embedState defaults to unknown", fn: nil, want: "unknown"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/readyz", nil)
+			rec := httptest.NewRecorder()
+			Readyz("configured", tc.fn)(rec, req)
+
+			if rec.Code != 200 {
+				t.Fatalf("embed state must never turn /readyz unready, got status %d", rec.Code)
+			}
+			body := rec.Body.String()
+			if !strings.Contains(body, "embed: "+tc.want) {
+				t.Fatalf("body %q does not report embed: %s", body, tc.want)
+			}
+		})
+	}
+}
+
+// A failing dependency check still wins over embed state too: the same
+// invariant TestReadyzDependencyFailureStillReturns503RegardlessOfAIState
+// pins for the AI line applies to the embed line — it never turns a
+// failed dependency check into a 200.
+func TestReadyzDependencyFailureStillReturns503RegardlessOfEmbedState(t *testing.T) {
+	req := httptest.NewRequest("GET", "/readyz", nil)
+	rec := httptest.NewRecorder()
+	failing := ReadyCheck{Name: "postgres", Check: func(context.Context) error { return errors.New("down") }}
+
+	Readyz("configured", func(context.Context) string { return "active" }, failing)(rec, req)
+
+	if rec.Code != 503 {
+		t.Fatalf("want 503 on a failed dependency check regardless of embed state, got %d", rec.Code)
 	}
 }

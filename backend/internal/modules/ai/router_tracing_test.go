@@ -18,14 +18,24 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
-type fakeCallStore struct{ recorded []Call }
+type fakeCallStore struct {
+	recorded []Call
+	// configSnapshots captures every EnsureConfig call in order, so a test
+	// can assert what the router actually planted in ai_call_config — the
+	// snapshot's Hash and ProviderParams are not otherwise observable from
+	// the recorded Call rows (they only carry the resulting ConfigHash).
+	configSnapshots []ConfigSnapshot
+}
 
 func (f *fakeCallStore) Record(_ context.Context, attempts []Call) error {
 	f.recorded = append(f.recorded, attempts...)
 	return nil
 }
 
-func (f *fakeCallStore) EnsureConfig(context.Context, ConfigSnapshot) error { return nil }
+func (f *fakeCallStore) EnsureConfig(_ context.Context, snap ConfigSnapshot) error {
+	f.configSnapshots = append(f.configSnapshots, snap)
+	return nil
+}
 
 // stubClient returns a fixed response or error.
 type stubClient struct {

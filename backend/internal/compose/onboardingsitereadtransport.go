@@ -26,6 +26,7 @@ import (
 
 const (
 	siteReadStatusDeferred    = "deferred"
+	siteReadWireStatusDone    = "done"
 	siteReadWireStatusFailed  = "failed"
 	siteReadWireStatusPartial = "partial"
 )

@@ -11,6 +11,7 @@ package compose
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 
@@ -51,7 +52,10 @@ type ModelPath struct {
 	CaptureClassify completer
 	// SignatureEnrich is the §2.9 evidence-or-omit field extraction lane.
 	SignatureEnrich completer
-	Embedder        search.Embedder // the retrieval embed lane
+	// VoiceBuild is the durable Voice DNA build lane: the builder pass and
+	// its evaluation drafts ride the same task label and budget.
+	VoiceBuild completer
+	Embedder   search.Embedder // the retrieval embed lane
 }
 
 // SetCompanyContextEnabled applies the operator's ordered task-rollout stage
@@ -75,7 +79,54 @@ func NewModelPath(cfg ai.RoutingConfig, pool *pgxpool.Pool, capturePayloads bool
 	if err != nil {
 		return ModelPath{}, err
 	}
+	if err := seedEmbedBinding(context.Background(), search.NewStore(pool), router, log); err != nil {
+		return ModelPath{}, err
+	}
 	return modelPathForRouter(router, newCompanyContextProvider(people.NewStore(pool))), nil
+}
+
+// seedEmbedBinding plants search's embed_store_binding marker (Task 9's
+// Store.SeedBinding) at the router's configured embed identity — both
+// process roles (api, worker) construct a ModelPath, so this runs on
+// every boot, and SeedBinding's ON CONFLICT DO NOTHING makes that
+// idempotent rather than a race.
+//
+// An unbound embed lane (EmbedIdentity() == "") is a legitimate
+// AI-unconfigured deployment shape (--ai-fake or any routing config that
+// never bound an embeddings model) — there is no live identity to plant,
+// so this is a no-op, never an error.
+//
+// A genuine store failure (SeedBinding or PopulatedIdentity) is a real DB
+// fault surfacing right after the pool connected — it aborts boot through
+// NewModelPath rather than launching a process whose embed marker is
+// unestablished or unverified.
+//
+// A store already populated under a DIFFERENT identity is NOT a fault: it
+// means an operator changed the embed binding since the marker was last
+// seeded. The store still serves reads correctly under its existing
+// populated identity (the N+1 read path tolerates a stale binding);
+// reindexing onto the new one is a deliberate ops action, not something
+// boot should force. So that case logs LOUDLY at error level — an admin
+// must see it — and construction still succeeds.
+func seedEmbedBinding(ctx context.Context, store *search.Store, router *ai.Router, log *slog.Logger) error {
+	if log == nil {
+		log = slog.Default()
+	}
+	identity, _ := router.EmbedIdentity()
+	if identity == "" {
+		return nil
+	}
+	if err := store.SeedBinding(ctx, identity); err != nil {
+		return fmt.Errorf("seeding embed binding marker: %w", err)
+	}
+	populated, _, _, err := store.PopulatedIdentity(ctx)
+	if err != nil {
+		return fmt.Errorf("reading embed binding marker: %w", err)
+	}
+	if populated != identity {
+		log.Error("embed binding changed", "configured", identity, "populated", populated)
+	}
+	return nil
 }
 
 // NewLocalModelPath builds a ModelPath over the DB-less local router
@@ -112,6 +163,7 @@ func modelPathForRouter(router *ai.Router, companyContext *companyContextProvide
 		OfferDraft:      brain(ai.TaskOfferDraft),
 		CaptureClassify: brain(ai.TaskCaptureClassify),
 		SignatureEnrich: brain(ai.TaskEnrich),
+		VoiceBuild:      brain(ai.TaskVoiceBuild),
 		Embedder:        router,
 	}
 }

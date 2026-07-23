@@ -36,7 +36,7 @@ defaults:
 
 jobs:
   # Classify the diff so a change runs only the checks it can affect — a
-  # frontend-only PR skips the Go build/gate + the ~5-min integration lane, a
+  # frontend-only PR skips the Go build/gate + the integration shard fleet, a
   # backend-only PR skips the frontend + UAT lanes, and a docs-only PR skips
   # everything. Draft PRs run nothing until marked ready (the swarm pushes many
   # WIP commits). A required job skipped this way counts as passing.
@@ -69,6 +69,9 @@ jobs:
               - 'go.work.sum'
               - 'Makefile'
               - 'scripts/**'
+              - 'extensions/**'
+              - 'fixtures/**'
+              - 'composition/**'
               - '.github/workflows/**'
               - 'AGENTS.md'
               - 'sonar-project.properties'
@@ -79,6 +82,11 @@ jobs:
               - 'backend/**'
               - 'frontend/**'
               - 'infra/**'
+              # live-boot boots COMPOSED (ADR-0069): the enabled extension
+              # tree and the composition inputs shape the binary under test.
+              - 'extensions/**'
+              - 'fixtures/**'
+              - 'composition/**'
 
   # Every commit in a PR carries a Developer Certificate of Origin sign-off.
   # PR-only: the direct-to-main workflow signs off at push time, and history
@@ -131,21 +139,47 @@ jobs:
       # to either reseeds, otherwise a hit skips the compile. arch is in the key
       # so a binary built for one runner CPU is never restored onto another.
       - name: Cache the gate binaries
+        id: gate-binaries
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: ~/go/bin
           key: gate-binaries-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/go.mod', 'backend/Makefile') }}
+      # golangci-lint's analysis cache (~/.cache/golangci-lint) is separate
+      # from Go's build cache, so without this it recomputes the whole repo
+      # every run — the two lint passes (baseline + strict) were the largest
+      # slice of this job. The key ends in the commit SHA so every run saves
+      # its refreshed cache; restore-keys matches the newest prior run with
+      # the same dependency/config prefix, so a PR pays analysis only for
+      # the packages it touched. A toolchain, dependency, or lint-config
+      # change shifts the prefix and starts clean — go.mod is in the hash
+      # because a toolchain bump changes analysis results without
+      # necessarily touching go.sum. The golangci version pin (in
+      # backend/Makefile) is deliberately NOT in the key: golangci versions
+      # its cache entries internally, and hashing the whole Makefile went
+      # cold on every unrelated Makefile edit.
+      - name: Cache the golangci-lint analysis cache
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ~/.cache/golangci-lint
+          key: golangci-analysis-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', 'backend/.golangci.yml', 'backend/.golangci.strict.yml') }}-${{ github.sha }}
+          restore-keys: |
+            golangci-analysis-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', 'backend/.golangci.yml', 'backend/.golangci.strict.yml') }}-
       # Install the pinned gate binaries (golangci-lint, go-arch-lint, oasdiff) so
       # `make check` runs golangci and the oasdiff contract gate itself — one run
       # of every gate, instead of the golangci-lint-action + per-gate steps that
-      # `make check` then re-ran as its prerequisites. On a cache hit `go install
-      # ...@version` finds each binary already current and skips the compile, so
-      # the step is near-instant; the PATH export runs regardless.
+      # `make check` then re-ran as its prerequisites. Skipped entirely on a
+      # cache hit: the key hashes the pinned versions (backend/Makefile) and
+      # the toolchain (backend/go.mod), so a hit proves the binaries current —
+      # and `go install ...@version` would NOT short-circuit on an existing
+      # binary; it recomputes the whole build against a cold build cache
+      # (~75s), since setup-go's caches are keyed to the product module, not
+      # the tools' dependency graphs. The PATH export runs regardless.
       - name: Install the pinned gate binaries
+        if: steps.gate-binaries.outputs.cache-hit != 'true'
         working-directory: .
-        run: |
-          make tools
-          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+        run: make tools
+      - name: Gate binaries onto PATH
+        run: echo "$HOME/go/bin" >> "$GITHUB_PATH"
       # The backend half of the merge gate in one pass:
       # check-craft-doc, image pins, contract-breaking, test-lanes, file-length,
       # RLS store-path, jurisdiction isolation, then the backend gate (build,
@@ -158,6 +192,66 @@ jobs:
           # In CI a missing base ref is a broken checkout, never a skip.
           CONTRACT_BREAKING_REQUIRE_BASE: "1"
         run: make check-backend
+
+  # The composed-build lane (ADR-0069): materialize the walking-skeleton
+  # reference extension into extensions/, compose, and run the backend
+  # build + unit lane against the composed workspace — the continuous
+  # proof that an enabled extension composes without touching an
+  # upstream-owned file, plus the extension's own test lane the way a
+  # fork's CI would run it. deterministic-gates covers the vanilla
+  # composition (empty set) via the same make targets.
+  extension-reference:
+    name: extension-reference
+    needs: [changes]
+    if: needs.changes.outputs.backend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      # working-directory: . on the root-level steps — the workflow default
+      # (backend) would resolve fixtures/ and extensions/ under backend/.
+      #
+      # The EMPTY installation stays a supported, proven state: with the
+      # tracked first-party units (extensions/de) moved aside, the
+      # composed wiring must be byte-identical to the committed vanilla
+      # stub and the composed build must pass — otherwise a regression
+      # that only breaks "remove the directory to disable" could merge,
+      # since the normal gates always see {de}.
+      - name: Vanilla lane (empty extensions/)
+        working-directory: .
+        run: |
+          stash="$RUNNER_TEMP/ext-stash"
+          mkdir -p "$stash"
+          find extensions -mindepth 1 -maxdepth 1 -type d -exec mv {} "$stash"/ \;
+          make -C backend composition build
+          cmp build/composition/backend/extensions_gen.go composition/extensions_gen.go
+          find "$stash" -mindepth 1 -maxdepth 1 -exec mv {} extensions/ \;
+      - name: Enable the reference extension
+        working-directory: .
+        run: cp -R fixtures/extensions/crm-hello extensions/
+      - name: Composed build + unit lane
+        working-directory: .
+        run: make -C backend build test check-composition
+      # Tree-derived: every enabled unit's own module lane (the committed
+      # first-party extensions AND the copied-in reference fixture). The
+      # same run emits the merged coverage profile the sonarcloud job
+      # consumes — extension units are their own modules, unreachable by
+      # the shard profiles, and this job runs PARALLEL to the shard
+      # fleet, so coverage costs no extra test run and no fan-in latency.
+      - name: Extension self-test lanes (+ coverage)
+        working-directory: .
+        run: make -C backend test-extensions EXT_COVER_OUT="$PWD/backend/coverage-extensions.out"
+      - name: Upload extension coverage
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: go-coverage-extensions
+          path: backend/coverage-extensions.out
+          if-no-files-found: ignore
 
   # The code-craftsmanship gate (ADR-0045) runs only after the deterministic
   # gates are green — a red build must never be judged on style.
@@ -197,38 +291,31 @@ jobs:
         working-directory: .
         run: make craft-residue
 
-  integration:
-    name: integration (RLS + erasure + HTTP e2e)
-    # Runs in parallel with deterministic-gates, not behind it. The real-Postgres
-    # lane is the longest job in the pipeline, so gating it on the build gate
-    # serialized the two slowest jobs and dominated PR wall-clock. Starting both
-    # at once trades a wasted lane on the rare broken-build PR for ~3 minutes off
-    # every green one. Still backend-gated like deterministic-gates, so the two
-    # skip together on non-backend PRs; a broken build is still caught, by
-    # deterministic-gates itself, and sonarcloud gates the scan on that result
-    # directly (below) so a red build never posts a green coverage check.
+  # The real-Postgres lane, sharded across independent runners. One runner
+  # already fans packages out onto per-package clone DBs, but the heaviest
+  # package (compose/integration, minutes of serial tests) floors any
+  # package-level split — so each shard runs a deterministic per-TEST slice of
+  # every package (scripts/test-integration-parallel.sh, INTEGRATION_SHARD)
+  # against its own Postgres/Redis/MinIO. The `integration` fan-in below
+  # reconciles the slices back into one verdict and one coverage profile.
+  #
+  # Runs in parallel with deterministic-gates, not behind it: gating the
+  # longest lane on the build gate serialized the two slowest jobs and
+  # dominated PR wall-clock. Still backend-gated like deterministic-gates, so
+  # they skip together on non-backend PRs; a broken build is still caught by
+  # deterministic-gates itself, and sonarcloud gates its scan on that result
+  # directly (below) so a red build never posts a green coverage check.
+  integration-shards:
+    name: integration shard (${{ matrix.shard }}/${{ strategy.job-total }})
     needs: [changes]
     if: needs.changes.outputs.backend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: pgvector/pgvector:pg16@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
-        env:
-          POSTGRES_USER: margince_owner
-          POSTGRES_PASSWORD: dev
-          POSTGRES_DB: margince
-        ports:
-          - 55432:5432
-        options: >-
-          --health-cmd "pg_isready -U margince_owner"
-          --health-interval 2s --health-timeout 5s --health-retries 15
-      redis:
-        image: redis:7@sha256:a8f08480e1f88f2647fed492d1178c06abb0d0c1fbf02c682a61e2f483fb3954
-        ports:
-          - 56379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 2s --health-timeout 5s --health-retries 15
+    strategy:
+      # A red shard must not cancel its siblings: one CI run should report
+      # every failing test, not the first shard to trip.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -237,33 +324,106 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
-      # The margince_app role must exist cluster-wide before the lane migrates:
-      # migration 0015 GRANTs to it, and the parallel lane's clones inherit those
-      # grants. The lane itself is self-contained — it builds the migrated
-      # margince_test template and clones per package — so no separate "apply
-      # migrations to the shared DB" step is needed (the shared margince DB is
-      # never touched by the parallel lane).
-      - name: Create the non-owner app role
-        run: psql "postgres://margince_owner:dev@localhost:55432/margince" -v ON_ERROR_STOP=1 -f ../scripts/db-init.sql
-      # MinIO backs the blobstore integration lane. It cannot be a GH service
-      # (the minio image needs a `server /data` command, which services can't
-      # set), so it runs here; the digest matches the compose stack's pin.
-      # The store creates its bucket and tolerates a
-      # still-starting backend, so no explicit wait is needed.
-      - name: Start MinIO (blobstore)
-        run: |
-          docker run -d --name minio -p 59000:9000 \
-            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
-            minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e \
-            server /data
-      # The same lane, with coverage: COVER_OUT switches the parallel runner
-      # into per-package covdata + a merged text profile. Uploaded as an
-      # artifact the sonarcloud job consumes — so the scan is NOT a second
+      # The same compose stack dev machines use (infra/docker-compose.dev.yml:
+      # Postgres + Redis + MinIO, digest-pinned there) plus scripts/db-init.sql
+      # for the cluster-level margince_app role — migration 0015 GRANTs to it,
+      # and the parallel lane's clones inherit those grants. One stack
+      # definition instead of hand-mirrored GH service containers; the lane's
+      # database admin goes through cmd/migrate's db verbs on the test DSN
+      # (scripts/lib-testdb.sh db_admin), so no host psql is assumed.
+      - name: Start the dev infra stack (compose + app role)
+        run: make db-up
+      # INTEGRATION_SHARD_OUT collects the slice manifests + binary coverage
+      # pods the fan-in reconciles and merges — so the scan is NOT a second
       # Postgres/Redis/MinIO stack running the whole lane a second time.
-      - name: Integration lane (+ coverage)
+      - name: Integration shard (slice + coverage)
         env:
-          COVER_OUT: backend/coverage.out
+          INTEGRATION_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+          INTEGRATION_SHARD_OUT: ${{ runner.temp }}/shard-out
+          # The tests are DB-bound, not CPU-bound: on the 4-core runner the
+          # nproc-derived default leaves the slice mostly waiting on Postgres.
+          INTEGRATION_JOBS: 16
         run: make test-integration
+      - name: Upload the shard manifest + coverage pods
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: integration-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/shard-out
+          if-no-files-found: error
+          retention-days: 1
+
+  # Unit coverage for SonarCloud. The shards run only the integration-tagged
+  # packages, but the unit-only packages need a `-cover` pass of their own —
+  # otherwise SonarCloud sees them at a false ~0% new-code coverage and the
+  # gate fails on well-unit-tested code. Untagged tests never open a real DB
+  # (the test-lanes gate enforces it), so this pass needs no services; it runs
+  # beside the shards and the fan-in merges its pods with theirs.
+  integration-unit-coverage:
+    name: integration unit coverage
+    needs: [changes]
+    if: needs.changes.outputs.backend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Unit tests with binary coverage
+        run: |
+          mkdir -p "$RUNNER_TEMP/covdata-unit"
+          go test ./... -cover -coverpkg=./... -covermode=atomic -args -test.gocoverdir="$RUNNER_TEMP/covdata-unit"
+      - name: Upload the unit coverage pods
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: integration-covdata-unit
+          path: ${{ runner.temp }}/covdata-unit
+          if-no-files-found: error
+          retention-days: 1
+
+  # The fan-in: THIS is the required "integration" check, under the same name
+  # the single-runner lane carried, so branch protection needs no change. It
+  # must RUN and FAIL when a shard fails — `needs` alone would leave it
+  # skipped, and a skipped required check counts as passing — hence the
+  # !cancelled() guard plus the explicit result assertion in the first step.
+  # Then it proves the slices add up (scripts/test-integration-reconcile.sh:
+  # every shard present, same discovery, union complete + disjoint) and merges
+  # every binary coverage pod (shards + unit) into the one text profile the
+  # sonarcloud job consumes.
+  integration:
+    name: integration (RLS + erasure + HTTP e2e)
+    needs: [changes, integration-shards, integration-unit-coverage]
+    if: >-
+      !cancelled()
+      && needs.changes.outputs.backend == 'true'
+      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Every shard and the unit pass are green
+        working-directory: .
+        env:
+          SHARDS_RESULT: ${{ needs.integration-shards.result }}
+          UNIT_RESULT: ${{ needs.integration-unit-coverage.result }}
+        run: |
+          [ "$SHARDS_RESULT" = "success" ] || { echo "integration shards: $SHARDS_RESULT"; exit 1; }
+          [ "$UNIT_RESULT" = "success" ] || { echo "unit coverage pass: $UNIT_RESULT"; exit 1; }
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Download the shard + unit artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: integration-*
+          path: ${{ runner.temp }}/shards
+      - name: Reconcile the slices and merge coverage
+        working-directory: .
+        run: ./scripts/test-integration-reconcile.sh "$RUNNER_TEMP/shards" backend/coverage.out
       - name: Upload Go coverage
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -300,7 +460,7 @@ jobs:
   # "SonarCloud Code Analysis" context is a required check, so it must post on
   # every ready PR — a path-skipped job never reports and would block doc-only
   # PRs forever. It does NOT re-run the suites: it downloads the coverage
-  # artifacts the integration (Go) and frontend (lcov) jobs already produced and
+  # artifacts the integration fan-in (Go) and frontend (lcov) jobs already produced and
   # runs only the scanner, so there is no second Postgres/Redis/MinIO stack and
   # no duplicated test run.
   sonarcloud:
@@ -321,12 +481,13 @@ jobs:
     # Analysis" check over a broken build (result == 'failure' fails this
     # condition, so the scan is skipped); the PR is already red, so nothing that
     # wasn't already blocked is blocked.
-    needs: [deterministic-gates, integration, frontend]
+    needs: [deterministic-gates, integration, frontend, extension-reference]
     if: >-
       !cancelled()
       && (needs.deterministic-gates.result == 'success' || needs.deterministic-gates.result == 'skipped')
       && (needs.integration.result == 'success' || needs.integration.result == 'skipped')
       && (needs.frontend.result == 'success' || needs.frontend.result == 'skipped')
+      && (needs.extension-reference.result == 'success' || needs.extension-reference.result == 'skipped')
       && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     defaults:
@@ -341,16 +502,23 @@ jobs:
           persist-credentials: false
           # Full history so SonarCloud can attribute blame / compute new code.
           fetch-depth: 0
-      # Coverage the integration + frontend jobs already produced. Each download
-      # is guarded on its producer having run (a skipped area uploaded nothing);
-      # if-no-files-found tolerates the gap so the scan still posts. The paths
-      # match sonar-project.properties (backend/coverage.out,
+      # Coverage the integration + frontend + extension-reference jobs already
+      # produced. Each download is guarded on its producer having run (a
+      # skipped area uploaded nothing); if-no-files-found tolerates the gap so
+      # the scan still posts. The paths match sonar-project.properties
+      # (backend/coverage.out, backend/coverage-extensions.out,
       # frontend/coverage/lcov.info).
       - name: Download Go coverage
         if: ${{ env.SONAR_TOKEN != '' && needs.integration.result == 'success' }}
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: go-coverage
+          path: backend
+      - name: Download extension coverage
+        if: ${{ env.SONAR_TOKEN != '' && needs.extension-reference.result == 'success' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: go-coverage-extensions
           path: backend
       - name: Download FE coverage
         if: ${{ env.SONAR_TOKEN != '' && needs.frontend.result == 'success' }}
@@ -366,10 +534,9 @@ jobs:
         run: echo "SONAR_TOKEN not set; skipping CI scan (Automatic Analysis still active). Add the secret to activate."
 
   # The README quickstart, run literally: compose up → migrate → api →
-  # seed-dev → verify-boot. This is what keeps the compose file, the
-  # API-driven seed, and the boot proof honest — the integration job's
-  # GH service containers would stay green even if the compose stack or
-  # the seed script rotted.
+  # seed-dev → verify-boot. This is what keeps the API-driven seed and
+  # the boot proof honest — the integration job never boots the api or
+  # runs the seed script, so those would rot invisibly without this job.
   live-boot:
     name: live-boot (compose + seed + verify)
     needs: [changes]
@@ -420,7 +587,14 @@ jobs:
         env:
           MARGINCE_ENV: dev
         run: |
-          go run ./cmd/api --dsn "postgres://margince_app:margince_app_dev@localhost:55432/margince" \
+          # Composed boot (ADR-0069): a plain `go run` would resolve the
+          # vanilla composition stub and this lane would never boot with
+          # the enabled extensions (extensions/de ships by default). The
+          # generator itself pins the ROOT workspace (the tool is its own
+          # module — a stray GOWORK would break its resolution).
+          GOWORK="$PWD/../go.work" go run ./tools/gen-composition
+          GOWORK="$PWD/../build/composition/go.work" \
+            go run ./cmd/api --dsn "postgres://margince_app:margince_app_dev@localhost:55432/margince" \
             --config "$RUNNER_TEMP/margince.yaml" \
             > "$RUNNER_TEMP/api.log" 2>&1 &
           for _ in $(seq 1 60); do

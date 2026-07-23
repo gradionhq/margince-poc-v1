@@ -20,6 +20,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -55,21 +56,37 @@ const (
 // does not exist in practice, but the check names the true source
 // rather than inferring it from a second table).
 func (s *Service) requireOverlayMode(ctx context.Context) error {
+	_, err := s.resolveOverlayMode(ctx)
+	return err
+}
+
+// resolveOverlayMode reads the workspace's x_sor_mode AND its active
+// incumbent (x_incumbent) in ONE query, so the mode gate and the incumbent
+// the budget snapshot keys on come from a single consistent read — a
+// concurrent disconnect (which flips both in one transaction) can never
+// let Budget pass the mode gate on the old mode and then snapshot the new,
+// empty incumbent. It reads workspace directly (the same source
+// compose.Dispatcher's isOverlay uses), returning ErrModeNotOverlay for a
+// workspace not in overlay mode. The returned incumbent is non-empty
+// whenever mode == "overlay".
+func (s *Service) resolveOverlayMode(ctx context.Context) (incumbent string, err error) {
 	wsID, ok := principal.WorkspaceID(ctx)
 	if !ok {
-		return errors.New("overlay: sync-status/budget/reconcile called outside a workspace context")
+		return "", errors.New("overlay: sync-status/budget/reconcile called outside a workspace context")
 	}
 	var mode string
-	err := database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT x_sor_mode FROM workspace WHERE id = $1`, wsID).Scan(&mode)
+	err = database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT x_sor_mode, coalesce(x_incumbent, '') FROM workspace WHERE id = $1`, wsID,
+		).Scan(&mode, &incumbent)
 	})
 	if err != nil {
-		return fmt.Errorf("overlay: resolving workspace sor_mode: %w", err)
+		return "", fmt.Errorf("overlay: resolving workspace sor_mode: %w", err)
 	}
 	if mode != "overlay" {
-		return apperrors.ErrModeNotOverlay
+		return "", apperrors.ErrModeNotOverlay
 	}
-	return nil
+	return incumbent, nil
 }
 
 // selectMirrorSyncAggregateSQL rolls up overlay_mirror by object_class:
@@ -224,15 +241,20 @@ func (s *Service) backfillCompleteFor(ctx context.Context, tx pgx.Tx, canonicalO
 // honesty is wrong here — this is a WIRING gap, not a mode question — so
 // it surfaces its own explicit error instead of silently degrading to a
 // fabricated all-zero Budget.
-func (s *Service) Budget(ctx context.Context) (Budget, error) {
+func (s *Service) Budget(ctx context.Context) (overlaybudget.Budget, error) {
 	if err := auth.Require(ctx, overlayConnectionObject, principal.ActionRead); err != nil {
-		return Budget{}, err
+		return overlaybudget.Budget{}, err
 	}
-	if err := s.requireOverlayMode(ctx); err != nil {
-		return Budget{}, err
+	// One consistent read: the mode gate AND the incumbent the meter keys on
+	// (the same one force-fresh reads and the poller charge against). A
+	// concurrent disconnect flips both together, so this can never report a
+	// budget straddling the pre- and post-disconnect state.
+	incumbent, err := s.resolveOverlayMode(ctx)
+	if err != nil {
+		return overlaybudget.Budget{}, err
 	}
 	if s.meter == nil {
-		return Budget{}, fmt.Errorf("overlay: budget meter is not wired for this role")
+		return overlaybudget.Budget{}, fmt.Errorf("overlay: budget meter is not wired for this role")
 	}
-	return s.meter.Snapshot(ctx), nil
+	return s.meter.Snapshot(ctx, incumbent), nil
 }

@@ -101,7 +101,7 @@ func TestVoiceProfileAndCorpusAreOwnerPrivate(t *testing.T) {
 	if _, _, err := voice.ListSources(outsider, created.ID); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("outsider manifest → %v, want ErrNotFound", err)
 	}
-	if _, _, err := voice.IngestSource(outsider, created.ID, ai.IngestSourceInput{
+	if _, _, _, err := voice.IngestSource(outsider, created.ID, ai.IngestSourceInput{
 		Kind: "linkedin", SourceLabel: "poison", Content: "not my voice",
 	}); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("outsider ingest → %v, want ErrNotFound", err)
@@ -117,7 +117,7 @@ func TestVoiceProfileAndCorpusAreOwnerPrivate(t *testing.T) {
 		RowScope: principal.RowScopeAll,
 	})
 	for who, ctx := range map[string]context.Context{"teammate": teammate, "admin": admin} {
-		if _, _, err := voice.IngestSource(ctx, created.ID, ai.IngestSourceInput{
+		if _, _, _, err := voice.IngestSource(ctx, created.ID, ai.IngestSourceInput{
 			Kind: "linkedin", SourceLabel: "poison", Content: "words in another's mouth",
 		}); !errors.Is(err, apperrors.ErrNotFound) {
 			t.Fatalf("%s ingest into a personal profile → %v, want ErrNotFound", who, err)
@@ -131,7 +131,7 @@ func TestVoiceProfileAndCorpusAreOwnerPrivate(t *testing.T) {
 		}
 	}
 	// The owner's own path is untouched.
-	if _, _, err := voice.IngestSource(owner, created.ID, ai.IngestSourceInput{
+	if _, _, _, err := voice.IngestSource(owner, created.ID, ai.IngestSourceInput{
 		Kind: "linkedin", SourceLabel: "mine", Content: "my own words, my own voice",
 	}); err != nil {
 		t.Fatalf("owner ingest: %v", err)
@@ -202,13 +202,13 @@ func TestVoiceDerivedRebuildVersionsArtifactAndPreservesIdentity(t *testing.T) {
 
 	// The fixture corpus ingests deterministically: registers tagged per
 	// kind, the transcript speaker-filtered to the owner.
-	post, _, err := voice.IngestSource(owner, created.ID, ai.IngestSourceInput{
+	post, _, _, err := voice.IngestSource(owner, created.ID, ai.IngestSourceInput{
 		Kind: "linkedin", SourceLabel: "post", SourceRef: "fixture-post", Content: voiceFixturePost,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	call, summary, err := voice.IngestSource(owner, created.ID, ai.IngestSourceInput{
+	call, summary, _, err := voice.IngestSource(owner, created.ID, ai.IngestSourceInput{
 		Kind: "transcript", SourceLabel: "call", SourceRef: "fixture-call",
 		Format: "vtt", SpeakerLabel: "Ada Admin", Content: voiceFixtureVTT,
 	})
@@ -256,7 +256,7 @@ func TestVoiceDerivedRebuildVersionsArtifactAndPreservesIdentity(t *testing.T) {
 
 	// New eligible corpus never destroys the known-good artifact. It marks
 	// the control row stale until a later build succeeds.
-	if _, _, err := voice.IngestSource(owner, created.ID, ai.IngestSourceInput{
+	if _, _, _, err := voice.IngestSource(owner, created.ID, ai.IngestSourceInput{
 		Kind: "email", SourceLabel: "new note", SourceRef: "fixture-note",
 		Content: "A new note changes the evidence without changing the active artifact.",
 	}); err != nil {
@@ -356,7 +356,7 @@ func TestVoiceCandidateTransitionsUseCandidateConcurrencyAndForwardRollback(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := voice.IngestSource(owner, profile.ID, ai.IngestSourceInput{
+	if _, _, _, err := voice.IngestSource(owner, profile.ID, ai.IngestSourceInput{
 		Kind: "document", SourceLabel: "seed", SourceRef: "seed", Content: strings.Repeat("word ", 800),
 	}); err != nil {
 		t.Fatal(err)
@@ -416,7 +416,7 @@ func TestVoiceConcurrentBuildRequestsConvergeOnOneDurableRow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := voice.IngestSource(owner, profile.ID, ai.IngestSourceInput{
+	if _, _, _, err := voice.IngestSource(owner, profile.ID, ai.IngestSourceInput{
 		Kind: "document", SourceLabel: "seed", SourceRef: "seed", Content: strings.Repeat("word ", 800),
 	}); err != nil {
 		t.Fatal(err)

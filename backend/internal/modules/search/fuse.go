@@ -30,9 +30,26 @@ func (s *Store) HybridSearch(ctx context.Context, query string, embedder Embedde
 	if err != nil {
 		return nil, err
 	}
-	if embedder == nil {
-		// A deployment with no declared embed lane still searches — the
-		// lexical lane alone, honestly degraded, never a nil-pointer.
+	// A nil embedder (no declared embed lane at all) and a non-nil
+	// embedder whose EmbedIdentity() is "" (--ai-fake, or any routing
+	// config that never bound an embeddings model) are the SAME shape
+	// from the query side: no live embed lane to rank against, so both
+	// degrade to the lexical lane alone, honestly, never a nil-pointer or
+	// a call into an unbound Embed().
+	unbound := embedder == nil
+	var identity string
+	var dims int
+	if !unbound {
+		// identity and dims both ride the SAME binding the query is about
+		// to embed under: dims sizes the request, and identity is threaded
+		// into SimilarEntities below so the read side only ever ranks rows
+		// stored under this exact identity — the filter that keeps a
+		// binding swap's stale, differently-sized rows out of this query's
+		// results (and out of the <=> operator's reach entirely).
+		identity, dims = embedder.EmbedIdentity()
+		unbound = identity == ""
+	}
+	if unbound {
 		hits := lexical.Hits
 		if len(hits) > limit {
 			hits = hits[:limit]
@@ -40,14 +57,14 @@ func (s *Store) HybridSearch(ctx context.Context, query string, embedder Embedde
 		return hits, nil
 	}
 
-	queryEmb, err := embedder.Embed(ctx, model.EmbedRequest{Inputs: []string{query}, Dimensions: embeddingDims})
+	queryEmb, err := embedder.Embed(ctx, model.EmbedRequest{Inputs: []string{query}, Dimensions: dims})
 	if err != nil {
 		return nil, fmt.Errorf("search: embedding the query: %w", err)
 	}
 	if len(queryEmb.Vectors) != 1 {
 		return nil, fmt.Errorf("search: query embedding returned %d vectors", len(queryEmb.Vectors))
 	}
-	vector, err := s.SimilarEntities(ctx, queryEmb.Vectors[0], laneDepth)
+	vector, err := s.SimilarEntities(ctx, queryEmb.Vectors[0], identity, laneDepth)
 	if err != nil {
 		return nil, err
 	}

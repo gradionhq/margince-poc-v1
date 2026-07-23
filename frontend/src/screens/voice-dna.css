@@ -17,3 +17,126 @@
   gap: var(--space-2);
   margin-top: var(--space-1);
 }
+
+/* The impress surface: what the build learned, quoted from the user's own
+   corpus. Structure only; colour inherits (token-purity gate). */
+.vdna-insights {
+  margin-top: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.vdna-provenance {
+  /* No opacity dimming: 12px text must keep the full .t-small contrast. */
+  font-weight: 500;
+}
+
+.vdna-thinking p {
+  line-height: 1.55;
+  font-size: 1.05em;
+}
+
+.vdna-identity {
+  line-height: 1.55;
+}
+
+.vdna-chips {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.vdna-moves ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.vdna-moves li {
+  margin-top: var(--space-1);
+  line-height: 1.5;
+}
+
+.vdna-quote {
+  display: block;
+  font-style: italic;
+  opacity: 0.85;
+}
+
+.vdna-sample {
+  padding: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.vdna-sample-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.vdna-sample-head b {
+  overflow-wrap: anywhere;
+}
+
+.vdna-pill {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0 var(--space-2);
+  font-size: 0.78em;
+  white-space: nowrap;
+}
+
+.vdna-sample p {
+  white-space: pre-wrap;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.vdna-disclosure {
+  font-style: italic;
+}
+
+.vdna-nextbest {
+  line-height: 1.5;
+}
+
+.vdna-register {
+  margin-left: var(--space-1);
+  font-size: 0.8em;
+  opacity: 0.75;
+}
+
+.vdna-candidate {
+  padding: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.vdna-candidate-acts {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.vdna-reasons {
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-3);
+}
+
+.vdna-deltas {
+  margin-top: var(--space-2);
+}
+
+.vdna-learning {
+  margin-top: var(--space-2);
+}
+
+.vdna-regmix {
+  margin-bottom: var(--space-1);
+}
+
+.vdna-banddrop {
+  font-weight: 600;
+}

@@ -210,6 +210,114 @@ func (e AgentToolTier) Valid() bool {
 	}
 }
 
+// Defines values for AiProfileInferenceMode.
+const (
+	AiProfileInferenceModeCloud       AiProfileInferenceMode = "cloud"
+	AiProfileInferenceModeDevelopment AiProfileInferenceMode = "development"
+	AiProfileInferenceModeHybrid      AiProfileInferenceMode = "hybrid"
+	AiProfileInferenceModeLocal       AiProfileInferenceMode = "local"
+	AiProfileInferenceModeNone        AiProfileInferenceMode = "none"
+)
+
+// Valid indicates whether the value is a known member of the AiProfileInferenceMode enum.
+func (e AiProfileInferenceMode) Valid() bool {
+	switch e {
+	case AiProfileInferenceModeCloud:
+		return true
+	case AiProfileInferenceModeDevelopment:
+		return true
+	case AiProfileInferenceModeHybrid:
+		return true
+	case AiProfileInferenceModeLocal:
+		return true
+	case AiProfileInferenceModeNone:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AiProfileKind.
+const (
+	AiProfileKindAi AiProfileKind = "ai"
+)
+
+// Valid indicates whether the value is a known member of the AiProfileKind enum.
+func (e AiProfileKind) Valid() bool {
+	switch e {
+	case AiProfileKindAi:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AiProfileName.
+const (
+	AiProfileNameMargince AiProfileName = "Margince"
+)
+
+// Valid indicates whether the value is a known member of the AiProfileName enum.
+func (e AiProfileName) Valid() bool {
+	switch e {
+	case AiProfileNameMargince:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AiProfileProviders.
+const (
+	AiProfileProvidersAnthropic        AiProfileProviders = "anthropic"
+	AiProfileProvidersGemini           AiProfileProviders = "gemini"
+	AiProfileProvidersOllama           AiProfileProviders = "ollama"
+	AiProfileProvidersOpenai           AiProfileProviders = "openai"
+	AiProfileProvidersOpenaiCompatible AiProfileProviders = "openai_compatible"
+	AiProfileProvidersVllm             AiProfileProviders = "vllm"
+)
+
+// Valid indicates whether the value is a known member of the AiProfileProviders enum.
+func (e AiProfileProviders) Valid() bool {
+	switch e {
+	case AiProfileProvidersAnthropic:
+		return true
+	case AiProfileProvidersGemini:
+		return true
+	case AiProfileProvidersOllama:
+		return true
+	case AiProfileProvidersOpenai:
+		return true
+	case AiProfileProvidersOpenaiCompatible:
+		return true
+	case AiProfileProvidersVllm:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AiProfileState.
+const (
+	AiProfileStateConfigured   AiProfileState = "configured"
+	AiProfileStateDevelopment  AiProfileState = "development"
+	AiProfileStateUnconfigured AiProfileState = "unconfigured"
+)
+
+// Valid indicates whether the value is a known member of the AiProfileState enum.
+func (e AiProfileState) Valid() bool {
+	switch e {
+	case AiProfileStateConfigured:
+		return true
+	case AiProfileStateDevelopment:
+		return true
+	case AiProfileStateUnconfigured:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AiRunSummaryCurrency.
 const (
 	USD AiRunSummaryCurrency = "USD"
@@ -324,6 +432,60 @@ func (e ApprovalStatus) Valid() bool {
 	}
 }
 
+// Defines values for AssistantConfiguredModelProvider.
+const (
+	AssistantModelProviderAnthropic        AssistantConfiguredModelProvider = "anthropic"
+	AssistantModelProviderGemini           AssistantConfiguredModelProvider = "gemini"
+	AssistantModelProviderOllama           AssistantConfiguredModelProvider = "ollama"
+	AssistantModelProviderOpenAI           AssistantConfiguredModelProvider = "openai"
+	AssistantModelProviderOpenAICompatible AssistantConfiguredModelProvider = "openai_compatible"
+	AssistantModelProviderVLLM             AssistantConfiguredModelProvider = "vllm"
+)
+
+// Valid indicates whether the value is a known member of the AssistantConfiguredModelProvider enum.
+func (e AssistantConfiguredModelProvider) Valid() bool {
+	switch e {
+	case AssistantModelProviderAnthropic:
+		return true
+	case AssistantModelProviderGemini:
+		return true
+	case AssistantModelProviderOllama:
+		return true
+	case AssistantModelProviderOpenAI:
+		return true
+	case AssistantModelProviderOpenAICompatible:
+		return true
+	case AssistantModelProviderVLLM:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AssistantConfiguredModelTier.
+const (
+	AssistantModelTierCheapCloud AssistantConfiguredModelTier = "cheap_cloud"
+	AssistantModelTierLocalLarge AssistantConfiguredModelTier = "local_large"
+	AssistantModelTierLocalSmall AssistantConfiguredModelTier = "local_small"
+	AssistantModelTierPremium    AssistantConfiguredModelTier = "premium"
+)
+
+// Valid indicates whether the value is a known member of the AssistantConfiguredModelTier enum.
+func (e AssistantConfiguredModelTier) Valid() bool {
+	switch e {
+	case AssistantModelTierCheapCloud:
+		return true
+	case AssistantModelTierLocalLarge:
+		return true
+	case AssistantModelTierLocalSmall:
+		return true
+	case AssistantModelTierPremium:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AssistantProfileInferenceMode.
 const (
 	AssistantProfileInferenceModeCloud       AssistantProfileInferenceMode = "cloud"
@@ -353,13 +515,13 @@ func (e AssistantProfileInferenceMode) Valid() bool {
 
 // Defines values for AssistantProfileKind.
 const (
-	Ai AssistantProfileKind = "ai"
+	AssistantProfileKindAi AssistantProfileKind = "ai"
 )
 
 // Valid indicates whether the value is a known member of the AssistantProfileKind enum.
 func (e AssistantProfileKind) Valid() bool {
 	switch e {
-	case Ai:
+	case AssistantProfileKindAi:
 		return true
 	default:
 		return false
@@ -368,13 +530,13 @@ func (e AssistantProfileKind) Valid() bool {
 
 // Defines values for AssistantProfileName.
 const (
-	Margince AssistantProfileName = "Margince"
+	AssistantProfileNameMargince AssistantProfileName = "Margince"
 )
 
 // Valid indicates whether the value is a known member of the AssistantProfileName enum.
 func (e AssistantProfileName) Valid() bool {
 	switch e {
-	case Margince:
+	case AssistantProfileNameMargince:
 		return true
 	default:
 		return false
@@ -383,28 +545,28 @@ func (e AssistantProfileName) Valid() bool {
 
 // Defines values for AssistantProfileProviders.
 const (
-	Anthropic        AssistantProfileProviders = "anthropic"
-	Gemini           AssistantProfileProviders = "gemini"
-	Ollama           AssistantProfileProviders = "ollama"
-	Openai           AssistantProfileProviders = "openai"
-	OpenaiCompatible AssistantProfileProviders = "openai_compatible"
-	Vllm             AssistantProfileProviders = "vllm"
+	AssistantProfileProvidersAnthropic        AssistantProfileProviders = "anthropic"
+	AssistantProfileProvidersGemini           AssistantProfileProviders = "gemini"
+	AssistantProfileProvidersOllama           AssistantProfileProviders = "ollama"
+	AssistantProfileProvidersOpenai           AssistantProfileProviders = "openai"
+	AssistantProfileProvidersOpenaiCompatible AssistantProfileProviders = "openai_compatible"
+	AssistantProfileProvidersVllm             AssistantProfileProviders = "vllm"
 )
 
 // Valid indicates whether the value is a known member of the AssistantProfileProviders enum.
 func (e AssistantProfileProviders) Valid() bool {
 	switch e {
-	case Anthropic:
+	case AssistantProfileProvidersAnthropic:
 		return true
-	case Gemini:
+	case AssistantProfileProvidersGemini:
 		return true
-	case Ollama:
+	case AssistantProfileProvidersOllama:
 		return true
-	case Openai:
+	case AssistantProfileProvidersOpenai:
 		return true
-	case OpenaiCompatible:
+	case AssistantProfileProvidersOpenaiCompatible:
 		return true
-	case Vllm:
+	case AssistantProfileProvidersVllm:
 		return true
 	default:
 		return false
@@ -692,16 +854,16 @@ func (e AutomationRunTier) Valid() bool {
 
 // Defines values for BackfillPreviewEstimateQuality.
 const (
-	Heuristic BackfillPreviewEstimateQuality = "heuristic"
-	Observed  BackfillPreviewEstimateQuality = "observed"
+	BackfillPreviewEstimateQualityHeuristic BackfillPreviewEstimateQuality = "heuristic"
+	BackfillPreviewEstimateQualityObserved  BackfillPreviewEstimateQuality = "observed"
 )
 
 // Valid indicates whether the value is a known member of the BackfillPreviewEstimateQuality enum.
 func (e BackfillPreviewEstimateQuality) Valid() bool {
 	switch e {
-	case Heuristic:
+	case BackfillPreviewEstimateQualityHeuristic:
 		return true
-	case Observed:
+	case BackfillPreviewEstimateQualityObserved:
 		return true
 	default:
 		return false
@@ -1113,6 +1275,39 @@ func (e CompanyContextScopeScope) Valid() bool {
 	case CompanyContextScopeScopeProof:
 		return true
 	case CompanyContextScopeScopeSales:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompanyConversationResponseKind.
+const (
+	CompanyConversationAnswer         CompanyConversationResponseKind = "answer"
+	CompanyConversationClarification  CompanyConversationResponseKind = "clarification"
+	CompanyConversationConfirmation   CompanyConversationResponseKind = "confirmation"
+	CompanyConversationCorrection     CompanyConversationResponseKind = "correction"
+	CompanyConversationOffTopic       CompanyConversationResponseKind = "off_topic"
+	CompanyConversationRecommendation CompanyConversationResponseKind = "recommendation"
+	CompanyConversationStatus         CompanyConversationResponseKind = "status"
+)
+
+// Valid indicates whether the value is a known member of the CompanyConversationResponseKind enum.
+func (e CompanyConversationResponseKind) Valid() bool {
+	switch e {
+	case CompanyConversationAnswer:
+		return true
+	case CompanyConversationClarification:
+		return true
+	case CompanyConversationConfirmation:
+		return true
+	case CompanyConversationCorrection:
+		return true
+	case CompanyConversationOffTopic:
+		return true
+	case CompanyConversationRecommendation:
+		return true
+	case CompanyConversationStatus:
 		return true
 	default:
 		return false
@@ -2544,6 +2739,60 @@ func (e DedupeDispositionRequestDisposition) Valid() bool {
 	}
 }
 
+// Defines values for EmbedReindexPreviewEstimateQuality.
+const (
+	EmbedReindexPreviewEstimateQualityHeuristic EmbedReindexPreviewEstimateQuality = "heuristic"
+)
+
+// Valid indicates whether the value is a known member of the EmbedReindexPreviewEstimateQuality enum.
+func (e EmbedReindexPreviewEstimateQuality) Valid() bool {
+	switch e {
+	case EmbedReindexPreviewEstimateQualityHeuristic:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EmbedReindexPreviewPerWorkspaceUtilizationImpact.
+const (
+	EmbedReindexPreviewPerWorkspaceUtilizationImpactDegraded EmbedReindexPreviewPerWorkspaceUtilizationImpact = "degraded"
+	EmbedReindexPreviewPerWorkspaceUtilizationImpactNormal   EmbedReindexPreviewPerWorkspaceUtilizationImpact = "normal"
+	EmbedReindexPreviewPerWorkspaceUtilizationImpactQueued   EmbedReindexPreviewPerWorkspaceUtilizationImpact = "queued"
+)
+
+// Valid indicates whether the value is a known member of the EmbedReindexPreviewPerWorkspaceUtilizationImpact enum.
+func (e EmbedReindexPreviewPerWorkspaceUtilizationImpact) Valid() bool {
+	switch e {
+	case EmbedReindexPreviewPerWorkspaceUtilizationImpactDegraded:
+		return true
+	case EmbedReindexPreviewPerWorkspaceUtilizationImpactNormal:
+		return true
+	case EmbedReindexPreviewPerWorkspaceUtilizationImpactQueued:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EmbedReindexStatusStatus.
+const (
+	Idle        EmbedReindexStatusStatus = "idle"
+	Reembedding EmbedReindexStatusStatus = "reembedding"
+)
+
+// Valid indicates whether the value is a known member of the EmbedReindexStatusStatus enum.
+func (e EmbedReindexStatusStatus) Valid() bool {
+	switch e {
+	case Idle:
+		return true
+	case Reembedding:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for EnrichmentProposalStatus.
 const (
 	EnrichmentProposalStatusStaged EnrichmentProposalStatus = "staged"
@@ -2630,16 +2879,16 @@ func (e FieldHistoryEntryEntityType) Valid() bool {
 
 // Defines values for FilteredExportRequestFormat.
 const (
-	Csv  FilteredExportRequestFormat = "csv"
-	Json FilteredExportRequestFormat = "json"
+	FilteredExportRequestFormatCsv  FilteredExportRequestFormat = "csv"
+	FilteredExportRequestFormatJson FilteredExportRequestFormat = "json"
 )
 
 // Valid indicates whether the value is a known member of the FilteredExportRequestFormat enum.
 func (e FilteredExportRequestFormat) Valid() bool {
 	switch e {
-	case Csv:
+	case FilteredExportRequestFormatCsv:
 		return true
-	case Json:
+	case FilteredExportRequestFormatJson:
 		return true
 	default:
 		return false
@@ -3042,6 +3291,123 @@ const (
 func (e OmittedExtractionFieldReason) Valid() bool {
 	switch e {
 	case NotStatedInFile:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OnboardingAct.
+const (
+	OnboardingActCompany OnboardingAct = "company"
+	OnboardingActConnect OnboardingAct = "connect"
+	OnboardingActResults OnboardingAct = "results"
+	OnboardingActVoice   OnboardingAct = "voice"
+)
+
+// Valid indicates whether the value is a known member of the OnboardingAct enum.
+func (e OnboardingAct) Valid() bool {
+	switch e {
+	case OnboardingActCompany:
+		return true
+	case OnboardingActConnect:
+		return true
+	case OnboardingActResults:
+		return true
+	case OnboardingActVoice:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OnboardingCompanyMessageReplyAvailableAction.
+const (
+	OnboardingAvailableActionConfirmCompany    OnboardingCompanyMessageReplyAvailableAction = "confirm_company"
+	OnboardingAvailableActionConnectInbox      OnboardingCompanyMessageReplyAvailableAction = "connect_inbox"
+	OnboardingAvailableActionFinish            OnboardingCompanyMessageReplyAvailableAction = "finish"
+	OnboardingAvailableActionNone              OnboardingCompanyMessageReplyAvailableAction = "<nil>"
+	OnboardingAvailableActionStartVoiceBuild   OnboardingCompanyMessageReplyAvailableAction = "start_voice_build"
+	OnboardingAvailableActionUploadVoiceSource OnboardingCompanyMessageReplyAvailableAction = "upload_voice_source"
+)
+
+// Valid indicates whether the value is a known member of the OnboardingCompanyMessageReplyAvailableAction enum.
+func (e OnboardingCompanyMessageReplyAvailableAction) Valid() bool {
+	switch e {
+	case OnboardingAvailableActionConfirmCompany:
+		return true
+	case OnboardingAvailableActionConnectInbox:
+		return true
+	case OnboardingAvailableActionFinish:
+		return true
+	case OnboardingAvailableActionNone:
+		return true
+	case OnboardingAvailableActionStartVoiceBuild:
+		return true
+	case OnboardingAvailableActionUploadVoiceSource:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OnboardingCompanyMessageReplyNextRequiredField.
+const (
+	OnboardingNextRequiredDisplayName  OnboardingCompanyMessageReplyNextRequiredField = "display_name"
+	OnboardingNextRequiredICP          OnboardingCompanyMessageReplyNextRequiredField = "icp"
+	OnboardingNextRequiredNone         OnboardingCompanyMessageReplyNextRequiredField = "<nil>"
+	OnboardingNextRequiredOfferSummary OnboardingCompanyMessageReplyNextRequiredField = "offer_summary"
+)
+
+// Valid indicates whether the value is a known member of the OnboardingCompanyMessageReplyNextRequiredField enum.
+func (e OnboardingCompanyMessageReplyNextRequiredField) Valid() bool {
+	switch e {
+	case OnboardingNextRequiredDisplayName:
+		return true
+	case OnboardingNextRequiredICP:
+		return true
+	case OnboardingNextRequiredNone:
+		return true
+	case OnboardingNextRequiredOfferSummary:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OnboardingCompanyMessageReplyRemainingRequiredFields.
+const (
+	OnboardingRequiredDisplayName  OnboardingCompanyMessageReplyRemainingRequiredFields = "display_name"
+	OnboardingRequiredICP          OnboardingCompanyMessageReplyRemainingRequiredFields = "icp"
+	OnboardingRequiredOfferSummary OnboardingCompanyMessageReplyRemainingRequiredFields = "offer_summary"
+)
+
+// Valid indicates whether the value is a known member of the OnboardingCompanyMessageReplyRemainingRequiredFields enum.
+func (e OnboardingCompanyMessageReplyRemainingRequiredFields) Valid() bool {
+	switch e {
+	case OnboardingRequiredDisplayName:
+		return true
+	case OnboardingRequiredICP:
+		return true
+	case OnboardingRequiredOfferSummary:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OnboardingCompanyMessageRequestLocale.
+const (
+	OnboardingCompanyLocaleDE OnboardingCompanyMessageRequestLocale = "de"
+	OnboardingCompanyLocaleEN OnboardingCompanyMessageRequestLocale = "en"
+)
+
+// Valid indicates whether the value is a known member of the OnboardingCompanyMessageRequestLocale enum.
+func (e OnboardingCompanyMessageRequestLocale) Valid() bool {
+	switch e {
+	case OnboardingCompanyLocaleDE:
+		return true
+	case OnboardingCompanyLocaleEN:
 		return true
 	default:
 		return false
@@ -4962,6 +5328,48 @@ func (e VoiceBuildStatusCode) Valid() bool {
 	}
 }
 
+// Defines values for VoiceCorpusPreviewRequestFormat.
+const (
+	VoiceCorpusPreviewRequestFormatText       VoiceCorpusPreviewRequestFormat = "text"
+	VoiceCorpusPreviewRequestFormatTranscript VoiceCorpusPreviewRequestFormat = "transcript"
+)
+
+// Valid indicates whether the value is a known member of the VoiceCorpusPreviewRequestFormat enum.
+func (e VoiceCorpusPreviewRequestFormat) Valid() bool {
+	switch e {
+	case VoiceCorpusPreviewRequestFormatText:
+		return true
+	case VoiceCorpusPreviewRequestFormatTranscript:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VoiceCorpusPreviewResultDetectedFormat.
+const (
+	VoiceCorpusPreviewResultDetectedFormatJson VoiceCorpusPreviewResultDetectedFormat = "json"
+	VoiceCorpusPreviewResultDetectedFormatSrt  VoiceCorpusPreviewResultDetectedFormat = "srt"
+	VoiceCorpusPreviewResultDetectedFormatTxt  VoiceCorpusPreviewResultDetectedFormat = "txt"
+	VoiceCorpusPreviewResultDetectedFormatVtt  VoiceCorpusPreviewResultDetectedFormat = "vtt"
+)
+
+// Valid indicates whether the value is a known member of the VoiceCorpusPreviewResultDetectedFormat enum.
+func (e VoiceCorpusPreviewResultDetectedFormat) Valid() bool {
+	switch e {
+	case VoiceCorpusPreviewResultDetectedFormatJson:
+		return true
+	case VoiceCorpusPreviewResultDetectedFormatSrt:
+		return true
+	case VoiceCorpusPreviewResultDetectedFormatTxt:
+		return true
+	case VoiceCorpusPreviewResultDetectedFormatVtt:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for VoiceCorpusSourceKind.
 const (
 	VoiceCorpusSourceKindDocument   VoiceCorpusSourceKind = "document"
@@ -5330,31 +5738,31 @@ func (e CaptureProvider) Valid() bool {
 
 // Defines values for ListActivitiesParamsKind.
 const (
-	ListActivitiesParamsKindCall     ListActivitiesParamsKind = "call"
-	ListActivitiesParamsKindEmail    ListActivitiesParamsKind = "email"
-	ListActivitiesParamsKindMeeting  ListActivitiesParamsKind = "meeting"
-	ListActivitiesParamsKindNote     ListActivitiesParamsKind = "note"
-	ListActivitiesParamsKindTask     ListActivitiesParamsKind = "task"
-	ListActivitiesParamsKindTelegram ListActivitiesParamsKind = "telegram"
-	ListActivitiesParamsKindWhatsapp ListActivitiesParamsKind = "whatsapp"
+	Call     ListActivitiesParamsKind = "call"
+	Email    ListActivitiesParamsKind = "email"
+	Meeting  ListActivitiesParamsKind = "meeting"
+	Note     ListActivitiesParamsKind = "note"
+	Task     ListActivitiesParamsKind = "task"
+	Telegram ListActivitiesParamsKind = "telegram"
+	Whatsapp ListActivitiesParamsKind = "whatsapp"
 )
 
 // Valid indicates whether the value is a known member of the ListActivitiesParamsKind enum.
 func (e ListActivitiesParamsKind) Valid() bool {
 	switch e {
-	case ListActivitiesParamsKindCall:
+	case Call:
 		return true
-	case ListActivitiesParamsKindEmail:
+	case Email:
 		return true
-	case ListActivitiesParamsKindMeeting:
+	case Meeting:
 		return true
-	case ListActivitiesParamsKindNote:
+	case Note:
 		return true
-	case ListActivitiesParamsKindTask:
+	case Task:
 		return true
-	case ListActivitiesParamsKindTelegram:
+	case Telegram:
 		return true
-	case ListActivitiesParamsKindWhatsapp:
+	case Whatsapp:
 		return true
 	default:
 		return false
@@ -5483,25 +5891,25 @@ func (e UploadAttachmentMultipartBodyEntityType) Valid() bool {
 
 // Defines values for ListAutomationRunsParamsOutcome.
 const (
-	ListAutomationRunsParamsOutcomeBlocked           ListAutomationRunsParamsOutcome = "blocked"
-	ListAutomationRunsParamsOutcomeFailed            ListAutomationRunsParamsOutcome = "failed"
-	ListAutomationRunsParamsOutcomeFired             ListAutomationRunsParamsOutcome = "fired"
-	ListAutomationRunsParamsOutcomeQueuedForApproval ListAutomationRunsParamsOutcome = "queued_for_approval"
-	ListAutomationRunsParamsOutcomeSkipped           ListAutomationRunsParamsOutcome = "skipped"
+	Blocked           ListAutomationRunsParamsOutcome = "blocked"
+	Failed            ListAutomationRunsParamsOutcome = "failed"
+	Fired             ListAutomationRunsParamsOutcome = "fired"
+	QueuedForApproval ListAutomationRunsParamsOutcome = "queued_for_approval"
+	Skipped           ListAutomationRunsParamsOutcome = "skipped"
 )
 
 // Valid indicates whether the value is a known member of the ListAutomationRunsParamsOutcome enum.
 func (e ListAutomationRunsParamsOutcome) Valid() bool {
 	switch e {
-	case ListAutomationRunsParamsOutcomeBlocked:
+	case Blocked:
 		return true
-	case ListAutomationRunsParamsOutcomeFailed:
+	case Failed:
 		return true
-	case ListAutomationRunsParamsOutcomeFired:
+	case Fired:
 		return true
-	case ListAutomationRunsParamsOutcomeQueuedForApproval:
+	case QueuedForApproval:
 		return true
-	case ListAutomationRunsParamsOutcomeSkipped:
+	case Skipped:
 		return true
 	default:
 		return false
@@ -5784,6 +6192,24 @@ func (e ListListsParamsEntityType) Valid() bool {
 	case ListListsParamsEntityTypeOrganization:
 		return true
 	case ListListsParamsEntityTypePerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GetOnboardingCompanyProposalParamsLocale.
+const (
+	OnboardingProposalLocaleDE GetOnboardingCompanyProposalParamsLocale = "de"
+	OnboardingProposalLocaleEN GetOnboardingCompanyProposalParamsLocale = "en"
+)
+
+// Valid indicates whether the value is a known member of the GetOnboardingCompanyProposalParamsLocale enum.
+func (e GetOnboardingCompanyProposalParamsLocale) Valid() bool {
+	switch e {
+	case OnboardingProposalLocaleDE:
+		return true
+	case OnboardingProposalLocaleEN:
 		return true
 	default:
 		return false
@@ -6355,6 +6781,34 @@ type AiCallSummary struct {
 	TokensOut int    `json:"tokens_out"`
 }
 
+// AiProfile defines model for AiProfile.
+type AiProfile struct {
+	// ConfiguredModels Authenticated tier-to-model bindings. Credentials and endpoints never appear here.
+	ConfiguredModels []AssistantConfiguredModel `json:"configured_models"`
+	InferenceMode    AiProfileInferenceMode     `json:"inference_mode"`
+	Kind             AiProfileKind              `json:"kind"`
+	Name             AiProfileName              `json:"name"`
+
+	// Providers Distinct configured provider keys, sorted; fake is never returned.
+	Providers []AiProfileProviders `json:"providers"`
+	State     AiProfileState       `json:"state"`
+}
+
+// AiProfileInferenceMode defines model for AiProfile.InferenceMode.
+type AiProfileInferenceMode string
+
+// AiProfileKind defines model for AiProfile.Kind.
+type AiProfileKind string
+
+// AiProfileName defines model for AiProfile.Name.
+type AiProfileName string
+
+// AiProfileProviders defines model for AiProfile.Providers.
+type AiProfileProviders string
+
+// AiProfileState defines model for AiProfile.State.
+type AiProfileState string
+
 // AiRunModelUsage One task, route, and served-model slice within a correlated AI run.
 type AiRunModelUsage struct {
 	CacheWriteTokens int64 `json:"cache_write_tokens"`
@@ -6518,6 +6972,19 @@ type ApproveRequest struct {
 	// EditedPayload Optional edits — the edited payload is re-admitted, then it executes (edit-then-send).
 	EditedPayload *map[string]interface{} `json:"edited_payload,omitempty"`
 }
+
+// AssistantConfiguredModel defines model for AssistantConfiguredModel.
+type AssistantConfiguredModel struct {
+	Model    string                           `json:"model"`
+	Provider AssistantConfiguredModelProvider `json:"provider"`
+	Tier     AssistantConfiguredModelTier     `json:"tier"`
+}
+
+// AssistantConfiguredModelProvider defines model for AssistantConfiguredModel.Provider.
+type AssistantConfiguredModelProvider string
+
+// AssistantConfiguredModelTier defines model for AssistantConfiguredModel.Tier.
+type AssistantConfiguredModelTier string
 
 // AssistantProfile defines model for AssistantProfile.
 type AssistantProfile struct {
@@ -7089,6 +7556,9 @@ type CompanyContextScope struct {
 // CompanyContextScopeScope defines model for CompanyContextScope.Scope.
 type CompanyContextScopeScope string
 
+// CompanyConversationResponseKind defines model for CompanyConversationResponseKind.
+type CompanyConversationResponseKind string
+
 // CompanyProfile The installation's own company. The flat properties remain compatibility aliases for the
 // existing form; `fields` and `facts` are the provenance-bearing source records used by new
 // clients and by CompanyContext. New onboarding considers the profile minimum-complete when
@@ -7311,6 +7781,7 @@ type CompanySiteReadMessageReply struct {
 	// AiRuntime Cumulative price-on-read transparency for model calls carrying one run correlation id.
 	AiRuntime       AiRunSummary                     `json:"ai_runtime"`
 	Citations       []CompanySiteReadCitation        `json:"citations"`
+	Kind            CompanyConversationResponseKind  `json:"kind"`
 	Message         string                           `json:"message"`
 	ProposedChanges []CompanySiteReadSuggestedChange `json:"proposed_changes"`
 }
@@ -8121,11 +8592,99 @@ type DedupeDispositionRequestDisposition string
 
 // EmailDraft A drafted email (never sent by drafting). Send via /activities/{id}/send-email (🟡).
 type EmailDraft struct {
-	Body                string                 `json:"body"`
+	// AiDisclosure The machine-readable Art. 50 disclosure line; non-null iff ai_generated=true.
+	AiDisclosure *string `json:"ai_disclosure,omitempty"`
+
+	// AiGenerated Art. 50 AI-assisted disclosure: true when a model produced this draft; stamped on the drafting call itself, never persisted. Absent reads as false.
+	AiGenerated *bool  `json:"ai_generated,omitempty"`
+	Body        string `json:"body"`
+
+	// DraftRef Opaque reference identifying this served voice draft for learning feedback (rejectVoiceDraft); null when no voice profile styled it.
+	DraftRef            *string                `json:"draft_ref,omitempty"`
 	InReplyToActivityId *openapi_types.UUID    `json:"in_reply_to_activity_id,omitempty"`
 	Subject             string                 `json:"subject"`
 	To                  *[]openapi_types.Email `json:"to,omitempty"`
+
+	// VoiceProfileVersion The Voice DNA PROFILE version (not a model version) that styled this draft — the "built from your corpus · vN" provenance; null when no ready voice profile shaped it.
+	VoiceProfileVersion *int `json:"voice_profile_version,omitempty"`
 }
+
+// EmbedReindexPreview The scope before the spend (ADR-0020 preview-before-spend obligation): what running the reindex now would touch and roughly cost. MUST precede the confirm route — the estimate is what the operator consents to. An estimate, labeled as such — actual spend is metered per embed call.
+type EmbedReindexPreview struct {
+	ComputedAt time.Time `json:"computed_at"`
+
+	// Currency ISO-4217; "USD" in v1.
+	Currency *string `json:"currency,omitempty"`
+
+	// EntitiesPending Fleet-wide pending count (the same figure the status read reports).
+	EntitiesPending int `json:"entities_pending"`
+
+	// EstimateQuality Always heuristic for this estimator — a cold work-shape floor, never priced from observed ai_call history (there is no per-embedding-call billing line to observe).
+	EstimateQuality EmbedReindexPreviewEstimateQuality `json:"estimate_quality"`
+
+	// EstimatedAiTokens Fleet-wide SUM(length(source text))/4 work-shape estimate across every pending entity (search/binding.go's TokenSumByWorkspace); absent on estimator fault (ADR-0068).
+	EstimatedAiTokens *int `json:"estimated_ai_tokens,omitempty"`
+
+	// EstimatedCostMinor USD minor units, estimated from the current embedding ai_model_rate; absent when no rate applies (ADR-0068).
+	EstimatedCostMinor *int `json:"estimated_cost_minor,omitempty"`
+
+	// PerWorkspace Per-workspace breakdown, the same set of live tenant workspaces the status read enumerates.
+	PerWorkspace []struct {
+		EntitiesPending int `json:"entities_pending"`
+
+		// EstimatedAiTokens This workspace's share of the fleet-wide estimate; absent on estimator fault.
+		EstimatedAiTokens *int `json:"estimated_ai_tokens,omitempty"`
+
+		// UtilizationImpact The AIRT-PARAM-9..11 budget band this workspace would land in were its estimated_ai_tokens added to its current spent_tokens — a disclosure only; the reindex proceeds fleet-wide regardless of any one workspace's band.
+		UtilizationImpact EmbedReindexPreviewPerWorkspaceUtilizationImpact `json:"utilization_impact"`
+		WorkspaceId       openapi_types.UUID                               `json:"workspace_id"`
+	} `json:"per_workspace"`
+}
+
+// EmbedReindexPreviewEstimateQuality Always heuristic for this estimator — a cold work-shape floor, never priced from observed ai_call history (there is no per-embedding-call billing line to observe).
+type EmbedReindexPreviewEstimateQuality string
+
+// EmbedReindexPreviewPerWorkspaceUtilizationImpact The AIRT-PARAM-9..11 budget band this workspace would land in were its estimated_ai_tokens added to its current spent_tokens — a disclosure only; the reindex proceeds fleet-wide regardless of any one workspace's band.
+type EmbedReindexPreviewPerWorkspaceUtilizationImpact string
+
+// EmbedReindexStartRequest Optional confirm body. With no body, no drift check runs and force is off.
+type EmbedReindexStartRequest struct {
+	// Force Rebuild the index even when nothing is derived as pending (the v6 B2 affordance).
+	Force *bool `json:"force,omitempty"`
+
+	// PreviewedIdentity The identity the SPA previewed against; compared to the currently-configured identity — mismatch is a 409 (the operator changed the embed binding between preview and confirm). Omitted or empty skips the check.
+	PreviewedIdentity *string `json:"previewed_identity,omitempty"`
+}
+
+// EmbedReindexStatus The embed_store_binding marker (ADR-0068 design §5.6) plus the derived reindex-needed signal: every count is a live-scanned figure, never a stored counter.
+type EmbedReindexStatus struct {
+	// ConfiguredIdentity The live embed binding's provider/model@dims (Task 9).
+	ConfiguredIdentity string `json:"configured_identity"`
+
+	// EntitiesPending Fleet-wide count of live entities lacking a current-identity embedding row.
+	EntitiesPending int `json:"entities_pending"`
+
+	// PerWorkspace Per-workspace breakdown of entities_pending, one row per live tenant workspace.
+	PerWorkspace []struct {
+		EntitiesPending int                `json:"entities_pending"`
+		WorkspaceId     openapi_types.UUID `json:"workspace_id"`
+	} `json:"per_workspace"`
+
+	// PopulatedIdentity What the store's embeddings were last completed under (embed_store_binding.populated_identity).
+	PopulatedIdentity string `json:"populated_identity"`
+
+	// ReindexNeeded Derived fresh on every read (never a stored flag): true when configured_identity != populated_identity, or entities_pending > 0.
+	ReindexNeeded bool `json:"reindex_needed"`
+
+	// Status The marker's own job-lifecycle state (embed_store_binding.status).
+	Status EmbedReindexStatusStatus `json:"status"`
+
+	// UpdatedAt When the marker last changed (embed_store_binding.updated_at) — while status is reembedding, how long the job has been running, the figure a stuck-job recovery affordance needs to show a human.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// EmbedReindexStatusStatus The marker's own job-lifecycle state (embed_store_binding.status).
+type EmbedReindexStatusStatus string
 
 // EnrichCompanyRequest Optional override. With no body the org's own domain is read.
 type EnrichCompanyRequest struct {
@@ -8261,7 +8820,11 @@ type ImapConnectResult struct {
 
 // IngestVoiceCorpusSourceRequest defines model for IngestVoiceCorpusSourceRequest.
 type IngestVoiceCorpusSourceRequest struct {
-	Content     *string                                `json:"content,omitempty"`
+	Content *string `json:"content,omitempty"`
+
+	// Format Send `transcript` for anything conversational — .vtt, .srt, transcript JSON,
+	// and speaker-labelled plain text ("Name: …" lines) alike; the server detects
+	// the concrete shape. `text` is for single-author prose only.
 	Format      IngestVoiceCorpusSourceRequestFormat   `json:"format"`
 	Kind        IngestVoiceCorpusSourceRequestKind     `json:"kind"`
 	OccurredAt  *time.Time                             `json:"occurred_at,omitempty"`
@@ -8274,7 +8837,9 @@ type IngestVoiceCorpusSourceRequest struct {
 	Weight       *float32 `json:"weight,omitempty"`
 }
 
-// IngestVoiceCorpusSourceRequestFormat defines model for IngestVoiceCorpusSourceRequest.Format.
+// IngestVoiceCorpusSourceRequestFormat Send `transcript` for anything conversational — .vtt, .srt, transcript JSON,
+// and speaker-labelled plain text ("Name: …" lines) alike; the server detects
+// the concrete shape. `text` is for single-author prose only.
 type IngestVoiceCorpusSourceRequestFormat string
 
 // IngestVoiceCorpusSourceRequestKind defines model for IngestVoiceCorpusSourceRequest.Kind.
@@ -8795,9 +9360,49 @@ type OmittedExtractionField struct {
 // OmittedExtractionFieldReason defines model for OmittedExtractionField.Reason.
 type OmittedExtractionFieldReason string
 
+// OnboardingAct The four onboarding conversation acts.
+type OnboardingAct string
+
+// OnboardingClarify One server-detected open question with its closed option list. Options are produced
+// deterministically from the persisted read (legal-entity census, human-conflict
+// comparisons) — never by a model. Answers travel back either as `selected_option` on the
+// next message or as a CompanySiteReadResolution at confirm time.
+type OnboardingClarify struct {
+	// AllowFreeText Whether typing a different value is also a valid answer.
+	AllowFreeText *bool `json:"allow_free_text,omitempty"`
+
+	// Field The profile field or comparison key the question resolves.
+	Field string `json:"field"`
+
+	// Id Stable per read draft version, e.g. clarify:<field>:<draft_version>.
+	Id       string                    `json:"id"`
+	Options  []OnboardingClarifyOption `json:"options"`
+	Question string                    `json:"question"`
+}
+
+// OnboardingClarifyOption defines model for OnboardingClarifyOption.
+type OnboardingClarifyOption struct {
+	// Detail Provenance or disambiguation help for this option.
+	Detail          *string `json:"detail,omitempty"`
+	EvidenceSnippet *string `json:"evidence_snippet,omitempty"`
+	EvidenceUrl     *string `json:"evidence_url,omitempty"`
+	Label           string  `json:"label"`
+
+	// Value The exact string the selection authorizes — verbatim from the read or the current record.
+	Value string `json:"value"`
+}
+
+// OnboardingClarifySelection defines model for OnboardingClarifySelection.
+type OnboardingClarifySelection struct {
+	ClarifyId string `json:"clarify_id"`
+	Field     string `json:"field"`
+	Value     string `json:"value"`
+}
+
 // OnboardingCompanyDraft Partial human-editable company input retained while the wizard is unfinished. Every field
 // is optional here because this is not confirmed company truth; confirmation uses the stricter
-// CompanyProfileInput or ConfirmCompanySiteReadRequest contract.
+// CompanyProfileInput or ConfirmCompanySiteReadRequest contract. Values are bounded because the
+// same draft may be supplied as context to the conversational assistant.
 type OnboardingCompanyDraft struct {
 	BuyingCenter      *string `json:"buying_center,omitempty"`
 	BuyingIntents     *string `json:"buying_intents,omitempty"`
@@ -8817,11 +9422,86 @@ type OnboardingCompanyDraft struct {
 	ValueProposition  *string `json:"value_proposition,omitempty"`
 }
 
+// OnboardingCompanyMessageReply defines model for OnboardingCompanyMessageReply.
+type OnboardingCompanyMessageReply struct {
+	// Act The four onboarding conversation acts.
+	Act OnboardingAct `json:"act"`
+
+	// AiRuntime Cumulative price-on-read transparency for model calls carrying one run correlation id.
+	AiRuntime       AiRunSummary                                  `json:"ai_runtime"`
+	AvailableAction *OnboardingCompanyMessageReplyAvailableAction `json:"available_action,omitempty"`
+	Citations       []CompanySiteReadCitation                     `json:"citations"`
+
+	// Clarify One server-detected open question with its closed option list. Options are produced
+	// deterministically from the persisted read (legal-entity census, human-conflict
+	// comparisons) — never by a model. Answers travel back either as `selected_option` on the
+	// next message or as a CompanySiteReadResolution at confirm time.
+	Clarify                 *OnboardingClarify                                     `json:"clarify,omitempty"`
+	Kind                    CompanyConversationResponseKind                        `json:"kind"`
+	Message                 string                                                 `json:"message"`
+	NextRequiredField       *OnboardingCompanyMessageReplyNextRequiredField        `json:"next_required_field,omitempty"`
+	ProposedChanges         []CompanySiteReadSuggestedChange                       `json:"proposed_changes"`
+	RemainingRequiredFields []OnboardingCompanyMessageReplyRemainingRequiredFields `json:"remaining_required_fields"`
+}
+
+// OnboardingCompanyMessageReplyAvailableAction defines model for OnboardingCompanyMessageReply.AvailableAction.
+type OnboardingCompanyMessageReplyAvailableAction string
+
+// OnboardingCompanyMessageReplyNextRequiredField defines model for OnboardingCompanyMessageReply.NextRequiredField.
+type OnboardingCompanyMessageReplyNextRequiredField string
+
+// OnboardingCompanyMessageReplyRemainingRequiredFields defines model for OnboardingCompanyMessageReply.RemainingRequiredFields.
+type OnboardingCompanyMessageReplyRemainingRequiredFields string
+
+// OnboardingCompanyMessageRequest defines model for OnboardingCompanyMessageRequest.
+type OnboardingCompanyMessageRequest struct {
+	// Act The four onboarding conversation acts.
+	Act *OnboardingAct `json:"act,omitempty"`
+
+	// CompanyDraft Partial human-editable company input retained while the wizard is unfinished. Every field
+	// is optional here because this is not confirmed company truth; confirmation uses the stricter
+	// CompanyProfileInput or ConfirmCompanySiteReadRequest contract. Values are bounded because the
+	// same draft may be supplied as context to the conversational assistant.
+	CompanyDraft   *OnboardingCompanyDraft               `json:"company_draft,omitempty"`
+	History        *[]CompanySiteReadConversationTurn    `json:"history,omitempty"`
+	Locale         OnboardingCompanyMessageRequestLocale `json:"locale"`
+	Message        string                                `json:"message"`
+	SelectedOption *OnboardingClarifySelection           `json:"selected_option,omitempty"`
+}
+
+// OnboardingCompanyMessageRequestLocale defines model for OnboardingCompanyMessageRequest.Locale.
+type OnboardingCompanyMessageRequestLocale string
+
+// OnboardingCompanyProposal The deterministic "prepared mapping" snapshot the conversational shell narrates. Everything
+// here is computed from the persisted read — no model call. `draft_version` and
+// `proposal_hash` are the pair ConfirmCompanySiteRead must echo.
+type OnboardingCompanyProposal struct {
+	DraftVersion  *int                              `json:"draft_version,omitempty"`
+	Facts         *[]CompanySiteReadFact            `json:"facts,omitempty"`
+	Fields        *[]OnboardingCompanyProposalField `json:"fields,omitempty"`
+	OpenQuestions *[]OnboardingClarify              `json:"open_questions,omitempty"`
+	ProposalHash  *string                           `json:"proposal_hash,omitempty"`
+
+	// Ready False while the read is still queued
+	Ready                   bool      `json:"ready"`
+	RemainingRequiredFields *[]string `json:"remaining_required_fields,omitempty"`
+}
+
+// OnboardingCompanyProposalField defines model for OnboardingCompanyProposalField.
+type OnboardingCompanyProposalField struct {
+	Confidence      float32 `json:"confidence"`
+	EvidenceSnippet string  `json:"evidence_snippet"`
+	Field           string  `json:"field"`
+	SourceUrl       string  `json:"source_url"`
+	Value           string  `json:"value"`
+}
+
 // OnboardingState defines model for OnboardingState.
 type OnboardingState struct {
 	// CompanyDraft Partial human-editable company input retained while the wizard is unfinished. Every field
 	// is optional here because this is not confirmed company truth; confirmation uses the stricter
-	// CompanyProfileInput or ConfirmCompanySiteReadRequest contract.
+	// CompanyProfileInput or ConfirmCompanySiteReadRequest contract. Values are bounded because the
+	// same draft may be supplied as context to the conversational assistant.
 	CompanyDraft     OnboardingCompanyDraft     `json:"company_draft"`
 	CompletedAt      *time.Time                 `json:"completed_at,omitempty"`
 	ConnectSkipped   bool                       `json:"connect_skipped"`
@@ -9388,7 +10068,8 @@ type PromoteLeadResponse struct {
 type PutOnboardingStateRequest struct {
 	// CompanyDraft Partial human-editable company input retained while the wizard is unfinished. Every field
 	// is optional here because this is not confirmed company truth; confirmation uses the stricter
-	// CompanyProfileInput or ConfirmCompanySiteReadRequest contract.
+	// CompanyProfileInput or ConfirmCompanySiteReadRequest contract. Values are bounded because the
+	// same draft may be supplied as context to the conversational assistant.
 	CompanyDraft   OnboardingCompanyDraft `json:"company_draft"`
 	ConnectSkipped bool                   `json:"connect_skipped"`
 
@@ -10465,6 +11146,37 @@ type VoiceBuildStatus string
 // VoiceBuildStatusCode defines model for VoiceBuild.StatusCode.
 type VoiceBuildStatusCode string
 
+// VoiceCorpusPreviewRequest defines model for VoiceCorpusPreviewRequest.
+type VoiceCorpusPreviewRequest struct {
+	Content *string `json:"content,omitempty"`
+
+	// Format Send transcript for anything conversational - the server detects the
+	// concrete shape (vtt, srt, transcript JSON, or labelled plain text).
+	// text skips speaker detection entirely.
+	Format VoiceCorpusPreviewRequestFormat `json:"format"`
+}
+
+// VoiceCorpusPreviewRequestFormat Send transcript for anything conversational - the server detects the
+// concrete shape (vtt, srt, transcript JSON, or labelled plain text).
+// text skips speaker detection entirely.
+type VoiceCorpusPreviewRequestFormat string
+
+// VoiceCorpusPreviewResult Dry-run inspection of a candidate source; nothing is stored.
+type VoiceCorpusPreviewResult struct {
+	DetectedFormat         VoiceCorpusPreviewResultDetectedFormat `json:"detected_format"`
+	IngestibleAsTranscript bool                                   `json:"ingestible_as_transcript"`
+	Speakers               []struct {
+		Label string `json:"label"`
+		Turns int    `json:"turns"`
+		Words int    `json:"words"`
+	} `json:"speakers"`
+	TotalWords        int `json:"total_words"`
+	UnattributedWords int `json:"unattributed_words"`
+}
+
+// VoiceCorpusPreviewResultDetectedFormat defines model for VoiceCorpusPreviewResult.DetectedFormat.
+type VoiceCorpusPreviewResultDetectedFormat string
+
 // VoiceCorpusSource Privacy-safe source manifest. Retained source text is deliberately not returned.
 type VoiceCorpusSource struct {
 	ArchivedAt       *time.Time                `json:"archived_at"`
@@ -10515,6 +11227,15 @@ type VoiceCorpusSummaryMaturity string
 
 // VoiceCorpusSummaryQualityBand defines model for VoiceCorpusSummary.QualityBand.
 type VoiceCorpusSummaryQualityBand string
+
+// VoiceIngestStats What the speaker filter did to one ingested source; kept words are the only words that count.
+type VoiceIngestStats struct {
+	DiscardedTurns int      `json:"discarded_turns"`
+	InputWords     int      `json:"input_words"`
+	KeptTurns      int      `json:"kept_turns"`
+	KeptWords      int      `json:"kept_words"`
+	SpeakersSeen   []string `json:"speakers_seen"`
+}
 
 // VoiceLearningSummary defines model for VoiceLearningSummary.
 type VoiceLearningSummary struct {
@@ -11802,6 +12523,15 @@ type SendOfferParams struct {
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
+// GetOnboardingCompanyProposalParams defines parameters for GetOnboardingCompanyProposal.
+type GetOnboardingCompanyProposalParams struct {
+	// Locale Language for the open questions' copy; option values are locale-invariant.
+	Locale *GetOnboardingCompanyProposalParamsLocale `form:"locale,omitempty" json:"locale,omitempty"`
+}
+
+// GetOnboardingCompanyProposalParamsLocale defines parameters for GetOnboardingCompanyProposal.
+type GetOnboardingCompanyProposalParamsLocale string
+
 // PutOnboardingStateParams defines parameters for PutOnboardingState.
 type PutOnboardingStateParams struct {
 	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
@@ -12979,6 +13709,9 @@ type CreateOfferJSONRequestBody = CreateOfferRequest
 // DisposeDedupeCandidateJSONRequestBody defines body for DisposeDedupeCandidate for application/json ContentType.
 type DisposeDedupeCandidateJSONRequestBody = DedupeDispositionRequest
 
+// EmbedReindexStartJSONRequestBody defines body for EmbedReindexStart for application/json ContentType.
+type EmbedReindexStartJSONRequestBody = EmbedReindexStartRequest
+
 // CreateFilteredExportJSONRequestBody defines body for CreateFilteredExport for application/json ContentType.
 type CreateFilteredExportJSONRequestBody = FilteredExportRequest
 
@@ -13014,6 +13747,9 @@ type UpdateOfferLineItemJSONRequestBody = UpdateOfferLineItemRequest
 
 // RejectOfferJSONRequestBody defines body for RejectOffer for application/json ContentType.
 type RejectOfferJSONRequestBody = RejectOfferRequest
+
+// MessageOnboardingCompanyJSONRequestBody defines body for MessageOnboardingCompany for application/json ContentType.
+type MessageOnboardingCompanyJSONRequestBody = OnboardingCompanyMessageRequest
 
 // PutOnboardingStateJSONRequestBody defines body for PutOnboardingState for application/json ContentType.
 type PutOnboardingStateJSONRequestBody = PutOnboardingStateRequest
@@ -13140,6 +13876,9 @@ type RejectVoiceDraftJSONRequestBody = RejectVoiceDraftRequest
 
 // IngestVoiceCorpusSourceJSONRequestBody defines body for IngestVoiceCorpusSource for application/json ContentType.
 type IngestVoiceCorpusSourceJSONRequestBody = IngestVoiceCorpusSourceRequest
+
+// PreviewVoiceCorpusSourceJSONRequestBody defines body for PreviewVoiceCorpusSource for application/json ContentType.
+type PreviewVoiceCorpusSourceJSONRequestBody = VoiceCorpusPreviewRequest
 
 // UpdateVoiceCorpusSourceJSONRequestBody defines body for UpdateVoiceCorpusSource for application/json ContentType.
 type UpdateVoiceCorpusSourceJSONRequestBody = UpdateVoiceCorpusSourceRequest
@@ -18036,6 +18775,9 @@ type ServerInterface interface {
 	// One call — attempt ladder, routing identity, context provenance, captured payload.
 	// (GET /ai/calls/{id})
 	GetAiCall(w http.ResponseWriter, r *http.Request, id Id)
+	// Authenticated AI configuration posture for transparent human-facing workspaces.
+	// (GET /ai/profile)
+	GetAiProfile(w http.ResponseWriter, r *http.Request)
 	// AI usage + budget — the spend is never invisible.
 	// (GET /ai/usage)
 	GetAiUsage(w http.ResponseWriter, r *http.Request, params GetAiUsageParams)
@@ -18276,6 +19018,15 @@ type ServerInterface interface {
 	// The calling user's morning digest — what capture did overnight.
 	// (GET /digest)
 	GetMorningDigest(w http.ResponseWriter, r *http.Request, params GetMorningDigestParams)
+	// Confirm and start a fleet-wide reindex.
+	// (POST /embeddings/reindex)
+	EmbedReindexStart(w http.ResponseWriter, r *http.Request)
+	// Preview a reindex — the scope before the spend.
+	// (GET /embeddings/reindex/preview)
+	EmbedReindexPreview(w http.ResponseWriter, r *http.Request)
+	// The embed-store binding marker + the derived reindex-needed signal.
+	// (GET /embeddings/reindex/status)
+	EmbedReindexStatus(w http.ResponseWriter, r *http.Request)
 	// Export a filtered slice of one object (or a saved view / dynamic list) to an open format.
 	// (POST /exports)
 	CreateFilteredExport(w http.ResponseWriter, r *http.Request)
@@ -18372,6 +19123,12 @@ type ServerInterface interface {
 	// Send a draft offer (🟡 — leaves the workspace; freezes FX + buyer/issuer snapshot).
 	// (POST /offers/{id}/send)
 	SendOffer(w http.ResponseWriter, r *http.Request, id Id, params SendOfferParams)
+	// Continue the scoped company-setup conversation with or without a website read.
+	// (POST /onboarding/company/messages)
+	MessageOnboardingCompany(w http.ResponseWriter, r *http.Request)
+	// The deterministic evidence-backed company proposal derived from the onboarding website read.
+	// (GET /onboarding/company/proposal)
+	GetOnboardingCompanyProposal(w http.ResponseWriter, r *http.Request, params GetOnboardingCompanyProposalParams)
 	// Get the acting user's resumable onboarding state.
 	// (GET /onboarding/state)
 	GetOnboardingState(w http.ResponseWriter, r *http.Request)
@@ -18705,6 +19462,9 @@ type ServerInterface interface {
 	// Ingest or replace one manual own-authored text source.
 	// (POST /voice-profiles/{id}/sources)
 	IngestVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id, params IngestVoiceCorpusSourceParams)
+	// Dry-run one candidate source; detect its shape and speakers without storing anything.
+	// (POST /voice-profiles/{id}/sources/preview)
+	PreviewVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id)
 	// Permanently remove one retained source and mark any active artifact stale.
 	// (DELETE /voice-profiles/{id}/sources/{sourceId})
 	DeleteVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id, sourceId openapi_types.UUID, params DeleteVoiceCorpusSourceParams)
@@ -18816,6 +19576,12 @@ func (_ Unimplemented) ListAiCalls(w http.ResponseWriter, r *http.Request, param
 // One call — attempt ladder, routing identity, context provenance, captured payload.
 // (GET /ai/calls/{id})
 func (_ Unimplemented) GetAiCall(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Authenticated AI configuration posture for transparent human-facing workspaces.
+// (GET /ai/profile)
+func (_ Unimplemented) GetAiProfile(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -19299,6 +20065,24 @@ func (_ Unimplemented) GetMorningDigest(w http.ResponseWriter, r *http.Request, 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Confirm and start a fleet-wide reindex.
+// (POST /embeddings/reindex)
+func (_ Unimplemented) EmbedReindexStart(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Preview a reindex — the scope before the spend.
+// (GET /embeddings/reindex/preview)
+func (_ Unimplemented) EmbedReindexPreview(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The embed-store binding marker + the derived reindex-needed signal.
+// (GET /embeddings/reindex/status)
+func (_ Unimplemented) EmbedReindexStatus(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Export a filtered slice of one object (or a saved view / dynamic list) to an open format.
 // (POST /exports)
 func (_ Unimplemented) CreateFilteredExport(w http.ResponseWriter, r *http.Request) {
@@ -19488,6 +20272,18 @@ func (_ Unimplemented) RenderOffer(w http.ResponseWriter, r *http.Request, id Id
 // Send a draft offer (🟡 — leaves the workspace; freezes FX + buyer/issuer snapshot).
 // (POST /offers/{id}/send)
 func (_ Unimplemented) SendOffer(w http.ResponseWriter, r *http.Request, id Id, params SendOfferParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Continue the scoped company-setup conversation with or without a website read.
+// (POST /onboarding/company/messages)
+func (_ Unimplemented) MessageOnboardingCompany(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The deterministic evidence-backed company proposal derived from the onboarding website read.
+// (GET /onboarding/company/proposal)
+func (_ Unimplemented) GetOnboardingCompanyProposal(w http.ResponseWriter, r *http.Request, params GetOnboardingCompanyProposalParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -20154,6 +20950,12 @@ func (_ Unimplemented) ListVoiceCorpusSources(w http.ResponseWriter, r *http.Req
 // Ingest or replace one manual own-authored text source.
 // (POST /voice-profiles/{id}/sources)
 func (_ Unimplemented) IngestVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id, params IngestVoiceCorpusSourceParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Dry-run one candidate source; detect its shape and speakers without storing anything.
+// (POST /voice-profiles/{id}/sources/preview)
+func (_ Unimplemented) PreviewVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -20866,6 +21668,26 @@ func (siw *ServerInterfaceWrapper) GetAiCall(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetAiCall(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAiProfile operation middleware
+func (siw *ServerInterfaceWrapper) GetAiProfile(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAiProfile(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -24374,6 +25196,66 @@ func (siw *ServerInterfaceWrapper) GetMorningDigest(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// EmbedReindexStart operation middleware
+func (siw *ServerInterfaceWrapper) EmbedReindexStart(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EmbedReindexStart(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// EmbedReindexPreview operation middleware
+func (siw *ServerInterfaceWrapper) EmbedReindexPreview(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EmbedReindexPreview(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// EmbedReindexStatus operation middleware
+func (siw *ServerInterfaceWrapper) EmbedReindexStatus(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EmbedReindexStatus(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // CreateFilteredExport operation middleware
 func (siw *ServerInterfaceWrapper) CreateFilteredExport(w http.ResponseWriter, r *http.Request) {
 
@@ -26044,6 +26926,65 @@ func (siw *ServerInterfaceWrapper) SendOffer(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SendOffer(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MessageOnboardingCompany operation middleware
+func (siw *ServerInterfaceWrapper) MessageOnboardingCompany(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MessageOnboardingCompany(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetOnboardingCompanyProposal operation middleware
+func (siw *ServerInterfaceWrapper) GetOnboardingCompanyProposal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetOnboardingCompanyProposalParams
+
+	// ------------- Optional query parameter "locale" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "locale", r.URL.Query(), &params.Locale, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "locale"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "locale", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOnboardingCompanyProposal(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -31428,6 +32369,38 @@ func (siw *ServerInterfaceWrapper) IngestVoiceCorpusSource(w http.ResponseWriter
 	handler.ServeHTTP(w, r)
 }
 
+// PreviewVoiceCorpusSource operation middleware
+func (siw *ServerInterfaceWrapper) PreviewVoiceCorpusSource(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PreviewVoiceCorpusSource(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeleteVoiceCorpusSource operation middleware
 func (siw *ServerInterfaceWrapper) DeleteVoiceCorpusSource(w http.ResponseWriter, r *http.Request) {
 
@@ -32349,6 +33322,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/ai/calls/{id}", wrapper.GetAiCall)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/ai/profile", wrapper.GetAiProfile)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/ai/usage", wrapper.GetAiUsage)
 	})
 	r.Group(func(r chi.Router) {
@@ -32589,6 +33565,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/digest", wrapper.GetMorningDigest)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/embeddings/reindex", wrapper.EmbedReindexStart)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/embeddings/reindex/preview", wrapper.EmbedReindexPreview)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/embeddings/reindex/status", wrapper.EmbedReindexStatus)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/exports", wrapper.CreateFilteredExport)
 	})
 	r.Group(func(r chi.Router) {
@@ -32683,6 +33668,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/offers/{id}/send", wrapper.SendOffer)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/onboarding/company/messages", wrapper.MessageOnboardingCompany)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/onboarding/company/proposal", wrapper.GetOnboardingCompanyProposal)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/onboarding/state", wrapper.GetOnboardingState)
@@ -33016,6 +34007,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/voice-profiles/{id}/sources", wrapper.IngestVoiceCorpusSource)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/voice-profiles/{id}/sources/preview", wrapper.PreviewVoiceCorpusSource)
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/voice-profiles/{id}/sources/{sourceId}", wrapper.DeleteVoiceCorpusSource)

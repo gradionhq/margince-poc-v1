@@ -44,6 +44,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -82,6 +83,7 @@ type Server struct {
 	quotasHandlers
 	attachmentExtractionHandlers
 	overlayHandlers
+	embedReindexHandlers
 	webhooksHandlers
 
 	// gmailPush is the Pub/Sub push webhook, injected by WithGmailPush only
@@ -146,16 +148,19 @@ type Server struct {
 
 	// overlayMeter is this Server's REST-surface OVB meter — what
 	// contractAPI's Dispatcher force-fresh reads spend against and what
-	// GetOverlayBudget reports (once WithKeyvault rebuilds
-	// overlayHandlers over it). Its window lives in Postgres now, so it
-	// shares a per-workspace count with every other meter over the same
-	// pool (see compose/overlay.go's NewOverlayMeter doc); threading this
-	// one instance through both wiring points is convention, no longer a
+	// GetOverlayBudget reports (once WithKeyvault rebuilds overlayHandlers
+	// over it). Its windows live in Redis (see compose/overlay.go's
+	// NewOverlayMeter doc), so it shares a per-workspace-per-incumbent count
+	// with cmd/worker's poller meter over the same Redis; threading this one
+	// instance through both wiring points is convention, no longer a
 	// correctness requirement.
-	// Always non-nil (newServer constructs it unconditionally): a
-	// workspace never in overlay mode never spends against it, and a
-	// role with no vault simply never reaches GetOverlayBudget's 501.
-	overlayMeter *overlay.Meter
+	// Always non-nil (newServer constructs it unconditionally, fail-closed
+	// with no Redis): a role that never calls WithOverlayMeter answers shed
+	// for every force-fresh read (never spends live quota it cannot
+	// account for), and a role with no vault never reaches GetOverlayBudget
+	// at all. WithOverlayMeter Rebinds this shared pointer to the live
+	// Redis-backed meter at boot.
+	overlayMeter *overlaybudget.Meter
 	// overlayBackfillLimit bounds the overlay initial mirror backfill per
 	// object class (dev/demo — WithOverlayBackfillLimit); 0 is uncapped.
 	overlayBackfillLimit int
@@ -264,6 +269,10 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		siteReadHandlers: siteReadHandlers{companyContextRollout: companyContextRolloutOnboarding},
 		onboardingStateHandlers: onboardingStateHandlers{
 			state: identity.NewOnboardingStore(pool), company: people.NewStore(pool),
+			proposal: &onboardingProposalEngine{
+				state: identity.NewOnboardingStore(pool), people: people.NewStore(pool),
+				rollout: companyContextRolloutOnboarding,
+			},
 		},
 		// The schema-change pool is boot-optional; nil
 		// here means Create/SetOptions stay their generated 501 until the
@@ -287,8 +296,9 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// overlayHandlers over this SAME instance rather than minting a
 		// second one, and contractAPI's Dispatcher spends force-fresh
 		// reads against it too (see compose/overlay.go's NewOverlayMeter
-		// doc).
-		overlayMeter: NewOverlayMeter(pool),
+		// doc). Fail-closed until WithOverlayMeter Rebinds it with the live
+		// Redis client + config.
+		overlayMeter: failClosedOverlayMeter(),
 	}
 	// The overlay read dispatch is built with a nil live-incumbent resolver
 	// here (force-fresh degrades to the mirror). WithKeyvault injects the
@@ -384,7 +394,7 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH auth
 	// other operational edges are unauthenticated by design.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", httpserver.Healthz)
-	mux.HandleFunc("/readyz", httpserver.Readyz(srv.aiStateOrDefault(), srv.readinessChecks(pool.Ping)...))
+	mux.HandleFunc("/readyz", httpserver.Readyz(srv.aiStateOrDefault(), srv.readyzEmbedState(), srv.readinessChecks(pool.Ping)...))
 	mux.HandleFunc("/metrics", httpserver.Metrics(pool,
 		func(ctx context.Context) (int64, error) { return events.OutboxBacklog(ctx, pool) },
 		events.PublishedTotal,
@@ -414,6 +424,17 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH auth
 	return mux
 }
 
+// readyzEmbedState builds /readyz's embed-status closure (Task 17) over
+// whatever embed lane this process role already wired via
+// WithEmbedReindex — the SAME store and embedder embedReindexHandlers'
+// status/preview/confirm read, so this reports through the one seam
+// rather than opening a second router/store pair. A role that never
+// wires an embed lane (no declared routing config, --ai-fake, or the
+// two self-gating nils WithEmbedReindex checks) leaves engine nil; that
+// is a legitimate "no embed lane to report on" shape, not a fault, so it
+// renders "unknown" exactly like a marker-read failure does — Readyz's
+// body never distinguishes the two, only ever "was this readable right
+// now or not."
 // signalStrength bridges people's §4 relationship-strength computation to
 // the slice the warm room consumes (signals.StrengthSource). It carries
 // only the score and its bucket across the seam — the full explainable

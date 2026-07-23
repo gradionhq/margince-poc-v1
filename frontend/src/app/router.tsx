@@ -11,7 +11,13 @@ export type Route = {
 };
 
 export function parseHash(hash: string): Route {
-  const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
+  // A hash may carry a query of its own ("#/onboarding?conv"); the query is
+  // not part of the route and must never leak into a screen name.
+  const parts = hash
+    .replace(/^#\/?/, "")
+    .split("?")[0]
+    .split("/")
+    .filter(Boolean);
   if (parts.length === 0) {
     return { screen: "home" };
   }

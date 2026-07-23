@@ -28,6 +28,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -108,7 +109,7 @@ type ConnectInput struct {
 // construction site rather than re-plumbing compose wiring later.
 // meter and toIncumbentClasses are both optional (nil-safe): meter backs
 // GetOverlayBudget's Snapshot read — it MUST be
-// the SAME *Meter instance FreshnessReader's force-fresh lane consumes
+// the SAME *overlaybudget.Meter instance FreshnessReader's force-fresh reads consume
 // against (compose/overlay.go wires this explicitly), or the budget read
 // would answer an always-empty window nothing ever fed. toIncumbentClasses
 // answers SyncStatus's per-object backfillComplete lookup (overlay_
@@ -123,7 +124,7 @@ type Service struct {
 	pool               *pgxpool.Pool
 	vault              keyvault.Vault
 	ms                 *MirrorStore
-	meter              *Meter
+	meter              *overlaybudget.Meter
 	toIncumbentClasses func(canonical string) (incumbentClasses []string, ok bool)
 	incumbent          func(region, token string) Incumbent
 	log                *slog.Logger
@@ -161,7 +162,7 @@ func (s *Service) notifyModeFlip(workspaceID ids.UUID) {
 // Service doc for why this must be the compose layer's ONE shared
 // instance, not a freshly minted one. Returns s so compose can chain it
 // onto NewService's result at the construction site.
-func (s *Service) WithBudgetMeter(meter *Meter) *Service {
+func (s *Service) WithBudgetMeter(meter *overlaybudget.Meter) *Service {
 	s.meter = meter
 	return s
 }

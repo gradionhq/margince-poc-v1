@@ -3066,6 +3066,86 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  # ------------------------ /embeddings/reindex ------------------------------
+  /embeddings/reindex/status:
+    get:
+      tags: [Search]
+      operationId: EmbedReindexStatus
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: The embed-store binding marker + the derived reindex-needed signal.
+      description: |
+        The deployment-level `embed_store_binding` marker (ADR-0068 design §5.6) plus a live
+        per-workspace scan: `configured_identity` is the live embed binding's provider/model@dims
+        (Task 9); `populated_identity` is what the store's embeddings were last completed under.
+        `reindex_needed` is DERIVED fresh on every read, never a stored flag (search/binding.go) —
+        true when the two identities differ or any live entity still lacks a current-identity
+        embedding row. Read and the confirm route below are both admin/ops-only (the
+        `embedding_reindex` RBAC object, migration 0114).
+      responses:
+        '200':
+          description: The binding marker + the fleet-wide and per-workspace pending counts.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmbedReindexStatus' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+
+  /embeddings/reindex/preview:
+    get:
+      tags: [Search]
+      operationId: EmbedReindexPreview
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Preview a reindex — the scope before the spend.
+      description: |
+        Returns the fleet-wide and per-workspace pending-entity counts plus a projected AI token/
+        cost estimate (the ADR-0020 preview-before-spend obligation), MUST precede the confirm
+        route below — the estimate is what the operator consents to. `estimate_quality` is always
+        `heuristic` here: a `SUM(length(source text))/4` cold work-shape floor over the pending
+        set (search/binding.go's `TokenSumByWorkspace`), never priced from observed `ai_call`
+        history — there is no per-embedding-call billing line to observe. Labeled an estimate;
+        actual spend is metered per embed call. Each workspace row also carries
+        `utilization_impact`: the AIRT-PARAM-9..11 budget band that workspace would land in were
+        its share of the estimate added to its current spend — a disclosure only, never a block.
+      responses:
+        '200':
+          description: The reindex's estimated scope and per-workspace budget-impact disclosure.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmbedReindexPreview' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+
+  /embeddings/reindex:
+    post:
+      tags: [Search]
+      operationId: EmbedReindexStart
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Confirm and start a fleet-wide reindex.
+      description: |
+        Claims the `embed_store_binding` marker (idle → reembedding) and enqueues the resumable
+        fleet-wide re-embed job (search/binding.go's `ClaimAndEnqueueReembedding`). Resumable BY
+        CONSTRUCTION — UpsertEmbedding's content-hash + identity skip-compare makes revisiting an
+        already-current row free, so a crash, a retry, or a deliberate second run all cost nothing
+        for entities already done. One live reindex fleet-wide at a time (`409 reindex_running`);
+        admin/ops only (the `embedding_reindex` RBAC object's `update` grant).
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmbedReindexStartRequest' }
+      responses:
+        '202':
+          description: Reindex claimed and enqueued.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmbedReindexStatus' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
   /agent-tools:
     get:
       tags: [Agents]
@@ -3253,6 +3333,77 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /onboarding/company/messages:
+    post:
+      tags: [Organizations, AI]
+      operationId: messageOnboardingCompany
+      summary: Continue the scoped company-setup conversation with or without a website read.
+      description: |
+        Uses the acting human's resumable onboarding state as the conversation and AI-run scope.
+        The response may answer, clarify, or propose typed draft changes, but it never writes
+        company truth. Off-topic input is redirected to the next unresolved company question.
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OnboardingCompanyMessageRequest' }
+      responses:
+        '200':
+          description: Scoped conversational response and optional draft proposals.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OnboardingCompanyMessageReply' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '501':
+          description: No governed model path is configured.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /onboarding/company/proposal:
+    get:
+      tags: [Organizations]
+      operationId: getOnboardingCompanyProposal
+      summary: The deterministic evidence-backed company proposal derived from the onboarding website read.
+      description: |
+        Serves the mapping the conversational shell presents: evidence-carrying profile fields at or
+        above the cold-start confidence floor, the read's facts for selection, the deterministically
+        detected open clarification questions, the required fields still missing from the resumable
+        draft, and the version/hash pair the confirm call must echo. Assembled without a model call —
+        every value, number, and option comes from the persisted read. `ready` is false while the
+        read is still queued, deferred, or running.
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      parameters:
+        - name: locale
+          in: query
+          required: false
+          description: Language for the open questions' copy; option values are locale-invariant.
+          schema:
+            type: string
+            enum: [en, de]
+            default: en
+            x-enum-varnames: [OnboardingProposalLocaleEN, OnboardingProposalLocaleDE]
+      responses:
+        '200':
+          description: The current deterministic proposal snapshot.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OnboardingCompanyProposal' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: No onboarding state exists yet, or it references no website read.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
   # ----------------------------- /company -----------------------------------
@@ -3812,6 +3963,27 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/PermissionDenied' }
         '422': { $ref: '#/components/responses/ValidationError' }
+
+  /ai/profile:
+    get:
+      tags: [AI]
+      operationId: getAiProfile
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Authenticated AI configuration posture for transparent human-facing workspaces.
+      description: |
+        The configured tier-to-provider-to-model bindings used by the deployment. This is an
+        authenticated administrative surface: the anonymous assistant presence deliberately
+        omits model ids, tiers, routes, and provider bindings. Runtime call summaries remain the
+        authority for which model actually served a specific task and its measured cost.
+      responses:
+        '200':
+          description: Authenticated configured-model posture.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiProfile' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
 
   /ai/calls:
     get:
@@ -5280,12 +5452,55 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [source, summary]
+                required: [source, summary, ingest_stats]
                 properties:
                   source: { $ref: '#/components/schemas/VoiceCorpusSource' }
                   summary: { $ref: '#/components/schemas/VoiceCorpusSummary' }
+                  ingest_stats: { $ref: '#/components/schemas/VoiceIngestStats' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/ValidationError' }
+        '422':
+          description: |
+            Unusable input. details.errors[].code is stable and voiceable:
+            unattributed_transcript, speaker_label_required, speaker_not_found,
+            unsupported_format, or the generic invalid.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /voice-profiles/{id}/sources/preview:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Voice]
+      operationId: previewVoiceCorpusSource
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Dry-run one candidate source; detect its shape and speakers without storing anything.
+      description: |
+        Answers "who is speaking in this file?" before ingest, so the owner can be asked
+        which speaker they are. Pure inspection - no persistence, no model call.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VoiceCorpusPreviewRequest' }
+      responses:
+        '200':
+          description: |
+            Detected shape and per-speaker word counts. Word totals count spoken
+            text only - timestamps, cue counters, speaker labels and JSON keys are
+            serialization, never words.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceCorpusPreviewResult' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: |
+            Unusable input. details.errors[].code is stable and voiceable:
+            unsupported_format, or the generic invalid.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   /voice-profiles/{id}/sources/{sourceId}:
     parameters:
@@ -7640,6 +7855,57 @@ components:
         completed_at: { type: [string, 'null'], format: date-time }
         updated_at: { type: [string, 'null'], format: date-time, description: 'Staleness stamp — a killed worker leaves this honest ("last updated Xs ago").' }
         last_error_class: { type: [string, 'null'], description: 'Error class only; detail lives in system_log (0078 rationale).' }
+    EmbedReindexStatus:
+      type: object
+      description: 'The embed_store_binding marker (ADR-0068 design §5.6) plus the derived reindex-needed signal: every count is a live-scanned figure, never a stored counter.'
+      required: [configured_identity, populated_identity, status, updated_at, reindex_needed, entities_pending, per_workspace]
+      properties:
+        configured_identity: { type: string, description: 'The live embed binding''s provider/model@dims (Task 9).' }
+        populated_identity: { type: string, description: 'What the store''s embeddings were last completed under (embed_store_binding.populated_identity).' }
+        status: { type: string, enum: [idle, reembedding], description: 'The marker''s own job-lifecycle state (embed_store_binding.status).' }
+        updated_at: { type: string, format: date-time, description: 'When the marker last changed (embed_store_binding.updated_at) — while status is reembedding, how long the job has been running, the figure a stuck-job recovery affordance needs to show a human.' }
+        reindex_needed: { type: boolean, description: 'Derived fresh on every read (never a stored flag): true when configured_identity != populated_identity, or entities_pending > 0.' }
+        entities_pending: { type: integer, description: 'Fleet-wide count of live entities lacking a current-identity embedding row.' }
+        per_workspace:
+          type: array
+          description: 'Per-workspace breakdown of entities_pending, one row per live tenant workspace.'
+          items:
+            type: object
+            required: [workspace_id, entities_pending]
+            properties:
+              workspace_id: { type: string, format: uuid }
+              entities_pending: { type: integer }
+    EmbedReindexPreview:
+      type: object
+      description: 'The scope before the spend (ADR-0020 preview-before-spend obligation): what running the reindex now would touch and roughly cost. MUST precede the confirm route — the estimate is what the operator consents to. An estimate, labeled as such — actual spend is metered per embed call.'
+      required: [entities_pending, estimate_quality, computed_at, per_workspace]
+      properties:
+        entities_pending: { type: integer, description: 'Fleet-wide pending count (the same figure the status read reports).' }
+        estimated_ai_tokens: { type: integer, description: 'Fleet-wide SUM(length(source text))/4 work-shape estimate across every pending entity (search/binding.go''s TokenSumByWorkspace); absent on estimator fault (ADR-0068).' }
+        estimated_cost_minor: { type: integer, description: 'USD minor units, estimated from the current embedding ai_model_rate; absent when no rate applies (ADR-0068).' }
+        estimate_quality: { type: string, enum: [heuristic], description: 'Always heuristic for this estimator — a cold work-shape floor, never priced from observed ai_call history (there is no per-embedding-call billing line to observe).' }
+        currency: { type: string, description: 'ISO-4217; "USD" in v1.' }
+        computed_at: { type: string, format: date-time }
+        per_workspace:
+          type: array
+          description: 'Per-workspace breakdown, the same set of live tenant workspaces the status read enumerates.'
+          items:
+            type: object
+            required: [workspace_id, entities_pending, utilization_impact]
+            properties:
+              workspace_id: { type: string, format: uuid }
+              entities_pending: { type: integer }
+              estimated_ai_tokens: { type: integer, description: 'This workspace''s share of the fleet-wide estimate; absent on estimator fault.' }
+              utilization_impact:
+                type: string
+                enum: [normal, degraded, queued]
+                description: 'The AIRT-PARAM-9..11 budget band this workspace would land in were its estimated_ai_tokens added to its current spent_tokens — a disclosure only; the reindex proceeds fleet-wide regardless of any one workspace''s band.'
+    EmbedReindexStartRequest:
+      type: object
+      description: Optional confirm body. With no body, no drift check runs and force is off.
+      properties:
+        previewed_identity: { type: string, description: 'The identity the SPA previewed against; compared to the currently-configured identity — mismatch is a 409 (the operator changed the embed binding between preview and confirm). Omitted or empty skips the check.' }
+        force: { type: boolean, description: 'Rebuild the index even when nothing is derived as pending (the v6 B2 affordance).' }
     MorningDigest:
       type: object
       description: 'The CAP-DDL-6 payload: what capture did overnight and what awaits the human (CAP-WIRE-6).'
@@ -8762,6 +9028,10 @@ components:
         body: { type: string }
         to: { type: array, items: { type: string, format: email } }
         in_reply_to_activity_id: { type: [string, 'null'], format: uuid }
+        ai_generated: { type: boolean, readOnly: true, description: 'Art. 50 AI-assisted disclosure: true when a model produced this draft; stamped on the drafting call itself, never persisted. Absent reads as false.' }
+        ai_disclosure: { type: [string, 'null'], readOnly: true, description: 'The machine-readable Art. 50 disclosure line; non-null iff ai_generated=true.' }
+        voice_profile_version: { type: [integer, 'null'], readOnly: true, minimum: 1, description: 'The Voice DNA PROFILE version (not a model version) that styled this draft — the "built from your corpus · vN" provenance; null when no ready voice profile shaped it.' }
+        draft_ref: { type: [string, 'null'], readOnly: true, description: 'Opaque reference identifying this served voice draft for learning feedback (rejectVoiceDraft); null when no voice profile styled it.' }
 
     SendEmailRequest:
       type: object
@@ -9316,6 +9586,40 @@ components:
           description: Distinct configured provider keys, sorted; fake is never returned.
           items: { type: string, enum: [anthropic, gemini, ollama, openai, openai_compatible, vllm] }
 
+    AiProfile:
+      type: object
+      additionalProperties: false
+      required: [name, kind, state, inference_mode, providers, configured_models]
+      properties:
+        name: { type: string, enum: [Margince] }
+        kind: { type: string, enum: [ai] }
+        state: { type: string, enum: [configured, unconfigured, development] }
+        inference_mode: { type: string, enum: [cloud, local, hybrid, none, development] }
+        providers:
+          type: array
+          uniqueItems: true
+          description: Distinct configured provider keys, sorted; fake is never returned.
+          items: { type: string, enum: [anthropic, gemini, ollama, openai, openai_compatible, vllm] }
+        configured_models:
+          type: array
+          description: Authenticated tier-to-model bindings. Credentials and endpoints never appear here.
+          items: { $ref: '#/components/schemas/AssistantConfiguredModel' }
+
+    AssistantConfiguredModel:
+      type: object
+      additionalProperties: false
+      required: [tier, provider, model]
+      properties:
+        tier:
+          type: string
+          enum: [local_small, cheap_cloud, premium, local_large]
+          x-enum-varnames: [AssistantModelTierLocalSmall, AssistantModelTierCheapCloud, AssistantModelTierPremium, AssistantModelTierLocalLarge]
+        provider:
+          type: string
+          enum: [anthropic, gemini, ollama, openai, openai_compatible, vllm]
+          x-enum-varnames: [AssistantModelProviderAnthropic, AssistantModelProviderGemini, AssistantModelProviderOllama, AssistantModelProviderOpenAI, AssistantModelProviderOpenAICompatible, AssistantModelProviderVLLM]
+        model: { type: string }
+
     AuthCapabilities:
       type: object
       required: [password, password_reset, oidc_providers]
@@ -9813,24 +10117,25 @@ components:
       description: |
         Partial human-editable company input retained while the wizard is unfinished. Every field
         is optional here because this is not confirmed company truth; confirmation uses the stricter
-        CompanyProfileInput or ConfirmCompanySiteReadRequest contract.
+        CompanyProfileInput or ConfirmCompanySiteReadRequest contract. Values are bounded because the
+        same draft may be supplied as context to the conversational assistant.
       properties:
-        display_name: { type: [string, 'null'] }
-        offer_summary: { type: [string, 'null'] }
-        icp: { type: [string, 'null'] }
-        value_proposition: { type: [string, 'null'] }
-        usp: { type: [string, 'null'] }
-        customer_pains: { type: [string, 'null'] }
-        desired_outcomes: { type: [string, 'null'] }
-        buying_center: { type: [string, 'null'] }
-        buying_intents: { type: [string, 'null'] }
-        common_objections: { type: [string, 'null'] }
-        sales_motion: { type: [string, 'null'] }
-        legal_name: { type: [string, 'null'] }
-        registered_address: { type: [string, 'null'] }
-        register_vat: { type: [string, 'null'] }
-        industry: { type: [string, 'null'] }
-        history: { type: [string, 'null'] }
+        display_name: { type: [string, 'null'], maxLength: 2000 }
+        offer_summary: { type: [string, 'null'], maxLength: 2000 }
+        icp: { type: [string, 'null'], maxLength: 2000 }
+        value_proposition: { type: [string, 'null'], maxLength: 2000 }
+        usp: { type: [string, 'null'], maxLength: 2000 }
+        customer_pains: { type: [string, 'null'], maxLength: 2000 }
+        desired_outcomes: { type: [string, 'null'], maxLength: 2000 }
+        buying_center: { type: [string, 'null'], maxLength: 2000 }
+        buying_intents: { type: [string, 'null'], maxLength: 2000 }
+        common_objections: { type: [string, 'null'], maxLength: 2000 }
+        sales_motion: { type: [string, 'null'], maxLength: 2000 }
+        legal_name: { type: [string, 'null'], maxLength: 2000 }
+        registered_address: { type: [string, 'null'], maxLength: 2000 }
+        register_vat: { type: [string, 'null'], maxLength: 2000 }
+        industry: { type: [string, 'null'], maxLength: 2000 }
+        history: { type: [string, 'null'], maxLength: 2000 }
 
     PutOnboardingStateRequest:
       type: object
@@ -10166,8 +10471,9 @@ components:
 
     CompanySiteReadMessageReply:
       type: object
-      required: [message, proposed_changes, citations, ai_runtime]
+      required: [kind, message, proposed_changes, citations, ai_runtime]
       properties:
+        kind: { $ref: '#/components/schemas/CompanyConversationResponseKind' }
         message: { type: string }
         proposed_changes:
           type: array
@@ -10177,6 +10483,156 @@ components:
           type: array
           items: { $ref: '#/components/schemas/CompanySiteReadCitation' }
         ai_runtime: { $ref: '#/components/schemas/AiRunSummary' }
+
+    CompanyConversationResponseKind:
+      type: string
+      enum: [status, answer, recommendation, correction, confirmation, clarification, off_topic]
+      x-enum-varnames: [CompanyConversationStatus, CompanyConversationAnswer, CompanyConversationRecommendation, CompanyConversationCorrection, CompanyConversationConfirmation, CompanyConversationClarification, CompanyConversationOffTopic]
+
+    OnboardingCompanyMessageRequest:
+      type: object
+      additionalProperties: false
+      required: [message, locale]
+      properties:
+        message: { type: string, minLength: 1, maxLength: 2000 }
+        locale:
+          type: string
+          enum: [en, de]
+          x-enum-varnames: [OnboardingCompanyLocaleEN, OnboardingCompanyLocaleDE]
+        act:
+          $ref: '#/components/schemas/OnboardingAct'
+          default: company
+          description: Which onboarding act the conversation is in; omitted means company.
+        selected_option:
+          $ref: '#/components/schemas/OnboardingClarifySelection'
+          description: |
+            The clarify option the administrator clicked, echoed verbatim. Valid only in the company
+            act; it authorizes exactly one proposed change — the selected field with the selected
+            value — and nothing else. The server re-derives its current clarifications and verifies
+            the tuple against them: an unknown or stale clarify_id, a mismatched field, or a value
+            outside a closed option list is refused with 422.
+        history:
+          type: array
+          maxItems: 8
+          items: { $ref: '#/components/schemas/CompanySiteReadConversationTurn' }
+        company_draft:
+          $ref: '#/components/schemas/OnboardingCompanyDraft'
+          description: The administrator's current unsaved artifact, used only as conversational context.
+
+    OnboardingCompanyMessageReply:
+      type: object
+      required: [kind, message, act, proposed_changes, citations, remaining_required_fields, ai_runtime]
+      properties:
+        kind: { $ref: '#/components/schemas/CompanyConversationResponseKind' }
+        message: { type: string, minLength: 1 }
+        act:
+          $ref: '#/components/schemas/OnboardingAct'
+          description: Echoes the act the request addressed.
+        clarify:
+          $ref: '#/components/schemas/OnboardingClarify'
+          description: |
+            A deterministically detected open question, attached only when the server's own
+            detectors found one — options are never model-invented.
+        proposed_changes:
+          type: array
+          maxItems: 5
+          items: { $ref: '#/components/schemas/CompanySiteReadSuggestedChange' }
+        citations:
+          type: array
+          items: { $ref: '#/components/schemas/CompanySiteReadCitation' }
+        next_required_field:
+          type: [string, 'null']
+          enum: [null, display_name, offer_summary, icp]
+          x-enum-varnames: [OnboardingNextRequiredNone, OnboardingNextRequiredDisplayName, OnboardingNextRequiredOfferSummary, OnboardingNextRequiredICP]
+        remaining_required_fields:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [display_name, offer_summary, icp]
+            x-enum-varnames: [OnboardingRequiredDisplayName, OnboardingRequiredOfferSummary, OnboardingRequiredICP]
+        available_action:
+          type: [string, 'null']
+          enum: [null, confirm_company, start_voice_build, upload_voice_source, connect_inbox, finish]
+          x-enum-varnames: [OnboardingAvailableActionNone, OnboardingAvailableActionConfirmCompany, OnboardingAvailableActionStartVoiceBuild, OnboardingAvailableActionUploadVoiceSource, OnboardingAvailableActionConnectInbox, OnboardingAvailableActionFinish]
+        ai_runtime: { $ref: '#/components/schemas/AiRunSummary' }
+
+    OnboardingAct:
+      type: string
+      description: The four onboarding conversation acts.
+      enum: [company, voice, results, connect]
+      x-enum-varnames: [OnboardingActCompany, OnboardingActVoice, OnboardingActResults, OnboardingActConnect]
+
+    OnboardingClarify:
+      type: object
+      description: |
+        One server-detected open question with its closed option list. Options are produced
+        deterministically from the persisted read (legal-entity census, human-conflict
+        comparisons) — never by a model. Answers travel back either as `selected_option` on the
+        next message or as a CompanySiteReadResolution at confirm time.
+      required: [id, question, field, options]
+      properties:
+        id: { type: string, description: 'Stable per read draft version, e.g. clarify:<field>:<draft_version>.' }
+        question: { type: string }
+        field: { type: string, description: The profile field or comparison key the question resolves. }
+        options:
+          type: array
+          maxItems: 6
+          items: { $ref: '#/components/schemas/OnboardingClarifyOption' }
+        allow_free_text: { type: boolean, description: Whether typing a different value is also a valid answer. }
+
+    OnboardingClarifyOption:
+      type: object
+      required: [value, label]
+      properties:
+        value: { type: string, description: The exact string the selection authorizes — verbatim from the read or the current record. }
+        label: { type: string }
+        evidence_url: { type: [string, 'null'], format: uri }
+        evidence_snippet: { type: [string, 'null'] }
+        detail: { type: [string, 'null'], description: Provenance or disambiguation help for this option. }
+
+    OnboardingClarifySelection:
+      type: object
+      additionalProperties: false
+      required: [clarify_id, field, value]
+      properties:
+        clarify_id: { type: string }
+        field: { type: string }
+        value: { type: string }
+
+    OnboardingCompanyProposalField:
+      type: object
+      required: [field, value, confidence, evidence_snippet, source_url]
+      properties:
+        field: { type: string }
+        value: { type: string }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        evidence_snippet: { type: string, minLength: 1 }
+        source_url: { type: string, format: uri }
+
+    OnboardingCompanyProposal:
+      type: object
+      description: |
+        The deterministic "prepared mapping" snapshot the conversational shell narrates. Everything
+        here is computed from the persisted read — no model call. `draft_version` and
+        `proposal_hash` are the pair ConfirmCompanySiteRead must echo.
+      required: [ready]
+      properties:
+        ready: { type: boolean, description: False while the read is still queued, deferred, or running. }
+        fields:
+          type: array
+          items: { $ref: '#/components/schemas/OnboardingCompanyProposalField' }
+        facts:
+          type: array
+          items: { $ref: '#/components/schemas/CompanySiteReadFact' }
+        open_questions:
+          type: array
+          items: { $ref: '#/components/schemas/OnboardingClarify' }
+        remaining_required_fields:
+          type: array
+          items: { type: string }
+        draft_version: { type: integer }
+        proposal_hash: { type: string }
 
     CompanySiteRead:
       type: object
@@ -10800,7 +11256,13 @@ components:
         weight: { type: number, minimum: 0, maximum: 2, default: 1 }
         source_label: { type: string, minLength: 1, maxLength: 255 }
         source_ref: { type: string, minLength: 1, maxLength: 512 }
-        format: { type: string, enum: [text, transcript] }
+        format:
+          type: string
+          enum: [text, transcript]
+          description: |
+            Send `transcript` for anything conversational — .vtt, .srt, transcript JSON,
+            and speaker-labelled plain text ("Name: …" lines) alike; the server detects
+            the concrete shape. `text` is for single-author prose only.
         speaker_label: { type: [string, 'null'], description: Required for transcript format; only this speaker is retained. }
         occurred_at: { type: [string, 'null'], format: date-time }
         content: { type: string, minLength: 1, maxLength: 1000000, writeOnly: true }
@@ -10811,6 +11273,49 @@ components:
       properties:
         included: { type: boolean }
         weight: { type: number, minimum: 0, maximum: 2 }
+
+    VoiceIngestStats:
+      type: object
+      description: What the speaker filter did to one ingested source; kept words are the only words that count.
+      required: [input_words, kept_words, kept_turns, discarded_turns, speakers_seen]
+      properties:
+        input_words: { type: integer, minimum: 0 }
+        kept_words: { type: integer, minimum: 0 }
+        kept_turns: { type: integer, minimum: 0 }
+        discarded_turns: { type: integer, minimum: 0 }
+        speakers_seen: { type: array, items: { type: string } }
+
+    VoiceCorpusPreviewRequest:
+      type: object
+      required: [format, content]
+      properties:
+        format:
+          type: string
+          enum: [text, transcript]
+          description: |
+            Send transcript for anything conversational - the server detects the
+            concrete shape (vtt, srt, transcript JSON, or labelled plain text).
+            text skips speaker detection entirely.
+        content: { type: string, minLength: 1, maxLength: 1000000, writeOnly: true }
+
+    VoiceCorpusPreviewResult:
+      type: object
+      description: Dry-run inspection of a candidate source; nothing is stored.
+      required: [detected_format, total_words, speakers, unattributed_words, ingestible_as_transcript]
+      properties:
+        detected_format: { type: string, enum: [txt, vtt, srt, json] }
+        total_words: { type: integer, minimum: 0 }
+        speakers:
+          type: array
+          items:
+            type: object
+            required: [label, turns, words]
+            properties:
+              label: { type: string }
+              turns: { type: integer, minimum: 0 }
+              words: { type: integer, minimum: 0 }
+        unattributed_words: { type: integer, minimum: 0 }
+        ingestible_as_transcript: { type: boolean }
 
     VoiceCorpusSummary:
       type: object

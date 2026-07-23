@@ -841,7 +841,7 @@ export const en = {
     "This setup changed in another tab. We reloaded the saved version so nothing is silently overwritten.",
   "ob.stateSaveFailed":
     "We couldn't save your setup progress. Please try again.",
-  "ob.readKick": "Step 1 of 5 · company context",
+  "ob.readKick": "Step 1 of 4 · company context",
   "ob.readTitle": "Your company",
   "ob.readSub": "Read it from your website, or type it in.",
   "ob.readChoice": "Choose how to describe your company",
@@ -896,16 +896,25 @@ export const en = {
   "ob.ai.awaitingModel": "Shown after my first model call",
   "ob.ai.notAvailableYet": "Not available yet",
   "ob.ai.runtimeUnavailable": "Runtime details unavailable",
-  "ob.ai.readFirst": "Start the website read before asking about it.",
+  "ob.ai.tier.localSmall": "local, fast",
+  "ob.ai.tier.cheapCloud": "cloud, efficient",
+  "ob.ai.tier.premium": "premium reasoning",
+  "ob.ai.tier.localLarge": "local, advanced",
+  "ob.ai.readFirst": "Start company setup before asking about it.",
   "ob.ai.liveArtifact": "Live, reviewable artifact",
   "ob.ai.companyKnowledge": "What I understand about your company",
   "ob.ai.companyKnowledgeBody":
     "Website evidence stays separate from our conversation. You decide what becomes company context.",
+  "ob.ai.companyKnowledgeManualBody":
+    "Your answers and my suggestions stay editable here. You decide what becomes company context.",
   "ob.ai.askPlaceholder":
     "Ask me about a finding, correct a detail, or tell me what I missed…",
   "ob.ai.send": "Send to Margince",
   "ob.ai.reviewBoundary":
     "I can suggest changes here. I only apply them to your draft when you approve.",
+  "ob.ai.confirmBoundary":
+    "Nothing becomes company context until you confirm this draft.",
+  "ob.ai.confirmCompany": "Confirm and save company",
   "ob.ai.thinking": "I'm checking the dossier and preparing an answer…",
   "ob.ai.suggestedChanges": "Suggested changes to your draft",
   "ob.ai.applyChanges": "Apply to my draft",
@@ -1062,7 +1071,7 @@ export const en = {
   "ob.field.industry": "Industry",
   "ob.field.history": "Company history",
 
-  "ob.s2.kick": "Step 3 of 5 · optional",
+  "ob.s2.kick": "Step 2 of 4 · optional",
   "ob.s2.title": "Now let's learn",
   "ob.s2.titleEm": "how you really write.",
   "ob.s2.sub":
@@ -1077,6 +1086,11 @@ export const en = {
     ".txt .md .vtt .srt .json · text only · we keep only your turns",
   "ob.s2.dropSkipped":
     "Skipped {files} — not a text format. Convert to .txt/.md or paste the text instead.",
+  "ob.s2.speakerAsk": "Which speaker are you in {file}?",
+  "ob.s2.speakerOption": "{name} · words: {words} · turns: {turns}",
+  "ob.s2.keptOnly": "counted {kept} of {total} — only what {speaker} said",
+  "ob.s2.unattributed":
+    "I can't tell who says what in {file}, so none of it is counted. Add speaker labels, or paste only your own words.",
   "ob.reg.spoken": "spoken",
   "ob.reg.written": "written",
   "ob.reg.casual": "casual",
@@ -1127,7 +1141,7 @@ export const en = {
   "ob.s2.vpFootnote":
     "Built from {count} words. Connect your inbox next and your sent email pushes this sharper — then it keeps learning from every email you send.",
 
-  "ob.s3.kick": "Step 4 of 5",
+  "ob.s3.kick": "Step 3 of 4",
   "ob.s3.title": "Look what you've built —",
   "ob.s3.titleEm": "with nothing connected.",
   "ob.s3.sub":
@@ -1161,7 +1175,7 @@ export const en = {
     "Still nothing connected. You're in control of when that changes.",
   "ob.s3.cta": "Connect my inbox",
 
-  "ob.s4.kick": "Step 5 of 5 · the last step",
+  "ob.s4.kick": "Step 4 of 4 · the last step",
   "ob.s4.title": "Ready to",
   "ob.s4.titleEm": "bring it to life?",
   "ob.s4.sub":
@@ -1260,6 +1274,91 @@ export const en = {
   "ob.s4.enterCrm": "Enter your CRM",
   "ob.s4.connectFailed": "Couldn't connect that mailbox",
   "ob.s4.skipLater": "Skip for now — I'll connect later",
+
+  "ob.conv.threadLabel": "Onboarding conversation",
+  "ob.conv.welcome":
+    "Hi, I am Margince. I set up your CRM by reading what is already true about your business, and I show a source for everything I keep.",
+  "ob.conv.welcomeMember":
+    "Hi, I am Margince. Your team is already set up. Two short steps and you are in.",
+  "ob.conv.askUrl": "Where should I start reading? Your website works best.",
+  "ob.conv.read.started": "Reading {host} now. I will tell you what I find.",
+  "ob.conv.read.pages": "Pages read so far: {pages}.",
+  "ob.conv.read.learnedField": "Learned {field}: {value}",
+  "ob.conv.read.extracting":
+    "Done crawling. Now extracting what the site says about your business.",
+  "ob.conv.read.warning": "Heads up: {warning}",
+  "ob.conv.read.done": "Finished reading. Findings with sources: {count}.",
+  "ob.conv.read.partial":
+    "I could not read everything. Findings with sources: {count}.",
+  "ob.conv.read.failed":
+    "I could not read that site. Try another URL, or tell me directly.",
+  "ob.conv.read.deferred":
+    "The read is paused for now. I will pick it up again automatically.",
+  "ob.conv.read.pollFailed":
+    "I lost the connection while reading. What I already found is kept.",
+  "ob.conv.clarify.intro":
+    "One thing I need you to decide. The site is ambiguous here.",
+  "ob.conv.clarify.entity":
+    "The site names more than one legal entity. Which one is this installation for?",
+  "ob.conv.review.ready":
+    "I prepared the mapping. Review it and confirm what is right.",
+  "ob.conv.company.confirmed":
+    "Company profile confirmed. Everything I stored carries its source.",
+  "ob.conv.manual.chosen": "I will type it in myself.",
+  "ob.conv.voice.invite":
+    "Want me to learn how you write? Share a few texts you wrote and drafts will sound like you.",
+  "ob.conv.voice.optIn": "Yes, learn my voice.",
+  "ob.conv.voice.skipped": "Skip voice for now.",
+  "ob.conv.voice.uploadAdded": "Added {name}.",
+  "ob.conv.voice.speakerQuestion":
+    "This transcript has several speakers. Which one is you? Only your own words count.",
+  "ob.conv.corpus.words": "Own words in your corpus now: {words}.",
+  "ob.conv.corpus.band": "Corpus quality moved to {band}.",
+  "ob.conv.build.snapshot": "Locking in your corpus.",
+  "ob.conv.build.extract": "Finding your signature moves.",
+  "ob.conv.build.evaluate": "Testing drafts against held-out samples.",
+  "ob.conv.build.activate": "Activating your voice profile.",
+  "ob.conv.build.succeeded": "Your voice profile is ready.",
+  "ob.conv.build.deferred":
+    "The build is queued behind budget. It will run automatically.",
+  "ob.conv.build.failed":
+    "The build did not finish. Your texts are kept and you can retry anytime.",
+  "ob.conv.recap":
+    "Here is what your CRM knows now, with a source for every item.",
+  "ob.conv.consent":
+    "Last step: what may I capture, and for which purpose? Nothing is on by default.",
+  "ob.conv.done": "Setup complete. Your CRM is ready.",
+  "ob.conv.composer": "Type your website address, or ask me a question",
+  "ob.conv.tellInstead": "I would rather tell you directly",
+  "ob.conv.clarify.question": "{question}",
+  "ob.conv.clarify.optionDetail": "{detail}",
+  "ob.conv.clarify.applyFailed":
+    "I could not record that choice: {detail} Pick it again.",
+  "ob.conv.clarify.applyMissing":
+    "The server did not confirm that choice. Pick it again.",
+  "ob.conv.loadFailed": "I could not check your setup. Please try again.",
+  "ob.conv.retry": "Try again",
+  "ob.conv.connect.persistFailed": "I could not record the finish. Try again.",
+  "ob.conv.review.title": "Company profile, prepared from sources",
+  "ob.conv.review.openQuestions": "Decide these before I save anything.",
+  "ob.conv.review.missing": "I still need: {fields}. Add them and I can save.",
+  "ob.conv.review.acceptAll": "Accept all",
+  "ob.conv.review.editDirectly": "Edit fields directly",
+  "ob.conv.review.backToDossier": "Back to the dossier",
+  "ob.conv.review.proposalFallback":
+    "I could not load the prepared mapping. Review what I read directly; every field keeps its source.",
+  "ob.conv.review.confirmFailed":
+    "I could not save that yet: {detail} Fix it and accept again.",
+  "ob.conv.artifact.empty":
+    "Nothing read yet. Give me a website and this panel fills with sourced findings.",
+  "ob.conv.voice.stubBody":
+    "Voice uploads continue in the classic step for now. This conversation picks them up in a later release.",
+  "ob.conv.voice.openClassic": "Open the classic voice step",
+  "ob.conv.results.continue": "Continue",
+  "ob.conv.connect.stubBody":
+    "Connecting your inbox continues in the classic step for now. Nothing is captured until you allow it there.",
+  "ob.conv.connect.openClassic": "Open the classic connect step",
+  "ob.conv.connect.finish": "Finish without connecting",
 
   "auth.title": "Margince",
   "auth.checking": "Checking your session…",
@@ -1582,6 +1681,61 @@ export const en = {
     "Notes on how you want to sound — kept exactly as you write them; the model never overwrites this.",
   "settings.voice.savePreferences": "Save preferences",
   "settings.voice.corpusLabel": "Writing samples",
+  "settings.voice.meter": "{count} of {target} words",
+  "settings.voice.register.email": "email",
+  "settings.voice.register.social": "social",
+  "settings.voice.register.long_form": "long-form",
+  "settings.voice.register.spoken": "spoken",
+  "settings.voice.register.general": "general",
+  "settings.voice.bandDrop":
+    "Removing this drops your voice from {from} to {to}. Confirm by activating remove again.",
+  "voice.insights.avoidLabel": "What your voice avoids",
+  "voice.insights.voiceScore": "voice match {pct}%",
+  "voice.insights.next.addTranscript":
+    "Add a call or meeting transcript \u2014 spoken words are your highest-signal source.",
+  "voice.insights.next.addEmail":
+    "Add sent emails \u2014 they are the primary source for how you write at work.",
+  "voice.insights.next.addWords":
+    "Add roughly {count} more words to reach the sharp band.",
+  "voice.insights.next.atTarget":
+    "Your corpus is at target; keep it fresh by adding recent writing occasionally.",
+  "voice.status.active": "active",
+  "voice.status.candidate": "awaiting review",
+  "voice.status.superseded": "superseded",
+  "voice.status.rejected": "rejected",
+  "voice.classification.routine": "routine change",
+  "voice.classification.material": "material change",
+  "voice.outcome.autoActivated": "activated automatically",
+  "voice.outcome.reviewRequired": "review required",
+  "voice.outcome.manuallyActivated": "activated by you",
+  "voice.outcome.rejected": "rejected",
+  "voice.outcome.rollback": "restored",
+  "voice.history.versionRow": "v{n} \u00b7",
+  "voice.history.loadMore": "Show older entries",
+  "ob.s2.candidateNote":
+    "This version is waiting for your review \u2014 apply or reject it under Settings \u2192 Voice.",
+  "voice.insights.provenance": "Built from your corpus \u00b7 v{n}",
+  "voice.insights.statWords": "Words: {count}",
+  "voice.insights.statSources": "Sources: {count}",
+  "voice.insights.statSentence": "\u2248{count} words per sentence",
+  "voice.insights.thinkingLabel": "How you think",
+  "voice.insights.movesLabel": "Your signature moves \u2014 in your own words",
+  "voice.insights.samplesLabel": "Sample drafts in your voice",
+  "voice.insights.draftOnly": "draft only \u2014 never sent",
+  "voice.insights.disclosure":
+    "AI-assisted drafts; every send stays a human decision.",
+  "voice.insights.nextBestLabel": "To make it better:",
+  "voice.candidate.title":
+    "A new voice version (v{n}) is waiting for your review.",
+  "voice.candidate.apply": "Use this version",
+  "voice.candidate.reject": "Keep my current voice",
+  "voice.history.label": "Versions and learning",
+  "voice.history.empty": "No versions yet \u2014 build your voice first.",
+  "voice.history.deltasLabel": "What changed",
+  "voice.history.deltaRow": "v{from} \u2192 v{to}",
+  "voice.history.learning":
+    "Learning continuously \u2014 drafts served: {drafted} \u00b7 edited before sending: {edited} \u00b7 rejected: {rejected}.",
+  "voice.history.rollback": "Restore version {n}",
   "settings.voice.corpusEmpty": "No samples yet.",
   "settings.voice.excluded": "excluded",
   "settings.voice.removeSource": "Remove sample",
@@ -1909,6 +2063,37 @@ export const en = {
   "webhooks.deliveries.replayConfirm.title": "Replay this delivery?",
   "webhooks.deliveries.replayConfirm.body":
     "Re-attempts delivery now, signed with the current secret and a fresh timestamp. It doesn't wait for the next scheduled retry.",
+  "reindexbanner.needed": "Reindex needed",
+  "reindexbanner.link": "Review in settings",
+
+  "embedreindex.title": "Search index",
+  "embedreindex.sub":
+    "The embedding store's reindex status — admin/ops only, including viewing it.",
+  "embedreindex.loading": "Checking index status…",
+  "embedreindex.statusUnavailable": "Index status is not available right now.",
+  "embedreindex.statusIdle": "Up to date",
+  "embedreindex.statusNeeded": "Reindex needed",
+  "embedreindex.statusReembedding": "Reindexing…",
+  "embedreindex.reembeddingSince": "Reindexing since {duration}",
+  "embedreindex.entitiesPending": "{count} entities pending",
+  "embedreindex.workspacePending": "{count} pending",
+  "embedreindex.reviewCta": "Review & reindex",
+  "embedreindex.rebuildCta": "Rebuild index",
+  "embedreindex.confirmTitle": "Start the reindex",
+  "embedreindex.rebuildTitle": "Rebuild the search index",
+  "embedreindex.confirmCta": "Start reindex",
+  "embedreindex.rebuildConfirmCta": "Rebuild now",
+  "embedreindex.starting": "Starting…",
+  "embedreindex.previewLoading": "Estimating scope…",
+  "embedreindex.estimateEntities": "Entities to (re)embed:",
+  "embedreindex.estimateTokens": "Estimated AI tokens:",
+  "embedreindex.estimateCost": "Estimated cost:",
+  "embedreindex.estimateQualityHeuristic":
+    "Heuristic estimate — a cold work-shape floor, not observed spend.",
+  "embedreindex.utilizationTitle": "Per-workspace budget impact",
+  "embedreindex.impact.normal": "normal",
+  "embedreindex.impact.degraded": "would enter economy mode",
+  "embedreindex.impact.queued": "would be queued",
 } as const;
 
 export type MessageKey = keyof typeof en;

@@ -64,6 +64,10 @@ func (stubs) GetAiCall(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontr
 	httperr.NotImplemented(w, r, "GetAiCall")
 }
 
+func (stubs) GetAiProfile(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetAiProfile")
+}
+
 func (stubs) GetAiUsage(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetAiUsageParams) {
 	httperr.NotImplemented(w, r, "GetAiUsage")
 }
@@ -384,6 +388,18 @@ func (stubs) GetMorningDigest(w nethttp.ResponseWriter, r *nethttp.Request, para
 	httperr.NotImplemented(w, r, "GetMorningDigest")
 }
 
+func (stubs) EmbedReindexStart(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "EmbedReindexStart")
+}
+
+func (stubs) EmbedReindexPreview(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "EmbedReindexPreview")
+}
+
+func (stubs) EmbedReindexStatus(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "EmbedReindexStatus")
+}
+
 func (stubs) CreateFilteredExport(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "CreateFilteredExport")
 }
@@ -510,6 +526,14 @@ func (stubs) RenderOffer(w nethttp.ResponseWriter, r *nethttp.Request, id crmcon
 
 func (stubs) SendOffer(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.SendOfferParams) {
 	httperr.NotImplemented(w, r, "SendOffer")
+}
+
+func (stubs) MessageOnboardingCompany(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "MessageOnboardingCompany")
+}
+
+func (stubs) GetOnboardingCompanyProposal(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetOnboardingCompanyProposalParams) {
+	httperr.NotImplemented(w, r, "GetOnboardingCompanyProposal")
 }
 
 func (stubs) GetOnboardingState(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -954,6 +978,10 @@ func (stubs) ListVoiceCorpusSources(w nethttp.ResponseWriter, r *nethttp.Request
 
 func (stubs) IngestVoiceCorpusSource(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.IngestVoiceCorpusSourceParams) {
 	httperr.NotImplemented(w, r, "IngestVoiceCorpusSource")
+}
+
+func (stubs) PreviewVoiceCorpusSource(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "PreviewVoiceCorpusSource")
 }
 
 func (stubs) DeleteVoiceCorpusSource(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, sourceId openapi_types.UUID, params crmcontracts.DeleteVoiceCorpusSourceParams) {

@@ -69,13 +69,33 @@ type Router struct {
 	// then skips EnsureConfig and leaves every attempt's ConfigHash nil.
 	configSnapshot ConfigSnapshot
 	configHash     string
+	// embedDims is the configured embeddings binding's vector width
+	// (RoutingConfig.Embeddings.Dimensions, defaulted/validated once by
+	// ParseRouting). Zero value on a Router assembled without a
+	// RoutingConfig (assembleRouter directly, most unit tests): Embed then
+	// leaves a caller-unset Dimensions at 0, same as before this field
+	// existed, and each adapter's own zero-value behavior (provider
+	// default) still applies.
+	embedDims int
 }
 
 // installConfigSnapshot computes and stores this Router's config-snapshot
-// dimension row from the routing yaml's digest (RoutingConfig.sourceHash).
-// Pure — no DB access; EnsureConfig plants the row lazily, once per flush.
-func (r *Router) installConfigSnapshot(routingConfigHash string) {
-	r.configSnapshot = newConfigSnapshot(routingConfigHash)
+// dimension row from the routing yaml's digest (RoutingConfig.sourceHash)
+// and the configured embed-lane width, and stamps embedDims onto the Router
+// itself — the one call that keeps both in sync, since the snapshot's
+// provider_params must name the SAME width Embed defaults an unset request
+// to. Pure — no DB access; EnsureConfig plants the row lazily, once per
+// flush.
+func (r *Router) installConfigSnapshot(routingConfigHash string, embedDims int) {
+	// ParseRouting defaults 0→defaultEmbedDimensions, but a programmatic
+	// RoutingConfig built without it (a hand-assembled test fixture) reaches
+	// construction with Dimensions still 0 — default here too so a bound embed
+	// lane never stamps its identity as "@0" or asks a provider for width 0.
+	if embedDims == 0 {
+		embedDims = defaultEmbedDimensions
+	}
+	r.embedDims = embedDims
+	r.configSnapshot = newConfigSnapshot(routingConfigHash, embedDims)
 	r.configHash = r.configSnapshot.Hash
 }
 
@@ -100,7 +120,7 @@ func NewRouter(cfg RoutingConfig, meter *Meter, budget BudgetPolicy, calls callS
 	}
 	meta := embedInclusiveMeta(cfg)
 	router := assembleRouter(clients, embedder, cfg.Profile, meter, budget, calls, meta, capturePayloads, log)
-	router.installConfigSnapshot(cfg.sourceHash)
+	router.installConfigSnapshot(cfg.sourceHash, cfg.Embeddings.Dimensions)
 	return router, nil
 }
 
@@ -257,6 +277,13 @@ func (r *Router) Embed(ctx context.Context, req model.EmbedRequest) (model.Embed
 		stripped[i] = string(clean)
 	}
 	req.Inputs = stripped
+	if req.Dimensions == 0 {
+		// The configured embeddings binding's width (defaulted/validated
+		// once by ParseRouting) is the operator's choice — a caller that
+		// names no explicit width gets that configured one, never a
+		// silent per-adapter default the operator never set.
+		req.Dimensions = r.embedDims
+	}
 
 	start := r.now()
 	res, err := r.embedder.Embed(ctx, req)
@@ -300,8 +327,21 @@ func (r *Router) Embed(ctx context.Context, req model.EmbedRequest) (model.Embed
 	return res, nil
 }
 
-// EmbedDims reports the embedding lane's vector width.
-func (r *Router) EmbedDims() int { return r.embedder.Caps().EmbedDims }
+// EmbedIdentity names the current embed binding for search to stamp on
+// every row and filter retrieval to (search.Embedder) — cheap, no API
+// call. Returns ("", 0) when the embed lane is unbound (--ai-fake with no
+// embeddings configured, or any boot that never bound one): routeMeta
+// only carries a TierEmbedLane entry when routing_bind.go's
+// embedInclusiveMeta saw a non-empty Embeddings.Model, so a missing entry
+// here is the honest "nothing to identify" case, never a panic on a
+// missing map key.
+func (r *Router) EmbedIdentity() (string, int) {
+	m, ok := r.routeMeta[TierEmbedLane]
+	if !ok {
+		return "", 0
+	}
+	return fmt.Sprintf("%s/%s@%d", m.provider, m.model, r.embedDims), r.embedDims
+}
 
 // Invalidate drops a workspace's cached results — the hook the §6
 // record-change invalidation rides (wired from event consumers).

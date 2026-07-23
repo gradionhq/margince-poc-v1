@@ -47,6 +47,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -74,12 +75,12 @@ func TestMirrorConflictPayload(t *testing.T) {
 }
 
 func TestMirrorBudgetDegradedPayload(t *testing.T) {
-	payload := mirrorBudgetDegradedPayload(BandShed)
+	payload := mirrorBudgetDegradedPayload(overlaybudget.BandShed)
 
 	require.Equal(t, "mirror.budget_degraded", payload.EventType())
 	require.Equal(t, "dynamic", payload.EntityType(),
 		"mirror.budget_degraded is a dynamic-entity type — its static EntityType() is unused; the real subject comes from EmitEventForEntity's caller-supplied entityType")
-	require.Equal(t, BandShed, payload.Band)
+	require.Equal(t, overlaybudget.BandShed, payload.Band)
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
@@ -217,7 +218,7 @@ func TestMirrorEventsEmitUseRuntimeEntityType(t *testing.T) {
 	}{
 		{name: "mirror.conflict/deal", entityType: "deal", payload: mirrorConflictPayload("deal", "ext-1", now, now)},
 		{name: "mirror.conflict/person", entityType: "person", payload: mirrorConflictPayload("person", "ext-2", now, now)},
-		{name: "mirror.budget_degraded/organization", entityType: "organization", payload: mirrorBudgetDegradedPayload(BandShed)},
+		{name: "mirror.budget_degraded/organization", entityType: "organization", payload: mirrorBudgetDegradedPayload(overlaybudget.BandShed)},
 		{name: "mirror.deleted/lead", entityType: "lead", payload: mirrorDeletedPayload("lead", "ext-3", now)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

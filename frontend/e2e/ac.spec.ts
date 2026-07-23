@@ -271,10 +271,12 @@ test("AC-onboarding-1: the wizard is rail-less and connect is the LAST step", as
 }) => {
   await page.goto("/#/onboarding");
   await expect(page.locator("nav.rail")).toHaveCount(0);
-  const steps = await page
-    .locator("nav.stepper .step")
-    .evaluateAll((nodes) => nodes.map((node) => node.textContent));
-  expect(steps[steps.length - 1]).toBe("Verbinden");
+  await expect(page.locator("nav.stepper .step")).toHaveText([
+    "Firma",
+    "Stimme",
+    "Ergebnisse",
+    "Verbinden",
+  ]);
 });
 
 test("AC-create-1: a contact is created from the list and lands on its 360", async ({

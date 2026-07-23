@@ -13,7 +13,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // EmbedGen keeps the vector store current: it consumes entity events
@@ -29,15 +28,27 @@ func NewEmbedGen(store *Store, embedder Embedder) *EmbedGen {
 	return &EmbedGen{store: store, embedder: embedder}
 }
 
+// The five embeddable entity types, named once so embedText and
+// binding.go's pendingSources (the per-id and set-form views of the same
+// source columns) key off the same identifiers rather than each
+// repeating the literal.
+const (
+	entityPerson       = "person"
+	entityOrganization = "organization"
+	entityDeal         = "deal"
+	entityLead         = "lead"
+	entityActivity     = "activity"
+)
+
 // embedText mirrors each entity's search_tsv source columns — the
 // vector lane and the lexical lane index the same content, so a hybrid
 // hit means agreement about one text, not two.
 var embedText = map[string]string{
-	"person":       `SELECT full_name FROM person WHERE id = $1 AND archived_at IS NULL`,
-	"organization": `SELECT concat_ws(' ', display_name, legal_name, industry) FROM organization WHERE id = $1 AND archived_at IS NULL`,
-	"deal":         `SELECT name FROM deal WHERE id = $1 AND archived_at IS NULL`,
-	"lead":         `SELECT concat_ws(' ', full_name, company_name, title) FROM lead WHERE id = $1 AND archived_at IS NULL`,
-	"activity":     `SELECT concat_ws(' ', subject, body) FROM activity WHERE id = $1 AND archived_at IS NULL`,
+	entityPerson:       `SELECT full_name FROM person WHERE id = $1 AND archived_at IS NULL`,
+	entityOrganization: `SELECT concat_ws(' ', display_name, legal_name, industry) FROM organization WHERE id = $1 AND archived_at IS NULL`,
+	entityDeal:         `SELECT name FROM deal WHERE id = $1 AND archived_at IS NULL`,
+	entityLead:         `SELECT concat_ws(' ', full_name, company_name, title) FROM lead WHERE id = $1 AND archived_at IS NULL`,
+	entityActivity:     `SELECT concat_ws(' ', subject, body) FROM activity WHERE id = $1 AND archived_at IS NULL`,
 }
 
 // HandleEvent maintains embeddings for created/updated/captured
@@ -48,12 +59,11 @@ func (g *EmbedGen) HandleEvent(ctx context.Context, env kevents.Envelope) error 
 	if !embeddable || !contentChanging(env.Type) {
 		return nil
 	}
-	wsCtx := principal.WithWorkspaceID(ctx, env.WorkspaceID)
 	// The generator reads AS the system: embeddings are an index over
 	// the whole workspace, filtered per caller at QUERY time — an
 	// index built through one user's row scope would silently hide
 	// records from everyone else's retrieval.
-	wsCtx = principal.WithActor(wsCtx, principal.Principal{Type: principal.PrincipalSystem, ID: "system"})
+	wsCtx := systemWorkspaceContext(ctx, env.WorkspaceID)
 
 	var text string
 	err := database.WithWorkspaceTx(wsCtx, g.store.pool, func(tx pgx.Tx) error {

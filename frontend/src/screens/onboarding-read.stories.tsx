@@ -2,8 +2,9 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { configuredAiProfile } from "./onboarding.stories.fixtures";
 import { ReadCompanyStep } from "./onboarding-read";
-import { StoryProviders } from "./story-utils";
+import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 import "./onboarding.css";
 
 const meta: Meta = {
@@ -164,6 +165,9 @@ function ReadStory({
   read?: typeof reading | typeof partial | typeof deferred | null;
   error?: string | null;
 }>) {
+  installFetchStub({
+    "GET /ai/profile": () => jsonResponse(configuredAiProfile),
+  });
   return (
     <StoryProviders>
       <div className="ob-page">
@@ -176,12 +180,15 @@ function ReadStory({
             pending={false}
             refreshing={read?.status === "reading"}
             error={error}
+            companyDraft={{}}
+            confirmPending={false}
+            confirmDisabled={false}
             onWebsiteChange={noAction}
-            onChooseWebsite={noAction}
             onChooseManual={noAction}
             onStart={noAction}
-            onContinue={noAction}
+            onConfirm={noAction}
             onApplyChanges={noAction}
+            reviewContent={read ? <p>Company draft</p> : undefined}
           />
         </div>
       </div>

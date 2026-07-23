@@ -3,6 +3,7 @@
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { OnboardingScreen } from "./onboarding";
+import { configuredAiProfile } from "./onboarding.stories.fixtures";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 
 const meta: Meta = {
@@ -46,6 +47,7 @@ function wizardState(step: "confirm" | "results") {
 
 function FullScreenStory({ step }: Readonly<{ step: "confirm" | "results" }>) {
   installFetchStub({
+    "GET /ai/profile": () => jsonResponse(configuredAiProfile),
     "GET /company": () => jsonResponse(company),
     "GET /onboarding/state": () => jsonResponse(wizardState(step)),
   });
@@ -56,7 +58,7 @@ function FullScreenStory({ step }: Readonly<{ step: "confirm" | "results" }>) {
   );
 }
 
-export const Review: Story = {
+export const CompanyResume: Story = {
   render: () => <FullScreenStory step="confirm" />,
 };
 

@@ -858,7 +858,7 @@ export const de = {
     "Diese Einrichtung wurde in einem anderen Tab geändert. Wir haben den gespeicherten Stand neu geladen, damit nichts still überschrieben wird.",
   "ob.stateSaveFailed":
     "Wir konnten deinen Einrichtungsfortschritt nicht speichern. Bitte versuche es erneut.",
-  "ob.readKick": "Schritt 1 von 5 · Firmenkontext",
+  "ob.readKick": "Schritt 1 von 4 · Firmenkontext",
   "ob.readTitle": "Dein Unternehmen",
   "ob.readSub": "Von deiner Website lesen, oder selbst eintragen.",
   "ob.readChoice": "Wähle, wie du deine Firma beschreiben möchtest",
@@ -913,16 +913,25 @@ export const de = {
   "ob.ai.awaitingModel": "Nach meinem ersten Modellaufruf sichtbar",
   "ob.ai.notAvailableYet": "Noch nicht verfügbar",
   "ob.ai.runtimeUnavailable": "Laufzeitdetails nicht verfügbar",
-  "ob.ai.readFirst": "Starte zuerst das Einlesen der Website.",
+  "ob.ai.tier.localSmall": "lokal, schnell",
+  "ob.ai.tier.cheapCloud": "Cloud, effizient",
+  "ob.ai.tier.premium": "Premium-Reasoning",
+  "ob.ai.tier.localLarge": "lokal, erweitert",
+  "ob.ai.readFirst": "Starte zuerst die Firmeneinrichtung.",
   "ob.ai.liveArtifact": "Lebendes, prüfbares Ergebnis",
   "ob.ai.companyKnowledge": "Was ich über dein Unternehmen verstehe",
   "ob.ai.companyKnowledgeBody":
     "Website-Belege bleiben von unserem Gespräch getrennt. Du entscheidest, was Firmenkontext wird.",
+  "ob.ai.companyKnowledgeManualBody":
+    "Deine Antworten und meine Vorschläge bleiben hier bearbeitbar. Du entscheidest, was Firmenkontext wird.",
   "ob.ai.askPlaceholder":
     "Frag mich zu einem Fund, korrigiere ein Detail oder sag mir, was fehlt…",
   "ob.ai.send": "An Margince senden",
   "ob.ai.reviewBoundary":
     "Ich kann hier Änderungen vorschlagen. Ich übernehme sie erst nach deiner Freigabe in den Entwurf.",
+  "ob.ai.confirmBoundary":
+    "Nichts wird Firmenkontext, bevor du diesen Entwurf bestätigst.",
+  "ob.ai.confirmCompany": "Firma bestätigen und speichern",
   "ob.ai.thinking": "Ich prüfe das Dossier und bereite eine Antwort vor…",
   "ob.ai.suggestedChanges": "Vorgeschlagene Änderungen am Entwurf",
   "ob.ai.applyChanges": "In meinen Entwurf übernehmen",
@@ -1082,7 +1091,7 @@ export const de = {
   "ob.field.industry": "Branche",
   "ob.field.history": "Firmengeschichte",
 
-  "ob.s2.kick": "Schritt 3 von 5 · optional",
+  "ob.s2.kick": "Schritt 2 von 4 · optional",
   "ob.s2.title": "Jetzt lernen wir,",
   "ob.s2.titleEm": "wie du wirklich schreibst.",
   "ob.s2.sub":
@@ -1097,6 +1106,11 @@ export const de = {
     ".txt .md .vtt .srt .json · nur Text · wir behalten nur deine Redeanteile",
   "ob.s2.dropSkipped":
     "{files} übersprungen — kein Textformat. Als .txt/.md konvertieren oder den Text direkt einfügen.",
+  "ob.s2.speakerAsk": "Wer bist du in {file}?",
+  "ob.s2.speakerOption": "{name} · Wörter: {words} · Redeanteile: {turns}",
+  "ob.s2.keptOnly": "{kept} von {total} gezählt — nur was {speaker} gesagt hat",
+  "ob.s2.unattributed":
+    "In {file} kann ich nicht erkennen, wer was sagt — deshalb zählt nichts davon. Ergänze Sprecher-Labels oder füge nur deine eigenen Worte ein.",
   "ob.reg.spoken": "gesprochen",
   "ob.reg.written": "geschrieben",
   "ob.reg.casual": "locker",
@@ -1148,7 +1162,7 @@ export const de = {
   "ob.s2.vpFootnote":
     "Aus {count} Wörtern gebaut. Verbinde als Nächstes dein Postfach, und deine gesendete Post schärft das weiter — dann lernt es aus jeder E-Mail weiter.",
 
-  "ob.s3.kick": "Schritt 4 von 5",
+  "ob.s3.kick": "Schritt 3 von 4",
   "ob.s3.title": "Sieh, was du gebaut hast —",
   "ob.s3.titleEm": "ganz ohne Anbindung.",
   "ob.s3.sub":
@@ -1183,7 +1197,7 @@ export const de = {
     "Noch immer nichts verbunden. Du bestimmst, wann sich das ändert.",
   "ob.s3.cta": "Postfach verbinden",
 
-  "ob.s4.kick": "Schritt 5 von 5 · der letzte Schritt",
+  "ob.s4.kick": "Schritt 4 von 4 · der letzte Schritt",
   "ob.s4.title": "Bereit,",
   "ob.s4.titleEm": "es zum Leben zu erwecken?",
   "ob.s4.sub":
@@ -1283,6 +1297,96 @@ export const de = {
   "ob.s4.enterCrm": "Ins CRM",
   "ob.s4.connectFailed": "Dieses Postfach ließ sich nicht verbinden",
   "ob.s4.skipLater": "Erstmal überspringen — später verbinden",
+
+  "ob.conv.threadLabel": "Einrichtungsgespräch",
+  "ob.conv.welcome":
+    "Hallo, ich bin Margince. Ich richte dein CRM ein, indem ich lese, was über dein Unternehmen bereits belegt ist, und zeige zu allem eine Quelle.",
+  "ob.conv.welcomeMember":
+    "Hallo, ich bin Margince. Dein Team ist schon eingerichtet. Zwei kurze Schritte, dann bist du drin.",
+  "ob.conv.askUrl":
+    "Wo soll ich mit dem Lesen beginnen? Deine Website eignet sich am besten.",
+  "ob.conv.read.started": "Ich lese jetzt {host}. Ich sage dir, was ich finde.",
+  "ob.conv.read.pages": "Bisher gelesene Seiten: {pages}.",
+  "ob.conv.read.learnedField": "{field} gelernt: {value}",
+  "ob.conv.read.extracting":
+    "Das Durchsuchen ist fertig. Jetzt werte ich aus, was die Website über dein Geschäft sagt.",
+  "ob.conv.read.warning": "Hinweis: {warning}",
+  "ob.conv.read.done": "Fertig gelesen. Belegte Funde: {count}.",
+  "ob.conv.read.partial":
+    "Ich konnte nicht alles lesen. Belegte Funde: {count}.",
+  "ob.conv.read.failed":
+    "Ich konnte diese Website nicht lesen. Probiere eine andere URL oder sag es mir direkt.",
+  "ob.conv.read.pollFailed":
+    "Ich habe die Verbindung beim Lesen verloren. Was ich schon gefunden habe, bleibt erhalten.",
+  "ob.conv.read.deferred":
+    "Das Einlesen pausiert gerade. Ich setze es automatisch fort.",
+  "ob.conv.clarify.intro":
+    "Eine Sache musst du entscheiden. Die Website ist hier nicht eindeutig.",
+  "ob.conv.clarify.entity":
+    "Die Website nennt mehr als eine juristische Person. Für welche ist diese Installation?",
+  "ob.conv.review.ready":
+    "Ich habe die Zuordnung vorbereitet. Prüfe sie und bestätige, was stimmt.",
+  "ob.conv.company.confirmed":
+    "Firmenprofil bestätigt. Alles Gespeicherte trägt seine Quelle.",
+  "ob.conv.manual.chosen": "Ich tippe es selbst ein.",
+  "ob.conv.voice.invite":
+    "Soll ich lernen, wie du schreibst? Teile ein paar eigene Texte, dann klingen Entwürfe nach dir.",
+  "ob.conv.voice.optIn": "Ja, lerne meine Stimme.",
+  "ob.conv.voice.skipped": "Stimme erstmal überspringen.",
+  "ob.conv.voice.uploadAdded": "{name} hinzugefügt.",
+  "ob.conv.voice.speakerQuestion":
+    "Dieses Transkript hat mehrere Sprecher. Wer davon bist du? Nur deine eigenen Worte zählen.",
+  "ob.conv.corpus.words": "Eigene Worte jetzt im Korpus: {words}.",
+  "ob.conv.corpus.band": "Korpusqualität ist jetzt {band}.",
+  "ob.conv.build.snapshot": "Ich friere deinen Korpus ein.",
+  "ob.conv.build.extract": "Ich suche deine typischen Formulierungen.",
+  "ob.conv.build.evaluate": "Ich teste Entwürfe gegen zurückgehaltene Proben.",
+  "ob.conv.build.activate": "Ich aktiviere dein Stimmprofil.",
+  "ob.conv.build.succeeded": "Dein Stimmprofil ist fertig.",
+  "ob.conv.build.deferred":
+    "Der Aufbau wartet auf Budget. Er läuft automatisch an.",
+  "ob.conv.build.failed":
+    "Der Aufbau wurde nicht fertig. Deine Texte bleiben erhalten, du kannst es jederzeit erneut versuchen.",
+  "ob.conv.recap":
+    "Das weiß dein CRM jetzt, mit einer Quelle zu jedem Eintrag.",
+  "ob.conv.consent":
+    "Letzter Schritt: Was darf ich erfassen, und zu welchem Zweck? Nichts ist standardmäßig aktiv.",
+  "ob.conv.done": "Einrichtung abgeschlossen. Dein CRM ist bereit.",
+  "ob.conv.composer": "Gib deine Website ein oder stell mir eine Frage",
+  "ob.conv.tellInstead": "Ich erzähle es dir lieber direkt",
+  "ob.conv.clarify.question": "{question}",
+  "ob.conv.clarify.optionDetail": "{detail}",
+  "ob.conv.clarify.applyFailed":
+    "Ich konnte diese Wahl nicht übernehmen: {detail} Wähle bitte erneut.",
+  "ob.conv.clarify.applyMissing":
+    "Der Server hat diese Wahl nicht bestätigt. Wähle bitte erneut.",
+  "ob.conv.loadFailed":
+    "Ich konnte deine Einrichtung nicht prüfen. Bitte versuche es erneut.",
+  "ob.conv.retry": "Erneut versuchen",
+  "ob.conv.connect.persistFailed":
+    "Ich konnte den Abschluss nicht speichern. Versuche es erneut.",
+  "ob.conv.review.title": "Firmenprofil, aus Quellen vorbereitet",
+  "ob.conv.review.openQuestions":
+    "Entscheide diese Punkte, bevor ich etwas speichere.",
+  "ob.conv.review.missing":
+    "Mir fehlt noch: {fields}. Ergänze das und ich kann speichern.",
+  "ob.conv.review.acceptAll": "Alles übernehmen",
+  "ob.conv.review.editDirectly": "Felder direkt bearbeiten",
+  "ob.conv.review.backToDossier": "Zurück zum Dossier",
+  "ob.conv.review.proposalFallback":
+    "Ich konnte die vorbereitete Zuordnung nicht laden. Prüfe direkt, was ich gelesen habe. Jedes Feld behält seine Quelle.",
+  "ob.conv.review.confirmFailed":
+    "Ich konnte noch nicht speichern: {detail} Korrigiere das und übernimm erneut.",
+  "ob.conv.artifact.empty":
+    "Noch nichts gelesen. Nenn mir eine Website und dieses Panel füllt sich mit belegten Funden.",
+  "ob.conv.voice.stubBody":
+    "Stimm-Uploads laufen vorerst im klassischen Schritt weiter. Dieses Gespräch übernimmt sie in einer späteren Version.",
+  "ob.conv.voice.openClassic": "Klassischen Stimm-Schritt öffnen",
+  "ob.conv.results.continue": "Weiter",
+  "ob.conv.connect.stubBody":
+    "Die Postfach-Verbindung läuft vorerst im klassischen Schritt. Ohne deine Freigabe wird nichts erfasst.",
+  "ob.conv.connect.openClassic": "Klassischen Verbindungs-Schritt öffnen",
+  "ob.conv.connect.finish": "Ohne Verbindung abschließen",
 
   "auth.title": "Margince",
   "auth.checking": "Sitzung wird geprüft…",
@@ -1611,6 +1715,63 @@ export const de = {
     "Notizen dazu, wie du klingen willst — genau so behalten, wie du sie schreibst; das Modell überschreibt das nie.",
   "settings.voice.savePreferences": "Vorgaben speichern",
   "settings.voice.corpusLabel": "Schreibproben",
+  "settings.voice.meter": "{count} von {target} W\u00f6rtern",
+  "settings.voice.register.email": "E-Mail",
+  "settings.voice.register.social": "Social",
+  "settings.voice.register.long_form": "Langform",
+  "settings.voice.register.spoken": "gesprochen",
+  "settings.voice.register.general": "allgemein",
+  "settings.voice.bandDrop":
+    "Das Entfernen stuft deine Stimme von {from} auf {to} zur\u00fcck. Zum Best\u00e4tigen Entfernen erneut ausl\u00f6sen.",
+  "voice.insights.avoidLabel": "Was deine Stimme vermeidet",
+  "voice.insights.voiceScore": "Stimm-Treffer {pct}%",
+  "voice.insights.next.addTranscript":
+    "F\u00fcge ein Gespr\u00e4chs- oder Meeting-Transkript hinzu \u2014 gesprochene Worte sind dein st\u00e4rkstes Signal.",
+  "voice.insights.next.addEmail":
+    "F\u00fcge gesendete E-Mails hinzu \u2014 sie sind die wichtigste Quelle daf\u00fcr, wie du beruflich schreibst.",
+  "voice.insights.next.addWords":
+    "F\u00fcge etwa {count} weitere W\u00f6rter hinzu, um das scharfe Band zu erreichen.",
+  "voice.insights.next.atTarget":
+    "Dein Korpus ist am Ziel; halte ihn mit gelegentlichen neuen Texten frisch.",
+  "voice.status.active": "aktiv",
+  "voice.status.candidate": "wartet auf Pr\u00fcfung",
+  "voice.status.superseded": "abgel\u00f6st",
+  "voice.status.rejected": "abgelehnt",
+  "voice.classification.routine": "routinem\u00e4\u00dfige \u00c4nderung",
+  "voice.classification.material": "wesentliche \u00c4nderung",
+  "voice.outcome.autoActivated": "automatisch aktiviert",
+  "voice.outcome.reviewRequired": "Pr\u00fcfung erforderlich",
+  "voice.outcome.manuallyActivated": "von dir aktiviert",
+  "voice.outcome.rejected": "abgelehnt",
+  "voice.outcome.rollback": "wiederhergestellt",
+  "voice.history.versionRow": "v{n} \u00b7",
+  "voice.history.loadMore": "\u00c4ltere Eintr\u00e4ge anzeigen",
+  "ob.s2.candidateNote":
+    "Diese Version wartet auf deine Pr\u00fcfung \u2014 unter Einstellungen \u2192 Stimme anwenden oder ablehnen.",
+  "voice.insights.provenance": "Aus deinem Korpus gebaut \u00b7 v{n}",
+  "voice.insights.statWords": "W\u00f6rter: {count}",
+  "voice.insights.statSources": "Quellen: {count}",
+  "voice.insights.statSentence": "\u2248{count} W\u00f6rter pro Satz",
+  "voice.insights.thinkingLabel": "Wie du denkst",
+  "voice.insights.movesLabel":
+    "Deine Signature Moves \u2014 in deinen eigenen Worten",
+  "voice.insights.samplesLabel": "Beispielentw\u00fcrfe in deiner Stimme",
+  "voice.insights.draftOnly": "nur Entwurf \u2014 wird nie gesendet",
+  "voice.insights.disclosure":
+    "KI-gest\u00fctzte Entw\u00fcrfe; jeder Versand bleibt eine menschliche Entscheidung.",
+  "voice.insights.nextBestLabel": "So wird sie besser:",
+  "voice.candidate.title":
+    "Eine neue Stimmen-Version (v{n}) wartet auf deine Pr\u00fcfung.",
+  "voice.candidate.apply": "Diese Version verwenden",
+  "voice.candidate.reject": "Meine aktuelle Stimme behalten",
+  "voice.history.label": "Versionen und Lernen",
+  "voice.history.empty":
+    "Noch keine Versionen \u2014 baue zuerst deine Stimme.",
+  "voice.history.deltasLabel": "Was sich ge\u00e4ndert hat",
+  "voice.history.deltaRow": "v{from} \u2192 v{to}",
+  "voice.history.learning":
+    "Lernt kontinuierlich \u2014 erstellte Entw\u00fcrfe: {drafted} \u00b7 vor dem Senden bearbeitet: {edited} \u00b7 abgelehnt: {rejected}.",
+  "voice.history.rollback": "Version {n} wiederherstellen",
   "settings.voice.corpusEmpty": "Noch keine Proben.",
   "settings.voice.excluded": "ausgeschlossen",
   "settings.voice.removeSource": "Probe entfernen",
@@ -1943,4 +2104,36 @@ export const de = {
     "Diese Zustellung erneut versuchen?",
   "webhooks.deliveries.replayConfirm.body":
     "Versucht die Zustellung sofort erneut, signiert mit dem aktuellen Schlüssel und einem neuen Zeitstempel. Es wird nicht auf den nächsten geplanten Versuch gewartet.",
+  "reindexbanner.needed": "Neuindizierung erforderlich",
+  "reindexbanner.link": "In den Einstellungen prüfen",
+
+  "embedreindex.title": "Suchindex",
+  "embedreindex.sub":
+    "Der Neuindizierungsstatus des Embedding-Speichers — nur admin/ops, auch zum Ansehen.",
+  "embedreindex.loading": "Indexstatus wird geprüft…",
+  "embedreindex.statusUnavailable":
+    "Der Indexstatus ist gerade nicht verfügbar.",
+  "embedreindex.statusIdle": "Aktuell",
+  "embedreindex.statusNeeded": "Neuindizierung erforderlich",
+  "embedreindex.statusReembedding": "Neuindizierung läuft…",
+  "embedreindex.reembeddingSince": "Neuindizierung läuft seit {duration}",
+  "embedreindex.entitiesPending": "{count} Einträge ausstehend",
+  "embedreindex.workspacePending": "{count} ausstehend",
+  "embedreindex.reviewCta": "Prüfen & neu indizieren",
+  "embedreindex.rebuildCta": "Index neu aufbauen",
+  "embedreindex.confirmTitle": "Neuindizierung starten",
+  "embedreindex.rebuildTitle": "Suchindex neu aufbauen",
+  "embedreindex.confirmCta": "Neuindizierung starten",
+  "embedreindex.rebuildConfirmCta": "Jetzt neu aufbauen",
+  "embedreindex.starting": "Wird gestartet…",
+  "embedreindex.previewLoading": "Umfang wird geschätzt…",
+  "embedreindex.estimateEntities": "Neu einzubettende Einträge:",
+  "embedreindex.estimateTokens": "Geschätzte KI-Tokens:",
+  "embedreindex.estimateCost": "Geschätzte Kosten:",
+  "embedreindex.estimateQualityHeuristic":
+    "Heuristische Schätzung — eine kalte Arbeitsmengen-Untergrenze, kein beobachteter Verbrauch.",
+  "embedreindex.utilizationTitle": "Budgetauswirkung je Workspace",
+  "embedreindex.impact.normal": "normal",
+  "embedreindex.impact.degraded": "würde in den Sparmodus wechseln",
+  "embedreindex.impact.queued": "würde in die Warteschlange gestellt",
 } as const satisfies Record<MessageKey, string>;

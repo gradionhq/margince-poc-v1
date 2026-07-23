@@ -22,6 +22,60 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**The CI integration lane is sharded per test across twelve runners.** The
+single-runner lane took ~6.5 minutes and floored at `compose/integration`
+(minutes of serial tests), so package-level parallelism could not shorten
+it further. `INTEGRATION_SHARD=k/N` in
+`scripts/test-integration-parallel.sh` now runs a deterministic round-robin
+slice of every package's top-level Test functions via `-run`; discovery is
+static, allowlists lone build tags (`integration` in; the opt-in lanes
+`e2e_llm`/`livesmoke` skipped exactly as the compiler skips them), and
+fails loudly on any other constraint. Each shard proves it ran exactly its
+assigned slice, and the `integration` fan-in job — same required-check
+name, so branch protection is unchanged — runs
+`scripts/test-integration-reconcile.sh` to prove the slices are complete
+and disjoint against one discovery before merging the binary coverage pods
+(shards plus the new unit-coverage job) into the `coverage.out` SonarCloud
+reads. Slices are count-based; `INTEGRATION_JOBS=16` per runner (the lane
+is DB-bound, not core-bound) removes the heavy-tail straggler that
+count-based slices dealt at 8 and 12 shards, and twelve runners stay under
+the org's concurrent-runner ceiling that queued shards at sixteen.
+Measured: backend PR wall-clock ~8m → ~5m, the lane itself 6m30s → 3m20s.
+Rounded out by two fixes the fleet surfaced: a gate-binaries cache hit now
+skips `make tools` in deterministic-gates (~40s — `go install` re-proves an
+existing binary against a cold build cache), and the compose Postgres
+healthcheck probes TCP instead of the unix socket the entrypoint's
+temporary first-boot server also serves (twelve fresh first-boots per push
+turned that latent race live).
+
+**Voice DNA became a working engine, consumed by drafting, with the impress
+surface.** The queued `voice_build` row finally has an executor: a River
+worker claims it crash-safely (snapshot → extract → evaluate → activate,
+started_at-fenced terminal writes on a detached context), derives the
+artifact through one stylometry-grounded model pass whose quoted signature
+moves must appear verbatim in the exact corpus snapshot, and scores the
+candidate against held-out samples — real `evaluation_json` replaces the
+placeholder constants, regressions and material drift land as
+review-required candidates, budget exhaustion defers to the router's own
+window, and a starter corpus too small for held-out scoring activates
+honestly as the starter voice (first build only). Reply drafting consumes
+the actor's active profile (personality doc first, up to two verbatim exemplars,
+stats as negative guardrails) behind the deterministic EN/DE anti-AI floor
+with one critic retry and a clean plain fallback that records a rejected
+learning signal; the draft response stamps `voice_profile_version` +
+Art. 50 disclosure. Both the onboarding success card and Settings → Voice
+render the structured insights (thinking pattern as the headline, signature
+moves with the user's own quoted words, cached sample drafts with the
+draft-only pill, what-to-add-next guidance), and the settings screen gained
+candidate review, version history with rollback, the delta timeline, the
+learning counters, and a band-drop warning before source removal.
+Deferred to the next arc: automatic learning (sent-mail corpus capture, the
+auto-rebuild sweep). Spec reconciliation to raise upstream: the code's
+800-word build floor vs ONBOARD-PARAM-5's 4,000; the `ADR-0066` citation in
+`voice_constants.go` names an ADR absent from the spec repo; VOICE-WIRE-N-1
+still says no voice wire ops are pinned while 22 shipped; the pinned
+`held_out_prompts` const 5 cannot express a smaller actual run.
+
 **Conversational Margince AI workbench with exact run transparency.** The
 website-assisted company setup now presents Margince as a persistent,
 professional collaborator: a compact Core header identifies the configured AI,
@@ -42,7 +96,41 @@ provider-reported model identity, and reports terminal-call latency without
 double-counting retries. The responsive workbench, localized empty states,
 keyboard/IME behavior, reduced motion, long messages, and citation identity are
 covered by the 610-test frontend lane; `make check` and all 18 real-Postgres
-integration packages pass with zero skips.
+integration packages pass with zero skips. A cold-start browser regression is
+also covered: the detailed authenticated model profile no longer collides with
+the smaller public login-profile cache, and explicit requests to suggest an
+interpretive field such as the ICP produce a cited approval card. Synthesized
+recommendations are limited to relevant dossier evidence; legal identity,
+registered address, and VAT/register values remain exact-evidence-only.
+
+**Unified conversational Company onboarding and live Margince workspace.** The
+visible wizard is now Company → Voice → Results → Connect; the separate Review
+screen is gone. Website research, one-question-at-a-time manual collection,
+live discoveries, the proposed company profile, corrections, legal-entity
+choice, and confirmation share one responsive workbench. The right-hand
+artifact fills while the crawler runs and keeps legal identity, address and
+register/VAT data ahead of offer, products, ICP, pains, outcomes, positioning,
+history, industry and sales motion. Confirmation saves directly and advances
+to Voice. A typed, bounded company-conversation endpoint covers both modes;
+ordinary/status/off-topic replies cannot smuggle proposed changes, while an
+explicit correction or recommendation remains evidence-checked and
+human-approved. The regression phrase “Does this work?” now returns a factual
+first-person status response with no apology or mutation.
+
+The reusable Core/workbench header separates the complete configured model
+bindings from the provider-served models actually used for this task, and shows
+the cumulative calls, tokens, terminal-call latency, estimated USD cost and any
+unpriced calls. The authenticated detailed AI profile uses the same
+operational-configuration grant as AI call and usage telemetry; the anonymous
+assistant profile remains deliberately minimal. A browser cold start against
+`gradion.com` streamed from 1 to 40
+pages, surfaced five intact legal entities and 110 cited details, produced the
+offer and ICP, answered an ordinary chat message correctly, saved the chosen
+German legal entity, and advanced directly to Voice. That pass also exposed and
+fixed the ingestion regression: a single `http.Client` page timeout was being
+misread as the crawler's global deadline. Page timeouts now record that page as
+unreadable and discovery continues; the irreplaceable seed and sitemap each get
+one bounded transient retry, with localized company/legal probes as fallback.
 
 **Website-ingestion quality and the Core research stage.** The onboarding
 read was benchmarked against Stripe, Notion, Linear, Personio, DeepL, Celonis,
@@ -666,11 +754,17 @@ Open work, roughly in priority order:
   surviving output is the legal census is recorded as failed, because the
   survivor check ignores `merged.entities`.
 
-- **Onboarding UI — restructured, not redesigned.** The company step lost its
-  advertorial copy and the hundred evidence cards moved below the form (collapsed
-  behind a count), but the five-step wizard itself is unchanged. A rethink of the
-  flow is still open, as is the server-side binding that would let the entity
-  picker honestly claim site provenance for the legal trio.
+- **Conversational Company workspace — baseline implemented; reconciliation open.**
+  [The consolidated concept](docs/explanation/margince-conversational-workspace-concept.md)
+  replaces the website/manual chooser and separate Review step with one scoped
+  conversation: optional live website research, legal-first website-free
+  collection, a progressively filled company artifact, corrections and
+  version-bound confirmation in place. It also defines abuse controls and a
+  reusable `assistantflow` direction proven by onboarding plus company-context
+  maintenance. The four-step Company → Voice → Results → Connect baseline is
+  implemented. Remaining upstream reconciliation covers the canonical wizard
+  description, legal must-resolve semantics, response-intent vocabulary, and
+  compatibility contract for the reusable framework.
 
 - **Voice DNA follow-ons** — the lifecycle, the real onboarding step and the
   settings surface are merged (see *Recently landed*). Still open: the

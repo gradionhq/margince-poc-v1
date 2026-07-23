@@ -9,6 +9,7 @@ package ai
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -95,17 +96,19 @@ func (s *VoiceStore) CreateBuild(ctx context.Context, profileID ids.UUID, in Cre
 			return err
 		}
 		var totalWords, sourceCount int
-		var sourceHash string
 		if err := tx.QueryRow(ctx, `
-			SELECT coalesce(sum(word_count), 0)::int, count(*)::int,
-			       md5(coalesce(string_agg(content_hash, ',' ORDER BY source_ref), ''))
+			SELECT coalesce(sum(word_count), 0)::int, count(*)::int
 			FROM voice_corpus_source
 			WHERE voice_profile_id = $1 AND NOT excluded AND archived_at IS NULL
-			  AND content_erased_at IS NULL`, profileID).Scan(&totalWords, &sourceCount, &sourceHash); err != nil {
+			  AND content_erased_at IS NULL`, profileID).Scan(&totalWords, &sourceCount); err != nil {
 			return err
 		}
-		if totalWords < 800 {
-			return &CorpusIngestError{Field: "corpus", Reason: "at least 800 eligible own-authored words are required"}
+		sourceHash, err := corpusSourceHash(ctx, tx, profileID)
+		if err != nil {
+			return err
+		}
+		if totalWords < StarterVoiceWords {
+			return &CorpusIngestError{Field: "corpus", Reason: fmt.Sprintf("at least %d eligible own-authored words are required", StarterVoiceWords)}
 		}
 		build, err = scanVoiceBuild(tx.QueryRow(ctx, storekit.SQLf(`
 			INSERT INTO voice_build
@@ -134,7 +137,13 @@ func (s *VoiceStore) CreateBuild(ctx context.Context, profileID ids.UUID, in Cre
 		if err != nil {
 			return err
 		}
-		return emitVoiceBuild(ctx, tx, auditID, build)
+		if err := emitVoiceBuild(ctx, tx, auditID, build); err != nil {
+			return err
+		}
+		if s.enqueueBuild != nil {
+			return s.enqueueBuild(ctx, tx, build)
+		}
+		return nil
 	})
 	return build, err
 }

@@ -50,6 +50,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/fake"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -228,7 +229,7 @@ func TestOverlayReadAndSyncEndToEnd(t *testing.T) {
 	// the REAL composed dispatcher path (compose.Dispatcher — the exact
 	// seam every native GET/read_record call rides in production),
 	// carries TrustTier=external + Authoritative=false ---
-	dispatcher := compose.NewDispatcher(compose.NewProvider(pool), compose.NewOverlayProvider(pool, compose.NewOverlayMeter(pool), nil), pool)
+	dispatcher := compose.NewDispatcher(compose.NewProvider(pool), compose.NewOverlayProvider(pool, overlaybudget.New(nil, nil), nil), pool)
 	searchRes, err := dispatcher.Search(adminCtx, datasource.SearchQuery{
 		EntityTypes: []datasource.EntityType{datasource.EntityPerson}, Limit: 10,
 	})

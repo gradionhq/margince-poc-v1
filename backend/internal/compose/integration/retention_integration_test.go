@@ -170,3 +170,65 @@ func TestRetentionActsOnOverAgeRecordsAndHonorsLegalHold(t *testing.T) {
 		t.Fatalf("second pass re-acted: %d → %d audits (%v)", retentionAudits, second, err)
 	}
 }
+
+// The voice learning signal's plaintext lives on a per-row deadline the ai
+// module stamps at capture; the nightly sweep must erase over-age text in
+// place while the counters row — and a still-in-window row — survive intact.
+func TestRetentionErasesOverAgeVoiceSignalPlaintext(t *testing.T) {
+	e := Setup(t)
+	profileID := ids.NewV7()
+	overAge := ids.NewV7()
+	inWindow := ids.NewV7()
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(context.Background(), `
+			INSERT INTO voice_profile (id, workspace_id, owner_id, scope, source, captured_by)
+			VALUES ($1, $2, $3, 'user', 'ui', 'human:x')`, profileID, e.WS, e.Rep1); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(context.Background(), `
+			INSERT INTO voice_learning_signal
+			  (id, workspace_id, voice_profile_id, draft_ref_hash, outcome, generated_original,
+			   retention_until, source, captured_by)
+			VALUES ($1, $2, $3, sha256('over-age'::bytea), 'drafted', 'over-age plaintext',
+			        now() - interval '1 day', 'draft', 'human:x')`, overAge, e.WS, profileID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(context.Background(), `
+			INSERT INTO voice_learning_signal
+			  (id, workspace_id, voice_profile_id, draft_ref_hash, outcome, generated_original,
+			   retention_until, source, captured_by)
+			VALUES ($1, $2, $3, sha256('in-window'::bytea), 'drafted', 'fresh plaintext',
+			        now() + interval '90 days', 'draft', 'human:x')`, inWindow, e.WS, profileID)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	if err := svc.Evaluate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	var erasedText *string
+	var erasedAtSet bool
+	var freshText *string
+	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(context.Background(),
+			`SELECT generated_original, content_erased_at IS NOT NULL FROM voice_learning_signal WHERE id = $1`,
+			overAge).Scan(&erasedText, &erasedAtSet); err != nil {
+			return err
+		}
+		return tx.QueryRow(context.Background(),
+			`SELECT generated_original FROM voice_learning_signal WHERE id = $1`, inWindow).Scan(&freshText)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if erasedText != nil || !erasedAtSet {
+		t.Fatalf("over-age plaintext survived the sweep: text=%v erased=%v", erasedText, erasedAtSet)
+	}
+	if freshText == nil || *freshText != "fresh plaintext" {
+		t.Fatalf("in-window plaintext must survive untouched, got %v", freshText)
+	}
+}

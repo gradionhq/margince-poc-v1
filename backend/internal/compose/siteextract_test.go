@@ -211,8 +211,11 @@ func TestCrawlAndExtractStreamsDeterministicallyAndFiresProfileOnce(t *testing.T
 		crawler := testSiteCrawler(site)
 		crawler.fetchWave = crawler.maxPages // one wave: every page commits in the same round
 		var published []int
+		var progressPages []crawlPage
 		crawl, extraction, err := crawlAndExtract(context.Background(), crawler,
-			evidenceExtractor{brain: brain, factBrain: brain}, seedURL, nil, func(partial pageFactsResult) {
+			evidenceExtractor{brain: brain, factBrain: brain}, seedURL, func(_ string, committed []crawlPage) {
+				progressPages = append([]crawlPage(nil), committed...)
+			}, func(partial pageFactsResult) {
 				published = append(published, len(partial.facts))
 			})
 		if err != nil {
@@ -226,6 +229,9 @@ func TestCrawlAndExtractStreamsDeterministicallyAndFiresProfileOnce(t *testing.T
 		}
 		if len(extraction.merged.facts) != pages {
 			t.Fatalf("facts = %d, want one per catalog page (%d)", len(extraction.merged.facts), pages)
+		}
+		if len(progressPages) != len(crawl.Pages) || progressPages[len(progressPages)-1].URL != crawl.Pages[len(crawl.Pages)-1].URL {
+			t.Fatalf("live pages = %v, terminal pages = %v", progressPages, crawl.Pages)
 		}
 		if len(published) != pages {
 			t.Fatalf("progressive drafts = %v, want %d snapshots", published, pages)

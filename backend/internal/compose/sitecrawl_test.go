@@ -24,8 +24,12 @@ import (
 // fakeSite is an in-memory site behind the siteFetcher seam. It records every
 // URL the crawler asked for, so tests can assert what was NEVER fetched.
 type fakeSite struct {
-	pages   map[string]fakeSitePage
-	sitemap []string
+	pages         map[string]fakeSitePage
+	sitemap       []string
+	sitemapErrors []error
+	sitemapCalls  int
+	pageErrors    map[string][]error
+	pageCalls     map[string]int
 	// mu guards fetched/onFetch: the production crawler fetches waves
 	// concurrently even though tests pin the wave to 1.
 	mu      sync.Mutex
@@ -43,9 +47,21 @@ func (s *fakeSite) FetchPage(_ context.Context, rawURL string) (webread.Page, er
 	s.mu.Lock()
 	s.fetched = append(s.fetched, rawURL)
 	onFetch := s.onFetch
+	if s.pageCalls == nil {
+		s.pageCalls = map[string]int{}
+	}
+	call := s.pageCalls[rawURL]
+	s.pageCalls[rawURL]++
+	var fetchErr error
+	if call < len(s.pageErrors[rawURL]) {
+		fetchErr = s.pageErrors[rawURL][call]
+	}
 	s.mu.Unlock()
 	if onFetch != nil {
 		onFetch(rawURL)
+	}
+	if fetchErr != nil {
+		return webread.Page{}, fetchErr
 	}
 	page, ok := s.pages[rawURL]
 	if !ok {
@@ -58,6 +74,13 @@ func (s *fakeSite) FetchPage(_ context.Context, rawURL string) (webread.Page, er
 }
 
 func (s *fakeSite) FetchSitemap(context.Context, string) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	call := s.sitemapCalls
+	s.sitemapCalls++
+	if call < len(s.sitemapErrors) && s.sitemapErrors[call] != nil {
+		return nil, s.sitemapErrors[call]
+	}
 	return s.sitemap, nil
 }
 
@@ -119,6 +142,106 @@ func TestCrawlWithoutASeedPageIsAFailureNotAPartialRead(t *testing.T) {
 	site := &fakeSite{pages: map[string]fakeSitePage{}}
 	if _, err := testSiteCrawler(site).Crawl(context.Background(), seedURL); err == nil {
 		t.Fatal("a crawl whose seed page failed returned a result")
+	}
+	if site.pageCalls[seedURL] != 1 {
+		t.Fatalf("hard seed failure was retried %d times", site.pageCalls[seedURL])
+	}
+}
+
+func TestCrawlRetriesATransientSeedFailure(t *testing.T) {
+	site := &fakeSite{
+		pages:      seedOnly(),
+		pageErrors: map[string][]error{seedURL: {context.DeadlineExceeded}},
+	}
+	crawl, err := testSiteCrawler(site).Crawl(context.Background(), seedURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(crawl.Pages) == 0 || crawl.Pages[0].URL != seedURL {
+		t.Fatalf("retried seed was not committed: %v", crawl.Pages)
+	}
+	if site.pageCalls[seedURL] != 2 {
+		t.Fatalf("seed calls = %d, want one retry", site.pageCalls[seedURL])
+	}
+}
+
+func TestCrawlContinuesAfterOnePageRequestTimesOut(t *testing.T) {
+	pageURL := seedURL + "/from-sitemap"
+	site := &fakeSite{
+		pages:      seedOnly(),
+		sitemap:    []string{pageURL},
+		pageErrors: map[string][]error{seedURL + "/impressum": {context.DeadlineExceeded}},
+	}
+	site.pages[pageURL] = fakeSitePage{text: readable("Sitemap page after a slow probe")}
+
+	crawl, err := testSiteCrawler(site).Crawl(context.Background(), seedURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if crawl.Stopped != nil {
+		t.Fatalf("one page timeout stopped the crawl: %v", *crawl.Stopped)
+	}
+	var timedOutUnreadable, laterPageRead bool
+	for _, skip := range crawl.Skipped {
+		if skip.URL == seedURL+"/impressum" && skip.Reason == crmcontracts.SiteReadSkipReasonUnreadable {
+			timedOutUnreadable = true
+		}
+	}
+	for _, page := range crawl.Pages {
+		if page.URL == pageURL {
+			laterPageRead = true
+		}
+	}
+	if !timedOutUnreadable || !laterPageRead {
+		t.Fatalf("timeout unreadable = %t, later page read = %t; skipped = %v", timedOutUnreadable, laterPageRead, crawl.Skipped)
+	}
+}
+
+func TestCrawlRetriesATransientSitemapFailure(t *testing.T) {
+	pageURL := seedURL + "/from-sitemap"
+	site := &fakeSite{
+		pages:         seedOnly(),
+		sitemap:       []string{pageURL},
+		sitemapErrors: []error{context.DeadlineExceeded},
+	}
+	site.pages[pageURL] = fakeSitePage{text: readable("Recovered sitemap page")}
+
+	crawl, err := testSiteCrawler(site).Crawl(context.Background(), seedURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if site.sitemapCalls != 2 {
+		t.Fatalf("sitemap calls = %d, want one retry", site.sitemapCalls)
+	}
+	for _, page := range crawl.Pages {
+		if page.URL == pageURL {
+			return
+		}
+	}
+	t.Fatalf("recovered sitemap page was not read: %v", crawl.Pages)
+}
+
+func TestCrawlProbesLocalizedCompanyPagesWithoutNavigation(t *testing.T) {
+	site := &fakeSite{pages: seedOnly(), sitemapErrors: []error{
+		errors.New("sitemap unavailable"),
+		errors.New("sitemap still unavailable"),
+	}}
+	site.pages[seedURL+"/en/terms-of-service"] = fakeSitePage{text: readable("Acme GmbH, VAT DE123456789")}
+	site.pages[seedURL+"/en/about"] = fakeSitePage{text: readable("About Acme")}
+
+	crawl, err := testSiteCrawler(site).Crawl(context.Background(), seedURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]crmcontracts.SiteReadPageKind{
+		seedURL + "/en/terms-of-service": crmcontracts.SiteReadPageKindImpressum,
+		seedURL + "/en/about":            crmcontracts.SiteReadPageKindAbout,
+	}
+	for _, page := range crawl.Pages {
+		delete(want, page.URL)
+	}
+	if len(want) != 0 {
+		t.Fatalf("localized probes were not read: %v", want)
 	}
 }
 

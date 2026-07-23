@@ -24,15 +24,15 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	// The composed extension set (ADR-0069): the generated module under
+	// build/composition/ in a composed build, the committed vanilla stub
+	// in a bare one — same import path either way.
+	"github.com/gradionhq/margince/composition"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
-
-	// The DE jurisdiction pack compiles into every edge binary of this
-	// DE-first deployment (ADR-0042: composition by require-set).
-	_ "github.com/gradionhq/margince/backend/internal/modules/de"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
@@ -41,6 +41,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 )
 
@@ -66,6 +67,15 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+
+	// Register the composed extension set before anything runs; a
+	// failing registration aborts the boot (ADR-0069 EXT-P4). ONE
+	// snapshot serves registration and the boot inventory below, so both
+	// observe the same declarations.
+	extensions := composition.Extensions()
+	if err := compose.RegisterExtensions(extensions); err != nil {
+		return err
+	}
 	// The worker reads the same deployment file the api boots from: the
 	// capture pipeline tuning (capture.freemail_extra) and the operator's
 	// ai.capture_payloads posture the Surface-B runner honors. A missing
@@ -88,6 +98,13 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	defer pool.Close()
+
+	// Record the composed extension set when it changed since the last
+	// boot (ADR-0069 §5); pre-bootstrap it skips — the api records the
+	// first observation once it has bootstrapped the installation.
+	if err := compose.ObserveExtensionInventory(ctx, pool, logger, extensions); err != nil {
+		return err
+	}
 
 	rdb, err := events.NewClient(ctx, cfg.redisAddr)
 	if err != nil {
@@ -137,7 +154,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
-	stopJobs, err := startJobRunner(ctx, pool, logger, cfg, modelPath, stdout)
+	stopJobs, err := startJobRunner(ctx, pool, rdb, compose.OverlayBudgetConfig(deployCfg.EffectiveOverlayBudget()), logger, cfg, modelPath, stdout)
 	if err != nil {
 		return err
 	}
@@ -202,12 +219,33 @@ func backfillConnectorCredentials(ctx context.Context, pool *pgxpool.Pool, stdou
 // drain — what the bare tickers lacked. The domain logic (Sweep/Reconcile)
 // is unchanged; only the scheduler is River now. The returned stop function
 // drains in-flight jobs on shutdown.
-func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, cfg workerConfig, modelPath compose.ModelPath, stdout io.Writer) (func(), error) {
+// gmailWatchConfig builds the Gmail push-watch maintenance config: the
+// watch job runs only where a Pub/Sub topic is configured AND the Gmail
+// app is wired (gmailWired); otherwise capture stays on the poll and the
+// topic is left empty.
+func gmailWatchConfig(cfg workerConfig, gmailWired bool) compose.GmailWatchConfig {
+	w := compose.GmailWatchConfig{
+		Interval:    cfg.gmailWatchInterval,
+		RenewWithin: cfg.gmailWatchRenew,
+	}
+	if gmailWired {
+		w.Topic = cfg.gmailPubsubTopic
+	}
+	return w
+}
+
+func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, overlayBudget overlaybudget.Config, logger *slog.Logger, cfg workerConfig, modelPath compose.ModelPath, stdout io.Writer) (func(), error) {
 	// The sweep registry is always live — the standing IMAP connector needs
 	// no deployment config; gmail joins it when the OAuth app is configured.
 	// The vault holds every connection's sealed credential (the standing
-	// flavors resolve through it), so it initializes here regardless.
-	vault, _, verr := keyvault.FromEnv(pool)
+	// flavors resolve through it), so it initializes here regardless. The
+	// SAME vault is the overlay reconcile poller's credential custodian
+	// (the only one that can resolve a connected workspace's sealed HubSpot
+	// token, overlay.DueOverlayConnections' CredentialRef) — resolved once,
+	// shared; when it is not configured, overlayVault is nil so an
+	// unconfigured deployment never fails worker boot over a poller it has
+	// no connected overlay workspace to run anyway.
+	vault, vaultConfigured, verr := keyvault.FromEnv(pool)
 	if verr != nil {
 		return nil, fmt.Errorf("worker: keyvault: %w", verr)
 	}
@@ -220,27 +258,9 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 		Tenant:       cfg.graphTenant,
 	}, cfg.freemailExtra...).WithSyncInterval(cfg.gmailSyncInterval)
 	gmailWired := cfg.gmailClientID != "" && cfg.gmailClientSecret != ""
-	watchCfg := compose.GmailWatchConfig{
-		Interval:    cfg.gmailWatchInterval,
-		RenewWithin: cfg.gmailWatchRenew,
-	}
-	// The watch job only runs where a Pub/Sub topic is configured AND the Gmail
-	// app is wired; otherwise capture stays on the poll.
-	if gmailWired {
-		watchCfg.Topic = cfg.gmailPubsubTopic
-	}
-	// The overlay reconcile poller shares the same keyvault a deployment
-	// configures for Gmail/capture: it is the only credential custodian
-	// that can resolve a connected workspace's sealed HubSpot token
-	// (overlay.DueOverlayConnections' CredentialRef). An unconfigured
-	// deployment must not fail worker boot over a poller it has no
-	// connected overlay workspace to run anyway — the same posture
-	// backfillConnectorCredentials/the Gmail poll already take.
-	overlayVault, overlayConfigured, overlayErr := keyvault.FromEnv(pool)
-	if overlayErr != nil {
-		return nil, fmt.Errorf("worker: keyvault: %w", overlayErr)
-	}
-	if !overlayConfigured {
+	watchCfg := gmailWatchConfig(cfg, gmailWired)
+	overlayVault := vault
+	if !vaultConfigured {
 		overlayVault = nil
 	}
 
@@ -257,16 +277,29 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 		OverlayVault:         overlayVault,
 		OverlayInterval:      cfg.overlayInterval,
 		OverlayBackfillLimit: cfg.overlayBackfillLimit,
+		// The poller's OVB meter records against the SAME Redis the relay
+		// uses (rdb) so the worker's poller spend and the api's force-fresh
+		// spend land on one shared per-workspace-per-incumbent count. Built
+		// here in cmd (the raw-Redis dependency stays out of compose).
+		OverlayMeter: overlaybudget.New(rdb, overlayBudget),
 		// The deep-read worker registers regardless: without a model path
 		// (nil SiteExtract) it fails a picked-up read honestly rather than
 		// leaving it queued behind a job no one can work.
 		DeepReadBrain:     modelPath.SiteExtract,
 		DeepReadFactBrain: modelPath.SiteFactExtract,
+		// Same posture for the voice build: the worker registers with or
+		// without a model, failing picked-up builds actionably when brainless.
+		VoiceBrain: modelPath.VoiceBuild,
 		DeepReadCaps: compose.CrawlCaps{
 			MaxPages: cfg.deepReadMaxPages,
 			MaxBytes: cfg.deepReadMaxBytes,
 			Wall:     cfg.deepReadWall,
 		},
+		// The embed-reindex worker registers regardless: without an embed
+		// lane (nil Embedder) a picked-up job fails clearly rather than
+		// sitting queued forever behind a job no one can work — the same
+		// posture as DeepReadBrain above.
+		Embedder: modelPath.Embedder,
 	})
 	if err != nil {
 		return nil, err

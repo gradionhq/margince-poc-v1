@@ -128,6 +128,31 @@ func TestFakeClientStreamReassemblesText(t *testing.T) {
 	}
 }
 
+func TestFakeEmbedHonorsDimensions(t *testing.T) {
+	f := NewFakeClient()
+	for _, dims := range []int{0, 768, 1024} {
+		res, err := f.Embed(context.Background(), model.EmbedRequest{Inputs: []string{"hi"}, Dimensions: dims})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := dims
+		if want == 0 {
+			want = 1024
+		}
+		if res.Dims != want || len(res.Vectors[0]) != want {
+			t.Fatalf("dims=%d: got Dims=%d len=%d want %d", dims, res.Dims, len(res.Vectors[0]), want)
+		}
+		// cosine-valid: nonzero
+		var sq float64
+		for _, x := range res.Vectors[0] {
+			sq += float64(x) * float64(x)
+		}
+		if sq == 0 {
+			t.Fatal("zero vector")
+		}
+	}
+}
+
 func equalVectors(a, b []float32) bool {
 	if len(a) != len(b) {
 		return false

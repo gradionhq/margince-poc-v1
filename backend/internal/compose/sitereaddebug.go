@@ -109,10 +109,11 @@ func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *s
 	}
 
 	start := time.Now()
-	crawl, extraction, err := crawlAndExtract(ctx, crawler, extract, opts.SeedURL, func(phase string, done int) {
+	crawl, extraction, err := crawlAndExtract(ctx, crawler, extract, opts.SeedURL, func(phase string, pages []crawlPage) {
 		if opts.Progress != nil {
 			// The total is unknowable mid-crawl (pages stream in); done
 			// alone is the honest signal.
+			done := len(pages)
 			opts.Progress(phase, done, done)
 		}
 	}, nil)
@@ -268,7 +269,7 @@ func SiteReadDebugBrain(routingPath, modelOverride string, fake bool) (profile, 
 		router, err := ai.NewLocalRouter(ai.RoutingConfig{
 			Profile:    ai.ProfileCloudFrontier,
 			Tiers:      map[ai.Tier]ai.ProviderConfig{ai.TierCheapCloud: {Provider: provider, Model: modelName}},
-			Embeddings: ai.ProviderConfig{Provider: ai.ProviderFake},
+			Embeddings: ai.EmbeddingsConfig{ProviderConfig: ai.ProviderConfig{Provider: ai.ProviderFake}},
 		})
 		if err != nil {
 			return nil, nil, "", err

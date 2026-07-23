@@ -20,8 +20,12 @@ import (
 // owns the per-user state row, while people owns the anchor whose existence
 // decides creator/member routing and whose minimum gates creator advancement.
 type onboardingStateHandlers struct {
-	state   *identity.OnboardingStore
-	company *people.Store
+	state     *identity.OnboardingStore
+	company   *people.Store
+	assistant *onboardingCompanyAssistant
+	// proposal serves GET /onboarding/company/proposal — deterministic,
+	// so it is wired unconditionally in newServer, not by an AI option.
+	proposal *onboardingProposalEngine
 }
 
 func (h onboardingStateHandlers) GetOnboardingState(w http.ResponseWriter, r *http.Request) {

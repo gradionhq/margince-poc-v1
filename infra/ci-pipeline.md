@@ -49,22 +49,28 @@ Consequences:
 ## Job graph
 
 ```
-changes ──┬─> deterministic-gates ──┬─> craftsmanship
-          │                         └─> integration ──┐
-          ├─> vuln                                     │
-          ├─> frontend ──> uat                         │
-          ├─> live-boot                                │
-          └─> (frontend) ─────────────────────────────┤
-                                                       v
-        deterministic-gates + integration + frontend ─> sonarcloud
+changes ──┬─> deterministic-gates ──> craftsmanship
+          ├─> integration-shards (×12) ─────┬─> integration (fan-in) ──┐
+          ├─> integration-unit-coverage ────┘                          │
+          ├─> vuln                                                     │
+          ├─> frontend ──> uat                                         │
+          ├─> live-boot                                                │
+          v                                                            v
+        deterministic-gates + integration + frontend ──────> sonarcloud
   dco  (PR-only, independent)
   craft-residue  (every non-draft change, independent)
 ```
 
-The **fail-fast** edges matter: the ~3-minute real-Postgres `integration`
-lane starts only once the ~2-minute `deterministic-gates` job is green (a
-broken build never reaches it), and the Playwright `uat` lane starts only
-after the cheaper `frontend` gate (biome + vitest + tsc + build) passes.
+Two deliberate shapes here. The Playwright `uat` lane is **fail-fast**: it
+starts only after the cheaper `frontend` gate (biome + vitest + tsc + build)
+passes. The real-Postgres integration lane is the opposite — it runs **beside**
+`deterministic-gates`, not behind it: it is the longest lane in the pipeline,
+so serializing the two slowest jobs dominated PR wall-clock, and a broken
+build is still caught by `deterministic-gates` itself. And the lane is
+**sharded**: twelve matrix runners each execute a deterministic per-test slice
+(package-level splitting would floor at the heaviest package,
+`compose/integration`), and the `integration` fan-in reassembles them into the
+one required check.
 
 ## The jobs
 
@@ -75,19 +81,22 @@ after the cheaper `frontend` gate (biome + vitest + tsc + build) passes.
 | `deterministic-gates` | `make check-backend`: build, vet, lint (baseline + new-code strict), arch-lint, unit + root fitness tests (incl. `audit_log` enum coherence + the contract `$ref` pre-flight), generated-drift, and the script gates (image pins, contract-breaking, test-lanes, file-length, RLS store-path, jurisdiction isolation). Fetches full history so the diff-scoped gates have a base ref |
 | `craftsmanship` | `make craft-static` (blocker-only). Runs **after** `deterministic-gates` — a red build is never judged on style |
 | `craft-residue` | No unresolved `CRAFT-FIX`/`CRAFT-DISPUTE` markers reach `main` |
-| `integration` | `make test-integration` with `COVER_OUT` set. Real Postgres 16 (pgvector) + Redis 7 as GH services + MinIO as a `docker run` (services can't set the `server /data` command); the parallel lane builds a migrated `margince_test` template and clones per package. Uploads `go-coverage` |
+| `integration shard (k/12)` | `make test-integration` with `INTEGRATION_SHARD=k/12`: a deterministic per-test round-robin slice of the whole integration lane. Slices are count-based, not duration-based; the heavy e2e tail lands on whichever shard draws it, and `INTEGRATION_JOBS=16` (the tests wait on Postgres, not cores) lets that shard chew through its slice instead of running minutes over its siblings. Boots the dev compose stack (`make db-up`: digest-pinned Postgres 16 (pgvector) + Redis 7 + MinIO + the app role — one stack definition, no hand-mirrored GH services); each shard builds its own migrated `margince_test` template and clones per package. Uploads its slice manifests + binary coverage pods |
+| `integration unit coverage` | The unit `-cover` pass over every package, binary coverage pods only. Needed because the shards run just the integration-tagged packages, and without it SonarCloud would see the unit-only packages at a false ~0% new-code coverage. No services (the test-lanes gate guarantees untagged tests open no real DB) |
+| `integration` | The fan-in — and the required check, under the same name the single-runner lane carried, so branch protection is unchanged. Asserts every shard + the unit pass succeeded (a failed shard must turn this check red, not skipped), then `scripts/test-integration-reconcile.sh` proves the slices add up: every shard present, identical discovery, union complete + disjoint. Merges all coverage pods into `coverage.out`, uploads `go-coverage` |
 | `vuln` | `make vuln` (govulncheck over all packages) |
 | `frontend` | `make frontend-check` (biome + vitest + tsc + Vite build) + a Storybook catalog build (stories must compile & register). Emits `fe-coverage` (lcov) |
 | `uat` | `make frontend-e2e`: the AC-`<screen>`-N screen-acceptance criteria as named Playwright tests + axe WCAG 2.2 AA + the 390px no-horizontal-scroll sweep + the PERF-1 record-open budget. Mocks the API at the network edge, so it is self-contained |
-| `live-boot` | The README quickstart run literally: compose up → migrate → api → `seed-dev` → `verify-boot`. Keeps the compose file, the API-driven seed, and the boot proof honest (the `integration` services would stay green even if the compose stack rotted) |
+| `live-boot` | The README quickstart run literally: compose up → migrate → api → `seed-dev` → `verify-boot`. Keeps the API-driven seed and the boot proof honest — the integration shards never boot the api or run the seed script, so those would rot invisibly without this job |
 | `sonarcloud` | The CI-based scan (below) |
 
 ## Coverage → SonarCloud
 
 The `sonarcloud` job runs **last** and does **not** re-run any suite. It
-downloads the coverage artifacts the `integration` (Go, `coverage.out`) and
-`frontend` (lcov) jobs already produced, then runs only the scanner — so there
-is no second Postgres/Redis/MinIO stack and no duplicated test run.
+downloads the coverage artifacts the `integration` fan-in (Go, `coverage.out`,
+merged from the shard + unit binary pods) and `frontend` (lcov) jobs already
+produced, then runs only the scanner — so there is no second
+Postgres/Redis/MinIO stack and no duplicated test run.
 
 Why CI-based rather than SonarCloud's Automatic Analysis: the scanner reads the
 committed [`sonar-project.properties`](../sonar-project.properties)
@@ -112,7 +121,8 @@ Wiring details:
 - `permissions: contents: read` at the workflow root (least privilege; no job
   pushes).
 - `persist-credentials: false` on the checkouts of the jobs that execute
-  PR-authored code (`integration`, `live-boot`, `frontend`, `uat`) — so a
+  PR-authored code (the `integration` shards, unit-coverage pass and fan-in,
+  `live-boot`, `frontend`, `uat`) — so a
   malicious PR running `make test-integration` / `make frontend-e2e` can't read
   the persisted `GITHUB_TOKEN`. The diff-scoped gate jobs
   (`deterministic-gates`, `craftsmanship`, `craft-residue`) keep the token on

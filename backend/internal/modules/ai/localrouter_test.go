@@ -33,7 +33,7 @@ func localFakeConfig() RoutingConfig {
 	return RoutingConfig{
 		Profile:    ProfileEUHosted,
 		Tiers:      map[Tier]ProviderConfig{TierCheapCloud: {Provider: ProviderFake}},
-		Embeddings: ProviderConfig{Provider: ProviderFake},
+		Embeddings: EmbeddingsConfig{ProviderConfig: ProviderConfig{Provider: ProviderFake}},
 	}
 }
 

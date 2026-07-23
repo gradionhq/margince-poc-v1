@@ -24,26 +24,45 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/hubspot"
+	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// NewOverlayMeter constructs one OVB (overlay budget) meter backed by
-// pool. The meter's window now lives in Postgres (overlay_budget_window,
-// ONE row per workspace), so every meter instance over the same pool —
-// this REST surface's, the MCP tool surface's (registry.go), the
-// workflow engine's (workflows.go), and cmd/worker's poller (jobs.go) —
-// reads and advances the SAME per-workspace count. Threading the same
-// *instance* through a Server's Provider and Handlers is therefore no
-// longer load-bearing for correctness (they'd share the count either
-// way); server.go still does it, and there is no cost to it. The
-// per-process fragmentation this doc used to warn about is closed by the
-// shared counter, not by careful instance threading.
-func NewOverlayMeter(pool *pgxpool.Pool) *overlay.Meter {
-	return overlay.NewMeter(pool, overlay.DefaultMeterConfig())
+// failClosedOverlayMeter is the OVB meter a surface with no Redis-backed
+// meter uses: nil client, so every band sheds and every reservation is
+// declined (a role never spends live quota it cannot account for). The
+// REST read surface (server.go) and the poller (jobs.go) receive their
+// live Redis-backed meter from cmd via WithOverlayMeter / JobRunnerConfig;
+// the MCP-tool and workflow surfaces carry no live-incumbent resolver, so
+// they never charge a meter and this fail-closed placeholder is all they
+// need. Building the meter here (rather than taking a *redis.Client
+// parameter) keeps the raw-Redis dependency in the cmd/platform tiers,
+// never in compose.
+func failClosedOverlayMeter() *overlaybudget.Meter {
+	return overlaybudget.New(nil, nil)
+}
+
+// OverlayBudgetConfig maps the deployment's per-incumbent OVB config
+// (deployconfig.EffectiveOverlayBudget, already validated + default-filled
+// at load) onto the platform meter's own Config shape. Compose owns this
+// translation so the meter package stays free of any deployconfig import
+// (it is a generic platform component, not a margince.yaml reader).
+func OverlayBudgetConfig(cfg deployconfig.OverlayBudget) overlaybudget.Config {
+	out := make(overlaybudget.Config, len(cfg))
+	for name, ib := range cfg {
+		out[name] = overlaybudget.IncumbentConfig{
+			Search:       overlaybudget.WindowConfig{Ceiling: ib.Search.Ceiling, Cap: ib.Search.Cap},
+			REST:         overlaybudget.WindowConfig{Ceiling: ib.REST.Ceiling, Cap: ib.REST.Cap},
+			WarnFraction: ib.WarnFraction,
+			ShedFraction: ib.ShedFraction,
+		}
+	}
+	return out
 }
 
 // NewOverlayHandlers builds the overlay module's connection-lifecycle
@@ -54,7 +73,7 @@ func NewOverlayMeter(pool *pgxpool.Pool) *overlay.Meter {
 // WithKeyvault, mirroring NewCaptureRegistry's vault-gated wiring:
 // without a vault the overlay surface stays its declared 501 by
 // omission, same as capture's connect path.
-func NewOverlayHandlers(pool *pgxpool.Pool, vault keyvault.Vault, meter *overlay.Meter, log *slog.Logger, backfillLimit int, onModeFlip func(workspaceID ids.UUID)) overlay.Handlers {
+func NewOverlayHandlers(pool *pgxpool.Pool, vault keyvault.Vault, meter *overlaybudget.Meter, log *slog.Logger, backfillLimit int, onModeFlip func(workspaceID ids.UUID)) overlay.Handlers {
 	ms := overlay.NewMirrorStore(pool, unresolvedOwnerEmails{})
 	incumbent := overlayIncumbentFactory(backfillLimit)
 	svc := overlay.NewService(pool, vault, ms).
@@ -95,7 +114,7 @@ func hubspotIncumbentFactory(region, token string) overlay.Incumbent {
 // (server.go); a role with no vault, or a caller that passes nil, degrades
 // force-fresh to the mirror honestly (freshness.go's own doc) — never a
 // faked authority claim.
-func NewOverlayProvider(pool *pgxpool.Pool, meter *overlay.Meter, resolveIncumbent func(context.Context) (overlay.Incumbent, error)) *overlay.Provider {
+func NewOverlayProvider(pool *pgxpool.Pool, meter *overlaybudget.Meter, resolveIncumbent func(context.Context) (overlay.Incumbent, error)) *overlay.Provider {
 	ms := overlay.NewMirrorStore(pool, unresolvedOwnerEmails{})
 	ff := overlay.NewFreshnessReader(resolveIncumbent, ms, meter, hubspot.IncumbentClassesFor)
 	return overlay.NewProvider(ms, ff)
@@ -138,7 +157,7 @@ type overlayReconciler struct {
 	pool         *pgxpool.Pool
 	vault        keyvault.Vault
 	ms           *overlay.MirrorStore
-	meter        *overlay.Meter
+	meter        *overlaybudget.Meter
 	log          *slog.Logger
 	newIncumbent func(region, token string) overlay.Incumbent
 }

@@ -4,6 +4,7 @@
 package ai
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -241,6 +242,45 @@ func TestUnboundLadderWarnings(t *testing.T) {
 			for i := range got {
 				if got[i] != tc.want[i] {
 					t.Fatalf("warning %d: got %q, want %q", i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+// TestParseRoutingEmbedDimensions pins the embeddings-lane `dimensions`
+// contract (spec ai-operational-spec.md §1.4, embed-identity phase 2): unset
+// (0) defaults to 1536 (a gemini-recommended width) — while anything outside
+// [1,2000] fails at startup, the same boot-loud-not-3am-surprise posture
+// every other routing-config defect gets.
+func TestParseRoutingEmbedDimensions(t *testing.T) {
+	const base = `
+profile: eu_hosted
+tiers:
+  cheap_cloud: {provider: fake}
+embeddings: {provider: fake, model: embed-model, dimensions: %d}
+`
+	for _, tc := range []struct {
+		dims    int
+		wantErr bool
+	}{
+		{0, false}, {-1, true}, {2001, true}, {1, false}, {768, false}, {2000, false},
+	} {
+		t.Run(fmt.Sprintf("dims=%d", tc.dims), func(t *testing.T) {
+			got, err := ParseRouting([]byte(fmt.Sprintf(base, tc.dims)))
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("dims=%d: err=%v wantErr=%v", tc.dims, err, tc.wantErr)
+			}
+			if err == nil {
+				// An accepted width must be preserved verbatim (0 defaults
+				// to 1536) — a parser silently rewriting 1/768/2000 to
+				// another width would otherwise pass unnoticed.
+				want := tc.dims
+				if tc.dims == 0 {
+					want = 1536
+				}
+				if got.Embeddings.Dimensions != want {
+					t.Fatalf("dims=%d: parsed Dimensions=%d, want %d", tc.dims, got.Embeddings.Dimensions, want)
 				}
 			}
 		})
