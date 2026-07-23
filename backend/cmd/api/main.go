@@ -37,6 +37,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/mailer"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 )
@@ -137,6 +138,20 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}()
 	overlayMeter := overlaybudget.New(overlayRDB, compose.OverlayBudgetConfig(deployCfg.EffectiveOverlayBudget()))
 	opts = append(opts, compose.WithOverlayMeter(overlayMeter))
+
+	// The HubSpot webhook-as-signal receiver (OVA-WIRE-10) mounts only when the
+	// app client secret is configured — it verifies the inbound v3 signature
+	// and enqueues coalesced re-fetches on an insert-only River client (the
+	// worker runs the overlayRefetchWorker). Absent the secret, /webhooks/hubspot
+	// is not mounted at all.
+	if cfg.hubspotAppSecret != "" {
+		webhookInserter, werr := jobs.NewInserter(pool, logger)
+		if werr != nil {
+			return werr
+		}
+		opts = append(opts, compose.WithOverlayWebhook(webhookInserter, cfg.hubspotAppSecret))
+		_, _ = fmt.Fprintln(stdout, "api overlay webhook receiver enabled (/webhooks/hubspot)")
+	}
 
 	stopRelay := func() {
 		// No inline relay to stop unless --inline-relay wires one below.

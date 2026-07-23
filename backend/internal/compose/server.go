@@ -92,6 +92,12 @@ type Server struct {
 	// otherwise, never open.
 	gmailPush *gmailPushHandler
 
+	// overlayWebhook is the HubSpot webhook-as-signal receiver (OVA-WIRE-10),
+	// injected by WithOverlayWebhook only when the overlay app secret is
+	// configured — the route is absent otherwise, never an open unverified
+	// endpoint.
+	overlayWebhook http.Handler
+
 	// busReady is the /readyz bus probe, injected only by the process
 	// role that runs the inline relay — a split deployment's api answers
 	// ready on Postgres alone.
@@ -442,6 +448,9 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH auth
 	// only when configured — the route is absent otherwise.
 	if srv.gmailPush != nil {
 		mux.Handle("/webhooks/gmail-push", httpserver.Correlate(httpserver.AccessLog(log, srv.gmailPush)))
+	}
+	if srv.overlayWebhook != nil {
+		mux.Handle("/webhooks/hubspot", httpserver.Correlate(httpserver.AccessLog(log, srv.overlayWebhook)))
 	}
 	return mux
 }
