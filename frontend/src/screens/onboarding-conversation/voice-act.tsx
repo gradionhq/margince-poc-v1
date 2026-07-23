@@ -76,7 +76,14 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
   // out of the onboarding mid-act.
   const { addFiles } = corpus;
   useEffect(() => {
+    // Only FILE drags are claimed: dragging selected text into the composer
+    // is a native interaction this act must not swallow.
+    const isFileDrag = (event: globalThis.DragEvent) =>
+      event.dataTransfer?.types.includes("Files") ?? false;
     const onDragOver = (event: globalThis.DragEvent) => {
+      if (!isFileDrag(event)) {
+        return;
+      }
       event.preventDefault();
       setDragOver(collecting);
     };
@@ -88,6 +95,9 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
       }
     };
     const onDrop = (event: globalThis.DragEvent) => {
+      if (!isFileDrag(event)) {
+        return;
+      }
       event.preventDefault();
       setDragOver(false);
       if (collecting) {

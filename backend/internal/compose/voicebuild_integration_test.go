@@ -335,7 +335,7 @@ func TestVoiceBuildRecordsFailureEvenWhenTheWorkContextIsSpent(t *testing.T) {
 	if err != nil || !claimed {
 		t.Fatalf("claim: %v claimed=%v", err, claimed)
 	}
-	spent, cancelSpent := context.WithDeadline(ctx, time.Now().Add(-time.Second))
+	spent, cancelSpent := context.WithDeadline(ctx, time.Unix(0, 0))
 	defer cancelSpent()
 	if err := worker.fail(spent, build.ID, *input.Build.StartedAt, "internal", "the run outlived its work context"); err != nil {
 		t.Fatalf("fail on a spent work context: %v", err)

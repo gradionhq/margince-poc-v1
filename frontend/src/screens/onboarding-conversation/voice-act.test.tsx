@@ -339,6 +339,7 @@ describe("the conversational voice act", () => {
     const drop = new Event("drop", { bubbles: true, cancelable: true });
     Object.defineProperty(drop, "dataTransfer", {
       value: {
+        types: ["Files"],
         files: [
           new File(["Plain prose I wrote myself."], "notes.md", {
             type: "text/plain",
@@ -351,6 +352,15 @@ describe("the conversational voice act", () => {
     expect(drop.defaultPrevented).toBe(true);
     expect(await screen.findByText(/Words counted: 900\./)).toBeTruthy();
     expect(requestsTo(calls, "/sources", "POST").length).toBe(1);
+
+    // A text-selection drag is NOT claimed: the composer's native
+    // drag-to-insert must keep working.
+    const textDrag = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(textDrag, "dataTransfer", {
+      value: { types: ["text/plain"], files: [] },
+    });
+    window.dispatchEvent(textDrag);
+    expect(textDrag.defaultPrevented).toBe(false);
   });
 
   it("neutralizes a stray drop outside the collecting phases without ingesting", () => {
@@ -367,7 +377,7 @@ describe("the conversational voice act", () => {
 
     const drop = new Event("drop", { bubbles: true, cancelable: true });
     Object.defineProperty(drop, "dataTransfer", {
-      value: { files: [new File(["text"], "stray.txt")] },
+      value: { types: ["Files"], files: [new File(["text"], "stray.txt")] },
     });
     window.dispatchEvent(drop);
 
