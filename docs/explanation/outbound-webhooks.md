@@ -125,21 +125,20 @@ Rather than work around either, the public event contract lives in its own file,
 **`backend/api/public-events.yaml`** — components-only (no paths, no `webhooks:` block), so nothing
 about it needs pruning:
 
-- **`SubscribableEventType`** — an enum intended to name every event type a subscription may select.
-  **As shipped it is narrower than the runtime catalog**: `validateEventTypes` (`store.go`) actually
-  gates a create/update against `events.Types()` minus the pipeline class (63 types), while the enum
-  lists only 57 — missing the `approval.*`/`coldstart.*` family and `audit.appended`, each of which
-  *does* have a published `PublicEvent<Event>` schema and *is* accepted and delivered by the API. The
-  practical effect: those six types can be subscribed to over curl/REST today, but the frontend's
-  event-type picker (§9, generated from this same enum) cannot offer them as a choice. Raised for
-  reconciliation; not worked around here.
+- **`SubscribableEventType`** — the enum naming every event type a subscription may select. It is
+  **aligned with the runtime catalog**: `validateEventTypes` (`store.go`) gates a create/update against
+  `events.Types()` minus the pipeline class, and the enum carries exactly those **63** values —
+  including the `approval.*`/`coldstart.*` family and `audit.appended`. The fitness gate pins them
+  together: every `SubscribableEventType` value is a key of the generated `PublicEventVersions` map, so
+  the frontend's event-type picker (§9, generated from this same enum) offers precisely the set the API
+  accepts — a catalog change cannot drift the enum and the validator apart.
 - **`PublicEventEnvelope`** — the public wire wrapper (§3c below).
 - One **`PublicEvent<Event>`** schema per subscribable event (`PublicEventDealStageChanged`,
   `PublicEventPersonMerged`, …), each carrying `x-event-type` / `x-entity-type` / `x-version`
   extensions.
 
 **The generator.** `backend/tools/gen-payloads` reuses the `oapi-codegen` *library* (not its CLI) over
-this isolated file and writes `internal/contracts/webhookpayloads_gen.go` (package `crmcontracts`) —
+this isolated file and writes `internal/contracts/publicevents_gen.go` (package `crmcontracts`) —
 plain generated structs, **plus** two things a stock schema-to-struct generator doesn't give you: for
 every schema carrying `x-event-type`/`x-entity-type`, an `EventType()` / `EntityType()` method pair, and
 a package-level `PublicEventVersions` registry mapping every such event type to its `x-version`. The
@@ -265,7 +264,10 @@ replayed after the bus stream has trimmed the source event.
   allowed to starve the fleet. `SweepOnce` is exposed so a test can step the schedule under the
   injected clock.
 - **`deliverOnce` never returns an error** — the outcome IS the record. A failure to *persist* the
-  outcome is logged; the row's prior state is safe and the next sweep re-scans it.
+  outcome is logged, but note the honest limit: an initial attempt whose outcome-write fails leaves the
+  row `pending`, and the sweeper scans only `retrying` rows — so that delivery is **not** re-scanned
+  automatically and needs a manual **replay** to re-attempt (there is no pending-row recovery path
+  today). A row that DID reach `retrying` is safe: the sweep re-scans it.
 - **Replay** (`POST …/replay`): a human action — RBAC-gated, existence-hiding, and audited to the
   acting human *before* the re-attempt. It resets attempts to a fresh budget (the operator is asserting
   the endpoint is fixed, so the exponential clock restarts). It **refuses with a 503 up front** when no
@@ -285,10 +287,13 @@ receive an event about a deal they could never read in the UI.
 1. **`matchingSubscriptions(event.type)`** — active, non-archived subscriptions whose `event_types`
    contain this type. The candidate set, *before* any visibility filter.
 2. **`ownerCanSee(event, owner)`** — for each candidate, resolve the owner's **live** RBAC through the
-   `authz.Resolver` seam and probe whether the event's subject entity is within that principal's row
-   scope. This is the gate at **enqueue time**: a revocation that lands before the event stops
-   delivery. One owner's resolver/visibility failure is logged and skipped (fail-closed for *that*
-   subscription) — it never strands the rest of the fan-out; the bus redelivery re-evaluates.
+   `authz.Resolver` seam and check whether the event's subject entity is one the owner may read — the
+   SAME admission the record read path applies (the object-level read grant AND the row scope), never
+   row scope alone. This is the gate at **enqueue time**: a revocation of either the read grant or the
+   row scope that lands before the event stops delivery. One owner's *transient* resolver/visibility
+   failure is logged and skipped for that pass (fail-closed for *that* subscription), and `HandleEvent`
+   then **returns an error** so the at-least-once bus redelivers and re-evaluates the skipped owner —
+   never a silent drop, and the idempotent enqueue makes the already-delivered candidates a no-op.
 3. **`enqueueForSubscriptions(visible)`** — create a pending delivery per visible subscription
    (idempotent), then attempt each immediately.
 
@@ -298,10 +303,11 @@ collide with a row-scoped entity name below), then by entity type:
 
 | Subject class | How it's scoped |
 |---|---|
-| `person`, `organization`, `deal`, `lead`, `voice_profile` | probed against the owner's live row scope (`auth.EnsureVisible`) |
-| `activity`, `signal` | probed via their bespoke link-walk / resolver gates |
-| `offer` | inherits its **parent deal's** scope (an offer carries no owner of its own) |
-| `pipeline`, `stage`, `approval`, `audit`, `user`, `passport`, `onboarding_wizard_state`, `incumbent_connection` | genuinely ownerless workspace/admin-level facts (`workspaceLevelEntities`) — deliver to any live owner. `role.changed` and the `user.*` lifecycle both name entity `user`; the cold-start echoes name `approval`; there is no separate `role`, `coldstart`, or `mirror` key. |
+| `person`, `organization`, `deal`, `lead`, `voice_profile` | admitted only with the owner's live **object read grant AND row scope** (`auth.Require` + `auth.EnsureVisible`) — the exact two-halves the record read path enforces, so a lingering row scope with no current read grant no longer leaks the payload |
+| `activity`, `signal` | same object-read grant, then their bespoke link-walk / resolver row-scope gates |
+| `offer` | `offer.read` grant, then it inherits its **parent deal's** row scope (an offer carries no owner of its own) |
+| `approval` (and the `coldstart.*` echoes, entity `approval`) | **target-visibility gated** (`approvalVisibleTo`), NOT ownerless: the envelope leaks staged-change detail, so it delivers only to an owner who can see the approval's TARGET record under that record's row scope — mirroring the approvals inbox (`approvals.targetVisible`, C3/ADR-0036). Target types `person`/`organization`/`deal`/`lead`/`offer`/`signal`/`activity` scope by row; the workspace-shared `product`/`custom_field` config scope by existence; a **target-less** approval is fail-closed (not delivered) |
+| `pipeline`, `stage`, `audit`, `user`, `passport`, `onboarding_wizard_state`, `incumbent_connection` | genuinely ownerless workspace/admin-level facts (`workspaceLevelEntities`) — a bare entity ref the receiver re-reads under its own scope, so it delivers to any live owner. `role.changed` and the `user.*` lifecycle both name entity `user`; there is no separate `role`, `coldstart`, or `mirror` key. |
 | a ratified **deferred-delivery** subject (below) | ratified **not delivered** — an explicit decision, distinct from the fail-closed default |
 | **anything else** | **DENIED** (the `default` branch) — fail-closed |
 
@@ -323,11 +329,12 @@ fan-out gate can bound delivery by:
   probed against. Classifying by entity type would either miss (fail-closed by accident) or — for
   `mirror.budget_degraded`, whose ref can be a real record ref — deliver to an owner who must not see
   the record. Neither is acceptable, so the whole family is deferred by event type instead.
-- **Two `retention.applied` telemetry subjects** — keyed by ENTITY type (`deferredDeliveryEntities`):
-  `ai_call` (the embed-call sweep's traces) and `ai_call_payload` (retained call content). Most
-  `retention.applied` subjects (`person`, `lead`, `deal`, `activity`) resolve through the normal
-  row-scope probes and ARE delivered; these two are engine telemetry with no owner and no visibility
-  probe — delivering them workspace-wide would leak which telemetry rows a retention sweep purged.
+- **Three `retention.applied` telemetry subjects** — keyed by ENTITY type (`deferredDeliveryEntities`):
+  `ai_call` (the embed-call sweep's traces), `ai_call_payload` (retained call content), and
+  `voice_learning_signal` (aged voice-learning telemetry). Most `retention.applied` subjects (`person`,
+  `lead`, `deal`, `activity`) resolve through the normal row-scope probes and ARE delivered; these three
+  are engine telemetry with no owner and no visibility probe — delivering them workspace-wide would leak
+  which telemetry rows a retention sweep purged.
 
 A subscriber can select `mirror.conflict` or `retention.applied` today and will simply receive nothing
 for these specific subjects — fail-**safe**, not fail-silent: the gap is in `UPSTREAM-P3.md` for the
@@ -437,18 +444,21 @@ affordances.
   read; a lost secret is rotated, not recovered.
 - **The event-type catalog is the contract.** An unknown type is a 422. Pipeline (`capture.*`) events
   are not subscribable — they name no subject to scope by.
-- **Fan-out never escalates.** Delivery is gated at enqueue against the owner's *live* row scope, and
-  the visibility map is fail-closed — an unclassified subject type is denied, not delivered. A handful
-  of subjects (overlay `mirror.*`, two `retention.applied` telemetry entities) are *ratified* as
-  deferred-not-delivered pending an upstream ownership model — subscribable, catalogued, honestly
-  undelivered, never a leak.
+- **Fan-out never escalates.** Delivery is gated at enqueue against the owner's *live* read grant AND
+  row scope (the record read path's own admission), and the visibility map is fail-closed — an
+  unclassified subject type is denied, not delivered. A handful of subjects (overlay `mirror.*`, three
+  `retention.applied` telemetry entities — `ai_call`, `ai_call_payload`, `voice_learning_signal`) are
+  *ratified* as deferred-not-delivered pending an upstream ownership model — subscribable, catalogued,
+  honestly undelivered, never a leak.
 - **Some catalogued types are never emitted at all** (`deal.restored`, `person.restored`,
   `pipeline.archived`, `stage.archived`, `mirror.write_rejected`, `audit.appended`) — published for
   whole-catalog coverage, not because a code path fires them yet.
 - **The owner is server-derived**, never a request field; a principal with no human identity cannot own
   a subscription.
-- **`deliverOnce` records the outcome; the sweeper is the recovery.** A persist failure is safe — the
-  row's prior state stands and the next scan re-attempts.
+- **`deliverOnce` records the outcome; the sweeper recovers `retrying` rows.** A persist failure is
+  safe for a row already in `retrying` (the next scan re-attempts), but an initial attempt whose
+  outcome-write fails strands the row in `pending`, which the sweep does not scan — that one needs a
+  manual replay (no pending-row recovery path today).
 - **Delivery is a keyed capability.** No key → read-only surface, 503 on secret paths, no worker lane.
 
 ## Where the code lives
@@ -469,7 +479,7 @@ affordances.
 | The `cg:webhooks` consumer group | `internal/shared/kernel/events/catalog.go` |
 | The REST contract | `backend/api/crm.yaml` (`/webhook-subscriptions`) |
 | The public payload contract (§3) | `backend/api/public-events.yaml` |
-| The payload generator | `backend/tools/gen-payloads/` → `internal/contracts/webhookpayloads_gen.go` |
+| The payload generator | `backend/tools/gen-payloads/` → `internal/contracts/publicevents_gen.go` |
 | The typed emit seam (compile-time payload↔event binding) | `internal/platform/database/storekit/storekit.go` (`EmitEvent`, `EmitEventForEntity`) |
 | The whole-catalog fitness gate (coverage/no-orphan/version/delivery-resolvability, A15) | `backend/publicevents_test.go` |
 | The upstream-reconciliation note for the two deferred-delivery families | `.tmp/webhooks-contract-ui/UPSTREAM-P3.md` |
