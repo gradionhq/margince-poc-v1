@@ -6,7 +6,7 @@ info:
     The public, transport-agnostic projection of Margince domain events — the
     strict contract for outbound webhook delivery. This file is components-only
     (no paths, no webhooks block): it is compiled to typed Go structs by
-    backend/tools/gen-payloads (into internal/contracts/webhookpayloads_gen.go)
+    backend/tools/gen-payloads (into internal/contracts/publicevents_gen.go)
     and to TypeScript by the frontend's gen:events script. It is kept SEPARATE
     from api/crm.yaml on purpose — crm.yaml's webhooks: block is silently pruned
     by kin-openapi, and enabling global skip-prune there trips a pre-existing

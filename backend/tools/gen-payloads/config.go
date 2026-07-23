@@ -23,7 +23,7 @@ type group struct {
 var groups = []group{
 	{
 		Source:  "api/public-events.yaml",
-		Out:     "internal/contracts/webhookpayloads_gen.go",
+		Out:     "internal/contracts/publicevents_gen.go",
 		Package: "crmcontracts",
 	},
 }

@@ -15,7 +15,7 @@ package crmcontracts
 
 // The public event/webhook payloads are a SEPARATE, isolated contract
 // (api/public-events.yaml) compiled by the generic gen-payloads generator into
-// webhookpayloads_gen.go in this same package. Kept out of crm.yaml because
+// publicevents_gen.go in this same package. Kept out of crm.yaml because
 // crm.yaml's webhooks: block is pruned by kin-openapi and global skip-prune
 // there trips a pre-existing ApprovalToken name collision (B-E10.14).
 //go:generate go run github.com/gradionhq/margince/backend/tools/gen-payloads
