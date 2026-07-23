@@ -40,7 +40,9 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -222,7 +224,7 @@ func TestSubscribableEventTypeEnumMatchesPayloadCatalog(t *testing.T) {
 // default and also fails.
 var dynamicProbeResolved = map[string]string{
 	"consent.changed":   "subject is person XOR lead (consent/store.go stamps sub.entityType) — both hit the row-scope probe branch",
-	"retention.applied": "subject is person/lead/deal/activity for policy-driven sweeps (all row-scope probed); its ownerless ai_call/ai_call_payload telemetry subjects are the deferredDeliveryEntities half",
+	"retention.applied": "subject is person/lead/deal/activity for policy-driven sweeps (all row-scope probed); its ownerless ai_call/ai_call_payload/voice_learning_signal telemetry subjects are the deferredDeliveryEntities half",
 }
 
 func TestEverySubscribableEventIsDeliveryResolvable(t *testing.T) {
@@ -450,4 +452,68 @@ func stringLit(t *testing.T, expr ast.Expr) string {
 		t.Fatalf("%s: expected a string-literal map key, got %T", deliveryVisibilityPath, expr)
 	}
 	return strings.Trim(lit.Value, `"`)
+}
+
+// TestNoRawEmitForSubscribableEvent is the invariant that catches a missed
+// emit-site migration BEFORE it ships a schema-violating body. A
+// subscribable event (one with a PublicEvent<Event> payload schema in
+// PublicEventVersions) MUST be staged through storekit.EmitEvent /
+// EmitEventForEntity — the typed seam that makes "wrong payload for an
+// event" impossible to express — never the untyped storekit.Emit(..., type,
+// entityType, id, map[string]any{...}) path, which lets a hand-built map
+// silently omit a required field or carry a forbidden one (exactly the
+// voice.draft_outcome_recorded and retention.applied-over-voice defects
+// this gate was written to prevent). It scans every non-test .go file under
+// internal/modules and fails on any storekit.Emit call whose event-type
+// argument is a subscribable-event string literal. Entity-less pipeline
+// events (capture.* via EmitPipeline, a distinct function) are exempt by
+// construction: they carry no PublicEvent schema and use a different call.
+func TestNoRawEmitForSubscribableEvent(t *testing.T) {
+	subscribable := map[string]bool{}
+	for tp := range crmcontracts.PublicEventVersions {
+		subscribable[tp] = true
+	}
+	fset := token.NewFileSet()
+	err := filepath.WalkDir("internal/modules", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return err
+		}
+		path = filepath.ToSlash(path)
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return err
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "Emit" {
+				return true
+			}
+			if pkg, ok := sel.X.(*ast.Ident); !ok || pkg.Name != "storekit" {
+				return true
+			}
+			// storekit.Emit(ctx, tx, auditID, eventType, entityType, entityID, payload)
+			// — the event type is the fourth argument (index 3).
+			if len(call.Args) < 4 {
+				return true
+			}
+			lit, ok := call.Args[3].(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			eventType := strings.Trim(lit.Value, `"`)
+			if subscribable[eventType] {
+				t.Errorf("%s: storekit.Emit(..., %q, ...) stages a SUBSCRIBABLE event through the untyped seam — route it through storekit.EmitEvent / EmitEventForEntity with its PublicEvent%s payload builder so the schema is enforced at the call site (BYO-EVT-4 / schema conformance)",
+					path, eventType, eventType)
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }

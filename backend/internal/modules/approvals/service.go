@@ -77,9 +77,9 @@ func (s *Service) audit(ctx context.Context, tx pgx.Tx, p principal.Principal, a
 }
 
 // emit stages one approval.* / coldstart.* event in the transactional
-// outbox, complete envelope, exactly like every other module's writes —
-// the second emit path (EMIT-INVENTORY.md): unlike storekit.EmitEvent,
-// this module's entity is always "approval" (the staged row itself), so
+// outbox, complete envelope, exactly like every other module's writes:
+// unlike storekit.EmitEvent, this module's entity is always "approval"
+// (the staged row itself), so
 // that mapping stays hardcoded here rather than sourced from the
 // payload's EntityType(). eventType is sourced from payload.EventType()
 // instead of a separate string parameter — a caller cannot stage the

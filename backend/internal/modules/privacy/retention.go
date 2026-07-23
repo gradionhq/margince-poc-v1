@@ -32,8 +32,8 @@ import (
 // retentionAppliedPayload builds the retention.applied wire payload — the
 // subject travels separately (the caller's own entityType, passed to
 // storekit.EmitEventForEntity), since this event's entity is dynamic
-// (ai_call / a policy's object type / person, one per site — see
-// EMIT-INVENTORY.md). policyID/reason are each nil where that site's
+// (ai_call / voice_learning_signal / a policy's object type / person, one
+// per site). policyID/reason are each nil where that site's
 // action carries no such value — the union this schema's optional
 // policy/reason fields exist for.
 func retentionAppliedPayload(action string, policyID *ids.UUID, reason *string) crmcontracts.PublicEventRetentionApplied {
@@ -309,9 +309,7 @@ func (s *RetentionService) eraseVoiceSignalContent(ctx context.Context, id ids.U
 		if err != nil {
 			return err
 		}
-		return storekit.Emit(ctx, tx, auditID, "retention.applied", "voice_learning_signal", id, map[string]any{
-			evidenceKeyAction: actionErase,
-		})
+		return storekit.EmitEventForEntity(ctx, tx, auditID, "voice_learning_signal", id, retentionAppliedPayload(actionErase, nil, nil))
 	})
 }
 

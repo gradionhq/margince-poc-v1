@@ -3,23 +3,16 @@
 
 package signals
 
-// TDD Step 1 of the webhooks Task 5e migration (signals family): drives the
-// payload-builder functions this package's emit sites call — detectedPayload
-// (signal.go's CreateSignal) and resolvedPayload (resolver.go's resolveTx) —
-// then round-trips each result through JSON exactly as storekit.EmitEvent
-// marshals it into the outbox envelope's payload column. There is no
-// non-integration harness in this repo that drives a Store method against a
-// real Postgres (every such test lives under compose/integration, gated
-// `//go:build integration`, needing db-up); testing the production
-// payload-construction functions directly — the one place a schema/code
-// mismatch would show up — is the honest substitute, mirroring the activity
-// family's TestActivityCapturedPayload_DirectLog (webhooks Task 5c).
-//
-// Before this migration neither crmcontracts.PublicEventSignalDetected nor
-// PublicEventSignalResolved existed, and both builder functions returned a
-// map[string]any, so this test failed to compile (RED) until
-// public-events.yaml gained the schemas, `make gen` regenerated the structs,
-// and signal.go/resolver.go's builders were retyped.
+// The signals family: drives the payload-builder functions this package's
+// emit sites call — detectedPayload (signal.go's CreateSignal) and
+// resolvedPayload (resolver.go's resolveTx) — then round-trips each result
+// through JSON exactly as storekit.EmitEvent marshals it into the outbox
+// envelope's payload column. There is no non-integration harness in this
+// repo that drives a Store method against a real Postgres (every such test
+// lives under compose/integration, gated `//go:build integration`, needing
+// db-up); testing the production payload-construction functions directly —
+// the one place a schema/code mismatch would show up — is the honest
+// substitute.
 
 import (
 	"encoding/json"

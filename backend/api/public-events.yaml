@@ -21,15 +21,12 @@ components:
     SubscribableEventType:
       type: string
       description: >-
-        The closed set of domain events a webhook subscription can select.
-        Phase 4 fills this out family by family; today it carries the
-        pilot event plus the deal family (Task 5a-i), the offer family
-        (Task 5a-ii), the pipeline/stage config family (Task 5a-iii), and
-        the person/organization family (Task 5b-personorg), the lead
-        family (Task 5b-lead), the activities family (Task 5c), the
-        consent/privacy family (Task 5d), the signals family (Task 5e), the
-        ai voice family (Task 5f), the identity family (Task 5g), and the
-        overlay family (Task 5h).
+        The closed set of domain event types a webhook subscription may
+        select — every subscribable event across the deal, offer,
+        pipeline/stage, person/organization, lead, activities,
+        consent/privacy, signals, ai voice, identity, and overlay families.
+        A subscription's event-type filter is validated against this set;
+        an unlisted type cannot be subscribed to.
       enum:
         - deal.created
         - deal.owner_changed
@@ -267,8 +264,12 @@ components:
           type: object
           additionalProperties: true
           description: >-
-            Field name → new value for whatever this update touched,
-            incl. runtime cf_* custom fields.
+            What this update touched, incl. runtime cf_* custom fields.
+            The value shape depends on the emit site: a column patch
+            carries a flat field → new-value entry, while the
+            recompute/routing/relationship sites carry a `{delta: {...}}`
+            sub-object (occasionally with a sibling `source`). Read a
+            key's value as either form.
       additionalProperties: false
 
     PublicEventDealRestored:
@@ -699,8 +700,12 @@ components:
           type: object
           additionalProperties: true
           description: >-
-            Field name → new value for whatever this update touched,
-            incl. runtime cf_* custom fields.
+            What this update touched, incl. runtime cf_* custom fields.
+            The value shape depends on the emit site: a column patch
+            carries a flat field → new-value entry, while the
+            recompute/routing/relationship sites carry a `{delta: {...}}`
+            sub-object (occasionally with a sibling `source`). Read a
+            key's value as either form.
       additionalProperties: false
 
     PublicEventPersonRestored:
@@ -805,8 +810,12 @@ components:
           type: object
           additionalProperties: true
           description: >-
-            Field name → new value for whatever this update touched,
-            incl. runtime cf_* custom fields.
+            What this update touched, incl. runtime cf_* custom fields.
+            The value shape depends on the emit site: a column patch
+            carries a flat field → new-value entry, while the
+            recompute/routing/relationship sites carry a `{delta: {...}}`
+            sub-object (occasionally with a sibling `source`). Read a
+            key's value as either form.
       additionalProperties: false
 
     PublicEventLeadCreated:
@@ -884,8 +893,12 @@ components:
           type: object
           additionalProperties: true
           description: >-
-            Field name → new value for whatever this update touched,
-            incl. runtime cf_* custom fields.
+            What this update touched, incl. runtime cf_* custom fields.
+            The value shape depends on the emit site: a column patch
+            carries a flat field → new-value entry, while the
+            recompute/routing/relationship sites carry a `{delta: {...}}`
+            sub-object (occasionally with a sibling `source`). Read a
+            key's value as either form.
       additionalProperties: false
 
     PublicEventActivityCaptured:
@@ -1080,16 +1093,17 @@ components:
       x-version: 1
       description: >-
         Payload for retention.applied — a retention/erasure action ran
-        against one record. Three emit sites, three different runtime
-        subjects: the embed-call sweep (ai_call), a workspace's configured
+        against one record. Four emit sites, four different runtime
+        subjects: the embed-call sweep (ai_call), the voice-learning-signal
+        content sweep (voice_learning_signal), a workspace's configured
         retention policy's object type (activity | deal | lead | person |
         ai_call_payload), and Art. 17 erasure (person) — none fixed enough
         for this schema to name, so this is dynamic-entity (contract
         `x-entity-type: dynamic`): the generated EntityType() is unused,
         and each emit site supplies its own runtime entity type through
         storekit.EmitEventForEntity. policy/reason are a union across the
-        three sites — the embed-call sweep sets neither, the policy-driven
-        sweep sets policy only, Art. 17 erasure sets reason only.
+        sites — both telemetry sweeps set neither, the policy-driven sweep
+        sets policy only, Art. 17 erasure sets reason only.
       required:
         - action
       properties:

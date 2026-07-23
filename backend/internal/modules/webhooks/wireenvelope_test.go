@@ -102,18 +102,30 @@ func TestToWireEnvelopeIsThePublicDeliveryShape(t *testing.T) {
 	}
 }
 
-// TestToWireEnvelopeEmptyPayloadYieldsNilData covers an envelope with no
-// payload set at all (the zero json.RawMessage) — it must not panic or
-// error; data is simply absent.
-func TestToWireEnvelopeEmptyPayloadYieldsNilData(t *testing.T) {
+// TestToWireEnvelopeEmptyPayloadYieldsEmptyObject covers an envelope with no
+// payload set at all (the zero json.RawMessage, as the old lead.created /
+// *.archived sites emitted) — it must not panic or error, and data must be
+// an empty object {}, never JSON null: the public PublicEventEnvelope.data
+// is a required object and a null would fail a subscriber's validation.
+func TestToWireEnvelopeEmptyPayloadYieldsEmptyObject(t *testing.T) {
 	env := fullInternalEnvelope(t)
 	env.Payload = nil
 	wire, err := toWireEnvelope(env)
 	if err != nil {
 		t.Fatalf("toWireEnvelope with no payload: %v", err)
 	}
-	if wire.Data != nil {
-		t.Errorf("data = %v, want nil for an envelope with no payload", wire.Data)
+	if wire.Data == nil {
+		t.Fatal("data = nil, want an empty object {} for an envelope with no payload")
+	}
+	if len(wire.Data) != 0 {
+		t.Errorf("data = %v, want an empty object {}", wire.Data)
+	}
+	body, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatalf("marshaling the wire envelope: %v", err)
+	}
+	if !strings.Contains(string(body), `"data":{}`) {
+		t.Errorf("delivered body must carry data:{}, not null: %s", body)
 	}
 }
 

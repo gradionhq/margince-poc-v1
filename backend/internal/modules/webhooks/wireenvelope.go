@@ -30,7 +30,11 @@ import (
 // enqueued before this mapping existed keeps its pre-migration (internal-
 // shape) body forever; toWireEnvelope is never applied retroactively.
 func toWireEnvelope(env kevents.Envelope) (crmcontracts.PublicEventEnvelope, error) {
-	var data map[string]interface{}
+	// The public PublicEventEnvelope.data is a required object. A
+	// pre-migration outbox row with an empty payload (the old lead.created /
+	// *.archived sites emitted nil) must map to an empty object {}, never
+	// JSON null — a null would fail the subscriber's schema validation.
+	data := map[string]interface{}{}
 	if len(env.Payload) > 0 {
 		if err := json.Unmarshal(env.Payload, &data); err != nil {
 			// env.Payload is JSON this same process marshaled moments earlier

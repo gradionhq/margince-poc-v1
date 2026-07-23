@@ -3,29 +3,18 @@
 
 package people
 
-// TDD Step 1 of the webhooks Task 5b-personorg migration (person +
-// organization family): drives the payload-builder functions the person/
-// organization emit sites call — promotedPersonPayload (promote.go),
-// personMergedPayload (merge.go), companySaveEventPayload (company.go),
-// siteReadConfirmationPayload (companysiteread.go), coldStartApplyPayload
-// (coldstartprofile.go), and relationshipUpdatedPayload
-// (relationship.go) — then round-trips each result through JSON exactly
-// as storekit.EmitEvent marshals it into the outbox envelope's payload
-// column. There is no non-integration harness in this repo that drives a
-// Store method against a real Postgres (every such test lives under
+// The person + organization family: drives the payload-builder functions
+// the person/organization emit sites call — promotedPersonPayload
+// (promote.go), personMergedPayload (merge.go), companySaveEventPayload
+// (company.go), siteReadConfirmationPayload (companysiteread.go),
+// coldStartApplyPayload (coldstartprofile.go), and relationshipUpdatedPayload
+// (relationship.go) — then round-trips each result through JSON exactly as
+// storekit.EmitEvent marshals it into the outbox envelope's payload column.
+// There is no non-integration harness in this repo that drives a Store
+// method against a real Postgres (every such test lives under
 // compose/integration, gated `//go:build integration`, needing db-up);
-// testing the production payload-construction functions directly — the
-// one place a schema/code mismatch would show up — is the honest
-// substitute, mirroring the deal family's
-// TestDealStageChangedEmitsTypedPayload (webhooks Task 5a-i).
-//
-// Before this migration none of crmcontracts.PublicEventPersonCreated/
-// Archived/Merged/Updated/Restored or PublicEventOrganizationCreated/
-// Archived/Merged/Updated existed, and none of the builder functions
-// existed, so this test failed to compile (RED) until public-events.yaml
-// gained the schemas, `make gen` regenerated the structs, and
-// promote.go/merge.go/company.go/companysiteread.go/coldstartprofile.go/
-// relationship.go grew the builders.
+// testing the production payload-construction functions directly — the one
+// place a schema/code mismatch would show up — is the honest substitute.
 
 import (
 	"encoding/json"

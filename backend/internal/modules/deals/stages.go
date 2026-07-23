@@ -77,8 +77,22 @@ func (s *Store) UpdatePipeline(ctx context.Context, id ids.PipelineID, in Update
 		if err != nil {
 			return fmt.Errorf("audit pipeline update: %w", err)
 		}
+		// changed_fields reports only what this PATCH actually touched — a
+		// nil pointer is an omitted field, not a change to null (the
+		// omitted-not-null discipline every other emit site follows), so a
+		// rename-only update never publishes is_default/position as null.
+		changed := map[string]any{}
+		if in.Name != nil {
+			changed["name"] = *in.Name
+		}
+		if in.IsDefault != nil {
+			changed["is_default"] = *in.IsDefault
+		}
+		if in.Position != nil {
+			changed["position"] = *in.Position
+		}
 		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventPipelineUpdated{
-			ChangedFields: map[string]any{"name": in.Name, "is_default": in.IsDefault, "position": in.Position},
+			ChangedFields: changed,
 		}); err != nil {
 			return fmt.Errorf("emit pipeline.updated: %w", err)
 		}

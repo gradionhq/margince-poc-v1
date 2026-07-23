@@ -3,34 +3,29 @@
 
 package privacy
 
-// TDD Step 1 of the webhooks Task 5d migration (privacy half): drives
-// retentionAppliedPayload — the exact function all three retention.applied
-// emit sites call (retention.go's eraseEmbedCall and apply, erasure.go's
-// ErasePerson) — then round-trips the result through JSON exactly as
+// The privacy half: drives retentionAppliedPayload — the exact function
+// the retention.applied emit sites call (retention.go's eraseEmbedCall,
+// eraseVoiceSignalContent and apply, erasure.go's ErasePerson) — then
+// round-trips the result through JSON exactly as
 // storekit.EmitEventForEntity marshals it into the outbox envelope's
 // payload column. There is no non-integration harness in this repo that
 // drives a Store/Service method against a real Postgres (every such test
 // lives under compose/integration, gated `//go:build integration`, needing
 // db-up); testing the production payload-construction function directly —
 // the one place a schema/code mismatch would show up — is the honest
-// substitute, mirroring the deal family's
-// TestDealStageChangedEmitsTypedPayload (webhooks Task 5a-i).
+// substitute.
 //
 // retention.applied is dynamic-entity (contract x-entity-type: dynamic):
-// its subject is ai_call (the embedding-retention sweep), pol.ObjectType
+// its subject is ai_call (the embedding-retention sweep),
+// voice_learning_signal (the voice-learning content sweep), pol.ObjectType
 // (a workspace's configured retention policy — activity/deal/lead/person/
-// ai_call_payload), or person (Art. 17 erasure) — three DIFFERENT runtime
-// values across the three sites, none of which is the payload's own
-// (unused, "dynamic") EntityType(). This file proves each site's
-// entity-type expression survives into the wire envelope via
-// storekit.EmitEventForEntity, using the same fakeTx boundary mock
-// storekit's own emitevent_test.go uses, since privacy (a module) may
-// depend on storekit (platform) but not the other way around.
-//
-// Before this migration crmcontracts.PublicEventRetentionApplied did not
-// exist, and neither did retentionAppliedPayload, so this test failed to
-// compile (RED) until public-events.yaml gained the schema, `make gen`
-// regenerated the struct, and retention.go/erasure.go grew the builder.
+// ai_call_payload), or person (Art. 17 erasure) — DIFFERENT runtime values
+// across the sites, none of which is the payload's own (unused, "dynamic")
+// EntityType(). This file proves each site's entity-type expression
+// survives into the wire envelope via storekit.EmitEventForEntity, using
+// the same fakeTx boundary mock storekit's own emitevent_test.go uses,
+// since privacy (a module) may depend on storekit (platform) but not the
+// other way around.
 
 import (
 	"context"
@@ -204,11 +199,11 @@ func decodedOutboxEntityType(t *testing.T, tx *fakeTx) string {
 	return env.Entity.Type
 }
 
-// TestRetentionAppliedEmitUsesRuntimeEntityType is the dynamic-entity twist
-// this task's contract requires: retention.applied's subject varies by
-// site — ai_call (the embed-call sweep), a policy's configured object type
-// (the policy-driven sweep), or person (Art. 17 erasure) — none of which
-// is the payload's own (unused, "dynamic") EntityType(). Driving the exact
+// TestRetentionAppliedEmitUsesRuntimeEntityType is the dynamic-entity twist:
+// retention.applied's subject varies by site — ai_call (the embed-call
+// sweep), a policy's configured object type (the policy-driven sweep), or
+// person (Art. 17 erasure) — none of which is the payload's own (unused,
+// "dynamic") EntityType(). Driving the exact
 // same seam each site uses against all three runtime values proves the
 // wire entity_type tracks the caller-supplied subject, not the payload's
 // static type.

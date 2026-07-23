@@ -3,18 +3,13 @@
 
 package capture
 
-// TDD Step 1 of the webhooks Task 5c migration (activities family,
-// capture's two emit sites): drives activityCaptureEventPayload
-// (captureActivity's activity.captured emit) and engagementReplyPayload
-// (emitReply's engagement.reply emit), then round-trips each result
-// through JSON exactly as storekit.EmitEvent marshals it into the outbox
-// envelope's payload column, mirroring the lead family's
-// TestLeadPromotedPayload_WithEvidence (webhooks Task 5b-lead).
-//
-// Before this migration crmcontracts.PublicEventActivityCaptured/
-// EngagementReply did not exist, and neither builder existed, so this test
-// failed to compile (RED) until public-events.yaml gained the schemas,
-// `make gen` regenerated the structs, and sink.go grew the builders.
+// The activities family, capture's two emit sites: drives
+// activityCaptureEventPayload (captureActivity's activity.captured emit)
+// and engagementReplyPayload (emitReply's engagement.reply emit), then
+// round-trips each result through JSON exactly as storekit.EmitEvent
+// marshals it into the outbox envelope's payload column — the one place a
+// schema/code mismatch would show up, since no non-integration harness
+// drives a Store method against a real Postgres.
 
 import (
 	"encoding/json"

@@ -3,24 +3,16 @@
 
 package identity
 
-// TDD Step 1 of the webhooks Task 5g migration (identity family): drives
-// the payload-builder functions the package's six emit sites call —
-// userInvitedPayload (users.go's InviteUser), userDeactivatedPayload
-// (users.go's DeactivateUser), userReactivatedPayload (users.go's
-// ReactivateUser), roleChangedPayload (users.go's ChangeUserRole),
-// passportRevokedPayload (passport.go's RevokePassport), and
-// onboardingStateChangedPayload (onboarding.go's auditOnboardingState) —
+// The identity family: drives the payload-builder functions the package's
+// six emit sites call — userInvitedPayload (users.go's InviteUser),
+// userDeactivatedPayload (users.go's DeactivateUser), userReactivatedPayload
+// (users.go's ReactivateUser), roleChangedPayload (users.go's
+// ChangeUserRole), passportRevokedPayload (passport.go's RevokePassport),
+// and onboardingStateChangedPayload (onboarding.go's auditOnboardingState) —
 // then round-trips each result through JSON exactly as storekit.EmitEvent
-// marshals it into the outbox envelope's payload column, mirroring the
-// ai voice family's TestVoice*Payload (webhooks Task 5f).
-//
-// Before this migration none of crmcontracts.PublicEventUserInvited/
-// UserDeactivated/UserReactivated/RoleChanged/PassportRevoked/
-// OnboardingStateChanged existed, and none of the builder functions
-// existed (every site inlined a map[string]any), so this test failed to
-// compile (RED) until public-events.yaml gained the schemas, `make gen`
-// regenerated the structs, and users.go/passport.go/onboarding.go grew
-// the builders.
+// marshals it into the outbox envelope's payload column — the one place a
+// schema/code mismatch would show up, since no non-integration harness
+// drives a Store method against a real Postgres.
 
 import (
 	"encoding/json"

@@ -27,6 +27,7 @@ import { ArchiveAction } from "./archive";
 import {
   canConfigureAutomations,
   LoadMoreButton,
+  problemCode,
   problemMessage,
   QueryGate,
   QueryStates,
@@ -89,14 +90,17 @@ function useWebhookSubscriptions() {
         "/webhook-subscriptions",
         { params: { query: {} } },
       );
-      // A bodiless 503 (openapi-fetch reports a falsy `error` for it same as
-      // any other non-2xx without a matching typed response) is this
-      // deployment's honest "not configured" answer — read the status, not
-      // the error channel, so it never collapses into the generic error card.
-      if (response.status === 503) {
+      // "Not configured on this deployment" is the specific 503 whose
+      // RFC-7807 code is webhooks_not_configured — key on the code, not the
+      // bare status, so a transient dependency 503 (DB down behind the API)
+      // still surfaces as an error card instead of the calm empty-state.
+      if (
+        response.status === 503 &&
+        problemCode(error) === "webhooks_not_configured"
+      ) {
         return { configured: false };
       }
-      if (error) {
+      if (error || !response.ok) {
         throw new Error(problemMessage(error));
       }
       return { configured: true, data: data.data };

@@ -3,8 +3,8 @@
 
 package ai
 
-// TDD Step 1 of the webhooks Task 5f migration (ai voice family): drives the
-// payload-builder functions this package's seven emit sites call —
+// The ai voice family's payload builders: drives the functions this
+// package's eight emit sites call —
 // voiceProfileCreatedPayload (voice.go's CreateProfile),
 // voiceProfileUpdatedPayload (voice.go's emitVoiceProfileUpdated),
 // voiceProfileArchivedPayload (voice.go's ArchiveProfile),
@@ -12,17 +12,13 @@ package ai
 // RemoveSource/ClearCorpus and voice_source_store.go's recordSourceIngest),
 // voiceBuildChangedPayload (voice_lifecycle.go's emitVoiceBuild),
 // voiceVersionChangedPayload (voice_versions.go's emitVoiceVersion), and
-// voiceDraftOutcomeRecordedPayload (voice_history.go's RecordDraftOutcome) —
-// then round-trips each result through JSON exactly as storekit.EmitEvent
-// marshals it into the outbox envelope's payload column, mirroring the
-// signals family's TestDetectedPayload_* (webhooks Task 5e).
-//
-// Before this migration none of crmcontracts.PublicEventVoice* existed,
-// and none of the builder functions existed (every site inlined a
-// map[string]any), so this test failed to compile (RED) until
-// public-events.yaml gained the schemas, `make gen` regenerated the
-// structs, and voice.go/voice_source_mutations.go/voice_source_store.go/
-// voice_lifecycle.go/voice_versions.go/voice_history.go grew the builders.
+// voiceDraftOutcomeRecordedPayload (voice_history.go's RecordDraftOutcome AND
+// voice_draftread.go's RecordDraftedSignal) — then round-trips each result
+// through JSON exactly as storekit.EmitEvent marshals it into the outbox
+// envelope's payload column. There is no non-integration harness in this
+// repo that drives a Store method against a real Postgres; testing the
+// production payload-construction functions directly — the one place a
+// schema/code mismatch would show up — is the honest substitute.
 
 import (
 	"encoding/json"
@@ -446,7 +442,7 @@ func TestVoiceVersionChangedPayload_Rollback(t *testing.T) {
 }
 
 func TestVoiceDraftOutcomeRecordedPayload(t *testing.T) {
-	payload := voiceDraftOutcomeRecordedPayload(voicePayloadTestProfileID, "rejected", false, 0)
+	payload := voiceDraftOutcomeRecordedPayload(voicePayloadTestProfileID, "rejected")
 
 	if !reflect.DeepEqual(payload.EventType(), "voice.draft_outcome_recorded") {
 		t.Errorf("got %v, want %v", payload.EventType(), "voice.draft_outcome_recorded")
@@ -477,5 +473,52 @@ func TestVoiceDraftOutcomeRecordedPayload(t *testing.T) {
 	}
 	if !reflect.DeepEqual(decoded, payload) {
 		t.Errorf("got %v, want %v", decoded, payload)
+	}
+}
+
+// TestVoiceDraftedSignalPayload pins the payload RecordDraftedSignal
+// (voice_draftread.go) emits: a just-served draft has not been sent, so it
+// qualifies as no learning source and carries no transformations. This is
+// the eighth voice emit site — the one that must ride the typed builder
+// (not a hand-built map) so the wire body carries the schema's required
+// qualifies_as_source/transformation_count and never the forbidden
+// profile_version.
+func TestVoiceDraftedSignalPayload(t *testing.T) {
+	payload := voiceDraftOutcomeRecordedPayload(voicePayloadTestProfileID, voiceOutcomeDrafted)
+
+	if payload.EventType() != "voice.draft_outcome_recorded" {
+		t.Errorf("event type = %q, want voice.draft_outcome_recorded", payload.EventType())
+	}
+	if payload.EntityType() != "voice_profile" {
+		t.Errorf("entity type = %q, want voice_profile", payload.EntityType())
+	}
+	if payload.Outcome != voiceOutcomeDrafted {
+		t.Errorf("outcome = %q, want %q", payload.Outcome, voiceOutcomeDrafted)
+	}
+	if payload.QualifiesAsSource {
+		t.Error("qualifies_as_source = true, want false for a just-served draft")
+	}
+	if payload.TransformationCount != 0 {
+		t.Errorf("transformation_count = %d, want 0 for a just-served draft", payload.TransformationCount)
+	}
+
+	// Round-trip through JSON and assert the wire body carries exactly the
+	// schema's fields — required ones present, forbidden profile_version
+	// absent (additionalProperties: false).
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshaling the drafted-signal payload: %v", err)
+	}
+	var wire map[string]any
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		t.Fatalf("unmarshaling the drafted-signal payload: %v", err)
+	}
+	for _, required := range []string{"profile_id", "outcome", "qualifies_as_source", "transformation_count"} {
+		if _, ok := wire[required]; !ok {
+			t.Errorf("wire body is missing required field %q: %s", required, raw)
+		}
+	}
+	if _, forbidden := wire["profile_version"]; forbidden {
+		t.Errorf("wire body carries the schema-forbidden profile_version: %s", raw)
 	}
 }

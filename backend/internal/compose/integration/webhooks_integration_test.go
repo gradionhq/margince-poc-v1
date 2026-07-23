@@ -451,6 +451,125 @@ func TestWebhookFanOutFailsClosedForUnclassifiedSubject(t *testing.T) {
 	}
 }
 
+// TestWebhookApprovalFanOutGatesOnTargetVisibility proves the approval.*/
+// coldstart.* fan-out is bounded by the approval TARGET's visibility, not
+// fanned out workspace-wide (BYO-EVT-4 / the I2 leak): a subscriber only
+// receives an approval event when it can see the record the staged change
+// targets. An approval whose target the owner can see is delivered; a
+// target-less approval and one whose target does not resolve under the
+// owner's scope are both fail-closed (undelivered) — the staged-change
+// detail (summary, edited_change, target ids) never reaches an owner who
+// could not read the target directly.
+func TestWebhookApprovalFanOutGatesOnTargetVisibility(t *testing.T) {
+	we := setupWebhooks(t)
+	rcv := newReceiver(t, http.StatusOK)
+	now := time.Now().UTC()
+	deliverer := newTestDeliverer(we, &now, rcv.server.Client())
+
+	we.createSubscription(t, rcv.server.URL+"/hook", []string{"approval.decided", "coldstart.accepted"})
+
+	person := "person"
+	handle := func(eventType string, approvalID ids.UUID) {
+		env := makeEnvelopeFor(we.wsID, eventType, "approval")
+		env.Entity.ID = approvalID
+		if err := deliverer.HandleEvent(context.Background(), env); err != nil {
+			t.Fatalf("handle %s: %v", eventType, err)
+		}
+	}
+
+	// Case A: an approval targeting a person the owner (bootstrap admin,
+	// row_scope=all) can see → delivered.
+	visibleTarget := we.seedPerson(t, "Visible Approval Target")
+	visibleApproval := ids.NewV7()
+	we.insertApproval(t, visibleApproval, &person, &visibleTarget)
+	before := rcv.count.Load()
+	handle("approval.decided", visibleApproval)
+	if got := rcv.count.Load() - before; got != 1 {
+		t.Fatalf("approval over a visible target produced %d POSTs, want 1", got)
+	}
+
+	// Case B: a target-less approval cannot be scope-bounded → fail-closed.
+	targetlessApproval := ids.NewV7()
+	we.insertApproval(t, targetlessApproval, nil, nil)
+	before = rcv.count.Load()
+	handle("approval.decided", targetlessApproval)
+	if got := rcv.count.Load() - before; got != 0 {
+		t.Fatalf("target-less approval produced %d POSTs, want 0 (fail-closed)", got)
+	}
+
+	// Case C: an approval whose target type the fan-out gate cannot resolve
+	// to an owner-scopable record (a workspace-shared product — no row-scope
+	// probe in entityVisibleTo) is FAIL-CLOSED, not fanned out. This proves
+	// the gate recurses on the target and denies an unreachable target,
+	// rather than blindly delivering any approval that carries a target.
+	product := "product"
+	productTarget := ids.NewV7()
+	unresolvableApproval := ids.NewV7()
+	we.insertApproval(t, unresolvableApproval, &product, &productTarget)
+	before = rcv.count.Load()
+	handle("approval.decided", unresolvableApproval)
+	if got := rcv.count.Load() - before; got != 0 {
+		t.Fatalf("approval over an unresolvable target type produced %d POSTs, want 0 (fail-closed)", got)
+	}
+
+	// Case D: a cold-start echo shares entity "approval" and the same gate —
+	// a target-less coldstart.accepted is fail-closed too.
+	coldstartApproval := ids.NewV7()
+	we.insertApproval(t, coldstartApproval, nil, nil)
+	before = rcv.count.Load()
+	handle("coldstart.accepted", coldstartApproval)
+	if got := rcv.count.Load() - before; got != 0 {
+		t.Fatalf("target-less coldstart echo produced %d POSTs, want 0 (fail-closed)", got)
+	}
+}
+
+// seedPerson inserts a person row under a workspace-bound owner tx (FORCE
+// RLS) and returns its id — a row-scoped target the bootstrap admin can see.
+func (we *webhookEnv) seedPerson(t *testing.T, name string) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	we.execInWorkspace(t,
+		`INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, $3, 'manual', 'human:x')`,
+		id, we.wsID, name)
+	return id
+}
+
+// insertApproval inserts a staged approval row with a caller-chosen id and
+// target (both nil for a target-less staging), so the delivery gate can be
+// driven against a known approval subject.
+func (we *webhookEnv) insertApproval(t *testing.T, id ids.UUID, targetType *string, targetID *ids.UUID) {
+	t.Helper()
+	we.execInWorkspace(t, `
+		INSERT INTO approval (id, workspace_id, kind, proposed_by, target_entity_type, target_entity_id,
+		                      summary, proposed_change, diff_hash, expires_at)
+		VALUES ($1, $2, 'advance_deal', 'agent:test', $3, $4,
+		        'staged change', '{}'::jsonb, 'sha256:test', now() + interval '1 day')`,
+		id, we.wsID, targetType, targetID)
+}
+
+// execInWorkspace runs one statement under a workspace-bound owner tx so
+// FORCE RLS admits the write, committing it (the same pattern the
+// revoked-owner test uses to mutate app_user).
+func (we *webhookEnv) execInWorkspace(t *testing.T, sql string, args ...any) {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := we.owner.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	//craft:ignore swallowed-errors error-path safety net; the Commit below is asserted, after which this rollback is a designed no-op
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, we.wsID.String()); err != nil {
+		t.Fatalf("set guc: %v", err)
+	}
+	if _, err := tx.Exec(ctx, sql, args...); err != nil {
+		t.Fatalf("exec: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+}
+
 func TestWebhookRetryThenDeadLetterThenReplay(t *testing.T) {
 	we := setupWebhooks(t)
 	rcv := newReceiver(t, http.StatusInternalServerError) // endpoint is down
@@ -612,10 +731,10 @@ func mustParseUUID(t *testing.T, s string) ids.UUID {
 	return u
 }
 
-// TestDealStageChangedPayloadConformsToPublicSchema is the Phase-4
+// TestDealStageChangedPayloadConformsToPublicSchema is the payload
 // conformance gate (A7, payload-`data` only — the envelope-level assertion
-// follows in TestPublicEventEnvelopeConformsToPublicSchema below, now that
-// Task 6's toWireEnvelope exists): a REAL event, one the deals module emits
+// follows in TestPublicEventEnvelopeConformsToPublicSchema below, which
+// exercises toWireEnvelope): a REAL event, one the deals module emits
 // by actually advancing a deal through HTTP, must validate against the
 // published PublicEventDealStageChanged component schema in
 // api/public-events.yaml. This is deliberately independent of any Go struct —

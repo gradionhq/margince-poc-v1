@@ -17,10 +17,10 @@ import (
 
 // workspaceLevelEntities are the event subject types with NO per-owner row
 // scope: workspace/admin-level facts (pipeline & stage config, the
-// approvals ledger, the identity/access-revocation cascade, the audit
-// ledger, the onboarding wizard state, the incumbent-connection lifecycle)
-// whose envelope is a bare entity ref — a receiver reads any detail back
-// under its own scope (events.md §0). They deliver to any live subscription
+// identity/access-revocation cascade, the audit ledger, the onboarding
+// wizard state, the incumbent-connection lifecycle) whose envelope is a
+// bare entity ref — a receiver reads any detail back under its own scope
+// (events.md §0). They deliver to any live subscription
 // owner. This is an ALLOW-list, not the default: every subject type that is
 // not listed here, has no explicit row-scope probe below, and is not a
 // ratified deferred-delivery subject is DENIED (entityVisibleTo's
@@ -37,13 +37,16 @@ import (
 // lifecycle both name entity "user"; passport.revoked names "passport";
 // onboarding.state_changed names "onboarding_wizard_state";
 // incumbent.connected/disconnected name "incumbent_connection". The
-// cold-start echoes name "approval" (already listed), so no "coldstart"
-// key exists; the mirror.* events name a dynamic object_class, handled by
-// deferredDeliveryEvents below, so no "mirror" key exists either.
+// approval.*/coldstart.* events name entity "approval" but are NOT listed
+// here — an approval's envelope carries staged-change detail (summary,
+// edited_change, target ids) that a bare-ref allow-list would fan out to
+// owners who cannot see the target, so "approval" is instead gated by
+// approvalVisibleTo in the switch below (BYO-EVT-4). The mirror.* events
+// name a dynamic object_class, handled by deferredDeliveryEvents below, so
+// no "mirror" key exists either.
 var workspaceLevelEntities = map[string]struct{}{
 	"pipeline":                {},
 	"stage":                   {},
-	"approval":                {},
 	"audit":                   {},
 	"user":                    {},
 	"passport":                {},
@@ -82,17 +85,20 @@ var deferredDeliveryEvents = map[string]string{
 // dynamic-entity event: its person/lead/deal/activity subjects DO resolve
 // through the row-scope probes below, but the nightly retention sweep also
 // ages out engine telemetry — ai_call (embedding traces, privacy/
-// retention.go's eraseEmbedCall) and ai_call_payload (retained call
-// content) — which carry no owner and no visibility probe. Delivering
-// those workspace-wide would leak which telemetry rows were purged, so
+// retention.go's eraseEmbedCall), ai_call_payload (retained call content),
+// and voice_learning_signal (aged voice-learning telemetry, privacy/
+// retention.go's eraseVoiceSignalContent) — which carry no owner and no
+// visibility probe. Delivering those workspace-wide would leak which
+// telemetry rows were purged, so
 // their delivery is DEFERRED pending a telemetry-ownership model (raised
 // upstream, P3): EXPLICITLY undelivered, never silently denied and never
 // fanned out. Unlike the mirror.* events these entity strings do NOT
 // collide with a row-scoped subject, so they are safely keyed by entity
 // type rather than event. Each entry carries the rationale inline.
 var deferredDeliveryEntities = map[string]string{
-	"ai_call":         "retention.applied over an embedding-trace ai_call row — engine telemetry with no owner and no visibility probe; delivery deferred pending a telemetry-ownership model (upstream P3)",
-	"ai_call_payload": "retention.applied over a retained ai_call_payload row — engine telemetry with no owner and no visibility probe; delivery deferred pending a telemetry-ownership model (upstream P3)",
+	"ai_call":               "retention.applied over an embedding-trace ai_call row — engine telemetry with no owner and no visibility probe; delivery deferred pending a telemetry-ownership model (upstream P3)",
+	"ai_call_payload":       "retention.applied over a retained ai_call_payload row — engine telemetry with no owner and no visibility probe; delivery deferred pending a telemetry-ownership model (upstream P3)",
+	"voice_learning_signal": "retention.applied over an aged voice_learning_signal row — ownerless voice-learning telemetry, the same class as ai_call/ai_call_payload, with no owner and no visibility probe; delivery deferred pending a telemetry-ownership model (upstream P3)",
 }
 
 // entityVisibleTo reports whether the entity an event names is visible to
@@ -131,6 +137,13 @@ func (s *Store) entityVisibleTo(ctx context.Context, eventType, entityType strin
 		// An offer has no owner of its own — it is row-scoped through its
 		// parent deal, exactly as the offer read path gates (deals/offer.go).
 		return s.offerVisibleTo(ctx, entityID)
+	case "approval":
+		// An approval (and its coldstart.* echoes) carries staged-change
+		// detail — summary, edited_change, target ids — so it is gated on
+		// the SAME target-visibility predicate the approvals inbox uses
+		// (approvals/authority.go targetVisible, C3/ADR-0036: what you
+		// cannot see you cannot decide), never fanned out workspace-wide.
+		return s.approvalVisibleTo(ctx, eventType, entityID)
 	default:
 		if _, ok := workspaceLevelEntities[entityType]; ok {
 			return true, nil
@@ -177,4 +190,44 @@ func (s *Store) offerVisibleTo(ctx context.Context, offerID ids.UUID) (bool, err
 	return s.probeVisible(ctx, func(c context.Context, tx pgx.Tx) error {
 		return auth.EnsureVisible(c, tx, "deal", dealID)
 	})
+}
+
+// approvalVisibleTo gates an approval.*/coldstart.* event on the same
+// target-visibility rule the approvals inbox enforces (approvals/
+// authority.go targetVisible, C3/ADR-0036): the approval's envelope leaks
+// staged-change detail (summary, edited_change, target ids), so it may only
+// reach an owner who can see the TARGET record. It resolves the approval's
+// polymorphic target and recurses the row-scope gate on it, reusing the
+// person/organization/deal/lead/activity/signal/offer probes above. A
+// target-LESS approval (some approval.requested proposals and every
+// coldstart.* echo carry no target) cannot be scope-bounded, so it is
+// FAIL-CLOSED (not delivered) — a ratified deferral, exactly like the
+// deferredDelivery* subjects: never a workspace-wide fan-out of content the
+// owner's grants could not read. A missing approval row reads as
+// not-visible. The approval table is read with a raw probe under the
+// existing WithWorkspaceTx boundary rather than importing the approvals
+// module (a module never imports a sibling).
+func (s *Store) approvalVisibleTo(ctx context.Context, eventType string, approvalID ids.UUID) (bool, error) {
+	var (
+		targetType *string
+		targetID   *ids.UUID
+	)
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT target_entity_type, target_entity_id FROM approval WHERE id = $1`,
+			approvalID).Scan(&targetType, &targetID)
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if targetType == nil || targetID == nil {
+		// Target-less approval — no record whose scope could bound the
+		// fan-out, so it is EXPLICITLY undelivered (fail-closed), never
+		// leaked workspace-wide.
+		return false, nil
+	}
+	return s.entityVisibleTo(ctx, eventType, *targetType, *targetID)
 }

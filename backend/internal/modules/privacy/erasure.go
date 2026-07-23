@@ -40,11 +40,6 @@ const erasedName = "Erased Subject"
 // field-history projection cuts at audit rows carrying it.
 const actionErase = "erase"
 
-// evidenceKeyAction is the audit-evidence map key every retention/erasure
-// action stamps its verb under — shared so the key spelling can't drift
-// between call sites.
-const evidenceKeyAction = "action"
-
 // evidenceKeyRetentionAction is the audit-evidence key naming which
 // retention action ran; one spelling across every sweep.
 const evidenceKeyRetentionAction = "retention_action"

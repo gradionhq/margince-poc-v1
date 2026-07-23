@@ -3,18 +3,15 @@
 
 package overlay
 
-// TDD Step 1 of the webhooks Task 5h migration (overlay family): drives
-// the payload-builder functions the package's five emit sites call —
+// The overlay family: drives the payload-builder functions the package's
+// five emit sites call —
 // mirrorConflictPayload (reconcile.go's emitMirrorConflict),
 // mirrorBudgetDegradedPayload (freshness.go's emitBudgetDegraded),
 // mirrorDeletedPayload (mirrordeletion.go's PurgeDeletions),
 // incumbentConnectedPayload (connection.go's insertConnection), and
 // incumbentDisconnectedPayload (teardown.go's Disconnect) — then
 // round-trips each result through JSON exactly as storekit.Emit/
-// EmitEventForEntity marshal it into the outbox envelope's payload
-// column, mirroring the identity family's TestUserInvitedPayload
-// (webhooks Task 5g) and the consent/privacy family's dynamic-entity
-// flow test (webhooks Task 5d).
+// EmitEventForEntity marshal it into the outbox envelope's payload column.
 //
 // The three mirror.* events are dynamic-entity (contract x-entity-type:
 // dynamic): each site's subject class is a RUNTIME string (rec.
@@ -26,14 +23,6 @@ package overlay
 // are static-entity (always incumbent_connection), so no such flow test
 // is needed for them — EmitEvent derives the entity type from the
 // payload's own EntityType() (as proven by the builder tests below).
-//
-// Before this migration none of crmcontracts.PublicEventMirrorConflict/
-// MirrorBudgetDegraded/MirrorDeleted/IncumbentConnected/
-// IncumbentDisconnected existed, and neither did any of the builder
-// functions (every site inlined a map[string]any), so this test failed to
-// compile (RED) until public-events.yaml gained the schemas, `make gen`
-// regenerated the structs, and reconcile.go/freshness.go/
-// mirrordeletion.go/connection.go/teardown.go grew the builders.
 
 import (
 	"context"

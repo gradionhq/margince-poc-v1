@@ -400,7 +400,7 @@ type PublicEventDealStageChanged struct {
 
 // PublicEventDealUpdated Payload for deal.updated — an OPEN envelope: its emit sites carry divergent shapes (a flat column patch, an accepted-offer amount sync, a close-date-correction note, a relationship delta), so the honest shape is a change-set map rather than a fixed field list.
 type PublicEventDealUpdated struct {
-	// ChangedFields Field name → new value for whatever this update touched, incl. runtime cf_* custom fields.
+	// ChangedFields What this update touched, incl. runtime cf_* custom fields. The value shape depends on the emit site: a column patch carries a flat field → new-value entry, while the recompute/routing/relationship sites carry a `{delta: {...}}` sub-object (occasionally with a sibling `source`). Read a key's value as either form.
 	ChangedFields map[string]interface{} `json:"changed_fields"`
 }
 
@@ -511,7 +511,7 @@ type PublicEventLeadPromoted struct {
 
 // PublicEventLeadUpdated Payload for lead.updated — an OPEN envelope: emit sites carry divergent shapes (a flat column patch that includes runtime cf_* custom-field columns, and behavioral-recompute/routing deltas), so the honest shape is a change-set map rather than a fixed field list.
 type PublicEventLeadUpdated struct {
-	// ChangedFields Field name → new value for whatever this update touched, incl. runtime cf_* custom fields.
+	// ChangedFields What this update touched, incl. runtime cf_* custom fields. The value shape depends on the emit site: a column patch carries a flat field → new-value entry, while the recompute/routing/relationship sites carry a `{delta: {...}}` sub-object (occasionally with a sibling `source`). Read a key's value as either form.
 	ChangedFields map[string]interface{} `json:"changed_fields"`
 }
 
@@ -703,7 +703,7 @@ type PublicEventOrganizationMerged struct {
 
 // PublicEventOrganizationUpdated Payload for organization.updated — an OPEN envelope: eight emit sites carry divergent shapes (a flat column patch, the anchor company save's field delta, the partner extension's nested delta, enrichment/deep-read applies, a relationship delta), so the honest shape is a change-set map rather than a fixed field list.
 type PublicEventOrganizationUpdated struct {
-	// ChangedFields Field name → new value for whatever this update touched, incl. runtime cf_* custom fields.
+	// ChangedFields What this update touched, incl. runtime cf_* custom fields. The value shape depends on the emit site: a column patch carries a flat field → new-value entry, while the recompute/routing/relationship sites carry a `{delta: {...}}` sub-object (occasionally with a sibling `source`). Read a key's value as either form.
 	ChangedFields map[string]interface{} `json:"changed_fields"`
 }
 
@@ -757,7 +757,7 @@ type PublicEventPersonRestored struct{}
 
 // PublicEventPersonUpdated Payload for person.updated — an OPEN envelope: its emit sites carry divergent shapes (a flat column patch, a lead-promotion conversion note, a signature-enrichment fill, a relationship delta), so the honest shape is a change-set map rather than a fixed field list.
 type PublicEventPersonUpdated struct {
-	// ChangedFields Field name → new value for whatever this update touched, incl. runtime cf_* custom fields.
+	// ChangedFields What this update touched, incl. runtime cf_* custom fields. The value shape depends on the emit site: a column patch carries a flat field → new-value entry, while the recompute/routing/relationship sites carry a `{delta: {...}}` sub-object (occasionally with a sibling `source`). Read a key's value as either form.
 	ChangedFields map[string]interface{} `json:"changed_fields"`
 }
 
@@ -794,7 +794,7 @@ type PublicEventPipelineUpdated struct {
 	ChangedFields map[string]interface{} `json:"changed_fields"`
 }
 
-// PublicEventRetentionApplied Payload for retention.applied — a retention/erasure action ran against one record. Three emit sites, three different runtime subjects: the embed-call sweep (ai_call), a workspace's configured retention policy's object type (activity | deal | lead | person | ai_call_payload), and Art. 17 erasure (person) — none fixed enough for this schema to name, so this is dynamic-entity (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and each emit site supplies its own runtime entity type through storekit.EmitEventForEntity. policy/reason are a union across the three sites — the embed-call sweep sets neither, the policy-driven sweep sets policy only, Art. 17 erasure sets reason only.
+// PublicEventRetentionApplied Payload for retention.applied — a retention/erasure action ran against one record. Four emit sites, four different runtime subjects: the embed-call sweep (ai_call), the voice-learning-signal content sweep (voice_learning_signal), a workspace's configured retention policy's object type (activity | deal | lead | person | ai_call_payload), and Art. 17 erasure (person) — none fixed enough for this schema to name, so this is dynamic-entity (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and each emit site supplies its own runtime entity type through storekit.EmitEventForEntity. policy/reason are a union across the sites — both telemetry sweeps set neither, the policy-driven sweep sets policy only, Art. 17 erasure sets reason only.
 type PublicEventRetentionApplied struct {
 	// Action The action that ran (archive | anonymize | erase).
 	Action string `json:"action"`
@@ -1082,7 +1082,7 @@ type PublicEventVoiceVersionChanged struct {
 	Status string `json:"status"`
 }
 
-// SubscribableEventType The closed set of domain events a webhook subscription can select. Phase 4 fills this out family by family; today it carries the pilot event plus the deal family (Task 5a-i), the offer family (Task 5a-ii), the pipeline/stage config family (Task 5a-iii), and the person/organization family (Task 5b-personorg), the lead family (Task 5b-lead), the activities family (Task 5c), the consent/privacy family (Task 5d), the signals family (Task 5e), the ai voice family (Task 5f), the identity family (Task 5g), and the overlay family (Task 5h).
+// SubscribableEventType The closed set of domain event types a webhook subscription may select — every subscribable event across the deal, offer, pipeline/stage, person/organization, lead, activities, consent/privacy, signals, ai voice, identity, and overlay families. A subscription's event-type filter is validated against this set; an unlisted type cannot be subscribed to.
 type SubscribableEventType string
 
 func (PublicEventActivityArchived) EventType() string { return "activity.archived" }

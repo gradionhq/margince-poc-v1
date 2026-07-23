@@ -3,19 +3,13 @@
 
 package capture
 
-// TDD Step 1 of the webhooks Task 5b-lead migration (lead family): drives
-// leadCreatedCapturePayload — the exact function captureLead calls to
-// build its lead.created emit for a fresh auto-created lead (sink.go) —
-// then round-trips the result through JSON exactly as storekit.EmitEvent
-// marshals it into the outbox envelope's payload column. This is the
-// second of lead.created's two emit sites (EMIT-INVENTORY.md);
+// The lead family, capture's emit site: drives leadCreatedCapturePayload —
+// the exact function captureLead calls to build its lead.created emit for a
+// fresh auto-created lead (sink.go) — then round-trips the result through
+// JSON exactly as storekit.EmitEvent marshals it into the outbox envelope's
+// payload column. This is the second of lead.created's two emit sites;
 // people/lead.go's direct-create site sets no fields at all and needs no
 // builder.
-//
-// Before this migration crmcontracts.PublicEventLeadCreated and
-// leadCreatedCapturePayload did not exist, so this test failed to
-// compile (RED) until public-events.yaml gained the schema, `make gen`
-// regenerated the struct, and sink.go grew the builder.
 
 import (
 	"encoding/json"

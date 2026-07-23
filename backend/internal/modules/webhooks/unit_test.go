@@ -273,7 +273,10 @@ func TestEntityVisibleToClassification(t *testing.T) {
 		{"audit ledger", "audit.appended", "audit", true},
 		{"pipeline config", "pipeline.created", "pipeline", true},
 		{"stage config", "stage.updated", "stage", true},
-		{"approval / coldstart echo", "coldstart.accepted", "approval", true},
+		// approval.*/coldstart.* (entity "approval") is intentionally absent
+		// here: it is target-visibility gated (approvalVisibleTo) and needs
+		// the pool, so it is proven in the integration lane, not this
+		// DB-free classification test.
 		// An unclassified subject is fail-closed — never delivered.
 		{"unclassified subject", "made.up", "widget", false},
 	} {
@@ -304,7 +307,7 @@ func TestRowScopedSubjectsRouteToProbes(t *testing.T) {
 	if _, deferred := deferredDeliveryEvents["retention.applied"]; deferred {
 		t.Error("retention.applied must NOT be event-deferred — its person/lead/deal/activity subjects are row-scope probed")
 	}
-	for _, entity := range []string{"person", "organization", "deal", "lead", "activity", "voice_profile", "signal", "offer"} {
+	for _, entity := range []string{"person", "organization", "deal", "lead", "activity", "voice_profile", "signal", "offer", "approval"} {
 		if _, ws := workspaceLevelEntities[entity]; ws {
 			t.Errorf("row-scoped subject %q must not be in workspaceLevelEntities (would fan out to everyone)", entity)
 		}

@@ -3,25 +3,17 @@
 
 package activities
 
-// TDD Step 1 of the webhooks Task 5c migration (activities family): drives
-// the payload-builder functions this package's emit sites call —
-// activityCapturedPayload (activity.go), activityUpdatedChangedFields
-// (lifecycle.go's UpdateActivity), and relinkedChangedFields (lifecycle.go's
-// RelinkActivity) — then round-trips each result through JSON exactly as
-// storekit.EmitEvent marshals it into the outbox envelope's payload column.
-// There is no non-integration harness in this repo that drives a Store
-// method against a real Postgres (every such test lives under
-// compose/integration, gated `//go:build integration`, needing db-up);
-// testing the production payload-construction functions directly — the one
-// place a schema/code mismatch would show up — is the honest substitute,
-// mirroring the deal family's TestDealStageChangedEmitsTypedPayload
-// (webhooks Task 5a-i).
-//
-// Before this migration none of crmcontracts.PublicEventActivityCaptured/
-// Archived/Updated existed, and none of the builder functions existed, so
-// this test failed to compile (RED) until public-events.yaml gained the
-// schemas, `make gen` regenerated the structs, and activity.go/lifecycle.go
-// grew the builders.
+// The activities family's payload builders: drives the functions this
+// package's emit sites call — activityCapturedPayload (activity.go),
+// activityUpdatedChangedFields (lifecycle.go's UpdateActivity), and
+// relinkedChangedFields (lifecycle.go's RelinkActivity) — then round-trips
+// each result through JSON exactly as storekit.EmitEvent marshals it into
+// the outbox envelope's payload column. There is no non-integration harness
+// in this repo that drives a Store method against a real Postgres (every
+// such test lives under compose/integration, gated `//go:build
+// integration`, needing db-up); testing the production
+// payload-construction functions directly — the one place a schema/code
+// mismatch would show up — is the honest substitute.
 
 import (
 	"encoding/json"

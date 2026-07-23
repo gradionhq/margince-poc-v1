@@ -72,16 +72,12 @@ var (
 	dealSnapshotToStage   = openapi_types.UUID(ids.MustParse("44444444-4444-4444-4444-444444444444"))
 )
 
-// TestDealStageChangedWireSnapshot pins the pilot payload's wire shape —
-// the one type Task 4 exercises end-to-end; every Phase-4 family task adds
-// its own event's snapshot test alongside its typed payload. Reconciled in
-// Task 5a-i (webhooks deal family) from the placeholder
-// deal_id/pipeline_id/from_stage_id/to_stage_id shape to the fields
-// deal_advance.go actually emits (EMIT-INVENTORY.md): deal_id/pipeline_id
-// dropped (the entity ref already carries the deal id; the deal's
-// pipeline never changes on a stage move, so it is not part of the delta),
-// from_status/to_status/amount_minor_at_change/currency_at_change/
-// win_probability added.
+// TestDealStageChangedWireSnapshot pins deal.stage_changed's wire shape to
+// the fields deal_advance.go actually emits: deal_id/pipeline_id are absent
+// (the entity ref already carries the deal id, and the deal's pipeline never
+// changes on a stage move, so it is not part of the delta), and the change
+// carries from_status/to_status/amount_minor_at_change/currency_at_change/
+// win_probability.
 func TestDealStageChangedWireSnapshot(t *testing.T) {
 	amount := int64(250000)
 	currency := "EUR"
@@ -98,16 +94,14 @@ func TestDealStageChangedWireSnapshot(t *testing.T) {
 }
 
 // offerSnapshotOfferID/offerSnapshotDealID are fixed, memorable UUIDs so the
-// offer family's golden snapshots (Task 5a-ii) are stable across test
-// runs — a real ids.NewV7() would churn the fixtures on every regeneration
-// for no reason.
+// offer family's golden snapshots are stable across test runs — a real
+// ids.NewV7() would churn the fixtures on every regeneration for no reason.
 var (
 	offerSnapshotOfferID = openapi_types.UUID(ids.MustParse("55555555-5555-5555-5555-555555555555"))
 	offerSnapshotDealID  = openapi_types.UUID(ids.MustParse("66666666-6666-6666-6666-666666666666"))
 )
 
-// TestOfferCreatedWireSnapshot pins the offer.created wire shape (webhooks
-// Task 5a-ii, offer family).
+// TestOfferCreatedWireSnapshot pins the offer.created wire shape.
 func TestOfferCreatedWireSnapshot(t *testing.T) {
 	sample := crmcontracts.PublicEventOfferCreated{
 		OfferId:    offerSnapshotOfferID,
@@ -175,13 +169,12 @@ func TestOfferSupersededWireSnapshot(t *testing.T) {
 }
 
 // pipelineSnapshotID/pipelineSnapshotStageID are fixed, memorable UUIDs so
-// the pipeline/stage config family's golden snapshots (Task 5a-iii) are
-// stable across test runs — a real ids.NewV7() would churn the fixtures
-// on every regeneration for no reason.
+// the pipeline/stage config family's golden snapshots are stable across
+// test runs — a real ids.NewV7() would churn the fixtures on every
+// regeneration for no reason.
 var pipelineSnapshotStageID = openapi_types.UUID(ids.MustParse("77777777-7777-7777-7777-777777777777"))
 
-// TestPipelineCreatedWireSnapshot pins the pipeline.created wire shape
-// (webhooks Task 5a-iii, pipeline/stage config family).
+// TestPipelineCreatedWireSnapshot pins the pipeline.created wire shape.
 func TestPipelineCreatedWireSnapshot(t *testing.T) {
 	sample := crmcontracts.PublicEventPipelineCreated{
 		Name:      "Sales",
@@ -239,8 +232,7 @@ var (
 	personSnapshotTarget = openapi_types.UUID(ids.MustParse("99999999-9999-9999-9999-999999999999"))
 )
 
-// TestPersonCreatedWireSnapshot pins the person.created wire shape
-// (webhooks Task 5b-personorg, person/organization family).
+// TestPersonCreatedWireSnapshot pins the person.created wire shape.
 func TestPersonCreatedWireSnapshot(t *testing.T) {
 	sample := crmcontracts.PublicEventPersonCreated{FullName: "Ada Lovelace"}
 	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
@@ -297,13 +289,12 @@ func TestOrganizationUpdatedWireSnapshot(t *testing.T) {
 }
 
 // leadSnapshotPersonID is a fixed, memorable UUID so the lead family's
-// golden snapshot (webhooks Task 5b-lead) is stable across test runs —
-// a real ids.NewV7() would churn the fixture on every regeneration for
-// no reason.
+// golden snapshot is stable across test runs — a real ids.NewV7() would
+// churn the fixture on every regeneration for no reason.
 var leadSnapshotPersonID = openapi_types.UUID(ids.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"))
 
-// TestLeadPromotedWireSnapshot pins the lead.promoted wire shape
-// (webhooks Task 5b-lead, lead family), sampled with an evidence_ref set.
+// TestLeadPromotedWireSnapshot pins the lead.promoted wire shape, sampled
+// with an evidence_ref set.
 func TestLeadPromotedWireSnapshot(t *testing.T) {
 	evidenceRef := openapi_types.UUID(ids.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"))
 	sample := crmcontracts.PublicEventLeadPromoted{
@@ -330,14 +321,12 @@ func TestLeadUpdatedWireSnapshot(t *testing.T) {
 }
 
 // activitySnapshotMatched is a fixed, memorable UUID so the activities
-// family's golden snapshots (webhooks Task 5c) are stable across test
-// runs — a real ids.NewV7() would churn the fixtures on every regeneration
-// for no reason.
+// family's golden snapshots are stable across test runs — a real
+// ids.NewV7() would churn the fixtures on every regeneration for no reason.
 var activitySnapshotMatched = openapi_types.UUID(ids.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc"))
 
-// TestActivityCapturedWireSnapshot pins the activity.captured wire shape
-// (webhooks Task 5c, activities family), sampled with the capture-site
-// subset (kind + source_system both set).
+// TestActivityCapturedWireSnapshot pins the activity.captured wire shape,
+// sampled with the capture-site subset (kind + source_system both set).
 func TestActivityCapturedWireSnapshot(t *testing.T) {
 	sourceSystem := "gmail"
 	sample := crmcontracts.PublicEventActivityCaptured{
@@ -375,13 +364,13 @@ func TestEngagementReplyWireSnapshot(t *testing.T) {
 }
 
 // consentSnapshotPurposeID is a fixed, memorable UUID so the
-// consent/privacy family's golden snapshot (webhooks Task 5d) is stable
-// across test runs — a real ids.NewV7() would churn the fixture on every
-// regeneration for no reason.
+// consent/privacy family's golden snapshot is stable across test runs — a
+// real ids.NewV7() would churn the fixture on every regeneration for no
+// reason.
 var consentSnapshotPurposeID = openapi_types.UUID(ids.MustParse("dddddddd-dddd-dddd-dddd-dddddddddddd"))
 
-// TestConsentChangedWireSnapshot pins the consent.changed wire shape
-// (webhooks Task 5d) — this event's entity is dynamic (person XOR lead),
+// TestConsentChangedWireSnapshot pins the consent.changed wire shape —
+// this event's entity is dynamic (person XOR lead),
 // so unlike every prior family the subject never appears in the payload
 // itself, only in the envelope's entity ref (storekit.EmitEventForEntity's
 // separate entityType argument).
@@ -410,16 +399,15 @@ func TestRetentionAppliedWireSnapshot(t *testing.T) {
 }
 
 // signalSnapshotID/signalSnapshotOrgID are fixed, memorable UUIDs so the
-// signals family's golden snapshots (webhooks Task 5e) are stable across
-// test runs — a real ids.NewV7() would churn the fixtures on every
-// regeneration for no reason.
+// signals family's golden snapshots are stable across test runs — a real
+// ids.NewV7() would churn the fixtures on every regeneration for no reason.
 var (
 	signalSnapshotID    = openapi_types.UUID(ids.MustParse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"))
 	signalSnapshotOrgID = openapi_types.UUID(ids.MustParse("ffffffff-ffff-ffff-ffff-ffffffffffff"))
 )
 
-// TestSignalDetectedWireSnapshot pins the signal.detected wire shape
-// (webhooks Task 5e) — sampled with a subject already known at creation
+// TestSignalDetectedWireSnapshot pins the signal.detected wire shape —
+// sampled with a subject already known at creation
 // time, so subject_entity_type/subject_entity_id's wire keys (entity_type/
 // entity_id) both appear. This event's entity is static (signal), unlike
 // consent.changed/retention.applied: entity_type/entity_id here are DATA
@@ -458,7 +446,7 @@ func TestSignalResolvedWireSnapshot(t *testing.T) {
 
 // voiceSnapshotProfileID/voiceSnapshotOwnerID/voiceSnapshotSourceID/
 // voiceSnapshotBuildID are fixed, memorable UUIDs so the ai voice family's
-// golden snapshots (webhooks Task 5f) are stable across test runs.
+// golden snapshots are stable across test runs.
 var (
 	voiceSnapshotProfileID = openapi_types.UUID(ids.MustParse("00000000-0000-0000-0000-0000000000a1"))
 	voiceSnapshotOwnerID   = openapi_types.UUID(ids.MustParse("00000000-0000-0000-0000-0000000000a2"))
@@ -568,17 +556,16 @@ func TestVoiceDraftOutcomeRecordedWireSnapshot(t *testing.T) {
 }
 
 // identitySnapshotUserID/identitySnapshotActorID/identitySnapshotPassportID
-// are fixed, memorable UUIDs so the identity family's golden snapshots
-// (webhooks Task 5g) are stable across test runs — a real ids.NewV7()
-// would churn the fixtures on every regeneration for no reason.
+// are fixed, memorable UUIDs so the identity family's golden snapshots are
+// stable across test runs — a real ids.NewV7() would churn the fixtures on
+// every regeneration for no reason.
 var (
 	identitySnapshotUserID     = openapi_types.UUID(ids.MustParse("00000000-0000-0000-0000-0000000000b1"))
 	identitySnapshotActorID    = openapi_types.UUID(ids.MustParse("00000000-0000-0000-0000-0000000000b2"))
 	identitySnapshotPassportID = openapi_types.UUID(ids.MustParse("00000000-0000-0000-0000-0000000000b3"))
 )
 
-// TestUserInvitedWireSnapshot pins user.invited's wire shape (webhooks
-// Task 5g, identity family).
+// TestUserInvitedWireSnapshot pins user.invited's wire shape.
 func TestUserInvitedWireSnapshot(t *testing.T) {
 	sample := crmcontracts.PublicEventUserInvited{
 		UserId: identitySnapshotUserID,
@@ -646,8 +633,8 @@ func TestOnboardingStateChangedWireSnapshot(t *testing.T) {
 	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
 }
 
-// TestMirrorConflictWireSnapshot pins mirror.conflict's wire shape
-// (webhooks Task 5h, overlay family) — this event's entity is dynamic
+// TestMirrorConflictWireSnapshot pins mirror.conflict's wire shape — this
+// event's entity is dynamic
 // (the runtime object class the reconcile sweep observed), so unlike the
 // static-entity families above, the subject class rides INSIDE the
 // payload (object_class) rather than only in the envelope's entity ref.
@@ -704,10 +691,9 @@ func TestIncumbentDisconnectedWireSnapshot(t *testing.T) {
 }
 
 // approvalSnapshotTargetID/approvalSnapshotDecidedBy are fixed, memorable
-// UUIDs so the approvals/coldstart family's golden snapshots (webhooks
-// Task 5-approvals, the second emit path — approvals.Service.emit) are
-// stable across test runs — a real ids.NewV7() would churn the fixtures
-// on every regeneration for no reason.
+// UUIDs so the approvals/coldstart family's golden snapshots (the
+// approvals.Service.emit path) are stable across test runs — a real
+// ids.NewV7() would churn the fixtures on every regeneration for no reason.
 var (
 	approvalSnapshotTargetID  = openapi_types.UUID(ids.MustParse("00000000-0000-0000-0000-0000000000c1"))
 	approvalSnapshotDecidedBy = openapi_types.UUID(ids.MustParse("00000000-0000-0000-0000-0000000000c2"))

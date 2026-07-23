@@ -3,23 +3,15 @@
 
 package deals
 
-// TDD Step 1 of the webhooks Task 5a-ii migration (offer family): drives
-// offerSentPayload — the exact function SendOffer calls to build its
-// offer.sent emit (offer_lifecycle.go) — against a real pre-send Offer
-// snapshot, then round-trips the result through JSON exactly as
-// storekit.Emit marshals it into the outbox envelope's payload column.
+// The offer family: drives offerSentPayload — the exact function SendOffer
+// calls to build its offer.sent emit (offer_lifecycle.go) — against a real
+// pre-send Offer snapshot, then round-trips the result through JSON exactly
+// as storekit.Emit marshals it into the outbox envelope's payload column.
 // There is no non-integration harness in this repo that drives a Store
 // method against a real Postgres (every such test lives under
 // compose/integration, gated `//go:build integration`, needing db-up);
 // testing the production payload-construction function directly — the one
-// place a schema/code mismatch would show up — is the honest substitute,
-// mirroring the deal family's TestDealStageChangedEmitsTypedPayload
-// (webhooks Task 5a-i).
-//
-// Before the offer family migration crmcontracts.PublicEventOfferSent
-// did not exist and offerSentPayload did not exist, so this test failed to
-// compile (RED) until public-events.yaml gained the schema, `make gen`
-// regenerated the struct, and offer_lifecycle.go grew the builder.
+// place a schema/code mismatch would show up — is the honest substitute.
 
 import (
 	"encoding/json"

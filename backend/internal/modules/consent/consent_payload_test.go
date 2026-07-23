@@ -3,17 +3,16 @@
 
 package consent
 
-// TDD Step 1 of the webhooks Task 5d migration (consent half): drives
-// consentChangedPayload — the exact function Record calls to build its
-// consent.changed emit (store.go) — then round-trips the result through
-// JSON exactly as storekit.EmitEventForEntity marshals it into the outbox
-// envelope's payload column. There is no non-integration harness in this
-// repo that drives a Store method against a real Postgres (every such test
-// lives under compose/integration, gated `//go:build integration`, needing
+// The consent half: drives consentChangedPayload — the exact function
+// Record calls to build its consent.changed emit (store.go) — then
+// round-trips the result through JSON exactly as
+// storekit.EmitEventForEntity marshals it into the outbox envelope's
+// payload column. There is no non-integration harness in this repo that
+// drives a Store method against a real Postgres (every such test lives
+// under compose/integration, gated `//go:build integration`, needing
 // db-up); testing the production payload-construction function directly —
 // the one place a schema/code mismatch would show up — is the honest
-// substitute, mirroring the deal family's
-// TestDealStageChangedEmitsTypedPayload (webhooks Task 5a-i).
+// substitute.
 //
 // consent.changed is the FIRST dynamic-entity type migrated (contract
 // x-entity-type: dynamic): its subject is a person XOR a lead, a runtime

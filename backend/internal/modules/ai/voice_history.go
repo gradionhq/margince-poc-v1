@@ -263,7 +263,7 @@ func (s *VoiceStore) RejectDraft(ctx context.Context, profileID ids.UUID, draftR
 			return err
 		}
 		return storekit.EmitEvent(ctx, tx, auditID, profileID,
-			voiceDraftOutcomeRecordedPayload(profileID, voiceOutcomeRejected, false, 0))
+			voiceDraftOutcomeRecordedPayload(profileID, voiceOutcomeRejected))
 	})
 	if err != nil {
 		return VoiceLearningSummary{}, err
@@ -272,12 +272,18 @@ func (s *VoiceStore) RejectDraft(ctx context.Context, profileID ids.UUID, draftR
 }
 
 // voiceDraftOutcomeRecordedPayload builds voice.draft_outcome_recorded's
-// typed payload.
-func voiceDraftOutcomeRecordedPayload(profileID ids.UUID, outcome string, qualifiesAsSource bool, transformationCount int) crmcontracts.PublicEventVoiceDraftOutcomeRecorded {
+// typed payload. Both outcomes that emit it today — a just-served draft
+// (RecordDraftedSignal) and a rejection (RejectDraft) — are terminal for
+// learning: neither qualifies as a corpus source nor carries any
+// transformations, so those two required fields are always false/0 here.
+// The accept-with-edits outcome that would set them (qualifies_as_source
+// true, a positive transformation_count) has no emit site yet; add the
+// parameters back when that caller arrives.
+func voiceDraftOutcomeRecordedPayload(profileID ids.UUID, outcome string) crmcontracts.PublicEventVoiceDraftOutcomeRecorded {
 	return crmcontracts.PublicEventVoiceDraftOutcomeRecorded{
 		ProfileId:           openapi_types.UUID(profileID),
 		Outcome:             outcome,
-		QualifiesAsSource:   qualifiesAsSource,
-		TransformationCount: transformationCount,
+		QualifiesAsSource:   false,
+		TransformationCount: 0,
 	}
 }

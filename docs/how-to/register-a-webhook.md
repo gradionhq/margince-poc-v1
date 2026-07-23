@@ -97,11 +97,12 @@ appears:
 you cannot recover it. The `owner_id` is the acting human, stamped server-side — the fan-out only ever
 delivers events that owner may see.
 
-> **Legacy secrets (pre-Standard-Webhooks migration).** A subscription created before this scheme
-> shipped minted its secret with URL-safe base64; Standard Webhooks requires *standard* base64, so
-> that secret can no longer sign. It is not silently broken-and-unnoticed — deliveries simply stop
-> verifying against it. Fix: create a fresh subscription, or rotate the secret (step 6) on the existing
-> one; either mints a new standard-base64 `whsec_…` secret that works.
+> **Legacy secrets (pre-Standard-Webhooks migration).** A subscription created by the pre-#181
+> engine minted its secret with URL-safe base64; Standard Webhooks requires *standard* base64, so
+> that secret can no longer be decoded to sign — every matching delivery fails signing, exhausts its
+> retry budget, and dead-letters until you act. Such a subscription **must be rotated or recreated
+> after this change**: rotate the secret (step 6) on the existing one, or create a fresh
+> subscription; either mints a new standard-base64 `whsec_…` secret that signs correctly.
 
 ## 3. Verify the signature on your receiver
 
