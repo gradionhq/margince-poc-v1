@@ -51,6 +51,8 @@ type aiModelRateProposal struct {
 // hash (sha256 over the payload, per the scrape.go shape), guards per-identity
 // against an already-pending duplicate (HasPendingFor keyed on the workspace
 // target + this exact diff), and stages it. A duplicate is a silent no-op.
+//
+//craft:ignore naked-any payload is any JSON-marshalable proposal struct (fx or model); the concrete type rides through json.Marshal
 func stageRateProposal(ctx context.Context, svc *approvals.Service, kind, targetType string, ws ids.UUID, payload any, summary string) error {
 	raw, err := json.Marshal(payload)
 	if err != nil {

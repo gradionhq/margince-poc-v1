@@ -225,7 +225,13 @@ func allMicro(em extractedModel) (microBuckets, bool) {
 
 // numberPassages prefixes each non-empty line with a passage id ([s0], [s1], …)
 // — the format the aicert corpus grounds against, so the model can cite an id.
+// It first neutralizes any literal <untrusted> markers in the fetched page so a
+// malicious pricing page cannot break out of the data envelope the caller wraps
+// it in (defense-in-depth; a bad extraction still only ever STAGES a proposal a
+// human must approve, and SetModelRate re-validates).
 func numberPassages(text string) string {
+	text = strings.ReplaceAll(text, "</untrusted>", "< /untrusted>")
+	text = strings.ReplaceAll(text, "<untrusted>", "< untrusted>")
 	var b strings.Builder
 	n := 0
 	for _, line := range strings.Split(text, "\n") {

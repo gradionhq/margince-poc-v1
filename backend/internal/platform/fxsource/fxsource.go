@@ -73,6 +73,7 @@ func (c *Client) LatestRates(ctx context.Context, base string, symbols []string)
 	if err != nil {
 		return nil, fmt.Errorf("fxsource: fetch: %w", err)
 	}
+	//craft:ignore swallowed-errors best-effort close of a response body already fully read; the decode result is the outcome
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("fxsource: unexpected status %d", resp.StatusCode)

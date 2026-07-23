@@ -39,6 +39,9 @@ func UsdPerMTokToMicroUSD(usd string) (int64, error) {
 	r.Mul(r, new(big.Rat).SetInt64(microUSDPerMTok))
 	num, den := r.Num(), r.Denom()
 	q := new(big.Int).Quo(num, den)
+	// The 6-fractional-digit cap above makes num/den exact after scaling by 1e6,
+	// so this round-half-up branch never fires today — it is a defensive guard
+	// that keeps the conversion correct if that cap is ever widened.
 	if new(big.Int).Mul(new(big.Int).Rem(num, den), big.NewInt(2)).CmpAbs(den) >= 0 {
 		q.Add(q, big.NewInt(1))
 	}

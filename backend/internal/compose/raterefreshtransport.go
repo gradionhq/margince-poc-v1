@@ -51,7 +51,9 @@ func (h rateRefreshHandlers) enqueueRefresh(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	ctx := r.Context()
-	if err := auth.Require(ctx, object, principal.ActionUpdate); err != nil {
+	// Gate on Create — the same authority word the staged effect's write
+	// (SetFxRate/SetModelRate) and its decision grant use; admin/ops hold it.
+	if err := auth.Require(ctx, object, principal.ActionCreate); err != nil {
 		httperr.Write(w, r, err)
 		return
 	}

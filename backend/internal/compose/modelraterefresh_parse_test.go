@@ -7,7 +7,31 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
+
+// TestRateExtractPromptMatchesCorpus turns the "certified = shipped" claim into
+// a fitness function: the production rateExtractSystem const must be byte-
+// identical to the aicert corpus scenario's system prompt, so the committed
+// Gemini cert record certifies the exact prompt the producer sends. (Parsed
+// directly rather than via aicert.LoadCorpus — aicert imports compose, so a
+// compose-package test importing aicert would be an import cycle.)
+func TestRateExtractPromptMatchesCorpus(t *testing.T) {
+	raw, err := os.ReadFile("aicert/corpus/rate_extract/pricing_grounded.yaml")
+	if err != nil {
+		t.Fatalf("read corpus: %v", err)
+	}
+	var doc struct {
+		System string `yaml:"system"`
+	}
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("parse corpus: %v", err)
+	}
+	if doc.System != rateExtractSystem {
+		t.Errorf("corpus system prompt differs from rateExtractSystem — the shipped prompt is uncertified.\n--- corpus ---\n%q\n--- const ---\n%q", doc.System, rateExtractSystem)
+	}
+}
 
 // A real sample captured from https://ai.google.dev/gemini-api/docs/pricing —
 // the model-cost crawl's live target. It proves numberPassages turns a real

@@ -32,6 +32,7 @@ func rateSvc(e *integration.Env) *approvals.Service {
 	return svc
 }
 
+//craft:ignore naked-any payload is any JSON-marshalable proposal struct; a test helper mirroring stageRateProposal
 func stageProposal(ctx context.Context, t *testing.T, svc *approvals.Service, kind, targetType string, ws ids.UUID, payload any, summary string) ids.ApprovalID {
 	t.Helper()
 	raw, err := json.Marshal(payload)
