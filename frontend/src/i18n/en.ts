@@ -1151,6 +1151,31 @@ export const en = {
     "It will retry on its own; everything captured so far is kept.",
   "backfill.cancel": "Stop the import",
   "backfill.cancelledNote": "Stopped. Everything captured so far is kept.",
+
+  // Connected inboxes (Settings → Integrations): the "manage in Settings"
+  // surface the onboarding copy promises.
+  "connectors.title": "Connected inboxes",
+  "connectors.sub":
+    "Mailboxes capturing into your CRM. Disconnect any one in a click — already-captured records stay.",
+  "connectors.loading": "Loading your connections…",
+  "connectors.loadFailed": "Couldn't load your connections.",
+  "connectors.empty": "No inbox is connected yet.",
+  "connectors.connectCta": "Connect an inbox",
+  "connectors.provGmail": "Gmail",
+  "connectors.provGcal": "Google Calendar",
+  "connectors.provGraph": "Microsoft",
+  "connectors.provImap": "IMAP mailbox",
+  "connectors.statusConnected": "Capturing",
+  "connectors.statusReauth": "Needs reconnect",
+  "connectors.statusError": "Sync error",
+  "connectors.statusDisconnected": "Disconnected",
+  "connectors.lastSynced": "Last synced {at}",
+  "connectors.neverSynced": "Waiting for the first sync",
+  "connectors.reconnect": "Reconnect",
+  "connectors.disconnect": "Disconnect",
+  "connectors.disconnectTitle": "Disconnect this inbox?",
+  "connectors.disconnectBody":
+    "Capture stops immediately. Everything already captured stays in your CRM, and you can reconnect any time.",
   "ob.s4.googleVerifying": "Verifying the connection…",
   "ob.s4.googleDenied": "You declined the Google consent",
   "ob.s4.googleFailed": "The Google connection didn't complete",
