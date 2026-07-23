@@ -947,6 +947,12 @@ function DealTable({
   );
 
   const sorted = useMemo(() => {
+    // When the table isn't sortable (the paginated overlay table), skip the
+    // copy+sort entirely — pagination grows this array every load-more, and
+    // the sorted result would only be discarded in favor of cursor order.
+    if (!sortable) {
+      return deals;
+    }
     const compareDeals = (a: Deal, b: Deal): number => {
       if (sortKey === "amount") {
         return (a.amount_minor ?? 0) - (b.amount_minor ?? 0);
@@ -964,7 +970,7 @@ function DealTable({
       return descending ? -compare : compare;
     });
     return rows;
-  }, [deals, sortKey, descending]);
+  }, [deals, sortKey, descending, sortable]);
 
   const sortBy = (key: typeof sortKey) => {
     if (key === sortKey) {
@@ -979,8 +985,8 @@ function DealTable({
   // overlay table holds just the pages loaded so far (and the mirror walks
   // an external_id cursor, not the sort key), so sorting a partial subset
   // would present a misleading order — the caller passes sortable={false}
-  // there, and the rows render in cursor order.
-  const rows = sortable ? sorted : deals;
+  // there, and `sorted` returns the rows in cursor order untouched.
+  const rows = sorted;
 
   return (
     <div>
