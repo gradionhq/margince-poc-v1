@@ -50,6 +50,11 @@ var decisionGrants = map[string][]struct {
 	// transport gate by an agent caller.
 	"coldstart": {{"organization", principal.ActionUpdate}},
 	"enrich":    {{"organization", principal.ActionUpdate}},
+	// A rate refresh proposes an effective-dated row on a workspace-shared
+	// price sheet; deciding it needs the same admin/ops Create grant the
+	// editor's write path requires.
+	"fx_rate_proposal":       {{"fx_rate", principal.ActionCreate}},
+	"ai_model_rate_proposal": {{"ai_model_rate", principal.ActionCreate}},
 	// Accepting a deep site read writes profile fields and category facts
 	// onto the target organization — the same update authority enrich needs.
 	"deepread": {{"organization", principal.ActionUpdate}},
@@ -139,6 +144,13 @@ func targetVisible(ctx context.Context, tx pgx.Tx, a row) (bool, error) {
 			return false, err
 		}
 		return exists, nil
+	case "fx_rate", "ai_model_rate":
+		// Effective-dated price sheets are workspace-shared admin config
+		// with no row scope. A refresh proposal targets the workspace (a
+		// brand-new currency/model has no row yet), so existence is not the
+		// floor here — the decision-grant check above (admin/ops Create) is
+		// the authority. Visible to any decider the grant admits.
+		return true, nil
 	case "signal":
 		// A signal has no owner_id — it is visible when its SUBJECT entity
 		// is (the same scope the signals store applies), so a staged
