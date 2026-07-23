@@ -20,10 +20,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
-
-	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
@@ -87,7 +86,7 @@ func recomputeLeadScoreTx(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, now
 			return err
 		}
 		return storekit.EmitEvent(ctx, tx, auditID, leadID.UUID, crmcontracts.WebhookPayloadLeadUpdated{
-			ChangedFields: map[string]any{"delta": map[string]any{"score_computed": machine}},
+			ChangedFields: map[string]any{eventKeyDelta: map[string]any{"score_computed": machine}},
 		})
 	}
 

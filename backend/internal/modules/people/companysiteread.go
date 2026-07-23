@@ -258,6 +258,8 @@ func recordSiteReadConfirmation(ctx context.Context, tx pgx.Tx, read SiteRead, c
 // the published schema. The two shapes are different published events,
 // not variants of one, so the return type is the shared events.Payload
 // seam.
+//
+//nolint:ireturn // dispatches to WebhookPayloadOrganizationCreated vs Updated by confirmation.created; tested directly via the interface in person_organization_payload_test.go
 func siteReadConfirmationPayload(read SiteRead, confirmation siteReadConfirmation) events.Payload {
 	delta := map[string]any{
 		auditKeyFields: confirmation.appliedSite,

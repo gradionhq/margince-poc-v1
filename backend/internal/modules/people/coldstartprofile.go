@@ -126,6 +126,8 @@ func applyColdStartTx(ctx context.Context, tx pgx.Tx, in ApplyColdStartProfileIn
 // one — the ONE place that maps the applied field delta onto the
 // published schema. The two shapes are different published events, not
 // variants of one, so the return type is the shared events.Payload seam.
+//
+//nolint:ireturn // dispatches to WebhookPayloadOrganizationCreated vs Updated by the created condition; tested directly via the interface in person_organization_payload_test.go
 func coldStartApplyPayload(created bool, in ApplyColdStartProfileInput, host, by string, applied map[string]any) events.Payload {
 	if created {
 		displayName := fieldValue(in.Fields, "legal_name")

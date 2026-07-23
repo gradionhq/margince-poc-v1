@@ -30,9 +30,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
 	openapi_types "github.com/oapi-codegen/runtime/types"
+	"github.com/stretchr/testify/require"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"

@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -361,6 +360,8 @@ func emitRelationshipChange(ctx context.Context, tx pgx.Tx, action string, rel r
 // organization.updated) are OPEN envelopes with an identical
 // changed_fields shape, so the only real work here is picking the right
 // generated struct for the anchor.
+//
+//nolint:ireturn // dispatches to one of WebhookPayloadDealUpdated/PersonUpdated/OrganizationUpdated by anchorObject; tested directly via the interface in person_organization_payload_test.go
 func relationshipUpdatedPayload(anchorObject string, changedFields map[string]any) events.Payload {
 	switch anchorObject {
 	case "deal":

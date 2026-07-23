@@ -9,13 +9,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
-
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -244,6 +243,8 @@ func finalizeLeadPromotion(ctx context.Context, tx pgx.Tx, id ids.LeadID, in Pro
 // PO-F-1). The two shapes are different published events, not variants
 // of one, so the return type is the shared events.Payload seam rather
 // than a single struct.
+//
+//nolint:ireturn // dispatches to WebhookPayloadPersonCreated vs Updated by the merged condition; tested directly via the interface in person_organization_payload_test.go
 func promotedPersonPayload(person crmcontracts.Person, merged bool, leadID ids.LeadID) events.Payload {
 	if merged {
 		return crmcontracts.WebhookPayloadPersonUpdated{ChangedFields: map[string]any{"converted_from_lead_id": leadID}}

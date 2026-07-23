@@ -205,7 +205,7 @@ func (s *Store) UpsertPartner(ctx context.Context, in UpsertPartnerInput) (partn
 		}
 		return storekit.EmitEvent(ctx, tx, auditID, in.OrganizationID.UUID, crmcontracts.WebhookPayloadOrganizationUpdated{
 			ChangedFields: map[string]any{
-				"delta": map[string]any{"partner": map[string]any{"role": in.PartnerRole, "cert_status": out.CertStatus}},
+				eventKeyDelta: map[string]any{"partner": map[string]any{"role": in.PartnerRole, "cert_status": out.CertStatus}},
 			},
 		})
 	})
