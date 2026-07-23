@@ -16,7 +16,9 @@ func TestLatestRatesInverts(t *testing.T) {
 		if got := r.URL.Query().Get("base"); got != "EUR" {
 			t.Errorf("base param = %q, want EUR", got)
 		}
-		_, _ = w.Write([]byte(`{"base":"EUR","rates":{"USD":1.08,"GBP":0.86,"JPY":160.5}}`))
+		// The real api.frankfurter.dev/v1/latest shape: amount + date ride
+		// alongside base + rates; the parser ignores the first two.
+		_, _ = w.Write([]byte(`{"amount":1.0,"base":"EUR","date":"2026-07-22","rates":{"USD":1.08,"GBP":0.86,"JPY":160.5}}`))
 	}))
 	defer srv.Close()
 
