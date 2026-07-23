@@ -33,7 +33,7 @@ package backendarch
 // kernel) — the same source the runtime routes on. Point 4 reads the
 // contract's x-entity-type textually (no YAML lib in the root fitness
 // package, the contractrefs_test.go precedent) and the classification sets
-// out of webhooks/deliverystore.go by AST walk (the tableownership_test.go
+// out of webhooks/deliveryvisibility.go by AST walk (the tableownership_test.go
 // precedent), so it tracks the code, never a copy of it.
 
 import (
@@ -51,8 +51,8 @@ import (
 )
 
 const (
-	publicEventsPath  = "api/public-events.yaml"
-	deliveryStorePath = "internal/modules/webhooks/deliverystore.go"
+	publicEventsPath       = "api/public-events.yaml"
+	deliveryVisibilityPath = "internal/modules/webhooks/deliveryvisibility.go"
 )
 
 // subscribableTypes is the fan-out catalog the whole surface is measured
@@ -216,7 +216,7 @@ func TestSubscribableEventTypeEnumMatchesPayloadCatalog(t *testing.T) {
 // in the schema, but every value it takes hits a probe branch in
 // entityVisibleTo, so delivery is authorized, not deferred. This is the
 // hand-ratified half of the dynamic-event partition (the deferred half lives
-// in deliverystore.go's deferredDeliveryEvents); each entry carries why it is
+// in deliveryvisibility.go's deferredDeliveryEvents); each entry carries why it is
 // probe-reachable. An entry that names a non-dynamic or non-subscribable
 // event is stale and fails below; a dynamic event in neither set is a silent
 // default and also fails.
@@ -287,7 +287,7 @@ func TestEverySubscribableEventIsDeliveryResolvable(t *testing.T) {
 	// be a real dynamic subscribable event (else the waiver is dead).
 	for ev := range c.deferredEvents {
 		if !subscribable[ev] {
-			t.Errorf("deferredDeliveryEvents has %q, which is not a subscribable event — stale waiver, remove it from deliverystore.go", ev)
+			t.Errorf("deferredDeliveryEvents has %q, which is not a subscribable event — stale waiver, remove it from deliveryvisibility.go", ev)
 			continue
 		}
 		if entityByEvent[ev] != "dynamic" {
@@ -354,9 +354,9 @@ type deliveryClassification struct {
 func parseDeliveryClassification(t *testing.T) deliveryClassification {
 	t.Helper()
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, deliveryStorePath, nil, 0)
+	file, err := parser.ParseFile(fset, deliveryVisibilityPath, nil, 0)
 	if err != nil {
-		t.Fatalf("parse %s: %v", deliveryStorePath, err)
+		t.Fatalf("parse %s: %v", deliveryVisibilityPath, err)
 	}
 	return deliveryClassification{
 		probeEntities:     switchCaseStrings(t, file, "entityVisibleTo"),
@@ -389,13 +389,13 @@ func mapLiteralKeys(t *testing.T, file *ast.File, name string) map[string]bool {
 				}
 				cl, ok := vs.Values[i].(*ast.CompositeLit)
 				if !ok {
-					t.Fatalf("%s: var %s is not a composite literal", deliveryStorePath, name)
+					t.Fatalf("%s: var %s is not a composite literal", deliveryVisibilityPath, name)
 				}
 				found = true
 				for _, elt := range cl.Elts {
 					kv, ok := elt.(*ast.KeyValueExpr)
 					if !ok {
-						t.Fatalf("%s: var %s has a non key/value element", deliveryStorePath, name)
+						t.Fatalf("%s: var %s has a non key/value element", deliveryVisibilityPath, name)
 					}
 					keys[stringLit(t, kv.Key)] = true
 				}
@@ -403,7 +403,7 @@ func mapLiteralKeys(t *testing.T, file *ast.File, name string) map[string]bool {
 		}
 	}
 	if !found {
-		t.Fatalf("%s: could not find var %s — the delivery classifier was renamed; update this gate", deliveryStorePath, name)
+		t.Fatalf("%s: could not find var %s — the delivery classifier was renamed; update this gate", deliveryVisibilityPath, name)
 	}
 	return keys
 }
@@ -435,10 +435,10 @@ func switchCaseStrings(t *testing.T, file *ast.File, funcName string) map[string
 		})
 	}
 	if !found {
-		t.Fatalf("%s: could not find func %s — the delivery classifier was renamed; update this gate", deliveryStorePath, funcName)
+		t.Fatalf("%s: could not find func %s — the delivery classifier was renamed; update this gate", deliveryVisibilityPath, funcName)
 	}
 	if len(out) == 0 {
-		t.Fatalf("%s: func %s has no case-clause string literals — the row-scope switch was restructured; update this gate", deliveryStorePath, funcName)
+		t.Fatalf("%s: func %s has no case-clause string literals — the row-scope switch was restructured; update this gate", deliveryVisibilityPath, funcName)
 	}
 	return out
 }
@@ -447,7 +447,7 @@ func stringLit(t *testing.T, expr ast.Expr) string {
 	t.Helper()
 	lit, ok := expr.(*ast.BasicLit)
 	if !ok || lit.Kind != token.STRING {
-		t.Fatalf("%s: expected a string-literal map key, got %T", deliveryStorePath, expr)
+		t.Fatalf("%s: expected a string-literal map key, got %T", deliveryVisibilityPath, expr)
 	}
 	return strings.Trim(lit.Value, `"`)
 }
