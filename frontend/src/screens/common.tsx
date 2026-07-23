@@ -156,6 +156,14 @@ export function canManageCustomFields(
   return (roles ?? []).some((role) => role === "admin" || role === "ops");
 }
 
+// fx_rate + ai_model_rate are admin/ops-owned config surfaces (the seeded
+// role matrix grants CRUD to admin/ops, nothing to other roles). The server
+// enforces it; this predicate keeps the rate-editor write controls honestly
+// disabled for a role whose call could only 403.
+export function canManageRates(roles: readonly string[] | undefined): boolean {
+  return (roles ?? []).some((role) => role === "admin" || role === "ops");
+}
+
 // The minimal read surface QueryGate/QueryStates need. A real react-query
 // `UseQueryResult<Data>` is structurally assignable to it, and a hook that
 // MERGES several queries (e.g. the decided-approvals fan-out) can return a

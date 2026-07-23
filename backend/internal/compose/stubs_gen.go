@@ -56,6 +56,18 @@ func (stubs) ListAgentTools(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ListAgentTools")
 }
 
+func (stubs) ListAiModelRates(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListAiModelRatesParams) {
+	httperr.NotImplemented(w, r, "ListAiModelRates")
+}
+
+func (stubs) SetAiModelRate(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "SetAiModelRate")
+}
+
+func (stubs) ProposeAiModelRateRefresh(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ProposeAiModelRateRefresh")
+}
+
 func (stubs) ListAiCalls(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListAiCallsParams) {
 	httperr.NotImplemented(w, r, "ListAiCalls")
 }
@@ -406,6 +418,18 @@ func (stubs) CreateFilteredExport(w nethttp.ResponseWriter, r *nethttp.Request) 
 
 func (stubs) GetFieldHistory(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetFieldHistoryParams) {
 	httperr.NotImplemented(w, r, "GetFieldHistory")
+}
+
+func (stubs) ListFxRates(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListFxRatesParams) {
+	httperr.NotImplemented(w, r, "ListFxRates")
+}
+
+func (stubs) SetFxRate(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "SetFxRate")
+}
+
+func (stubs) ProposeFxRateRefresh(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ProposeFxRateRefresh")
 }
 
 func (stubs) ListLeads(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListLeadsParams) {

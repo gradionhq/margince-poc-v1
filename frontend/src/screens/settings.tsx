@@ -7,6 +7,7 @@ import {
 import {
   Building2,
   ChevronDown,
+  Coins,
   Database,
   Factory,
   type LucideIcon,
@@ -64,6 +65,7 @@ import { EditAction } from "./edit";
 import { EmbedReindexCard } from "./embedreindex";
 import { EntityRef } from "./entityref";
 import { ConsentPurposesCard, PrivacyInboxCard } from "./privacy";
+import { RatesScreen } from "./rates";
 import { UsersAdminCard } from "./users-admin";
 import { VoiceDnaCard } from "./voice-dna";
 import { WebhooksCard } from "./webhooks";
@@ -96,6 +98,7 @@ const SETTINGS_TABS = [
   { id: "users", icon: UsersRound, group: "org" },
   { id: "data", icon: Database, group: "org" },
   { id: "catalog", icon: Package, group: "org" },
+  { id: "rates", icon: Coins, group: "org" },
   { id: "privacy", icon: ShieldCheck, group: "org" },
   { id: "audit", icon: ScrollText, group: "org" },
   { id: "integrations", icon: Webhook, group: "org" },
@@ -141,6 +144,8 @@ function tabContent(id: SettingsTabId): ReactNode {
           <PrivacyInboxCard />
         </>
       );
+    case "rates":
+      return <RatesScreen />;
     case "audit":
       return <AuditLogCard />;
     case "integrations":

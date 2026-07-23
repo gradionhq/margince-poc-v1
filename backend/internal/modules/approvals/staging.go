@@ -4,10 +4,12 @@
 package approvals
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -40,6 +42,14 @@ type StageInput struct {
 	// transaction lock. It is for at-least-once worker paths whose retries
 	// must return the existing approval instead of multiplying inbox rows.
 	JoinPending bool
+	// Identity is the proposal's logical identity — a JSON object contained
+	// in ProposedChange (e.g. {"from_currency":"GBP"}). Requires JoinPending:
+	// staging then serializes per identity instead of per diff hash, and any
+	// OTHER live pending proposal of the same kind+target carrying this
+	// identity is withdrawn (forced expiry, audited) — a fresher diff for one
+	// identity supersedes a stale one instead of competing with it in the
+	// inbox, where approving stale-after-fresh would restore an outdated value.
+	Identity json.RawMessage
 	// Announce is an optional kind-specific domain event (e.g.
 	// coldstart.read_back_proposed) emitted in the SAME transaction as
 	// approval.requested, linked to the same audit row.
@@ -58,6 +68,16 @@ type AnnouncedEvent struct {
 // emits approval.requested. It runs in the write shape every mutation
 // uses: approval row + audit row + event in one transaction.
 func (s *Service) Stage(ctx context.Context, in StageInput) (ids.ApprovalID, error) {
+	if len(in.Identity) > 0 {
+		if !in.JoinPending {
+			return ids.ApprovalID{}, errors.New("crmapprovals: Identity staging requires JoinPending")
+		}
+		canonical, err := canonicalIdentity(in.Identity, in.ProposedChange)
+		if err != nil {
+			return ids.ApprovalID{}, err
+		}
+		in.Identity = canonical
+	}
 	var id ids.ApprovalID
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var err error
@@ -71,6 +91,73 @@ func (s *Service) Stage(ctx context.Context, in StageInput) (ids.ApprovalID, err
 	return id, err
 }
 
+// canonicalIdentity validates and canonicalizes a staging identity. It must
+// be a non-empty JSON object whose values are all STRINGS — the logical key
+// of a sheet row is always a string (currency code, provider/model id), and
+// restricting to strings sidesteps JSON number ambiguity entirely: 1, 1.0,
+// 1e0 and a 40-digit integer would each hash to a different advisory lock
+// while PostgreSQL jsonb containment compares them as one numeric value, so a
+// numeric identity could bypass the per-identity lock yet still supersede by
+// value. Strings have no such gap — exact bytes both places. Every field must
+// also equal (present, same string) the corresponding field of
+// ProposedChange, since an identity the payload does not carry could never
+// containment-match and would silently disable supersession. Re-marshaling
+// canonicalizes key order and spacing so the lock and the containment agree
+// on what "same identity" means across callers.
+func canonicalIdentity(identity, proposedChange json.RawMessage) (json.RawMessage, error) {
+	idFields, err := decodeJSONObject(identity)
+	if err != nil || len(idFields) == 0 {
+		return nil, errors.New("crmapprovals: Identity must be a non-empty JSON object")
+	}
+	payload, err := decodeJSONObject(proposedChange)
+	if err != nil {
+		return nil, errors.New("crmapprovals: Identity staging requires a JSON-object ProposedChange")
+	}
+	canonical := make(map[string]string, len(idFields))
+	for field, want := range idFields {
+		wantStr, ok := want.(string)
+		if !ok {
+			return nil, fmt.Errorf("crmapprovals: Identity field %q must be a string", field)
+		}
+		// Membership is checked separately from value: a missing key and an
+		// explicit null both read back as a nil any, but jsonb containment
+		// treats {"k":null} as present-and-null — an identity asserting a field
+		// the payload omits would pass and then never containment-match.
+		got, ok := payload[field]
+		if !ok || got != want {
+			return nil, fmt.Errorf("crmapprovals: Identity field %q is not carried by ProposedChange", field)
+		}
+		canonical[field] = wantStr
+	}
+	raw, err := json.Marshal(canonical)
+	if err != nil {
+		return nil, fmt.Errorf("crmapprovals: canonicalize Identity: %w", err)
+	}
+	return raw, nil
+}
+
+// decodeJSONObject unmarshals exactly one JSON object with lossless numbers
+// (UseNumber keeps a numeric value as its exact decimal text, not a float64).
+// A non-object (array, scalar, null) is an error, and so is any trailing data
+// after the object — Identity/ProposedChange is ONE object, not a stream, and
+// silently reading only the first of several values would validate against a
+// payload the rest of the input contradicts.
+func decodeJSONObject(raw json.RawMessage) (map[string]any, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var m map[string]any
+	if err := dec.Decode(&m); err != nil {
+		return nil, err
+	}
+	if m == nil {
+		return nil, errors.New("not a JSON object")
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, errors.New("unexpected trailing data after JSON object")
+	}
+	return m, nil
+}
+
 // stageOrJoinPendingInTx serializes one proposal identity and returns its live
 // pending approval when another worker already staged it. The transaction
 // lock covers the empty-set case that a row lock cannot protect, so replicas
@@ -81,22 +168,77 @@ func (s *Service) stageOrJoinPendingInTx(ctx context.Context, tx pgx.Tx, in Stag
 	if !ok {
 		return ids.ApprovalID{}, errors.New("crmapprovals: no workspace bound to context")
 	}
+	// The lock serializes one proposal identity: the diff hash by default, the
+	// logical Identity when set — two workers proposing DIFFERENT diffs for one
+	// identity must not interleave between the join-check and the supersede.
+	discriminator := in.DiffHash
+	if len(in.Identity) > 0 {
+		discriminator = string(in.Identity)
+	}
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended(
 			'approval_pending:' || $1::text || ':' || $2 || ':' || $3::text || ':' || $4, 0))`,
-		wsID, in.Kind, in.TargetID, in.DiffHash); err != nil {
+		wsID, in.Kind, in.TargetID, discriminator); err != nil {
 		return ids.ApprovalID{}, fmt.Errorf("lock pending approval identity: %w", err)
 	}
 	err := tx.QueryRow(ctx, `SELECT id FROM approval
 			WHERE workspace_id = $1 AND kind = $2 AND target_entity_id = $3 AND diff_hash = $4
 			  AND status = 'pending' AND expires_at > now()
 			ORDER BY created_at DESC LIMIT 1`, wsID, in.Kind, in.TargetID, in.DiffHash).Scan(&id)
-	if err == nil {
-		return id, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+	switch {
+	case err == nil:
+	case errors.Is(err, pgx.ErrNoRows):
+		if id, err = s.StageInTx(ctx, tx, in); err != nil {
+			return ids.ApprovalID{}, err
+		}
+	default:
 		return ids.ApprovalID{}, fmt.Errorf("find pending approval identity: %w", err)
 	}
-	return s.StageInTx(ctx, tx, in)
+	if len(in.Identity) > 0 {
+		if err := s.supersedePendingInTx(ctx, tx, wsID, in, id); err != nil {
+			return ids.ApprovalID{}, err
+		}
+	}
+	return id, nil
+}
+
+// supersedePendingInTx withdraws every OTHER live pending proposal of the same
+// kind+target carrying the same logical identity. Withdrawal is forced expiry,
+// audited but deliberately event-free: the closed event catalog (contract-first,
+// P3) defines no approval-withdrawn type, and expiry is already invisible on the
+// bus — a subscriber cannot observe TTL expiry either, so folding supersession
+// into expiry changes nothing a consumer could rely on, while the pull-based
+// inbox reads the row as expired on every surface (effectiveStatus, decide,
+// redeem). The status CHECK and the public ApprovalStatus enum stay closed; the
+// audit row carries the why and the survivor.
+func (s *Service) supersedePendingInTx(ctx context.Context, tx pgx.Tx, wsID ids.UUID, in StageInput, survivor ids.ApprovalID) error {
+	p, ok := principal.Actor(ctx)
+	if !ok {
+		return errors.New("crmapprovals: no actor bound to context")
+	}
+	// Backdating a full day (not a second) keeps the row expired under the
+	// APP clock too: effectiveStatus judges expiry with the service clock,
+	// which may trail the database by ordinary NTP skew — never by a day.
+	rows, err := tx.Query(ctx, `
+		UPDATE approval SET expires_at = now() - interval '1 day'
+		WHERE workspace_id = $1 AND kind = $2 AND target_entity_id = $3
+		  AND status = 'pending' AND expires_at > now()
+		  AND id <> $4 AND proposed_change @> $5
+		RETURNING id`, wsID, in.Kind, in.TargetID, survivor, in.Identity)
+	if err != nil {
+		return fmt.Errorf("supersede pending approvals: %w", err)
+	}
+	superseded, err := pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
+	if err != nil {
+		return fmt.Errorf("collect superseded approvals: %w", err)
+	}
+	for _, old := range superseded {
+		if _, err := s.audit(ctx, tx, p, "update", old, map[string]any{
+			approvalKeyKind: in.Kind, "superseded": true, "superseded_by": survivor.UUID,
+		}); err != nil {
+			return fmt.Errorf("audit superseded approval: %w", err)
+		}
+	}
+	return nil
 }
 
 // StageInTx records a proposal through a caller-owned transaction. Compose

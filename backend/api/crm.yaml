@@ -7439,6 +7439,155 @@ paths:
   #   /users, /teams, /roles                             (admin identity mgmt — schema below; CRUD fast-follow)
   # =========================================================================
 
+  # =========================================================================
+  #   /fx-rates, /ai-model-rates   (admin/ops-only effective-dated price
+  #   sheets — strict append-forward: today-or-later, no delete)
+  # =========================================================================
+  /fx-rates:
+    get:
+      tags: [Rates]
+      operationId: listFxRates
+      security: [ { cookieAuth: [] } ]   # human session only — the sheet is an admin view, not an agent surface
+      summary: List current FX rates (latest per currency), or one pair's history.
+      description: |
+        Admin/ops-only view. Without `from`, returns the latest effective rate per
+        foreign currency (to = the workspace base currency). With `from=USD`, returns
+        that pair's full effective-dated history, newest first.
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema: { type: string, pattern: '^[A-Za-z]{3}$' }
+          description: 3-letter ISO currency; when set, returns that pair's history.
+      responses:
+        '200':
+          description: FX rates.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FxRateListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Rates]
+      operationId: setFxRate
+      summary: Set an FX rate effective today or later (append-forward).
+      description: |
+        Admin/ops-only. Appends one effective-dated rate; same UTC day corrects in
+        place, a past date is refused (422). `to` is resolved to the workspace base
+        currency server-side; `from == base` is refused. Human session only
+        (x-agent-access: human-only) — an agent never sets a rate directly.
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetFxRateRequest' }
+      responses:
+        '201':
+          description: The set FX rate.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FxRate' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /ai-model-rates:
+    get:
+      tags: [Rates]
+      operationId: listAiModelRates
+      security: [ { cookieAuth: [] } ]   # human session only — internal cost data is an admin view, not an agent surface
+      summary: List current AI model prices (latest per model), or one model's history.
+      description: |
+        Admin/ops-only view. Prices are USD per 1M tokens (strings). Without
+        `provider`/`model_id`, returns the latest effective price per model; with both,
+        returns that model's effective-dated history, newest first.
+      parameters:
+        - name: provider
+          in: query
+          required: false
+          schema: { type: string }
+        - name: model_id
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: AI model prices.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiModelRateListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Rates]
+      operationId: setAiModelRate
+      summary: Set an AI model price effective today or later (append-forward).
+      description: |
+        Admin/ops-only. Prices are USD per 1M tokens (decimal strings) — the server
+        stores µUSD integers. Appends one effective-dated price; same UTC day corrects
+        in place, a past date is refused (422). Human session only
+        (x-agent-access: human-only). Transparency-only: model prices never gate routing.
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetAiModelRateRequest' }
+      responses:
+        '201':
+          description: The set AI model price.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiModelRate' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /fx-rates/propose-refresh:
+    post:
+      tags: [Rates]
+      operationId: proposeFxRateRefresh
+      summary: Enqueue an async FX-rate refresh (stages 🟡 proposals).
+      description: |
+        Admin/ops-only. Enqueues a background job that fetches fresh rates for the
+        currencies this workspace already tracks and stages a confirm-first proposal
+        per changed rate into the approvals inbox. Returns immediately; review the
+        proposals in the inbox. Human session only (x-agent-access: human-only).
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      responses:
+        '202':
+          description: Refresh enqueued.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RefreshAccepted' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /ai-model-rates/propose-refresh:
+    post:
+      tags: [Rates]
+      operationId: proposeAiModelRateRefresh
+      summary: Enqueue an async model-cost refresh (stages 🟡 proposals).
+      description: |
+        Admin/ops-only. Enqueues a background job that crawls the configured provider
+        pricing pages, AI-extracts per-model prices (evidence-gated), and stages a
+        confirm-first proposal per changed model into the approvals inbox. Returns
+        immediately. Human session only (x-agent-access: human-only).
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      responses:
+        '202':
+          description: Refresh enqueued.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RefreshAccepted' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
 # =============================================================================
 components:
 
@@ -7661,6 +7810,69 @@ components:
 
   # ------------------------------- schemas ----------------------------------
   schemas:
+
+    # ---- rates & costs (admin/ops-only effective-dated price sheets) ----
+    RefreshAccepted:
+      type: object
+      description: An async refresh was enqueued; proposals will appear in the approvals inbox.
+      required: [status]
+      properties:
+        status: { type: string, enum: [enqueued] }
+    FxRate:
+      type: object
+      description: One effective-dated FX rate converting from_currency into the workspace base (to_currency). rate is a decimal string (numeric(20,10)), never a float.
+      required: [from_currency, to_currency, rate, effective_date]
+      properties:
+        from_currency: { type: string, pattern: '^[A-Z]{3}$' }
+        to_currency: { type: string, pattern: '^[A-Z]{3}$', description: The workspace base currency. }
+        rate: { type: string, pattern: '^[0-9]{1,10}(\.[0-9]{1,10})?$', description: Decimal rate (from -> base), always positive. Plain decimal, up to 10 integer and 10 fractional digits (numeric(20,10)). }
+        effective_date: { type: string, format: date }
+    FxRateListResponse:
+      type: object
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/FxRate' } }
+    SetFxRateRequest:
+      type: object
+      required: [from_currency, rate]
+      properties:
+        from_currency: { type: string, pattern: '^[A-Za-z]{3}$', description: 3-letter ISO; must not equal the base currency. }
+        rate: { type: string, pattern: '^[0-9]{1,10}(\.[0-9]{1,10})?$', description: Positive decimal (from -> base). Plain decimal, up to 10 integer and 10 fractional digits. }
+        effective_date:
+          type: string
+          format: date
+          description: Defaults to today; must not be in the past (append-forward).
+    AiModelRate:
+      type: object
+      description: One effective-dated model price. The four buckets are USD per 1M tokens as decimal strings (the server stores µUSD integers). Transparency-only — never gates routing.
+      required: [provider, model_id, input_per_mtok, output_per_mtok, cache_read_per_mtok, cache_write_per_mtok, effective_date]
+      properties:
+        provider: { type: string }
+        model_id: { type: string }
+        input_per_mtok: { type: string, pattern: '^[0-9]{1,12}(\.[0-9]{1,6})?$' }
+        output_per_mtok: { type: string, pattern: '^[0-9]{1,12}(\.[0-9]{1,6})?$' }
+        cache_read_per_mtok: { type: string, pattern: '^[0-9]{1,12}(\.[0-9]{1,6})?$' }
+        cache_write_per_mtok: { type: string, pattern: '^[0-9]{1,12}(\.[0-9]{1,6})?$' }
+        effective_date: { type: string, format: date }
+    AiModelRateListResponse:
+      type: object
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/AiModelRate' } }
+    SetAiModelRateRequest:
+      type: object
+      required: [provider, model_id, input_per_mtok, output_per_mtok, cache_read_per_mtok, cache_write_per_mtok]
+      properties:
+        provider: { type: string }
+        model_id: { type: string }
+        input_per_mtok: { type: string, pattern: '^[0-9]{1,12}(\.[0-9]{1,6})?$', description: USD per 1M input tokens. Plain non-negative decimal, up to 12 integer and 6 fractional digits (keeps the stored µUSD within int64). }
+        output_per_mtok: { type: string, pattern: '^[0-9]{1,12}(\.[0-9]{1,6})?$', description: USD per 1M output tokens. }
+        cache_read_per_mtok: { type: string, pattern: '^[0-9]{1,12}(\.[0-9]{1,6})?$', description: USD per 1M cache-read tokens. }
+        cache_write_per_mtok: { type: string, pattern: '^[0-9]{1,12}(\.[0-9]{1,6})?$', description: USD per 1M cache-write tokens. }
+        effective_date:
+          type: string
+          format: date
+          description: Defaults to today; must not be in the past (append-forward).
 
     # ---- outbound webhooks (E10/S-E10.6, A51; BYO-DDL-3/4) ----
     WebhookSubscription:

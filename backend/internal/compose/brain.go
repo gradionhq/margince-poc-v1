@@ -43,6 +43,7 @@ type ModelPath struct {
 	ColdStart       completer    // the website read-back extraction
 	SiteExtract     completer    // the deep read's profile lane (one premium-first call)
 	SiteFactExtract completer    // the deep read's page-parallel fact lane (fast tier)
+	RateExtract     completer    // the model-cost refresh pricing-page extraction lane
 	BriefRank       completer    // the Morning-Brief L2 re-order (B-E05.2)
 	DraftReply      completer    // activity-anchored email reply drafting
 	OfferDraft      completer    // the offer regenerate-from-signal drafting call
@@ -158,6 +159,7 @@ func modelPathForRouter(router *ai.Router, companyContext *companyContextProvide
 		ColdStart:       brain(ai.TaskColdStart),
 		SiteExtract:     brain(ai.TaskSiteExtract),
 		SiteFactExtract: brain(ai.TaskSiteFactExtract),
+		RateExtract:     brain(ai.TaskRateExtract),
 		BriefRank:       brain(ai.TaskBriefRanking),
 		DraftReply:      brain(ai.TaskDraftReply),
 		OfferDraft:      brain(ai.TaskOfferDraft),
