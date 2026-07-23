@@ -210,4 +210,63 @@ func TestBackfillLifecycle(t *testing.T) {
 			t.Fatalf("list backfill status = %s, want the newest run (cancelled)", views[0].Backfill.Status)
 		}
 	})
+
+}
+
+// A backfill step that faults before committing a page must fail the run
+// terminally, never strand it queued or crash the pager. Two faults exercise
+// the two pre-commit failure edges: an unreadable committed cursor (parse
+// error) and a readable cursor the provider then rejects (page error).
+func TestBackfillStepFaultsAreTerminal(t *testing.T) {
+	e := setupSearch(t)
+	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
+	registry.Register(&pagedConnector{messages: 25, pageSize: 10})
+	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	rep := ids.From[ids.UserKind](e.Rep1)
+	wsCtx := principal.WithWorkspaceID(context.Background(), e.WS)
+
+	// startWithCursor opens a fresh run and overwrites its committed cursor.
+	// The prior run is terminal (error) by the time the next opens, so the
+	// one-live-run guard permits it and the same 6-month window never narrows.
+	startWithCursor := func(t *testing.T, cursorJSON string) ids.UUID {
+		t.Helper()
+		run, err := registry.StartBackfill(grantCtx, "gmail", rep, 6, 25)
+		if err != nil {
+			t.Fatalf("StartBackfill: %v", err)
+		}
+		if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+			_, execErr := tx.Exec(e.Admin(),
+				`UPDATE capture_backfill SET cursor = $2::jsonb WHERE id = $1`, run.ID, cursorJSON)
+			return execErr
+		}); err != nil {
+			t.Fatalf("seed cursor: %v", err)
+		}
+		return run.ID
+	}
+	// A faulting step never reports completion and always records the run as
+	// error. (done varies by fault: a cursor-parse fault is terminal-stop
+	// done=true; a page fault returns done=false so the worker halts on the
+	// error — both leave the row error, never queued.)
+	assertTerminalError := func(t *testing.T, id ids.UUID) {
+		t.Helper()
+		_, completed, err := registry.RunBackfillStep(wsCtx, id)
+		if completed || err == nil {
+			t.Fatalf("faulting step = completed=%v err=%v, want a not-completed failure", completed, err)
+		}
+		if status, _, _, _ := readBackfillRow(t, e, id); status != "error" {
+			t.Fatalf("row status = %s, want error — the fault was recorded, not looped", status)
+		}
+	}
+
+	t.Run("an unreadable committed cursor (wrong JSON shape) fails the run", func(t *testing.T) {
+		// Valid JSON, but an array — not the {"page_token":...} object.
+		assertTerminalError(t, startWithCursor(t, `[1,2,3]`))
+	})
+	t.Run("a page the provider rejects fails the run", func(t *testing.T) {
+		// Readable cursor; the provider then rejects the malformed token.
+		assertTerminalError(t, startWithCursor(t, `{"page_token":"not-an-offset"}`))
+	})
 }
