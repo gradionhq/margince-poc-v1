@@ -97,6 +97,36 @@ func TestEmbeddingReindexGrants(t *testing.T) {
 	}
 }
 
+func TestRateObjectsAreAdminOnly(t *testing.T) {
+	for _, obj := range []string{"fx_rate", "ai_model_rate"} {
+		for _, key := range []string{"admin", "ops"} {
+			doc, err := Parse(MustDefaultJSON(key))
+			if err != nil {
+				t.Fatalf("role %q: %v", key, err)
+			}
+			merged := Merge(map[string]Document{key: doc})
+			for _, act := range []principal.Action{
+				principal.ActionCreate, principal.ActionRead,
+				principal.ActionUpdate, principal.ActionDelete,
+			} {
+				if !merged.Allows(obj, act) {
+					t.Errorf("role %q should have %s on %q", key, act, obj)
+				}
+			}
+		}
+		for _, key := range []string{"manager", "rep", "read_only"} {
+			doc, err := Parse(MustDefaultJSON(key))
+			if err != nil {
+				t.Fatalf("role %q: %v", key, err)
+			}
+			merged := Merge(map[string]Document{key: doc})
+			if merged.Allows(obj, principal.ActionRead) {
+				t.Errorf("role %q must not read %q (admin/ops-only surface)", key, obj)
+			}
+		}
+	}
+}
+
 func TestZeroRolesDenyEverything(t *testing.T) {
 	merged := Merge(nil)
 	for _, object := range coreObjects {
