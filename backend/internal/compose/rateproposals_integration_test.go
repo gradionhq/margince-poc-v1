@@ -16,12 +16,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -116,5 +118,76 @@ func TestFxRateProposalEditBeforeApprove(t *testing.T) {
 	}
 	if n := e.WsCount(t, `SELECT count(*) FROM fx_rate WHERE from_currency='CHF' AND rate=1.5`); n != 1 {
 		t.Fatalf("CHF@1.5 rows = %d, want 1 (edit-before-approve applied)", n)
+	}
+}
+
+// The staged diff was computed against a prior rate; if the sheet moved
+// since (manual write, competing approval), applying would restore a stale
+// value — the effect must refuse with version skew, leave the approval
+// approved-unconsumed, and write nothing.
+func TestFxRateProposalApplyRefusesWhenPriorMoved(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
+	svc := rateSvc(e)
+	store := deals.NewStore(e.Pool)
+
+	if _, err := store.SetFxRate(ctx, deals.SetFxRateInput{FromCurrency: "GBP", Rate: "1.0"}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	id := stageProposal(ctx, t, svc, fxRateProposalKind, fxRateTargetType, e.WS,
+		map[string]string{"from_currency": "GBP", "rate": "1.2", "expected_prior_rate": "1.0"}, "GBP")
+	// The sheet moves after the diff was staged.
+	if _, err := store.SetFxRate(ctx, deals.SetFxRateInput{FromCurrency: "GBP", Rate: "1.1"}); err != nil {
+		t.Fatalf("move: %v", err)
+	}
+
+	_, err := svc.Decide(ctx, id, true, nil)
+	if !errors.Is(err, apperrors.ErrVersionSkew) {
+		t.Fatalf("approve err = %v, want ErrVersionSkew", err)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM fx_rate WHERE from_currency='GBP' AND rate=1.2`); n != 0 {
+		t.Fatal("stale proposal applied despite moved prior")
+	}
+	if n := e.WsCount(t,
+		`SELECT count(*) FROM approval WHERE id=$1 AND status='approved' AND consumed_at IS NULL`, id); n != 1 {
+		t.Fatal("approval must stay approved-unconsumed after a refused apply")
+	}
+}
+
+// A proposal diffed when NO rate was in force (expected_prior_rate empty —
+// also the shape of any pre-existing pending payload without the field)
+// must refuse once a rate exists: the world it diffed against is gone.
+func TestFxRateProposalApplyRefusesWhenPriorAppeared(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
+	svc := rateSvc(e)
+
+	id := stageProposal(ctx, t, svc, fxRateProposalKind, fxRateTargetType, e.WS,
+		map[string]string{"from_currency": "NOK", "rate": "0.09"}, "NOK")
+	if _, err := deals.NewStore(e.Pool).SetFxRate(ctx, deals.SetFxRateInput{FromCurrency: "NOK", Rate: "0.088"}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := svc.Decide(ctx, id, true, nil); !errors.Is(err, apperrors.ErrVersionSkew) {
+		t.Fatalf("approve err = %v, want ErrVersionSkew", err)
+	}
+}
+
+// The precondition is scale-blind: "1.0" diffed against a stored
+// numeric(20,10) ("1.0000000000") still matches, and the apply proceeds.
+func TestFxRateProposalApplyMatchingPriorApplies(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
+	svc := rateSvc(e)
+
+	if _, err := deals.NewStore(e.Pool).SetFxRate(ctx, deals.SetFxRateInput{FromCurrency: "DKK", Rate: "0.134"}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	id := stageProposal(ctx, t, svc, fxRateProposalKind, fxRateTargetType, e.WS,
+		map[string]string{"from_currency": "DKK", "rate": "0.135", "expected_prior_rate": "0.134"}, "DKK")
+	if _, err := svc.Decide(ctx, id, true, nil); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM fx_rate WHERE from_currency='DKK' AND rate=0.135`); n != 1 {
+		t.Fatal("matching-prior proposal must apply")
 	}
 }

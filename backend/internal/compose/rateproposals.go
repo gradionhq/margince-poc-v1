@@ -16,6 +16,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -127,11 +128,42 @@ func fxRateAcceptEffect(svc *approvals.Service, store *deals.Store) approvals.Ap
 		// the store's write transaction (a cross-midnight approval must not
 		// miss the past-date guard).
 		return svc.RedeemAndApply(ctx, approvalID, fxRateProposalKind, diffHash, func(tx pgx.Tx) error {
-			_, err := store.SetFxRateInTx(execCtx, tx, deals.SetFxRateInput{
+			// The diff was computed against the rate then in force; if the sheet
+			// moved since (manual write, competing approval), applying would
+			// silently restore a stale value — refuse and roll back instead. The
+			// decision itself stays on record; the remedy is a fresh refresh.
+			prior, found, err := store.EffectiveFxRateInTx(execCtx, tx, p.FromCurrency)
+			if err != nil {
+				return err
+			}
+			if err := fxPriorMatches(p, prior, found); err != nil {
+				return err
+			}
+			_, err = store.SetFxRateInTx(execCtx, tx, deals.SetFxRateInput{
 				FromCurrency: p.FromCurrency, Rate: p.Rate,
 			})
 			return err
 		})
+	}
+}
+
+// fxPriorMatches enforces the proposal's precondition: the rate in force now
+// must be exactly the one the diff was computed against (numerically — the
+// sheet stores scale-10 text). An empty ExpectedPriorRate asserts "none was
+// in force", which is also how a payload staged before the precondition
+// existed reads — such a proposal fails closed onto a re-diff.
+func fxPriorMatches(p fxRateProposal, prior string, found bool) error {
+	switch {
+	case !found && p.ExpectedPriorRate == "":
+		return nil
+	case found && p.ExpectedPriorRate != "" && sameRate(prior, p.ExpectedPriorRate):
+		return nil
+	case !found:
+		return fmt.Errorf("compose: the %s rate the proposal was diffed against is no longer in force — re-run the refresh: %w",
+			p.FromCurrency, apperrors.ErrVersionSkew)
+	default:
+		return fmt.Errorf("compose: the %s rate changed since the proposal was diffed (now %s) — re-run the refresh: %w",
+			p.FromCurrency, prior, apperrors.ErrVersionSkew)
 	}
 }
 
