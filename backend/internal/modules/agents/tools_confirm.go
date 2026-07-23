@@ -3,7 +3,7 @@
 
 package agents
 
-// The 🟡 confirm-first tool family: every tool here is TierYellow, so a
+// The 🟡 confirm-first tool family: every tool here is TierConfirmationRequired, so a
 // call is staged for a human decision before its Handle ever runs
 // (ADR-0036). Each implements StageInfo to pin the staged call to the
 // target's CURRENT version — an approval is a judgment about the record
@@ -34,7 +34,7 @@ type archiveRecord struct {
 func (t archiveRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "archive_record", Version: "1.0.0",
-		RequiredScope: principal.ScopeWrite, Tier: mcp.TierYellow,
+		RequiredScope: principal.ScopeWrite, Tier: mcp.TierConfirmationRequired,
 		OpenAPIOp: "archivePerson/archiveOrganization/archiveDeal",
 		InputSchema: schema(`{"type":"object","required":["record_type","id"],"properties":{
 			"record_type":{"type":"string","enum":["person","organization","deal"]},
@@ -94,7 +94,7 @@ type promoteLead struct {
 func (t promoteLead) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "promote_lead", Version: "1.0.0",
-		RequiredScope: principal.ScopeWrite, Tier: mcp.TierYellow,
+		RequiredScope: principal.ScopeWrite, Tier: mcp.TierConfirmationRequired,
 		OpenAPIOp: "promoteLead",
 		InputSchema: schema(`{"type":"object","required":["lead_id","trigger"],"properties":{
 			"lead_id":{"type":"string","format":"uuid"},
@@ -172,7 +172,7 @@ type mergeRecords struct {
 func (t mergeRecords) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "merge_records", Version: "1.0.0",
-		RequiredScope: principal.ScopeWrite, Tier: mcp.TierYellow,
+		RequiredScope: principal.ScopeWrite, Tier: mcp.TierConfirmationRequired,
 		OpenAPIOp: "mergePerson/mergeOrganization",
 		InputSchema: schema(`{"type":"object","required":["record_type","source_id","target_id"],"properties":{
 			"record_type":{"type":"string","enum":["person","organization"]},

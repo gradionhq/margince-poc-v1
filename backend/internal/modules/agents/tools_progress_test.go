@@ -33,10 +33,10 @@ func TestProgressDealResolverKeepsTheWonLostFloor(t *testing.T) {
 		t.Fatal("progress_deal is TierDynamic and must carry a resolver")
 	}
 	cases := map[string]mcp.RiskTier{
-		"open": mcp.TierGreen,
-		"won":  mcp.TierYellow,
-		"lost": mcp.TierYellow,
-		"":     mcp.TierYellow, // an unprovable semantic fails toward the gate
+		"open": mcp.TierAutoExecute,
+		"won":  mcp.TierConfirmationRequired,
+		"lost": mcp.TierConfirmationRequired,
+		"":     mcp.TierConfirmationRequired, // an unprovable semantic fails toward the gate
 	}
 	for semantic, want := range cases {
 		if got := resolver(mcp.TierResolverInput{TargetStageSemantic: semantic}); got != want {

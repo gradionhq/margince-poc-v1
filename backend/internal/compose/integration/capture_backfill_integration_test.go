@@ -41,7 +41,7 @@ func (p *pagedConnector) Descriptor() connector.Descriptor {
 	return connector.Descriptor{
 		Name: "gmail", Version: "1",
 		Scopes:   []principal.Scope{principal.ScopeRead},
-		RiskTier: mcp.TierGreen,
+		RiskTier: mcp.TierAutoExecute,
 		Produces: []datasource.EntityType{datasource.EntityActivity},
 	}
 }

@@ -125,7 +125,7 @@ func retryAfter(resp *http.Response) time.Duration {
 }
 
 // Descriptor is the shared static metadata for a read-only Google capture
-// connector: read scope, green (read-only) tier, produces activities. name is
+// connector: read scope, auto_execute (read-only) tier, produces activities. name is
 // the registry key ("gmail", "gcal"). The two Google connectors are identical
 // here; a future one that isn't simply builds its own connector.Descriptor.
 func Descriptor(name string) connector.Descriptor {
@@ -133,7 +133,7 @@ func Descriptor(name string) connector.Descriptor {
 		Name:     name,
 		Version:  "1",
 		Scopes:   []principal.Scope{principal.ScopeRead},
-		RiskTier: mcp.TierGreen, // read-only capture
+		RiskTier: mcp.TierAutoExecute, // read-only capture
 		Produces: []datasource.EntityType{datasource.EntityActivity},
 	}
 }

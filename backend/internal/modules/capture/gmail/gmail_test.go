@@ -132,13 +132,13 @@ func authBytes(t *testing.T) connector.Auth {
 
 // --- tests ---------------------------------------------------------------
 
-func TestDescriptorIsGreenReadOnly(t *testing.T) {
+func TestDescriptorIsAutoExecuteReadOnly(t *testing.T) {
 	d := New(fakeOAuth{}, &fakeAPI{}).Descriptor()
 	if d.Name != "gmail" {
 		t.Errorf("Name = %q, want gmail", d.Name)
 	}
-	if d.RiskTier != mcp.TierGreen {
-		t.Errorf("RiskTier = %v, want green (read-only capture)", d.RiskTier)
+	if d.RiskTier != mcp.TierAutoExecute {
+		t.Errorf("RiskTier = %v, want auto_execute (read-only capture)", d.RiskTier)
 	}
 	if len(d.Scopes) != 1 || d.Scopes[0] != principal.ScopeRead {
 		t.Errorf("Scopes = %v, want [read]", d.Scopes)

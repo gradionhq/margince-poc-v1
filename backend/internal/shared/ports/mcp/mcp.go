@@ -50,16 +50,18 @@ type ToolSpec struct {
 	Egress       bool   // true if the tool reaches outside the workspace (send_email, webhooks)
 }
 
-// RiskTier is the autonomy class (A34/ADR-0026). Green and Yellow are
+// RiskTier is the autonomy class (A34/ADR-0026). AutoExecute and ConfirmationRequired are
 // static — the declared value is the tool's whole tier. Dynamic means the
 // effective tier depends on the call's arguments and MUST carry a
 // TierResolver (today only advance_deal/progress_deal: 🟢 open→open,
 // 🟡 to won/lost).
 type RiskTier int
 
+// The three autonomy tiers. AutoExecute and ConfirmationRequired are the
+// static values; Dynamic resolves to one of them per call (see RiskTier).
 const (
-	TierGreen RiskTier = iota
-	TierYellow
+	TierAutoExecute RiskTier = iota
+	TierConfirmationRequired
 	TierDynamic
 )
 
@@ -67,8 +69,8 @@ const (
 // carries the validated args plus the target stage and pipeline, because
 // won/lost is a property of the stage's semantic, not of the request
 // arguments (a custom pipeline's renamed "Won" stage still resolves 🟡).
-// Invariant: a resolver may only ever RAISE to TierYellow — it never
-// returns TierDynamic and never resolves an always-🟡 floor case to green.
+// Invariant: a resolver may only ever RAISE to TierConfirmationRequired — it never
+// returns TierDynamic and never resolves an always-🟡 floor case to the auto-execute tier.
 type TierResolver func(in TierResolverInput) RiskTier
 
 // TierResolverInput is what the admission gate hands a resolver.

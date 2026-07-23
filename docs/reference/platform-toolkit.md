@@ -183,7 +183,7 @@ module.**
 |---|---|---|
 | `authz` | `Resolver { EffectiveRBAC; SeatType }` | live RBAC/seat resolver the auth gate re-derives an agent's authority through (impl: identity) |
 | `datasource` | `SystemOfRecordProvider { Read/Search/Create/Update/Archive/Merge/AdvanceDeal/PromoteLead/StageSemantic/RunReport/Freshness/ListObjects/ListFields }` | the system-of-record seam AI/MCP/UI bind to (impl: the compose `Provider` over people/deals/activities/reports) |
-| `mcp` | `Tool { Spec; Handle }`, `Registry { Register; Invoke; Specs }` | the governed tool contract (`ToolSpec`, `RiskTier` green/yellow/dynamic, tier resolver) — admission runs before `Handle` |
+| `mcp` | `Tool { Spec; Handle }`, `Registry { Register; Invoke; Specs }` | the governed tool contract (`ToolSpec`, `RiskTier` auto_execute/confirmation_required/dynamic, tier resolver) — admission runs before `Handle` |
 | `connector` | `Connector { Descriptor/Authenticate/Sync/Normalize/HealthCheck }`, `Sink { Upsert }` | the capture/integration seam; a connector normalizes, the capture module writes |
 | `model` | `Client { Complete/Stream/Embed/Caps }`, `SecretStripper` | the provider-agnostic LLM seam (model choice is config, not architecture) |
 | `retrieval` | `Retriever { Search; AssembleContext }` | grounded hybrid retrieval with per-item evidence (evidence-or-omit) |

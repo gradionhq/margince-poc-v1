@@ -10,7 +10,7 @@ the store mechanics step 3 relies on, see
 
 1. **Edit the contract** — `backend/api/crm.yaml`. Add the path + operation + request/response schemas.
    A **mutating** operation (POST/PUT/PATCH/DELETE) MUST carry one of:
-   - `x-mcp-tool: { verb, record_type, tier: green|yellow|dynamic }` — exposes it as a governed agent
+   - `x-mcp-tool: { verb, record_type, tier: auto_execute|confirmation_required|dynamic }` — exposes it as a governed agent
      tool at that autonomy tier; or
    - `x-agent-access: human-only` (rejects agent principals — e.g. approvals, consent) or
      `auth-bootstrap` (login/session machinery).

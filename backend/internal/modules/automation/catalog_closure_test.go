@@ -49,8 +49,8 @@ func TestEveryActionHasADefinition(t *testing.T) {
 		if def.Type != a {
 			t.Errorf("action %q resolves to def.Type %q — the map key and Type must agree", a, def.Type)
 		}
-		if def.Tier != "green" && def.Tier != "yellow" && def.Tier != "dynamic" {
-			t.Errorf("action %q has tier %q, want green|yellow|dynamic", a, def.Tier)
+		if def.Tier != "auto_execute" && def.Tier != "confirmation_required" && def.Tier != "dynamic" {
+			t.Errorf("action %q has tier %q, want auto_execute|confirmation_required|dynamic", a, def.Tier)
 		}
 		assertPermissionIsExactlyOneShape(t, a, def.RequiredPermission)
 	}

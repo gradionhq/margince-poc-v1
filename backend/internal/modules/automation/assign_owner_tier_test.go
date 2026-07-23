@@ -9,23 +9,23 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
-// TestResolveAssignOwnerTierSingleEntityIsGreen is the common case every
+// TestResolveAssignOwnerTierSingleEntityIsAutoExecute is the common case every
 // shipped automation hits today: one Action, one Target, Bulk unset.
-func TestResolveAssignOwnerTierSingleEntityIsGreen(t *testing.T) {
+func TestResolveAssignOwnerTierSingleEntityIsAutoExecute(t *testing.T) {
 	got := resolveAssignOwnerTier(AssignOwnerScope{Bulk: false})
-	if got != mcp.TierGreen {
-		t.Errorf("resolveAssignOwnerTier(single-entity) = %v, want TierGreen", got)
+	if got != mcp.TierAutoExecute {
+		t.Errorf("resolveAssignOwnerTier(single-entity) = %v, want TierAutoExecute", got)
 	}
 }
 
-// TestResolveAssignOwnerTierAtScaleIsYellow proves the escalation branch
+// TestResolveAssignOwnerTierAtScaleIsConfirmationRequired proves the escalation branch
 // against a synthetic scaled input: no shipped automation sets Bulk yet
 // (AssignOwnerScope's doc), but the 🟡 branch must still be proven, or an
 // untested escalation path is exactly the risk AUTO-T07's dynamic tier
 // exists to prevent.
-func TestResolveAssignOwnerTierAtScaleIsYellow(t *testing.T) {
+func TestResolveAssignOwnerTierAtScaleIsConfirmationRequired(t *testing.T) {
 	got := resolveAssignOwnerTier(AssignOwnerScope{Bulk: true})
-	if got != mcp.TierYellow {
-		t.Errorf("resolveAssignOwnerTier(at-scale) = %v, want TierYellow", got)
+	if got != mcp.TierConfirmationRequired {
+		t.Errorf("resolveAssignOwnerTier(at-scale) = %v, want TierConfirmationRequired", got)
 	}
 }

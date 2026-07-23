@@ -50,26 +50,26 @@ func mustPanic(t *testing.T, why string, fn func()) {
 
 func TestRegisterRefusesAuthorityDefects(t *testing.T) {
 	r := NewRegistry(nil, nil)
-	r.Register(&fakeTool{spec: mcp.ToolSpec{Name: "read_record", Tier: mcp.TierGreen}})
+	r.Register(&fakeTool{spec: mcp.ToolSpec{Name: "read_record", Tier: mcp.TierAutoExecute}})
 
 	mustPanic(t, "duplicate name puts two handlers behind one admission decision", func() {
-		r.Register(&fakeTool{spec: mcp.ToolSpec{Name: "read_record", Tier: mcp.TierGreen}})
+		r.Register(&fakeTool{spec: mcp.ToolSpec{Name: "read_record", Tier: mcp.TierAutoExecute}})
 	})
 	mustPanic(t, "TierDynamic without a resolver has no computable tier", func() {
 		r.Register(&fakeTool{spec: mcp.ToolSpec{Name: "advance", Tier: mcp.TierDynamic}})
 	})
 	mustPanic(t, "a resolver on a static tier would silently never run", func() {
 		r.Register(&fakeTool{spec: mcp.ToolSpec{
-			Name: "static", Tier: mcp.TierGreen,
-			TierResolver: func(mcp.TierResolverInput) mcp.RiskTier { return mcp.TierGreen },
+			Name: "static", Tier: mcp.TierAutoExecute,
+			TierResolver: func(mcp.TierResolverInput) mcp.RiskTier { return mcp.TierAutoExecute },
 		}})
 	})
 }
 
 func TestInvokeGatesBeforeHandle(t *testing.T) {
 	r := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}))
-	yellow := &fakeTool{spec: mcp.ToolSpec{Name: "archive_record", RequiredScope: principal.ScopeWrite, Tier: mcp.TierYellow}}
-	r.Register(yellow)
+	confirmationRequired := &fakeTool{spec: mcp.ToolSpec{Name: "archive_record", RequiredScope: principal.ScopeWrite, Tier: mcp.TierConfirmationRequired}}
+	r.Register(confirmationRequired)
 
 	ctx := principal.WithWorkspaceID(context.Background(), ids.NewV7())
 	ctx = principal.WithActor(ctx, principal.Principal{
@@ -79,7 +79,7 @@ func TestInvokeGatesBeforeHandle(t *testing.T) {
 	if _, err := r.Invoke(ctx, "archive_record", json.RawMessage(`{}`)); err == nil {
 		t.Fatal("🟡 call admitted")
 	}
-	if yellow.handled {
+	if confirmationRequired.handled {
 		t.Fatal("Handle ran despite the gate refusing — zero side effects is the contract")
 	}
 
