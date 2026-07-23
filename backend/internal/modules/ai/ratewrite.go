@@ -70,9 +70,10 @@ func modelRateMicroUSD(in SetModelRateInput) (input, output, cacheRead, cacheWri
 // date). Audit-only by ratification: the closed event catalog has no
 // ai/pricing stream to ride (see auditOnlyWrites in writeshape_test.go).
 func (s *RateStore) SetModelRate(ctx context.Context, in SetModelRateInput) (ModelRateRow, error) {
-	// RBAC + pure validation (provider/model presence, not-past, µUSD range)
-	// BEFORE acquiring a connection, so a denied (403) or malformed (422) write
-	// never depends on pool health or consumes a transaction.
+	// RBAC + pure shape validation (provider/model presence, µUSD range) BEFORE
+	// acquiring a connection, so a denied (403) or malformed-shape (422) write
+	// never depends on pool health or consumes a transaction. The clock-
+	// dependent effective-day guard lives in the tx (writeModelRate).
 	p, err := s.prepareModelRate(ctx, in)
 	if err != nil {
 		return ModelRateRow{}, err
@@ -80,7 +81,7 @@ func (s *RateStore) SetModelRate(ctx context.Context, in SetModelRateInput) (Mod
 	var out ModelRateRow
 	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var e error
-		out, e = s.writeModelRate(ctx, tx, p)
+		out, e = s.writeModelRate(ctx, tx, p, in.EffectiveDate)
 		return e
 	})
 	if err != nil {
@@ -92,28 +93,26 @@ func (s *RateStore) SetModelRate(ctx context.Context, in SetModelRateInput) (Mod
 // SetModelRateInTx applies one effective-dated model price through a
 // caller-owned transaction — the approval-effect path, where redeem-and-write
 // must commit together (a failed write leaves the approval unconsumed and
-// retryable). A zero EffectiveDate means "today", derived from the SAME clock
-// sample the past-date guard uses. SetModelRate is the standalone-transaction
-// wrapper.
+// retryable). SetModelRate is the standalone-transaction wrapper.
 func (s *RateStore) SetModelRateInTx(ctx context.Context, tx pgx.Tx, in SetModelRateInput) (ModelRateRow, error) {
 	p, err := s.prepareModelRate(ctx, in)
 	if err != nil {
 		return ModelRateRow{}, err
 	}
-	return s.writeModelRate(ctx, tx, p)
+	return s.writeModelRate(ctx, tx, p, in.EffectiveDate)
 }
 
-// preparedModelRate is one validated model-price write: the trimmed identity,
-// the four µUSD buckets, and the UTC-truncated effective day.
+// preparedModelRate is one shape-validated model-price write: the trimmed
+// identity and the four µUSD buckets. The effective day is resolved and guarded
+// in writeModelRate (clock sampled at write time).
 type preparedModelRate struct {
 	provider, modelID                    string
 	input, output, cacheRead, cacheWrite int64
-	effDate                              time.Time
 }
 
-// prepareModelRate runs the connection-free gates — RBAC admission, provider/
-// model presence, not-past, and the USD→µUSD range conversion — returning the
-// validated write. A zero EffectiveDate resolves to today from one clock sample.
+// prepareModelRate runs the connection-free, clock-free gates — RBAC admission,
+// provider/model presence, and the USD→µUSD range conversion — returning the
+// shape-validated write.
 func (s *RateStore) prepareModelRate(ctx context.Context, in SetModelRateInput) (preparedModelRate, error) {
 	if err := auth.Require(ctx, "ai_model_rate", principal.ActionCreate); err != nil {
 		return preparedModelRate{}, err
@@ -126,13 +125,6 @@ func (s *RateStore) prepareModelRate(ctx context.Context, in SetModelRateInput) 
 	if modelID == "" {
 		return preparedModelRate{}, rateInvalid("model_id", "rate_model_required", "model_id is required")
 	}
-	today := s.todayUTC()
-	if in.EffectiveDate.IsZero() {
-		in.EffectiveDate = today
-	}
-	if in.EffectiveDate.UTC().Truncate(24 * time.Hour).Before(today) {
-		return preparedModelRate{}, rateInvalid("effective_date", "rate_past", "effective_date cannot be in the past")
-	}
 	input, output, cacheRead, cacheWrite, err := modelRateMicroUSD(in)
 	if err != nil {
 		return preparedModelRate{}, err
@@ -140,13 +132,23 @@ func (s *RateStore) prepareModelRate(ctx context.Context, in SetModelRateInput) 
 	return preparedModelRate{
 		provider: provider, modelID: modelID,
 		input: input, output: output, cacheRead: cacheRead, cacheWrite: cacheWrite,
-		effDate: in.EffectiveDate.UTC().Truncate(24 * time.Hour),
 	}, nil
 }
 
-// writeModelRate does the transactional body: upsert the append-forward row and
-// audit — in the caller-owned tx.
-func (s *RateStore) writeModelRate(ctx context.Context, tx pgx.Tx, p preparedModelRate) (ModelRateRow, error) {
+// writeModelRate does the transactional body: resolve and guard the effective
+// day against a clock sampled INSIDE the tx (so a write that waited for the pool
+// across UTC midnight is stored against the day it commits — append-forward
+// stays true at write time), then upsert the append-forward row and audit — all
+// in the caller-owned tx.
+func (s *RateStore) writeModelRate(ctx context.Context, tx pgx.Tx, p preparedModelRate, effectiveDate time.Time) (ModelRateRow, error) {
+	today := s.todayUTC()
+	if effectiveDate.IsZero() {
+		effectiveDate = today
+	}
+	effDate := effectiveDate.UTC().Truncate(24 * time.Hour)
+	if effDate.Before(today) {
+		return ModelRateRow{}, rateInvalid("effective_date", "rate_past", "effective_date cannot be in the past")
+	}
 	var (
 		out                                 ModelRateRow
 		id                                  ids.UUID
@@ -170,7 +172,7 @@ func (s *RateStore) writeModelRate(ctx context.Context, tx pgx.Tx, p preparedMod
 		RETURNING id, provider, model_id, input_per_mtok_microusd, output_per_mtok_microusd,
 		          cache_read_per_mtok_microusd, cache_write_per_mtok_microusd, effective_date`,
 		storekit.MustWorkspace(ctx), p.provider, p.modelID,
-		p.input, p.output, p.cacheRead, p.cacheWrite, p.effDate,
+		p.input, p.output, p.cacheRead, p.cacheWrite, effDate,
 	).Scan(&id, &provOut, &modelOut, &inMicro, &outMicro, &crMicro, &cwMicro, &eff); err != nil {
 		return ModelRateRow{}, fmt.Errorf("upsert ai_model_rate: %w", err)
 	}
@@ -187,7 +189,7 @@ func (s *RateStore) writeModelRate(ctx context.Context, tx pgx.Tx, p preparedMod
 		"provider": p.provider, "model_id": p.modelID,
 		"input_microusd": p.input, "output_microusd": p.output,
 		"cache_read_microusd": p.cacheRead, "cache_write_microusd": p.cacheWrite,
-		"date": p.effDate,
+		"date": effDate,
 	}); err != nil {
 		return ModelRateRow{}, fmt.Errorf("audit ai_model_rate create: %w", err)
 	}

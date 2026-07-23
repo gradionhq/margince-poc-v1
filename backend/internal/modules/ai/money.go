@@ -33,9 +33,12 @@ const microUSDPerMTok = 1_000_000
 // value (exceeding int64 after scaling). Rounds half-up at µUSD.
 func UsdPerMTokToMicroUSD(field, usd string) (int64, error) {
 	s := strings.TrimSpace(usd)
-	if !values.PlainDecimal(s, 13, 6) {
+	// 12 integer digits (not 13): the ×1e6 scale to µUSD keeps every accepted
+	// value within int64, so the advertised contract pattern and the server's
+	// accepted domain agree exactly (no schema-valid price is 422'd on overflow).
+	if !values.PlainDecimal(s, 12, 6) {
 		return 0, rateInvalid(field, "rate_price_nonnegative",
-			field+" must be a plain non-negative decimal (USD per 1M tokens, up to 6 fractional digits)")
+			field+" must be a plain non-negative decimal (USD per 1M tokens, up to 12 integer and 6 fractional digits)")
 	}
 	r, _ := new(big.Rat).SetString(s)
 	r.Mul(r, new(big.Rat).SetInt64(microUSDPerMTok))
@@ -47,6 +50,9 @@ func UsdPerMTokToMicroUSD(field, usd string) (int64, error) {
 	if new(big.Int).Mul(new(big.Int).Rem(num, den), big.NewInt(2)).CmpAbs(den) >= 0 {
 		q.Add(q, big.NewInt(1))
 	}
+	// Defensive: the 12-integer-digit cap above keeps q within int64 after the
+	// 1e6 scale, so this never fires today — it guards the conversion if that
+	// cap is ever widened (the same posture as the round-half-up branch).
 	if !q.IsInt64() {
 		return 0, rateInvalid(field, "rate_price_too_large", field+" is too large")
 	}

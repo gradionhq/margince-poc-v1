@@ -74,17 +74,18 @@ func (s *Store) todayUTC() time.Time {
 // rate. Admin/ops-gated; append-forward (rejects a past effective date);
 // resolves ToCurrency to the workspace base and rejects from == base.
 func (s *Store) SetFxRate(ctx context.Context, in SetFxRateInput) (FxRateRow, error) {
-	// RBAC + pure input validation BEFORE acquiring a connection, so a denied
-	// (403) or malformed (422) write never depends on pool health or consumes
-	// a transaction.
-	from, effDate, err := s.prepareFxRate(ctx, in)
+	// RBAC + pure shape validation BEFORE acquiring a connection, so a denied
+	// (403) or malformed-shape (422) write never depends on pool health or
+	// consumes a transaction. The clock-dependent effective-day guard lives in
+	// the tx (writeFxRate), sampled at write time.
+	from, err := s.prepareFxRate(ctx, in)
 	if err != nil {
 		return FxRateRow{}, err
 	}
 	var out FxRateRow
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		var e error
-		out, e = s.writeFxRate(ctx, tx, from, in.Rate, effDate)
+		out, e = s.writeFxRate(ctx, tx, from, in)
 		return e
 	})
 	if err != nil {
@@ -95,44 +96,45 @@ func (s *Store) SetFxRate(ctx context.Context, in SetFxRateInput) (FxRateRow, er
 
 // SetFxRateInTx applies one effective-dated FX rate through a caller-owned
 // transaction — the approval-effect path, where redeem-and-write must commit
-// together (a failed write leaves the approval unconsumed and retryable). A
-// zero EffectiveDate means "today", derived from the SAME clock sample the
-// past-date guard uses, so a cross-midnight approval cannot straddle two
-// calendar days. SetFxRate is the standalone-transaction wrapper.
+// together (a failed write leaves the approval unconsumed and retryable).
+// SetFxRate is the standalone-transaction wrapper.
 func (s *Store) SetFxRateInTx(ctx context.Context, tx pgx.Tx, in SetFxRateInput) (FxRateRow, error) {
-	from, effDate, err := s.prepareFxRate(ctx, in)
+	from, err := s.prepareFxRate(ctx, in)
 	if err != nil {
 		return FxRateRow{}, err
 	}
-	return s.writeFxRate(ctx, tx, from, in.Rate, effDate)
+	return s.writeFxRate(ctx, tx, from, in)
 }
 
-// prepareFxRate runs the connection-free gates — RBAC admission and input
-// normalization (currency shape, positive rate, not-past) — and returns the
-// upper-cased from-currency and the UTC-truncated effective day. A zero
-// EffectiveDate resolves to today from one clock sample.
-func (s *Store) prepareFxRate(ctx context.Context, in SetFxRateInput) (from string, effDate time.Time, err error) {
+// prepareFxRate runs the connection-free, clock-free gates — RBAC admission and
+// currency/rate shape — returning the upper-cased from-currency. The effective-
+// day resolution and past-date guard are deferred to writeFxRate so they sample
+// the clock at write time.
+func (s *Store) prepareFxRate(ctx context.Context, in SetFxRateInput) (from string, err error) {
 	if err := auth.Require(ctx, "fx_rate", principal.ActionCreate); err != nil {
-		return "", time.Time{}, err
+		return "", err
 	}
-	today := s.todayUTC()
-	if in.EffectiveDate.IsZero() {
-		in.EffectiveDate = today
-	}
-	from, err = normalizeFxInput(in, today)
-	if err != nil {
-		return "", time.Time{}, err
-	}
-	// Persist the same UTC-truncated day the past-date guard checked, so a
-	// sub-day offset can never store a calendar date different from the one
-	// validated.
-	return from, in.EffectiveDate.UTC().Truncate(24 * time.Hour), nil
+	return normalizeFxCurrencyRate(in)
 }
 
-// writeFxRate does the transactional body: resolve the workspace base, reject
-// from == base, upsert the append-forward row, and audit — all in the
-// caller-owned tx.
-func (s *Store) writeFxRate(ctx context.Context, tx pgx.Tx, from, rate string, effDate time.Time) (FxRateRow, error) {
+// writeFxRate does the transactional body: resolve and guard the effective day
+// against a clock sampled INSIDE the tx (so a write that waited for the pool
+// across UTC midnight is stored against the day it commits — append-forward
+// stays true at write time), resolve the workspace base, reject from == base,
+// upsert the append-forward row, and audit — all in the caller-owned tx.
+func (s *Store) writeFxRate(ctx context.Context, tx pgx.Tx, from string, in SetFxRateInput) (FxRateRow, error) {
+	today := s.todayUTC()
+	eff := in.EffectiveDate
+	if eff.IsZero() {
+		eff = today
+	}
+	// Persist the same UTC-truncated day the past-date guard checks, so a
+	// sub-day offset can never store a calendar date different from the validated one.
+	effDate := eff.UTC().Truncate(24 * time.Hour)
+	if effDate.Before(today) {
+		return FxRateRow{}, fxInvalid("effective_date", "fx_rate_past", "effective_date cannot be in the past")
+	}
+	rate := in.Rate
 	var base string
 	if err := tx.QueryRow(ctx, `SELECT base_currency FROM workspace WHERE id = $1`,
 		storekit.MustWorkspace(ctx)).Scan(&base); err != nil {
@@ -169,11 +171,12 @@ func (s *Store) writeFxRate(ctx context.Context, tx pgx.Tx, from, rate string, e
 	return out, nil
 }
 
-// normalizeFxInput validates and upper-cases the currency, checks the rate
-// is a positive decimal, and rejects a past effective date. It does not
-// touch the DB (the from == base check needs the base currency and lives in
-// the tx), so it is unit-testable in isolation.
-func normalizeFxInput(in SetFxRateInput, today time.Time) (from string, err error) {
+// normalizeFxCurrencyRate validates and upper-cases the currency and checks the
+// rate is a positive plain decimal — the connection-free, clock-free shape gates
+// (no DB, no time). The effective-day resolution and past-date guard live in
+// writeFxRate so they sample the clock at write time, and the from == base check
+// needs the base currency and lives in the tx.
+func normalizeFxCurrencyRate(in SetFxRateInput) (from string, err error) {
 	from = strings.ToUpper(strings.TrimSpace(in.FromCurrency))
 	if !isISO4217(from) {
 		return "", fxInvalid("from_currency", "fx_rate_currency", "from_currency must be a 3-letter ISO code")
@@ -185,9 +188,6 @@ func normalizeFxInput(in SetFxRateInput, today time.Time) (from string, err erro
 	}
 	if r, _ := new(big.Rat).SetString(rate); r.Sign() <= 0 {
 		return "", fxInvalid("rate", "fx_rate_positive", "rate must be greater than zero")
-	}
-	if in.EffectiveDate.UTC().Truncate(24 * time.Hour).Before(today) {
-		return "", fxInvalid("effective_date", "fx_rate_past", "effective_date cannot be in the past")
 	}
 	return from, nil
 }
