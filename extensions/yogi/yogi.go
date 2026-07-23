@@ -3,7 +3,7 @@
 
 // Package yogi is a first-party reference extension shipping one governed
 // agent tool: yogi_quote returns a random Yogi Berra quote. It exercises
-// the whole served-tool path (ADR-0069) — the published Tool declaration,
+// the whole served-tool path — the published Tool declaration,
 // the manifest's autonomy-tier request, and boot registration into the
 // same MCP registry and admission gate the core tools ride. The tool is
 // read-only with no arguments, so it requests the 🟢 auto-execute tier and
@@ -18,7 +18,7 @@ import (
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
-// New returns the unit's declaration (the ADR-0069 §4 constructor
+// New returns the unit's declaration (the constructor
 // contract the generated composition calls).
 func New() extension.Extension {
 	return extension.Extension{
