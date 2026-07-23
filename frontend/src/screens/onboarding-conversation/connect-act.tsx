@@ -16,6 +16,7 @@ import type {
   ConversationState,
 } from "./conversation-machine";
 import { NarrationBubble } from "./entries";
+import { presenceFor } from "./presence";
 import { ConversationThread } from "./thread";
 import type { WizardPersistInput } from "./use-wizard-state";
 import { ConversationWorkbench } from "./workbench";
@@ -86,7 +87,7 @@ export function ConnectAct({
 
   return (
     <ConversationWorkbench
-      core={state.act === "done" ? "success" : "listening"}
+      core={presenceFor(state).core}
       status={t("ob.ai.ready")}
       artifact={
         <div className="mw-review ob-conv-artifact">

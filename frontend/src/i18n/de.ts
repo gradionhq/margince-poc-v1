@@ -1276,7 +1276,7 @@ export const de = {
   "ob.conv.voice.buildChip": "Mein Stimmprofil bauen",
   "ob.conv.voice.retryBuild": "Aufbau erneut versuchen",
   "ob.conv.voice.buildPollFailed":
-    "Ich habe die Verbindung während des Aufbaus verloren. Deine Texte bleiben erhalten, versuche den Aufbau erneut.",
+    "Ich habe die Verbindung während des Aufbaus verloren. Deine Texte bleiben erhalten. Versuche den Aufbau erneut.",
   "ob.conv.voice.statusBuilding": "Dein Stimmprofil entsteht",
   "ob.conv.voice.resultTitle":
     "Das ist deine Stimme, in deinen eigenen Worten.",
@@ -1296,7 +1296,7 @@ export const de = {
   "ob.conv.voice.manifestWords": "{words} Wörter",
   "ob.conv.voice.registerMix": "Register: {mix}",
   "ob.conv.voice.stageTitle": "Aufbau-Fortschritt",
-  "ob.conv.corpus.words": "Eigene Worte jetzt im Korpus: {words}.",
+  "ob.conv.corpus.words": "Eigene Wörter jetzt im Korpus: {words}.",
   "ob.conv.corpus.band": "Korpusqualität ist jetzt {band}.",
   "ob.conv.build.snapshot": "Ich friere deinen Korpus ein.",
   "ob.conv.build.extract": "Ich suche deine typischen Formulierungen.",

@@ -8,6 +8,7 @@ import type {
   ConversationState,
 } from "./conversation-machine";
 import { NarrationBubble } from "./entries";
+import { presenceFor } from "./presence";
 import { ConversationThread } from "./thread";
 import { ConversationWorkbench } from "./workbench";
 
@@ -35,7 +36,7 @@ export function ResultsAct({
   const t = useT();
   return (
     <ConversationWorkbench
-      core="success"
+      core={presenceFor(state).core}
       status={t("ob.ai.ready")}
       artifact={
         <div className="mw-review ob-conv-artifact">

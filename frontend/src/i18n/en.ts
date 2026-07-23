@@ -1224,7 +1224,7 @@ export const en = {
   "ob.conv.voice.dropHint":
     "You can also drop files anywhere in this conversation.",
   "ob.conv.voice.fileSkipped":
-    "I can not read {name}. I take .txt, .md, .vtt, .srt, or .json.",
+    "I cannot read {name}. I take .txt, .md, .vtt, .srt, or .json.",
   "ob.conv.voice.fileEmpty":
     "There are no words in {name}, so nothing was counted.",
   "ob.conv.voice.reactionTranscript":
@@ -1232,7 +1232,7 @@ export const en = {
   "ob.conv.voice.reactionDocument":
     "Words counted: {words}. Every word here is yours, so all of them count.",
   "ob.conv.voice.refusalUnattributed":
-    "That looks like a conversation, but I can not tell which words are yours. I counted nothing, because I only count words that are provably yours.",
+    "That looks like a conversation, but I cannot tell which words are yours. I counted nothing, because I only count words that are provably yours.",
   "ob.conv.voice.refusalSpeaker":
     "I could not find that speaker in the transcript. Nothing was counted.",
   "ob.conv.voice.refusalUnsupported":
