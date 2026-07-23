@@ -7446,6 +7446,7 @@ paths:
     get:
       tags: [Rates]
       operationId: listFxRates
+      security: [ { cookieAuth: [] } ]   # human session only — the sheet is an admin view, not an agent surface
       summary: List current FX rates (latest per currency), or one pair's history.
       description: |
         Admin/ops-only view. Without `from`, returns the latest effective rate per
@@ -7495,6 +7496,7 @@ paths:
     get:
       tags: [Rates]
       operationId: listAiModelRates
+      security: [ { cookieAuth: [] } ]   # human session only — internal cost data is an admin view, not an agent surface
       summary: List current AI model prices (latest per model), or one model's history.
       description: |
         Admin/ops-only view. Prices are USD per 1M tokens (strings). Without

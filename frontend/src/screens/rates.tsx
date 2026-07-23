@@ -40,15 +40,15 @@ export function RatesScreen() {
 }
 
 // RefreshFromSources enqueues an async refresh that stages proposals into the
-// approvals inbox; the button reflects the enqueued state (the job runs in the
-// background — nothing to poll here).
+// approvals inbox (the job runs in the background — nothing to poll here). The
+// button stays available so an admin can trigger another refresh; success and
+// failure both surface next to it.
 function RefreshFromSources({
   path,
 }: Readonly<{
   path: "/fx-rates/propose-refresh" | "/ai-model-rates/propose-refresh";
 }>) {
   const t = useT();
-  const [enqueued, setEnqueued] = useState(false);
   const refresh = useMutation({
     mutationFn: async () => {
       const { error } = await api.POST(path);
@@ -56,22 +56,26 @@ function RefreshFromSources({
         throw new Error(problemMessage(error));
       }
     },
-    onSuccess: () => setEnqueued(true),
   });
-  if (enqueued) {
-    return (
-      <span className="t-small">{t("settings.rates.refreshEnqueued")}</span>
-    );
-  }
   return (
-    <Button
-      variant="ghost"
-      small
-      onClick={() => refresh.mutate()}
-      disabled={refresh.isPending}
-    >
-      {t("settings.rates.refresh")}
-    </Button>
+    <span className="rates-refresh">
+      <Button
+        variant="ghost"
+        small
+        onClick={() => refresh.mutate()}
+        disabled={refresh.isPending}
+      >
+        {t("settings.rates.refresh")}
+      </Button>
+      {refresh.isSuccess ? (
+        <span className="t-small">{t("settings.rates.refreshEnqueued")}</span>
+      ) : null}
+      {refresh.isError ? (
+        <span className="t-small" style={{ color: "var(--danger)" }}>
+          {refresh.error.message}
+        </span>
+      ) : null}
+    </span>
   );
 }
 

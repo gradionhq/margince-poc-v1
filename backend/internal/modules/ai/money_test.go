@@ -14,7 +14,7 @@ func TestUsdPerMTokToMicroUSD(t *testing.T) {
 		"25.5": 25_500_000, "0": 0, "6.25": 6_250_000,
 	}
 	for in, want := range cases {
-		got, err := UsdPerMTokToMicroUSD(in)
+		got, err := UsdPerMTokToMicroUSD("input_per_mtok", in)
 		if err != nil {
 			t.Fatalf("%q: unexpected error %v", in, err)
 		}
@@ -26,7 +26,7 @@ func TestUsdPerMTokToMicroUSD(t *testing.T) {
 
 func TestUsdPerMTokRejects(t *testing.T) {
 	for _, bad := range []string{"-1", "abc", "", "1e400", "12345678901234567890"} {
-		_, err := UsdPerMTokToMicroUSD(bad)
+		_, err := UsdPerMTokToMicroUSD("input_per_mtok", bad)
 		var v *RateValidationError
 		if !errors.As(err, &v) {
 			t.Errorf("UsdPerMTokToMicroUSD(%q) err = %v, want RateValidationError", bad, err)

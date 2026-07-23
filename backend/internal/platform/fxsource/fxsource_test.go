@@ -39,6 +39,17 @@ func TestLatestRatesInverts(t *testing.T) {
 	}
 }
 
+func TestLatestRatesRejectsBaseMismatch(t *testing.T) {
+	// The API answered in USD though we asked for EUR — rates would be wrong.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"base":"USD","rates":{"GBP":0.79}}`))
+	}))
+	defer srv.Close()
+	if _, err := New(srv.URL, srv.Client()).LatestRates(context.Background(), "EUR", []string{"GBP"}); err == nil {
+		t.Fatal("expected an error on base mismatch")
+	}
+}
+
 func TestLatestRatesRejectsNon200(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)

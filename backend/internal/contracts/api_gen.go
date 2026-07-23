@@ -21748,8 +21748,6 @@ func (siw *ServerInterfaceWrapper) ListAiModelRates(w http.ResponseWriter, r *ht
 
 	ctx := r.Context()
 
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
@@ -25641,8 +25639,6 @@ func (siw *ServerInterfaceWrapper) ListFxRates(w http.ResponseWriter, r *http.Re
 	_ = err
 
 	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 

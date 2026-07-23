@@ -29,11 +29,11 @@ const microUSDPerMTok = 1_000_000
 // ("5.00" -> 5_000_000). It rejects a non-plain-decimal (the rational "1/3"
 // and scientific "1e3" forms big.Rat also accepts), negative, or too-large
 // value (exceeding int64 after scaling). Rounds half-up at µUSD.
-func UsdPerMTokToMicroUSD(usd string) (int64, error) {
+func UsdPerMTokToMicroUSD(field, usd string) (int64, error) {
 	s := strings.TrimSpace(usd)
 	if !plainDecimal(s, 13, 6) {
-		return 0, rateInvalid("price", "rate_price_nonnegative",
-			"price must be a plain non-negative decimal (USD per 1M tokens, up to 6 fractional digits)")
+		return 0, rateInvalid(field, "rate_price_nonnegative",
+			field+" must be a plain non-negative decimal (USD per 1M tokens, up to 6 fractional digits)")
 	}
 	r, _ := new(big.Rat).SetString(s)
 	r.Mul(r, new(big.Rat).SetInt64(microUSDPerMTok))
@@ -46,7 +46,7 @@ func UsdPerMTokToMicroUSD(usd string) (int64, error) {
 		q.Add(q, big.NewInt(1))
 	}
 	if !q.IsInt64() {
-		return 0, rateInvalid("price", "rate_price_too_large", "price is too large")
+		return 0, rateInvalid(field, "rate_price_too_large", field+" is too large")
 	}
 	return q.Int64(), nil
 }

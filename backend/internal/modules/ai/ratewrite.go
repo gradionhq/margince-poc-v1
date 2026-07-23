@@ -52,16 +52,16 @@ func (s *RateStore) todayUTC() time.Time {
 // modelRateMicroUSD converts the four USD/MTok string buckets to µUSD, failing
 // on the first invalid one (all typed 422s).
 func modelRateMicroUSD(in SetModelRateInput) (input, output, cacheRead, cacheWrite int64, err error) {
-	if input, err = UsdPerMTokToMicroUSD(in.InputUsd); err != nil {
+	if input, err = UsdPerMTokToMicroUSD("input_per_mtok", in.InputUsd); err != nil {
 		return
 	}
-	if output, err = UsdPerMTokToMicroUSD(in.OutputUsd); err != nil {
+	if output, err = UsdPerMTokToMicroUSD("output_per_mtok", in.OutputUsd); err != nil {
 		return
 	}
-	if cacheRead, err = UsdPerMTokToMicroUSD(in.CacheReadUsd); err != nil {
+	if cacheRead, err = UsdPerMTokToMicroUSD("cache_read_per_mtok", in.CacheReadUsd); err != nil {
 		return
 	}
-	cacheWrite, err = UsdPerMTokToMicroUSD(in.CacheWriteUsd)
+	cacheWrite, err = UsdPerMTokToMicroUSD("cache_write_per_mtok", in.CacheWriteUsd)
 	return
 }
 

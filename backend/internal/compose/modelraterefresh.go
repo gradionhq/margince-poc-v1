@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -176,12 +177,17 @@ func (m modelCostRefresh) extract(ctx context.Context, src pricingSource) ([]ext
 	}
 	kept := out.Models[:0]
 	for _, em := range out.Models {
-		if em.Provider == "" || em.ModelID == "" || strings.TrimSpace(em.Evidence) == "" {
+		if em.ModelID == "" || strings.TrimSpace(em.Evidence) == "" {
 			continue // no-guess: an ungrounded row is dropped, never applied
 		}
-		if conf, cerr := strconv.ParseFloat(strings.TrimSpace(em.Confidence), 64); cerr != nil || conf < minRateExtractConfidence {
-			continue
+		conf, cerr := strconv.ParseFloat(strings.TrimSpace(em.Confidence), 64)
+		if cerr != nil || math.IsNaN(conf) || conf < minRateExtractConfidence || conf > 1 {
+			continue // reject non-finite / out-of-range confidence, not just parse errors
 		}
+		// The sheet identity's provider is the CONFIGURED source, never the
+		// value the model returned — a page must not stage a rate under a
+		// provider it does not own.
+		em.Provider = src.Provider
 		kept = append(kept, em)
 	}
 	return kept, nil
@@ -217,10 +223,10 @@ func diffModel(em extractedModel, current map[string]ai.ModelRateRow) (string, a
 type microBuckets struct{ in, out, cr, cw int64 }
 
 func allMicro(em extractedModel) (microBuckets, bool) {
-	in, e1 := ai.UsdPerMTokToMicroUSD(em.InputUsd)
-	out, e2 := ai.UsdPerMTokToMicroUSD(em.OutputUsd)
-	cr, e3 := ai.UsdPerMTokToMicroUSD(em.CacheReadUsd)
-	cw, e4 := ai.UsdPerMTokToMicroUSD(em.CacheWriteUsd)
+	in, e1 := ai.UsdPerMTokToMicroUSD("input_per_mtok", em.InputUsd)
+	out, e2 := ai.UsdPerMTokToMicroUSD("output_per_mtok", em.OutputUsd)
+	cr, e3 := ai.UsdPerMTokToMicroUSD("cache_read_per_mtok", em.CacheReadUsd)
+	cw, e4 := ai.UsdPerMTokToMicroUSD("cache_write_per_mtok", em.CacheWriteUsd)
 	if e1 != nil || e2 != nil || e3 != nil || e4 != nil {
 		return microBuckets{}, false
 	}

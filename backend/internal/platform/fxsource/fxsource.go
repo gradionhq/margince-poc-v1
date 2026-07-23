@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
@@ -25,6 +26,8 @@ const (
 	httpTimeout = 15 * time.Second
 	// ratePrecision matches fx_rate.rate numeric(20,10).
 	ratePrecision = 10
+	// maxResponseBytes caps the source response before decoding (1 MiB).
+	maxResponseBytes = 1 << 20
 )
 
 // Client fetches from a base-relative rates API. The expected response shape is
@@ -79,8 +82,15 @@ func (c *Client) LatestRates(ctx context.Context, base string, symbols []string)
 		return nil, fmt.Errorf("fxsource: unexpected status %d", resp.StatusCode)
 	}
 	var body apiResponse
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+	// Cap the response before decoding — a large or compromised source must not
+	// exhaust worker memory (the SSRF guard and timeout don't bound body size).
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&body); err != nil {
 		return nil, fmt.Errorf("fxsource: decode: %w", err)
+	}
+	// The rates are only correct as symbol->base if the API answered in the base
+	// we asked for; a mismatched base would silently stage wrong proposals.
+	if !strings.EqualFold(strings.TrimSpace(body.Base), base) {
+		return nil, fmt.Errorf("fxsource: response base %q does not match requested %q", body.Base, base)
 	}
 
 	out := make(map[string]string, len(symbols))
@@ -103,11 +113,21 @@ func (c *Client) LatestRates(ctx context.Context, base string, symbols []string)
 }
 
 // invert turns a base->symbol rate string into a symbol->base decimal string
-// (1/rate) at fx_rate precision, using big.Rat so no float error creeps in.
+// (1/rate) at fx_rate precision, using big.Rat so no float error creeps in. It
+// rejects an inverse that rounds to zero or exceeds numeric(20,10)'s 10 integer
+// digits — either would only be refused later at the store's write anyway.
 func invert(baseToSym string) (string, error) {
 	r, ok := new(big.Rat).SetString(strings.TrimSpace(baseToSym))
 	if !ok || r.Sign() <= 0 {
 		return "", fmt.Errorf("not a positive decimal: %q", baseToSym)
 	}
-	return new(big.Rat).Inv(r).FloatString(ratePrecision), nil
+	s := new(big.Rat).Inv(r).FloatString(ratePrecision)
+	intPart, fracPart, _ := strings.Cut(s, ".")
+	if len(strings.TrimLeft(intPart, "0")) > 10 {
+		return "", fmt.Errorf("inverted rate %s exceeds numeric(20,10)", s)
+	}
+	if strings.Trim(intPart, "0") == "" && strings.Trim(fracPart, "0") == "" {
+		return "", fmt.Errorf("inverted rate rounds to zero: %s", s)
+	}
+	return s, nil
 }
