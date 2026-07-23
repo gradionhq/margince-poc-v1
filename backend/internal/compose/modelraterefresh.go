@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -52,23 +53,26 @@ type pricingSource struct {
 	URL      string
 }
 
-// ParseModelPricingSources parses a "provider1=url1,provider2=url2" spec (the
-// MARGINCE_MODEL_PRICING_SOURCES form) into the model-cost refresh source list.
-// Malformed entries (no "=", empty provider or url) are skipped. An empty spec
-// yields nil (the producer no-ops).
-func ParseModelPricingSources(spec string) []pricingSource {
-	spec = strings.TrimSpace(spec)
-	if spec == "" {
+// PricingSourcesFromMap turns the config's rates.model_pricing provider->url map
+// into the model-cost refresh source list, sorted by provider for a stable crawl
+// order. Empty provider or url entries are skipped; an empty map yields nil (the
+// producer no-ops).
+func PricingSourcesFromMap(m map[string]string) []pricingSource {
+	if len(m) == 0 {
 		return nil
 	}
+	providers := make([]string, 0, len(m))
+	for provider := range m {
+		providers = append(providers, provider)
+	}
+	sort.Strings(providers)
 	var out []pricingSource
-	for _, entry := range strings.Split(spec, ",") {
-		provider, rawURL, ok := strings.Cut(strings.TrimSpace(entry), "=")
-		provider, rawURL = strings.TrimSpace(provider), strings.TrimSpace(rawURL)
-		if !ok || provider == "" || rawURL == "" {
+	for _, provider := range providers {
+		p, rawURL := strings.TrimSpace(provider), strings.TrimSpace(m[provider])
+		if p == "" || rawURL == "" {
 			continue
 		}
-		out = append(out, pricingSource{Provider: provider, URL: rawURL})
+		out = append(out, pricingSource{Provider: p, URL: rawURL})
 	}
 	return out
 }

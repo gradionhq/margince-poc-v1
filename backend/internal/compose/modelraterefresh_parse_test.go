@@ -54,18 +54,23 @@ func TestNumberPassagesOnRealGeminiSample(t *testing.T) {
 	}
 }
 
-func TestParseModelPricingSources(t *testing.T) {
-	got := ParseModelPricingSources(" anthropic=https://a/p, openai=https://o/p , malformed , =https://x , gemini= ")
+func TestPricingSourcesFromMap(t *testing.T) {
+	got := PricingSourcesFromMap(map[string]string{
+		"gemini":    "https://g/p",
+		"anthropic": "https://a/p",
+		"blank":     "  ", // empty url skipped
+	})
+	// Sorted by provider, blank dropped.
 	if len(got) != 2 {
-		t.Fatalf("parsed %d sources, want 2 (malformed/empty-provider/empty-url skipped): %+v", len(got), got)
+		t.Fatalf("got %d sources, want 2 (blank-url dropped): %+v", len(got), got)
 	}
 	if got[0].Provider != "anthropic" || got[0].URL != "https://a/p" {
-		t.Errorf("got[0] = %+v", got[0])
+		t.Errorf("got[0] = %+v, want anthropic (sorted first)", got[0])
 	}
-	if got[1].Provider != "openai" || got[1].URL != "https://o/p" {
+	if got[1].Provider != "gemini" || got[1].URL != "https://g/p" {
 		t.Errorf("got[1] = %+v", got[1])
 	}
-	if ParseModelPricingSources("") != nil {
-		t.Error("empty spec should yield nil")
+	if PricingSourcesFromMap(nil) != nil {
+		t.Error("nil map should yield nil")
 	}
 }

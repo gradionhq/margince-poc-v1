@@ -8,7 +8,6 @@
 package main
 
 import (
-	"cmp"
 	"errors"
 	"flag"
 	"fmt"
@@ -22,6 +21,8 @@ type workerConfig struct {
 	dsn                  string
 	configPath           string
 	freemailExtra        []string
+	ratesFx              string
+	ratesModelPricing    map[string]string
 	redisAddr            string
 	routingPath          string
 	fakeBrain            bool
@@ -42,8 +43,6 @@ type workerConfig struct {
 	overlayInterval      time.Duration
 	overlayBackfillLimit int
 	webhookKey           string
-	fxSourceURL          string
-	modelPricingSources  string
 	webhookRetryInterval time.Duration
 	deepReadMaxPages     int
 	deepReadMaxBytes     int
@@ -96,8 +95,6 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	fs.IntVar(&cfg.deepReadMaxBytes, "deepread-max-bytes", maxBytesDefault, "deep-read crawl aggregate byte cap; 0 takes the built-in default")
 	fs.DurationVar(&cfg.deepReadWall, "deepread-wall", wallDefault, "deep-read crawl wall clock; 0 takes the built-in default")
 	fs.StringVar(&cfg.webhookKey, "webhook-key", os.Getenv("MARGINCE_WEBHOOK_KEY"), "base64 32-byte key sealing outbound-webhook signing secrets; enables the cg:webhooks delivery consumer + retry sweep. Empty leaves the delivery worker off.")
-	fs.StringVar(&cfg.fxSourceURL, "fx-source-url", cmp.Or(os.Getenv("MARGINCE_FX_SOURCE_URL"), "https://api.frankfurter.dev/v1/latest"), "structured FX JSON API base URL for the fx-rate refresh job (base-relative {base,rates} map; ?base=&symbols= query). Defaults to the free, no-key ECB source api.frankfurter.dev. Set empty to disable.")
-	fs.StringVar(&cfg.modelPricingSources, "model-pricing-sources", os.Getenv("MARGINCE_MODEL_PRICING_SOURCES"), "comma-separated provider=url pairs of pricing pages the model-cost refresh crawls (e.g. gemini=https://ai.google.dev/gemini-api/docs/pricing — a plain GET yields its price text; many marketing pages are JS-rendered and yield none). Empty leaves the model-cost refresh a no-op.")
 	fs.DurationVar(&cfg.webhookRetryInterval, "webhook-retry-interval", 5*time.Second, "outbound-webhook retry-sweep tick interval")
 	fs.StringVar(&cfg.logLevel, "log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
 	fs.StringVar(&cfg.logFormat, "log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")

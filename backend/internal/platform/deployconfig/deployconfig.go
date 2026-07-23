@@ -33,6 +33,7 @@ type Config struct {
 	Auth           Auth            `yaml:"auth"`
 	Email          Email           `yaml:"email"`
 	AI             AIConfig        `yaml:"ai"`
+	Rates          RatesConfig     `yaml:"rates"`
 	Capture        Capture         `yaml:"capture"`
 	CompanyContext CompanyContext  `yaml:"company_context"`
 	OverlayBudget  OverlayBudget   `yaml:"overlay_budget"`
@@ -297,6 +298,17 @@ func (e Email) SMTPPassword() (string, error) {
 // engine and the Art. 17 erasure cascade.
 type AIConfig struct {
 	CapturePayloads bool `yaml:"capture_payloads"`
+}
+
+// RatesConfig is the (worker-role) source config for the admin "Refresh from
+// sources" jobs. Fx is a structured base-relative rates JSON API base URL
+// (defaults to api.frankfurter.dev when empty); ModelPricing maps a provider
+// name to its pricing-page URL the model-cost refresh crawls. Absent = the
+// respective refresh is a no-op (never auto-applies — a human approves every
+// staged proposal).
+type RatesConfig struct {
+	Fx           string            `yaml:"fx_source"`
+	ModelPricing map[string]string `yaml:"model_pricing"`
 }
 
 // Load reads and strictly validates the configuration file. A missing

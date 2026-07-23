@@ -10,6 +10,7 @@
 package main
 
 import (
+	"cmp"
 	// Embedded tzdata: workspace timezones must resolve on scratch
 	// containers that ship no zoneinfo.
 	"context"
@@ -86,6 +87,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	cfg.freemailExtra = deployCfg.Capture.FreemailExtra
+	cfg.ratesFx = deployCfg.Rates.Fx
+	cfg.ratesModelPricing = deployCfg.Rates.ModelPricing
 
 	handler, err := httpserver.LogHandler(stdout, cfg.logLevel, cfg.logFormat)
 	if err != nil {
@@ -295,8 +298,8 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 		// they no-op honestly. FX is deterministic (no model); model-cost
 		// needs the extraction lane.
 		RateExtractBrain:    modelPath.RateExtract,
-		FxSourceURL:         cfg.fxSourceURL,
-		ModelPricingSources: compose.ParseModelPricingSources(cfg.modelPricingSources),
+		FxSourceURL:         cmp.Or(cfg.ratesFx, "https://api.frankfurter.dev/v1/latest"),
+		ModelPricingSources: compose.PricingSourcesFromMap(cfg.ratesModelPricing),
 		DeepReadCaps: compose.CrawlCaps{
 			MaxPages: cfg.deepReadMaxPages,
 			MaxBytes: cfg.deepReadMaxBytes,
