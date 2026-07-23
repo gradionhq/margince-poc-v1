@@ -1869,6 +1869,16 @@ export const en = {
   "webhooks.state.active": "Active",
   "webhooks.state.paused": "Paused",
   "webhooks.updated": "Updated {date}",
+  "webhooks.field.targetUrl": "Target URL",
+  "webhooks.field.eventTypes": "Event types",
+  "webhooks.secret.title": "Signing secret",
+  "webhooks.secret.warning":
+    "This secret is shown once and can't be retrieved again. Store it now — deliveries are signed with it.",
+  "webhooks.secret.copy": "Copy",
+  "webhooks.secret.copied": "Copied",
+  "webhooks.secret.copyFailed":
+    "Couldn't copy automatically — select and copy the secret manually.",
+  "webhooks.secret.done": "Done",
 } as const;
 
 export type MessageKey = keyof typeof en;

@@ -402,7 +402,11 @@ function MultiselectField({
             key={option.value}
             className="t-label"
             htmlFor={optionId}
-            style={{ display: "flex", alignItems: "center", gap: 4 }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--space-1)",
+            }}
           >
             <input
               id={optionId}

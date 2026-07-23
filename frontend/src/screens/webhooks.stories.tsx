@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { userEvent, within } from "storybook/test";
 import { Badge } from "../design-system/atoms";
 import { LocaleProvider } from "../i18n";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
@@ -110,6 +111,67 @@ export const Empty: Story = {
     "GET /me": meRoute(["admin"]),
     "GET /webhook-subscriptions": () => jsonResponse({ data: [], page }),
   }),
+};
+
+// Task 8 (B-E10.14): the create form, opened from the empty list — the
+// button lives outside QueryGate's empty branch specifically so the FIRST
+// subscription is still creatable; this story is the render proof of that.
+// The event-type checkboxes come straight off the generated
+// subscribableEventTypeValues catalog (webhooks.tsx), never a hand-picked
+// subset — the fe-uat screenshot shows the full published set.
+export const CreateOpen: Story = {
+  render: cardStory({
+    "GET /me": meRoute(["admin"]),
+    "GET /webhook-subscriptions": () => jsonResponse({ data: [], page }),
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByTestId("new-webhook-subscription"),
+    );
+  },
+};
+
+// The one-time signing-secret reveal, right after a successful create: shown
+// exactly once, copy-to-clipboard, "won't see this again" copy — gone the
+// moment the modal closes (webhooks.tsx's SecretRevealModal holds it only in
+// local state, never in the react-query cache the refreshed list reads from).
+export const SecretRevealed: Story = {
+  render: cardStory({
+    "GET /me": meRoute(["admin"]),
+    "GET /webhook-subscriptions": () => jsonResponse({ data: [], page }),
+    "POST /webhook-subscriptions": () =>
+      jsonResponse(
+        {
+          subscription: {
+            id: "sub-new",
+            workspace_id: "w1",
+            owner_id: "u1",
+            target_url: "https://hooks.acme.test/inbound",
+            event_types: ["deal.stage_changed"],
+            state: "active",
+            version: 1,
+            created_at: "2026-07-22T00:00:00Z",
+            updated_at: "2026-07-22T00:00:00Z",
+            archived_at: null,
+          },
+          signing_secret: "whsec_9f3c2b7a1d4e5f60ac71b8d92e==",
+        },
+        201,
+      ),
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByTestId("new-webhook-subscription"),
+    );
+    await userEvent.type(
+      await canvas.findByLabelText(/target url/i),
+      "https://hooks.acme.test/inbound",
+    );
+    await userEvent.click(canvas.getByLabelText("deal.stage_changed"));
+    await userEvent.click(canvas.getByRole("button", { name: "Create" }));
+  },
 };
 
 // The pure delivery-status → badge mapping the deliveries panel reuses — no

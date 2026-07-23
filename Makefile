@@ -185,7 +185,7 @@ frontend-check:
 	frontend/scripts/check-icon-glyph.sh
 	frontend/scripts/check-ds-spacing.sh
 	cd frontend && pnpm install --frozen-lockfile && pnpm gen:api && \
-		{ git diff --exit-code -- src/api/schema.d.ts src/api/public-events.d.ts || \
+		{ git diff --exit-code -- src/api/schema.d.ts src/api/public-events.ts || \
 			{ echo "frontend types drifted from the backend contracts — commit the regenerated src/api/*.d.ts (printed above)"; exit 1; }; } && \
 		pnpm check
 

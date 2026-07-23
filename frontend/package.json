@@ -11,7 +11,7 @@
     "lint": "biome check src index.html",
     "check": "pnpm lint && pnpm test && pnpm build",
     "gen:api": "openapi-typescript ../backend/api/crm.yaml -o src/api/schema.d.ts && pnpm gen:events",
-    "gen:events": "openapi-typescript ../backend/api/public-events.yaml -o src/api/public-events.d.ts",
+    "gen:events": "openapi-typescript ../backend/api/public-events.yaml --enum-values -o src/api/public-events.ts",
     "e2e": "vite build && playwright test",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build -o storybook-static"

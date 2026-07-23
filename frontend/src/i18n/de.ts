@@ -1902,4 +1902,14 @@ export const de = {
   "webhooks.state.active": "Aktiv",
   "webhooks.state.paused": "Pausiert",
   "webhooks.updated": "Aktualisiert {date}",
+  "webhooks.field.targetUrl": "Ziel-URL",
+  "webhooks.field.eventTypes": "Ereignistypen",
+  "webhooks.secret.title": "Signaturschlüssel",
+  "webhooks.secret.warning":
+    "Dieser Schlüssel wird nur einmal angezeigt und kann danach nicht erneut abgerufen werden. Speichern Sie ihn jetzt — Zustellungen werden damit signiert.",
+  "webhooks.secret.copy": "Kopieren",
+  "webhooks.secret.copied": "Kopiert",
+  "webhooks.secret.copyFailed":
+    "Automatisches Kopieren fehlgeschlagen — bitte den Schlüssel manuell auswählen und kopieren.",
+  "webhooks.secret.done": "Fertig",
 } as const satisfies Record<MessageKey, string>;
