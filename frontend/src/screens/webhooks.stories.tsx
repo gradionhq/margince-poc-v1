@@ -71,7 +71,7 @@ function baseRoutes(
   return {
     "GET /me": meRoute(roles),
     "GET /webhook-subscriptions": () =>
-      jsonResponse({ data: subscriptions, page }),
+      jsonResponse({ data: subscriptions, page, delivery_enabled: true }),
   };
 }
 

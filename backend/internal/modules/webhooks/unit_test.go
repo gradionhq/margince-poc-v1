@@ -351,7 +351,8 @@ func TestRowScopedSubjectRequiresObjectReadCapability(t *testing.T) {
 	withRead := noRead
 	withRead.Permissions.Objects = map[string]principal.ObjectGrant{"deal": {Read: true}}
 	func() {
-		defer func() { _ = recover() }() // a nil-pool probe may panic; that still proves we reached it
+		//craft:ignore swallowed-errors recover's value is deliberately discarded: a nil-pool probe panic is itself proof the read gate admitted the call and reached the probe
+		defer func() { _ = recover() }()
 		ctx := principal.WithActor(context.Background(), withRead)
 		if ok, err := s.entityVisibleTo(ctx, "deal.updated", "deal", ids.NewV7()); !ok && err == nil {
 			t.Fatal("with deal.read, entityVisibleTo returned a clean deny — the read gate must have admitted it and reached the row-scope probe")
