@@ -92,6 +92,13 @@ func generateUnitManifests(root string, units []extensionUnit) error {
 			return err
 		}
 		path := filepath.Join(u.Dir, unitManifestFile)
+		// An extension unit is a plain file tree (the same rule digestTree
+		// enforces). Refuse to write through a symlink here: os.WriteFile
+		// follows one, so a unit symlinking its manifest at a repository
+		// file would have `make composition` overwrite that file.
+		if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
+			return fmt.Errorf("extensions/%s/%s exists but is not a regular file — refusing to write through it", u.Name, unitManifestFile)
+		}
 		if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, encoded) {
 			continue
 		}
@@ -154,22 +161,34 @@ func collectStringConsts(file *ast.File, vocab map[string]string) {
 		if !ok || gen.Tok != token.CONST {
 			continue
 		}
+		// Go repeats the previous expression list when a grouped const
+		// omits its own (the `const ( A = "x"; B )` form makes B == "x").
+		// Carry it forward so such a string constant is not silently
+		// dropped from the vocabulary; a non-string repeat (iota) simply
+		// yields no string literal below.
+		var last []ast.Expr
 		for _, spec := range gen.Specs {
-			addStringConst(spec, vocab)
+			vs, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			if len(vs.Values) > 0 {
+				last = vs.Values
+			}
+			addStringConsts(vs.Names, last, vocab)
 		}
 	}
 }
 
-// addStringConst records the string-literal constants of one spec (a
-// `Name Type = "value"` line) into vocab; non-string or computed values
-// are skipped — only literal string constants form the vocabulary.
-func addStringConst(spec ast.Spec, vocab map[string]string) {
-	vs, ok := spec.(*ast.ValueSpec)
-	if !ok || len(vs.Names) != len(vs.Values) {
+// addStringConsts records the string-literal constants of one spec into
+// vocab; non-string or computed values are skipped — only literal string
+// constants form the vocabulary.
+func addStringConsts(names []*ast.Ident, values []ast.Expr, vocab map[string]string) {
+	if len(names) != len(values) {
 		return
 	}
-	for i, name := range vs.Names {
-		lit, ok := vs.Values[i].(*ast.BasicLit)
+	for i, name := range names {
+		lit, ok := values[i].(*ast.BasicLit)
 		if !ok || lit.Kind != token.STRING {
 			continue
 		}
@@ -193,10 +212,16 @@ func deriveUnitManifest(u extensionUnit, vocab map[string]string) ([]byte, error
 	if len(pkgs) != 1 {
 		return nil, fmt.Errorf("extensions/%s: the unit root must hold exactly one package, found %d", u.Name, len(pkgs))
 	}
-	r := &unitReader{unit: u.Name, fset: fset, vocab: vocab}
-	newFn, newFile := findNew(pkgs)
-	if newFn == nil {
+	r := &unitReader{fset: fset, vocab: vocab}
+	newFn, newFile, count := findNew(pkgs)
+	if count == 0 {
 		return nil, fmt.Errorf("extensions/%s: no New() in the unit root package — the declaration constructor is the ADR-0069 §4 contract", u.Name)
+	}
+	if count > 1 {
+		// Map iteration over pkg.Files is unordered, so picking one of
+		// several New() would make the manifest nondeterministic; a
+		// build-tag-split constructor cannot be resolved statically either.
+		return nil, fmt.Errorf("extensions/%s: multiple New() constructors in the unit root — the static manifest reader needs exactly one (build-tag-split declarations are unsupported)", u.Name)
 	}
 	m, err := r.readExtension(newFn, newFile)
 	if err != nil {
@@ -208,17 +233,17 @@ func deriveUnitManifest(u extensionUnit, vocab map[string]string) ([]byte, error
 	return encodeUnitManifest(m)
 }
 
-func findNew(pkgs map[string]*ast.Package) (*ast.FuncDecl, *ast.File) {
+func findNew(pkgs map[string]*ast.Package) (fn *ast.FuncDecl, file *ast.File, count int) {
 	for _, pkg := range pkgs {
-		for _, file := range pkg.Files {
-			for _, decl := range file.Decls {
-				if fn, ok := decl.(*ast.FuncDecl); ok && fn.Recv == nil && fn.Name.Name == "New" {
-					return fn, file
+		for _, f := range pkg.Files {
+			for _, decl := range f.Decls {
+				if d, ok := decl.(*ast.FuncDecl); ok && d.Recv == nil && d.Name.Name == "New" {
+					fn, file, count = d, f, count+1
 				}
 			}
 		}
 	}
-	return nil, nil
+	return fn, file, count
 }
 
 func encodeUnitManifest(m unitManifest) ([]byte, error) {
@@ -236,7 +261,6 @@ func encodeUnitManifest(m unitManifest) ([]byte, error) {
 // return a literal so the manifest derives without compiling — a computed
 // value is a hard error naming the position, never a silent gap.
 type unitReader struct {
-	unit  string
 	fset  *token.FileSet
 	vocab map[string]string
 }
@@ -256,8 +280,14 @@ func (r *unitReader) readExtension(fn *ast.FuncDecl, file *ast.File) (unitManife
 			return unitManifest{}, err
 		}
 	}
-	if m.Name == "" || m.Version == "" {
-		return unitManifest{}, r.errAt(lit, "the Extension literal must declare Name and Version")
+	// Validate identity through the published grammar the boot preflight
+	// runs, so gen-time acceptance cannot diverge from boot-time: an empty,
+	// whitespace-framed, or non-printable Version passes neither.
+	if err := extension.Name(m.Name).Validate(); err != nil {
+		return unitManifest{}, r.errAt(lit, "%v", err)
+	}
+	if err := extension.Version(m.Version).Validate(); err != nil {
+		return unitManifest{}, r.errAt(lit, "%v", err)
 	}
 	sort.Slice(m.AutonomyTiers, func(i, j int) bool { return m.AutonomyTiers[i].ID < m.AutonomyTiers[j].ID })
 	return m, nil

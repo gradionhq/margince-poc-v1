@@ -53,6 +53,28 @@ func validateExtensionSet(exts []extension.Extension) error {
 		if err := preflightJurisdictions(e, packCodes); err != nil {
 			return err
 		}
+		if err := preflightTools(e); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// preflightTools validates one unit's governed tools through the same
+// published Tool.Validate the manifest generator runs, and rejects a verb
+// declared twice within the unit — so the fail-closed boundary holds at
+// boot even for a declaration that reached the composed set outside the
+// generator path.
+func preflightTools(e extension.Extension) error {
+	seen := make(map[string]bool, len(e.Tools))
+	for _, tool := range e.Tools {
+		if err := tool.Validate(); err != nil {
+			return fmt.Errorf("compose: extension %q: %w", e.Name, err)
+		}
+		if seen[tool.Name] {
+			return fmt.Errorf("compose: extension %q declares tool %q twice", e.Name, tool.Name)
+		}
+		seen[tool.Name] = true
 	}
 	return nil
 }
