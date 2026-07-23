@@ -2,13 +2,20 @@
 
 Register an HTTPS endpoint to receive signed, retried deliveries of published domain events, then
 verify the signature, inspect deliveries, and replay a parked one. For the mental model (the config
-surface vs. the delivery engine, secret sealing, the retry/dead-letter state machine, the owner-scope
-fan-out gate), read [explanation/outbound-webhooks.md](../explanation/outbound-webhooks.md) first.
+surface vs. the delivery engine, secret sealing, the contract-first payload pipeline, versioning, the
+retry/dead-letter state machine, the owner-scope fan-out gate), read
+[explanation/outbound-webhooks.md](../explanation/outbound-webhooks.md) first.
+
+Everything below also works from the UI: **Settings → Integrations** drives the same create / pause /
+resume / re-target / archive / rotate / replay actions this guide curls, plus a deliveries and
+dead-letter panel — use whichever is convenient, they hit the same API.
 
 **First-party, outbound only.** This registers a *subscription* Margince delivers to — it is not an
-inbound receiver and not a third-party app install. Deliveries are signed HTTP POSTs of the event
-envelope on the [Standard Webhooks](https://www.standardwebhooks.com/) scheme — the same convention
-used by Anthropic, OpenAI, Stripe, and Svix — so any off-the-shelf SW verifier library works unmodified.
+inbound receiver and not a third-party app install. Deliveries are signed HTTP POSTs of a **typed,
+contract-generated** payload (`backend/api/public-events.yaml` → `internal/contracts`, one
+`WebhookPayload<Event>` schema per event type) on the [Standard Webhooks](https://www.standardwebhooks.com/)
+scheme — the same convention used by Anthropic, OpenAI, Stripe, and Svix — so any off-the-shelf SW
+verifier library works unmodified.
 
 > **Single-organization installation (ADR-0061/A107).** One installation serves one organization; the
 > server resolves its singleton organization itself, so no request selects a tenant — there is no
@@ -63,10 +70,17 @@ curl -X POST http://localhost:8080/v1/webhook-subscriptions \
 - `target_url` **must be `https://`**.
 - `event_types` is a **non-empty subset of the published catalog** — an unknown type is a `422`, and
   the entity-less capture-pipeline events (`capture.*`) are rejected (they name no subject to scope
-  delivery by). List the catalog against the running contract:
+  delivery by). What actually validates a create/update is the runtime catalog (`events.Types()` minus
+  the pipeline class); the contract's `SubscribableEventType` enum (`public-events.yaml`) is the
+  documented projection of it, but as shipped it undershoots by six types (`approval.*`, `coldstart.*`,
+  `audit.appended` — accepted and delivered by the API, but not offered by name here or in the UI
+  picker; see `explanation/outbound-webhooks.md` §3). For the documented set:
   ```sh
-  grep -oE '"[a-z_]+\.[a-z_]+"' backend/api/crm.yaml | sort -u   # or read events.md §5
+  grep -A200 'SubscribableEventType:' backend/api/public-events.yaml | grep '^\s*- ' | sed 's/^\s*- //'
   ```
+  Every type in that enum has a published `WebhookPayload<Event>` schema in the same file, describing
+  the exact `data` shape your receiver will see for it — a few are catalogued but not yet emitted or not
+  yet delivered (`explanation/outbound-webhooks.md` §5); their schema's own description says so.
 
 The `201` response is the subscription **plus the signing secret** — the ONLY time the plaintext
 appears:
@@ -157,6 +171,10 @@ curl -X POST --cookie 'crm_session=<admin or ops session>' \
   | jq '{status, attempts, last_status_code}'
 ```
 
+Replay re-sends the delivery's stored body **verbatim**, at whatever `version` it was originally
+enqueued with — it never re-renders the payload against a schema that has since (additively) grown, so
+an old delivery replays exactly as your receiver saw it the first time.
+
 ## 6. Rotate the signing secret
 
 Rotation mints a new secret and returns it once; the prior secret **stops verifying immediately**, so
@@ -204,3 +222,14 @@ A paused subscription holds its retries until it resumes; an archived one stops 
    endpoint and `replay` it to `delivered`.
 5. **The key-gate is honest.** Unset `MARGINCE_WEBHOOK_KEY` and restart: reads still list, but
    create/rotate/replay answer `503 webhooks_not_configured` — never an unsigned delivery.
+6. **The delivered `data` matches the published schema.** For any event you subscribe to, diff your
+   receiver's `data` field against that event's `WebhookPayload<Event>` schema in
+   `backend/api/public-events.yaml` — they must agree field-for-field (the compile-time seam that
+   guarantees this is [explanation/outbound-webhooks.md §3](../explanation/outbound-webhooks.md)).
+7. **A ratified deferred-delivery type stays honestly silent.** Subscribe to `mirror.conflict` or
+   `retention.applied` and trigger the underlying overlay/retention action — confirm you receive nothing
+   for it; this is a documented gap ([explanation/outbound-webhooks.md §5](../explanation/outbound-webhooks.md)),
+   not a bug in your setup.
+8. **The UI mirrors the API.** Everything above also works from Settings → Integrations — the create
+   modal reveals the secret once, and the deliveries panel shows the same retry/dead-letter/replay
+   lifecycle you drove with `curl`.
