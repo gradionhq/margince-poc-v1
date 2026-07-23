@@ -1177,7 +1177,7 @@ export const de = {
   // Connected inboxes (Einstellungen → Integrationen).
   "connectors.title": "Verbundene Postfächer",
   "connectors.sub":
-    "Postfächer, die dein CRM automatisch füllen. Trenne eines mit einem Klick — bereits erfasste Datensätze bleiben.",
+    "Postfächer, die dein CRM automatisch füllen. Trenne eines bei Bedarf — bereits erfasste Datensätze bleiben.",
   "connectors.loading": "Verbindungen werden geladen…",
   "connectors.loadFailed": "Verbindungen konnten nicht geladen werden.",
   "connectors.empty": "Noch kein Postfach verbunden.",

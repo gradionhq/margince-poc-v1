@@ -1156,7 +1156,7 @@ export const en = {
   // surface the onboarding copy promises.
   "connectors.title": "Connected inboxes",
   "connectors.sub":
-    "Mailboxes capturing into your CRM. Disconnect any one in a click — already-captured records stay.",
+    "Mailboxes capturing into your CRM. Disconnect any one when you need to — already-captured records stay.",
   "connectors.loading": "Loading your connections…",
   "connectors.loadFailed": "Couldn't load your connections.",
   "connectors.empty": "No inbox is connected yet.",
