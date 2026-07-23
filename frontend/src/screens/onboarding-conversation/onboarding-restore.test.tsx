@@ -357,6 +357,11 @@ describe("restore into the conversational shell", () => {
       await screen.findByText(/Last step: what may I capture/),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: /Google/ })).toBeTruthy();
+    // Microsoft has no live path yet: its chip is badged "Soon" in place, so
+    // it can never lead a first-time user into a dead panel.
+    expect(
+      screen.getByRole("button", { name: /Microsoft/ }).textContent,
+    ).toMatch(/Soon/);
     expect(screen.queryByText(/Want me to learn how you write\?/)).toBeNull();
     // A member restore never probes the voice surface.
     expect(requestsTo(calls, "/voice-profiles", "GET").length).toBe(0);

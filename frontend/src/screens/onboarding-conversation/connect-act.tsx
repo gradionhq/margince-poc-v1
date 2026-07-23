@@ -162,6 +162,11 @@ export function ConnectAct({
                     onClick={() => setProvider(key)}
                   >
                     {t(providerLabels[key])}
+                    {/* Microsoft has no live OAuth path yet; the chip says so
+                        in place rather than leading to a dead panel. */}
+                    {key === "microsoft" && (
+                      <span className="ob-chip-soon">{t("ob.s4.soon")}</span>
+                    )}
                   </Button>
                 ))}
                 <Button

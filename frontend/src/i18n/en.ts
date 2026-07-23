@@ -1089,9 +1089,11 @@ export const en = {
   "ob.s4.provMicrosoft": "Microsoft",
   "ob.s4.provImap": "Any inbox (IMAP)",
   "ob.s4.googleBtn": "Continue with Google",
-  "ob.s4.msBtn": "Continue with Microsoft",
+  "ob.s4.soon": "Soon",
   "ob.s4.googleHint":
     "Read-only access. You'll approve it on Google's own consent screen, and you can disconnect it again any time.",
+  "ob.s4.googleUnverified":
+    "If Google shows an “unverified app” notice, choose Advanced → Continue. Margince only ever reads your mail — it never sends.",
   "ob.s4.googleOkTitle": "Gmail connected",
   "ob.s4.googleOkBody":
     "Capture is running in the background — new mail lands on your timeline within about a minute, and it keeps itself in sync from here on.",
@@ -1140,8 +1142,11 @@ export const en = {
   "backfill.errorTitle": "The import hit a problem",
   "backfill.cancelledTitle": "Import cancelled",
   "backfill.progressLabel": "Import progress",
-  "backfill.countScanned": "Scanned",
+  "backfill.countScanned": "Messages scanned",
   "backfill.countCaptured": "Captured",
+  "backfill.statEmails": "Emails captured",
+  "backfill.statPeople": "People",
+  "backfill.statCompanies": "Companies",
   "backfill.errorNote":
     "It will retry on its own; everything captured so far is kept.",
   "backfill.cancel": "Stop the import",

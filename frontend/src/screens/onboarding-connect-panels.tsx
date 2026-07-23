@@ -154,6 +154,9 @@ export function GoogleConnectPanel({
       >
         <ShieldCheck aria-hidden /> {t("ob.s4.googleHint")}
       </p>
+      <p className="t-small ob-google-unverified">
+        {t("ob.s4.googleUnverified")}
+      </p>
       <div className="connect-acts">
         <Button
           variant="primary"
