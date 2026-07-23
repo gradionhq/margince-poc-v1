@@ -218,6 +218,26 @@ func (s *Store) ListLatestFxRates(ctx context.Context) ([]FxRateRow, error) {
 	return rows, err
 }
 
+// WorkspaceBaseCurrency returns the workspace base currency — the ToCurrency
+// every fx_rate row converts into. The FX refresh producer needs it to price
+// an empty sheet (which has no row to read the base off), so it carries the
+// same admin/ops read gate as the sheet itself; the base IS part of the
+// fx_rate read surface (every row's ToCurrency).
+func (s *Store) WorkspaceBaseCurrency(ctx context.Context) (string, error) {
+	if err := auth.Require(ctx, "fx_rate", principal.ActionRead); err != nil {
+		return "", err
+	}
+	var base string
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT base_currency FROM workspace WHERE id = $1`,
+			storekit.MustWorkspace(ctx)).Scan(&base)
+	})
+	if err != nil {
+		return "", fmt.Errorf("resolve base currency: %w", err)
+	}
+	return base, nil
+}
+
 // FxRateHistory returns every effective-dated row for one pair, newest
 // first (read-only history). Admin/ops read gate.
 func (s *Store) FxRateHistory(ctx context.Context, fromCurrency string) ([]FxRateRow, error) {

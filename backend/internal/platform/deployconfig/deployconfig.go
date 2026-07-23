@@ -300,17 +300,6 @@ type AIConfig struct {
 	CapturePayloads bool `yaml:"capture_payloads"`
 }
 
-// RatesConfig is the (worker-role) source config for the admin "Refresh from
-// sources" jobs. Fx is a structured base-relative rates JSON API base URL
-// (defaults to api.frankfurter.dev when empty); ModelPricing maps a provider
-// name to its pricing-page URL the model-cost refresh crawls. Absent = the
-// respective refresh is a no-op (never auto-applies — a human approves every
-// staged proposal).
-type RatesConfig struct {
-	Fx           string            `yaml:"fx_source"`
-	ModelPricing map[string]string `yaml:"model_pricing"`
-}
-
 // Load reads and strictly validates the configuration file. A missing
 // file is not an error: it returns the zero configuration (version 1,
 // all defaults), which boots an existing installation but cannot
@@ -353,6 +342,9 @@ func (c Config) validate() error {
 	}
 	if cur := c.Organization.BaseCurrency; cur != "" && !isCurrencyCode(cur) {
 		return fmt.Errorf("deployconfig: organization.base_currency %q is not a 3-letter ISO 4217 code", cur)
+	}
+	if err := c.Rates.validate(); err != nil {
+		return err
 	}
 	if c.BootstrapAdmin != nil {
 		if err := c.BootstrapAdmin.validate(); err != nil {
