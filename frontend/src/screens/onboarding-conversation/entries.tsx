@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import { CircleAlert, CircleCheck, CircleUserRound, Clock } from "lucide-react";
+import { Fragment, useEffect, useRef } from "react";
 import { Button } from "../../design-system/atoms";
 import { useT } from "../../i18n";
 import type { MessageKey } from "../../i18n/en";
@@ -31,10 +32,57 @@ function resolvedParams(
   return { ...params, ...translated };
 }
 
+// Word-by-word reveal for narration that arrives LIVE — speech gets a beat,
+// factual cards (questions, outcomes, user turns) never do. The animated copy
+// is presentation only (aria-hidden, per-word spans); the full sentence rides
+// along visually hidden so assistive tech and text queries always see one
+// coherent string. The stagger shrinks with word count so a long sentence
+// finishes inside the same cap as a short one; prefers-reduced-motion
+// collapses the animation entirely (conversation.css).
+
+const REVEAL_WORD_STEP_MS = 90;
+const REVEAL_TOTAL_CAP_MS = 1200;
+
+export function RevealText({ text }: Readonly<{ text: string }>) {
+  const words = text.split(/\s+/).filter((word) => word !== "");
+  const step = Math.min(
+    REVEAL_WORD_STEP_MS,
+    REVEAL_TOTAL_CAP_MS / Math.max(1, words.length),
+  );
+  // Repeated words need distinct keys; an occurrence counter keeps them
+  // stable without keying on the array index.
+  const seen = new Map<string, number>();
+  return (
+    <>
+      <span className="ob-conv-reveal-source">{text}</span>
+      <span className="ob-conv-reveal" aria-hidden>
+        {words.map((word, position) => {
+          const occurrence = (seen.get(word) ?? 0) + 1;
+          seen.set(word, occurrence);
+          return (
+            <Fragment key={`${word}:${occurrence}`}>
+              <span
+                style={{ animationDelay: `${Math.round(position * step)}ms` }}
+              >
+                {word}
+              </span>{" "}
+            </Fragment>
+          );
+        })}
+      </span>
+    </>
+  );
+}
+
 export function NarrationBubble({
   entry,
-}: Readonly<{ entry: NarrationEntry }>) {
+  reveal = false,
+}: Readonly<{ entry: NarrationEntry; reveal?: boolean }>) {
   const t = useT();
+  const text = t(
+    entry.i18nKey,
+    resolvedParams(t, entry.params, entry.paramKeys),
+  );
   return (
     <div
       className="ob-conv-narration"
@@ -47,9 +95,7 @@ export function NarrationBubble({
       >
         <span aria-hidden>{t("ob.ai.speaker")}</span>
       </span>
-      <p>
-        {t(entry.i18nKey, resolvedParams(t, entry.params, entry.paramKeys))}
-      </p>
+      <p>{reveal ? <RevealText text={text} /> : text}</p>
     </div>
   );
 }
@@ -87,17 +133,49 @@ type QuestionCardProps = Readonly<{
   question: ConversationQuestion;
   /** Set after the question is answered; options stay visible but inert. */
   answered?: boolean;
+  /** The card is the one live question: keyboard focus moves to its first
+   * option — unless the human is mid-thought in a text field. */
+  focusFirstOption?: boolean;
   onAnswer: (questionId: string, value: string) => void;
 }>;
 
 export function QuestionCard({
   question,
   answered = false,
+  focusFirstOption = false,
   onAnswer,
 }: QuestionCardProps) {
   const t = useT();
+  const card = useRef<HTMLFieldSetElement>(null);
+
+  useEffect(() => {
+    if (!focusFirstOption || answered) {
+      return;
+    }
+    const button = card.current?.querySelector("button");
+    if (button == null) {
+      return;
+    }
+    // Never steal focus from someone typing: any focused text field wins,
+    // and a composer still holding a draft keeps its claim even unfocused.
+    const active = button.ownerDocument.activeElement;
+    if (
+      active instanceof HTMLTextAreaElement ||
+      active instanceof HTMLInputElement
+    ) {
+      return;
+    }
+    const composer = button
+      .closest(".ob-workbench-panel")
+      ?.querySelector<HTMLTextAreaElement>(".mw-composer textarea");
+    if (composer != null && composer.value !== "") {
+      return;
+    }
+    button.focus();
+  }, [focusFirstOption, answered]);
+
   return (
-    <fieldset className="ob-conv-question" disabled={answered}>
+    <fieldset ref={card} className="ob-conv-question" disabled={answered}>
       <legend>{t(question.i18nKey, question.params)}</legend>
       <div className="ob-conv-options">
         {question.options.map((option) => (

@@ -5,7 +5,6 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { components } from "../../api/schema";
 import { Button } from "../../design-system/atoms";
-import type { MarginceCoreState } from "../../design-system/margince-core";
 import { useLocale, useT } from "../../i18n";
 import { problemMessage } from "../common";
 import type { CompanyDraft } from "../onboarding";
@@ -36,6 +35,7 @@ import type {
   ConversationState,
 } from "./conversation-machine";
 import { NarrationBubble } from "./entries";
+import { presenceFor } from "./presence";
 import { ConversationThread } from "./thread";
 import { useClarifyAnswers } from "./use-clarify-answers";
 import { useCompanyRead } from "./use-company-read";
@@ -61,32 +61,6 @@ type CompanyActProps = Readonly<{
   profile: CompanyProfile | null;
   persist: (input: WizardPersistInput) => Promise<boolean>;
 }>;
-
-function corePresence(
-  state: ConversationState,
-  read: CompanySiteRead | null,
-  failed: boolean,
-): MarginceCoreState {
-  if (failed || read?.status === "failed") {
-    return "error";
-  }
-  if (read?.status === "deferred") {
-    return "quiet";
-  }
-  if (
-    state.phase === "co.reading" &&
-    (read?.status === "queued" || read?.status === "reading")
-  ) {
-    return "working";
-  }
-  if (state.phase === "co.clarify") {
-    return "attention";
-  }
-  if (state.phase === "co.review" || state.phase === "co.confirmed") {
-    return "success";
-  }
-  return "listening";
-}
 
 function initialDraft(profile: CompanyProfile | null): CompanyDraft {
   return profile
@@ -256,11 +230,15 @@ export function CompanyAct({
     },
   });
 
+  const composer = useRef<HTMLTextAreaElement>(null);
   const submitComposer = () => {
     const text = conversation.draft.trim();
     if (text === "" || startRead.isPending || conversation.send.isPending) {
       return;
     }
+    // Sending must not strand focus on the send button: the composer stays
+    // the keyboard home while the conversation continues.
+    composer.current?.focus();
     const norm = normalizeUrl(text);
     if (
       norm.ok &&
@@ -331,9 +309,12 @@ export function CompanyAct({
     (state.phase === "co.intro" ||
       (state.phase === "co.reading" && state.activeReadId === null));
 
+  const presence = presenceFor(state, { read, readBroken });
+
   return (
     <ConversationWorkbench
-      core={corePresence(state, read, readBroken)}
+      core={presence.core}
+      progress={presence.progress}
       status={
         readBroken
           ? t("ob.readStatus.failed")
@@ -462,6 +443,7 @@ export function CompanyAct({
       </div>
       <div className="mw-composer">
         <textarea
+          ref={composer}
           value={conversation.draft}
           maxLength={2000}
           rows={2}

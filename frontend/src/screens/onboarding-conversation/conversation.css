@@ -41,6 +41,33 @@
   font: 600 0.75rem / 1 var(--f-display);
 }
 
+/* Live narration reveals word by word. The animated copy is aria-hidden
+ * presentation; the full sentence sits alongside it visually hidden so
+ * assistive tech hears one coherent string. Under reduced motion the media
+ * query below never applies and the words are simply there. */
+.ob-conv-reveal-source {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ob-conv-reveal span {
+    display: inline-block;
+    animation: ob-conv-reveal-word 0.3s ease-out backwards;
+  }
+}
+
+@keyframes ob-conv-reveal-word {
+  from {
+    opacity: 0;
+    transform: translateY(0.25em);
+  }
+}
+
 .ob-conv-user {
   display: flex;
   align-items: flex-start;
@@ -402,9 +429,18 @@
   align-self: center;
 }
 
+/* Keyboard focus on option chips and chip rows reads the same accent-token
+ * ring as the atom inputs, not the browser's off-palette native outline. */
+.ob-conv-option:focus-visible,
+.ob-conv-chips .btn:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--accentLight);
+}
+
 /* A finding the narration just named lights its dossier card briefly. */
 .ob-conv-pulse {
-  animation: ob-conv-pulse 1.6s ease-out;
+  animation: ob-conv-pulse 1.2s ease-out;
 }
 
 @keyframes ob-conv-pulse {

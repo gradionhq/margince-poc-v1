@@ -3,7 +3,6 @@ import type { ChangeEvent, Dispatch, DragEvent } from "react";
 import { useRef, useState } from "react";
 import type { components } from "../../api/schema";
 import { Button } from "../../design-system/atoms";
-import type { MarginceCoreState } from "../../design-system/margince-core";
 import { useT } from "../../i18n";
 import { ACCEPTED_CORPUS_ATTR, VOICE_MIN_WORDS } from "../onboarding";
 import { parseVoiceInsights, VoiceInsights } from "../voice-insights";
@@ -12,6 +11,7 @@ import type {
   ConversationState,
 } from "./conversation-machine";
 import { NarrationBubble } from "./entries";
+import { presenceFor } from "./presence";
 import { ConversationThread } from "./thread";
 import { useVoiceBuild } from "./use-voice-build";
 import { useVoiceCorpus } from "./use-voice-corpus";
@@ -37,22 +37,6 @@ type VoiceActProps = Readonly<{
   initialSummary?: CorpusSummary | null;
 }>;
 
-function corePresence(state: ConversationState): MarginceCoreState {
-  if (state.phase === "vo.building") {
-    return "working";
-  }
-  if (state.phase === "vo.invite" || state.phase === "vo.speaker") {
-    return "attention";
-  }
-  if (state.phase === "vo.result") {
-    if (state.lastBuildStatus === "succeeded") {
-      return "success";
-    }
-    return state.lastBuildStatus === "failed" ? "error" : "quiet";
-  }
-  return "listening";
-}
-
 export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
   const t = useT();
   const machine = useRef(state);
@@ -67,6 +51,7 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
   const [pendingPaste, setPendingPaste] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const composer = useRef<HTMLTextAreaElement>(null);
 
   const collecting =
     state.phase === "vo.collecting" || state.phase === "vo.speaker";
@@ -105,6 +90,9 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
     if (text === "" || state.phase !== "vo.collecting") {
       return;
     }
+    // Sending must not strand focus on the send button: the composer stays
+    // the keyboard home while the conversation continues.
+    composer.current?.focus();
     if (text.split(/\s+/).length >= PASTE_OFFER_MIN_WORDS) {
       setPendingPaste(text);
     } else {
@@ -126,9 +114,12 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
     corpus.answerSpeaker(questionId, value);
   };
 
+  const presence = presenceFor(state);
+
   return (
     <ConversationWorkbench
-      core={corePresence(state)}
+      core={presence.core}
+      progress={presence.progress}
       status={t(
         state.phase === "vo.building"
           ? "ob.conv.voice.statusBuilding"
@@ -207,6 +198,7 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
             <Paperclip aria-hidden />
           </Button>
           <textarea
+            ref={composer}
             value={draft}
             maxLength={100_000}
             rows={2}
