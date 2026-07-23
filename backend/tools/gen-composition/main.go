@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 // Command gen-composition materializes build/composition/ — the ONE
-// ignored root for every installation-dependent artifact (ADR-0069 §2):
+// ignored root for every installation-dependent artifact:
 // the composed go.work(.sum), the composition Go module wiring the
 // enabled extension set into the role binaries, the frontend and
 // contract composition (degenerate vanilla forms until their slices
@@ -11,7 +11,7 @@
 // committed composition/ stub byte-identically, so bare and composed
 // builds provably wire the same thing.
 //
-// It also derives each unit's manifest.generated.json (§5) next to the
+// It also derives each unit's manifest.generated.json next to the
 // unit — statically, from the declaration's AST, so consumers read the
 // GOVERNED capabilities an extension requests without compiling its code
 // (unitmanifest.go).
@@ -90,7 +90,7 @@ type manifestInputs struct {
 
 // manifestExtRow pins one unit's identity: the source-tree digest
 // (build provenance) and the manifest.generated.json digest (the claim
-// set §7 resolutions bind to). The tree digest deliberately EXCLUDES the
+// set operator resolutions bind to). The tree digest deliberately EXCLUDES the
 // manifest file — the manifest derives from the tree, so hashing it into
 // the tree would chase the generator's own output.
 type manifestExtRow struct {
