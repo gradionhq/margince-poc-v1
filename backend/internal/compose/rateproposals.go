@@ -181,7 +181,17 @@ func aiModelRateAcceptEffect(svc *approvals.Service, rates *ai.RateStore) approv
 		// failed write keeps the approval redeemable. Zero EffectiveDate ⇒
 		// effective today, derived inside the store's write transaction.
 		return svc.RedeemAndApply(ctx, approvalID, aiModelRateProposalKind, diffHash, func(tx pgx.Tx) error {
-			_, err := rates.SetModelRateInTx(execCtx, tx, ai.SetModelRateInput{
+			// Same precondition as the fx effect: the price in force must still
+			// be the one the diff was computed against, or applying restores a
+			// stale value — refuse and roll back, keep the decision on record.
+			cur, err := rates.EffectiveModelRateInTx(execCtx, tx, p.Provider, p.ModelID)
+			if err != nil {
+				return err
+			}
+			if err := modelPriorMatches(p, cur); err != nil {
+				return err
+			}
+			_, err = rates.SetModelRateInTx(execCtx, tx, ai.SetModelRateInput{
 				Provider: p.Provider, ModelID: p.ModelID,
 				InputUsd: p.InputUsd, OutputUsd: p.OutputUsd,
 				CacheReadUsd: p.CacheReadUsd, CacheWriteUsd: p.CacheWriteUsd,
@@ -189,4 +199,35 @@ func aiModelRateAcceptEffect(svc *approvals.Service, rates *ai.RateStore) approv
 			return err
 		})
 	}
+}
+
+// modelPriorMatches enforces the proposal's precondition against the price in
+// force now, comparing in µUSD (the sheet's storage unit) so wire-scale
+// differences cannot false-skew. A nil ExpectedPrior asserts "unpriced" —
+// also how a payload staged before the precondition existed reads, so such a
+// proposal fails closed onto a re-diff once the model is priced.
+func modelPriorMatches(p aiModelRateProposal, cur *ai.ModelRate) error {
+	moved := fmt.Errorf("compose: the %s/%s price changed since the proposal was diffed — re-run the refresh: %w",
+		p.Provider, p.ModelID, apperrors.ErrVersionSkew)
+	if p.ExpectedPrior == nil {
+		if cur != nil {
+			return moved
+		}
+		return nil
+	}
+	if cur == nil {
+		return moved
+	}
+	in, e1 := ai.UsdPerMTokToMicroUSD("input_per_mtok", p.ExpectedPrior.InputUsd)
+	out, e2 := ai.UsdPerMTokToMicroUSD("output_per_mtok", p.ExpectedPrior.OutputUsd)
+	cr, e3 := ai.UsdPerMTokToMicroUSD("cache_read_per_mtok", p.ExpectedPrior.CacheReadUsd)
+	cw, e4 := ai.UsdPerMTokToMicroUSD("cache_write_per_mtok", p.ExpectedPrior.CacheWriteUsd)
+	if e1 != nil || e2 != nil || e3 != nil || e4 != nil {
+		return moved // an unparseable expected prior can never match — fail closed onto a re-diff
+	}
+	if in != cur.InputPerMTokMicroUSD || out != cur.OutputPerMTokMicroUSD ||
+		cr != cur.CacheReadPerMTokMicroUSD || cw != cur.CacheWritePerMTokMicroUSD {
+		return moved
+	}
+	return nil
 }

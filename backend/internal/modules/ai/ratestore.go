@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -45,18 +46,37 @@ func (s *RateStore) WithClock(clock func() time.Time) *RateStore {
 // signal from a 0 price (price-on-read; never fabricate a price), so the
 // caller gets (nil, nil) and decides what "unpriced" means to it.
 func (s *RateStore) RateFor(ctx context.Context, provider, modelID string, day time.Time) (*ModelRate, error) {
-	var rate ModelRate
+	var rate *ModelRate
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `
-			SELECT provider, model_id, input_per_mtok_microusd, output_per_mtok_microusd,
-			       cache_read_per_mtok_microusd, cache_write_per_mtok_microusd, effective_date
-			FROM ai_model_rate
-			WHERE provider = $1 AND model_id = $2 AND effective_date <= $3
-			ORDER BY effective_date DESC LIMIT 1`,
-			provider, modelID, day).Scan(
-			&rate.Provider, &rate.ModelID, &rate.InputPerMTokMicroUSD, &rate.OutputPerMTokMicroUSD,
-			&rate.CacheReadPerMTokMicroUSD, &rate.CacheWritePerMTokMicroUSD, &rate.EffectiveDate)
+		var e error
+		rate, e = rateForInTx(ctx, tx, provider, modelID, day)
+		return e
 	})
+	if err != nil {
+		return nil, err
+	}
+	return rate, nil
+}
+
+// EffectiveModelRateInTx resolves the price in force TODAY (store clock) for
+// one model through a caller-owned transaction — the approval-effect
+// precondition read, which must see the same state the apply writes into.
+// (nil, nil) = unpriced, mirroring RateFor.
+func (s *RateStore) EffectiveModelRateInTx(ctx context.Context, tx pgx.Tx, provider, modelID string) (*ModelRate, error) {
+	return rateForInTx(ctx, tx, strings.TrimSpace(provider), strings.TrimSpace(modelID), s.todayUTC())
+}
+
+func rateForInTx(ctx context.Context, tx pgx.Tx, provider, modelID string, day time.Time) (*ModelRate, error) {
+	var rate ModelRate
+	err := tx.QueryRow(ctx, `
+		SELECT provider, model_id, input_per_mtok_microusd, output_per_mtok_microusd,
+		       cache_read_per_mtok_microusd, cache_write_per_mtok_microusd, effective_date
+		FROM ai_model_rate
+		WHERE provider = $1 AND model_id = $2 AND effective_date <= $3
+		ORDER BY effective_date DESC LIMIT 1`,
+		provider, modelID, day).Scan(
+		&rate.Provider, &rate.ModelID, &rate.InputPerMTokMicroUSD, &rate.OutputPerMTokMicroUSD,
+		&rate.CacheReadPerMTokMicroUSD, &rate.CacheWritePerMTokMicroUSD, &rate.EffectiveDate)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil //nolint:nilnil // no matching rate row IS the "unpriced" answer, not an error — price-on-read never fabricates a price
 	}
