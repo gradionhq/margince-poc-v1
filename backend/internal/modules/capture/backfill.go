@@ -302,7 +302,20 @@ func (r *Registry) RunBackfillStep(ctx context.Context, backfillID ids.UUID) (do
 		// job's retry ladder decide; the committed token is the resume point.
 		return false, false, errors.Join(err, r.failBackfill(ctx, backfillID, err))
 	}
+	return r.commitBackfillPage(ctx, backfillID, res)
+}
 
+// commitBackfillPage records one page's counters and the run's status
+// transition, returning whether the run is now terminal (done) and whether
+// THIS call is the edge that closed a live run successfully (completed).
+//
+// The `WHERE status IN ('queued','running')` guard means a run cancelled or
+// completed concurrently between the caller's read and this UPDATE affects
+// zero rows: completed is true ONLY when this step actually moved a live run
+// to done, so a lost race is terminal, never a spurious completion (and so
+// never a spurious digest). done stops the pager either way — the run
+// finished, or someone else already ended it.
+func (r *Registry) commitBackfillPage(ctx context.Context, backfillID ids.UUID, res connector.BackfillPageResult) (done, completed bool, err error) {
 	finishing := res.NextToken == ""
 	var rowsAffected int64
 	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
@@ -330,14 +343,7 @@ func (r *Registry) RunBackfillStep(ctx context.Context, backfillID ids.UUID) (do
 	if err != nil {
 		return false, false, err
 	}
-	// The `WHERE status IN ('queued','running')` guard means a run cancelled or
-	// completed concurrently between the read above and this UPDATE affects
-	// zero rows. completed is the transition edge — true ONLY when this step
-	// actually moved a live run to done — so a lost race is terminal, never a
-	// spurious completion (and so never a spurious digest). done stops the
-	// loop either way: the run finished, or someone else already ended it.
-	completed = finishing && rowsAffected == 1
-	return finishing || rowsAffected == 0, completed, nil
+	return finishing || rowsAffected == 0, finishing && rowsAffected == 1, nil
 }
 
 // failBackfill records a terminal failure class on the run (detail goes to
