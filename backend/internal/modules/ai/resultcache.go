@@ -62,6 +62,16 @@ func (c *resultCache) put(key string, wsID ids.WorkspaceID, resp model.Response,
 	c.entries[key] = cacheEntry{workspaceID: wsID, resp: resp, tier: tier, expires: c.now().Add(c.ttl)}
 }
 
+// forget drops one request's cached completion. The structured-output
+// pipeline calls this when a response fails validation: an invalid answer
+// must never be replayed to a future identical request — the retry's whole
+// value is a fresh roll of the model.
+func (c *resultCache) forget(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.entries, key)
+}
+
 // makeRoomLocked frees at least one slot: first a full sweep of expired
 // entries (the only global reap — get only deletes the key it reads),
 // then, if every entry is still live, the soonest-to-expire one goes —

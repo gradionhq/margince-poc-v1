@@ -148,10 +148,9 @@ func TestDeriveVoicePrefersTheValidatedPipeline(t *testing.T) {
 
 func TestDeriveVoiceRejectsFabricatedEvidence(t *testing.T) {
 	cases := map[string]func(*VoiceInference){
-		"unknown evidence sample": func(v *VoiceInference) { v.Evidence = []string{"s-invented"} },
-		"unknown move sample":     func(v *VoiceInference) { v.SignatureMoves[0].SampleID = "s-invented" },
-		"non-verbatim quote":      func(v *VoiceInference) { v.SignatureMoves[0].Quote = "words the author never wrote" },
-		"empty thinking pattern":  func(v *VoiceInference) { v.ThinkingPattern = " " },
+		"unknown move sample":    func(v *VoiceInference) { v.SignatureMoves[0].SampleID = "s-invented" },
+		"non-verbatim quote":     func(v *VoiceInference) { v.SignatureMoves[0].Quote = "words the author never wrote" },
+		"empty thinking pattern": func(v *VoiceInference) { v.ThinkingPattern = " " },
 	}
 	for name, corrupt := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -184,5 +183,28 @@ func TestContainsNormalizedFoldsWhitespaceOnly(t *testing.T) {
 	}
 	if containsNormalized("anything", "  ") {
 		t.Fatal("an empty quote is not evidence")
+	}
+}
+
+func TestFabricatedEvidenceCitationsAreDroppedNotFatal(t *testing.T) {
+	inference := validInference()
+	inference.Evidence = []string{"s-email", "a prose sentence pretending to be a citation"}
+	brain := &stubVoiceBrain{inference: inference}
+	artifact, err := DeriveVoice(context.Background(), brain, "", "h", builderSamples())
+	if err != nil {
+		t.Fatalf("a fabricated supplementary citation must not fail the build: %v", err)
+	}
+	if len(artifact.Inference.Evidence) != 1 || artifact.Inference.Evidence[0] != "s-email" {
+		t.Fatalf("evidence = %v, want only the real sample id kept", artifact.Inference.Evidence)
+	}
+}
+
+func TestVoicePromptNamesTheValidSampleIDs(t *testing.T) {
+	brain := &stubVoiceBrain{inference: validInference()}
+	if _, err := DeriveVoice(context.Background(), brain, "", "h", builderSamples()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(brain.prompt, "Valid sample ids: s-email, s-spoken") {
+		t.Fatal("the prompt must enumerate the exact ids the model may cite")
 	}
 }

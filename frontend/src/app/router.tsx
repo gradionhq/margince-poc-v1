@@ -11,7 +11,7 @@ export type Route = {
 };
 
 export function parseHash(hash: string): Route {
-  // A hash may carry a query of its own ("#/onboarding?conv"); the query is
+  // A hash may carry a query of its own ("#/onboarding?utm=x"); the query is
   // not part of the route and must never leak into a screen name.
   const parts = hash
     .replace(/^#\/?/, "")

@@ -44,6 +44,10 @@ type UseCompanyReadArgs = Readonly<{
    * proposal is fetched only when "ready" (a stale join would serve the
    * previous read's proposal) and falls back to the snapshot on "failed". */
   proposalJoin: "pending" | "ready" | "failed";
+  /** The restored snapshot of the machine's already-active run: primed as
+   * the diff baseline (its findings recap upstream instead of replaying)
+   * and, when already terminal, concluded straight into the review path. */
+  adoptedRead?: CompanySiteRead | null;
 }>;
 
 export function useCompanyRead({
@@ -54,11 +58,17 @@ export function useCompanyRead({
   answers,
   onReadStarted,
   proposalJoin,
+  adoptedRead = null,
 }: UseCompanyReadArgs) {
-  const [readId, setReadId] = useState<string | null>(null);
+  // A run the machine already owns at mount (a restore, or this act
+  // remounting mid-read) is adopted: polling resumes for the machine's
+  // active run instead of stranding it with no poller.
+  const [readId, setReadId] = useState<string | null>(
+    machine.current.activeReadId,
+  );
   // Mirrors the readId state for callbacks: the poll effect must ignore
   // snapshots of a run this hook no longer intends (a superseded URL).
-  const readIdRef = useRef<string | null>(null);
+  const readIdRef = useRef<string | null>(machine.current.activeReadId);
   const [proposalArmed, setProposalArmed] = useState(false);
   const prevSnapshot = useRef<CompanySiteRead | null>(null);
   const appliedReadVersion = useRef(0);
@@ -153,6 +163,32 @@ export function useCompanyRead({
       setSelectedFactKeys,
     ],
   );
+
+  // Reload adoption: the restored snapshot becomes the diff baseline (the
+  // recap upstream already summarized it — a reload summarizes, never
+  // replays), the draft prefills from it, and a snapshot that is already
+  // terminal concludes through the SAME pending-terminal path a live poll
+  // takes: proposal first, clarify question if any, then the terminal
+  // outcome and review.
+  const adopted = useRef(false);
+  useEffect(() => {
+    if (adopted.current || adoptedRead === null) {
+      return;
+    }
+    adopted.current = true;
+    prevSnapshot.current = adoptedRead;
+    appliedReadVersion.current = adoptedRead.draft_version;
+    setDraft((current) => prefill(current, adoptedRead.profile_fields));
+    setSelectedFactKeys(
+      [...new Set(adoptedRead.facts.map((fact) => fact.value_key))].slice(
+        0,
+        MAX_SELECTED_FACTS,
+      ),
+    );
+    if (adoptedRead.status === "ready" || adoptedRead.status === "partial") {
+      concludeFreshTerminal(adoptedRead);
+    }
+  }, [adoptedRead, concludeFreshTerminal, setDraft, setSelectedFactKeys]);
 
   const startRead = useMutation({
     mutationFn: async (url: string): Promise<CompanySiteRead> => {
@@ -278,6 +314,13 @@ export function useCompanyRead({
   // with no questions left the review opens straight away. A proposal
   // failure must never stall the act: the outcome still lands and the
   // review builds from the site-read snapshot, after one honest turn.
+  //
+  // The ordering contract with the machine: CLARIFY and READ_TERMINAL are
+  // run-correlated and must precede the retirement READ_TERMINAL performs;
+  // REVIEW_READY deliberately carries NO run id — its guard is the recorded
+  // readCompleted flag, so review stays reachable after the run retires.
+  // Reordering these dispatches, or correlating REVIEW_READY, would strand
+  // a completed read one event short of its review.
   useEffect(() => {
     const terminal = pendingTerminal.current;
     if (!terminal) {

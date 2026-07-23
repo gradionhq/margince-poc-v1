@@ -48,8 +48,11 @@ function wizardState(step: "confirm" | "results") {
 function FullScreenStory({ step }: Readonly<{ step: "confirm" | "results" }>) {
   installFetchStub({
     "GET /ai/profile": () => jsonResponse(configuredAiProfile),
+    "GET /company/context/capabilities": () =>
+      jsonResponse({ onboarding_enabled: true, read_enabled: true }),
     "GET /company": () => jsonResponse(company),
     "GET /onboarding/state": () => jsonResponse(wizardState(step)),
+    "GET /voice-profiles": () => jsonResponse({ data: [], page: {} }),
   });
   return (
     <StoryProviders>

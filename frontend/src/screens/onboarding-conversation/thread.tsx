@@ -63,6 +63,14 @@ export function ConversationThread({
   const log = useRef<HTMLDivElement>(null);
   const end = useRef<HTMLDivElement>(null);
   const following = useRef(true);
+  // Entries already present when the thread mounted (a restored recap, an
+  // act switch) render instantly; only narration that ARRIVES live reveals
+  // word by word. Membership is fixed at mount — an entry that revealed once
+  // keeps its reveal markup, so a re-render never snaps it to plain text.
+  const preRendered = useRef<ReadonlySet<string> | null>(null);
+  if (preRendered.current === null) {
+    preRendered.current = new Set(entries.map((entry) => entry.id));
+  }
   // A programmatic smooth scroll fires intermediate scroll events; while it
   // runs, they must not be read as the user scrolling away.
   const scrollingProgrammatically = useRef(false);
@@ -124,7 +132,13 @@ export function ConversationThread({
     >
       {entries.map((entry) => {
         if (entry.kind === "narration") {
-          return <NarrationBubble key={entry.id} entry={entry} />;
+          return (
+            <NarrationBubble
+              key={entry.id}
+              entry={entry}
+              reveal={!preRendered.current?.has(entry.id)}
+            />
+          );
         }
         if (entry.kind === "question") {
           return (
@@ -132,6 +146,7 @@ export function ConversationThread({
               key={entry.id}
               question={entry.question}
               answered={entry.id !== liveQuestionEntryId}
+              focusFirstOption={entry.id === liveQuestionEntryId}
               onAnswer={onAnswer}
             />
           );
