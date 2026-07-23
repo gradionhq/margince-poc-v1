@@ -199,6 +199,44 @@ function applyResume(
   return withEntries(state, { act: resumeActs[phase], phase });
 }
 
+// The answered question leaves the thread as the user's own turn: the
+// chosen option's label, or — for a dismissal — the dismiss action the human
+// clicked (legality already required the pending question to carry it).
+function applyAnswer(
+  state: ConversationState,
+  event: Extract<ConversationEvent, { type: "QUESTION_ANSWERED" }>,
+): ConversationState {
+  const option = state.pendingQuestion?.options.find(
+    (candidate) => candidate.value === event.value,
+  );
+  const answerId = `answer:${event.questionId}`;
+  const dismissed: ThreadEntry = {
+    kind: "user",
+    id: answerId,
+    i18nKey:
+      state.pendingQuestion?.dismissLabelKey ?? "ob.conv.clarify.dismiss",
+  };
+  const chosen: ThreadEntry =
+    option?.labelKey !== undefined
+      ? {
+          kind: "user",
+          id: answerId,
+          i18nKey: option.labelKey,
+          params: option.params,
+        }
+      : {
+          kind: "user",
+          id: answerId,
+          text: option?.label ?? event.value,
+          params: option?.params,
+        };
+  return withEntries(
+    state,
+    { phase: answeredPhase(state), pendingQuestion: null },
+    [event.dismissed === true ? dismissed : chosen],
+  );
+}
+
 // Legality is already settled: every branch below only computes the next
 // state for an event the table admitted in the current phase.
 function applyEvent(
@@ -262,34 +300,8 @@ function applyEvent(
           },
         ],
       );
-    case "QUESTION_ANSWERED": {
-      const option = state.pendingQuestion?.options.find(
-        (candidate) => candidate.value === event.value,
-      );
-      const answerId = `answer:${event.questionId}`;
-      const answered: ThreadEntry =
-        option?.labelKey !== undefined
-          ? {
-              kind: "user",
-              id: answerId,
-              i18nKey: option.labelKey,
-              params: option.params,
-            }
-          : {
-              kind: "user",
-              id: answerId,
-              text: option?.label ?? event.value,
-              params: option?.params,
-            };
-      return withEntries(
-        state,
-        {
-          phase: answeredPhase(state),
-          pendingQuestion: null,
-        },
-        [answered],
-      );
-    }
+    case "QUESTION_ANSWERED":
+      return applyAnswer(state, event);
     case "REVIEW_READY":
       return withEntries(state, { phase: "co.review" });
     case "MANUAL_CHOSEN":

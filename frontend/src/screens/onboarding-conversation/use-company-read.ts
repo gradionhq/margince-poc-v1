@@ -6,7 +6,7 @@ import type { components } from "../../api/schema";
 import { useLocale } from "../../i18n";
 import { problemMessage } from "../common";
 import type { CompanyDraft } from "../onboarding";
-import { MAX_SELECTED_FACTS, prefill } from "../onboarding";
+import { changeDraftField, MAX_SELECTED_FACTS, prefill } from "../onboarding";
 import type { ClarifyAnswer } from "./company-proposal";
 import { toMachineQuestion } from "./company-proposal";
 import type {
@@ -178,7 +178,16 @@ export function useCompanyRead({
     adopted.current = true;
     prevSnapshot.current = adoptedRead;
     appliedReadVersion.current = adoptedRead.draft_version;
-    setDraft((current) => prefill(current, adoptedRead.profile_fields));
+    setDraft((current) => {
+      const prefilled = prefill(current, adoptedRead.profile_fields);
+      // The confirm contract requires the website; a draft persisted before
+      // the composer wrote URLs into it (or wiped by an old client) heals
+      // from the adopted read's own root - the one URL this read IS.
+      if (prefilled.values.website.trim() !== "") {
+        return prefilled;
+      }
+      return changeDraftField(prefilled, "website", adoptedRead.root_url);
+    });
     setSelectedFactKeys(
       [...new Set(adoptedRead.facts.map((fact) => fact.value_key))].slice(
         0,
@@ -357,7 +366,7 @@ export function useCompanyRead({
       dispatch({
         type: "CLARIFY",
         readId: terminal.readId,
-        question: toMachineQuestion(first),
+        question: toMachineQuestion(first, prevSnapshot.current?.comparisons),
       });
     }
     dispatch({ type: "READ_TERMINAL", ...terminal });

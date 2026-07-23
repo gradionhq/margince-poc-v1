@@ -88,6 +88,37 @@ func TestOnboardingProposalServesTheDeterministicMapping(t *testing.T) {
 	}
 }
 
+func TestOnboardingProposalDoesNotReAskAnsweredQuestions(t *testing.T) {
+	readID := ids.NewV7()
+	engine := &onboardingProposalEngine{
+		state: onboardingStateReaderStub{state: identity.OnboardingState{
+			ID: ids.NewV7(), SiteReadID: &readID,
+			// The persisted draft carries an earlier authorized selection:
+			// exactly one option value of the legal-entity question.
+			CompanyDraft: identity.OnboardingCompanyDraft{LegalName: stringPtr("Acme GmbH")},
+		}},
+		people: onboardingSiteReadReaderStub{read: people.SiteRead{ID: readID, Status: siteReadWireStatusDone, LegalEntities: []people.SiteReadLegalEntity{
+			{Name: "Acme GmbH", RegisteredAddress: "Berlin 1", SourceURL: "https://acme.example/legal"},
+			{Name: "Acme Holding AG", RegisteredAddress: "Zug 2", SourceURL: "https://acme.example/legal"},
+		}}},
+		rollout: companyContextRolloutOnboarding,
+	}
+	recorder := onboardingProposalRequest(engine, nil)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var proposal crmcontracts.OnboardingCompanyProposal
+	if err := json.Unmarshal(recorder.Body.Bytes(), &proposal); err != nil {
+		t.Fatalf("decode proposal: %v", err)
+	}
+	// The answered legal-name question is gone; the untouched address
+	// question stays open.
+	if proposal.OpenQuestions == nil || len(*proposal.OpenQuestions) != 1 ||
+		(*proposal.OpenQuestions)[0].Field != fieldRegisteredAddress {
+		t.Fatalf("open questions = %+v", proposal.OpenQuestions)
+	}
+}
+
 func TestOnboardingProposalSpeaksTheRequestedLocale(t *testing.T) {
 	readID := ids.NewV7()
 	engine := &onboardingProposalEngine{

@@ -49,6 +49,10 @@ export type ConversationQuestion = {
   i18nKey: MessageKey;
   params?: Record<string, string | number>;
   options: QuestionOption[];
+  /** The subordinate local-dismiss action's label (humans outrank the
+   * reader: a clarify is never an unanswerable gate). Absent on questions
+   * that genuinely need an answer to proceed (the speaker ask). */
+  dismissLabelKey?: MessageKey;
 };
 
 export type OutcomeTone = "success" | "deferred" | "failure";
@@ -158,7 +162,14 @@ export type ConversationEvent =
       findings: number;
     }
   | { type: "CLARIFY"; readId: string; question: ConversationQuestion }
-  | { type: "QUESTION_ANSWERED"; questionId: string; value: string }
+  // dismissed: the human declined the question locally (nothing written,
+  // nothing asked again); legal only for questions carrying a dismiss label.
+  | {
+      type: "QUESTION_ANSWERED";
+      questionId: string;
+      value: string;
+      dismissed?: boolean;
+    }
   | { type: "REVIEW_READY" }
   | { type: "MANUAL_CHOSEN" }
   | { type: "COMPANY_CONFIRMED" }
