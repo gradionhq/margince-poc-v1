@@ -155,7 +155,18 @@ components:
           description: Correlates all events emitted for one originating request.
         data:
           type: object
-          description: The typed event payload (one of the PublicEvent* schemas).
+          description: >-
+            The typed event payload (one of the PublicEvent* schemas), carried
+            as raw JSON so it is delivered byte-for-byte — large int64 fields
+            (e.g. amount_minor_at_change) are never round-tripped through a
+            float64 that would lose precision.
+          # An OPEN object: a delivered payload carries the fields of whichever
+          # PublicEvent* schema `type` names (e.g. PublicEventDealCreated.name).
+          # This keeps the generated frontend type a usable open map rather than
+          # Record<string, never>, which could hold no fields at all. On the Go
+          # side x-go-type carries the raw bytes verbatim (see above).
+          additionalProperties: true
+          x-go-type: json.RawMessage
       additionalProperties: false
 
     PublicEventDealCreated:
@@ -1354,8 +1365,11 @@ components:
         action:
           type: string
           description: >-
-            What happened to the corpus (included | excluded | removed |
-            cleared).
+            What happened to the corpus, one of: ingested (a new source was
+            added) | replaced (an existing source was re-ingested) | included |
+            excluded | removed | cleared. These are exactly the values the emit
+            sites stamp (voice_source_store.go sourceIngestChange,
+            voice_source_mutations.go sourceInclusionChange / ClearCorpus).
         origin:
           type: string
           description: >-
@@ -1410,7 +1424,10 @@ components:
           description: The human-approved reason for this build (onboarding | manual).
         status:
           type: string
-          description: The build's status (queued | deferred | running | completed | failed).
+          description: >-
+            The build's status, one of queued | deferred | running | succeeded
+            | failed — exactly the values voice_build_run.go persists and emits
+            ("succeeded" is the success terminal, not "completed").
         stage:
           type: string
           description: The build's current pipeline stage (absent before it starts running).

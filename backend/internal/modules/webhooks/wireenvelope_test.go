@@ -39,8 +39,11 @@ func fullInternalEnvelope(t *testing.T) kevents.Envelope {
 			PassportID: &passportID,
 			OnBehalfOf: &onBehalfOf,
 		},
-		Entity:  kevents.EntityRef{Type: "deal", ID: ids.NewV7()},
-		Payload: json.RawMessage(`{"stage_id":"s-1","amount":42}`),
+		Entity: kevents.EntityRef{Type: "deal", ID: ids.NewV7()},
+		// amount_minor is 2^53+1 — a value float64 CANNOT represent exactly, so
+		// it proves data is byte-preserved and never round-tripped through a
+		// map[string]interface{} that would corrupt a large int64.
+		Payload: json.RawMessage(`{"stage_id":"s-1","amount_minor":9007199254740993}`),
 		Trace: kevents.Trace{
 			CorrelationID: ids.NewV7(),
 			CausationID:   &causationID,
@@ -94,11 +97,13 @@ func TestToWireEnvelopeIsThePublicDeliveryShape(t *testing.T) {
 	if ids.UUID(wire.CorrelationId) != env.Trace.CorrelationID {
 		t.Errorf("correlation_id = %v, want %v", wire.CorrelationId, env.Trace.CorrelationID)
 	}
-	if got := wire.Data["stage_id"]; got != "s-1" {
-		t.Errorf("data.stage_id = %v, want the typed payload's value \"s-1\"", got)
+	// data is the raw payload bytes, byte-for-byte — including the large int64
+	// that a float64 round-trip would have corrupted.
+	if got := string(wire.Data); got != string(env.Payload) {
+		t.Errorf("data = %s, want the payload verbatim %s", got, env.Payload)
 	}
-	if got := wire.Data["amount"]; got != float64(42) {
-		t.Errorf("data.amount = %v, want the typed payload's value 42", got)
+	if !strings.Contains(string(body), `"amount_minor":9007199254740993`) {
+		t.Errorf("delivered body lost int64 precision (float64 round-trip): %s", body)
 	}
 }
 
@@ -114,11 +119,8 @@ func TestToWireEnvelopeEmptyPayloadYieldsEmptyObject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("toWireEnvelope with no payload: %v", err)
 	}
-	if wire.Data == nil {
-		t.Fatal("data = nil, want an empty object {} for an envelope with no payload")
-	}
-	if len(wire.Data) != 0 {
-		t.Errorf("data = %v, want an empty object {}", wire.Data)
+	if string(wire.Data) != "{}" {
+		t.Errorf("data = %q, want an empty object {} for an envelope with no payload", wire.Data)
 	}
 	body, err := json.Marshal(wire)
 	if err != nil {

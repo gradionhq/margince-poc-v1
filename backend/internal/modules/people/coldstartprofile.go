@@ -131,6 +131,13 @@ func applyColdStartTx(ctx context.Context, tx pgx.Tx, in ApplyColdStartProfileIn
 func coldStartApplyPayload(created bool, in ApplyColdStartProfileInput, host, by string, applied map[string]any) events.Payload {
 	if created {
 		displayName := fieldValue(in.Fields, "legal_name")
+		if displayName == "" {
+			// The org row is stored with host as its display name when no
+			// legal_name was accepted (resolveOrCreateColdStartOrg's fallback),
+			// so organization.created must publish the same — never an empty
+			// display_name the record does not actually carry.
+			displayName = host
+		}
 		primaryDomain := host
 		source := companySourceSiteRead
 		capturedBy := by

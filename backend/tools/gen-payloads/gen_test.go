@@ -141,3 +141,24 @@ func TestGenerateSourceStructifiesEmptyEventPayload(t *testing.T) {
 		}
 	}
 }
+
+// TestGenerateSourceRejectsFractionalVersion proves a non-integer x-version is
+// rejected rather than silently truncated (1.5 -> 1), which would let a
+// malformed contract pass the generated version gate.
+func TestGenerateSourceRejectsFractionalVersion(t *testing.T) {
+	const spec = `openapi: 3.1.0
+info: { title: t, version: "1" }
+components:
+  schemas:
+    PublicEventFrac:
+      type: object
+      x-event-type: frac.happened
+      x-entity-type: widget
+      x-version: 1.5
+      properties:
+        name: { type: string }
+`
+	if _, err := generateSource([]byte(spec), "testpkg"); err == nil {
+		t.Fatal("a fractional x-version (1.5) must be rejected, not truncated to 1")
+	}
+}

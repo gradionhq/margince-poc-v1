@@ -173,7 +173,8 @@ func (s *Store) AcceptOffer(ctx context.Context, id ids.OfferID, ifVersion *int6
 		}
 
 		dealID := ids.From[ids.DealKind](ids.UUID(current.DealId))
-		if err := syncDealAmountFromOffer(ctx, tx, dealID, current); err != nil {
+		dealChanged, err := syncDealAmountFromOffer(ctx, tx, dealID, current)
+		if err != nil {
 			return err
 		}
 
@@ -190,8 +191,12 @@ func (s *Store) AcceptOffer(ctx context.Context, id ids.OfferID, ifVersion *int6
 		}); err != nil {
 			return fmt.Errorf("emit offer.accepted: %w", err)
 		}
+		// The paired deal.updated carries the FULL set of deal columns the sync
+		// actually wrote — including the re-frozen fx_rate_to_base/fx_rate_date
+		// on a closed deal — so a subscriber never retains stale
+		// base-currency state.
 		if err := storekit.EmitEvent(ctx, tx, auditID, dealID.UUID, crmcontracts.PublicEventDealUpdated{
-			ChangedFields: map[string]any{"amount_minor": current.GrossMinor, "currency": current.Currency},
+			ChangedFields: dealChanged,
 		}); err != nil {
 			return fmt.Errorf("emit paired deal.updated: %w", err)
 		}
@@ -208,38 +213,44 @@ func (s *Store) AcceptOffer(ctx context.Context, id ids.OfferID, ifVersion *int6
 // must re-freeze FX as of its close date or the amount change would trip
 // deal_closed_fx / corrupt the frozen base-currency roll-up — the same
 // invariant applyMoneyInvariants enforces on direct deal edits.
-func syncDealAmountFromOffer(ctx context.Context, tx pgx.Tx, dealID ids.DealID, offer crmcontracts.Offer) error {
+// It returns the deal columns the sync actually wrote, so the caller's paired
+// deal.updated reports the complete delta — on a closed deal that includes the
+// re-frozen fx_rate_to_base/fx_rate_date, not just amount_minor/currency.
+func syncDealAmountFromOffer(ctx context.Context, tx pgx.Tx, dealID ids.DealID, offer crmcontracts.Offer) (map[string]any, error) {
 	// The row lock makes the status read and the amount write below one
 	// race-free unit. IncludeArchived preserves the read below, which
 	// follows the deal row regardless of archived state.
 	if _, err := storekit.LockRow(ctx, tx, "deal", dealID.UUID, storekit.IncludeArchived); err != nil {
-		return fmt.Errorf("lock deal for amount sync: %w", err)
+		return nil, fmt.Errorf("lock deal for amount sync: %w", err)
 	}
 	var status string
 	var closedAt *time.Time
 	if err := tx.QueryRow(ctx,
 		`SELECT status, closed_at FROM deal WHERE id = $1`, dealID).Scan(&status, &closedAt); err != nil {
-		return fmt.Errorf("read deal for amount sync: %w", err)
+		return nil, fmt.Errorf("read deal for amount sync: %w", err)
 	}
+	changed := map[string]any{"amount_minor": offer.GrossMinor, "currency": offer.Currency}
 	if DealStatus(status) == DealOpen {
 		if _, err := tx.Exec(ctx,
 			`UPDATE deal SET amount_minor = $2, currency = $3 WHERE id = $1`,
 			dealID, offer.GrossMinor, offer.Currency); err != nil {
-			return fmt.Errorf("sync deal amount from offer: %w", err)
+			return nil, fmt.Errorf("sync deal amount from offer: %w", err)
 		}
-		return nil
+		return changed, nil
 	}
 	// deal_closed_at guarantees closedAt on a non-open row.
 	rate, rateDate, err := freezeFx(ctx, tx, offer.Currency, *closedAt)
 	if err != nil {
-		return fmt.Errorf("re-freeze fx for closed deal on accept: %w", err)
+		return nil, fmt.Errorf("re-freeze fx for closed deal on accept: %w", err)
 	}
 	if _, err := tx.Exec(ctx,
 		`UPDATE deal SET amount_minor = $2, currency = $3, fx_rate_to_base = $4, fx_rate_date = $5 WHERE id = $1`,
 		dealID, offer.GrossMinor, offer.Currency, rate, rateDate); err != nil {
-		return fmt.Errorf("sync closed deal amount from offer: %w", err)
+		return nil, fmt.Errorf("sync closed deal amount from offer: %w", err)
 	}
-	return nil
+	changed["fx_rate_to_base"] = rate
+	changed["fx_rate_date"] = rateDate
+	return changed, nil
 }
 
 // RejectOffer runs sent → rejected. The optional reason rides the event

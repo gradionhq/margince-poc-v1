@@ -182,6 +182,13 @@ func applyEditedPayload(ctx context.Context, tx pgx.Tx, id ids.ApprovalID, edite
 	if err := json.Unmarshal(canonical, &editedChange); err != nil {
 		return fmt.Errorf("approvals: canonicalized edited change did not decode as a JSON object: %w", err)
 	}
+	if editedChange == nil {
+		// A literal JSON `null` decodes without error but leaves the map nil,
+		// which would emit edited_change: null (violating the public contract)
+		// and could resume a parked run with null args — reject it as an
+		// invalid edit (422) rather than a JSON object.
+		return &InvalidEditError{Cause: errors.New("payload is not a JSON object")}
+	}
 	wasEdited := true
 	decidedPayload.Edited = &wasEdited
 	decidedPayload.DiffHash = &editedHash

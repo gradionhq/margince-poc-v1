@@ -298,17 +298,25 @@ func (s *Store) UpdateStage(ctx context.Context, id ids.StageID, in UpdateStageI
 		if err != nil {
 			return fmt.Errorf("audit stage update: %w", err)
 		}
-		// Reorders are pipeline-level facts (ONE pipeline.updated with
-		// the position delta); everything else is a stage.updated.
+		// A reorder is a pipeline-level fact (pipeline.updated with the
+		// position delta); a name/semantic/probability edit is a stage-level
+		// fact (stage.updated). A single settings save can carry BOTH (the
+		// UI sends position alongside the edited fields), so emit each fact
+		// the update actually touched — they are NOT mutually exclusive.
+		// Treating them as exclusive dropped stage.updated whenever a position
+		// rode along, so a name/semantic change silently never reached
+		// subscribers.
 		if in.Position != nil {
-			err = storekit.EmitEvent(ctx, tx, auditID, pipelineID.UUID, crmcontracts.PublicEventPipelineUpdated{
+			if err := storekit.EmitEvent(ctx, tx, auditID, pipelineID.UUID, crmcontracts.PublicEventPipelineUpdated{
 				ChangedFields: map[string]any{"stage_positions": map[string]any{id.String(): *in.Position}},
-			})
-		} else {
-			err = storekit.EmitEvent(ctx, tx, auditID, id.UUID, stageUpdatedPayload(pipelineID, in))
+			}); err != nil {
+				return fmt.Errorf("emit pipeline reorder: %w", err)
+			}
 		}
-		if err != nil {
-			return fmt.Errorf("emit stage update: %w", err)
+		if in.Name != nil || in.Semantic != nil || in.WinProbability != nil {
+			if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, stageUpdatedPayload(pipelineID, in)); err != nil {
+				return fmt.Errorf("emit stage update: %w", err)
+			}
 		}
 		if out, err = readStage(ctx, tx, id, storekit.IncludeArchived); err != nil {
 			return fmt.Errorf("read updated stage: %w", err)
@@ -325,12 +333,28 @@ func (s *Store) UpdateStage(ctx context.Context, id ids.StageID, in UpdateStageI
 // change publishes a pipeline.updated instead, per the caller's branch),
 // so an untouched field stays a nil pointer and is omitted from the wire
 // body rather than marshaled as null.
+//
+// A terminal semantic forces the committed win_probability (won → 100,
+// lost → 0) in the same UPDATE, so the payload MUST reflect that committed
+// value, not the caller's input — otherwise a subscriber would see a
+// win_probability that never hit the row.
 func stageUpdatedPayload(pipelineID ids.PipelineID, in UpdateStageInput) crmcontracts.PublicEventStageUpdated {
+	winProbability := in.WinProbability
+	if in.Semantic != nil {
+		switch StageSemantic(*in.Semantic) {
+		case SemanticWon:
+			won := 100
+			winProbability = &won
+		case SemanticLost:
+			lost := 0
+			winProbability = &lost
+		}
+	}
 	return crmcontracts.PublicEventStageUpdated{
 		PipelineId:     openapi_types.UUID(pipelineID.UUID),
 		Name:           in.Name,
 		Semantic:       in.Semantic,
-		WinProbability: in.WinProbability,
+		WinProbability: winProbability,
 	}
 }
 

@@ -30,20 +30,23 @@ import (
 // enqueued before this mapping existed keeps its pre-migration (internal-
 // shape) body forever; toWireEnvelope is never applied retroactively.
 func toWireEnvelope(env kevents.Envelope) (crmcontracts.PublicEventEnvelope, error) {
-	// The public PublicEventEnvelope.data is a required object. A
-	// pre-migration outbox row with an empty payload (the old lead.created /
-	// *.archived sites emitted nil) must map to an empty object {}, never
-	// JSON null — a null would fail the subscriber's schema validation.
-	data := map[string]interface{}{}
-	if len(env.Payload) > 0 {
-		if err := json.Unmarshal(env.Payload, &data); err != nil {
-			// env.Payload is JSON this same process marshaled moments earlier
-			// from a typed PublicEvent* struct (the module stores' emit
-			// sites); a decode failure here means that contract broke
-			// upstream, not a wire input to tolerate — surface it rather than
-			// silently deliver a truncated envelope.
-			return crmcontracts.PublicEventEnvelope{}, fmt.Errorf("webhooks: decoding payload for event %s as the public data field: %w", env.EventID, err)
-		}
+	// data is carried through as RAW JSON (json.RawMessage), byte-for-byte
+	// from the outbox payload — NOT decoded into map[string]interface{} and
+	// re-encoded, which would round-trip every JSON number through float64 and
+	// silently lose precision on a large int64 (amount_minor_at_change and
+	// friends). The public PublicEventEnvelope.data is a required object, so a
+	// row with an empty payload (the old lead.created / *.archived sites
+	// emitted nil) maps to an empty object {}, never JSON null — a null would
+	// fail the subscriber's schema validation.
+	data := json.RawMessage(env.Payload)
+	if len(data) == 0 {
+		data = json.RawMessage("{}")
+	} else if !json.Valid(data) {
+		// env.Payload is JSON this same process marshaled moments earlier from
+		// a typed PublicEvent* struct (the module stores' emit sites); invalid
+		// bytes here mean that contract broke upstream, not a wire input to
+		// tolerate — surface it rather than deliver a corrupt envelope.
+		return crmcontracts.PublicEventEnvelope{}, fmt.Errorf("webhooks: payload for event %s is not valid JSON for the public data field", env.EventID)
 	}
 	return crmcontracts.PublicEventEnvelope{
 		EventId:    openapi_types.UUID(env.EventID),

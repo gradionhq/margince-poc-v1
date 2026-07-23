@@ -3,6 +3,7 @@
 package crmcontracts
 
 import (
+	"encoding/json"
 	"time"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -439,8 +440,8 @@ type PublicEventEnvelope struct {
 	// CorrelationId Correlates all events emitted for one originating request.
 	CorrelationId openapi_types.UUID `json:"correlation_id"`
 
-	// Data The typed event payload (one of the PublicEvent* schemas).
-	Data map[string]interface{} `json:"data"`
+	// Data The typed event payload (one of the PublicEvent* schemas), carried as raw JSON so it is delivered byte-for-byte — large int64 fields (e.g. amount_minor_at_change) are never round-tripped through a float64 that would lose precision.
+	Data json.RawMessage `json:"data"`
 
 	// Entity The primary entity the event concerns.
 	Entity PublicEventEntityRef `json:"entity"`
@@ -967,7 +968,7 @@ type PublicEventVoiceBuildChanged struct {
 	// Stage The build's current pipeline stage (absent before it starts running).
 	Stage *string `json:"stage,omitempty"`
 
-	// Status The build's status (queued | deferred | running | completed | failed).
+	// Status The build's status, one of queued | deferred | running | succeeded | failed — exactly the values voice_build_run.go persists and emits ("succeeded" is the success terminal, not "completed").
 	Status string `json:"status"`
 
 	// StatusCode A machine-readable status detail code (absent unless the build failed or deferred).
@@ -976,7 +977,7 @@ type PublicEventVoiceBuildChanged struct {
 
 // PublicEventVoiceCorpusChanged Payload for voice.corpus_changed — a UNION across four emit sites that all mutate the corpus feeding a profile's build: a source's inclusion/weight was updated (voice_source_mutations.go's recordSourceUpdate), a source was removed (RemoveSource), a source was ingested/re-ingested (voice_source_store.go's recordSourceIngest), or the whole corpus was cleared (voice_source_mutations.go's ClearCorpus). source_id/origin/register name the touched source and are therefore absent on the clear site, which acts on the corpus as a whole.
 type PublicEventVoiceCorpusChanged struct {
-	// Action What happened to the corpus (included | excluded | removed | cleared).
+	// Action What happened to the corpus, one of: ingested (a new source was added) | replaced (an existing source was re-ingested) | included | excluded | removed | cleared. These are exactly the values the emit sites stamp (voice_source_store.go sourceIngestChange, voice_source_mutations.go sourceInclusionChange / ClearCorpus).
 	Action string `json:"action"`
 
 	// Origin The touched source's origin (manual | capture) (absent on the clear site).

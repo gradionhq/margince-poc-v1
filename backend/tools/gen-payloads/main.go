@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"go/format"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -299,6 +300,12 @@ func intExtension(ext map[string]any, key, schema string) (int, bool, error) {
 	}
 	switch v := raw.(type) {
 	case float64:
+		// A bare JSON number decodes to float64; a fractional value (1.5)
+		// would silently truncate to 1 and pass the version gate, so reject
+		// anything that does not round-trip through int.
+		if v != math.Trunc(v) {
+			return 0, false, fmt.Errorf("schema %q: %s must be an integer, got %v", schema, key, v)
+		}
 		return int(v), true, nil
 	case json.RawMessage:
 		var n int
@@ -311,30 +318,39 @@ func intExtension(ext map[string]any, key, schema string) (int, bool, error) {
 	}
 }
 
-// backendRoot walks up from the working directory to the backend Go module
-// root (the directory whose go.mod declares the backend module). The
-// //go:generate directive runs from internal/contracts, but resolving the
-// module root explicitly keeps the tool runnable from anywhere.
+// backendRoot locates the backend Go module root (the directory whose go.mod
+// declares the backend module). The //go:generate directive runs from
+// internal/contracts, but the repo's standard entry point is the repository
+// root — so at each ancestor it checks both that directory's go.mod AND a
+// `<ancestor>/backend/go.mod`, letting the tool run from the repo root
+// (`go run ./backend/tools/gen-payloads`) as well as from inside the module.
 func backendRoot() (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {
 		return "", err
 	}
 	const want = "module github.com/gradionhq/margince/backend"
+	isBackendModule := func(gomod string) bool {
+		data, err := os.ReadFile(gomod) // #nosec G304 -- walking to locate the module root
+		if err != nil {
+			return false
+		}
+		first := string(data)
+		if i := strings.IndexByte(first, '\n'); i >= 0 {
+			first = first[:i]
+		}
+		return strings.TrimSpace(first) == want
+	}
 	for {
-		gomod := filepath.Join(dir, "go.mod")
-		if data, err := os.ReadFile(gomod); err == nil { // #nosec G304 -- walking to locate the module root
-			first := string(data)
-			if i := strings.IndexByte(first, '\n'); i >= 0 {
-				first = first[:i]
-			}
-			if strings.TrimSpace(first) == want {
-				return dir, nil
-			}
+		if isBackendModule(filepath.Join(dir, "go.mod")) {
+			return dir, nil
+		}
+		if backend := filepath.Join(dir, "backend"); isBackendModule(filepath.Join(backend, "go.mod")) {
+			return backend, nil
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", fmt.Errorf("could not locate the backend module root (%q) above the working directory", want)
+			return "", fmt.Errorf("could not locate the backend module root (%q) at or above the working directory", want)
 		}
 		dir = parent
 	}

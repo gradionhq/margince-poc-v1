@@ -245,6 +245,13 @@ func (s *VoiceStore) ClearCorpus(ctx context.Context, profileID ids.UUID, ifVers
 		if ifVersion != nil && *ifVersion != before.Version {
 			return apperrors.ErrVersionSkew
 		}
+		// Capture the eligible word count BEFORE the corpus is emptied — the
+		// clear drops it to zero, so word_delta is the negative of what was
+		// there (the promised eligible-word-count decrease this action caused).
+		preClear, err := corpusSummary(ctx, tx, profileID)
+		if err != nil {
+			return err
+		}
 		now := s.now().UTC()
 		if _, err := tx.Exec(ctx, `
 			UPDATE voice_corpus_source SET content = NULL, content_erased_at = $2,
@@ -287,7 +294,7 @@ func (s *VoiceStore) ClearCorpus(ctx context.Context, profileID ids.UUID, ifVers
 			return err
 		}
 		return storekit.EmitEvent(ctx, tx, auditID, profileID,
-			voiceCorpusChangedPayload(profileID, nil, "cleared", nil, nil, 0, 0,
+			voiceCorpusChangedPayload(profileID, nil, "cleared", nil, nil, -preClear.TotalWords, 0,
 				"d41d8cd98f00b204e9800998ecf8427e"))
 	})
 	return cleared, err

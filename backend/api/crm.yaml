@@ -7729,10 +7729,18 @@ components:
 
     WebhookSubscriptionListResponse:
       type: object
-      required: [data, page]
+      required: [data, page, delivery_enabled]
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/WebhookSubscription' } }
         page: { $ref: '#/components/schemas/PageInfo' }
+        delivery_enabled:
+          type: boolean
+          description: >-
+            Whether this deployment has a signing key configured. When false,
+            subscriptions can be listed and inspected but create/rotate/replay
+            are unavailable (they answer 503 webhooks_not_configured), so the UI
+            renders a not-enabled state instead of controls that would only fail
+            on click.
 
     WebhookDelivery:
       type: object

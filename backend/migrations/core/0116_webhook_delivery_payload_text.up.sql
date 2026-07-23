@@ -6,4 +6,18 @@
 -- event has been trimmed (events.md §4.4). No jsonb operator is ever used
 -- against this column (it is only read/written as whole bytes), so text
 -- loses nothing the code depends on.
+--
+-- Pre-0116 exception: rows written BEFORE this migration were already stored
+-- as jsonb, so their signed bytes were canonicalized at INSERT time and are
+-- gone — payload::text below preserves only that canonicalized form, not the
+-- bytes the receiver originally signed. The verbatim-replay guarantee
+-- therefore holds only for deliveries enqueued AFTER 0116; a pre-0116 parked
+-- row that is replayed re-signs its canonicalized body (acceptable: a receiver
+-- validating the fresh signature still verifies, and no pre-0116 row predates
+-- the feature's own rollout).
+--
+-- This is an in-place full-table rewrite: at PoC scale (bounded delivery
+-- history) that is a brief lock, not the multi-hour expand/backfill/contract a
+-- high-volume table would need. Revisit with a bounded lock_timeout + a
+-- shadow-column backfill if delivery history ever grows large.
 ALTER TABLE webhook_delivery ALTER COLUMN payload TYPE text USING payload::text;

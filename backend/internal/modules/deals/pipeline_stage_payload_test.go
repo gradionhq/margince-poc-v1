@@ -154,3 +154,41 @@ func TestStageUpdatedEmitsTypedPayload(t *testing.T) {
 		t.Errorf("got %v, want %v", decoded, payload)
 	}
 }
+
+// TestStageUpdatedPayloadForcesTerminalWinProbability pins that the emitted
+// stage.updated win_probability matches what the UPDATE committed: a terminal
+// semantic forces won → 100 / lost → 0 in SQL, so the payload must carry that
+// committed value, not the caller's input (which UPDATE ignored for a
+// terminal semantic).
+func TestStageUpdatedPayloadForcesTerminalWinProbability(t *testing.T) {
+	pipelineID := ids.From[ids.PipelineKind](ids.NewV7())
+	callerValue := 55 // what the caller sent; SQL ignores it for a terminal semantic
+
+	for _, tc := range []struct {
+		semantic string
+		want     int
+	}{
+		{"won", 100},
+		{"lost", 0},
+	} {
+		t.Run(tc.semantic, func(t *testing.T) {
+			semantic := tc.semantic
+			in := UpdateStageInput{Semantic: &semantic, WinProbability: &callerValue}
+			payload := stageUpdatedPayload(pipelineID, in)
+			if payload.WinProbability == nil {
+				t.Fatalf("win_probability must be present for a terminal semantic")
+			}
+			if *payload.WinProbability != tc.want {
+				t.Errorf("win_probability = %d, want %d (the committed terminal value)", *payload.WinProbability, tc.want)
+			}
+		})
+	}
+
+	// An open semantic leaves the caller's value untouched.
+	open := "open"
+	prob := 42
+	payload := stageUpdatedPayload(pipelineID, UpdateStageInput{Semantic: &open, WinProbability: &prob})
+	if payload.WinProbability == nil || *payload.WinProbability != 42 {
+		t.Errorf("open semantic must keep the caller's win_probability 42, got %v", payload.WinProbability)
+	}
+}

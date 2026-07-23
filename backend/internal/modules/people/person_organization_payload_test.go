@@ -29,9 +29,8 @@ import (
 
 func TestPromotedPersonPayload_Created(t *testing.T) {
 	person := crmcontracts.Person{FullName: "Ada Lovelace"}
-	leadID := ids.From[ids.LeadKind](ids.NewV7())
 
-	payload := promotedPersonPayload(person, false, leadID)
+	payload := promotedPersonPayload(person, false, nil)
 
 	if !reflect.DeepEqual(payload.EventType(), "person.created") {
 		t.Errorf("got %v, want %v", payload.EventType(), "person.created")
@@ -64,7 +63,11 @@ func TestPromotedPersonPayload_Merged(t *testing.T) {
 	person := crmcontracts.Person{FullName: "Grace Hopper"}
 	leadID := ids.From[ids.LeadKind](ids.NewV7())
 
-	payload := promotedPersonPayload(person, true, leadID)
+	// The merge delta is exactly what mergeLeadIntoPerson applied — the event
+	// carries it verbatim (a filled title, and converted_from_lead_id only
+	// when it was actually set), not a fixed map.
+	mergeFields := map[string]any{"converted_from_lead_id": leadID.UUID, "title": "VP Engineering"}
+	payload := promotedPersonPayload(person, true, mergeFields)
 
 	if !reflect.DeepEqual(payload.EventType(), "person.updated") {
 		t.Errorf("got %v, want %v", payload.EventType(), "person.updated")
@@ -73,8 +76,17 @@ func TestPromotedPersonPayload_Merged(t *testing.T) {
 	if !ok {
 		t.Error("expected the condition to be true")
 	}
-	if !reflect.DeepEqual(updated.ChangedFields["converted_from_lead_id"], leadID) {
-		t.Errorf("got %v, want %v", updated.ChangedFields["converted_from_lead_id"], leadID)
+	if !reflect.DeepEqual(updated.ChangedFields, mergeFields) {
+		t.Errorf("got %v, want %v", updated.ChangedFields, mergeFields)
+	}
+}
+
+// TestPromotedPersonPayload_MergedNoChange proves a fill-only merge that
+// applied nothing emits NO person.updated (a changed_fields note with no
+// fields would be a false claim).
+func TestPromotedPersonPayload_MergedNoChange(t *testing.T) {
+	if payload := promotedPersonPayload(crmcontracts.Person{}, true, nil); payload != nil {
+		t.Errorf("no-op merge produced %v, want nil (no person.updated)", payload)
 	}
 }
 

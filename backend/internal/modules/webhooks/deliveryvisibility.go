@@ -13,6 +13,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // workspaceLevelEntities are the event subject types with NO per-owner row
@@ -102,17 +103,23 @@ var deferredDeliveryEntities = map[string]string{
 }
 
 // entityVisibleTo reports whether the entity an event names is visible to
-// ctx's principal under the row-scope gate (BYO-EVT-4: fan-out never
+// ctx's principal under the READ path's FULL gate (BYO-EVT-4: fan-out never
 // escalates past what the owner may see). It classifies by EVENT TYPE
 // first (a deferredDeliveryEvents subject's runtime object_class collides
 // with the row-scoped entity names, so it must be caught before the
-// switch), then by entity type: row-scoped subjects are probed against the
-// owner's live scope; an offer inherits its parent deal's scope; genuinely
-// ownerless workspace-level subjects (workspaceLevelEntities) deliver to
-// any live owner; a ratified deferred-delivery subject (deferredDelivery*)
-// is EXPLICITLY not delivered; ANY OTHER type is DENIED (fail-closed) so an
-// unclassified subject can never leak. Out of scope reads as not-visible,
-// never an error that would strand the whole fan-out.
+// switch), then by entity type: a row-scoped subject is admitted only when
+// the owner holds BOTH the object-level read capability AND the row scope —
+// exactly the two halves <entity>.Get enforces (auth.Require +
+// auth.EnsureVisible), so a lingering row scope with no current read grant
+// can no longer leak the payload; an offer inherits its parent deal's row
+// scope behind offer.read; an approval is target-visibility gated
+// (approvalVisibleTo); genuinely ownerless workspace-level subjects
+// (workspaceLevelEntities) deliver to any live owner (a bare ref the
+// receiver re-reads under its own scope); a ratified deferred-delivery
+// subject (deferredDelivery*) is EXPLICITLY not delivered; ANY OTHER type is
+// DENIED (fail-closed) so an unclassified subject can never leak. Object
+// denial and a row-scope miss both read as not-visible; only a real
+// infrastructure error surfaces, never stranding the whole fan-out.
 func (s *Store) entityVisibleTo(ctx context.Context, eventType, entityType string, entityID ids.UUID) (bool, error) {
 	if _, deferred := deferredDeliveryEvents[eventType]; deferred {
 		// Subject class is a runtime string with no owner-scopable id —
@@ -122,20 +129,21 @@ func (s *Store) entityVisibleTo(ctx context.Context, eventType, entityType strin
 	}
 	switch entityType {
 	case "person", "organization", "deal", "lead", "voice_profile":
-		return s.probeVisible(ctx, func(c context.Context, tx pgx.Tx) error {
+		return s.rowScopedVisible(ctx, entityType, func(c context.Context, tx pgx.Tx) error {
 			return auth.EnsureVisible(c, tx, entityType, entityID)
 		})
 	case "activity":
-		return s.probeVisible(ctx, func(c context.Context, tx pgx.Tx) error {
+		return s.rowScopedVisible(ctx, "activity", func(c context.Context, tx pgx.Tx) error {
 			return auth.EnsureActivityVisible(c, tx, entityID)
 		})
 	case "signal":
-		return s.probeVisible(ctx, func(c context.Context, tx pgx.Tx) error {
+		return s.rowScopedVisible(ctx, "signal", func(c context.Context, tx pgx.Tx) error {
 			return auth.EnsureSignalVisible(c, tx, entityID)
 		})
 	case "offer":
 		// An offer has no owner of its own — it is row-scoped through its
-		// parent deal, exactly as the offer read path gates (deals/offer.go).
+		// parent deal behind offer.read, exactly as the offer read path
+		// gates (deals/offer_read.go: auth.Require("offer") + deal scope).
 		return s.offerVisibleTo(ctx, entityID)
 	case "approval":
 		// An approval (and its coldstart.* echoes) carries staged-change
@@ -143,7 +151,7 @@ func (s *Store) entityVisibleTo(ctx context.Context, eventType, entityType strin
 		// the SAME target-visibility predicate the approvals inbox uses
 		// (approvals/authority.go targetVisible, C3/ADR-0036: what you
 		// cannot see you cannot decide), never fanned out workspace-wide.
-		return s.approvalVisibleTo(ctx, eventType, entityID)
+		return s.approvalVisibleTo(ctx, entityID)
 	default:
 		if _, ok := workspaceLevelEntities[entityType]; ok {
 			return true, nil
@@ -155,6 +163,33 @@ func (s *Store) entityVisibleTo(ctx context.Context, eventType, entityType strin
 		}
 		// Fail closed: an unclassified subject type is NOT delivered.
 		return false, nil
+	}
+}
+
+// rowScopedVisible mirrors a record read's FULL admission for a row-scoped
+// subject: the object-level read capability (auth.Require — the half a bare
+// EnsureVisible skips) AND the row scope must BOTH admit, exactly as
+// <entity>.Get does. Object denial (ErrPermissionDenied) or a row-scope miss
+// (ErrNotFound) reads as not-visible; a real error surfaces.
+func (s *Store) rowScopedVisible(ctx context.Context, object string, probe func(context.Context, pgx.Tx) error) (bool, error) {
+	readable, err := objectReadable(ctx, object)
+	if err != nil || !readable {
+		return false, err
+	}
+	return s.probeVisible(ctx, probe)
+}
+
+// objectReadable reports whether ctx's principal holds the object-level read
+// grant on object — the auth.Require half of the read path. A denial reads as
+// not-readable (false, nil); a resolution error surfaces.
+func objectReadable(ctx context.Context, object string) (bool, error) {
+	switch err := auth.Require(ctx, object, principal.ActionRead); {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, apperrors.ErrPermissionDenied):
+		return false, nil
+	default:
+		return false, err
 	}
 }
 
@@ -173,10 +208,23 @@ func (s *Store) probeVisible(ctx context.Context, probe func(context.Context, pg
 	}
 }
 
-// offerVisibleTo resolves an offer's parent deal and gates on the owner's
-// visibility of THAT deal — an offer carries no owner_id, so its
-// sensitivity is the deal's. An absent offer reads as not-visible.
+// offerVisibleTo mirrors GetOffer's admission: offer.read AND the parent
+// deal's row scope (an offer carries no owner_id — its sensitivity is the
+// deal's). Object denial or an absent/out-of-scope deal reads as not-visible.
 func (s *Store) offerVisibleTo(ctx context.Context, offerID ids.UUID) (bool, error) {
+	readable, err := objectReadable(ctx, "offer")
+	if err != nil || !readable {
+		return false, err
+	}
+	return s.offerDealVisible(ctx, offerID)
+}
+
+// offerDealVisible resolves an offer's parent deal and gates on the owner's
+// row-scope visibility of THAT deal — the offer's row-scope anchor, shared by
+// the direct offer path (behind offer.read) and the approval-target path
+// (which mirrors approvals.targetVisible: deal row scope, no offer.read). An
+// absent offer reads as not-visible.
+func (s *Store) offerDealVisible(ctx context.Context, offerID ids.UUID) (bool, error) {
 	var dealID ids.UUID
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `SELECT deal_id FROM offer WHERE id = $1`, offerID).Scan(&dealID)
@@ -197,9 +245,8 @@ func (s *Store) offerVisibleTo(ctx context.Context, offerID ids.UUID) (bool, err
 // authority.go targetVisible, C3/ADR-0036): the approval's envelope leaks
 // staged-change detail (summary, edited_change, target ids), so it may only
 // reach an owner who can see the TARGET record. It resolves the approval's
-// polymorphic target and recurses the row-scope gate on it, reusing the
-// person/organization/deal/lead/activity/signal/offer probes above. A
-// target-LESS approval (some approval.requested proposals and every
+// polymorphic target and applies the target's row scope (approvalTargetVisible)
+// A target-LESS approval (some approval.requested proposals and every
 // coldstart.* echo carry no target) cannot be scope-bounded, so it is
 // FAIL-CLOSED (not delivered) — a ratified deferral, exactly like the
 // deferredDelivery* subjects: never a workspace-wide fan-out of content the
@@ -207,7 +254,7 @@ func (s *Store) offerVisibleTo(ctx context.Context, offerID ids.UUID) (bool, err
 // not-visible. The approval table is read with a raw probe under the
 // existing WithWorkspaceTx boundary rather than importing the approvals
 // module (a module never imports a sibling).
-func (s *Store) approvalVisibleTo(ctx context.Context, eventType string, approvalID ids.UUID) (bool, error) {
+func (s *Store) approvalVisibleTo(ctx context.Context, approvalID ids.UUID) (bool, error) {
 	var (
 		targetType *string
 		targetID   *ids.UUID
@@ -229,5 +276,61 @@ func (s *Store) approvalVisibleTo(ctx context.Context, eventType string, approva
 		// leaked workspace-wide.
 		return false, nil
 	}
-	return s.entityVisibleTo(ctx, eventType, *targetType, *targetID)
+	return s.approvalTargetVisible(ctx, *targetType, *targetID)
+}
+
+// approvalTargetVisible mirrors approvals.targetVisible (approvals/
+// authority.go) exactly: it applies the TARGET record's OWN row scope (person/
+// organization/deal/lead/offer/signal/activity) or, for the workspace-shared
+// admin config the approvals surface also stages against (product,
+// custom_field), the same existence floor — NOT the object-read capability the
+// direct read path adds. Diverging from entityVisibleTo is deliberate: the
+// approval authority model is decision-grant + target row visibility, so a
+// webhook owner must receive an approval exactly when the inbox would show it,
+// no more and no less. An unknown target type is fail-closed. This is a
+// self-contained duplicate of the sibling module's rule (a module never
+// imports a sibling); the two must stay in step.
+func (s *Store) approvalTargetVisible(ctx context.Context, targetType string, targetID ids.UUID) (bool, error) {
+	switch targetType {
+	case "person", "organization", "deal", "lead":
+		return s.probeVisible(ctx, func(c context.Context, tx pgx.Tx) error {
+			return auth.EnsureVisible(c, tx, targetType, targetID)
+		})
+	case "offer":
+		return s.offerDealVisible(ctx, targetID)
+	case "signal":
+		return s.probeVisible(ctx, func(c context.Context, tx pgx.Tx) error {
+			return auth.EnsureSignalVisible(c, tx, targetID)
+		})
+	case "activity":
+		return s.probeVisible(ctx, func(c context.Context, tx pgx.Tx) error {
+			return auth.EnsureActivityVisible(c, tx, targetID)
+		})
+	case "product":
+		// Rate-card products are workspace-shared config with no row scope —
+		// existence is the floor (approvals.targetVisible); an archived product
+		// is not a live target.
+		return s.rowExists(ctx, `SELECT EXISTS (SELECT 1 FROM product WHERE id = $1 AND archived_at IS NULL)`, targetID)
+	case "custom_field":
+		// The field catalog is workspace-shared admin config with no row scope;
+		// no archived_at predicate — retire is a status flip that keeps the row
+		// live, matching approvals.targetVisible.
+		return s.rowExists(ctx, `SELECT EXISTS (SELECT 1 FROM custom_field WHERE id = $1)`, targetID)
+	default:
+		// Unknown target type: fail closed, exactly like approvals.targetVisible.
+		return false, nil
+	}
+}
+
+// rowExists runs a single-row existence probe under the ctx's workspace tx —
+// the workspace-shared-config floor the approval-target gate shares.
+func (s *Store) rowExists(ctx context.Context, query string, id ids.UUID) (bool, error) {
+	var exists bool
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, query, id).Scan(&exists)
+	})
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
 }

@@ -93,13 +93,19 @@ func (d *Deliverer) HandleEvent(ctx context.Context, env kevents.Envelope) error
 		return fmt.Errorf("webhooks: matching subscriptions for %s: %w", env.Type, err)
 	}
 	visible := make([]ids.UUID, 0, len(cands))
+	var visErr error
 	for _, c := range cands {
 		ok, err := d.ownerCanSee(wsCtx, env, c.ownerID)
 		if err != nil {
 			// One owner's resolver/visibility failure must not strand the
-			// rest of the fan-out; skip it (fail-closed for this sub) and
-			// let the bus redelivery re-evaluate on the next pass.
+			// rest of the fan-out: process the other candidates, but RETAIN
+			// the error so this method returns non-nil at the end. A
+			// transient visibility-query failure is NOT a silent drop — the
+			// bus is at-least-once, so returning an error re-drives HandleEvent
+			// and the idempotent enqueue re-evaluates the skipped owner
+			// (already-delivered candidates de-dupe on the bus event id).
 			d.log.Error("webhooks: owner visibility check", "subscription", c.id, "owner", c.ownerID, "event", env.EventID, "err", err)
+			visErr = errors.Join(visErr, fmt.Errorf("owner %s: %w", c.ownerID, err))
 			continue
 		}
 		if ok {
@@ -112,6 +118,12 @@ func (d *Deliverer) HandleEvent(ctx context.Context, env kevents.Envelope) error
 	}
 	for _, t := range targets {
 		d.deliverOnce(wsCtx, t)
+	}
+	if visErr != nil {
+		// The visible candidates were enqueued and attempted above (idempotent
+		// on the bus event id); returning the error asks the bus to redeliver
+		// so the owner(s) whose check transiently failed get re-evaluated.
+		return fmt.Errorf("webhooks: owner visibility checks failed for event %s: %w", env.EventID, visErr)
 	}
 	return nil
 }

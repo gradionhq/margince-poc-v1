@@ -266,14 +266,19 @@ func emitTestContext() context.Context {
 func decodedOutboxEntityType(t *testing.T, tx *fakeTx) string {
 	t.Helper()
 	if !strings.Contains(tx.execSQL, "INSERT INTO event_outbox") {
-		t.Errorf("%q should contain %q", tx.execSQL, "INSERT INTO event_outbox")
+		t.Fatalf("%q should contain %q", tx.execSQL, "INSERT INTO event_outbox")
 	}
 	if len(tx.execArgs) != 2 {
-		t.Errorf("len = %d, want %d", len(tx.execArgs), 2)
+		// Fatal, not Error: the index below would panic on a short slice,
+		// masking the real "wrong arg count" failure.
+		t.Fatalf("len = %d, want %d", len(tx.execArgs), 2)
 	}
 	body, ok := tx.execArgs[1].([]byte)
 	if !ok {
-		t.Errorf("second Exec arg = %T, want []byte (the marshaled envelope)", tx.execArgs[1])
+		// Fatal, not Error: a nil body would make json.Unmarshal below report
+		// a confusing "unexpected end of JSON input" instead of the real
+		// "wrong argument type" failure.
+		t.Fatalf("second Exec arg = %T, want []byte (the marshaled envelope)", tx.execArgs[1])
 	}
 	var env events.Envelope
 	if json.Unmarshal(body, &env) != nil {

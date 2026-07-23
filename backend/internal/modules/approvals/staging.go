@@ -110,14 +110,19 @@ func (s *Service) StageInTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.
 	}
 	wsID, _ := principal.WorkspaceID(ctx)
 	id := ids.New[ids.ApprovalKind]()
+	// Compute ONE absolute expiry and use it for BOTH the persisted row and
+	// the payload — deriving the row's expires_at from the DB now() while the
+	// payload used the app clock let approval.requested.data.expires_at drift
+	// from what the approval row actually stored.
+	expiresAt := s.now().UTC().Add(stagingTTL)
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO approval (id, workspace_id, kind, proposed_by, on_behalf_of, passport_id,
 			                       target_entity_type, target_entity_id, target_version,
 			                       summary, proposed_change, diff_hash, expires_at)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now() + $13::interval)`,
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 		id, wsID, in.Kind, p.ID, nullUUID(p.OnBehalfOf), nullUUID(p.PassportID),
 		nullStr(in.TargetType), nullUUID(in.TargetID), in.TargetVersion,
-		nullStr(in.Summary), in.ProposedChange, in.DiffHash, stagingTTL.String()); err != nil {
+		nullStr(in.Summary), in.ProposedChange, in.DiffHash, expiresAt); err != nil {
 		return ids.ApprovalID{}, err
 	}
 	auditID, err := s.audit(ctx, tx, p, "create", id.UUID, map[string]any{
@@ -131,12 +136,22 @@ func (s *Service) StageInTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.
 		Summary:          in.Summary,
 		TargetEntityType: in.TargetType,
 		TargetEntityId:   optionalTargetID(in.TargetID),
-		ExpiresAt:        s.now().UTC().Add(stagingTTL),
+		ExpiresAt:        expiresAt,
 	}
 	if err := s.emit(ctx, tx, p, auditID, id.UUID, requested); err != nil {
 		return ids.ApprovalID{}, err
 	}
 	for _, announce := range in.Announce {
+		// emit() forces the entity type to "approval" (an announced event is
+		// an approval-scoped echo). A nil payload would panic on EventType(),
+		// and a non-approval payload would be mislabeled and misrouted at
+		// fan-out — so refuse both rather than emit an unroutable envelope.
+		if announce.Payload == nil {
+			return ids.ApprovalID{}, errors.New("crmapprovals: announced event has no payload")
+		}
+		if entityType := announce.Payload.EntityType(); entityType != "approval" {
+			return ids.ApprovalID{}, fmt.Errorf("crmapprovals: announced event payload has entity type %q, want approval", entityType)
+		}
 		if err := s.emit(ctx, tx, p, auditID, id.UUID, announce.Payload); err != nil {
 			return ids.ApprovalID{}, err
 		}

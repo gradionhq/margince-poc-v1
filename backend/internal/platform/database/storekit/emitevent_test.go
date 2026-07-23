@@ -160,28 +160,51 @@ func TestEmitEvent_derivesTypeAndEntityFromPayload(t *testing.T) {
 }
 
 // TestEmitEventForEntity_overridesEntityType proves the caller-supplied
-// entityType wins over the payload's own EntityType() — the seam the 5
-// dynamic-entity event types need, since their subject is a runtime value
-// the payload's static type cannot name.
+// entityType wins over the payload's own EntityType() for a DYNAMIC-entity
+// event — the seam those event types need, since their subject is a runtime
+// value the payload's static type ("dynamic") cannot name.
 func TestEmitEventForEntity_overridesEntityType(t *testing.T) {
 	ctx := emitTestContext()
 	tx := &fakeTx{}
 	auditID := ids.NewV7()
 	runtimeEntityID := ids.NewV7()
-	payload := crmcontracts.PublicEventDealStageChanged{}
+	// consent.changed is x-entity-type: dynamic — EntityType() == "dynamic".
+	payload := crmcontracts.PublicEventConsentChanged{}
 
-	if err := EmitEventForEntity(ctx, tx, auditID, "consent_purpose", runtimeEntityID, payload); err != nil {
+	if err := EmitEventForEntity(ctx, tx, auditID, "lead", runtimeEntityID, payload); err != nil {
 		t.Fatalf("EmitEventForEntity: %v", err)
 	}
 
 	_, env := decodedOutboxRow(t, tx)
-	if env.Type != "deal.stage_changed" {
-		t.Fatalf("envelope.Type = %q, want %q (event type still comes from the payload)", env.Type, "deal.stage_changed")
+	if env.Type != "consent.changed" {
+		t.Fatalf("envelope.Type = %q, want %q (event type still comes from the payload)", env.Type, "consent.changed")
 	}
-	if env.Entity.Type != "consent_purpose" {
-		t.Fatalf("envelope.Entity.Type = %q, want the caller-supplied override %q, not payload.EntityType() (\"deal\")", env.Entity.Type, "consent_purpose")
+	if env.Entity.Type != "lead" {
+		t.Fatalf("envelope.Entity.Type = %q, want the caller-supplied override %q, not payload.EntityType() (\"dynamic\")", env.Entity.Type, "lead")
 	}
 	if env.Entity.ID != runtimeEntityID {
 		t.Fatalf("envelope.Entity.ID = %v, want %v", env.Entity.ID, runtimeEntityID)
+	}
+}
+
+// TestEmitSeamRejectsMismatchedPayloadEntityPairing proves the two guards that
+// keep the payload/entity pairing honest: a STATIC payload cannot be relabeled
+// through EmitEventForEntity, and a DYNAMIC payload cannot be staged through
+// EmitEvent (which would stamp the literal "dynamic" entity type that no
+// visibility gate can route).
+func TestEmitSeamRejectsMismatchedPayloadEntityPairing(t *testing.T) {
+	ctx := emitTestContext()
+	auditID := ids.NewV7()
+
+	// Static payload through the dynamic-only seam → rejected.
+	if err := EmitEventForEntity(ctx, &fakeTx{}, auditID, "lead", ids.NewV7(),
+		crmcontracts.PublicEventDealStageChanged{}); err == nil {
+		t.Fatal("EmitEventForEntity must reject a static-entity payload, not honor an arbitrary relabel")
+	}
+
+	// Dynamic payload through the static seam → rejected.
+	if err := EmitEvent(ctx, &fakeTx{}, auditID, ids.NewV7(),
+		crmcontracts.PublicEventConsentChanged{}); err == nil {
+		t.Fatal("EmitEvent must reject a dynamic-entity payload — it would stamp the literal \"dynamic\" entity type")
 	}
 }

@@ -317,6 +317,48 @@ func TestRowScopedSubjectsRouteToProbes(t *testing.T) {
 	}
 }
 
+// TestRowScopedSubjectRequiresObjectReadCapability pins the P0 gate: a
+// fan-out owner whose LIVE role no longer grants <entity>.read must NOT
+// receive a row-scoped payload, even if a lingering row scope would still
+// match. entityVisibleTo mirrors the read path (auth.Require AND
+// auth.EnsureVisible), so an owner lacking the read grant is denied BEFORE
+// any pool probe — the nil pool here proves the short-circuit: were the
+// object-read half removed, RowScopeAll would drive EnsureVisible into the
+// nil pool and panic.
+func TestRowScopedSubjectRequiresObjectReadCapability(t *testing.T) {
+	s := NewStore(nil, nil) // nil pool: reaching a row-scope probe would panic
+
+	noRead := principal.Principal{
+		Type:   principal.PrincipalHuman,
+		UserID: ids.NewV7(),
+		Permissions: principal.Permissions{
+			// deal.update but explicitly NOT deal.read; row_scope=all would
+			// otherwise make every deal row visible.
+			Objects:  map[string]principal.ObjectGrant{"deal": {Update: true}},
+			RowScope: principal.RowScopeAll,
+		},
+	}
+	ctx := principal.WithActor(context.Background(), noRead)
+	if ok, err := s.entityVisibleTo(ctx, "deal.updated", "deal", ids.NewV7()); ok || err != nil {
+		t.Fatalf("entityVisibleTo without deal.read = (%v, %v), want (false, nil)", ok, err)
+	}
+
+	// The same owner WITH deal.read passes the object-read half and proceeds
+	// to the row-scope probe, which on a nil pool fails loudly (a panic or an
+	// error) — anything but the clean (false, nil) deny above. This proves the
+	// earlier denial came from the missing read grant, not from some other
+	// short-circuit that would also block a properly-granted owner.
+	withRead := noRead
+	withRead.Permissions.Objects = map[string]principal.ObjectGrant{"deal": {Read: true}}
+	func() {
+		defer func() { _ = recover() }() // a nil-pool probe may panic; that still proves we reached it
+		ctx := principal.WithActor(context.Background(), withRead)
+		if ok, err := s.entityVisibleTo(ctx, "deal.updated", "deal", ids.NewV7()); !ok && err == nil {
+			t.Fatal("with deal.read, entityVisibleTo returned a clean deny — the read gate must have admitted it and reached the row-scope probe")
+		}
+	}()
+}
+
 func TestOwnerResolvesHumanBehindTheCall(t *testing.T) {
 	user := ids.NewV7()
 	onBehalf := ids.NewV7()

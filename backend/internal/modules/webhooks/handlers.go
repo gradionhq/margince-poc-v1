@@ -47,6 +47,7 @@ func (h Handlers) ListWebhookSubscriptions(w http.ResponseWriter, r *http.Reques
 	}
 	httperr.WriteJSON(w, http.StatusOK, crmcontracts.WebhookSubscriptionListResponse{
 		Data: data, Page: crmcontracts.PageInfo{HasMore: false},
+		DeliveryEnabled: h.store.DeliveryEnabled(),
 	})
 }
 

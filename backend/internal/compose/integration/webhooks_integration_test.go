@@ -24,6 +24,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -46,7 +47,21 @@ import (
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/authz"
 )
+
+// failingResolver is an authz.Resolver whose EffectiveRBAC always returns a
+// transient (non-ErrNotFound) error — the shape of a momentary DB/identity
+// failure during owner-scoped fan-out.
+type failingResolver struct{ err error }
+
+func (f failingResolver) EffectiveRBAC(context.Context, ids.UUID, ids.UUID) (authz.RBAC, error) {
+	return authz.RBAC{}, f.err
+}
+
+func (f failingResolver) SeatType(context.Context, ids.UUID, ids.UUID) (principal.SeatType, error) {
+	return "", f.err
+}
 
 // webhookEnv bundles the HTTP surface, the app pool and the shared cipher
 // so a test can both register a subscription (over HTTP) and drive the
@@ -143,9 +158,13 @@ func (r *receiver) snapshot() []receivedHit {
 // controllable clock, and the real identity-backed principal resolver so
 // the owner-scoped fan-out (BYO-EVT-4) runs against live grants.
 func newTestDeliverer(we *webhookEnv, now *time.Time, client *http.Client) *webhooks.Deliverer {
+	return newTestDelivererWithResolver(we, now, client, identity.NewService(we.pool))
+}
+
+func newTestDelivererWithResolver(we *webhookEnv, now *time.Time, client *http.Client, resolver authz.Resolver) *webhooks.Deliverer {
 	store := webhooks.NewStore(we.pool, we.cipher)
 	clock := func() time.Time { return *now }
-	return webhooks.NewDeliverer(store, client, clock, identity.NewService(we.pool),
+	return webhooks.NewDeliverer(store, client, clock, resolver,
 		slog.New(slog.NewTextHandler(os.Stderr, nil)))
 }
 
@@ -410,6 +429,29 @@ func TestWebhookFanOutStopsAtRevokedOwner(t *testing.T) {
 	}
 }
 
+// TestWebhookFanOutReturnsErrorOnTransientVisibilityFailure proves a
+// transient owner-visibility failure is NOT a silent drop: HandleEvent
+// returns a non-nil error so the at-least-once bus redelivers and the skipped
+// owner is re-evaluated once the failure clears (rather than the event being
+// lost for that subscription forever).
+func TestWebhookFanOutReturnsErrorOnTransientVisibilityFailure(t *testing.T) {
+	we := setupWebhooks(t)
+	rcv := newReceiver(t, http.StatusOK)
+	now := time.Now().UTC()
+	transient := errors.New("identity: connection reset")
+	deliverer := newTestDelivererWithResolver(we, &now, rcv.server.Client(), failingResolver{err: transient})
+
+	we.createSubscription(t, rcv.server.URL+"/hook", []string{"deal.created"})
+
+	err := deliverer.HandleEvent(context.Background(), makeEnvelope(we.wsID, "deal.created"))
+	if err == nil {
+		t.Fatal("HandleEvent must return an error when an owner's visibility check transiently fails, so the bus redelivers")
+	}
+	if n := rcv.count.Load(); n != 0 {
+		t.Fatalf("a candidate whose visibility check failed still received %d POSTs, want 0 (fail-closed for this pass)", n)
+	}
+}
+
 // TestWebhookFanOutFailsClosedForUnclassifiedSubject proves the delivery
 // gate is fail-closed (BYO-EVT-4): a matching event whose subject type has
 // no row-scope probe and is not on the workspace-level allow-list is NOT
@@ -497,19 +539,31 @@ func TestWebhookApprovalFanOutGatesOnTargetVisibility(t *testing.T) {
 		t.Fatalf("target-less approval produced %d POSTs, want 0 (fail-closed)", got)
 	}
 
-	// Case C: an approval whose target type the fan-out gate cannot resolve
-	// to an owner-scopable record (a workspace-shared product — no row-scope
-	// probe in entityVisibleTo) is FAIL-CLOSED, not fanned out. This proves
-	// the gate recurses on the target and denies an unreachable target,
-	// rather than blindly delivering any approval that carries a target.
+	// Case C: an approval over a workspace-shared product target that DOES
+	// NOT EXIST is fail-closed — existence is the floor the approval-target
+	// gate shares (approvalTargetVisible mirrors approvals.targetVisible), so
+	// a phantom product id delivers nothing.
 	product := "product"
-	productTarget := ids.NewV7()
-	unresolvableApproval := ids.NewV7()
-	we.insertApproval(t, unresolvableApproval, &product, &productTarget)
+	missingProductTarget := ids.NewV7()
+	missingProductApproval := ids.NewV7()
+	we.insertApproval(t, missingProductApproval, &product, &missingProductTarget)
 	before = rcv.count.Load()
-	handle("approval.decided", unresolvableApproval)
+	handle("approval.decided", missingProductApproval)
 	if got := rcv.count.Load() - before; got != 0 {
-		t.Fatalf("approval over an unresolvable target type produced %d POSTs, want 0 (fail-closed)", got)
+		t.Fatalf("approval over a non-existent product produced %d POSTs, want 0 (existence floor)", got)
+	}
+
+	// Case E: an approval over a REAL product target IS delivered — product
+	// (and custom_field) are workspace-shared config the approvals surface
+	// stages against, so a visible target must fan out (they were previously
+	// suppressed by entityVisibleTo's fail-closed default).
+	realProduct := we.seedProduct(t, "Enterprise Plan")
+	visibleProductApproval := ids.NewV7()
+	we.insertApproval(t, visibleProductApproval, &product, &realProduct)
+	before = rcv.count.Load()
+	handle("approval.decided", visibleProductApproval)
+	if got := rcv.count.Load() - before; got != 1 {
+		t.Fatalf("approval over an existing product produced %d POSTs, want 1", got)
 	}
 
 	// Case D: a cold-start echo shares entity "approval" and the same gate —
@@ -530,6 +584,18 @@ func (we *webhookEnv) seedPerson(t *testing.T, name string) ids.UUID {
 	id := ids.NewV7()
 	we.execInWorkspace(t,
 		`INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, $3, 'manual', 'human:x')`,
+		id, we.wsID, name)
+	return id
+}
+
+// seedProduct inserts a workspace-shared rate-card product and returns its id
+// — a target the approval-target gate resolves by existence (no row scope).
+func (we *webhookEnv) seedProduct(t *testing.T, name string) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	we.execInWorkspace(t,
+		`INSERT INTO product (id, workspace_id, name, unit_price_minor, currency, source, captured_by)
+		 VALUES ($1, $2, $3, 1000, 'USD', 'manual', 'human:x')`,
 		id, we.wsID, name)
 	return id
 }
