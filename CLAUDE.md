@@ -207,8 +207,8 @@ a working note, or a screenshot, and leave it out:
 - **Session scratch** — put working notes, plans, and intermediate output in
   the session's scratchpad temp dir, **not** a `scratchpad/` at the repo root.
 - **Screenshots / captures** — a `*.png`/`*.jpg` you took to look at something
-  is debris; only assets a screen actually imports (e.g. `frontend/src/assets/`)
-  are product.
+  is debris unless the product or the repo docs intentionally reference it
+  (e.g. imported from `frontend/src/assets/`, or embedded in a docs page).
 
 `.gitignore` catches the known offenders (root-anchored images, `/.pnpm-store/`,
 `/scratchpad/`), but the rule is yours to keep — a new debris path it doesn't
