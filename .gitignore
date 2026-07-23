@@ -61,3 +61,15 @@ workspace/
 # browser-driving session writes as it works. Debris from testing, never
 # product — and it lands here by default, so it is ignored by name.
 .playwright-mcp/
+
+# Agent debris that has slipped into the repo before — never product:
+#   - the pnpm content-addressable store (machine-local build cache)
+#   - a repo-root scratch dir (real scratch belongs in the session temp dir)
+#   - screenshots dropped at the repo root. Root-ANCHORED so tracked product
+#     assets like frontend/src/assets/*.png are unaffected.
+/.pnpm-store/
+/scratchpad/
+/*.png
+/*.jpg
+/*.jpeg
+/*.gif
