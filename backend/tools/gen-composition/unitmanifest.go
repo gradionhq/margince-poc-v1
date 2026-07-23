@@ -120,13 +120,17 @@ func writeFileAtomic(dir, path string, content []byte) error {
 	// Carry the existing manifest's mode forward (a committed 0644 stays
 	// 0644) so a consumer running as another UID can still read it — the
 	// mode is read from the file, never a permissive literal, so it does
-	// not loosen anything the tree did not already have. A brand-new
-	// manifest keeps CreateTemp's owner-only 0600 (git records only the
-	// exec bit, and the next checkout normalizes it).
-	if fi, err := os.Stat(path); err == nil {
+	// not loosen anything the tree did not already have. A genuinely absent
+	// path (a brand-new manifest) keeps CreateTemp's owner-only 0600 (git
+	// records only the exec bit, and the next checkout normalizes it); any
+	// OTHER stat error is fatal rather than a silent drop to 0600.
+	switch fi, err := os.Stat(path); {
+	case err == nil:
 		if err := os.Chmod(tmpName, fi.Mode().Perm()); err != nil {
 			return err
 		}
+	case !os.IsNotExist(err):
+		return err
 	}
 	return os.Rename(tmpName, path)
 }
