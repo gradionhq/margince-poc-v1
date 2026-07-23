@@ -166,12 +166,20 @@ func (w *captureBackfillWorker) Work(ctx context.Context, job *river.Job[Capture
 // The Safely variant is deliberate: a unit test may drive Work directly with
 // no River client in context, and the plain ClientFromContext PANICS there —
 // a best-effort enqueue must degrade to a no-op, never crash the pager.
+//
+// No active-state uniqueness here (unlike the periodic sweep): a digest that
+// is already RUNNING may have snapshotted the workspace BEFORE this backfill's
+// rows landed, so deduping against it would drop the freshly-imported history
+// off the morning screen until the nightly pass. A completion must guarantee a
+// rebuild that sees its own data, so it always enqueues a fresh one — cheap
+// and idempotent (the build replaces the day). One completion fires once, so
+// this is not a fan-out.
 func (w *captureBackfillWorker) enqueueDigest(ctx context.Context, backfillID string) {
 	client, err := river.ClientFromContextSafely[pgx.Tx](ctx)
 	if err != nil {
 		return
 	}
-	if _, err := client.Insert(ctx, CaptureDigestArgs{}, sweepInsertOpts()); err != nil {
+	if _, err := client.Insert(ctx, CaptureDigestArgs{}, nil); err != nil {
 		w.log.WarnContext(ctx, "capture backfill: digest enqueue failed",
 			"backfill", backfillID, "err", err)
 	}

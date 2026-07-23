@@ -1181,8 +1181,6 @@ export const en = {
   "ob.s4.googleFailed": "The Google connection didn't complete",
   "ob.s4.googleRetry":
     "Nothing was stored. You can try again whenever you like — or connect over IMAP instead.",
-  "ob.s4.oauthSoon":
-    "One-click Microsoft sign-in is coming. Connect Google above, or any mailbox over IMAP — both are real, live capture.",
   "ob.s4.imapHost": "IMAP host",
   "ob.s4.imapHostPlaceholder": "imap.gmail.com",
   "ob.s4.imapEmail": "Email",

@@ -1129,10 +1129,11 @@
   margin-left: var(--space-1);
   padding: 1px 6px;
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--textSecondary);
+  /* textContent (not textSecondary) clears AA on the borderSubtle pill. */
+  color: var(--textContent);
   background: var(--borderSubtle);
   border-radius: var(--r-full);
 }
@@ -1169,7 +1170,8 @@
 .capture-stat span {
   grid-column: 2;
   font-size: 11.5px;
-  color: var(--textSecondary);
+  /* textContent, not textSecondary — clears AA over the done-state green tint. */
+  color: var(--textContent);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -1179,7 +1181,7 @@
 }
 .capture-scanned {
   margin: var(--space-1) 0 0;
-  color: var(--textSecondary);
+  color: var(--textContent);
 }
 /* Each increment re-keys the value node, replaying this pop. */
 .capture-stat-value {

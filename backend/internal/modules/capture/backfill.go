@@ -273,7 +273,10 @@ func (r *Registry) RunBackfillStep(ctx context.Context, backfillID ids.UUID) (do
 
 	c, err := r.connector(name)
 	if err != nil {
-		return true, false, err
+		// Terminally fail the run like every sibling execution-phase error —
+		// returning bare would strand it queued/running, blocking every future
+		// StartBackfill for the connection and never surfacing as failed.
+		return true, false, r.failBackfill(ctx, backfillID, err)
 	}
 	bf, ok := c.(connector.Backfiller)
 	if !ok {
@@ -281,7 +284,7 @@ func (r *Registry) RunBackfillStep(ctx context.Context, backfillID ids.UUID) (do
 	}
 	runCtx, err := r.connectorContext(ctx, name, grantedBy)
 	if err != nil {
-		return true, false, err
+		return true, false, r.failBackfill(ctx, backfillID, err)
 	}
 	auth, err := r.resolveCredential(ctx, credentialRef, authBytes)
 	if err != nil {
@@ -301,6 +304,7 @@ func (r *Registry) RunBackfillStep(ctx context.Context, backfillID ids.UUID) (do
 	}
 
 	finishing := res.NextToken == ""
+	var rowsAffected int64
 	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		var cur []byte
 		statusExpr := "CASE WHEN status = 'queued' THEN 'running' ELSE status END"
@@ -311,21 +315,29 @@ func (r *Registry) RunBackfillStep(ctx context.Context, backfillID ids.UUID) (do
 		} else {
 			cur = []byte(fmt.Sprintf(`{"page_token":%q}`, res.NextToken))
 		}
-		_, err := tx.Exec(ctx, `
+		tag, err := tx.Exec(ctx, `
 			UPDATE capture_backfill
 			SET cursor = $2, scanned = scanned + $3, captured = captured + $4, skipped = skipped + $5,
 			    status = `+statusExpr+terminal+`
 			WHERE id = $1 AND status IN ('queued','running')`,
 			backfillID, cur, res.Scanned, res.Captured, res.Skipped)
-		return err
+		if err != nil {
+			return err
+		}
+		rowsAffected = tag.RowsAffected()
+		return nil
 	})
 	if err != nil {
 		return false, false, err
 	}
-	// This is the transition edge: `finishing` reaches this line only from a
-	// live (queued/running) run — an already-terminal run returned above — so
-	// completed marks the one step that closed the run successfully.
-	return finishing, finishing, nil
+	// The `WHERE status IN ('queued','running')` guard means a run cancelled or
+	// completed concurrently between the read above and this UPDATE affects
+	// zero rows. completed is the transition edge — true ONLY when this step
+	// actually moved a live run to done — so a lost race is terminal, never a
+	// spurious completion (and so never a spurious digest). done stops the
+	// loop either way: the run finished, or someone else already ended it.
+	completed = finishing && rowsAffected == 1
+	return finishing || rowsAffected == 0, completed, nil
 }
 
 // failBackfill records a terminal failure class on the run (detail goes to

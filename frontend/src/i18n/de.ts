@@ -1177,7 +1177,7 @@ export const de = {
   // Connected inboxes (Einstellungen → Integrationen).
   "connectors.title": "Verbundene Postfächer",
   "connectors.sub":
-    "Postfächer, die in dein CRM erfassen. Trenne eines mit einem Klick — bereits erfasste Datensätze bleiben.",
+    "Postfächer, die dein CRM automatisch füllen. Trenne eines mit einem Klick — bereits erfasste Datensätze bleiben.",
   "connectors.loading": "Verbindungen werden geladen…",
   "connectors.loadFailed": "Verbindungen konnten nicht geladen werden.",
   "connectors.empty": "Noch kein Postfach verbunden.",
@@ -1186,7 +1186,7 @@ export const de = {
   "connectors.provGcal": "Google Kalender",
   "connectors.provGraph": "Microsoft",
   "connectors.provImap": "IMAP-Postfach",
-  "connectors.statusConnected": "Erfasst",
+  "connectors.statusConnected": "Aktiv",
   "connectors.statusReauth": "Neu verbinden nötig",
   "connectors.statusError": "Sync-Fehler",
   "connectors.statusDisconnected": "Getrennt",
@@ -1202,8 +1202,6 @@ export const de = {
   "ob.s4.googleFailed": "Die Google-Verbindung wurde nicht abgeschlossen",
   "ob.s4.googleRetry":
     "Es wurde nichts gespeichert. Versuch es jederzeit erneut — oder verbinde stattdessen über IMAP.",
-  "ob.s4.oauthSoon":
-    "Ein-Klick-Anmeldung für Microsoft kommt. Verbinde oben Google oder jedes Postfach über IMAP — beides ist echte, live Erfassung.",
   "ob.s4.imapHost": "IMAP-Host",
   "ob.s4.imapHostPlaceholder": "imap.gmail.com",
   "ob.s4.imapEmail": "E-Mail",

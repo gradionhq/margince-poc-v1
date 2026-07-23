@@ -181,24 +181,6 @@ export function GoogleConnectPanel({
   );
 }
 
-export function MicrosoftConnectPanel({
-  onComplete,
-}: Readonly<{ onComplete: (skipped: boolean) => Promise<void> }>) {
-  const t = useT();
-  return (
-    <>
-      <p className="ob-sub" style={{ margin: "0 auto 6px", maxWidth: 460 }}>
-        {t("ob.s4.oauthSoon")}
-      </p>
-      <div className="connect-acts">
-        <Button onClick={() => void onComplete(true)}>
-          <SkipForward aria-hidden /> {t("ob.s4.skipLater")}
-        </Button>
-      </div>
-    </>
-  );
-}
-
 // IMAP: the one-shot pull, exactly as before — the form is the consent.
 export function ImapConnectPanel({
   onComplete,
