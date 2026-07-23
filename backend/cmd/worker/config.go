@@ -41,6 +41,8 @@ type workerConfig struct {
 	overlayInterval      time.Duration
 	overlayBackfillLimit int
 	webhookKey           string
+	fxSourceURL          string
+	modelPricingSources  string
 	webhookRetryInterval time.Duration
 	deepReadMaxPages     int
 	deepReadMaxBytes     int
@@ -93,6 +95,8 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	fs.IntVar(&cfg.deepReadMaxBytes, "deepread-max-bytes", maxBytesDefault, "deep-read crawl aggregate byte cap; 0 takes the built-in default")
 	fs.DurationVar(&cfg.deepReadWall, "deepread-wall", wallDefault, "deep-read crawl wall clock; 0 takes the built-in default")
 	fs.StringVar(&cfg.webhookKey, "webhook-key", os.Getenv("MARGINCE_WEBHOOK_KEY"), "base64 32-byte key sealing outbound-webhook signing secrets; enables the cg:webhooks delivery consumer + retry sweep. Empty leaves the delivery worker off.")
+	fs.StringVar(&cfg.fxSourceURL, "fx-source-url", os.Getenv("MARGINCE_FX_SOURCE_URL"), "structured FX JSON API base URL for the fx-rate refresh job (base-relative rates map). Empty leaves the fx refresh a no-op.")
+	fs.StringVar(&cfg.modelPricingSources, "model-pricing-sources", os.Getenv("MARGINCE_MODEL_PRICING_SOURCES"), "comma-separated provider=url pairs of pricing pages the model-cost refresh crawls. Empty leaves the model-cost refresh a no-op.")
 	fs.DurationVar(&cfg.webhookRetryInterval, "webhook-retry-interval", 5*time.Second, "outbound-webhook retry-sweep tick interval")
 	fs.StringVar(&cfg.logLevel, "log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
 	fs.StringVar(&cfg.logFormat, "log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")

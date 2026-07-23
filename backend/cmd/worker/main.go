@@ -290,6 +290,13 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 		// Same posture for the voice build: the worker registers with or
 		// without a model, failing picked-up builds actionably when brainless.
 		VoiceBrain: modelPath.VoiceBuild,
+		// The rate-refresh producers register regardless; without a source
+		// (empty FX url / no pricing sources) or a model (nil RateExtract)
+		// they no-op honestly. FX is deterministic (no model); model-cost
+		// needs the extraction lane.
+		RateExtractBrain:    modelPath.RateExtract,
+		FxSourceURL:         cfg.fxSourceURL,
+		ModelPricingSources: compose.ParseModelPricingSources(cfg.modelPricingSources),
 		DeepReadCaps: compose.CrawlCaps{
 			MaxPages: cfg.deepReadMaxPages,
 			MaxBytes: cfg.deepReadMaxBytes,
