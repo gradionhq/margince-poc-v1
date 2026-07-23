@@ -135,12 +135,12 @@ func TestBackfillLifecycle(t *testing.T) {
 	wsCtx := principal.WithWorkspaceID(context.Background(), e.WS)
 
 	t.Run("each page commits cursor and counters — a resume never re-pages", func(t *testing.T) {
-		done, err := registry.RunBackfillStep(wsCtx, run.ID)
+		done, completed, err := registry.RunBackfillStep(wsCtx, run.ID)
 		if err != nil {
 			t.Fatalf("step 1: %v", err)
 		}
-		if done {
-			t.Fatal("25 messages at 10/page cannot finish in one step")
+		if done || completed {
+			t.Fatalf("25 messages at 10/page cannot finish in one step (done=%v completed=%v)", done, completed)
 		}
 		status, scanned, captured, cursor := readBackfillRow(t, e, run.ID)
 		if status != "running" || scanned != 10 || captured != 9 {
@@ -152,15 +152,15 @@ func TestBackfillLifecycle(t *testing.T) {
 
 		// The "worker died, River retried" path is just: call again from the
 		// committed row. The provider sees the NEXT token, not a replay.
-		if done, err = registry.RunBackfillStep(wsCtx, run.ID); err != nil || done {
-			t.Fatalf("step 2: done=%v err=%v", done, err)
+		if done, completed, err = registry.RunBackfillStep(wsCtx, run.ID); err != nil || done || completed {
+			t.Fatalf("step 2: done=%v completed=%v err=%v", done, completed, err)
 		}
-		done, err = registry.RunBackfillStep(wsCtx, run.ID)
+		done, completed, err = registry.RunBackfillStep(wsCtx, run.ID)
 		if err != nil {
 			t.Fatalf("step 3: %v", err)
 		}
-		if !done {
-			t.Fatal("the third page exhausts the window; the step must report done")
+		if !done || !completed {
+			t.Fatalf("the third page exhausts the window; the step must report done AND completed (done=%v completed=%v)", done, completed)
 		}
 		status, scanned, captured, _ = readBackfillRow(t, e, run.ID)
 		if status != "done" || scanned != 25 || captured != 22 {
@@ -169,8 +169,10 @@ func TestBackfillLifecycle(t *testing.T) {
 		if prov.pageCalls != 3 {
 			t.Fatalf("provider saw %d pages, want exactly 3 — no replays, no extras", prov.pageCalls)
 		}
-		if done, err := registry.RunBackfillStep(wsCtx, run.ID); err != nil || !done {
-			t.Fatalf("a step on a terminal run must be a done no-op, got done=%v err=%v", done, err)
+		// A step on the already-terminal run is a done no-op — and NOT a
+		// second completion, so it never re-fires the digest.
+		if done, completed, err := registry.RunBackfillStep(wsCtx, run.ID); err != nil || !done || completed {
+			t.Fatalf("a step on a terminal run must be a done, not-completed no-op, got done=%v completed=%v err=%v", done, completed, err)
 		}
 	})
 
