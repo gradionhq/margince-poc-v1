@@ -383,35 +383,38 @@ func TestAcceptance_AC_OV_2_BoundedEquivalence_ReadSubset(t *testing.T) {
 	})
 
 	// The published bounded-capability manifest, derived from the frozen
-	// interface's own method set rather than hand-listed twice.
+	// interface's own method set rather than hand-listed twice. Write-back
+	// (branch 2) split the old "every write is unsupported" partition into
+	// three: the read verbs, the SUPPORTED write-back verbs (Create/Update/
+	// Archive — incumbent-first, OVA-MAP-W), and the still-unsupported verbs
+	// (AdvanceDeal needs the overlay stage-map StageSemantic also lacks;
+	// Merge/PromoteLead have no atomic incumbent projection, OVA-MAP-W6;
+	// RunReport/StageSemantic have no HubSpot analogue).
 	readVerbs := map[string]bool{"Read": true, "Search": true, "ListObjects": true, "ListFields": true, "Freshness": true}
+	writeVerbs := map[string]bool{"Create": true, "Update": true, "Archive": true}
 	unsupportedManifest := map[string]bool{
-		"RunReport": true, "StageSemantic": true, "Create": true, "Update": true,
-		"AdvanceDeal": true, "Archive": true, "Merge": true, "PromoteLead": true,
+		"RunReport": true, "StageSemantic": true, "AdvanceDeal": true, "Merge": true, "PromoteLead": true,
 	}
 	ifaceType := reflect.TypeOf((*datasource.SystemOfRecordProvider)(nil)).Elem()
 	for i := 0; i < ifaceType.NumMethod(); i++ {
 		name := ifaceType.Method(i).Name
-		if readVerbs[name] == unsupportedManifest[name] {
-			t.Fatalf("method %q is classified as both/neither read and unsupported — the manifest partition below is incomplete", name)
+		classified := 0
+		for _, set := range []map[string]bool{readVerbs, writeVerbs, unsupportedManifest} {
+			if set[name] {
+				classified++
+			}
+		}
+		if classified != 1 {
+			t.Fatalf("method %q is in %d manifest categories — it must be in exactly one (read / write / unsupported)", name, classified)
 		}
 	}
-	if got, want := ifaceType.NumMethod(), len(readVerbs)+len(unsupportedManifest); got != want {
+	if got, want := ifaceType.NumMethod(), len(readVerbs)+len(writeVerbs)+len(unsupportedManifest); got != want {
 		t.Fatalf("SystemOfRecordProvider has %d methods but this test's manifest only classifies %d — a verb was added to the frozen seam with no manifest entry here", got, want)
 	}
 
-	t.Run("write verbs + RunReport + StageSemantic declare the published unsupported_by_sor manifest", func(t *testing.T) {
-		if _, err := overlayProvider.Create(ctx, datasource.CreateInput{EntityType: datasource.EntityPerson}); !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
-			t.Errorf("Create = %v, want ErrUnsupportedBySoR", err)
-		}
-		if _, err := overlayProvider.Update(ctx, datasource.UpdateInput{Ref: datasource.EntityRef{Type: datasource.EntityPerson}}); !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
-			t.Errorf("Update = %v, want ErrUnsupportedBySoR", err)
-		}
+	t.Run("AdvanceDeal + Merge + PromoteLead + RunReport + StageSemantic declare the published unsupported_by_sor manifest", func(t *testing.T) {
 		if _, err := overlayProvider.AdvanceDeal(ctx, datasource.AdvanceDealInput{}); !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
 			t.Errorf("AdvanceDeal = %v, want ErrUnsupportedBySoR", err)
-		}
-		if _, err := overlayProvider.Archive(ctx, datasource.EntityRef{Type: datasource.EntityPerson}); !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
-			t.Errorf("Archive = %v, want ErrUnsupportedBySoR", err)
 		}
 		if _, err := overlayProvider.Merge(ctx, datasource.MergeInput{Type: datasource.EntityPerson}); !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
 			t.Errorf("Merge = %v, want ErrUnsupportedBySoR", err)
@@ -424,6 +427,23 @@ func TestAcceptance_AC_OV_2_BoundedEquivalence_ReadSubset(t *testing.T) {
 		}
 		if _, _, err := overlayProvider.StageSemantic(ctx, ids.NewV7()); !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
 			t.Errorf("StageSemantic = %v, want ErrUnsupportedBySoR", err)
+		}
+	})
+
+	t.Run("Create + Update + Archive are supported write-back verbs, not declared unsupported_by_sor", func(t *testing.T) {
+		// Write-back is incumbent-first (OVA-MAP-W); these verbs must NOT
+		// answer the unsupported sentinel. This overlayProvider is built
+		// without a write incumbent resolver, so they surface a clear
+		// configuration/permission error instead — anything but
+		// ErrUnsupportedBySoR proves they are recognized, supported verbs.
+		if _, err := overlayProvider.Create(ctx, datasource.CreateInput{EntityType: datasource.EntityPerson}); errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+			t.Errorf("Create must be a supported write-back verb, got ErrUnsupportedBySoR")
+		}
+		if _, err := overlayProvider.Update(ctx, datasource.UpdateInput{Ref: datasource.EntityRef{Type: datasource.EntityPerson}}); errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+			t.Errorf("Update must be a supported write-back verb, got ErrUnsupportedBySoR")
+		}
+		if _, err := overlayProvider.Archive(ctx, datasource.EntityRef{Type: datasource.EntityPerson}); errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+			t.Errorf("Archive must be a supported write-back verb, got ErrUnsupportedBySoR")
 		}
 	})
 }

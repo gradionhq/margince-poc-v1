@@ -292,7 +292,6 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		webhooksHandlers: newWebhookHandlers(pool, nil, log),
 		log:              log,
 		dealsStore:       deals.NewStore(pool),
-		toolRegistry:     NewRegistry(pool),
 		// Constructed unconditionally: WithKeyvault rebuilds
 		// overlayHandlers over this SAME instance rather than minting a
 		// second one, and contractAPI's Dispatcher spends force-fresh
@@ -309,6 +308,12 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 	// boot-time SetOverlayIncumbentResolver reaches the same instance this
 	// field serves reads through.
 	srv.sorDispatch = NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, srv.overlayMeter, nil), pool)
+	// toolRegistry backs ListAgentTools AND the MCP tool transport; it carries
+	// the vault-backed live-incumbent resolver so overlay write-back
+	// (Create/Update/Archive) actually reaches HubSpot from the agent surface.
+	// The closure captures srv and reads srv.vault LAZILY at request time, so
+	// building it here (before WithKeyvault installs the vault) is fine.
+	srv.toolRegistry = NewRegistryWithIncumbent(pool, srv.resolveOverlayIncumbent(pool))
 	// /me reports the workspace's system-of-record mode so the client can
 	// gate its list UI (an overlay mirror refuses sort/filter dials). The
 	// dispatch owns mode resolution; identity never imports overlay.
@@ -329,8 +334,27 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 // or vault failure surfaces as an error (which FreshnessReader logs and
 // then degrades on, never faking authority).
 func (s *Server) resolveOverlayIncumbent(pool *pgxpool.Pool) func(context.Context) (overlay.Incumbent, error) {
+	// s.vault is read LAZILY (per call) because WithKeyvault installs it after
+	// newServer builds the dispatch — so delegate to OverlayIncumbentResolver
+	// at request time with whatever vault is then wired.
 	return func(ctx context.Context) (overlay.Incumbent, error) {
-		if s.vault == nil {
+		return OverlayIncumbentResolver(pool, s.vault)(ctx)
+	}
+}
+
+// OverlayIncumbentResolver builds the per-request live-incumbent resolver from
+// a KNOWN vault: for the request's workspace it reads the active
+// incumbent_connection and unseals its private-app token, returning a live
+// HubSpot adapter. A nil vault, no active connection (ErrNotFound), or a
+// non-HubSpot incumbent all degrade honestly to a nil adapter (force-fresh
+// falls back to the mirror; write-back answers errNoWriteIncumbent) — never a
+// faked authority. Only a genuine connection-read or vault failure surfaces as
+// an error. The api server passes its (lazily-wired) vault via
+// resolveOverlayIncumbent; the standalone MCP server and the worker's Surface-B
+// runner pass their own FromEnv vault so those agent surfaces reach write-back too.
+func OverlayIncumbentResolver(pool *pgxpool.Pool, vault keyvault.Vault) func(context.Context) (overlay.Incumbent, error) {
+	return func(ctx context.Context) (overlay.Incumbent, error) {
+		if vault == nil {
 			return nil, nil
 		}
 		conn, err := overlay.ActiveConnection(ctx, pool)
@@ -343,7 +367,7 @@ func (s *Server) resolveOverlayIncumbent(pool *pgxpool.Pool) func(context.Contex
 		if conn.Incumbent != "hubspot" {
 			return nil, nil
 		}
-		token, err := s.vault.Get(ctx, conn.Workspace, conn.CredentialRef)
+		token, err := vault.Get(ctx, conn.Workspace, conn.CredentialRef)
 		if err != nil {
 			return nil, err
 		}
@@ -357,7 +381,7 @@ func (s *Server) resolveOverlayIncumbent(pool *pgxpool.Pool) func(context.Contex
 // staging, and live-authority gate — one gate, two transports.
 func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) http.Handler {
 	gate := auth.NewGate(identitySvc)
-	registry := registryWithGate(pool, gate, srv.replyDrafter)
+	registry := registryWithGate(pool, gate, srv.replyDrafter, srv.resolveOverlayIncumbent(pool))
 	// The ADR-0055 admission layer and the MCP tool surface share one
 	// provider seam: agentGate's StageResolver dispatches per workspace
 	// exactly like the MCP registry's tools do — and the overlay-mode
