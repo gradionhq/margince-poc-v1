@@ -53,36 +53,44 @@ func TestStageIdentityValidation(t *testing.T) {
 	}
 }
 
-// A null-valued identity field must not validate against a payload that omits
-// the field: jsonb containment treats {"k":null} as present-and-null, so such
-// an identity would pass and then never containment-match — silently
-// disabling supersession. And a large-integer identity must survive
-// validation digit-for-digit rather than round through float64.
-func TestCanonicalIdentityRejectsNullAndPreservesBigNumbers(t *testing.T) {
-	// Null field the payload omits: refused as not-carried.
+// Identity values must be strings, a null field the payload omits must be
+// refused, and trailing data past the object must be rejected — each edge, if
+// admitted, would let a lock key and jsonb containment disagree and leave
+// competing live proposals for one logical identity.
+func TestCanonicalIdentityRejectsNonStringNullAndTrailingData(t *testing.T) {
+	// A numeric identity value is refused: 1, 1.0 and 1e0 hash to different
+	// lock keys but jsonb containment sees one number, so a numeric identity
+	// could bypass the per-identity lock. Strings have no such spelling gap.
+	if _, err := canonicalIdentity(
+		json.RawMessage(`{"seq":1}`),
+		json.RawMessage(`{"seq":1}`),
+	); err == nil || !strings.Contains(err.Error(), "must be a string") {
+		t.Fatalf("numeric identity: err = %v, want must-be-a-string refusal", err)
+	}
+	// A null field the payload omits is refused (not silently passed).
 	if _, err := canonicalIdentity(
 		json.RawMessage(`{"k":null}`),
 		json.RawMessage(`{"other":"v"}`),
-	); err == nil || !strings.Contains(err.Error(), "not carried by ProposedChange") {
-		t.Fatalf("null-vs-omitted: err = %v, want not-carried refusal", err)
-	}
-	// A large integer that would round under float64: exact match validates,
-	// and the canonical form preserves the digits (no rounding, no quoting).
-	big := `{"seq":12345678901234567890}`
-	canonical, err := canonicalIdentity(json.RawMessage(big), json.RawMessage(`{"seq":12345678901234567890,"x":"y"}`))
-	if err != nil {
-		t.Fatalf("big-int identity: %v", err)
-	}
-	if string(canonical) != `{"seq":12345678901234567890}` {
-		t.Fatalf("canonical = %s, want the exact integer preserved", canonical)
-	}
-	// A payload whose value rounds to the same float64 but differs exactly is
-	// still rejected (lossless comparison).
-	if _, err := canonicalIdentity(
-		json.RawMessage(`{"seq":12345678901234567890}`),
-		json.RawMessage(`{"seq":12345678901234567891}`),
 	); err == nil {
-		t.Fatal("near-equal big integers validated, want exact-mismatch refusal")
+		t.Fatal("null-vs-omitted identity validated, want refusal")
+	}
+	// Trailing data after the object is rejected: Identity is ONE object.
+	if _, err := canonicalIdentity(
+		json.RawMessage(`{"from_currency":"GBP"} {"x":"y"}`),
+		json.RawMessage(`{"from_currency":"GBP"}`),
+	); err == nil {
+		t.Fatal("trailing data after identity validated, want refusal")
+	}
+	// A string identity carried by the payload validates and canonicalizes.
+	canonical, err := canonicalIdentity(
+		json.RawMessage(`{"from_currency":"GBP"}`),
+		json.RawMessage(`{"from_currency":"GBP","rate":"1.1"}`),
+	)
+	if err != nil {
+		t.Fatalf("valid string identity: %v", err)
+	}
+	if string(canonical) != `{"from_currency":"GBP"}` {
+		t.Fatalf("canonical = %s, want {\"from_currency\":\"GBP\"}", canonical)
 	}
 }
 

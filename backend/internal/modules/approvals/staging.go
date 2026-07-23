@@ -9,7 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
+	"io"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -92,15 +92,18 @@ func (s *Service) Stage(ctx context.Context, in StageInput) (ids.ApprovalID, err
 }
 
 // canonicalIdentity validates and canonicalizes a staging identity. It must
-// be a non-empty JSON object — the supersede match is JSONB containment and
-// every object contains {}, so an empty (or non-object) identity would
-// withdraw EVERY live pending proposal of the kind+target — and each of its
-// fields must equal the same field of ProposedChange, because an identity
-// the payload does not carry could never containment-match and would
-// silently disable supersession for its proposals. Re-marshaling
-// canonicalizes key order and spacing, so the advisory lock (which hashes
-// the identity bytes) and the containment agree on what "same identity"
-// means across callers.
+// be a non-empty JSON object whose values are all STRINGS — the logical key
+// of a sheet row is always a string (currency code, provider/model id), and
+// restricting to strings sidesteps JSON number ambiguity entirely: 1, 1.0,
+// 1e0 and a 40-digit integer would each hash to a different advisory lock
+// while PostgreSQL jsonb containment compares them as one numeric value, so a
+// numeric identity could bypass the per-identity lock yet still supersede by
+// value. Strings have no such gap — exact bytes both places. Every field must
+// also equal (present, same string) the corresponding field of
+// ProposedChange, since an identity the payload does not carry could never
+// containment-match and would silently disable supersession. Re-marshaling
+// canonicalizes key order and spacing so the lock and the containment agree
+// on what "same identity" means across callers.
 func canonicalIdentity(identity, proposedChange json.RawMessage) (json.RawMessage, error) {
 	idFields, err := decodeJSONObject(identity)
 	if err != nil || len(idFields) == 0 {
@@ -110,30 +113,35 @@ func canonicalIdentity(identity, proposedChange json.RawMessage) (json.RawMessag
 	if err != nil {
 		return nil, errors.New("crmapprovals: Identity staging requires a JSON-object ProposedChange")
 	}
+	canonical := make(map[string]string, len(idFields))
 	for field, want := range idFields {
-		// Membership must be checked separately from value equality: a missing
-		// key and an explicit null both read back as a nil any, but jsonb
-		// containment treats {"k":null} as present-and-null — an identity
-		// asserting a field the payload omits would pass here yet never
-		// containment-match, silently disabling supersession.
+		wantStr, ok := want.(string)
+		if !ok {
+			return nil, fmt.Errorf("crmapprovals: Identity field %q must be a string", field)
+		}
+		// Membership is checked separately from value: a missing key and an
+		// explicit null both read back as a nil any, but jsonb containment
+		// treats {"k":null} as present-and-null — an identity asserting a field
+		// the payload omits would pass and then never containment-match.
 		got, ok := payload[field]
-		if !ok || !reflect.DeepEqual(got, want) {
+		if !ok || got != want {
 			return nil, fmt.Errorf("crmapprovals: Identity field %q is not carried by ProposedChange", field)
 		}
+		canonical[field] = wantStr
 	}
-	canonical, err := json.Marshal(idFields)
+	raw, err := json.Marshal(canonical)
 	if err != nil {
 		return nil, fmt.Errorf("crmapprovals: canonicalize Identity: %w", err)
 	}
-	return canonical, nil
+	return raw, nil
 }
 
-// decodeJSONObject unmarshals a JSON object with lossless numbers: UseNumber
-// keeps every numeric value as its exact decimal text rather than a float64,
-// so a large-integer identity is compared and re-marshaled digit-for-digit.
-// A float64 round would let a mismatched value pass validation and then fail
-// the jsonb containment supersede against the payload's exact number. A
-// non-object (array, scalar, null) is not an object and returns an error.
+// decodeJSONObject unmarshals exactly one JSON object with lossless numbers
+// (UseNumber keeps a numeric value as its exact decimal text, not a float64).
+// A non-object (array, scalar, null) is an error, and so is any trailing data
+// after the object — Identity/ProposedChange is ONE object, not a stream, and
+// silently reading only the first of several values would validate against a
+// payload the rest of the input contradicts.
 func decodeJSONObject(raw json.RawMessage) (map[string]any, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
@@ -143,6 +151,9 @@ func decodeJSONObject(raw json.RawMessage) (map[string]any, error) {
 	}
 	if m == nil {
 		return nil, errors.New("not a JSON object")
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, errors.New("unexpected trailing data after JSON object")
 	}
 	return m, nil
 }
