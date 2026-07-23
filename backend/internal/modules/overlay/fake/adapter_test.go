@@ -192,3 +192,58 @@ func TestFakeBackfillRejectsAMalformedCursor(t *testing.T) {
 		t.Fatal("Backfill: want an error for a malformed cursor, got nil")
 	}
 }
+
+// TestFakeWriteBackRoundTrip exercises the fake's write seam (Create →
+// Update → Archive) end-to-end, plus the drift-check refusal, so the fake is
+// a faithful in-memory Incumbent for write-back tests.
+func TestFakeWriteBackRoundTrip(t *testing.T) {
+	f := fake.New()
+	ctx := context.Background()
+
+	created, err := f.Create(ctx, "person", map[string]any{"first_name": "Ada"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if created.ExternalID == "" || created.ObjectClass != "person" {
+		t.Fatalf("Create returned %+v, want a stamped person record", created)
+	}
+	if created.Fields["first_name"] != "Ada" {
+		t.Errorf("Create fields = %+v, want first_name=Ada", created.Fields)
+	}
+
+	// A patch older than the stored record's ModifiedAt is refused
+	// (incumbent-wins drift check).
+	if _, err := f.Update(ctx, "person", created.ExternalID, map[string]any{"first_name": "Ada2"}, created.ModifiedAt.Add(-time.Hour)); err == nil {
+		t.Error("Update with a stale baseline must be refused (version skew)")
+	}
+
+	// A patch at or after the record's baseline merges and re-stamps.
+	updated, err := f.Update(ctx, "person", created.ExternalID, map[string]any{"first_name": "Ada2"}, created.ModifiedAt)
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.Fields["first_name"] != "Ada2" {
+		t.Errorf("Update fields = %+v, want first_name=Ada2", updated.Fields)
+	}
+
+	// An empty patch returns the record unchanged.
+	same, err := f.Update(ctx, "person", created.ExternalID, nil, updated.ModifiedAt)
+	if err != nil {
+		t.Fatalf("no-op Update: %v", err)
+	}
+	if same.Fields["first_name"] != "Ada2" {
+		t.Errorf("no-op Update should return the record unchanged, got %+v", same.Fields)
+	}
+
+	if err := f.Archive(ctx, "person", created.ExternalID); err != nil {
+		t.Fatalf("Archive: %v", err)
+	}
+	// Archiving a now-absent record is an error, never a silent no-op.
+	if err := f.Archive(ctx, "person", created.ExternalID); err == nil {
+		t.Error("Archive of an already-removed record must error")
+	}
+	// Updating an unknown record is an error too.
+	if _, err := f.Update(ctx, "person", "nope", map[string]any{"first_name": "x"}, fixedModified); err == nil {
+		t.Error("Update of an unknown record must error")
+	}
+}

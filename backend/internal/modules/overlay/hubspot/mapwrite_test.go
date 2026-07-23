@@ -160,6 +160,71 @@ func TestMapWriteLeadPropsW5(t *testing.T) {
 	}
 }
 
+// OVA-MAP-W: organization display_name→name and industry→industry project
+// directly; size_band is read-only (the numberofemployees→band bucketing has
+// no unambiguous inverse) and is never written.
+func TestMapWriteOrganization(t *testing.T) {
+	got, err := mapWrite("organization", map[string]any{
+		"display_name": "Acme",
+		"industry":     "Manufacturing",
+		"size_band":    "51-200", // read-only — must not be written
+	})
+	if err != nil {
+		t.Fatalf("mapWrite organization: %v", err)
+	}
+	if got.ObjectClass != objectClassCompanies {
+		t.Errorf("object class = %q, want %q", got.ObjectClass, objectClassCompanies)
+	}
+	if got.Props["name"] != "Acme" || got.Props["industry"] != "Manufacturing" {
+		t.Errorf("props = %#v, want name=Acme industry=Manufacturing", got.Props)
+	}
+	if _, ok := got.Props["numberofemployees"]; ok {
+		t.Error("size_band is read-only (lossy inverse) — must not be written")
+	}
+}
+
+// OVA-MAP-W2 at a 3-decimal, negative amount: minor units scale back to the
+// decimal string by the currency exponent, sign preserved.
+func TestMapWriteDealNegativeAmount(t *testing.T) {
+	got, err := mapWrite("deal", map[string]any{"amount_minor": float64(-1500), "currency": "BHD"})
+	if err != nil {
+		t.Fatalf("mapWrite deal negative: %v", err)
+	}
+	if got.Props["amount"] != "-1.500" {
+		t.Errorf("amount = %q, want -1.500", got.Props["amount"])
+	}
+}
+
+// A numeric or boolean canonical value renders to its string form without a
+// trailing ".0" (writableString's non-string branches).
+func TestMapWriteRendersNonStringScalars(t *testing.T) {
+	got, err := mapWrite("person", map[string]any{"first_name": float64(42), "last_name": true})
+	if err != nil {
+		t.Fatalf("mapWrite person scalars: %v", err)
+	}
+	if got.Props["firstname"] != "42" {
+		t.Errorf("firstname = %q, want 42 (no trailing .0)", got.Props["firstname"])
+	}
+	if got.Props["lastname"] != "true" {
+		t.Errorf("lastname = %q, want true", got.Props["lastname"])
+	}
+}
+
+// An activity kind with no engagement class is an honest error.
+func TestMapWriteActivityUnknownKind(t *testing.T) {
+	if _, err := mapWrite("activity", map[string]any{"kind": "sms"}); err == nil {
+		t.Error("an unknown activity kind must error, not pick an arbitrary class")
+	}
+}
+
+// A present but unparseable due_at is an error, never a silently dropped
+// timestamp.
+func TestMapWriteActivityBadDueAt(t *testing.T) {
+	if _, err := mapWrite("activity", map[string]any{"kind": "task", "due_at": "not-a-time"}); err == nil {
+		t.Error("an unparseable task due_at must error")
+	}
+}
+
 // An unknown canonical class is an honest error, never a silent empty write.
 func TestMapWriteUnknownClass(t *testing.T) {
 	if _, err := mapWrite("widget", map[string]any{"x": "y"}); err == nil {
