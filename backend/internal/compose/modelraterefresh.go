@@ -94,6 +94,7 @@ type AiModelRateRefreshArgs struct {
 	RequestedBy string   `json:"requested_by"`
 }
 
+// Kind is the stable River job identifier.
 func (AiModelRateRefreshArgs) Kind() string { return "ai_model_rate_refresh" }
 
 // modelCostRefresh is the producer: for each configured pricing page, fetch it,
@@ -154,7 +155,7 @@ func (m modelCostRefresh) extract(ctx context.Context, src pricingSource) ([]ext
 	req := model.Request{
 		System: rateExtractSystem,
 		Messages: []model.Message{{
-			Role:    "user",
+			Role:    chatRoleUser,
 			Content: "<untrusted>\n" + numberPassages(text) + "\n</untrusted>",
 		}},
 		MaxTokens:      ai.ReasoningOutputMaxTokens,

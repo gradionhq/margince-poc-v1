@@ -28,6 +28,7 @@ type FxRateRefreshArgs struct {
 	RequestedBy string   `json:"requested_by"`
 }
 
+// Kind is the stable River job identifier.
 func (FxRateRefreshArgs) Kind() string { return "fx_rate_refresh" }
 
 // rateRefreshWorkerCtx binds the system principal a refresh producer runs
