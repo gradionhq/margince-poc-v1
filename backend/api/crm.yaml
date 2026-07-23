@@ -7543,6 +7543,48 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /fx-rates/propose-refresh:
+    post:
+      tags: [Rates]
+      operationId: proposeFxRateRefresh
+      summary: Enqueue an async FX-rate refresh (stages 🟡 proposals).
+      description: |
+        Admin/ops-only. Enqueues a background job that fetches fresh rates for the
+        currencies this workspace already tracks and stages a confirm-first proposal
+        per changed rate into the approvals inbox. Returns immediately; review the
+        proposals in the inbox. Human session only (x-agent-access: human-only).
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      responses:
+        '202':
+          description: Refresh enqueued.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RefreshAccepted' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /ai-model-rates/propose-refresh:
+    post:
+      tags: [Rates]
+      operationId: proposeAiModelRateRefresh
+      summary: Enqueue an async model-cost refresh (stages 🟡 proposals).
+      description: |
+        Admin/ops-only. Enqueues a background job that crawls the configured provider
+        pricing pages, AI-extracts per-model prices (evidence-gated), and stages a
+        confirm-first proposal per changed model into the approvals inbox. Returns
+        immediately. Human session only (x-agent-access: human-only).
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      responses:
+        '202':
+          description: Refresh enqueued.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RefreshAccepted' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
 # =============================================================================
 components:
 
@@ -7767,6 +7809,12 @@ components:
   schemas:
 
     # ---- rates & costs (admin/ops-only effective-dated price sheets) ----
+    RefreshAccepted:
+      type: object
+      description: An async refresh was enqueued; proposals will appear in the approvals inbox.
+      required: [status]
+      properties:
+        status: { type: string, enum: [enqueued] }
     FxRate:
       type: object
       description: One effective-dated FX rate converting from_currency into the workspace base (to_currency). rate is a decimal string (numeric(20,10)), never a float.

@@ -4152,6 +4152,21 @@ func (e RecordGrantSubjectType) Valid() bool {
 	}
 }
 
+// Defines values for RefreshAcceptedStatus.
+const (
+	Enqueued RefreshAcceptedStatus = "enqueued"
+)
+
+// Valid indicates whether the value is a known member of the RefreshAcceptedStatus enum.
+func (e RefreshAcceptedStatus) Valid() bool {
+	switch e {
+	case Enqueued:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RelationshipKind.
 const (
 	RelationshipKindCoSellWith      RelationshipKind = "co_sell_with"
@@ -10257,6 +10272,14 @@ type RecordGrantRecordType string
 
 // RecordGrantSubjectType defines model for RecordGrant.SubjectType.
 type RecordGrantSubjectType string
+
+// RefreshAccepted An async refresh was enqueued; proposals will appear in the approvals inbox.
+type RefreshAccepted struct {
+	Status RefreshAcceptedStatus `json:"status"`
+}
+
+// RefreshAcceptedStatus defines model for RefreshAccepted.Status.
+type RefreshAcceptedStatus string
 
 // RejectOfferRequest defines model for RejectOfferRequest.
 type RejectOfferRequest struct {
@@ -18858,6 +18881,9 @@ type ServerInterface interface {
 	// Set an AI model price effective today or later (append-forward).
 	// (POST /ai-model-rates)
 	SetAiModelRate(w http.ResponseWriter, r *http.Request)
+	// Enqueue an async model-cost refresh (stages 🟡 proposals).
+	// (POST /ai-model-rates/propose-refresh)
+	ProposeAiModelRateRefresh(w http.ResponseWriter, r *http.Request)
 	// The AI call trace — every terminal model call, newest first.
 	// (GET /ai/calls)
 	ListAiCalls(w http.ResponseWriter, r *http.Request, params ListAiCallsParams)
@@ -19128,6 +19154,9 @@ type ServerInterface interface {
 	// Set an FX rate effective today or later (append-forward).
 	// (POST /fx-rates)
 	SetFxRate(w http.ResponseWriter, r *http.Request)
+	// Enqueue an async FX-rate refresh (stages 🟡 proposals).
+	// (POST /fx-rates/propose-refresh)
+	ProposeFxRateRefresh(w http.ResponseWriter, r *http.Request)
 	// List leads (their OWN list, distinct from contacts; cursor-paginated).
 	// (GET /leads)
 	ListLeads(w http.ResponseWriter, r *http.Request, params ListLeadsParams)
@@ -19674,6 +19703,12 @@ func (_ Unimplemented) SetAiModelRate(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Enqueue an async model-cost refresh (stages 🟡 proposals).
+// (POST /ai-model-rates/propose-refresh)
+func (_ Unimplemented) ProposeAiModelRateRefresh(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // The AI call trace — every terminal model call, newest first.
 // (GET /ai/calls)
 func (_ Unimplemented) ListAiCalls(w http.ResponseWriter, r *http.Request, params ListAiCallsParams) {
@@ -20211,6 +20246,12 @@ func (_ Unimplemented) ListFxRates(w http.ResponseWriter, r *http.Request, param
 // Set an FX rate effective today or later (append-forward).
 // (POST /fx-rates)
 func (_ Unimplemented) SetFxRate(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Enqueue an async FX-rate refresh (stages 🟡 proposals).
+// (POST /fx-rates/propose-refresh)
+func (_ Unimplemented) ProposeFxRateRefresh(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -21764,6 +21805,26 @@ func (siw *ServerInterfaceWrapper) SetAiModelRate(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetAiModelRate(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ProposeAiModelRateRefresh operation middleware
+func (siw *ServerInterfaceWrapper) ProposeAiModelRateRefresh(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ProposeAiModelRateRefresh(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -25625,6 +25686,26 @@ func (siw *ServerInterfaceWrapper) SetFxRate(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetFxRate(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ProposeFxRateRefresh operation middleware
+func (siw *ServerInterfaceWrapper) ProposeFxRateRefresh(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ProposeFxRateRefresh(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -33576,6 +33657,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/ai-model-rates", wrapper.SetAiModelRate)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/ai-model-rates/propose-refresh", wrapper.ProposeAiModelRateRefresh)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/ai/calls", wrapper.ListAiCalls)
 	})
 	r.Group(func(r chi.Router) {
@@ -33844,6 +33928,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/fx-rates", wrapper.SetFxRate)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/fx-rates/propose-refresh", wrapper.ProposeFxRateRefresh)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/leads", wrapper.ListLeads)

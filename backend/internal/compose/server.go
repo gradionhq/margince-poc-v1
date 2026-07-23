@@ -84,6 +84,7 @@ type Server struct {
 	attachmentExtractionHandlers
 	overlayHandlers
 	embedReindexHandlers
+	rateRefreshHandlers
 	webhooksHandlers
 
 	// gmailPush is the Pub/Sub push webhook, injected by WithGmailPush only

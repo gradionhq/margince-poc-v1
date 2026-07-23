@@ -114,7 +114,7 @@ func jobEnqueueOptions(pool *pgxpool.Pool, logger *slog.Logger, modelPath *compo
 	if modelPath != nil {
 		deepRead = compose.WithDeepRead(inserter, modelPath.ColdStart)
 	}
-	return []compose.Option{deepRead, compose.WithVoiceBuildEnqueue(inserter)}, nil
+	return []compose.Option{deepRead, compose.WithVoiceBuildEnqueue(inserter), compose.WithRateRefresh(inserter)}, nil
 }
 
 // embedReindexOption wires the /embeddings/reindex* ops over the resolved
