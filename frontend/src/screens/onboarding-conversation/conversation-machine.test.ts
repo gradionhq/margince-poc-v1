@@ -147,6 +147,7 @@ describe("conversationReducer happy path", () => {
     const state = run([
       { type: "START", memberPath: false },
       { type: "READ_STARTED", readId: "r1" },
+      { type: "READ_TERMINAL", readId: "r1", status: "ready", findings: 1 },
       { type: "REVIEW_READY" },
       { type: "COMPANY_CONFIRMED" },
       { type: "VOICE_SKIPPED" },
@@ -206,6 +207,7 @@ describe("member path", () => {
     const state = run([
       { type: "START", memberPath: true },
       { type: "READ_STARTED", readId: "r1" },
+      { type: "READ_TERMINAL", readId: "r1", status: "ready", findings: 1 },
       { type: "REVIEW_READY" },
       { type: "COMPANY_CONFIRMED" },
     ]);
@@ -216,6 +218,7 @@ describe("member path", () => {
     const state = run([
       { type: "START", memberPath: true },
       { type: "READ_STARTED", readId: "r1" },
+      { type: "READ_TERMINAL", readId: "r1", status: "ready", findings: 1 },
       { type: "REVIEW_READY" },
       { type: "COMPANY_CONFIRMED" },
     ]);

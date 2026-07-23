@@ -7507,7 +7507,9 @@ export interface components {
             /**
              * @description The clarify option the administrator clicked, echoed verbatim. Valid only in the company
              *     act; it authorizes exactly one proposed change — the selected field with the selected
-             *     value — and nothing else.
+             *     value — and nothing else. The server re-derives its current clarifications and verifies
+             *     the tuple against them: an unknown or stale clarify_id, a mismatched field, or a value
+             *     outside a closed option list is refused with 422.
              */
             selected_option?: components["schemas"]["OnboardingClarifySelection"];
             history?: components["schemas"]["CompanySiteReadConversationTurn"][];
@@ -13428,6 +13430,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            422: components["responses"]["ValidationError"];
         };
     };
     getCompany: {

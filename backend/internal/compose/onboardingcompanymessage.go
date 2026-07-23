@@ -33,6 +33,9 @@ type onboardingCompanyAssistant struct {
 	// voice backs the voice act's deterministic context; nil means the
 	// role wired no voice store and the act answers without corpus numbers.
 	voice onboardingVoiceReader
+	// company reports the anchor's presence for the results and connect
+	// acts; nil falls back to the site read's confirmation state alone.
+	company onboardingCompanyReader
 }
 
 type onboardingStateReader interface {
@@ -89,6 +92,21 @@ func (a *onboardingCompanyAssistant) message(w http.ResponseWriter, r *http.Requ
 		currentDraft = onboardingDraftInput(*req.CompanyDraft)
 	}
 	remaining := remainingOnboardingFields(currentDraft)
+	act := onboardingRequestAct(req)
+	if act != string(crmcontracts.OnboardingActCompany) {
+		// The recap acts speak about the company that EXISTS, not about
+		// the resumable draft: a manually saved anchor is a confirmed
+		// company with no required fields left, whatever the draft says.
+		present, presenceErr := a.companyPresent(r.Context(), research)
+		if presenceErr != nil {
+			httperr.Write(w, r, presenceErr)
+			return
+		}
+		if present {
+			research.confirmed = true
+			remaining = nil
+		}
+	}
 	conversation := onboardingConversationContext{
 		Dossier: evidence, CurrentDraft: currentDraft,
 		RemainingRequired: remaining,
@@ -97,7 +115,6 @@ func (a *onboardingCompanyAssistant) message(w http.ResponseWriter, r *http.Requ
 		conversation.NextRequired = remaining[0]
 	}
 
-	act := onboardingRequestAct(req)
 	answer, clarify, actAction, err := a.converse(r.Context(), req, act, message, history, conversation, research, read, comparisons, runID)
 	if err != nil {
 		httperr.Write(w, r, err)
@@ -140,6 +157,11 @@ func (a *onboardingCompanyAssistant) converse(ctx context.Context, req crmcontra
 	case isCompanyStatusQuestion(message):
 		return companyReadModelReply{Kind: companyConversationStatus, Message: onboardingStatusMessage(locale, research, len(remaining))}, nil, nil, nil
 	default:
+		if req.SelectedOption != nil {
+			if err := verifySelectedOption(*req.SelectedOption, read, comparisons, locale); err != nil {
+				return companyReadModelReply{}, nil, nil, err
+			}
+		}
 		answer, err := a.answer(principal.WithCorrelationID(ctx, runID), message, history, conversation, locale, req.SelectedOption)
 		if err != nil {
 			return companyReadModelReply{}, nil, nil, err
@@ -273,9 +295,18 @@ func (a *onboardingCompanyAssistant) answer(ctx context.Context, message string,
 	if err != nil {
 		return companyReadModelReply{}, err
 	}
-	messages := make([]model.Message, 0, len(history)+2)
+	messages := make([]model.Message, 0, len(history)+3)
 	messages = append(messages, model.Message{Role: chatRoleUser, Content: string(contextJSON)})
 	messages = append(messages, history...)
+	if selection != nil {
+		// The click reaches the model as an explicit administrator
+		// statement — without it a bare option label like "Use the
+		// website's value" would leave the model guessing which exact
+		// value the human chose.
+		messages = append(messages, model.Message{Role: chatRoleUser, Content: fmt.Sprintf(
+			"I selected %q as the value for %s from your clarification options.",
+			strings.TrimSpace(selection.Value), strings.TrimSpace(selection.Field))})
+	}
 	messages = append(messages, model.Message{Role: chatRoleUser, Content: message})
 	req := model.Request{
 		System: companyReadMessageSystem + `

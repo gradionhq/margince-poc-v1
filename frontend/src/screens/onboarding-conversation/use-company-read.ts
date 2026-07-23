@@ -40,6 +40,10 @@ type UseCompanyReadArgs = Readonly<{
   /** Fired once per started read, before the first poll concludes anything —
    * the shell persists wizard state here so the proposal join can resolve. */
   onReadStarted: (read: CompanySiteRead) => void;
+  /** Whether the wizard-state write joining the CURRENT read landed: the
+   * proposal is fetched only when "ready" (a stale join would serve the
+   * previous read's proposal) and falls back to the snapshot on "failed". */
+  proposalJoin: "pending" | "ready" | "failed";
 }>;
 
 export function useCompanyRead({
@@ -49,8 +53,12 @@ export function useCompanyRead({
   setSelectedFactKeys,
   answers,
   onReadStarted,
+  proposalJoin,
 }: UseCompanyReadArgs) {
   const [readId, setReadId] = useState<string | null>(null);
+  // Mirrors the readId state for callbacks: the poll effect must ignore
+  // snapshots of a run this hook no longer intends (a superseded URL).
+  const readIdRef = useRef<string | null>(null);
   const [proposalArmed, setProposalArmed] = useState(false);
   const prevSnapshot = useRef<CompanySiteRead | null>(null);
   const appliedReadVersion = useRef(0);
@@ -100,19 +108,24 @@ export function useCompanyRead({
 
   const handleSnapshot = useCallback(
     (next: CompanySiteRead) => {
-      if (prevSnapshot.current === next) {
+      // A snapshot from a run this hook no longer wants (an in-flight poll
+      // of a URL the user replaced) must not narrate, prefill, or — worst —
+      // re-arm the superseded run via the resume path below.
+      if (prevSnapshot.current === next || next.id !== readIdRef.current) {
         return;
-      }
-      // A deferred read the server resumed on its own re-arms the retired
-      // run before its fresh progress narrates.
-      if (
-        (next.status === "queued" || next.status === "reading") &&
-        machine.current.activeReadId !== next.id
-      ) {
-        dispatch({ type: "READ_STARTED", readId: next.id });
       }
       const events = diffSiteRead(prevSnapshot.current, next);
       const freshTerminal = events.some((event) => event.kind === "flush");
+      // A retired run the server moved on its own re-arms before its fresh
+      // events land: a deferred read that resumed (queued/reading again) or
+      // that jumped straight to a NEW terminal between the slow polls —
+      // without READ_STARTED the machine would drop that outcome as stale.
+      if (
+        machine.current.activeReadId !== next.id &&
+        (next.status === "queued" || next.status === "reading" || freshTerminal)
+      ) {
+        dispatch({ type: "READ_STARTED", readId: next.id });
+      }
       prevSnapshot.current = next;
       if (next.draft_version > appliedReadVersion.current) {
         appliedReadVersion.current = next.draft_version;
@@ -152,14 +165,22 @@ export function useCompanyRead({
       }
       return data;
     },
+    // The moment a replacement URL is submitted, the old run is dead to this
+    // hook: its poll stops and any in-flight snapshot is ignored, so a stale
+    // terminal can never conclude the conversation for the wrong site.
+    onMutate: () => {
+      readIdRef.current = null;
+      setReadId(null);
+      pendingTerminal.current = null;
+      setProposalArmed(false);
+    },
     onSuccess: (data) => {
       onReadStarted(data);
+      readIdRef.current = data.id;
       setReadId(data.id);
       // draft_version counts within ONE dossier; a new read starts over.
       appliedReadVersion.current = 0;
       prevSnapshot.current = null;
-      pendingTerminal.current = null;
-      setProposalArmed(false);
       dispatch({ type: "READ_STARTED", readId: data.id });
       dispatch({
         type: "NARRATION",
@@ -235,7 +256,7 @@ export function useCompanyRead({
   const { locale } = useLocale();
   const proposal = useQuery({
     queryKey: ["onboarding-company-proposal", readId, locale],
-    enabled: proposalArmed,
+    enabled: proposalArmed && proposalJoin === "ready",
     queryFn: async (): Promise<Proposal> => {
       // The open questions' copy speaks the user's language; option values
       // stay locale-invariant server-side.
@@ -262,7 +283,9 @@ export function useCompanyRead({
     if (!terminal) {
       return;
     }
-    if (proposal.isError) {
+    // A failed wizard-state join means the proposal can only answer for a
+    // PREVIOUS read; the snapshot fallback is the honest source then.
+    if (proposal.isError || proposalJoin === "failed") {
       pendingTerminal.current = null;
       dispatch({
         type: "NARRATION",
@@ -298,7 +321,7 @@ export function useCompanyRead({
     if (open.length === 0) {
       dispatch({ type: "REVIEW_READY" });
     }
-  }, [proposal.data, proposal.isError, answers, dispatch]);
+  }, [proposal.data, proposal.isError, proposalJoin, answers, dispatch]);
 
   return { startRead, siteRead, proposal, prevSnapshot };
 }

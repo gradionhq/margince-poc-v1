@@ -50,23 +50,30 @@ export function toMachineQuestion(
   };
 }
 
+// The spec's evidence-or-omit floor (craftsmanship/threat model: an AI-shown
+// field needs confidence >= 0.55 plus a verbatim snippet). The server
+// proposal applies it; the client-side fallback must not weaken it.
+const MIN_PROPOSAL_CONFIDENCE = 0.55;
+
 // The review card's payload when the proposal endpoint is unavailable: the
 // same deterministic mapping, computed client-side from the site-read
-// snapshot the poll already delivered. Evidence-or-omit still holds via
-// evidencedFields; open questions are unknown here, so none are asked, and
-// confirm keeps the read's own draft_version + proposal_hash pair.
+// snapshot the poll already delivered. The same confidence floor and
+// evidence-or-omit gate apply; open questions are unknown here, so none are
+// asked, and confirm keeps the read's own draft_version + proposal_hash.
 export function proposalFromRead(
   read: components["schemas"]["CompanySiteRead"],
 ): components["schemas"]["OnboardingCompanyProposal"] {
   return {
     ready: true,
-    fields: read.profile_fields.map((field) => ({
-      field: field.field,
-      value: field.value,
-      confidence: field.confidence,
-      evidence_snippet: field.evidence_snippet,
-      source_url: field.source_url ?? read.root_url,
-    })),
+    fields: read.profile_fields
+      .filter((field) => field.confidence >= MIN_PROPOSAL_CONFIDENCE)
+      .map((field) => ({
+        field: field.field,
+        value: field.value,
+        confidence: field.confidence,
+        evidence_snippet: field.evidence_snippet,
+        source_url: field.source_url ?? read.root_url,
+      })),
     facts: [...read.facts],
     open_questions: [],
     remaining_required_fields: [],
@@ -83,12 +90,14 @@ export function evidencedFields(
 }
 
 // The proposal names fields as plain strings; only ones the form vocabulary
-// knows can be shown with the human's current draft value.
+// knows can be shown with the human's current draft value. Own-property
+// check: an unexpected server field named like an Object.prototype member
+// ("toString") must not masquerade as a form field.
 export function isCompanyField(
   field: string,
   values: CompanyForm,
 ): field is CompanyFieldName {
-  return field in values;
+  return Object.hasOwn(values, field);
 }
 
 export function missingRequiredFields(values: CompanyForm): CompanyFieldName[] {

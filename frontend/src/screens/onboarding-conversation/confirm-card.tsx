@@ -5,7 +5,7 @@ import { EvidenceChip, ProvenanceTag } from "../../design-system/trust";
 import { useT } from "../../i18n";
 import { coldFieldLabel } from "../common";
 import type { CompanyDraft, CompanyFieldName } from "../onboarding";
-import { MAX_SELECTED_FACTS } from "../onboarding";
+import { groundingOf, MAX_SELECTED_FACTS } from "../onboarding";
 import type { ClarifyAnswer } from "./company-proposal";
 import {
   evidencedFields,
@@ -35,9 +35,22 @@ type CompanyConfirmCardProps = Readonly<{
   onAnswerClarify: (clarifyId: string, value: string) => void;
   onAcceptAll: () => void;
   pending: boolean;
+  /** A clarify authorization is still in flight; accepting must wait for it. */
+  authorizing: boolean;
   error: string | null;
   onEditDirectly: () => void;
 }>;
+
+// Everything Accept all will save is shown: fields the human typed that the
+// evidenced proposal does not carry get their own typed-by-you rows.
+function humanOnlyRows(
+  draft: CompanyDraft,
+  shown: ReadonlySet<string>,
+): CompanyFieldName[] {
+  return [...draft.edited].filter(
+    (field) => !shown.has(field) && draft.values[field].trim() !== "",
+  );
+}
 
 export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
   const t = useT();
@@ -47,6 +60,10 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
     (question) =>
       question.id !== props.pendingQuestionId &&
       !props.answers.some((answer) => answer.clarifyId === question.id),
+  );
+  const humanRows = humanOnlyRows(
+    props.draft,
+    new Set(fields.map((field) => field.field)),
   );
   const missingLabels = props.missingRequired
     .map((field) => coldFieldLabel(field, t))
@@ -61,6 +78,13 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
       <ul className="ob-conv-confirm-fields">
         {fields.map((field) => (
           <FieldRow key={field.field} field={field} draft={props.draft} />
+        ))}
+        {humanRows.map((field) => (
+          <li key={field}>
+            <span className="t-label">{coldFieldLabel(field, t)}</span>
+            <strong>{props.draft.values[field]}</strong>
+            <ProvenanceTag provenance={{ kind: "human" }} />
+          </li>
         ))}
       </ul>
       {openQuestions.length > 0 && (
@@ -153,6 +177,7 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
           variant="primary"
           disabled={
             props.pending ||
+            props.authorizing ||
             props.missingRequired.length > 0 ||
             openQuestions.length > 0
           }
@@ -168,7 +193,12 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
             </>
           )}
         </Button>
-        <Button small variant="ghost" onClick={props.onEditDirectly}>
+        <Button
+          small
+          variant="ghost"
+          disabled={props.pending}
+          onClick={props.onEditDirectly}
+        >
           {t("ob.conv.review.editDirectly")}
         </Button>
       </div>
@@ -177,8 +207,9 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
 }
 
 // One reviewed row: the human's current value where the vocabulary knows the
-// field, with provenance that flips to typed-by-you the moment they edited
-// it. A value the human cleared has nothing left to confirm.
+// field, with provenance in precedence order — the human's own typing, then
+// the draft's CURRENT grounding (an entity pick re-grounds the legal block),
+// then the proposal's own evidence. A cleared value has nothing to confirm.
 function FieldRow({
   field,
   draft,
@@ -187,6 +218,7 @@ function FieldRow({
   const name = isCompanyField(field.field, draft.values) ? field.field : null;
   const value = name === null ? field.value : draft.values[name];
   const typed = name !== null && draft.edited.has(name);
+  const grounding = name === null ? null : groundingOf(draft, name);
   if (value.trim() === "") {
     return null;
   }
@@ -199,8 +231,8 @@ function FieldRow({
       ) : (
         <EvidenceChip
           evidence={{
-            snippet: field.evidence_snippet,
-            source: field.source_url,
+            snippet: grounding?.evidence_snippet ?? field.evidence_snippet,
+            source: grounding?.source_url ?? field.source_url,
           }}
         />
       )}

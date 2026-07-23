@@ -213,6 +213,7 @@ func WithDeepRead(inserter *jobs.Runner, brain completer) Option {
 			brain: brain, runtime: ai.NewRunTransparency(pool),
 			rollout: &s.companyContextRollout,
 			voice:   ai.NewVoiceStore(pool),
+			company: people.NewStore(pool),
 		}
 	}
 }

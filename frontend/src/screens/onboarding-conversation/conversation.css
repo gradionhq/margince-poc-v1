@@ -220,6 +220,8 @@
 
 .ob-conv-confirm-actions {
   display: flex;
+  /* Long translations must wrap below, never overflow the card. */
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
 }

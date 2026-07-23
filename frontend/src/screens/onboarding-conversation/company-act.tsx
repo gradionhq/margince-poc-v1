@@ -12,6 +12,7 @@ import type { CompanyDraft } from "../onboarding";
 import {
   changeDraftField,
   EMPTY_DRAFT,
+  formFromProfile,
   normalizeUrl,
   onboardingDraftPayload,
 } from "../onboarding";
@@ -23,7 +24,6 @@ import {
 } from "../onboarding-read";
 import type { ArtifactMode, FindingHighlight } from "./artifact";
 import { CompanyActArtifact } from "./artifact";
-import type { ClarifyAnswer } from "./company-proposal";
 import {
   draftWithLegalEntity,
   missingRequiredFields,
@@ -37,39 +37,37 @@ import type {
 } from "./conversation-machine";
 import { NarrationBubble } from "./entries";
 import { ConversationThread } from "./thread";
+import { useClarifyAnswers } from "./use-clarify-answers";
 import { useCompanyRead } from "./use-company-read";
-import { useWizardStatePersist } from "./use-wizard-state";
+import type { WizardPersistInput } from "./use-wizard-state";
 import { ConversationWorkbench } from "./workbench";
 
-// The company act driver: the read lifecycle lives in useCompanyRead; this
-// component owns the draft, the free-text chat, clarify answers (which also
-// travel to the server as the authorizing selected_option), and the one
-// explicit confirmation — all expressed as machine events, so the pure
-// reducer stays the single truth about where the conversation is.
+// The company act driver: the read lifecycle lives in useCompanyRead and
+// clarify authorization in useClarifyAnswers; this component owns the draft,
+// the free-text chat, and the one explicit confirmation — all expressed as
+// machine events, so the pure reducer stays the single truth about where the
+// conversation is.
 
 type CompanySiteRead = components["schemas"]["CompanySiteRead"];
 type CompanyProfile = components["schemas"]["CompanyProfile"];
-type MessageReply = components["schemas"]["OnboardingCompanyMessageReply"];
+type Proposal = components["schemas"]["OnboardingCompanyProposal"];
 type AiRunSummary = components["schemas"]["AiRunSummary"];
 
 type CompanyActProps = Readonly<{
   state: ConversationState;
   dispatch: Dispatch<ConversationEvent>;
-}>;
-
-type OptionSelection = Readonly<{
-  clarifyId: string;
-  field: string;
-  value: string;
-  label: string;
+  /** The member path's existing company; the draft seeds from it so a
+   * confirmation can never erase stored fields the read did not rediscover. */
+  profile: CompanyProfile | null;
+  persist: (input: WizardPersistInput) => Promise<boolean>;
 }>;
 
 function corePresence(
   state: ConversationState,
   read: CompanySiteRead | null,
-  startFailed: boolean,
+  failed: boolean,
 ): MarginceCoreState {
-  if (startFailed || read?.status === "failed") {
+  if (failed || read?.status === "failed") {
     return "error";
   }
   if (read?.status === "deferred") {
@@ -90,16 +88,29 @@ function corePresence(
   return "listening";
 }
 
+function initialDraft(profile: CompanyProfile | null): CompanyDraft {
+  return profile
+    ? { values: formFromProfile(profile), grounded: {}, edited: new Set() }
+    : EMPTY_DRAFT;
+}
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: the act driver is one machine-shaped surface; splitting it further would scatter the event wiring
-export function CompanyAct({ state, dispatch }: CompanyActProps) {
+export function CompanyAct({
+  state,
+  dispatch,
+  profile,
+  persist,
+}: CompanyActProps) {
   const t = useT();
   const { locale } = useLocale();
   const queryClient = useQueryClient();
 
   // Draft state mirrors the classic coordinator: values + grounding +
   // human-edited marks move together, and a ref keeps callbacks current.
-  const [draft, setDraftState] = useState<CompanyDraft>(EMPTY_DRAFT);
-  const draftRef = useRef<CompanyDraft>(EMPTY_DRAFT);
+  const [draft, setDraftState] = useState<CompanyDraft>(() =>
+    initialDraft(profile),
+  );
+  const draftRef = useRef<CompanyDraft>(draft);
   const setDraft = useCallback((update: SetStateAction<CompanyDraft>) => {
     const next =
       typeof update === "function" ? update(draftRef.current) : update;
@@ -108,34 +119,13 @@ export function CompanyAct({ state, dispatch }: CompanyActProps) {
   }, []);
 
   const [selectedFactKeys, setSelectedFactKeys] = useState<string[]>([]);
-  const [answers, setAnswers] = useState<ClarifyAnswer[]>([]);
   const [artifactMode, setArtifactMode] = useState<ArtifactMode>("dossier");
   const [applied, setApplied] = useState<ReadonlySet<string>>(new Set());
+  const [proposalJoin, setProposalJoin] = useState<
+    "pending" | "ready" | "failed"
+  >("pending");
   const machine = useRef(state);
   machine.current = state;
-
-  const { persistReadStart } = useWizardStatePersist();
-  // The proposal endpoint joins through persisted wizard state, so the
-  // running read is recorded the moment it starts.
-  const onReadStarted = useCallback(
-    (started: CompanySiteRead) => {
-      void persistReadStart({
-        url: started.root_url,
-        readId: started.id,
-        values: draftRef.current.values,
-      });
-    },
-    [persistReadStart],
-  );
-
-  const { startRead, siteRead, proposal, prevSnapshot } = useCompanyRead({
-    dispatch,
-    machine,
-    setDraft,
-    setSelectedFactKeys,
-    answers,
-    onReadStarted,
-  });
 
   const applyChanges = useCallback(
     (changes: readonly SuggestedCompanyChange[]) => {
@@ -157,85 +147,57 @@ export function CompanyAct({ state, dispatch }: CompanyActProps) {
     onboardingDraftPayload(draft.values),
     "company",
   );
+  const conversationRef = useRef(conversation);
+  conversationRef.current = conversation;
 
-  const selectOption = useMutation({
-    mutationFn: async (selection: OptionSelection): Promise<MessageReply> => {
-      const { data, error } = await api.POST("/onboarding/company/messages", {
-        body: {
-          message: selection.label,
-          locale,
-          act: "company",
-          selected_option: {
-            clarify_id: selection.clarifyId,
-            field: selection.field,
-            value: selection.value,
-          },
-          history: conversationHistory(conversation.entries),
-          company_draft: onboardingDraftPayload(draftRef.current.values),
-        },
-      });
-      if (error) {
-        throw new Error(problemMessage(error));
-      }
-      return data;
-    },
-    onSuccess: (reply, selection) => {
-      // The selection authorizes exactly one change; anything else the model
-      // volunteered still needs the human's explicit Apply.
-      const authorized = reply.proposed_changes.filter(
-        (change) =>
-          change.field === selection.field && change.value === selection.value,
-      );
-      if (authorized.length > 0) {
-        applyChanges(authorized);
-      }
-      queryClient.invalidateQueries({
-        queryKey: ["onboarding-company-proposal"],
-      });
-    },
+  const proposalRef = useRef<Proposal | undefined>(undefined);
+  const clarify = useClarifyAnswers({
+    locale,
+    proposalRef,
+    draftRef,
+    history: () => conversationHistory(conversationRef.current.entries),
+    applyChanges,
   });
 
-  const answerClarify = useCallback(
-    (clarifyId: string, value: string) => {
-      const clarify = (proposal.data?.open_questions ?? []).find(
-        (question) => question.id === clarifyId,
-      );
-      if (!clarify) {
-        return;
-      }
-      const option = clarify.options.find(
-        (candidate) => candidate.value === value,
-      );
-      setAnswers((current) => [
-        ...current.filter((answer) => answer.clarifyId !== clarifyId),
-        { clarifyId, field: clarify.field, value },
-      ]);
-      selectOption.mutate({
-        clarifyId,
-        field: clarify.field,
-        value,
-        label: option?.label ?? value,
-      });
+  // The proposal endpoint joins through persisted wizard state, so the
+  // running read is recorded the moment it starts — and the proposal fetch
+  // waits for that write (a stale join would serve the previous read).
+  const onReadStarted = useCallback(
+    (started: CompanySiteRead) => {
+      setProposalJoin("pending");
+      void persist({
+        nextStep: 0,
+        mode: "website",
+        readId: started.id,
+        values: draftRef.current.values,
+      }).then((ok) => setProposalJoin(ok ? "ready" : "failed"));
     },
-    [proposal.data, selectOption],
+    [persist],
   );
 
-  // The machine routes the answer itself: with the read outcome recorded
-  // (readCompleted) it proceeds straight to review; remaining open questions
-  // surface in the confirm card, since the run retired at the terminal and a
-  // post-terminal CLARIFY would be stale.
+  const { startRead, siteRead, proposal, prevSnapshot } = useCompanyRead({
+    dispatch,
+    machine,
+    setDraft,
+    setSelectedFactKeys,
+    answers: clarify.answers,
+    onReadStarted,
+    proposalJoin,
+  });
+  proposalRef.current = proposal.data;
+
   const handleAnswer = useCallback(
     (questionId: string, value: string) => {
       dispatch({ type: "QUESTION_ANSWERED", questionId, value });
-      answerClarify(questionId, value);
+      clarify.answerClarify(questionId, value);
     },
-    [dispatch, answerClarify],
+    [dispatch, clarify.answerClarify],
   );
 
   const confirm = useMutation({
     mutationFn: async (): Promise<CompanyProfile> => {
       const values = draftRef.current.values;
-      const profile = {
+      const profileInput = {
         ...values,
         display_name: values.display_name.trim(),
         offer_summary: values.offer_summary.trim(),
@@ -263,12 +225,15 @@ export function CompanyAct({ state, dispatch }: CompanyActProps) {
               body: {
                 draft_version: proposalData.draft_version,
                 proposal_hash: proposalData.proposal_hash,
-                profile,
+                profile: profileInput,
                 selected_fact_keys: selectedFactKeys,
-                resolutions: resolutionsFromAnswers(read.comparisons, answers),
+                resolutions: resolutionsFromAnswers(
+                  read.comparisons,
+                  clarify.answers,
+                ),
               },
             })
-          : await api.PUT("/company", { body: profile });
+          : await api.PUT("/company", { body: profileInput });
       const { data, error } = result;
       if (error) {
         throw new Error(problemMessage(error));
@@ -278,6 +243,15 @@ export function CompanyAct({ state, dispatch }: CompanyActProps) {
     onSuccess: (profileData) => {
       // The shell's onboarding gate reads the same ["company"] cache entry.
       queryClient.setQueryData(["company"], profileData);
+      // Checkpoint the confirmed company so the classic coordinator resumes
+      // at the right step and role if the user switches shells.
+      void persist({
+        nextStep: machine.current.memberPath ? 3 : 1,
+        mode: prevSnapshot.current !== null ? "website" : "manual",
+        readId: prevSnapshot.current?.id ?? null,
+        values: draftRef.current.values,
+        factKeys: selectedFactKeys,
+      });
       dispatch({ type: "COMPANY_CONFIRMED" });
     },
   });
@@ -306,6 +280,7 @@ export function CompanyAct({ state, dispatch }: CompanyActProps) {
 
   const read = siteRead.data ?? startRead.data ?? null;
   const missing = missingRequiredFields(draft.values);
+  const readBroken = startRead.isError || siteRead.isError;
 
   // The review renders even when the proposal endpoint failed: the site-read
   // snapshot carries the same evidence-gated mapping, just with no
@@ -348,20 +323,24 @@ export function CompanyAct({ state, dispatch }: CompanyActProps) {
   }, [lastEntry]);
 
   // The manual path stays offered before any read and again whenever the
-  // machine parked back in co.reading with the run retired — a failed or
-  // deferred terminal, including the poll-failure fallback where the last
-  // snapshot still claims "reading". A successful terminal never rests
-  // there: it proceeds to clarify or review in the same conclusion.
+  // machine parked back in co.reading with the run retired (failed,
+  // deferred, or the poll-failure fallback) — never while a POST is in
+  // flight, so choosing manual cannot race a read that is about to start.
   const showManualChip =
-    state.phase === "co.intro" ||
-    (state.phase === "co.reading" &&
-      state.activeReadId === null &&
-      !startRead.isPending);
+    !startRead.isPending &&
+    (state.phase === "co.intro" ||
+      (state.phase === "co.reading" && state.activeReadId === null));
 
   return (
     <ConversationWorkbench
-      core={corePresence(state, read, startRead.isError)}
-      status={read ? t(`ob.readStatus.${read.status}`) : t("ob.ai.ready")}
+      core={corePresence(state, read, readBroken)}
+      status={
+        readBroken
+          ? t("ob.readStatus.failed")
+          : read
+            ? t(`ob.readStatus.${read.status}`)
+            : t("ob.ai.ready")
+      }
       runtime={runtime}
       artifact={
         <CompanyActArtifact
@@ -382,7 +361,10 @@ export function CompanyAct({ state, dispatch }: CompanyActProps) {
           onSwitchMode={setArtifactMode}
           onConfirm={() => confirm.mutate()}
           confirmPending={confirm.isPending}
-          confirmDisabled={missing.length > 0}
+          confirmDisabled={
+            missing.length > 0 ||
+            !(state.phase === "co.review" || state.phase === "co.manual")
+          }
           saveError={confirm.isError ? confirm.error.message : null}
         />
       }
@@ -411,50 +393,72 @@ export function CompanyAct({ state, dispatch }: CompanyActProps) {
           entries={state.thread}
           pendingQuestionId={state.pendingQuestion?.id ?? null}
           onAnswer={handleAnswer}
-        />
-        <ConversationEntries
-          entries={conversation.entries}
-          applied={applied}
-          onApply={applyChanges}
-          onApplied={(entryID) =>
-            setApplied((current) => new Set(current).add(entryID))
-          }
-        />
-        {conversation.send.isPending && (
-          <NarrationBubble
-            entry={{
-              kind: "narration",
-              id: "thinking",
-              i18nKey: "ob.ai.thinking",
-            }}
+        >
+          <ConversationEntries
+            entries={conversation.entries}
+            applied={applied}
+            onApply={applyChanges}
+            onApplied={(entryID) =>
+              setApplied((current) => new Set(current).add(entryID))
+            }
           />
-        )}
-        {startRead.isError && (
-          <p className="mw-send-error" role="alert">
-            {startRead.error.message}
-          </p>
-        )}
-        {conversation.send.isError && (
-          <p className="mw-send-error" role="alert">
-            {conversation.send.error.message}
-          </p>
-        )}
-        {state.phase === "co.review" && reviewProposal && (
-          <CompanyConfirmCard
-            proposal={reviewProposal}
-            draft={draft}
-            answers={answers}
-            pendingQuestionId={state.pendingQuestion?.id ?? null}
-            selectedFactKeys={selectedFactKeys}
-            setSelectedFactKeys={setSelectedFactKeys}
-            missingRequired={missing}
-            onAnswerClarify={answerClarify}
-            onAcceptAll={() => confirm.mutate()}
-            pending={confirm.isPending}
-            error={confirm.isError ? confirm.error.message : null}
-            onEditDirectly={() => setArtifactMode("edit")}
-          />
-        )}
+          {conversation.send.isPending && (
+            <NarrationBubble
+              entry={{
+                kind: "narration",
+                id: "thinking",
+                i18nKey: "ob.ai.thinking",
+              }}
+            />
+          )}
+          {startRead.isError && (
+            <p className="mw-send-error" role="alert">
+              {startRead.error.message}
+            </p>
+          )}
+          {conversation.send.isError && (
+            <p className="mw-send-error" role="alert">
+              {conversation.send.error.message}
+            </p>
+          )}
+          {clarify.failure && (
+            <div role="alert">
+              <NarrationBubble
+                entry={
+                  clarify.failure.kind === "request"
+                    ? {
+                        kind: "narration",
+                        id: "clarify:apply-failed",
+                        i18nKey: "ob.conv.clarify.applyFailed",
+                        params: { detail: clarify.failure.detail },
+                      }
+                    : {
+                        kind: "narration",
+                        id: "clarify:apply-missing",
+                        i18nKey: "ob.conv.clarify.applyMissing",
+                      }
+                }
+              />
+            </div>
+          )}
+          {state.phase === "co.review" && reviewProposal && (
+            <CompanyConfirmCard
+              proposal={reviewProposal}
+              draft={draft}
+              answers={clarify.answers}
+              pendingQuestionId={state.pendingQuestion?.id ?? null}
+              selectedFactKeys={selectedFactKeys}
+              setSelectedFactKeys={setSelectedFactKeys}
+              missingRequired={missing}
+              onAnswerClarify={clarify.answerClarify}
+              onAcceptAll={() => confirm.mutate()}
+              pending={confirm.isPending}
+              authorizing={clarify.authorizing}
+              error={confirm.isError ? confirm.error.message : null}
+              onEditDirectly={() => setArtifactMode("edit")}
+            />
+          )}
+        </ConversationThread>
       </div>
       <div className="mw-composer">
         <textarea

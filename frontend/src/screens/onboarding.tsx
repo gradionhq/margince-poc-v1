@@ -296,7 +296,7 @@ function orEmpty(value: string | null | undefined): string {
   return value ?? "";
 }
 
-function formFromProfile(p: CompanyProfile): CompanyForm {
+export function formFromProfile(p: CompanyProfile): CompanyForm {
   return {
     display_name: p.display_name,
     website: orEmpty(p.website),
@@ -1699,7 +1699,7 @@ export function WebsiteReadBar({
 
 // A field the read-back grounded and the human has not touched still carries
 // the site's evidence; anything else is the human's own.
-function groundingOf(
+export function groundingOf(
   draft: CompanyDraft,
   field: CompanyFieldName,
 ): ColdField | null {

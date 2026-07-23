@@ -20,6 +20,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 )
 
 // onboardingClarifyOptionLimit mirrors the contract's options maxItems:
@@ -38,6 +39,41 @@ func (a companyChangeAuthorization) withSelectedOption(field, value string) comp
 	a.selectedField = strings.TrimSpace(field)
 	a.selectedValue = strings.TrimSpace(value)
 	return a
+}
+
+// verifySelectedOption re-derives the current clarifications and checks
+// the echoed selection against them, keeping the grant version-bound and
+// server-authored: an unknown or stale clarify id, a field that does not
+// belong to it, or — for a closed option list — a value the server never
+// offered is refused before it can authorize anything. A free-text
+// clarification accepts any non-empty value for its field; option values
+// are locale-invariant, so the check holds whatever language the options
+// were rendered in.
+func verifySelectedOption(selection crmcontracts.OnboardingClarifySelection, read *people.SiteRead, comparisons []people.SiteReadComparison, locale string) error {
+	var clarifies []crmcontracts.OnboardingClarify
+	if read != nil {
+		clarifies = onboardingClarifies(*read, comparisons, locale)
+	}
+	clarifyID := strings.TrimSpace(selection.ClarifyId)
+	for _, clarify := range clarifies {
+		if clarify.Id != clarifyID {
+			continue
+		}
+		if clarify.Field != strings.TrimSpace(selection.Field) {
+			return httperr.Validation("selected_option.field", "invalid", "the selection names a different field than its clarification")
+		}
+		value := strings.TrimSpace(selection.Value)
+		for _, option := range clarify.Options {
+			if option.Value == value {
+				return nil
+			}
+		}
+		if clarify.AllowFreeText != nil && *clarify.AllowFreeText {
+			return nil
+		}
+		return httperr.Validation("selected_option.value", "invalid", "the value is not one of this clarification's options")
+	}
+	return httperr.Validation("selected_option.clarify_id", "stale", "this clarification is no longer open; re-read the current questions and ask again")
 }
 
 // onboardingClarifies runs every detector over the read and its

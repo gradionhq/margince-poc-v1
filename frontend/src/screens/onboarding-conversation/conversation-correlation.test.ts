@@ -142,6 +142,16 @@ describe("clarify interplay with read terminals", () => {
     expect(state.pendingQuestion).toBeNull();
   });
 
+  it("a premature REVIEW_READY mid-read is ignored: review needs a recorded outcome", () => {
+    const midRead = run([
+      { type: "START", memberPath: false },
+      { type: "READ_STARTED", readId: "r1" },
+    ]);
+    expect(conversationReducer(midRead, { type: "REVIEW_READY" })).toBe(
+      midRead,
+    );
+  });
+
   it("a REVIEW_READY right after the terminal is legal from co.reading", () => {
     const state = run([
       { type: "START", memberPath: false },
@@ -222,6 +232,7 @@ describe("voice build", () => {
     run([
       { type: "START", memberPath: false },
       { type: "READ_STARTED", readId: "r1" },
+      { type: "READ_TERMINAL", readId: "r1", status: "ready", findings: 1 },
       { type: "REVIEW_READY" },
       { type: "COMPANY_CONFIRMED" },
       { type: "VOICE_OPT_IN" },

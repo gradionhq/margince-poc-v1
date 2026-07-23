@@ -128,6 +128,11 @@ function eventGuards(
       return event.readId === state.activeReadId;
     case "NARRATION":
       return narrationLegal(state, event);
+    case "REVIEW_READY":
+      // Review only follows a RECORDED ready/partial outcome: a premature
+      // REVIEW_READY mid-read would move to co.review and strand the
+      // eventual READ_TERMINAL there forever.
+      return state.readCompleted;
     case "QUESTION_ANSWERED":
       // Both the question and the chosen option must be the pending ones; an
       // unknown value is never echoed into the thread.

@@ -1356,6 +1356,15 @@ export const de = {
   "ob.conv.tellInstead": "Ich erzähle es dir lieber direkt",
   "ob.conv.clarify.question": "{question}",
   "ob.conv.clarify.optionDetail": "{detail}",
+  "ob.conv.clarify.applyFailed":
+    "Ich konnte diese Wahl nicht übernehmen: {detail} Wähle bitte erneut.",
+  "ob.conv.clarify.applyMissing":
+    "Der Server hat diese Wahl nicht bestätigt. Wähle bitte erneut.",
+  "ob.conv.loadFailed":
+    "Ich konnte deine Einrichtung nicht prüfen. Bitte versuche es erneut.",
+  "ob.conv.retry": "Erneut versuchen",
+  "ob.conv.connect.persistFailed":
+    "Ich konnte den Abschluss nicht speichern. Versuche es erneut.",
   "ob.conv.review.title": "Firmenprofil, aus Quellen vorbereitet",
   "ob.conv.review.openQuestions":
     "Entscheide diese Punkte, bevor ich etwas speichere.",

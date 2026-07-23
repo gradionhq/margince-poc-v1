@@ -1332,6 +1332,13 @@ export const en = {
   "ob.conv.tellInstead": "I would rather tell you directly",
   "ob.conv.clarify.question": "{question}",
   "ob.conv.clarify.optionDetail": "{detail}",
+  "ob.conv.clarify.applyFailed":
+    "I could not record that choice: {detail} Pick it again.",
+  "ob.conv.clarify.applyMissing":
+    "The server did not confirm that choice. Pick it again.",
+  "ob.conv.loadFailed": "I could not check your setup. Please try again.",
+  "ob.conv.retry": "Try again",
+  "ob.conv.connect.persistFailed": "I could not record the finish. Try again.",
   "ob.conv.review.title": "Company profile, prepared from sources",
   "ob.conv.review.openQuestions": "Decide these before I save anything.",
   "ob.conv.review.missing": "I still need: {fields}. Add them and I can save.",

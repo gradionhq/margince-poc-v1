@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useEffect, useRef } from "react";
 import { useT } from "../../i18n";
 import type { ThreadEntry } from "./conversation-machine";
@@ -19,6 +20,13 @@ type ConversationThreadProps = Readonly<{
   /** The one question still awaiting an answer; older ones render inert. */
   pendingQuestionId: string | null;
   onAnswer: (questionId: string, value: string) => void;
+  /**
+   * Conversation content that lives OUTSIDE the machine's thread (chat
+   * replies, review cards, act controls) but must share the same scroll
+   * region and screen-reader log — a second scroll container inside the
+   * conversation would fight this one's follow-the-bottom behaviour.
+   */
+  children?: ReactNode;
 }>;
 
 // How close (in CSS pixels) to the bottom edge still counts as "following
@@ -49,6 +57,7 @@ export function ConversationThread({
   entries,
   pendingQuestionId,
   onAnswer,
+  children,
 }: ConversationThreadProps) {
   const t = useT();
   const log = useRef<HTMLDivElement>(null);
@@ -100,6 +109,18 @@ export function ConversationThread({
           node.scrollHeight - node.scrollTop - node.clientHeight <
           FOLLOW_THRESHOLD_PX;
       }}
+      onWheel={(event) => {
+        // Deliberate upward intent breaks the follow even mid smooth-scroll:
+        // the programmatic-scroll window must not eat the user's escape.
+        if (event.deltaY < 0) {
+          following.current = false;
+        }
+      }}
+      onTouchMove={() => {
+        // A touch drag during the programmatic window is the user taking
+        // over; the next scroll event re-evaluates follow honestly.
+        scrollingProgrammatically.current = false;
+      }}
     >
       {entries.map((entry) => {
         if (entry.kind === "narration") {
@@ -120,6 +141,7 @@ export function ConversationThread({
         }
         return <OutcomeCard key={entry.id} entry={entry} />;
       })}
+      {children}
       <div ref={end} aria-hidden />
     </div>
   );

@@ -13,12 +13,15 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
@@ -29,6 +32,32 @@ import (
 type onboardingVoiceReader interface {
 	ListProfiles(ctx context.Context, cursor *string, limit *int) (ai.VoiceProfilePage, error)
 	ProfilePresentation(ctx context.Context, profileID ids.UUID) (ai.CorpusSummary, *int, error)
+}
+
+// onboardingCompanyReader reports the installation's anchor company, so
+// the results and connect acts recognize a company saved through the
+// manual path — not only one confirmed from a site read.
+type onboardingCompanyReader interface {
+	GetCompany(ctx context.Context) (people.Company, error)
+}
+
+// companyPresent is the acts' company-existence probe: a confirmed site
+// read short-circuits; otherwise the anchor decides. A missing anchor is
+// an honest false, never an error.
+func (a *onboardingCompanyAssistant) companyPresent(ctx context.Context, research onboardingResearchState) (bool, error) {
+	if research.confirmed {
+		return true, nil
+	}
+	if a.company == nil {
+		return false, nil
+	}
+	if _, err := a.company.GetCompany(ctx); err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 // onboardingVoiceContext carries only server-computed numbers — the
