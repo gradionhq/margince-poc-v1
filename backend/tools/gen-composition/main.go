@@ -140,7 +140,7 @@ func generate(root string) error {
 	if err != nil {
 		return err
 	}
-	if err := generateUnitManifests(units); err != nil {
+	if err := generateUnitManifests(root, units); err != nil {
 		return err
 	}
 	files, err := composedFiles(root)
@@ -230,7 +230,7 @@ func verifyOutputs(root string, recorded manifest) error {
 	if err != nil {
 		return err
 	}
-	if err := verifyUnitManifests(units); err != nil {
+	if err := verifyUnitManifests(root, units); err != nil {
 		return err
 	}
 	files, err := composedFiles(root)

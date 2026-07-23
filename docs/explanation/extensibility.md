@@ -123,13 +123,17 @@ The generator also derives each unit's **`manifest.generated.json`** next to the
 its identity and the **autonomy tiers** it requests — every operation the extension adds that runs
 at a 🟢/🟡 tier or asks for a scope, the things an operator must resolve under §7 — read STATICALLY
 from the declaration's AST, so review tooling and the coming approval flow learn what a unit needs
-without compiling or executing its code. Passive policy an extension merely supplies requests no
-autonomy and does not appear: a jurisdiction pack is consulted by the core, never invoked, and asks
-for no tier, so a jurisdiction-only unit (like `de`) carries an empty autonomy-tiers list — there is
-nothing to approve. `New()` must return **literal** values, and an unrecognized field fails
-generation with its position rather than producing a manifest that silently omits a request. The
-manifest is committed with the unit and drift-gated like the contract; its digest rides in
-`composition.json` per unit.
+without compiling or executing its code. The first governed kind is the **agent tool**
+(`extension.Tool`: a verb, a requested tier, one required scope); a tool declaration derives into one
+autonomy-tier request carrying the §5 security descriptor (id, operation, scope, tier) and its
+digest. Declaring a tool records the request in the manifest — *serving* it, registration behind the
+operator-approval gate, arrives in a later slice; until then a declared tool is inert. Passive policy
+an extension merely supplies requests no autonomy and does not appear: a jurisdiction pack is
+consulted by the core, never invoked, and asks for no tier, so a jurisdiction-only unit (like `de`)
+carries an empty autonomy-tiers list — there is nothing to approve. `New()` must return **literal**
+values, and an unrecognized field fails generation with its position rather than producing a manifest
+that silently omits a request. The manifest is committed with the unit and drift-gated like the
+contract; its digest rides in `composition.json` per unit.
 
 ### 4. The boot reconciliation — validate the set, then apply
 
