@@ -146,24 +146,51 @@ type wireAssociation struct {
 // Associations lists the v4 association edges from fromID (of fromClass)
 // to every linked record of toClass (design §11).
 func (c *Client) Associations(ctx context.Context, fromClass, fromID, toClass string) ([]Association, error) {
-	var out struct {
-		Results []wireAssociation `json:"results"`
-	}
-	path := "/crm/v4/objects/" + url.PathEscape(fromClass) + "/" + url.PathEscape(fromID) +
+	var assocs []Association
+	base := "/crm/v4/objects/" + url.PathEscape(fromClass) + "/" + url.PathEscape(fromID) +
 		"/associations/" + url.PathEscape(toClass)
-	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
-		return nil, err
-	}
-	assocs := make([]Association, 0, len(out.Results))
-	for _, r := range out.Results {
-		types := make([]AssociationType, 0, len(r.Types))
-		for _, t := range r.Types {
-			types = append(types, AssociationType{Category: t.Category, TypeID: t.TypeID, Label: t.Label})
+	after := ""
+	// The v4 associations list is paged (paging.next.after): a record with
+	// more than one page of edges (HubSpot returns up to 500 per page) would
+	// silently lose every edge past the first page if we read only page one.
+	// Termination guard, same shape as Owners: a buggy/adversarial API that
+	// echoes a non-advancing cursor would otherwise spin forever.
+	for page := 0; page < associationsMaxPages; page++ {
+		q := url.Values{}
+		q.Set("limit", "500")
+		if after != "" {
+			q.Set("after", after)
 		}
-		assocs = append(assocs, Association{ToObjectID: r.ToObjectID.String(), Types: types})
+		var out struct {
+			Results []wireAssociation `json:"results"`
+			Paging  struct {
+				Next struct {
+					After string `json:"after"`
+				} `json:"next"`
+			} `json:"paging"`
+		}
+		if err := c.do(ctx, http.MethodGet, base+"?"+q.Encode(), nil, &out); err != nil {
+			return nil, err
+		}
+		for _, r := range out.Results {
+			types := make([]AssociationType, 0, len(r.Types))
+			for _, t := range r.Types {
+				types = append(types, AssociationType{Category: t.Category, TypeID: t.TypeID, Label: t.Label})
+			}
+			assocs = append(assocs, Association{ToObjectID: r.ToObjectID.String(), Types: types})
+		}
+		if out.Paging.Next.After == "" {
+			return assocs, nil
+		}
+		after = out.Paging.Next.After
 	}
-	return assocs, nil
+	return nil, fmt.Errorf("hubspot: associations %s/%s->%s did not terminate within %d pages — the API is echoing a non-advancing cursor", fromClass, fromID, toClass, associationsMaxPages)
 }
+
+// associationsMaxPages bounds Associations' pagination: 10k pages × 500/page
+// = five million edges from a single record, far above any real portal, so
+// it only trips on a cursor that never advances.
+const associationsMaxPages = 10_000
 
 // Owner resolves ownerID via the CRM Owners API (design §4.3:
 // crm.objects.owners.read — required for mirror_user_map's

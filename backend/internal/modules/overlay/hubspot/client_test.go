@@ -241,6 +241,42 @@ func TestClientAssociationsParsesTypes(t *testing.T) {
 	}
 }
 
+func TestClientAssociationsFollowsPaging(t *testing.T) {
+	// Two pages: the first carries paging.next.after, the second does not.
+	// Every edge across both pages must be collected — a single-page read
+	// would silently lose the >500th edge — and page two must carry the
+	// cursor as ?after=.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Query().Get("after") {
+		case "":
+			mustWrite(t, w, `{
+				"results": [ { "toObjectId": 111, "associationTypes": [ {"category":"HUBSPOT_DEFINED","typeId":5,"label":"Primary"} ] } ],
+				"paging": { "next": { "after": "page2" } }
+			}`)
+		case "page2":
+			mustWrite(t, w, `{
+				"results": [ { "toObjectId": 222, "associationTypes": [ {"category":"HUBSPOT_DEFINED","typeId":5,"label":null} ] } ]
+			}`)
+		default:
+			t.Errorf("unexpected after cursor %q", r.URL.Query().Get("after"))
+		}
+	}))
+	defer srv.Close()
+
+	c := hubspot.NewClient("us", "test-token", hubspot.WithBaseURL(srv.URL))
+	assocs, err := c.Associations(t.Context(), "deals", "123", "companies")
+	if err != nil {
+		t.Fatalf("Associations: unexpected error: %v", err)
+	}
+	if len(assocs) != 2 {
+		t.Fatalf("len(assocs) = %d, want 2 (both pages collected)", len(assocs))
+	}
+	if assocs[0].ToObjectID != "111" || assocs[1].ToObjectID != "222" {
+		t.Fatalf("ToObjectIDs = [%q %q], want [111 222]", assocs[0].ToObjectID, assocs[1].ToObjectID)
+	}
+}
+
 func TestClientOwnerParsesEmail(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/crm/v3/owners/1197833249" {
