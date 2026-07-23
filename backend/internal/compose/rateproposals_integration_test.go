@@ -32,7 +32,7 @@ func rateSvc(e *integration.Env) *approvals.Service {
 	return svc
 }
 
-func stageProposal(t *testing.T, svc *approvals.Service, ctx context.Context, kind, targetType string, ws ids.UUID, payload any, summary string) ids.ApprovalID {
+func stageProposal(ctx context.Context, t *testing.T, svc *approvals.Service, kind, targetType string, ws ids.UUID, payload any, summary string) ids.ApprovalID {
 	t.Helper()
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -54,7 +54,7 @@ func TestFxRateProposalApprovalAppliesRow(t *testing.T) {
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
 	svc := rateSvc(e)
 
-	id := stageProposal(t, svc, ctx, fxRateProposalKind, fxRateTargetType, e.WS,
+	id := stageProposal(ctx, t, svc, fxRateProposalKind, fxRateTargetType, e.WS,
 		map[string]string{"from_currency": "USD", "rate": "0.9"}, "USD → EUR 0.9")
 	if _, err := svc.Decide(ctx, id, true, nil); err != nil {
 		t.Fatalf("approve: %v", err)
@@ -69,7 +69,7 @@ func TestModelRateProposalApprovalConvertsAndApplies(t *testing.T) {
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
 	svc := rateSvc(e)
 
-	id := stageProposal(t, svc, ctx, aiModelRateProposalKind, aiModelRateTargetType, e.WS,
+	id := stageProposal(ctx, t, svc, aiModelRateProposalKind, aiModelRateTargetType, e.WS,
 		map[string]string{
 			"provider": "anthropic", "model_id": "m",
 			"input_per_mtok": "5", "output_per_mtok": "25",
@@ -89,7 +89,7 @@ func TestRateProposalRejectWritesNothing(t *testing.T) {
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
 	svc := rateSvc(e)
 
-	id := stageProposal(t, svc, ctx, fxRateProposalKind, fxRateTargetType, e.WS,
+	id := stageProposal(ctx, t, svc, fxRateProposalKind, fxRateTargetType, e.WS,
 		map[string]string{"from_currency": "GBP", "rate": "1.1"}, "GBP → EUR 1.1")
 	if _, err := svc.Decide(ctx, id, false, nil); err != nil {
 		t.Fatalf("reject: %v", err)
@@ -104,7 +104,7 @@ func TestFxRateProposalEditBeforeApprove(t *testing.T) {
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
 	svc := rateSvc(e)
 
-	id := stageProposal(t, svc, ctx, fxRateProposalKind, fxRateTargetType, e.WS,
+	id := stageProposal(ctx, t, svc, fxRateProposalKind, fxRateTargetType, e.WS,
 		map[string]string{"from_currency": "CHF", "rate": "1.0"}, "CHF → EUR 1.0")
 	edited, err := json.Marshal(map[string]string{"from_currency": "CHF", "rate": "1.5"})
 	if err != nil {
