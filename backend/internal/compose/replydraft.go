@@ -88,7 +88,7 @@ func WithReplyDraft(brain completer) Option {
 		drafter := newReplyDrafter(pool, brain, s.log)
 		s.replyDrafter = drafter
 		s.activitiesHandlers = s.WithEmailDrafter(drafter)
-		s.toolRegistry = registryWithDraftBrain(pool, brain)
+		s.toolRegistry = registryWithDraftBrain(pool, brain, s.resolveOverlayIncumbent(pool))
 	}
 }
 

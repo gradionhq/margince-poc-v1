@@ -191,10 +191,22 @@ func mapStatus(status int, body []byte) error {
 		return apperrors.ErrIncumbentBudgetExhausted
 	case http.StatusUnauthorized, http.StatusForbidden:
 		return apperrors.ErrPermissionDenied
+	case http.StatusNotFound:
+		// A write to a since-deleted object, or a read of a missing one —
+		// a definite absence, not an incumbent outage.
+		return apperrors.ErrNotFound
+	case http.StatusConflict:
+		// A write rejected on a state/precondition conflict (e.g. a
+		// duplicate-key create) — a caller-actionable conflict, not an outage.
+		return apperrors.ErrConflict
 	default:
 		if env.Category == "RATE_LIMITS" {
 			return apperrors.ErrIncumbentBudgetExhausted
 		}
+		// A 4xx validation (400/422) has no dedicated sentinel in the fixed
+		// registry (interfaces.md §0), so it stays ErrUnreachable for now — a
+		// validation-error sentinel is a contract-first follow-up. A 5xx is a
+		// genuine outage.
 		return fmt.Errorf("hubspot: request failed with status %d: %w", status, ErrUnreachable)
 	}
 }

@@ -4,18 +4,21 @@
 package compose
 
 // The overlay-mode write-admission guard. In overlay mode a workspace's
-// records are served from a read-only incumbent mirror; the overlay
-// datasource Provider declares every record write unsupported_by_sor until
-// branch 2 lands the write-back path. But the REST write handlers are the
-// module-owned transports (people.Handlers.CreatePerson, …) — they write
-// their native tables directly and never ride the Dispatcher's write
-// verbs, so nothing consulted x_sor_mode on the write path. A human or a
+// records are served from an incumbent mirror. Write-back (branch 2) routes
+// canonical writes to the incumbent, but ONLY through the SoR seam — the
+// datasource Provider's Create/Update/Archive verbs the Dispatcher and the
+// agent tool registry call. The REST record-write handlers are the
+// module-owned transports (people.Handlers.CreatePerson, …): they write
+// their native tables DIRECTLY and never ride the SoR seam, so nothing on
+// that path consults x_sor_mode or reaches the incumbent. A human or a
 // static-tier agent issuing a create/update/archive/advance/merge/promote
-// against an overlay-mode workspace therefore committed to the EMPTY
-// native tables: the write then vanished from every mirror-backed read and
-// never reached the incumbent. The SPA hides these affordances in overlay,
-// but that cannot bind a direct API caller. This guard is the server-side
-// chokepoint that makes the refusal real for every principal.
+// through a native REST handler against an overlay-mode workspace would
+// therefore commit to the EMPTY native tables: the write then vanishes from
+// every mirror-backed read and never reaches the incumbent. The SPA hides
+// these affordances in overlay, but that cannot bind a direct API caller.
+// This guard is the server-side chokepoint that refuses those seam-bypassing
+// native REST writes for every principal; routing them to the write-back
+// seam instead is a separate follow-up.
 
 import (
 	"context"
@@ -43,13 +46,14 @@ const (
 	accessTool         = "tool"
 )
 
-// overlaySoRWriteTools are the backing MCP tool verbs of the operations the
-// overlay Provider declares unsupported (its Create/Update/AdvanceDeal/
-// Archive/Merge/PromoteLead seam). A mutating route whose generated policy
-// names one of these writes a mirrored entity through the system-of-record
-// seam, so it is refused in overlay mode. Side-service tools (draft/send
-// email, book meeting, relink) and human-only governance are deliberately
-// ABSENT — they are not SoR record writes and remain available in overlay.
+// overlaySoRWriteTools are the backing MCP tool verbs of the record-write
+// operations (Create/Update/AdvanceDeal/Archive/Merge/PromoteLead + log
+// activity). A mutating REST route whose generated policy names one of these
+// is a native module handler writing a mirrored entity's native table
+// directly (bypassing the write-back seam), so it is refused in overlay
+// mode. Side-service tools (draft/send email, book meeting, relink) and
+// human-only governance are deliberately ABSENT — they are not SoR record
+// writes and remain available in overlay.
 var overlaySoRWriteTools = map[string]bool{
 	toolCreateRecord:   true,
 	toolUpdateRecord:   true,
@@ -74,14 +78,18 @@ type overlayModeChecker interface {
 	isOverlay(ctx context.Context) (bool, error)
 }
 
-// overlayWriteGuard refuses a mutating request that would write a mirrored
-// entity through the SoR seam when the workspace is in overlay mode,
-// answering the same unsupported_by_sor the Provider's write verbs and the
-// agent-tier dispatch already give. It is keyed off the generated
-// agentPolicies table (the contract's own op→tool classification), so the
-// guarded set never drifts from the contract. It runs for every principal
-// — the reason it is a standalone middleware rather than part of the
-// agent-only gate.
+// overlayWriteGuard refuses a mutating REST request whose native module
+// handler would write a mirrored entity's native table DIRECTLY (bypassing
+// the SoR seam) when the workspace is in overlay mode — those native tables
+// are empty in overlay, so the write would vanish and never reach the
+// incumbent. Write-back to the incumbent happens through the SoR seam
+// (the dispatcher + agent tool registry's Create/Update/Archive verbs), NOT
+// these native REST handlers, so refusing them here is correct; routing the
+// REST handlers to the write-back seam is a separate follow-up. The guarded
+// set is keyed off the generated agentPolicies table (the contract's own
+// op→tool classification), so it never drifts from the contract. It runs for
+// every principal — the reason it is a standalone middleware rather than part
+// of the agent-only gate.
 func overlayWriteGuard(mode overlayModeChecker) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

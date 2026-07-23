@@ -53,6 +53,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
+	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -101,7 +102,18 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	defer pool.Close()
 
 	auth := identity.NewService(pool)
-	registry := compose.NewRegistry(pool)
+
+	// The overlay write-back path (create/update/archive tools on an
+	// overlay-mode workspace) needs the workspace's own vaulted HubSpot token,
+	// so wire the same FromEnv vault-backed resolver the api server uses onto
+	// this stdio surface's tool registry. Absent a keyvault config the resolver
+	// is nil and write-back degrades to a clean errNoWriteIncumbent (reads and
+	// non-SoR tools are unaffected).
+	vault, _, err := keyvault.FromEnv(pool)
+	if err != nil {
+		return err
+	}
+	registry := compose.NewRegistryWithIncumbent(pool, compose.OverlayIncumbentResolver(pool, vault))
 
 	// Bind the singleton organization before serving anything: an MCP
 	// process against a pre-bootstrap database is an operator error, not

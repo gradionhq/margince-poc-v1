@@ -14,38 +14,19 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
-// TestProviderWriteVerbsUnsupported proves every write verb declares
-// itself unsupported rather than silently no-op or panic — overlay mode
-// has no write-back path until branch 2. NewProvider(nil, nil) is
-// sufficient because none of these verbs touch the mirror store or the
-// freshness reader.
-func TestProviderWriteVerbsUnsupported(t *testing.T) {
+// TestProviderUnsupportedVerbs proves the verbs overlay V1 genuinely
+// cannot project onto a single incumbent-first write declare themselves
+// unsupported rather than silently no-op or panic (OVA-MAP-W6):
+// AdvanceDeal (blocked on the overlay stage-map substrate StageSemantic
+// also lacks), and Merge/PromoteLead (cross-aggregate lifecycle
+// orchestrations with no atomic incumbent projection). Create/Update/
+// Archive ARE supported — see the object-gate and write-back tests below.
+func TestProviderUnsupportedVerbs(t *testing.T) {
 	p := NewProvider(nil, nil)
 	ctx := context.Background()
 
-	t.Run("Create", func(t *testing.T) {
-		_, err := p.Create(ctx, datasource.CreateInput{EntityType: datasource.EntityPerson})
-		if !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
-			t.Fatalf("want ErrUnsupportedBySoR, got %v", err)
-		}
-	})
-
-	t.Run("Update", func(t *testing.T) {
-		_, err := p.Update(ctx, datasource.UpdateInput{Ref: datasource.EntityRef{Type: datasource.EntityPerson}})
-		if !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
-			t.Fatalf("want ErrUnsupportedBySoR, got %v", err)
-		}
-	})
-
 	t.Run("AdvanceDeal", func(t *testing.T) {
 		_, err := p.AdvanceDeal(ctx, datasource.AdvanceDealInput{})
-		if !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
-			t.Fatalf("want ErrUnsupportedBySoR, got %v", err)
-		}
-	})
-
-	t.Run("Archive", func(t *testing.T) {
-		_, err := p.Archive(ctx, datasource.EntityRef{Type: datasource.EntityPerson})
 		if !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
 			t.Fatalf("want ErrUnsupportedBySoR, got %v", err)
 		}
@@ -67,6 +48,52 @@ func TestProviderWriteVerbsUnsupported(t *testing.T) {
 			t.Fatal("an unsupported call must never report merged=true")
 		}
 	})
+}
+
+// TestProviderWriteVerbsObjectGateBeforeTheIncumbent proves the write
+// verbs apply object RBAC (auth.Require) BEFORE reaching the incumbent —
+// the same MCP-bypass closure the read verbs carry: a bound principal
+// whose role grants no write capability is refused with
+// ErrPermissionDenied, and the incumbent is never touched (the nil
+// resolver would otherwise error differently). auth.Require runs first,
+// so this stays a pure unit test.
+func TestProviderWriteVerbsObjectGateBeforeTheIncumbent(t *testing.T) {
+	p := NewProvider(&MirrorStore{}, nil)
+	ctx := principal.WithActor(context.Background(), principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:no-grants",
+		Permissions: principal.Permissions{RoleKeys: []string{"rep"}},
+	})
+	ref := datasource.EntityRef{Type: datasource.EntityPerson, ID: ids.NewV7()}
+
+	if _, err := p.Create(ctx, datasource.CreateInput{EntityType: datasource.EntityPerson}); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("Create without a person create grant: err = %v, want ErrPermissionDenied", err)
+	}
+	if _, err := p.Update(ctx, datasource.UpdateInput{Ref: ref}); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("Update without a person update grant: err = %v, want ErrPermissionDenied", err)
+	}
+	if _, err := p.Archive(ctx, ref); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("Archive without a person delete grant: err = %v, want ErrPermissionDenied", err)
+	}
+}
+
+// TestProviderWriteWithoutIncumbentResolver proves a permitted write
+// against a Provider with no incumbent write resolver wired fails with a
+// clear configuration error — never a nil-pointer panic and never a
+// misleading ErrUnsupportedBySoR (Create/Update/Archive ARE supported
+// verbs; the resolver is simply absent).
+func TestProviderWriteWithoutIncumbentResolver(t *testing.T) {
+	p := NewProvider(&MirrorStore{}, nil)
+	ctx := principal.WithActor(context.Background(), principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:granted",
+		Permissions: principal.Permissions{
+			Objects:  map[string]principal.ObjectGrant{"person": {Create: true, Update: true, Delete: true}},
+			RowScope: principal.RowScopeAll,
+		},
+	})
+	_, err := p.Create(ctx, datasource.CreateInput{EntityType: datasource.EntityPerson})
+	if err == nil || errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+		t.Fatalf("Create with no resolver: err = %v, want a clear configuration error", err)
+	}
 }
 
 // TestProviderRunReportUnsupported proves RunReport declares itself
