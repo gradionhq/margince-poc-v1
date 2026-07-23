@@ -120,12 +120,16 @@ reproduces the committed `composition/` stub **byte-identically**, so a bare `go
 build provably wire the same thing. `make check-composition` is the drift gate that proves it.
 
 The generator also derives each unit's **`manifest.generated.json`** next to the unit (ADR-0069 §5):
-what the extension claims — identity, capabilities, security descriptors and their digests — read
-STATICALLY from the declaration's AST, so review tooling and the coming approval flow (§7) learn what
-a unit requests without compiling or executing its code. That is why `New()` and the pack methods it
-references must return **literal** values: a computed value fails generation with the position, never
-a manifest that silently omits a claim. The manifest is committed with the unit and drift-gated like
-the contract; its digest rides in `composition.json` per unit.
+its identity and the **autonomy tiers** it requests — every operation the extension adds that runs
+at a 🟢/🟡 tier or asks for a scope, the things an operator must resolve under §7 — read STATICALLY
+from the declaration's AST, so review tooling and the coming approval flow learn what a unit needs
+without compiling or executing its code. Passive policy an extension merely supplies requests no
+autonomy and does not appear: a jurisdiction pack is consulted by the core, never invoked, and asks
+for no tier, so a jurisdiction-only unit (like `de`) carries an empty autonomy-tiers list — there is
+nothing to approve. `New()` must return **literal** values, and an unrecognized field fails
+generation with its position rather than producing a manifest that silently omits a request. The
+manifest is committed with the unit and drift-gated like the contract; its digest rides in
+`composition.json` per unit.
 
 ### 4. The boot reconciliation — validate the set, then apply
 

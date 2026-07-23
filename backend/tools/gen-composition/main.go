@@ -12,9 +12,9 @@
 // builds provably wire the same thing.
 //
 // It also derives each unit's manifest.generated.json (§5) next to the
-// unit — statically, from the declaration's AST, so consumers read what
-// an extension claims without compiling its code (unitmanifest.go /
-// astreader.go).
+// unit — statically, from the declaration's AST, so consumers read the
+// GOVERNED capabilities an extension requests without compiling its code
+// (unitmanifest.go).
 //
 // The path default suits `make gen` (run from backend/).
 package main
@@ -140,7 +140,7 @@ func generate(root string) error {
 	if err != nil {
 		return err
 	}
-	if err := generateUnitManifests(root, units); err != nil {
+	if err := generateUnitManifests(units); err != nil {
 		return err
 	}
 	files, err := composedFiles(root)
@@ -230,7 +230,7 @@ func verifyOutputs(root string, recorded manifest) error {
 	if err != nil {
 		return err
 	}
-	if err := verifyUnitManifests(root, units); err != nil {
+	if err := verifyUnitManifests(units); err != nil {
 		return err
 	}
 	files, err := composedFiles(root)
