@@ -381,6 +381,7 @@ function MultiselectField({
 }>) {
   const t = useT();
   const selected = splitMultiselectValue(value);
+  const hintId = `${formId}-${field.key}-required-hint`;
 
   function toggle(optionValue: string) {
     const next = selected.includes(optionValue)
@@ -390,11 +391,23 @@ function MultiselectField({
   }
 
   return (
-    <fieldset className="field-multiselect">
+    <fieldset
+      className="field-multiselect"
+      // A checkbox group has no native `required`, and aria-required is not a
+      // valid attribute on a group — so the mandatory-ness is announced via a
+      // described-by hint the screen reader reads when focus enters the group
+      // (the "*" alone is silent, and Save just stays disabled).
+      aria-describedby={field.required ? hintId : undefined}
+    >
       <legend className="t-label">
         {fieldLabel(field, t)}
         {field.required ? " *" : ""}
       </legend>
+      {field.required && (
+        <p id={hintId} className="t-caption field-multiselect-hint">
+          {t("create.multiselect.required")}
+        </p>
+      )}
       {(field.options ?? []).map((option) => {
         const optionId = `${formId}-${field.key}-${option.value}`;
         return (

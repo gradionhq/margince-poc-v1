@@ -4489,6 +4489,8 @@ export interface components {
         WebhookSubscriptionListResponse: {
             data: components["schemas"]["WebhookSubscription"][];
             page: components["schemas"]["PageInfo"];
+            /** @description Whether this deployment has a signing key configured. When false, subscriptions can be listed and inspected but create/rotate/replay are unavailable (they answer 503 webhooks_not_configured), so the UI renders a not-enabled state instead of controls that would only fail on click. */
+            delivery_enabled: boolean;
         };
         /** @description One delivery attempt log (`webhook_delivery`) — the inspectable dead-letter surface. At-least-once with idempotency: exactly one row per (subscription, event). */
         WebhookDelivery: {

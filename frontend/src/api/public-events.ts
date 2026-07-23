@@ -50,8 +50,10 @@ export interface components {
              * @description Correlates all events emitted for one originating request.
              */
             correlation_id: string;
-            /** @description The typed event payload (one of the PublicEvent* schemas). */
-            data: Record<string, never>;
+            /** @description The typed event payload (one of the PublicEvent* schemas), carried as raw JSON so it is delivered byte-for-byte — large int64 fields (e.g. amount_minor_at_change) are never round-tripped through a float64 that would lose precision. */
+            data: {
+                [key: string]: unknown;
+            };
         };
         /** @description Payload for deal.created — a deal was opened. */
         PublicEventDealCreated: {
@@ -608,7 +610,7 @@ export interface components {
              * @description The source this change touched (absent on the clear site, which has no single source).
              */
             source_id?: string;
-            /** @description What happened to the corpus (included | excluded | removed | cleared). */
+            /** @description What happened to the corpus, one of: ingested (a new source was added) | replaced (an existing source was re-ingested) | included | excluded | removed | cleared. These are exactly the values the emit sites stamp (voice_source_store.go sourceIngestChange, voice_source_mutations.go sourceInclusionChange / ClearCorpus). */
             action: string;
             /** @description The touched source's origin (manual | capture) (absent on the clear site). */
             origin?: string;
@@ -635,7 +637,7 @@ export interface components {
             build_id: string;
             /** @description The human-approved reason for this build (onboarding | manual). */
             reason: string;
-            /** @description The build's status (queued | deferred | running | completed | failed). */
+            /** @description The build's status, one of queued | deferred | running | succeeded | failed — exactly the values voice_build_run.go persists and emits ("succeeded" is the success terminal, not "completed"). */
             status: string;
             /** @description The build's current pipeline stage (absent before it starts running). */
             stage?: string;

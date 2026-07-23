@@ -78,9 +78,15 @@ export function webhookStatusBadge(
   }
 }
 
-type SubscriptionsResult =
-  | { configured: true; data: WebhookSubscription[] }
-  | { configured: false };
+// deliveryEnabled reports whether this deployment has a signing key: the list
+// works either way (subscriptions are inspectable), but create/rotate/replay
+// need the key and answer 503 otherwise — so the card gates its mutating
+// controls on the list response's delivery_enabled flag, not on whether the
+// list happened to load (which never signals the missing key).
+type SubscriptionsResult = {
+  deliveryEnabled: boolean;
+  data: WebhookSubscription[];
+};
 
 function useWebhookSubscriptions() {
   return useQuery({
@@ -93,17 +99,17 @@ function useWebhookSubscriptions() {
       // "Not configured on this deployment" is the specific 503 whose
       // RFC-7807 code is webhooks_not_configured — key on the code, not the
       // bare status, so a transient dependency 503 (DB down behind the API)
-      // still surfaces as an error card instead of the calm empty-state.
+      // still surfaces as an error card instead of the calm not-enabled state.
       if (
         response.status === 503 &&
         problemCode(error) === "webhooks_not_configured"
       ) {
-        return { configured: false };
+        return { deliveryEnabled: false, data: [] };
       }
       if (error || !response.ok) {
         throw new Error(problemMessage(error));
       }
-      return { configured: true, data: data.data };
+      return { deliveryEnabled: data.delivery_enabled, data: data.data };
     },
   });
 }
@@ -394,6 +400,11 @@ function NotConfiguredState() {
 // doesn't have: `has_more` still drives LoadMoreButton's visibility
 // truthfully, it just grows the page instead of paging past it.
 const DELIVERIES_PAGE_SIZE = 20;
+// The contract caps `limit` at 200 (components/parameters/Limit). "Load more"
+// grows the page toward that ceiling and stops there — never requesting a
+// contract-invalid 220 (which the server would reject / silently clamp back to
+// its default, shrinking the page the user is looking at).
+const DELIVERIES_MAX_LIMIT = 200;
 
 function useWebhookDeliveries(subscriptionId: string) {
   const [limit, setLimit] = useState(DELIVERIES_PAGE_SIZE);
@@ -415,7 +426,14 @@ function useWebhookDeliveries(subscriptionId: string) {
   });
   return {
     query,
-    loadMore: () => setLimit((current) => current + DELIVERIES_PAGE_SIZE),
+    loadMore: () =>
+      setLimit((current) =>
+        Math.min(current + DELIVERIES_PAGE_SIZE, DELIVERIES_MAX_LIMIT),
+      ),
+    // Once the page has grown to the contract ceiling there is no valid larger
+    // request to make, so "Load more" must stop being offered even if the
+    // server still reports has_more.
+    canLoadMore: limit < DELIVERIES_MAX_LIMIT,
   };
 }
 
@@ -593,7 +611,9 @@ function DeliveriesPanel({
 }: Readonly<{ subscription: WebhookSubscription; canManage: boolean }>) {
   const t = useT();
   const { locale } = useLocale();
-  const { query, loadMore } = useWebhookDeliveries(subscription.id);
+  const { query, loadMore, canLoadMore } = useWebhookDeliveries(
+    subscription.id,
+  );
 
   return (
     <div
@@ -608,7 +628,7 @@ function DeliveriesPanel({
           locale={locale}
           t={t}
           loadMoreQuery={{
-            hasNextPage: query.data?.page.has_more ?? false,
+            hasNextPage: (query.data?.page.has_more ?? false) && canLoadMore,
             isFetchingNextPage: query.isFetching,
             fetchNextPage: loadMore,
           }}
@@ -792,7 +812,7 @@ export function WebhooksCard() {
   // case) is still creatable; QueryGate's `empty` branch renders the shared
   // EmptyState in place of `children`, which would otherwise swallow a
   // button nested inside it.
-  const canCreate = canManage && query.data?.configured === true;
+  const canCreate = canManage && query.data?.deliveryEnabled === true;
 
   return (
     <section className="card" style={{ marginBottom: "var(--space-4)" }}>
@@ -811,31 +831,31 @@ export function WebhooksCard() {
       )}
       <QueryGate
         query={query}
-        empty={(result) => result.configured && result.data.length === 0}
+        empty={(result) => result.deliveryEnabled && result.data.length === 0}
       >
-        {(result) => {
-          if (!result.configured) {
-            return <NotConfiguredState />;
-          }
-          return (
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "var(--space-2)",
-              }}
-            >
-              {result.data.map((subscription) => (
-                <SubscriptionRow
-                  key={subscription.id}
-                  subscription={subscription}
-                  canManage={canManage}
-                  onRotated={setRevealedSecret}
-                />
-              ))}
-            </div>
-          );
-        }}
+        {(result) => (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--space-2)",
+            }}
+          >
+            {/* No signing key: delivery is off, so mutating controls are
+                withheld and a not-enabled note explains why. Existing
+                subscriptions still render read-only (canManage forced false)
+                so their config and delivery health stay inspectable. */}
+            {!result.deliveryEnabled && <NotConfiguredState />}
+            {result.data.map((subscription) => (
+              <SubscriptionRow
+                key={subscription.id}
+                subscription={subscription}
+                canManage={canManage && result.deliveryEnabled}
+                onRotated={setRevealedSecret}
+              />
+            ))}
+          </div>
+        )}
       </QueryGate>
       {canCreate && (
         <CreateRecordModal

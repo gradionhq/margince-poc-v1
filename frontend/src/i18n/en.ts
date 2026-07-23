@@ -576,6 +576,7 @@ export const en = {
   "deepread.kindOther": "Other",
 
   "create.cancel": "Cancel",
+  "create.multiselect.required": "Required — select at least one.",
   "create.save": "Create",
   "create.saving": "Creating…",
   "create.contact": "New contact",
@@ -2018,7 +2019,7 @@ export const en = {
   "webhooks.rotate": "Rotate secret",
   "webhooks.rotateConfirm.title": "Rotate signing secret?",
   "webhooks.rotateConfirm.body":
-    "The current secret stops verifying deliveries immediately. Update your receiver with the new secret before confirming.",
+    "Confirming invalidates the current secret immediately and then reveals the new secret once. Copy it and update your receiver as soon as rotation completes.",
   "webhooks.secret.title": "Signing secret",
   "webhooks.secret.warning":
     "This secret is shown once and can't be retrieved again. Store it now — deliveries are signed with it.",
@@ -2039,7 +2040,7 @@ export const en = {
   "webhooks.deliveries.column.lastStatusCode": "Last status",
   "webhooks.deliveries.column.lastError": "Last error",
   "webhooks.deliveries.column.created": "Created",
-  "webhooks.deliveries.column.resolved": "Resolved",
+  "webhooks.deliveries.column.resolved": "Resolved / next retry",
   "webhooks.deliveries.status.pending": "Pending",
   "webhooks.deliveries.status.delivered": "Delivered",
   "webhooks.deliveries.status.retrying": "Retrying",

@@ -157,6 +157,15 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
   // a rep/manager never sees the Organization group. The server re-checks.
   const isOrgAdmin = canConfigureAutomations(me.data?.roles);
   const tabs = SETTINGS_TABS.filter((entry) => {
+    // Integrations is read-capable by EVERY role (the seeded policy grants
+    // webhook_subscription read to admin/ops/manager/rep/read_only; only
+    // create/rotate/replay are admin/ops-only, and WebhooksCard gates those
+    // per-card). So it is exempt from the org-admin nav filter — a read-only
+    // role must still reach the subscription list + delivery-health views,
+    // and its deep link must not fall back to Account.
+    if (entry.id === "integrations") {
+      return true;
+    }
     if (entry.group === "org" && !isOrgAdmin) {
       return false;
     }

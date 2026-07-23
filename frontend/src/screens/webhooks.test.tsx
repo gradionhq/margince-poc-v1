@@ -42,6 +42,7 @@ const SUBSCRIPTIONS = {
     },
   ],
   page: { next_cursor: null, has_more: false },
+  delivery_enabled: true,
 };
 
 function backendFor(roles: string[], subscriptionsStatus = 200) {
@@ -105,6 +106,7 @@ function backendForCreate(roles: string[]) {
         return jsonResponse({
           data: [],
           page: { next_cursor: null, has_more: false },
+          delivery_enabled: true,
         });
       }
       if (req.url.includes("/webhook-subscriptions") && req.method === "POST") {
@@ -188,6 +190,46 @@ describe("WebhooksCard", () => {
     expect(screen.queryByTestId("new-webhook-subscription")).toBeNull();
   });
 
+  it("gates mutating controls on delivery_enabled while keeping the list readable", async () => {
+    // The list works (200) but the deployment has no signing key
+    // (delivery_enabled:false): existing subscriptions still render read-only,
+    // but create/rotate/edit/archive are withheld — not offered controls that
+    // would only 503 on click.
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const req =
+          input instanceof Request ? input : new Request(String(input), init);
+        if (req.url.endsWith("/v1/me")) {
+          return jsonResponse({
+            user: { email: "admin@acme.test" },
+            roles: ["admin"],
+            teams: [],
+          });
+        }
+        if (
+          req.url.includes("/webhook-subscriptions") &&
+          req.method === "GET"
+        ) {
+          return jsonResponse({ ...SUBSCRIPTIONS, delivery_enabled: false });
+        }
+        throw new Error(`unexpected request: ${req.method} ${req.url}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WebhooksCard />);
+
+    // The existing subscription is still listed (read-only).
+    await waitFor(() =>
+      expect(
+        screen.getByText("https://example.test/hooks/margince"),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByText(/not enabled on this deployment/i)).toBeTruthy();
+    // Even for an admin, no create / rotate affordances when delivery is off.
+    expect(screen.queryByTestId("new-webhook-subscription")).toBeNull();
+    expect(screen.queryByTestId("rotate-webhook-secret")).toBeNull();
+  });
+
   it("renders the empty state when no subscriptions exist", async () => {
     vi.stubGlobal(
       "fetch",
@@ -208,6 +250,7 @@ describe("WebhooksCard", () => {
           return jsonResponse({
             data: [],
             page: { next_cursor: null, has_more: false },
+            delivery_enabled: true,
           });
         }
         throw new Error(`unexpected request: ${req.method} ${req.url}`);

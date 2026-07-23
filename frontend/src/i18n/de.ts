@@ -589,6 +589,8 @@ export const de = {
   "deepread.kindOther": "Sonstiges",
 
   "create.cancel": "Abbrechen",
+  "create.multiselect.required":
+    "Erforderlich – mindestens eine Option wählen.",
   "create.save": "Anlegen",
   "create.saving": "Wird angelegt…",
   "create.contact": "Neuer Kontakt",
@@ -2059,7 +2061,7 @@ export const de = {
   "webhooks.rotate": "Schlüssel rotieren",
   "webhooks.rotateConfirm.title": "Signaturschlüssel rotieren?",
   "webhooks.rotateConfirm.body":
-    "Der aktuelle Schlüssel verifiziert Zustellungen ab sofort nicht mehr. Aktualisieren Sie Ihren Empfänger mit dem neuen Schlüssel, bevor Sie bestätigen.",
+    "Mit dem Bestätigen wird der aktuelle Schlüssel sofort ungültig und der neue Schlüssel danach einmalig angezeigt. Kopieren Sie ihn und aktualisieren Sie Ihren Empfänger, sobald die Rotation abgeschlossen ist.",
   "webhooks.secret.title": "Signaturschlüssel",
   "webhooks.secret.warning":
     "Dieser Schlüssel wird nur einmal angezeigt und kann danach nicht erneut abgerufen werden. Speichern Sie ihn jetzt — Zustellungen werden damit signiert.",
@@ -2080,7 +2082,7 @@ export const de = {
   "webhooks.deliveries.column.lastStatusCode": "Letzter Status",
   "webhooks.deliveries.column.lastError": "Letzter Fehler",
   "webhooks.deliveries.column.created": "Erstellt",
-  "webhooks.deliveries.column.resolved": "Abgeschlossen",
+  "webhooks.deliveries.column.resolved": "Abgeschlossen / nächster Versuch",
   "webhooks.deliveries.status.pending": "Ausstehend",
   "webhooks.deliveries.status.delivered": "Zugestellt",
   "webhooks.deliveries.status.retrying": "Wird wiederholt",
