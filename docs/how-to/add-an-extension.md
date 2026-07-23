@@ -114,7 +114,11 @@ Because presence is enablement, the moment the directory exists it's in the enab
 have to regenerate the composition and run the gates:
 
 1. **`make composition`** — regenerates `build/composition/` from `extensions/`; your unit now appears
-   in the generated `Extensions()`. (Every build/test lane depends on this target, so `make check`
+   in the generated `Extensions()`, and a `manifest.generated.json` lands next to your unit — the
+   statically derived record of what it declares. Commit it with the unit; the drift gate fails a
+   stale or hand-edited one. Derivation reads your `New()` (and the pack methods it references) from
+   the AST, so declarations must be literal values — a computed name, code, or period fails
+   generation with the file and line. (Every build/test lane depends on this target, so `make check`
    runs it for you; run it directly when you want to inspect the output.)
 2. **`make check`** — builds the composed workspace, runs the extension-tier fitness tests
    (import-boundary, marker placement, composition wiring), `make test-extensions` (your unit's own

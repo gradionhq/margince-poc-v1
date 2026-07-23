@@ -134,7 +134,14 @@ func computeInputs(root string) (manifestInputs, error) {
 		if err != nil {
 			return manifestInputs{}, fmt.Errorf("extensions/%s: %w", u.Name, err)
 		}
-		rows[u.Name] = manifestExtRow{Tree: tree}
+		// The manifest digests as it sits on disk: the fast staleness
+		// probe (-verify-inputs) catches a hand edit or a missing file by
+		// digest alone; only the full verify re-derives from the AST.
+		unitManifest, err := digestFileOrEmpty(filepath.Join(u.Dir, unitManifestFile))
+		if err != nil {
+			return manifestInputs{}, fmt.Errorf("extensions/%s: %w", u.Name, err)
+		}
+		rows[u.Name] = manifestExtRow{Tree: tree, Manifest: unitManifest}
 	}
 	return manifestInputs{Core: core, ApprovalsLock: lock, Extensions: rows}, nil
 }
@@ -239,6 +246,9 @@ func (h *treeHasher) sum() string {
 // digestTree hashes every regular file under dir. A symlink is refused:
 // it would digest as its target's bytes while provenance points
 // elsewhere, and a real installation lands extensions as plain trees.
+// The unit's generated manifest is excluded: it derives FROM this tree,
+// so including it would make the digest chase the generator's own
+// output — it rides in its own manifestExtRow field instead.
 func digestTree(dir string) (string, error) {
 	h := newTreeHasher(dir)
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
@@ -254,6 +264,9 @@ func digestTree(dir string) (string, error) {
 		rel, err := filepath.Rel(dir, path)
 		if err != nil {
 			return err
+		}
+		if filepath.ToSlash(rel) == unitManifestFile {
+			return nil
 		}
 		return h.addFile(filepath.ToSlash(rel))
 	})
