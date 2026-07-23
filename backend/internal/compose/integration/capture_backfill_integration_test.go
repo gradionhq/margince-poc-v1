@@ -210,7 +210,6 @@ func TestBackfillLifecycle(t *testing.T) {
 			t.Fatalf("list backfill status = %s, want the newest run (cancelled)", views[0].Backfill.Status)
 		}
 	})
-
 }
 
 // A backfill step that faults before committing a page must fail the run
