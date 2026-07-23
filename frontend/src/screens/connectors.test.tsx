@@ -116,9 +116,7 @@ describe("the connected-inboxes card", () => {
     await screen.findByText("Gmail");
 
     // Opening the row's disconnect shows a confirm — nothing is called yet.
-    await userEvent.click(
-      screen.getByRole("button", { name: /^Disconnect$/ }),
-    );
+    await userEvent.click(screen.getByRole("button", { name: /^Disconnect$/ }));
     expect(requestsTo(calls, "/disconnect", "POST").length).toBe(0);
 
     // The modal's confirm is the one that stops capture.
