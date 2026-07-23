@@ -56,24 +56,50 @@ func VerifyWebhookSignature(clientSecret, method, uri string, body []byte, times
 	return hmac.Equal([]byte(expected), []byte(provided))
 }
 
+// HubSpot's webhook subscriptionType vocabulary: the object-type prefix before
+// the first dot, and the actions we act on. These are HubSpot's OWN wire names,
+// deliberately kept distinct from the canonical *Target constants
+// (mapping_hs.go) even where the spelling coincides — a future rename of a
+// canonical Margince type must never silently drop webhook routing, so the two
+// domains never share a constant.
+const (
+	subPrefixContact = "contact"
+	subPrefixCompany = "company"
+	subPrefixDeal    = "deal"
+	subPrefixLead    = "lead"
+	subPrefixHSLead  = "hs_lead"
+	// subActionDeletion is the one action this signal lane deliberately does
+	// NOT act on: a re-fetch of a deleted record 404s and would leave the
+	// mirror row lingering (a doomed job that looks handled). Incumbent-side
+	// deletions are the poller's deletion-feed's job (it tombstones), so a
+	// deletion subscription is dropped here rather than enqueued.
+	subActionDeletion = "deletion"
+)
+
 // ObjectClassForSubscription maps a HubSpot subscriptionType (e.g.
 // "contact.propertyChange", "deal.creation") to the incumbent object class the
 // mirror re-fetches through — the prefix before the first dot names the object
-// type. An unrecognized subscription (a type the mirror does not model) is
-// ok=false: the receiver drops it as an out-of-scope signal rather than
-// guessing a class. V1 covers the object types HubSpot webhooks deliver for
+// type. ok=false means "not re-fetchable through this lane": either an
+// unrecognized object type (a type the mirror does not model — dropped, never
+// guessed) OR a deletion action (owned by the poller's deletion feed, not a
+// re-fetch). V1 covers the object types HubSpot webhooks deliver for
 // (contact/company/deal/lead); the five engagement classes have no standard
 // webhook subscription and are healed by the poller.
 func ObjectClassForSubscription(subscriptionType string) (string, bool) {
-	prefix, _, _ := strings.Cut(subscriptionType, ".")
+	prefix, action, _ := strings.Cut(subscriptionType, ".")
+	if action == subActionDeletion {
+		// Presented honestly as NOT handled by the re-fetch lane; the poller's
+		// deletion feed tombstones incumbent-deleted records.
+		return "", false
+	}
 	switch prefix {
-	case "contact":
+	case subPrefixContact:
 		return objectClassContacts, true
-	case "company":
+	case subPrefixCompany:
 		return objectClassCompanies, true
-	case dealTarget:
+	case subPrefixDeal:
 		return objectClassDeals, true
-	case leadTarget, "hs_lead":
+	case subPrefixLead, subPrefixHSLead:
 		return objectClassLeads, true
 	default:
 		return "", false

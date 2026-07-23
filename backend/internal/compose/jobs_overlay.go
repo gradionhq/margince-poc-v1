@@ -185,7 +185,7 @@ func (w *overlayReconcileWorker) Work(ctx context.Context, _ *river.Job[OverlayR
 	recMS := w.ms.WithFence()
 	for _, d := range due {
 		wsCtx := reconcileWorkerCtx(ctx, d.Workspace)
-		err := reconcileConnection(wsCtx, w.vault, w.ms, w.meter, w.log, d, w.newIncumbent)
+		err := reconcileConnection(wsCtx, w.pool, w.vault, w.ms, w.meter, w.log, d, w.newIncumbent)
 		// Record the sweep outcome so a connection-level failure backs the
 		// next sweep off (overlay_sync_state), instead of re-sweeping a
 		// revoked/rate-limited/unreachable connection hot every tick; one
@@ -258,7 +258,7 @@ func isConnectionLevelIncumbentError(err error) bool {
 // sweep and returns an error, which the periodic caller records as a
 // backoff (overlay_sync_state) so a dead or throttled connection is not
 // re-swept hot every tick.
-func reconcileConnection(ctx context.Context, vault keyvault.Vault, ms *overlay.MirrorStore, meter *overlaybudget.Meter, log *slog.Logger, d overlay.DueOverlayConnection, newIncumbent func(region, token string) overlay.Incumbent) error {
+func reconcileConnection(ctx context.Context, pool *pgxpool.Pool, vault keyvault.Vault, ms *overlay.MirrorStore, meter *overlaybudget.Meter, log *slog.Logger, d overlay.DueOverlayConnection, newIncumbent func(region, token string) overlay.Incumbent) error {
 	if d.Incumbent != incumbentHubSpot {
 		// Branch 1 wires only HubSpot (design.md §2 D2/D3) — a connection
 		// row naming any other incumbent has no adapter here; an honest,
@@ -274,6 +274,16 @@ func reconcileConnection(ctx context.Context, vault keyvault.Vault, ms *overlay.
 	// the whole sweep is drivable against a fake incumbent in a test,
 	// rather than reaching a real HubSpot over the network.
 	inc := newIncumbent(d.Region, string(token))
+	// Self-heal the webhook tenant binding (OVA-DDL-3): if the connect-time
+	// portal fetch failed (best-effort, left null), fill it from this sweep's
+	// live adapter so the webhook lane can bind that portal — a transient
+	// connect-time blip no longer permanently disables push refresh. Gated on
+	// the binding being unset, so a bound connection pays no per-sweep call.
+	// Best-effort: a failure here never aborts the record sweep below.
+	if err := overlay.BackfillPortalBinding(ctx, pool, inc); err != nil {
+		log.WarnContext(ctx, "overlay reconcile: backfilling the webhook portal binding failed",
+			"workspace", d.Workspace.String(), "err", err)
+	}
 	// Bind the store to THIS connection's live adapter so seeding,
 	// UpsertUserMap's email re-verification, and Ingest's owner-change
 	// revalidation all resolve against the incumbent's CURRENT owner

@@ -233,25 +233,28 @@ func (s *Service) Connect(ctx context.Context, in ConnectInput) (Connection, err
 		return Connection{}, apperrors.ErrIncumbentAlreadyConnected
 	}
 
+	// Fetch the incumbent's portal id BEFORE sealing the token (it is a network
+	// call — never held inside a DB transaction, and kept OUT of the
+	// sealed-token window so a cancel/timeout here cannot orphan a vault entry)
+	// so the webhook-as-signal tenant binding is recorded at connect
+	// (OVA-DDL-3). Best-effort: a fetch failure or an incumbent with no account
+	// accessor leaves it null (the connection still works; the reconcile poller
+	// backfills the binding on its next sweep — see reconcileConnection) rather
+	// than failing the connect.
+	accountID := s.fetchPortalID(ctx, in)
+
 	ref, err := s.vault.Put(ctx, ids.From[ids.WorkspaceKind](ws), []byte(in.Token))
 	if err != nil {
 		return Connection{}, fmt.Errorf("overlay: sealing the incumbent credential: %w", err)
 	}
 
-	// Fetch the incumbent's portal id BEFORE the insert tx (it is a network
-	// call — never held inside a DB transaction) so the webhook-as-signal
-	// tenant binding is recorded at connect (OVA-DDL-3). Best-effort: a fetch
-	// failure or an incumbent with no account accessor leaves it null (the
-	// connection still works; the webhook lane simply cannot bind that portal
-	// until a reconnect/backfill fills it) rather than failing the connect.
-	accountID := s.fetchPortalID(ctx, in)
-
 	out, err := s.insertConnection(ctx, in, ref, accountID)
 	if err != nil {
-		if storekit.IsUniqueViolation(err) {
-			return Connection{}, s.cleanupOrphanedRef(ctx, ws, ref)
-		}
-		return Connection{}, err
+		// The seal succeeded but the insert did not persist — clean up the
+		// just-sealed ref on EVERY failure path (a lost unique race, a cancelled
+		// context, a DB error), not only the unique violation, so a sealed token
+		// is never left unreferenced.
+		return Connection{}, s.cleanupOrphanedRef(ctx, ws, ref, err)
 	}
 	s.notifyModeFlip(ws)
 	s.seedUserMapOnConnect(ctx, in)
@@ -404,16 +407,22 @@ func (s *Service) insertConnection(ctx context.Context, in ConnectInput, ref key
 	return out, nil
 }
 
-// cleanupOrphanedRef deletes a vault ref this Connect attempt sealed but
-// lost the race to persist (the INSERT hit UNIQUE(workspace_id) after
-// vault.Put already ran) — Delete is idempotent, so this is safe to
-// retry. A cleanup failure is surfaced rather than masked, but never
-// shadows the ErrIncumbentAlreadyConnected the caller actually needs.
-func (s *Service) cleanupOrphanedRef(ctx context.Context, ws ids.UUID, ref keyvault.Ref) error {
-	if delErr := s.vault.Delete(ctx, ids.From[ids.WorkspaceKind](ws), ref); delErr != nil {
-		return fmt.Errorf("overlay: connect lost a concurrent race (already connected) and failed to clean up its orphaned vault entry: %w", delErr)
+// cleanupOrphanedRef deletes a vault ref this Connect attempt sealed but whose
+// INSERT did not persist (a lost UNIQUE(workspace_id) race, a cancelled
+// context, or a DB error) — Delete is idempotent, so this is safe to retry. The
+// delete runs on a context detached from ctx's cancellation (context.WithoutCancel)
+// so a cancelled/timed-out Connect still removes what it sealed. It maps the
+// concurrent-race unique violation to ErrIncumbentAlreadyConnected (the error
+// the caller needs) and surfaces any other cause verbatim; a cleanup failure is
+// joined in rather than masked.
+func (s *Service) cleanupOrphanedRef(ctx context.Context, ws ids.UUID, ref keyvault.Ref, cause error) error {
+	if delErr := s.vault.Delete(context.WithoutCancel(ctx), ids.From[ids.WorkspaceKind](ws), ref); delErr != nil {
+		return fmt.Errorf("overlay: connect failed to persist and could not clean up its orphaned vault entry: %w", errors.Join(cause, delErr))
 	}
-	return apperrors.ErrIncumbentAlreadyConnected
+	if storekit.IsUniqueViolation(cause) {
+		return apperrors.ErrIncumbentAlreadyConnected
+	}
+	return cause
 }
 
 // hasConnection reports whether the workspace already has an

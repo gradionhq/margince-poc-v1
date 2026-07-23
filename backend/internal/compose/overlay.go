@@ -190,7 +190,7 @@ func (r overlayReconciler) Reconcile(ctx context.Context) error {
 	}
 	for _, d := range due {
 		if d.Workspace.UUID == wsID {
-			err := reconcileConnection(ctx, r.vault, r.ms, r.meter, r.log, d, r.newIncumbent)
+			err := reconcileConnection(ctx, r.pool, r.vault, r.ms, r.meter, r.log, d, r.newIncumbent)
 			if errors.Is(err, overlay.ErrConnectionGone) {
 				// The connection was revoked between the due-scan above and the
 				// sweep's first fenced write (a disconnect racing this on-demand

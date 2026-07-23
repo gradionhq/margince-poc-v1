@@ -66,8 +66,10 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 // edges: health probes, metrics, the anonymous public paths, and the A2
 // authorization server.
 func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, api http.Handler) *http.ServeMux {
-	// Only /v1 rides the session middleware; the health probes and the
-	// other operational edges are unauthenticated by design.
+	// The session middleware (authH.Middleware) fronts BOTH /v1 and the /oauth/
+	// authorization server (/oauth/authorize requires a live session); the
+	// health probes, metrics, discovery documents, and the provider push
+	// webhooks are unauthenticated by design (each webhook verifies itself).
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", httpserver.Healthz)
 	mux.HandleFunc("/readyz", httpserver.Readyz(srv.aiStateOrDefault(), srv.readyzEmbedState(), srv.readinessChecks(pool.Ping)...))

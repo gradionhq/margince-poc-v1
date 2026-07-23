@@ -50,7 +50,7 @@ func TestObjectClassForSubscription(t *testing.T) {
 	cases := map[string]string{
 		"contact.propertyChange": objectClassContacts,
 		"company.creation":       objectClassCompanies,
-		"deal.deletion":          objectClassDeals,
+		"deal.creation":          objectClassDeals,
 		"lead.propertyChange":    objectClassLeads,
 		"hs_lead.creation":       objectClassLeads,
 	}
@@ -62,5 +62,13 @@ func TestObjectClassForSubscription(t *testing.T) {
 	}
 	if _, ok := ObjectClassForSubscription("ticket.creation"); ok {
 		t.Error("an unmodeled subscription type must be ok=false (dropped, not guessed)")
+	}
+	// A deletion is NOT re-fetchable through this lane — the poller's deletion
+	// feed tombstones it; presenting it as handled would enqueue a doomed Get.
+	if _, ok := ObjectClassForSubscription("deal.deletion"); ok {
+		t.Error("a deletion subscription must be ok=false (poller deletion feed owns it, not a re-fetch)")
+	}
+	if _, ok := ObjectClassForSubscription("contact.deletion"); ok {
+		t.Error("a contact deletion must be ok=false too (dropped from the re-fetch lane)")
 	}
 }

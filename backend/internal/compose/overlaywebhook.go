@@ -20,6 +20,7 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -32,8 +33,15 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/hubspot"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
+
+// webhookMaxBody caps the request body the receiver reads: HubSpot batches are
+// small, so anything past this is not a legitimate delivery. It is enforced
+// with a MaxBytesReader so an oversized body is a distinct 413 (below), never a
+// silent truncation that then mis-reports as a bad signature.
+const webhookMaxBody = 1 << 20
 
 // webhookMaxSkew rejects a request whose timestamp is too far from now — the
 // replay guard HubSpot's v3 scheme pairs with the signature (the timestamp is
@@ -89,8 +97,18 @@ func (h *hubspotWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	// MaxBytesReader (not a bare LimitReader): an over-cap body surfaces as a
+	// read error we answer 413 for, rather than being silently truncated and
+	// then mis-rejected as a bad signature (which would make a valid oversized
+	// batch retry forever against the wrong reason).
+	r.Body = http.MaxBytesReader(w, r.Body, webhookMaxBody)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			return
+		}
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -124,7 +142,17 @@ func (h *hubspotWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 	// enqueue is unique-by-args, so a redelivery cannot double-run).
 	portalWS := map[string]string{} // portalId → workspace id ("" = unbound)
 	for _, ev := range events {
-		wsID, ok := h.resolveWorkspace(r, portalWS, ev)
+		wsID, ok, err := h.resolveWorkspace(r, portalWS, ev)
+		if err != nil {
+			// A transient binding failure (DB/transaction) is NOT an unbound
+			// portal: answer 500 so HubSpot redelivers rather than dropping the
+			// signal on the floor (the coalesced enqueue is unique-by-args, so a
+			// redelivery cannot double-run the re-fetch).
+			h.log.ErrorContext(r.Context(), "overlay webhook: resolving the portal binding",
+				"portal", ev.PortalIDString(), "err", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		if !ok {
 			continue
 		}
@@ -143,26 +171,31 @@ func (h *hubspotWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 }
 
 // resolveWorkspace returns the workspace bound to the event's portal (via the
-// per-request cache), or ok=false when the portal maps to no active connection
-// (fail-closed) or the lookup errored.
-func (h *hubspotWebhookHandler) resolveWorkspace(r *http.Request, cache map[string]string, ev hubspot.WebhookEvent) (string, bool) {
+// per-request cache). ok=false with a nil error is a genuinely unbound portal
+// (fail-closed — skip, ingest nothing); a non-nil error is a transient lookup
+// failure the caller turns into a 500 so the signal is redelivered rather than
+// lost. Only ErrNotFound is treated as unbound; every other error propagates.
+func (h *hubspotWebhookHandler) resolveWorkspace(r *http.Request, cache map[string]string, ev hubspot.WebhookEvent) (string, bool, error) {
 	portal := ev.PortalIDString()
 	if ws, seen := cache[portal]; seen {
-		return ws, ws != ""
+		return ws, ws != "", nil
 	}
 	ws, err := h.bind(r.Context(), incumbentHubSpot, portal)
 	if err != nil {
-		// ErrNotFound (unbound portal) OR a lookup error both mean "do not
-		// ingest": cache the miss so a batch of events for the same unbound
-		// portal costs one fleet-walk, and never treat an unbound portal as a
-		// tenant.
+		if !errors.Is(err, apperrors.ErrNotFound) {
+			// Transient failure — do NOT cache it (a redelivery must re-probe)
+			// and do NOT treat it as unbound; propagate so the caller 500s.
+			return "", false, err
+		}
+		// A genuinely unbound portal: cache the miss so a batch of events for
+		// the same portal costs one fleet-walk, and never treat it as a tenant.
 		cache[portal] = ""
 		h.log.WarnContext(r.Context(), "overlay webhook: portal not bound to an active connection, ignoring",
-			"portal", portal, "err", err)
-		return "", false
+			"portal", portal)
+		return "", false, nil
 	}
 	cache[portal] = ws.String()
-	return ws.String(), true
+	return ws.String(), true, nil
 }
 
 // enqueueRefetch schedules the coalesced re-fetch job.

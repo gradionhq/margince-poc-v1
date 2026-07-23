@@ -45,7 +45,7 @@ func TestReconcileConnectionRejectsANonHubSpotIncumbent(t *testing.T) {
 		Workspace: ids.WorkspaceID{UUID: ids.NewV7()},
 		Incumbent: "salesforce",
 	}
-	err := reconcileConnection(context.Background(), nil, nil, nil, nil, d, nil)
+	err := reconcileConnection(context.Background(), nil, nil, nil, nil, nil, d, nil)
 	if err == nil {
 		t.Fatal("reconcileConnection: want an error for a non-HubSpot incumbent, got nil")
 	}
@@ -73,7 +73,7 @@ func TestReconcileConnectionSurfacesAVaultResolutionFailure(t *testing.T) {
 		Incumbent: "hubspot",
 		Region:    "eu1",
 	}
-	err := reconcileConnection(context.Background(), failingVault{}, nil, nil, nil, d, nil)
+	err := reconcileConnection(context.Background(), nil, failingVault{}, nil, nil, nil, d, nil)
 	if err == nil {
 		t.Fatal("reconcileConnection: want an error when the vaulted token fails to resolve, got nil")
 	}

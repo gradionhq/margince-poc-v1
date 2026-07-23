@@ -230,7 +230,7 @@ func TestReconcileConnectionBackfillsAndSeedsViaFakeIncumbent(t *testing.T) {
 	}
 
 	sweepCtx := reconcileWorkerCtx(context.Background(), ids.From[ids.WorkspaceKind](e.WS))
-	if err := reconcileConnection(sweepCtx, vault, ms, workerBudgetMeter(t),
+	if err := reconcileConnection(sweepCtx, e.Pool, vault, ms, workerBudgetMeter(t),
 		slog.New(slog.DiscardHandler), d, func(_, _ string) overlay.Incumbent { return fakeInc }); err != nil {
 		t.Fatalf("reconcileConnection: %v", err)
 	}
@@ -304,7 +304,7 @@ func TestReconcileConnectionStopsCleanlyWhenDisconnectedMidSweep(t *testing.T) {
 	}
 
 	sweepCtx := reconcileWorkerCtx(context.Background(), ids.From[ids.WorkspaceKind](e.WS))
-	err = reconcileConnection(sweepCtx, vault, ms, workerBudgetMeter(t),
+	err = reconcileConnection(sweepCtx, e.Pool, vault, ms, workerBudgetMeter(t),
 		slog.New(slog.DiscardHandler), d, func(_, _ string) overlay.Incumbent { return fakeInc })
 	if !errors.Is(err, overlay.ErrConnectionGone) {
 		t.Fatalf("reconcileConnection over a revoked connection = %v, want overlay.ErrConnectionGone (clean stop)", err)
@@ -472,7 +472,7 @@ func TestReconcileConnectionPurgesIncumbentDeletedRecord(t *testing.T) {
 	meter := workerBudgetMeter(t)
 
 	// First sweep mirrors the live record; the mapped reader can see it.
-	if err := reconcileConnection(sweepCtx, vault, ms, meter, slog.New(slog.DiscardHandler), d, newInc); err != nil {
+	if err := reconcileConnection(sweepCtx, e.Pool, vault, ms, meter, slog.New(slog.DiscardHandler), d, newInc); err != nil {
 		t.Fatalf("first sweep: %v", err)
 	}
 	if _, err := ms.Get(overlayReaderCtx(e.WS, e.Rep1), "person", "990009"); err != nil {
@@ -484,11 +484,66 @@ func TestReconcileConnectionPurgesIncumbentDeletedRecord(t *testing.T) {
 	fakeInc.SeedDeletion(overlay.IncumbentClassContacts, overlay.Deletion{
 		ExternalID: "990009", ObjectClass: "person", DeletedAt: rec.ModifiedAt.Add(time.Hour),
 	})
-	if err := reconcileConnection(sweepCtx, vault, ms, meter, slog.New(slog.DiscardHandler), d, newInc); err != nil {
+	if err := reconcileConnection(sweepCtx, e.Pool, vault, ms, meter, slog.New(slog.DiscardHandler), d, newInc); err != nil {
 		t.Fatalf("second sweep: %v", err)
 	}
 	if _, err := ms.Get(overlayReaderCtx(e.WS, e.Rep1), "person", "990009"); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("Rep1 must NOT see the record after it was deleted incumbent-side, got: %v", err)
+	}
+}
+
+// TestReconcileConnectionBackfillsTheWebhookPortalBinding proves the
+// self-healing portal binding (OVA-DDL-3): a connection whose connect-time
+// portal fetch was skipped/failed starts with a NULL incumbent_account_id (so a
+// webhook for that portal resolves to nothing), and the next reconcile sweep
+// fills it from the live adapter's account id — after which the portal binds to
+// the workspace. This is the retry path that keeps a transient connect-time
+// blip from permanently disabling webhook refresh.
+func TestReconcileConnectionBackfillsTheWebhookPortalBinding(t *testing.T) {
+	e := integration.Setup(t)
+	vault := keyvault.NewMemory()
+	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
+
+	// Connect with NO incumbent factory: fetchPortalID is skipped, so the
+	// binding starts NULL — the exact state the backfill exists to heal.
+	if _, err := overlay.NewService(e.Pool, vault, ms).
+		Connect(overlayAdminCtx(e.WS, e.Rep1), overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	// Initially unbound: a webhook for the portal resolves to nothing.
+	if _, err := overlay.WorkspaceForPortal(context.Background(), e.Pool, "hubspot", "portal-X"); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("before backfill: WorkspaceForPortal = %v, want ErrNotFound (binding still null)", err)
+	}
+
+	due, err := overlay.DueOverlayConnections(overlayAdminCtx(e.WS, e.Rep1), e.Pool)
+	if err != nil {
+		t.Fatalf("DueOverlayConnections: %v", err)
+	}
+	var d overlay.DueOverlayConnection
+	for _, c := range due {
+		if c.Workspace.UUID == e.WS {
+			d = c
+		}
+	}
+	if d.Incumbent == "" {
+		t.Fatal("no due overlay connection for the workspace after connect")
+	}
+
+	fakeInc := fake.New()
+	fakeInc.SeedAccountID("portal-X")
+	sweepCtx := reconcileWorkerCtx(context.Background(), ids.From[ids.WorkspaceKind](e.WS))
+	if err := reconcileConnection(sweepCtx, e.Pool, vault, ms, workerBudgetMeter(t),
+		slog.New(slog.DiscardHandler), d, func(_, _ string) overlay.Incumbent { return fakeInc }); err != nil {
+		t.Fatalf("reconcileConnection: %v", err)
+	}
+
+	// The sweep backfilled the binding: the portal now resolves to this workspace.
+	got, err := overlay.WorkspaceForPortal(context.Background(), e.Pool, "hubspot", "portal-X")
+	if err != nil {
+		t.Fatalf("after backfill: WorkspaceForPortal(portal-X): %v", err)
+	}
+	if got.UUID != e.WS {
+		t.Errorf("WorkspaceForPortal(portal-X) = %s, want the swept workspace %s", got.UUID, e.WS)
 	}
 }
 
