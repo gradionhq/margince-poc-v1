@@ -141,16 +141,16 @@ func TestPublishedVocabularyDerivesFromTheSeamSource(t *testing.T) {
 
 // TestDeManifestMatchesItsDerivation binds the committed artifact to the
 // committed declaration: de is a jurisdiction-only pack (passive policy,
-// requesting no autonomy tier), so its manifest is identity with an empty
-// autonomy-tiers list.
+// requesting no risk tier), so its manifest is identity with an empty
+// risk-tiers list.
 func TestDeManifestMatchesItsDerivation(t *testing.T) {
 	assertCommittedManifest(t, filepath.Join(repoRoot, "extensions", "de"), "de",
-		`"name": "de"`, `"version": "1.0.0"`, `"autonomy_tiers": []`)
+		`"name": "de"`, `"version": "1.0.0"`, `"risk_tiers": []`)
 }
 
 // TestCrmHelloManifestMatchesItsDerivation is the worked example: the
 // crm-hello fixture declares a jurisdiction pack (skipped) AND a governed
-// 🟡 tool, so its committed manifest carries exactly one autonomy-tier
+// 🟡 tool, so its committed manifest carries exactly one risk-tier
 // request with its §5 descriptor and digest.
 func TestCrmHelloManifestMatchesItsDerivation(t *testing.T) {
 	assertCommittedManifest(t, filepath.Join(repoRoot, "fixtures", "extensions", "crm-hello"), "crm-hello",
@@ -201,11 +201,11 @@ func deriveSynthetic(t *testing.T, name, source string) ([]byte, error) {
 	return deriveUnitManifest(unit, realVocabulary(t))
 }
 
-// TestJurisdictionPackRequestsNoAutonomyTier: a jurisdiction pack is
+// TestJurisdictionPackRequestsNoRiskTier: a jurisdiction pack is
 // passive policy the core consults — it requests no scope or tier, so it
-// contributes NO autonomy-tier request. The Jurisdictions field is
+// contributes NO risk-tier request. The Jurisdictions field is
 // recognized and skipped, never derived into an entry.
-func TestJurisdictionPackRequestsNoAutonomyTier(t *testing.T) {
+func TestJurisdictionPackRequestsNoRiskTier(t *testing.T) {
 	const jurisdictionOnly = `package hello
 
 import (
@@ -231,11 +231,11 @@ func (pack) Retention() jurisdiction.Retention { return nil }
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(derived), `"autonomy_tiers": []`) {
-		t.Fatalf("a jurisdiction-only unit must request no autonomy tier:\n%s", derived)
+	if !strings.Contains(string(derived), `"risk_tiers": []`) {
+		t.Fatalf("a jurisdiction-only unit must request no risk tier:\n%s", derived)
 	}
 	if strings.Contains(string(derived), "jurisdiction") {
-		t.Fatalf("the manifest leaked jurisdiction policy into the autonomy-tier surface:\n%s", derived)
+		t.Fatalf("the manifest leaked jurisdiction policy into the risk-tier surface:\n%s", derived)
 	}
 }
 
@@ -258,10 +258,10 @@ func New() extension.Extension {
 `
 }
 
-// TestToolDerivesIntoAutonomyTier is the happy path: a declared 🟢 tool
-// with a required scope becomes one autonomy-tier request whose
+// TestToolDerivesIntoRiskTier is the happy path: a declared 🟢 tool
+// with a required scope becomes one risk-tier request whose
 // descriptor digest is present and stable across derivations.
-func TestToolDerivesIntoAutonomyTier(t *testing.T) {
+func TestToolDerivesIntoRiskTier(t *testing.T) {
 	src := toolUnitSource("\t\t\tName: \"sync_contacts\", Version: \"2.1.0\",\n\t\t\tTier: extension.TierAutoExecute,\n\t\t\tRequestedScope: extension.ScopeWrite,")
 	first, err := deriveSynthetic(t, "x", src)
 	if err != nil {

@@ -105,7 +105,7 @@ type Extension struct {
 	Jurisdictions []jurisdiction.Pack
 
 	// Tools are the governed agent tools the unit contributes: named
-	// operations running at a requested autonomy tier (§7). Their tiers
+	// operations running at a requested risk tier (§7). Their tiers
 	// and scopes are REQUESTS recorded in the manifest for operator
 	// resolution — see Tool. Unlike a jurisdiction pack (passive policy),
 	// a tool is a governed capability and appears in manifest.generated.json.

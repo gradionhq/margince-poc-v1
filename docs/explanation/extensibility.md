@@ -89,7 +89,7 @@ That value is the entire contract. `Name` is the canonical unit name (it must eq
 name, obeys `^[a-z0-9]+(-[a-z0-9]+)*$`, ≤32 chars) and keys the unit's namespace everywhere it will
 touch — `x_<name>_<table>` tables, `/x/<name>/` paths, the `x_<name>` database role. `Version` is
 recorded in the boot inventory and carries no authority. **Capabilities are the remaining fields** —
-`Jurisdictions` (passive policy) and `Tools` (the first *governed* kind, deriving autonomy-tier
+`Jurisdictions` (passive policy) and `Tools` (the first *governed* kind, deriving risk-tier
 requests into the manifest; not yet served — see §3).
 
 ### 2. The published surface — and the marker that gates it
@@ -121,17 +121,17 @@ reproduces the committed `composition/` stub **byte-identically**, so a bare `go
 build provably wire the same thing. `make check-composition` is the drift gate that proves it.
 
 The generator also derives each unit's **`manifest.generated.json`** next to the unit (ADR-0069 §5):
-its identity and the **autonomy tiers** it requests — every operation the extension adds that runs
+its identity and the **risk tiers** it requests — every operation the extension adds that runs
 at a 🟢/🟡 tier or asks for a scope, the things an operator must resolve under §7 — read STATICALLY
 from the declaration's AST, so review tooling and the coming approval flow learn what a unit needs
 without compiling or executing its code. The first governed kind is the **agent tool**
 (`extension.Tool`: a verb, a requested tier, one requested scope); a tool declaration derives into one
-autonomy-tier request carrying the §5 security descriptor (id, operation, scopes, tier) and its
+risk-tier request carrying the §5 security descriptor (id, operation, scopes, tier) and its
 digest. Declaring a tool records the request in the manifest — *serving* it, registration behind the
 operator-approval gate, arrives in a later slice; until then a declared tool is inert. Passive policy
-that an extension merely supplies requests no autonomy and does not appear: a jurisdiction pack exposes no
+that an extension merely supplies requests no risk tier and does not appear: a jurisdiction pack exposes no
 governed operation (the core consults its policy at boot — it is never an agent that acts) and asks
-for no tier, so a jurisdiction-only unit (like `de`) carries an empty autonomy-tiers list — there is
+for no tier, so a jurisdiction-only unit (like `de`) carries an empty risk-tiers list — there is
 nothing to approve. The returned `extension.Extension` literal and the fields the manifest derives
 (`Name`, `Version`, `Tools`) must be literal values; an unrecognized field fails generation with its
 position rather than producing a manifest that silently omits a request. The manifest is committed
@@ -158,7 +158,7 @@ Validate-then-apply makes "partially registered extension" a state the system ca
 
 **Today: two capability kinds.** A **jurisdiction pack** supplies *country-specific policy the core
 consults; it is never an actor* — it exposes no governed operation, so it never appears in the unit
-manifest. An **agent tool** (`extension.Tool`) is the first *governed* kind: it derives an autonomy-tier
+manifest. An **agent tool** (`extension.Tool`) is the first *governed* kind: it derives an risk-tier
 request into `manifest.generated.json` for operator resolution (§7), but is **not yet served** —
 registration behind the approval gate arrives in a later slice, so a declared tool is currently inert. The core stays country-neutral — a fitness gate
 (`check-no-jurisdiction.sh`) scans hand-written core source for jurisdiction-specific identifiers and

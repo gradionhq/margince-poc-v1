@@ -107,7 +107,7 @@ func (r *unitReader) readExtension(fn *ast.FuncDecl, file *ast.File) (unitManife
 	if !ok || !isSelector(lit.Type, importAlias(file, extensionPkgPath), "Extension") {
 		return unitManifest{}, r.errAt(expr, "New must return an extension.Extension literal")
 	}
-	m := unitManifest{Schema: 1, AutonomyTiers: []autonomyTierRequest{}}
+	m := unitManifest{Schema: 1, RiskTiers: []riskTierRequest{}}
 	for _, elt := range lit.Elts {
 		if err := r.readExtensionField(elt, file, &m); err != nil {
 			return unitManifest{}, err
@@ -124,7 +124,7 @@ func (r *unitReader) readExtension(fn *ast.FuncDecl, file *ast.File) (unitManife
 	if err := extension.Version(m.Version).Validate(); err != nil {
 		return unitManifest{}, r.errPos(lit, "%v", err)
 	}
-	sort.Slice(m.AutonomyTiers, func(i, j int) bool { return m.AutonomyTiers[i].ID < m.AutonomyTiers[j].ID })
+	sort.Slice(m.RiskTiers, func(i, j int) bool { return m.RiskTiers[i].ID < m.RiskTiers[j].ID })
 	return m, nil
 }
 
@@ -144,10 +144,10 @@ func (r *unitReader) readExtensionField(elt ast.Expr, file *ast.File, m *unitMan
 	case "Version":
 		m.Version, err = r.stringLit(kv.Value, "Version")
 	case "Tools":
-		var tiers []autonomyTierRequest
+		var tiers []riskTierRequest
 		tiers, err = r.readTools(kv.Value, file)
 		if err == nil {
-			m.AutonomyTiers = append(m.AutonomyTiers, tiers...)
+			m.RiskTiers = append(m.RiskTiers, tiers...)
 		}
 	case "Jurisdictions":
 		// Recognized and deliberately skipped: a jurisdiction pack is
@@ -162,13 +162,13 @@ func (r *unitReader) readExtensionField(elt ast.Expr, file *ast.File, m *unitMan
 	return err
 }
 
-func (r *unitReader) readTools(expr ast.Expr, file *ast.File) ([]autonomyTierRequest, error) {
+func (r *unitReader) readTools(expr ast.Expr, file *ast.File) ([]riskTierRequest, error) {
 	lit, ok := expr.(*ast.CompositeLit)
 	if !ok {
 		return nil, r.errAt(expr, "Tools must be a slice literal")
 	}
 	ext := importAlias(file, extensionPkgPath)
-	tiers := make([]autonomyTierRequest, 0, len(lit.Elts))
+	tiers := make([]riskTierRequest, 0, len(lit.Elts))
 	seen := map[string]bool{}
 	for _, elt := range lit.Elts {
 		c, err := r.readTool(elt, ext)
@@ -184,20 +184,20 @@ func (r *unitReader) readTools(expr ast.Expr, file *ast.File) ([]autonomyTierReq
 	return tiers, nil
 }
 
-func (r *unitReader) readTool(elt ast.Expr, ext string) (autonomyTierRequest, error) {
+func (r *unitReader) readTool(elt ast.Expr, ext string) (riskTierRequest, error) {
 	lit, ok := elt.(*ast.CompositeLit)
 	if !ok || (lit.Type != nil && !isSelector(lit.Type, ext, "Tool")) {
-		return autonomyTierRequest{}, r.errAt(elt, "a Tools entry must be an extension.Tool literal")
+		return riskTierRequest{}, r.errAt(elt, "a Tools entry must be an extension.Tool literal")
 	}
 	var name, version, tier, scope string
 	for _, e := range lit.Elts {
 		kv, ok := e.(*ast.KeyValueExpr)
 		if !ok {
-			return autonomyTierRequest{}, r.errAt(e, "Tool fields must be keyed")
+			return riskTierRequest{}, r.errAt(e, "Tool fields must be keyed")
 		}
 		key, ok := kv.Key.(*ast.Ident)
 		if !ok {
-			return autonomyTierRequest{}, r.errAt(kv.Key, "Tool fields must be keyed by name")
+			return riskTierRequest{}, r.errAt(kv.Key, "Tool fields must be keyed by name")
 		}
 		var err error
 		switch key.Name {
@@ -213,7 +213,7 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (autonomyTierRequest, er
 			err = r.errAt(kv, "Tool field %s is not derivable by this generator", key.Name)
 		}
 		if err != nil {
-			return autonomyTierRequest{}, err
+			return riskTierRequest{}, err
 		}
 	}
 	return r.toolRequest(lit, name, version, tier, scope)
@@ -225,12 +225,12 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (autonomyTierRequest, er
 // one scope; the descriptor carries it as its (single-element) scope set,
 // the general §5 shape shared across governed kinds. Version is not part
 // of the descriptor: §7 binds resolutions to the digest, never a version.
-func (r *unitReader) toolRequest(at ast.Node, name, version, tier, scope string) (autonomyTierRequest, error) {
+func (r *unitReader) toolRequest(at ast.Node, name, version, tier, scope string) (riskTierRequest, error) {
 	declared := extension.Tool{Name: name, Version: version, Tier: extension.Tier(tier), RequestedScope: extension.Scope(scope)}
 	if err := declared.Validate(); err != nil {
-		return autonomyTierRequest{}, r.errPos(at, "%v", err)
+		return riskTierRequest{}, r.errPos(at, "%v", err)
 	}
-	c := autonomyTierRequest{
+	c := riskTierRequest{
 		ID:        "tool/" + name,
 		Operation: opAgentToolInvoke,
 		Scopes:    []string{scope},
@@ -238,7 +238,7 @@ func (r *unitReader) toolRequest(at ast.Node, name, version, tier, scope string)
 	}
 	digest, err := descriptorDigest(c)
 	if err != nil {
-		return autonomyTierRequest{}, err
+		return riskTierRequest{}, err
 	}
 	c.Digest = digest
 	return c, nil

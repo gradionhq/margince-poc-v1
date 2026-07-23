@@ -115,7 +115,7 @@ have to regenerate the composition and run the gates:
 
 1. **`make composition`** — regenerates `build/composition/` from `extensions/`; your unit now appears
    in the generated `Extensions()`, and a `manifest.generated.json` lands next to your unit — the
-   statically derived record of the **autonomy tiers** it requests (the 🟢/🟡 operations and scopes an
+   statically derived record of the **risk tiers** it requests (the 🟢/🟡 operations and scopes an
    operator must approve under §7; a jurisdiction-only unit requests none, so its list is empty).
    Commit it with the unit; the drift gate fails a stale or hand-edited one. Derivation reads your
    `New()` from the AST, so the returned `extension.Extension` literal and the fields it derives
