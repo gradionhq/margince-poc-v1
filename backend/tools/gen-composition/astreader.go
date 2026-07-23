@@ -18,12 +18,15 @@ import (
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
-// buildIncludesFile reports whether the go tool would compile a file of
-// this name into the (non-test) package. Mirroring go/build: a name
-// beginning with '.' or '_' is ignored, and a _test.go file is test-only.
-// The AST derivation must read exactly what compiles — parsing an ignored
-// file could bind the manifest to a New() the build never sees.
-func buildIncludesFile(name string) bool {
+// scannableGoFile reports whether to parse this .go file for the
+// declaration scan. It excludes only what go/build ignores BY NAME — a
+// name beginning with '.' or '_', and _test.go test files. It deliberately
+// does NOT apply //go:build constraints or GOOS/GOARCH suffixes: the scan
+// is platform-independent ON PURPOSE, so the committed manifest is the
+// same on every host. A build-tag/GOOS-split New() is therefore parsed on
+// all platforms and rejected by the multiple-New guard rather than
+// resolved per-context (which would make the manifest platform-dependent).
+func scannableGoFile(name string) bool {
 	if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
 		return false
 	}
@@ -32,7 +35,7 @@ func buildIncludesFile(name string) bool {
 
 func deriveUnitManifest(u extensionUnit, vocab map[string]string) ([]byte, error) {
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, u.Dir, func(fi fs.FileInfo) bool { return buildIncludesFile(fi.Name()) }, parser.SkipObjectResolution)
+	pkgs, err := parser.ParseDir(fset, u.Dir, func(fi fs.FileInfo) bool { return scannableGoFile(fi.Name()) }, parser.SkipObjectResolution)
 	if err != nil {
 		return nil, fmt.Errorf("extensions/%s: %w", u.Name, err)
 	}
@@ -45,10 +48,13 @@ func deriveUnitManifest(u extensionUnit, vocab map[string]string) ([]byte, error
 		return nil, fmt.Errorf("extensions/%s: no New() in the unit root package — the declaration constructor is the ADR-0069 §4 contract", u.Name)
 	}
 	if count > 1 {
-		// Map iteration over pkg.Files is unordered, so picking one of
-		// several New() would make the manifest nondeterministic; a
-		// build-tag-split constructor cannot be resolved statically either.
-		return nil, fmt.Errorf("extensions/%s: multiple New() constructors in the unit root — the static manifest reader needs exactly one (build-tag-split declarations are unsupported)", u.Name)
+		// The scan is platform-independent (build tags/GOOS are not
+		// applied), so a build-tag or GOOS-split New() appears as several
+		// here. That is rejected by design: an extension declaration is
+		// platform-independent inert data, and picking one of several
+		// (unordered map iteration) would make the committed manifest
+		// nondeterministic. Declare exactly one New().
+		return nil, fmt.Errorf("extensions/%s: multiple New() constructors in the unit root — declare exactly one; an extension declaration is platform-independent, so a build-tag/GOOS-split New() is unsupported", u.Name)
 	}
 	m, err := r.readExtension(newFn, newFile)
 	if err != nil {

@@ -117,10 +117,17 @@ func writeFileAtomic(dir, path string, content []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	// The temp keeps os.CreateTemp's 0600. Git records only the exec bit,
-	// not read bits, so this never shows as a diff against the committed
-	// 0644, and the build reads the manifest as its owner — no chmod to a
-	// world-readable literal is needed.
+	// Carry the existing manifest's mode forward (a committed 0644 stays
+	// 0644) so a consumer running as another UID can still read it — the
+	// mode is read from the file, never a permissive literal, so it does
+	// not loosen anything the tree did not already have. A brand-new
+	// manifest keeps CreateTemp's owner-only 0600 (git records only the
+	// exec bit, and the next checkout normalizes it).
+	if fi, err := os.Stat(path); err == nil {
+		if err := os.Chmod(tmpName, fi.Mode().Perm()); err != nil {
+			return err
+		}
+	}
 	return os.Rename(tmpName, path)
 }
 
@@ -157,7 +164,7 @@ func verifyUnitManifests(root string, units []extensionUnit) error {
 func publishedVocabulary(root string) (map[string]string, error) {
 	dir := filepath.Join(root, "backend", "pkg", "extension")
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, func(fi fs.FileInfo) bool { return buildIncludesFile(fi.Name()) }, parser.SkipObjectResolution)
+	pkgs, err := parser.ParseDir(fset, dir, func(fi fs.FileInfo) bool { return scannableGoFile(fi.Name()) }, parser.SkipObjectResolution)
 	if err != nil {
 		return nil, fmt.Errorf("parsing the published extension surface: %w", err)
 	}
