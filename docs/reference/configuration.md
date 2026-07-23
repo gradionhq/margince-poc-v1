@@ -238,6 +238,28 @@ injects bounded context into declared AI tasks; `onboarding` additionally enable
 the five-step first-run flow. The default is `onboarding`. Moving backward is a
 reversible operational kill switch and never deletes confirmed company data.
 
+### Rates
+
+The `rates:` block configures the admin **"Refresh from sources"** jobs (worker
+role). A refresh never writes a rate directly — it stages **confirm-first
+proposals** into the approvals inbox, and a human approves each before it
+applies. It is read only by the worker (the api enqueues the job; the worker
+crawls and stages).
+
+| field | default | effect |
+|---|---|---|
+| `fx_source` | `https://api.frankfurter.dev/v1/latest` | Base-relative FX JSON API (`{base,rates}`, queried `?base=&symbols=`). The default is the free, no-key ECB feed. |
+| `fx_currencies` | `[USD, GBP, CHF]` | Candidate foreign currencies the FX refresh proposes to **bootstrap an empty rate sheet** — a fresh install tracks none, so without a candidate set the refresh would have nothing to fetch. Once the sheet has rows, the refresh re-prices exactly those tracked currencies and this set is unused. Each entry must be **ISO 4217-shaped** (three uppercase letters) and unique, or boot fails — the same shape check as `base_currency`; existence is not verified, so a well-formed but unsupported code (`USX`) parses and is then skipped by the source with a logged warning rather than a staged proposal. |
+| `model_pricing` | *(none)* | Maps a provider name to its pricing-page URL the model-cost refresh crawls and AI-extracts (the `rate_extract` task, certified for Gemini). A plain `GET` must yield the price text — Google's docs page does; many JS-rendered marketing pages yield none. |
+
+The **model-cost refresh** needs both a `model_pricing` entry **and** a bound
+`rate_extract` model (in `ai-routing.yaml`); absent either, it no-ops. The **FX
+refresh**, by contrast, has no such dependency — `fx_source` and `fx_currencies`
+both default, so it always has something to do even on an absent `rates:` block.
+Neither refresh ever auto-applies — a rate is proposed from the live source and
+applied only on human approval, so a non-EUR deal with no approved rate still
+fails closed (never a silent `rate=1`).
+
 Model credentials (BYOK cloud tiers) are configured in
 `ai-routing.yaml`, not through binary flags. The annotated reference is
 [`config/ai-routing.example.yaml`](../../config/ai-routing.example.yaml)

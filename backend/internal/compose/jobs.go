@@ -301,6 +301,11 @@ type JobRunnerConfig struct {
 	// fetches from; empty = the worker registers but the producer no-ops
 	// (honest: no source configured, nothing to propose).
 	FxSourceURL string
+	// FxBootstrapCurrencies is the candidate foreign-currency set the fx-rate
+	// refresh proposes when the sheet is still empty (a fresh install has no
+	// tracked currency to derive symbols from). Empty ⇒ an empty sheet stays a
+	// no-op; a human still approves every bootstrapped proposal.
+	FxBootstrapCurrencies []string
 	// RateExtractBrain is the model lane the model-cost refresh job extracts
 	// pricing with (modelPath.RateExtract); nil = the worker registers but
 	// the producer no-ops (same posture as the deep-read brain).
@@ -359,7 +364,7 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	if cfg.FxSourceURL != "" {
 		fxClient = fxsource.New(cfg.FxSourceURL, nil)
 	}
-	river.AddWorker(workers, newFxRefreshWorker(pool, fxClient, log))
+	river.AddWorker(workers, newFxRefreshWorker(pool, fxClient, cfg.FxBootstrapCurrencies, log))
 	river.AddWorker(workers, newModelCostRefreshWorker(pool, cfg.RateExtractBrain, cfg.ModelPricingSources, log))
 
 	periodic := []*river.PeriodicJob{

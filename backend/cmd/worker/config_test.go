@@ -8,6 +8,22 @@ import (
 	"testing"
 )
 
+// TestFxBootstrapCurrenciesFallsBackToTheDefault pins the fresh-install
+// contract: an operator who configures no candidate set still gets the
+// USD/GBP/CHF default, so "Refresh from sources" bootstraps an empty FX sheet
+// rather than being a dead button. A configured set is used verbatim.
+func TestFxBootstrapCurrenciesFallsBackToTheDefault(t *testing.T) {
+	if got := strings.Join(fxBootstrapCurrencies(nil), ","); got != "USD,GBP,CHF" {
+		t.Fatalf("unset config = %q, want the USD,GBP,CHF default", got)
+	}
+	if got := strings.Join(fxBootstrapCurrencies([]string{}), ","); got != "USD,GBP,CHF" {
+		t.Fatalf("empty config = %q, want the USD,GBP,CHF default", got)
+	}
+	if got := strings.Join(fxBootstrapCurrencies([]string{"JPY", "SEK"}), ","); got != "JPY,SEK" {
+		t.Fatalf("configured set = %q, want it used verbatim", got)
+	}
+}
+
 // TestParseWorkerFlagsRejectsNonPositiveIntervals pins the boot guard:
 // every scheduler interval becomes a time.Ticker period or a River
 // periodic schedule, both of which misbehave on a non-positive duration (a

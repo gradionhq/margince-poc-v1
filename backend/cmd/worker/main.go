@@ -88,6 +88,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	cfg.freemailExtra = deployCfg.Capture.FreemailExtra
 	cfg.ratesFx = deployCfg.Rates.Fx
+	cfg.ratesCurrencies = deployCfg.Rates.FxCurrencies
 	cfg.ratesModelPricing = deployCfg.Rates.ModelPricing
 
 	handler, err := httpserver.LogHandler(stdout, cfg.logLevel, cfg.logFormat)
@@ -305,9 +306,10 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 		// (empty FX url / no pricing sources) or a model (nil RateExtract)
 		// they no-op honestly. FX is deterministic (no model); model-cost
 		// needs the extraction lane.
-		RateExtractBrain:    modelPath.RateExtract,
-		FxSourceURL:         cmp.Or(cfg.ratesFx, "https://api.frankfurter.dev/v1/latest"),
-		ModelPricingSources: compose.PricingSourcesFromMap(cfg.ratesModelPricing),
+		RateExtractBrain:      modelPath.RateExtract,
+		FxSourceURL:           cmp.Or(cfg.ratesFx, "https://api.frankfurter.dev/v1/latest"),
+		FxBootstrapCurrencies: fxBootstrapCurrencies(cfg.ratesCurrencies),
+		ModelPricingSources:   compose.PricingSourcesFromMap(cfg.ratesModelPricing),
 		DeepReadCaps: compose.CrawlCaps{
 			MaxPages: cfg.deepReadMaxPages,
 			MaxBytes: cfg.deepReadMaxBytes,

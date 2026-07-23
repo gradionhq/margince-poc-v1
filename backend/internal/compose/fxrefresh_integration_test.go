@@ -7,7 +7,10 @@ package compose
 
 // The FX refresh producer over real Postgres: it prices only the currencies
 // the workspace already tracks, stages a proposal for each changed rate, and a
-// re-run stages nothing new (per-identity JoinPending dedupe).
+// re-run stages nothing new (per-identity JoinPending dedupe). When the sheet
+// is still empty it bootstraps from a configured candidate set against the
+// workspace base currency, so "Refresh from sources" is not a dead button on a
+// fresh install.
 
 import (
 	"context"
@@ -156,5 +159,110 @@ func TestFxRefreshSupersedesStalePendingProposal(t *testing.T) {
 	if n := e.WsCount(t, `SELECT count(*) FROM approval WHERE kind='fx_rate_proposal' AND status='pending' AND expires_at > now()
 			AND proposed_change->>'rate'='1.0000000000'`); n != 1 {
 		t.Fatal("the surviving proposal must be the fresher fetched rate")
+	}
+}
+
+func TestFxRefreshBootstrapsEmptySheet(t *testing.T) {
+	e := integration.Setup(t)
+
+	// The workspace base is EUR and the sheet is empty (nothing seeded). The
+	// source offers USD/GBP/CHF (and JPY, which is outside the candidate set).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if _, err := w.Write([]byte(`{"base":"EUR","rates":{"USD":1.08,"GBP":0.85,"CHF":0.96,"JPY":160.5}}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
+	}))
+	defer srv.Close()
+
+	f := fxRefresh{
+		store:  deals.NewStore(e.Pool),
+		svc:    approvals.NewService(e.Pool),
+		client: fxsource.New(srv.URL, srv.Client()),
+		// EUR is the base and must be dropped from the candidate set; JPY is
+		// not offered as a candidate, so neither is proposed.
+		bootstrapCurrencies: []string{"USD", "GBP", "CHF", "EUR"},
+		log:                 quietLog(),
+	}
+	wctx := rateRefreshWorkerCtx(context.Background(), e.WS, e.Rep1.String())
+
+	if err := f.run(wctx); err != nil {
+		t.Fatalf("bootstrap run: %v", err)
+	}
+	pending := func() int {
+		return e.WsCount(t, `SELECT count(*) FROM approval WHERE kind='fx_rate_proposal' AND status='pending'`)
+	}
+	// USD/GBP/CHF are proposed; EUR (the base) and JPY (not a candidate) are not.
+	if n := pending(); n != 3 {
+		t.Fatalf("bootstrap staged %d fx proposals, want 3 (USD/GBP/CHF, not base EUR or non-candidate JPY)", n)
+	}
+
+	// A re-run bootstraps nothing new — the proposals are live, so JoinPending
+	// collapses each identical diff.
+	if err := f.run(wctx); err != nil {
+		t.Fatalf("second bootstrap run: %v", err)
+	}
+	if n := pending(); n != 3 {
+		t.Fatalf("after re-run staged %d, want still 3 (JoinPending dedupe)", n)
+	}
+}
+
+func TestFxRefreshSkipsCandidatesTheSourceOmits(t *testing.T) {
+	e := integration.Setup(t)
+
+	// USX is ISO 4217-shaped (so it clears the config gate) but unsupported, so
+	// the source never prices it. The refresh must stage USD and skip USX
+	// gracefully — no error, no phantom proposal.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if _, err := w.Write([]byte(`{"base":"EUR","rates":{"USD":1.08}}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
+	}))
+	defer srv.Close()
+
+	f := fxRefresh{
+		store:               deals.NewStore(e.Pool),
+		svc:                 approvals.NewService(e.Pool),
+		client:              fxsource.New(srv.URL, srv.Client()),
+		bootstrapCurrencies: []string{"USD", "USX"},
+		log:                 quietLog(),
+	}
+	wctx := rateRefreshWorkerCtx(context.Background(), e.WS, e.Rep1.String())
+
+	if err := f.run(wctx); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM approval WHERE kind='fx_rate_proposal' AND status='pending'`); n != 1 {
+		t.Fatalf("staged %d fx proposals, want 1 (USD only — USX is omitted by the source)", n)
+	}
+}
+
+func TestFxRefreshEmptySheetNoBootstrapSetIsNoOp(t *testing.T) {
+	e := integration.Setup(t)
+
+	// A source that would answer if asked — proving the no-op is the empty
+	// sheet + empty candidate set, not a dead client.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if _, err := w.Write([]byte(`{"base":"EUR","rates":{"USD":1.08}}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
+	}))
+	defer srv.Close()
+
+	f := fxRefresh{
+		store:  deals.NewStore(e.Pool),
+		svc:    approvals.NewService(e.Pool),
+		client: fxsource.New(srv.URL, srv.Client()),
+		// No candidate set configured: an empty sheet has nothing to refresh
+		// and nothing to bootstrap — an honest no-op, never an invented rate.
+		bootstrapCurrencies: nil,
+		log:                 quietLog(),
+	}
+	wctx := rateRefreshWorkerCtx(context.Background(), e.WS, e.Rep1.String())
+
+	if err := f.run(wctx); err != nil {
+		t.Fatalf("no-op run: %v", err)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM approval WHERE kind='fx_rate_proposal'`); n != 0 {
+		t.Fatalf("staged %d fx proposals, want 0 (empty sheet, no bootstrap set)", n)
 	}
 }
