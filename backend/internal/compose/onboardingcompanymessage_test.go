@@ -30,12 +30,13 @@ func (s onboardingStateReaderStub) Get(context.Context) (identity.OnboardingStat
 }
 
 type onboardingSiteReadReaderStub struct {
-	read people.SiteRead
-	err  error
+	read        people.SiteRead
+	comparisons []people.SiteReadComparison
+	err         error
 }
 
 func (s onboardingSiteReadReaderStub) GetCompanySiteRead(context.Context, ids.UUID) (people.SiteRead, []people.SiteReadComparison, error) {
-	return s.read, nil, s.err
+	return s.read, s.comparisons, s.err
 }
 
 type onboardingRuntimeStub struct {

@@ -6,36 +6,14 @@ import {
   conversationReducer,
   initialConversationState,
   THREAD_CAP,
+  type ThreadEntry,
 } from "./conversation-machine";
+import { entityQuestion, run, speakerQuestion } from "./test-fixtures";
 
-// The reducer is the whole conversation: these tests walk the transition
-// table end to end, prove illegal and stale events are inert, and pin the
-// member path, the retry semantics, and the thread cap.
-
-function run(
-  events: readonly ConversationEvent[],
-  from: ConversationState = initialConversationState,
-): ConversationState {
-  return events.reduce(conversationReducer, from);
-}
-
-const entityQuestion: ConversationQuestion = {
-  id: "clarify-entity",
-  i18nKey: "ob.conv.clarify.entity",
-  options: [
-    { value: "acme-gmbh", label: "Acme GmbH" },
-    { value: "acme-holding", label: "Acme Holding SE" },
-  ],
-};
-
-const speakerQuestion: ConversationQuestion = {
-  id: "speaker",
-  i18nKey: "ob.conv.voice.speakerQuestion",
-  options: [
-    { value: "Speaker 1", label: "Speaker 1" },
-    { value: "Speaker 2", label: "Speaker 2" },
-  ],
-};
+// The reducer is the whole conversation: this suite walks the transition
+// table end to end and pins the welcome gate, restore routing, member path,
+// the compile-time XOR contracts, and the thread cap. Run-correlation and
+// build-retry semantics live in conversation-correlation.test.ts.
 
 describe("conversationReducer happy path", () => {
   it("walks the creator journey across all five acts", () => {
@@ -119,12 +97,12 @@ describe("conversationReducer happy path", () => {
           questionId: "speaker",
           value: "Speaker 1",
         },
-        { type: "BUILD_STARTED" },
-        { type: "BUILD_STAGE", stage: "snapshot" },
-        { type: "BUILD_STAGE", stage: "extract" },
-        { type: "BUILD_STAGE", stage: "evaluate" },
-        { type: "BUILD_STAGE", stage: "activate" },
-        { type: "BUILD_TERMINAL", status: "succeeded" },
+        { type: "BUILD_STARTED", buildId: "b1" },
+        { type: "BUILD_STAGE", buildId: "b1", stage: "snapshot" },
+        { type: "BUILD_STAGE", buildId: "b1", stage: "extract" },
+        { type: "BUILD_STAGE", buildId: "b1", stage: "evaluate" },
+        { type: "BUILD_STAGE", buildId: "b1", stage: "activate" },
+        { type: "BUILD_TERMINAL", buildId: "b1", status: "succeeded" },
       ],
       state,
     );
@@ -169,6 +147,7 @@ describe("conversationReducer happy path", () => {
     const state = run([
       { type: "START", memberPath: false },
       { type: "READ_STARTED", readId: "r1" },
+      { type: "READ_TERMINAL", readId: "r1", status: "ready", findings: 1 },
       { type: "REVIEW_READY" },
       { type: "COMPANY_CONFIRMED" },
       { type: "VOICE_SKIPPED" },
@@ -202,199 +181,6 @@ describe("the welcome act", () => {
   });
 });
 
-describe("read-run correlation", () => {
-  const midRead = () =>
-    run([
-      { type: "START", memberPath: false },
-      { type: "READ_STARTED", readId: "r1" },
-      { type: "URL_SUBMITTED", url: "https://other.example" },
-      { type: "READ_STARTED", readId: "r2" },
-    ]);
-
-  it("ignores terminal, clarify, and narration events from a superseded read", () => {
-    const state = midRead();
-    expect(state.activeReadId).toBe("r2");
-    const stale: ConversationEvent[] = [
-      { type: "READ_TERMINAL", readId: "r1", status: "ready", findings: 4 },
-      { type: "CLARIFY", readId: "r1", question: entityQuestion },
-      {
-        type: "NARRATION",
-        readId: "r1",
-        entry: {
-          kind: "narration",
-          id: "pages:9",
-          i18nKey: "ob.conv.read.pages",
-          params: { pages: 9 },
-        },
-      },
-    ];
-    for (const event of stale) {
-      expect(conversationReducer(state, event)).toBe(state);
-    }
-  });
-
-  it("still accepts the active read's events and run-agnostic narration", () => {
-    const state = midRead();
-    const advanced = conversationReducer(state, {
-      type: "READ_TERMINAL",
-      readId: "r2",
-      status: "ready",
-      findings: 2,
-    });
-    expect(advanced).not.toBe(state);
-    const narrated = conversationReducer(state, {
-      type: "NARRATION",
-      entry: { kind: "narration", id: "recap", i18nKey: "ob.conv.recap" },
-    });
-    expect(narrated.thread.length).toBe(state.thread.length + 1);
-  });
-});
-
-describe("clarify interplay with read terminals", () => {
-  const clarifying = () =>
-    run([
-      { type: "START", memberPath: false },
-      { type: "READ_STARTED", readId: "r1" },
-      { type: "CLARIFY", readId: "r1", question: entityQuestion },
-    ]);
-
-  it("a finished read never strands the pending question: co.clarify holds, outcome queues", () => {
-    let state = conversationReducer(clarifying(), {
-      type: "READ_TERMINAL",
-      readId: "r1",
-      status: "ready",
-      findings: 3,
-    });
-    expect(state.phase).toBe("co.clarify");
-    expect(state.pendingQuestion?.id).toBe("clarify-entity");
-    expect(state.thread.at(-1)).toMatchObject({
-      kind: "outcome",
-      i18nKey: "ob.conv.read.done",
-    });
-
-    state = conversationReducer(state, {
-      type: "QUESTION_ANSWERED",
-      questionId: "clarify-entity",
-      value: "acme-holding",
-    });
-    expect(state.phase).toBe("co.reading");
-    expect(state.pendingQuestion).toBeNull();
-  });
-
-  it("a failed read moots the question explicitly", () => {
-    const state = conversationReducer(clarifying(), {
-      type: "READ_TERMINAL",
-      readId: "r1",
-      status: "failed",
-      findings: 0,
-    });
-    expect(state.phase).toBe("co.reading");
-    expect(state.pendingQuestion).toBeNull();
-    expect(state.thread.at(-1)).toMatchObject({ tone: "failure" });
-  });
-});
-
-describe("question answering guards", () => {
-  it("ignores an answer to a question that is not pending", () => {
-    const state = run([
-      { type: "START", memberPath: false },
-      { type: "READ_STARTED", readId: "r1" },
-      { type: "CLARIFY", readId: "r1", question: entityQuestion },
-    ]);
-    expect(
-      conversationReducer(state, {
-        type: "QUESTION_ANSWERED",
-        questionId: "some-other-question",
-        value: "acme-gmbh",
-      }),
-    ).toBe(state);
-  });
-
-  it("ignores a value outside the pending question's options", () => {
-    const state = run([
-      { type: "START", memberPath: false },
-      { type: "READ_STARTED", readId: "r1" },
-      { type: "CLARIFY", readId: "r1", question: entityQuestion },
-    ]);
-    expect(
-      conversationReducer(state, {
-        type: "QUESTION_ANSWERED",
-        questionId: "clarify-entity",
-        value: "not-an-option",
-      }),
-    ).toBe(state);
-  });
-});
-
-describe("entry identity", () => {
-  it("stamps every appended entry uniquely, so a retried URL never collides", () => {
-    const state = run([
-      { type: "START", memberPath: false },
-      { type: "URL_SUBMITTED", url: "https://acme.example" },
-      { type: "READ_STARTED", readId: "r1" },
-      { type: "READ_TERMINAL", readId: "r1", status: "failed", findings: 0 },
-      { type: "URL_SUBMITTED", url: "https://acme.example" },
-      { type: "READ_STARTED", readId: "r2" },
-      { type: "READ_TERMINAL", readId: "r2", status: "failed", findings: 0 },
-    ]);
-    const ids = state.thread.map((entry) => entry.id);
-    expect(new Set(ids).size).toBe(ids.length);
-    expect(
-      ids.filter((id) => id.endsWith(":url:https://acme.example")),
-    ).toHaveLength(2);
-    expect(ids.filter((id) => id.endsWith(":read:failed"))).toHaveLength(2);
-  });
-});
-
-describe("voice build", () => {
-  const built = (status: "succeeded" | "failed" | "deferred") =>
-    run([
-      { type: "START", memberPath: false },
-      { type: "READ_STARTED", readId: "r1" },
-      { type: "REVIEW_READY" },
-      { type: "COMPANY_CONFIRMED" },
-      { type: "VOICE_OPT_IN" },
-      { type: "BUILD_STARTED" },
-      { type: "BUILD_STAGE", stage: "snapshot" },
-      { type: "BUILD_TERMINAL", status },
-    ]);
-
-  it("dedupes a repeated stage poll", () => {
-    const state = run([
-      { type: "START", memberPath: false },
-      { type: "READ_STARTED", readId: "r1" },
-      { type: "REVIEW_READY" },
-      { type: "COMPANY_CONFIRMED" },
-      { type: "VOICE_OPT_IN" },
-      { type: "BUILD_STARTED" },
-      { type: "BUILD_STAGE", stage: "snapshot" },
-    ]);
-    expect(
-      conversationReducer(state, { type: "BUILD_STAGE", stage: "snapshot" }),
-    ).toBe(state);
-    const advanced = conversationReducer(state, {
-      type: "BUILD_STAGE",
-      stage: "extract",
-    });
-    expect(advanced.thread.length).toBe(state.thread.length + 1);
-  });
-
-  it("allows retrying only a FAILED build from the result phase", () => {
-    const failed = built("failed");
-    const retried = conversationReducer(failed, { type: "BUILD_STARTED" });
-    expect(retried.phase).toBe("vo.building");
-
-    const succeeded = built("succeeded");
-    expect(conversationReducer(succeeded, { type: "BUILD_STARTED" })).toBe(
-      succeeded,
-    );
-    const deferred = built("deferred");
-    expect(conversationReducer(deferred, { type: "BUILD_STARTED" })).toBe(
-      deferred,
-    );
-  });
-});
-
 describe("restore normalization out of co.confirmed", () => {
   const restored = (memberPath: boolean): ConversationState => ({
     ...initialConversationState,
@@ -421,6 +207,7 @@ describe("member path", () => {
     const state = run([
       { type: "START", memberPath: true },
       { type: "READ_STARTED", readId: "r1" },
+      { type: "READ_TERMINAL", readId: "r1", status: "ready", findings: 1 },
       { type: "REVIEW_READY" },
       { type: "COMPANY_CONFIRMED" },
     ]);
@@ -431,6 +218,7 @@ describe("member path", () => {
     const state = run([
       { type: "START", memberPath: true },
       { type: "READ_STARTED", readId: "r1" },
+      { type: "READ_TERMINAL", readId: "r1", status: "ready", findings: 1 },
       { type: "REVIEW_READY" },
       { type: "COMPANY_CONFIRMED" },
     ]);
@@ -439,9 +227,9 @@ describe("member path", () => {
       { type: "VOICE_SKIPPED" },
       { type: "UPLOAD_ADDED", id: "u1", name: "notes.txt" },
       { type: "SPEAKER_NEEDED", question: speakerQuestion },
-      { type: "BUILD_STARTED" },
-      { type: "BUILD_STAGE", stage: "snapshot" },
-      { type: "BUILD_TERMINAL", status: "succeeded" },
+      { type: "BUILD_STARTED", buildId: "b1" },
+      { type: "BUILD_STAGE", buildId: "b1", stage: "snapshot" },
+      { type: "BUILD_TERMINAL", buildId: "b1", status: "succeeded" },
       { type: "RESULTS_CONTINUE" },
     ];
     for (const event of creatorOnly) {
@@ -449,6 +237,69 @@ describe("member path", () => {
     }
     const done = conversationReducer(state, { type: "CONNECT_DONE" });
     expect(done).toMatchObject({ act: "done", phase: "cn.done" });
+  });
+});
+
+describe("compile-time XOR contracts", () => {
+  it("a question option and a user turn must each carry exactly one content source", () => {
+    // @ts-expect-error an option without labelKey or label is unrepresentable
+    const blank: ConversationQuestion["options"][number] = { value: "x" };
+    // @ts-expect-error labelKey and label are mutually exclusive
+    const both: ConversationQuestion["options"][number] = {
+      value: "y",
+      labelKey: "ob.conv.voice.optIn",
+      label: "Yes",
+    };
+    // @ts-expect-error a user turn without i18nKey or text is unrepresentable
+    const silent: ThreadEntry = { kind: "user", id: "u" };
+    expect([blank.value, both.value, silent.kind]).toEqual(["x", "y", "user"]);
+  });
+});
+
+describe("narration replace-in-place", () => {
+  it("a repeated semantic id updates the existing bubble instead of stacking", () => {
+    const counter = (pages: number) =>
+      ({
+        type: "NARRATION",
+        readId: "r1",
+        entry: {
+          kind: "narration",
+          id: "r1:pages",
+          i18nKey: "ob.conv.read.pages",
+          params: { pages },
+        },
+      }) satisfies ConversationEvent;
+    let state = run([
+      { type: "START", memberPath: false },
+      { type: "READ_STARTED", readId: "r1" },
+      counter(1),
+      {
+        type: "NARRATION",
+        readId: "r1",
+        entry: {
+          kind: "narration",
+          id: "r1:field:industry",
+          i18nKey: "ob.conv.read.learnedField",
+          params: { value: "Robotics" },
+        },
+      },
+    ]);
+    const before = state.thread.length;
+    const stampedId = state.thread.find((entry) =>
+      entry.id.endsWith(":r1:pages"),
+    )?.id;
+
+    state = conversationReducer(state, counter(7));
+
+    // Latest params win; position and stamped id (the React key) hold, so
+    // the counter never reorders below later narration.
+    expect(state.thread.length).toBe(before);
+    const updated = state.thread.find((entry) => entry.id === stampedId);
+    expect(updated).toMatchObject({
+      kind: "narration",
+      params: { pages: 7 },
+    });
+    expect(state.thread.at(-1)?.id.endsWith(":r1:field:industry")).toBe(true);
   });
 });
 

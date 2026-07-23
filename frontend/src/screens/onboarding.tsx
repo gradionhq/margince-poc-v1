@@ -57,6 +57,10 @@ import {
   useCompanyContextCapabilities,
 } from "./company-context";
 import { confidenceLevel } from "./inbox";
+import {
+  conversationFlagEnabled,
+  OnboardingConversationScreen,
+} from "./onboarding-conversation/index";
 import { ReadCompanyStep } from "./onboarding-read";
 import { parseVoiceInsights, VoiceInsights } from "./voice-insights";
 import "./onboarding.css";
@@ -71,7 +75,7 @@ const STEPS = [
 const VOICE_TARGET = 30000;
 // The facts endpoint accepts at most this many selected keys; preselecting
 // more than the API takes would make the default state unsubmittable.
-const MAX_SELECTED_FACTS = 100;
+export const MAX_SELECTED_FACTS = 100;
 
 type CompanyProfile = components["schemas"]["CompanyProfile"];
 type ColdField = components["schemas"]["ColdStartField"];
@@ -114,18 +118,18 @@ const SALES_FIELDS = [
   "sales_motion",
 ] as const;
 
-type CompanyFieldName =
+export type CompanyFieldName =
   | "website"
   | (typeof LEGAL_IDENTITY_FIELDS)[number]
   | (typeof OFFER_FIELDS)[number]
   | (typeof CUSTOMER_FIELDS)[number]
   | (typeof SALES_FIELDS)[number];
-type CompanyForm = Record<CompanyFieldName, string>;
+export type CompanyForm = Record<CompanyFieldName, string>;
 
 // The universal semantic minimum is enough to tell later product calls who the
 // company is, what it sells, and to whom. Legal and registry details stay
 // optional until a workflow with a real invoicing or jurisdictional need asks.
-const REQUIRED_FIELDS = [
+export const REQUIRED_FIELDS = [
   "display_name",
   "offer_summary",
   "icp",
@@ -256,7 +260,7 @@ type Grounded = Partial<Record<ColdField["field"], ColdField>>;
 
 // One state object, because the three parts move together: typing a value
 // drops its site grounding (the value is the human's now) and marks it typed.
-type CompanyDraft = {
+export type CompanyDraft = {
   values: CompanyForm;
   grounded: Grounded;
   edited: ReadonlySet<CompanyFieldName>;
@@ -282,7 +286,7 @@ const EMPTY_FORM: CompanyForm = {
   history: "",
 };
 
-const EMPTY_DRAFT: CompanyDraft = {
+export const EMPTY_DRAFT: CompanyDraft = {
   values: EMPTY_FORM,
   grounded: {},
   edited: new Set(),
@@ -292,7 +296,7 @@ function orEmpty(value: string | null | undefined): string {
   return value ?? "";
 }
 
-function formFromProfile(p: CompanyProfile): CompanyForm {
+export function formFromProfile(p: CompanyProfile): CompanyForm {
   return {
     display_name: p.display_name,
     website: orEmpty(p.website),
@@ -343,7 +347,7 @@ export function useCompany(enabled: boolean) {
 // cleared first, then the new read fills what it can quote — a field the new
 // site does not ground goes back to empty for manual entry (the no-guess
 // gate), and a field the human typed or edited keeps their text throughout.
-function prefill(
+export function prefill(
   draft: CompanyDraft,
   fields: readonly ColdField[],
 ): CompanyDraft {
@@ -366,7 +370,7 @@ function prefill(
   return { values, grounded, edited: draft.edited };
 }
 
-function changeDraftField(
+export function changeDraftField(
   draft: CompanyDraft,
   field: CompanyFieldName,
   value: string,
@@ -383,7 +387,7 @@ function changeDraftField(
 }
 
 // URL normalization/validation (S-E01.1: scheme/host/dedupe, honest invalid).
-function normalizeUrl(raw: string): {
+export function normalizeUrl(raw: string): {
   ok: boolean;
   host: string;
   full: string;
@@ -419,7 +423,7 @@ function optionalDraftValue(value: string): string | null {
   return trimmed === "" ? null : value;
 }
 
-function onboardingDraftPayload(values: CompanyForm) {
+export function onboardingDraftPayload(values: CompanyForm) {
   return {
     display_name: optionalDraftValue(values.display_name),
     offer_summary: optionalDraftValue(values.offer_summary),
@@ -462,7 +466,7 @@ class WizardStateWriteError extends Error {
   }
 }
 
-async function writeWizardState(body: PutOnboardingState) {
+export async function writeWizardState(body: PutOnboardingState) {
   const { data, error, response } = await api.PUT("/onboarding/state", {
     params: { header: { "Idempotency-Key": crypto.randomUUID() } },
     body,
@@ -473,7 +477,7 @@ async function writeWizardState(body: PutOnboardingState) {
   return data;
 }
 
-function wizardStateBody(input: {
+export function wizardStateBody(input: {
   expectedVersion: number;
   nextStep: number;
   mode: SourceMode | null;
@@ -536,6 +540,11 @@ export function OnboardingScreen() {
   const capabilities = useCompanyContextCapabilities();
   if (capabilities.data && !capabilities.data.onboarding_enabled) {
     return <ManualCompanySetup />;
+  }
+  // The conversational shell ships behind an opt-in flag until it covers the
+  // whole journey; the stepper coordinator stays the default experience.
+  if (conversationFlagEnabled()) {
+    return <OnboardingConversationScreen />;
   }
   return <OnboardingCoordinator />;
 }
@@ -1217,7 +1226,7 @@ function Footer({
 
 // ---- step 1: company -------------------------------------------------------
 
-function ManualCompanyInterview({
+export function ManualCompanyInterview({
   values,
   setField,
   onPersist,
@@ -1327,7 +1336,7 @@ function ManualCompanyInterview({
   );
 }
 
-function CompanyStep({
+export function CompanyStep({
   draft,
   setField,
   read,
@@ -1690,7 +1699,7 @@ export function WebsiteReadBar({
 
 // A field the read-back grounded and the human has not touched still carries
 // the site's evidence; anything else is the human's own.
-function groundingOf(
+export function groundingOf(
   draft: CompanyDraft,
   field: CompanyFieldName,
 ): ColdField | null {

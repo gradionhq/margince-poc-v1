@@ -237,6 +237,8 @@ type companyChangeAuthorization struct {
 	currentMessage  string
 	previousRequest string
 	directField     string
+	selectedField   string
+	selectedValue   string
 }
 
 func newCompanyChangeAuthorization(message string, history []model.Message, directField string) companyChangeAuthorization {
@@ -251,6 +253,9 @@ func newCompanyChangeAuthorization(message string, history []model.Message, dire
 }
 
 func (a companyChangeAuthorization) allows(change companyReadProposedChange) bool {
+	if a.selectedField != "" && change.Field == a.selectedField && strings.TrimSpace(change.Value) == a.selectedValue {
+		return true
+	}
 	currentField := companyFieldMentioned(a.currentMessage, change.Field) ||
 		(a.directField == change.Field && !companyMessageMentionsKnownField(a.currentMessage))
 	if messageRequestsCompanyChanges(a.currentMessage) && currentField {

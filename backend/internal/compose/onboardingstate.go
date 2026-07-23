@@ -23,6 +23,9 @@ type onboardingStateHandlers struct {
 	state     *identity.OnboardingStore
 	company   *people.Store
 	assistant *onboardingCompanyAssistant
+	// proposal serves GET /onboarding/company/proposal — deterministic,
+	// so it is wired unconditionally in newServer, not by an AI option.
+	proposal *onboardingProposalEngine
 }
 
 func (h onboardingStateHandlers) GetOnboardingState(w http.ResponseWriter, r *http.Request) {

@@ -1294,6 +1294,8 @@ export const en = {
     "I could not read that site. Try another URL, or tell me directly.",
   "ob.conv.read.deferred":
     "The read is paused for now. I will pick it up again automatically.",
+  "ob.conv.read.pollFailed":
+    "I lost the connection while reading. What I already found is kept.",
   "ob.conv.clarify.intro":
     "One thing I need you to decide. The site is ambiguous here.",
   "ob.conv.clarify.entity":
@@ -1326,6 +1328,37 @@ export const en = {
   "ob.conv.consent":
     "Last step: what may I capture, and for which purpose? Nothing is on by default.",
   "ob.conv.done": "Setup complete. Your CRM is ready.",
+  "ob.conv.composer": "Type your website address, or ask me a question",
+  "ob.conv.tellInstead": "I would rather tell you directly",
+  "ob.conv.clarify.question": "{question}",
+  "ob.conv.clarify.optionDetail": "{detail}",
+  "ob.conv.clarify.applyFailed":
+    "I could not record that choice: {detail} Pick it again.",
+  "ob.conv.clarify.applyMissing":
+    "The server did not confirm that choice. Pick it again.",
+  "ob.conv.loadFailed": "I could not check your setup. Please try again.",
+  "ob.conv.retry": "Try again",
+  "ob.conv.connect.persistFailed": "I could not record the finish. Try again.",
+  "ob.conv.review.title": "Company profile, prepared from sources",
+  "ob.conv.review.openQuestions": "Decide these before I save anything.",
+  "ob.conv.review.missing": "I still need: {fields}. Add them and I can save.",
+  "ob.conv.review.acceptAll": "Accept all",
+  "ob.conv.review.editDirectly": "Edit fields directly",
+  "ob.conv.review.backToDossier": "Back to the dossier",
+  "ob.conv.review.proposalFallback":
+    "I could not load the prepared mapping. Review what I read directly; every field keeps its source.",
+  "ob.conv.review.confirmFailed":
+    "I could not save that yet: {detail} Fix it and accept again.",
+  "ob.conv.artifact.empty":
+    "Nothing read yet. Give me a website and this panel fills with sourced findings.",
+  "ob.conv.voice.stubBody":
+    "Voice uploads continue in the classic step for now. This conversation picks them up in a later release.",
+  "ob.conv.voice.openClassic": "Open the classic voice step",
+  "ob.conv.results.continue": "Continue",
+  "ob.conv.connect.stubBody":
+    "Connecting your inbox continues in the classic step for now. Nothing is captured until you allow it there.",
+  "ob.conv.connect.openClassic": "Open the classic connect step",
+  "ob.conv.connect.finish": "Finish without connecting",
 
   "auth.title": "Margince",
   "auth.checking": "Checking your session…",

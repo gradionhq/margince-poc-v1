@@ -1316,6 +1316,8 @@ export const de = {
     "Ich konnte nicht alles lesen. Belegte Funde: {count}.",
   "ob.conv.read.failed":
     "Ich konnte diese Website nicht lesen. Probiere eine andere URL oder sag es mir direkt.",
+  "ob.conv.read.pollFailed":
+    "Ich habe die Verbindung beim Lesen verloren. Was ich schon gefunden habe, bleibt erhalten.",
   "ob.conv.read.deferred":
     "Das Einlesen pausiert gerade. Ich setze es automatisch fort.",
   "ob.conv.clarify.intro":
@@ -1350,6 +1352,41 @@ export const de = {
   "ob.conv.consent":
     "Letzter Schritt: Was darf ich erfassen, und zu welchem Zweck? Nichts ist standardmäßig aktiv.",
   "ob.conv.done": "Einrichtung abgeschlossen. Dein CRM ist bereit.",
+  "ob.conv.composer": "Gib deine Website ein oder stell mir eine Frage",
+  "ob.conv.tellInstead": "Ich erzähle es dir lieber direkt",
+  "ob.conv.clarify.question": "{question}",
+  "ob.conv.clarify.optionDetail": "{detail}",
+  "ob.conv.clarify.applyFailed":
+    "Ich konnte diese Wahl nicht übernehmen: {detail} Wähle bitte erneut.",
+  "ob.conv.clarify.applyMissing":
+    "Der Server hat diese Wahl nicht bestätigt. Wähle bitte erneut.",
+  "ob.conv.loadFailed":
+    "Ich konnte deine Einrichtung nicht prüfen. Bitte versuche es erneut.",
+  "ob.conv.retry": "Erneut versuchen",
+  "ob.conv.connect.persistFailed":
+    "Ich konnte den Abschluss nicht speichern. Versuche es erneut.",
+  "ob.conv.review.title": "Firmenprofil, aus Quellen vorbereitet",
+  "ob.conv.review.openQuestions":
+    "Entscheide diese Punkte, bevor ich etwas speichere.",
+  "ob.conv.review.missing":
+    "Mir fehlt noch: {fields}. Ergänze das und ich kann speichern.",
+  "ob.conv.review.acceptAll": "Alles übernehmen",
+  "ob.conv.review.editDirectly": "Felder direkt bearbeiten",
+  "ob.conv.review.backToDossier": "Zurück zum Dossier",
+  "ob.conv.review.proposalFallback":
+    "Ich konnte die vorbereitete Zuordnung nicht laden. Prüfe direkt, was ich gelesen habe. Jedes Feld behält seine Quelle.",
+  "ob.conv.review.confirmFailed":
+    "Ich konnte noch nicht speichern: {detail} Korrigiere das und übernimm erneut.",
+  "ob.conv.artifact.empty":
+    "Noch nichts gelesen. Nenn mir eine Website und dieses Panel füllt sich mit belegten Funden.",
+  "ob.conv.voice.stubBody":
+    "Stimm-Uploads laufen vorerst im klassischen Schritt weiter. Dieses Gespräch übernimmt sie in einer späteren Version.",
+  "ob.conv.voice.openClassic": "Klassischen Stimm-Schritt öffnen",
+  "ob.conv.results.continue": "Weiter",
+  "ob.conv.connect.stubBody":
+    "Die Postfach-Verbindung läuft vorerst im klassischen Schritt. Ohne deine Freigabe wird nichts erfasst.",
+  "ob.conv.connect.openClassic": "Klassischen Verbindungs-Schritt öffnen",
+  "ob.conv.connect.finish": "Ohne Verbindung abschließen",
 
   "auth.title": "Margince",
   "auth.checking": "Sitzung wird geprüft…",

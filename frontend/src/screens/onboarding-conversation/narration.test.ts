@@ -76,7 +76,9 @@ describe("diffSiteRead", () => {
     expect(events).toEqual([
       {
         kind: "say",
-        id: `${READ_ID}:pages:5`,
+        // Stable per-run counter id: the count travels only in params, so
+        // the machine replaces the earlier pages bubble in place.
+        id: `${READ_ID}:pages`,
         i18nKey: "ob.conv.read.pages",
         params: { pages: 5 },
       },
@@ -158,6 +160,24 @@ describe("diffSiteRead", () => {
     }
   });
 
+  it("treats a snapshot from another run as no baseline: a new read narrates fresh", () => {
+    const oldRun = read({
+      id: "00000000-0000-4000-8000-00000000dead",
+      status: "ready",
+      profile_fields: [field("display_name", "Acme")],
+    });
+    const newRun = read({
+      status: "ready",
+      profile_fields: [field("display_name", "Acme")],
+    });
+    const events = diffSiteRead(oldRun, newRun);
+    // Same field, same status — but a NEW run, so both narrate again.
+    expect(events).toEqual([
+      expect.objectContaining({ id: `${READ_ID}:field:display_name` }),
+      { kind: "flush", id: `${READ_ID}:flush:ready` },
+    ]);
+  });
+
   it("stays silent on post-outcome lifecycle transitions (confirmed, abandoned)", () => {
     expect(
       diffSiteRead(read({ status: "ready" }), read({ status: "confirmed" })),
@@ -215,6 +235,28 @@ describe("diffVoiceBuild", () => {
       [],
     );
   });
+
+  it("dedupes per build id: a NEW build's identical status or stage is fresh", () => {
+    const other = (
+      status: VoiceBuildSnapshot["status"],
+      stage: VoiceBuildSnapshot["stage"],
+    ): VoiceBuildSnapshot => ({ id: "b2", status, stage });
+    expect(
+      diffVoiceBuild(
+        snap("succeeded", "activate"),
+        other("succeeded", "activate"),
+      ),
+    ).toEqual([{ kind: "flush", id: "b2:flush:succeeded" }]);
+    expect(
+      diffVoiceBuild(snap("running", "snapshot"), other("running", "snapshot")),
+    ).toEqual([
+      {
+        kind: "say",
+        id: "b2:stage:snapshot",
+        i18nKey: "ob.conv.build.snapshot",
+      },
+    ]);
+  });
 });
 
 describe("diffCorpus", () => {
@@ -234,7 +276,8 @@ describe("diffCorpus", () => {
     expect(diffCorpus(summary(400, "thin"), summary(1240, "good"))).toEqual([
       {
         kind: "say",
-        id: "words:1240",
+        // Stable counter id: the latest total replaces the earlier bubble.
+        id: "words",
         i18nKey: "ob.conv.corpus.words",
         params: { words: 1240 },
       },

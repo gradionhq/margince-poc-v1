@@ -1,4 +1,5 @@
 import type { MessageKey } from "../../i18n/en";
+import { isLegal } from "./conversation-legality";
 import type {
   BuildStage,
   BuildTerminalStatus,
@@ -11,11 +12,11 @@ import type {
 } from "./conversation-types";
 
 // The onboarding conversation as a pure reducer. Every legal move lives in
-// the transition table below; an event that is not legal in the current
-// phase returns the state unchanged, so a stale poll or a double click can
-// never corrupt the conversation. React effects hold no hidden state: the
-// thread, the pending question, and the act/phase pair ARE the conversation.
-// The vocabulary (acts, phases, entries, events) lives in
+// the transition table in conversation-legality.ts; an event that is not
+// legal in the current phase returns the state unchanged, so a stale poll or
+// a double click can never corrupt the conversation. React effects hold no
+// hidden state: the thread, the pending question, and the act/phase pair ARE
+// the conversation. The vocabulary (acts, phases, entries, events) lives in
 // conversation-types.ts and is re-exported here so callers have one import.
 
 export type {
@@ -41,33 +42,11 @@ export const initialConversationState: ConversationState = {
   thread: [],
   seq: 0,
   activeReadId: null,
+  readCompleted: false,
+  activeBuildId: null,
   lastBuildStage: null,
   lastBuildStatus: null,
 };
-
-// A member joining an existing installation only confirms company context and
-// consent; voice and results events belong to the creator path exclusively.
-const creatorOnlyEvents = new Set<ConversationEvent["type"]>([
-  "VOICE_OPT_IN",
-  "VOICE_SKIPPED",
-  "UPLOAD_ADDED",
-  "SPEAKER_NEEDED",
-  "BUILD_STARTED",
-  "BUILD_STAGE",
-  "BUILD_TERMINAL",
-  "RESULTS_CONTINUE",
-]);
-
-// Narration streams only while the machine is actively reading or building;
-// a late poll after a phase moved on is dropped, not displayed out of order.
-const narrationPhases = new Set<ConversationPhase>([
-  "co.reading",
-  "co.clarify",
-  "co.review",
-  "vo.collecting",
-  "vo.speaker",
-  "vo.building",
-]);
 
 const readTerminalKeys: Record<ReadTerminalStatus, MessageKey> = {
   ready: "ob.conv.read.done",
@@ -134,93 +113,19 @@ function withEntries(
   };
 }
 
-// The transition table: the phases in which each event is legal. On top of
-// this, isLegal rejects everything but START in the welcome act and
-// eventGuards adds the per-event conditions (read-run identity, pending
-// question identity, build retry/dedupe). An event outside its row is
-// ignored.
-const legalPhases: Record<
-  ConversationEvent["type"],
-  ReadonlySet<ConversationPhase>
-> = {
-  START: new Set(["co.intro"]),
-  URL_SUBMITTED: new Set(["co.intro", "co.reading"]),
-  READ_STARTED: new Set(["co.intro", "co.reading"]),
-  NARRATION: narrationPhases,
-  READ_TERMINAL: new Set(["co.reading", "co.clarify"]),
-  CLARIFY: new Set(["co.reading", "co.review"]),
-  QUESTION_ANSWERED: new Set(["co.clarify", "vo.speaker"]),
-  REVIEW_READY: new Set(["co.reading"]),
-  MANUAL_CHOSEN: new Set(["co.intro", "co.reading", "co.review"]),
-  COMPANY_CONFIRMED: new Set(["co.review", "co.manual"]),
-  RESUME: new Set(["co.confirmed"]),
-  VOICE_OPT_IN: new Set(["vo.invite"]),
-  VOICE_SKIPPED: new Set(["vo.invite", "vo.collecting"]),
-  UPLOAD_ADDED: new Set(["vo.collecting"]),
-  SPEAKER_NEEDED: new Set(["vo.collecting"]),
-  BUILD_STARTED: new Set(["vo.collecting", "vo.result"]),
-  BUILD_STAGE: new Set(["vo.building"]),
-  BUILD_TERMINAL: new Set(["vo.building"]),
-  RESULTS_CONTINUE: new Set(["vo.result", "vo.skipped", "re.recap"]),
-  CONNECT_DONE: new Set(["cn.consent"]),
-};
-
-function isLegal(state: ConversationState, event: ConversationEvent): boolean {
-  // The welcome act admits exactly one move: starting the conversation.
-  if (state.act === "welcome") {
-    return event.type === "START";
-  }
-  if (event.type === "START") {
-    return false;
-  }
-  if (state.memberPath && creatorOnlyEvents.has(event.type)) {
-    return false;
-  }
-  if (!legalPhases[event.type].has(state.phase)) {
-    return false;
-  }
-  return eventGuards(state, event);
-}
-
-function eventGuards(
-  state: ConversationState,
-  event: ConversationEvent,
-): boolean {
-  switch (event.type) {
-    // A read event from a superseded run must never advance or mis-record
-    // the current one; only the active run's events count.
-    case "READ_TERMINAL":
-    case "CLARIFY":
-      return event.readId === state.activeReadId;
-    case "NARRATION":
-      // Narration without a run id (voice corpus, build) is run-agnostic.
-      return event.readId === undefined || event.readId === state.activeReadId;
-    case "QUESTION_ANSWERED":
-      // Both the question and the chosen option must be the pending ones; an
-      // unknown value is never echoed into the thread.
-      return (
-        state.pendingQuestion?.id === event.questionId &&
-        state.pendingQuestion.options.some(
-          (option) => option.value === event.value,
-        )
-      );
-    case "BUILD_STARTED":
-      // From vo.result only a FAILED build may be retried; a succeeded or
-      // deferred build is not restartable from here.
-      return state.phase !== "vo.result" || state.lastBuildStatus === "failed";
-    case "BUILD_STAGE":
-      // A poll repeating the current stage narrates nothing new.
-      return event.stage !== state.lastBuildStage;
-    default:
-      return true;
-  }
-}
-
 export function conversationReducer(
   state: ConversationState,
   event: ConversationEvent,
 ): ConversationState {
   return isLegal(state, event) ? applyEvent(state, event) : state;
+}
+
+// Where an answered question lands: the speaker question back to collecting;
+// a clarify to review when the read already finished (its completion must
+// never be lost), otherwise back to the still-running read.
+function answeredPhase(state: ConversationState): ConversationPhase {
+  if (state.phase === "vo.speaker") return "vo.collecting";
+  return state.readCompleted ? "co.review" : "co.reading";
 }
 
 function applyReadTerminal(
@@ -231,7 +136,10 @@ function applyReadTerminal(
   if (done) {
     // A pending clarify question is never stranded: the outcome queues into
     // the thread while co.clarify stays put until the question is answered.
-    return withEntries(state, {}, [
+    // readCompleted records the completion so the final answer (or a
+    // REVIEW_READY from co.reading) proceeds straight to review; the
+    // concluded run's id retires so its late events are stale.
+    return withEntries(state, { activeReadId: null, readCompleted: true }, [
       {
         kind: "outcome",
         id: `read:${event.status}`,
@@ -243,14 +151,23 @@ function applyReadTerminal(
   }
   // A failed or deferred read moots its clarify question and waits in
   // co.reading for a new URL or the manual path.
-  return withEntries(state, { phase: "co.reading", pendingQuestion: null }, [
+  return withEntries(
+    state,
     {
-      kind: "outcome",
-      id: `read:${event.status}`,
-      i18nKey: readTerminalKeys[event.status],
-      tone: event.status === "deferred" ? "deferred" : "failure",
+      phase: "co.reading",
+      pendingQuestion: null,
+      activeReadId: null,
+      readCompleted: false,
     },
-  ]);
+    [
+      {
+        kind: "outcome",
+        id: `read:${event.status}`,
+        i18nKey: readTerminalKeys[event.status],
+        tone: event.status === "deferred" ? "deferred" : "failure",
+      },
+    ],
+  );
 }
 
 // Legality is already settled: every branch below only computes the next
@@ -267,16 +184,34 @@ function applyEvent(
         memberPath: event.memberPath,
       });
     case "URL_SUBMITTED":
-      return withEntries(state, {}, [
+      // Until READ_STARTED names the new run, read events for ANY run are
+      // stale — the previous run is retired here, not at READ_STARTED.
+      return withEntries(state, { activeReadId: null, readCompleted: false }, [
         { kind: "user", id: `url:${event.url}`, text: event.url },
       ]);
     case "READ_STARTED":
       return withEntries(state, {
         phase: "co.reading",
         activeReadId: event.readId,
+        readCompleted: false,
       });
-    case "NARRATION":
+    case "NARRATION": {
+      // A monotonic counter (pages read, corpus words) narrates under ONE
+      // stable semantic id with the count in params: a fresh emission
+      // REPLACES the earlier bubble in place — same position, same stamped
+      // id (so React keys hold) — instead of stacking near-identical lines.
+      const index = state.thread.findIndex(
+        (entry) =>
+          entry.kind === "narration" &&
+          entry.id.slice(entry.id.indexOf(":") + 1) === event.entry.id,
+      );
+      if (index !== -1) {
+        const thread = [...state.thread];
+        thread[index] = { ...event.entry, id: state.thread[index].id };
+        return { ...state, thread };
+      }
       return withEntries(state, {}, [event.entry]);
+    }
     case "READ_TERMINAL":
       return applyReadTerminal(state, event);
     case "CLARIFY":
@@ -295,21 +230,28 @@ function applyEvent(
       const option = state.pendingQuestion?.options.find(
         (candidate) => candidate.value === event.value,
       );
+      const answerId = `answer:${event.questionId}`;
+      const answered: ThreadEntry =
+        option?.labelKey !== undefined
+          ? {
+              kind: "user",
+              id: answerId,
+              i18nKey: option.labelKey,
+              params: option.params,
+            }
+          : {
+              kind: "user",
+              id: answerId,
+              text: option?.label ?? event.value,
+              params: option?.params,
+            };
       return withEntries(
         state,
         {
-          phase: state.phase === "vo.speaker" ? "vo.collecting" : "co.reading",
+          phase: answeredPhase(state),
           pendingQuestion: null,
         },
-        [
-          {
-            kind: "user",
-            id: `answer:${event.questionId}`,
-            i18nKey: option?.labelKey,
-            text: option?.labelKey ? undefined : (option?.label ?? event.value),
-            params: option?.params,
-          },
-        ],
+        [answered],
       );
     }
     case "REVIEW_READY":
@@ -382,17 +324,28 @@ function applyEvent(
     case "BUILD_STARTED":
       return withEntries(state, {
         phase: "vo.building",
+        activeBuildId: event.buildId,
         lastBuildStage: null,
         lastBuildStatus: null,
       });
     case "BUILD_STAGE":
-      return withEntries(state, { lastBuildStage: event.stage }, [
+      // A stage from vo.result means a deferred build resumed on its own:
+      // re-enter vo.building and clear the deferred status.
+      return withEntries(
+        state,
         {
-          kind: "narration",
-          id: `stage:${event.stage}`,
-          i18nKey: buildStageKeys[event.stage],
+          phase: "vo.building",
+          lastBuildStage: event.stage,
+          lastBuildStatus: null,
         },
-      ]);
+        [
+          {
+            kind: "narration",
+            id: `stage:${event.stage}`,
+            i18nKey: buildStageKeys[event.stage],
+          },
+        ],
+      );
     case "BUILD_TERMINAL":
       return withEntries(
         state,
