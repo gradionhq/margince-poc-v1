@@ -115,7 +115,7 @@ func TestLeadScoreRecomputesFromLinkedActivities(t *testing.T) {
 	var events int
 	if err := e.owner.QueryRow(context.Background(),
 		`SELECT count(*) FROM event_outbox WHERE envelope->>'type' = 'lead.updated'
-		   AND envelope->'payload'->'delta' ? 'score'`).Scan(&events); err != nil {
+		   AND envelope->'payload'->'changed_fields'->'delta' ? 'score'`).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 2 {
