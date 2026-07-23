@@ -1586,6 +1586,7 @@ export const de = {
   "settings.tab.privacy": "Datenschutz & Einwilligung",
   "settings.tab.audit": "Audit-Log",
   "settings.tab.voice": "Voice DNA",
+  "settings.tab.integrations": "Integrationen",
   "settings.group.you": "Deine Einstellungen",
   "settings.group.org": "Organisation",
   "settings.voice.title": "Voice DNA",
@@ -1891,4 +1892,14 @@ export const de = {
   "quotas.archive.title": "Quota archivieren",
   "quotas.archive.confirm":
     "Das Archivieren entfernt diese Quota aus der Liste und stoppt die Verfolgung der Zielerreichung. Archivierte Quotas können nicht bearbeitet werden.",
+
+  "webhooks.title": "Webhooks",
+  "webhooks.sub":
+    "Ausgehende Abonnements, die signierte HTTP-POSTs für ausgewählte Ereignisse empfangen.",
+  "webhooks.new": "Neues Abonnement",
+  "webhooks.notConfigured":
+    "Ausgehende Webhooks sind auf dieser Installation nicht aktiviert — zuerst muss ein Signaturschlüssel konfiguriert werden.",
+  "webhooks.state.active": "Aktiv",
+  "webhooks.state.paused": "Pausiert",
+  "webhooks.updated": "Aktualisiert {date}",
 } as const satisfies Record<MessageKey, string>;

@@ -1557,6 +1557,7 @@ export const en = {
   "settings.tab.privacy": "Privacy & consent",
   "settings.tab.audit": "Audit log",
   "settings.tab.voice": "Voice DNA",
+  "settings.tab.integrations": "Integrations",
   "settings.group.you": "Your settings",
   "settings.group.org": "Organization",
   "settings.voice.title": "Voice DNA",
@@ -1858,6 +1859,16 @@ export const en = {
   "quotas.archive.title": "Archive quota",
   "quotas.archive.confirm":
     "Archiving drops this quota from the list and stops tracking its attainment. Archived quotas can't be edited.",
+
+  "webhooks.title": "Webhooks",
+  "webhooks.sub":
+    "Outbound subscriptions that receive signed HTTP POSTs for chosen events.",
+  "webhooks.new": "New subscription",
+  "webhooks.notConfigured":
+    "Outbound webhooks are not enabled on this deployment — a signing key must be configured first.",
+  "webhooks.state.active": "Active",
+  "webhooks.state.paused": "Paused",
+  "webhooks.updated": "Updated {date}",
 } as const;
 
 export type MessageKey = keyof typeof en;

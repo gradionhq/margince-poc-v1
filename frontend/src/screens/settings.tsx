@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   Sparkles,
   UsersRound,
+  Webhook,
 } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { api } from "../api/client";
@@ -63,6 +64,7 @@ import { EntityRef } from "./entityref";
 import { ConsentPurposesCard, PrivacyInboxCard } from "./privacy";
 import { UsersAdminCard } from "./users-admin";
 import { VoiceDnaCard } from "./voice-dna";
+import { WebhooksCard } from "./webhooks";
 import "./settings.css";
 
 // Settings governance surface (B-EP09.13b): renders FROM the live seams —
@@ -94,6 +96,7 @@ const SETTINGS_TABS = [
   { id: "catalog", icon: Package, group: "org" },
   { id: "privacy", icon: ShieldCheck, group: "org" },
   { id: "audit", icon: ScrollText, group: "org" },
+  { id: "integrations", icon: Webhook, group: "org" },
 ] as const satisfies readonly {
   id: string;
   icon: LucideIcon;
@@ -133,6 +136,8 @@ function tabContent(id: SettingsTabId): ReactNode {
       );
     case "audit":
       return <AuditLogCard />;
+    case "integrations":
+      return <WebhooksCard />;
   }
 }
 
