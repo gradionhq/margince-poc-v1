@@ -20,15 +20,12 @@ import type { WizardPersistInput } from "./use-wizard-state";
 import { useWizardStatePersist } from "./use-wizard-state";
 import { VoiceAct } from "./voice-act";
 
-// The conversational onboarding shell: one pure machine owns where the
-// conversation is, and each act renders inside the shared Margince
-// workbench. On mount the shell reads the server truth (wizard state,
-// company, voice) and restores through START + RESUME; the wizard state's
-// `path` field is THE member signal, with company-exists only the fallback
-// when no state row exists. The classic stepper stays the default; this
-// screen mounts only behind the flag (see flag.ts).
-
-export { conversationFlagEnabled } from "./flag";
+// The conversational onboarding shell — THE onboarding experience: one pure
+// machine owns where the conversation is, and each act renders inside the
+// shared Margince workbench. On mount the shell reads the server truth
+// (wizard state, company, voice) and restores through START + RESUME; the
+// wizard state's `path` field is THE member signal, with company-exists only
+// the fallback when no state row exists.
 
 type OnboardingState = components["schemas"]["OnboardingState"];
 

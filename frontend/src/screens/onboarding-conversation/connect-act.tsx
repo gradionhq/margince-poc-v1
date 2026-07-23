@@ -5,12 +5,12 @@ import { navigate } from "../../app/router";
 import { Button } from "../../design-system/atoms";
 import { useT } from "../../i18n";
 import type { MessageKey } from "../../i18n/en";
+import { EMPTY_DRAFT } from "../onboarding";
 import {
-  EMPTY_DRAFT,
   GoogleConnectPanel,
   ImapConnectPanel,
   MicrosoftConnectPanel,
-} from "../onboarding";
+} from "../onboarding-connect-panels";
 import type {
   ConversationEvent,
   ConversationState,

@@ -2,7 +2,7 @@ import type { Dispatch } from "react";
 import type { components } from "../../api/schema";
 import { Button } from "../../design-system/atoms";
 import { useT } from "../../i18n";
-import { ResultsStep } from "../onboarding";
+import { ResultsStep } from "../onboarding-results";
 import type {
   ConversationEvent,
   ConversationState,

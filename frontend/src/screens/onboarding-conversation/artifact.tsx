@@ -4,7 +4,8 @@ import type { components } from "../../api/schema";
 import { Button } from "../../design-system/atoms";
 import { useT } from "../../i18n";
 import type { CompanyDraft, CompanyFieldName } from "../onboarding";
-import { CompanyStep, ManualCompanyInterview } from "../onboarding";
+import { CompanyStep } from "../onboarding-company-form";
+import { ManualCompanyInterview } from "../onboarding-manual-interview";
 import { ReadEvidence } from "../onboarding-read";
 
 // The right panel of the company act: a living dossier of what the read
@@ -97,9 +98,8 @@ export function CompanyActArtifact(props: CompanyActArtifactProps) {
   );
 }
 
-// Wizard-state persistence for the conversational shell lands with restore
-// (plan Phase 5); until then blur/persist callbacks intentionally store
-// nothing rather than pretending to.
+// The conversational shell persists at act transitions and on confirm, not
+// per keystroke: blur/persist callbacks intentionally store nothing here.
 function persistLater(): undefined {
   return undefined;
 }
