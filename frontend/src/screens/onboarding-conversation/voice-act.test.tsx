@@ -326,6 +326,65 @@ describe("the conversational voice act", () => {
     expect(screen.queryByText(/Which one is you/)).toBeNull();
   });
 
+  it("accepts a drop anywhere in the window — composer, artifact, gaps included — and neutralizes the browser default", async () => {
+    const calls = stubApi({
+      preview: documentPreview,
+      ingests: [{ stats: documentStats, summary: summaryOf(900) }],
+    });
+    render(<VoiceHarness initial={collectingState()} />);
+
+    // The drop lands on window, NOT on the thread div: the hint promises
+    // "anywhere in this conversation", and an unhandled drop would navigate
+    // the browser to the file, destroying the onboarding session.
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", {
+      value: {
+        types: ["Files"],
+        files: [
+          new File(["Plain prose I wrote myself."], "notes.md", {
+            type: "text/plain",
+          }),
+        ],
+      },
+    });
+    window.dispatchEvent(drop);
+
+    expect(drop.defaultPrevented).toBe(true);
+    expect(await screen.findByText(/Words counted: 900\./)).toBeTruthy();
+    expect(requestsTo(calls, "/sources", "POST").length).toBe(1);
+
+    // A text-selection drag is NOT claimed: the composer's native
+    // drag-to-insert must keep working.
+    const textDrag = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(textDrag, "dataTransfer", {
+      value: { types: ["text/plain"], files: [] },
+    });
+    window.dispatchEvent(textDrag);
+    expect(textDrag.defaultPrevented).toBe(false);
+  });
+
+  it("neutralizes a stray drop outside the collecting phases without ingesting", () => {
+    const calls = stubApi({});
+    render(
+      <VoiceHarness
+        initial={{
+          ...initialConversationState,
+          act: "voice",
+          phase: "vo.invite",
+        }}
+      />,
+    );
+
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", {
+      value: { types: ["Files"], files: [new File(["text"], "stray.txt")] },
+    });
+    window.dispatchEvent(drop);
+
+    expect(drop.defaultPrevented).toBe(true);
+    expect(requestsTo(calls, "/sources", "POST").length).toBe(0);
+  });
+
   it("refuses an unattributed transcript honestly and counts nothing", async () => {
     const calls = stubApi({ preview: unattributedPreview });
     render(<VoiceHarness initial={collectingState()} />);
