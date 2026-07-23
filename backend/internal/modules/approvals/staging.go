@@ -66,8 +66,17 @@ type AnnouncedEvent struct {
 // emits approval.requested. It runs in the write shape every mutation
 // uses: approval row + audit row + event in one transaction.
 func (s *Service) Stage(ctx context.Context, in StageInput) (ids.ApprovalID, error) {
-	if len(in.Identity) > 0 && !in.JoinPending {
-		return ids.ApprovalID{}, errors.New("crmapprovals: Identity staging requires JoinPending")
+	if len(in.Identity) > 0 {
+		if !in.JoinPending {
+			return ids.ApprovalID{}, errors.New("crmapprovals: Identity staging requires JoinPending")
+		}
+		// The supersede match is JSONB containment, and every object contains
+		// {} — an empty (or non-object) identity would withdraw EVERY live
+		// pending proposal of the kind+target, so refuse it up front.
+		var identity map[string]json.RawMessage
+		if err := json.Unmarshal(in.Identity, &identity); err != nil || len(identity) == 0 {
+			return ids.ApprovalID{}, errors.New("crmapprovals: Identity must be a non-empty JSON object")
+		}
 	}
 	var id ids.ApprovalID
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {

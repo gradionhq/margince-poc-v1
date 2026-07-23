@@ -13,7 +13,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // RateStore is the ai_model_rate price sheet — the fx_rate-style
@@ -61,8 +63,13 @@ func (s *RateStore) RateFor(ctx context.Context, provider, modelID string, day t
 // EffectiveModelRateInTx resolves the price in force TODAY (store clock) for
 // one model through a caller-owned transaction — the approval-effect
 // precondition read, which must see the same state the apply writes into.
-// (nil, nil) = unpriced, mirroring RateFor.
+// (nil, nil) = unpriced, mirroring RateFor. Admin/ops read gate, matching the
+// fx sibling (EffectiveFxRateInTx): the precondition reads must gate
+// identically so the invariant survives a future caller.
 func (s *RateStore) EffectiveModelRateInTx(ctx context.Context, tx pgx.Tx, provider, modelID string) (*ModelRate, error) {
+	if err := auth.Require(ctx, "ai_model_rate", principal.ActionRead); err != nil {
+		return nil, err
+	}
 	return rateForInTx(ctx, tx, strings.TrimSpace(provider), strings.TrimSpace(modelID), s.todayUTC())
 }
 

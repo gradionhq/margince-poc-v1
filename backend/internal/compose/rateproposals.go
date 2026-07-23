@@ -159,10 +159,10 @@ func fxPriorMatches(p fxRateProposal, prior string, found bool) error {
 	case found && p.ExpectedPriorRate != "" && sameRate(prior, p.ExpectedPriorRate):
 		return nil
 	case !found:
-		return fmt.Errorf("compose: the %s rate the proposal was diffed against is no longer in force — re-run the refresh: %w",
+		return fmt.Errorf("the %s rate the proposal was diffed against is no longer in force — re-run the refresh: %w",
 			p.FromCurrency, apperrors.ErrVersionSkew)
 	default:
-		return fmt.Errorf("compose: the %s rate changed since the proposal was diffed (now %s) — re-run the refresh: %w",
+		return fmt.Errorf("the %s rate changed since the proposal was diffed (now %s) — re-run the refresh: %w",
 			p.FromCurrency, prior, apperrors.ErrVersionSkew)
 	}
 }
@@ -207,7 +207,7 @@ func aiModelRateAcceptEffect(svc *approvals.Service, rates *ai.RateStore) approv
 // also how a payload staged before the precondition existed reads, so such a
 // proposal fails closed onto a re-diff once the model is priced.
 func modelPriorMatches(p aiModelRateProposal, cur *ai.ModelRate) error {
-	moved := fmt.Errorf("compose: the %s/%s price changed since the proposal was diffed — re-run the refresh: %w",
+	moved := fmt.Errorf("the %s/%s price changed since the proposal was diffed — re-run the refresh: %w",
 		p.Provider, p.ModelID, apperrors.ErrVersionSkew)
 	if p.ExpectedPrior == nil {
 		if cur != nil {

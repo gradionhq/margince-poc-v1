@@ -24,14 +24,23 @@ import (
 
 // Identity is only meaningful under JoinPending — without it there is no
 // serialized per-identity section, so a supersede could race a plain
-// insert. The combination is refused before any transaction is opened.
-func TestStageIdentityRequiresJoinPending(t *testing.T) {
+// insert. And because the supersede match is JSONB containment (every object
+// contains {}), an empty or non-object identity would withdraw EVERY live
+// pending proposal of the kind+target — both are refused before any
+// transaction is opened.
+func TestStageIdentityValidation(t *testing.T) {
 	svc := NewService(nil)
-	_, err := svc.Stage(context.Background(), StageInput{
+	if _, err := svc.Stage(context.Background(), StageInput{
 		Kind: "fx_rate_proposal", DiffHash: "h", Identity: json.RawMessage(`{"from_currency":"GBP"}`),
-	})
-	if err == nil || !strings.Contains(err.Error(), "JoinPending") {
+	}); err == nil || !strings.Contains(err.Error(), "JoinPending") {
 		t.Fatalf("err = %v, want identity-requires-JoinPending error", err)
+	}
+	for _, identity := range []string{`{}`, `[]`, `"x"`, `null`} {
+		if _, err := svc.Stage(context.Background(), StageInput{
+			Kind: "fx_rate_proposal", DiffHash: "h", JoinPending: true, Identity: json.RawMessage(identity),
+		}); err == nil || !strings.Contains(err.Error(), "non-empty JSON object") {
+			t.Fatalf("identity %s: err = %v, want non-empty-object refusal", identity, err)
+		}
 	}
 }
 
