@@ -8,6 +8,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -29,9 +30,13 @@ import (
 type capturingEnqueuer struct {
 	jobs []OverlayRefetchArgs
 	opts []*river.InsertOpts
+	err  error // when set, Enqueue fails with it (the redelivery path)
 }
 
 func (c *capturingEnqueuer) Enqueue(_ context.Context, args river.JobArgs, opts *river.InsertOpts) error {
+	if c.err != nil {
+		return c.err
+	}
 	c.jobs = append(c.jobs, args.(OverlayRefetchArgs))
 	c.opts = append(c.opts, opts)
 	return nil
@@ -163,5 +168,131 @@ func TestOverlayRefetchWorkerRejectsMalformedWorkspace(t *testing.T) {
 	})
 	if err != nil {
 		t.Errorf("a malformed workspace id must return nil (not retryable), got %v", err)
+	}
+}
+
+// TestWebhookReceiverRejectsNonPOST: only POST is a webhook delivery; any other
+// method is 405 before any body/signature work.
+func TestWebhookReceiverRejectsNonPOST(t *testing.T) {
+	h := newTestWebhookHandler(&capturingEnqueuer{}, ids.New[ids.WorkspaceKind]())
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/webhooks/hubspot", nil))
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", rec.Code)
+	}
+}
+
+// TestWebhookReceiverRejectsStaleOrMissingTimestamp (replay guard): a missing or
+// too-old X-HubSpot-Request-Timestamp is 401 before the signature is even
+// checked, and nothing is enqueued.
+func TestWebhookReceiverRejectsStaleOrMissingTimestamp(t *testing.T) {
+	enq := &capturingEnqueuer{}
+	h := newTestWebhookHandler(enq, ids.New[ids.WorkspaceKind]())
+
+	// No timestamp header at all.
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/webhooks/hubspot", strings.NewReader(`[]`)))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("missing timestamp: status = %d, want 401", rec.Code)
+	}
+
+	// A timestamp older than the skew window is a refused replay.
+	stale := httptest.NewRequest(http.MethodPost, "/webhooks/hubspot", strings.NewReader(`[]`))
+	stale.Header.Set("X-HubSpot-Request-Timestamp", strconv.FormatInt(time.Now().Add(-10*time.Minute).UnixMilli(), 10))
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, stale)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("stale timestamp: status = %d, want 401", rec.Code)
+	}
+	if len(enq.jobs) != 0 {
+		t.Errorf("a rejected request must enqueue nothing, got %d", len(enq.jobs))
+	}
+}
+
+// TestWebhookReceiverAnswers500OnEnqueueFailure: a transient enqueue failure
+// answers 500 so HubSpot redelivers — safe because the enqueue is
+// unique-by-args, so a redelivery cannot double-run the re-fetch.
+func TestWebhookReceiverAnswers500OnEnqueueFailure(t *testing.T) {
+	enq := &capturingEnqueuer{err: errors.New("river unavailable")}
+	h := newTestWebhookHandler(enq, ids.New[ids.WorkspaceKind]())
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, signedWebhookRequest(t, `[{"portalId":777,"objectId":42,"subscriptionType":"contact.propertyChange"}]`))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 so HubSpot redelivers", rec.Code)
+	}
+}
+
+// TestWebhookReceiverBindsOncePerPortalInABatch: a batch of events for the same
+// bound portal costs ONE fleet-walk (the per-request cache) yet enqueues a
+// re-fetch for each distinct mapped event.
+func TestWebhookReceiverBindsOncePerPortalInABatch(t *testing.T) {
+	var binds int
+	ws := ids.New[ids.WorkspaceKind]()
+	enq := &capturingEnqueuer{}
+	h := &hubspotWebhookHandler{
+		clientSecret: testAppSecret,
+		enqueue:      enq,
+		log:          slog.New(slog.NewTextHandler(io.Discard, nil)),
+		bind: func(_ context.Context, _, portalID string) (ids.WorkspaceID, error) {
+			binds++
+			if portalID == boundPortal {
+				return ws, nil
+			}
+			return ids.WorkspaceID{}, apperrors.ErrNotFound
+		},
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, signedWebhookRequest(t,
+		`[{"portalId":777,"objectId":1,"subscriptionType":"contact.creation"},{"portalId":777,"objectId":2,"subscriptionType":"deal.propertyChange"}]`))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", rec.Code)
+	}
+	if binds != 1 {
+		t.Errorf("a batch for one portal must bind once (cached), got %d binds", binds)
+	}
+	if len(enq.jobs) != 2 {
+		t.Fatalf("two mapped events must enqueue two re-fetches, got %d", len(enq.jobs))
+	}
+}
+
+// TestFreshTimestamp exercises the replay-window predicate directly: now is
+// fresh, a slightly-future timestamp is fresh (clock skew is symmetric), a
+// too-old one is stale, and a missing/unparseable one is never fresh.
+func TestFreshTimestamp(t *testing.T) {
+	now := time.Now()
+	fresh := map[string]string{
+		"now":           strconv.FormatInt(now.UnixMilli(), 10),
+		"future within": strconv.FormatInt(now.Add(time.Minute).UnixMilli(), 10),
+	}
+	for name, ts := range fresh {
+		if !freshTimestamp(ts) {
+			t.Errorf("%s (%s) must be fresh", name, ts)
+		}
+	}
+	stale := map[string]string{
+		"too old":       strconv.FormatInt(now.Add(-10*time.Minute).UnixMilli(), 10),
+		"too far ahead": strconv.FormatInt(now.Add(10*time.Minute).UnixMilli(), 10),
+		"empty":         "",
+		"non-numeric":   "not-a-timestamp",
+	}
+	for name, ts := range stale {
+		if freshTimestamp(ts) {
+			t.Errorf("%s (%q) must not be fresh", name, ts)
+		}
+	}
+}
+
+// TestWithOverlayWebhookAbsentWithoutSecretOrInserter: the route is mounted only
+// when BOTH an app secret and an inserter are present — never an open,
+// unverified endpoint.
+func TestWithOverlayWebhookAbsentWithoutSecretOrInserter(t *testing.T) {
+	s := &Server{}
+	WithOverlayWebhook(nil, "")(s, nil)
+	if s.overlayWebhook != nil {
+		t.Error("no app secret must leave the webhook route unmounted")
+	}
+	WithOverlayWebhook(nil, "a-secret")(s, nil)
+	if s.overlayWebhook != nil {
+		t.Error("a nil inserter must leave the webhook route unmounted")
 	}
 }
