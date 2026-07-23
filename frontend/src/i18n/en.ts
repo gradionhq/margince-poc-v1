@@ -576,6 +576,7 @@ export const en = {
   "deepread.kindOther": "Other",
 
   "create.cancel": "Cancel",
+  "create.multiselect.required": "Required — select at least one.",
   "create.save": "Create",
   "create.saving": "Creating…",
   "create.contact": "New contact",
@@ -1651,6 +1652,7 @@ export const en = {
   "settings.tab.privacy": "Privacy & consent",
   "settings.tab.audit": "Audit log",
   "settings.tab.voice": "Voice DNA",
+  "settings.tab.integrations": "Integrations",
   "settings.group.you": "Your settings",
   "settings.group.org": "Organization",
   "settings.rates.fxTitle": "Currency rates",
@@ -2032,6 +2034,55 @@ export const en = {
   "quotas.archive.confirm":
     "Archiving drops this quota from the list and stops tracking its attainment. Archived quotas can't be edited.",
 
+  "webhooks.title": "Webhooks",
+  "webhooks.sub":
+    "Outbound subscriptions that receive signed HTTP POSTs for chosen events.",
+  "webhooks.new": "New subscription",
+  "webhooks.notConfigured":
+    "Outbound webhooks are not enabled on this deployment — a signing key must be configured first.",
+  "webhooks.state.active": "Active",
+  "webhooks.state.paused": "Paused",
+  "webhooks.updated": "Updated {date}",
+  "webhooks.field.targetUrl": "Target URL",
+  "webhooks.field.eventTypes": "Event types",
+  "webhooks.field.state": "State",
+  "webhooks.edit": "Edit",
+  "webhooks.archive": "Archive",
+  "webhooks.archiveConfirm":
+    "Archiving stops all delivery for this subscription. This can't be undone.",
+  "webhooks.rotate": "Rotate secret",
+  "webhooks.rotateConfirm.title": "Rotate signing secret?",
+  "webhooks.rotateConfirm.body":
+    "Confirming invalidates the current secret immediately and then reveals the new secret once. Copy it and update your receiver as soon as rotation completes.",
+  "webhooks.secret.title": "Signing secret",
+  "webhooks.secret.warning":
+    "This secret is shown once and can't be retrieved again. Store it now — deliveries are signed with it.",
+  "webhooks.secret.copy": "Copy",
+  "webhooks.secret.copied": "Copied",
+  "webhooks.secret.copyFailed":
+    "Couldn't copy automatically — select and copy the secret manually.",
+  "webhooks.secret.done": "Done",
+
+  "webhooks.deliveries.show": "View deliveries",
+  "webhooks.deliveries.hide": "Hide deliveries",
+  "webhooks.deliveries.empty": "No delivery attempts yet.",
+  "webhooks.deliveries.deadLetterGroup": "Dead-lettered ({count})",
+  "webhooks.deliveries.allGroup": "Other attempts",
+  "webhooks.deliveries.column.status": "Status",
+  "webhooks.deliveries.column.event": "Event",
+  "webhooks.deliveries.column.attempts": "Attempts",
+  "webhooks.deliveries.column.lastStatusCode": "Last status",
+  "webhooks.deliveries.column.lastError": "Last error",
+  "webhooks.deliveries.column.created": "Created",
+  "webhooks.deliveries.column.resolved": "Resolved / next retry",
+  "webhooks.deliveries.status.pending": "Pending",
+  "webhooks.deliveries.status.delivered": "Delivered",
+  "webhooks.deliveries.status.retrying": "Retrying",
+  "webhooks.deliveries.status.dead_lettered": "Dead-lettered",
+  "webhooks.deliveries.replay": "Replay",
+  "webhooks.deliveries.replayConfirm.title": "Replay this delivery?",
+  "webhooks.deliveries.replayConfirm.body":
+    "Re-attempts delivery now, signed with the current secret and a fresh timestamp. It doesn't wait for the next scheduled retry.",
   "reindexbanner.needed": "Reindex needed",
   "reindexbanner.link": "Review in settings",
 

@@ -342,6 +342,16 @@ export function problemExistingId(
   return null;
 }
 
+// problemCode pulls the RFC-7807 `code` discriminator out of a problem body,
+// or null when absent — so a caller keys on the specific server condition
+// (e.g. webhooks_not_configured) rather than on the bare HTTP status, which a
+// transient dependency failure can share.
+export function problemCode(problem: unknown): string | null {
+  if (!problem || typeof problem !== "object") return null;
+  const record = problem as Record<string, unknown>;
+  return typeof record.code === "string" ? record.code : null;
+}
+
 // A 409 whose code names the If-Match precondition failure — the record
 // changed under the caller since the form was opened. Distinguished from
 // problemExistingId's duplicate-collision code so the edit form can show the

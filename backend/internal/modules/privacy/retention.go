@@ -18,7 +18,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -26,6 +28,23 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/jurisdiction"
 )
+
+// retentionAppliedPayload builds the retention.applied wire payload — the
+// subject travels separately (the caller's own entityType, passed to
+// storekit.EmitEventForEntity), since this event's entity is dynamic
+// (ai_call / voice_learning_signal / a policy's object type / person, one
+// per site). policyID/reason are each nil where that site's
+// action carries no such value — the union this schema's optional
+// policy/reason fields exist for.
+func retentionAppliedPayload(action string, policyID *ids.UUID, reason *string) crmcontracts.PublicEventRetentionApplied {
+	payload := crmcontracts.PublicEventRetentionApplied{Action: action}
+	if policyID != nil {
+		policy := openapi_types.UUID(*policyID)
+		payload.Policy = &policy
+	}
+	payload.Reason = reason
+	return payload
+}
 
 // retentionBatch bounds how many rows one policy acts on per pass — a
 // first run against years of backlog drains over successive nights
@@ -290,9 +309,7 @@ func (s *RetentionService) eraseVoiceSignalContent(ctx context.Context, id ids.U
 		if err != nil {
 			return err
 		}
-		return storekit.Emit(ctx, tx, auditID, "retention.applied", "voice_learning_signal", id, map[string]any{
-			evidenceKeyAction: actionErase,
-		})
+		return storekit.EmitEventForEntity(ctx, tx, auditID, "voice_learning_signal", id, retentionAppliedPayload(actionErase, nil, nil))
 	})
 }
 
@@ -339,9 +356,7 @@ func (s *RetentionService) eraseEmbedCall(ctx context.Context, id ids.UUID) erro
 		if err != nil {
 			return err
 		}
-		return storekit.Emit(ctx, tx, auditID, "retention.applied", "ai_call", id, map[string]any{
-			evidenceKeyAction: actionErase,
-		})
+		return storekit.EmitEventForEntity(ctx, tx, auditID, "ai_call", id, retentionAppliedPayload(actionErase, nil, nil))
 	})
 }
 
@@ -434,9 +449,8 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 		if err != nil {
 			return err
 		}
-		return storekit.Emit(ctx, tx, auditID, "retention.applied", pol.ObjectType, id, map[string]any{
-			evidenceKeyAction: pol.Action, "policy": pol.ID,
-		})
+		policyID := pol.ID
+		return storekit.EmitEventForEntity(ctx, tx, auditID, pol.ObjectType, id, retentionAppliedPayload(pol.Action, &policyID, nil))
 	})
 }
 

@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -170,7 +172,8 @@ func (s *VoiceStore) LearningSummary(ctx context.Context, profileID ids.UUID) (V
 			       count(*) FILTER (WHERE outcome = 'rejected')::int
 			FROM voice_learning_signal
 			WHERE voice_profile_id = $1 AND archived_at IS NULL`, profileID).Scan(
-			&summary.Drafted, &summary.Accepted, &summary.EditedSent, &summary.Rejected); err != nil {
+			&summary.Drafted, &summary.Accepted, &summary.EditedSent, &summary.Rejected,
+		); err != nil {
 			return err
 		}
 		if err := tx.QueryRow(ctx, `
@@ -178,7 +181,8 @@ func (s *VoiceStore) LearningSummary(ctx context.Context, profileID ids.UUID) (V
 			FROM voice_corpus_source
 			WHERE voice_profile_id = $1 AND origin = 'draft_signal' AND NOT excluded
 			  AND archived_at IS NULL AND content_erased_at IS NULL`, profileID).Scan(
-			&summary.QualifyingSourceCount, &summary.QualifyingWords); err != nil {
+			&summary.QualifyingSourceCount, &summary.QualifyingWords,
+		); err != nil {
 			return err
 		}
 		rows, err := tx.Query(ctx, `
@@ -258,13 +262,28 @@ func (s *VoiceStore) RejectDraft(ctx context.Context, profileID ids.UUID, draftR
 		if err != nil {
 			return err
 		}
-		return storekit.Emit(ctx, tx, auditID, "voice.draft_outcome_recorded", "voice_profile", profileID, map[string]any{
-			voiceKeyProfileID: profileID, voiceKeyOutcome: voiceOutcomeRejected, "qualifies_as_source": false,
-			"transformation_count": 0,
-		})
+		return storekit.EmitEvent(ctx, tx, auditID, profileID,
+			voiceDraftOutcomeRecordedPayload(profileID, voiceOutcomeRejected))
 	})
 	if err != nil {
 		return VoiceLearningSummary{}, err
 	}
 	return s.LearningSummary(ctx, profileID)
+}
+
+// voiceDraftOutcomeRecordedPayload builds voice.draft_outcome_recorded's
+// typed payload. Both outcomes that emit it today — a just-served draft
+// (RecordDraftedSignal) and a rejection (RejectDraft) — are terminal for
+// learning: neither qualifies as a corpus source nor carries any
+// transformations, so those two required fields are always false/0 here.
+// The accept-with-edits outcome that would set them (qualifies_as_source
+// true, a positive transformation_count) has no emit site yet; add the
+// parameters back when that caller arrives.
+func voiceDraftOutcomeRecordedPayload(profileID ids.UUID, outcome string) crmcontracts.PublicEventVoiceDraftOutcomeRecorded {
+	return crmcontracts.PublicEventVoiceDraftOutcomeRecorded{
+		ProfileId:           openapi_types.UUID(profileID),
+		Outcome:             outcome,
+		QualifiesAsSource:   false,
+		TransformationCount: 0,
+	}
 }

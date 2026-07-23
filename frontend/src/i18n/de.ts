@@ -589,6 +589,8 @@ export const de = {
   "deepread.kindOther": "Sonstiges",
 
   "create.cancel": "Abbrechen",
+  "create.multiselect.required":
+    "Erforderlich – mindestens eine Option wählen.",
   "create.save": "Anlegen",
   "create.saving": "Wird angelegt…",
   "create.contact": "Neuer Kontakt",
@@ -1687,6 +1689,7 @@ export const de = {
   "settings.tab.privacy": "Datenschutz & Einwilligung",
   "settings.tab.audit": "Audit-Log",
   "settings.tab.voice": "Voice DNA",
+  "settings.tab.integrations": "Integrationen",
   "settings.group.you": "Deine Einstellungen",
   "settings.group.org": "Organisation",
   "settings.rates.fxTitle": "Währungskurse",
@@ -2074,6 +2077,56 @@ export const de = {
   "quotas.archive.confirm":
     "Das Archivieren entfernt diese Quota aus der Liste und stoppt die Verfolgung der Zielerreichung. Archivierte Quotas können nicht bearbeitet werden.",
 
+  "webhooks.title": "Webhooks",
+  "webhooks.sub":
+    "Ausgehende Abonnements, die signierte HTTP-POSTs für ausgewählte Ereignisse empfangen.",
+  "webhooks.new": "Neues Abonnement",
+  "webhooks.notConfigured":
+    "Ausgehende Webhooks sind auf dieser Installation nicht aktiviert — zuerst muss ein Signaturschlüssel konfiguriert werden.",
+  "webhooks.state.active": "Aktiv",
+  "webhooks.state.paused": "Pausiert",
+  "webhooks.updated": "Aktualisiert {date}",
+  "webhooks.field.targetUrl": "Ziel-URL",
+  "webhooks.field.eventTypes": "Ereignistypen",
+  "webhooks.field.state": "Status",
+  "webhooks.edit": "Bearbeiten",
+  "webhooks.archive": "Archivieren",
+  "webhooks.archiveConfirm":
+    "Das Archivieren stoppt jede Zustellung für dieses Abonnement. Dies kann nicht rückgängig gemacht werden.",
+  "webhooks.rotate": "Schlüssel rotieren",
+  "webhooks.rotateConfirm.title": "Signaturschlüssel rotieren?",
+  "webhooks.rotateConfirm.body":
+    "Mit dem Bestätigen wird der aktuelle Schlüssel sofort ungültig und der neue Schlüssel danach einmalig angezeigt. Kopieren Sie ihn und aktualisieren Sie Ihren Empfänger, sobald die Rotation abgeschlossen ist.",
+  "webhooks.secret.title": "Signaturschlüssel",
+  "webhooks.secret.warning":
+    "Dieser Schlüssel wird nur einmal angezeigt und kann danach nicht erneut abgerufen werden. Speichern Sie ihn jetzt — Zustellungen werden damit signiert.",
+  "webhooks.secret.copy": "Kopieren",
+  "webhooks.secret.copied": "Kopiert",
+  "webhooks.secret.copyFailed":
+    "Automatisches Kopieren fehlgeschlagen — bitte den Schlüssel manuell auswählen und kopieren.",
+  "webhooks.secret.done": "Fertig",
+
+  "webhooks.deliveries.show": "Zustellungen anzeigen",
+  "webhooks.deliveries.hide": "Zustellungen ausblenden",
+  "webhooks.deliveries.empty": "Noch keine Zustellversuche.",
+  "webhooks.deliveries.deadLetterGroup": "Dead-Letter ({count})",
+  "webhooks.deliveries.allGroup": "Weitere Versuche",
+  "webhooks.deliveries.column.status": "Status",
+  "webhooks.deliveries.column.event": "Ereignis",
+  "webhooks.deliveries.column.attempts": "Versuche",
+  "webhooks.deliveries.column.lastStatusCode": "Letzter Status",
+  "webhooks.deliveries.column.lastError": "Letzter Fehler",
+  "webhooks.deliveries.column.created": "Erstellt",
+  "webhooks.deliveries.column.resolved": "Abgeschlossen / nächster Versuch",
+  "webhooks.deliveries.status.pending": "Ausstehend",
+  "webhooks.deliveries.status.delivered": "Zugestellt",
+  "webhooks.deliveries.status.retrying": "Wird wiederholt",
+  "webhooks.deliveries.status.dead_lettered": "Dead-Letter",
+  "webhooks.deliveries.replay": "Erneut zustellen",
+  "webhooks.deliveries.replayConfirm.title":
+    "Diese Zustellung erneut versuchen?",
+  "webhooks.deliveries.replayConfirm.body":
+    "Versucht die Zustellung sofort erneut, signiert mit dem aktuellen Schlüssel und einem neuen Zeitstempel. Es wird nicht auf den nächsten geplanten Versuch gewartet.",
   "reindexbanner.needed": "Neuindizierung erforderlich",
   "reindexbanner.link": "In den Einstellungen prüfen",
 

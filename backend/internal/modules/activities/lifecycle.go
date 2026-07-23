@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -90,8 +91,8 @@ func (s *Store) UpdateActivity(ctx context.Context, id ids.ActivityID, in Update
 		if err != nil {
 			return err
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "activity.updated", "activity", id.UUID, map[string]any{
-			"delta": updateDelta(in),
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventActivityUpdated{
+			ChangedFields: activityUpdatedChangedFields(in),
 		}); err != nil {
 			return err
 		}
@@ -121,7 +122,7 @@ func (s *Store) ArchiveActivity(ctx context.Context, id ids.ActivityID) (crmcont
 		if err != nil {
 			return err
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "activity.archived", "activity", id.UUID, nil); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventActivityArchived{}); err != nil {
 			return err
 		}
 		out, err = readActivity(ctx, tx, id, storekit.IncludeArchived)
@@ -181,8 +182,8 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.ActivityID, in Relink
 			if err != nil {
 				return err
 			}
-			if err := storekit.Emit(ctx, tx, auditID, "activity.updated", "activity", id.UUID, map[string]any{
-				"delta": map[string]any{"relinked": map[string]any{"entity_type": in.EntityType, "entity_id": in.EntityID}},
+			if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventActivityUpdated{
+				ChangedFields: relinkedChangedFields(in.EntityType, in.EntityID),
 			}); err != nil {
 				return err
 			}
@@ -221,4 +222,50 @@ func updateDelta(in UpdateActivityInput) map[string]any {
 		delta["is_done"] = *in.IsDone
 	}
 	return delta
+}
+
+// activityUpdatedChangedFields is UpdateActivity's typed sibling of
+// updateDelta (which still feeds the audit_log row unchanged): the same
+// touched/untouched decisions, projected onto activity.updated's BOUNDED
+// changed_fields struct rather than an open map. body carries a presence
+// flag, never the content — bodies can be large and are never echoed onto
+// the wire.
+func activityUpdatedChangedFields(in UpdateActivityInput) crmcontracts.PublicEventActivityChangedFields {
+	var fields crmcontracts.PublicEventActivityChangedFields
+	if in.Subject != nil {
+		fields.Subject = in.Subject
+	}
+	if in.Body != nil {
+		bodyTouched := true
+		fields.Body = &bodyTouched
+	}
+	if in.OccurredAt != nil {
+		fields.OccurredAt = in.OccurredAt
+	}
+	if in.DueAt != nil {
+		fields.DueAt = in.DueAt
+	}
+	if in.RemindAt != nil {
+		fields.RemindAt = in.RemindAt
+	}
+	if in.AssigneeID != nil {
+		assignee := openapi_types.UUID(in.AssigneeID.UUID)
+		fields.AssigneeId = &assignee
+	}
+	if in.IsDone != nil {
+		fields.IsDone = in.IsDone
+	}
+	return fields
+}
+
+// relinkedChangedFields is RelinkActivity's activity.updated builder: the
+// relink is an association change, not a field patch, so changed_fields
+// carries only the typed relinked target.
+func relinkedChangedFields(entityType string, entityID ids.UUID) crmcontracts.PublicEventActivityChangedFields {
+	return crmcontracts.PublicEventActivityChangedFields{
+		Relinked: &crmcontracts.PublicEventActivityRelinkedRef{
+			EntityType: entityType,
+			EntityId:   openapi_types.UUID(entityID),
+		},
+	}
 }

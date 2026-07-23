@@ -5508,6 +5508,21 @@ func (e VoiceCorpusSummaryQualityBand) Valid() bool {
 	}
 }
 
+// Defines values for VoiceCorpusSummaryTargetWords.
+const (
+	N30000 VoiceCorpusSummaryTargetWords = 30000
+)
+
+// Valid indicates whether the value is a known member of the VoiceCorpusSummaryTargetWords enum.
+func (e VoiceCorpusSummaryTargetWords) Valid() bool {
+	switch e {
+	case N30000:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for VoiceProfileMaturity.
 const (
 	VoiceProfileMaturityBuilding    VoiceProfileMaturity = "building"
@@ -5631,6 +5646,36 @@ func (e VoiceProfileEvaluationClassification) Valid() bool {
 	case VoiceProfileEvaluationClassificationMaterial:
 		return true
 	case VoiceProfileEvaluationClassificationRoutine:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VoiceProfileEvaluationHeldOutPrompts.
+const (
+	N5 VoiceProfileEvaluationHeldOutPrompts = 5
+)
+
+// Valid indicates whether the value is a known member of the VoiceProfileEvaluationHeldOutPrompts enum.
+func (e VoiceProfileEvaluationHeldOutPrompts) Valid() bool {
+	switch e {
+	case N5:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VoiceProfileEvaluationRepeatsPerPrompt.
+const (
+	N3 VoiceProfileEvaluationRepeatsPerPrompt = 3
+)
+
+// Valid indicates whether the value is a known member of the VoiceProfileEvaluationRepeatsPerPrompt enum.
+func (e VoiceProfileEvaluationRepeatsPerPrompt) Valid() bool {
+	switch e {
+	case N3:
 		return true
 	default:
 		return false
@@ -11306,7 +11351,7 @@ type VoiceCorpusSummary struct {
 	QualityBand   VoiceCorpusSummaryQualityBand `json:"quality_band"`
 	RegisterWords map[string]int                `json:"register_words"`
 	SourceCount   int                           `json:"source_count"`
-	TargetWords   int                           `json:"target_words"`
+	TargetWords   VoiceCorpusSummaryTargetWords `json:"target_words"`
 	TotalWords    int                           `json:"total_words"`
 }
 
@@ -11315,6 +11360,9 @@ type VoiceCorpusSummaryMaturity string
 
 // VoiceCorpusSummaryQualityBand defines model for VoiceCorpusSummary.QualityBand.
 type VoiceCorpusSummaryQualityBand string
+
+// VoiceCorpusSummaryTargetWords defines model for VoiceCorpusSummary.TargetWords.
+type VoiceCorpusSummaryTargetWords int
 
 // VoiceIngestStats What the speaker filter did to one ingested source; kept words are the only words that count.
 type VoiceIngestStats struct {
@@ -11412,23 +11460,29 @@ type VoiceProfileDeltaClassification string
 
 // VoiceProfileEvaluation defines model for VoiceProfileEvaluation.
 type VoiceProfileEvaluation struct {
-	ActiveMedianVoiceScore    *float32                             `json:"active_median_voice_score"`
-	AntiAiHardFailures        int                                  `json:"anti_ai_hard_failures"`
-	CandidateMedianVoiceScore *float32                             `json:"candidate_median_voice_score,omitempty"`
-	Classification            VoiceProfileEvaluationClassification `json:"classification"`
-	CorpusCitationsValid      bool                                 `json:"corpus_citations_valid"`
-	HeldOutPrompts            int                                  `json:"held_out_prompts"`
-	IdentityWordJaccard       float32                              `json:"identity_word_jaccard"`
-	Passed                    bool                                 `json:"passed"`
-	RemovedAvoidRules         int                                  `json:"removed_avoid_rules"`
-	RemovedRegisterRules      int                                  `json:"removed_register_rules"`
-	RepeatsPerPrompt          int                                  `json:"repeats_per_prompt"`
-	SignatureSetJaccard       float32                              `json:"signature_set_jaccard"`
-	StructuredOutputValid     bool                                 `json:"structured_output_valid"`
+	ActiveMedianVoiceScore    *float32                               `json:"active_median_voice_score"`
+	AntiAiHardFailures        int                                    `json:"anti_ai_hard_failures"`
+	CandidateMedianVoiceScore *float32                               `json:"candidate_median_voice_score,omitempty"`
+	Classification            VoiceProfileEvaluationClassification   `json:"classification"`
+	CorpusCitationsValid      bool                                   `json:"corpus_citations_valid"`
+	HeldOutPrompts            VoiceProfileEvaluationHeldOutPrompts   `json:"held_out_prompts"`
+	IdentityWordJaccard       float32                                `json:"identity_word_jaccard"`
+	Passed                    bool                                   `json:"passed"`
+	RemovedAvoidRules         int                                    `json:"removed_avoid_rules"`
+	RemovedRegisterRules      int                                    `json:"removed_register_rules"`
+	RepeatsPerPrompt          VoiceProfileEvaluationRepeatsPerPrompt `json:"repeats_per_prompt"`
+	SignatureSetJaccard       float32                                `json:"signature_set_jaccard"`
+	StructuredOutputValid     bool                                   `json:"structured_output_valid"`
 }
 
 // VoiceProfileEvaluationClassification defines model for VoiceProfileEvaluation.Classification.
 type VoiceProfileEvaluationClassification string
+
+// VoiceProfileEvaluationHeldOutPrompts defines model for VoiceProfileEvaluation.HeldOutPrompts.
+type VoiceProfileEvaluationHeldOutPrompts int
+
+// VoiceProfileEvaluationRepeatsPerPrompt defines model for VoiceProfileEvaluation.RepeatsPerPrompt.
+type VoiceProfileEvaluationRepeatsPerPrompt int
 
 // VoiceProfileVersion defines model for VoiceProfileVersion.
 type VoiceProfileVersion struct {
@@ -11515,9 +11569,9 @@ type WebhookSubscription struct {
 // WebhookSubscriptionState defines model for WebhookSubscription.State.
 type WebhookSubscriptionState string
 
-// WebhookSubscriptionCreated The create/rotate response — the subscription plus the `signing_secret`, which is shown EXACTLY ONCE and never retrievable again. Store it now: deliveries are signed (HMAC-SHA256) with it.
+// WebhookSubscriptionCreated The create/rotate response — the subscription plus the `signing_secret`, which is shown EXACTLY ONCE and never retrievable again. Store it now: deliveries are signed with it on the Standard Webhooks scheme (standardwebhooks.com).
 type WebhookSubscriptionCreated struct {
-	// SigningSecret The per-subscription signing secret. Shown once; use it to verify X-Margince-Signature.
+	// SigningSecret The per-subscription signing secret (`whsec_` + standard base64). Shown once; decode the base64 to raw bytes and use them as the HMAC-SHA256 key to verify the `webhook-signature` header against `{webhook-id}.{webhook-timestamp}.{raw body}` (Standard Webhooks — standardwebhooks.com).
 	SigningSecret string `json:"signing_secret"`
 
 	// Subscription An outbound webhook subscription (`webhook_subscription`): a tenant-configured target URL that receives signed HTTP POSTs for a chosen subset of the published event catalog. The signing secret is NEVER returned here — it is surfaced once, at create/rotate, in `WebhookSubscriptionCreated`.
@@ -11527,7 +11581,10 @@ type WebhookSubscriptionCreated struct {
 // WebhookSubscriptionListResponse defines model for WebhookSubscriptionListResponse.
 type WebhookSubscriptionListResponse struct {
 	Data []WebhookSubscription `json:"data"`
-	Page PageInfo              `json:"page"`
+
+	// DeliveryEnabled Whether this deployment has a signing key configured. When false, subscriptions can be listed and inspected but create/rotate/replay are unavailable (they answer 503 webhooks_not_configured), so the UI renders a not-enabled state instead of controls that would only fail on click.
+	DeliveryEnabled bool     `json:"delivery_enabled"`
+	Page            PageInfo `json:"page"`
 }
 
 // ApprovalToken defines model for ApprovalToken.

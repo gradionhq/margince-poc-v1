@@ -1,0 +1,9 @@
+{
+  "amount_minor_at_change": 250000,
+  "currency_at_change": "EUR",
+  "from_stage_id": "33333333-3333-3333-3333-333333333333",
+  "from_status": "open",
+  "to_stage_id": "44444444-4444-4444-4444-444444444444",
+  "to_status": "won",
+  "win_probability": 100
+}

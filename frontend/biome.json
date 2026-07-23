@@ -1,7 +1,9 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.0.0/schema.json",
   "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
-  "files": { "includes": ["**", "!src/api/schema.d.ts"] },
+  "files": {
+    "includes": ["**", "!src/api/schema.d.ts", "!src/api/public-events.ts"]
+  },
   "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2 },
   "linter": {
     "enabled": true,

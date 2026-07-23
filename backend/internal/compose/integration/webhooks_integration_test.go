@@ -23,17 +23,22 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
@@ -42,7 +47,21 @@ import (
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/authz"
 )
+
+// failingResolver is an authz.Resolver whose EffectiveRBAC always returns a
+// transient (non-ErrNotFound) error — the shape of a momentary DB/identity
+// failure during owner-scoped fan-out.
+type failingResolver struct{ err error }
+
+func (f failingResolver) EffectiveRBAC(context.Context, ids.UUID, ids.UUID) (authz.RBAC, error) {
+	return authz.RBAC{}, f.err
+}
+
+func (f failingResolver) SeatType(context.Context, ids.UUID, ids.UUID) (principal.SeatType, error) {
+	return "", f.err
+}
 
 // webhookEnv bundles the HTTP surface, the app pool and the shared cipher
 // so a test can both register a subscription (over HTTP) and drive the
@@ -86,7 +105,8 @@ type receiver struct {
 
 type receivedHit struct {
 	event     string
-	delivery  string
+	webhookID string
+	timestamp string
 	signature string
 	body      []byte
 }
@@ -106,8 +126,9 @@ func newReceiver(t *testing.T, status int) *receiver {
 		r.mu.Lock()
 		r.hits = append(r.hits, receivedHit{
 			event:     req.Header.Get(webhooks.HeaderEvent),
-			delivery:  req.Header.Get(webhooks.HeaderDelivery),
-			signature: req.Header.Get(webhooks.HeaderSignature),
+			webhookID: req.Header.Get(webhooks.HeaderWebhookID),
+			timestamp: req.Header.Get(webhooks.HeaderWebhookTimestamp),
+			signature: req.Header.Get(webhooks.HeaderWebhookSignature),
 			body:      body,
 		})
 		code := r.status
@@ -137,9 +158,13 @@ func (r *receiver) snapshot() []receivedHit {
 // controllable clock, and the real identity-backed principal resolver so
 // the owner-scoped fan-out (BYO-EVT-4) runs against live grants.
 func newTestDeliverer(we *webhookEnv, now *time.Time, client *http.Client) *webhooks.Deliverer {
+	return newTestDelivererWithResolver(we, now, client, identity.NewService(we.pool))
+}
+
+func newTestDelivererWithResolver(we *webhookEnv, now *time.Time, client *http.Client, resolver authz.Resolver) *webhooks.Deliverer {
 	store := webhooks.NewStore(we.pool, we.cipher)
 	clock := func() time.Time { return *now }
-	return webhooks.NewDeliverer(store, client, clock, identity.NewService(we.pool),
+	return webhooks.NewDeliverer(store, client, clock, resolver,
 		slog.New(slog.NewTextHandler(os.Stderr, nil)))
 }
 
@@ -326,16 +351,44 @@ func TestWebhookDeliverySignedExactlyOnce(t *testing.T) {
 	if hit.event != "deal.created" {
 		t.Errorf("X-Margince-Event = %q, want deal.created", hit.event)
 	}
-	if hit.delivery == "" {
-		t.Error("X-Margince-Delivery header missing")
+	if hit.webhookID == "" {
+		t.Error("webhook-id header missing")
 	}
-	// The signature verifies against the returned secret over the raw body.
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(hit.body)
-	want := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+	if hit.timestamp == "" {
+		t.Error("webhook-timestamp header missing")
+	}
+	// The signature verifies against the returned secret over
+	// "{webhook-id}.{webhook-timestamp}.{body}" (Standard Webhooks scheme):
+	// independently recomputed here (not via webhooks.Sign) so the test
+	// would catch a regression in the production signer itself.
+	ts, err := strconv.ParseInt(hit.timestamp, 10, 64)
+	if err != nil {
+		t.Fatalf("webhook-timestamp %q is not a unix-seconds integer: %v", hit.timestamp, err)
+	}
+	want := verifySWSignature(t, secret, hit.webhookID, ts, hit.body)
 	if hit.signature != want {
-		t.Errorf("signature = %q, want %q (HMAC of the raw body under the subscription secret)", hit.signature, want)
+		t.Errorf("signature = %q, want %q (SW HMAC over id.timestamp.body under the subscription secret)", hit.signature, want)
 	}
+}
+
+// verifySWSignature independently recomputes the Standard Webhooks
+// "webhook-signature" value from the raw wire inputs — using this test's own
+// HMAC call, not webhooks.Sign — so the assertion actually exercises the
+// wire contract instead of the production code path signing against itself.
+func verifySWSignature(t *testing.T, secret, webhookID string, ts int64, body []byte) string {
+	t.Helper()
+	keyB64 := strings.TrimPrefix(secret, "whsec_")
+	key, err := base64.StdEncoding.DecodeString(keyB64)
+	if err != nil {
+		t.Fatalf("decoding signing secret: %v", err)
+	}
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(webhookID))
+	mac.Write([]byte("."))
+	mac.Write([]byte(strconv.FormatInt(ts, 10)))
+	mac.Write([]byte("."))
+	mac.Write(body)
+	return "v1," + base64.StdEncoding.EncodeToString(mac.Sum(nil))
 }
 
 // TestWebhookFanOutStopsAtRevokedOwner proves the delivery-time RBAC gate
@@ -373,6 +426,29 @@ func TestWebhookFanOutStopsAtRevokedOwner(t *testing.T) {
 	}
 	if n := rcv.count.Load(); n != 0 {
 		t.Fatalf("a revoked owner still received %d POSTs, want 0 (fan-out must stop at delivery time)", n)
+	}
+}
+
+// TestWebhookFanOutReturnsErrorOnTransientVisibilityFailure proves a
+// transient owner-visibility failure is NOT a silent drop: HandleEvent
+// returns a non-nil error so the at-least-once bus redelivers and the skipped
+// owner is re-evaluated once the failure clears (rather than the event being
+// lost for that subscription forever).
+func TestWebhookFanOutReturnsErrorOnTransientVisibilityFailure(t *testing.T) {
+	we := setupWebhooks(t)
+	rcv := newReceiver(t, http.StatusOK)
+	now := time.Now().UTC()
+	transient := errors.New("identity: connection reset")
+	deliverer := newTestDelivererWithResolver(we, &now, rcv.server.Client(), failingResolver{err: transient})
+
+	we.createSubscription(t, rcv.server.URL+"/hook", []string{"deal.created"})
+
+	err := deliverer.HandleEvent(context.Background(), makeEnvelope(we.wsID, "deal.created"))
+	if err == nil {
+		t.Fatal("HandleEvent must return an error when an owner's visibility check transiently fails, so the bus redelivers")
+	}
+	if n := rcv.count.Load(); n != 0 {
+		t.Fatalf("a candidate whose visibility check failed still received %d POSTs, want 0 (fail-closed for this pass)", n)
 	}
 }
 
@@ -417,13 +493,156 @@ func TestWebhookFanOutFailsClosedForUnclassifiedSubject(t *testing.T) {
 	}
 }
 
+// TestWebhookApprovalFanOutGatesOnTargetVisibility proves the approval.*/
+// coldstart.* fan-out is bounded by the approval TARGET's visibility, not
+// fanned out workspace-wide (BYO-EVT-4 / the I2 leak): a subscriber only
+// receives an approval event when it can see the record the staged change
+// targets. An approval whose target the owner can see is delivered; a
+// target-less approval and one whose target does not resolve under the
+// owner's scope are both fail-closed (undelivered) — the staged-change
+// detail (summary, edited_change, target ids) never reaches an owner who
+// could not read the target directly.
+func TestWebhookApprovalFanOutGatesOnTargetVisibility(t *testing.T) {
+	we := setupWebhooks(t)
+	rcv := newReceiver(t, http.StatusOK)
+	now := time.Now().UTC()
+	deliverer := newTestDeliverer(we, &now, rcv.server.Client())
+
+	we.createSubscription(t, rcv.server.URL+"/hook", []string{"approval.decided", "coldstart.accepted"})
+
+	person := "person"
+	handle := func(eventType string, approvalID ids.UUID) {
+		env := makeEnvelopeFor(we.wsID, eventType, "approval")
+		env.Entity.ID = approvalID
+		if err := deliverer.HandleEvent(context.Background(), env); err != nil {
+			t.Fatalf("handle %s: %v", eventType, err)
+		}
+	}
+
+	// Case A: an approval targeting a person the owner (bootstrap admin,
+	// row_scope=all) can see → delivered.
+	visibleTarget := we.seedPerson(t, "Visible Approval Target")
+	visibleApproval := ids.NewV7()
+	we.insertApproval(t, visibleApproval, &person, &visibleTarget)
+	before := rcv.count.Load()
+	handle("approval.decided", visibleApproval)
+	if got := rcv.count.Load() - before; got != 1 {
+		t.Fatalf("approval over a visible target produced %d POSTs, want 1", got)
+	}
+
+	// Case B: a target-less approval cannot be scope-bounded → fail-closed.
+	targetlessApproval := ids.NewV7()
+	we.insertApproval(t, targetlessApproval, nil, nil)
+	before = rcv.count.Load()
+	handle("approval.decided", targetlessApproval)
+	if got := rcv.count.Load() - before; got != 0 {
+		t.Fatalf("target-less approval produced %d POSTs, want 0 (fail-closed)", got)
+	}
+
+	// Case C: an approval over a workspace-shared product target that DOES
+	// NOT EXIST is fail-closed — existence is the floor the approval-target
+	// gate shares (approvalTargetVisible mirrors approvals.targetVisible), so
+	// a phantom product id delivers nothing.
+	product := "product"
+	missingProductTarget := ids.NewV7()
+	missingProductApproval := ids.NewV7()
+	we.insertApproval(t, missingProductApproval, &product, &missingProductTarget)
+	before = rcv.count.Load()
+	handle("approval.decided", missingProductApproval)
+	if got := rcv.count.Load() - before; got != 0 {
+		t.Fatalf("approval over a non-existent product produced %d POSTs, want 0 (existence floor)", got)
+	}
+
+	// Case E: an approval over a REAL product target IS delivered — product
+	// (and custom_field) are workspace-shared config the approvals surface
+	// stages against, so a visible target must fan out (they were previously
+	// suppressed by entityVisibleTo's fail-closed default).
+	realProduct := we.seedProduct(t, "Enterprise Plan")
+	visibleProductApproval := ids.NewV7()
+	we.insertApproval(t, visibleProductApproval, &product, &realProduct)
+	before = rcv.count.Load()
+	handle("approval.decided", visibleProductApproval)
+	if got := rcv.count.Load() - before; got != 1 {
+		t.Fatalf("approval over an existing product produced %d POSTs, want 1", got)
+	}
+
+	// Case D: a cold-start echo shares entity "approval" and the same gate —
+	// a target-less coldstart.accepted is fail-closed too.
+	coldstartApproval := ids.NewV7()
+	we.insertApproval(t, coldstartApproval, nil, nil)
+	before = rcv.count.Load()
+	handle("coldstart.accepted", coldstartApproval)
+	if got := rcv.count.Load() - before; got != 0 {
+		t.Fatalf("target-less coldstart echo produced %d POSTs, want 0 (fail-closed)", got)
+	}
+}
+
+// seedPerson inserts a person row under a workspace-bound owner tx (FORCE
+// RLS) and returns its id — a row-scoped target the bootstrap admin can see.
+func (we *webhookEnv) seedPerson(t *testing.T, name string) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	we.execInWorkspace(t,
+		`INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, $3, 'manual', 'human:x')`,
+		id, we.wsID, name)
+	return id
+}
+
+// seedProduct inserts a workspace-shared rate-card product and returns its id
+// — a target the approval-target gate resolves by existence (no row scope).
+func (we *webhookEnv) seedProduct(t *testing.T, name string) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	we.execInWorkspace(t,
+		`INSERT INTO product (id, workspace_id, name, unit_price_minor, currency, source, captured_by)
+		 VALUES ($1, $2, $3, 1000, 'USD', 'manual', 'human:x')`,
+		id, we.wsID, name)
+	return id
+}
+
+// insertApproval inserts a staged approval row with a caller-chosen id and
+// target (both nil for a target-less staging), so the delivery gate can be
+// driven against a known approval subject.
+func (we *webhookEnv) insertApproval(t *testing.T, id ids.UUID, targetType *string, targetID *ids.UUID) {
+	t.Helper()
+	we.execInWorkspace(t, `
+		INSERT INTO approval (id, workspace_id, kind, proposed_by, target_entity_type, target_entity_id,
+		                      summary, proposed_change, diff_hash, expires_at)
+		VALUES ($1, $2, 'advance_deal', 'agent:test', $3, $4,
+		        'staged change', '{}'::jsonb, 'sha256:test', now() + interval '1 day')`,
+		id, we.wsID, targetType, targetID)
+}
+
+// execInWorkspace runs one statement under a workspace-bound owner tx so
+// FORCE RLS admits the write, committing it (the same pattern the
+// revoked-owner test uses to mutate app_user).
+func (we *webhookEnv) execInWorkspace(t *testing.T, sql string, args ...any) {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := we.owner.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	//craft:ignore swallowed-errors error-path safety net; the Commit below is asserted, after which this rollback is a designed no-op
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, we.wsID.String()); err != nil {
+		t.Fatalf("set guc: %v", err)
+	}
+	if _, err := tx.Exec(ctx, sql, args...); err != nil {
+		t.Fatalf("exec: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+}
+
 func TestWebhookRetryThenDeadLetterThenReplay(t *testing.T) {
 	we := setupWebhooks(t)
 	rcv := newReceiver(t, http.StatusInternalServerError) // endpoint is down
 	now := time.Now().UTC()
 	deliverer := newTestDeliverer(we, &now, rcv.server.Client())
 
-	subID, _ := we.createSubscription(t, rcv.server.URL+"/hook", []string{"deal.created"})
+	subID, secret := we.createSubscription(t, rcv.server.URL+"/hook", []string{"deal.created"})
 
 	// First attempt fails → the delivery is parked for retry, not dropped.
 	if err := deliverer.HandleEvent(context.Background(), makeEnvelope(we.wsID, "deal.created")); err != nil {
@@ -442,6 +661,33 @@ func TestWebhookRetryThenDeadLetterThenReplay(t *testing.T) {
 	assertDeliveryStatus(t, we, subID, "dead_lettered", 6)
 	if got := rcv.count.Load(); got != 6 {
 		t.Fatalf("endpoint saw %d attempts, want the 6-attempt budget", got)
+	}
+
+	// Same frozen body replayed on every retry: webhook-id is the delivery
+	// id and stays STABLE across attempts (a receiver dedupes on it), while
+	// webhook-timestamp is FRESH each time (replay defense) and each
+	// attempt's signature independently verifies against that attempt's own
+	// timestamp — a captured earlier signature would not match a later ts.
+	hits := rcv.snapshot()
+	if len(hits) != 6 {
+		t.Fatalf("recorded %d hits, want 6", len(hits))
+	}
+	seenTimestamps := map[string]bool{}
+	for i, h := range hits {
+		if h.webhookID != hits[0].webhookID {
+			t.Errorf("attempt %d webhook-id = %q, want stable %q across retries", i, h.webhookID, hits[0].webhookID)
+		}
+		if seenTimestamps[h.timestamp] {
+			t.Errorf("attempt %d reused timestamp %q seen in an earlier attempt (not fresh per attempt)", i, h.timestamp)
+		}
+		seenTimestamps[h.timestamp] = true
+		ts, err := strconv.ParseInt(h.timestamp, 10, 64)
+		if err != nil {
+			t.Fatalf("attempt %d webhook-timestamp %q not a unix-seconds integer: %v", i, h.timestamp, err)
+		}
+		if want := verifySWSignature(t, secret, h.webhookID, ts, h.body); h.signature != want {
+			t.Errorf("attempt %d signature = %q, want %q", i, h.signature, want)
+		}
 	}
 
 	// The endpoint recovers; a replay of the parked delivery succeeds.
@@ -476,13 +722,42 @@ func TestWebhookRetryThenDeadLetterThenReplay(t *testing.T) {
 	// seam the delivery tests use).
 	sysCtx := principal.WithActor(
 		principal.WithWorkspaceID(context.Background(), we.wsID),
-		principal.Principal{Type: principal.PrincipalSystem, ID: "system"})
+		principal.Principal{Type: principal.PrincipalSystem, ID: "system"},
+	)
 	replayed, err := deliverer.Replay(sysCtx, mustParseUUID(t, subID), mustParseUUID(t, deliveryID))
 	if err != nil {
 		t.Fatalf("replay: %v", err)
 	}
 	if replayed.Status != "delivered" {
 		t.Fatalf("after replay status = %q, want delivered (no silent loss)", replayed.Status)
+	}
+
+	// The replay re-sends the SAME frozen body under the SAME webhook-id
+	// (it is the same delivery, not a new one) but with a NEW timestamp —
+	// the exact "replayed frozen body still verifies with a new ts" case:
+	// a receiver that dedupes on webhook-id and enforces a timestamp
+	// tolerance window accepts this as a legitimate re-attempt, not a
+	// replay attack.
+	replayHits := rcv.snapshot()
+	if len(replayHits) == 0 {
+		t.Fatal("replay produced no receiver hit")
+	}
+	last := replayHits[len(replayHits)-1]
+	if last.webhookID != hits[0].webhookID {
+		t.Fatalf("replay webhook-id = %q, want the original delivery id %q", last.webhookID, hits[0].webhookID)
+	}
+	if seenTimestamps[last.timestamp] {
+		t.Fatalf("replay reused timestamp %q from an earlier attempt, want a fresh one", last.timestamp)
+	}
+	if !bytes.Equal(last.body, hits[0].body) {
+		t.Fatal("replay altered the frozen payload body")
+	}
+	replayTS, err := strconv.ParseInt(last.timestamp, 10, 64)
+	if err != nil {
+		t.Fatalf("replay webhook-timestamp %q not a unix-seconds integer: %v", last.timestamp, err)
+	}
+	if want := verifySWSignature(t, secret, last.webhookID, replayTS, last.body); last.signature != want {
+		t.Fatalf("replay signature = %q, want %q", last.signature, want)
 	}
 
 	// RunRetrySweep drives SweepOnce on a ticker until its context is done;
@@ -520,4 +795,128 @@ func mustParseUUID(t *testing.T, s string) ids.UUID {
 		t.Fatalf("parse uuid %q: %v", s, err)
 	}
 	return u
+}
+
+// TestDealStageChangedPayloadConformsToPublicSchema is the payload
+// conformance gate (A7, payload-`data` only — the envelope-level assertion
+// follows in TestPublicEventEnvelopeConformsToPublicSchema below, which
+// exercises toWireEnvelope): a REAL event, one the deals module emits
+// by actually advancing a deal through HTTP, must validate against the
+// published PublicEventDealStageChanged component schema in
+// api/public-events.yaml. This is deliberately independent of any Go struct —
+// it re-derives the schema from the SAME source file gen-payloads compiles,
+// so a payload that satisfies the generated Go type but drifted from the
+// documented wire contract (or vice versa) is still caught.
+func TestDealStageChangedPayloadConformsToPublicSchema(t *testing.T) {
+	we := setupWebhooks(t)
+	stages := discoverSeededPipeline(t, we.env)
+	dealID := exerciseDealToWon(t, we.env, stages)
+
+	data := realEventPayload(t, we, "deal.stage_changed", dealID)
+	schema := publicEventSchema(t, "PublicEventDealStageChanged")
+	if err := schema.VisitJSON(data); err != nil {
+		t.Fatalf("the real deal.stage_changed payload does not conform to its published schema: %v", err)
+	}
+}
+
+// TestPublicEventEnvelopeConformsToPublicSchema is the ENVELOPE-level half
+// of the A7 conformance gate (Task 6/Phase 5): the actual HTTP body the
+// delivery engine POSTs for a real deal.stage_changed event — the exact
+// bytes toWireEnvelope + json.Marshal produce, delivered by HandleEvent
+// itself, not a hand-built fixture — must validate against the published
+// PublicEventEnvelope component schema in api/public-events.yaml. The
+// event fed to HandleEvent is read back from the outbox (realEventEnvelope),
+// so this is the SAME internal envelope a bus consumer would receive in
+// production, proving the mapping end to end rather than only at the unit
+// level (wireenvelope_test.go covers the pure mapping in isolation).
+func TestPublicEventEnvelopeConformsToPublicSchema(t *testing.T) {
+	we := setupWebhooks(t)
+	stages := discoverSeededPipeline(t, we.env)
+	dealID := exerciseDealToWon(t, we.env, stages)
+	env := realEventEnvelope(t, we, "deal.stage_changed", dealID)
+
+	rcv := newReceiver(t, http.StatusOK)
+	now := time.Now().UTC()
+	deliverer := newTestDeliverer(we, &now, rcv.server.Client())
+	we.createSubscription(t, rcv.server.URL+"/hook", []string{"deal.stage_changed"})
+
+	if err := deliverer.HandleEvent(context.Background(), env); err != nil {
+		t.Fatalf("handling the real deal.stage_changed event: %v", err)
+	}
+	hits := rcv.snapshot()
+	if len(hits) != 1 {
+		t.Fatalf("got %d deliveries for the real event, want exactly 1", len(hits))
+	}
+
+	var delivered any
+	if err := json.Unmarshal(hits[0].body, &delivered); err != nil {
+		t.Fatalf("the delivered body is not valid JSON: %v", err)
+	}
+	schema := publicEventSchema(t, "PublicEventEnvelope")
+	if err := schema.VisitJSON(delivered); err != nil {
+		t.Fatalf("the real delivered envelope does not conform to PublicEventEnvelope: %v", err)
+	}
+}
+
+// realEventEnvelope reads back the most recent outbox envelope of eventType
+// naming entityID as its subject, decoded into the internal kevents.Envelope
+// shape — the same row a bus consumer (HandleEvent, in production) would
+// receive. It queries through the owner connection (the same RLS-bypassing
+// role every other direct event_outbox assertion in this package uses).
+func realEventEnvelope(t *testing.T, we *webhookEnv, eventType, entityID string) kevents.Envelope {
+	t.Helper()
+	var raw []byte
+	err := we.owner.QueryRow(context.Background(),
+		`SELECT envelope FROM event_outbox
+		 WHERE envelope->>'type' = $1 AND envelope->'entity'->>'id' = $2
+		 ORDER BY seq DESC LIMIT 1`,
+		eventType, entityID).Scan(&raw)
+	if err != nil {
+		t.Fatalf("reading the real %s envelope for entity %s: %v", eventType, entityID, err)
+	}
+	var env kevents.Envelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		t.Fatalf("unmarshaling the %s envelope: %v", eventType, err)
+	}
+	return env
+}
+
+// realEventPayload returns the AS-STAGED payload of the real envelope
+// realEventEnvelope reads, decoded as generic JSON (any) —
+// schema.VisitJSON's expected input shape. The point here is the event as
+// the domain write staged it, not anything a delivery body wraps it in.
+//
+//craft:ignore naked-any generic JSON is exactly the input schema.VisitJSON expects — the payload shape varies per event type, so there is no concrete type to name here
+func realEventPayload(t *testing.T, we *webhookEnv, eventType, entityID string) any {
+	t.Helper()
+	env := realEventEnvelope(t, we, eventType, entityID)
+	if len(env.Payload) == 0 {
+		t.Fatalf("%s envelope for entity %s carries no payload", eventType, entityID)
+	}
+	var data any
+	if err := json.Unmarshal(env.Payload, &data); err != nil {
+		t.Fatalf("unmarshaling the %s payload as generic JSON: %v", eventType, err)
+	}
+	return data
+}
+
+// publicEventSchema loads api/public-events.yaml — the SAME file
+// gen-payloads compiles into crmcontracts — and returns the named
+// component schema. kin-openapi (already a repo dependency, driving
+// gen-payloads) loads this 3.1 document directly: none of today's schemas
+// use a 3.1-only construct kin-openapi's 3.0-oriented loader can't parse, so
+// no downgrade step is needed here (unlike gen-payloads, which also feeds
+// oapi-codegen's stricter 3.0 subset).
+func publicEventSchema(t *testing.T, name string) *openapi3.Schema {
+	t.Helper()
+	loader := openapi3.NewLoader()
+	doc, err := loader.LoadFromFile(filepath.Join(backendModuleRoot(t), "api", "public-events.yaml"))
+	if err != nil {
+		t.Fatalf("loading api/public-events.yaml: %v", err)
+	}
+	ref, ok := doc.Components.Schemas[name]
+	if !ok || ref.Value == nil {
+		t.Fatalf("api/public-events.yaml has no component schema %q", name)
+	}
+	return ref.Value
 }

@@ -10,7 +10,9 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/diffhash"
@@ -123,11 +125,11 @@ func (s *Service) decideInTx(ctx context.Context, tx pgx.Tx, p principal.Princip
 	auditEvidence := map[string]any{
 		approvalKeyKind: a.Kind, "verdict": verdict, "reason": reason,
 	}
-	decidedPayload := map[string]any{
-		approvalKeyKind: a.Kind, "verdict": verdict, "decided_by": p.UserID,
+	decidedPayload := crmcontracts.PublicEventApprovalDecided{
+		Kind: a.Kind, Verdict: verdict, DecidedBy: openapi_types.UUID(p.UserID),
 	}
 	if edited != nil {
-		if err := applyEditedPayload(ctx, tx, id, edited, a, auditEvidence, decidedPayload); err != nil {
+		if err := applyEditedPayload(ctx, tx, id, edited, a, auditEvidence, &decidedPayload); err != nil {
 			return row{}, err
 		}
 	}
@@ -141,7 +143,7 @@ func (s *Service) decideInTx(ctx context.Context, tx pgx.Tx, p principal.Princip
 	if err != nil {
 		return row{}, err
 	}
-	if err := s.emit(ctx, tx, p, auditID, "approval.decided", id.UUID, decidedPayload); err != nil {
+	if err := s.emit(ctx, tx, p, auditID, id.UUID, decidedPayload); err != nil {
 		return row{}, err
 	}
 	if err := s.emitKindDecided(ctx, tx, p, auditID, id.UUID, a.Kind, approve); err != nil {
@@ -156,7 +158,7 @@ func (s *Service) decideInTx(ctx context.Context, tx pgx.Tx, p principal.Princip
 // — what the agent proposed, and what the human actually released. The
 // decided event carries the human's version, so a suspended agent run
 // resumes with THIS call; the original hash no longer opens anything.
-func applyEditedPayload(ctx context.Context, tx pgx.Tx, id ids.ApprovalID, edited json.RawMessage, a row, auditEvidence, decidedPayload map[string]any) error {
+func applyEditedPayload(ctx context.Context, tx pgx.Tx, id ids.ApprovalID, edited json.RawMessage, a row, auditEvidence map[string]any, decidedPayload *crmcontracts.PublicEventApprovalDecided) error {
 	canonical, editedHash, hashErr := diffhash.Canonical(edited)
 	if hashErr != nil {
 		return &InvalidEditError{Cause: hashErr}
@@ -171,9 +173,26 @@ func applyEditedPayload(ctx context.Context, tx pgx.Tx, id ids.ApprovalID, edite
 	auditEvidence["original_diff_hash"] = a.DiffHash
 	auditEvidence["edited_change"] = json.RawMessage(canonical)
 	auditEvidence["edited_diff_hash"] = editedHash
-	decidedPayload["edited"] = true
-	decidedPayload["diff_hash"] = editedHash
-	decidedPayload["edited_change"] = json.RawMessage(canonical)
+
+	// edited_change stays an OPEN object on the wire (A9): the staged
+	// kind's proposed_change shape varies by kind, so the payload carries
+	// it as a raw map rather than a narrowly typed struct that would drop
+	// a future kind's fields.
+	var editedChange map[string]any
+	if err := json.Unmarshal(canonical, &editedChange); err != nil {
+		return fmt.Errorf("approvals: canonicalized edited change did not decode as a JSON object: %w", err)
+	}
+	if editedChange == nil {
+		// A literal JSON `null` decodes without error but leaves the map nil,
+		// which would emit edited_change: null (violating the public contract)
+		// and could resume a parked run with null args — reject it as an
+		// invalid edit (422) rather than a JSON object.
+		return &InvalidEditError{Cause: errors.New("payload is not a JSON object")}
+	}
+	wasEdited := true
+	decidedPayload.Edited = &wasEdited
+	decidedPayload.DiffHash = &editedHash
+	decidedPayload.EditedChange = &editedChange
 	return nil
 }
 
@@ -185,11 +204,9 @@ func (s *Service) emitKindDecided(ctx context.Context, tx pgx.Tx, p principal.Pr
 	if !ok {
 		return nil
 	}
-	eventType := echo.rejected
+	build := echo.rejected
 	if approve {
-		eventType = echo.approved
+		build = echo.approved
 	}
-	return s.emit(ctx, tx, p, auditID, eventType, id, map[string]any{
-		"approval_id": id, "decided_by": p.UserID,
-	})
+	return s.emit(ctx, tx, p, auditID, id, build(openapi_types.UUID(id), openapi_types.UUID(p.UserID)))
 }

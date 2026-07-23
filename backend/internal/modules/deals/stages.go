@@ -77,8 +77,22 @@ func (s *Store) UpdatePipeline(ctx context.Context, id ids.PipelineID, in Update
 		if err != nil {
 			return fmt.Errorf("audit pipeline update: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "pipeline.updated", "pipeline", id.UUID, map[string]any{
-			"delta": map[string]any{"name": in.Name, "is_default": in.IsDefault, "position": in.Position},
+		// changed_fields reports only what this PATCH actually touched — a
+		// nil pointer is an omitted field, not a change to null (the
+		// omitted-not-null discipline every other emit site follows), so a
+		// rename-only update never publishes is_default/position as null.
+		changed := map[string]any{}
+		if in.Name != nil {
+			changed["name"] = *in.Name
+		}
+		if in.IsDefault != nil {
+			changed["is_default"] = *in.IsDefault
+		}
+		if in.Position != nil {
+			changed["position"] = *in.Position
+		}
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventPipelineUpdated{
+			ChangedFields: changed,
 		}); err != nil {
 			return fmt.Errorf("emit pipeline.updated: %w", err)
 		}
@@ -146,10 +160,7 @@ func (s *Store) CreateStage(ctx context.Context, in CreateStageInput) (crmcontra
 		if err != nil {
 			return fmt.Errorf("audit stage create: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "stage.created", "stage", stageID.UUID, map[string]any{
-			"pipeline_id": in.PipelineID, "name": in.Name, "position": in.Position,
-			"semantic": in.Semantic, "win_probability": probability,
-		}); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, stageID.UUID, stageCreatedPayload(in.PipelineID, in.Name, in.Position, in.Semantic, probability)); err != nil {
 			return fmt.Errorf("emit stage.created: %w", err)
 		}
 		if out, err = readStage(ctx, tx, stageID, storekit.LiveOnly); err != nil {
@@ -158,6 +169,20 @@ func (s *Store) CreateStage(ctx context.Context, in CreateStageInput) (crmcontra
 		return nil
 	})
 	return out, err
+}
+
+// stageCreatedPayload builds the stage.created wire payload from
+// CreateStage's resolved inputs — the ONE place that maps the local
+// values onto the published schema, so a future field rename shows up
+// here rather than at an independently-drifting map literal.
+func stageCreatedPayload(pipelineID ids.PipelineID, name string, position int, semantic string, winProbability int) crmcontracts.PublicEventStageCreated {
+	return crmcontracts.PublicEventStageCreated{
+		PipelineId:     openapi_types.UUID(pipelineID.UUID),
+		Name:           name,
+		Position:       position,
+		Semantic:       semantic,
+		WinProbability: winProbability,
+	}
 }
 
 func (s *Store) GetStage(ctx context.Context, id ids.StageID) (crmcontracts.Stage, error) {
@@ -188,7 +213,8 @@ func (s *Store) ListStages(ctx context.Context, pipelineID *ids.PipelineID, arch
 			where += " AND archived_at IS NULL"
 		}
 		rows, err := tx.Query(ctx, storekit.SQLf(
-			`SELECT id FROM stage WHERE %s ORDER BY pipeline_id, position`, where), args...)
+			`SELECT id FROM stage WHERE %s ORDER BY pipeline_id, position`, where,
+		), args...)
 		if err != nil {
 			return err
 		}
@@ -272,20 +298,25 @@ func (s *Store) UpdateStage(ctx context.Context, id ids.StageID, in UpdateStageI
 		if err != nil {
 			return fmt.Errorf("audit stage update: %w", err)
 		}
-		// Reorders are pipeline-level facts (ONE pipeline.updated with
-		// the position delta); everything else is a stage.updated.
+		// A reorder is a pipeline-level fact (pipeline.updated with the
+		// position delta); a name/semantic/probability edit is a stage-level
+		// fact (stage.updated). A single settings save can carry BOTH (the
+		// UI sends position alongside the edited fields), so emit each fact
+		// the update actually touched — they are NOT mutually exclusive.
+		// Treating them as exclusive dropped stage.updated whenever a position
+		// rode along, so a name/semantic change silently never reached
+		// subscribers.
 		if in.Position != nil {
-			err = storekit.Emit(ctx, tx, auditID, "pipeline.updated", "pipeline", pipelineID.UUID, map[string]any{
-				"delta": map[string]any{"stage_positions": map[string]any{id.String(): *in.Position}},
-			})
-		} else {
-			err = storekit.Emit(ctx, tx, auditID, "stage.updated", "stage", id.UUID, map[string]any{
-				"pipeline_id": pipelineID,
-				"delta":       map[string]any{"name": in.Name, "semantic": in.Semantic, "win_probability": in.WinProbability},
-			})
+			if err := storekit.EmitEvent(ctx, tx, auditID, pipelineID.UUID, crmcontracts.PublicEventPipelineUpdated{
+				ChangedFields: map[string]any{"stage_positions": map[string]any{id.String(): *in.Position}},
+			}); err != nil {
+				return fmt.Errorf("emit pipeline reorder: %w", err)
+			}
 		}
-		if err != nil {
-			return fmt.Errorf("emit stage update: %w", err)
+		if in.Name != nil || in.Semantic != nil || in.WinProbability != nil {
+			if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, stageUpdatedPayload(pipelineID, in)); err != nil {
+				return fmt.Errorf("emit stage update: %w", err)
+			}
 		}
 		if out, err = readStage(ctx, tx, id, storekit.IncludeArchived); err != nil {
 			return fmt.Errorf("read updated stage: %w", err)
@@ -293,6 +324,38 @@ func (s *Store) UpdateStage(ctx context.Context, id ids.StageID, in UpdateStageI
 		return nil
 	})
 	return out, err
+}
+
+// stageUpdatedPayload builds the stage.updated wire payload from
+// UpdateStage's inputs — the ONE place that maps the local values onto
+// the published schema. It carries only the fields this update actually
+// touched (BOUNDED, not open — position never appears here: a position
+// change publishes a pipeline.updated instead, per the caller's branch),
+// so an untouched field stays a nil pointer and is omitted from the wire
+// body rather than marshaled as null.
+//
+// A terminal semantic forces the committed win_probability (won → 100,
+// lost → 0) in the same UPDATE, so the payload MUST reflect that committed
+// value, not the caller's input — otherwise a subscriber would see a
+// win_probability that never hit the row.
+func stageUpdatedPayload(pipelineID ids.PipelineID, in UpdateStageInput) crmcontracts.PublicEventStageUpdated {
+	winProbability := in.WinProbability
+	if in.Semantic != nil {
+		switch StageSemantic(*in.Semantic) {
+		case SemanticWon:
+			won := 100
+			winProbability = &won
+		case SemanticLost:
+			lost := 0
+			winProbability = &lost
+		}
+	}
+	return crmcontracts.PublicEventStageUpdated{
+		PipelineId:     openapi_types.UUID(pipelineID.UUID),
+		Name:           in.Name,
+		Semantic:       in.Semantic,
+		WinProbability: winProbability,
+	}
 }
 
 func readStage(ctx context.Context, tx pgx.Tx, id ids.StageID, archived storekit.ArchivedFilter) (crmcontracts.Stage, error) {

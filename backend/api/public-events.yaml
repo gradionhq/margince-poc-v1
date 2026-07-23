@@ -1,0 +1,2053 @@
+openapi: 3.1.0
+info:
+  title: Margince Public Event Payloads
+  version: "1"
+  description: >-
+    The public, transport-agnostic projection of Margince domain events — the
+    strict contract for outbound webhook delivery. This file is components-only
+    (no paths, no webhooks block): it is compiled to typed Go structs by
+    backend/tools/gen-payloads (into internal/contracts/publicevents_gen.go)
+    and to TypeScript by the frontend's gen:events script. It is kept SEPARATE
+    from api/crm.yaml on purpose — crm.yaml's webhooks: block is silently pruned
+    by kin-openapi, and enabling global skip-prune there trips a pre-existing
+    ApprovalToken name collision. An isolated file sidesteps both.
+
+    Only fields safe to expose beyond the trust boundary appear here. Internal
+    envelope metadata (audit_log_id, causation_id, passport_id, on_behalf_of,
+    workspace_id) is deliberately absent so a schema/code mismatch fails to
+    compile rather than leaking internals over the wire.
+components:
+  schemas:
+    SubscribableEventType:
+      type: string
+      description: >-
+        The closed set of domain event types a webhook subscription may
+        select — every subscribable event across the deal, offer,
+        pipeline/stage, person/organization, lead, activities,
+        consent/privacy, signals, ai voice, identity, and overlay families.
+        A subscription's event-type filter is validated against this set;
+        an unlisted type cannot be subscribed to.
+      enum:
+        - deal.created
+        - deal.owner_changed
+        - deal.stage_changed
+        - deal.archived
+        - deal.updated
+        - deal.restored
+        - offer.created
+        - offer.sent
+        - offer.accepted
+        - offer.rejected
+        - offer.superseded
+        - pipeline.created
+        - pipeline.updated
+        - pipeline.archived
+        - stage.created
+        - stage.updated
+        - stage.archived
+        - person.created
+        - person.archived
+        - person.merged
+        - person.updated
+        - person.restored
+        - organization.created
+        - organization.archived
+        - organization.merged
+        - organization.updated
+        - lead.created
+        - lead.disqualified
+        - lead.promoted
+        - lead.updated
+        - activity.captured
+        - activity.archived
+        - activity.updated
+        - engagement.reply
+        - consent.changed
+        - retention.applied
+        - signal.detected
+        - signal.resolved
+        - voice.profile_created
+        - voice.profile_updated
+        - voice.profile_archived
+        - voice.corpus_changed
+        - voice.build_changed
+        - voice.version_changed
+        - voice.draft_outcome_recorded
+        - user.invited
+        - user.deactivated
+        - user.reactivated
+        - role.changed
+        - passport.revoked
+        - onboarding.state_changed
+        - mirror.conflict
+        - mirror.budget_degraded
+        - mirror.deleted
+        - mirror.write_rejected
+        - incumbent.connected
+        - incumbent.disconnected
+        - approval.requested
+        - approval.decided
+        - coldstart.read_back_proposed
+        - coldstart.accepted
+        - coldstart.rejected
+        - audit.appended
+
+    PublicEventActor:
+      type: object
+      description: Who or what caused the event, as exposed publicly.
+      required: [type]
+      properties:
+        type:
+          type: string
+          description: Actor kind (e.g. human, agent, connector).
+      additionalProperties: false
+
+    PublicEventEntityRef:
+      type: object
+      description: The primary entity the event concerns.
+      required: [type, id]
+      properties:
+        type:
+          type: string
+          description: Entity kind (e.g. deal, person, organization).
+        id:
+          type: string
+          format: uuid
+          description: Stable identifier of the entity.
+      additionalProperties: false
+
+    PublicEventEnvelope:
+      type: object
+      description: >-
+        The public wrapper around every delivered event payload. This is the
+        exact JSON shape a subscriber receives; it carries no internal metadata.
+      required:
+        - event_id
+        - type
+        - version
+        - occurred_at
+        - actor
+        - entity
+        - correlation_id
+        - data
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Unique id of this event occurrence.
+        type:
+          type: string
+          description: The event type (a SubscribableEventType value).
+        version:
+          type: integer
+          description: Schema version of the payload in data.
+        occurred_at:
+          type: string
+          format: date-time
+          description: When the event occurred (RFC 3339).
+        actor:
+          $ref: '#/components/schemas/PublicEventActor'
+        entity:
+          $ref: '#/components/schemas/PublicEventEntityRef'
+        correlation_id:
+          type: string
+          format: uuid
+          description: Correlates all events emitted for one originating request.
+        data:
+          type: object
+          description: >-
+            The typed event payload (one of the PublicEvent* schemas), carried
+            as raw JSON so it is delivered byte-for-byte — large int64 fields
+            (e.g. amount_minor_at_change) are never round-tripped through a
+            float64 that would lose precision.
+          # An OPEN object: a delivered payload carries the fields of whichever
+          # PublicEvent* schema `type` names (e.g. PublicEventDealCreated.name).
+          # This keeps the generated frontend type a usable open map rather than
+          # Record<string, never>, which could hold no fields at all. On the Go
+          # side x-go-type carries the raw bytes verbatim (see above).
+          additionalProperties: true
+          x-go-type: json.RawMessage
+      additionalProperties: false
+
+    PublicEventDealCreated:
+      type: object
+      x-event-type: deal.created
+      x-entity-type: deal
+      x-version: 1
+      description: Payload for deal.created — a deal was opened.
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: The deal's name at creation.
+      additionalProperties: false
+
+    PublicEventDealOwnerChanged:
+      type: object
+      x-event-type: deal.owner_changed
+      x-entity-type: deal
+      x-version: 1
+      description: >-
+        Payload for deal.owner_changed — the deal's owner was reassigned.
+        Emitted instead of (never alongside) deal.updated for the owner_id
+        field (events.md §5.3).
+      required:
+        - to_owner_id
+      properties:
+        to_owner_id:
+          type: string
+          format: uuid
+          description: The new owner.
+        from_owner_id:
+          type: string
+          format: uuid
+          description: The previous owner (absent when the deal had none).
+      additionalProperties: false
+
+    PublicEventDealStageChanged:
+      type: object
+      x-event-type: deal.stage_changed
+      x-entity-type: deal
+      x-version: 1
+      description: >-
+        Payload for deal.stage_changed — a deal advanced between stages.
+        Carries the amount/win-probability snapshot frozen at the moment
+        of the move so consumers (the trajectory view, the overnight
+        stalled/forecast sweep, the automation trigger keyed on
+        to_status) never need a read-back.
+      required:
+        - to_stage_id
+        - from_status
+        - to_status
+        - win_probability
+      properties:
+        from_stage_id:
+          type: string
+          format: uuid
+          description: Stage the deal left (absent on first placement).
+        to_stage_id:
+          type: string
+          format: uuid
+          description: Stage the deal entered.
+        from_status:
+          type: string
+          description: Deal status before the move (open | won | lost).
+        to_status:
+          type: string
+          description: >-
+            Deal status after the move (open | won | lost) — the field
+            the automation trigger keys on (automation/handlers_event.go).
+        amount_minor_at_change:
+          type: integer
+          format: int64
+          description: The deal's amount, frozen at the moment of the move.
+        currency_at_change:
+          type: string
+          description: The deal's currency, frozen at the moment of the move.
+        win_probability:
+          type: integer
+          description: The target stage's win probability, frozen at the moment of the move.
+      additionalProperties: false
+
+    PublicEventDealArchived:
+      type: object
+      x-event-type: deal.archived
+      x-entity-type: deal
+      x-version: 1
+      description: Payload for deal.archived — a deal was archived. Carries no data.
+      additionalProperties: false
+
+    PublicEventDealUpdated:
+      type: object
+      x-event-type: deal.updated
+      x-entity-type: deal
+      x-version: 1
+      description: >-
+        Payload for deal.updated — an OPEN envelope: its emit sites carry
+        divergent shapes (a flat column patch, an accepted-offer amount
+        sync, a close-date-correction note, a relationship delta), so the
+        honest shape is a change-set map rather than a fixed field list.
+      required:
+        - changed_fields
+      properties:
+        changed_fields:
+          type: object
+          additionalProperties: true
+          description: >-
+            What this update touched, incl. runtime cf_* custom fields.
+            The value shape depends on the emit site: a column patch
+            carries a flat field → new-value entry, while the
+            recompute/routing/relationship sites carry a `{delta: {...}}`
+            sub-object (occasionally with a sibling `source`). Read a
+            key's value as either form.
+      additionalProperties: false
+
+    PublicEventDealRestored:
+      type: object
+      x-event-type: deal.restored
+      x-entity-type: deal
+      x-version: 1
+      description: >-
+        Payload for deal.restored. Never emitted today (no restore path
+        exists for deal); the schema is published so the type is a valid
+        subscription target and the coverage gate can name it explicitly
+        rather than silently omitting it.
+      additionalProperties: false
+
+    PublicEventOfferCreated:
+      type: object
+      x-event-type: offer.created
+      x-entity-type: offer
+      x-version: 1
+      description: >-
+        Payload for offer.created — a new Angebot revision was opened
+        (either the first revision, via CreateOffer, or a fresh draft
+        revision minted by RegenerateOffer).
+      required:
+        - offer_id
+        - deal_id
+        - revision
+        - currency
+        - source
+        - captured_by
+      properties:
+        offer_id:
+          type: string
+          format: uuid
+          description: The created offer revision.
+        deal_id:
+          type: string
+          format: uuid
+          description: The deal this offer belongs to.
+        revision:
+          type: integer
+          description: This offer's revision number (1 for a first offer).
+        currency:
+          type: string
+          description: The offer's currency.
+        source:
+          type: string
+          description: Where this offer originated (e.g. manual, ai).
+        captured_by:
+          type: string
+          description: The principal that created this revision.
+      additionalProperties: false
+
+    PublicEventOfferSent:
+      type: object
+      x-event-type: offer.sent
+      x-entity-type: offer
+      x-version: 1
+      description: >-
+        Payload for offer.sent — a draft offer left the workspace. Carries
+        the FX rate frozen at send time (RT-PR-C2) so consumers never need
+        a read-back for the native-currency-to-base conversion.
+      required:
+        - offer_id
+        - deal_id
+        - fx_rate_to_base
+      properties:
+        offer_id:
+          type: string
+          format: uuid
+          description: The sent offer.
+        deal_id:
+          type: string
+          format: uuid
+          description: The deal this offer belongs to.
+        revision:
+          type: integer
+          description: This offer's revision number.
+        gross_minor:
+          type: integer
+          format: int64
+          description: The offer's gross total at send time.
+        fx_rate_to_base:
+          type: string
+          description: >-
+            Native→base rate frozen at send (RT-PR-C2). Decimal-as-string
+            to avoid float rounding.
+        valid_until:
+          type: string
+          format: date
+          description: The offer's validity date (absent when unset).
+      additionalProperties: false
+
+    PublicEventOfferAccepted:
+      type: object
+      x-event-type: offer.accepted
+      x-entity-type: offer
+      x-version: 1
+      description: >-
+        Payload for offer.accepted — a sent offer was accepted. The deal's
+        headline amount is synced from this offer's gross in the same
+        transaction (see deal.updated on the paired deal entity).
+      required:
+        - offer_id
+        - deal_id
+      properties:
+        offer_id:
+          type: string
+          format: uuid
+          description: The accepted offer.
+        deal_id:
+          type: string
+          format: uuid
+          description: The deal this offer belongs to.
+        revision:
+          type: integer
+          description: This offer's revision number.
+        gross_minor:
+          type: integer
+          format: int64
+          description: The offer's gross total, now also the deal's amount.
+      additionalProperties: false
+
+    PublicEventOfferRejected:
+      type: object
+      x-event-type: offer.rejected
+      x-entity-type: offer
+      x-version: 1
+      description: Payload for offer.rejected — a sent offer was rejected.
+      required:
+        - offer_id
+        - deal_id
+      properties:
+        offer_id:
+          type: string
+          format: uuid
+          description: The rejected offer.
+        deal_id:
+          type: string
+          format: uuid
+          description: The deal this offer belongs to.
+        revision:
+          type: integer
+          description: This offer's revision number.
+        reason:
+          type: string
+          description: The optional rejection reason (absent when none was given).
+      additionalProperties: false
+
+    PublicEventOfferSuperseded:
+      type: object
+      x-event-type: offer.superseded
+      x-entity-type: offer
+      x-version: 1
+      description: >-
+        Payload for offer.superseded — a sent offer was regenerated into a
+        fresh draft revision (B-E03.19) and marked superseded; the new
+        revision arrives as its own offer.created event.
+      required:
+        - offer_id
+        - deal_id
+        - to_revision
+      properties:
+        offer_id:
+          type: string
+          format: uuid
+          description: The superseded (prior) offer revision.
+        deal_id:
+          type: string
+          format: uuid
+          description: The deal this offer belongs to.
+        from_revision:
+          type: integer
+          description: The superseded revision number.
+        to_revision:
+          type: integer
+          description: The new revision number minted by the regenerate.
+      additionalProperties: false
+
+    PublicEventPipelineCreatedStage:
+      type: object
+      description: >-
+        One initial stage as declared on a pipeline.created event — the
+        stage's own stage.created is NOT separately emitted for these
+        (events.md §5.3b: one pipeline.created carries the whole set).
+      required:
+        - name
+        - position
+        - semantic
+      properties:
+        name:
+          type: string
+          description: The stage's name.
+        position:
+          type: integer
+          description: The stage's position within the pipeline.
+        semantic:
+          type: string
+          description: The stage's semantic (open | won | lost).
+      additionalProperties: false
+
+    PublicEventPipelineCreated:
+      type: object
+      x-event-type: pipeline.created
+      x-entity-type: pipeline
+      x-version: 1
+      description: >-
+        Payload for pipeline.created — a pipeline was created with its
+        initial stage set in the same transaction.
+      required:
+        - name
+        - is_default
+        - stages
+      properties:
+        name:
+          type: string
+          description: The pipeline's name.
+        is_default:
+          type: boolean
+          description: Whether this pipeline is the workspace default.
+        stages:
+          type: array
+          items: { $ref: '#/components/schemas/PublicEventPipelineCreatedStage' }
+          description: The pipeline's initial stages, in the order created.
+      additionalProperties: false
+
+    PublicEventPipelineUpdated:
+      type: object
+      x-event-type: pipeline.updated
+      x-entity-type: pipeline
+      x-version: 1
+      description: >-
+        Payload for pipeline.updated — an OPEN envelope: its emit sites
+        carry divergent shapes (a flat name/is_default/position patch from
+        UpdatePipeline, or a stage_positions reorder map from UpdateStage
+        when a stage's position changes), so the honest shape is a
+        change-set map rather than a fixed field list.
+      required:
+        - changed_fields
+      properties:
+        changed_fields:
+          type: object
+          additionalProperties: true
+          description: >-
+            Field name → new value for whatever this update touched
+            (name, is_default, position, or stage_positions).
+      additionalProperties: false
+
+    PublicEventPipelineArchived:
+      type: object
+      x-event-type: pipeline.archived
+      x-entity-type: pipeline
+      x-version: 1
+      description: >-
+        Payload for pipeline.archived. Never emitted today (no archive
+        path exists for pipeline); the schema is published so the type is
+        a valid subscription target and the coverage gate can name it
+        explicitly rather than silently omitting it.
+      additionalProperties: false
+
+    PublicEventStageCreated:
+      type: object
+      x-event-type: stage.created
+      x-entity-type: stage
+      x-version: 1
+      description: Payload for stage.created — a stage was added to a pipeline.
+      required:
+        - pipeline_id
+        - name
+        - position
+        - semantic
+        - win_probability
+      properties:
+        pipeline_id:
+          type: string
+          format: uuid
+          description: The pipeline this stage belongs to.
+        name:
+          type: string
+          description: The stage's name.
+        position:
+          type: integer
+          description: The stage's position within the pipeline.
+        semantic:
+          type: string
+          description: The stage's semantic (open | won | lost).
+        win_probability:
+          type: integer
+          description: The stage's win probability (won=100, lost=0, open=0..100).
+      additionalProperties: false
+
+    PublicEventStageUpdated:
+      type: object
+      x-event-type: stage.updated
+      x-entity-type: stage
+      x-version: 1
+      description: >-
+        Payload for stage.updated — a BOUNDED delta: UpdateStage's known
+        mutable fields (name, semantic, win_probability) each carried only
+        when this update touched them. A position change is instead
+        published as ONE pipeline.updated with a stage_positions delta
+        (never an N-way stage.updated), so position never appears here.
+      required:
+        - pipeline_id
+      properties:
+        pipeline_id:
+          type: string
+          format: uuid
+          description: The pipeline this stage belongs to.
+        name:
+          type: string
+          description: The stage's new name (absent when this update did not touch it).
+        semantic:
+          type: string
+          description: >-
+            The stage's new semantic (absent when this update did not
+            touch it).
+        win_probability:
+          type: integer
+          description: >-
+            The stage's new win probability (absent when this update did
+            not touch it).
+      additionalProperties: false
+
+    PublicEventStageArchived:
+      type: object
+      x-event-type: stage.archived
+      x-entity-type: stage
+      x-version: 1
+      description: >-
+        Payload for stage.archived. Never emitted today (no archive path
+        exists for stage); the schema is published so the type is a valid
+        subscription target and the coverage gate can name it explicitly
+        rather than silently omitting it.
+      additionalProperties: false
+
+    PublicEventPersonMergedRelinkCounts:
+      type: object
+      description: >-
+        How many child rows on each side were repointed from the merged-
+        away person onto the survivor (people/merge.go relinkCounts).
+      required:
+        - emails
+        - phones
+        - relationships
+        - activity_links
+      properties:
+        emails:
+          type: integer
+          format: int64
+          description: person_email rows relinked.
+        phones:
+          type: integer
+          format: int64
+          description: person_phone rows relinked.
+        relationships:
+          type: integer
+          format: int64
+          description: relationship edge rows relinked.
+        activity_links:
+          type: integer
+          format: int64
+          description: activity_link rows relinked.
+      additionalProperties: false
+
+    PublicEventPersonCreated:
+      type: object
+      x-event-type: person.created
+      x-entity-type: person
+      x-version: 1
+      description: Payload for person.created — a person was created.
+      required:
+        - full_name
+      properties:
+        full_name:
+          type: string
+          description: The person's name at creation.
+      additionalProperties: false
+
+    PublicEventPersonArchived:
+      type: object
+      x-event-type: person.archived
+      x-entity-type: person
+      x-version: 1
+      description: Payload for person.archived — a person was archived. Carries no data.
+      additionalProperties: false
+
+    PublicEventPersonMerged:
+      type: object
+      x-event-type: person.merged
+      x-entity-type: person
+      x-version: 1
+      description: >-
+        Payload for person.merged — two person records collapsed into one
+        (the §1.3 merge); neither person.updated nor person.archived can
+        say this, so it is its own verb.
+      required:
+        - merged_from_id
+        - merged_into_id
+        - relinked
+      properties:
+        merged_from_id:
+          type: string
+          format: uuid
+          description: The merged-away (source) person, retired but still fetchable by id.
+        merged_into_id:
+          type: string
+          format: uuid
+          description: The survivor (target) person.
+        relinked:
+          $ref: '#/components/schemas/PublicEventPersonMergedRelinkCounts'
+      additionalProperties: false
+
+    PublicEventPersonUpdated:
+      type: object
+      x-event-type: person.updated
+      x-entity-type: person
+      x-version: 1
+      description: >-
+        Payload for person.updated — an OPEN envelope: its emit sites carry
+        divergent shapes (a flat column patch, a lead-promotion conversion
+        note, a signature-enrichment fill, a relationship delta), so the
+        honest shape is a change-set map rather than a fixed field list.
+      required:
+        - changed_fields
+      properties:
+        changed_fields:
+          type: object
+          additionalProperties: true
+          description: >-
+            What this update touched, incl. runtime cf_* custom fields.
+            The value shape depends on the emit site: a column patch
+            carries a flat field → new-value entry, while the
+            recompute/routing/relationship sites carry a `{delta: {...}}`
+            sub-object (occasionally with a sibling `source`). Read a
+            key's value as either form.
+      additionalProperties: false
+
+    PublicEventPersonRestored:
+      type: object
+      x-event-type: person.restored
+      x-entity-type: person
+      x-version: 1
+      description: >-
+        Payload for person.restored. Never emitted today (no restore path
+        exists for person); the schema is published so the type is a
+        valid subscription target and the coverage gate can name it
+        explicitly rather than silently omitting it.
+      additionalProperties: false
+
+    PublicEventOrganizationCreated:
+      type: object
+      x-event-type: organization.created
+      x-entity-type: organization
+      x-version: 1
+      description: >-
+        Payload for organization.created — a UNION across five emit sites
+        (a direct create, the capture auto-create engine, the anchor
+        company save, the site-read confirmation, and the cold-start
+        profile apply), each of which sets only its own subset; every
+        field is therefore optional.
+      properties:
+        display_name:
+          type: string
+          description: The organization's display name at creation (absent when the site never set one).
+        primary_domain:
+          type: string
+          description: The organization's primary domain (cold-start apply only).
+        delta:
+          type: object
+          additionalProperties: true
+          description: The fields the creating site applied (company save / site-read confirmation only).
+        source:
+          type: string
+          description: Where this organization originated (e.g. human, site_read).
+        source_url:
+          type: string
+          description: The source page this organization was read from (site-read confirmation only).
+        site_read_id:
+          type: string
+          format: uuid
+          description: The site-read that produced this organization (site-read confirmation only).
+        anchor:
+          type: boolean
+          description: Whether this is the installation's own anchor organization (company save only).
+        captured_by:
+          type: string
+          description: The principal that created this organization.
+      additionalProperties: false
+
+    PublicEventOrganizationArchived:
+      type: object
+      x-event-type: organization.archived
+      x-entity-type: organization
+      x-version: 1
+      description: Payload for organization.archived — an organization was archived. Carries no data.
+      additionalProperties: false
+
+    PublicEventOrganizationMerged:
+      type: object
+      x-event-type: organization.merged
+      x-entity-type: organization
+      x-version: 1
+      description: >-
+        Payload for organization.merged — two organization records
+        collapsed into one (the §1.3 merge); neither organization.updated
+        nor organization.archived can say this, so it is its own verb.
+      required:
+        - merged_from_id
+        - merged_into_id
+      properties:
+        merged_from_id:
+          type: string
+          format: uuid
+          description: The merged-away (source) organization, retired but still fetchable by id.
+        merged_into_id:
+          type: string
+          format: uuid
+          description: The survivor (target) organization.
+      additionalProperties: false
+
+    PublicEventOrganizationUpdated:
+      type: object
+      x-event-type: organization.updated
+      x-entity-type: organization
+      x-version: 1
+      description: >-
+        Payload for organization.updated — an OPEN envelope: eight emit
+        sites carry divergent shapes (a flat column patch, the anchor
+        company save's field delta, the partner extension's nested
+        delta, enrichment/deep-read applies, a relationship delta), so
+        the honest shape is a change-set map rather than a fixed field
+        list.
+      required:
+        - changed_fields
+      properties:
+        changed_fields:
+          type: object
+          additionalProperties: true
+          description: >-
+            What this update touched, incl. runtime cf_* custom fields.
+            The value shape depends on the emit site: a column patch
+            carries a flat field → new-value entry, while the
+            recompute/routing/relationship sites carry a `{delta: {...}}`
+            sub-object (occasionally with a sibling `source`). Read a
+            key's value as either form.
+      additionalProperties: false
+
+    PublicEventLeadCreated:
+      type: object
+      x-event-type: lead.created
+      x-entity-type: lead
+      x-version: 1
+      description: >-
+        Payload for lead.created — a lead was created. Two emit sites: a
+        direct create (people/lead.go) that sets no fields, and the
+        capture auto-create engine (capture/sink.go) that names its
+        originating source system; source_system is therefore optional.
+      properties:
+        source_system:
+          type: string
+          description: >-
+            The originating source system (capture auto-create only;
+            absent on a direct create).
+      additionalProperties: false
+
+    PublicEventLeadDisqualified:
+      type: object
+      x-event-type: lead.disqualified
+      x-entity-type: lead
+      x-version: 1
+      description: Payload for lead.disqualified — a lead was disqualified. Carries no data.
+      additionalProperties: false
+
+    PublicEventLeadPromoted:
+      type: object
+      x-event-type: lead.promoted
+      x-entity-type: lead
+      x-version: 1
+      description: >-
+        Payload for lead.promoted — the lead's genuine-engagement
+        promotion into the context graph (events.md §5.5); its own verb,
+        never a lead.updated, since neither person.created nor
+        person.updated on its own says a lead crossed this line.
+      required:
+        - promoted_person_id
+        - dedupe_outcome
+        - trigger
+      properties:
+        promoted_person_id:
+          type: string
+          format: uuid
+          description: The person this lead promoted into (fresh or an existing survivor).
+        dedupe_outcome:
+          type: string
+          description: 'Whether promotion created a new person or merged into an existing one: created or merged.'
+        trigger:
+          type: string
+          description: 'The genuine-engagement trigger that authorized promotion: inbound_reply, meeting_booked, meeting_held, or human_qualify.'
+        evidence_ref:
+          type: string
+          format: uuid
+          description: The inbound activity that evidenced the trigger (absent for a human_qualify with no linked activity).
+      additionalProperties: false
+
+    PublicEventLeadUpdated:
+      type: object
+      x-event-type: lead.updated
+      x-entity-type: lead
+      x-version: 1
+      description: >-
+        Payload for lead.updated — an OPEN envelope: emit sites carry
+        divergent shapes (a flat column patch that includes runtime cf_*
+        custom-field columns, and behavioral-recompute/routing deltas),
+        so the honest shape is a change-set map rather than a fixed
+        field list.
+      required:
+        - changed_fields
+      properties:
+        changed_fields:
+          type: object
+          additionalProperties: true
+          description: >-
+            What this update touched, incl. runtime cf_* custom fields.
+            The value shape depends on the emit site: a column patch
+            carries a flat field → new-value entry, while the
+            recompute/routing/relationship sites carry a `{delta: {...}}`
+            sub-object (occasionally with a sibling `source`). Read a
+            key's value as either form.
+      additionalProperties: false
+
+    PublicEventActivityCaptured:
+      type: object
+      x-event-type: activity.captured
+      x-entity-type: activity
+      x-version: 1
+      description: >-
+        Payload for activity.captured — the first-class capture verb,
+        emitted instead of (never alongside) a generic activity.created
+        (events.md §1). Two emit sites: the direct-log path
+        (activities/activity.go) that sets kind only, and the capture
+        ingestion path (capture/sink.go) that also names its originating
+        source system.
+      required:
+        - kind
+      properties:
+        kind:
+          type: string
+          description: >-
+            The activity kind (email | call | meeting | note | whatsapp
+            | telegram). Decoded by automation/handlers_event.go's
+            post_meeting_recap trigger — this field's JSON key is a
+            binding contract, not just documentation.
+        source_system:
+          type: string
+          description: >-
+            The originating source system (capture ingestion only;
+            absent on a direct log).
+      additionalProperties: false
+
+    PublicEventActivityArchived:
+      type: object
+      x-event-type: activity.archived
+      x-entity-type: activity
+      x-version: 1
+      description: Payload for activity.archived — an activity was archived. Carries no data.
+      additionalProperties: false
+
+    PublicEventActivityRelinkedRef:
+      type: object
+      description: >-
+        The entity an activity was relinked onto (activities/lifecycle.go's
+        RelinkActivity) — an association change, not a re-capture, so it
+        travels as one changed_fields key rather than its own event verb.
+      required:
+        - entity_type
+        - entity_id
+      properties:
+        entity_type:
+          type: string
+          description: The relink target's kind (person | organization | deal | lead).
+        entity_id:
+          type: string
+          format: uuid
+          description: The relink target's id.
+      additionalProperties: false
+
+    PublicEventActivityChangedFields:
+      type: object
+      description: >-
+        activity.updated's BOUNDED delta: UpdateActivity's known mutable
+        fields (subject, body, occurred_at, due_at, remind_at,
+        assignee_id, is_done) each carried only when this update touched
+        them, plus RelinkActivity's relinked target — a fixed, KNOWN key
+        set (unlike person/organization/deal/lead.updated's genuinely
+        open patch), so it is typed rather than an open map.
+      properties:
+        subject:
+          type: string
+          description: The activity's new subject (absent when this update did not touch it).
+        body:
+          type: boolean
+          description: >-
+            Whether the body was touched (a presence flag, not the
+            content — bodies can be large and are never echoed onto the
+            wire).
+        occurred_at:
+          type: string
+          format: date-time
+          description: The activity's new occurred_at (absent when this update did not touch it).
+        due_at:
+          type: string
+          format: date-time
+          description: The activity's new due_at (absent when this update did not touch it).
+        remind_at:
+          type: string
+          format: date-time
+          description: The activity's new remind_at (absent when this update did not touch it).
+        assignee_id:
+          type: string
+          format: uuid
+          description: The activity's new assignee (absent when this update did not touch it).
+        is_done:
+          type: boolean
+          description: The activity's new completion state (absent when this update did not touch it).
+        relinked:
+          $ref: '#/components/schemas/PublicEventActivityRelinkedRef'
+      additionalProperties: false
+
+    PublicEventActivityUpdated:
+      type: object
+      x-event-type: activity.updated
+      x-entity-type: activity
+      x-version: 1
+      description: >-
+        Payload for activity.updated — a BOUNDED delta (unlike the
+        person/organization/deal/lead family's genuinely open patch):
+        UpdateActivity and RelinkActivity together cover a fixed, KNOWN
+        set of inner keys, so changed_fields is a typed struct here, not
+        an open map.
+      required:
+        - changed_fields
+      properties:
+        changed_fields:
+          $ref: '#/components/schemas/PublicEventActivityChangedFields'
+      additionalProperties: false
+
+    PublicEventEngagementReply:
+      type: object
+      x-event-type: engagement.reply
+      x-entity-type: activity
+      x-version: 1
+      description: >-
+        Payload for engagement.reply — CAP-FORMULA-1: an inbound message
+        in a thread we previously wrote outbound in is a reply, feeding
+        the engagement signal scoring (capture/sink.go's emitReply).
+      required:
+        - matched_outbound_activity_id
+        - channel
+        - occurred_at
+        - idempotency_key
+      properties:
+        matched_outbound_activity_id:
+          type: string
+          format: uuid
+          description: The prior outbound activity this inbound message replies to.
+        channel:
+          type: string
+          description: The channel the reply arrived on (today always email).
+        occurred_at:
+          type: string
+          format: date-time
+          description: When the reply activity occurred.
+        idempotency_key:
+          type: string
+          description: The capture natural key (source_system:source_id) this reply was detected from.
+        contact_id:
+          type: string
+          format: uuid
+          description: >-
+            The already-known person behind the counterparty address
+            (absent when the counterparty resolves only in a follow-up
+            ensure).
+      additionalProperties: false
+
+    PublicEventConsentChanged:
+      type: object
+      x-event-type: consent.changed
+      x-entity-type: dynamic
+      x-version: 1
+      description: >-
+        Payload for consent.changed — a subject's per-purpose consent state
+        was recorded (consent/store.go's Record). The subject is a person
+        XOR a lead (data-model §7, before promotion) — a RUNTIME choice
+        Record resolves via consentSubject, not a fixed type this schema
+        can name, so this is the first dynamic-entity event (contract
+        `x-entity-type: dynamic`): the generated EntityType() is unused,
+        and the emit site supplies the real entity type through
+        storekit.EmitEventForEntity.
+      required:
+        - purpose_id
+        - purpose
+        - new_state
+      properties:
+        purpose_id:
+          type: string
+          format: uuid
+          description: The consent purpose this state change applies to.
+        purpose:
+          type: string
+          description: The purpose's key (e.g. marketing_email).
+        new_state:
+          type: string
+          description: The state now on record (granted | withdrawn).
+      additionalProperties: false
+
+    PublicEventRetentionApplied:
+      type: object
+      x-event-type: retention.applied
+      x-entity-type: dynamic
+      x-version: 1
+      description: >-
+        Payload for retention.applied — a retention/erasure action ran
+        against one record. Four emit sites, four different runtime
+        subjects: the embed-call sweep (ai_call), the voice-learning-signal
+        content sweep (voice_learning_signal), a workspace's configured
+        retention policy's object type (activity | deal | lead | person |
+        ai_call_payload), and Art. 17 erasure (person) — none fixed enough
+        for this schema to name, so this is dynamic-entity (contract
+        `x-entity-type: dynamic`): the generated EntityType() is unused,
+        and each emit site supplies its own runtime entity type through
+        storekit.EmitEventForEntity. policy/reason are a union across the
+        sites — both telemetry sweeps set neither, the policy-driven sweep
+        sets policy only, Art. 17 erasure sets reason only.
+      required:
+        - action
+      properties:
+        action:
+          type: string
+          description: The action that ran (archive | anonymize | erase).
+        policy:
+          type: string
+          format: uuid
+          description: >-
+            The retention policy that drove this action (absent for the
+            fixed embed-call sweep and for Art. 17 erasure, neither of
+            which is policy-configured).
+        reason:
+          type: string
+          description: >-
+            Why this action ran (Art. 17 erasure only — e.g. dsr_request;
+            absent for both retention-sweep sites).
+      additionalProperties: false
+
+    PublicEventSignalDetected:
+      type: object
+      x-event-type: signal.detected
+      x-entity-type: signal
+      x-version: 1
+      description: >-
+        Payload for signal.detected — a signal was created (signals/signal.go's
+        CreateSignal). entity_type/entity_id are DATA fields naming the
+        signal's subject (deal | organization | person) when one is already
+        known at creation time — not the envelope's own entity ref, which is
+        the signal itself (this event's entity type is the static "signal").
+        Both are absent on a raw signal (only a raw_ref), which enters
+        unresolved and waits for the resolver; resolution_confidence is set
+        only when the signal was created already resolved.
+      required:
+        - signal_id
+        - kind
+        - source_channel
+        - resolution_state
+        - severity
+      properties:
+        signal_id:
+          type: string
+          format: uuid
+          description: The signal that was detected.
+        kind:
+          type: string
+          description: >-
+            The signal kind (stalled_deal | champion_left | reengagement |
+            buying_intent | risk | other).
+        source_channel:
+          type: string
+          description: Where the raw signal came from (derived | inbound | web | social | deal_room_engagement).
+        resolution_state:
+          type: string
+          description: >-
+            The raw→entity match outcome at creation time (resolved |
+            low_confidence | unresolved | dropped).
+        severity:
+          type: string
+          description: The signal's severity (info | warn | urgent).
+        entity_type:
+          type: string
+          x-go-name: SubjectEntityType
+          description: >-
+            The subject record's type (deal | organization | person) — a
+            payload data field, absent until a raw signal resolves (both
+            entity fields set together). x-go-name avoids colliding with the
+            generated EntityType() method, which names the ENVELOPE'S entity
+            (always "signal"), not this data field.
+        entity_id:
+          type: string
+          format: uuid
+          x-go-name: SubjectEntityId
+          description: The subject record's id — a payload data field, absent until a raw signal resolves.
+        resolution_confidence:
+          type: number
+          description: The match confidence (0–1), set only when created already resolved.
+      additionalProperties: false
+
+    PublicEventSignalResolved:
+      type: object
+      x-event-type: signal.resolved
+      x-entity-type: signal
+      x-version: 1
+      description: >-
+        Payload for signal.resolved — the resolver ran over a signal
+        (signals/resolver.go's Resolve). The verdict IS the candidate count
+        (P12): zero candidates drops the signal (resolved_org_id,
+        resolved_person_id, matched_on, match_confidence all absent);
+        exactly one resolves it to that org (resolved_org_id set,
+        resolved_person_id set only under a recorded consent grant);
+        several flags it low_confidence for review (matched_on/
+        match_confidence describe the top candidate, resolved_org_id stays
+        absent).
+      required:
+        - signal_id
+        - resolution_state
+      properties:
+        signal_id:
+          type: string
+          format: uuid
+          description: The signal the resolver ran over.
+        resolution_state:
+          type: string
+          description: The state after resolving (resolved | low_confidence | dropped).
+        resolved_org_id:
+          type: string
+          format: uuid
+          description: The organization the signal resolved to (absent when dropped or ambiguous).
+        resolved_person_id:
+          type: string
+          format: uuid
+          description: >-
+            The consent-gated person the signal resolved to (absent unless
+            an existing person under a recorded consent grant matched).
+        matched_on:
+          type: string
+          description: The match basis of the top candidate (domain | name | prior_interaction).
+        match_confidence:
+          type: number
+          description: The top candidate's match confidence (0–1).
+      additionalProperties: false
+
+    PublicEventVoiceProfileCreated:
+      type: object
+      x-event-type: voice.profile_created
+      x-entity-type: voice_profile
+      x-version: 1
+      description: >-
+        Payload for voice.profile_created — the admitted human opened their
+        one personal Voice DNA profile (ai/voice.go's CreateProfile). Always
+        starts collecting, at maturity zero, with automatic learning off.
+      required:
+        - profile_id
+        - owner_id
+        - maturity
+        - auto_learning_enabled
+      properties:
+        profile_id:
+          type: string
+          format: uuid
+          description: The created profile.
+        owner_id:
+          type: string
+          format: uuid
+          description: The human who owns this profile.
+        maturity:
+          type: string
+          description: The corpus maturity band at creation (collecting, at zero words).
+        auto_learning_enabled:
+          type: boolean
+          description: Whether automatic learning starts enabled (always false at creation).
+      additionalProperties: false
+
+    PublicEventVoiceProfileUpdated:
+      type: object
+      x-event-type: voice.profile_updated
+      x-entity-type: voice_profile
+      x-version: 1
+      description: >-
+        Payload for voice.profile_updated — the owner replaced their
+        human-authored preferences and/or their automatic-learning opt-in
+        (ai/voice.go's UpdateProfile). action names which of the two (or
+        both) this update touched.
+      required:
+        - profile_id
+        - action
+        - version
+        - maturity
+      properties:
+        profile_id:
+          type: string
+          format: uuid
+          description: The updated profile.
+        action:
+          type: string
+          description: >-
+            What this update did (preferences_replaced | learning_enabled |
+            learning_disabled).
+        version:
+          type: integer
+          format: int64
+          description: The profile row's optimistic-concurrency version after this update.
+        maturity:
+          type: string
+          description: The corpus maturity band as of this update.
+      additionalProperties: false
+
+    PublicEventVoiceProfileArchived:
+      type: object
+      x-event-type: voice.profile_archived
+      x-entity-type: voice_profile
+      x-version: 1
+      description: >-
+        Payload for voice.profile_archived — the owner's profile was
+        soft-deleted (ai/voice.go's ArchiveProfile).
+      required:
+        - profile_id
+        - owner_id
+        - profile_version
+      properties:
+        profile_id:
+          type: string
+          format: uuid
+          description: The archived profile.
+        owner_id:
+          type: string
+          format: uuid
+          description: The human who owned this profile.
+        profile_version:
+          type: integer
+          description: The profile's derived-artifact version at the moment it was archived.
+      additionalProperties: false
+
+    PublicEventVoiceCorpusChanged:
+      type: object
+      x-event-type: voice.corpus_changed
+      x-entity-type: voice_profile
+      x-version: 1
+      description: >-
+        Payload for voice.corpus_changed — a UNION across four emit sites
+        that all mutate the corpus feeding a profile's build: a source's
+        inclusion/weight was updated (voice_source_mutations.go's
+        recordSourceUpdate), a source was removed (RemoveSource), a source
+        was ingested/re-ingested (voice_source_store.go's
+        recordSourceIngest), or the whole corpus was cleared
+        (voice_source_mutations.go's ClearCorpus). source_id/origin/register
+        name the touched source and are therefore absent on the clear site,
+        which acts on the corpus as a whole.
+      required:
+        - profile_id
+        - action
+        - word_delta
+        - source_count
+        - source_hash
+      properties:
+        profile_id:
+          type: string
+          format: uuid
+          description: The profile whose corpus changed.
+        source_id:
+          type: string
+          format: uuid
+          description: >-
+            The source this change touched (absent on the clear site, which
+            has no single source).
+        action:
+          type: string
+          description: >-
+            What happened to the corpus, one of: ingested (a new source was
+            added) | replaced (an existing source was re-ingested) | included |
+            excluded | removed | cleared. These are exactly the values the emit
+            sites stamp (voice_source_store.go sourceIngestChange,
+            voice_source_mutations.go sourceInclusionChange / ClearCorpus).
+        origin:
+          type: string
+          description: >-
+            The touched source's origin (manual | capture) (absent on the
+            clear site).
+        register:
+          type: string
+          description: >-
+            The touched source's register (email | social | long_form |
+            spoken | general) (absent on the clear site).
+        word_delta:
+          type: integer
+          description: The eligible-word-count change this action caused (may be negative).
+        source_count:
+          type: integer
+          description: The corpus's eligible source count after this change.
+        source_hash:
+          type: string
+          description: The corpus's content hash after this change.
+      additionalProperties: false
+
+    PublicEventVoiceBuildChanged:
+      type: object
+      x-event-type: voice.build_changed
+      x-entity-type: voice_profile
+      x-version: 1
+      description: >-
+        Payload for voice.build_changed — a Voice DNA build was queued or an
+        already-pending one was returned in place of a duplicate request
+        (ai/voice_lifecycle.go's RequestBuild). stage/result_version/
+        status_code/next_attempt_at describe an in-flight or deferred build
+        and are therefore absent on a freshly-queued one.
+      required:
+        - profile_id
+        - build_id
+        - reason
+        - status
+        - source_hash
+        - source_count
+        - candidate_action
+      properties:
+        profile_id:
+          type: string
+          format: uuid
+          description: The profile this build belongs to.
+        build_id:
+          type: string
+          format: uuid
+          description: The build row.
+        reason:
+          type: string
+          description: The human-approved reason for this build (onboarding | manual).
+        status:
+          type: string
+          description: >-
+            The build's status, one of queued | deferred | running | succeeded
+            | failed — exactly the values voice_build_run.go persists and emits
+            ("succeeded" is the success terminal, not "completed").
+        stage:
+          type: string
+          description: The build's current pipeline stage (absent before it starts running).
+        source_hash:
+          type: string
+          description: The corpus content hash this build was requested against.
+        source_count:
+          type: integer
+          description: The corpus's eligible source count this build was requested against.
+        result_version:
+          type: integer
+          description: >-
+            The profile version this build produced (absent until the
+            build completes).
+        candidate_action:
+          type: string
+          description: The recommended next step for this build's candidate.
+        status_code:
+          type: string
+          description: A machine-readable status detail code (absent unless the build failed or deferred).
+        next_attempt_at:
+          type: string
+          format: date-time
+          description: When a deferred build will next be attempted (absent unless deferred).
+      additionalProperties: false
+
+    PublicEventVoiceVersionChanged:
+      type: object
+      x-event-type: voice.version_changed
+      x-entity-type: voice_profile
+      x-version: 1
+      description: >-
+        Payload for voice.version_changed — a derived Voice DNA version's
+        status changed: minted as a candidate, manually activated, rejected,
+        or restored by rollback (ai/voice_versions.go). predecessor_version
+        is absent for a profile's first version, which has none.
+      required:
+        - profile_id
+        - profile_version
+        - status
+        - reason
+        - classification
+        - activation_outcome
+      properties:
+        profile_id:
+          type: string
+          format: uuid
+          description: The profile this version belongs to.
+        profile_version:
+          type: integer
+          description: This version's number.
+        status:
+          type: string
+          description: The version's status after this change (candidate | active | superseded | rejected).
+        reason:
+          type: string
+          description: Why this version was produced (e.g. build | rollback).
+        predecessor_version:
+          type: integer
+          description: The version this one supersedes (absent for a profile's first version).
+        classification:
+          type: string
+          description: The delta's classification against its predecessor (routine | material).
+        activation_outcome:
+          type: string
+          description: >-
+            What happened to this version (auto_activated | manually_activated
+            | rejected | rollback).
+      additionalProperties: false
+
+    PublicEventVoiceDraftOutcomeRecorded:
+      type: object
+      x-event-type: voice.draft_outcome_recorded
+      x-entity-type: voice_profile
+      x-version: 1
+      description: >-
+        Payload for voice.draft_outcome_recorded — a drafted-with-voice
+        signal's outcome was recorded (ai/voice_history.go's
+        RecordDraftOutcome), feeding the automatic-learning corpus.
+      required:
+        - profile_id
+        - outcome
+        - qualifies_as_source
+        - transformation_count
+      properties:
+        profile_id:
+          type: string
+          format: uuid
+          description: The profile this learning signal belongs to.
+        outcome:
+          type: string
+          description: The recorded outcome (drafted | sent_unedited | sent_edited | rejected).
+        qualifies_as_source:
+          type: boolean
+          description: Whether this draft's final text qualifies as a future corpus source.
+        transformation_count:
+          type: integer
+          description: How many transformation edits were applied before send (0 for rejected).
+      additionalProperties: false
+
+    PublicEventUserInvited:
+      type: object
+      x-event-type: user.invited
+      x-entity-type: user
+      x-version: 1
+      description: >-
+        Payload for user.invited — an admin provisioned a new active member
+        with a single-use set-password token (identity/users.go's
+        InviteUser).
+      required:
+        - user_id
+        - role
+        - by
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          description: The invited member.
+        role:
+          type: string
+          description: The single system role key granted to the new member.
+        by:
+          type: string
+          format: uuid
+          description: The admin who issued the invite.
+      additionalProperties: false
+
+    PublicEventUserDeactivated:
+      type: object
+      x-event-type: user.deactivated
+      x-entity-type: user
+      x-version: 1
+      description: >-
+        Payload for user.deactivated — a member's sessions and passports
+        were hard-revoked (identity/users.go's DeactivateUser). reason is
+        the operator-supplied free text, absent when none was given.
+      required:
+        - user_id
+        - by
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          description: The deactivated member.
+        by:
+          type: string
+          format: uuid
+          description: The admin who deactivated the member.
+        reason:
+          type: string
+          description: The operator-supplied reason (absent when none was given).
+      additionalProperties: false
+
+    PublicEventUserReactivated:
+      type: object
+      x-event-type: user.reactivated
+      x-entity-type: user
+      x-version: 1
+      description: >-
+        Payload for user.reactivated — a deactivated member was returned to
+        active (identity/users.go's ReactivateUser).
+      required:
+        - user_id
+        - by
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          description: The reactivated member.
+        by:
+          type: string
+          format: uuid
+          description: The admin who reactivated the member.
+      additionalProperties: false
+
+    PublicEventRoleChanged:
+      type: object
+      x-event-type: role.changed
+      x-entity-type: user
+      x-version: 1
+      description: >-
+        Payload for role.changed — a member's role assignments were
+        replaced with the single target system role (identity/users.go's
+        ChangeUserRole). from_role rides the payload only when the previous
+        state was a single role — a multi-role history has no one "from".
+      required:
+        - user_id
+        - to_role
+        - by
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          description: The member whose role changed.
+        to_role:
+          type: string
+          description: The role key assigned.
+        by:
+          type: string
+          format: uuid
+          description: The admin who changed the role.
+        from_role:
+          type: string
+          description: >-
+            The single prior role key (absent when the member held more
+            than one role before this change).
+      additionalProperties: false
+
+    PublicEventPassportRevoked:
+      type: object
+      x-event-type: passport.revoked
+      x-entity-type: passport
+      x-version: 1
+      description: >-
+        Payload for passport.revoked — an agent passport was hard-revoked
+        (identity/passport.go's RevokePassport), so long-lived consumers
+        drop it within one bus cycle.
+      required:
+        - passport_id
+        - by
+      properties:
+        passport_id:
+          type: string
+          format: uuid
+          description: The revoked passport.
+        by:
+          type: string
+          format: uuid
+          description: The human who revoked it (the granting user, or an admin).
+      additionalProperties: false
+
+    PublicEventOnboardingStateChanged:
+      type: object
+      x-event-type: onboarding.state_changed
+      x-entity-type: onboarding_wizard_state
+      x-version: 1
+      description: >-
+        Payload for onboarding.state_changed — the admitted human's wizard
+        checkpoint was created or advanced (identity/onboarding.go's
+        auditOnboardingState).
+      required:
+        - user_id
+        - path
+        - step
+        - version
+        - voice_skipped
+        - connect_skipped
+        - completed
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          description: The human whose wizard state this is.
+        path:
+          type: string
+          description: The chosen onboarding path.
+        step:
+          type: string
+          description: The wizard step this checkpoint reached.
+        version:
+          type: integer
+          format: int64
+          description: The row's optimistic-concurrency version after this checkpoint.
+        voice_skipped:
+          type: boolean
+          description: Whether the voice-setup step was skipped.
+        connect_skipped:
+          type: boolean
+          description: Whether the incumbent-connect step was skipped.
+        completed:
+          type: boolean
+          description: Whether the wizard was completed as of this checkpoint.
+      additionalProperties: false
+
+    PublicEventMirrorConflict:
+      type: object
+      x-event-type: mirror.conflict
+      x-entity-type: dynamic
+      x-version: 1
+      description: >-
+        Payload for mirror.conflict — the reconcile poller (overlay/
+        reconcile.go's emitMirrorConflict) observed the incumbent CRM had
+        moved a record the mirror's own baseline still called current, an
+        overwrite-worthy divergence (OVA-EVT-1). object_class is the
+        RUNTIME canonical class of the record involved (e.g. "person",
+        "deal") — not a fixed type this schema can name — so this is a
+        dynamic-entity event (contract `x-entity-type: dynamic`): the
+        generated EntityType() is unused, and the emit site supplies the
+        real entity type through storekit.EmitEventForEntity.
+      required:
+        - object_class
+        - external_id
+        - prior_updated_at
+        - incumbent_updated_at
+      properties:
+        object_class:
+          type: string
+          description: The canonical Margince class of the diverged record.
+        external_id:
+          type: string
+          description: The record's incumbent-side natural key.
+        prior_updated_at:
+          type: string
+          format: date-time
+          description: The mirror's prior stored baseline timestamp.
+        incumbent_updated_at:
+          type: string
+          format: date-time
+          description: The incumbent's reported modification timestamp.
+      additionalProperties: false
+
+    PublicEventMirrorBudgetDegraded:
+      type: object
+      x-event-type: mirror.budget_degraded
+      x-entity-type: dynamic
+      x-version: 1
+      description: >-
+        Payload for mirror.budget_degraded — a force-fresh read fell back
+        to the mirror because the workspace's shared OVB budget had
+        shed to the "shed" band (overlay/freshness.go's emitBudgetDegraded,
+        OVA-EVT-3). The event names the record the degraded read was
+        about; that record's class is a RUNTIME value (the read's own
+        entity ref), so this is a dynamic-entity event (contract
+        `x-entity-type: dynamic`): the generated EntityType() is unused,
+        and the emit site supplies the real entity type through
+        storekit.EmitEventForEntity.
+      required:
+        - band
+      properties:
+        band:
+          type: string
+          description: The budget band that forced the degrade (currently always "shed").
+      additionalProperties: false
+
+    PublicEventMirrorDeleted:
+      type: object
+      x-event-type: mirror.deleted
+      x-entity-type: dynamic
+      x-version: 1
+      description: >-
+        Payload for mirror.deleted — continuous sync observed the
+        incumbent report a record deleted, and the mirror purged its
+        cached row, association edges, and visibility projection
+        (overlay/mirrordeletion.go). object_class is the RUNTIME
+        canonical class of the purged record, not a fixed type this
+        schema can name, so this is a dynamic-entity event (contract
+        `x-entity-type: dynamic`): the generated EntityType() is unused,
+        and the emit site supplies the real entity type through
+        storekit.EmitEventForEntity.
+      required:
+        - object_class
+        - external_id
+        - deleted_at
+      properties:
+        object_class:
+          type: string
+          description: The canonical Margince class of the purged record.
+        external_id:
+          type: string
+          description: The record's incumbent-side natural key.
+        deleted_at:
+          type: string
+          format: date-time
+          description: When the incumbent reported the deletion.
+      additionalProperties: false
+
+    PublicEventMirrorWriteRejected:
+      type: object
+      x-event-type: mirror.write_rejected
+      x-entity-type: dynamic
+      x-version: 1
+      description: >-
+        Payload for mirror.write_rejected. Never emitted today — reserved
+        for branch 2 (writes to an overlay-mode workspace's incumbent
+        CRM, currently declared unsupported_by_sor); the schema is
+        published so the type is a valid subscription target and the
+        coverage gate can name it explicitly rather than silently
+        omitting it.
+      additionalProperties: false
+
+    PublicEventIncumbentConnected:
+      type: object
+      x-event-type: incumbent.connected
+      x-entity-type: incumbent_connection
+      x-version: 1
+      description: >-
+        Payload for incumbent.connected — a workspace completed the
+        overlay-mode incumbent-CRM connect flow (overlay/connection.go's
+        insertConnection); the workspace flipped to x_sor_mode=overlay in
+        the same transaction. Unlike the mirror.* events above, this
+        event's subject is always the incumbent_connection row itself —
+        a fixed type — so it is emitted via the plain storekit.EmitEvent.
+      required:
+        - incumbent
+        - region
+        - scopes
+        - status
+      properties:
+        incumbent:
+          type: string
+          description: The incumbent CRM system connected (e.g. "hubspot").
+        region:
+          type: string
+          description: The incumbent account's data-residency region.
+        scopes:
+          type: array
+          items:
+            type: string
+          description: The least-privilege OAuth scope set granted.
+        status:
+          type: string
+          description: The connection's status after this change (active).
+      additionalProperties: false
+
+    PublicEventIncumbentDisconnected:
+      type: object
+      x-event-type: incumbent.disconnected
+      x-entity-type: incumbent_connection
+      x-version: 1
+      description: >-
+        Payload for incumbent.disconnected — a workspace's active
+        incumbent-CRM connection was revoked (overlay/teardown.go's
+        Disconnect); mirror teardown and credential cleanup follow. This
+        event's subject is always the incumbent_connection row itself —
+        a fixed type — so it is emitted via the plain storekit.EmitEvent.
+      required:
+        - incumbent
+        - region
+        - status
+      properties:
+        incumbent:
+          type: string
+          description: The incumbent CRM system disconnected.
+        region:
+          type: string
+          description: The incumbent account's data-residency region.
+        status:
+          type: string
+          description: The connection's status after this change (revoked).
+      additionalProperties: false
+
+    PublicEventApprovalRequested:
+      type: object
+      x-event-type: approval.requested
+      x-entity-type: approval
+      x-version: 1
+      description: >-
+        Payload for approval.requested — an agent's 🟡 call was staged
+        pending a human decision (ADR-0036, approvals/staging.go's
+        StageInTx). The staged approval row's own id is the event's
+        entity ref; this payload names what was staged, its polymorphic
+        target, and when the staging lapses into expired if undecided.
+      required:
+        - kind
+        - summary
+        - target_entity_type
+        - expires_at
+      properties:
+        kind:
+          type: string
+          description: The staged tool/kind name (e.g. advance_deal).
+        summary:
+          type: string
+          description: The human-readable summary the inbox shows.
+        target_entity_type:
+          type: string
+          description: The polymorphic entity type the staged action targets.
+        target_entity_id:
+          type: string
+          format: uuid
+          description: >-
+            The polymorphic entity id the staged action targets; absent
+            when the staging names no single target row.
+        expires_at:
+          type: string
+          format: date-time
+          description: When this staging lapses into expired if undecided.
+      additionalProperties: false
+
+    PublicEventApprovalDecided:
+      type: object
+      x-event-type: approval.decided
+      x-entity-type: approval
+      x-version: 1
+      description: >-
+        Payload for approval.decided — a human approved or rejected a
+        staged approval (approvals/decide.go). verdict and edited_change
+        are decoded BY NAME outside this module — automation's
+        blocked-run consumer matches verdict (automation/engine_blocked.go),
+        the Surface-B runner's resume consumer reads edited_change
+        (compose/runnerservice.go) — see the JSON-tag regression tests in
+        internal/modules/webhooks. edited/diff_hash/edited_change are
+        present only on the ADR-0036 §4 modify-then-approve arm, where the
+        human's edited payload replaced the staged change under a freshly
+        computed diff_hash.
+      required:
+        - kind
+        - verdict
+        - decided_by
+      properties:
+        kind:
+          type: string
+          description: The decided staging's kind.
+        verdict:
+          type: string
+          description: The decision outcome (approved | rejected).
+        decided_by:
+          type: string
+          format: uuid
+          description: The deciding human's user id.
+        edited:
+          type: boolean
+          description: >-
+            True when the human edited the proposed change before
+            approving (present only on the modify-then-approve arm).
+        diff_hash:
+          type: string
+          description: >-
+            The edited change's freshly computed diff_hash (present only
+            on the modify-then-approve arm).
+        edited_change:
+          type: object
+          additionalProperties: true
+          description: >-
+            The human's edited version of the proposed change (present
+            only on the modify-then-approve arm) — an OPEN object: its
+            shape is whatever the staged kind's proposed_change carries,
+            so it stays a raw map rather than a narrowly typed struct
+            (the runner's resume consumer decodes it as json.RawMessage
+            off the wire; a fixed struct here would drop fields a future
+            staging kind adds).
+      additionalProperties: false
+
+    PublicEventColdstartReadBackProposed:
+      type: object
+      x-event-type: coldstart.read_back_proposed
+      x-entity-type: approval
+      x-version: 1
+      description: >-
+        Payload for coldstart.read_back_proposed — a cold-start read-back
+        was staged as a "coldstart" approval (compose/coldstart.go's
+        stage, carried through approvals/staging.go's Announce alongside
+        approval.requested on the same audit row). Carries only the
+        read-back's shape, never the extracted field values or the
+        pasted source text/statement — tenant data never rides an
+        announced event.
+      required:
+        - field_count
+      properties:
+        field_count:
+          type: integer
+          description: How many fields the read-back grounded.
+        source_url:
+          type: string
+          description: The read-back's source URL (url-kind read-backs only).
+        source_kind:
+          type: string
+          description: >-
+            The read-back's source kind (text | self_description); absent
+            for a url-kind read-back, which sets source_url instead.
+      additionalProperties: false
+
+    PublicEventColdstartAccepted:
+      type: object
+      x-event-type: coldstart.accepted
+      x-entity-type: approval
+      x-version: 1
+      description: >-
+        Payload for coldstart.accepted — a human accepted a staged
+        cold-start read-back (approvals/decide.go's kind-decided echo,
+        emitted on the same audit row as approval.decided).
+      required:
+        - approval_id
+        - decided_by
+      properties:
+        approval_id:
+          type: string
+          format: uuid
+          description: The decided approval's id (same as the envelope's entity ref).
+        decided_by:
+          type: string
+          format: uuid
+          description: The deciding human's user id.
+      additionalProperties: false
+
+    PublicEventColdstartRejected:
+      type: object
+      x-event-type: coldstart.rejected
+      x-entity-type: approval
+      x-version: 1
+      description: >-
+        Payload for coldstart.rejected — a human rejected a staged
+        cold-start read-back (approvals/decide.go's kind-decided echo,
+        emitted on the same audit row as approval.decided).
+      required:
+        - approval_id
+        - decided_by
+      properties:
+        approval_id:
+          type: string
+          format: uuid
+          description: The decided approval's id (same as the envelope's entity ref).
+        decided_by:
+          type: string
+          format: uuid
+          description: The deciding human's user id.
+      additionalProperties: false
+
+    PublicEventAuditAppended:
+      type: object
+      x-event-type: audit.appended
+      x-entity-type: audit
+      x-version: 1
+      description: >-
+        Payload for audit.appended — not currently delivered: there is no
+        emit site for this type, and none is planned for V1. It exists so
+        the §5 catalog (events.Types()) is completely covered by a payload
+        schema (the whole-catalog coverage gate), never carrying a
+        subscribable type with no contract. An empty payload by design —
+        the audit ledger row it would announce is workspace-level (its
+        subject is resolved back under the receiver's own scope), so no
+        record detail rides the event.
+      additionalProperties: false

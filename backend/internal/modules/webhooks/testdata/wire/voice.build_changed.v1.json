@@ -1,0 +1,13 @@
+{
+  "build_id": "00000000-0000-0000-0000-0000000000a4",
+  "candidate_action": "retry",
+  "next_attempt_at": "2026-07-22T12:00:00Z",
+  "profile_id": "00000000-0000-0000-0000-0000000000a1",
+  "reason": "onboarding",
+  "result_version": 5,
+  "source_count": 4,
+  "source_hash": "abc123",
+  "stage": "extracting",
+  "status": "deferred",
+  "status_code": "rate_limited"
+}

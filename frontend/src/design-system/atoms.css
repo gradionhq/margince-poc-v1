@@ -332,6 +332,17 @@
   gap: 8px;
 }
 
+/* Multiselect field group (create.tsx MultiselectField): a legend + one
+ * checkbox row per option, at the same 8px rhythm as .field-repeatable. */
+.field-multiselect {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+
 /* Form field stack (create.tsx RecordFormBody): the 8/12 spacing scale. */
 .form-stack {
   display: flex;

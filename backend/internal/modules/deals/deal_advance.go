@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -116,15 +117,7 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.DealID, in AdvanceDealIn
 		// The §5.3 payload carries the amount snapshot so as-of-date
 		// pipeline reports and the overnight stalled/forecast sweep react
 		// without a read-back; to_status records the 🟡 won/lost class.
-		if err := storekit.Emit(ctx, tx, auditID, "deal.stage_changed", "deal", id.UUID, map[string]any{
-			"from_stage_id":          current.StageId,
-			"to_stage_id":            in.ToStageID,
-			"from_status":            current.Status,
-			"to_status":              status,
-			"amount_minor_at_change": current.AmountMinor,
-			"currency_at_change":     current.Currency,
-			"win_probability":        winProbability,
-		}); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, dealStageChangedPayload(current, in.ToStageID, status, winProbability)); err != nil {
 			return fmt.Errorf("emit deal.stage_changed: %w", err)
 		}
 		if out, err = readDeal(ctx, tx, id, storekit.LiveOnly, active); err != nil {
@@ -133,6 +126,23 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.DealID, in AdvanceDealIn
 		return nil
 	})
 	return out, err
+}
+
+// dealStageChangedPayload builds the deal.stage_changed wire payload from
+// the pre-move deal snapshot and the resolved transition — the ONE place
+// that maps AdvanceDeal's local values onto the published schema, so a
+// future field rename shows up here (and at its call site) rather than at
+// two independently-drifting map literals.
+func dealStageChangedPayload(current crmcontracts.Deal, toStageID ids.StageID, toStatus string, winProbability int) crmcontracts.PublicEventDealStageChanged {
+	return crmcontracts.PublicEventDealStageChanged{
+		FromStageId:         current.StageId,
+		ToStageId:           openapi_types.UUID(toStageID.UUID),
+		FromStatus:          string(current.Status),
+		ToStatus:            toStatus,
+		AmountMinorAtChange: current.AmountMinor,
+		CurrencyAtChange:    current.Currency,
+		WinProbability:      winProbability,
+	}
 }
 
 // resolveAdvanceTarget reads the target stage's semantic and win

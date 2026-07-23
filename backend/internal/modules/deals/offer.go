@@ -19,6 +19,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -117,9 +118,9 @@ func createOfferTx(ctx context.Context, tx pgx.Tx, dealID ids.DealID, in CreateO
 	if err != nil {
 		return crmcontracts.Offer{}, fmt.Errorf("audit offer create: %w", err)
 	}
-	if err := storekit.Emit(ctx, tx, auditID, "offer.created", "offer", id.UUID, map[string]any{
-		"offer_id": id, "deal_id": dealID, "revision": 1,
-		"currency": in.Currency, "source": in.Source, "captured_by": by,
+	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventOfferCreated{
+		OfferId: openapi_types.UUID(id.UUID), DealId: openapi_types.UUID(dealID.UUID), Revision: 1,
+		Currency: in.Currency, Source: in.Source, CapturedBy: by,
 	}); err != nil {
 		return crmcontracts.Offer{}, fmt.Errorf("emit offer.created: %w", err)
 	}

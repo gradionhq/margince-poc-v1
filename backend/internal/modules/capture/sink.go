@@ -13,7 +13,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -193,15 +195,21 @@ func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.Nor
 	if err != nil {
 		return datasource.EntityRef{}, false, err
 	}
-	if err := storekit.Emit(ctx, tx, auditID, "activity.captured", "activity", id.UUID, map[string]any{
-		"kind": fields.Kind, "source_system": rec.NaturalKey.SourceSystem,
-	}); err != nil {
+	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, activityCaptureEventPayload(fields.Kind, rec.NaturalKey.SourceSystem)); err != nil {
 		return datasource.EntityRef{}, false, err
 	}
 	if err := s.emitReply(ctx, tx, auditID, id, rec, fields); err != nil {
 		return datasource.EntityRef{}, false, err
 	}
 	return ref, true, nil
+}
+
+// activityCaptureEventPayload builds the activity.captured event for the
+// capture ingestion path — the one emit site (of the event's two) that
+// names an originating source system; the direct-log path
+// (activities/activity.go) sets no fields but kind.
+func activityCaptureEventPayload(kind, sourceSystem string) crmcontracts.PublicEventActivityCaptured {
+	return crmcontracts.PublicEventActivityCaptured{Kind: kind, SourceSystem: &sourceSystem}
 }
 
 // emitReply is CAP-FORMULA-1: an INBOUND message in a thread we previously
@@ -227,24 +235,38 @@ func (s *Sink) emitReply(ctx context.Context, tx pgx.Tx, auditID ids.UUID, id id
 	// contact_id resolves when the counterparty is already a person (the
 	// normal reply case — the outbound leg's ensure created them); a
 	// first-ever counterparty resolves in the follow-up ensure instead.
-	payload := map[string]any{
-		"matched_outbound_activity_id": matched.String(),
-		"channel":                      "email",
-		"occurred_at":                  defaultOccurredAt(fields.OccurredAt),
-		"idempotency_key":              rec.NaturalKey.SourceSystem + ":" + rec.NaturalKey.SourceID,
-	}
+	var contactID *ids.PersonID
 	if cp := strings.ToLower(strings.TrimSpace(rec.Counterparty.Email)); cp != "" {
 		var personID ids.PersonID
 		err := tx.QueryRow(ctx, `
 			SELECT person_id FROM person_email WHERE email = $1 AND archived_at IS NULL
 			ORDER BY is_primary DESC LIMIT 1`, cp).Scan(&personID)
 		if err == nil {
-			payload["contact_id"] = personID.String()
+			contactID = &personID
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("capture: reply contact lookup: %w", err)
 		}
 	}
-	return storekit.Emit(ctx, tx, auditID, "engagement.reply", "activity", id.UUID, payload)
+	idempotencyKey := rec.NaturalKey.SourceSystem + ":" + rec.NaturalKey.SourceID
+	payload := engagementReplyPayload(matched, defaultOccurredAt(fields.OccurredAt), idempotencyKey, contactID)
+	return storekit.EmitEvent(ctx, tx, auditID, id.UUID, payload)
+}
+
+// engagementReplyPayload builds the engagement.reply event — the reply's
+// contact_id is carried only when the counterparty already resolves to a
+// known person (absent, not null, otherwise).
+func engagementReplyPayload(matched ids.UUID, occurredAt time.Time, idempotencyKey string, contactID *ids.PersonID) crmcontracts.PublicEventEngagementReply {
+	payload := crmcontracts.PublicEventEngagementReply{
+		MatchedOutboundActivityId: openapi_types.UUID(matched),
+		Channel:                   "email",
+		OccurredAt:                occurredAt,
+		IdempotencyKey:            idempotencyKey,
+	}
+	if contactID != nil {
+		id := openapi_types.UUID(contactID.UUID)
+		payload.ContactId = &id
+	}
+	return payload
 }
 
 // captureLead lands one lead behind the suppression and dedupe guards.
@@ -301,12 +323,18 @@ func (s *Sink) captureLead(ctx context.Context, tx pgx.Tx, rec connector.Normali
 	if err != nil {
 		return datasource.EntityRef{}, nil, nil, err
 	}
-	if err := storekit.Emit(ctx, tx, auditID, "lead.created", "lead", id.UUID, map[string]any{
-		"source_system": rec.NaturalKey.SourceSystem,
-	}); err != nil {
+	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, leadCreatedCapturePayload(rec.NaturalKey.SourceSystem)); err != nil {
 		return datasource.EntityRef{}, nil, nil, err
 	}
 	return ref, nil, nil, nil
+}
+
+// leadCreatedCapturePayload builds the lead.created event for the
+// capture auto-create path — the one emit site (of the event's two)
+// that names an originating source system; the direct-create path
+// (people/lead.go) sets no fields at all.
+func leadCreatedCapturePayload(sourceSystem string) crmcontracts.PublicEventLeadCreated {
+	return crmcontracts.PublicEventLeadCreated{SourceSystem: &sourceSystem}
 }
 
 func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields ActivityFields) (ids.ActivityID, bool, error) {
