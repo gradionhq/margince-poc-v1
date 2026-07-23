@@ -149,7 +149,6 @@ function FxRateModal({ onClose }: Readonly<{ onClose: () => void }>) {
         id={`${labelId}-from`}
         value={from}
         maxLength={3}
-        placeholder="USD"
         onChange={(e) => setFrom(e.target.value)}
       />
       <label className="t-label" htmlFor={`${labelId}-rate`}>
@@ -358,15 +357,8 @@ function ModelCostModal({ onClose }: Readonly<{ onClose: () => void }>) {
         t("settings.rates.colProvider"),
         provider,
         setProvider,
-        "anthropic",
       )}
-      {field(
-        "model",
-        t("settings.rates.colModel"),
-        modelId,
-        setModelId,
-        "claude-opus-4-8",
-      )}
+      {field("model", t("settings.rates.colModel"), modelId, setModelId)}
       {field("in", t("settings.rates.colInput"), input, setInput, "5.00")}
       {field("out", t("settings.rates.colOutput"), output, setOutput, "25.00")}
       {field("cr", t("settings.rates.colCacheRead"), cacheRead, setCacheRead)}

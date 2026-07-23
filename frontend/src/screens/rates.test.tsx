@@ -107,8 +107,6 @@ describe("RatesScreen", () => {
     render(<RatesScreen />);
     await waitFor(() => expect(screen.getByText("USD")).toBeTruthy());
     expect(screen.queryByRole("button", { name: "Set rate" })).toBeNull();
-    expect(
-      screen.queryByRole("button", { name: "Add model rate" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add model rate" })).toBeNull();
   });
 });
