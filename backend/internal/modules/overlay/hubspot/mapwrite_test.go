@@ -128,12 +128,15 @@ func TestMapWriteActivityTaskDueAtW3(t *testing.T) {
 	}
 }
 
-// OVA-MAP-W5 — lead full_name → hs_lead_name, status → hs_lead_label;
-// email/company_name are association-derived and read-only on a lead write.
+// OVA-MAP-W5 — lead full_name → hs_lead_name; email/company_name are
+// association-derived and read-only on a lead write; and the status ↔
+// hs_lead_label projection is DEFERRED (both directions) pending a pinned
+// value map, matching the read side's raw-passthrough deferral (OVA-MAP-5) —
+// so a raw status enum is never written untransformed into the label.
 func TestMapWriteLeadPropsW5(t *testing.T) {
 	got, err := mapWrite("lead", map[string]any{
 		"full_name":    "Grace Hopper",
-		"status":       "qualified",
+		"status":       "qualified",         // deferred — not written raw
 		"email":        "grace@example.com", // read-only
 		"company_name": "Navy",              // read-only
 	})
@@ -146,8 +149,8 @@ func TestMapWriteLeadPropsW5(t *testing.T) {
 	if got.Props["hs_lead_name"] != "Grace Hopper" {
 		t.Errorf("hs_lead_name = %q, want Grace Hopper", got.Props["hs_lead_name"])
 	}
-	if got.Props["hs_lead_label"] != "qualified" {
-		t.Errorf("hs_lead_label = %q, want qualified", got.Props["hs_lead_label"])
+	if _, ok := got.Props["hs_lead_label"]; ok {
+		t.Error("lead status/label projection is deferred — a raw status enum must not be written to hs_lead_label")
 	}
 	if _, ok := got.Props["email"]; ok {
 		t.Error("lead email is association-derived and read-only — must not be written")

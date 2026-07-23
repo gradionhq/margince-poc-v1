@@ -90,13 +90,25 @@ var organizationWriteFields = []directWriteField{
 	{Canonical: industryField, HSProp: industryField},
 }
 
-// leadWriteFields — OVA-MAP-W5, restricted to the REAL Leads-object
-// properties. email and company_name are DERIVED through the required contact
-// association (OVA-MAP-5), not Leads-object properties Margince can write, so
-// they are read-only and absent here.
+// leadWriteFields — OVA-MAP-W5's writable Leads-object property that has a
+// clean, transform-free projection: full_name → hs_lead_name.
+//
+// The status ↔ hs_lead_label projection is DEFERRED in both directions, on
+// purpose: the read side (OVA-MAP-5, leadsMapping) keeps hs_lead_label a RAW
+// passthrough and explicitly defers the typed status-enum remap "until a
+// documented transform + a real capture". Writing a canonical status enum
+// token straight into HubSpot's hs_lead_label would be exactly that
+// untransformed projection the read declined as unsafe — and it would not be
+// the inverse of the read (which produces hs_lead_label, never status). So
+// lead status/label write-back waits on a pinned, bidirectional value map;
+// this is a contract-first reconciliation item against OVA-MAP-W5, which
+// currently assumes a transform OVA-MAP-5 has not defined.
+//
+// email and company_name are DERIVED through the required contact association
+// (OVA-MAP-5), not Leads-object properties Margince can write, so they are
+// read-only and absent here too.
 var leadWriteFields = []directWriteField{
 	{Canonical: targetFullName, HSProp: "hs_lead_name"},
-	{Canonical: "status", HSProp: propLeadLabel},
 }
 
 // copyDirect projects the direct 1:1 fields present in the canonical bag onto
@@ -147,9 +159,12 @@ var dealWriteFields = []directWriteField{
 // the write targets (the inverse of OVA-MAP-1's class→kind); each class has
 // its own subject/body/direction property names (mirroring the five read
 // mappings). duration_seconds → hs_call_duration ×1000 (ms, call only); a
-// task's due_at → hs_timestamp (task only). occurred_at is sourced from the
-// incumbent's own creation/occurrence timestamp (OVA-MAP-8) and is read-only —
-// never written.
+// task's due_at → hs_timestamp (task only). occurred_at is NOT written for any
+// class: for a task the read sources it from hs_createdate (a genuine creation
+// stamp, OVA-MAP-8), and for calls/emails/meetings write-back of the
+// occurrence timestamp is a V1 deferral rather than risk moving an event's
+// time on the incumbent from a partial patch — a tracked follow-up, not a
+// nature-of-the-field claim.
 //
 //craft:ignore naked-any fields is the JSON-decoded canonical bag; the any is inherent to the decoded shape
 func mapWriteActivity(fields map[string]any) (writeMapping, error) {
@@ -237,21 +252,17 @@ func writableString(v any) (string, bool) {
 	}
 }
 
-// numericField reads an integer-valued canonical field (JSON numbers decode as
-// float64). A null/absent/non-numeric value is ok=false.
+// numericField reads an integer-valued canonical field. The canonical bag is
+// always JSON-decoded (canonicalFields → json.Unmarshal), so a number arrives
+// as float64; a null/absent/non-numeric value is ok=false.
 //
 //craft:ignore naked-any v is a JSON-decoded canonical value; the any is inherent to the decoded shape
 func numericField(fields map[string]any, key string) (int64, bool) {
-	switch t := fields[key].(type) {
-	case float64:
-		return int64(t), true
-	case int64:
-		return t, true
-	case int:
-		return int64(t), true
-	default:
+	f, ok := fields[key].(float64)
+	if !ok {
 		return 0, false
 	}
+	return int64(f), true
 }
 
 // rfc3339ToMillis parses a canonical RFC3339 timestamp (how a contract

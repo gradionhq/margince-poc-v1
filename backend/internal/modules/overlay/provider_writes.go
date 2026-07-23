@@ -83,6 +83,12 @@ func (p *Provider) Create(ctx context.Context, in datasource.CreateInput) (datas
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
+	// Assert the mirror store up front — like Update/Archive — so a mis-wired
+	// provider fails BEFORE POSTing to the incumbent, never leaving an
+	// orphaned incumbent record that was never mirrored.
+	if p.ms == nil {
+		return datasource.EntityRef{}, errNoMirrorStore()
+	}
 	fields, err := canonicalFields(in.Fields)
 	if err != nil {
 		return datasource.EntityRef{}, err
