@@ -58,6 +58,31 @@ const refusalKeys: Record<string, MessageKey> = {
   unsupported_format: "ob.conv.voice.refusalUnsupported",
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+// Every stable machine code an RFC 7807 body carries: the top-level `code`
+// plus any per-field `details.errors[].code`.
+function problemCodes(problem: unknown): string[] {
+  if (!isRecord(problem)) {
+    return [];
+  }
+  const codes: string[] = [];
+  if (typeof problem.code === "string") {
+    codes.push(problem.code);
+  }
+  const details = problem.details;
+  if (isRecord(details) && Array.isArray(details.errors)) {
+    for (const raw of details.errors) {
+      if (isRecord(raw) && typeof raw.code === "string") {
+        codes.push(raw.code);
+      }
+    }
+  }
+  return codes;
+}
+
 // The 422's stable machine code (top-level or per-field in details.errors)
 // picks the honest refusal line; an unknown code falls back to the server's
 // safe detail.
@@ -65,23 +90,9 @@ function refusalEntry(
   ref: string,
   problem: unknown,
 ): Extract<ConversationEvent, { type: "NARRATION" }>["entry"] {
-  const codes: string[] = [];
-  if (problem && typeof problem === "object") {
-    const record = problem as Record<string, unknown>;
-    if (typeof record.code === "string") {
-      codes.push(record.code);
-    }
-    const details = record.details as Record<string, unknown> | undefined;
-    if (details && Array.isArray(details.errors)) {
-      for (const raw of details.errors) {
-        const code = (raw as Record<string, unknown> | null)?.code;
-        if (typeof code === "string") {
-          codes.push(code);
-        }
-      }
-    }
-  }
-  const known = codes.find((code) => refusalKeys[code] !== undefined);
+  const known = problemCodes(problem).find(
+    (code) => refusalKeys[code] !== undefined,
+  );
   if (known !== undefined) {
     return {
       kind: "narration",
@@ -170,8 +181,17 @@ export function useVoiceCorpus({ state, dispatch }: UseVoiceCorpusArgs) {
     return profileIdInFlight.current;
   }, []);
 
+  // Concurrent ingests can settle out of order; each request is stamped at
+  // issue time and only the newest-by-request-order summary may drive the
+  // meter and the word-growth narration. Every response's summary is
+  // authoritative for the corpus AT that request — a stale one arriving
+  // late must not roll the displayed totals (and the build gate) backwards.
+  const ingestSeq = useRef(0);
+  const appliedSummarySeq = useRef(0);
+
   const recordIngest = useCallback(
     (
+      seq: number,
       entry: CorpusManifestEntry,
       stats: IngestStats,
       next: CorpusSummary,
@@ -189,6 +209,10 @@ export function useVoiceCorpus({ state, dispatch }: UseVoiceCorpusArgs) {
         total: stats.input_words,
         words: stats.kept_words,
       });
+      if (seq <= appliedSummarySeq.current) {
+        return;
+      }
+      appliedSummarySeq.current = seq;
       queue.push(diffCorpus(summaryRef.current, next));
       summaryRef.current = next;
       setSummary(next);
@@ -202,6 +226,8 @@ export function useVoiceCorpus({ state, dispatch }: UseVoiceCorpusArgs) {
       transcript: boolean,
       reactionKey: MessageKey,
     ): Promise<void> => {
+      ingestSeq.current += 1;
+      const seq = ingestSeq.current;
       const profileId = await sharedProfileId();
       const { data, error } = await api.POST("/voice-profiles/{id}/sources", {
         params: { path: { id: profileId } },
@@ -217,6 +243,7 @@ export function useVoiceCorpus({ state, dispatch }: UseVoiceCorpusArgs) {
         return;
       }
       recordIngest(
+        seq,
         {
           ref: body.source_ref,
           label: body.source_label,

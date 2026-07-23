@@ -9,6 +9,7 @@ import type {
   BuildStage,
   BuildTerminalStatus,
   ConversationEvent,
+  ConversationState,
 } from "./conversation-machine";
 import type { VoiceBuildSnapshot } from "./narration";
 import { diffVoiceBuild, useNarrationQueue } from "./narration";
@@ -43,12 +44,15 @@ const BUILD_STAGES: readonly BuildStage[] = [
 
 type UseVoiceBuildArgs = Readonly<{
   dispatch: Dispatch<ConversationEvent>;
+  /** Live view of the machine, for the poll-failure fallback guards. */
+  machine: Readonly<{ current: ConversationState }>;
   /** The corpus hook's single-flight profile resolution. */
   sharedProfileId: () => Promise<string>;
 }>;
 
 export function useVoiceBuild({
   dispatch,
+  machine,
   sharedProfileId,
 }: UseVoiceBuildArgs) {
   const [profileId, setProfileId] = useState<string | null>(null);
@@ -132,6 +136,34 @@ export function useVoiceBuild({
       dispatch({ type: "BUILD_TERMINAL", buildId: next.id, status: terminal });
     }
   }, [poll.data, queue, dispatch]);
+
+  // A persistently failing poll must not strand the act in vo.building:
+  // isError flips only after react-query exhausted its retries (a transient
+  // error that recovers never lands here), and only the still-active,
+  // still-building run is concluded — a run whose real terminal already
+  // moved the machine to vo.result (or a superseded build id) keeps its
+  // recorded outcome. The failed conclusion re-arms the retry chip; the
+  // durable build keeps running server-side either way.
+  useEffect(() => {
+    if (!poll.isError || buildId === null) {
+      return;
+    }
+    const { phase, activeBuildId } = machine.current;
+    if (phase !== "vo.building" || activeBuildId !== buildId) {
+      return;
+    }
+    queue.flush();
+    dispatch({
+      type: "NARRATION",
+      buildId,
+      entry: {
+        kind: "narration",
+        id: `${buildId}:poll-failed`,
+        i18nKey: "ob.conv.voice.buildPollFailed",
+      },
+    });
+    dispatch({ type: "BUILD_TERMINAL", buildId, status: "failed" });
+  }, [poll.isError, buildId, machine, queue, dispatch]);
 
   // What the finished build produced: the just-built version carries the
   // structured insights (candidate when it awaits review). A failed version

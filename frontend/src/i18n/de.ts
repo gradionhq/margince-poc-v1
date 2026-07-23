@@ -1336,7 +1336,7 @@ export const de = {
   "ob.conv.voice.uploadAdded": "{name} hinzugefügt.",
   "ob.conv.voice.speakerQuestion":
     "Dieses Transkript hat mehrere Sprecher. Wer davon bist du? Nur deine eigenen Worte zählen.",
-  "ob.conv.voice.speakerOptionDetail": "Worte: {words} · Beiträge: {turns}",
+  "ob.conv.voice.speakerOptionDetail": "Wörter: {words} · Beiträge: {turns}",
   "ob.conv.voice.collectAsk":
     "Schick mir Texte, die du geschrieben hast. Gesprächs-Transkripte sind am besten: .vtt, .srt, .json oder Text mit Sprecher-Labels. Einfache Dokumente gehen auch, und unten kannst du Text einfügen.",
   "ob.conv.voice.composer": "Füge einen eigenen Text ein oder hänge Dateien an",
@@ -1346,13 +1346,13 @@ export const de = {
   "ob.conv.voice.fileSkipped":
     "Ich kann {name} nicht lesen. Ich nehme .txt, .md, .vtt, .srt oder .json.",
   "ob.conv.voice.fileEmpty":
-    "In {name} stehen keine Worte, also wurde nichts gezählt.",
+    "In {name} stehen keine Wörter, also wurde nichts gezählt.",
   "ob.conv.voice.reactionTranscript":
-    "Behaltene Worte: {kept} von {total}. Nur deine Beiträge zählen, und gesprochene Sprache schärft deine Stimme am meisten.",
+    "Behaltene Wörter: {kept} von {total}. Nur deine Beiträge zählen, und gesprochene Sprache schärft deine Stimme am meisten.",
   "ob.conv.voice.reactionDocument":
-    "Gezählte Worte: {words}. Jedes Wort hier ist deins, also zählen alle.",
+    "Gezählte Wörter: {words}. Jedes Wort hier ist deins, also zählen alle.",
   "ob.conv.voice.refusalUnattributed":
-    "Das sieht nach einem Gespräch aus, aber ich kann nicht erkennen, welche Worte deine sind. Ich habe nichts gezählt, denn ich zähle nur Worte, die nachweislich von dir stammen.",
+    "Das sieht nach einem Gespräch aus, aber ich kann nicht erkennen, welche Wörter deine sind. Ich habe nichts gezählt, denn ich zähle nur Wörter, die nachweislich von dir stammen.",
   "ob.conv.voice.refusalSpeaker":
     "Ich konnte diesen Sprecher im Transkript nicht finden. Nichts wurde gezählt.",
   "ob.conv.voice.refusalUnsupported":
@@ -1367,11 +1367,13 @@ export const de = {
     "Das ist zu kurz, um viel zu lernen. Hänge Dateien an oder füge einen längeren eigenen Text ein.",
   "ob.conv.voice.pasteSource": "Eingefügter Text",
   "ob.conv.voice.buildFloor":
-    "Eigene Worte bisher: {words}. Ich brauche mindestens {min}, bevor ich bauen kann.",
+    "Eigene Wörter bisher: {words}. Ich brauche mindestens {min}, bevor ich bauen kann.",
   "ob.conv.voice.buildNudge":
-    "Ich habe genug zum Bauen. Mehr Material hilft trotzdem: Ab 4.000 Worten wird deine Stimme deutlich schärfer.",
+    "Ich habe genug zum Bauen. Mehr Material hilft trotzdem: Ab 4.000 Wörtern wird deine Stimme deutlich schärfer.",
   "ob.conv.voice.buildChip": "Mein Stimmprofil bauen",
   "ob.conv.voice.retryBuild": "Aufbau erneut versuchen",
+  "ob.conv.voice.buildPollFailed":
+    "Ich habe die Verbindung während des Aufbaus verloren. Deine Texte bleiben erhalten, versuche den Aufbau erneut.",
   "ob.conv.voice.statusBuilding": "Dein Stimmprofil entsteht",
   "ob.conv.voice.resultTitle":
     "Das ist deine Stimme, in deinen eigenen Worten.",
@@ -1382,13 +1384,13 @@ export const de = {
     "Diese Version braucht deine Prüfung, bevor sie aktiv wird. Freigeben kannst du sie in den Einstellungen.",
   "ob.conv.voice.artifactTitle": "Stimm-Korpus",
   "ob.conv.voice.artifactBody":
-    "Hier zählen nur deine eigenen Worte. Jede Zahl kommt vom Server, nach dem Sprecher-Filter.",
+    "Hier zählen nur deine eigenen Wörter. Jede Zahl kommt vom Server, nach dem Sprecher-Filter.",
   "ob.conv.voice.artifactEmpty":
     "Noch nichts gesammelt. Hänge ein Transkript oder einen eigenen Text an.",
-  "ob.conv.voice.meterWords": "Eigene Worte: {words} von {target}",
+  "ob.conv.voice.meterWords": "Eigene Wörter: {words} von {target}",
   "ob.conv.voice.meterBand": "Qualität: {band}",
-  "ob.conv.voice.manifestKept": "{kept} von {total} Worten behalten",
-  "ob.conv.voice.manifestWords": "{words} Worte",
+  "ob.conv.voice.manifestKept": "{kept} von {total} Wörtern behalten",
+  "ob.conv.voice.manifestWords": "{words} Wörter",
   "ob.conv.voice.registerMix": "Register: {mix}",
   "ob.conv.voice.stageTitle": "Aufbau-Fortschritt",
   "ob.conv.corpus.words": "Eigene Worte jetzt im Korpus: {words}.",

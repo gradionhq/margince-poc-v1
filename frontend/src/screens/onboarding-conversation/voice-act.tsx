@@ -50,9 +50,12 @@ function corePresence(state: ConversationState): MarginceCoreState {
 
 export function VoiceAct({ state, dispatch }: VoiceActProps) {
   const t = useT();
+  const machine = useRef(state);
+  machine.current = state;
   const corpus = useVoiceCorpus({ state, dispatch });
   const build = useVoiceBuild({
     dispatch,
+    machine,
     sharedProfileId: corpus.sharedProfileId,
   });
   const [draft, setDraft] = useState("");

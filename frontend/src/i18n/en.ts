@@ -1347,6 +1347,8 @@ export const en = {
     "I have enough to build. More material still helps: 4,000 or more words make your voice noticeably sharper.",
   "ob.conv.voice.buildChip": "Build my voice profile",
   "ob.conv.voice.retryBuild": "Try the build again",
+  "ob.conv.voice.buildPollFailed":
+    "I lost the connection during the build. Your texts are kept; try the build again.",
   "ob.conv.voice.statusBuilding": "Building your voice profile",
   "ob.conv.voice.resultTitle": "Here is your voice, in your own words.",
   "ob.conv.voice.resultLoading": "Loading what the build learned.",

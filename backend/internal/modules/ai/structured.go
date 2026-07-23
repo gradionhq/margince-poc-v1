@@ -88,6 +88,10 @@ func (r *Router) forgetCached(ctx context.Context, task Task, req model.Request)
 	}
 	key, err := cacheKey(ids.From[ids.WorkspaceKind](rawWS), task, req)
 	if err != nil {
+		// The serve path derived this same key moments ago, so a failure
+		// here is a real anomaly: an unevicted invalid answer would replay
+		// on retry, which must not stay invisible to the operator.
+		r.log.WarnContext(ctx, "ai: cache eviction skipped", "task", string(task), "err", err)
 		return
 	}
 	r.cache.forget(key)

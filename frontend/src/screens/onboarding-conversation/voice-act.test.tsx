@@ -98,13 +98,30 @@ const candidateVersion = {
   stats_json: { word_count: 1240 },
 };
 
+type IngestFixture = {
+  stats: IngestStats;
+  summary: CorpusSummary;
+  /** Response latency, to force out-of-order settlement in tests. */
+  delayMs?: number;
+};
+
 type StubOptions = {
   preview?: CorpusPreview;
   /** Ingest responses in order: each carries its stats + resulting summary. */
-  ingests?: readonly { stats: IngestStats; summary: CorpusSummary }[];
+  ingests?: readonly IngestFixture[];
+  /** Ingest responses keyed by source_label; wins over the ordered list. */
+  ingestsBySource?: Readonly<Record<string, IngestFixture>>;
   /** Poll snapshots per build id, consumed one per GET (last one repeats). */
   builds?: Readonly<Record<string, BuildRow[]>>;
+  /** Error status for the build poll GET (resilience tests). */
+  buildPollStatus?: number;
 };
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    globalThis.setTimeout(resolve, ms);
+  });
+}
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -151,11 +168,18 @@ function stubApi(options: StubOptions = {}) {
         return jsonResponse(options.preview ?? documentPreview);
       }
       if (path.endsWith("/sources") && request.method === "POST") {
-        const ingest = (options.ingests ?? [])[ingestIndex];
+        const body = (await request.clone().json()) as Record<string, unknown>;
+        const label =
+          typeof body.source_label === "string" ? body.source_label : "";
+        const bySource = options.ingestsBySource?.[label];
+        const ingest = bySource ?? (options.ingests ?? [])[ingestIndex];
         if (!ingest) {
           throw new Error("unexpected ingest: no fixture left");
         }
         ingestIndex += 1;
+        if (ingest.delayMs !== undefined) {
+          await delay(ingest.delayMs);
+        }
         return jsonResponse(
           {
             source: { id: `source-${ingestIndex}` },
@@ -171,6 +195,12 @@ function stubApi(options: StubOptions = {}) {
         return jsonResponse({ id, status: "queued", stage: null }, 202);
       }
       if (path.includes("/builds/") && request.method === "GET") {
+        if (options.buildPollStatus !== undefined) {
+          return jsonResponse(
+            { detail: "build fetch failed" },
+            options.buildPollStatus,
+          );
+        }
         const buildId = path.slice(path.lastIndexOf("/") + 1);
         const polls = buildPolls.get(buildId) ?? [];
         const row = polls.length > 1 ? polls.shift() : polls[0];
@@ -405,6 +435,62 @@ describe("the conversational voice act", () => {
       }),
     ).toBeTruthy();
     expect(requestsTo(calls, "/builds", "POST").length).toBe(2);
+  });
+
+  it("keeps the newest-by-request-order summary when ingest responses settle out of order", async () => {
+    stubApi({
+      preview: documentPreview,
+      // The first upload's response is held back past the second's: the
+      // stale 500-word summary settles last and must not roll the meter
+      // (or the build gate) back below the floor.
+      ingestsBySource: {
+        "one.md": {
+          stats: documentStats,
+          summary: summaryOf(500),
+          delayMs: 150,
+        },
+        "two.md": { stats: documentStats, summary: summaryOf(820) },
+      },
+    });
+    render(<VoiceHarness initial={collectingState()} />);
+
+    await uploadFile("one.md", "First document.");
+    await uploadFile("two.md", "Second document.");
+
+    // Both per-source reactions land regardless of settlement order.
+    await waitFor(() => {
+      expect(screen.getAllByText(/Words counted: 900\./).length).toBe(2);
+    });
+    expect(await screen.findByText("Own words: 820 of 30000")).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: /Build my voice profile/ }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/I need at least 800/)).toBeNull();
+    expect(screen.queryByText("Own words: 500 of 30000")).toBeNull();
+  });
+
+  it("concludes as failed with the retry chip when the build poll keeps erroring", async () => {
+    stubApi({
+      preview: documentPreview,
+      ingests: [{ stats: documentStats, summary: summaryOf(820) }],
+      buildPollStatus: 500,
+    });
+    render(<VoiceHarness initial={collectingState()} />);
+
+    await uploadFile("one.md", "Enough material.");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Build my voice profile/ }),
+    );
+
+    // The act never sits silent in vo.building: one honest correlated turn,
+    // the failed outcome, and the retry chip back on offer.
+    expect(
+      await screen.findByText(/I lost the connection during the build/),
+    ).toBeTruthy();
+    expect(await screen.findByText(/The build did not finish/)).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /Try the build again/ }),
+    ).toBeTruthy();
   });
 
   it("keeps late events from a superseded build inert after the retry", () => {
