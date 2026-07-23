@@ -5,6 +5,7 @@ package deals
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -23,10 +24,20 @@ type Store struct {
 	// catalog is the fieldcatalog seam (custom-field columns); nil means
 	// no catalog is wired and every read/write runs core-columns-only.
 	catalog fieldcatalog.Reader
+	// clock is the "today" source for effective-dated writes (fx_rate);
+	// injected so append-forward date validation is deterministic in tests.
+	clock func() time.Time
 }
 
 func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool}
+	return &Store{pool: pool, clock: time.Now}
+}
+
+// WithClock overrides the "today" source (tests only). Returns the store
+// for chaining.
+func (s *Store) WithClock(clock func() time.Time) *Store {
+	s.clock = clock
+	return s
 }
 
 // WithFieldCatalog wires the workspace custom-field catalog in

@@ -83,6 +83,7 @@ var catalog = map[string]struct {
 	"organization.merged":   {organizationStreamEntity, 1},
 
 	"deal.created":       {dealStreamEntity, 1},
+	"fx_rate.appended":   {dealStreamEntity, 1},
 	"pipeline.created":   {dealStreamEntity, 1},
 	"pipeline.updated":   {dealStreamEntity, 1},
 	"pipeline.archived":  {dealStreamEntity, 1},
