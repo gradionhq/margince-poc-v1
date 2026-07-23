@@ -5,8 +5,6 @@ package compose
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -45,17 +43,6 @@ type aiModelRateProposal struct {
 	OutputUsd     string `json:"output_per_mtok"`
 	CacheReadUsd  string `json:"cache_read_per_mtok"`
 	CacheWriteUsd string `json:"cache_write_per_mtok"`
-}
-
-// marshalProposal returns the canonical JSON + its identity-bearing diff hash
-// (sha256 over the payload, per the scrape.go staging shape).
-func marshalProposal(v any) (json.RawMessage, string, error) {
-	raw, err := json.Marshal(v)
-	if err != nil {
-		return nil, "", fmt.Errorf("compose: marshal rate proposal: %w", err)
-	}
-	digest := sha256.Sum256(raw)
-	return raw, hex.EncodeToString(digest[:]), nil
 }
 
 // rateRefreshActor binds the system principal a rate-refresh effect applies
