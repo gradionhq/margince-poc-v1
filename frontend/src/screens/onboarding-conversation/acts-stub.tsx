@@ -15,7 +15,7 @@ import { ConversationThread } from "./thread";
 import type { WizardPersistInput } from "./use-wizard-state";
 import { ConversationWorkbench } from "./workbench";
 
-// Honest placeholders for the acts after company: the machine already knows
+// Honest placeholders for the acts after voice: the machine already knows
 // them, but their full conversational UI lands in later phases. Until then
 // each act says so plainly and offers the classic step, instead of
 // pretending a flow that does not exist yet. The controls render INSIDE the
@@ -47,64 +47,6 @@ export function ActStubs({ state, dispatch, persist }: ActStubsProps) {
         </ConversationThread>
       </div>
     </ConversationWorkbench>
-  );
-}
-
-function VoiceInvite({ dispatch }: Pick<ActStubsProps, "dispatch">) {
-  const t = useT();
-  return (
-    <>
-      <NarrationBubble
-        entry={{
-          kind: "narration",
-          id: "voice:invite",
-          i18nKey: "ob.conv.voice.invite",
-        }}
-      />
-      <div className="ob-conv-chips">
-        <Button
-          small
-          variant="primary"
-          onClick={() => dispatch({ type: "VOICE_OPT_IN" })}
-        >
-          {t("ob.conv.voice.optIn")}
-        </Button>
-        <Button
-          small
-          variant="ghost"
-          onClick={() => dispatch({ type: "VOICE_SKIPPED" })}
-        >
-          {t("ob.conv.voice.skipped")}
-        </Button>
-      </div>
-    </>
-  );
-}
-
-function VoiceCollecting({ dispatch }: Pick<ActStubsProps, "dispatch">) {
-  const t = useT();
-  return (
-    <>
-      <NarrationBubble
-        entry={{
-          kind: "narration",
-          id: "voice:stub",
-          i18nKey: "ob.conv.voice.stubBody",
-        }}
-      />
-      <div className="ob-conv-chips">
-        <Button small onClick={() => exitToClassicOnboarding()}>
-          {t("ob.conv.voice.openClassic")}
-        </Button>
-        <Button
-          small
-          variant="ghost"
-          onClick={() => dispatch({ type: "VOICE_SKIPPED" })}
-        >
-          {t("ob.conv.voice.skipped")}
-        </Button>
-      </div>
-    </>
   );
 }
 
@@ -176,12 +118,6 @@ function ConnectConsent({ state, dispatch, persist }: ActStubsProps) {
 function StubControls({ state, dispatch, persist }: ActStubsProps) {
   const t = useT();
   switch (state.phase) {
-    case "vo.invite":
-      return <VoiceInvite dispatch={dispatch} />;
-    case "vo.collecting":
-      return <VoiceCollecting dispatch={dispatch} />;
-    case "vo.skipped":
-    case "vo.result":
     case "re.recap":
       return (
         <div className="ob-conv-chips">

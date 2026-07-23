@@ -1312,6 +1312,59 @@ export const en = {
   "ob.conv.voice.uploadAdded": "Added {name}.",
   "ob.conv.voice.speakerQuestion":
     "This transcript has several speakers. Which one is you? Only your own words count.",
+  "ob.conv.voice.speakerOptionDetail": "words: {words} · turns: {turns}",
+  "ob.conv.voice.collectAsk":
+    "Send me things you wrote. Call transcripts are best: .vtt, .srt, .json, or text with speaker labels. Plain documents work too, and you can paste text below.",
+  "ob.conv.voice.composer": "Paste a text you wrote, or attach files",
+  "ob.conv.voice.attach": "Attach files",
+  "ob.conv.voice.dropHint":
+    "You can also drop files anywhere in this conversation.",
+  "ob.conv.voice.fileSkipped":
+    "I can not read {name}. I take .txt, .md, .vtt, .srt, or .json.",
+  "ob.conv.voice.fileEmpty":
+    "There are no words in {name}, so nothing was counted.",
+  "ob.conv.voice.reactionTranscript":
+    "Words kept: {kept} of {total}. Only your turns count, and spoken register is exactly what sharpens your voice.",
+  "ob.conv.voice.reactionDocument":
+    "Words counted: {words}. Every word here is yours, so all of them count.",
+  "ob.conv.voice.refusalUnattributed":
+    "That looks like a conversation, but I can not tell which words are yours. I counted nothing, because I only count words that are provably yours.",
+  "ob.conv.voice.refusalSpeaker":
+    "I could not find that speaker in the transcript. Nothing was counted.",
+  "ob.conv.voice.refusalUnsupported":
+    "I could not parse that file as text or a transcript. Nothing was counted.",
+  "ob.conv.voice.ingestFailed": "I could not add that source: {detail}",
+  "ob.conv.voice.pasteOffer":
+    "That reads like voice material. Should I add it to your corpus?",
+  "ob.conv.voice.pasteAdd": "Yes, add it to my corpus.",
+  "ob.conv.voice.pasteDiscard": "No, discard it.",
+  "ob.conv.voice.pasteTooShort":
+    "That is too short to teach me much. Attach files, or paste a longer text you wrote.",
+  "ob.conv.voice.pasteSource": "Pasted text",
+  "ob.conv.voice.buildFloor":
+    "Own words so far: {words}. I need at least {min} before I can build.",
+  "ob.conv.voice.buildNudge":
+    "I have enough to build. More material still helps: 4,000 or more words make your voice noticeably sharper.",
+  "ob.conv.voice.buildChip": "Build my voice profile",
+  "ob.conv.voice.retryBuild": "Try the build again",
+  "ob.conv.voice.statusBuilding": "Building your voice profile",
+  "ob.conv.voice.resultTitle": "Here is your voice, in your own words.",
+  "ob.conv.voice.resultLoading": "Loading what the build learned.",
+  "ob.conv.voice.resultEmpty":
+    "The build finished, but there is nothing to show yet. You can review it in Settings.",
+  "ob.conv.voice.candidateNote":
+    "This version needs your review before it goes live. You can approve it in Settings.",
+  "ob.conv.voice.artifactTitle": "Voice corpus",
+  "ob.conv.voice.artifactBody":
+    "Only your own words count here. Every number comes from the server after speaker filtering.",
+  "ob.conv.voice.artifactEmpty":
+    "Nothing collected yet. Attach a transcript or a text you wrote.",
+  "ob.conv.voice.meterWords": "Own words: {words} of {target}",
+  "ob.conv.voice.meterBand": "Quality: {band}",
+  "ob.conv.voice.manifestKept": "Kept {kept} of {total} words",
+  "ob.conv.voice.manifestWords": "{words} words",
+  "ob.conv.voice.registerMix": "Registers: {mix}",
+  "ob.conv.voice.stageTitle": "Build progress",
   "ob.conv.corpus.words": "Own words in your corpus now: {words}.",
   "ob.conv.corpus.band": "Corpus quality moved to {band}.",
   "ob.conv.build.snapshot": "Locking in your corpus.",
@@ -1351,9 +1404,6 @@ export const en = {
     "I could not save that yet: {detail} Fix it and accept again.",
   "ob.conv.artifact.empty":
     "Nothing read yet. Give me a website and this panel fills with sourced findings.",
-  "ob.conv.voice.stubBody":
-    "Voice uploads continue in the classic step for now. This conversation picks them up in a later release.",
-  "ob.conv.voice.openClassic": "Open the classic voice step",
   "ob.conv.results.continue": "Continue",
   "ob.conv.connect.stubBody":
     "Connecting your inbox continues in the classic step for now. Nothing is captured until you allow it there.",

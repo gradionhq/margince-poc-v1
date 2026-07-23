@@ -182,7 +182,10 @@ export function diffVoiceBuild(
   return [];
 }
 
-const bandLabelKeys: Record<VoiceCorpusSummary["quality_band"], MessageKey> = {
+export const bandLabelKeys: Record<
+  VoiceCorpusSummary["quality_band"],
+  MessageKey
+> = {
   thin: "settings.voice.bandThin",
   good: "settings.voice.bandGood",
   rich: "settings.voice.bandRich",

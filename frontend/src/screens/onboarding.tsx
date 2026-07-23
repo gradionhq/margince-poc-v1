@@ -1883,8 +1883,8 @@ const SOURCES: Source[] = [
 
 // The accepted corpus formats, mirroring the contract's format enum
 // (crm.yaml IngestVoiceCorpusSourceRequest.format: txt/md/vtt/srt/json).
-const ACCEPTED_CORPUS_FILE = /\.(txt|md|vtt|srt|json)$/i;
-const ACCEPTED_CORPUS_ATTR = ".txt,.md,.vtt,.srt,.json";
+export const ACCEPTED_CORPUS_FILE = /\.(txt|md|vtt|srt|json)$/i;
+export const ACCEPTED_CORPUS_ATTR = ".txt,.md,.vtt,.srt,.json";
 
 type VoicePiece = {
   ref: string;
@@ -1913,20 +1913,20 @@ type SpeakerAsk = {
   preview: CorpusPreview;
 };
 
-const TRANSCRIPT_EXT = /\.(vtt|srt|json)$/i;
+export const TRANSCRIPT_EXT = /\.(vtt|srt|json)$/i;
 
 // The corpus meter is honest: it counts only the real words the owner uploaded
 // or pasted here (the build ingests exactly these). Presets below are examples
 // of what will feed the voice once connected — never fabricated word counts.
 // 800 mirrors the server's build floor ("at least 800 eligible own-authored
 // words"): gating the button here turns that 422 into a clear, up-front ask.
-const VOICE_MIN_WORDS = 800;
+export const VOICE_MIN_WORDS = 800;
 const PASTE_REF = "onboarding:paste";
 
 // pickBuiltVersion names the version the build just produced: the highest
 // numbered active-or-candidate row — active when it auto-activated,
 // candidate when it awaits review.
-function pickBuiltVersion(
+export function pickBuiltVersion(
   items: components["schemas"]["VoiceProfileVersion"][],
 ): components["schemas"]["VoiceProfileVersion"] | null {
   let built: components["schemas"]["VoiceProfileVersion"] | null = null;
