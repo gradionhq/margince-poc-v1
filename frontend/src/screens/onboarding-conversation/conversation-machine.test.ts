@@ -200,6 +200,77 @@ describe("restore normalization out of co.confirmed", () => {
       conversationReducer(restored(true), { type: "RESUME" }),
     ).toMatchObject({ act: "connect", phase: "cn.consent" });
   });
+
+  it("fast-forwards a creator to the stable point the target names", () => {
+    const targets = [
+      { target: "vo.collecting", act: "voice" },
+      { target: "vo.skipped", act: "voice" },
+      { target: "re.recap", act: "results" },
+      { target: "cn.consent", act: "connect" },
+    ] as const;
+    for (const { target, act } of targets) {
+      expect(
+        conversationReducer(restored(false), { type: "RESUME", target }),
+      ).toMatchObject({ act, phase: target });
+    }
+  });
+
+  it("resolves any target to consent on the member path", () => {
+    expect(
+      conversationReducer(restored(true), {
+        type: "RESUME",
+        target: "re.recap",
+      }),
+    ).toMatchObject({ act: "connect", phase: "cn.consent" });
+  });
+
+  it("ignores RESUME outside co.confirmed", () => {
+    const collecting: ConversationState = {
+      ...initialConversationState,
+      act: "voice",
+      phase: "vo.collecting",
+    };
+    expect(
+      conversationReducer(collecting, { type: "RESUME", target: "cn.consent" }),
+    ).toBe(collecting);
+  });
+});
+
+describe("restore seeding through START", () => {
+  it("seeds recap turns and opens in co.confirmed when the company is saved", () => {
+    const state = run([
+      {
+        type: "START",
+        memberPath: false,
+        companyConfirmed: true,
+        recap: [
+          {
+            kind: "narration",
+            id: "recap:back",
+            i18nKey: "ob.conv.recap.back",
+          },
+          {
+            kind: "narration",
+            id: "recap:company",
+            i18nKey: "ob.conv.recap.company",
+            params: { name: "Gradion" },
+          },
+        ],
+      },
+    ]);
+    expect(state).toMatchObject({ act: "company", phase: "co.confirmed" });
+    expect(state.thread.map((entry) => entry.kind)).toEqual([
+      "narration",
+      "narration",
+    ]);
+    expect(state.thread[1]).toMatchObject({ params: { name: "Gradion" } });
+  });
+
+  it("a fresh START still opens the company intro with an empty thread", () => {
+    const state = run([{ type: "START", memberPath: false }]);
+    expect(state).toMatchObject({ act: "company", phase: "co.intro" });
+    expect(state.thread).toEqual([]);
+  });
 });
 
 describe("member path", () => {

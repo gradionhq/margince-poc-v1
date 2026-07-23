@@ -1437,10 +1437,33 @@ export const de = {
   "ob.conv.artifact.empty":
     "Noch nichts gelesen. Nenn mir eine Website und dieses Panel füllt sich mit belegten Funden.",
   "ob.conv.results.continue": "Weiter",
-  "ob.conv.connect.stubBody":
-    "Die Postfach-Verbindung läuft vorerst im klassischen Schritt. Ohne deine Freigabe wird nichts erfasst.",
-  "ob.conv.connect.openClassic": "Klassischen Verbindungs-Schritt öffnen",
-  "ob.conv.connect.finish": "Ohne Verbindung abschließen",
+  "ob.conv.results.artifactTitle": "Einrichtung im Überblick",
+  "ob.conv.results.artifactBody":
+    "Womit dein CRM startet. Hier steht nichts, das nicht wirklich passiert ist.",
+  "ob.conv.results.company":
+    "Firmenprofil für {name} bestätigt. Alles Gespeicherte trägt seine Quelle.",
+  "ob.conv.results.companyUnsaved":
+    "Deine Firmendaten sind noch nicht gespeichert. Du kannst sie später in den Einstellungen vervollständigen.",
+  "ob.conv.results.voiceBuilt":
+    "Dein Stimmprofil ist gebaut. Entwürfe klingen nach dir.",
+  "ob.conv.results.voiceSkipped":
+    "Noch kein Stimmprofil. Entwürfe nutzen eine neutrale Startstimme; deins kannst du später in den Einstellungen bauen.",
+  "ob.conv.recap.back": "Willkommen zurück. Hier stehen wir.",
+  "ob.conv.recap.company": "Dein Firmenprofil für {name} ist bestätigt.",
+  "ob.conv.recap.companyUnsaved":
+    "Deine Firmendaten sind noch nicht gespeichert. Du kannst sie in den Einstellungen vervollständigen.",
+  "ob.conv.recap.voiceBuilt":
+    "Dein Stimmprofil ist gebaut. Entwürfe können nach dir klingen.",
+  "ob.conv.recap.voiceSkipped":
+    "Du hast das Stimmprofil übersprungen. Entwürfe nutzen eine neutrale Startstimme.",
+  "ob.conv.recap.corpus":
+    "Dein Korpus enthält bereits {words} deiner eigenen Wörter.",
+  "ob.conv.connect.pick":
+    "Wähle einen Anbieter, um genau zu sehen, was das Verbinden tut. Oder überspringe es und verbinde später in den Einstellungen.",
+  "ob.conv.connect.skip": "Verbinden vorerst überspringen",
+  "ob.conv.connect.artifactTitle": "Postfach-Verbindung",
+  "ob.conv.connect.artifactEmpty":
+    "Wähle im Gespräch einen Anbieter, dann öffnet sich hier sein Verbindungs-Panel.",
 
   "auth.title": "Margince",
   "auth.checking": "Sitzung wird geprüft…",

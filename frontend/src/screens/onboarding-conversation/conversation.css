@@ -378,6 +378,30 @@
   font: 400 0.9375rem / 1.5 var(--f-body);
 }
 
+/* The connect act's per-purpose consent list, rendered with the thread. */
+.ob-conv-scopes {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0 var(--space-4);
+}
+
+.ob-conv-scopes p {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--textContent);
+  font: 400 0.875rem / 1.5 var(--f-body);
+}
+
+.ob-conv-scopes svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--success);
+  align-self: center;
+}
+
 /* A finding the narration just named lights its dossier card briefly. */
 .ob-conv-pulse {
   animation: ob-conv-pulse 1.6s ease-out;

@@ -49,6 +49,9 @@ type SpeakerAsk = Readonly<{
 type UseVoiceCorpusArgs = Readonly<{
   state: ConversationState;
   dispatch: Dispatch<ConversationEvent>;
+  /** The restore probe's server meter, so a resumed session's word count
+   * (and the build gate) is honest before the first new ingest. */
+  initialSummary?: CorpusSummary | null;
 }>;
 
 const refusalKeys: Record<string, MessageKey> = {
@@ -129,12 +132,16 @@ function routePreview(
   return TRANSCRIPT_EXT.test(name) ? "refuse" : "document";
 }
 
-export function useVoiceCorpus({ state, dispatch }: UseVoiceCorpusArgs) {
-  const [summary, setSummary] = useState<CorpusSummary | null>(null);
+export function useVoiceCorpus({
+  state,
+  dispatch,
+  initialSummary = null,
+}: UseVoiceCorpusArgs) {
+  const [summary, setSummary] = useState<CorpusSummary | null>(initialSummary);
   const [manifest, setManifest] = useState<readonly CorpusManifestEntry[]>([]);
   const [asks, setAsks] = useState<readonly SpeakerAsk[]>([]);
   const [probesInFlight, setProbesInFlight] = useState(0);
-  const summaryRef = useRef<CorpusSummary | null>(null);
+  const summaryRef = useRef<CorpusSummary | null>(initialSummary);
   const pasteSeq = useRef(0);
   const mounted = useRef(true);
   useEffect(() => {

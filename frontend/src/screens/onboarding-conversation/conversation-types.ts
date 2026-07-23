@@ -117,8 +117,28 @@ export type ReadTerminalStatus = "ready" | "partial" | "failed" | "deferred";
 export type BuildStage = "snapshot" | "extract" | "evaluate" | "activate";
 export type BuildTerminalStatus = "succeeded" | "failed" | "deferred";
 
+/**
+ * Where a restored session may land after RESUME. Only phases that are
+ * stable waiting points qualify: transient phases (reading, building) cannot
+ * be reconstructed from wizard state and restart from their act's entry.
+ */
+export type ResumePoint = Extract<
+  ConversationPhase,
+  "vo.invite" | "vo.collecting" | "vo.skipped" | "re.recap" | "cn.consent"
+>;
+
 export type ConversationEvent =
-  | { type: "START"; memberPath: boolean }
+  | {
+      type: "START";
+      memberPath: boolean;
+      /** Server-derived recap turns seeded on restore. Narration is never
+       * persisted; these entries are recomputed from server state, so a
+       * reload summarizes instead of replaying the original narration. */
+      recap?: readonly NarrationEntry[];
+      /** Restore landing: the server already recorded a confirmed company,
+       * so the conversation reopens in co.confirmed and RESUME routes on. */
+      companyConfirmed?: boolean;
+    }
   | { type: "URL_SUBMITTED"; url: string }
   | { type: "READ_STARTED"; readId: string }
   // Narration carries the id of the run that produced it: readId for
@@ -142,7 +162,10 @@ export type ConversationEvent =
   | { type: "REVIEW_READY" }
   | { type: "MANUAL_CHOSEN" }
   | { type: "COMPANY_CONFIRMED" }
-  | { type: "RESUME" }
+  // Restore routing out of co.confirmed. No target (or any target on the
+  // member path) takes the same route the live confirmation takes; a target
+  // fast-forwards a creator to the stable point the wizard state recorded.
+  | { type: "RESUME"; target?: ResumePoint }
   | { type: "VOICE_OPT_IN" }
   | { type: "VOICE_SKIPPED" }
   | { type: "UPLOAD_ADDED"; id: string; name: string }
