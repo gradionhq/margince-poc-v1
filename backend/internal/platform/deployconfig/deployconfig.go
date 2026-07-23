@@ -301,13 +301,14 @@ type AIConfig struct {
 }
 
 // RatesConfig is the (worker-role) source config for the admin "Refresh from
-// sources" jobs. Fx is a structured base-relative rates JSON API base URL
-// (defaults to api.frankfurter.dev when empty); ModelPricing maps a provider
-// name to its pricing-page URL the model-cost refresh crawls. Absent = the
-// respective refresh is a no-op (never auto-applies — a human approves every
-// staged proposal).
+// sources" jobs. Fx is the base-relative rates JSON API URL (defaults to
+// api.frankfurter.dev when empty); FxCurrencies is the candidate set the FX
+// refresh proposes to bootstrap an empty sheet (worker default: USD/GBP/CHF);
+// ModelPricing maps a provider to its pricing-page URL. Absent = the respective
+// refresh no-ops — never auto-applies, a human approves every staged proposal.
 type RatesConfig struct {
 	Fx           string            `yaml:"fx_source"`
+	FxCurrencies []string          `yaml:"fx_currencies"`
 	ModelPricing map[string]string `yaml:"model_pricing"`
 }
 

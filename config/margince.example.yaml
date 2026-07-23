@@ -41,6 +41,10 @@ bootstrap_admin:
 #     JS-rendered and yield none. Absent = the model-cost refresh is a no-op.
 # rates:
 #   fx_source: https://api.frankfurter.dev/v1/latest
+#   # Candidate foreign currencies "Refresh from sources" proposes when the FX
+#   # sheet is still empty (a fresh install tracks none). Defaults to USD/GBP/CHF
+#   # when unset. Each is staged as a proposal for admin approval — never applied.
+#   fx_currencies: [USD, GBP, CHF]
 #   model_pricing:
 #     gemini: https://ai.google.dev/gemini-api/docs/pricing
 #     # anthropic: https://docs.anthropic.com/en/docs/about-claude/pricing

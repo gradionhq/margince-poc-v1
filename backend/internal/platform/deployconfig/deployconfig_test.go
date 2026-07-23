@@ -168,6 +168,28 @@ func TestParseAICapturePayloads(t *testing.T) {
 	}
 }
 
+func TestParseRatesFxCurrencies(t *testing.T) {
+	cfg, err := Parse([]byte("version: 1\nrates:\n  fx_source: https://example.test/fx\n  fx_currencies: [USD, GBP, CHF]\n"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got, want := cfg.Rates.Fx, "https://example.test/fx"; got != want {
+		t.Fatalf("rates.fx_source = %q, want %q", got, want)
+	}
+	if got, want := strings.Join(cfg.Rates.FxCurrencies, ","), "USD,GBP,CHF"; got != want {
+		t.Fatalf("rates.fx_currencies = %q, want %q", got, want)
+	}
+	// Unset ⇒ nil (the worker supplies the USD/GBP/CHF default); parsing must
+	// not invent a value.
+	def, err := Parse([]byte("version: 1\n"))
+	if err != nil {
+		t.Fatalf("parse default: %v", err)
+	}
+	if def.Rates.FxCurrencies != nil {
+		t.Fatalf("rates.fx_currencies must default to nil, got %v", def.Rates.FxCurrencies)
+	}
+}
+
 func TestBootstrapAdminPasswordComesFromTheFileReference(t *testing.T) {
 	pwFile := filepath.Join(t.TempDir(), "pw")
 	if err := os.WriteFile(pwFile, []byte("a bootstrap password!\n"), 0o600); err != nil {

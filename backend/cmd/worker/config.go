@@ -22,6 +22,7 @@ type workerConfig struct {
 	configPath           string
 	freemailExtra        []string
 	ratesFx              string
+	ratesCurrencies      []string
 	ratesModelPricing    map[string]string
 	redisAddr            string
 	routingPath          string
@@ -192,6 +193,23 @@ func envIntOr(key string, fallback int) (int, error) {
 		return 0, fmt.Errorf("worker: %s=%q is not an integer: %w", key, v, err)
 	}
 	return parsed, nil
+}
+
+// defaultFxBootstrapCurrencies is the candidate set the FX refresh proposes on
+// an empty sheet when the operator configured none — the three foreign
+// currencies the base-EUR UI and the demo seed already use. Overridable via
+// rates.fx_currencies; the FX refresh cannot bootstrap an empty sheet without a
+// set, so an unset config takes this default rather than leaving the admin
+// button dead on a fresh install.
+var defaultFxBootstrapCurrencies = []string{"USD", "GBP", "CHF"}
+
+// fxBootstrapCurrencies takes the operator's configured candidate set, or the
+// default when none is configured.
+func fxBootstrapCurrencies(configured []string) []string {
+	if len(configured) == 0 {
+		return defaultFxBootstrapCurrencies
+	}
+	return configured
 }
 
 func envDurationOr(key string, fallback time.Duration) (time.Duration, error) {
