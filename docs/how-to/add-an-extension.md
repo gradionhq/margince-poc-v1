@@ -27,9 +27,10 @@ are the two units to copy from.
 
 3. **Write the declaration** `extensions/<name>/<name>.go`, starting with the BUSL SPDX header (every
    hand-written `*.go` file carries it). Export `New() extension.Extension` returning an **inert
-   value** — no handle into the core, nothing registered in an `init()`. Note the Go **package name**
-   is not the unit name when the name is hyphenated: `crm-hello` uses `package crmhello` — only the
-   directory and `Extension.Name` carry the hyphen, since a hyphen is not a legal Go identifier:
+   value** — no handle into the core, nothing registered in an `init()`. When the name is hyphenated,
+   only the Go **package identifier** drops the hyphen: `crm-hello` uses `package crmhello`, but its
+   directory, its module path, and `Extension.Name` all keep the hyphen — a hyphen is illegal in a Go
+   identifier, not in a module path:
    ```go
    // SPDX-License-Identifier: BUSL-1.1
    // SPDX-FileCopyrightText: 2026 Gradion
@@ -130,16 +131,18 @@ output, never the committed `composition/` stub.
 ## Ship it
 
 **A new unit's directory is gitignored.** `.gitignore` ignores `/extensions/*` except an explicit
-allowlist (`!/extensions/de`, …), so a first-party unit you mean to ship in the vanilla tree needs its
-own exception — add `!/extensions/<name>` (or `git add -f`), or the PR opens with **no extension
-files**. (A purely local, per-installation unit is *meant* to stay ignored: its presence in the
-working tree already enables it for that install.)
+allowlist (`!/extensions/de`, …), so a first-party unit you mean to ship in the vanilla tree **must
+add its own exception** — `!/extensions/<name>` — or the PR opens with no extension files, and files
+you add to the unit later are silently ignored too. (`git add -f` stages the files once but leaves the
+directory ignored, so it is not a substitute for the exception.) A purely local, per-installation unit
+is *meant* to stay ignored: its presence in the working tree already enables it for that install.
 
-Then commit **the extension files only** — `extensions/<name>/{go.mod,<name>.go,<name>_test.go}` plus
-the `.gitignore` exception. Do **not** commit `build/composition/` — it is generated and ignored — and
-leave the tracked `composition/` stub unchanged unless you are deliberately changing the vanilla
-baseline. Sign off every commit (`git commit -s`), then the usual PR loop
-([CONTRIBUTING.md](../../CONTRIBUTING.md)); merge only when the gates are green.
+Then commit **the complete unit directory** — every source and test file plus its module metadata
+(`go.mod`, and `go.sum` if it carries third-party dependencies) — together with the `.gitignore`
+exception. Do **not** commit `build/composition/` — it is generated and ignored — and leave the
+tracked `composition/` stub unchanged unless you are deliberately changing the vanilla baseline. Sign
+off every commit (`git commit -s`), then the usual PR loop ([CONTRIBUTING.md](../../CONTRIBUTING.md));
+merge only when the gates are green.
 
 Two things this how-to does **not** yet cover, because those capabilities haven't landed yet: a unit
 owning its own `x_<name>_*` tables (the extension-migration namespace) and its own `/x/<name>/`

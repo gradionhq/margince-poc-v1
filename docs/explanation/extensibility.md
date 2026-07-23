@@ -102,10 +102,12 @@ A unit may import only `backend/pkg/**`, and only the packages that opt in. Two 
 Membership in `backend/pkg` **grants nothing on its own**. A package is extension surface only when
 its package clause carries the directive `//margince:extension-surface`. The allowlist is *derived
 from the tree* — a fitness test walks `pkg/`, collects every marked package, and treats exactly that
-set as importable — so the published API can never drift from what the gate enforces. Everything on
-the surface is **self-validating value types** (`Name.Validate`, `Period.Validate`, …), and those are
-the same checks boot reconciliation runs — so an author who writes a test against them catches a
-malformed value at test time rather than leaving boot to be the first to reject it.
+set as importable — so the published API can never drift from what the gate enforces. The constrained
+**primitive types** on the surface self-validate (`Name.Validate`, `Period.Validate`,
+`RetentionClassName.Validate`, …) with the same checks boot reconciliation runs, so an author who
+tests against them catches a malformed field at test time. There is no aggregate `Extension.Validate`,
+though: whole-declaration and cross-unit checks (a duplicate name, a code a core pack already holds)
+still first run at boot.
 
 ### 3. The composition build — `gen-composition`
 
