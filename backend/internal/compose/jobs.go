@@ -301,6 +301,13 @@ type JobRunnerConfig struct {
 	// fetches from; empty = the worker registers but the producer no-ops
 	// (honest: no source configured, nothing to propose).
 	FxSourceURL string
+	// RateExtractBrain is the model lane the model-cost refresh job extracts
+	// pricing with (modelPath.RateExtract); nil = the worker registers but
+	// the producer no-ops (same posture as the deep-read brain).
+	RateExtractBrain completer
+	// ModelPricingSources binds provider names to pricing-page URLs the
+	// model-cost refresh crawls; empty = no-op.
+	ModelPricingSources []pricingSource
 }
 
 // NewJobRunner wires the deals correctors and the automation time-scan
@@ -353,6 +360,7 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		fxClient = fxsource.New(cfg.FxSourceURL, nil)
 	}
 	river.AddWorker(workers, newFxRefreshWorker(pool, fxClient, log))
+	river.AddWorker(workers, newModelCostRefreshWorker(pool, cfg.RateExtractBrain, cfg.ModelPricingSources, log))
 
 	periodic := []*river.PeriodicJob{
 		river.NewPeriodicJob(
