@@ -1,6 +1,6 @@
 import { Paperclip, Send, Sparkles } from "lucide-react";
-import type { ChangeEvent, Dispatch, DragEvent } from "react";
-import { useRef, useState } from "react";
+import type { ChangeEvent, Dispatch } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { components } from "../../api/schema";
 import { Button } from "../../design-system/atoms";
 import { useT } from "../../i18n";
@@ -68,23 +68,41 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
     event.target.value = "";
   };
 
-  // The whole thread is a drop target while collecting; preventDefault on
-  // dragover is what makes it legal — without it the browser navigates to
-  // the dropped file.
-  const dropProps = collecting
-    ? {
-        onDragOver: (event: DragEvent<HTMLDivElement>) => {
-          event.preventDefault();
-          setDragOver(true);
-        },
-        onDragLeave: () => setDragOver(false),
-        onDrop: (event: DragEvent<HTMLDivElement>) => {
-          event.preventDefault();
-          setDragOver(false);
-          corpus.addFiles(Array.from(event.dataTransfer.files));
-        },
+  // The hint promises "drop files anywhere in this conversation", so the
+  // WHOLE window is the drop target — a file landing on the composer, the
+  // artifact panel, or a layout gap must feed the corpus, and outside the
+  // collecting phases a stray drop must still be neutralized: the browser's
+  // default is to NAVIGATE to the dropped file, which would tear the user
+  // out of the onboarding mid-act.
+  const { addFiles } = corpus;
+  useEffect(() => {
+    const onDragOver = (event: globalThis.DragEvent) => {
+      event.preventDefault();
+      setDragOver(collecting);
+    };
+    const onDragLeave = (event: globalThis.DragEvent) => {
+      // relatedTarget is null only when the drag exits the window; moving
+      // between elements inside it must not flicker the affordance off.
+      if (event.relatedTarget === null) {
+        setDragOver(false);
       }
-    : {};
+    };
+    const onDrop = (event: globalThis.DragEvent) => {
+      event.preventDefault();
+      setDragOver(false);
+      if (collecting) {
+        addFiles(Array.from(event.dataTransfer?.files ?? []));
+      }
+    };
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("dragleave", onDragLeave);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("dragleave", onDragLeave);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, [collecting, addFiles]);
 
   const submitComposer = () => {
     const text = draft.trim();
@@ -135,10 +153,7 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
         />
       }
     >
-      <div
-        className={`mw-thread${dragOver ? " ob-conv-dragover" : ""}`}
-        {...dropProps}
-      >
+      <div className={`mw-thread${dragOver ? " ob-conv-dragover" : ""}`}>
         <ConversationThread
           entries={state.thread}
           pendingQuestionId={state.pendingQuestion?.id ?? null}

@@ -203,7 +203,7 @@ func TestVoiceBuildRunsToAnActiveVersion(t *testing.T) {
 	if err != nil || !claimed {
 		t.Fatalf("claim: %v claimed=%v", err, claimed)
 	}
-	if err := worker.run(ctx, ctx, build.ID, input); err != nil {
+	if err := worker.run(ctx, build.ID, input); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
@@ -275,7 +275,7 @@ func TestVoiceBuildDefersOnBudgetAndTheSweepFindsItWhenDue(t *testing.T) {
 	if err != nil || !claimed {
 		t.Fatalf("claim: %v claimed=%v", err, claimed)
 	}
-	runErr := worker.run(ctx, ctx, build.ID, input)
+	runErr := worker.run(ctx, build.ID, input)
 	if !errors.Is(runErr, ai.ErrBudgetDeferred) {
 		t.Fatalf("run under budget exhaustion = %v, want the sentinel", runErr)
 	}
@@ -310,7 +310,7 @@ func TestVoiceBuildDefersOnBudgetAndTheSweepFindsItWhenDue(t *testing.T) {
 	if err != nil || !claimed {
 		t.Fatalf("re-claim: %v claimed=%v", err, claimed)
 	}
-	if err := healthy.run(ctx, ctx, build.ID, input); err != nil {
+	if err := healthy.run(ctx, build.ID, input); err != nil {
 		t.Fatalf("resumed run: %v", err)
 	}
 	finished, err := env.store.GetBuild(env.owner, env.profile.ID, build.ID)
@@ -319,6 +319,33 @@ func TestVoiceBuildDefersOnBudgetAndTheSweepFindsItWhenDue(t *testing.T) {
 	}
 	if finished.Status != "succeeded" {
 		t.Fatalf("resumed build = %+v, want succeeded", finished)
+	}
+}
+
+// The terminal failure write mints its own detached deadline AT write time:
+// a work context the model calls already spent must still record the
+// outcome, or the build sits "running" until reclaim and retries forever
+// while the UI polls a row that never concludes.
+func TestVoiceBuildRecordsFailureEvenWhenTheWorkContextIsSpent(t *testing.T) {
+	env, build := seedVoiceBuild(t, "Spent-context quote.", 6)
+	ctx := env.workerCtx(t)
+	worker := newVoiceBuildWorker(env.e.Pool, nil, slog.New(slog.DiscardHandler))
+
+	input, claimed, err := env.store.ClaimBuild(ctx, env.profile.ID, build.ID, time.Minute)
+	if err != nil || !claimed {
+		t.Fatalf("claim: %v claimed=%v", err, claimed)
+	}
+	spent, cancelSpent := context.WithDeadline(ctx, time.Now().Add(-time.Second))
+	defer cancelSpent()
+	if err := worker.fail(spent, build.ID, *input.Build.StartedAt, "internal", "the run outlived its work context"); err != nil {
+		t.Fatalf("fail on a spent work context: %v", err)
+	}
+	finished, err := env.store.GetBuild(env.owner, env.profile.ID, build.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finished.Status != "failed" || finished.StatusCode == nil || *finished.StatusCode != "internal" {
+		t.Fatalf("build after spent-context failure = %+v, want failed/internal", finished)
 	}
 }
 
@@ -332,7 +359,7 @@ func TestVoiceBuildStarterCorpusActivatesUnevaluated(t *testing.T) {
 	if err != nil || !claimed {
 		t.Fatalf("claim: %v claimed=%v", err, claimed)
 	}
-	if err := worker.run(ctx, ctx, build.ID, input); err != nil {
+	if err := worker.run(ctx, build.ID, input); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	finished, err := env.store.GetBuild(env.owner, env.profile.ID, build.ID)
@@ -452,7 +479,7 @@ func TestVoiceDraftReadsAndLearningSignals(t *testing.T) {
 	if err != nil || !claimed {
 		t.Fatalf("claim: %v claimed=%v", err, claimed)
 	}
-	if err := worker.run(ctx, ctx, build.ID, input); err != nil {
+	if err := worker.run(ctx, build.ID, input); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
