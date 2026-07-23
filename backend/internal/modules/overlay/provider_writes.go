@@ -17,6 +17,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"sort"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -113,6 +115,14 @@ func decodeCanonical(entityType datasource.EntityType, forUpdate bool, v any) (m
 		if err := datasource.StrictDecode(raw, target); err != nil {
 			return nil, err
 		}
+		// A contract request struct with an AdditionalProperties catch-all
+		// absorbs unknown keys instead of letting StrictDecode's
+		// DisallowUnknownFields reject them, so an unknown/misspelled field
+		// would route there and silently no-op. Reject a non-empty catch-all
+		// so a typo is an actionable error, matching the native 422.
+		if err := rejectExtraProperties(target); err != nil {
+			return nil, err
+		}
 	}
 	reencoded, err := json.Marshal(target)
 	if err != nil {
@@ -125,6 +135,28 @@ func decodeCanonical(entityType datasource.EntityType, forUpdate bool, v any) (m
 		return nil, fmt.Errorf("overlay: decoding write fields: %w", err)
 	}
 	return fields, nil
+}
+
+// rejectExtraProperties reports the unknown keys a contract request struct's
+// AdditionalProperties catch-all absorbed (oapi-codegen routes non-schema keys
+// there). An empty or absent catch-all is fine; a non-empty one is a
+// caller-invalid write (a misspelled or unsupported field) surfaced as a
+// FieldDecodeError so the transport answers 422, not a silent no-op.
+func rejectExtraProperties(target any) error {
+	v := reflect.ValueOf(target)
+	if v.Kind() != reflect.Pointer || v.IsNil() {
+		return nil
+	}
+	f := v.Elem().FieldByName("AdditionalProperties")
+	if !f.IsValid() || f.Kind() != reflect.Map || f.Len() == 0 {
+		return nil
+	}
+	keys := make([]string, 0, f.Len())
+	for _, k := range f.MapKeys() {
+		keys = append(keys, k.String())
+	}
+	sort.Strings(keys)
+	return &datasource.FieldDecodeError{Cause: fmt.Errorf("unknown field(s): %v", keys)}
 }
 
 // Create writes a new record to the incumbent (incumbent-first, AC-OV-4)
