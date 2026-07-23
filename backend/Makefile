@@ -252,7 +252,10 @@ gen: ## Regenerate everything derived from the contract
 	GOWORK=$(abspath ../go.work) $(GO) run ./tools/gen-composition
 
 drift: gen ## Fail when any generated file drifted from the contract
-	git diff --exit-code -- '*_gen.go' internal/contracts/ ../config/ai-routing.schema.json
+	# gen regenerates the committed per-unit manifests too (via composition);
+	# without them here a stale or hand-edited extensions/<name>/manifest.generated.json
+	# would be silently healed by the mutating gen step instead of failing.
+	git diff --exit-code -- '*_gen.go' internal/contracts/ ../config/ai-routing.schema.json '../extensions/*/manifest.generated.json'
 
 # Scaffolding, not generation: gen-workflow writes a write-once handler +
 # test stub for a developer to fill in (AC-W1) and is never part of

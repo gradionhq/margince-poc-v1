@@ -184,7 +184,7 @@ func coreDigest(root string) (string, error) {
 			return "", err
 		}
 	}
-	if err := h.addGoTree("backend/pkg"); err != nil {
+	if err := h.addTree("backend/pkg"); err != nil {
 		return "", err
 	}
 	return h.sum(), nil
@@ -225,10 +225,30 @@ func (h *treeHasher) addFileOrEmpty(rel string) error {
 	return nil
 }
 
-func (h *treeHasher) addGoTree(rel string) error {
-	return filepath.WalkDir(filepath.Join(h.root, filepath.FromSlash(rel)), func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
+// addTree hashes every regular file under rel — the whole subtree, not
+// just .go — so a non-Go asset the published surface gains (a go:embed
+// template, a schema) still invalidates the composition when it changes.
+// Dot-prefixed entries are skipped (Go's own build ignores them, and they
+// are OS/editor/VCS junk — .DS_Store, .git — never part of what ships, so
+// the digest must not depend on their local presence). A non-regular
+// entry is refused, as in digestTree.
+func (h *treeHasher) addTree(rel string) error {
+	root := filepath.Join(h.root, filepath.FromSlash(rel))
+	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
 			return err
+		}
+		if d.IsDir() {
+			if path != root && strings.HasPrefix(d.Name(), ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasPrefix(d.Name(), ".") {
+			return nil
+		}
+		if !d.Type().IsRegular() {
+			return fmt.Errorf("%s: only regular files back the composition digest (found %s)", path, d.Type())
 		}
 		sub, err := filepath.Rel(h.root, path)
 		if err != nil {
@@ -252,8 +272,20 @@ func (h *treeHasher) sum() string {
 func digestTree(dir string) (string, error) {
 	h := newTreeHasher(dir)
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
 			return err
+		}
+		if d.IsDir() {
+			if path != dir && strings.HasPrefix(d.Name(), ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		// Dot-prefixed entries are OS/editor/VCS junk (.DS_Store, .git),
+		// which Go's build ignores and which never ships — the digest must
+		// not depend on their local presence.
+		if strings.HasPrefix(d.Name(), ".") {
+			return nil
 		}
 		if !d.Type().IsRegular() {
 			// A symlink would digest as its target's bytes while

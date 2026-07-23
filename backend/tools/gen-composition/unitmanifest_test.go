@@ -5,11 +5,68 @@ package main
 
 import (
 	"bytes"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// TestCollectStringConstsHandlesRepeatedValues: Go repeats a grouped
+// const's expression list when omitted, so a repeated STRING constant
+// must carry forward into the vocabulary, while a repeated int/iota
+// constant must not leak in as a string.
+func TestCollectStringConstsHandlesRepeatedValues(t *testing.T) {
+	const src = `package p
+const (
+	A = "green"
+	B
+)
+const (
+	I = iota
+	J
+)
+`
+	file, err := parser.ParseFile(token.NewFileSet(), "p.go", src, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vocab := map[string]string{}
+	collectStringConsts(file, vocab)
+	if vocab["A"] != "green" || vocab["B"] != "green" {
+		t.Fatalf("repeated string constant B not carried forward: %v", vocab)
+	}
+	if _, ok := vocab["I"]; ok {
+		t.Fatalf("iota constant leaked into the vocabulary: %v", vocab)
+	}
+	if _, ok := vocab["J"]; ok {
+		t.Fatalf("repeated iota constant leaked into the vocabulary: %v", vocab)
+	}
+}
+
+// TestDigestTreeSkipsHiddenFiles: OS/editor junk (a .DS_Store dropped into
+// a unit) must not change the tree digest — the digest reflects what
+// ships, not a dev machine's incidental files.
+func TestDigestTreeSkipsHiddenFiles(t *testing.T) {
+	root := t.TempDir()
+	writeUnit(t, root, "u", map[string]string{"go.mod": "module m\n", "a.go": "package a\n"})
+	dir := filepath.Join(root, "extensions", "u")
+	before, err := digestTree(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".DS_Store"), []byte("junk"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	after, err := digestTree(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before != after {
+		t.Fatal("a hidden file changed the tree digest")
+	}
+}
 
 const repoRoot = "../../.."
 
@@ -252,6 +309,18 @@ var nonLiteralCases = []struct {
 		name:    "computed tool tier",
 		source:  toolUnitSource("\t\t\tName: \"t\", Version: \"1.0.0\", Tier: tierOf(), RequestedScope: extension.ScopeRead,") + "\nfunc tierOf() extension.Tier { return extension.TierAutoExecute }\n",
 		wantErr: "published extension constant",
+	},
+	{
+		name: "multiple New constructors",
+		source: nonLiteralHeader +
+			"func New() extension.Extension { return extension.Extension{Name: \"x\", Version: \"1.0.0\"} }\n" +
+			"func New() extension.Extension { return extension.Extension{Name: \"x\", Version: \"2.0.0\"} }\n",
+		wantErr: "multiple New() constructors",
+	},
+	{
+		name:    "version with surrounding whitespace",
+		source:  nonLiteralNew("\t\tName: \"x\",\n\t\tVersion: \" 1.0.0\","),
+		wantErr: "surrounding whitespace",
 	},
 }
 
