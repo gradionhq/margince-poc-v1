@@ -594,3 +594,28 @@ func TestReplyDraftFallsBackAndRecordsRejectionWhenTheFloorHolds(t *testing.T) {
 		t.Fatalf("rejected signals = %d, want the floor failure recorded", summary.Rejected)
 	}
 }
+
+func TestVoiceBuildWorkRecordsAnInvalidModelAnswerAsFailed(t *testing.T) {
+	env, build := seedVoiceBuild(t, "A quote the brain will not honor.", 6)
+	worker := newVoiceBuildWorker(env.e.Pool, brainFunc(func(context.Context, model.Request) (model.Response, error) {
+		return model.Response{Text: "not the requested JSON object"}, nil
+	}), slog.New(slog.DiscardHandler))
+
+	if err := worker.Work(context.Background(), voiceBuildJob(env, build)); err != nil {
+		t.Fatalf("Work must own the failure on the row, not error the job: %v", err)
+	}
+	finished, err := env.store.GetBuild(env.owner, env.profile.ID, build.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finished.Status != "failed" || finished.StatusCode == nil || *finished.StatusCode != "invalid_output" {
+		t.Fatalf("build = %+v, want failed/invalid_output", finished)
+	}
+}
+
+// brainFunc adapts a function into the completer seam.
+type brainFunc func(context.Context, model.Request) (model.Response, error)
+
+func (f brainFunc) Complete(ctx context.Context, req model.Request) (model.Response, error) {
+	return f(ctx, req)
+}

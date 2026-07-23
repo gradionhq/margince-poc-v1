@@ -9,6 +9,7 @@ import {
   initialConversationState,
 } from "./conversation-machine";
 import { useWizardStatePersist } from "./use-wizard-state";
+import { VoiceAct } from "./voice-act";
 
 // The conversational onboarding shell: one pure machine owns where the
 // conversation is, and each act renders inside the shared Margince
@@ -58,14 +59,16 @@ export function OnboardingConversationScreen() {
 
   return (
     <div className="ob-page ob-conv-page">
-      {state.act === "company" ? (
+      {state.act === "company" && (
         <CompanyAct
           state={state}
           dispatch={dispatch}
           profile={existing.data ?? null}
           persist={persist}
         />
-      ) : (
+      )}
+      {state.act === "voice" && <VoiceAct state={state} dispatch={dispatch} />}
+      {state.act !== "company" && state.act !== "voice" && (
         <ActStubs state={state} dispatch={dispatch} persist={persist} />
       )}
     </div>

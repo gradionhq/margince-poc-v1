@@ -1336,6 +1336,63 @@ export const de = {
   "ob.conv.voice.uploadAdded": "{name} hinzugefügt.",
   "ob.conv.voice.speakerQuestion":
     "Dieses Transkript hat mehrere Sprecher. Wer davon bist du? Nur deine eigenen Worte zählen.",
+  "ob.conv.voice.speakerOptionDetail": "Wörter: {words} · Beiträge: {turns}",
+  "ob.conv.voice.collectAsk":
+    "Schick mir Texte, die du geschrieben hast. Gesprächs-Transkripte sind am besten: .vtt, .srt, .json oder Text mit Sprecher-Labels. Einfache Dokumente gehen auch, und unten kannst du Text einfügen.",
+  "ob.conv.voice.composer": "Füge einen eigenen Text ein oder hänge Dateien an",
+  "ob.conv.voice.attach": "Dateien anhängen",
+  "ob.conv.voice.dropHint":
+    "Du kannst Dateien auch überall in dieses Gespräch ziehen.",
+  "ob.conv.voice.fileSkipped":
+    "Ich kann {name} nicht lesen. Ich nehme .txt, .md, .vtt, .srt oder .json.",
+  "ob.conv.voice.fileEmpty":
+    "In {name} stehen keine Wörter, also wurde nichts gezählt.",
+  "ob.conv.voice.reactionTranscript":
+    "Behaltene Wörter: {kept} von {total}. Nur deine Beiträge zählen, und gesprochene Sprache schärft deine Stimme am meisten.",
+  "ob.conv.voice.reactionDocument":
+    "Gezählte Wörter: {words}. Jedes Wort hier ist deins, also zählen alle.",
+  "ob.conv.voice.refusalUnattributed":
+    "Das sieht nach einem Gespräch aus, aber ich kann nicht erkennen, welche Wörter deine sind. Ich habe nichts gezählt, denn ich zähle nur Wörter, die nachweislich von dir stammen.",
+  "ob.conv.voice.refusalSpeaker":
+    "Ich konnte diesen Sprecher im Transkript nicht finden. Nichts wurde gezählt.",
+  "ob.conv.voice.refusalUnsupported":
+    "Ich konnte diese Datei weder als Text noch als Transkript lesen. Nichts wurde gezählt.",
+  "ob.conv.voice.ingestFailed":
+    "Ich konnte diese Quelle nicht hinzufügen: {detail}",
+  "ob.conv.voice.pasteOffer":
+    "Das liest sich wie Stimm-Material. Soll ich es deinem Korpus hinzufügen?",
+  "ob.conv.voice.pasteAdd": "Ja, in meinen Korpus.",
+  "ob.conv.voice.pasteDiscard": "Nein, verwerfen.",
+  "ob.conv.voice.pasteTooShort":
+    "Das ist zu kurz, um viel zu lernen. Hänge Dateien an oder füge einen längeren eigenen Text ein.",
+  "ob.conv.voice.pasteSource": "Eingefügter Text",
+  "ob.conv.voice.buildFloor":
+    "Eigene Wörter bisher: {words}. Ich brauche mindestens {min}, bevor ich bauen kann.",
+  "ob.conv.voice.buildNudge":
+    "Ich habe genug zum Bauen. Mehr Material hilft trotzdem: Ab 4.000 Wörtern wird deine Stimme deutlich schärfer.",
+  "ob.conv.voice.buildChip": "Mein Stimmprofil bauen",
+  "ob.conv.voice.retryBuild": "Aufbau erneut versuchen",
+  "ob.conv.voice.buildPollFailed":
+    "Ich habe die Verbindung während des Aufbaus verloren. Deine Texte bleiben erhalten, versuche den Aufbau erneut.",
+  "ob.conv.voice.statusBuilding": "Dein Stimmprofil entsteht",
+  "ob.conv.voice.resultTitle":
+    "Das ist deine Stimme, in deinen eigenen Worten.",
+  "ob.conv.voice.resultLoading": "Ich lade, was der Aufbau gelernt hat.",
+  "ob.conv.voice.resultEmpty":
+    "Der Aufbau ist fertig, aber es gibt noch nichts zu zeigen. Du kannst ihn in den Einstellungen prüfen.",
+  "ob.conv.voice.candidateNote":
+    "Diese Version braucht deine Prüfung, bevor sie aktiv wird. Freigeben kannst du sie in den Einstellungen.",
+  "ob.conv.voice.artifactTitle": "Stimm-Korpus",
+  "ob.conv.voice.artifactBody":
+    "Hier zählen nur deine eigenen Wörter. Jede Zahl kommt vom Server, nach dem Sprecher-Filter.",
+  "ob.conv.voice.artifactEmpty":
+    "Noch nichts gesammelt. Hänge ein Transkript oder einen eigenen Text an.",
+  "ob.conv.voice.meterWords": "Eigene Wörter: {words} von {target}",
+  "ob.conv.voice.meterBand": "Qualität: {band}",
+  "ob.conv.voice.manifestKept": "{kept} von {total} Wörtern behalten",
+  "ob.conv.voice.manifestWords": "{words} Wörter",
+  "ob.conv.voice.registerMix": "Register: {mix}",
+  "ob.conv.voice.stageTitle": "Aufbau-Fortschritt",
   "ob.conv.corpus.words": "Eigene Worte jetzt im Korpus: {words}.",
   "ob.conv.corpus.band": "Korpusqualität ist jetzt {band}.",
   "ob.conv.build.snapshot": "Ich friere deinen Korpus ein.",
@@ -1379,9 +1436,6 @@ export const de = {
     "Ich konnte noch nicht speichern: {detail} Korrigiere das und übernimm erneut.",
   "ob.conv.artifact.empty":
     "Noch nichts gelesen. Nenn mir eine Website und dieses Panel füllt sich mit belegten Funden.",
-  "ob.conv.voice.stubBody":
-    "Stimm-Uploads laufen vorerst im klassischen Schritt weiter. Dieses Gespräch übernimmt sie in einer späteren Version.",
-  "ob.conv.voice.openClassic": "Klassischen Stimm-Schritt öffnen",
   "ob.conv.results.continue": "Weiter",
   "ob.conv.connect.stubBody":
     "Die Postfach-Verbindung läuft vorerst im klassischen Schritt. Ohne deine Freigabe wird nichts erfasst.",
