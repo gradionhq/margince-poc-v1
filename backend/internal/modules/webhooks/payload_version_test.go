@@ -16,16 +16,16 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
-	"github.com/stretchr/testify/require"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // assertWireSnapshot marshals value (a payload struct) and compares it
@@ -39,28 +39,37 @@ import (
 func assertWireSnapshot(t *testing.T, eventType string, version int, value any) {
 	t.Helper()
 	got, err := json.MarshalIndent(value, "", "  ")
-	require.NoError(t, err, "marshaling the %s sample payload", eventType)
+	if err != nil {
+		t.Fatalf("marshaling the %s sample payload: %v", eventType, err)
+	}
 	got = append(got, '\n')
 
 	path := filepath.Join("testdata", "wire", eventType+".v"+strconv.Itoa(version)+".json")
 	if os.Getenv("UPDATE_SNAPSHOTS") == "1" {
-		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755), "creating testdata/wire")
-		require.NoError(t, os.WriteFile(path, got, 0o644), "writing snapshot %s", path)
+		if os.MkdirAll(filepath.Dir(path), 0o755) != nil {
+			t.Fatalf("creating testdata/wire: %v", os.MkdirAll(filepath.Dir(path), 0o755))
+		}
+		if os.WriteFile(path, got, 0o644) != nil {
+			t.Fatalf("writing snapshot %s: %v", path, os.WriteFile(path, got, 0o644))
+		}
 		return
 	}
 
 	want, err := os.ReadFile(path) // #nosec G304 -- fixed test-owned path under testdata/wire
-	require.NoErrorf(t, err, "reading golden snapshot %s (run with UPDATE_SNAPSHOTS=1 to create it after a REVIEWED shape change)", path)
-	require.Equal(t, string(want), string(got),
-		"wire shape for %s v%d drifted from the committed snapshot %s — a deliberate, reviewed shape change regenerates it with UPDATE_SNAPSHOTS=1; an accidental one is fixed instead", eventType, version, path)
+	if err != nil {
+		t.Fatalf("reading golden snapshot %s (run with UPDATE_SNAPSHOTS=1 to create it after a REVIEWED shape change): %v", path, err)
+	}
+	if !reflect.DeepEqual(string(got), string(want)) {
+		t.Errorf("wire shape for %s v%d drifted from the committed snapshot %s — a deliberate, reviewed shape change regenerates it with UPDATE_SNAPSHOTS=1; an accidental one is fixed instead: got %v, want %v", eventType, version, path, string(got), string(want))
+	}
 }
 
 // dealSnapshotFromStage/dealSnapshotToStage are fixed, memorable UUIDs so the
 // pilot's golden snapshot is stable across test runs — a real ids.NewV7()
 // would churn the fixture on every regeneration for no reason.
 var (
-	dealSnapshotFromStage = uuid.MustParse("33333333-3333-3333-3333-333333333333")
-	dealSnapshotToStage   = uuid.MustParse("44444444-4444-4444-4444-444444444444")
+	dealSnapshotFromStage = openapi_types.UUID(ids.MustParse("33333333-3333-3333-3333-333333333333"))
+	dealSnapshotToStage   = openapi_types.UUID(ids.MustParse("44444444-4444-4444-4444-444444444444"))
 )
 
 // TestDealStageChangedWireSnapshot pins the pilot payload's wire shape —
@@ -93,8 +102,8 @@ func TestDealStageChangedWireSnapshot(t *testing.T) {
 // runs — a real ids.NewV7() would churn the fixtures on every regeneration
 // for no reason.
 var (
-	offerSnapshotOfferID = uuid.MustParse("55555555-5555-5555-5555-555555555555")
-	offerSnapshotDealID  = uuid.MustParse("66666666-6666-6666-6666-666666666666")
+	offerSnapshotOfferID = openapi_types.UUID(ids.MustParse("55555555-5555-5555-5555-555555555555"))
+	offerSnapshotDealID  = openapi_types.UUID(ids.MustParse("66666666-6666-6666-6666-666666666666"))
 )
 
 // TestOfferCreatedWireSnapshot pins the offer.created wire shape (webhooks
@@ -169,7 +178,7 @@ func TestOfferSupersededWireSnapshot(t *testing.T) {
 // the pipeline/stage config family's golden snapshots (Task 5a-iii) are
 // stable across test runs — a real ids.NewV7() would churn the fixtures
 // on every regeneration for no reason.
-var pipelineSnapshotStageID = uuid.MustParse("77777777-7777-7777-7777-777777777777")
+var pipelineSnapshotStageID = openapi_types.UUID(ids.MustParse("77777777-7777-7777-7777-777777777777"))
 
 // TestPipelineCreatedWireSnapshot pins the pipeline.created wire shape
 // (webhooks Task 5a-iii, pipeline/stage config family).
@@ -226,8 +235,8 @@ func TestStageUpdatedWireSnapshot(t *testing.T) {
 // 5b-personorg) are stable across test runs — a real ids.NewV7() would
 // churn the fixtures on every regeneration for no reason.
 var (
-	personSnapshotSource = uuid.MustParse("88888888-8888-8888-8888-888888888888")
-	personSnapshotTarget = uuid.MustParse("99999999-9999-9999-9999-999999999999")
+	personSnapshotSource = openapi_types.UUID(ids.MustParse("88888888-8888-8888-8888-888888888888"))
+	personSnapshotTarget = openapi_types.UUID(ids.MustParse("99999999-9999-9999-9999-999999999999"))
 )
 
 // TestPersonCreatedWireSnapshot pins the person.created wire shape
@@ -291,12 +300,12 @@ func TestOrganizationUpdatedWireSnapshot(t *testing.T) {
 // golden snapshot (webhooks Task 5b-lead) is stable across test runs —
 // a real ids.NewV7() would churn the fixture on every regeneration for
 // no reason.
-var leadSnapshotPersonID = uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+var leadSnapshotPersonID = openapi_types.UUID(ids.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"))
 
 // TestLeadPromotedWireSnapshot pins the lead.promoted wire shape
 // (webhooks Task 5b-lead, lead family), sampled with an evidence_ref set.
 func TestLeadPromotedWireSnapshot(t *testing.T) {
-	evidenceRef := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+	evidenceRef := openapi_types.UUID(ids.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"))
 	sample := crmcontracts.PublicEventLeadPromoted{
 		PromotedPersonId: leadSnapshotPersonID,
 		DedupeOutcome:    "created",
@@ -324,7 +333,7 @@ func TestLeadUpdatedWireSnapshot(t *testing.T) {
 // family's golden snapshots (webhooks Task 5c) are stable across test
 // runs — a real ids.NewV7() would churn the fixtures on every regeneration
 // for no reason.
-var activitySnapshotMatched = uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc")
+var activitySnapshotMatched = openapi_types.UUID(ids.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc"))
 
 // TestActivityCapturedWireSnapshot pins the activity.captured wire shape
 // (webhooks Task 5c, activities family), sampled with the capture-site
@@ -369,7 +378,7 @@ func TestEngagementReplyWireSnapshot(t *testing.T) {
 // consent/privacy family's golden snapshot (webhooks Task 5d) is stable
 // across test runs — a real ids.NewV7() would churn the fixture on every
 // regeneration for no reason.
-var consentSnapshotPurposeID = uuid.MustParse("dddddddd-dddd-dddd-dddd-dddddddddddd")
+var consentSnapshotPurposeID = openapi_types.UUID(ids.MustParse("dddddddd-dddd-dddd-dddd-dddddddddddd"))
 
 // TestConsentChangedWireSnapshot pins the consent.changed wire shape
 // (webhooks Task 5d) — this event's entity is dynamic (person XOR lead),
@@ -405,8 +414,8 @@ func TestRetentionAppliedWireSnapshot(t *testing.T) {
 // test runs — a real ids.NewV7() would churn the fixtures on every
 // regeneration for no reason.
 var (
-	signalSnapshotID    = uuid.MustParse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")
-	signalSnapshotOrgID = uuid.MustParse("ffffffff-ffff-ffff-ffff-ffffffffffff")
+	signalSnapshotID    = openapi_types.UUID(ids.MustParse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"))
+	signalSnapshotOrgID = openapi_types.UUID(ids.MustParse("ffffffff-ffff-ffff-ffff-ffffffffffff"))
 )
 
 // TestSignalDetectedWireSnapshot pins the signal.detected wire shape
@@ -451,10 +460,10 @@ func TestSignalResolvedWireSnapshot(t *testing.T) {
 // voiceSnapshotBuildID are fixed, memorable UUIDs so the ai voice family's
 // golden snapshots (webhooks Task 5f) are stable across test runs.
 var (
-	voiceSnapshotProfileID = uuid.MustParse("00000000-0000-0000-0000-0000000000a1")
-	voiceSnapshotOwnerID   = uuid.MustParse("00000000-0000-0000-0000-0000000000a2")
-	voiceSnapshotSourceID  = uuid.MustParse("00000000-0000-0000-0000-0000000000a3")
-	voiceSnapshotBuildID   = uuid.MustParse("00000000-0000-0000-0000-0000000000a4")
+	voiceSnapshotProfileID = openapi_types.UUID(ids.MustParse("00000000-0000-0000-0000-0000000000a1"))
+	voiceSnapshotOwnerID   = openapi_types.UUID(ids.MustParse("00000000-0000-0000-0000-0000000000a2"))
+	voiceSnapshotSourceID  = openapi_types.UUID(ids.MustParse("00000000-0000-0000-0000-0000000000a3"))
+	voiceSnapshotBuildID   = openapi_types.UUID(ids.MustParse("00000000-0000-0000-0000-0000000000a4"))
 )
 
 // TestVoiceProfileCreatedWireSnapshot pins voice.profile_created's wire shape.
@@ -563,9 +572,9 @@ func TestVoiceDraftOutcomeRecordedWireSnapshot(t *testing.T) {
 // (webhooks Task 5g) are stable across test runs — a real ids.NewV7()
 // would churn the fixtures on every regeneration for no reason.
 var (
-	identitySnapshotUserID     = uuid.MustParse("00000000-0000-0000-0000-0000000000b1")
-	identitySnapshotActorID    = uuid.MustParse("00000000-0000-0000-0000-0000000000b2")
-	identitySnapshotPassportID = uuid.MustParse("00000000-0000-0000-0000-0000000000b3")
+	identitySnapshotUserID     = openapi_types.UUID(ids.MustParse("00000000-0000-0000-0000-0000000000b1"))
+	identitySnapshotActorID    = openapi_types.UUID(ids.MustParse("00000000-0000-0000-0000-0000000000b2"))
+	identitySnapshotPassportID = openapi_types.UUID(ids.MustParse("00000000-0000-0000-0000-0000000000b3"))
 )
 
 // TestUserInvitedWireSnapshot pins user.invited's wire shape (webhooks
@@ -700,9 +709,9 @@ func TestIncumbentDisconnectedWireSnapshot(t *testing.T) {
 // stable across test runs — a real ids.NewV7() would churn the fixtures
 // on every regeneration for no reason.
 var (
-	approvalSnapshotTargetID  = uuid.MustParse("00000000-0000-0000-0000-0000000000c1")
-	approvalSnapshotDecidedBy = uuid.MustParse("00000000-0000-0000-0000-0000000000c2")
-	approvalSnapshotID        = uuid.MustParse("00000000-0000-0000-0000-0000000000c3")
+	approvalSnapshotTargetID  = openapi_types.UUID(ids.MustParse("00000000-0000-0000-0000-0000000000c1"))
+	approvalSnapshotDecidedBy = openapi_types.UUID(ids.MustParse("00000000-0000-0000-0000-0000000000c2"))
+	approvalSnapshotID        = openapi_types.UUID(ids.MustParse("00000000-0000-0000-0000-0000000000c3"))
 )
 
 // TestApprovalRequestedWireSnapshot pins approval.requested's wire shape
@@ -763,19 +772,33 @@ func TestApprovalDecidedKeyBindingIsStable(t *testing.T) {
 		EditedChange: &editedChange,
 	}
 	raw, err := json.Marshal(sample)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	var decoded map[string]any
-	require.NoError(t, json.Unmarshal(raw, &decoded))
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
 	verdict, ok := decoded["verdict"]
-	require.True(t, ok, `expected JSON key "verdict" (bound in automation/engine_blocked.go) in %s`, raw)
-	require.Equal(t, "rejected", verdict)
+	if !ok {
+		t.Errorf(`expected JSON key "verdict" (bound in automation/engine_blocked.go) in %s`, raw)
+	}
+	if !reflect.DeepEqual(verdict, "rejected") {
+		t.Errorf("got %v, want %v", verdict, "rejected")
+	}
 
 	got, ok := decoded["edited_change"]
-	require.True(t, ok, `expected JSON key "edited_change" (bound in compose/runnerservice.go) in %s`, raw)
+	if !ok {
+		t.Errorf(`expected JSON key "edited_change" (bound in compose/runnerservice.go) in %s`, raw)
+	}
 	gotObj, ok := got.(map[string]any)
-	require.True(t, ok, "edited_change must decode as an open JSON object, got %T", got)
-	require.Equal(t, "moved after the call", gotObj["note"], "edited_change must carry an arbitrary shape verbatim, not a narrowly typed struct")
+	if !ok {
+		t.Errorf("edited_change must decode as an open JSON object, got %T", got)
+	}
+	if !reflect.DeepEqual(gotObj["note"], "moved after the call") {
+		t.Errorf("edited_change must carry an arbitrary shape verbatim, not a narrowly typed struct: got %v, want %v", gotObj["note"], "moved after the call")
+	}
 }
 
 // TestColdstartReadBackProposedWireSnapshot pins

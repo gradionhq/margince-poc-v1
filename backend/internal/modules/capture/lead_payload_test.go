@@ -19,9 +19,8 @@ package capture
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 )
@@ -29,14 +28,28 @@ import (
 func TestLeadCreatedCapturePayload(t *testing.T) {
 	payload := leadCreatedCapturePayload("linkedin")
 
-	require.Equal(t, "lead.created", payload.EventType())
-	require.Equal(t, "lead", payload.EntityType())
-	require.NotNil(t, payload.SourceSystem)
-	require.Equal(t, "linkedin", *payload.SourceSystem)
+	if !reflect.DeepEqual(payload.EventType(), "lead.created") {
+		t.Errorf("got %v, want %v", payload.EventType(), "lead.created")
+	}
+	if !reflect.DeepEqual(payload.EntityType(), "lead") {
+		t.Errorf("got %v, want %v", payload.EntityType(), "lead")
+	}
+	if payload.SourceSystem == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*payload.SourceSystem, "linkedin") {
+		t.Errorf("got %v, want %v", *payload.SourceSystem, "linkedin")
+	}
 
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	var decoded crmcontracts.PublicEventLeadCreated
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.Equal(t, payload, decoded)
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
 }

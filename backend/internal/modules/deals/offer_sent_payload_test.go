@@ -23,9 +23,8 @@ package deals
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
@@ -49,21 +48,43 @@ func TestOfferSentEmitsTypedPayload(t *testing.T) {
 
 	payload := offerSentPayload(current, "1.0842")
 
-	require.Equal(t, offerID, payload.OfferId)
-	require.Equal(t, dealID, payload.DealId)
-	require.NotNil(t, payload.Revision)
-	require.Equal(t, revision, *payload.Revision)
-	require.NotNil(t, payload.GrossMinor)
-	require.Equal(t, gross, *payload.GrossMinor)
-	require.Equal(t, "1.0842", payload.FxRateToBase)
-	require.Equal(t, &validUntil, payload.ValidUntil)
+	if !reflect.DeepEqual(payload.OfferId, offerID) {
+		t.Errorf("got %v, want %v", payload.OfferId, offerID)
+	}
+	if !reflect.DeepEqual(payload.DealId, dealID) {
+		t.Errorf("got %v, want %v", payload.DealId, dealID)
+	}
+	if payload.Revision == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*payload.Revision, revision) {
+		t.Errorf("got %v, want %v", *payload.Revision, revision)
+	}
+	if payload.GrossMinor == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*payload.GrossMinor, gross) {
+		t.Errorf("got %v, want %v", *payload.GrossMinor, gross)
+	}
+	if !reflect.DeepEqual(payload.FxRateToBase, "1.0842") {
+		t.Errorf("got %v, want %v", payload.FxRateToBase, "1.0842")
+	}
+	if !reflect.DeepEqual(payload.ValidUntil, &validUntil) {
+		t.Errorf("got %v, want %v", payload.ValidUntil, &validUntil)
+	}
 
 	// Round-trip through JSON exactly as storekit.Emit marshals the
 	// payload into the outbox envelope — the wire shape the offer
 	// snapshot gate checks.
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	var decoded crmcontracts.PublicEventOfferSent
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.Equal(t, payload, decoded)
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
 }

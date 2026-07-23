@@ -5,10 +5,10 @@ package webhooks_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/stretchr/testify/require"
 )
 
 // The public delivery envelope is a trust-boundary contract: it must carry the
@@ -19,12 +19,18 @@ import (
 func TestPublicEnvelopeOmitsInternalFields(t *testing.T) {
 	var e crmcontracts.PublicEventEnvelope
 	j, err := json.Marshal(e)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	s := string(j)
 	for _, internal := range []string{"audit_log_id", "causation_id", "passport_id", "on_behalf_of", "workspace_id"} {
-		require.NotContains(t, s, internal, "public envelope must not leak internal field %q", internal)
+		if strings.Contains(s, internal) {
+			t.Errorf("public envelope must not leak internal field %q: should not contain %v", internal, internal)
+		}
 	}
 	for _, public := range []string{"event_id", "type", "version", "occurred_at", "entity", "correlation_id"} {
-		require.Contains(t, s, public)
+		if !strings.Contains(s, public) {
+			t.Errorf("%q should contain %q", s, public)
+		}
 	}
 }

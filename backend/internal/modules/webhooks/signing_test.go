@@ -5,10 +5,9 @@ package webhooks
 
 import (
 	"encoding/base64"
+	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
 // TestSignStandardWebhooks pins Sign against the Standard Webhooks spec's
@@ -23,9 +22,13 @@ func TestSignStandardWebhooks(t *testing.T) {
 	ts := int64(1614265330)
 	body := []byte(`{"test": 2432232314}`)
 	sig, err := Sign(secret, id, ts, body)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	// Hardcoded expected — the SW spec's published signature for this vector:
-	require.Equal(t, "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=", sig)
+	if !reflect.DeepEqual(sig, "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=") {
+		t.Errorf("got %v, want %v", sig, "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=")
+	}
 }
 
 // TestSignIsSecretSensitive proves two distinct secrets never collide.
@@ -34,10 +37,16 @@ func TestSignIsSecretSensitive(t *testing.T) {
 	ts := int64(1700000000)
 	body := []byte("payload")
 	a, err := Sign("whsec_"+encodeTestKey("secret-a-values"), id, ts, body)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	b, err := Sign("whsec_"+encodeTestKey("secret-b-values"), id, ts, body)
-	require.NoError(t, err)
-	require.NotEqual(t, a, b)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if reflect.DeepEqual(b, a) {
+		t.Errorf("got %v, want a value different from %v", b, a)
+	}
 }
 
 // TestSignIsContentSensitive proves the id, timestamp and body each
@@ -45,19 +54,33 @@ func TestSignIsSecretSensitive(t *testing.T) {
 func TestSignIsContentSensitive(t *testing.T) {
 	secret := "whsec_" + encodeTestKey("a-fixed-signing-key-value")
 	base, err := Sign(secret, "msg_1", 1700000000, []byte("body-a"))
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	diffID, err := Sign(secret, "msg_2", 1700000000, []byte("body-a"))
-	require.NoError(t, err)
-	require.NotEqual(t, base, diffID, "changing the delivery id must change the signature")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if reflect.DeepEqual(diffID, base) {
+		t.Errorf("changing the delivery id must change the signature: got %v, want a value different from %v", diffID, base)
+	}
 
 	diffTS, err := Sign(secret, "msg_1", 1700000001, []byte("body-a"))
-	require.NoError(t, err)
-	require.NotEqual(t, base, diffTS, "changing the timestamp must change the signature")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if reflect.DeepEqual(diffTS, base) {
+		t.Errorf("changing the timestamp must change the signature: got %v, want a value different from %v", diffTS, base)
+	}
 
 	diffBody, err := Sign(secret, "msg_1", 1700000000, []byte("body-b"))
-	require.NoError(t, err)
-	require.NotEqual(t, base, diffBody, "changing the body must change the signature")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if reflect.DeepEqual(diffBody, base) {
+		t.Errorf("changing the body must change the signature: got %v, want a value different from %v", diffBody, base)
+	}
 }
 
 // TestSignRejectsUndecodableSecret proves a corrupt (non-base64) secret is a
@@ -65,21 +88,33 @@ func TestSignIsContentSensitive(t *testing.T) {
 // raw prefixed string as key material.
 func TestSignRejectsUndecodableSecret(t *testing.T) {
 	_, err := Sign("whsec_not-valid-base64!!!", "msg_1", 1700000000, []byte("body"))
-	require.Error(t, err)
+	if err == nil {
+		t.Fatal("expected an error, got nil")
+	}
 }
 
 func TestGenerateSecretIsPrefixedAndUnique(t *testing.T) {
 	a, err := generateSecret()
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	b, err := generateSecret()
-	require.NoError(t, err)
-	require.True(t, strings.HasPrefix(a, secretPrefix), "secret %q lacks the %q prefix", a, secretPrefix)
-	require.NotEqual(t, a, b, "generateSecret returned the same secret twice")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.HasPrefix(a, secretPrefix) {
+		t.Errorf("secret %q lacks the %q prefix", a, secretPrefix)
+	}
+	if reflect.DeepEqual(b, a) {
+		t.Errorf("generateSecret returned the same secret twice: got %v, want a value different from %v", b, a)
+	}
 
 	// The mint→decode round-trip (SW compatibility, A-1): the part after
 	// whsec_ must be STANDARD base64, decodable straight into HMAC key bytes.
 	_, err = Sign(a, "msg_roundtrip", 1700000000, []byte("body"))
-	require.NoError(t, err, "a freshly minted secret must decode and sign without error")
+	if err != nil {
+		t.Fatalf("a freshly minted secret must decode and sign without error: %v", err)
+	}
 }
 
 // encodeTestKey turns an arbitrary test string into valid standard base64

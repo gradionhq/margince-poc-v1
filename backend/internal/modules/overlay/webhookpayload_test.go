@@ -38,12 +38,13 @@ package overlay
 import (
 	"context"
 	"encoding/json"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/stretchr/testify/require"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -58,86 +59,165 @@ func TestMirrorConflictPayload(t *testing.T) {
 	incumbent := time.Date(2026, 7, 22, 10, 0, 0, 0, time.UTC)
 	payload := mirrorConflictPayload("deal", "ext-42", prior, incumbent)
 
-	require.Equal(t, "mirror.conflict", payload.EventType())
-	require.Equal(t, "dynamic", payload.EntityType(),
-		"mirror.conflict is a dynamic-entity type — its static EntityType() is unused; the real subject comes from EmitEventForEntity's caller-supplied entityType")
-	require.Equal(t, "deal", payload.ObjectClass)
-	require.Equal(t, "ext-42", payload.ExternalId)
-	require.True(t, prior.Equal(payload.PriorUpdatedAt))
-	require.True(t, incumbent.Equal(payload.IncumbentUpdatedAt))
+	if !reflect.DeepEqual(payload.EventType(), "mirror.conflict") {
+		t.Errorf("got %v, want %v", payload.EventType(), "mirror.conflict")
+	}
+	if !reflect.DeepEqual(payload.EntityType(), "dynamic") {
+		t.Errorf("mirror.conflict is a dynamic-entity type — its static EntityType() is unused; the real subject comes from EmitEventForEntity's caller-supplied entityType: got %v, want %v", payload.EntityType(), "dynamic")
+	}
+	if !reflect.DeepEqual(payload.ObjectClass, "deal") {
+		t.Errorf("got %v, want %v", payload.ObjectClass, "deal")
+	}
+	if !reflect.DeepEqual(payload.ExternalId, "ext-42") {
+		t.Errorf("got %v, want %v", payload.ExternalId, "ext-42")
+	}
+	if !prior.Equal(payload.PriorUpdatedAt) {
+		t.Error("expected the condition to be true")
+	}
+	if !incumbent.Equal(payload.IncumbentUpdatedAt) {
+		t.Error("expected the condition to be true")
+	}
 
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	var decoded crmcontracts.PublicEventMirrorConflict
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.True(t, decoded.PriorUpdatedAt.Equal(payload.PriorUpdatedAt))
-	require.True(t, decoded.IncumbentUpdatedAt.Equal(payload.IncumbentUpdatedAt))
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !decoded.PriorUpdatedAt.Equal(payload.PriorUpdatedAt) {
+		t.Error("expected the condition to be true")
+	}
+	if !decoded.IncumbentUpdatedAt.Equal(payload.IncumbentUpdatedAt) {
+		t.Error("expected the condition to be true")
+	}
 }
 
 func TestMirrorBudgetDegradedPayload(t *testing.T) {
 	payload := mirrorBudgetDegradedPayload(overlaybudget.BandShed)
 
-	require.Equal(t, "mirror.budget_degraded", payload.EventType())
-	require.Equal(t, "dynamic", payload.EntityType(),
-		"mirror.budget_degraded is a dynamic-entity type — its static EntityType() is unused; the real subject comes from EmitEventForEntity's caller-supplied entityType")
-	require.Equal(t, overlaybudget.BandShed, payload.Band)
+	if !reflect.DeepEqual(payload.EventType(), "mirror.budget_degraded") {
+		t.Errorf("got %v, want %v", payload.EventType(), "mirror.budget_degraded")
+	}
+	if !reflect.DeepEqual(payload.EntityType(), "dynamic") {
+		t.Errorf("mirror.budget_degraded is a dynamic-entity type — its static EntityType() is unused; the real subject comes from EmitEventForEntity's caller-supplied entityType: got %v, want %v", payload.EntityType(), "dynamic")
+	}
+	if !reflect.DeepEqual(payload.Band, overlaybudget.BandShed) {
+		t.Errorf("got %v, want %v", payload.Band, overlaybudget.BandShed)
+	}
 
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	var decoded crmcontracts.PublicEventMirrorBudgetDegraded
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.Equal(t, payload, decoded)
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
 }
 
 func TestMirrorDeletedPayload(t *testing.T) {
 	deletedAt := time.Date(2026, 7, 22, 11, 0, 0, 0, time.UTC)
 	payload := mirrorDeletedPayload("person", "ext-99", deletedAt)
 
-	require.Equal(t, "mirror.deleted", payload.EventType())
-	require.Equal(t, "dynamic", payload.EntityType(),
-		"mirror.deleted is a dynamic-entity type — its static EntityType() is unused; the real subject comes from EmitEventForEntity's caller-supplied entityType")
-	require.Equal(t, "person", payload.ObjectClass)
-	require.Equal(t, "ext-99", payload.ExternalId)
-	require.True(t, deletedAt.Equal(payload.DeletedAt))
+	if !reflect.DeepEqual(payload.EventType(), "mirror.deleted") {
+		t.Errorf("got %v, want %v", payload.EventType(), "mirror.deleted")
+	}
+	if !reflect.DeepEqual(payload.EntityType(), "dynamic") {
+		t.Errorf("mirror.deleted is a dynamic-entity type — its static EntityType() is unused; the real subject comes from EmitEventForEntity's caller-supplied entityType: got %v, want %v", payload.EntityType(), "dynamic")
+	}
+	if !reflect.DeepEqual(payload.ObjectClass, "person") {
+		t.Errorf("got %v, want %v", payload.ObjectClass, "person")
+	}
+	if !reflect.DeepEqual(payload.ExternalId, "ext-99") {
+		t.Errorf("got %v, want %v", payload.ExternalId, "ext-99")
+	}
+	if !deletedAt.Equal(payload.DeletedAt) {
+		t.Error("expected the condition to be true")
+	}
 
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	var decoded crmcontracts.PublicEventMirrorDeleted
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.True(t, decoded.DeletedAt.Equal(payload.DeletedAt))
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !decoded.DeletedAt.Equal(payload.DeletedAt) {
+		t.Error("expected the condition to be true")
+	}
 }
 
 func TestIncumbentConnectedPayload(t *testing.T) {
 	payload := incumbentConnectedPayload("hubspot", "eu", leastPrivilegeHubSpotScopes, statusActive)
 
-	require.Equal(t, "incumbent.connected", payload.EventType())
-	require.Equal(t, "incumbent_connection", payload.EntityType())
-	require.Equal(t, "hubspot", payload.Incumbent)
-	require.Equal(t, "eu", payload.Region)
-	require.Equal(t, leastPrivilegeHubSpotScopes, payload.Scopes)
-	require.Equal(t, statusActive, payload.Status)
+	if !reflect.DeepEqual(payload.EventType(), "incumbent.connected") {
+		t.Errorf("got %v, want %v", payload.EventType(), "incumbent.connected")
+	}
+	if !reflect.DeepEqual(payload.EntityType(), "incumbent_connection") {
+		t.Errorf("got %v, want %v", payload.EntityType(), "incumbent_connection")
+	}
+	if !reflect.DeepEqual(payload.Incumbent, "hubspot") {
+		t.Errorf("got %v, want %v", payload.Incumbent, "hubspot")
+	}
+	if !reflect.DeepEqual(payload.Region, "eu") {
+		t.Errorf("got %v, want %v", payload.Region, "eu")
+	}
+	if !reflect.DeepEqual(payload.Scopes, leastPrivilegeHubSpotScopes) {
+		t.Errorf("got %v, want %v", payload.Scopes, leastPrivilegeHubSpotScopes)
+	}
+	if !reflect.DeepEqual(payload.Status, statusActive) {
+		t.Errorf("got %v, want %v", payload.Status, statusActive)
+	}
 
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	var decoded crmcontracts.PublicEventIncumbentConnected
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.Equal(t, payload, decoded)
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
 }
 
 func TestIncumbentDisconnectedPayload(t *testing.T) {
 	payload := incumbentDisconnectedPayload("hubspot", "eu", statusRevoked)
 
-	require.Equal(t, "incumbent.disconnected", payload.EventType())
-	require.Equal(t, "incumbent_connection", payload.EntityType())
-	require.Equal(t, "hubspot", payload.Incumbent)
-	require.Equal(t, "eu", payload.Region)
-	require.Equal(t, statusRevoked, payload.Status)
+	if !reflect.DeepEqual(payload.EventType(), "incumbent.disconnected") {
+		t.Errorf("got %v, want %v", payload.EventType(), "incumbent.disconnected")
+	}
+	if !reflect.DeepEqual(payload.EntityType(), "incumbent_connection") {
+		t.Errorf("got %v, want %v", payload.EntityType(), "incumbent_connection")
+	}
+	if !reflect.DeepEqual(payload.Incumbent, "hubspot") {
+		t.Errorf("got %v, want %v", payload.Incumbent, "hubspot")
+	}
+	if !reflect.DeepEqual(payload.Region, "eu") {
+		t.Errorf("got %v, want %v", payload.Region, "eu")
+	}
+	if !reflect.DeepEqual(payload.Status, statusRevoked) {
+		t.Errorf("got %v, want %v", payload.Status, statusRevoked)
+	}
 
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	var decoded crmcontracts.PublicEventIncumbentDisconnected
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.Equal(t, payload, decoded)
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
 }
 
 // fakeTx is the true-DB-boundary fake (T11), mirroring
@@ -196,12 +276,20 @@ func emitTestContext() context.Context {
 // fakeTx captured from the INSERT INTO event_outbox(stream, envelope) call.
 func decodedOutboxEntityType(t *testing.T, tx *fakeTx) string {
 	t.Helper()
-	require.Contains(t, tx.execSQL, "INSERT INTO event_outbox")
-	require.Len(t, tx.execArgs, 2)
+	if !strings.Contains(tx.execSQL, "INSERT INTO event_outbox") {
+		t.Errorf("%q should contain %q", tx.execSQL, "INSERT INTO event_outbox")
+	}
+	if len(tx.execArgs) != 2 {
+		t.Errorf("len = %d, want %d", len(tx.execArgs), 2)
+	}
 	body, ok := tx.execArgs[1].([]byte)
-	require.True(t, ok, "second Exec arg = %T, want []byte (the marshaled envelope)", tx.execArgs[1])
+	if !ok {
+		t.Errorf("second Exec arg = %T, want []byte (the marshaled envelope)", tx.execArgs[1])
+	}
 	var env events.Envelope
-	require.NoError(t, json.Unmarshal(body, &env))
+	if json.Unmarshal(body, &env) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(body, &env))
+	}
 	return env.Entity.Type
 }
 
@@ -231,10 +319,13 @@ func TestMirrorEventsEmitUseRuntimeEntityType(t *testing.T) {
 			subjectID := ids.NewV7()
 
 			err := storekit.EmitEventForEntity(emitTestContext(), tx, auditID, tc.entityType, subjectID, tc.payload)
-			require.NoError(t, err)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 
-			require.Equal(t, tc.entityType, decodedOutboxEntityType(t, tx),
-				"%s must carry the runtime subject's entity type, not the payload's static (unused) EntityType()", tc.name)
+			if !reflect.DeepEqual(decodedOutboxEntityType(t, tx), tc.entityType) {
+				t.Errorf("%s must carry the runtime subject's entity type, not the payload's static (unused) EntityType(): got %v, want %v", tc.name, decodedOutboxEntityType(t, tx), tc.entityType)
+			}
 		})
 	}
 }

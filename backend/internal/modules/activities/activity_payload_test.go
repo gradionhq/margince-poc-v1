@@ -25,10 +25,10 @@ package activities
 
 import (
 	"encoding/json"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/require"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
@@ -42,18 +42,33 @@ import (
 func TestActivityCapturedPayload_DirectLog(t *testing.T) {
 	payload := activityCapturedPayload("meeting")
 
-	require.Equal(t, "activity.captured", payload.EventType())
-	require.Equal(t, "activity", payload.EntityType())
-	require.Equal(t, "meeting", payload.Kind)
-	require.Nil(t, payload.SourceSystem)
+	if !reflect.DeepEqual(payload.EventType(), "activity.captured") {
+		t.Errorf("got %v, want %v", payload.EventType(), "activity.captured")
+	}
+	if !reflect.DeepEqual(payload.EntityType(), "activity") {
+		t.Errorf("got %v, want %v", payload.EntityType(), "activity")
+	}
+	if !reflect.DeepEqual(payload.Kind, "meeting") {
+		t.Errorf("got %v, want %v", payload.Kind, "meeting")
+	}
+	if payload.SourceSystem != nil {
+		t.Errorf("expected nil, got %v", payload.SourceSystem)
+	}
 
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
-	require.NotContains(t, string(raw), "source_system",
-		"an absent source_system must be omitted from the wire body, not marshaled as null")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(string(raw), "source_system") {
+		t.Errorf("an absent source_system must be omitted from the wire body, not marshaled as null: should not contain %v", "source_system")
+	}
 	var decoded crmcontracts.PublicEventActivityCaptured
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.Equal(t, payload, decoded)
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
 }
 
 // TestActivityCapturedKindJSONTagIsStable is the A9 key-binding regression
@@ -66,25 +81,41 @@ func TestActivityCapturedPayload_DirectLog(t *testing.T) {
 func TestActivityCapturedKindJSONTagIsStable(t *testing.T) {
 	payload := crmcontracts.PublicEventActivityCaptured{Kind: "meeting"}
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	var decoded map[string]any
-	require.NoError(t, json.Unmarshal(raw, &decoded))
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
 	got, ok := decoded["kind"]
-	require.True(t, ok, `expected JSON key "kind" (bound in automation/handlers_event.go's capturedActivityKind) in %s`, raw)
-	require.Equal(t, "meeting", got)
+	if !ok {
+		t.Errorf(`expected JSON key "kind" (bound in automation/handlers_event.go's capturedActivityKind) in %s`, raw)
+	}
+	if !reflect.DeepEqual(got, "meeting") {
+		t.Errorf("got %v, want %v", got, "meeting")
+	}
 }
 
 // TestActivityArchivedEmitsTypedPayload proves the archive path emits the
 // empty struct (activity.archived carries no data).
 func TestActivityArchivedEmitsTypedPayload(t *testing.T) {
 	payload := crmcontracts.PublicEventActivityArchived{}
-	require.Equal(t, "activity.archived", payload.EventType())
-	require.Equal(t, "activity", payload.EntityType())
+	if !reflect.DeepEqual(payload.EventType(), "activity.archived") {
+		t.Errorf("got %v, want %v", payload.EventType(), "activity.archived")
+	}
+	if !reflect.DeepEqual(payload.EntityType(), "activity") {
+		t.Errorf("got %v, want %v", payload.EntityType(), "activity")
+	}
 
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
-	require.Equal(t, "{}", string(raw))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !reflect.DeepEqual(string(raw), "{}") {
+		t.Errorf("got %v, want %v", string(raw), "{}")
+	}
 }
 
 // TestActivityUpdatedChangedFields_FieldPatch proves
@@ -103,27 +134,58 @@ func TestActivityUpdatedChangedFields_FieldPatch(t *testing.T) {
 	}
 
 	fields := activityUpdatedChangedFields(in)
-	require.NotNil(t, fields.Subject)
-	require.Equal(t, subject, *fields.Subject)
-	require.NotNil(t, fields.OccurredAt)
-	require.Equal(t, occurredAt, *fields.OccurredAt)
-	require.NotNil(t, fields.IsDone)
-	require.True(t, *fields.IsDone)
-	require.Nil(t, fields.Body)
-	require.Nil(t, fields.DueAt)
-	require.Nil(t, fields.RemindAt)
-	require.Nil(t, fields.AssigneeId)
-	require.Nil(t, fields.Relinked)
+	if fields.Subject == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*fields.Subject, subject) {
+		t.Errorf("got %v, want %v", *fields.Subject, subject)
+	}
+	if fields.OccurredAt == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*fields.OccurredAt, occurredAt) {
+		t.Errorf("got %v, want %v", *fields.OccurredAt, occurredAt)
+	}
+	if fields.IsDone == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !(*fields.IsDone) {
+		t.Error("expected the condition to be true")
+	}
+	if fields.Body != nil {
+		t.Errorf("expected nil, got %v", fields.Body)
+	}
+	if fields.DueAt != nil {
+		t.Errorf("expected nil, got %v", fields.DueAt)
+	}
+	if fields.RemindAt != nil {
+		t.Errorf("expected nil, got %v", fields.RemindAt)
+	}
+	if fields.AssigneeId != nil {
+		t.Errorf("expected nil, got %v", fields.AssigneeId)
+	}
+	if fields.Relinked != nil {
+		t.Errorf("expected nil, got %v", fields.Relinked)
+	}
 
 	payload := crmcontracts.PublicEventActivityUpdated{ChangedFields: fields}
-	require.Equal(t, "activity.updated", payload.EventType())
+	if !reflect.DeepEqual(payload.EventType(), "activity.updated") {
+		t.Errorf("got %v, want %v", payload.EventType(), "activity.updated")
+	}
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
-	require.NotContains(t, string(raw), "due_at",
-		"an untouched field must be omitted from changed_fields, not marshaled as null")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(string(raw), "due_at") {
+		t.Errorf("an untouched field must be omitted from changed_fields, not marshaled as null: should not contain %v", "due_at")
+	}
 	var decoded crmcontracts.PublicEventActivityUpdated
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.Equal(t, payload, decoded)
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
 }
 
 // TestActivityUpdatedChangedFields_BodyIsPresenceOnly proves the body delta
@@ -134,12 +196,20 @@ func TestActivityUpdatedChangedFields_BodyIsPresenceOnly(t *testing.T) {
 	in := UpdateActivityInput{Body: &body}
 
 	fields := activityUpdatedChangedFields(in)
-	require.NotNil(t, fields.Body)
-	require.True(t, *fields.Body)
+	if fields.Body == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !(*fields.Body) {
+		t.Error("expected the condition to be true")
+	}
 
 	raw, err := json.Marshal(fields)
-	require.NoError(t, err)
-	require.NotContains(t, string(raw), body, "the body's content must never be published on the wire")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(string(raw), body) {
+		t.Errorf("the body's content must never be published on the wire: should not contain %v", body)
+	}
 }
 
 // TestRelinkedChangedFields proves RelinkActivity's changed_fields carries
@@ -148,15 +218,29 @@ func TestRelinkedChangedFields(t *testing.T) {
 	entityID := ids.NewV7()
 	fields := relinkedChangedFields("deal", entityID)
 
-	require.NotNil(t, fields.Relinked)
-	require.Equal(t, "deal", fields.Relinked.EntityType)
-	require.Equal(t, openapi_types.UUID(entityID), fields.Relinked.EntityId)
-	require.Nil(t, fields.Subject)
+	if fields.Relinked == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(fields.Relinked.EntityType, "deal") {
+		t.Errorf("got %v, want %v", fields.Relinked.EntityType, "deal")
+	}
+	if !reflect.DeepEqual(fields.Relinked.EntityId, openapi_types.UUID(entityID)) {
+		t.Errorf("got %v, want %v", fields.Relinked.EntityId, openapi_types.UUID(entityID))
+	}
+	if fields.Subject != nil {
+		t.Errorf("expected nil, got %v", fields.Subject)
+	}
 
 	payload := crmcontracts.PublicEventActivityUpdated{ChangedFields: fields}
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	var decoded crmcontracts.PublicEventActivityUpdated
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.Equal(t, payload, decoded)
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
 }

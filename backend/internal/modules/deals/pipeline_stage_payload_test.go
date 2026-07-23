@@ -26,9 +26,9 @@ package deals
 
 import (
 	"encoding/json"
+	"reflect"
+	"strings"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
@@ -44,21 +44,45 @@ func TestPipelineCreatedEmitsTypedPayload(t *testing.T) {
 
 	payload := pipelineCreatedPayload("Sales", true, stages)
 
-	require.Equal(t, "Sales", payload.Name)
-	require.True(t, payload.IsDefault)
-	require.Len(t, payload.Stages, 2)
-	require.Equal(t, "New", payload.Stages[0].Name)
-	require.Equal(t, 0, payload.Stages[0].Position)
-	require.Equal(t, "open", payload.Stages[0].Semantic)
-	require.Equal(t, "Won", payload.Stages[1].Name)
-	require.Equal(t, 1, payload.Stages[1].Position)
-	require.Equal(t, "won", payload.Stages[1].Semantic)
+	if !reflect.DeepEqual(payload.Name, "Sales") {
+		t.Errorf("got %v, want %v", payload.Name, "Sales")
+	}
+	if !payload.IsDefault {
+		t.Error("expected the condition to be true")
+	}
+	if len(payload.Stages) != 2 {
+		t.Errorf("len = %d, want %d", len(payload.Stages), 2)
+	}
+	if !reflect.DeepEqual(payload.Stages[0].Name, "New") {
+		t.Errorf("got %v, want %v", payload.Stages[0].Name, "New")
+	}
+	if !reflect.DeepEqual(payload.Stages[0].Position, 0) {
+		t.Errorf("got %v, want %v", payload.Stages[0].Position, 0)
+	}
+	if !reflect.DeepEqual(payload.Stages[0].Semantic, "open") {
+		t.Errorf("got %v, want %v", payload.Stages[0].Semantic, "open")
+	}
+	if !reflect.DeepEqual(payload.Stages[1].Name, "Won") {
+		t.Errorf("got %v, want %v", payload.Stages[1].Name, "Won")
+	}
+	if !reflect.DeepEqual(payload.Stages[1].Position, 1) {
+		t.Errorf("got %v, want %v", payload.Stages[1].Position, 1)
+	}
+	if !reflect.DeepEqual(payload.Stages[1].Semantic, "won") {
+		t.Errorf("got %v, want %v", payload.Stages[1].Semantic, "won")
+	}
 
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	var decoded crmcontracts.PublicEventPipelineCreated
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.Equal(t, payload, decoded)
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
 }
 
 func TestStageCreatedEmitsTypedPayload(t *testing.T) {
@@ -66,17 +90,33 @@ func TestStageCreatedEmitsTypedPayload(t *testing.T) {
 
 	payload := stageCreatedPayload(pipelineID, "Negotiation", 2, "open", 40)
 
-	require.Equal(t, openapi_types.UUID(pipelineID.UUID), payload.PipelineId)
-	require.Equal(t, "Negotiation", payload.Name)
-	require.Equal(t, 2, payload.Position)
-	require.Equal(t, "open", payload.Semantic)
-	require.Equal(t, 40, payload.WinProbability)
+	if !reflect.DeepEqual(payload.PipelineId, openapi_types.UUID(pipelineID.UUID)) {
+		t.Errorf("got %v, want %v", payload.PipelineId, openapi_types.UUID(pipelineID.UUID))
+	}
+	if !reflect.DeepEqual(payload.Name, "Negotiation") {
+		t.Errorf("got %v, want %v", payload.Name, "Negotiation")
+	}
+	if !reflect.DeepEqual(payload.Position, 2) {
+		t.Errorf("got %v, want %v", payload.Position, 2)
+	}
+	if !reflect.DeepEqual(payload.Semantic, "open") {
+		t.Errorf("got %v, want %v", payload.Semantic, "open")
+	}
+	if !reflect.DeepEqual(payload.WinProbability, 40) {
+		t.Errorf("got %v, want %v", payload.WinProbability, 40)
+	}
 
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	var decoded crmcontracts.PublicEventStageCreated
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.Equal(t, payload, decoded)
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
 }
 
 func TestStageUpdatedEmitsTypedPayload(t *testing.T) {
@@ -85,21 +125,41 @@ func TestStageUpdatedEmitsTypedPayload(t *testing.T) {
 
 	payload := stageUpdatedPayload(pipelineID, UpdateStageInput{Name: &newName})
 
-	require.Equal(t, openapi_types.UUID(pipelineID.UUID), payload.PipelineId)
-	require.NotNil(t, payload.Name)
-	require.Equal(t, newName, *payload.Name)
-	require.Nil(t, payload.Semantic, "semantic must stay absent when the update did not touch it")
-	require.Nil(t, payload.WinProbability, "win_probability must stay absent when the update did not touch it")
+	if !reflect.DeepEqual(payload.PipelineId, openapi_types.UUID(pipelineID.UUID)) {
+		t.Errorf("got %v, want %v", payload.PipelineId, openapi_types.UUID(pipelineID.UUID))
+	}
+	if payload.Name == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*payload.Name, newName) {
+		t.Errorf("got %v, want %v", *payload.Name, newName)
+	}
+	if payload.Semantic != nil {
+		t.Error("semantic must stay absent when the update did not touch it")
+	}
+	if payload.WinProbability != nil {
+		t.Error("win_probability must stay absent when the update did not touch it")
+	}
 
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	// The bounded delta is optional-fields, not an open map: an untouched
 	// field must be OMITTED from the wire body, not marshaled as null —
 	// a subscriber diffing keys would otherwise see a spurious change.
-	require.NotContains(t, string(raw), `"semantic"`)
-	require.NotContains(t, string(raw), `"win_probability"`)
+	if strings.Contains(string(raw), `"semantic"`) {
+		t.Errorf("%q should not contain %q", string(raw), `"semantic"`)
+	}
+	if strings.Contains(string(raw), `"win_probability"`) {
+		t.Errorf("%q should not contain %q", string(raw), `"win_probability"`)
+	}
 
 	var decoded crmcontracts.PublicEventStageUpdated
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.Equal(t, payload, decoded)
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
 }

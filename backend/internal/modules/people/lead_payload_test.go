@@ -28,10 +28,11 @@ package people
 
 import (
 	"encoding/json"
+	"reflect"
+	"strings"
 	"testing"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
-	"github.com/stretchr/testify/require"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -43,19 +44,39 @@ func TestLeadPromotedPayload_WithEvidence(t *testing.T) {
 
 	payload := leadPromotedPayload(personID, "created", "inbound_reply", &evidenceID)
 
-	require.Equal(t, "lead.promoted", payload.EventType())
-	require.Equal(t, "lead", payload.EntityType())
-	require.Equal(t, openapi_types.UUID(personID.UUID), payload.PromotedPersonId)
-	require.Equal(t, "created", payload.DedupeOutcome)
-	require.Equal(t, "inbound_reply", payload.Trigger)
-	require.NotNil(t, payload.EvidenceRef)
-	require.Equal(t, openapi_types.UUID(evidenceID.UUID), *payload.EvidenceRef)
+	if !reflect.DeepEqual(payload.EventType(), "lead.promoted") {
+		t.Errorf("got %v, want %v", payload.EventType(), "lead.promoted")
+	}
+	if !reflect.DeepEqual(payload.EntityType(), "lead") {
+		t.Errorf("got %v, want %v", payload.EntityType(), "lead")
+	}
+	if !reflect.DeepEqual(payload.PromotedPersonId, openapi_types.UUID(personID.UUID)) {
+		t.Errorf("got %v, want %v", payload.PromotedPersonId, openapi_types.UUID(personID.UUID))
+	}
+	if !reflect.DeepEqual(payload.DedupeOutcome, "created") {
+		t.Errorf("got %v, want %v", payload.DedupeOutcome, "created")
+	}
+	if !reflect.DeepEqual(payload.Trigger, "inbound_reply") {
+		t.Errorf("got %v, want %v", payload.Trigger, "inbound_reply")
+	}
+	if payload.EvidenceRef == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*payload.EvidenceRef, openapi_types.UUID(evidenceID.UUID)) {
+		t.Errorf("got %v, want %v", *payload.EvidenceRef, openapi_types.UUID(evidenceID.UUID))
+	}
 
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	var decoded crmcontracts.PublicEventLeadPromoted
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.Equal(t, payload, decoded)
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
 }
 
 func TestLeadPromotedPayload_MergedNoEvidence(t *testing.T) {
@@ -63,13 +84,20 @@ func TestLeadPromotedPayload_MergedNoEvidence(t *testing.T) {
 
 	payload := leadPromotedPayload(personID, "merged", "human_qualify", nil)
 
-	require.Equal(t, "merged", payload.DedupeOutcome)
-	require.Nil(t, payload.EvidenceRef)
+	if !reflect.DeepEqual(payload.DedupeOutcome, "merged") {
+		t.Errorf("got %v, want %v", payload.DedupeOutcome, "merged")
+	}
+	if payload.EvidenceRef != nil {
+		t.Errorf("expected nil, got %v", payload.EvidenceRef)
+	}
 
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
-	require.NotContains(t, string(raw), `"evidence_ref"`,
-		"an absent evidence_ref must be omitted from the wire body, not marshaled as null")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(string(raw), `"evidence_ref"`) {
+		t.Errorf("an absent evidence_ref must be omitted from the wire body, not marshaled as null: should not contain %v", `"evidence_ref"`)
+	}
 }
 
 // TestLeadUpdatedChangedFieldsPreservesCustomField proves the OPEN
@@ -84,14 +112,25 @@ func TestLeadUpdatedChangedFieldsPreservesCustomField(t *testing.T) {
 		},
 	}
 
-	require.Equal(t, "lead.updated", payload.EventType())
-	require.Equal(t, "lead", payload.EntityType())
+	if !reflect.DeepEqual(payload.EventType(), "lead.updated") {
+		t.Errorf("got %v, want %v", payload.EventType(), "lead.updated")
+	}
+	if !reflect.DeepEqual(payload.EntityType(), "lead") {
+		t.Errorf("got %v, want %v", payload.EntityType(), "lead")
+	}
 
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	var decoded crmcontracts.PublicEventLeadUpdated
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.Equal(t, "partner-9f2", decoded.ChangedFields["cf_lead_source_ref"],
-		"the open changed_fields map must preserve a cf_* custom-field key untouched")
-	require.Equal(t, payload, decoded)
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded.ChangedFields["cf_lead_source_ref"], "partner-9f2") {
+		t.Errorf("the open changed_fields map must preserve a cf_* custom-field key untouched: got %v, want %v", decoded.ChangedFields["cf_lead_source_ref"], "partner-9f2")
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
 }

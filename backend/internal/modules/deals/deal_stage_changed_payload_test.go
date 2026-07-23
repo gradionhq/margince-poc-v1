@@ -26,13 +26,12 @@ package deals
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
-	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -50,25 +49,51 @@ func TestDealStageChangedEmitsTypedPayload(t *testing.T) {
 
 	payload := dealStageChangedPayload(current, toStage, string(DealWon), 100)
 
-	require.NotNil(t, payload.FromStageId, "from_stage_id must carry the pre-move stage")
-	require.Equal(t, fromStage, *payload.FromStageId)
-	require.Equal(t, openapi_types.UUID(toStage.UUID), payload.ToStageId)
-	require.Equal(t, "open", payload.FromStatus)
-	require.Equal(t, "won", payload.ToStatus)
-	require.NotNil(t, payload.AmountMinorAtChange)
-	require.Equal(t, amount, *payload.AmountMinorAtChange)
-	require.NotNil(t, payload.CurrencyAtChange)
-	require.Equal(t, currency, *payload.CurrencyAtChange)
-	require.Equal(t, 100, payload.WinProbability)
+	if payload.FromStageId == nil {
+		t.Fatal("from_stage_id must carry the pre-move stage")
+	}
+	if !reflect.DeepEqual(*payload.FromStageId, fromStage) {
+		t.Errorf("got %v, want %v", *payload.FromStageId, fromStage)
+	}
+	if !reflect.DeepEqual(payload.ToStageId, openapi_types.UUID(toStage.UUID)) {
+		t.Errorf("got %v, want %v", payload.ToStageId, openapi_types.UUID(toStage.UUID))
+	}
+	if !reflect.DeepEqual(payload.FromStatus, "open") {
+		t.Errorf("got %v, want %v", payload.FromStatus, "open")
+	}
+	if !reflect.DeepEqual(payload.ToStatus, "won") {
+		t.Errorf("got %v, want %v", payload.ToStatus, "won")
+	}
+	if payload.AmountMinorAtChange == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*payload.AmountMinorAtChange, amount) {
+		t.Errorf("got %v, want %v", *payload.AmountMinorAtChange, amount)
+	}
+	if payload.CurrencyAtChange == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*payload.CurrencyAtChange, currency) {
+		t.Errorf("got %v, want %v", *payload.CurrencyAtChange, currency)
+	}
+	if !reflect.DeepEqual(payload.WinProbability, 100) {
+		t.Errorf("got %v, want %v", payload.WinProbability, 100)
+	}
 
 	// Round-trip through JSON exactly as storekit.Emit marshals the payload
 	// into the outbox envelope — the wire shape the pilot's conformance and
 	// snapshot gates both check.
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	var decoded crmcontracts.PublicEventDealStageChanged
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.Equal(t, payload, decoded)
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
 }
 
 // TestDealStageChangedToStatusJSONTagIsStable is the A9 key-binding
@@ -86,11 +111,19 @@ func TestDealStageChangedToStatusJSONTagIsStable(t *testing.T) {
 		WinProbability: 0,
 	}
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	var decoded map[string]any
-	require.NoError(t, json.Unmarshal(raw, &decoded))
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
 	got, ok := decoded["to_status"]
-	require.True(t, ok, `expected JSON key "to_status" (bound in automation/handlers_event.go's dealStageStatusField) in %s`, raw)
-	require.Equal(t, "lost", got)
+	if !ok {
+		t.Errorf(`expected JSON key "to_status" (bound in automation/handlers_event.go's dealStageStatusField) in %s`, raw)
+	}
+	if !reflect.DeepEqual(got, "lost") {
+		t.Errorf("got %v, want %v", got, "lost")
+	}
 }

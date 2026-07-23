@@ -29,10 +29,10 @@ package people
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
-	"github.com/stretchr/testify/require"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -44,17 +44,31 @@ func TestPromotedPersonPayload_Created(t *testing.T) {
 
 	payload := promotedPersonPayload(person, false, leadID)
 
-	require.Equal(t, "person.created", payload.EventType())
-	require.Equal(t, "person", payload.EntityType())
+	if !reflect.DeepEqual(payload.EventType(), "person.created") {
+		t.Errorf("got %v, want %v", payload.EventType(), "person.created")
+	}
+	if !reflect.DeepEqual(payload.EntityType(), "person") {
+		t.Errorf("got %v, want %v", payload.EntityType(), "person")
+	}
 	created, ok := payload.(crmcontracts.PublicEventPersonCreated)
-	require.True(t, ok)
-	require.Equal(t, "Ada Lovelace", created.FullName)
+	if !ok {
+		t.Error("expected the condition to be true")
+	}
+	if !reflect.DeepEqual(created.FullName, "Ada Lovelace") {
+		t.Errorf("got %v, want %v", created.FullName, "Ada Lovelace")
+	}
 
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	var decoded crmcontracts.PublicEventPersonCreated
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.Equal(t, created, decoded)
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, created) {
+		t.Errorf("got %v, want %v", decoded, created)
+	}
 }
 
 func TestPromotedPersonPayload_Merged(t *testing.T) {
@@ -63,10 +77,16 @@ func TestPromotedPersonPayload_Merged(t *testing.T) {
 
 	payload := promotedPersonPayload(person, true, leadID)
 
-	require.Equal(t, "person.updated", payload.EventType())
+	if !reflect.DeepEqual(payload.EventType(), "person.updated") {
+		t.Errorf("got %v, want %v", payload.EventType(), "person.updated")
+	}
 	updated, ok := payload.(crmcontracts.PublicEventPersonUpdated)
-	require.True(t, ok)
-	require.Equal(t, leadID, updated.ChangedFields["converted_from_lead_id"])
+	if !ok {
+		t.Error("expected the condition to be true")
+	}
+	if !reflect.DeepEqual(updated.ChangedFields["converted_from_lead_id"], leadID) {
+		t.Errorf("got %v, want %v", updated.ChangedFields["converted_from_lead_id"], leadID)
+	}
 }
 
 func TestPersonMergedPayload(t *testing.T) {
@@ -76,20 +96,42 @@ func TestPersonMergedPayload(t *testing.T) {
 
 	payload := personMergedPayload(sourceID, targetID, counts)
 
-	require.Equal(t, "person.merged", payload.EventType())
-	require.Equal(t, "person", payload.EntityType())
-	require.Equal(t, openapi_types.UUID(sourceID.UUID), payload.MergedFromId)
-	require.Equal(t, openapi_types.UUID(targetID.UUID), payload.MergedIntoId)
-	require.Equal(t, int64(2), payload.Relinked.Emails)
-	require.Equal(t, int64(1), payload.Relinked.Phones)
-	require.Equal(t, int64(3), payload.Relinked.Relationships)
-	require.Equal(t, int64(5), payload.Relinked.ActivityLinks)
+	if !reflect.DeepEqual(payload.EventType(), "person.merged") {
+		t.Errorf("got %v, want %v", payload.EventType(), "person.merged")
+	}
+	if !reflect.DeepEqual(payload.EntityType(), "person") {
+		t.Errorf("got %v, want %v", payload.EntityType(), "person")
+	}
+	if !reflect.DeepEqual(payload.MergedFromId, openapi_types.UUID(sourceID.UUID)) {
+		t.Errorf("got %v, want %v", payload.MergedFromId, openapi_types.UUID(sourceID.UUID))
+	}
+	if !reflect.DeepEqual(payload.MergedIntoId, openapi_types.UUID(targetID.UUID)) {
+		t.Errorf("got %v, want %v", payload.MergedIntoId, openapi_types.UUID(targetID.UUID))
+	}
+	if !reflect.DeepEqual(payload.Relinked.Emails, int64(2)) {
+		t.Errorf("got %v, want %v", payload.Relinked.Emails, int64(2))
+	}
+	if !reflect.DeepEqual(payload.Relinked.Phones, int64(1)) {
+		t.Errorf("got %v, want %v", payload.Relinked.Phones, int64(1))
+	}
+	if !reflect.DeepEqual(payload.Relinked.Relationships, int64(3)) {
+		t.Errorf("got %v, want %v", payload.Relinked.Relationships, int64(3))
+	}
+	if !reflect.DeepEqual(payload.Relinked.ActivityLinks, int64(5)) {
+		t.Errorf("got %v, want %v", payload.Relinked.ActivityLinks, int64(5))
+	}
 
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	var decoded crmcontracts.PublicEventPersonMerged
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.Equal(t, payload, decoded)
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
 }
 
 func TestCompanySaveEventPayload_Created(t *testing.T) {
@@ -97,23 +139,49 @@ func TestCompanySaveEventPayload_Created(t *testing.T) {
 
 	payload := companySaveEventPayload(true, applied, "human:u1")
 
-	require.Equal(t, "organization.created", payload.EventType())
+	if !reflect.DeepEqual(payload.EventType(), "organization.created") {
+		t.Errorf("got %v, want %v", payload.EventType(), "organization.created")
+	}
 	created, ok := payload.(crmcontracts.PublicEventOrganizationCreated)
-	require.True(t, ok)
-	require.NotNil(t, created.Delta)
-	require.Equal(t, applied, *created.Delta)
-	require.NotNil(t, created.Source)
-	require.Equal(t, "human", *created.Source)
-	require.NotNil(t, created.Anchor)
-	require.True(t, *created.Anchor)
-	require.NotNil(t, created.CapturedBy)
-	require.Equal(t, "human:u1", *created.CapturedBy)
+	if !ok {
+		t.Error("expected the condition to be true")
+	}
+	if created.Delta == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*created.Delta, applied) {
+		t.Errorf("got %v, want %v", *created.Delta, applied)
+	}
+	if created.Source == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*created.Source, "human") {
+		t.Errorf("got %v, want %v", *created.Source, "human")
+	}
+	if created.Anchor == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !(*created.Anchor) {
+		t.Error("expected the condition to be true")
+	}
+	if created.CapturedBy == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*created.CapturedBy, "human:u1") {
+		t.Errorf("got %v, want %v", *created.CapturedBy, "human:u1")
+	}
 
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	var decoded crmcontracts.PublicEventOrganizationCreated
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.Equal(t, created, decoded)
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, created) {
+		t.Errorf("got %v, want %v", decoded, created)
+	}
 }
 
 func TestCompanySaveEventPayload_Updated(t *testing.T) {
@@ -121,13 +189,25 @@ func TestCompanySaveEventPayload_Updated(t *testing.T) {
 
 	payload := companySaveEventPayload(false, applied, "human:u1")
 
-	require.Equal(t, "organization.updated", payload.EventType())
+	if !reflect.DeepEqual(payload.EventType(), "organization.updated") {
+		t.Errorf("got %v, want %v", payload.EventType(), "organization.updated")
+	}
 	updated, ok := payload.(crmcontracts.PublicEventOrganizationUpdated)
-	require.True(t, ok)
-	require.Equal(t, applied, updated.ChangedFields["delta"])
-	require.Equal(t, "human", updated.ChangedFields["source"])
-	require.Equal(t, true, updated.ChangedFields["anchor"])
-	require.Equal(t, "human:u1", updated.ChangedFields["captured_by"])
+	if !ok {
+		t.Error("expected the condition to be true")
+	}
+	if !reflect.DeepEqual(updated.ChangedFields["delta"], applied) {
+		t.Errorf("got %v, want %v", updated.ChangedFields["delta"], applied)
+	}
+	if !reflect.DeepEqual(updated.ChangedFields["source"], "human") {
+		t.Errorf("got %v, want %v", updated.ChangedFields["source"], "human")
+	}
+	if !reflect.DeepEqual(updated.ChangedFields["anchor"], true) {
+		t.Errorf("got %v, want %v", updated.ChangedFields["anchor"], true)
+	}
+	if !reflect.DeepEqual(updated.ChangedFields["captured_by"], "human:u1") {
+		t.Errorf("got %v, want %v", updated.ChangedFields["captured_by"], "human:u1")
+	}
 }
 
 func TestSiteReadConfirmationPayload_Created(t *testing.T) {
@@ -141,17 +221,37 @@ func TestSiteReadConfirmationPayload_Created(t *testing.T) {
 
 	payload := siteReadConfirmationPayload(read, confirmation)
 
-	require.Equal(t, "organization.created", payload.EventType())
+	if !reflect.DeepEqual(payload.EventType(), "organization.created") {
+		t.Errorf("got %v, want %v", payload.EventType(), "organization.created")
+	}
 	created, ok := payload.(crmcontracts.PublicEventOrganizationCreated)
-	require.True(t, ok)
-	require.NotNil(t, created.Delta)
-	require.Equal(t, confirmation.appliedSite, (*created.Delta)["fields"])
-	require.NotNil(t, created.SourceUrl)
-	require.Equal(t, "https://acme.example", *created.SourceUrl)
-	require.NotNil(t, created.SiteReadId)
-	require.Equal(t, openapi_types.UUID(read.ID), *created.SiteReadId)
-	require.NotNil(t, created.CapturedBy)
-	require.Equal(t, companySiteReadCapturedBy, *created.CapturedBy)
+	if !ok {
+		t.Error("expected the condition to be true")
+	}
+	if created.Delta == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual((*created.Delta)["fields"], confirmation.appliedSite) {
+		t.Errorf("got %v, want %v", (*created.Delta)["fields"], confirmation.appliedSite)
+	}
+	if created.SourceUrl == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*created.SourceUrl, "https://acme.example") {
+		t.Errorf("got %v, want %v", *created.SourceUrl, "https://acme.example")
+	}
+	if created.SiteReadId == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*created.SiteReadId, openapi_types.UUID(read.ID)) {
+		t.Errorf("got %v, want %v", *created.SiteReadId, openapi_types.UUID(read.ID))
+	}
+	if created.CapturedBy == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*created.CapturedBy, companySiteReadCapturedBy) {
+		t.Errorf("got %v, want %v", *created.CapturedBy, companySiteReadCapturedBy)
+	}
 }
 
 func TestSiteReadConfirmationPayload_Updated(t *testing.T) {
@@ -165,11 +265,19 @@ func TestSiteReadConfirmationPayload_Updated(t *testing.T) {
 
 	payload := siteReadConfirmationPayload(read, confirmation)
 
-	require.Equal(t, "organization.updated", payload.EventType())
+	if !reflect.DeepEqual(payload.EventType(), "organization.updated") {
+		t.Errorf("got %v, want %v", payload.EventType(), "organization.updated")
+	}
 	updated, ok := payload.(crmcontracts.PublicEventOrganizationUpdated)
-	require.True(t, ok)
-	require.Equal(t, "https://acme.example", updated.ChangedFields["source_url"])
-	require.Equal(t, read.ID, updated.ChangedFields["site_read_id"])
+	if !ok {
+		t.Error("expected the condition to be true")
+	}
+	if !reflect.DeepEqual(updated.ChangedFields["source_url"], "https://acme.example") {
+		t.Errorf("got %v, want %v", updated.ChangedFields["source_url"], "https://acme.example")
+	}
+	if !reflect.DeepEqual(updated.ChangedFields["site_read_id"], read.ID) {
+		t.Errorf("got %v, want %v", updated.ChangedFields["site_read_id"], read.ID)
+	}
 }
 
 func TestColdStartApplyPayload_Created(t *testing.T) {
@@ -180,15 +288,31 @@ func TestColdStartApplyPayload_Created(t *testing.T) {
 
 	payload := coldStartApplyPayload(true, in, "acme.example", "agent:coldstart", nil)
 
-	require.Equal(t, "organization.created", payload.EventType())
+	if !reflect.DeepEqual(payload.EventType(), "organization.created") {
+		t.Errorf("got %v, want %v", payload.EventType(), "organization.created")
+	}
 	created, ok := payload.(crmcontracts.PublicEventOrganizationCreated)
-	require.True(t, ok)
-	require.NotNil(t, created.DisplayName)
-	require.Equal(t, "Acme GmbH", *created.DisplayName)
-	require.NotNil(t, created.PrimaryDomain)
-	require.Equal(t, "acme.example", *created.PrimaryDomain)
-	require.NotNil(t, created.CapturedBy)
-	require.Equal(t, "agent:coldstart", *created.CapturedBy)
+	if !ok {
+		t.Error("expected the condition to be true")
+	}
+	if created.DisplayName == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*created.DisplayName, "Acme GmbH") {
+		t.Errorf("got %v, want %v", *created.DisplayName, "Acme GmbH")
+	}
+	if created.PrimaryDomain == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*created.PrimaryDomain, "acme.example") {
+		t.Errorf("got %v, want %v", *created.PrimaryDomain, "acme.example")
+	}
+	if created.CapturedBy == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*created.CapturedBy, "agent:coldstart") {
+		t.Errorf("got %v, want %v", *created.CapturedBy, "agent:coldstart")
+	}
 }
 
 func TestColdStartApplyPayload_Updated(t *testing.T) {
@@ -197,25 +321,45 @@ func TestColdStartApplyPayload_Updated(t *testing.T) {
 
 	payload := coldStartApplyPayload(false, in, "acme.example", "agent:coldstart", applied)
 
-	require.Equal(t, "organization.updated", payload.EventType())
+	if !reflect.DeepEqual(payload.EventType(), "organization.updated") {
+		t.Errorf("got %v, want %v", payload.EventType(), "organization.updated")
+	}
 	updated, ok := payload.(crmcontracts.PublicEventOrganizationUpdated)
-	require.True(t, ok)
-	require.Equal(t, applied, updated.ChangedFields["delta"])
-	require.Equal(t, "https://acme.example", updated.ChangedFields["source_url"])
+	if !ok {
+		t.Error("expected the condition to be true")
+	}
+	if !reflect.DeepEqual(updated.ChangedFields["delta"], applied) {
+		t.Errorf("got %v, want %v", updated.ChangedFields["delta"], applied)
+	}
+	if !reflect.DeepEqual(updated.ChangedFields["source_url"], "https://acme.example") {
+		t.Errorf("got %v, want %v", updated.ChangedFields["source_url"], "https://acme.example")
+	}
 }
 
 func TestRelationshipUpdatedPayload_PerAnchor(t *testing.T) {
 	delta := map[string]any{"delta": map[string]any{"relationship": map[string]any{"action": "create"}}}
 
 	dealPayload := relationshipUpdatedPayload("deal", delta)
-	require.Equal(t, "deal.updated", dealPayload.EventType())
-	require.Equal(t, delta, dealPayload.(crmcontracts.PublicEventDealUpdated).ChangedFields)
+	if !reflect.DeepEqual(dealPayload.EventType(), "deal.updated") {
+		t.Errorf("got %v, want %v", dealPayload.EventType(), "deal.updated")
+	}
+	if !reflect.DeepEqual(dealPayload.(crmcontracts.PublicEventDealUpdated).ChangedFields, delta) {
+		t.Errorf("got %v, want %v", dealPayload.(crmcontracts.PublicEventDealUpdated).ChangedFields, delta)
+	}
 
 	personPayload := relationshipUpdatedPayload("person", delta)
-	require.Equal(t, "person.updated", personPayload.EventType())
-	require.Equal(t, delta, personPayload.(crmcontracts.PublicEventPersonUpdated).ChangedFields)
+	if !reflect.DeepEqual(personPayload.EventType(), "person.updated") {
+		t.Errorf("got %v, want %v", personPayload.EventType(), "person.updated")
+	}
+	if !reflect.DeepEqual(personPayload.(crmcontracts.PublicEventPersonUpdated).ChangedFields, delta) {
+		t.Errorf("got %v, want %v", personPayload.(crmcontracts.PublicEventPersonUpdated).ChangedFields, delta)
+	}
 
 	orgPayload := relationshipUpdatedPayload("organization", delta)
-	require.Equal(t, "organization.updated", orgPayload.EventType())
-	require.Equal(t, delta, orgPayload.(crmcontracts.PublicEventOrganizationUpdated).ChangedFields)
+	if !reflect.DeepEqual(orgPayload.EventType(), "organization.updated") {
+		t.Errorf("got %v, want %v", orgPayload.EventType(), "organization.updated")
+	}
+	if !reflect.DeepEqual(orgPayload.(crmcontracts.PublicEventOrganizationUpdated).ChangedFields, delta) {
+		t.Errorf("got %v, want %v", orgPayload.(crmcontracts.PublicEventOrganizationUpdated).ChangedFields, delta)
+	}
 }

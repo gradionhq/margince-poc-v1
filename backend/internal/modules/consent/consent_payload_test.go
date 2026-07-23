@@ -34,11 +34,12 @@ package consent
 import (
 	"context"
 	"encoding/json"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/stretchr/testify/require"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -56,18 +57,33 @@ func TestConsentChangedPayload(t *testing.T) {
 
 	payload := consentChangedPayload(purposeID, "marketing_email", "granted")
 
-	require.Equal(t, "consent.changed", payload.EventType())
-	require.Equal(t, "dynamic", payload.EntityType(),
-		"consent.changed is a dynamic-entity type — its static EntityType() is unused; the real subject comes from EmitEventForEntity's caller-supplied entityType")
-	require.Equal(t, purposeID.UUID, ids.UUID(payload.PurposeId))
-	require.Equal(t, "marketing_email", payload.Purpose)
-	require.Equal(t, "granted", payload.NewState)
+	if !reflect.DeepEqual(payload.EventType(), "consent.changed") {
+		t.Errorf("got %v, want %v", payload.EventType(), "consent.changed")
+	}
+	if !reflect.DeepEqual(payload.EntityType(), "dynamic") {
+		t.Errorf("consent.changed is a dynamic-entity type — its static EntityType() is unused; the real subject comes from EmitEventForEntity's caller-supplied entityType: got %v, want %v", payload.EntityType(), "dynamic")
+	}
+	if !reflect.DeepEqual(ids.UUID(payload.PurposeId), purposeID.UUID) {
+		t.Errorf("got %v, want %v", ids.UUID(payload.PurposeId), purposeID.UUID)
+	}
+	if !reflect.DeepEqual(payload.Purpose, "marketing_email") {
+		t.Errorf("got %v, want %v", payload.Purpose, "marketing_email")
+	}
+	if !reflect.DeepEqual(payload.NewState, "granted") {
+		t.Errorf("got %v, want %v", payload.NewState, "granted")
+	}
 
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	var decoded crmcontracts.PublicEventConsentChanged
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.Equal(t, payload, decoded)
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
 }
 
 // fakeTx is the true-DB-boundary fake (T11), mirroring
@@ -125,12 +141,20 @@ func emitTestContext() context.Context {
 // fakeTx captured from the INSERT INTO event_outbox(stream, envelope) call.
 func decodedOutboxEntityType(t *testing.T, tx *fakeTx) string {
 	t.Helper()
-	require.Contains(t, tx.execSQL, "INSERT INTO event_outbox")
-	require.Len(t, tx.execArgs, 2)
+	if !strings.Contains(tx.execSQL, "INSERT INTO event_outbox") {
+		t.Errorf("%q should contain %q", tx.execSQL, "INSERT INTO event_outbox")
+	}
+	if len(tx.execArgs) != 2 {
+		t.Errorf("len = %d, want %d", len(tx.execArgs), 2)
+	}
 	body, ok := tx.execArgs[1].([]byte)
-	require.True(t, ok, "second Exec arg = %T, want []byte (the marshaled envelope)", tx.execArgs[1])
+	if !ok {
+		t.Errorf("second Exec arg = %T, want []byte (the marshaled envelope)", tx.execArgs[1])
+	}
 	var env events.Envelope
-	require.NoError(t, json.Unmarshal(body, &env))
+	if json.Unmarshal(body, &env) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(body, &env))
+	}
 	return env.Entity.Type
 }
 
@@ -159,10 +183,13 @@ func TestConsentChangedEmitUsesRuntimeEntityType(t *testing.T) {
 			subjectID := ids.NewV7()
 
 			err := storekit.EmitEventForEntity(emitTestContext(), tx, auditID, tc.entityType, subjectID, payload)
-			require.NoError(t, err)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 
-			require.Equal(t, tc.entityType, decodedOutboxEntityType(t, tx),
-				"consent.changed must carry the runtime subject's entity type, not the payload's static (unused) EntityType()")
+			if !reflect.DeepEqual(decodedOutboxEntityType(t, tx), tc.entityType) {
+				t.Errorf("consent.changed must carry the runtime subject's entity type, not the payload's static (unused) EntityType(): got %v, want %v", decodedOutboxEntityType(t, tx), tc.entityType)
+			}
 		})
 	}
 }

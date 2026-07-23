@@ -23,19 +23,20 @@ package signals
 
 import (
 	"encoding/json"
+	"math"
+	"reflect"
+	"strings"
 	"testing"
 
-	"github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
-	"github.com/stretchr/testify/require"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 var (
-	signalPayloadTestSignalID = openapi_types.UUID(uuid.MustParse("11111111-1111-1111-1111-111111111111"))
-	signalPayloadTestOrgID    = openapi_types.UUID(uuid.MustParse("22222222-2222-2222-2222-222222222222"))
+	signalPayloadTestSignalID = openapi_types.UUID(ids.MustParse("11111111-1111-1111-1111-111111111111"))
+	signalPayloadTestOrgID    = openapi_types.UUID(ids.MustParse("22222222-2222-2222-2222-222222222222"))
 )
 
 // TestDetectedPayload_Unresolved proves the raw (no subject yet) shape: no
@@ -50,25 +51,54 @@ func TestDetectedPayload_Unresolved(t *testing.T) {
 	}
 	payload := detectedPayload(sig)
 
-	require.Equal(t, "signal.detected", payload.EventType())
-	require.Equal(t, "signal", payload.EntityType())
-	require.Equal(t, signalPayloadTestSignalID, payload.SignalId)
-	require.Equal(t, "stalled_deal", payload.Kind)
-	require.Equal(t, "derived", payload.SourceChannel)
-	require.Equal(t, "unresolved", payload.ResolutionState)
-	require.Equal(t, "info", payload.Severity)
-	require.Nil(t, payload.SubjectEntityType)
-	require.Nil(t, payload.SubjectEntityId)
-	require.Nil(t, payload.ResolutionConfidence)
+	if !reflect.DeepEqual(payload.EventType(), "signal.detected") {
+		t.Errorf("got %v, want %v", payload.EventType(), "signal.detected")
+	}
+	if !reflect.DeepEqual(payload.EntityType(), "signal") {
+		t.Errorf("got %v, want %v", payload.EntityType(), "signal")
+	}
+	if !reflect.DeepEqual(payload.SignalId, signalPayloadTestSignalID) {
+		t.Errorf("got %v, want %v", payload.SignalId, signalPayloadTestSignalID)
+	}
+	if !reflect.DeepEqual(payload.Kind, "stalled_deal") {
+		t.Errorf("got %v, want %v", payload.Kind, "stalled_deal")
+	}
+	if !reflect.DeepEqual(payload.SourceChannel, "derived") {
+		t.Errorf("got %v, want %v", payload.SourceChannel, "derived")
+	}
+	if !reflect.DeepEqual(payload.ResolutionState, "unresolved") {
+		t.Errorf("got %v, want %v", payload.ResolutionState, "unresolved")
+	}
+	if !reflect.DeepEqual(payload.Severity, "info") {
+		t.Errorf("got %v, want %v", payload.Severity, "info")
+	}
+	if payload.SubjectEntityType != nil {
+		t.Errorf("expected nil, got %v", payload.SubjectEntityType)
+	}
+	if payload.SubjectEntityId != nil {
+		t.Errorf("expected nil, got %v", payload.SubjectEntityId)
+	}
+	if payload.ResolutionConfidence != nil {
+		t.Errorf("expected nil, got %v", payload.ResolutionConfidence)
+	}
 
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
-	require.NotContains(t, string(raw), "entity_type",
-		"an absent entity_type must be omitted from the wire body, not marshaled as null")
-	require.NotContains(t, string(raw), "resolution_confidence")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(string(raw), "entity_type") {
+		t.Errorf("an absent entity_type must be omitted from the wire body, not marshaled as null: should not contain %v", "entity_type")
+	}
+	if strings.Contains(string(raw), "resolution_confidence") {
+		t.Errorf("%q should not contain %q", string(raw), "resolution_confidence")
+	}
 	var decoded crmcontracts.PublicEventSignalDetected
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.Equal(t, payload, decoded)
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
 }
 
 // TestDetectedPayload_WithSubject proves a signal created ABOUT a known
@@ -88,18 +118,36 @@ func TestDetectedPayload_WithSubject(t *testing.T) {
 	}
 	payload := detectedPayload(sig)
 
-	require.NotNil(t, payload.SubjectEntityType)
-	require.Equal(t, "organization", *payload.SubjectEntityType)
-	require.NotNil(t, payload.SubjectEntityId)
-	require.Equal(t, signalPayloadTestOrgID, *payload.SubjectEntityId)
-	require.NotNil(t, payload.ResolutionConfidence)
-	require.InDelta(t, 0.95, *payload.ResolutionConfidence, 0.0001)
+	if payload.SubjectEntityType == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*payload.SubjectEntityType, "organization") {
+		t.Errorf("got %v, want %v", *payload.SubjectEntityType, "organization")
+	}
+	if payload.SubjectEntityId == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*payload.SubjectEntityId, signalPayloadTestOrgID) {
+		t.Errorf("got %v, want %v", *payload.SubjectEntityId, signalPayloadTestOrgID)
+	}
+	if payload.ResolutionConfidence == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if math.Abs(float64(*payload.ResolutionConfidence)-float64(0.95)) > 0.0001 {
+		t.Errorf("got %v, want %v +/- %v", *payload.ResolutionConfidence, 0.95, 0.0001)
+	}
 
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	var decoded crmcontracts.PublicEventSignalDetected
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.Equal(t, payload, decoded)
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
 }
 
 // TestResolvedPayload_Dropped proves the zero-candidate (dropped) shape: no
@@ -111,21 +159,45 @@ func TestResolvedPayload_Dropped(t *testing.T) {
 	}
 	payload := resolvedPayload(sig, nil)
 
-	require.Equal(t, "signal.resolved", payload.EventType())
-	require.Equal(t, "signal", payload.EntityType())
-	require.Equal(t, signalPayloadTestSignalID, payload.SignalId)
-	require.Equal(t, "dropped", payload.ResolutionState)
-	require.Nil(t, payload.ResolvedOrgId)
-	require.Nil(t, payload.ResolvedPersonId)
-	require.Nil(t, payload.MatchedOn)
-	require.Nil(t, payload.MatchConfidence)
+	if !reflect.DeepEqual(payload.EventType(), "signal.resolved") {
+		t.Errorf("got %v, want %v", payload.EventType(), "signal.resolved")
+	}
+	if !reflect.DeepEqual(payload.EntityType(), "signal") {
+		t.Errorf("got %v, want %v", payload.EntityType(), "signal")
+	}
+	if !reflect.DeepEqual(payload.SignalId, signalPayloadTestSignalID) {
+		t.Errorf("got %v, want %v", payload.SignalId, signalPayloadTestSignalID)
+	}
+	if !reflect.DeepEqual(payload.ResolutionState, "dropped") {
+		t.Errorf("got %v, want %v", payload.ResolutionState, "dropped")
+	}
+	if payload.ResolvedOrgId != nil {
+		t.Errorf("expected nil, got %v", payload.ResolvedOrgId)
+	}
+	if payload.ResolvedPersonId != nil {
+		t.Errorf("expected nil, got %v", payload.ResolvedPersonId)
+	}
+	if payload.MatchedOn != nil {
+		t.Errorf("expected nil, got %v", payload.MatchedOn)
+	}
+	if payload.MatchConfidence != nil {
+		t.Errorf("expected nil, got %v", payload.MatchConfidence)
+	}
 
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
-	require.NotContains(t, string(raw), "matched_on")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(string(raw), "matched_on") {
+		t.Errorf("%q should not contain %q", string(raw), "matched_on")
+	}
 	var decoded crmcontracts.PublicEventSignalResolved
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.Equal(t, payload, decoded)
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
 }
 
 // TestResolvedPayload_ResolvedToOrg proves the single-candidate (resolved)
@@ -140,16 +212,34 @@ func TestResolvedPayload_ResolvedToOrg(t *testing.T) {
 	candidates := []candidate{{OrgID: orgID, MatchedOn: "domain", Confidence: 0.95}}
 	payload := resolvedPayload(sig, candidates)
 
-	require.NotNil(t, payload.ResolvedOrgId)
-	require.Equal(t, signalPayloadTestOrgID, *payload.ResolvedOrgId)
-	require.NotNil(t, payload.MatchedOn)
-	require.Equal(t, "domain", *payload.MatchedOn)
-	require.NotNil(t, payload.MatchConfidence)
-	require.InDelta(t, 0.95, *payload.MatchConfidence, 0.0001)
+	if payload.ResolvedOrgId == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*payload.ResolvedOrgId, signalPayloadTestOrgID) {
+		t.Errorf("got %v, want %v", *payload.ResolvedOrgId, signalPayloadTestOrgID)
+	}
+	if payload.MatchedOn == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*payload.MatchedOn, "domain") {
+		t.Errorf("got %v, want %v", *payload.MatchedOn, "domain")
+	}
+	if payload.MatchConfidence == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if math.Abs(float64(*payload.MatchConfidence)-float64(0.95)) > 0.0001 {
+		t.Errorf("got %v, want %v +/- %v", *payload.MatchConfidence, 0.95, 0.0001)
+	}
 
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	var decoded crmcontracts.PublicEventSignalResolved
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.Equal(t, payload, decoded)
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
 }

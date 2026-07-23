@@ -18,11 +18,12 @@ package capture
 
 import (
 	"encoding/json"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
-	"github.com/stretchr/testify/require"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -34,17 +35,33 @@ import (
 func TestActivityCaptureEventPayload(t *testing.T) {
 	payload := activityCaptureEventPayload("email", "gmail")
 
-	require.Equal(t, "activity.captured", payload.EventType())
-	require.Equal(t, "activity", payload.EntityType())
-	require.Equal(t, "email", payload.Kind)
-	require.NotNil(t, payload.SourceSystem)
-	require.Equal(t, "gmail", *payload.SourceSystem)
+	if !reflect.DeepEqual(payload.EventType(), "activity.captured") {
+		t.Errorf("got %v, want %v", payload.EventType(), "activity.captured")
+	}
+	if !reflect.DeepEqual(payload.EntityType(), "activity") {
+		t.Errorf("got %v, want %v", payload.EntityType(), "activity")
+	}
+	if !reflect.DeepEqual(payload.Kind, "email") {
+		t.Errorf("got %v, want %v", payload.Kind, "email")
+	}
+	if payload.SourceSystem == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*payload.SourceSystem, "gmail") {
+		t.Errorf("got %v, want %v", *payload.SourceSystem, "gmail")
+	}
 
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	var decoded crmcontracts.PublicEventActivityCaptured
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.Equal(t, payload, decoded)
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
 }
 
 // TestEngagementReplyPayload_WithContact proves the reply payload carries
@@ -56,20 +73,42 @@ func TestEngagementReplyPayload_WithContact(t *testing.T) {
 
 	payload := engagementReplyPayload(matched, occurredAt, "gmail:msg-42", &contact)
 
-	require.Equal(t, "engagement.reply", payload.EventType())
-	require.Equal(t, "activity", payload.EntityType())
-	require.Equal(t, openapi_types.UUID(matched), payload.MatchedOutboundActivityId)
-	require.Equal(t, "email", payload.Channel)
-	require.Equal(t, occurredAt, payload.OccurredAt)
-	require.Equal(t, "gmail:msg-42", payload.IdempotencyKey)
-	require.NotNil(t, payload.ContactId)
-	require.Equal(t, openapi_types.UUID(contact.UUID), *payload.ContactId)
+	if !reflect.DeepEqual(payload.EventType(), "engagement.reply") {
+		t.Errorf("got %v, want %v", payload.EventType(), "engagement.reply")
+	}
+	if !reflect.DeepEqual(payload.EntityType(), "activity") {
+		t.Errorf("got %v, want %v", payload.EntityType(), "activity")
+	}
+	if !reflect.DeepEqual(payload.MatchedOutboundActivityId, openapi_types.UUID(matched)) {
+		t.Errorf("got %v, want %v", payload.MatchedOutboundActivityId, openapi_types.UUID(matched))
+	}
+	if !reflect.DeepEqual(payload.Channel, "email") {
+		t.Errorf("got %v, want %v", payload.Channel, "email")
+	}
+	if !reflect.DeepEqual(payload.OccurredAt, occurredAt) {
+		t.Errorf("got %v, want %v", payload.OccurredAt, occurredAt)
+	}
+	if !reflect.DeepEqual(payload.IdempotencyKey, "gmail:msg-42") {
+		t.Errorf("got %v, want %v", payload.IdempotencyKey, "gmail:msg-42")
+	}
+	if payload.ContactId == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*payload.ContactId, openapi_types.UUID(contact.UUID)) {
+		t.Errorf("got %v, want %v", *payload.ContactId, openapi_types.UUID(contact.UUID))
+	}
 
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	var decoded crmcontracts.PublicEventEngagementReply
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.Equal(t, payload, decoded)
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
 }
 
 // TestEngagementReplyPayload_NoContact proves an unresolved counterparty
@@ -80,8 +119,14 @@ func TestEngagementReplyPayload_NoContact(t *testing.T) {
 
 	payload := engagementReplyPayload(matched, occurredAt, "gmail:msg-43", nil)
 
-	require.Nil(t, payload.ContactId)
+	if payload.ContactId != nil {
+		t.Errorf("expected nil, got %v", payload.ContactId)
+	}
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
-	require.NotContains(t, string(raw), "contact_id")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(string(raw), "contact_id") {
+		t.Errorf("%q should not contain %q", string(raw), "contact_id")
+	}
 }

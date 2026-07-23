@@ -29,6 +29,10 @@ vendors:
   xterm:   { in: golang.org/x/term }
   yaml:   { in: gopkg.in/** }
   emersion: { in: github.com/emersion/** }
+  # the OpenAPI 3.1 loader that already drives gen-payloads; the webhooks
+  # integration test loads api/public-events.yaml through it to assert wire
+  # shapes conform to the contract schema.
+  kinopenapi: { in: github.com/getkin/** }
   river:  { in: github.com/riverqueue/** }
   minio:  { in: github.com/minio/** }
   fpdf:   { in: github.com/go-pdf/** }
@@ -96,8 +100,8 @@ deps:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]
   capture:
-    mayDependOn: [capture, platform]
-    canUse: [pgx, emersion]
+    mayDependOn: [capture, contracts, platform]
+    canUse: [pgx, oapi, emersion]
   consent:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]
@@ -152,7 +156,7 @@ deps:
     # platform already owns, so it needs the same parser platform does.
     # emersion: the in-memory IMAP server the standing-connect transport
     # test drives; production compose reaches IMAP only through capture.
-    canUse: [pgx, chi, oapi, river, xtext, yaml, emersion]
+    canUse: [pgx, chi, oapi, river, xtext, yaml, emersion, kinopenapi]
   migrations:
     mayDependOn: [platform]
     canUse: [pgx]
@@ -161,6 +165,9 @@ deps:
   # 3.1 source of truth, not the generated Go, so a contract-only change
   # cannot slip past it.
   root:
+    # publicevents_test.go reads crmcontracts.PublicEventVersions — the
+    # authoritative catalog gate walks the generated contract directly.
+    mayDependOn: [contracts]
     canUse: [yaml]
   cmd:
     mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, automation, ai, search, capture, consent, collections, signals, customfields, quotas, overlay, webhooks, contracts, platform, migrations]

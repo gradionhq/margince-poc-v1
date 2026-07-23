@@ -35,11 +35,12 @@ package privacy
 import (
 	"context"
 	"encoding/json"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/stretchr/testify/require"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -53,20 +54,39 @@ import (
 func TestRetentionAppliedPayload_ActionOnly(t *testing.T) {
 	payload := retentionAppliedPayload(actionErase, nil, nil)
 
-	require.Equal(t, "retention.applied", payload.EventType())
-	require.Equal(t, "dynamic", payload.EntityType(),
-		"retention.applied is a dynamic-entity type — its static EntityType() is unused; the real subject comes from EmitEventForEntity's caller-supplied entityType")
-	require.Equal(t, actionErase, payload.Action)
-	require.Nil(t, payload.Policy)
-	require.Nil(t, payload.Reason)
+	if !reflect.DeepEqual(payload.EventType(), "retention.applied") {
+		t.Errorf("got %v, want %v", payload.EventType(), "retention.applied")
+	}
+	if !reflect.DeepEqual(payload.EntityType(), "dynamic") {
+		t.Errorf("retention.applied is a dynamic-entity type — its static EntityType() is unused; the real subject comes from EmitEventForEntity's caller-supplied entityType: got %v, want %v", payload.EntityType(), "dynamic")
+	}
+	if !reflect.DeepEqual(payload.Action, actionErase) {
+		t.Errorf("got %v, want %v", payload.Action, actionErase)
+	}
+	if payload.Policy != nil {
+		t.Errorf("expected nil, got %v", payload.Policy)
+	}
+	if payload.Reason != nil {
+		t.Errorf("expected nil, got %v", payload.Reason)
+	}
 
 	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
-	require.NotContains(t, string(raw), "policy")
-	require.NotContains(t, string(raw), "reason")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(string(raw), "policy") {
+		t.Errorf("%q should not contain %q", string(raw), "policy")
+	}
+	if strings.Contains(string(raw), "reason") {
+		t.Errorf("%q should not contain %q", string(raw), "reason")
+	}
 	var decoded crmcontracts.PublicEventRetentionApplied
-	require.NoError(t, json.Unmarshal(raw, &decoded))
-	require.Equal(t, payload, decoded)
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
 }
 
 // TestRetentionAppliedPayload_WithPolicy proves the policy-driven sweep's
@@ -76,10 +96,18 @@ func TestRetentionAppliedPayload_WithPolicy(t *testing.T) {
 
 	payload := retentionAppliedPayload("archive", &policyID, nil)
 
-	require.Equal(t, "archive", payload.Action)
-	require.NotNil(t, payload.Policy)
-	require.Equal(t, policyID, ids.UUID(*payload.Policy))
-	require.Nil(t, payload.Reason)
+	if !reflect.DeepEqual(payload.Action, "archive") {
+		t.Errorf("got %v, want %v", payload.Action, "archive")
+	}
+	if payload.Policy == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(ids.UUID(*payload.Policy), policyID) {
+		t.Errorf("got %v, want %v", ids.UUID(*payload.Policy), policyID)
+	}
+	if payload.Reason != nil {
+		t.Errorf("expected nil, got %v", payload.Reason)
+	}
 }
 
 // TestRetentionAppliedPayload_WithReason proves the Art. 17 erasure
@@ -89,10 +117,18 @@ func TestRetentionAppliedPayload_WithReason(t *testing.T) {
 
 	payload := retentionAppliedPayload(actionErase, nil, &reason)
 
-	require.Equal(t, actionErase, payload.Action)
-	require.Nil(t, payload.Policy)
-	require.NotNil(t, payload.Reason)
-	require.Equal(t, reason, *payload.Reason)
+	if !reflect.DeepEqual(payload.Action, actionErase) {
+		t.Errorf("got %v, want %v", payload.Action, actionErase)
+	}
+	if payload.Policy != nil {
+		t.Errorf("expected nil, got %v", payload.Policy)
+	}
+	if payload.Reason == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*payload.Reason, reason) {
+		t.Errorf("got %v, want %v", *payload.Reason, reason)
+	}
 }
 
 // fakeTx is the true-DB-boundary fake (T11), mirroring
@@ -151,12 +187,20 @@ func emitTestContext() context.Context {
 // fakeTx captured from the INSERT INTO event_outbox(stream, envelope) call.
 func decodedOutboxEntityType(t *testing.T, tx *fakeTx) string {
 	t.Helper()
-	require.Contains(t, tx.execSQL, "INSERT INTO event_outbox")
-	require.Len(t, tx.execArgs, 2)
+	if !strings.Contains(tx.execSQL, "INSERT INTO event_outbox") {
+		t.Errorf("%q should contain %q", tx.execSQL, "INSERT INTO event_outbox")
+	}
+	if len(tx.execArgs) != 2 {
+		t.Errorf("len = %d, want %d", len(tx.execArgs), 2)
+	}
 	body, ok := tx.execArgs[1].([]byte)
-	require.True(t, ok, "second Exec arg = %T, want []byte (the marshaled envelope)", tx.execArgs[1])
+	if !ok {
+		t.Errorf("second Exec arg = %T, want []byte (the marshaled envelope)", tx.execArgs[1])
+	}
 	var env events.Envelope
-	require.NoError(t, json.Unmarshal(body, &env))
+	if json.Unmarshal(body, &env) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(body, &env))
+	}
 	return env.Entity.Type
 }
 
@@ -178,10 +222,13 @@ func TestRetentionAppliedEmitUsesRuntimeEntityType(t *testing.T) {
 			subjectID := ids.NewV7()
 
 			err := storekit.EmitEventForEntity(emitTestContext(), tx, auditID, entityType, subjectID, payload)
-			require.NoError(t, err)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 
-			require.Equal(t, entityType, decodedOutboxEntityType(t, tx),
-				"retention.applied must carry the site's runtime entity type, not the payload's static (unused) EntityType()")
+			if !reflect.DeepEqual(decodedOutboxEntityType(t, tx), entityType) {
+				t.Errorf("retention.applied must carry the site's runtime entity type, not the payload's static (unused) EntityType(): got %v, want %v", decodedOutboxEntityType(t, tx), entityType)
+			}
 		})
 	}
 }
