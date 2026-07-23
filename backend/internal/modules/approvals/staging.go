@@ -40,6 +40,14 @@ type StageInput struct {
 	// transaction lock. It is for at-least-once worker paths whose retries
 	// must return the existing approval instead of multiplying inbox rows.
 	JoinPending bool
+	// Identity is the proposal's logical identity — a JSON object contained
+	// in ProposedChange (e.g. {"from_currency":"GBP"}). Requires JoinPending:
+	// staging then serializes per identity instead of per diff hash, and any
+	// OTHER live pending proposal of the same kind+target carrying this
+	// identity is withdrawn (forced expiry, audited) — a fresher diff for one
+	// identity supersedes a stale one instead of competing with it in the
+	// inbox, where approving stale-after-fresh would restore an outdated value.
+	Identity json.RawMessage
 	// Announce is an optional kind-specific domain event (e.g.
 	// coldstart.read_back_proposed) emitted in the SAME transaction as
 	// approval.requested, linked to the same audit row.
@@ -58,6 +66,9 @@ type AnnouncedEvent struct {
 // emits approval.requested. It runs in the write shape every mutation
 // uses: approval row + audit row + event in one transaction.
 func (s *Service) Stage(ctx context.Context, in StageInput) (ids.ApprovalID, error) {
+	if len(in.Identity) > 0 && !in.JoinPending {
+		return ids.ApprovalID{}, errors.New("crmapprovals: Identity staging requires JoinPending")
+	}
 	var id ids.ApprovalID
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var err error
@@ -81,22 +92,70 @@ func (s *Service) stageOrJoinPendingInTx(ctx context.Context, tx pgx.Tx, in Stag
 	if !ok {
 		return ids.ApprovalID{}, errors.New("crmapprovals: no workspace bound to context")
 	}
+	// The lock serializes one proposal identity: the diff hash by default, the
+	// logical Identity when set — two workers proposing DIFFERENT diffs for one
+	// identity must not interleave between the join-check and the supersede.
+	discriminator := in.DiffHash
+	if len(in.Identity) > 0 {
+		discriminator = string(in.Identity)
+	}
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended(
 			'approval_pending:' || $1::text || ':' || $2 || ':' || $3::text || ':' || $4, 0))`,
-		wsID, in.Kind, in.TargetID, in.DiffHash); err != nil {
+		wsID, in.Kind, in.TargetID, discriminator); err != nil {
 		return ids.ApprovalID{}, fmt.Errorf("lock pending approval identity: %w", err)
 	}
 	err := tx.QueryRow(ctx, `SELECT id FROM approval
 			WHERE workspace_id = $1 AND kind = $2 AND target_entity_id = $3 AND diff_hash = $4
 			  AND status = 'pending' AND expires_at > now()
 			ORDER BY created_at DESC LIMIT 1`, wsID, in.Kind, in.TargetID, in.DiffHash).Scan(&id)
-	if err == nil {
-		return id, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+	switch {
+	case err == nil:
+	case errors.Is(err, pgx.ErrNoRows):
+		if id, err = s.StageInTx(ctx, tx, in); err != nil {
+			return ids.ApprovalID{}, err
+		}
+	default:
 		return ids.ApprovalID{}, fmt.Errorf("find pending approval identity: %w", err)
 	}
-	return s.StageInTx(ctx, tx, in)
+	if len(in.Identity) > 0 {
+		if err := s.supersedePendingInTx(ctx, tx, wsID, in, id); err != nil {
+			return ids.ApprovalID{}, err
+		}
+	}
+	return id, nil
+}
+
+// supersedePendingInTx withdraws every OTHER live pending proposal of the same
+// kind+target carrying the same logical identity. Withdrawal is forced expiry:
+// the row reads expired everywhere exactly like lazy TTL expiry (which also
+// emits no event) — the status CHECK and the public ApprovalStatus enum stay
+// closed — and the audit row carries the why and the survivor.
+func (s *Service) supersedePendingInTx(ctx context.Context, tx pgx.Tx, wsID ids.UUID, in StageInput, survivor ids.ApprovalID) error {
+	p, ok := principal.Actor(ctx)
+	if !ok {
+		return errors.New("crmapprovals: no actor bound to context")
+	}
+	rows, err := tx.Query(ctx, `
+		UPDATE approval SET expires_at = now() - interval '1 second'
+		WHERE workspace_id = $1 AND kind = $2 AND target_entity_id = $3
+		  AND status = 'pending' AND expires_at > now()
+		  AND id <> $4 AND proposed_change @> $5
+		RETURNING id`, wsID, in.Kind, in.TargetID, survivor, in.Identity)
+	if err != nil {
+		return fmt.Errorf("supersede pending approvals: %w", err)
+	}
+	superseded, err := pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
+	if err != nil {
+		return fmt.Errorf("collect superseded approvals: %w", err)
+	}
+	for _, old := range superseded {
+		if _, err := s.audit(ctx, tx, p, "update", old, map[string]any{
+			approvalKeyKind: in.Kind, "superseded": true, "superseded_by": survivor.UUID,
+		}); err != nil {
+			return fmt.Errorf("audit superseded approval: %w", err)
+		}
+	}
+	return nil
 }
 
 // StageInTx records a proposal through a caller-owned transaction. Compose

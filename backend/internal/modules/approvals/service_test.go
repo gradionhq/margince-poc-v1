@@ -11,7 +11,9 @@ package approvals
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +21,19 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
+
+// Identity is only meaningful under JoinPending — without it there is no
+// serialized per-identity section, so a supersede could race a plain
+// insert. The combination is refused before any transaction is opened.
+func TestStageIdentityRequiresJoinPending(t *testing.T) {
+	svc := NewService(nil)
+	_, err := svc.Stage(context.Background(), StageInput{
+		Kind: "fx_rate_proposal", DiffHash: "h", Identity: json.RawMessage(`{"from_currency":"GBP"}`),
+	})
+	if err == nil || !strings.Contains(err.Error(), "JoinPending") {
+		t.Fatalf("err = %v, want identity-requires-JoinPending error", err)
+	}
+}
 
 // A pending staging past its expiry reads as expired everywhere — there
 // is no sweeper, so this fold IS the pending→expired transition; a
