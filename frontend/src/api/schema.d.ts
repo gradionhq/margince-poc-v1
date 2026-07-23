@@ -4431,10 +4431,123 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/fx-rates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List current FX rates (latest per currency), or one pair's history.
+         * @description Admin/ops-only view. Without `from`, returns the latest effective rate per
+         *     foreign currency (to = the workspace base currency). With `from=USD`, returns
+         *     that pair's full effective-dated history, newest first.
+         */
+        get: operations["listFxRates"];
+        put?: never;
+        /**
+         * Set an FX rate effective today or later (append-forward).
+         * @description Admin/ops-only. Appends one effective-dated rate; same UTC day corrects in
+         *     place, a past date is refused (422). `to` is resolved to the workspace base
+         *     currency server-side; `from == base` is refused. Human session only
+         *     (x-agent-access: human-only) — an agent never sets a rate directly.
+         */
+        post: operations["setFxRate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai-model-rates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List current AI model prices (latest per model), or one model's history.
+         * @description Admin/ops-only view. Prices are USD per 1M tokens (strings). Without
+         *     `provider`/`model_id`, returns the latest effective price per model; with both,
+         *     returns that model's effective-dated history, newest first.
+         */
+        get: operations["listAiModelRates"];
+        put?: never;
+        /**
+         * Set an AI model price effective today or later (append-forward).
+         * @description Admin/ops-only. Prices are USD per 1M tokens (decimal strings) — the server
+         *     stores µUSD integers. Appends one effective-dated price; same UTC day corrects
+         *     in place, a past date is refused (422). Human session only
+         *     (x-agent-access: human-only). Transparency-only: model prices never gate routing.
+         */
+        post: operations["setAiModelRate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description One effective-dated FX rate converting from_currency into the workspace base (to_currency). rate is a decimal string (numeric(20,10)), never a float. */
+        FxRate: {
+            from_currency: string;
+            /** @description The workspace base currency. */
+            to_currency: string;
+            /** @description Decimal rate (from -> base) */
+            rate: string;
+            /** Format: date */
+            effective_date: string;
+        };
+        FxRateListResponse: {
+            data: components["schemas"]["FxRate"][];
+        };
+        SetFxRateRequest: {
+            /** @description 3-letter ISO; must not equal the base currency. */
+            from_currency: string;
+            /** @description Positive decimal (from -> base). */
+            rate: string;
+            /**
+             * Format: date
+             * @description Defaults to today; must not be in the past (append-forward).
+             */
+            effective_date?: string;
+        };
+        /** @description One effective-dated model price. The four buckets are USD per 1M tokens as decimal strings (the server stores µUSD integers). Transparency-only — never gates routing. */
+        AiModelRate: {
+            provider: string;
+            model_id: string;
+            input_per_mtok: string;
+            output_per_mtok: string;
+            cache_read_per_mtok: string;
+            cache_write_per_mtok: string;
+            /** Format: date */
+            effective_date: string;
+        };
+        AiModelRateListResponse: {
+            data: components["schemas"]["AiModelRate"][];
+        };
+        SetAiModelRateRequest: {
+            provider: string;
+            model_id: string;
+            /** @description USD per 1M input tokens (non-negative decimal). */
+            input_per_mtok: string;
+            /** @description USD per 1M output tokens. */
+            output_per_mtok: string;
+            /** @description USD per 1M cache-read tokens. */
+            cache_read_per_mtok: string;
+            /** @description USD per 1M cache-write tokens. */
+            cache_write_per_mtok: string;
+            /**
+             * Format: date
+             * @description Defaults to today; must not be in the past (append-forward).
+             */
+            effective_date?: string;
+        };
         /** @description An outbound webhook subscription (`webhook_subscription`): a tenant-configured target URL that receives signed HTTP POSTs for a chosen subset of the published event catalog. The signing secret is NEVER returned here — it is surfaced once, at create/rotate, in `WebhookSubscriptionCreated`. */
         WebhookSubscription: {
             /** Format: uuid */
@@ -18324,6 +18437,110 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    listFxRates: {
+        parameters: {
+            query?: {
+                /** @description 3-letter ISO currency; when set, returns that pair's history. */
+                from?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description FX rates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FxRateListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    setFxRate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetFxRateRequest"];
+            };
+        };
+        responses: {
+            /** @description The set FX rate. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FxRate"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listAiModelRates: {
+        parameters: {
+            query?: {
+                provider?: string;
+                model_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description AI model prices. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiModelRateListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    setAiModelRate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetAiModelRateRequest"];
+            };
+        };
+        responses: {
+            /** @description The set AI model price. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiModelRate"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
         };
     };
 }
