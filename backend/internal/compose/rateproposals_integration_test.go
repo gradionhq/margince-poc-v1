@@ -327,8 +327,8 @@ func TestModelRateProposalApplyRefusesAcrossMidnight(t *testing.T) {
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
 	seed := ai.NewRateStore(e.Pool)
 	tomorrow := time.Now().UTC().Add(24 * time.Hour)
-	seedModelRate(ctx, t, seed, "acme", "mx", "5", time.Time{})
-	seedModelRate(ctx, t, seed, "acme", "mx", "9", tomorrow)
+	seedModelRate(ctx, t, seed, "mx", "5", time.Time{})
+	seedModelRate(ctx, t, seed, "mx", "9", tomorrow)
 
 	calls := 0
 	crossing := ai.NewRateStore(e.Pool).WithClock(func() time.Time {

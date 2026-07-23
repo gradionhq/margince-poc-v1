@@ -78,14 +78,16 @@ func TestModelCostRefreshStagesChangedAndDropsUngrounded(t *testing.T) {
 	}
 }
 
-func seedModelRate(ctx context.Context, t *testing.T, rates *ai.RateStore, provider, modelID, inputUsd string, eff time.Time) {
+// seedModelRate seeds one effective-dated price for a model of the test
+// provider "acme" (the provider every refresh fixture crawls).
+func seedModelRate(ctx context.Context, t *testing.T, rates *ai.RateStore, modelID, inputUsd string, eff time.Time) {
 	t.Helper()
 	if _, err := rates.SetModelRate(ctx, ai.SetModelRateInput{
-		Provider: provider, ModelID: modelID,
+		Provider: "acme", ModelID: modelID,
 		InputUsd: inputUsd, OutputUsd: "25", CacheReadUsd: "0", CacheWriteUsd: "0",
 		EffectiveDate: eff,
 	}); err != nil {
-		t.Fatalf("seed %s/%s@%s: %v", provider, modelID, inputUsd, err)
+		t.Fatalf("seed acme/%s@%s: %v", modelID, inputUsd, err)
 	}
 }
 
@@ -121,8 +123,8 @@ func TestModelRefreshDiffsAgainstEffectiveTodayAndSupersedes(t *testing.T) {
 	tomorrow := time.Now().UTC().Add(24 * time.Hour)
 
 	// Today the model costs input=5; tomorrow a scheduled row already says 6.
-	seedModelRate(adminCtx, t, rates, "acme", "m1", "5", time.Time{})
-	seedModelRate(adminCtx, t, rates, "acme", "m1", "6", tomorrow)
+	seedModelRate(adminCtx, t, rates, "m1", "5", time.Time{})
+	seedModelRate(adminCtx, t, rates, "m1", "6", tomorrow)
 
 	// The page states input=6: equal to the future row, but a diff vs TODAY.
 	runModelRefresh(t, e, extractionFixture("acme", "m1", "6"))
