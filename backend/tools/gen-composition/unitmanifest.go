@@ -16,7 +16,7 @@ import (
 	"strconv"
 )
 
-// unitManifestFile is the per-unit generated manifest (ADR-0069 §5): what
+// unitManifestFile is the per-unit generated manifest: what
 // the unit declares that an OPERATOR must resolve, derived from the
 // declaration and written next to the unit, so preflight, permission
 // review, and the boot inventory read it WITHOUT compiling or executing
@@ -33,8 +33,8 @@ const extensionPkgPath = "github.com/gradionhq/margince/backend/pkg/extension"
 
 // unitManifest is one extension's manifest.generated.json: identity plus
 // the RISK TIERS it requests — every operation the extension adds
-// that runs at a 🟢/🟡 tier or asks for a scope, the things §7 makes an
-// operator resolve. Passive policy an extension merely supplies (a
+// that runs at a 🟢/🟡 tier or asks for a scope — the things an
+// operator must resolve. Passive policy an extension merely supplies (a
 // jurisdiction pack the core consults, never invokes — no operation, no
 // tier) requests no risk tier and never appears here.
 type unitManifest struct {
@@ -45,8 +45,8 @@ type unitManifest struct {
 }
 
 // riskTierRequest is one governed operation and the risk tier it
-// requests, carrying its ADR-0069 §5 security descriptor: id, operation,
-// requested scopes and requested tier are what §7 resolutions bind to,
+// requests, carrying its security descriptor: id, operation,
+// requested scopes and requested tier are what operator resolutions bind to,
 // through Digest over exactly those four. The scopes are sorted so the
 // digest does not depend on declaration order.
 type riskTierRequest struct {
@@ -58,7 +58,7 @@ type riskTierRequest struct {
 }
 
 // descriptor is the canonical form the capability digest covers — id,
-// operation, scopes, tier (ADR-0069 §5), nothing else: the kind-specific
+// operation, scopes, tier, nothing else: the kind-specific
 // context around it may change and carry forward, but a change to any of
 // these four re-opens operator resolution.
 func descriptorDigest(c riskTierRequest) (string, error) {

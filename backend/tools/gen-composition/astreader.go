@@ -45,7 +45,7 @@ func deriveUnitManifest(u extensionUnit, vocab map[string]string) ([]byte, error
 	r := &unitReader{fset: fset, vocab: vocab}
 	newFn, newFile, count := findNew(pkgs)
 	if count == 0 {
-		return nil, fmt.Errorf("extensions/%s: no New() in the unit root package — the declaration constructor is the ADR-0069 §4 contract", u.Name)
+		return nil, fmt.Errorf("extensions/%s: no New() in the unit root package — the declaration constructor is required", u.Name)
 	}
 	if count > 1 {
 		// The scan is platform-independent (build tags/GOOS are not
@@ -90,7 +90,7 @@ func encodeUnitManifest(m unitManifest) ([]byte, error) {
 }
 
 // unitReader walks one unit's declaration AST. Everything it reads is a
-// LITERAL: the declaration idiom (ADR-0069 §4/§5) requires New() to
+// LITERAL: the declaration idiom requires New() to
 // return a literal so the manifest derives without compiling — a computed
 // value is a hard error naming the position, never a silent gap.
 type unitReader struct {
@@ -152,7 +152,7 @@ func (r *unitReader) readExtensionField(elt ast.Expr, file *ast.File, m *unitMan
 	case "Jurisdictions":
 		// Recognized and deliberately skipped: a jurisdiction pack is
 		// passive policy the core consults, never a governed operation an
-		// operator resolves (§7), so it contributes no manifest entry.
+		// operator resolves, so it contributes no manifest entry.
 	default:
 		// Fail closed: a field this generator does not recognize could be a
 		// future governed capability, and a manifest that silently omitted
@@ -223,8 +223,8 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (riskTierRequest, error)
 // (the same Validate the boot preflight runs, raised here at the
 // declaration's position) and assembles its descriptor. A tool requires
 // one scope; the descriptor carries it as its (single-element) scope set,
-// the general §5 shape shared across governed kinds. Version is not part
-// of the descriptor: §7 binds resolutions to the digest, never a version.
+// the general shape shared across governed kinds. Version is not part
+// of the descriptor: resolutions bind to the digest, never a version.
 func (r *unitReader) toolRequest(at ast.Node, name, version, tier, scope string) (riskTierRequest, error) {
 	declared := extension.Tool{Name: name, Version: version, Tier: extension.Tier(tier), RequestedScope: extension.Scope(scope)}
 	if err := declared.Validate(); err != nil {
@@ -271,7 +271,7 @@ func (r *unitReader) constValue(expr ast.Expr, ext string) (string, error) {
 // declaration a literal, so a SHAPE error (a computed value, a non-literal
 // field) carries that prescription.
 func (r *unitReader) errAt(n ast.Node, format string, args ...any) error {
-	return fmt.Errorf("%s: %s — manifest derivation reads declarations statically; declare literal values (ADR-0069 §5)",
+	return fmt.Errorf("%s: %s — manifest derivation reads declarations statically; declare literal values",
 		r.fset.Position(n.Pos()), fmt.Sprintf(format, args...))
 }
 

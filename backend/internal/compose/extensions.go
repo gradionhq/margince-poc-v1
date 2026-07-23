@@ -18,7 +18,7 @@ import (
 // duplicate-capability panic from a core registry — aborts the boot, and
 // no capability applies unless the whole set validated, so a partially
 // registered extension never serves. This is also where the manifest
-// emission (ADR-0069 §5) and the approval filtering (§7) slot in: both
+// emission and the approval filtering slot in: both
 // operate on the declared set before anything is applied.
 func RegisterExtensions(exts []extension.Extension) error {
 	if err := validateExtensionSet(exts); err != nil {

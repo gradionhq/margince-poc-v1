@@ -151,7 +151,7 @@ func TestDeManifestMatchesItsDerivation(t *testing.T) {
 // TestCrmHelloManifestMatchesItsDerivation is the worked example: the
 // crm-hello fixture declares a jurisdiction pack (skipped) AND a governed
 // 🟡 tool, so its committed manifest carries exactly one risk-tier
-// request with its §5 descriptor and digest.
+// request with its security descriptor and digest.
 func TestCrmHelloManifestMatchesItsDerivation(t *testing.T) {
 	assertCommittedManifest(t, filepath.Join(repoRoot, "fixtures", "extensions", "crm-hello"), "crm-hello",
 		`"id": "tool/hello_ping"`,

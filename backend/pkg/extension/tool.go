@@ -9,19 +9,19 @@ import (
 )
 
 // Tier is the risk tier an extension REQUESTS for a governed tool
-// (ADR-0026/A34): auto-execute runs without confirmation, confirmation-
+// : auto-execute runs without confirmation, confirmation-
 // required stages every call for human approval. The constant names are
 // semantic; their string values are the core "green"/"yellow" wire tiers,
 // which the boot registration maps to the internal RiskTier. A dynamic
 // (argument-dependent) tier needs a resolver — behavior a static
 // declaration cannot carry — so it is not requestable through this
-// surface. Per §7 the declared tier is a REQUEST an operator resolves,
+// surface. The declared tier is a REQUEST an operator resolves,
 // never a fact: an unresolved request never lowers a bar.
 type Tier string
 
 const (
 	// TierAutoExecute REQUESTS auto-execution without human confirmation
-	// (the 🟢 wire tier). Effective only once an operator resolves it (§7).
+	// (the 🟢 wire tier). Effective only once an operator resolves it.
 	TierAutoExecute Tier = "green"
 	// TierConfirmationRequired REQUESTS confirm-first staging — every call
 	// waits for human approval (the 🟡 wire tier).
@@ -40,7 +40,7 @@ func (t Tier) Validate() error {
 }
 
 // Scope is a Passport verb class a governed tool requires
-// (interfaces.md §0), its values mirroring the core scope vocabulary the
+// , its values mirroring the core scope vocabulary the
 // boot registration maps to the internal type.
 type Scope string
 
@@ -75,7 +75,7 @@ var toolNameGrammar = regexp.MustCompile(`^[a-z][a-z0-9]*(_[a-z0-9]+)*$`)
 // Tool is a governed agent tool the unit contributes to the agent
 // surface: a named operation running at a requested risk Tier and
 // requiring Scopes. It is a GOVERNED capability — its tier and scopes are
-// requests an operator resolves (§7), recorded in the unit manifest.
+// requests an operator resolves, recorded in the unit manifest.
 //
 // Declaring a tool records the request; SERVING it — registration into
 // the agent surface behind the operator-approval gate — arrives in a
@@ -85,13 +85,13 @@ type Tool struct {
 	// Name is the tool verb, lower snake_case, unique within the unit.
 	Name string
 	// Version is the tool's own version, recorded for the registry; it
-	// carries no authority (§7 binds decisions to digests, not versions).
+	// carries no authority (decisions bind to digests, not versions).
 	Version string
 	// Tier is the requested risk tier (green or yellow).
 	Tier Tier
 	// RequestedScope is the single Passport verb class the tool requests —
 	// one scope per tool, as core tools declare it
-	// (mcp.ToolSpec.RequiredScope). Per §7 it is a REQUEST an operator
+	// (mcp.ToolSpec.RequiredScope). It is a REQUEST an operator
 	// resolves into an effective grant, not a fact; once effective, a call
 	// admits only when the granting principal holds it.
 	RequestedScope Scope

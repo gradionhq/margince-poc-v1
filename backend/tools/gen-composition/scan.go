@@ -85,7 +85,7 @@ func scanUnit(name, dir string) (extensionUnit, error) {
 		return extensionUnit{}, err
 	}
 	if !hasGo {
-		return extensionUnit{}, fmt.Errorf("extensions/%s: go.mod present but no root package — the unit's root package must export New() (ADR-0069 §4)", name)
+		return extensionUnit{}, fmt.Errorf("extensions/%s: go.mod present but no root package — the unit's root package must export New()", name)
 	}
 	mod, err := modfile.Parse(filepath.Join(dir, "go.mod"), modBytes, nil)
 	if err != nil {
@@ -110,7 +110,7 @@ func hasRootGoFiles(dir string) (bool, error) {
 	return false, nil
 }
 
-// computeInputs digests everything generation reads (CODEORG-RULE-5):
+// computeInputs digests everything generation reads:
 // the core files feeding the composed outputs, each extension's source
 // tree, and the installation approval lock. Content digests, not git
 // revisions — identical in a work tree and a release tarball, and only
