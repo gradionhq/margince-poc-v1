@@ -39,11 +39,13 @@ the guarantee that the composed product is wired exactly like the core.
 
 **The rejected alternative names the design.** The obvious way to ship this is a runtime plugin — a
 `.so` loaded at startup, an RPC sidecar, a hook registry a unit mutates in `init()`. All three are
-refused, for one reason: a runtime-loaded unit is a second authority sharing the server's memory while
-being invisible to the compiler, so nothing proves it stayed inside its allowed surface. An extension
+refused for one reason: they introduce an authority the compiler cannot check — a dynamically loaded
+or separately deployed unit whose reach into the product nothing in the build proves. An extension
 here is a **compile-time unit** instead. Its module path sits *outside* the backend module, so the
-compiler itself makes `internal/**` unreachable — the unit *cannot* reach into the core even if it
-tries. Paying for extensibility with a rebuild is the trade: a composed product is provably wired the
+compiler itself makes `internal/**` unreachable — the unit *cannot* import into the core even if it
+tries — and fitness tests hold the rest of the surface. This is an **import/API boundary, not a
+sandbox**: a unit's `New()` and its capability methods still run as ordinary trusted Go in the role
+process. Paying for extensibility with a rebuild is the trade: a composed product is provably wired the
 same way the core is, or the build fails.
 
 ## Principles
@@ -53,14 +55,17 @@ Four rules hold the whole tier together:
 1. **Presence is enablement.** A unit is enabled because a directory for it exists under
    `extensions/`. No flag, no config list, no registry file to append to. The enabled set is a *fact
    about the tree*, not a value someone can forget to update.
-2. **A declaration is inert data.** `New()` returns a plain value holding no pointer into the running
+2. **A declaration is inert data.** `New()` returns a plain value holding no handle into the running
    server. It registers nothing itself; only the boot reconciliation, after the whole set validated,
-   applies anything. Two units share no memory, so one can never reach another's state or the core's.
+   applies anything. Nothing is wired *through the declaration*, so a unit cannot reach the core or
+   another unit that way — an import/API boundary, not a runtime sandbox.
 3. **Grow additively, never in place.** Capabilities are *fields* on the declaration. A new kind of
    capability is a new field; a changed contract is a versioned successor, never an edited signature.
    Existing units keep compiling untouched.
-4. **One narrow surface, and it's enforced.** A unit imports *only* the marker-allowlisted
-   `backend/pkg/**` packages — nothing else in the tree. Fitness tests, not good intentions, hold this.
+4. **One narrow backend surface, and it's enforced.** A unit reaches the backend *only* through the
+   marker-allowlisted `backend/pkg/**` packages; the gate also rejects the composition module and
+   sibling units. Its other dependencies (stdlib, third-party) are its own business. Fitness tests,
+   not good intentions, hold this.
 
 ## The parts
 
@@ -98,8 +103,9 @@ Membership in `backend/pkg` **grants nothing on its own**. A package is extensio
 its package clause carries the directive `//margince:extension-surface`. The allowlist is *derived
 from the tree* — a fitness test walks `pkg/`, collects every marked package, and treats exactly that
 set as importable — so the published API can never drift from what the gate enforces. Everything on
-the surface is **self-validating value types**, so an author gets "is this well-formed?" at compile-
-and-test time, never at a customer's boot.
+the surface is **self-validating value types** (`Name.Validate`, `Period.Validate`, …), and those are
+the same checks boot reconciliation runs — so an author who writes a test against them catches a
+malformed value at test time rather than leaving boot to be the first to reject it.
 
 ### 3. The composition build — `gen-composition`
 
@@ -131,14 +137,17 @@ Validate-then-apply makes "partially registered extension" a state the system ca
 ## What an extension can do today — and how that grows
 
 **Today: one capability — jurisdiction packs.** A pack supplies *country-specific policy the core
-consults; it is never an actor*. The core stays country-neutral (a fitness gate fails the build if any
-hand-written core source hard-codes a jurisdiction string). Germany does not live in the core; it
-lives in `extensions/de`, which declares the GoBD/AO statutory **retention floors** — commercial
-correspondence 6 years, accounting records 8 (§147 AO as amended 2025) — each anchored at
+consults; it is never an actor*. The core stays country-neutral — a fitness gate
+(`check-no-jurisdiction.sh`) scans hand-written core source for jurisdiction-specific identifiers and
+fails the build on a match. Germany does not live in the core; it lives in `extensions/de`, which
+declares the GoBD/AO statutory **retention floors** — commercial correspondence 6 years, and
+accounting vouchers (*Buchungsbelege* — §147 AO's 8-year class as amended 2025; the 10-year
+books-and-records class is deliberately absent, since a CRM holds no such record) — each anchored at
 calendar-year end, because §147(4) AO counts every period from the end of the record's calendar year.
-The engine treats a floor as a *minimum*: a workspace may keep longer, never destroy earlier. The
-seam re-exports the pack types as aliases, so the core retention engine consults the *same* constants
-an extension declares.
+The engine treats a floor as a *minimum*: a workspace may keep longer, never destroy earlier. Today
+only the correspondence floor actually binds a record; the accounting-vouchers class is declared but
+**inert**, because no in-product invoice yet derives into it. The seam re-exports the pack types as
+aliases, so the core retention engine consults the *same* constants an extension declares.
 
 **How new capabilities arrive.** A new capability kind is a new *field* on `extension.Extension` and a
 new marked `pkg/**` package holding its contract — existing units keep compiling. Two capabilities are
