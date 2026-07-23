@@ -283,17 +283,15 @@ function requestsTo(calls: Request[], path: string, method: string) {
 
 beforeEach(() => {
   vi.stubGlobal("scrollTo", vi.fn());
-  window.localStorage.setItem("margince.conv", "1");
 });
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
-  window.localStorage.removeItem("margince.conv");
   window.location.hash = "";
 });
 
-describe("the conversational company act (behind the flag)", () => {
+describe("the conversational company act", () => {
   it("narrates poll deltas as thread entries before the terminal outcome", async () => {
     stubApi();
     render(<OnboardingScreen />);
@@ -541,18 +539,5 @@ describe("the conversational company act (behind the flag)", () => {
     const card = confirmCardElement();
     expect(within(card).getByText("Gradion GmbH")).toBeTruthy();
     expect(within(card).queryByText("Umbrella Holding AG")).toBeNull();
-  });
-});
-
-describe("the flag gate", () => {
-  it("renders the untouched classic coordinator when the flag is off", async () => {
-    window.localStorage.removeItem("margince.conv");
-    stubApi();
-    render(<OnboardingScreen />);
-
-    expect(
-      await screen.findByRole("button", { name: /Read my website/ }),
-    ).toBeTruthy();
-    expect(screen.queryByRole("log")).toBeNull();
   });
 });

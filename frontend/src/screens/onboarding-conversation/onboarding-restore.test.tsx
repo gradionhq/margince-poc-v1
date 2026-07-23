@@ -165,13 +165,11 @@ function requestsTo(calls: Request[], path: string, method: string) {
 
 beforeEach(() => {
   vi.stubGlobal("scrollTo", vi.fn());
-  window.localStorage.setItem("margince.conv", "1");
 });
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
-  window.localStorage.removeItem("margince.conv");
   window.location.hash = "";
 });
 
