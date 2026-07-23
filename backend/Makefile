@@ -256,6 +256,11 @@ drift: gen ## Fail when any generated file drifted from the contract
 	# without them here a stale or hand-edited extensions/<name>/manifest.generated.json
 	# would be silently healed by the mutating gen step instead of failing.
 	git diff --exit-code -- '*_gen.go' internal/contracts/ ../config/ai-routing.schema.json '../extensions/*/manifest.generated.json'
+	# git diff ignores UNTRACKED files, so a new (or gen-recreated after a
+	# committed deletion) manifest that was never `git add`ed would slip past
+	# the diff above — fail explicitly when a generated manifest is uncommitted.
+	@u="$$(git ls-files --others --exclude-standard -- '../extensions/*/manifest.generated.json')"; \
+		[ -z "$$u" ] || { echo "drift: uncommitted generated manifest(s):" >&2; echo "$$u" >&2; exit 1; }
 
 # Scaffolding, not generation: gen-workflow writes a write-once handler +
 # test stub for a developer to fill in (AC-W1) and is never part of

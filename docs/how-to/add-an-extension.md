@@ -119,10 +119,11 @@ have to regenerate the composition and run the gates:
    operator must approve under §7; a jurisdiction-only unit requests none, so its list is empty).
    Commit it with the unit; the drift gate fails a stale or hand-edited one. Derivation reads your
    `New()` from the AST, so the returned `extension.Extension` literal and the fields it derives
-   (`Name`, `Version`, `Tools`) must be literal values — a computed one, or a field the generator does
-   not recognize, fails generation with the file and line rather than silently dropping a request.
-   (Every build/test lane depends on this target, so `make check` runs it for you; run it directly
-   when you want to inspect the output.)
+   (`Name`, `Version`, `Tools`) must be literal values or the published `extension` constants
+   (`extension.TierAutoExecute`, `extension.ScopeRead`, …) — a computed value, or a field the
+   generator does not recognize, fails generation with the file and line rather than silently
+   dropping a request. (Every build/test lane depends on this target, so `make check` runs it for
+   you; run it directly when you want to inspect the output.)
 2. **`make check`** — builds the composed workspace, runs the extension-tier fitness tests
    (import-boundary, marker placement, composition wiring), `make test-extensions` (your unit's own
    tests), and `make check-composition` (a clean regeneration must reproduce `composition.json`
