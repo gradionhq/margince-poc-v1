@@ -1407,10 +1407,33 @@ export const en = {
   "ob.conv.artifact.empty":
     "Nothing read yet. Give me a website and this panel fills with sourced findings.",
   "ob.conv.results.continue": "Continue",
-  "ob.conv.connect.stubBody":
-    "Connecting your inbox continues in the classic step for now. Nothing is captured until you allow it there.",
-  "ob.conv.connect.openClassic": "Open the classic connect step",
-  "ob.conv.connect.finish": "Finish without connecting",
+  "ob.conv.results.artifactTitle": "Setup recap",
+  "ob.conv.results.artifactBody":
+    "What your CRM starts with. Nothing here claims more than what actually happened.",
+  "ob.conv.results.company":
+    "Company profile confirmed for {name}. Everything stored carries its source.",
+  "ob.conv.results.companyUnsaved":
+    "Your company details are not saved yet. You can complete them later in Settings.",
+  "ob.conv.results.voiceBuilt":
+    "Your voice profile is built. Drafts will sound like you.",
+  "ob.conv.results.voiceSkipped":
+    "No voice profile yet. Drafts use a neutral starter voice, and you can build yours later in Settings.",
+  "ob.conv.recap.back": "Welcome back. Here is where we stand.",
+  "ob.conv.recap.company": "Your company profile for {name} is confirmed.",
+  "ob.conv.recap.companyUnsaved":
+    "Your company details are not saved yet. You can complete them in Settings.",
+  "ob.conv.recap.voiceBuilt":
+    "Your voice profile is built. Drafts can sound like you.",
+  "ob.conv.recap.voiceSkipped":
+    "You skipped the voice profile. Drafts use a neutral starter voice.",
+  "ob.conv.recap.corpus":
+    "Your corpus already holds {words} of your own words.",
+  "ob.conv.connect.pick":
+    "Pick a provider to see exactly what connecting does, or skip and connect later in Settings.",
+  "ob.conv.connect.skip": "Skip connecting for now",
+  "ob.conv.connect.artifactTitle": "Inbox connection",
+  "ob.conv.connect.artifactEmpty":
+    "Pick a provider in the conversation and its connection panel opens here.",
 
   "auth.title": "Margince",
   "auth.checking": "Checking your session…",

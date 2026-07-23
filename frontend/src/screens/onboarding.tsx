@@ -2663,7 +2663,7 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
 
 // ---- step 3: results -------------------------------------------------------
 
-function ResultsStep({
+export function ResultsStep({
   voiceBuilt,
   profileSaved,
   profile,
@@ -2874,7 +2874,7 @@ function ConnectWarn({ title, body }: { title: string; body: string }) {
 // Google: the server mints the consent URL (and the signed state + CSRF
 // cookie that guard the callback); the browser just goes. The return deep
 // link lands back here with the outcome in the route.
-function GoogleConnectPanel({
+export function GoogleConnectPanel({
   outcome,
   onComplete,
 }: Readonly<{
@@ -3007,7 +3007,7 @@ function GoogleConnectPanel({
   );
 }
 
-function MicrosoftConnectPanel({
+export function MicrosoftConnectPanel({
   onComplete,
 }: Readonly<{ onComplete: (skipped: boolean) => Promise<void> }>) {
   const t = useT();
@@ -3026,7 +3026,7 @@ function MicrosoftConnectPanel({
 }
 
 // IMAP: the one-shot pull, exactly as before — the form is the consent.
-function ImapConnectPanel({
+export function ImapConnectPanel({
   onComplete,
 }: Readonly<{ onComplete: (skipped: boolean) => Promise<void> }>) {
   const t = useT();

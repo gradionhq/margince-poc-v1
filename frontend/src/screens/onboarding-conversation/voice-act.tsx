@@ -1,6 +1,7 @@
 import { Paperclip, Send, Sparkles } from "lucide-react";
 import type { ChangeEvent, Dispatch, DragEvent } from "react";
 import { useRef, useState } from "react";
+import type { components } from "../../api/schema";
 import { Button } from "../../design-system/atoms";
 import type { MarginceCoreState } from "../../design-system/margince-core";
 import { useT } from "../../i18n";
@@ -27,9 +28,13 @@ import { ConversationWorkbench } from "./workbench";
 // counts what is ingested.
 const PASTE_OFFER_MIN_WORDS = 40;
 
+type CorpusSummary = components["schemas"]["VoiceCorpusSummary"];
+
 type VoiceActProps = Readonly<{
   state: ConversationState;
   dispatch: Dispatch<ConversationEvent>;
+  /** The restore probe's server meter for a resumed session; null fresh. */
+  initialSummary?: CorpusSummary | null;
 }>;
 
 function corePresence(state: ConversationState): MarginceCoreState {
@@ -48,11 +53,11 @@ function corePresence(state: ConversationState): MarginceCoreState {
   return "listening";
 }
 
-export function VoiceAct({ state, dispatch }: VoiceActProps) {
+export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
   const t = useT();
   const machine = useRef(state);
   machine.current = state;
-  const corpus = useVoiceCorpus({ state, dispatch });
+  const corpus = useVoiceCorpus({ state, dispatch, initialSummary });
   const build = useVoiceBuild({
     dispatch,
     machine,
