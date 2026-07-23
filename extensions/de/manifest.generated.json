@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "name": "de",
+  "version": "1.0.0",
+  "capabilities": [
+    {
+      "id": "jurisdiction/de",
+      "operation": "jurisdiction.register-pack",
+      "scopes": [],
+      "tier": "",
+      "digest": "sha256:7aeed723332b6a88b182a53d466193d7df6003c9d527f548df9ed71d1479059e",
+      "jurisdiction": {
+        "code": "de",
+        "retention": [
+          {
+            "name": "commercial_correspondence",
+            "keep": "P6Y",
+            "anchor": "calendar_year_end"
+          },
+          {
+            "name": "accounting_records",
+            "keep": "P8Y",
+            "anchor": "calendar_year_end"
+          }
+        ]
+      }
+    }
+  ]
+}

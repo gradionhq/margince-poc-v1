@@ -119,6 +119,14 @@ binding input digests to reproducible output hashes. With an *empty* `extensions
 reproduces the committed `composition/` stub **byte-identically**, so a bare `go build` and a composed
 build provably wire the same thing. `make check-composition` is the drift gate that proves it.
 
+The generator also derives each unit's **`manifest.generated.json`** next to the unit (ADR-0069 §5):
+what the extension claims — identity, capabilities, security descriptors and their digests — read
+STATICALLY from the declaration's AST, so review tooling and the coming approval flow (§7) learn what
+a unit requests without compiling or executing its code. That is why `New()` and the pack methods it
+references must return **literal** values: a computed value fails generation with the position, never
+a manifest that silently omits a claim. The manifest is committed with the unit and drift-gated like
+the contract; its digest rides in `composition.json` per unit.
+
 ### 4. The boot reconciliation — validate the set, then apply
 
 Each role binary wires the composed set at exactly one place — its `main.go`:
