@@ -360,6 +360,49 @@ func TestRowScopedSubjectRequiresObjectReadCapability(t *testing.T) {
 	}()
 }
 
+// TestApprovalTargetRequiresObjectReadCapability pins the same P0 invariant on
+// the sibling approval-target path: an approval's envelope discloses the
+// target's details, so a fan-out owner whose LIVE role no longer grants
+// <target>.read must NOT receive it, even when a lingering row scope would
+// still match the target. approvalTargetVisible now mirrors entityVisibleTo
+// (object-read AND row-scope), so the missing read grant denies BEFORE any pool
+// probe — the nil pool proves the short-circuit: were the object-read half
+// dropped, RowScopeAll would drive the row-scope probe into the nil pool and
+// panic (the exact leak cubic flagged via the target path).
+func TestApprovalTargetRequiresObjectReadCapability(t *testing.T) {
+	s := NewStore(nil, nil) // nil pool: reaching a row-scope probe would panic
+
+	noRead := principal.Principal{
+		Type:   principal.PrincipalHuman,
+		UserID: ids.NewV7(),
+		Permissions: principal.Permissions{
+			// deal.update but explicitly NOT deal.read; row_scope=all would
+			// otherwise make every deal target visible.
+			Objects:  map[string]principal.ObjectGrant{"deal": {Update: true}},
+			RowScope: principal.RowScopeAll,
+		},
+	}
+	ctx := principal.WithActor(context.Background(), noRead)
+	if ok, err := s.approvalTargetVisible(ctx, "deal", ids.NewV7()); ok || err != nil {
+		t.Fatalf("approvalTargetVisible without deal.read = (%v, %v), want (false, nil)", ok, err)
+	}
+
+	// The same owner WITH deal.read passes the object-read half and proceeds to
+	// the row-scope probe, which on a nil pool fails loudly — anything but the
+	// clean (false, nil) deny above — proving the earlier denial came from the
+	// missing read grant, not some other short-circuit.
+	withRead := noRead
+	withRead.Permissions.Objects = map[string]principal.ObjectGrant{"deal": {Read: true}}
+	func() {
+		//craft:ignore swallowed-errors recover's value is deliberately discarded: a nil-pool probe panic is itself proof the read gate admitted the call and reached the probe
+		defer func() { _ = recover() }()
+		ctx := principal.WithActor(context.Background(), withRead)
+		if ok, err := s.approvalTargetVisible(ctx, "deal", ids.NewV7()); !ok && err == nil {
+			t.Fatal("with deal.read, approvalTargetVisible returned a clean deny — the read gate must have admitted it and reached the row-scope probe")
+		}
+	}()
+}
+
 func TestOwnerResolvesHumanBehindTheCall(t *testing.T) {
 	user := ids.NewV7()
 	onBehalf := ids.NewV7()

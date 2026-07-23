@@ -220,10 +220,10 @@ func (s *Store) offerVisibleTo(ctx context.Context, offerID ids.UUID) (bool, err
 }
 
 // offerDealVisible resolves an offer's parent deal and gates on the owner's
-// row-scope visibility of THAT deal — the offer's row-scope anchor, shared by
-// the direct offer path (behind offer.read) and the approval-target path
-// (which mirrors approvals.targetVisible: deal row scope, no offer.read). An
-// absent offer reads as not-visible.
+// row-scope visibility of THAT deal — the offer's row-scope anchor. Reached
+// through offerVisibleTo (which applies offer.read first), by both the direct
+// offer subject and the approval-target offer path. An absent offer reads as
+// not-visible.
 func (s *Store) offerDealVisible(ctx context.Context, offerID ids.UUID) (bool, error) {
 	var dealID ids.UUID
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
@@ -279,36 +279,41 @@ func (s *Store) approvalVisibleTo(ctx context.Context, approvalID ids.UUID) (boo
 	return s.approvalTargetVisible(ctx, *targetType, *targetID)
 }
 
-// approvalTargetVisible applies approvals.targetVisible's TARGET-visibility
-// half (approvals/authority.go): the target record's OWN row scope (person/
-// organization/deal/lead/offer/signal/activity), or for the workspace-shared
-// admin config the approvals surface also stages against (product,
-// custom_field) the same existence floor. That target-visibility check IS the
-// confidentiality boundary this gate owes: a subscriber receives an approval's
-// details (summary, target ids, edited_change) only about a target it can
-// already read, never one it cannot. It deliberately does NOT also apply the
-// inbox's `decidable` decision-grant half — that governs who may ACT on an
-// approval (an authorization concern), not who may learn a visible target's
-// proposed change, so a webhook owner's fan-out set may be broader than the
+// approvalTargetVisible gates an approval event on its TARGET record's
+// visibility under the SAME read-path admission the target's own store applies
+// (auth.Require object-read AND the row scope), because the envelope discloses
+// the target's details (summary, target ids, edited_change): a subscriber may
+// receive an approval only about a target it could itself read, never one it
+// cannot. This is the target-visibility half of approvals.targetVisible
+// (approvals/authority.go) HARDENED with the object-read capability, exactly as
+// entityVisibleTo hardens the primary read path (the P0 gate): a lingering row
+// scope with no current read grant must not leak the payload through the
+// approval path any more than through the direct-subject path. It deliberately
+// omits ONLY the inbox's `decidable` decision-grant half — that governs who may
+// ACT on an approval (authorization), not who may learn a visible target's
+// proposed change — so a webhook owner's fan-out set may be broader than the
 // inbox's decidable set while disclosing nothing beyond what the owner could
-// already read. (Diverging from entityVisibleTo's object-read capability is the
-// same deliberate choice, for the same reason.) Unknown target type: fail
-// closed. Self-contained duplicate of the sibling rule (a module never imports
-// a sibling); the target-visibility branches must stay in step.
+// already read. Diverging here from the sibling's row-scope-only probe is
+// deliberate: the webhook fan-out has no handler-level approval.read entry gate
+// (the inbox does), so the target object-read is the read-path floor this gate
+// owes on its own. Workspace-shared admin config (product, custom_field) has no
+// per-owner scope — existence is the floor. Unknown target type: fail closed.
+// Self-contained (a module never imports a sibling); the row-scoped branches
+// must stay in step with entityVisibleTo above.
 func (s *Store) approvalTargetVisible(ctx context.Context, targetType string, targetID ids.UUID) (bool, error) {
 	switch targetType {
 	case "person", "organization", "deal", "lead":
-		return s.probeVisible(ctx, func(c context.Context, tx pgx.Tx) error {
+		return s.rowScopedVisible(ctx, targetType, func(c context.Context, tx pgx.Tx) error {
 			return auth.EnsureVisible(c, tx, targetType, targetID)
 		})
 	case "offer":
-		return s.offerDealVisible(ctx, targetID)
+		return s.offerVisibleTo(ctx, targetID)
 	case "signal":
-		return s.probeVisible(ctx, func(c context.Context, tx pgx.Tx) error {
+		return s.rowScopedVisible(ctx, "signal", func(c context.Context, tx pgx.Tx) error {
 			return auth.EnsureSignalVisible(c, tx, targetID)
 		})
 	case "activity":
-		return s.probeVisible(ctx, func(c context.Context, tx pgx.Tx) error {
+		return s.rowScopedVisible(ctx, "activity", func(c context.Context, tx pgx.Tx) error {
 			return auth.EnsureActivityVisible(c, tx, targetID)
 		})
 	case "product":
