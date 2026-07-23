@@ -22,6 +22,25 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**The Rates & costs editor (Phase 1, `feat/rates-costs`).** Admin/ops can now
+view and update the two effective-dated price sheets — `fx_rate` (deals) and
+`ai_model_rate` (ai) — from a new Settings "Rates & costs" tab. Strict
+append-forward: `effective_date` defaults to today, a past date is refused, a
+same-day write corrects in place, and there is **no delete** (a past-dated row
+is immutable — it prices historical rollups and AI calls). Two new admin/ops-only
+RBAC objects (+ a `0116` JSONB backfill for existing workspaces); four
+human-admin-only endpoints (`GET/POST /fx-rates`, `/ai-model-rates`,
+`x-agent-access: human-only`); prices speak USD/MTok on the wire, µUSD in the
+store; both writes are audit-only by ratification (EVT-NOEVT-3 — the closed
+event catalog has no fx/ai-pricing stream, the product rate-card precedent).
+Craft + security reviewed (1 craft blocker fixed: no build-invented event type;
+security clean). **Contract-first flag (P3):** these endpoints, and the Phase-2
+`rate_extract` task + proposal kinds still to come, do **not** exist in the
+upstream `margince-foundation` spec (whose posture is "operators edit rows
+directly") — raised for upstream reconciliation, not a silent divergence.
+**Phase 2** (async River-job AI refresh that crawls sources and stages 🟡
+approvals) is designed and planned (`.tmp/rates-costs-settings/`), not yet built.
+
 **The conversational onboarding (flagged) + the honest voice corpus.**
 Onboarding is becoming ONE Margince conversation. Landed so far: the
 corpus honesty layer (server speaker preview, kept-vs-discarded ingest
