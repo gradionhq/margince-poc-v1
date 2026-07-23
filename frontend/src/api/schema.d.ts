@@ -4561,7 +4561,7 @@ export interface components {
         SetFxRateRequest: {
             /** @description 3-letter ISO; must not equal the base currency. */
             from_currency: string;
-            /** @description Positive decimal (from -> base). */
+            /** @description Positive decimal (from -> base). Plain decimal */
             rate: string;
             /**
              * Format: date
@@ -4586,7 +4586,7 @@ export interface components {
         SetAiModelRateRequest: {
             provider: string;
             model_id: string;
-            /** @description USD per 1M input tokens (non-negative decimal). */
+            /** @description USD per 1M input tokens. Plain non-negative decimal */
             input_per_mtok: string;
             /** @description USD per 1M output tokens. */
             output_per_mtok: string;

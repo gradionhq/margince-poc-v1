@@ -17,8 +17,8 @@ input: |2+
 
   === PAGE https://prices.test/pricing ===
   <untrusted>
-  [s0] Aurora Large — our flagship model. Input $5.00 / 1M tokens, output $25.00 / 1M tokens. Prompt caching: cache reads $0.50 / 1M, cache writes $6.25 / 1M.
-  [s1] Aurora Mini — fast and cheap. Input $0.25 / 1M tokens, output $1.50 / 1M tokens. Prompt caching is not available on this model.
+  [s0] Aurora AI — Aurora Large, our flagship model. Input $5.00 / 1M tokens, output $25.00 / 1M tokens. Prompt caching: cache reads $0.50 / 1M, cache writes $6.25 / 1M.
+  [s1] Aurora AI — Aurora Mini, fast and cheap. Input $0.25 / 1M tokens, output $1.50 / 1M tokens. Prompt caching is not available on this model.
   </untrusted>
 expect:
   structural:
@@ -48,14 +48,17 @@ expect:
     - kind: contains
       arg: "s1"
   rubric: >
-    This pricing page states two models. s0 (Aurora Large) grounds input 5,
-    output 25, cache-read 0.5, cache-write 6.25; s1 (Aurora Mini) grounds input
-    0.25, output 1.5, and states caching is unavailable, so its cache buckets
-    are 0. Score how faithfully the two models are extracted with the RIGHT
-    citing passage id and prices drawn from that passage as plain per-MTok
-    decimal strings (not ranges, not numbers, not currency symbols), and
-    penalize any invented model, price, or a caching price for Aurora Mini that
-    the page says has none.
+    This pricing page states two models, both from the provider Aurora AI named
+    in each passage. s0 (Aurora Large) grounds input 5, output 25, cache-read
+    0.5, cache-write 6.25; s1 (Aurora Mini) grounds input 0.25, output 1.5, and
+    states caching is unavailable, so its cache buckets are 0. Score how
+    faithfully the two models are extracted with the RIGHT citing passage id and
+    prices drawn from that passage as plain per-MTok decimal strings (not ranges,
+    not numbers, not currency symbols). The provider must be Aurora AI, drawn
+    from the passage — penalize an invented provider. confidence must be a
+    decimal string within 0.0–1.0. Penalize any invented model, price, an
+    out-of-range confidence, or a caching price for Aurora Mini that the page
+    says has none.
   bands:
     certified_min: 70
     degraded_min: 50

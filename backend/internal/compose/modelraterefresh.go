@@ -94,9 +94,12 @@ type rateExtraction struct {
 	Models []extractedModel `json:"models"`
 }
 
-// AiModelRateRefreshArgs is the async model-cost refresh job.
+// AiModelRateRefreshArgs is the async model-cost refresh job. Uniqueness is
+// keyed on WorkspaceID alone (river:"unique") so two admins refreshing the same
+// workspace collapse to one crawl; RequestedBy rides along for provenance but
+// is deliberately outside the uniqueness hash.
 type AiModelRateRefreshArgs struct {
-	WorkspaceID ids.UUID `json:"workspace_id"`
+	WorkspaceID ids.UUID `json:"workspace_id" river:"unique"`
 	RequestedBy string   `json:"requested_by"`
 }
 
@@ -160,6 +163,12 @@ func (m modelCostRefresh) run(ctx context.Context) error {
 		}
 	}
 	m.log.Info("model-cost refresh complete", "staged", staged)
+	// Cancellation during the LAST source appends only one error, so the
+	// all-failed test below would miss it and report a canceled job as a
+	// successful no-op. Surface the cancellation so River retries.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if len(srcErrs) == len(m.sources) {
 		// Every configured source failed: surface it so the job is retried,
 		// not reported as a successful no-op refresh.

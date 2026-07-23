@@ -45,11 +45,21 @@ func (h Handlers) ListAiModelRates(w http.ResponseWriter, r *http.Request, param
 		httperr.Write(w, r, err)
 		return
 	}
+	provider := params.Provider != nil && *params.Provider != ""
+	modelID := params.ModelId != nil && *params.ModelId != ""
+	if provider != modelID {
+		// One half of the history key without the other is ambiguous — reject
+		// it rather than silently returning the whole latest-price sheet, which
+		// would leak more cost data than the caller asked for.
+		httperr.Write(w, r, httperr.Validation("model_id", "rate_history_pair",
+			"provider and model_id must be supplied together to fetch a model's history"))
+		return
+	}
 	var (
 		rows []ModelRateRow
 		err  error
 	)
-	if params.Provider != nil && *params.Provider != "" && params.ModelId != nil && *params.ModelId != "" {
+	if provider && modelID {
 		rows, err = h.rates.ModelRateHistory(r.Context(), *params.Provider, *params.ModelId)
 	} else {
 		rows, err = h.rates.ListLatestModelRates(r.Context())
@@ -68,6 +78,13 @@ func (h Handlers) ListAiModelRates(w http.ResponseWriter, r *http.Request, param
 // SetAiModelRate appends (or same-day corrects) one effective-dated model
 // price. Human-admin/ops only; append-forward. Effective date defaults to today.
 func (h Handlers) SetAiModelRate(w http.ResponseWriter, r *http.Request) {
+	// Human-only at the handler too, not only via the agent gate (which skips
+	// GETs): the POST is x-agent-access: human-only, so an AGENT principal is
+	// refused here the same way the GET is — belt-and-suspenders enforcement.
+	if err := auth.RequireHuman(r.Context()); err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
 	var req crmcontracts.SetAiModelRateRequest
 	if !httperr.Decode(w, r, &req) {
 		return

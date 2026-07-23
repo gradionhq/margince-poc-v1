@@ -99,7 +99,28 @@ func TestEmbeddingReindexGrants(t *testing.T) {
 
 func TestRateObjectsAreAdminOnly(t *testing.T) {
 	for _, obj := range []string{"fx_rate", "ai_model_rate"} {
+		// Admin/ops may create, read, and same-day-correct (update) — but the
+		// sheets are strict append-forward, so NO role holds delete.
 		for _, key := range []string{"admin", "ops"} {
+			doc, err := Parse(MustDefaultJSON(key))
+			if err != nil {
+				t.Fatalf("role %q: %v", key, err)
+			}
+			merged := Merge(map[string]Document{key: doc})
+			for _, act := range []principal.Action{
+				principal.ActionCreate, principal.ActionRead, principal.ActionUpdate,
+			} {
+				if !merged.Allows(obj, act) {
+					t.Errorf("role %q should have %s on %q", key, act, obj)
+				}
+			}
+			if merged.Allows(obj, principal.ActionDelete) {
+				t.Errorf("role %q must not delete %q (append-forward, no delete surface)", key, obj)
+			}
+		}
+		// Every non-admin/ops role is denied ALL four actions — the editor is
+		// org-gated in the SPA, so these roles have no legitimate consumer.
+		for _, key := range []string{"manager", "rep", "read_only"} {
 			doc, err := Parse(MustDefaultJSON(key))
 			if err != nil {
 				t.Fatalf("role %q: %v", key, err)
@@ -109,19 +130,9 @@ func TestRateObjectsAreAdminOnly(t *testing.T) {
 				principal.ActionCreate, principal.ActionRead,
 				principal.ActionUpdate, principal.ActionDelete,
 			} {
-				if !merged.Allows(obj, act) {
-					t.Errorf("role %q should have %s on %q", key, act, obj)
+				if merged.Allows(obj, act) {
+					t.Errorf("role %q must not %s %q (admin/ops-only surface)", key, act, obj)
 				}
-			}
-		}
-		for _, key := range []string{"manager", "rep", "read_only"} {
-			doc, err := Parse(MustDefaultJSON(key))
-			if err != nil {
-				t.Fatalf("role %q: %v", key, err)
-			}
-			merged := Merge(map[string]Document{key: doc})
-			if merged.Allows(obj, principal.ActionRead) {
-				t.Errorf("role %q must not read %q (admin/ops-only surface)", key, obj)
 			}
 		}
 	}

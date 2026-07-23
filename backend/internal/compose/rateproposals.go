@@ -9,7 +9,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
@@ -48,9 +49,10 @@ type aiModelRateProposal struct {
 }
 
 // stageRateProposal marshals a proposal, computes its identity-bearing diff
-// hash (sha256 over the payload, per the scrape.go shape), guards per-identity
-// against an already-pending duplicate (HasPendingFor keyed on the workspace
-// target + this exact diff), and stages it. A duplicate is a silent no-op.
+// hash (sha256 over the payload, per the scrape.go shape), and stages it under
+// JoinPending — the atomic advisory-locked path that collapses an identical
+// live proposal to a no-op. Two workers racing the same diff cannot both
+// insert (the pre-check-then-stage window a plain HasPendingFor left open).
 //
 //craft:ignore naked-any payload is any JSON-marshalable proposal struct (fx or model); the concrete type rides through json.Marshal
 func stageRateProposal(ctx context.Context, svc *approvals.Service, kind, targetType string, ws ids.UUID, payload any, summary string) error {
@@ -60,16 +62,10 @@ func stageRateProposal(ctx context.Context, svc *approvals.Service, kind, target
 	}
 	digest := sha256.Sum256(raw)
 	hash := hex.EncodeToString(digest[:])
-	pending, err := svc.HasPendingFor(ctx, kind, ws, hash)
-	if err != nil {
-		return fmt.Errorf("compose: pending check %s: %w", kind, err)
-	}
-	if pending {
-		return nil
-	}
 	_, err = svc.Stage(ctx, approvals.StageInput{
 		Kind: kind, ProposedChange: raw, DiffHash: hash,
 		TargetType: targetType, TargetID: ws, Summary: summary,
+		JoinPending: true,
 	})
 	return err
 }
@@ -89,9 +85,6 @@ func rateRefreshActor(ctx context.Context) (context.Context, error) {
 
 func fxRateAcceptEffect(svc *approvals.Service, store *deals.Store) approvals.ApprovedEffect {
 	return func(ctx context.Context, approvalID ids.ApprovalID, proposedChange json.RawMessage, diffHash string) error {
-		if err := svc.Redeem(ctx, approvalID, fxRateProposalKind, diffHash); err != nil {
-			return err
-		}
 		var p fxRateProposal
 		if err := json.Unmarshal(proposedChange, &p); err != nil {
 			return fmt.Errorf("compose: fx rate proposal payload: %w", err)
@@ -100,18 +93,23 @@ func fxRateAcceptEffect(svc *approvals.Service, store *deals.Store) approvals.Ap
 		if err != nil {
 			return err
 		}
-		_, err = store.SetFxRate(execCtx, deals.SetFxRateInput{
-			FromCurrency: p.FromCurrency, Rate: p.Rate, EffectiveDate: time.Now().UTC(),
+		// Redeem the authority object and apply the sheet write in ONE
+		// transaction: a failed write leaves the approval unconsumed and the
+		// job retryable, never permanently consumed with the sheet unchanged.
+		// A zero EffectiveDate applies the rate effective today, derived inside
+		// the store's write transaction (a cross-midnight approval must not
+		// miss the past-date guard).
+		return svc.RedeemAndApply(ctx, approvalID, fxRateProposalKind, diffHash, func(tx pgx.Tx) error {
+			_, err := store.SetFxRateInTx(execCtx, tx, deals.SetFxRateInput{
+				FromCurrency: p.FromCurrency, Rate: p.Rate,
+			})
+			return err
 		})
-		return err
 	}
 }
 
 func aiModelRateAcceptEffect(svc *approvals.Service, rates *ai.RateStore) approvals.ApprovedEffect {
 	return func(ctx context.Context, approvalID ids.ApprovalID, proposedChange json.RawMessage, diffHash string) error {
-		if err := svc.Redeem(ctx, approvalID, aiModelRateProposalKind, diffHash); err != nil {
-			return err
-		}
 		var p aiModelRateProposal
 		if err := json.Unmarshal(proposedChange, &p); err != nil {
 			return fmt.Errorf("compose: ai model rate proposal payload: %w", err)
@@ -120,12 +118,16 @@ func aiModelRateAcceptEffect(svc *approvals.Service, rates *ai.RateStore) approv
 		if err != nil {
 			return err
 		}
-		_, err = rates.SetModelRate(execCtx, ai.SetModelRateInput{
-			Provider: p.Provider, ModelID: p.ModelID,
-			InputUsd: p.InputUsd, OutputUsd: p.OutputUsd,
-			CacheReadUsd: p.CacheReadUsd, CacheWriteUsd: p.CacheWriteUsd,
-			EffectiveDate: time.Now().UTC(),
+		// Single-transaction redeem-and-apply (see fxRateAcceptEffect): a
+		// failed write keeps the approval redeemable. Zero EffectiveDate ⇒
+		// effective today, derived inside the store's write transaction.
+		return svc.RedeemAndApply(ctx, approvalID, aiModelRateProposalKind, diffHash, func(tx pgx.Tx) error {
+			_, err := rates.SetModelRateInTx(execCtx, tx, ai.SetModelRateInput{
+				Provider: p.Provider, ModelID: p.ModelID,
+				InputUsd: p.InputUsd, OutputUsd: p.OutputUsd,
+				CacheReadUsd: p.CacheReadUsd, CacheWriteUsd: p.CacheWriteUsd,
+			})
+			return err
 		})
-		return err
 	}
 }

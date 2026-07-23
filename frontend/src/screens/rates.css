@@ -6,6 +6,13 @@
   flex-wrap: wrap;
 }
 
+/* SectionHeader carries a page-level top margin; nested in the first card's
+   head that drops the title below the card edge and out of line with the
+   action buttons. Reset it the way atoms.css resets a bare first card header. */
+.card > .rates-head:first-child > .section-header {
+  margin-top: 0;
+}
+
 .rates-actions {
   display: flex;
   align-items: center;

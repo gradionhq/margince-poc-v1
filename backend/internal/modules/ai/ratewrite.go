@@ -70,6 +70,25 @@ func modelRateMicroUSD(in SetModelRateInput) (input, output, cacheRead, cacheWri
 // date). Audit-only by ratification: the closed event catalog has no
 // ai/pricing stream to ride (see auditOnlyWrites in writeshape_test.go).
 func (s *RateStore) SetModelRate(ctx context.Context, in SetModelRateInput) (ModelRateRow, error) {
+	var out ModelRateRow
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		var e error
+		out, e = s.SetModelRateInTx(ctx, tx, in)
+		return e
+	})
+	if err != nil {
+		return ModelRateRow{}, err
+	}
+	return out, nil
+}
+
+// SetModelRateInTx applies one effective-dated model price through a
+// caller-owned transaction — the approval-effect path, where redeem-and-write
+// must commit together (a failed write leaves the approval unconsumed and
+// retryable). A zero EffectiveDate means "today", derived from the SAME clock
+// sample the past-date guard uses. SetModelRate is the standalone-transaction
+// wrapper.
+func (s *RateStore) SetModelRateInTx(ctx context.Context, tx pgx.Tx, in SetModelRateInput) (ModelRateRow, error) {
 	if err := auth.Require(ctx, "ai_model_rate", principal.ActionCreate); err != nil {
 		return ModelRateRow{}, err
 	}
@@ -81,7 +100,11 @@ func (s *RateStore) SetModelRate(ctx context.Context, in SetModelRateInput) (Mod
 	if modelID == "" {
 		return ModelRateRow{}, rateInvalid("model_id", "rate_model_required", "model_id is required")
 	}
-	if in.EffectiveDate.UTC().Truncate(24 * time.Hour).Before(s.todayUTC()) {
+	today := s.todayUTC()
+	if in.EffectiveDate.IsZero() {
+		in.EffectiveDate = today
+	}
+	if in.EffectiveDate.UTC().Truncate(24 * time.Hour).Before(today) {
 		return ModelRateRow{}, rateInvalid("effective_date", "rate_past", "effective_date cannot be in the past")
 	}
 	input, output, cacheRead, cacheWrite, err := modelRateMicroUSD(in)
@@ -91,53 +114,49 @@ func (s *RateStore) SetModelRate(ctx context.Context, in SetModelRateInput) (Mod
 	// Persist the same UTC-truncated day the past-date guard checked.
 	effDate := in.EffectiveDate.UTC().Truncate(24 * time.Hour)
 
-	var out ModelRateRow
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		var (
-			id                                  ids.UUID
-			inMicro, outMicro, crMicro, cwMicro int64
-			eff                                 time.Time
-			provOut, modelOut                   string
-		)
-		if err := tx.QueryRow(ctx, `
-			INSERT INTO ai_model_rate (
-				workspace_id, provider, model_id,
-				input_per_mtok_microusd, output_per_mtok_microusd,
-				cache_read_per_mtok_microusd, cache_write_per_mtok_microusd,
-				effective_date)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			ON CONFLICT (workspace_id, provider, model_id, effective_date)
-			DO UPDATE SET
-				input_per_mtok_microusd       = EXCLUDED.input_per_mtok_microusd,
-				output_per_mtok_microusd      = EXCLUDED.output_per_mtok_microusd,
-				cache_read_per_mtok_microusd  = EXCLUDED.cache_read_per_mtok_microusd,
-				cache_write_per_mtok_microusd = EXCLUDED.cache_write_per_mtok_microusd
-			RETURNING id, provider, model_id, input_per_mtok_microusd, output_per_mtok_microusd,
-			          cache_read_per_mtok_microusd, cache_write_per_mtok_microusd, effective_date`,
-			storekit.MustWorkspace(ctx), provider, modelID,
-			input, output, cacheRead, cacheWrite, effDate,
-		).Scan(&id, &provOut, &modelOut, &inMicro, &outMicro, &crMicro, &cwMicro, &eff); err != nil {
-			return fmt.Errorf("upsert ai_model_rate: %w", err)
-		}
-		out = ModelRateRow{
-			Provider: provOut, ModelID: modelOut,
-			InputUsd: MicroUSDToUsdPerMTok(inMicro), OutputUsd: MicroUSDToUsdPerMTok(outMicro),
-			CacheReadUsd: MicroUSDToUsdPerMTok(crMicro), CacheWriteUsd: MicroUSDToUsdPerMTok(cwMicro),
-			EffectiveDate: eff,
-		}
-		_, err := storekit.Audit(ctx, tx, "create", "ai_model_rate", id, nil, map[string]any{
-			"provider": provider, "model_id": modelID,
-			"input_microusd": input, "output_microusd": output,
-			"cache_read_microusd": cacheRead, "cache_write_microusd": cacheWrite,
-			"date": in.EffectiveDate,
-		})
-		if err != nil {
-			return fmt.Errorf("audit ai_model_rate create: %w", err)
-		}
-		return nil
-	})
-	if err != nil {
-		return ModelRateRow{}, err
+	var (
+		out                                 ModelRateRow
+		id                                  ids.UUID
+		inMicro, outMicro, crMicro, cwMicro int64
+		eff                                 time.Time
+		provOut, modelOut                   string
+	)
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO ai_model_rate (
+			workspace_id, provider, model_id,
+			input_per_mtok_microusd, output_per_mtok_microusd,
+			cache_read_per_mtok_microusd, cache_write_per_mtok_microusd,
+			effective_date)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (workspace_id, provider, model_id, effective_date)
+		DO UPDATE SET
+			input_per_mtok_microusd       = EXCLUDED.input_per_mtok_microusd,
+			output_per_mtok_microusd      = EXCLUDED.output_per_mtok_microusd,
+			cache_read_per_mtok_microusd  = EXCLUDED.cache_read_per_mtok_microusd,
+			cache_write_per_mtok_microusd = EXCLUDED.cache_write_per_mtok_microusd
+		RETURNING id, provider, model_id, input_per_mtok_microusd, output_per_mtok_microusd,
+		          cache_read_per_mtok_microusd, cache_write_per_mtok_microusd, effective_date`,
+		storekit.MustWorkspace(ctx), provider, modelID,
+		input, output, cacheRead, cacheWrite, effDate,
+	).Scan(&id, &provOut, &modelOut, &inMicro, &outMicro, &crMicro, &cwMicro, &eff); err != nil {
+		return ModelRateRow{}, fmt.Errorf("upsert ai_model_rate: %w", err)
+	}
+	out = ModelRateRow{
+		Provider: provOut, ModelID: modelOut,
+		InputUsd: MicroUSDToUsdPerMTok(inMicro), OutputUsd: MicroUSDToUsdPerMTok(outMicro),
+		CacheReadUsd: MicroUSDToUsdPerMTok(crMicro), CacheWriteUsd: MicroUSDToUsdPerMTok(cwMicro),
+		EffectiveDate: eff,
+	}
+	// Audit the UTC-truncated day actually stored, not the caller's raw
+	// timestamp, so the ledger is faithful to the persisted rate (matches the
+	// fx_rate sibling).
+	if _, err := storekit.Audit(ctx, tx, "create", "ai_model_rate", id, nil, map[string]any{
+		"provider": provider, "model_id": modelID,
+		"input_microusd": input, "output_microusd": output,
+		"cache_read_microusd": cacheRead, "cache_write_microusd": cacheWrite,
+		"date": effDate,
+	}); err != nil {
+		return ModelRateRow{}, fmt.Errorf("audit ai_model_rate create: %w", err)
 	}
 	return out, nil
 }

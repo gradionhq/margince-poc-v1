@@ -471,6 +471,10 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 			// Deep reads run on their own bounded pool so long crawls cannot
 			// evict the short maintenance jobs from the default queue.
 			deepReadQueue: {MaxWorkers: deepReadMaxWorkers},
+			// Rate refreshes (FX fetch + pricing-page crawl+LLM extract) are
+			// likewise long; their own bounded pool keeps a multi-workspace
+			// burst from starving close-date, reconcile, and capture jobs.
+			rateRefreshQueue: {MaxWorkers: rateRefreshMaxWorkers},
 		},
 		Workers:      workers,
 		PeriodicJobs: periodic,

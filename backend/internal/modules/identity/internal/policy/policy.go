@@ -47,6 +47,11 @@ var (
 	crud       = grant{Create: true, Read: true, Update: true, Delete: true}
 	readOnly   = grant{Read: true}
 	readUpdate = grant{Read: true, Update: true}
+	// writeNoDelete is the append-forward config posture: create + read +
+	// same-day-correct (update), never delete. The rate sheets (fx_rate,
+	// ai_model_rate) have no delete surface at all — a past-dated row prices
+	// historical rollups and must never disappear — so no role holds delete.
+	writeNoDelete = grant{Create: true, Read: true, Update: true}
 )
 
 // defaults are the seeded system-role policies (they encode
@@ -90,7 +95,7 @@ var (
 // here.)
 var defaults = map[string]Document{
 	"admin": {
-		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, crud, crud),
+		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete),
 		RowScope: principal.RowScopeAll,
 	},
 	"manager": {
@@ -148,7 +153,7 @@ var defaults = map[string]Document{
 		RowScope: principal.RowScopeAll,
 	},
 	"ops": {
-		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, crud, crud),
+		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete),
 		RowScope: principal.RowScopeAll,
 	},
 }

@@ -74,10 +74,33 @@ func (s *Store) todayUTC() time.Time {
 // rate. Admin/ops-gated; append-forward (rejects a past effective date);
 // resolves ToCurrency to the workspace base and rejects from == base.
 func (s *Store) SetFxRate(ctx context.Context, in SetFxRateInput) (FxRateRow, error) {
+	var out FxRateRow
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		var e error
+		out, e = s.SetFxRateInTx(ctx, tx, in)
+		return e
+	})
+	if err != nil {
+		return FxRateRow{}, err
+	}
+	return out, nil
+}
+
+// SetFxRateInTx applies one effective-dated FX rate through a caller-owned
+// transaction — the approval-effect path, where redeem-and-write must commit
+// together (a failed write leaves the approval unconsumed and retryable). A
+// zero EffectiveDate means "today", derived from the SAME clock sample the
+// past-date guard uses, so a cross-midnight approval cannot straddle two
+// calendar days. SetFxRate is the standalone-transaction wrapper.
+func (s *Store) SetFxRateInTx(ctx context.Context, tx pgx.Tx, in SetFxRateInput) (FxRateRow, error) {
 	if err := auth.Require(ctx, "fx_rate", principal.ActionCreate); err != nil {
 		return FxRateRow{}, err
 	}
-	from, err := normalizeFxInput(in, s.todayUTC())
+	today := s.todayUTC()
+	if in.EffectiveDate.IsZero() {
+		in.EffectiveDate = today
+	}
+	from, err := normalizeFxInput(in, today)
 	if err != nil {
 		return FxRateRow{}, err
 	}
@@ -86,42 +109,38 @@ func (s *Store) SetFxRate(ctx context.Context, in SetFxRateInput) (FxRateRow, er
 	// validated.
 	effDate := in.EffectiveDate.UTC().Truncate(24 * time.Hour)
 
-	var out FxRateRow
-	err = s.tx(ctx, func(tx pgx.Tx) error {
-		var base string
-		if err := tx.QueryRow(ctx, `SELECT base_currency FROM workspace WHERE id = $1`,
-			storekit.MustWorkspace(ctx)).Scan(&base); err != nil {
-			return fmt.Errorf("resolve base currency: %w", err)
-		}
-		if from == base {
-			return fxInvalid("from_currency", "fx_rate_base_self",
-				"from_currency equals the base currency (the rate is always 1)")
-		}
-		var fxID ids.UUID
-		if err := tx.QueryRow(ctx, `
-			INSERT INTO fx_rate (workspace_id, from_currency, to_currency, rate, rate_date)
-			VALUES ($1, $2, $3, $4::numeric, $5)
-			ON CONFLICT (workspace_id, from_currency, to_currency, rate_date)
-			DO UPDATE SET rate = EXCLUDED.rate
-			RETURNING id, from_currency, to_currency, rate::text, rate_date`,
-			storekit.MustWorkspace(ctx), from, base, in.Rate, effDate,
-		).Scan(&fxID, &out.FromCurrency, &out.ToCurrency, &out.Rate, &out.RateDate); err != nil {
-			return fmt.Errorf("upsert fx_rate: %w", err)
-		}
-		// Audit-only by ratification (EVT-NOEVT-3): the closed event catalog
-		// defines no fx_rate.* type and the rate sheet is workspace config
-		// recomputed price-on-read — the same ruling as the deals-owned
-		// product rate-card (CreateProduct is audit-only). Ratified in
-		// writeshape_test.go; inventing an fx_rate.* verb on the deal stream
-		// would violate the closed catalog (contract-first, P3).
-		if _, err := storekit.Audit(ctx, tx, "create", "fx_rate", fxID, nil,
-			map[string]any{"from": from, "to": base, "rate": in.Rate, "date": effDate}); err != nil {
-			return fmt.Errorf("audit fx_rate create: %w", err)
-		}
-		return nil
-	})
-	if err != nil {
-		return FxRateRow{}, err
+	var base string
+	if err := tx.QueryRow(ctx, `SELECT base_currency FROM workspace WHERE id = $1`,
+		storekit.MustWorkspace(ctx)).Scan(&base); err != nil {
+		return FxRateRow{}, fmt.Errorf("resolve base currency: %w", err)
+	}
+	if from == base {
+		return FxRateRow{}, fxInvalid("from_currency", "fx_rate_base_self",
+			"from_currency equals the base currency (the rate is always 1)")
+	}
+	var (
+		out  FxRateRow
+		fxID ids.UUID
+	)
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO fx_rate (workspace_id, from_currency, to_currency, rate, rate_date)
+		VALUES ($1, $2, $3, $4::numeric, $5)
+		ON CONFLICT (workspace_id, from_currency, to_currency, rate_date)
+		DO UPDATE SET rate = EXCLUDED.rate
+		RETURNING id, from_currency, to_currency, rate::text, rate_date`,
+		storekit.MustWorkspace(ctx), from, base, in.Rate, effDate,
+	).Scan(&fxID, &out.FromCurrency, &out.ToCurrency, &out.Rate, &out.RateDate); err != nil {
+		return FxRateRow{}, fmt.Errorf("upsert fx_rate: %w", err)
+	}
+	// Audit-only by ratification (EVT-NOEVT-3): the closed event catalog
+	// defines no fx_rate.* type and the rate sheet is workspace config
+	// recomputed price-on-read — the same ruling as the deals-owned
+	// product rate-card (CreateProduct is audit-only). Ratified in
+	// writeshape_test.go; inventing an fx_rate.* verb on the deal stream
+	// would violate the closed catalog (contract-first, P3).
+	if _, err := storekit.Audit(ctx, tx, "create", "fx_rate", fxID, nil,
+		map[string]any{"from": from, "to": base, "rate": in.Rate, "date": effDate}); err != nil {
+		return FxRateRow{}, fmt.Errorf("audit fx_rate create: %w", err)
 	}
 	return out, nil
 }

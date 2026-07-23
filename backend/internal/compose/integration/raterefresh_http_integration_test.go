@@ -21,10 +21,12 @@ import (
 
 type fakeRateEnqueue struct {
 	calls []river.JobArgs
+	opts  []*river.InsertOpts
 }
 
-func (f *fakeRateEnqueue) Enqueue(_ context.Context, args river.JobArgs, _ *river.InsertOpts) error {
+func (f *fakeRateEnqueue) Enqueue(_ context.Context, args river.JobArgs, opts *river.InsertOpts) error {
 	f.calls = append(f.calls, args)
+	f.opts = append(f.opts, opts)
 	return nil
 }
 
@@ -53,5 +55,18 @@ func TestProposeRefreshEndpointsEnqueue(t *testing.T) {
 	}
 	if _, ok := fake.calls[1].(compose.AiModelRateRefreshArgs); !ok {
 		t.Fatalf("second job = %T, want AiModelRateRefreshArgs", fake.calls[1])
+	}
+	// Both enqueues must request arg-scoped uniqueness on the bounded refresh
+	// queue: that is how two admins refreshing the same workspace collapse to
+	// one in-flight crawl (River hashes only the river:"unique" WorkspaceID) and
+	// how long crawls stay off the default queue. The fake can't exercise
+	// River's real dedup — this asserts the handler asks for it correctly.
+	for i, opts := range fake.opts {
+		if opts == nil || !opts.UniqueOpts.ByArgs {
+			t.Fatalf("job %d InsertOpts = %+v, want UniqueOpts.ByArgs=true", i, opts)
+		}
+		if opts.Queue != "rate_refresh" {
+			t.Fatalf("job %d queue = %q, want rate_refresh", i, opts.Queue)
+		}
 	}
 }

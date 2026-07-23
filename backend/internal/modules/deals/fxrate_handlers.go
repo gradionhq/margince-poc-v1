@@ -53,6 +53,14 @@ func (h Handlers) ListFxRates(w http.ResponseWriter, r *http.Request, params crm
 // SetFxRate appends (or same-day corrects) one effective-dated FX rate.
 // Human-admin/ops only; append-forward. Effective date defaults to today.
 func (h Handlers) SetFxRate(w http.ResponseWriter, r *http.Request) {
+	// Human-only at the handler too, not only via the agent gate: the POST is
+	// x-agent-access: human-only, so an AGENT principal is refused here the
+	// same way the GET refuses one (the gate skips GETs) — self-evident,
+	// belt-and-suspenders enforcement of the human-only write contract.
+	if err := auth.RequireHuman(r.Context()); err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
 	var req crmcontracts.SetFxRateRequest
 	if !httperr.Decode(w, r, &req) {
 		return

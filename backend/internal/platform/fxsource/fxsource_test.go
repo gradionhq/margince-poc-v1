@@ -18,7 +18,9 @@ func TestLatestRatesInverts(t *testing.T) {
 		}
 		// The real api.frankfurter.dev/v1/latest shape: amount + date ride
 		// alongside base + rates; the parser ignores the first two.
-		_, _ = w.Write([]byte(`{"amount":1.0,"base":"EUR","date":"2026-07-22","rates":{"USD":1.08,"GBP":0.86,"JPY":160.5}}`))
+		if _, err := w.Write([]byte(`{"amount":1.0,"base":"EUR","date":"2026-07-22","rates":{"USD":1.08,"GBP":0.86,"JPY":160.5}}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer srv.Close()
 
@@ -42,7 +44,9 @@ func TestLatestRatesInverts(t *testing.T) {
 func TestLatestRatesRejectsBaseMismatch(t *testing.T) {
 	// The API answered in USD though we asked for EUR — rates would be wrong.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"base":"USD","rates":{"GBP":0.79}}`))
+		if _, err := w.Write([]byte(`{"base":"USD","rates":{"GBP":0.79}}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer srv.Close()
 	if _, err := New(srv.URL, srv.Client()).LatestRates(context.Background(), "EUR", []string{"GBP"}); err == nil {

@@ -7825,7 +7825,7 @@ components:
       properties:
         from_currency: { type: string, pattern: '^[A-Z]{3}$' }
         to_currency: { type: string, pattern: '^[A-Z]{3}$', description: The workspace base currency. }
-        rate: { type: string, description: Decimal rate (from -> base), always positive. }
+        rate: { type: string, pattern: '^[0-9]{1,10}(\.[0-9]{1,10})?$', description: Decimal rate (from -> base), always positive. Plain decimal, up to 10 integer and 10 fractional digits (numeric(20,10)). }
         effective_date: { type: string, format: date }
     FxRateListResponse:
       type: object
@@ -7837,7 +7837,7 @@ components:
       required: [from_currency, rate]
       properties:
         from_currency: { type: string, pattern: '^[A-Za-z]{3}$', description: 3-letter ISO; must not equal the base currency. }
-        rate: { type: string, description: Positive decimal (from -> base). }
+        rate: { type: string, pattern: '^[0-9]{1,10}(\.[0-9]{1,10})?$', description: Positive decimal (from -> base). Plain decimal, up to 10 integer and 10 fractional digits. }
         effective_date:
           type: string
           format: date
@@ -7849,10 +7849,10 @@ components:
       properties:
         provider: { type: string }
         model_id: { type: string }
-        input_per_mtok: { type: string }
-        output_per_mtok: { type: string }
-        cache_read_per_mtok: { type: string }
-        cache_write_per_mtok: { type: string }
+        input_per_mtok: { type: string, pattern: '^[0-9]{1,13}(\.[0-9]{1,6})?$' }
+        output_per_mtok: { type: string, pattern: '^[0-9]{1,13}(\.[0-9]{1,6})?$' }
+        cache_read_per_mtok: { type: string, pattern: '^[0-9]{1,13}(\.[0-9]{1,6})?$' }
+        cache_write_per_mtok: { type: string, pattern: '^[0-9]{1,13}(\.[0-9]{1,6})?$' }
         effective_date: { type: string, format: date }
     AiModelRateListResponse:
       type: object
@@ -7865,10 +7865,10 @@ components:
       properties:
         provider: { type: string }
         model_id: { type: string }
-        input_per_mtok: { type: string, description: USD per 1M input tokens (non-negative decimal). }
-        output_per_mtok: { type: string, description: USD per 1M output tokens. }
-        cache_read_per_mtok: { type: string, description: USD per 1M cache-read tokens. }
-        cache_write_per_mtok: { type: string, description: USD per 1M cache-write tokens. }
+        input_per_mtok: { type: string, pattern: '^[0-9]{1,13}(\.[0-9]{1,6})?$', description: USD per 1M input tokens. Plain non-negative decimal, up to 13 integer and 6 fractional digits. }
+        output_per_mtok: { type: string, pattern: '^[0-9]{1,13}(\.[0-9]{1,6})?$', description: USD per 1M output tokens. }
+        cache_read_per_mtok: { type: string, pattern: '^[0-9]{1,13}(\.[0-9]{1,6})?$', description: USD per 1M cache-read tokens. }
+        cache_write_per_mtok: { type: string, pattern: '^[0-9]{1,13}(\.[0-9]{1,6})?$', description: USD per 1M cache-write tokens. }
         effective_date:
           type: string
           format: date

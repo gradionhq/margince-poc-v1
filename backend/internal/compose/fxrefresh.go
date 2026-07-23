@@ -22,9 +22,11 @@ import (
 // FxRateRefreshArgs is the async FX-rate refresh job: fetch fresh rates for the
 // currencies this workspace already tracks and stage a proposal per changed
 // rate. WorkspaceID + RequestedBy carry the acting admin so the worker binds a
-// system principal on behalf of them.
+// system principal on behalf of them. Uniqueness is keyed on WorkspaceID alone
+// (river:"unique") so two admins refreshing the same workspace collapse to one
+// crawl; RequestedBy is provenance-only, outside the uniqueness hash.
 type FxRateRefreshArgs struct {
-	WorkspaceID ids.UUID `json:"workspace_id"`
+	WorkspaceID ids.UUID `json:"workspace_id" river:"unique"`
 	RequestedBy string   `json:"requested_by"`
 }
 

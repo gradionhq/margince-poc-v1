@@ -1708,7 +1708,7 @@ export const de = {
   "settings.rates.setRate": "Speichern",
   "settings.rates.refresh": "Von Quellen aktualisieren",
   "settings.rates.refreshEnqueued":
-    "Aktualisierung gestartet — Vorschläge im Posteingang prüfen.",
+    "Aktualisierung angefordert — etwaige Vorschläge erscheinen im Posteingang.",
   "settings.rates.colFrom": "Von",
   "settings.rates.colRate": "Kurs (→{base})",
   "settings.rates.colEffective": "Gültig ab",

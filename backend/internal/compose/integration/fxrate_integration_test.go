@@ -33,10 +33,16 @@ func fxRateOf(rows []deals.FxRateRow, from string) (string, bool) {
 	return "", false
 }
 
+// fxTestNow is a fixed instant the fx suite pins the store clock to, so the
+// past-date guard and the test's "today" derive from ONE sample — a real clock
+// on both sides could straddle UTC midnight and reject a same-day write.
+var fxTestNow = time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
+
 func TestFxRateAppendForward(t *testing.T) {
 	e := Setup(t)
+	e.Deals.WithClock(func() time.Time { return fxTestNow })
 	ctx := e.Admin()
-	today := time.Now().UTC().Truncate(24 * time.Hour)
+	today := fxTestNow.Truncate(24 * time.Hour)
 
 	r1, err := e.Deals.SetFxRate(ctx, deals.SetFxRateInput{FromCurrency: "usd", Rate: "0.9150", EffectiveDate: today})
 	if err != nil {
@@ -76,8 +82,9 @@ func TestFxRateAppendForward(t *testing.T) {
 
 func TestFxRateRejectsPastBaseAndNonPositive(t *testing.T) {
 	e := Setup(t)
+	e.Deals.WithClock(func() time.Time { return fxTestNow })
 	ctx := e.Admin()
-	today := time.Now().UTC().Truncate(24 * time.Hour)
+	today := fxTestNow.Truncate(24 * time.Hour)
 
 	assertInvalid := func(t *testing.T, err error) {
 		t.Helper()
@@ -113,7 +120,8 @@ func TestFxRateReadDeniedForNonAdmin(t *testing.T) {
 
 func TestFxRateWritesAuditRow(t *testing.T) {
 	e := Setup(t)
-	if _, err := e.Deals.SetFxRate(e.Admin(), deals.SetFxRateInput{FromCurrency: "USD", Rate: "0.9", EffectiveDate: time.Now().UTC()}); err != nil {
+	e.Deals.WithClock(func() time.Time { return fxTestNow })
+	if _, err := e.Deals.SetFxRate(e.Admin(), deals.SetFxRateInput{FromCurrency: "USD", Rate: "0.9", EffectiveDate: fxTestNow}); err != nil {
 		t.Fatalf("set: %v", err)
 	}
 	if n := e.WsCount(t, `SELECT count(*) FROM audit_log WHERE entity_type='fx_rate' AND action='create'`); n != 1 {
@@ -123,7 +131,8 @@ func TestFxRateWritesAuditRow(t *testing.T) {
 
 func TestFxRateCrossWorkspaceIsolation(t *testing.T) {
 	e := Setup(t)
-	if _, err := e.Deals.SetFxRate(e.Admin(), deals.SetFxRateInput{FromCurrency: "USD", Rate: "0.9", EffectiveDate: time.Now().UTC()}); err != nil {
+	e.Deals.WithClock(func() time.Time { return fxTestNow })
+	if _, err := e.Deals.SetFxRate(e.Admin(), deals.SetFxRateInput{FromCurrency: "USD", Rate: "0.9", EffectiveDate: fxTestNow}); err != nil {
 		t.Fatalf("set in workspace A: %v", err)
 	}
 	// A second tenant must not see workspace A's row (FORCE RLS on fx_rate).

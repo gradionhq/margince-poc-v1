@@ -10595,7 +10595,7 @@ type SetAiModelRateRequest struct {
 	// EffectiveDate Defaults to today; must not be in the past (append-forward).
 	EffectiveDate *openapi_types.Date `json:"effective_date,omitempty"`
 
-	// InputPerMtok USD per 1M input tokens (non-negative decimal).
+	// InputPerMtok USD per 1M input tokens. Plain non-negative decimal
 	InputPerMtok string `json:"input_per_mtok"`
 	ModelId      string `json:"model_id"`
 
@@ -10612,7 +10612,7 @@ type SetFxRateRequest struct {
 	// FromCurrency 3-letter ISO; must not equal the base currency.
 	FromCurrency string `json:"from_currency"`
 
-	// Rate Positive decimal (from -> base).
+	// Rate Positive decimal (from -> base). Plain decimal
 	Rate string `json:"rate"`
 }
 

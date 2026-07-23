@@ -166,8 +166,12 @@ func targetVisible(ctx context.Context, tx pgx.Tx, a row) (bool, error) {
 		// with no row scope. A refresh proposal targets the workspace (a
 		// brand-new currency/model has no row yet), so existence is not the
 		// floor here — the decision-grant check above (admin/ops Create) is
-		// the authority. Visible to any decider the grant admits.
-		return true, nil
+		// the authority. The floor that remains is that the shown target IS
+		// the acting workspace: a proposal whose target_id is some other
+		// workspace is not decidable here (its effect would write to this
+		// context's sheet, not the claimed one).
+		wsID, ok := principal.WorkspaceID(ctx)
+		return ok && *a.TargetID == wsID, nil
 	case "signal":
 		// A signal has no owner_id — it is visible when its SUBJECT entity
 		// is (the same scope the signals store applies), so a staged

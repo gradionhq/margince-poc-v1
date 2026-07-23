@@ -24,6 +24,15 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// rateRefreshQueue isolates the rate refreshes (FX fetch + pricing-page
+// crawl+LLM extract) from the default queue on their own bounded pool: each job
+// is long, so a multi-workspace burst on the shared queue would starve the
+// short maintenance jobs. Mirrors the deep-read precedent.
+const (
+	rateRefreshQueue      = "rate_refresh"
+	rateRefreshMaxWorkers = 2
+)
+
 // rateRefreshEnqueuer is the enqueue seam (jobs.Runner.Enqueue); tests fake it.
 type rateRefreshEnqueuer interface {
 	Enqueue(ctx context.Context, args river.JobArgs, opts *river.InsertOpts) error
@@ -58,7 +67,13 @@ func (h rateRefreshHandlers) enqueueRefresh(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	args := mkArgs(storekit.MustWorkspace(ctx), requestedBy(ctx))
-	opts := &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeSweepStates}}
+	// ByArgs uniqueness now hashes only the river:"unique"-tagged WorkspaceID
+	// (RequestedBy is provenance, untagged), so two admins refreshing the same
+	// workspace collapse to one in-flight crawl rather than racing two.
+	opts := &river.InsertOpts{
+		Queue:      rateRefreshQueue,
+		UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeSweepStates},
+	}
 	if err := h.enqueue.Enqueue(ctx, args, opts); err != nil {
 		httperr.Write(w, r, err)
 		return

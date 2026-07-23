@@ -7,7 +7,7 @@ package compose
 
 // The FX refresh producer over real Postgres: it prices only the currencies
 // the workspace already tracks, stages a proposal for each changed rate, and a
-// re-run stages nothing new (per-identity HasPendingFor dedupe).
+// re-run stages nothing new (per-identity JoinPending dedupe).
 
 import (
 	"context"
@@ -39,7 +39,9 @@ func TestFxRefreshStagesChangedRates(t *testing.T) {
 
 	// The source reports 1 EUR = 1.08 USD -> USD->EUR = 0.9259..., a change.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"base":"EUR","rates":{"USD":1.08,"JPY":160.5}}`))
+		if _, err := w.Write([]byte(`{"base":"EUR","rates":{"USD":1.08,"JPY":160.5}}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer srv.Close()
 
@@ -67,6 +69,6 @@ func TestFxRefreshStagesChangedRates(t *testing.T) {
 		t.Fatalf("second run: %v", err)
 	}
 	if n := pending(); n != 1 {
-		t.Fatalf("after re-run staged %d, want still 1 (HasPendingFor dedupe)", n)
+		t.Fatalf("after re-run staged %d, want still 1 (JoinPending dedupe)", n)
 	}
 }
