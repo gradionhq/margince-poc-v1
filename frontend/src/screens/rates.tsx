@@ -39,6 +39,42 @@ export function RatesScreen() {
   );
 }
 
+// RefreshFromSources enqueues an async refresh that stages proposals into the
+// approvals inbox; the button reflects the enqueued state (the job runs in the
+// background — nothing to poll here).
+function RefreshFromSources({
+  path,
+}: Readonly<{
+  path: "/fx-rates/propose-refresh" | "/ai-model-rates/propose-refresh";
+}>) {
+  const t = useT();
+  const [enqueued, setEnqueued] = useState(false);
+  const refresh = useMutation({
+    mutationFn: async () => {
+      const { error } = await api.POST(path);
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+    },
+    onSuccess: () => setEnqueued(true),
+  });
+  if (enqueued) {
+    return (
+      <span className="t-small">{t("settings.rates.refreshEnqueued")}</span>
+    );
+  }
+  return (
+    <Button
+      variant="ghost"
+      small
+      onClick={() => refresh.mutate()}
+      disabled={refresh.isPending}
+    >
+      {t("settings.rates.refresh")}
+    </Button>
+  );
+}
+
 // ---- FX rates ----
 
 export function FxRatesCard() {
@@ -64,9 +100,12 @@ export function FxRatesCard() {
       <div className="rates-head">
         <SectionHeader title={t("settings.rates.fxTitle")} />
         {canManage ? (
-          <Button variant="primary" small onClick={() => setOpen(true)}>
-            {t("settings.rates.fxAdd")}
-          </Button>
+          <div className="rates-actions">
+            <RefreshFromSources path="/fx-rates/propose-refresh" />
+            <Button variant="primary" small onClick={() => setOpen(true)}>
+              {t("settings.rates.fxAdd")}
+            </Button>
+          </div>
         ) : null}
       </div>
       <p className="t-small" style={{ marginBottom: "var(--space-3)" }}>
@@ -227,9 +266,12 @@ export function ModelCostsCard() {
       <div className="rates-head">
         <SectionHeader title={t("settings.rates.modelTitle")} />
         {canManage ? (
-          <Button variant="primary" small onClick={() => setOpen(true)}>
-            {t("settings.rates.modelAdd")}
-          </Button>
+          <div className="rates-actions">
+            <RefreshFromSources path="/ai-model-rates/propose-refresh" />
+            <Button variant="primary" small onClick={() => setOpen(true)}>
+              {t("settings.rates.modelAdd")}
+            </Button>
+          </div>
         ) : null}
       </div>
       <p className="t-small" style={{ marginBottom: "var(--space-3)" }}>

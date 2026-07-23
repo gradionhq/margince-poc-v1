@@ -1761,6 +1761,9 @@ export const de = {
   "settings.rates.modelEmpty": "Noch keine Modellpreise.",
   "settings.rates.modelModalTitle": "Modellpreis setzen",
   "settings.rates.setRate": "Speichern",
+  "settings.rates.refresh": "Von Quellen aktualisieren",
+  "settings.rates.refreshEnqueued":
+    "Aktualisierung gestartet — Vorschläge im Posteingang prüfen.",
   "settings.rates.colFrom": "Von",
   "settings.rates.colRate": "Kurs (→{base})",
   "settings.rates.colEffective": "Gültig ab",

@@ -100,6 +100,10 @@ describe("RatesScreen", () => {
     await waitFor(() => expect(screen.getByText("USD")).toBeTruthy());
     expect(screen.getByRole("button", { name: "Set rate" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add model rate" })).toBeTruthy();
+    // Both cards expose the async "Refresh from sources" control to an admin.
+    expect(
+      screen.getAllByRole("button", { name: "Refresh from sources" }),
+    ).toHaveLength(2);
   });
 
   it("hides write affordances for a non-admin role", async () => {

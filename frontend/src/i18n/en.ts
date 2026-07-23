@@ -1725,6 +1725,9 @@ export const en = {
   "settings.rates.modelEmpty": "No model rates yet.",
   "settings.rates.modelModalTitle": "Set a model price",
   "settings.rates.setRate": "Save",
+  "settings.rates.refresh": "Refresh from sources",
+  "settings.rates.refreshEnqueued":
+    "Refresh started — review proposals in the inbox.",
   "settings.rates.colFrom": "From",
   "settings.rates.colRate": "Rate (→{base})",
   "settings.rates.colEffective": "Effective",
