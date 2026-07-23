@@ -234,11 +234,16 @@ func (r *Registry) CancelBackfill(ctx context.Context, provider string, userID i
 }
 
 // RunBackfillStep executes ONE provider page of a run and commits its
-// outcome. It returns done=true when the run reached a terminal state (so
-// the job stops), and never advances the cursor on a failed page — the
-// retry resumes from the committed token. The sink counts land via the
-// page-scoped stats snapshot the connector maintains.
-func (r *Registry) RunBackfillStep(ctx context.Context, backfillID ids.UUID) (done bool, err error) {
+// outcome. It returns done=true when the run reached a terminal state (so the
+// job stops), and completed=true ONLY on the single step that transitions a
+// live run to a successful `done` — the caller uses that edge to fire the
+// same-day digest so a freshly-imported mailbox surfaces on the morning
+// screen without waiting for the nightly pass. An already-terminal or
+// cancelled run returns done=true, completed=false (nothing new arrived). It
+// never advances the cursor on a failed page — the retry resumes from the
+// committed token. The sink counts land via the page-scoped stats snapshot
+// the connector maintains.
+func (r *Registry) RunBackfillStep(ctx context.Context, backfillID ids.UUID) (done, completed bool, err error) {
 	var (
 		connID        ids.UUID
 		name          string
@@ -257,66 +262,88 @@ func (r *Registry) RunBackfillStep(ctx context.Context, backfillID ids.UUID) (do
 			Scan(&connID, &after, &cursor, &status, &name, &grantedBy, &credentialRef, &authBytes)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return true, fmt.Errorf("capture: backfill %s: %w", backfillID, apperrors.ErrNotFound)
+		return true, false, fmt.Errorf("capture: backfill %s: %w", backfillID, apperrors.ErrNotFound)
 	}
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	if status == "cancelled" || status == "done" || status == "error" {
-		return true, nil
+		return true, false, nil
 	}
 
 	c, err := r.connector(name)
 	if err != nil {
-		return true, err
+		// Terminally fail the run like every sibling execution-phase error —
+		// returning bare would strand it queued/running, blocking every future
+		// StartBackfill for the connection and never surfacing as failed.
+		return true, false, r.failBackfill(ctx, backfillID, err)
 	}
 	bf, ok := c.(connector.Backfiller)
 	if !ok {
-		return true, r.failBackfill(ctx, backfillID, ErrBackfillUnsupported)
+		return true, false, r.failBackfill(ctx, backfillID, ErrBackfillUnsupported)
 	}
 	runCtx, err := r.connectorContext(ctx, name, grantedBy)
 	if err != nil {
-		return true, err
+		return true, false, r.failBackfill(ctx, backfillID, err)
 	}
 	auth, err := r.resolveCredential(ctx, credentialRef, authBytes)
 	if err != nil {
-		return true, r.failBackfill(ctx, backfillID, err)
+		return true, false, r.failBackfill(ctx, backfillID, err)
 	}
 
 	pageToken, err := backfillPageCursor(cursor)
 	if err != nil {
-		return true, errors.Join(err, r.failBackfill(ctx, backfillID, err))
+		return true, false, errors.Join(err, r.failBackfill(ctx, backfillID, err))
 	}
 
 	res, err := bf.BackfillPage(runCtx, auth, after, pageToken, r.sink)
 	if err != nil {
 		// The page failed without advancing: record the class and let the
 		// job's retry ladder decide; the committed token is the resume point.
-		return false, errors.Join(err, r.failBackfill(ctx, backfillID, err))
+		return false, false, errors.Join(err, r.failBackfill(ctx, backfillID, err))
 	}
+	return r.commitBackfillPage(ctx, backfillID, res)
+}
 
+// commitBackfillPage records one page's counters and the run's status
+// transition, returning whether the run is now terminal (done) and whether
+// THIS call is the edge that closed a live run successfully (completed).
+//
+// The `WHERE status IN ('queued','running')` guard means a run cancelled or
+// completed concurrently between the caller's read and this UPDATE affects
+// zero rows: completed is true ONLY when this step actually moved a live run
+// to done, so a lost race is terminal, never a spurious completion (and so
+// never a spurious digest). done stops the pager either way — the run
+// finished, or someone else already ended it.
+func (r *Registry) commitBackfillPage(ctx context.Context, backfillID ids.UUID, res connector.BackfillPageResult) (done, completed bool, err error) {
+	finishing := res.NextToken == ""
+	var rowsAffected int64
 	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		var cur []byte
 		statusExpr := "CASE WHEN status = 'queued' THEN 'running' ELSE status END"
 		terminal := ""
-		if res.NextToken != "" {
-			cur = []byte(fmt.Sprintf(`{"page_token":%q}`, res.NextToken))
-		} else {
+		if finishing {
 			statusExpr = "'done'"
 			terminal = ", completed_at = now()"
+		} else {
+			cur = []byte(fmt.Sprintf(`{"page_token":%q}`, res.NextToken))
 		}
-		_, err := tx.Exec(ctx, `
+		tag, err := tx.Exec(ctx, `
 			UPDATE capture_backfill
 			SET cursor = $2, scanned = scanned + $3, captured = captured + $4, skipped = skipped + $5,
 			    status = `+statusExpr+terminal+`
 			WHERE id = $1 AND status IN ('queued','running')`,
 			backfillID, cur, res.Scanned, res.Captured, res.Skipped)
-		return err
+		if err != nil {
+			return err
+		}
+		rowsAffected = tag.RowsAffected()
+		return nil
 	})
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
-	return res.NextToken == "", nil
+	return finishing || rowsAffected == 0, finishing && rowsAffected == 1, nil
 }
 
 // failBackfill records a terminal failure class on the run (detail goes to

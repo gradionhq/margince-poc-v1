@@ -1089,9 +1089,11 @@ export const en = {
   "ob.s4.provMicrosoft": "Microsoft",
   "ob.s4.provImap": "Any inbox (IMAP)",
   "ob.s4.googleBtn": "Continue with Google",
-  "ob.s4.msBtn": "Continue with Microsoft",
+  "ob.s4.soon": "Soon",
   "ob.s4.googleHint":
     "Read-only access. You'll approve it on Google's own consent screen, and you can disconnect it again any time.",
+  "ob.s4.googleUnverified":
+    "If Google shows an “unverified app” notice, choose Advanced → Continue. Margince only ever reads your mail — it never sends.",
   "ob.s4.googleOkTitle": "Gmail connected",
   "ob.s4.googleOkBody":
     "Capture is running in the background — new mail lands on your timeline within about a minute, and it keeps itself in sync from here on.",
@@ -1140,19 +1142,45 @@ export const en = {
   "backfill.errorTitle": "The import hit a problem",
   "backfill.cancelledTitle": "Import cancelled",
   "backfill.progressLabel": "Import progress",
-  "backfill.countScanned": "Scanned",
+  "backfill.countScanned": "Messages scanned",
   "backfill.countCaptured": "Captured",
+  "backfill.statEmails": "Emails captured",
+  "backfill.statPeople": "People",
+  "backfill.statCompanies": "Companies",
   "backfill.errorNote":
     "It will retry on its own; everything captured so far is kept.",
   "backfill.cancel": "Stop the import",
   "backfill.cancelledNote": "Stopped. Everything captured so far is kept.",
+
+  // Connected inboxes (Settings → Integrations): the "manage in Settings"
+  // surface the onboarding copy promises.
+  "connectors.title": "Connected inboxes",
+  "connectors.sub":
+    "Mailboxes capturing into your CRM. Disconnect any one when you need to — already-captured records stay.",
+  "connectors.loading": "Loading your connections…",
+  "connectors.loadFailed": "Couldn't load your connections.",
+  "connectors.empty": "No inbox is connected yet.",
+  "connectors.connectCta": "Connect an inbox",
+  "connectors.provGmail": "Gmail",
+  "connectors.provGcal": "Google Calendar",
+  "connectors.provGraph": "Microsoft",
+  "connectors.provImap": "IMAP mailbox",
+  "connectors.statusConnected": "Capturing",
+  "connectors.statusReauth": "Needs reconnect",
+  "connectors.statusError": "Sync error",
+  "connectors.statusDisconnected": "Disconnected",
+  "connectors.lastSynced": "Last synced {at}",
+  "connectors.neverSynced": "Waiting for the first sync",
+  "connectors.reconnect": "Reconnect",
+  "connectors.disconnect": "Disconnect",
+  "connectors.disconnectTitle": "Disconnect this inbox?",
+  "connectors.disconnectBody":
+    "Capture stops immediately. Everything already captured stays in your CRM, and you can reconnect any time.",
   "ob.s4.googleVerifying": "Verifying the connection…",
   "ob.s4.googleDenied": "You declined the Google consent",
   "ob.s4.googleFailed": "The Google connection didn't complete",
   "ob.s4.googleRetry":
     "Nothing was stored. You can try again whenever you like — or connect over IMAP instead.",
-  "ob.s4.oauthSoon":
-    "One-click Microsoft sign-in is coming. Connect Google above, or any mailbox over IMAP — both are real, live capture.",
   "ob.s4.imapHost": "IMAP host",
   "ob.s4.imapHostPlaceholder": "imap.gmail.com",
   "ob.s4.imapEmail": "Email",

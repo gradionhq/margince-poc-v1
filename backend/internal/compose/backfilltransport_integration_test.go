@@ -543,9 +543,9 @@ func TestBackfillWire(t *testing.T) {
 
 	t.Run("a step on a vanished run is terminal, not a loop", func(t *testing.T) {
 		wsCtx := principal.WithWorkspaceID(context.Background(), b.env.WS)
-		done, err := b.registry.RunBackfillStep(wsCtx, ids.NewV7())
-		if !done || err == nil {
-			t.Fatalf("missing run step = done=%v err=%v, want done with the not-found error", done, err)
+		done, completed, err := b.registry.RunBackfillStep(wsCtx, ids.NewV7())
+		if !done || completed || err == nil {
+			t.Fatalf("missing run step = done=%v completed=%v err=%v, want terminal-not-completed with the not-found error", done, completed, err)
 		}
 	})
 }

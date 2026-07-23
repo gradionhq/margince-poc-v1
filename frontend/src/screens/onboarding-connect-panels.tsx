@@ -154,6 +154,9 @@ export function GoogleConnectPanel({
       >
         <ShieldCheck aria-hidden /> {t("ob.s4.googleHint")}
       </p>
+      <p className="t-small ob-google-unverified">
+        {t("ob.s4.googleUnverified")}
+      </p>
       <div className="connect-acts">
         <Button
           variant="primary"
@@ -170,24 +173,6 @@ export function GoogleConnectPanel({
             </>
           )}
         </Button>
-        <Button onClick={() => void onComplete(true)}>
-          <SkipForward aria-hidden /> {t("ob.s4.skipLater")}
-        </Button>
-      </div>
-    </>
-  );
-}
-
-export function MicrosoftConnectPanel({
-  onComplete,
-}: Readonly<{ onComplete: (skipped: boolean) => Promise<void> }>) {
-  const t = useT();
-  return (
-    <>
-      <p className="ob-sub" style={{ margin: "0 auto 6px", maxWidth: 460 }}>
-        {t("ob.s4.oauthSoon")}
-      </p>
-      <div className="connect-acts">
         <Button onClick={() => void onComplete(true)}>
           <SkipForward aria-hidden /> {t("ob.s4.skipLater")}
         </Button>

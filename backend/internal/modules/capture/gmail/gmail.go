@@ -167,6 +167,12 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, cursor connec
 
 	for _, id := range ids {
 		raw, err := c.api.GetRaw(ctx, access, id)
+		if errors.Is(err, ErrMessageGone) {
+			// Deleted or moved since enumeration — nothing to capture. Skip it
+			// and keep going; one vanished id must not abort the batch and
+			// wedge the whole mailbox behind the backoff ladder.
+			continue
+		}
 		if err != nil {
 			// A fetch fault is transient — stop the pull without advancing the
 			// cursor so the next cycle retries from the same watermark.

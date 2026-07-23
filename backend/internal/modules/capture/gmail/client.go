@@ -58,6 +58,14 @@ var ErrUnreachable = fmt.Errorf("gmail: could not reach Google: %w", connector.E
 // after ~a week); Sync falls back to a bounded re-list rather than failing.
 var ErrHistoryGone = fmt.Errorf("gmail: history cursor too old: %w", connector.ErrCursorGone)
 
+// ErrMessageGone marks a message id that Gmail 404s on GetRaw — deleted or
+// moved between enumeration and fetch, a routine event across a months-long
+// backfill. It wraps connector.ErrSkip so the fetch loops treat one vanished
+// message as a skip and keep going: a single gone id must never abort the
+// whole pull and wedge the mailbox behind the backoff ladder. There is
+// nothing to capture — the message no longer exists.
+var ErrMessageGone = fmt.Errorf("gmail: message no longer exists: %w", connector.ErrSkip)
+
 // OAuth is the OAuth2 handshake surface: build the consent URL, exchange the
 // authorization code for a refresh token, and mint a fresh access token from
 // a stored refresh token.
@@ -238,7 +246,15 @@ func (a *httpAPI) GetRaw(ctx context.Context, accessToken, msgID string) ([]byte
 		Raw string `json:"raw"`
 	}
 	q := url.Values{"format": {"RAW"}}
-	if _, err := a.get(ctx, accessToken, "/messages/"+url.PathEscape(msgID), q, &out); err != nil {
+	status, err := a.get(ctx, accessToken, "/messages/"+url.PathEscape(msgID), q, &out)
+	if status == http.StatusNotFound {
+		// Enumerated a moment ago, gone now — nothing to fetch. Skip it and
+		// let the pull continue rather than abort on a message that no longer
+		// exists (get maps every non-200 to ErrUnreachable; the 404 is not a
+		// reachability problem).
+		return nil, ErrMessageGone
+	}
+	if err != nil {
 		return nil, err
 	}
 	// Gmail encodes the RFC822 as web-safe (URL) base64, padding-optional.

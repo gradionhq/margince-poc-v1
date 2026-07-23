@@ -1111,9 +1111,11 @@ export const de = {
   "ob.s4.provMicrosoft": "Microsoft",
   "ob.s4.provImap": "Beliebiges Postfach (IMAP)",
   "ob.s4.googleBtn": "Mit Google fortfahren",
-  "ob.s4.msBtn": "Mit Microsoft fortfahren",
+  "ob.s4.soon": "Bald",
   "ob.s4.googleHint":
     "Nur Lesezugriff. Du bestätigst ihn auf Googles eigener Einwilligungsseite — und du kannst die Verbindung jederzeit wieder trennen.",
+  "ob.s4.googleUnverified":
+    "Falls Google einen Hinweis „nicht verifizierte App“ zeigt, wähle Erweitert → Fortfahren. Margince liest deine Mail nur — es sendet nie.",
   "ob.s4.googleOkTitle": "Gmail verbunden",
   "ob.s4.googleOkBody":
     "Die Erfassung läuft im Hintergrund — neue Mails erscheinen innerhalb von etwa einer Minute auf deiner Timeline und bleiben ab jetzt von selbst synchron.",
@@ -1162,19 +1164,44 @@ export const de = {
   "backfill.errorTitle": "Der Import hat ein Problem",
   "backfill.cancelledTitle": "Import abgebrochen",
   "backfill.progressLabel": "Import-Fortschritt",
-  "backfill.countScanned": "Durchsucht",
+  "backfill.countScanned": "Nachrichten durchsucht",
   "backfill.countCaptured": "Erfasst",
+  "backfill.statEmails": "E-Mails erfasst",
+  "backfill.statPeople": "Personen",
+  "backfill.statCompanies": "Firmen",
   "backfill.errorNote":
     "Er versucht es selbstständig erneut; alles bisher Erfasste bleibt erhalten.",
   "backfill.cancel": "Import stoppen",
   "backfill.cancelledNote": "Gestoppt. Alles bisher Erfasste bleibt erhalten.",
+
+  // Connected inboxes (Einstellungen → Integrationen).
+  "connectors.title": "Verbundene Postfächer",
+  "connectors.sub":
+    "Postfächer, die dein CRM automatisch füllen. Trenne eines bei Bedarf — bereits erfasste Datensätze bleiben.",
+  "connectors.loading": "Verbindungen werden geladen…",
+  "connectors.loadFailed": "Verbindungen konnten nicht geladen werden.",
+  "connectors.empty": "Noch kein Postfach verbunden.",
+  "connectors.connectCta": "Postfach verbinden",
+  "connectors.provGmail": "Gmail",
+  "connectors.provGcal": "Google Kalender",
+  "connectors.provGraph": "Microsoft",
+  "connectors.provImap": "IMAP-Postfach",
+  "connectors.statusConnected": "Aktiv",
+  "connectors.statusReauth": "Neu verbinden nötig",
+  "connectors.statusError": "Sync-Fehler",
+  "connectors.statusDisconnected": "Getrennt",
+  "connectors.lastSynced": "Zuletzt synchronisiert {at}",
+  "connectors.neverSynced": "Wartet auf die erste Synchronisierung",
+  "connectors.reconnect": "Neu verbinden",
+  "connectors.disconnect": "Trennen",
+  "connectors.disconnectTitle": "Dieses Postfach trennen?",
+  "connectors.disconnectBody":
+    "Die Erfassung stoppt sofort. Alles bereits Erfasste bleibt in deinem CRM, und du kannst jederzeit neu verbinden.",
   "ob.s4.googleVerifying": "Verbindung wird geprüft…",
   "ob.s4.googleDenied": "Du hast die Google-Einwilligung abgelehnt",
   "ob.s4.googleFailed": "Die Google-Verbindung wurde nicht abgeschlossen",
   "ob.s4.googleRetry":
     "Es wurde nichts gespeichert. Versuch es jederzeit erneut — oder verbinde stattdessen über IMAP.",
-  "ob.s4.oauthSoon":
-    "Ein-Klick-Anmeldung für Microsoft kommt. Verbinde oben Google oder jedes Postfach über IMAP — beides ist echte, live Erfassung.",
   "ob.s4.imapHost": "IMAP-Host",
   "ob.s4.imapHostPlaceholder": "imap.gmail.com",
   "ob.s4.imapEmail": "E-Mail",

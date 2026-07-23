@@ -35,6 +35,7 @@ type fakeAPI struct {
 	addedHistoryID     string
 	historyErr, getErr error
 	raws               map[string][]byte
+	gone               map[string]bool
 	historyCalls       int
 	listCalls          int
 	watchHistoryID     string
@@ -84,6 +85,10 @@ func (f *fakeAPI) Watch(_ context.Context, _, topic string) (string, time.Time, 
 }
 
 func (f *fakeAPI) GetRaw(_ context.Context, _, id string) ([]byte, error) {
+	if f.gone[id] {
+		// The real client maps a 404 (deleted/moved since enumeration) here.
+		return nil, ErrMessageGone
+	}
 	if f.getErr != nil {
 		return nil, f.getErr
 	}
@@ -193,6 +198,62 @@ func TestSyncInitialBackfillAnchorsCursorAndCaptures(t *testing.T) {
 	}
 	if api.historyCalls != 0 {
 		t.Errorf("initial backfill must not call history, got %d calls", api.historyCalls)
+	}
+}
+
+// A message that vanished between enumeration and fetch (Gmail 404s GetRaw)
+// is skipped, not fatal: the pull captures the survivors and advances its
+// cursor rather than wedging the whole mailbox on one gone id.
+func TestSyncSkipsAVanishedMessageAndKeepsGoing(t *testing.T) {
+	api := &fakeAPI{
+		email:     owner,
+		historyID: "12345",
+		recent:    []string{"m1@mail.gmail.com", "gone@mail.gmail.com", "m3@mail.gmail.com"},
+		raws: map[string][]byte{
+			"m1@mail.gmail.com": rawMsg("m1@mail.gmail.com", "alice@acme.com"),
+			"m3@mail.gmail.com": rawMsg("m3@mail.gmail.com", "carol@acme.com"),
+		},
+		gone: map[string]bool{"gone@mail.gmail.com": true},
+	}
+	c := New(fakeOAuth{access: "access-1"}, api)
+	sink := &recordingSink{}
+
+	cur, err := c.Sync(context.Background(), authBytes(t), nil, sink)
+	if err != nil {
+		t.Fatalf("Sync must not fail on a vanished message: %v", err)
+	}
+	if len(sink.recs) != 2 {
+		t.Fatalf("captured %d records, want 2 (the vanished one skipped, the rest kept)", len(sink.recs))
+	}
+	if hid, _ := parseCursor(cur); hid != "12345" {
+		t.Errorf("cursor historyId = %q, want 12345 — the pull still advanced", hid)
+	}
+}
+
+// The same discipline on the explicit backfill page: a gone id is counted
+// scanned-but-skipped, the page completes and advances its token.
+func TestBackfillPageSkipsAVanishedMessage(t *testing.T) {
+	api := &fakeAPI{
+		email:  owner,
+		recent: []string{"b1@mail.gmail.com", "gone@mail.gmail.com", "b3@mail.gmail.com"},
+		raws: map[string][]byte{
+			"b1@mail.gmail.com": rawMsg("b1@mail.gmail.com", "dave@acme.com"),
+			"b3@mail.gmail.com": rawMsg("b3@mail.gmail.com", "erin@acme.com"),
+		},
+		gone: map[string]bool{"gone@mail.gmail.com": true},
+	}
+	c := New(fakeOAuth{access: "access-1"}, api)
+	sink := &recordingSink{}
+
+	res, err := c.BackfillPage(context.Background(), authBytes(t), time.Time{}, "", sink)
+	if err != nil {
+		t.Fatalf("BackfillPage must not fail on a vanished message: %v", err)
+	}
+	if res.Scanned != 3 || res.Captured != 2 || res.Skipped != 1 {
+		t.Fatalf("page = scanned %d captured %d skipped %d, want 3/2/1", res.Scanned, res.Captured, res.Skipped)
+	}
+	if len(sink.recs) != 2 {
+		t.Fatalf("captured %d records, want 2", len(sink.recs))
 	}
 }
 

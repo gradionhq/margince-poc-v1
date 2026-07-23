@@ -59,6 +59,7 @@ import {
   CompanyContextCard,
   useCompanyContextCapabilities,
 } from "./company-context";
+import { ConnectorsCard } from "./connectors";
 import { CreateAction, type CreateField, CreateRecordModal } from "./create";
 import { EditAction } from "./edit";
 import { EmbedReindexCard } from "./embedreindex";
@@ -148,7 +149,12 @@ function tabContent(id: SettingsTabId): ReactNode {
     case "audit":
       return <AuditLogCard />;
     case "integrations":
-      return <WebhooksCard />;
+      return (
+        <>
+          <ConnectorsCard />
+          <WebhooksCard />
+        </>
+      );
   }
 }
 

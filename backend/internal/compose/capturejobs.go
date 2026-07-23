@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
@@ -138,16 +139,48 @@ func (w *captureBackfillWorker) Work(ctx context.Context, job *river.Job[Capture
 	}
 	wsCtx := principal.WithWorkspaceID(ctx, ws)
 	for i := 0; i < backfillPagesPerTick; i++ {
-		done, err := w.registry.RunBackfillStep(wsCtx, bfID)
+		done, completed, err := w.registry.RunBackfillStep(wsCtx, bfID)
 		if err != nil {
 			// The engine recorded the failure class on the run; the log
 			// carries the detail. The row owns retry policy, not River.
 			w.log.WarnContext(ctx, "capture backfill page failed", "backfill", job.Args.BackfillID, "err", err)
 			return nil
 		}
+		if completed {
+			// The connect-time import just closed: build today's digest now so
+			// the morning screen reflects the freshly-imported history instead
+			// of waiting for the nightly pass. Best-effort — a failed enqueue
+			// never fails the backfill (the nightly run still covers it), and
+			// the digest job is unique-by-state so a duplicate offer is inert.
+			w.enqueueDigest(ctx, job.Args.BackfillID)
+		}
 		if done {
 			return nil
 		}
 	}
 	return river.JobSnooze(time.Second)
+}
+
+// enqueueDigest offers a same-day digest build through the ambient River
+// client; the digest worker rebuilds the day idempotently (as-of-now truths).
+// The Safely variant is deliberate: a unit test may drive Work directly with
+// no River client in context, and the plain ClientFromContext PANICS there —
+// a best-effort enqueue must degrade to a no-op, never crash the pager.
+//
+// No active-state uniqueness here (unlike the periodic sweep): a digest that
+// is already RUNNING may have snapshotted the workspace BEFORE this backfill's
+// rows landed, so deduping against it would drop the freshly-imported history
+// off the morning screen until the nightly pass. A completion must guarantee a
+// rebuild that sees its own data, so it always enqueues a fresh one — cheap
+// and idempotent (the build replaces the day). One completion fires once, so
+// this is not a fan-out.
+func (w *captureBackfillWorker) enqueueDigest(ctx context.Context, backfillID string) {
+	client, err := river.ClientFromContextSafely[pgx.Tx](ctx)
+	if err != nil {
+		return
+	}
+	if _, err := client.Insert(ctx, CaptureDigestArgs{}, nil); err != nil {
+		w.log.WarnContext(ctx, "capture backfill: digest enqueue failed",
+			"backfill", backfillID, "err", err)
+	}
 }
