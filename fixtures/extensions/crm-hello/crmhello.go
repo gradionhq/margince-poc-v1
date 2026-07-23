@@ -16,12 +16,21 @@ import (
 )
 
 // New returns the unit's declaration (the ADR-0069 §4 constructor
-// contract the generated composition calls).
+// contract the generated composition calls). It exercises both kinds the
+// manifest reader distinguishes: a jurisdiction pack (passive policy, no
+// manifest entry) and a governed agent tool (a 🟡 autonomy-tier request
+// that DOES appear in manifest.generated.json).
 func New() extension.Extension {
 	return extension.Extension{
 		Name:          "crm-hello",
 		Version:       "0.1.0",
 		Jurisdictions: []jurisdiction.Pack{pack{}},
+		Tools: []extension.Tool{{
+			Name:          "hello_ping",
+			Version:       "1.0.0",
+			Tier:          extension.TierYellow,
+			RequiredScope: extension.ScopeRead,
+		}},
 	}
 }
 

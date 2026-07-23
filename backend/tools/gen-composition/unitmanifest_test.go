@@ -13,28 +13,73 @@ import (
 
 const repoRoot = "../../.."
 
+func realVocabulary(t *testing.T) map[string]string {
+	t.Helper()
+	vocab, err := publishedVocabulary(repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return vocab
+}
+
+// TestPublishedVocabularyDerivesFromTheSeamSource: the reader's Tier and
+// Scope table comes from parsing the published package, so a constant
+// added to the seam is derivable without touching this tool.
+func TestPublishedVocabularyDerivesFromTheSeamSource(t *testing.T) {
+	vocab := realVocabulary(t)
+	for ident, want := range map[string]string{
+		"TierGreen":  "green",
+		"TierYellow": "yellow",
+		"ScopeRead":  "read",
+		"ScopeWrite": "write",
+		"ScopeSend":  "send",
+	} {
+		if got := vocab[ident]; got != want {
+			t.Errorf("vocab[%s] = %q, want %q", ident, got, want)
+		}
+	}
+}
+
 // TestDeManifestMatchesItsDerivation binds the committed artifact to the
-// committed declaration: the in-tree de unit must carry exactly the
-// manifest this generator derives from its source — and, being a
-// jurisdiction-only pack (passive policy, requesting no autonomy tier), that
-// manifest is identity with an empty autonomy-tiers list.
+// committed declaration: de is a jurisdiction-only pack (passive policy,
+// requesting no autonomy tier), so its manifest is identity with an empty
+// autonomy-tiers list.
 func TestDeManifestMatchesItsDerivation(t *testing.T) {
-	unit, err := scanUnit("de", filepath.Join(repoRoot, "extensions", "de"))
+	assertCommittedManifest(t, filepath.Join(repoRoot, "extensions", "de"), "de",
+		`"name": "de"`, `"version": "1.0.0"`, `"autonomy_tiers": []`)
+}
+
+// TestCrmHelloManifestMatchesItsDerivation is the worked example: the
+// crm-hello fixture declares a jurisdiction pack (skipped) AND a governed
+// 🟡 tool, so its committed manifest carries exactly one autonomy-tier
+// request with its §5 descriptor and digest.
+func TestCrmHelloManifestMatchesItsDerivation(t *testing.T) {
+	assertCommittedManifest(t, filepath.Join(repoRoot, "fixtures", "extensions", "crm-hello"), "crm-hello",
+		`"id": "tool/hello_ping"`,
+		`"operation": "agent.tool.invoke"`,
+		`"tier": "yellow"`,
+		`"read"`,
+		`"digest": "sha256:`)
+}
+
+func assertCommittedManifest(t *testing.T, dir, name string, wantSubstrings ...string) {
+	t.Helper()
+	unit, err := scanUnit(name, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	derived, err := deriveUnitManifest(unit)
+	derived, err := deriveUnitManifest(unit, realVocabulary(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	committed, err := os.ReadFile(filepath.Join(repoRoot, "extensions", "de", unitManifestFile))
+	committed, err := os.ReadFile(filepath.Join(dir, unitManifestFile))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(derived, committed) {
-		t.Fatalf("extensions/de/%s differs from its derivation — run 'make gen'\n--- committed ---\n%s\n--- derived ---\n%s", unitManifestFile, committed, derived)
+		t.Fatalf("%s/%s differs from its derivation — run 'make gen'\n--- committed ---\n%s\n--- derived ---\n%s", name, unitManifestFile, committed, derived)
 	}
-	for _, want := range []string{`"name": "de"`, `"version": "1.0.0"`, `"autonomy_tiers": []`} {
+	for _, want := range wantSubstrings {
 		if !strings.Contains(string(derived), want) {
 			t.Errorf("derived manifest misses %s:\n%s", want, derived)
 		}
@@ -42,7 +87,7 @@ func TestDeManifestMatchesItsDerivation(t *testing.T) {
 }
 
 // deriveSynthetic lays a one-file unit under a temp root and derives its
-// manifest.
+// manifest with the real published vocabulary.
 func deriveSynthetic(t *testing.T, name, source string) ([]byte, error) {
 	t.Helper()
 	root := t.TempDir()
@@ -54,12 +99,15 @@ func deriveSynthetic(t *testing.T, name, source string) ([]byte, error) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return deriveUnitManifest(unit)
+	return deriveUnitManifest(unit, realVocabulary(t))
 }
 
-// jurisdictionOnlySource is the crm-hello / de declaration shape: a unit
-// whose only contribution is a jurisdiction pack.
-const jurisdictionOnlySource = `package hello
+// TestJurisdictionPackRequestsNoAutonomyTier: a jurisdiction pack is
+// passive policy the core consults — it requests no scope or tier, so it
+// contributes NO autonomy-tier request. The Jurisdictions field is
+// recognized and skipped, never derived into an entry.
+func TestJurisdictionPackRequestsNoAutonomyTier(t *testing.T) {
+	const jurisdictionOnly = `package hello
 
 import (
 	"github.com/gradionhq/margince/backend/pkg/extension"
@@ -80,37 +128,63 @@ func (pack) Code() jurisdiction.Code { return "zz" }
 
 func (pack) Retention() jurisdiction.Retention { return nil }
 `
-
-// TestJurisdictionPackRequestsNoAutonomyTier: a jurisdiction pack is
-// passive policy the core consults — it requests no scope or tier, so it
-// contributes NO autonomy-tier request. The Jurisdictions field is
-// recognized and skipped, never derived into an entry.
-func TestJurisdictionPackRequestsNoAutonomyTier(t *testing.T) {
-	derived, err := deriveSynthetic(t, "hello", jurisdictionOnlySource)
+	derived, err := deriveSynthetic(t, "hello", jurisdictionOnly)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(derived), `"autonomy_tiers": []`) {
-		t.Fatalf("a jurisdiction-only unit must declare no autonomy tier:\n%s", derived)
+		t.Fatalf("a jurisdiction-only unit must request no autonomy tier:\n%s", derived)
 	}
 	if strings.Contains(string(derived), "jurisdiction") {
 		t.Fatalf("the manifest leaked jurisdiction policy into the autonomy-tier surface:\n%s", derived)
 	}
 }
 
-// TestDeriveUnitManifestIsDeterministic: same source, same bytes — the
-// property the drift gate and the digest binding rest on.
-func TestDeriveUnitManifestIsDeterministic(t *testing.T) {
-	first, err := deriveSynthetic(t, "hello", jurisdictionOnlySource)
+// toolUnitSource is a unit declaring one governed tool with the given
+// field body.
+func toolUnitSource(toolFields string) string {
+	return `package x
+
+import "github.com/gradionhq/margince/backend/pkg/extension"
+
+func New() extension.Extension {
+	return extension.Extension{
+		Name:    "x",
+		Version: "0.1.0",
+		Tools: []extension.Tool{{
+` + toolFields + `
+		}},
+	}
+}
+`
+}
+
+// TestToolDerivesIntoAutonomyTier is the happy path: a declared 🟢 tool
+// with a required scope becomes one autonomy-tier request whose
+// descriptor digest is present and stable across derivations.
+func TestToolDerivesIntoAutonomyTier(t *testing.T) {
+	src := toolUnitSource("\t\t\tName: \"sync_contacts\", Version: \"2.1.0\",\n\t\t\tTier: extension.TierGreen,\n\t\t\tRequiredScope: extension.ScopeWrite,")
+	first, err := deriveSynthetic(t, "x", src)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := deriveSynthetic(t, "hello", jurisdictionOnlySource)
+	for _, want := range []string{
+		`"id": "tool/sync_contacts"`,
+		`"operation": "agent.tool.invoke"`,
+		`"tier": "green"`,
+		`"write"`,
+		`"digest": "sha256:`,
+	} {
+		if !strings.Contains(string(first), want) {
+			t.Errorf("derived tool request misses %s:\n%s", want, first)
+		}
+	}
+	second, err := deriveSynthetic(t, "x", src)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(first, second) {
-		t.Fatalf("derivation not deterministic:\n%s\nvs\n%s", first, second)
+		t.Fatalf("tool derivation not deterministic:\n%s\nvs\n%s", first, second)
 	}
 }
 
@@ -131,8 +205,9 @@ func nonLiteralNew(body string) string {
 
 // nonLiteralCases: a declaration the reader cannot resolve statically is a
 // positioned error, never a manifest silently missing a claim — including
-// an UNRECOGNIZED field, which could be a future autonomy-tier request the
-// generator must be taught before it ships.
+// an UNRECOGNIZED field, which could be a future governed capability the
+// generator must be taught before it ships, and a tool whose declared
+// tier or scope is outside the published vocabulary.
 var nonLiteralCases = []struct {
 	name    string
 	source  string
@@ -157,6 +232,26 @@ var nonLiteralCases = []struct {
 		name:    "name differing from the directory",
 		source:  nonLiteralNew("\t\tName: \"other\",\n\t\tVersion: \"1.0.0\","),
 		wantErr: "the directory name IS the unit name",
+	},
+	{
+		name:    "tool tier outside the extension vocabulary",
+		source:  toolUnitSource("\t\t\tName: \"t\", Version: \"1.0.0\", Tier: \"dynamic\", RequiredScope: extension.ScopeRead,"),
+		wantErr: "not one an extension may request",
+	},
+	{
+		name:    "tool scope outside the passport vocabulary",
+		source:  toolUnitSource("\t\t\tName: \"t\", Version: \"1.0.0\", Tier: extension.TierGreen, RequiredScope: \"admin\","),
+		wantErr: "not in the Passport scope vocabulary",
+	},
+	{
+		name:    "tool name is not a verb",
+		source:  toolUnitSource("\t\t\tName: \"Bad-Name\", Version: \"1.0.0\", Tier: extension.TierGreen, RequiredScope: extension.ScopeRead,"),
+		wantErr: "not a valid verb",
+	},
+	{
+		name:    "computed tool tier",
+		source:  toolUnitSource("\t\t\tName: \"t\", Version: \"1.0.0\", Tier: tierOf(), RequiredScope: extension.ScopeRead,") + "\nfunc tierOf() extension.Tier { return extension.TierGreen }\n",
+		wantErr: "published extension constant",
 	},
 }
 
