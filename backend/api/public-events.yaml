@@ -88,6 +88,12 @@ components:
         - mirror.write_rejected
         - incumbent.connected
         - incumbent.disconnected
+        - approval.requested
+        - approval.decided
+        - coldstart.read_back_proposed
+        - coldstart.accepted
+        - coldstart.rejected
+        - audit.appended
 
     WebhookActor:
       type: object

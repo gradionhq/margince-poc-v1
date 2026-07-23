@@ -13,6 +13,12 @@ const (
 	ActivityArchived          SubscribableEventType = "activity.archived"
 	ActivityCaptured          SubscribableEventType = "activity.captured"
 	ActivityUpdated           SubscribableEventType = "activity.updated"
+	ApprovalDecided           SubscribableEventType = "approval.decided"
+	ApprovalRequested         SubscribableEventType = "approval.requested"
+	AuditAppended             SubscribableEventType = "audit.appended"
+	ColdstartAccepted         SubscribableEventType = "coldstart.accepted"
+	ColdstartReadBackProposed SubscribableEventType = "coldstart.read_back_proposed"
+	ColdstartRejected         SubscribableEventType = "coldstart.rejected"
 	ConsentChanged            SubscribableEventType = "consent.changed"
 	DealArchived              SubscribableEventType = "deal.archived"
 	DealCreated               SubscribableEventType = "deal.created"
@@ -77,6 +83,18 @@ func (e SubscribableEventType) Valid() bool {
 	case ActivityCaptured:
 		return true
 	case ActivityUpdated:
+		return true
+	case ApprovalDecided:
+		return true
+	case ApprovalRequested:
+		return true
+	case AuditAppended:
+		return true
+	case ColdstartAccepted:
+		return true
+	case ColdstartReadBackProposed:
+		return true
+	case ColdstartRejected:
 		return true
 	case ConsentChanged:
 		return true

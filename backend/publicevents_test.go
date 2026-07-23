@@ -105,6 +105,110 @@ func TestPayloadVersionsMatchCatalog(t *testing.T) {
 	}
 }
 
+// subscribableEventTypeEnumKey / subscribableEventTypeEnumStart /
+// subscribableEventTypeEnumItem match the SubscribableEventType schema's
+// `enum:` block textually — the same "no YAML lib in the root fitness
+// package" precedent as contractEventKey/contractEntityKey above. The block
+// starts at the schema's own `enum:` line (six-space indent) and every
+// subsequent eight-space-indented `- value` line is a member; anything else
+// (the blank line before the next schema) ends it.
+var (
+	subscribableEventTypeEnumStart = regexp.MustCompile(`^      enum:\s*$`)
+	subscribableEventTypeEnumItem  = regexp.MustCompile(`^        - ([A-Za-z0-9._]+)\s*$`)
+)
+
+// parseSubscribableEventTypeEnum reads the SubscribableEventType schema's
+// enum list straight out of the contract text. It is scoped to the first
+// `enum:` block following the `SubscribableEventType:` key so a later
+// schema's enum (there is none today, but nothing stops one) never leaks in.
+func parseSubscribableEventTypeEnum(t *testing.T) []string {
+	t.Helper()
+	raw, err := os.ReadFile(publicEventsPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", publicEventsPath, err)
+	}
+	lines := strings.Split(string(raw), "\n")
+	schemaIdx := -1
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "SubscribableEventType:" {
+			schemaIdx = i
+			break
+		}
+	}
+	if schemaIdx == -1 {
+		t.Fatalf("%s: no SubscribableEventType schema found", publicEventsPath)
+	}
+	enumIdx := -1
+	for i := schemaIdx; i < len(lines); i++ {
+		if subscribableEventTypeEnumStart.MatchString(lines[i]) {
+			enumIdx = i
+			break
+		}
+	}
+	if enumIdx == -1 {
+		t.Fatalf("%s: SubscribableEventType has no enum: block", publicEventsPath)
+	}
+	var out []string
+	for i := enumIdx + 1; i < len(lines); i++ {
+		m := subscribableEventTypeEnumItem.FindStringSubmatch(lines[i])
+		if m == nil {
+			break
+		}
+		out = append(out, m[1])
+	}
+	if len(out) == 0 {
+		t.Fatalf("%s: SubscribableEventType enum has no members", publicEventsPath)
+	}
+	return out
+}
+
+// TestSubscribableEventTypeEnumMatchesPayloadCatalog pins the UI event-type
+// picker's source (the SubscribableEventType enum, from which
+// openapi-typescript emits subscribableEventTypeValues and gen-payloads
+// emits the Go consts) to the full subscribable catalog
+// (crmcontracts.WebhookPayloadVersions — every event with a payload
+// schema). Nothing else binds the two together: a family that gets a
+// WebhookPayload<Event> schema but is never appended to the enum drifts
+// silently, and the picker quietly under-offers it forever.
+func TestSubscribableEventTypeEnumMatchesPayloadCatalog(t *testing.T) {
+	enum := map[string]bool{}
+	for _, tp := range parseSubscribableEventTypeEnum(t) {
+		if enum[tp] {
+			t.Errorf("%s: SubscribableEventType enum lists %q more than once", publicEventsPath, tp)
+		}
+		enum[tp] = true
+	}
+
+	var missingFromEnum []string
+	for tp := range crmcontracts.WebhookPayloadVersions {
+		if !enum[tp] {
+			missingFromEnum = append(missingFromEnum, tp)
+		}
+	}
+	sort.Strings(missingFromEnum)
+	if len(missingFromEnum) > 0 {
+		t.Errorf("SubscribableEventType enum is missing %d payload-catalog event(s): %v (append each to the enum in %s)",
+			len(missingFromEnum), missingFromEnum, publicEventsPath)
+	}
+
+	var missingFromCatalog []string
+	for tp := range enum {
+		if _, ok := crmcontracts.WebhookPayloadVersions[tp]; !ok {
+			missingFromCatalog = append(missingFromCatalog, tp)
+		}
+	}
+	sort.Strings(missingFromCatalog)
+	if len(missingFromCatalog) > 0 {
+		t.Errorf("SubscribableEventType enum lists %d event(s) with no WebhookPayload schema: %v (dead enum value, or a missing schema — reconcile with %s)",
+			len(missingFromCatalog), missingFromCatalog, publicEventsPath)
+	}
+
+	if len(enum) != len(crmcontracts.WebhookPayloadVersions) {
+		t.Errorf("SubscribableEventType enum has %d value(s), WebhookPayloadVersions has %d — should be equal (see the mismatches reported above)",
+			len(enum), len(crmcontracts.WebhookPayloadVersions))
+	}
+}
+
 // dynamicProbeResolved names the x-entity-type: dynamic events whose runtime
 // subject IS a row-scoped record the fan-out gate probes — the subject class
 // travels at runtime (person XOR lead for consent.changed;
