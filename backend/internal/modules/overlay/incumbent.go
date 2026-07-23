@@ -145,4 +145,25 @@ type Incumbent interface {
 	// the population mirror_user_map seeding matches against the
 	// workspace's app_user rows.
 	Owners(ctx context.Context) ([]OwnerRef, error)
+
+	// Create writes a new record of canonicalClass to the incumbent from the
+	// canonical field bag (the JSON-decoded contract the datasource seam
+	// carries) and returns the incumbent's stored state mapped back to
+	// canonical — the state the mirror ingests. A field with no writable
+	// incumbent counterpart (a read-only/derived field, OVA-MAP-W) is not
+	// written; a create whose every field is read-only is an error, never a
+	// blank incumbent record.
+	Create(ctx context.Context, canonicalClass string, fields map[string]any) (Record, error)
+	// Update applies a canonical patch to an existing record after a
+	// stored-baseline drift check (design.md §4.5, AC-OV-4): if the incumbent's
+	// current record is newer than baseline — the mirror's lost-update baseline
+	// captured at mirror-read — the write is refused with
+	// apperrors.ErrVersionSkew and nothing is written (incumbent-wins, never a
+	// blind overwrite). externalID is the mirror id (namespaced for an activity,
+	// OVA-MAP-7). A patch of only read-only fields writes nothing and returns
+	// the current record unchanged.
+	Update(ctx context.Context, canonicalClass, externalID string, fields map[string]any, baseline time.Time) (Record, error)
+	// Archive removes a record from the incumbent via its own archive/delete.
+	// externalID is the mirror id (namespaced for an activity).
+	Archive(ctx context.Context, canonicalClass, externalID string) error
 }

@@ -76,6 +76,17 @@ func (s *stubIncumbent) OwnerEmail(context.Context, string) (string, error) {
 }
 
 func (s *stubIncumbent) Owners(context.Context) ([]OwnerRef, error) { return nil, nil }
+func (s *stubIncumbent) Create(context.Context, string, map[string]any) (Record, error) {
+	return Record{}, fmt.Errorf("stubIncumbent: Create is not fixtured")
+}
+
+func (s *stubIncumbent) Update(context.Context, string, string, map[string]any, time.Time) (Record, error) {
+	return Record{}, fmt.Errorf("stubIncumbent: Update is not fixtured")
+}
+
+func (s *stubIncumbent) Archive(context.Context, string, string) error {
+	return fmt.Errorf("stubIncumbent: Archive is not fixtured")
+}
 
 // Get answers the one fixtured record — proving Read reached the LIVE
 // incumbent, not the mirror — and counts the call so the shed-path test

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
 // pageSize is the fixed Backfill/Modified page size the fake pages by.
@@ -26,7 +27,16 @@ type Adapter struct {
 	assocs    map[assocKey][]overlay.Assoc
 	owners    map[string]string
 	deletions map[string][]overlay.Deletion
+	// writeSeq drives deterministic Create ids and modified-at stamps for the
+	// write seam — a monotonic counter, never a real clock, so a test
+	// exercising write-back never flakes on wall-time (T11).
+	writeSeq int
 }
+
+// writeEpoch is the base time the fake stamps written records at, advanced one
+// second per write by writeSeq — deterministic and strictly increasing, so a
+// drift check (ModifiedAt vs baseline) has stable, orderable timestamps.
+var writeEpoch = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // assocKey identifies one Associations(fromClass, fromID, toClass) query
 // — the same triple SeedAssoc and Associations key their lookup by.
@@ -247,6 +257,72 @@ func (a *Adapter) Owners(_ context.Context) ([]overlay.OwnerRef, error) {
 		out = append(out, overlay.OwnerRef{ExternalID: id, Email: a.owners[id]})
 	}
 	return out, nil
+}
+
+// Create appends a new record of canonicalClass from the field bag, stamping
+// a deterministic id and modified-at, and returns it — the write seam's
+// canonical-in/canonical-out contract. Records are keyed by canonical class
+// here (not the incumbent bucket the read feeds page by), matching the seam:
+// a real adapter maps the write back through mapRecord before it reaches the
+// mirror, so canonical is what a write returns.
+//
+//craft:ignore naked-any fields is the canonical field bag the seam carries; the any is inherent to the decoded shape
+func (a *Adapter) Create(_ context.Context, canonicalClass string, fields map[string]any) (overlay.Record, error) {
+	a.writeSeq++
+	rec := overlay.Record{
+		ExternalID:  fmt.Sprint(a.writeSeq),
+		ObjectClass: canonicalClass,
+		Fields:      fields,
+		ModifiedAt:  writeEpoch.Add(time.Duration(a.writeSeq) * time.Second),
+	}
+	a.records[canonicalClass] = append(a.records[canonicalClass], rec)
+	return rec, nil
+}
+
+// Update applies the drift check (ModifiedAt vs baseline — incumbent-wins,
+// AC-OV-4), then merges the patch fields onto the stored record and re-stamps
+// its modified-at. A patch of an unknown record is an error; a caller passing
+// no fields gets the record unchanged.
+//
+//craft:ignore naked-any fields is the canonical patch bag the seam carries; the any is inherent to the decoded shape
+func (a *Adapter) Update(_ context.Context, canonicalClass, externalID string, fields map[string]any, baseline time.Time) (overlay.Record, error) {
+	recs := a.records[canonicalClass]
+	for i := range recs {
+		if recs[i].ExternalID != externalID {
+			continue
+		}
+		if len(fields) == 0 {
+			return recs[i], nil
+		}
+		if recs[i].ModifiedAt.After(baseline) {
+			return overlay.Record{}, apperrors.ErrVersionSkew
+		}
+		merged := make(map[string]any, len(recs[i].Fields)+len(fields))
+		for k, v := range recs[i].Fields {
+			merged[k] = v
+		}
+		for k, v := range fields {
+			merged[k] = v
+		}
+		a.writeSeq++
+		recs[i].Fields = merged
+		recs[i].ModifiedAt = writeEpoch.Add(time.Duration(a.writeSeq) * time.Second)
+		return recs[i], nil
+	}
+	return overlay.Record{}, fmt.Errorf("fake: no %s record with external id %s to update", canonicalClass, externalID)
+}
+
+// Archive removes canonicalClass's record for externalID; an unknown record
+// is an error rather than a silent no-op.
+func (a *Adapter) Archive(_ context.Context, canonicalClass, externalID string) error {
+	recs := a.records[canonicalClass]
+	for i := range recs {
+		if recs[i].ExternalID == externalID {
+			a.records[canonicalClass] = append(recs[:i], recs[i+1:]...)
+			return nil
+		}
+	}
+	return fmt.Errorf("fake: no %s record with external id %s to archive", canonicalClass, externalID)
 }
 
 // parseCursor decodes a Backfill/Modified cursor to its index offset;

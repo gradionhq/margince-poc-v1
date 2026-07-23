@@ -34,6 +34,7 @@ func (seedIncumbent) Backfill(context.Context, string, string) (Page, error) {
 func (seedIncumbent) Modified(context.Context, string, time.Time, string) (Page, error) {
 	return Page{}, nil
 }
+
 func (seedIncumbent) Deletions(context.Context, string, time.Time, string) (DeletionPage, error) {
 	return DeletionPage{}, nil
 }
@@ -56,6 +57,18 @@ func (s seedIncumbent) Owners(context.Context) ([]OwnerRef, error) {
 		out = append(out, OwnerRef{ExternalID: id, Email: email})
 	}
 	return out, nil
+}
+
+func (seedIncumbent) Create(context.Context, string, map[string]any) (Record, error) {
+	return Record{}, fmt.Errorf("seedIncumbent: Create is not fixtured")
+}
+
+func (seedIncumbent) Update(context.Context, string, string, map[string]any, time.Time) (Record, error) {
+	return Record{}, fmt.Errorf("seedIncumbent: Update is not fixtured")
+}
+
+func (seedIncumbent) Archive(context.Context, string, string) error {
+	return fmt.Errorf("seedIncumbent: Archive is not fixtured")
 }
 
 // TestConnectSeedsUserMapFromTheOwnersDirectory proves §6.1's primary
