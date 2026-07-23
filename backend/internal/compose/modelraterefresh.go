@@ -123,9 +123,12 @@ func (m modelCostRefresh) run(ctx context.Context) error {
 		m.log.Info("model-cost refresh skipped: no sources or brain configured")
 		return nil
 	}
-	current, err := m.rates.ListLatestModelRates(ctx)
+	// Diff against what is in force TODAY, not the sheet head: approval writes
+	// effective today, so a future-scheduled row must neither mask a real
+	// change nor manufacture an ineffective proposal.
+	current, err := m.rates.ListEffectiveModelRates(ctx)
 	if err != nil {
-		return fmt.Errorf("model refresh: read current rates: %w", err)
+		return fmt.Errorf("model refresh: read effective rates: %w", err)
 	}
 	currentByKey := make(map[string]ai.ModelRateRow, len(current))
 	for _, r := range current {
@@ -250,6 +253,10 @@ func diffModel(em extractedModel, current map[string]ai.ModelRateRow) (string, a
 	})
 	if ok && newMicro == curMicro {
 		return "", aiModelRateProposal{}, false // unchanged
+	}
+	prop.ExpectedPrior = &aiModelRatePrior{
+		InputUsd: cur.InputUsd, OutputUsd: cur.OutputUsd,
+		CacheReadUsd: cur.CacheReadUsd, CacheWriteUsd: cur.CacheWriteUsd,
 	}
 	return cur.InputUsd, prop, true
 }

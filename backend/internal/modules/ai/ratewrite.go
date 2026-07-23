@@ -222,6 +222,35 @@ func (s *RateStore) ListLatestModelRates(ctx context.Context) ([]ModelRateRow, e
 	return rows, err
 }
 
+// ListEffectiveModelRates returns the price in force TODAY per (provider,
+// model_id) — the latest row with effective_date <= today (store clock), the
+// list form of RateFor's as-of resolution. Deliberately distinct from
+// ListLatestModelRates (sheet head, which may be future-scheduled): a refresh
+// diff compares against what is in force, not what is scheduled. Admin/ops
+// read gate.
+func (s *RateStore) ListEffectiveModelRates(ctx context.Context) ([]ModelRateRow, error) {
+	if err := auth.Require(ctx, "ai_model_rate", principal.ActionRead); err != nil {
+		return nil, err
+	}
+	today := s.todayUTC()
+	var rows []ModelRateRow
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		r, err := tx.Query(ctx, `
+			SELECT DISTINCT ON (provider, model_id)
+			       provider, model_id, input_per_mtok_microusd, output_per_mtok_microusd,
+			       cache_read_per_mtok_microusd, cache_write_per_mtok_microusd, effective_date
+			FROM ai_model_rate WHERE effective_date <= $1
+			ORDER BY provider, model_id, effective_date DESC`, today)
+		if err != nil {
+			return fmt.Errorf("list effective ai_model_rate: %w", err)
+		}
+		defer r.Close()
+		rows, err = scanModelRateRows(r)
+		return err
+	})
+	return rows, err
+}
+
 // ModelRateHistory returns every effective-dated row for one model, newest
 // first (read-only history). Admin/ops read gate.
 func (s *RateStore) ModelRateHistory(ctx context.Context, provider, modelID string) ([]ModelRateRow, error) {
