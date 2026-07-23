@@ -16,9 +16,11 @@ package compose
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 )
@@ -78,10 +80,69 @@ func verifySelectedOption(selection crmcontracts.OnboardingClarifySelection, rea
 
 // onboardingClarifies runs every detector over the read and its
 // comparisons, in a stable order: entity identity first (it decides who
-// the company IS), then per-field conflicts.
+// the company IS), then per-field conflicts. This is the FULL set —
+// selection verification checks against it so an already-answered
+// question's option can still be re-picked; presentation paths use
+// openOnboardingClarifies to stop re-asking what the draft resolved.
 func onboardingClarifies(read people.SiteRead, comparisons []people.SiteReadComparison, locale string) []crmcontracts.OnboardingClarify {
 	out := entityClarifies(read, locale)
 	return append(out, conflictClarifies(read.DraftVersion, comparisons, locale)...)
+}
+
+// openOnboardingClarifies drops every question the persisted draft has
+// already answered: a question is resolved ONLY when the draft's value
+// for its field exactly equals one of the question's option values
+// (post-trim) — that match is provably an earlier authorized selection
+// or an accepted value, so re-deriving the question from site evidence
+// alone must not forget it on restore. A hand-typed value that matches
+// no option deliberately leaves the question open: the server cannot
+// distinguish a human's overriding edit from a read-prefilled draft, so
+// only the provable case resolves.
+func openOnboardingClarifies(read people.SiteRead, comparisons []people.SiteReadComparison, locale string, draft identity.OnboardingCompanyDraft) []crmcontracts.OnboardingClarify {
+	values := onboardingDraftValues(draft)
+	all := onboardingClarifies(read, comparisons, locale)
+	open := make([]crmcontracts.OnboardingClarify, 0, len(all))
+	for _, clarify := range all {
+		if clarifyAnsweredByDraft(clarify, values) {
+			continue
+		}
+		open = append(open, clarify)
+	}
+	return open
+}
+
+func clarifyAnsweredByDraft(clarify crmcontracts.OnboardingClarify, values map[string]*string) bool {
+	value := values[clarify.Field]
+	if value == nil {
+		return false
+	}
+	answer := strings.TrimSpace(*value)
+	if answer == "" {
+		return false
+	}
+	for _, option := range clarify.Options {
+		if option.Value == answer {
+			return true
+		}
+	}
+	return false
+}
+
+// onboardingDraftValues maps each clarifiable profile field to its draft
+// value. Fact-conflict questions carry composite keys with no draft
+// counterpart, so they never resolve through the draft — their answers
+// live in the confirm call's resolutions.
+func onboardingDraftValues(draft identity.OnboardingCompanyDraft) map[string]*string {
+	return map[string]*string{
+		fieldDisplayName: draft.DisplayName, fieldOfferSummary: draft.OfferSummary,
+		fieldICP: draft.ICP, fieldValueProposition: draft.ValueProposition,
+		fieldUSP: draft.USP, fieldCustomerPains: draft.CustomerPains,
+		fieldDesiredOutcomes: draft.DesiredOutcomes, fieldBuyingCenter: draft.BuyingCenter,
+		fieldBuyingIntents: draft.BuyingIntents, fieldCommonObjections: draft.CommonObjections,
+		fieldSalesMotion: draft.SalesMotion, fieldLegalName: draft.LegalName,
+		fieldRegisteredAddress: draft.RegisteredAddress, fieldRegisterVat: draft.RegisterVAT,
+		fieldIndustry: draft.Industry, fieldHistory: draft.History,
+	}
 }
 
 // onboardingClarifyID is stable per read draft version, so a re-poll of
@@ -91,11 +152,30 @@ func onboardingClarifyID(field string, draftVersion int) string {
 	return fmt.Sprintf("clarify:%s:%d", field, draftVersion)
 }
 
+// The clarify plausibility bounds: a legal name or address a human is
+// asked to pick must LOOK like one. Values beyond these caps, spanning
+// lines, or shaped like navigation chrome are extraction debris — an
+// unanswerable option must never gate the save.
+const (
+	clarifyNameMaxRunes    = 120
+	clarifyAddressMaxRunes = 160
+	// A token printed this often inside ONE candidate is menu chrome, not
+	// a printed identity.
+	clarifyTokenRepeatLimit = 3
+	// An "address" running past this many words with neither a comma nor
+	// a digit is a scraped link trail, not a postal address.
+	clarifyAddressMaxPlainWords = 6
+)
+
 // entityClarifies asks which printed legal entity (and which printed
 // registered address) the installation belongs to when the legal notice
-// names more than one. Option values are the exact printed strings; free
-// text is off — the census question is a pick among what the site
-// states, and the manual edit path stays available elsewhere.
+// names more than one. Option values are the plausible printed strings
+// (whitespace-collapsed); free text is off — the census question is a
+// pick among what the site states, and the manual edit path stays
+// available elsewhere. A question exists ONLY when at least two
+// plausible options survive the filter: one survivor means there is no
+// ambiguity worth blocking a save on. Filtered candidates are logged at
+// debug for operator diagnosability, never shown.
 func entityClarifies(read people.SiteRead, locale string) []crmcontracts.OnboardingClarify {
 	if len(read.LegalEntities) < 2 {
 		return nil
@@ -105,15 +185,30 @@ func entityClarifies(read people.SiteRead, locale string) []crmcontracts.Onboard
 	seenName := map[string]bool{}
 	addresses := make([]crmcontracts.OnboardingClarifyOption, 0, len(read.LegalEntities))
 	seenAddress := map[string]bool{}
+	var dropped []string
 	for _, entity := range read.LegalEntities {
-		if name := strings.TrimSpace(entity.Name); name != "" && !seenName[name] {
+		// An implausible half yields "" — the other half's option then
+		// simply carries no detail rather than showing the debris.
+		name, nameOK := plausibleClarifyValue(entity.Name, clarifyNameMaxRunes, false)
+		address, addressOK := plausibleClarifyValue(entity.RegisteredAddress, clarifyAddressMaxRunes, true)
+		if !nameOK && strings.TrimSpace(entity.Name) != "" {
+			dropped = append(dropped, boundedRunes(entity.Name, clarifyNameMaxRunes))
+		}
+		if !addressOK && strings.TrimSpace(entity.RegisteredAddress) != "" {
+			dropped = append(dropped, boundedRunes(entity.RegisteredAddress, clarifyAddressMaxRunes))
+		}
+		if nameOK && !seenName[name] {
 			seenName[name] = true
-			names = append(names, entityOption(name, name, entity, entity.RegisteredAddress))
+			names = append(names, entityOption(name, name, entity, address))
 		}
-		if address := strings.TrimSpace(entity.RegisteredAddress); address != "" && !seenAddress[address] {
+		if addressOK && !seenAddress[address] {
 			seenAddress[address] = true
-			addresses = append(addresses, entityOption(address, address, entity, entity.Name))
+			addresses = append(addresses, entityOption(address, address, entity, name))
 		}
+	}
+	if len(dropped) > 0 {
+		slog.Debug("onboarding clarify candidates filtered as implausible",
+			"read_id", read.ID, "dropped", dropped)
 	}
 	if len(names) > 1 {
 		out = append(out, crmcontracts.OnboardingClarify{
@@ -132,6 +227,35 @@ func entityClarifies(read people.SiteRead, locale string) []crmcontracts.Onboard
 		})
 	}
 	return out
+}
+
+// plausibleClarifyValue normalizes one candidate and decides whether a
+// human could answer with it: trimmed, single-line, whitespace-collapsed,
+// inside the length cap, no token repeated to the chrome threshold, and
+// (for addresses) not a long word trail with neither comma nor digit.
+// Every presentation and verification path shares this one builder, so
+// what can be picked is exactly what was shown.
+func plausibleClarifyValue(raw string, maxRunes int, addressShaped bool) (string, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || strings.ContainsAny(trimmed, "\n\r") {
+		return "", false
+	}
+	value := strings.Join(strings.Fields(trimmed), " ")
+	if len([]rune(value)) > maxRunes {
+		return "", false
+	}
+	words := strings.Fields(strings.ToLower(value))
+	counts := make(map[string]int, len(words))
+	for _, word := range words {
+		counts[word]++
+		if counts[word] >= clarifyTokenRepeatLimit {
+			return "", false
+		}
+	}
+	if addressShaped && len(words) > clarifyAddressMaxPlainWords && !strings.ContainsAny(value, ",0123456789") {
+		return "", false
+	}
+	return value, true
 }
 
 func entityOption(value, label string, entity people.SiteReadLegalEntity, detail string) crmcontracts.OnboardingClarifyOption {

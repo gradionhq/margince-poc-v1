@@ -22,18 +22,41 @@ export type ClarifyAnswer = {
   clarifyId: string;
   field: string;
   value: string;
+  /** The human declined the question (humans outrank the reader): nothing
+   * is written to the field, and it stops counting as an open decision. */
+  dismissed?: boolean;
 };
+
+// Whether a clarify sits over a human_conflict comparison: dismissing one of
+// those still needs an explicit server resolution (keep_current), so its
+// dismiss action is labeled "keep my value" instead of "skip".
+export function isConflictClarify(
+  field: string,
+  comparisons: readonly Comparison[] | undefined,
+): boolean {
+  return (comparisons ?? []).some(
+    (comparison) =>
+      comparison.key === field &&
+      comparison.classification === "human_conflict",
+  );
+}
 
 // A server clarify becomes a machine question: the deterministic server copy
 // rides verbatim as params through passthrough catalog keys, so the renderer
 // keeps its i18n-only contract without paraphrasing what the server asked.
+// Every clarify is dismissible — an implausible question must never become
+// an unanswerable gate.
 export function toMachineQuestion(
   clarify: OnboardingClarify,
+  comparisons?: readonly Comparison[],
 ): ConversationQuestion {
   return {
     id: clarify.id,
     i18nKey: "ob.conv.clarify.question",
     params: { question: clarify.question },
+    dismissLabelKey: isConflictClarify(clarify.field, comparisons)
+      ? "ob.conv.clarify.keepMine"
+      : "ob.conv.clarify.dismiss",
     options: clarify.options.map((option) => {
       const detail = option.detail ?? option.evidence_snippet ?? null;
       return {
@@ -106,7 +129,10 @@ export function missingRequiredFields(values: CompanyForm): CompanyFieldName[] {
 
 // A clarify answered over a human_conflict comparison maps 1:1 onto the
 // confirm request's resolution vocabulary. Other clarifies (the legal-entity
-// choice) resolve through the profile values themselves and produce none.
+// choice) resolve through the profile values themselves and produce none —
+// the server rejects a resolution whose key is not a current human conflict,
+// and requires one for every conflict, so a dismissed conflict maps to
+// keep_current while a dismissed census question sends nothing.
 export function resolutionsFromAnswers(
   comparisons: readonly Comparison[],
   answers: readonly ClarifyAnswer[],
@@ -121,7 +147,9 @@ export function resolutionsFromAnswers(
     if (!conflict) {
       continue;
     }
-    if (answer.value === conflict.proposed_value) {
+    if (answer.dismissed === true) {
+      resolutions.push({ key: conflict.key, action: "keep_current" });
+    } else if (answer.value === conflict.proposed_value) {
       resolutions.push({ key: conflict.key, action: "accept_proposal" });
     } else if (answer.value === (conflict.current_value ?? "")) {
       resolutions.push({ key: conflict.key, action: "keep_current" });

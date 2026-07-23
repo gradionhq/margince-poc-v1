@@ -132,9 +132,31 @@ export function useClarifyAnswers({
     [proposalRef, selectOption],
   );
 
+  // Dismissal is a LOCAL decision, no authorization round trip: nothing is
+  // written to the field, so there is nothing for the server to confirm.
+  // Recording it as an answer stops the question from counting as an open
+  // decision; the confirm resolutions map it per its comparison kind.
+  const dismissClarify = useCallback(
+    (clarifyId: string) => {
+      const clarify = (proposalRef.current?.open_questions ?? []).find(
+        (question) => question.id === clarifyId,
+      );
+      if (!clarify) {
+        return;
+      }
+      setFailure(null);
+      setAnswers((current) => [
+        ...current.filter((answer) => answer.clarifyId !== clarifyId),
+        { clarifyId, field: clarify.field, value: "", dismissed: true },
+      ]);
+    },
+    [proposalRef],
+  );
+
   return {
     answers,
     answerClarify,
+    dismissClarify,
     authorizing: selectOption.isPending,
     failure,
   };

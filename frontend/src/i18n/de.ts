@@ -1318,6 +1318,10 @@ export const de = {
   "ob.conv.tellInstead": "Ich erzähle es dir lieber direkt",
   "ob.conv.clarify.question": "{question}",
   "ob.conv.clarify.optionDetail": "{detail}",
+  "ob.conv.clarify.dismiss": "Überspringen - ich trage es selbst ein",
+  "ob.conv.clarify.keepMine": "Meinen Wert behalten",
+  "ob.conv.review.skipped":
+    "Du hast übersprungen: {fields}. Du kannst sie jederzeit bearbeiten.",
   "ob.conv.clarify.applyFailed":
     "Ich konnte diese Wahl nicht übernehmen: {detail} Wähle bitte erneut.",
   "ob.conv.clarify.applyMissing":
@@ -1377,6 +1381,10 @@ export const de = {
   "ob.conv.connect.artifactTitle": "Postfach-Verbindung",
   "ob.conv.connect.artifactEmpty":
     "Wähle im Gespräch einen Anbieter, dann öffnet sich hier sein Verbindungs-Panel.",
+  "ob.conv.next.decisionOne": "1 Entscheidung offen",
+  "ob.conv.next.decisionMany": "{count} Entscheidungen offen",
+  "ob.conv.next.review": "Deine Durchsicht ist bereit",
+  "ob.conv.next.build": "Bereit, deine Stimme zu bauen",
 
   "auth.title": "Margince",
   "auth.checking": "Sitzung wird geprüft…",

@@ -26,6 +26,7 @@ maps the codebase and links everything below.
 - [connect-a-cloud-model-provider.md](how-to/connect-a-cloud-model-provider.md) — bind the AI lanes to a BYOK cloud key (Anthropic / OpenAI / Gemini / any OpenAI-compatible vendor).
 - [certify-an-ai-model.md](how-to/certify-an-ai-model.md) — certify a model against a task's scenario corpus and benchmark a candidate swap (`make e2e-ai`).
 - [register-a-webhook.md](how-to/register-a-webhook.md) — register an HTTPS endpoint for Standard-Webhooks-signed, retried outbound delivery of contract-generated event payloads (curl or Settings → Integrations), and verify/inspect/replay a delivery.
+- [add-an-extension.md](how-to/add-an-extension.md) — ship a stable-tier extension unit (a jurisdiction pack) under `extensions/`, composed and verified.
 
 ### Reference — look it up
 - [modules.md](reference/modules.md) — the modules: what each owns, its tables, its HTTP surface.
@@ -51,6 +52,7 @@ maps the codebase and links everything below.
 - [overlay-augmentation.md](explanation/overlay-augmentation.md) — the two SoR modes, the frozen seam + inner incumbent seam, the mirror-as-cache, fail-closed visibility, and teardown for the HubSpot overlay (branch 1: read + continuous sync).
 - [automation.md](explanation/automation.md) — the closed 7×7 trigger/action catalog: the two vocabularies, the one firing path, the anchor occurrence key, and both permission gates.
 - [outbound-webhooks.md](explanation/outbound-webhooks.md) — the governed egress surface: subscription config vs. delivery engine, secret sealing, the contract-first payload pipeline (`api/public-events.yaml` + `gen-payloads` + the typed `EmitEvent` seam) and its additive-only versioning, the retry/dead-letter state machine, the owner-scope fan-out gate (incl. the ratified deferred-delivery exceptions), and the Settings → Integrations UI.
+- [extensibility.md](explanation/extensibility.md) — the stable extension tier: the inert compile-time declaration, the marker-allowlisted surface, the composition build, boot reconciliation, and the fitness functions that hold the boundary.
 
 ## Reading order for a new contributor
 

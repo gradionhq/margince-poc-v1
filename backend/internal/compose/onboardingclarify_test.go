@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 )
 
@@ -92,6 +94,88 @@ func TestEntityClarifyOptionsAreCappedAtTheContractLimit(t *testing.T) {
 	}
 }
 
+// The live-data failure this pins: a census row whose "name" is the page's
+// navigation chrome and whose "address" is a mis-paired link trail must not
+// mint unanswerable options that block the save.
+func TestEntityClarifiesFilterImplausibleCensusDebris(t *testing.T) {
+	chromeName := "Gradion Pte. Ltd.Solutions Products Industries About Careers Contact English Deutsch Solutions Products Industries About Careers Contact English Deutsch"
+	chromeAddress := "Solutions Products Industries About Careers Contact English Deutsch"
+	clean := people.SiteReadLegalEntity{Name: "Gradion Pte. Ltd.", RegisteredAddress: "10 Anson Road #22-02, Singapore 079903", SourceURL: "https://gradion.example/legal"}
+
+	t.Run("one plausible survivor means no question at all", func(t *testing.T) {
+		read := people.SiteRead{DraftVersion: 1, LegalEntities: []people.SiteReadLegalEntity{
+			clean,
+			{Name: chromeName, RegisteredAddress: chromeAddress, SourceURL: "https://gradion.example/legal"},
+		}}
+		if got := onboardingClarifies(read, nil, "en"); len(got) != 0 {
+			t.Fatalf("debris minted a question: %+v", got)
+		}
+	})
+
+	t.Run("two plausible survivors ask with only the plausible options", func(t *testing.T) {
+		read := people.SiteRead{DraftVersion: 1, LegalEntities: []people.SiteReadLegalEntity{
+			clean,
+			{Name: "Gradion GmbH", RegisteredAddress: "Musterstraße 1, 10115 Berlin", SourceURL: "https://gradion.example/de/legal"},
+			{Name: chromeName, RegisteredAddress: chromeAddress, SourceURL: "https://gradion.example/legal"},
+		}}
+		clarifies := onboardingClarifies(read, nil, "en")
+		if len(clarifies) != 2 {
+			t.Fatalf("clarifies = %+v", clarifies)
+		}
+		for _, clarify := range clarifies {
+			if len(clarify.Options) != 2 {
+				t.Fatalf("%s options = %+v", clarify.Field, clarify.Options)
+			}
+			for _, option := range clarify.Options {
+				if strings.Contains(option.Value, "Solutions Products") {
+					t.Fatalf("chrome survived the filter: %+v", option)
+				}
+			}
+		}
+	})
+
+	t.Run("the verify gate accepts exactly the surviving set", func(t *testing.T) {
+		read := &people.SiteRead{DraftVersion: 1, LegalEntities: []people.SiteReadLegalEntity{
+			clean,
+			{Name: "Gradion GmbH", RegisteredAddress: "Musterstraße 1, 10115 Berlin", SourceURL: "https://gradion.example/de/legal"},
+			{Name: chromeName, RegisteredAddress: chromeAddress, SourceURL: "https://gradion.example/legal"},
+		}}
+		surviving := crmcontracts.OnboardingClarifySelection{ClarifyId: "clarify:legal_name:1", Field: "legal_name", Value: "Gradion GmbH"}
+		if err := verifySelectedOption(surviving, read, nil, "en"); err != nil {
+			t.Fatalf("surviving option refused: %v", err)
+		}
+		filtered := crmcontracts.OnboardingClarifySelection{ClarifyId: "clarify:legal_name:1", Field: "legal_name", Value: chromeName}
+		if err := verifySelectedOption(filtered, read, nil, "en"); err == nil {
+			t.Fatal("a filtered-out debris value was accepted as a selection")
+		}
+	})
+}
+
+func TestPlausibleClarifyValueBounds(t *testing.T) {
+	tests := map[string]struct {
+		raw          string
+		maxRunes     int
+		addressShape bool
+		want         string
+		wantOK       bool
+	}{
+		"clean name passes and collapses whitespace": {raw: "  Acme   GmbH ", maxRunes: clarifyNameMaxRunes, want: "Acme GmbH", wantOK: true},
+		"multi-line scrape rejected":                 {raw: "Acme GmbH\nMusterstraße 1", maxRunes: clarifyNameMaxRunes},
+		"over-cap name rejected":                     {raw: strings.Repeat("Gradion Solutions ", 8), maxRunes: clarifyNameMaxRunes},
+		"token repeated three times rejected":        {raw: "Home Home Home GmbH", maxRunes: clarifyNameMaxRunes},
+		"long plain word trail is no address":        {raw: "Solutions Products Industries About Careers Contact English", maxRunes: clarifyAddressMaxRunes, addressShape: true},
+		"real address with digits passes":            {raw: "10 Anson Road #22-02, Singapore 079903", maxRunes: clarifyAddressMaxRunes, addressShape: true, want: "10 Anson Road #22-02, Singapore 079903", wantOK: true},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, ok := plausibleClarifyValue(tc.raw, tc.maxRunes, tc.addressShape)
+			if ok != tc.wantOK || got != tc.want {
+				t.Fatalf("plausibleClarifyValue(%q) = %q, %v; want %q, %v", tc.raw, got, ok, tc.want, tc.wantOK)
+			}
+		})
+	}
+}
+
 func TestConflictClarifiesMapOntoTheResolutionContract(t *testing.T) {
 	current, source := "Acme Software", "human"
 	comparisons := []people.SiteReadComparison{
@@ -116,6 +200,68 @@ func TestConflictClarifiesMapOntoTheResolutionContract(t *testing.T) {
 	if conflict.Options[0].Detail == nil || !strings.Contains(*conflict.Options[0].Detail, "keep_current") ||
 		conflict.Options[1].Detail == nil || !strings.Contains(*conflict.Options[1].Detail, "accept_proposal") {
 		t.Fatalf("conflict option provenance = %+v", conflict.Options)
+	}
+}
+
+func TestOpenClarifiesSkipQuestionsTheDraftAlreadyAnswers(t *testing.T) {
+	current := "Acme Software"
+	read := people.SiteRead{DraftVersion: 5, LegalEntities: []people.SiteReadLegalEntity{
+		{Name: "Acme GmbH", RegisteredAddress: "Berlin 1", SourceURL: "https://acme.example/legal"},
+		{Name: "Acme Holding AG", RegisteredAddress: "Zug 2", SourceURL: "https://acme.example/legal"},
+	}}
+	comparisons := []people.SiteReadComparison{{Key: "display_name", Classification: "human_conflict", CurrentValue: &current, ProposedValue: "Acme GmbH"}}
+	openFields := func(draft identity.OnboardingCompanyDraft) []string {
+		open := openOnboardingClarifies(read, comparisons, "en", draft)
+		fields := make([]string, 0, len(open))
+		for _, clarify := range open {
+			fields = append(fields, clarify.Field)
+		}
+		return fields
+	}
+
+	tests := map[string]struct {
+		draft identity.OnboardingCompanyDraft
+		want  []string
+	}{
+		"empty draft keeps every question open": {
+			want: []string{fieldLegalName, fieldRegisteredAddress, fieldDisplayName},
+		},
+		"an answered entity question is not re-asked": {
+			draft: identity.OnboardingCompanyDraft{LegalName: stringPtr("Acme GmbH")},
+			want:  []string{fieldRegisteredAddress, fieldDisplayName},
+		},
+		"a selection echo with surrounding whitespace still resolves": {
+			draft: identity.OnboardingCompanyDraft{RegisteredAddress: stringPtr("  Berlin 1  ")},
+			want:  []string{fieldLegalName, fieldDisplayName},
+		},
+		"a resolved conflict is not re-asked (either option value)": {
+			draft: identity.OnboardingCompanyDraft{DisplayName: stringPtr("Acme Software")},
+			want:  []string{fieldLegalName, fieldRegisteredAddress},
+		},
+		// The documented boundary: only an exact option-value match is
+		// provably an answer. A hand-typed different value could equally
+		// be a read prefill, so the question stays open.
+		"a hand-typed non-option value keeps the question open": {
+			draft: identity.OnboardingCompanyDraft{LegalName: stringPtr("Acme Worldwide Ltd")},
+			want:  []string{fieldLegalName, fieldRegisteredAddress, fieldDisplayName},
+		},
+		"a blank draft value keeps the question open": {
+			draft: identity.OnboardingCompanyDraft{LegalName: stringPtr("   ")},
+			want:  []string{fieldLegalName, fieldRegisteredAddress, fieldDisplayName},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := openFields(tc.draft)
+			if len(got) != len(tc.want) {
+				t.Fatalf("open fields = %v, want %v", got, tc.want)
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Fatalf("open fields = %v, want %v", got, tc.want)
+				}
+			}
+		})
 	}
 }
 

@@ -97,7 +97,10 @@ func onboardingCompanyProposal(read people.SiteRead, comparisons []people.SiteRe
 			Confidence: fact.Confidence,
 		})
 	}
-	openQuestions := onboardingClarifies(read, comparisons, locale)
+	// Only still-open questions ship: one the draft already answers with
+	// an exact option value was resolved by an earlier authorized
+	// selection and must not be re-asked on restore.
+	openQuestions := openOnboardingClarifies(read, comparisons, locale, draft)
 	if openQuestions == nil {
 		openQuestions = []crmcontracts.OnboardingClarify{}
 	}

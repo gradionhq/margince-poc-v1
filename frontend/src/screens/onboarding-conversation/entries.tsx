@@ -129,21 +129,39 @@ export function OutcomeCard({ entry }: Readonly<{ entry: OutcomeEntry }>) {
   );
 }
 
+/** What a resolved card recorded: the chosen option, or the dismissal. */
+export type QuestionSelection =
+  | { kind: "option"; value: string }
+  | { kind: "dismissed" };
+
 type QuestionCardProps = Readonly<{
   question: ConversationQuestion;
-  /** Set after the question is answered; options stay visible but inert. */
+  /**
+   * Set for every card that is NOT the machine's current pending question
+   * instance (answered, dismissed, or superseded). Inertness is stamped on
+   * EVERY control, not just the fieldset: a fieldset-only disable leaves the
+   * options looking and, in some engines, acting live — a zombie card that
+   * eats clicks the machine then rightly ignores.
+   */
   answered?: boolean;
+  /** The recorded choice, shown on the inert card when one exists. */
+  selection?: QuestionSelection | null;
   /** The card is the one live question: keyboard focus moves to its first
    * option — unless the human is mid-thought in a text field. */
   focusFirstOption?: boolean;
   onAnswer: (questionId: string, value: string) => void;
+  /** The local-dismiss escape; rendered only when the question carries a
+   * dismiss label AND the surface wires a handler. */
+  onDismiss?: (questionId: string) => void;
 }>;
 
 export function QuestionCard({
   question,
   answered = false,
+  selection = null,
   focusFirstOption = false,
   onAnswer,
+  onDismiss,
 }: QuestionCardProps) {
   const t = useT();
   const card = useRef<HTMLFieldSetElement>(null);
@@ -178,24 +196,46 @@ export function QuestionCard({
     <fieldset ref={card} className="ob-conv-question" disabled={answered}>
       <legend>{t(question.i18nKey, question.params)}</legend>
       <div className="ob-conv-options">
-        {question.options.map((option) => (
-          <Button
-            key={option.value}
-            small
-            className="ob-conv-option"
-            onClick={() => onAnswer(question.id, option.value)}
-          >
-            <span>
-              {option.labelKey
-                ? t(option.labelKey, option.params)
-                : option.label}
-            </span>
-            {option.detailKey && (
-              <small>{t(option.detailKey, option.params)}</small>
-            )}
-          </Button>
-        ))}
+        {question.options.map((option) => {
+          const label = option.labelKey
+            ? t(option.labelKey, option.params)
+            : option.label;
+          const chosen =
+            selection?.kind === "option" && selection.value === option.value;
+          return (
+            <Button
+              key={option.value}
+              small
+              className={`ob-conv-option${chosen ? " ob-conv-option-selected" : ""}`}
+              // The chip clamps long values visually (CSS line-clamp); the
+              // full text stays the accessible name via content and here as
+              // the hover title.
+              title={label}
+              disabled={answered}
+              aria-pressed={selection === null ? undefined : chosen}
+              onClick={() => onAnswer(question.id, option.value)}
+            >
+              <span>{label}</span>
+              {option.detailKey && (
+                <small>{t(option.detailKey, option.params)}</small>
+              )}
+            </Button>
+          );
+        })}
       </div>
+      {question.dismissLabelKey !== undefined && onDismiss !== undefined && (
+        <Button
+          small
+          variant="ghost"
+          className={`ob-conv-question-dismiss${
+            selection?.kind === "dismissed" ? " ob-conv-option-selected" : ""
+          }`}
+          disabled={answered}
+          onClick={() => onDismiss(question.id)}
+        >
+          {t(question.dismissLabelKey)}
+        </Button>
+      )}
     </fieldset>
   );
 }
