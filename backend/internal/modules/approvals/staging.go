@@ -135,10 +135,14 @@ func (s *Service) stageOrJoinPendingInTx(ctx context.Context, tx pgx.Tx, in Stag
 }
 
 // supersedePendingInTx withdraws every OTHER live pending proposal of the same
-// kind+target carrying the same logical identity. Withdrawal is forced expiry:
-// the row reads expired everywhere exactly like lazy TTL expiry (which also
-// emits no event) — the status CHECK and the public ApprovalStatus enum stay
-// closed — and the audit row carries the why and the survivor.
+// kind+target carrying the same logical identity. Withdrawal is forced expiry,
+// audited but deliberately event-free: the closed event catalog (contract-first,
+// P3) defines no approval-withdrawn type, and expiry is already invisible on the
+// bus — a subscriber cannot observe TTL expiry either, so folding supersession
+// into expiry changes nothing a consumer could rely on, while the pull-based
+// inbox reads the row as expired on every surface (effectiveStatus, decide,
+// redeem). The status CHECK and the public ApprovalStatus enum stay closed; the
+// audit row carries the why and the survivor.
 func (s *Service) supersedePendingInTx(ctx context.Context, tx pgx.Tx, wsID ids.UUID, in StageInput, survivor ids.ApprovalID) error {
 	p, ok := principal.Actor(ctx)
 	if !ok {
