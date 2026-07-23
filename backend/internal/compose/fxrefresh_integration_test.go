@@ -73,7 +73,7 @@ func TestFxRefreshStagesChangedRates(t *testing.T) {
 	}
 }
 
-func seedFx(t *testing.T, ctx context.Context, store *deals.Store, cur, rate string, eff time.Time) {
+func seedFx(ctx context.Context, t *testing.T, store *deals.Store, cur, rate string, eff time.Time) {
 	t.Helper()
 	if _, err := store.SetFxRate(ctx, deals.SetFxRateInput{FromCurrency: cur, Rate: rate, EffectiveDate: eff}); err != nil {
 		t.Fatalf("seed %s@%s: %v", cur, rate, err)
@@ -99,17 +99,19 @@ func TestFxRefreshDiffsAgainstEffectiveTodayNotSheetHead(t *testing.T) {
 	tomorrow := time.Now().UTC().Add(24 * time.Hour)
 
 	// USD: today matches the source; a future row differs (must NOT propose).
-	seedFx(t, adminCtx, store, "USD", "0.8", time.Time{})
-	seedFx(t, adminCtx, store, "USD", "0.95", tomorrow)
+	seedFx(adminCtx, t, store, "USD", "0.8", time.Time{})
+	seedFx(adminCtx, t, store, "USD", "0.95", tomorrow)
 	// CHF: today differs from the source; a future row matches (MUST propose).
-	seedFx(t, adminCtx, store, "CHF", "2.0", time.Time{})
-	seedFx(t, adminCtx, store, "CHF", "0.5", tomorrow)
+	seedFx(adminCtx, t, store, "CHF", "2.0", time.Time{})
+	seedFx(adminCtx, t, store, "CHF", "0.5", tomorrow)
 
 	// 1/1.25 = USD->EUR 0.8000000000 (matches today), 1/2 = CHF->EUR 0.5.
 	srv := fxServer(t, `{"base":"EUR","rates":{"USD":1.25,"CHF":2}}`)
 	defer srv.Close()
-	f := fxRefresh{store: store, svc: approvals.NewService(e.Pool),
-		client: fxsource.New(srv.URL, srv.Client()), log: quietLog()}
+	f := fxRefresh{
+		store: store, svc: approvals.NewService(e.Pool),
+		client: fxsource.New(srv.URL, srv.Client()), log: quietLog(),
+	}
 	if err := f.run(rateRefreshWorkerCtx(context.Background(), e.WS, e.Rep1.String())); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -131,7 +133,7 @@ func TestFxRefreshSupersedesStalePendingProposal(t *testing.T) {
 	e := integration.Setup(t)
 	adminCtx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
 	store := deals.NewStore(e.Pool)
-	seedFx(t, adminCtx, store, "USD", "0.9", time.Time{})
+	seedFx(adminCtx, t, store, "USD", "0.9", time.Time{})
 
 	svc := approvals.NewService(e.Pool)
 	wctx := rateRefreshWorkerCtx(context.Background(), e.WS, e.Rep1.String())

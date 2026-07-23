@@ -78,7 +78,7 @@ func TestModelCostRefreshStagesChangedAndDropsUngrounded(t *testing.T) {
 	}
 }
 
-func seedModelRate(t *testing.T, ctx context.Context, rates *ai.RateStore, provider, modelID, inputUsd string, eff time.Time) {
+func seedModelRate(ctx context.Context, t *testing.T, rates *ai.RateStore, provider, modelID, inputUsd string, eff time.Time) {
 	t.Helper()
 	if _, err := rates.SetModelRate(ctx, ai.SetModelRateInput{
 		Provider: provider, ModelID: modelID,
@@ -121,8 +121,8 @@ func TestModelRefreshDiffsAgainstEffectiveTodayAndSupersedes(t *testing.T) {
 	tomorrow := time.Now().UTC().Add(24 * time.Hour)
 
 	// Today the model costs input=5; tomorrow a scheduled row already says 6.
-	seedModelRate(t, adminCtx, rates, "acme", "m1", "5", time.Time{})
-	seedModelRate(t, adminCtx, rates, "acme", "m1", "6", tomorrow)
+	seedModelRate(adminCtx, t, rates, "acme", "m1", "5", time.Time{})
+	seedModelRate(adminCtx, t, rates, "acme", "m1", "6", tomorrow)
 
 	// The page states input=6: equal to the future row, but a diff vs TODAY.
 	runModelRefresh(t, e, extractionFixture("acme", "m1", "6"))

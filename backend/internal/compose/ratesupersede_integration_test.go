@@ -68,7 +68,7 @@ func TestIdentityStagingSupersedesStalePending(t *testing.T) {
 	}
 	if n := e.WsCount(t,
 		`SELECT count(*) FROM audit_log WHERE entity_type='approval' AND entity_id=$1 AND evidence->>'superseded_by'=$2`,
-		stale.UUID, fresh.UUID.String()); n != 1 {
+		stale.UUID, fresh.String()); n != 1 {
 		t.Fatalf("superseded audit rows = %d, want 1", n)
 	}
 	// The withdrawn authority is dead: deciding it reads as already-expired.
