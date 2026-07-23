@@ -266,17 +266,17 @@ test("AC-book-public-409: a taken slot degrades honestly — no fabricated confi
   ).toHaveCount(0);
 });
 
-test("AC-onboarding-1: the wizard is rail-less and connect is the LAST step", async ({
+test("AC-onboarding-1: onboarding is the rail-less conversational shell", async ({
   page,
 }) => {
+  // The onboarding wizard/stepper was replaced by the conversational shell
+  // (#217): onboarding is a focused, rail-less flow whose journey is a
+  // conversation thread, not a stepper.
   await page.goto("/#/onboarding");
   await expect(page.locator("nav.rail")).toHaveCount(0);
-  await expect(page.locator("nav.stepper .step")).toHaveText([
-    "Firma",
-    "Stimme",
-    "Ergebnisse",
-    "Verbinden",
-  ]);
+  await expect(
+    page.getByRole("log", { name: "Einrichtungsgespräch" }),
+  ).toBeVisible();
 });
 
 test("AC-create-1: a contact is created from the list and lands on its 360", async ({
