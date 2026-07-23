@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { useEffect, useRef } from "react";
 import { useT } from "../../i18n";
 import type { ThreadEntry } from "./conversation-machine";
+import type { QuestionSelection } from "./entries";
 import {
   NarrationBubble,
   OutcomeCard,
@@ -20,6 +21,8 @@ type ConversationThreadProps = Readonly<{
   /** The one question still awaiting an answer; older ones render inert. */
   pendingQuestionId: string | null;
   onAnswer: (questionId: string, value: string) => void;
+  /** Local-dismiss for dismissible questions; absent = no escape offered. */
+  onDismiss?: (questionId: string) => void;
   /**
    * Conversation content that lives OUTSIDE the machine's thread (chat
    * replies, review cards, act controls) but must share the same scroll
@@ -53,16 +56,68 @@ function activeQuestionEntryId(
   return null;
 }
 
+// The choice a resolved card recorded, read back from the thread itself:
+// the answer turn the reducer appended right after (`<seq>:answer:<id>`).
+// A dismissal echoes the question's dismiss label; an option answer carries
+// the option's label (key or text). A later re-ask of the same id owns the
+// answers that follow it, so the scan stops at the next same-id question.
+function selectionFor(
+  entries: readonly ThreadEntry[],
+  index: number,
+): QuestionSelection | null {
+  const entry = entries[index];
+  if (entry.kind !== "question") {
+    return null;
+  }
+  const suffix = `:answer:${entry.question.id}`;
+  for (let later = index + 1; later < entries.length; later += 1) {
+    const candidate = entries[later];
+    if (
+      candidate.kind === "question" &&
+      candidate.question.id === entry.question.id
+    ) {
+      return null;
+    }
+    if (candidate.kind !== "user" || !candidate.id.endsWith(suffix)) {
+      continue;
+    }
+    if (
+      candidate.i18nKey !== undefined &&
+      candidate.i18nKey === entry.question.dismissLabelKey
+    ) {
+      return { kind: "dismissed" };
+    }
+    const chosen = entry.question.options.find((option) =>
+      candidate.i18nKey !== undefined
+        ? option.labelKey === candidate.i18nKey
+        : option.label === candidate.text,
+    );
+    return chosen === undefined
+      ? null
+      : { kind: "option", value: chosen.value };
+  }
+  return null;
+}
+
 export function ConversationThread({
   entries,
   pendingQuestionId,
   onAnswer,
+  onDismiss,
   children,
 }: ConversationThreadProps) {
   const t = useT();
   const log = useRef<HTMLDivElement>(null);
   const end = useRef<HTMLDivElement>(null);
   const following = useRef(true);
+  // Entries already present when the thread mounted (a restored recap, an
+  // act switch) render instantly; only narration that ARRIVES live reveals
+  // word by word. Membership is fixed at mount — an entry that revealed once
+  // keeps its reveal markup, so a re-render never snaps it to plain text.
+  const preRendered = useRef<ReadonlySet<string> | null>(null);
+  if (preRendered.current === null) {
+    preRendered.current = new Set(entries.map((entry) => entry.id));
+  }
   // A programmatic smooth scroll fires intermediate scroll events; while it
   // runs, they must not be read as the user scrolling away.
   const scrollingProgrammatically = useRef(false);
@@ -122,17 +177,30 @@ export function ConversationThread({
         scrollingProgrammatically.current = false;
       }}
     >
-      {entries.map((entry) => {
+      {entries.map((entry, index) => {
         if (entry.kind === "narration") {
-          return <NarrationBubble key={entry.id} entry={entry} />;
+          return (
+            <NarrationBubble
+              key={entry.id}
+              entry={entry}
+              reveal={!preRendered.current?.has(entry.id)}
+            />
+          );
         }
         if (entry.kind === "question") {
+          // Interactive IFF this entry is the machine's current pending
+          // question instance; every other card is fully inert with its
+          // recorded choice shown — a superseded card must never look like
+          // it still takes clicks the machine will ignore.
           return (
             <QuestionCard
               key={entry.id}
               question={entry.question}
               answered={entry.id !== liveQuestionEntryId}
+              selection={selectionFor(entries, index)}
+              focusFirstOption={entry.id === liveQuestionEntryId}
               onAnswer={onAnswer}
+              onDismiss={onDismiss}
             />
           );
         }

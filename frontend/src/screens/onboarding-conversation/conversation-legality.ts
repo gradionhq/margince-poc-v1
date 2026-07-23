@@ -135,12 +135,17 @@ function eventGuards(
       return state.readCompleted;
     case "QUESTION_ANSWERED":
       // Both the question and the chosen option must be the pending ones; an
-      // unknown value is never echoed into the thread.
-      return (
-        state.pendingQuestion?.id === event.questionId &&
-        state.pendingQuestion.options.some(
-          (option) => option.value === event.value,
-        )
+      // unknown value is never echoed into the thread. A dismissal carries
+      // no option value and is legal exactly when the pending question
+      // offers the dismiss escape.
+      if (state.pendingQuestion?.id !== event.questionId) {
+        return false;
+      }
+      if (event.dismissed === true) {
+        return state.pendingQuestion.dismissLabelKey !== undefined;
+      }
+      return state.pendingQuestion.options.some(
+        (option) => option.value === event.value,
       );
     case "BUILD_STARTED":
       // From vo.result only a FAILED build may be retried; a succeeded or

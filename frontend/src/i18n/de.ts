@@ -840,24 +840,13 @@ export const de = {
   "stage.semWon": "Gewonnen",
   "stage.semLost": "Verloren",
 
-  "ob.title": "Margince einrichten",
   "ob.read": "Einlesen",
   "ob.confirm": "Bestätigen",
-  "ob.company": "Firma",
-  "ob.voice": "Stimme",
-  "ob.results": "Ergebnisse",
-  "ob.connect": "Verbinden",
   "ob.url": "Website",
   "ob.urlScheme": "https://",
-  "ob.next": "Weiter",
   "ob.back": "Zurück",
   "ob.finish": "In den Workspace",
-  "ob.skipStep": "Schritt überspringen",
   "ob.restoring": "Deine Einrichtung wird wiederhergestellt…",
-  "ob.stateConflict":
-    "Diese Einrichtung wurde in einem anderen Tab geändert. Wir haben den gespeicherten Stand neu geladen, damit nichts still überschrieben wird.",
-  "ob.stateSaveFailed":
-    "Wir konnten deinen Einrichtungsfortschritt nicht speichern. Bitte versuche es erneut.",
   "ob.readKick": "Schritt 1 von 4 · Firmenkontext",
   "ob.readTitle": "Dein Unternehmen",
   "ob.readSub": "Von deiner Website lesen, oder selbst eintragen.",
@@ -996,21 +985,10 @@ export const de = {
   "ob.s1.omitBody":
     "Ich habe nur gefüllt, was ich von deiner Seite zitieren kann. Was ich nicht belegen konnte, kannst du ergänzen.",
   "ob.readGo": "Meine Website einlesen",
-  "ob.reading": "Wird gelesen…",
-  "ob.readAgain": "Erneut einlesen",
   "ob.trustPublic": "Ich lese nur deine öffentliche Website. Kein Login nötig.",
   "ob.urlWillRead": "Ich lese {host}",
-  "ob.urlInvalid":
-    "Das sieht nicht nach einer Web-Adresse aus — versuch z. B. {example}",
   "ob.readFromSite": "von der Website gelesen",
   "ob.failTitle": "Ich konnte von dieser Website nicht genug lesen",
-  "ob.failBody":
-    "Ich habe die Website erreicht, aber zu wenig öffentliche Inhalte gefunden, um ein Profil zu belegen. Deshalb rate ich nicht und habe nichts gespeichert.",
-  "ob.failWhy1":
-    "Die Seite rendert ihre Inhalte vielleicht per JavaScript, das wir im öffentlichen HTML nicht lesen",
-  "ob.failWhy2":
-    "Es kann eine Login-Wand, eine Platzhalterseite oder ein robots.txt-Verbot sein",
-  "ob.failWhy3": "Oder es ist schlicht zu wenig Text vorhanden",
   "ob.tryAnother": "Andere URL versuchen",
 
   "ob.manualChapterLegal": "Deine rechtliche Organisation",
@@ -1091,77 +1069,6 @@ export const de = {
   "ob.field.industry": "Branche",
   "ob.field.history": "Firmengeschichte",
 
-  "ob.s2.kick": "Schritt 2 von 4 · optional",
-  "ob.s2.title": "Jetzt lernen wir,",
-  "ob.s2.titleEm": "wie du wirklich schreibst.",
-  "ob.s2.sub":
-    "Wir raten deinen Ton nicht aus zwei E-Mails. Gib uns einen echten Korpus — Posts, E-Mails und vor allem Gesprächstranskripte — und wir modellieren, wie du wirklich klingst: dein Rhythmus, deine typischen Wendungen, die Wörter, die du nutzt, und die, die du nie sagst. Ziel: ~30.000 Wörter. Alles bleibt in deinem Workspace.",
-  "ob.s2.optinTitle": "Warum jetzt — und warum optional.",
-  "ob.s2.optinBody":
-    "Du hast dein Geschäft zurückgelesen bekommen (Schritt 1) und siehst gleich einen echten Entwurf (Schritt 3). Dieser Schritt lässt diese Entwürfe unverkennbar nach dir klingen. Es ist der einzige Schritt, der eigene Inhalte verlangt — also ganz deine Entscheidung.",
-  "ob.s2.optinYes": "Ja, jetzt meine Stimme bauen",
-  "ob.s2.optinSkip": "Überspringen — später in den Einstellungen",
-  "ob.s2.dropTitle": "Dateien hierher ziehen, oder durchsuchen",
-  "ob.s2.dropFmt":
-    ".txt .md .vtt .srt .json · nur Text · wir behalten nur deine Redeanteile",
-  "ob.s2.dropSkipped":
-    "{files} übersprungen — kein Textformat. Als .txt/.md konvertieren oder den Text direkt einfügen.",
-  "ob.s2.speakerAsk": "Wer bist du in {file}?",
-  "ob.s2.speakerOption": "{name} · Wörter: {words} · Redeanteile: {turns}",
-  "ob.s2.keptOnly": "{kept} von {total} gezählt — nur was {speaker} gesagt hat",
-  "ob.s2.unattributed":
-    "In {file} kann ich nicht erkennen, wer was sagt — deshalb zählt nichts davon. Ergänze Sprecher-Labels oder füge nur deine eigenen Worte ein.",
-  "ob.reg.spoken": "gesprochen",
-  "ob.reg.written": "geschrieben",
-  "ob.reg.casual": "locker",
-  "ob.src.emails": "Gesendete E-Mails",
-  "ob.src.emailsHint":
-    "Deine reichste Stimmquelle für E-Mail-Entwürfe — schaltet frei, sobald du dein Postfach verbindest",
-  "ob.src.transcripts": "Call- / Meeting-Transkripte",
-  "ob.src.transcriptsHint":
-    "Fathom, Otter, Fireflies — wir behalten nur deine Redeanteile",
-  "ob.src.posts": "LinkedIn- / X-Posts",
-  "ob.src.postsHint": "Dein Post-Verlauf — exportieren oder einfügen",
-  "ob.src.longform": "Blogposts / Newsletter",
-  "ob.src.longformHint": "Substack, Medium, Notion-Exporte",
-  "ob.src.chat": "Slack / WhatsApp",
-  "ob.src.chatHint": "Nachrichten, die du gesendet hast",
-  "ob.src.memos": "Sprachmemos",
-  "ob.src.memosHint": "Sprich 2 Minuten frei — wird transkribiert",
-  "ob.s2.whenConnected": "lernt daraus, sobald verbunden",
-  "ob.s2.words": "{count} / {target} Wörter",
-  "ob.s2.qualStart": "füg ein paar Quellen hinzu",
-  "ob.s2.qualThin": "dünn — leg ein, zwei Transkripte nach",
-  "ob.s2.qualGood": "gut — fast da",
-  "ob.s2.qualRich": "dicht — eine eigene Stimme nimmt Form an",
-  "ob.s2.qualSharp": "scharf — unverkennbar du",
-  "ob.s2.mix":
-    "gesprochen {spoken}% · geschrieben {written}% · {sources} Quellen",
-  "ob.s2.spokenHint":
-    "Eine Handvoll Gesprächstranskripte schlägt 30 LinkedIn-Posts — Gesprochenes trägt deinen echten Rhythmus. Bei Transkripten behalten wir nur deine Redeanteile.",
-  "ob.s2.emailCallout":
-    "Deine gesendeten E-Mails sind deine reichste Stimmquelle. Diese erste Voice DNA wird deutlich schärfer, sobald du dein Postfach verbindest (der letzte Schritt), und lernt dann aus jeder E-Mail weiter, die du sendest.",
-  "ob.s2.pasteLabel": "Oder Schreibproben einfügen",
-  "ob.s2.pastePlaceholder":
-    "Füg ein paar E-Mails, Posts oder irgendetwas ein, das du selbst geschrieben hast…",
-  "ob.s2.pasteSource": "Eingefügter Text",
-  "ob.s2.build": "Meine Voice DNA bauen",
-  "ob.s2.building": "Baue deine Voice DNA aus {count} Wörtern…",
-  "ob.s2.minWords":
-    "Füg mindestens {min} Wörter in deiner eigenen Stimme hinzu, um eine erste Voice DNA zu bauen.",
-  "ob.s2.vpMeta": "{count} Wörter · {sources} Quellen",
-  "ob.s2.builtTitle": "Deine Voice DNA",
-  "ob.s2.builtEmpty":
-    "Deine Voice DNA wird gebaut — sie erscheint gleich hier und in den Einstellungen.",
-  "ob.s2.deferredTitle": "Deine Voice DNA wird gebaut",
-  "ob.s2.deferredBody":
-    "Sie ist in der Warteschlange und gleich fertig — du kannst weitermachen. Sie schärft sich automatisch, sobald du im letzten Schritt dein Postfach verbindest.",
-  "ob.s2.failedTitle": "Wir konnten sie gerade nicht bauen",
-  "ob.s2.failedBody":
-    "Beim Bauen deiner Voice DNA ist etwas schiefgegangen. Versuch es noch mal, oder überspring es und bau sie später in den Einstellungen.",
-  "ob.s2.vpFootnote":
-    "Aus {count} Wörtern gebaut. Verbinde als Nächstes dein Postfach, und deine gesendete Post schärft das weiter — dann lernt es aus jeder E-Mail weiter.",
-
   "ob.s3.kick": "Schritt 3 von 4",
   "ob.s3.title": "Sieh, was du gebaut hast —",
   "ob.s3.titleEm": "ganz ohne Anbindung.",
@@ -1195,11 +1102,7 @@ export const de = {
     "Keine Magie — es ist die Standard-B2B-Stufenvorlage, aus dem Schritt-1-Read auf deine Branche gestimmt. Sie ist gerade leer. Wenn du dein Postfach verbindest, liest Capture deine gesendete Post und Meetings und schlägt Deals in diese Stufen vor — jeder belegt und umkehrbar. Du gibst frei, was ein Deal wird.",
   "ob.s3.stillNothing":
     "Noch immer nichts verbunden. Du bestimmst, wann sich das ändert.",
-  "ob.s3.cta": "Postfach verbinden",
 
-  "ob.s4.kick": "Schritt 4 von 4 · der letzte Schritt",
-  "ob.s4.title": "Bereit,",
-  "ob.s4.titleEm": "es zum Leben zu erwecken?",
   "ob.s4.sub":
     "Das Hirn steht. Verbinde dein Postfach, und dein CRM füllt sich selbst — Menschen, Firmen und Deals werden automatisch erfasst, du tippst sie nie.",
   "ob.s4.provGoogle": "Google",
@@ -1373,7 +1276,7 @@ export const de = {
   "ob.conv.voice.buildChip": "Mein Stimmprofil bauen",
   "ob.conv.voice.retryBuild": "Aufbau erneut versuchen",
   "ob.conv.voice.buildPollFailed":
-    "Ich habe die Verbindung während des Aufbaus verloren. Deine Texte bleiben erhalten, versuche den Aufbau erneut.",
+    "Ich habe die Verbindung während des Aufbaus verloren. Deine Texte bleiben erhalten. Versuche den Aufbau erneut.",
   "ob.conv.voice.statusBuilding": "Dein Stimmprofil entsteht",
   "ob.conv.voice.resultTitle":
     "Das ist deine Stimme, in deinen eigenen Worten.",
@@ -1393,7 +1296,7 @@ export const de = {
   "ob.conv.voice.manifestWords": "{words} Wörter",
   "ob.conv.voice.registerMix": "Register: {mix}",
   "ob.conv.voice.stageTitle": "Aufbau-Fortschritt",
-  "ob.conv.corpus.words": "Eigene Worte jetzt im Korpus: {words}.",
+  "ob.conv.corpus.words": "Eigene Wörter jetzt im Korpus: {words}.",
   "ob.conv.corpus.band": "Korpusqualität ist jetzt {band}.",
   "ob.conv.build.snapshot": "Ich friere deinen Korpus ein.",
   "ob.conv.build.extract": "Ich suche deine typischen Formulierungen.",
@@ -1413,6 +1316,10 @@ export const de = {
   "ob.conv.tellInstead": "Ich erzähle es dir lieber direkt",
   "ob.conv.clarify.question": "{question}",
   "ob.conv.clarify.optionDetail": "{detail}",
+  "ob.conv.clarify.dismiss": "Überspringen - ich trage es selbst ein",
+  "ob.conv.clarify.keepMine": "Meinen Wert behalten",
+  "ob.conv.review.skipped":
+    "Du hast übersprungen: {fields}. Du kannst sie jederzeit bearbeiten.",
   "ob.conv.clarify.applyFailed":
     "Ich konnte diese Wahl nicht übernehmen: {detail} Wähle bitte erneut.",
   "ob.conv.clarify.applyMissing":
@@ -1437,10 +1344,45 @@ export const de = {
   "ob.conv.artifact.empty":
     "Noch nichts gelesen. Nenn mir eine Website und dieses Panel füllt sich mit belegten Funden.",
   "ob.conv.results.continue": "Weiter",
-  "ob.conv.connect.stubBody":
-    "Die Postfach-Verbindung läuft vorerst im klassischen Schritt. Ohne deine Freigabe wird nichts erfasst.",
-  "ob.conv.connect.openClassic": "Klassischen Verbindungs-Schritt öffnen",
-  "ob.conv.connect.finish": "Ohne Verbindung abschließen",
+  "ob.conv.results.artifactTitle": "Einrichtung im Überblick",
+  "ob.conv.results.artifactBody":
+    "Womit dein CRM startet. Hier steht nichts, das nicht wirklich passiert ist.",
+  "ob.conv.results.company":
+    "Firmenprofil für {name} bestätigt. Alles Gespeicherte trägt seine Quelle.",
+  "ob.conv.results.companyUnsaved":
+    "Deine Firmendaten sind noch nicht gespeichert. Du kannst sie später in den Einstellungen vervollständigen.",
+  "ob.conv.results.voiceBuilt":
+    "Dein Stimmprofil ist gebaut. Entwürfe klingen nach dir.",
+  "ob.conv.results.voiceSkipped":
+    "Noch kein Stimmprofil. Entwürfe nutzen eine neutrale Startstimme; deins kannst du später in den Einstellungen bauen.",
+  "ob.conv.recap.back": "Willkommen zurück. Hier stehen wir.",
+  "ob.conv.recap.company": "Dein Firmenprofil für {name} ist bestätigt.",
+  "ob.conv.recap.companyUnsaved":
+    "Deine Firmendaten sind noch nicht gespeichert. Du kannst sie in den Einstellungen vervollständigen.",
+  "ob.conv.recap.voiceBuilt":
+    "Dein Stimmprofil ist gebaut. Entwürfe können nach dir klingen.",
+  "ob.conv.recap.voiceSkipped":
+    "Du hast das Stimmprofil übersprungen. Entwürfe nutzen eine neutrale Startstimme.",
+  "ob.conv.recap.corpus":
+    "Dein Korpus enthält bereits {words} deiner eigenen Wörter.",
+  "ob.conv.recap.readTerminal":
+    "Willkommen zurück. Ich habe {host} bereits fertig gelesen: {count} belegte Funde. Deine Durchsicht ist unten bereit.",
+  "ob.conv.recap.readReading":
+    "Willkommen zurück. Ich lese {host} noch. Seiten bisher: {pages}.",
+  "ob.conv.recap.readFailed":
+    "Willkommen zurück. Mein früherer Lesevorgang von {host} wurde nicht fertig. Nenn mir wieder eine Website oder erzähl es mir direkt.",
+  "ob.conv.recap.readDeferred":
+    "Willkommen zurück. Mein Lesevorgang von {host} pausiert gerade. Nenn mir wieder eine Website oder erzähl es mir direkt.",
+  "ob.conv.connect.pick":
+    "Wähle einen Anbieter, um genau zu sehen, was das Verbinden tut. Oder überspringe es und verbinde später in den Einstellungen.",
+  "ob.conv.connect.skip": "Verbinden vorerst überspringen",
+  "ob.conv.connect.artifactTitle": "Postfach-Verbindung",
+  "ob.conv.connect.artifactEmpty":
+    "Wähle im Gespräch einen Anbieter, dann öffnet sich hier sein Verbindungs-Panel.",
+  "ob.conv.next.decisionOne": "1 Entscheidung offen",
+  "ob.conv.next.decisionMany": "{count} Entscheidungen offen",
+  "ob.conv.next.review": "Deine Durchsicht ist bereit",
+  "ob.conv.next.build": "Bereit, deine Stimme zu bauen",
 
   "auth.title": "Margince",
   "auth.checking": "Sitzung wird geprüft…",
@@ -1826,8 +1768,6 @@ export const de = {
   "voice.outcome.rollback": "wiederhergestellt",
   "voice.history.versionRow": "v{n} \u00b7",
   "voice.history.loadMore": "\u00c4ltere Eintr\u00e4ge anzeigen",
-  "ob.s2.candidateNote":
-    "Diese Version wartet auf deine Pr\u00fcfung \u2014 unter Einstellungen \u2192 Stimme anwenden oder ablehnen.",
   "voice.insights.provenance": "Aus deinem Korpus gebaut \u00b7 v{n}",
   "voice.insights.statWords": "W\u00f6rter: {count}",
   "voice.insights.statSources": "Quellen: {count}",

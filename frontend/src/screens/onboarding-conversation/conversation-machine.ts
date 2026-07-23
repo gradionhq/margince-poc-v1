@@ -3,11 +3,13 @@ import { isLegal } from "./conversation-legality";
 import type {
   BuildStage,
   BuildTerminalStatus,
+  ConversationAct,
   ConversationEvent,
   ConversationPhase,
   ConversationState,
   OutcomeTone,
   ReadTerminalStatus,
+  ResumePoint,
   ThreadEntry,
 } from "./conversation-types";
 
@@ -31,6 +33,7 @@ export type {
   OutcomeTone,
   QuestionOption,
   ReadTerminalStatus,
+  ResumePoint,
   ThreadEntry,
 } from "./conversation-types";
 
@@ -72,6 +75,16 @@ const buildTerminalTones: Record<BuildTerminalStatus, OutcomeTone> = {
   succeeded: "success",
   failed: "failure",
   deferred: "deferred",
+};
+
+// Which act owns each restorable landing point; RESUME derives the act from
+// the phase so the pair can never disagree.
+const resumeActs: Record<ResumePoint, ConversationAct> = {
+  "vo.invite": "voice",
+  "vo.collecting": "voice",
+  "vo.skipped": "voice",
+  "re.recap": "results",
+  "cn.consent": "connect",
 };
 
 export const THREAD_CAP = 200;
@@ -170,6 +183,60 @@ function applyReadTerminal(
   );
 }
 
+// Restore normalization out of co.confirmed: the same routing the live
+// confirmation takes, without repeating the confirmation outcome. A target
+// fast-forwards a creator to the stable point the wizard state recorded;
+// the member path has no creator acts to land in, so any target still
+// resolves to consent.
+function applyResume(
+  state: ConversationState,
+  event: Extract<ConversationEvent, { type: "RESUME" }>,
+): ConversationState {
+  if (state.memberPath) {
+    return withEntries(state, { act: "connect", phase: "cn.consent" });
+  }
+  const phase = event.target ?? "vo.invite";
+  return withEntries(state, { act: resumeActs[phase], phase });
+}
+
+// The answered question leaves the thread as the user's own turn: the
+// chosen option's label, or — for a dismissal — the dismiss action the human
+// clicked (legality already required the pending question to carry it).
+function applyAnswer(
+  state: ConversationState,
+  event: Extract<ConversationEvent, { type: "QUESTION_ANSWERED" }>,
+): ConversationState {
+  const option = state.pendingQuestion?.options.find(
+    (candidate) => candidate.value === event.value,
+  );
+  const answerId = `answer:${event.questionId}`;
+  const dismissed: ThreadEntry = {
+    kind: "user",
+    id: answerId,
+    i18nKey:
+      state.pendingQuestion?.dismissLabelKey ?? "ob.conv.clarify.dismiss",
+  };
+  const chosen: ThreadEntry =
+    option?.labelKey !== undefined
+      ? {
+          kind: "user",
+          id: answerId,
+          i18nKey: option.labelKey,
+          params: option.params,
+        }
+      : {
+          kind: "user",
+          id: answerId,
+          text: option?.label ?? event.value,
+          params: option?.params,
+        };
+  return withEntries(
+    state,
+    { phase: answeredPhase(state), pendingQuestion: null },
+    [event.dismissed === true ? dismissed : chosen],
+  );
+}
+
 // Legality is already settled: every branch below only computes the next
 // state for an event the table admitted in the current phase.
 function applyEvent(
@@ -178,11 +245,18 @@ function applyEvent(
 ): ConversationState {
   switch (event.type) {
     case "START":
-      return withEntries(state, {
-        act: "company",
-        phase: "co.intro",
-        memberPath: event.memberPath,
-      });
+      // A restore seeds the thread with server-derived recap turns and, when
+      // the company is already confirmed, opens in co.confirmed so RESUME
+      // can route onward without replaying the confirmation outcome.
+      return withEntries(
+        state,
+        {
+          act: "company",
+          phase: event.companyConfirmed === true ? "co.confirmed" : "co.intro",
+          memberPath: event.memberPath,
+        },
+        event.recap ?? [],
+      );
     case "URL_SUBMITTED":
       // Until READ_STARTED names the new run, read events for ANY run are
       // stale — the previous run is retired here, not at READ_STARTED.
@@ -226,34 +300,8 @@ function applyEvent(
           },
         ],
       );
-    case "QUESTION_ANSWERED": {
-      const option = state.pendingQuestion?.options.find(
-        (candidate) => candidate.value === event.value,
-      );
-      const answerId = `answer:${event.questionId}`;
-      const answered: ThreadEntry =
-        option?.labelKey !== undefined
-          ? {
-              kind: "user",
-              id: answerId,
-              i18nKey: option.labelKey,
-              params: option.params,
-            }
-          : {
-              kind: "user",
-              id: answerId,
-              text: option?.label ?? event.value,
-              params: option?.params,
-            };
-      return withEntries(
-        state,
-        {
-          phase: answeredPhase(state),
-          pendingQuestion: null,
-        },
-        [answered],
-      );
-    }
+    case "QUESTION_ANSWERED":
+      return applyAnswer(state, event);
     case "REVIEW_READY":
       return withEntries(state, { phase: "co.review" });
     case "MANUAL_CHOSEN":
@@ -276,14 +324,7 @@ function applyEvent(
         ],
       );
     case "RESUME":
-      // Restore normalization out of co.confirmed: the same routing the live
-      // confirmation takes, without repeating the confirmation outcome.
-      return withEntries(
-        state,
-        state.memberPath
-          ? { act: "connect", phase: "cn.consent" }
-          : { act: "voice", phase: "vo.invite" },
-      );
+      return applyResume(state, event);
     case "VOICE_OPT_IN":
       return withEntries(state, { phase: "vo.collecting" }, [
         { kind: "user", id: "voice:optin", i18nKey: "ob.conv.voice.optIn" },

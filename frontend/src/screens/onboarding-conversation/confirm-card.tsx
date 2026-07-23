@@ -22,17 +22,23 @@ import { NarrationBubble, QuestionCard } from "./entries";
 
 type Proposal = components["schemas"]["OnboardingCompanyProposal"];
 type ProposalField = components["schemas"]["OnboardingCompanyProposalField"];
+type Comparison = components["schemas"]["CompanySiteReadComparison"];
 
 type CompanyConfirmCardProps = Readonly<{
   proposal: Proposal;
   draft: CompanyDraft;
   answers: readonly ClarifyAnswer[];
+  /** The site-read comparisons, so a conflict question's dismiss action is
+   * labeled as keeping the human's value (the server still gets its
+   * keep_current resolution). */
+  comparisons: readonly Comparison[];
   /** The machine's live in-thread question; the card must not repeat it. */
   pendingQuestionId: string | null;
   selectedFactKeys: readonly string[];
   setSelectedFactKeys: (keys: string[]) => void;
   missingRequired: readonly CompanyFieldName[];
   onAnswerClarify: (clarifyId: string, value: string) => void;
+  onDismissClarify: (clarifyId: string) => void;
   onAcceptAll: () => void;
   pending: boolean;
   /** A clarify authorization is still in flight; accepting must wait for it. */
@@ -65,6 +71,12 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
     props.draft,
     new Set(fields.map((field) => field.field)),
   );
+  // Dismissed questions are named honestly: nothing was written, the field
+  // stays the human's to edit — never silently swallowed.
+  const dismissedLabels = props.answers
+    .filter((answer) => answer.dismissed === true)
+    .map((answer) => coldFieldLabel(answer.field, t))
+    .join(", ");
   const missingLabels = props.missingRequired
     .map((field) => coldFieldLabel(field, t))
     .join(", ");
@@ -93,10 +105,19 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
           {openQuestions.map((question) => (
             <QuestionCard
               key={question.id}
-              question={toMachineQuestion(question)}
+              question={toMachineQuestion(question, props.comparisons)}
               onAnswer={props.onAnswerClarify}
+              onDismiss={props.onDismissClarify}
             />
           ))}
+        </div>
+      )}
+      {dismissedLabels !== "" && (
+        <div className="ob-conv-confirm-skipped">
+          <p>{t("ob.conv.review.skipped", { fields: dismissedLabels })}</p>
+          <Button small variant="ghost" onClick={props.onEditDirectly}>
+            {t("ob.conv.review.editDirectly")}
+          </Button>
         </div>
       )}
       {facts.length > 0 && (

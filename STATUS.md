@@ -46,30 +46,35 @@ with the new `rate_extract` task (**certified for Gemini** — reliability 1.00)
 Both diff against the sheet and stage 🟡 `fx_rate_proposal` /
 `ai_model_rate_proposal` approvals (registered in `approvals/authority.go`);
 approving applies through the Phase-1 write path (edit-before-approve works).
-Sources are worker config (`--fx-source-url`, `--model-pricing-sources`); absent
-config = honest no-op.
+Sources live in the deployment config's `rates:` block (`fx_source` + a
+provider→url `model_pricing` map); absent config = honest no-op.
 
-**The conversational onboarding (flagged) + the honest voice corpus.**
-Onboarding is becoming ONE Margince conversation. Landed so far: the
-corpus honesty layer (server speaker preview, kept-vs-discarded ingest
-stats, diarizer/timestamp transcript parsing — only the owner's words
-ever count), the conversation primitives (pure act/phase machine with
-run-correlated events, poll-delta narration with a paced queue,
-thread/entry components), and the conversational COMPANY act behind the
-`conv` flag (`#/onboarding?conv` or localStorage `margince.conv`):
-narrated site read, deterministic clarify questions (legal entity /
-registered address / human-conflict) whose answered option is
+**The conversational onboarding is now THE onboarding; the classic
+wizard is deleted.** Onboarding is ONE Margince conversation. Landed:
+the corpus honesty layer (server speaker preview, kept-vs-discarded
+ingest stats, diarizer/timestamp transcript parsing — only the owner's
+words ever count), the conversation primitives (pure act/phase machine
+with run-correlated events, poll-delta narration with a paced queue,
+thread/entry components), the conversational COMPANY act (narrated site
+read, deterministic clarify questions whose answered option is
 server-verified before it authorizes exactly that change, the proposal
-read (`GET /onboarding/company/proposal`), and the in-thread confirm
-card. The voice act joins in `feat/onboarding-voice-act` (upload-in-chat,
-speaker question, build narration) together with three builder fixes a
-live corpus surfaced: validator-rejected completions evict from the
-result cache, the builder prompt enumerates citable sample ids with
-fabricated supplementary citations dropped, and the worker logs the real
-build error. Classic wizard remains the default; flip is planned after
-the results/connect acts + restore (plan:
-`~/.claude/plans/while-you-are-waiting-snug-horizon.md` Phases 5-7 —
-restore must also stop deriving member-path from "company exists").
+read, the in-thread confirm card), the voice act (upload-in-chat,
+speaker question, build narration), the results/connect acts, and
+restore (wizard-state `path` is THE member signal). Phase 6 flipped the
+default: `OnboardingScreen` renders the conversational shell
+unconditionally (the `conv` flag and its plumbing are gone), and the
+superseded stepper coordinator, Footer, VoiceStep, and ConnectStep
+wizard wrapper were deleted with their tests and i18n keys.
+`screens/onboarding.tsx` now holds only the shared vocabulary (draft,
+URL, wizard-state, corpus constants) with the surviving shared
+components split into `onboarding-company-form.tsx`,
+`onboarding-manual-interview.tsx`, `onboarding-results.tsx`, and
+`onboarding-connect-panels.tsx`; the pinned invariants that survived are
+re-tested through the conversational surface. Outstanding: Phase 7
+polish (RevealText, orb choreography, reduced-motion audit) per
+`~/.claude/plans/while-you-are-waiting-snug-horizon.md`, and the
+upstream spec raises (4,000-word onboarding gate decision;
+conversational re-pinning of AC-onboarding-*).
 
 **The CI integration lane is sharded per test across twelve runners.** The
 single-runner lane took ~6.5 minutes and floored at `compose/integration`

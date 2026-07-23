@@ -49,6 +49,10 @@ export type ConversationQuestion = {
   i18nKey: MessageKey;
   params?: Record<string, string | number>;
   options: QuestionOption[];
+  /** The subordinate local-dismiss action's label (humans outrank the
+   * reader: a clarify is never an unanswerable gate). Absent on questions
+   * that genuinely need an answer to proceed (the speaker ask). */
+  dismissLabelKey?: MessageKey;
 };
 
 export type OutcomeTone = "success" | "deferred" | "failure";
@@ -117,8 +121,28 @@ export type ReadTerminalStatus = "ready" | "partial" | "failed" | "deferred";
 export type BuildStage = "snapshot" | "extract" | "evaluate" | "activate";
 export type BuildTerminalStatus = "succeeded" | "failed" | "deferred";
 
+/**
+ * Where a restored session may land after RESUME. Only phases that are
+ * stable waiting points qualify: transient phases (reading, building) cannot
+ * be reconstructed from wizard state and restart from their act's entry.
+ */
+export type ResumePoint = Extract<
+  ConversationPhase,
+  "vo.invite" | "vo.collecting" | "vo.skipped" | "re.recap" | "cn.consent"
+>;
+
 export type ConversationEvent =
-  | { type: "START"; memberPath: boolean }
+  | {
+      type: "START";
+      memberPath: boolean;
+      /** Server-derived recap turns seeded on restore. Narration is never
+       * persisted; these entries are recomputed from server state, so a
+       * reload summarizes instead of replaying the original narration. */
+      recap?: readonly NarrationEntry[];
+      /** Restore landing: the server already recorded a confirmed company,
+       * so the conversation reopens in co.confirmed and RESUME routes on. */
+      companyConfirmed?: boolean;
+    }
   | { type: "URL_SUBMITTED"; url: string }
   | { type: "READ_STARTED"; readId: string }
   // Narration carries the id of the run that produced it: readId for
@@ -138,11 +162,21 @@ export type ConversationEvent =
       findings: number;
     }
   | { type: "CLARIFY"; readId: string; question: ConversationQuestion }
-  | { type: "QUESTION_ANSWERED"; questionId: string; value: string }
+  // dismissed: the human declined the question locally (nothing written,
+  // nothing asked again); legal only for questions carrying a dismiss label.
+  | {
+      type: "QUESTION_ANSWERED";
+      questionId: string;
+      value: string;
+      dismissed?: boolean;
+    }
   | { type: "REVIEW_READY" }
   | { type: "MANUAL_CHOSEN" }
   | { type: "COMPANY_CONFIRMED" }
-  | { type: "RESUME" }
+  // Restore routing out of co.confirmed. No target (or any target on the
+  // member path) takes the same route the live confirmation takes; a target
+  // fast-forwards a creator to the stable point the wizard state recorded.
+  | { type: "RESUME"; target?: ResumePoint }
   | { type: "VOICE_OPT_IN" }
   | { type: "VOICE_SKIPPED" }
   | { type: "UPLOAD_ADDED"; id: string; name: string }
