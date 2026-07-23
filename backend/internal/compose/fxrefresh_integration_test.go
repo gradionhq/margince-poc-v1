@@ -120,6 +120,36 @@ func TestFxRefreshBootstrapsEmptySheet(t *testing.T) {
 	}
 }
 
+func TestFxRefreshSkipsCandidatesTheSourceOmits(t *testing.T) {
+	e := integration.Setup(t)
+
+	// USX is ISO 4217-shaped (so it clears the config gate) but unsupported, so
+	// the source never prices it. The refresh must stage USD and skip USX
+	// gracefully — no error, no phantom proposal.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if _, err := w.Write([]byte(`{"base":"EUR","rates":{"USD":1.08}}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
+	}))
+	defer srv.Close()
+
+	f := fxRefresh{
+		store:               deals.NewStore(e.Pool),
+		svc:                 approvals.NewService(e.Pool),
+		client:              fxsource.New(srv.URL, srv.Client()),
+		bootstrapCurrencies: []string{"USD", "USX"},
+		log:                 quietLog(),
+	}
+	wctx := rateRefreshWorkerCtx(context.Background(), e.WS, e.Rep1.String())
+
+	if err := f.run(wctx); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM approval WHERE kind='fx_rate_proposal' AND status='pending'`); n != 1 {
+		t.Fatalf("staged %d fx proposals, want 1 (USD only — USX is omitted by the source)", n)
+	}
+}
+
 func TestFxRefreshEmptySheetNoBootstrapSetIsNoOp(t *testing.T) {
 	e := integration.Setup(t)
 

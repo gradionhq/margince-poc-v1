@@ -90,6 +90,16 @@ func (f fxRefresh) run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("fx refresh: fetch rates: %w", err)
 	}
+	// A requested currency the source did not price (a well-formed but
+	// unsupported/misspelled code — the config gate only checks the ISO 4217
+	// shape, matching organization.base_currency) is dropped by the client, so
+	// it stages no proposal. Name it rather than let the gap stay silent.
+	for _, sym := range symbols {
+		if _, ok := fetched[sym]; !ok {
+			f.log.Warn("fx rate refresh: source returned no rate for a requested currency — nothing staged for it",
+				"currency", sym, "base", base)
+		}
+	}
 	ws := storekit.MustWorkspace(ctx)
 	staged := 0
 	for cur, newRate := range fetched {
