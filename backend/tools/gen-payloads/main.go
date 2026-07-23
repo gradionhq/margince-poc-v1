@@ -30,6 +30,8 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/oapi-codegen/oapi-codegen/v2/pkg/codegen"
+
+	"github.com/gradionhq/margince/backend/tools/internal/oas30"
 )
 
 func main() {
@@ -67,7 +69,7 @@ func generateGroup(root string, g group) error {
 // subset, emit models with oapi-codegen, then append the event/entity-type
 // methods and re-stamp our own banner.
 func generateSource(specYAML []byte, pkg string) (string, error) {
-	normalized, err := downgradeToOpenAPI30(specYAML)
+	normalized, err := oas30.Bytes(specYAML)
 	if err != nil {
 		return "", err
 	}

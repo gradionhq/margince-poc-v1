@@ -1,7 +1,18 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package main
+// Package oas30 downgrades an OpenAPI 3.1 document into the 3.0.3 subset
+// oapi-codegen's kin-openapi backend consumes — the ONE transform shared by
+// contract-overlay (the codegen-time CLI that writes the build-dir overlay)
+// and gen-payloads (which re-derives the same 3.0-safe shape at generate
+// time to diff against generated payload types), so the two pipelines can
+// never disagree on what "3.0-safe" means:
+//   - openapi: 3.1.x -> 3.0.3
+//   - type: [T, 'null'] -> type: T + nullable: true
+//   - schema-level examples: [x, …] -> example: x (3.0 has no plural form)
+//
+// Anything else 3.1-specific fails loudly rather than degrading silently.
+package oas30
 
 import (
 	"fmt"
@@ -9,21 +20,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// downgradeToOpenAPI30 rewrites an OpenAPI 3.1 document into the 3.0.3 subset
-// oapi-codegen's kin-openapi backend consumes, using the same transform as the
-// repo's contract-overlay tool so the two pipelines agree on what "3.0-safe"
-// means:
-//   - openapi: 3.1.x -> 3.0.3
-//   - type: [T, 'null'] -> type: T + nullable: true
-//   - schema-level examples: [x, …] -> example: x (3.0 has no plural form)
-//
-// Anything else 3.1-specific fails loudly rather than degrading silently.
-func downgradeToOpenAPI30(src []byte) ([]byte, error) {
+// Bytes parses src as an OpenAPI 3.1 YAML document, downgrades it in place,
+// and re-marshals it back to bytes.
+func Bytes(src []byte) ([]byte, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(src, &doc); err != nil {
 		return nil, fmt.Errorf("parsing source: %w", err)
 	}
-	if err := downgrade(&doc); err != nil {
+	if err := Node(&doc); err != nil {
 		return nil, err
 	}
 	out, err := yaml.Marshal(&doc)
@@ -33,10 +37,11 @@ func downgradeToOpenAPI30(src []byte) ([]byte, error) {
 	return out, nil
 }
 
-func downgrade(n *yaml.Node) error {
+// Node downgrades a parsed OpenAPI 3.1 YAML node tree to 3.0.3 in place.
+func Node(n *yaml.Node) error {
 	if n.Kind == yaml.DocumentNode {
 		for _, c := range n.Content {
-			if err := downgrade(c); err != nil {
+			if err := Node(c); err != nil {
 				return err
 			}
 		}
@@ -44,7 +49,7 @@ func downgrade(n *yaml.Node) error {
 	}
 	if n.Kind != yaml.MappingNode {
 		for _, c := range n.Content {
-			if err := downgrade(c); err != nil {
+			if err := Node(c); err != nil {
 				return err
 			}
 		}
@@ -75,7 +80,7 @@ func downgrade(n *yaml.Node) error {
 		}
 	}
 	for i := 1; i < len(n.Content); i += 2 {
-		if err := downgrade(n.Content[i]); err != nil {
+		if err := Node(n.Content[i]); err != nil {
 			return err
 		}
 	}

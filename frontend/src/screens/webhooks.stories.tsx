@@ -59,6 +59,34 @@ function cardStory(routes: Record<string, () => Response>) {
   };
 }
 
+// The route pair almost every story below needs — an admin `/me` and the
+// subscription list itself — merged with a story's own extra routes (a
+// create/rotate/deliveries response) via object spread. Kept as a function
+// rather than a plain constant because most stories vary the subscription
+// list or the caller's roles (NonAdminReadOnly).
+function baseRoutes(
+  subscriptions: unknown[] = [activeSubscription],
+  roles: string[] = ["admin"],
+): Record<string, () => Response> {
+  return {
+    "GET /me": meRoute(roles),
+    "GET /webhook-subscriptions": () =>
+      jsonResponse({ data: subscriptions, page }),
+  };
+}
+
+// Drives a sequence of testid clicks against one render, returning the
+// `within` handle so a play function can chain a further assertion or a
+// non-testid interaction (a role-named Confirm button, a label lookup) off
+// the same canvas.
+async function clickTestIds(canvasElement: HTMLElement, testIds: string[]) {
+  const canvas = within(canvasElement);
+  for (const testId of testIds) {
+    await userEvent.click(await canvas.findByTestId(testId));
+  }
+  return canvas;
+}
+
 const meta: Meta<typeof WebhooksCard> = {
   title: "screens/webhooks",
   component: WebhooksCard,
@@ -67,27 +95,15 @@ export default meta;
 type Story = StoryObj<typeof WebhooksCard>;
 
 export const Active: Story = {
-  render: cardStory({
-    "GET /me": meRoute(["admin"]),
-    "GET /webhook-subscriptions": () =>
-      jsonResponse({ data: [activeSubscription], page }),
-  }),
+  render: cardStory(baseRoutes()),
 };
 
 export const PausedSubscription: Story = {
-  render: cardStory({
-    "GET /me": meRoute(["admin"]),
-    "GET /webhook-subscriptions": () =>
-      jsonResponse({ data: [activeSubscription, pausedSubscription], page }),
-  }),
+  render: cardStory(baseRoutes([activeSubscription, pausedSubscription])),
 };
 
 export const NonAdminReadOnly: Story = {
-  render: cardStory({
-    "GET /me": meRoute(["rep"]),
-    "GET /webhook-subscriptions": () =>
-      jsonResponse({ data: [activeSubscription], page }),
-  }),
+  render: cardStory(baseRoutes([activeSubscription], ["rep"])),
 };
 
 export const NotConfigured: Story = {
@@ -107,10 +123,7 @@ export const NotConfigured: Story = {
 };
 
 export const Empty: Story = {
-  render: cardStory({
-    "GET /me": meRoute(["admin"]),
-    "GET /webhook-subscriptions": () => jsonResponse({ data: [], page }),
-  }),
+  render: cardStory(baseRoutes([])),
 };
 
 // Task 8 (B-E10.14): the create form, opened from the empty list — the
@@ -120,15 +133,9 @@ export const Empty: Story = {
 // subscribableEventTypeValues catalog (webhooks.tsx), never a hand-picked
 // subset — the fe-uat screenshot shows the full published set.
 export const CreateOpen: Story = {
-  render: cardStory({
-    "GET /me": meRoute(["admin"]),
-    "GET /webhook-subscriptions": () => jsonResponse({ data: [], page }),
-  }),
+  render: cardStory(baseRoutes([])),
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await userEvent.click(
-      await canvas.findByTestId("new-webhook-subscription"),
-    );
+    await clickTestIds(canvasElement, ["new-webhook-subscription"]);
   },
 };
 
@@ -138,8 +145,7 @@ export const CreateOpen: Story = {
 // local state, never in the react-query cache the refreshed list reads from).
 export const SecretRevealed: Story = {
   render: cardStory({
-    "GET /me": meRoute(["admin"]),
-    "GET /webhook-subscriptions": () => jsonResponse({ data: [], page }),
+    ...baseRoutes([]),
     "POST /webhook-subscriptions": () =>
       jsonResponse(
         {
@@ -161,10 +167,9 @@ export const SecretRevealed: Story = {
       ),
   }),
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await userEvent.click(
-      await canvas.findByTestId("new-webhook-subscription"),
-    );
+    const canvas = await clickTestIds(canvasElement, [
+      "new-webhook-subscription",
+    ]);
     await userEvent.type(
       await canvas.findByLabelText(/target url/i),
       "https://hooks.acme.test/inbound",
@@ -178,26 +183,16 @@ export const SecretRevealed: Story = {
 // the rotate-secret confirm, and the archive confirm — all gated on the same
 // admin/ops role the create affordance already gates on.
 export const EditOpen: Story = {
-  render: cardStory({
-    "GET /me": meRoute(["admin"]),
-    "GET /webhook-subscriptions": () =>
-      jsonResponse({ data: [activeSubscription], page }),
-  }),
+  render: cardStory(baseRoutes()),
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await userEvent.click(await canvas.findByTestId("edit-record"));
+    await clickTestIds(canvasElement, ["edit-record"]);
   },
 };
 
 export const RotateSecretConfirm: Story = {
-  render: cardStory({
-    "GET /me": meRoute(["admin"]),
-    "GET /webhook-subscriptions": () =>
-      jsonResponse({ data: [activeSubscription], page }),
-  }),
+  render: cardStory(baseRoutes()),
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await userEvent.click(await canvas.findByTestId("rotate-webhook-secret"));
+    await clickTestIds(canvasElement, ["rotate-webhook-secret"]);
   },
 };
 
@@ -205,9 +200,7 @@ export const RotateSecretConfirm: Story = {
 // shows — proof rotate reuses it rather than growing a second reveal UI.
 export const RotateSecretRevealed: Story = {
   render: cardStory({
-    "GET /me": meRoute(["admin"]),
-    "GET /webhook-subscriptions": () =>
-      jsonResponse({ data: [activeSubscription], page }),
+    ...baseRoutes(),
     "POST /webhook-subscriptions/sub-active/rotate-secret": () =>
       jsonResponse({
         subscription: { ...activeSubscription, version: 3 },
@@ -215,21 +208,15 @@ export const RotateSecretRevealed: Story = {
       }),
   }),
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await userEvent.click(await canvas.findByTestId("rotate-webhook-secret"));
+    const canvas = await clickTestIds(canvasElement, ["rotate-webhook-secret"]);
     await userEvent.click(canvas.getByRole("button", { name: "Confirm" }));
   },
 };
 
 export const ArchiveConfirm: Story = {
-  render: cardStory({
-    "GET /me": meRoute(["admin"]),
-    "GET /webhook-subscriptions": () =>
-      jsonResponse({ data: [activeSubscription], page }),
-  }),
+  render: cardStory(baseRoutes()),
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await userEvent.click(await canvas.findByTestId("archive-record"));
+    await clickTestIds(canvasElement, ["archive-record"]);
   },
 };
 
@@ -288,9 +275,7 @@ const deadLetteredDelivery = {
 
 export const DeliveriesPanelOpen: Story = {
   render: cardStory({
-    "GET /me": meRoute(["admin"]),
-    "GET /webhook-subscriptions": () =>
-      jsonResponse({ data: [activeSubscription], page }),
+    ...baseRoutes(),
     "GET /webhook-subscriptions/sub-active/deliveries": () =>
       jsonResponse({
         data: [activeDelivery, retryingDelivery, deadLetteredDelivery],
@@ -298,17 +283,14 @@ export const DeliveriesPanelOpen: Story = {
       }),
   }),
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await userEvent.click(await canvas.findByTestId("view-deliveries"));
+    const canvas = await clickTestIds(canvasElement, ["view-deliveries"]);
     await canvas.findByTestId("dead-letter-group");
   },
 };
 
 export const DeliveriesReplayConfirm: Story = {
   render: cardStory({
-    "GET /me": meRoute(["admin"]),
-    "GET /webhook-subscriptions": () =>
-      jsonResponse({ data: [activeSubscription], page }),
+    ...baseRoutes(),
     "GET /webhook-subscriptions/sub-active/deliveries": () =>
       jsonResponse({
         data: [deadLetteredDelivery],
@@ -316,9 +298,7 @@ export const DeliveriesReplayConfirm: Story = {
       }),
   }),
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await userEvent.click(await canvas.findByTestId("view-deliveries"));
-    await userEvent.click(await canvas.findByTestId("replay-delivery"));
+    await clickTestIds(canvasElement, ["view-deliveries", "replay-delivery"]);
   },
 };
 
