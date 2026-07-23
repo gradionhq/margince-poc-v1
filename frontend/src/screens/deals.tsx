@@ -43,6 +43,7 @@ import {
   OverlayUnavailable,
   problemMessage,
   QueryGate,
+  QueryStates,
   throwProblem,
   useMe,
   useSorMode,
@@ -99,9 +100,13 @@ function usePipeline() {
 // on which screen loaded last; ["pipelines","all"] still gets refreshed by
 // any mutation that invalidates the ["pipelines"] prefix (react-query prefix
 // matching), so freshness is preserved without a shape collision.
-function usePipelines() {
+// enabled is false in overlay mode: the overlay deals view renders no
+// pipeline board or picker (a stage-less mirror has no pipelines to show),
+// so it never needs this fetch.
+function usePipelines(enabled: boolean) {
   return useQuery({
     queryKey: ["pipelines", "all"],
+    enabled,
     queryFn: async () => {
       const { data, error } = await api.GET("/pipelines", {
         params: { query: {} },
@@ -127,19 +132,15 @@ type DealFilters = {
   overlay: boolean;
 };
 
-// dealsQueryParams builds the /deals query. Overlay reads a mirror that 422s
-// every dial except the two the cache can honor, so overlay mode sends only
-// those and the list comes back flat (the screen forces the table view and
-// hides the pickers to match — a stage-keyed board cannot place a mirror deal,
-// whose pipeline/stage is null in overlay, OVA-MAP-6).
+// dealsQueryParams builds the native board's /deals query — the full dial
+// set (pipeline/stage/owner/org filters + sort). It is never called in
+// overlay mode (useDeals is disabled there and OverlayDealsTable sends its
+// own overlay-shaped params), so it carries no overlay branch.
 function dealsQueryParams(f: DealFilters) {
-  const base = { limit: 100, include_archived: f.includeArchived || undefined };
-  if (f.overlay) {
-    return base;
-  }
   const { filters } = f;
   return {
-    ...base,
+    limit: 100,
+    include_archived: f.includeArchived || undefined,
     pipeline_id: f.pipelineId || undefined,
     sort: f.sort || undefined,
     stage_id: filters.stage_id || undefined,
@@ -200,18 +201,26 @@ function OverlayDealsTable({
     getNextPageParam: (last) =>
       last.page?.has_more ? (last.page.next_cursor ?? undefined) : undefined,
   });
+  const t = useT();
+  // Once ANY page has loaded, render the table — a later Load-more failure
+  // must NOT discard the rows already fetched (routing the whole thing
+  // through QueryGate would show the full error state on any page error,
+  // throwing away usable results). Only the INITIAL load goes through
+  // QueryStates' pending/error; a failed next page leaves the table up and
+  // re-enables the Load-more button to retry.
+  const pages = query.data?.pages ?? [];
+  if (pages.length === 0) {
+    return <QueryStates query={query}>{null}</QueryStates>;
+  }
+  const deals = pages.flatMap((p) => p.data);
+  if (deals.length === 0) {
+    return <EmptyState>{t("common.empty")}</EmptyState>;
+  }
   return (
-    <QueryGate
-      query={query}
-      empty={(data) => data.pages.every((p) => p.data.length === 0)}
-    >
-      {(data) => (
-        <>
-          <DealTable deals={data.pages.flatMap((p) => p.data)} stages={[]} />
-          <LoadMoreButton query={query} />
-        </>
-      )}
-    </QueryGate>
+    <>
+      <DealTable deals={deals} stages={[]} sortable={false} />
+      <LoadMoreButton query={query} />
+    </>
   );
 }
 
@@ -590,10 +599,10 @@ export function DealsScreen({
   const t = useT();
   const cf = useObjectCustomFields("deal");
   const queryClient = useQueryClient();
-  const pipelinesQuery = usePipelines();
+  const overlay = useSorMode() === "overlay";
+  const pipelinesQuery = usePipelines(!overlay);
   const meQuery = useMe();
   const tierMap = useAgentTierMap();
-  const overlay = useSorMode() === "overlay";
   const [pipelineId, setPipelineId] = useState("");
   const [query, setQuery] = useState<ListQuery>({
     q: "",
@@ -926,7 +935,8 @@ export function DealsScreen({
 function DealTable({
   deals,
   stages,
-}: Readonly<{ deals: Deal[]; stages: Stage[] }>) {
+  sortable = true,
+}: Readonly<{ deals: Deal[]; stages: Stage[]; sortable?: boolean }>) {
   const t = useT();
   const { locale } = useLocale();
   const [sortKey, setSortKey] = useState<"name" | "amount" | "close">("name");
@@ -965,19 +975,34 @@ function DealTable({
     }
   };
 
+  // Client-side sort is honest only over the WHOLE set. The paginated
+  // overlay table holds just the pages loaded so far (and the mirror walks
+  // an external_id cursor, not the sort key), so sorting a partial subset
+  // would present a misleading order — the caller passes sortable={false}
+  // there, and the rows render in cursor order.
+  const rows = sortable ? sorted : deals;
+
   return (
     <div>
-      <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-        <Button small onClick={() => sortBy("name")}>
-          {t("people.name")}
-        </Button>
-        <Button small onClick={() => sortBy("amount")}>
-          {t("deals.amount")}
-        </Button>
-        <Button small onClick={() => sortBy("close")}>
-          {t("deals.close")}
-        </Button>
-      </div>
+      {sortable && (
+        <div
+          style={{
+            display: "flex",
+            gap: "var(--space-2)",
+            marginBottom: "var(--space-2)",
+          }}
+        >
+          <Button small onClick={() => sortBy("name")}>
+            {t("people.name")}
+          </Button>
+          <Button small onClick={() => sortBy("amount")}>
+            {t("deals.amount")}
+          </Button>
+          <Button small onClick={() => sortBy("close")}>
+            {t("deals.close")}
+          </Button>
+        </div>
+      )}
       <DataTable
         columns={[
           {
@@ -1019,7 +1044,7 @@ function DealTable({
             ),
           },
         ]}
-        rows={sorted}
+        rows={rows}
         rowKey={(deal) => deal.id}
         onRowClick={(deal) => navigate({ screen: "deals", id: deal.id })}
       />
