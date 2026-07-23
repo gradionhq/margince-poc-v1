@@ -1291,6 +1291,9 @@ export const en = {
   "ob.conv.tellInstead": "I would rather tell you directly",
   "ob.conv.clarify.question": "{question}",
   "ob.conv.clarify.optionDetail": "{detail}",
+  "ob.conv.clarify.dismiss": "Skip this - I will set it myself",
+  "ob.conv.clarify.keepMine": "Keep my value",
+  "ob.conv.review.skipped": "You skipped: {fields}. Edit them any time.",
   "ob.conv.clarify.applyFailed":
     "I could not record that choice: {detail} Pick it again.",
   "ob.conv.clarify.applyMissing":
@@ -1346,6 +1349,10 @@ export const en = {
   "ob.conv.connect.artifactTitle": "Inbox connection",
   "ob.conv.connect.artifactEmpty":
     "Pick a provider in the conversation and its connection panel opens here.",
+  "ob.conv.next.decisionOne": "1 decision open",
+  "ob.conv.next.decisionMany": "{count} decisions open",
+  "ob.conv.next.review": "Your review is ready",
+  "ob.conv.next.build": "Ready to build your voice",
 
   "auth.title": "Margince",
   "auth.checking": "Checking your session…",

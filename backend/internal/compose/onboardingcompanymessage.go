@@ -166,11 +166,13 @@ func (a *onboardingCompanyAssistant) converse(ctx context.Context, req crmcontra
 		if err != nil {
 			return companyReadModelReply{}, nil, nil, err
 		}
-		// A clarification carries the server-detected question when one
-		// exists: the model's prose stays, the options are never its own.
+		// A clarification carries the first STILL-OPEN server-detected
+		// question: the model's prose stays, the options are never its
+		// own, and a question the current draft already answers with an
+		// exact option value is not re-asked.
 		var clarify *crmcontracts.OnboardingClarify
 		if answer.Kind == "clarification" && read != nil {
-			if questions := onboardingClarifies(*read, comparisons, locale); len(questions) > 0 {
+			if questions := openOnboardingClarifies(*read, comparisons, locale, conversation.CurrentDraft); len(questions) > 0 {
 				clarify = &questions[0]
 			}
 		}

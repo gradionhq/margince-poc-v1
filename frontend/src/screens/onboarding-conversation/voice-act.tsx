@@ -11,6 +11,7 @@ import type {
   ConversationState,
 } from "./conversation-machine";
 import { NarrationBubble } from "./entries";
+import { NextStepBar } from "./next-step-bar";
 import { presenceFor } from "./presence";
 import { ConversationThread } from "./thread";
 import { useVoiceBuild } from "./use-voice-build";
@@ -181,6 +182,7 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
           )}
         </ConversationThread>
       </div>
+      <VoiceNextStep state={state} canBuild={canBuild} />
       {collecting && (
         <div className="mw-composer">
           <input
@@ -229,6 +231,34 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
       )}
     </ConversationWorkbench>
   );
+}
+
+// The pinned next-step line of the voice act: the open speaker decision
+// outranks the build chip once the server corpus clears the floor.
+function VoiceNextStep({
+  state,
+  canBuild,
+}: Readonly<{ state: ConversationState; canBuild: boolean }>) {
+  const t = useT();
+  if (state.pendingQuestion !== null) {
+    return (
+      <NextStepBar
+        label={t("ob.conv.next.decisionOne")}
+        targetSelector="fieldset.ob-conv-question:not([disabled])"
+        revision={state.seq}
+      />
+    );
+  }
+  if (canBuild) {
+    return (
+      <NextStepBar
+        label={t("ob.conv.next.build")}
+        targetSelector=".ob-conv-build-chip"
+        revision={state.seq}
+      />
+    );
+  }
+  return null;
 }
 
 function InviteChips({
@@ -318,6 +348,7 @@ function CollectingControls({
           <Button
             small
             variant="primary"
+            className="ob-conv-build-chip"
             disabled={startPending}
             onClick={onBuild}
           >

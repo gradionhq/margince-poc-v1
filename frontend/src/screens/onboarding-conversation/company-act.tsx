@@ -35,6 +35,7 @@ import type {
   ConversationState,
 } from "./conversation-machine";
 import { NarrationBubble } from "./entries";
+import { NextStepBar } from "./next-step-bar";
 import { presenceFor } from "./presence";
 import { ConversationThread } from "./thread";
 import { useClarifyAnswers } from "./use-clarify-answers";
@@ -176,6 +177,22 @@ export function CompanyAct({
     [dispatch, clarify.answerClarify],
   );
 
+  // Humans outrank the reader: dismissing a clarify resolves it locally —
+  // the machine's pending question clears through the ordinary answer path
+  // and the recorded dismissal stops it counting as an open decision.
+  const handleDismiss = useCallback(
+    (questionId: string) => {
+      dispatch({
+        type: "QUESTION_ANSWERED",
+        questionId,
+        value: "",
+        dismissed: true,
+      });
+      clarify.dismissClarify(questionId);
+    },
+    [dispatch, clarify.dismissClarify],
+  );
+
   const confirm = useMutation({
     mutationFn: async (): Promise<CompanyProfile> => {
       const values = draftRef.current.values;
@@ -308,6 +325,41 @@ export function CompanyAct({
     return null;
   }, [lastEntry]);
 
+  // The pinned next-step line: open decisions first — the pending thread
+  // question plus the proposal's still-unanswered ones — then the ready
+  // review. The bar renders only while a decision affordance is actually
+  // on the page (the live question card, or the review's clarify list), so
+  // it can always scroll to what it names.
+  const pendingId = state.pendingQuestion?.id ?? null;
+  const decisionCount =
+    (pendingId !== null ? 1 : 0) +
+    (reviewProposal?.open_questions ?? []).filter(
+      (question) =>
+        question.id !== pendingId &&
+        !clarify.answers.some((answer) => answer.clarifyId === question.id),
+    ).length;
+  let nextStep: { label: string; selector: string } | null = null;
+  if (
+    decisionCount > 0 &&
+    (pendingId !== null || state.phase === "co.review")
+  ) {
+    nextStep = {
+      label:
+        decisionCount === 1
+          ? t("ob.conv.next.decisionOne")
+          : t("ob.conv.next.decisionMany", { count: decisionCount }),
+      selector:
+        pendingId !== null
+          ? "fieldset.ob-conv-question:not([disabled])"
+          : ".ob-conv-confirm",
+    };
+  } else if (state.phase === "co.review" && reviewProposal !== null) {
+    nextStep = {
+      label: t("ob.conv.next.review"),
+      selector: ".ob-conv-confirm",
+    };
+  }
+
   // The manual path stays offered before any read and again whenever the
   // machine parked back in co.reading with the run retired (failed,
   // deferred, or the poll-failure fallback) — never while a POST is in
@@ -382,6 +434,7 @@ export function CompanyAct({
           entries={state.thread}
           pendingQuestionId={state.pendingQuestion?.id ?? null}
           onAnswer={handleAnswer}
+          onDismiss={handleDismiss}
         >
           <ConversationEntries
             entries={conversation.entries}
@@ -435,11 +488,13 @@ export function CompanyAct({
               proposal={reviewProposal}
               draft={draft}
               answers={clarify.answers}
+              comparisons={read?.comparisons ?? []}
               pendingQuestionId={state.pendingQuestion?.id ?? null}
               selectedFactKeys={selectedFactKeys}
               setSelectedFactKeys={setSelectedFactKeys}
               missingRequired={missing}
               onAnswerClarify={clarify.answerClarify}
+              onDismissClarify={clarify.dismissClarify}
               onAcceptAll={() => confirm.mutate()}
               pending={confirm.isPending}
               authorizing={clarify.authorizing}
@@ -449,6 +504,13 @@ export function CompanyAct({
           )}
         </ConversationThread>
       </div>
+      {nextStep !== null && (
+        <NextStepBar
+          label={nextStep.label}
+          targetSelector={nextStep.selector}
+          revision={state.seq}
+        />
+      )}
       <div className="mw-composer">
         <textarea
           ref={composer}
