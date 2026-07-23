@@ -400,7 +400,10 @@ func (s *Store) mergeLeadIntoPerson(ctx context.Context, tx pgx.Tx, lead crmcont
 		p.Set("title", nil, *lead.Title)
 	}
 	if p.Empty() {
-		return nil, nil
+		// A no-op fill-only merge: no columns changed. Return an empty (not
+		// nil) map so the caller reads "no delta" via len == 0 and skips the
+		// person.updated event, without a nil-nil return.
+		return map[string]any{}, nil
 	}
 	if err := p.ApplyLocked(ctx, tx, lock); err != nil {
 		return nil, err

@@ -114,6 +114,7 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/overlay:WithIncumbentFactory":           "composition-root wiring (injects the per-connection incumbent adapter builder Connect seeds the owners directory through); no data access — Connect itself remains auth.Require-gated",
 	"internal/modules/overlay:WithLogger":                     "composition-root wiring (injects the logger Connect's best-effort seeding reports through); no data access",
 	"internal/modules/overlay:WithModeFlipObserver":           "composition-root wiring (injects the dispatcher-cache invalidation Connect/Disconnect notify after commit); no data access — both flip paths remain auth.Require-gated",
+	"internal/modules/webhooks:DeliveryEnabled":               "deployment-capability flag (is a signing key configured?): reads no tenant rows, returns a single boolean the gated ListWebhookSubscriptions handler surfaces so the UI can render a not-enabled state — a config posture with nothing for object-RBAC to narrow",
 }
 
 // gateFnInfo is what the gate needs to know about one function name in a
