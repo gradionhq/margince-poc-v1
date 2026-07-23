@@ -60,6 +60,9 @@ type CompanyActProps = Readonly<{
    * confirmation can never erase stored fields the read did not rediscover. */
   profile: CompanyProfile | null;
   persist: (input: WizardPersistInput) => Promise<boolean>;
+  /** The restored snapshot of the machine's already-active read (reload
+   * adoption); null in a live session. */
+  adoptedRead?: CompanySiteRead | null;
 }>;
 
 function initialDraft(profile: CompanyProfile | null): CompanyDraft {
@@ -74,6 +77,7 @@ export function CompanyAct({
   dispatch,
   profile,
   persist,
+  adoptedRead = null,
 }: CompanyActProps) {
   const t = useT();
   const { locale } = useLocale();
@@ -95,9 +99,12 @@ export function CompanyAct({
   const [selectedFactKeys, setSelectedFactKeys] = useState<string[]>([]);
   const [artifactMode, setArtifactMode] = useState<ArtifactMode>("dossier");
   const [applied, setApplied] = useState<ReadonlySet<string>>(new Set());
+  // A run the machine already owns at mount was persisted when it started
+  // (that is how restore found it), so its wizard-state join is already in
+  // place; a fresh session joins when its own read starts.
   const [proposalJoin, setProposalJoin] = useState<
     "pending" | "ready" | "failed"
-  >("pending");
+  >(() => (state.activeReadId !== null ? "ready" : "pending"));
   const machine = useRef(state);
   machine.current = state;
 
@@ -157,6 +164,7 @@ export function CompanyAct({
     answers: clarify.answers,
     onReadStarted,
     proposalJoin,
+    adoptedRead,
   });
   proposalRef.current = proposal.data;
 

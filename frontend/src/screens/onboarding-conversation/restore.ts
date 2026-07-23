@@ -12,6 +12,7 @@ import type { NarrationEntry, ResumePoint } from "./conversation-types";
 type OnboardingState = components["schemas"]["OnboardingState"];
 type CompanyProfile = components["schemas"]["CompanyProfile"];
 type CorpusSummary = components["schemas"]["VoiceCorpusSummary"];
+type CompanySiteRead = components["schemas"]["CompanySiteRead"];
 
 export type VoiceRestoreProbe = Readonly<{
   /** An active or candidate version exists: the voice was actually built. */
@@ -28,6 +29,9 @@ export type RestoreInputs = Readonly<{
   /** Voice server truth; null when the probe was not needed (member path,
    * or the journey has not reached the voice act). */
   voice: VoiceRestoreProbe | null;
+  /** The read the persisted site_read_id points at (only fetched while the
+   * company act is still open); null when none was persisted or it is gone. */
+  read: CompanySiteRead | null;
   /** The OAuth return deep link (#/onboarding/connect/...) lands mid-journey
    * and must reopen the connect act, exactly like the classic coordinator. */
   routeConnect: boolean;
@@ -41,8 +45,69 @@ export type RestorePlan =
       companyConfirmed: boolean;
       /** Where RESUME lands; null means the company act is still open. */
       resumeTarget: ResumePoint | null;
+      /** A persisted read worth reattaching: terminal ready/partial (its
+       * review is one proposal fetch away) or still running (polling
+       * resumes). The shell dispatches READ_STARTED for it so the finished
+       * work is reachable again instead of stranded behind a reload. */
+      adoptRead: CompanySiteRead | null;
       recap: readonly NarrationEntry[];
     };
+
+// The read states a reload reattaches to. failed/deferred reopen fresh with
+// an honest recap line instead (a failed run has nothing to review, and a
+// deferred one restarts cleanly when the user re-submits); confirmed and
+// abandoned are post-outcome lifecycle states with nothing left to do here.
+const adoptableReadStates = new Set<CompanySiteRead["status"]>([
+  "ready",
+  "partial",
+  "queued",
+  "reading",
+]);
+
+function readRecap(read: CompanySiteRead): NarrationEntry[] {
+  const host = new URL(read.root_url).hostname;
+  if (read.status === "ready" || read.status === "partial") {
+    return [
+      {
+        kind: "narration",
+        id: "recap:read-terminal",
+        i18nKey: "ob.conv.recap.readTerminal",
+        params: { host, count: read.profile_fields.length },
+      },
+    ];
+  }
+  if (read.status === "queued" || read.status === "reading") {
+    return [
+      {
+        kind: "narration",
+        id: "recap:read-reading",
+        i18nKey: "ob.conv.recap.readReading",
+        params: { host, pages: read.pages_read ?? 0 },
+      },
+    ];
+  }
+  if (read.status === "failed") {
+    return [
+      {
+        kind: "narration",
+        id: "recap:read-failed",
+        i18nKey: "ob.conv.recap.readFailed",
+        params: { host },
+      },
+    ];
+  }
+  if (read.status === "deferred") {
+    return [
+      {
+        kind: "narration",
+        id: "recap:read-deferred",
+        i18nKey: "ob.conv.recap.readDeferred",
+        params: { host },
+      },
+    ];
+  }
+  return [];
+}
 
 // The wizard step values that mean the company confirmation already
 // happened (the classic coordinator only advances past step "read"/"confirm"
@@ -125,7 +190,7 @@ function recapEntries(
 }
 
 export function restorePlan(inputs: RestoreInputs): RestorePlan {
-  const { state, profile, voice, routeConnect } = inputs;
+  const { state, profile, voice, read, routeConnect } = inputs;
   if (state?.step === "complete") {
     return { kind: "complete" };
   }
@@ -133,14 +198,17 @@ export function restorePlan(inputs: RestoreInputs): RestorePlan {
     state !== null ? state.path === "member" : profile !== null;
   const companyConfirmed = state !== null && confirmedSteps.has(state.step);
   if (state === null || !companyConfirmed) {
-    // Fresh, or the company act is still open (step read/confirm): the act
-    // restarts and re-derives its review from the server; no recap yet.
+    // The company act is still open (fresh, or step read/confirm). A
+    // persisted read reattaches so its progress or finished review is
+    // reachable; a failed or deferred one reopens fresh with an honest line.
     return {
       kind: "start",
       memberPath,
       companyConfirmed: false,
       resumeTarget: null,
-      recap: [],
+      adoptRead:
+        read !== null && adoptableReadStates.has(read.status) ? read : null,
+      recap: read !== null ? readRecap(read) : [],
     };
   }
   const target: ResumePoint =
@@ -150,6 +218,7 @@ export function restorePlan(inputs: RestoreInputs): RestorePlan {
     memberPath,
     companyConfirmed: true,
     resumeTarget: target,
+    adoptRead: null,
     recap: recapEntries(inputs, memberPath, target),
   };
 }

@@ -1332,6 +1332,14 @@ export const en = {
     "You skipped the voice profile. Drafts use a neutral starter voice.",
   "ob.conv.recap.corpus":
     "Your corpus already holds {words} of your own words.",
+  "ob.conv.recap.readTerminal":
+    "Welcome back. I already finished reading {host}: {count} findings with sources. Your review is ready below.",
+  "ob.conv.recap.readReading":
+    "Welcome back. I am still reading {host}. Pages so far: {pages}.",
+  "ob.conv.recap.readFailed":
+    "Welcome back. My earlier read of {host} did not finish. Give me a website again, or tell me directly.",
+  "ob.conv.recap.readDeferred":
+    "Welcome back. My read of {host} is paused for now. Give me a website again, or tell me directly.",
   "ob.conv.connect.pick":
     "Pick a provider to see exactly what connecting does, or skip and connect later in Settings.",
   "ob.conv.connect.skip": "Skip connecting for now",

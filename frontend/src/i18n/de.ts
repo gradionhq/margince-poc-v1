@@ -1361,6 +1361,14 @@ export const de = {
     "Du hast das Stimmprofil übersprungen. Entwürfe nutzen eine neutrale Startstimme.",
   "ob.conv.recap.corpus":
     "Dein Korpus enthält bereits {words} deiner eigenen Wörter.",
+  "ob.conv.recap.readTerminal":
+    "Willkommen zurück. Ich habe {host} bereits fertig gelesen: {count} belegte Funde. Deine Durchsicht ist unten bereit.",
+  "ob.conv.recap.readReading":
+    "Willkommen zurück. Ich lese {host} noch. Seiten bisher: {pages}.",
+  "ob.conv.recap.readFailed":
+    "Willkommen zurück. Mein früherer Lesevorgang von {host} wurde nicht fertig. Nenn mir wieder eine Website oder erzähl es mir direkt.",
+  "ob.conv.recap.readDeferred":
+    "Willkommen zurück. Mein Lesevorgang von {host} pausiert gerade. Nenn mir wieder eine Website oder erzähl es mir direkt.",
   "ob.conv.connect.pick":
     "Wähle einen Anbieter, um genau zu sehen, was das Verbinden tut. Oder überspringe es und verbinde später in den Einstellungen.",
   "ob.conv.connect.skip": "Verbinden vorerst überspringen",
