@@ -77,7 +77,7 @@ func TestModelRateAppendForwardAndConversion(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("future: %v", err)
 	}
-	latest, err := store.ListEffectiveModelRates(ctx)
+	latest, err := store.ListLatestModelRates(ctx)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestModelRateReadDeniedForNonAdmin(t *testing.T) {
 	e := Setup(t)
 	store := ai.NewRateStore(e.Pool)
 	roCtx := e.As(e.Rep1, []ids.UUID{e.Team1}, ReadOnlyPerms)
-	if _, err := store.ListEffectiveModelRates(roCtx); !errors.Is(err, apperrors.ErrPermissionDenied) {
+	if _, err := store.ListLatestModelRates(roCtx); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("read_only list err = %v, want ErrPermissionDenied", err)
 	}
 }

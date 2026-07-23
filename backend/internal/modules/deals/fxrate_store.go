@@ -65,6 +65,34 @@ func isISO4217(s string) bool {
 	return true
 }
 
+// plainDecimal answers whether s is a plain non-negative decimal — digits
+// with at most one dot, within maxInt integer and maxFrac fractional digits.
+// It rejects the rational ("1/3") and scientific ("1e3") forms big.Rat also
+// accepts, which would pass a Sign() check and then fail the ::numeric cast
+// (a 500 where a clean 422 was intended).
+func plainDecimal(s string, maxInt, maxFrac int) bool {
+	if s == "" {
+		return false
+	}
+	intPart, fracPart, hasDot := strings.Cut(s, ".")
+	if intPart == "" || len(intPart) > maxInt || !allDigits(intPart) {
+		return false
+	}
+	if hasDot && (fracPart == "" || len(fracPart) > maxFrac || !allDigits(fracPart)) {
+		return false
+	}
+	return true
+}
+
+func allDigits(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Store) todayUTC() time.Time {
 	return s.clock().UTC().Truncate(24 * time.Hour)
 }
@@ -80,6 +108,10 @@ func (s *Store) SetFxRate(ctx context.Context, in SetFxRateInput) (FxRateRow, er
 	if err != nil {
 		return FxRateRow{}, err
 	}
+	// Persist the same UTC-truncated day the past-date guard checked, so a
+	// sub-day offset can never store a calendar date different from the one
+	// validated.
+	effDate := in.EffectiveDate.UTC().Truncate(24 * time.Hour)
 
 	var out FxRateRow
 	err = s.tx(ctx, func(tx pgx.Tx) error {
@@ -99,17 +131,21 @@ func (s *Store) SetFxRate(ctx context.Context, in SetFxRateInput) (FxRateRow, er
 			ON CONFLICT (workspace_id, from_currency, to_currency, rate_date)
 			DO UPDATE SET rate = EXCLUDED.rate
 			RETURNING id, from_currency, to_currency, rate::text, rate_date`,
-			storekit.MustWorkspace(ctx), from, base, in.Rate, in.EffectiveDate,
+			storekit.MustWorkspace(ctx), from, base, in.Rate, effDate,
 		).Scan(&fxID, &out.FromCurrency, &out.ToCurrency, &out.Rate, &out.RateDate); err != nil {
 			return fmt.Errorf("upsert fx_rate: %w", err)
 		}
-		auditID, err := storekit.Audit(ctx, tx, "create", "fx_rate", fxID, nil,
-			map[string]any{"from": from, "to": base, "rate": in.Rate, "date": in.EffectiveDate})
-		if err != nil {
-			return fmt.Errorf("audit fx_rate set: %w", err)
+		// Audit-only by ratification (EVT-NOEVT-3): the closed event catalog
+		// defines no fx_rate.* type and the rate sheet is workspace config
+		// recomputed price-on-read — the same ruling as the deals-owned
+		// product rate-card (CreateProduct is audit-only). Ratified in
+		// writeshape_test.go; inventing an fx_rate.* verb on the deal stream
+		// would violate the closed catalog (contract-first, P3).
+		if _, err := storekit.Audit(ctx, tx, "create", "fx_rate", fxID, nil,
+			map[string]any{"from": from, "to": base, "rate": in.Rate, "date": effDate}); err != nil {
+			return fmt.Errorf("audit fx_rate create: %w", err)
 		}
-		return storekit.Emit(ctx, tx, auditID, "fx_rate.appended", "fx_rate", fxID,
-			map[string]any{"from": from, "to": base, "rate": in.Rate})
+		return nil
 	})
 	if err != nil {
 		return FxRateRow{}, err
@@ -126,8 +162,13 @@ func normalizeFxInput(in SetFxRateInput, today time.Time) (from string, err erro
 	if !isISO4217(from) {
 		return "", fxInvalid("from_currency", "fx_rate_currency", "from_currency must be a 3-letter ISO code")
 	}
-	if r, ok := new(big.Rat).SetString(strings.TrimSpace(in.Rate)); !ok || r.Sign() <= 0 {
-		return "", fxInvalid("rate", "fx_rate_positive", "rate must be a positive decimal")
+	rate := strings.TrimSpace(in.Rate)
+	if !plainDecimal(rate, 10, 10) {
+		return "", fxInvalid("rate", "fx_rate_positive",
+			"rate must be a plain decimal (up to 10 integer and 10 fractional digits)")
+	}
+	if r, _ := new(big.Rat).SetString(rate); r.Sign() <= 0 {
+		return "", fxInvalid("rate", "fx_rate_positive", "rate must be greater than zero")
 	}
 	if in.EffectiveDate.UTC().Truncate(24 * time.Hour).Before(today) {
 		return "", fxInvalid("effective_date", "fx_rate_past", "effective_date cannot be in the past")
@@ -135,9 +176,11 @@ func normalizeFxInput(in SetFxRateInput, today time.Time) (from string, err erro
 	return from, nil
 }
 
-// ListEffectiveFxRates returns the current (latest effective) rate per
-// foreign currency. Admin/ops read gate.
-func (s *Store) ListEffectiveFxRates(ctx context.Context) ([]FxRateRow, error) {
+// ListLatestFxRates returns the head of the price sheet — the latest-dated
+// row per foreign currency, which MAY be a future-scheduled rate. This is
+// the editor's "sheet head" view, deliberately distinct from RateFor's
+// as-of-day effective rate (effective_date <= day). Admin/ops read gate.
+func (s *Store) ListLatestFxRates(ctx context.Context) ([]FxRateRow, error) {
 	if err := auth.Require(ctx, "fx_rate", principal.ActionRead); err != nil {
 		return nil, err
 	}

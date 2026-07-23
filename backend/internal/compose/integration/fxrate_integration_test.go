@@ -65,7 +65,7 @@ func TestFxRateAppendForward(t *testing.T) {
 	if _, err := e.Deals.SetFxRate(ctx, deals.SetFxRateInput{FromCurrency: "USD", Rate: "0.9300", EffectiveDate: today.AddDate(0, 0, 1)}); err != nil {
 		t.Fatalf("future USD: %v", err)
 	}
-	latest, err := e.Deals.ListEffectiveFxRates(ctx)
+	latest, err := e.Deals.ListLatestFxRates(ctx)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestFxRateWriteDeniedForNonAdmin(t *testing.T) {
 func TestFxRateReadDeniedForNonAdmin(t *testing.T) {
 	e := Setup(t)
 	roCtx := e.As(e.Rep1, []ids.UUID{e.Team1}, ReadOnlyPerms)
-	if _, err := e.Deals.ListEffectiveFxRates(roCtx); !errors.Is(err, apperrors.ErrPermissionDenied) {
+	if _, err := e.Deals.ListLatestFxRates(roCtx); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("read_only list err = %v, want ErrPermissionDenied", err)
 	}
 }

@@ -84,6 +84,8 @@ func (s *RateStore) SetModelRate(ctx context.Context, in SetModelRateInput) (Mod
 	if err != nil {
 		return ModelRateRow{}, err
 	}
+	// Persist the same UTC-truncated day the past-date guard checked.
+	effDate := in.EffectiveDate.UTC().Truncate(24 * time.Hour)
 
 	var out ModelRateRow
 	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
@@ -109,7 +111,7 @@ func (s *RateStore) SetModelRate(ctx context.Context, in SetModelRateInput) (Mod
 			RETURNING id, provider, model_id, input_per_mtok_microusd, output_per_mtok_microusd,
 			          cache_read_per_mtok_microusd, cache_write_per_mtok_microusd, effective_date`,
 			storekit.MustWorkspace(ctx), provider, modelID,
-			input, output, cacheRead, cacheWrite, in.EffectiveDate,
+			input, output, cacheRead, cacheWrite, effDate,
 		).Scan(&id, &provOut, &modelOut, &inMicro, &outMicro, &crMicro, &cwMicro, &eff); err != nil {
 			return fmt.Errorf("upsert ai_model_rate: %w", err)
 		}
@@ -136,9 +138,11 @@ func (s *RateStore) SetModelRate(ctx context.Context, in SetModelRateInput) (Mod
 	return out, nil
 }
 
-// ListEffectiveModelRates returns the current (latest effective) price per
-// (provider, model_id). Admin/ops read gate.
-func (s *RateStore) ListEffectiveModelRates(ctx context.Context) ([]ModelRateRow, error) {
+// ListLatestModelRates returns the head of the price sheet — the latest-dated
+// row per (provider, model_id), which MAY be a future-scheduled price. The
+// editor's "sheet head" view, distinct from RateFor's as-of-day effective
+// price (effective_date <= day). Admin/ops read gate.
+func (s *RateStore) ListLatestModelRates(ctx context.Context) ([]ModelRateRow, error) {
 	if err := auth.Require(ctx, "ai_model_rate", principal.ActionRead); err != nil {
 		return nil, err
 	}
