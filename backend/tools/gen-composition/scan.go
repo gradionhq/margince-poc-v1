@@ -228,18 +228,15 @@ func (h *treeHasher) addFileOrEmpty(rel string) error {
 // addTree hashes every regular file under rel — the whole subtree, not
 // just .go — so a non-Go asset the published surface gains (a go:embed
 // template or schema, including a dot-prefixed one an `all:` pattern can
-// embed) still invalidates the composition when it changes. Only *_test.go
-// files are excluded: they compile into neither the published surface an
-// extension builds against nor the composed binary, so an edit to one must
-// not force a rebuild. A non-regular entry is refused, as in digestTree.
+// embed, or one that happens to end in _test.go) still invalidates the
+// composition when it changes. The digest classifies nothing by name: it
+// hashes bytes, conservatively, so the staleness probe never misses a
+// change. A non-regular entry is refused, as in digestTree.
 func (h *treeHasher) addTree(rel string) error {
 	root := filepath.Join(h.root, filepath.FromSlash(rel))
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
-		}
-		if strings.HasSuffix(d.Name(), "_test.go") {
-			return nil
 		}
 		if !d.Type().IsRegular() {
 			return fmt.Errorf("%s: only regular files back the composition digest (found %s)", path, d.Type())

@@ -45,12 +45,11 @@ const (
 	}
 }
 
-// TestAddTreeExcludesTestFilesButHashesAssets: the published-surface
-// digest skips *_test.go (tests are in neither the compile-against surface
-// nor the composed binary, so a test edit must not force a rebuild) but
-// covers every shipping asset — including a dot-prefixed one an `all:`
-// go:embed pattern can embed, whose change DOES alter the binary.
-func TestAddTreeExcludesTestFilesButHashesAssets(t *testing.T) {
+// TestAddTreeHashesEveryRegularFile: the digest classifies nothing by
+// name — a change to ANY shipping file alters it, including a dot-prefixed
+// asset an `all:` go:embed can embed and one that happens to end in
+// _test.go. Conservative by design: the staleness probe never misses.
+func TestAddTreeHashesEveryRegularFile(t *testing.T) {
 	root := t.TempDir()
 	base := filepath.Join(root, "pkg")
 	if err := os.MkdirAll(base, 0o755); err != nil {
@@ -62,8 +61,8 @@ func TestAddTreeExcludesTestFilesButHashesAssets(t *testing.T) {
 		}
 	}
 	write("a.go", "package a\n")
-	write("a_test.go", "package a\n")
 	write(".embedded", "v1")
+	write("schema_test.go", "asset-not-source-v1") // an embedded asset that merely ends in _test.go
 	digest := func() string {
 		h := newTreeHasher(root)
 		if err := h.addTree("pkg"); err != nil {
@@ -71,14 +70,39 @@ func TestAddTreeExcludesTestFilesButHashesAssets(t *testing.T) {
 		}
 		return h.sum()
 	}
-	before := digest()
-	write("a_test.go", "package a // edited\n")
-	if digest() != before {
-		t.Fatal("a _test.go edit changed the published-surface digest")
+	for _, edit := range []struct{ name, body string }{
+		{".embedded", "v2"},
+		{"schema_test.go", "asset-not-source-v2"},
+	} {
+		before := digest()
+		write(edit.name, edit.body)
+		if digest() == before {
+			t.Fatalf("a change to %s was not reflected in the digest", edit.name)
+		}
 	}
-	write(".embedded", "v2")
-	if digest() == before {
-		t.Fatal("a dot-prefixed embedded asset change was not digested")
+}
+
+// TestDeriveUnitManifestIgnoresGoIgnoredFiles: a file the go tool never
+// compiles (dot- or underscore-prefixed) must not feed the New() scan —
+// otherwise a stray New() in _scratch.go could bind the manifest to source
+// the binary never sees, or trip the multiple-New guard.
+func TestDeriveUnitManifestIgnoresGoIgnoredFiles(t *testing.T) {
+	root := t.TempDir()
+	writeUnit(t, root, "u", map[string]string{
+		"go.mod":      "module example.test/ext/u\n\ngo 1.26.5\n",
+		"u.go":        "package u\n\nimport \"github.com/gradionhq/margince/backend/pkg/extension\"\n\nfunc New() extension.Extension { return extension.Extension{Name: \"u\", Version: \"1.0.0\"} }\n",
+		"_scratch.go": "package u\n\nimport \"github.com/gradionhq/margince/backend/pkg/extension\"\n\nfunc New() extension.Extension { return extension.Extension{Name: \"WRONG\", Version: \"9\"} }\n",
+	})
+	unit, err := scanUnit("u", filepath.Join(root, "extensions", "u"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	derived, err := deriveUnitManifest(unit, realVocabulary(t))
+	if err != nil {
+		t.Fatalf("derivation should ignore _scratch.go and read u.go: %v", err)
+	}
+	if !strings.Contains(string(derived), `"name": "u"`) || strings.Contains(string(derived), "WRONG") {
+		t.Fatalf("derivation read the go-ignored file:\n%s", derived)
 	}
 }
 

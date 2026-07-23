@@ -18,9 +18,21 @@ import (
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
+// buildIncludesFile reports whether the go tool would compile a file of
+// this name into the (non-test) package. Mirroring go/build: a name
+// beginning with '.' or '_' is ignored, and a _test.go file is test-only.
+// The AST derivation must read exactly what compiles — parsing an ignored
+// file could bind the manifest to a New() the build never sees.
+func buildIncludesFile(name string) bool {
+	if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
+		return false
+	}
+	return !strings.HasSuffix(name, "_test.go")
+}
+
 func deriveUnitManifest(u extensionUnit, vocab map[string]string) ([]byte, error) {
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, u.Dir, func(fi fs.FileInfo) bool { return !strings.HasSuffix(fi.Name(), "_test.go") }, parser.SkipObjectResolution)
+	pkgs, err := parser.ParseDir(fset, u.Dir, func(fi fs.FileInfo) bool { return buildIncludesFile(fi.Name()) }, parser.SkipObjectResolution)
 	if err != nil {
 		return nil, fmt.Errorf("extensions/%s: %w", u.Name, err)
 	}

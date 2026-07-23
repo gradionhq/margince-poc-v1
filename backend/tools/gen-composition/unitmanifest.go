@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 )
 
 // unitManifestFile is the per-unit generated manifest (ADR-0069 §5): what
@@ -158,7 +157,7 @@ func verifyUnitManifests(root string, units []extensionUnit) error {
 func publishedVocabulary(root string) (map[string]string, error) {
 	dir := filepath.Join(root, "backend", "pkg", "extension")
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, func(fi fs.FileInfo) bool { return !strings.HasSuffix(fi.Name(), "_test.go") }, parser.SkipObjectResolution)
+	pkgs, err := parser.ParseDir(fset, dir, func(fi fs.FileInfo) bool { return buildIncludesFile(fi.Name()) }, parser.SkipObjectResolution)
 	if err != nil {
 		return nil, fmt.Errorf("parsing the published extension surface: %w", err)
 	}
