@@ -163,9 +163,12 @@ func (w *captureBackfillWorker) Work(ctx context.Context, job *river.Job[Capture
 
 // enqueueDigest offers a same-day digest build through the ambient River
 // client; the digest worker rebuilds the day idempotently (as-of-now truths).
+// The Safely variant is deliberate: a unit test may drive Work directly with
+// no River client in context, and the plain ClientFromContext PANICS there —
+// a best-effort enqueue must degrade to a no-op, never crash the pager.
 func (w *captureBackfillWorker) enqueueDigest(ctx context.Context, backfillID string) {
-	client := river.ClientFromContext[pgx.Tx](ctx)
-	if client == nil {
+	client, err := river.ClientFromContextSafely[pgx.Tx](ctx)
+	if err != nil {
 		return
 	}
 	if _, err := client.Insert(ctx, CaptureDigestArgs{}, sweepInsertOpts()); err != nil {
