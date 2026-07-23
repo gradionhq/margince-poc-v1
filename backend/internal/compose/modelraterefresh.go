@@ -133,7 +133,10 @@ func (m modelCostRefresh) run(ctx context.Context) error {
 	for _, src := range m.sources {
 		models, err := m.extract(ctx, src)
 		if err != nil {
-			return fmt.Errorf("model refresh: %s: %w", src.Provider, err)
+			// One down/unparseable source must not block the others — log and
+			// carry on so the remaining providers still get their proposals.
+			m.log.Warn("model-cost refresh: source failed", "provider", src.Provider, "err", err)
+			continue
 		}
 		for _, em := range models {
 			changed, prop, ok := diffModel(em, currentByKey)
