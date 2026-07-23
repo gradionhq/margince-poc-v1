@@ -75,6 +75,11 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 		gate:  consent.NewGate(consent.NewStore(pool)),
 		draft: drafter,
 	})
+	// The composed extension set's governed tools ride the same registry
+	// and admission gate as the core tools, registered last so a name that
+	// collides with a core verb fails loudly (RegisterExtensions stashed
+	// them at boot, before this ran).
+	registerComposedTools(registry)
 	return registry
 }
 

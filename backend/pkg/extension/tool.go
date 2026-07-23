@@ -4,9 +4,22 @@
 package extension
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 )
+
+// ToolHandler runs a governed tool after admission. It is the extension's
+// BEHAVIOR — the one part of a Tool that is not static declaration — so
+// the manifest generator skips it (behavior cannot be derived from the
+// AST, and the manifest records only the governed request). A tool
+// declared without a handler is inert: it appears in the manifest but the
+// boot registers only handler-bearing tools into the live surface. The
+// signature mirrors the core mcp.Tool.Handle the boot adapts it to;
+// arguments and result are the raw JSON the tool's own typed decode
+// validates.
+type ToolHandler func(ctx context.Context, in json.RawMessage) (json.RawMessage, error)
 
 // Tier is the risk tier an extension REQUESTS for a governed tool:
 // auto-execute runs without confirmation, confirmation-
@@ -95,6 +108,22 @@ type Tool struct {
 	// resolves into an effective grant, not a fact; once effective, a call
 	// admits only when the granting principal holds it.
 	RequestedScope Scope
+
+	// InputSchema and OutputSchema are the JSON Schema documents the served
+	// tool advertises through tools/list (mapped onto mcp.ToolSpec). They
+	// are client-facing DOCUMENTATION: the agent reads them to shape a
+	// call, but the tool's own typed decode — not a generic schema check —
+	// enforces its invariants. Optional, and both must be valid JSON when
+	// set. They are not part of the §5 governance descriptor, so the
+	// manifest generator does not read them.
+	InputSchema  json.RawMessage
+	OutputSchema json.RawMessage
+
+	// Handle is the tool's behavior. It is optional: a nil Handle declares
+	// the tool (it still appears in the manifest as a governed request) but
+	// leaves it inert; boot serves only handler-bearing tools. The manifest
+	// generator does not read it — behavior is not a static declaration.
+	Handle ToolHandler
 }
 
 // Validate enforces the tool's grammar and vocabularies. Boot
@@ -112,6 +141,12 @@ func (t Tool) Validate() error {
 	}
 	if err := t.RequestedScope.Validate(); err != nil {
 		return fmt.Errorf("tool %q: %w", t.Name, err)
+	}
+	if t.InputSchema != nil && !json.Valid(t.InputSchema) {
+		return fmt.Errorf("tool %q: InputSchema is not valid JSON", t.Name)
+	}
+	if t.OutputSchema != nil && !json.Valid(t.OutputSchema) {
+		return fmt.Errorf("tool %q: OutputSchema is not valid JSON", t.Name)
 	}
 	return nil
 }

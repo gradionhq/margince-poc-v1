@@ -209,6 +209,10 @@ func (r *unitReader) readTool(elt ast.Expr, ext string) (riskTierRequest, error)
 			tier, err = r.constValue(kv.Value, ext)
 		case "RequestedScope":
 			scope, err = r.constValue(kv.Value, ext)
+		case "Handle", "InputSchema", "OutputSchema":
+			// Behavior and client-facing I/O docs — recognized and skipped.
+			// The manifest records the §5 governance descriptor, not the
+			// tool's code or its advertised schemas.
 		default:
 			err = r.errAt(kv, "Tool field %s is not derivable by this generator", key.Name)
 		}
