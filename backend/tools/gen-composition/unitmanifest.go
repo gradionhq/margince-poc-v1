@@ -155,17 +155,26 @@ func collectStringConsts(file *ast.File, vocab map[string]string) {
 			continue
 		}
 		for _, spec := range gen.Specs {
-			vs, ok := spec.(*ast.ValueSpec)
-			if !ok || len(vs.Names) != len(vs.Values) {
-				continue
-			}
-			for i, name := range vs.Names {
-				if lit, ok := vs.Values[i].(*ast.BasicLit); ok && lit.Kind == token.STRING {
-					if value, err := strconv.Unquote(lit.Value); err == nil {
-						vocab[name.Name] = value
-					}
-				}
-			}
+			addStringConst(spec, vocab)
+		}
+	}
+}
+
+// addStringConst records the string-literal constants of one spec (a
+// `Name Type = "value"` line) into vocab; non-string or computed values
+// are skipped — only literal string constants form the vocabulary.
+func addStringConst(spec ast.Spec, vocab map[string]string) {
+	vs, ok := spec.(*ast.ValueSpec)
+	if !ok || len(vs.Names) != len(vs.Values) {
+		return
+	}
+	for i, name := range vs.Names {
+		lit, ok := vs.Values[i].(*ast.BasicLit)
+		if !ok || lit.Kind != token.STRING {
+			continue
+		}
+		if value, err := strconv.Unquote(lit.Value); err == nil {
+			vocab[name.Name] = value
 		}
 	}
 }
