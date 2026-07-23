@@ -58,6 +58,12 @@ func NewStore(pool *pgxpool.Pool, cipher *Cipher) *Store {
 	return &Store{pool: pool, cipher: cipher}
 }
 
+// DeliveryEnabled reports whether this deployment has a signing key — i.e.
+// whether create/rotate/replay are available (they need the cipher to seal or
+// sign). The list surface exposes it so the UI can render a not-enabled state
+// up front instead of controls that would only fail with a 503 on click.
+func (s *Store) DeliveryEnabled() bool { return s.cipher != nil }
+
 // ErrNotConfigured is returned by paths that need the deployment signing
 // key when none was configured — an honest 503, never a silent no-op.
 var ErrNotConfigured = errors.New("webhooks: signing key not configured")

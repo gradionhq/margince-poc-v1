@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 // googleStub routes the handful of Google/Gmail endpoints the client calls
@@ -171,6 +173,21 @@ func TestGetRawDecodesBase64URL(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), "Subject: hi") {
 		t.Errorf("decoded RFC822 = %q, want it to contain the header", raw)
+	}
+}
+
+// A 404 on GetRaw (the id vanished since it was listed) maps to the skip
+// sentinel, not the reachability error — the pull skips it and continues.
+func TestGetRawMissingMessageMapsGoneSentinel(t *testing.T) {
+	_, api := newTestClients(t)
+	// The stub only serves /messages/m1; any other id 404s, exactly as Gmail
+	// does for a message deleted between enumeration and fetch.
+	_, err := api.GetRaw(context.Background(), "access-2", "m-vanished")
+	if !errors.Is(err, ErrMessageGone) {
+		t.Fatalf("GetRaw on a 404 = %v, want ErrMessageGone", err)
+	}
+	if !errors.Is(err, connector.ErrSkip) {
+		t.Fatalf("ErrMessageGone must wrap connector.ErrSkip so the loops skip it, got %v", err)
 	}
 }
 

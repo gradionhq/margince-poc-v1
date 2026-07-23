@@ -156,6 +156,14 @@ export function canManageCustomFields(
   return (roles ?? []).some((role) => role === "admin" || role === "ops");
 }
 
+// fx_rate + ai_model_rate are admin/ops-owned config surfaces (the seeded
+// role matrix grants CRUD to admin/ops, nothing to other roles). The server
+// enforces it; this predicate keeps the rate-editor write controls honestly
+// disabled for a role whose call could only 403.
+export function canManageRates(roles: readonly string[] | undefined): boolean {
+  return (roles ?? []).some((role) => role === "admin" || role === "ops");
+}
+
 // The minimal read surface QueryGate/QueryStates need. A real react-query
 // `UseQueryResult<Data>` is structurally assignable to it, and a hook that
 // MERGES several queries (e.g. the decided-approvals fan-out) can return a
@@ -332,6 +340,16 @@ export function problemExistingId(
       : null;
   if (code && id) return { id, code };
   return null;
+}
+
+// problemCode pulls the RFC-7807 `code` discriminator out of a problem body,
+// or null when absent — so a caller keys on the specific server condition
+// (e.g. webhooks_not_configured) rather than on the bare HTTP status, which a
+// transient dependency failure can share.
+export function problemCode(problem: unknown): string | null {
+  if (!problem || typeof problem !== "object") return null;
+  const record = problem as Record<string, unknown>;
+  return typeof record.code === "string" ? record.code : null;
 }
 
 // A 409 whose code names the If-Match precondition failure — the record

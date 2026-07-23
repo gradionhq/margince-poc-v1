@@ -10,6 +10,7 @@
 package main
 
 import (
+	"cmp"
 	// Embedded tzdata: workspace timezones must resolve on scratch
 	// containers that ship no zoneinfo.
 	"context"
@@ -86,6 +87,9 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	cfg.freemailExtra = deployCfg.Capture.FreemailExtra
+	cfg.ratesFx = deployCfg.Rates.Fx
+	cfg.ratesCurrencies = deployCfg.Rates.FxCurrencies
+	cfg.ratesModelPricing = deployCfg.Rates.ModelPricing
 
 	handler, err := httpserver.LogHandler(stdout, cfg.logLevel, cfg.logFormat)
 	if err != nil {
@@ -128,7 +132,15 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	var background sync.WaitGroup
 	if modelPath.Agent != nil {
 		grounding := search.NewRetriever(search.NewStore(pool), modelPath.Embedder)
-		svc := compose.NewRunnerService(pool, modelPath.Agent, modelPath.DraftReply, grounding, logger)
+		// The Surface-B runner's agent tools reach overlay write-back through
+		// the workspace's own vaulted incumbent token; wire the FromEnv
+		// vault-backed resolver so an autonomous run can write back (nil vault
+		// → clean errNoWriteIncumbent, never a crash).
+		runnerVault, _, rverr := keyvault.FromEnv(pool)
+		if rverr != nil {
+			return rverr
+		}
+		svc := compose.NewRunnerService(pool, modelPath.Agent, modelPath.DraftReply, grounding, logger, compose.OverlayIncumbentResolver(pool, runnerVault))
 		_, _ = fmt.Fprintf(stdout, "worker running the Surface-B scheduler every %s\n", cfg.runnerInterval)
 		background.Go(func() { runScheduler(ctx, svc, cfg.runnerInterval, logger) })
 		background.Go(func() { runResumeSubscriber(ctx, rdb, svc, logger) })
@@ -290,6 +302,14 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 		// Same posture for the voice build: the worker registers with or
 		// without a model, failing picked-up builds actionably when brainless.
 		VoiceBrain: modelPath.VoiceBuild,
+		// The rate-refresh producers register regardless; without a source
+		// (empty FX url / no pricing sources) or a model (nil RateExtract)
+		// they no-op honestly. FX is deterministic (no model); model-cost
+		// needs the extraction lane.
+		RateExtractBrain:      modelPath.RateExtract,
+		FxSourceURL:           cmp.Or(cfg.ratesFx, "https://api.frankfurter.dev/v1/latest"),
+		FxBootstrapCurrencies: fxBootstrapCurrencies(cfg.ratesCurrencies),
+		ModelPricingSources:   compose.PricingSourcesFromMap(cfg.ratesModelPricing),
 		DeepReadCaps: compose.CrawlCaps{
 			MaxPages: cfg.deepReadMaxPages,
 			MaxBytes: cfg.deepReadMaxBytes,

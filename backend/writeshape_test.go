@@ -81,6 +81,8 @@ var auditOnlyWrites = map[string]string{
 	"internal/modules/customfields:Rename":               "the closed catalog (events.md \u00a75) defines no custom_field.* type \u2014 the spec's custom-fields.md \u00a7Events ratifies the audit entry as the add/rename/retire trail",
 	"internal/modules/customfields:Retire":               "the closed catalog (events.md \u00a75) defines no custom_field.* type \u2014 the spec's custom-fields.md \u00a7Events ratifies the audit entry as the add/rename/retire trail",
 	"internal/modules/customfields:setOptionsInTx":       "the closed catalog (events.md \u00a75) defines no custom_field.* type \u2014 the spec's custom-fields.md \u00a7Events ratifies the audit entry as the add/rename/retire trail",
+	"internal/modules/ai:writeModelRate":                 "model prices are ratified audit-only (EVT-NOEVT-3) \u2014 the closed catalog (events.md \u00a75) defines no ai_model_rate.* type and the price sheet is workspace config recomputed price-on-read, the same ruling as the deals-owned product rate-card; inventing a build-side type or stream would violate the closed catalog (P3)",
+	"internal/modules/deals:writeFxRate":                 "FX rates are ratified audit-only (EVT-NOEVT-3) \u2014 the closed catalog (events.md \u00a75) defines no fx_rate.* type and the rate sheet is workspace config recomputed price-on-read, the same ruling as the deals-owned product rate-card (CreateProduct is audit-only); an fx_rate.* verb on the deal stream would be a build-side invention the closed catalog forbids (P3)",
 	"internal/modules/quotas:CreateQuota":                "quota targets are ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no quota.* type (E09's forecast.period_closed is a period-close fact, deferred with its work package) and the closed-verb law forbids inventing one build-side",
 	"internal/modules/quotas:UpdateQuota":                "quota targets are ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no quota.* type (E09's forecast.period_closed is a period-close fact, deferred with its work package) and the closed-verb law forbids inventing one build-side",
 	"internal/modules/quotas:ArchiveQuota":               "quota targets are ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no quota.* type (E09's forecast.period_closed is a period-close fact, deferred with its work package) and the closed-verb law forbids inventing one build-side",
@@ -136,7 +138,7 @@ func TestEveryAuditedMutationEmitsAnEvent(t *testing.T) {
 							switch node.Sel.Name {
 							case "Audit", "AuditWithEvidence":
 								audits = true
-							case "Emit":
+							case "Emit", "EmitEvent", "EmitEventForEntity":
 								emits = true
 							}
 						}
@@ -198,8 +200,11 @@ func emissionBearingFunctions(fset *token.FileSet, dir string) (map[string]bool,
 			ast.Inspect(fn.Body, func(n ast.Node) bool {
 				switch node := n.(type) {
 				case *ast.SelectorExpr:
-					if pkg, ok := node.X.(*ast.Ident); ok && pkg.Name == "storekit" && node.Sel.Name == "Emit" {
-						emits[fn.Name.Name] = true
+					if pkg, ok := node.X.(*ast.Ident); ok && pkg.Name == "storekit" {
+						switch node.Sel.Name {
+						case "Emit", "EmitEvent", "EmitEventForEntity":
+							emits[fn.Name.Name] = true
+						}
 					}
 				case *ast.CallExpr:
 					if callee, ok := node.Fun.(*ast.Ident); ok {

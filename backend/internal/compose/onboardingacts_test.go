@@ -227,6 +227,36 @@ func TestCompanyActClarificationCarriesTheDetectedQuestion(t *testing.T) {
 	}
 }
 
+func TestCompanyActClarificationSkipsQuestionsTheDraftAnswers(t *testing.T) {
+	readID := ids.NewV7()
+	brain := &validatedOnboardingBrainStub{response: model.Response{Text: `{
+		"kind":"clarification","message":"One address question remains.","proposed_changes":[],"source_ids":[]}`}}
+	assistant := onboardingCompanyAssistant{
+		state: onboardingStateReaderStub{state: identity.OnboardingState{ID: ids.NewV7(), SiteReadID: &readID}},
+		people: onboardingSiteReadReaderStub{read: people.SiteRead{ID: readID, Status: siteReadWireStatusDone, DraftVersion: 3, LegalEntities: []people.SiteReadLegalEntity{
+			{Name: "Acme GmbH", RegisteredAddress: "Berlin 1", SourceURL: "https://acme.example/legal"},
+			{Name: "Acme Holding AG", RegisteredAddress: "Zug 2", SourceURL: "https://acme.example/legal"},
+		}}},
+		brain: brain, runtime: &onboardingRuntimeStub{summary: ai.RunSummary{Currency: "USD"}},
+	}
+	// The live draft already answers the legal-name question with an
+	// exact option value, so the chat re-asks only the address.
+	recorder := onboardingCompanyRequest(&assistant, `{
+		"message":"What is still unclear?","locale":"en",
+		"company_draft":{"legal_name":"Acme GmbH"}}`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var reply crmcontracts.OnboardingCompanyMessageReply
+	if err := json.Unmarshal(recorder.Body.Bytes(), &reply); err != nil {
+		t.Fatalf("decode reply: %v", err)
+	}
+	if reply.Clarify == nil || reply.Clarify.Field != fieldRegisteredAddress ||
+		reply.Clarify.Id != "clarify:registered_address:3" {
+		t.Fatalf("clarify = %+v", reply.Clarify)
+	}
+}
+
 func TestVoiceActAnswersFromServerCorpusNumbersOnly(t *testing.T) {
 	brain := &validatedOnboardingBrainStub{response: model.Response{Text: `{
 		"kind":"answer","message":"Your corpus holds 1240 of your own words.","proposed_changes":[],"source_ids":[]}`}}

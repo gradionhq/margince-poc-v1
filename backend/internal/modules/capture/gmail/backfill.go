@@ -12,6 +12,7 @@ package gmail
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -65,6 +66,13 @@ func (c *Connector) BackfillPage(ctx context.Context, auth connector.Auth, after
 	res := connector.BackfillPageResult{NextToken: next, Scanned: len(ids)}
 	for _, id := range ids {
 		raw, err := c.api.GetRaw(ctx, access, id)
+		if errors.Is(err, ErrMessageGone) {
+			// Deleted or moved since this page was listed — nothing to fetch.
+			// Count it scanned-but-skipped and move on; a routine 404 across a
+			// months-long window must not abort the page and stall the run.
+			res.Skipped++
+			continue
+		}
 		if err != nil {
 			// A fetch fault is transient — stop the page without advancing
 			// so the engine retries this page from its committed token.

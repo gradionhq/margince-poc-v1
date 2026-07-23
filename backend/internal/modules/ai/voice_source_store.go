@@ -173,11 +173,9 @@ func (s *VoiceStore) recordSourceIngest(ctx context.Context, tx pgx.Tx, profile 
 	if err := markProfileStale(ctx, tx, profile, s.now().UTC()); err != nil {
 		return CorpusSummary{}, err
 	}
-	err = storekit.Emit(ctx, tx, auditID, "voice.corpus_changed", "voice_profile", profile.ID, map[string]any{
-		voiceKeyProfileID: profile.ID, voiceKeySourceID: source.ID, voiceKeyAction: eventAction,
-		voiceKeyOrigin: source.Origin, voiceKeyRegister: source.Register, voiceKeyWordDelta: wordDelta,
-		voiceKeySourceCount: summary.SourceCount, voiceKeySourceHash: sourceHash,
-	})
+	err = storekit.EmitEvent(ctx, tx, auditID, profile.ID,
+		voiceCorpusChangedPayload(profile.ID, &source.ID, eventAction, &source.Origin, &source.Register,
+			wordDelta, summary.SourceCount, sourceHash))
 	if err != nil {
 		return CorpusSummary{}, err
 	}

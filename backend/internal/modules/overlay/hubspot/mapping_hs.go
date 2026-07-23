@@ -27,9 +27,18 @@ const (
 	objectClassTasks    = "tasks"
 )
 
-// activityTarget is the canonical Margince type all five engagement classes
-// map onto.
-const activityTarget = "activity"
+// The canonical Margince record types (OVA-MAP-*): the ObjectMapping Targets
+// below, the mapWrite switch (mapwrite.go), and the webhook subscription map
+// (webhook.go) all select from this one set, so a canonical class name never
+// drifts across the read/write/signal call sites. activityTarget is the type
+// all five engagement classes map onto.
+const (
+	personTarget       = "person"
+	organizationTarget = "organization"
+	dealTarget         = "deal"
+	leadTarget         = "lead"
+	activityTarget     = "activity"
+)
 
 // baselineHSLastModifiedDate is the watermark property every object
 // class but contacts uses (design.md §7, spike-confirmed) — shared with
@@ -47,13 +56,34 @@ const unmappedPolicyFlag = "flag"
 const (
 	propEmail       = "email"
 	propName        = "name"
+	propFirstname   = "firstname"
+	propLastname    = "lastname"
+	propLeadLabel   = "hs_lead_label"
 	targetAddress   = "address"
 	targetSubject   = "subject"
 	targetBody      = "body"
 	targetFullName  = "full_name"
 	targetKind      = "kind"
 	targetOccurred  = "occurred_at"
+	targetDirection = "direction"
 	propHSTimestamp = "hs_timestamp"
+	// industryField is the one spelling shared by companies' HubSpot
+	// `industry` property and the canonical `industry` mirror column — the
+	// same word both sides of the mapping, named once so read and write
+	// select it rather than retype the literal.
+	industryField = "industry"
+)
+
+// The five canonical activity kinds (OVA-MAP-1) — the Const value each
+// engagement read mapping stamps and the key each write spec selects its
+// engagement class by (OVA-MAP-W3). Named once so read and write can never
+// spell a kind differently.
+const (
+	kindCall    = "call"
+	kindMeeting = "meeting"
+	kindEmail   = "email"
+	kindNote    = "note"
+	kindTask    = "task"
 )
 
 // Mapping returns the ObjectMapping for one HubSpot object class. An
@@ -137,15 +167,15 @@ var ownerIDField = overlay.FieldMapping{
 // ordinary case: unmapped/flagged until the x_ custom column lands.
 var contactsMapping = overlay.ObjectMapping{
 	Source:         objectClassContacts,
-	Target:         "person",
+	Target:         personTarget,
 	ExternalKey:    propHSObjectID,
 	Baseline:       "lastmodifieddate",
 	UnmappedPolicy: unmappedPolicyFlag,
 	Fields: []overlay.FieldMapping{
-		{From: []string{"firstname"}, To: "first_name", Kind: overlay.TargetColumn},
-		{From: []string{"lastname"}, To: "last_name", Kind: overlay.TargetColumn},
+		{From: []string{propFirstname}, To: "first_name", Kind: overlay.TargetColumn},
+		{From: []string{propLastname}, To: "last_name", Kind: overlay.TargetColumn},
 		{
-			From:       []string{"firstname", "lastname", propEmail},
+			From:       []string{propFirstname, propLastname, propEmail},
 			To:         targetFullName,
 			Kind:       overlay.TargetAssembler,
 			Transform:  "full_name",
@@ -174,13 +204,13 @@ var contactsMapping = overlay.ObjectMapping{
 // "flag, never silently drop" treatment contacts' phone gets.
 var companiesMapping = overlay.ObjectMapping{
 	Source:         objectClassCompanies,
-	Target:         "organization",
+	Target:         organizationTarget,
 	ExternalKey:    propHSObjectID,
 	Baseline:       baselineHSLastModifiedDate,
 	UnmappedPolicy: unmappedPolicyFlag,
 	Fields: []overlay.FieldMapping{
 		{From: []string{propName}, To: "display_name", Kind: overlay.TargetColumn},
-		{From: []string{"industry"}, To: "industry", Kind: overlay.TargetColumn},
+		{From: []string{industryField}, To: industryField, Kind: overlay.TargetColumn},
 		{
 			From:      []string{"numberofemployees"},
 			To:        "size_band",
@@ -220,7 +250,7 @@ var companiesMapping = overlay.ObjectMapping{
 // code itself, uppercased.
 var dealsMapping = overlay.ObjectMapping{
 	Source:         objectClassDeals,
-	Target:         "deal",
+	Target:         dealTarget,
 	ExternalKey:    propHSObjectID,
 	Baseline:       baselineHSLastModifiedDate,
 	UnmappedPolicy: unmappedPolicyFlag,
@@ -263,12 +293,12 @@ var callsMapping = overlay.ObjectMapping{
 	ExternalKey:    propHSObjectID,
 	Baseline:       baselineHSLastModifiedDate,
 	UnmappedPolicy: unmappedPolicyFlag,
-	Const:          map[string]any{targetKind: "call"},
+	Const:          map[string]any{targetKind: kindCall},
 	Fields: []overlay.FieldMapping{
 		{From: []string{"hs_call_title"}, To: targetSubject, Kind: overlay.TargetColumn},
 		{From: []string{"hs_call_body"}, To: targetBody, Kind: overlay.TargetColumn},
 		{From: []string{propHSTimestamp}, To: targetOccurred, Kind: overlay.TargetColumn},
-		{From: []string{"hs_call_direction"}, To: "direction", Kind: overlay.TargetColumn},
+		{From: []string{"hs_call_direction"}, To: targetDirection, Kind: overlay.TargetColumn},
 		{From: []string{"hs_call_duration"}, To: "duration_seconds", Kind: overlay.TargetColumn, Transform: "ms_to_seconds"},
 		ownerIDField,
 	},
@@ -280,7 +310,7 @@ var meetingsMapping = overlay.ObjectMapping{
 	ExternalKey:    propHSObjectID,
 	Baseline:       baselineHSLastModifiedDate,
 	UnmappedPolicy: unmappedPolicyFlag,
-	Const:          map[string]any{targetKind: "meeting"},
+	Const:          map[string]any{targetKind: kindMeeting},
 	Fields: []overlay.FieldMapping{
 		{From: []string{"hs_meeting_title"}, To: targetSubject, Kind: overlay.TargetColumn},
 		{From: []string{"hs_meeting_body"}, To: targetBody, Kind: overlay.TargetColumn},
@@ -296,12 +326,12 @@ var emailsMapping = overlay.ObjectMapping{
 	ExternalKey:    propHSObjectID,
 	Baseline:       baselineHSLastModifiedDate,
 	UnmappedPolicy: unmappedPolicyFlag,
-	Const:          map[string]any{targetKind: "email"},
+	Const:          map[string]any{targetKind: kindEmail},
 	Fields: []overlay.FieldMapping{
 		{From: []string{"hs_email_subject"}, To: targetSubject, Kind: overlay.TargetColumn},
 		{From: []string{"hs_email_text"}, To: targetBody, Kind: overlay.TargetColumn},
 		{From: []string{propHSTimestamp}, To: targetOccurred, Kind: overlay.TargetColumn},
-		{From: []string{"hs_email_direction"}, To: "direction", Kind: overlay.TargetColumn},
+		{From: []string{"hs_email_direction"}, To: targetDirection, Kind: overlay.TargetColumn},
 		ownerIDField,
 	},
 }
@@ -312,7 +342,7 @@ var notesMapping = overlay.ObjectMapping{
 	ExternalKey:    propHSObjectID,
 	Baseline:       baselineHSLastModifiedDate,
 	UnmappedPolicy: unmappedPolicyFlag,
-	Const:          map[string]any{targetKind: "note"},
+	Const:          map[string]any{targetKind: kindNote},
 	Fields: []overlay.FieldMapping{
 		{From: []string{"hs_note_body"}, To: targetBody, Kind: overlay.TargetColumn},
 		{From: []string{propHSTimestamp}, To: targetOccurred, Kind: overlay.TargetColumn},
@@ -331,7 +361,7 @@ var tasksMapping = overlay.ObjectMapping{
 	ExternalKey:    propHSObjectID,
 	Baseline:       baselineHSLastModifiedDate,
 	UnmappedPolicy: unmappedPolicyFlag,
-	Const:          map[string]any{targetKind: "task"},
+	Const:          map[string]any{targetKind: kindTask},
 	Fields: []overlay.FieldMapping{
 		{From: []string{"hs_task_subject"}, To: targetSubject, Kind: overlay.TargetColumn},
 		{From: []string{"hs_task_body"}, To: targetBody, Kind: overlay.TargetColumn},
@@ -362,13 +392,13 @@ var tasksMapping = overlay.ObjectMapping{
 //     than inventing them.
 var leadsMapping = overlay.ObjectMapping{
 	Source:         objectClassLeads,
-	Target:         "lead",
+	Target:         leadTarget,
 	ExternalKey:    propHSObjectID,
 	Baseline:       baselineHSLastModifiedDate,
 	UnmappedPolicy: unmappedPolicyFlag,
 	Fields: []overlay.FieldMapping{
 		{From: []string{"hs_lead_name"}, To: targetFullName, Kind: overlay.TargetColumn},
-		{From: []string{"hs_lead_label"}, To: "hs_lead_label", Kind: overlay.TargetColumn},
+		{From: []string{propLeadLabel}, To: propLeadLabel, Kind: overlay.TargetColumn},
 		ownerIDField,
 	},
 }

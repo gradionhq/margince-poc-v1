@@ -24,7 +24,20 @@ import (
 // owners to users, it never sweeps records. It lives inline (not
 // overlay/fake) because a package-overlay test cannot import a package
 // that imports overlay.
-type seedIncumbent struct{ owners map[string]string }
+type seedIncumbent struct {
+	owners   map[string]string
+	portalID string
+}
+
+// AccountID lets Connect record the portal binding (OVA-DDL-3) via its
+// incumbentAccountReader type-assertion; a blank portalID reports no account
+// (Connect stores NULL).
+func (s seedIncumbent) AccountID(context.Context) (string, error) {
+	if s.portalID == "" {
+		return "", fmt.Errorf("seedIncumbent: no portal id fixtured")
+	}
+	return s.portalID, nil
+}
 
 func (seedIncumbent) Name() string { return "hubspot" }
 func (seedIncumbent) Backfill(context.Context, string, string) (Page, error) {
@@ -34,6 +47,7 @@ func (seedIncumbent) Backfill(context.Context, string, string) (Page, error) {
 func (seedIncumbent) Modified(context.Context, string, time.Time, string) (Page, error) {
 	return Page{}, nil
 }
+
 func (seedIncumbent) Deletions(context.Context, string, time.Time, string) (DeletionPage, error) {
 	return DeletionPage{}, nil
 }
@@ -56,6 +70,18 @@ func (s seedIncumbent) Owners(context.Context) ([]OwnerRef, error) {
 		out = append(out, OwnerRef{ExternalID: id, Email: email})
 	}
 	return out, nil
+}
+
+func (seedIncumbent) Create(context.Context, string, map[string]any) (Record, error) {
+	return Record{}, fmt.Errorf("seedIncumbent: Create is not fixtured")
+}
+
+func (seedIncumbent) Update(context.Context, string, string, map[string]any, time.Time) (Record, error) {
+	return Record{}, fmt.Errorf("seedIncumbent: Update is not fixtured")
+}
+
+func (seedIncumbent) Archive(context.Context, string, string, time.Time) error {
+	return fmt.Errorf("seedIncumbent: Archive is not fixtured")
 }
 
 // TestConnectSeedsUserMapFromTheOwnersDirectory proves §6.1's primary

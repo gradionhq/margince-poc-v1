@@ -67,6 +67,7 @@ var companyContextPolicies = map[ai.Task]companyContextPolicy{
 	},
 	ai.TaskSiteExtract:     {},
 	ai.TaskSiteFactExtract: {},
+	ai.TaskRateExtract:     {},
 	ai.TaskSummarize: {
 		scopes:      []people.CompanyContextScope{people.CompanyContextIdentity},
 		tokenBudget: 300,

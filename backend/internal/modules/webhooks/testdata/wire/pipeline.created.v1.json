@@ -1,0 +1,16 @@
+{
+  "is_default": true,
+  "name": "Sales",
+  "stages": [
+    {
+      "name": "New",
+      "position": 0,
+      "semantic": "open"
+    },
+    {
+      "name": "Won",
+      "position": 1,
+      "semantic": "won"
+    }
+  ]
+}

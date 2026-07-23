@@ -5,7 +5,6 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { components } from "../../api/schema";
 import { Button } from "../../design-system/atoms";
-import type { MarginceCoreState } from "../../design-system/margince-core";
 import { useLocale, useT } from "../../i18n";
 import { problemMessage } from "../common";
 import type { CompanyDraft } from "../onboarding";
@@ -36,6 +35,8 @@ import type {
   ConversationState,
 } from "./conversation-machine";
 import { NarrationBubble } from "./entries";
+import { NextStepBar } from "./next-step-bar";
+import { presenceFor } from "./presence";
 import { ConversationThread } from "./thread";
 import { useClarifyAnswers } from "./use-clarify-answers";
 import { useCompanyRead } from "./use-company-read";
@@ -60,33 +61,10 @@ type CompanyActProps = Readonly<{
    * confirmation can never erase stored fields the read did not rediscover. */
   profile: CompanyProfile | null;
   persist: (input: WizardPersistInput) => Promise<boolean>;
+  /** The restored snapshot of the machine's already-active read (reload
+   * adoption); null in a live session. */
+  adoptedRead?: CompanySiteRead | null;
 }>;
-
-function corePresence(
-  state: ConversationState,
-  read: CompanySiteRead | null,
-  failed: boolean,
-): MarginceCoreState {
-  if (failed || read?.status === "failed") {
-    return "error";
-  }
-  if (read?.status === "deferred") {
-    return "quiet";
-  }
-  if (
-    state.phase === "co.reading" &&
-    (read?.status === "queued" || read?.status === "reading")
-  ) {
-    return "working";
-  }
-  if (state.phase === "co.clarify") {
-    return "attention";
-  }
-  if (state.phase === "co.review" || state.phase === "co.confirmed") {
-    return "success";
-  }
-  return "listening";
-}
 
 function initialDraft(profile: CompanyProfile | null): CompanyDraft {
   return profile
@@ -100,6 +78,7 @@ export function CompanyAct({
   dispatch,
   profile,
   persist,
+  adoptedRead = null,
 }: CompanyActProps) {
   const t = useT();
   const { locale } = useLocale();
@@ -121,9 +100,12 @@ export function CompanyAct({
   const [selectedFactKeys, setSelectedFactKeys] = useState<string[]>([]);
   const [artifactMode, setArtifactMode] = useState<ArtifactMode>("dossier");
   const [applied, setApplied] = useState<ReadonlySet<string>>(new Set());
+  // A run the machine already owns at mount was persisted when it started
+  // (that is how restore found it), so its wizard-state join is already in
+  // place; a fresh session joins when its own read starts.
   const [proposalJoin, setProposalJoin] = useState<
     "pending" | "ready" | "failed"
-  >("pending");
+  >(() => (state.activeReadId !== null ? "ready" : "pending"));
   const machine = useRef(state);
   machine.current = state;
 
@@ -183,6 +165,7 @@ export function CompanyAct({
     answers: clarify.answers,
     onReadStarted,
     proposalJoin,
+    adoptedRead,
   });
   proposalRef.current = proposal.data;
 
@@ -192,6 +175,22 @@ export function CompanyAct({
       clarify.answerClarify(questionId, value);
     },
     [dispatch, clarify.answerClarify],
+  );
+
+  // Humans outrank the reader: dismissing a clarify resolves it locally —
+  // the machine's pending question clears through the ordinary answer path
+  // and the recorded dismissal stops it counting as an open decision.
+  const handleDismiss = useCallback(
+    (questionId: string) => {
+      dispatch({
+        type: "QUESTION_ANSWERED",
+        questionId,
+        value: "",
+        dismissed: true,
+      });
+      clarify.dismissClarify(questionId);
+    },
+    [dispatch, clarify.dismissClarify],
   );
 
   const confirm = useMutation({
@@ -256,11 +255,15 @@ export function CompanyAct({
     },
   });
 
+  const composer = useRef<HTMLTextAreaElement>(null);
   const submitComposer = () => {
     const text = conversation.draft.trim();
     if (text === "" || startRead.isPending || conversation.send.isPending) {
       return;
     }
+    // Sending must not strand focus on the send button: the composer stays
+    // the keyboard home while the conversation continues.
+    composer.current?.focus();
     const norm = normalizeUrl(text);
     if (
       norm.ok &&
@@ -322,6 +325,41 @@ export function CompanyAct({
     return null;
   }, [lastEntry]);
 
+  // The pinned next-step line: open decisions first — the pending thread
+  // question plus the proposal's still-unanswered ones — then the ready
+  // review. The bar renders only while a decision affordance is actually
+  // on the page (the live question card, or the review's clarify list), so
+  // it can always scroll to what it names.
+  const pendingId = state.pendingQuestion?.id ?? null;
+  const decisionCount =
+    (pendingId !== null ? 1 : 0) +
+    (reviewProposal?.open_questions ?? []).filter(
+      (question) =>
+        question.id !== pendingId &&
+        !clarify.answers.some((answer) => answer.clarifyId === question.id),
+    ).length;
+  let nextStep: { label: string; selector: string } | null = null;
+  if (
+    decisionCount > 0 &&
+    (pendingId !== null || state.phase === "co.review")
+  ) {
+    nextStep = {
+      label:
+        decisionCount === 1
+          ? t("ob.conv.next.decisionOne")
+          : t("ob.conv.next.decisionMany", { count: decisionCount }),
+      selector:
+        pendingId !== null
+          ? "fieldset.ob-conv-question:not([disabled])"
+          : ".ob-conv-confirm",
+    };
+  } else if (state.phase === "co.review" && reviewProposal !== null) {
+    nextStep = {
+      label: t("ob.conv.next.review"),
+      selector: ".ob-conv-confirm",
+    };
+  }
+
   // The manual path stays offered before any read and again whenever the
   // machine parked back in co.reading with the run retired (failed,
   // deferred, or the poll-failure fallback) — never while a POST is in
@@ -331,9 +369,12 @@ export function CompanyAct({
     (state.phase === "co.intro" ||
       (state.phase === "co.reading" && state.activeReadId === null));
 
+  const presence = presenceFor(state, { read, readBroken });
+
   return (
     <ConversationWorkbench
-      core={corePresence(state, read, readBroken)}
+      core={presence.core}
+      progress={presence.progress}
       status={
         readBroken
           ? t("ob.readStatus.failed")
@@ -393,6 +434,7 @@ export function CompanyAct({
           entries={state.thread}
           pendingQuestionId={state.pendingQuestion?.id ?? null}
           onAnswer={handleAnswer}
+          onDismiss={handleDismiss}
         >
           <ConversationEntries
             entries={conversation.entries}
@@ -446,11 +488,13 @@ export function CompanyAct({
               proposal={reviewProposal}
               draft={draft}
               answers={clarify.answers}
+              comparisons={read?.comparisons ?? []}
               pendingQuestionId={state.pendingQuestion?.id ?? null}
               selectedFactKeys={selectedFactKeys}
               setSelectedFactKeys={setSelectedFactKeys}
               missingRequired={missing}
               onAnswerClarify={clarify.answerClarify}
+              onDismissClarify={clarify.dismissClarify}
               onAcceptAll={() => confirm.mutate()}
               pending={confirm.isPending}
               authorizing={clarify.authorizing}
@@ -460,8 +504,16 @@ export function CompanyAct({
           )}
         </ConversationThread>
       </div>
+      {nextStep !== null && (
+        <NextStepBar
+          label={nextStep.label}
+          targetSelector={nextStep.selector}
+          revision={state.seq}
+        />
+      )}
       <div className="mw-composer">
         <textarea
+          ref={composer}
           value={conversation.draft}
           maxLength={2000}
           rows={2}

@@ -19,6 +19,8 @@ const (
 	TaskEnrich     Task = "enrich"
 	TaskNlSearch   Task = "nl_search"
 	TaskOfferDraft Task = "offer_draft"
+	// TaskRateExtract is extract per-model AI pricing (per-MTok buckets) from a fetched pricing page, evidence-gated; feeds the model-cost refresh proposal producer
+	TaskRateExtract Task = "rate_extract"
 	// TaskSiteExtract is premium-only BY CONTRACT: the no-guess gate demands verbatim quotes cheap tiers paraphrase; no fallback rung
 	TaskSiteExtract Task = "site_extract"
 	// TaskSiteFactExtract is the deep read's page-parallel fact lane: tiny snippet-id-cited records a fast cheap tier serves reliably — its latency IS the read time, so the fast tier leads
@@ -53,7 +55,7 @@ const (
 // TaskContractHash is the sha256 of api/ai-tasks.yaml at generation
 // time: a build fingerprint the cert runner can compare against a
 // freshly hashed contract file to catch a stale generated table.
-const TaskContractHash = "23781fc79297d36f3080bb24b2dbd39a2297ad8093bbaaec9be2067dbac019f8"
+const TaskContractHash = "8ed3fc2c0129f09b9b37e93d203e54bce1d41166a1ec721b9c57785f2aab7118"
 
 // AllTasks returns every contract task, sorted — the completeness
 // check a certification run walks to prove it covers every routed
@@ -70,6 +72,7 @@ func AllTasks() []Task {
 		TaskEnrich,
 		TaskNlSearch,
 		TaskOfferDraft,
+		TaskRateExtract,
 		TaskSiteExtract,
 		TaskSiteFactExtract,
 		TaskSummarize,
@@ -91,6 +94,7 @@ var taskLadders = map[Task][]Tier{
 	TaskEnrich:          {TierLocalSmall, TierCheapCloud},
 	TaskNlSearch:        {TierCheapCloud, TierPremium},
 	TaskOfferDraft:      {TierCheapCloud, TierPremium},
+	TaskRateExtract:     {TierPremium, TierCheapCloud},
 	TaskSiteExtract:     {TierPremium},
 	TaskSiteFactExtract: {TierCheapCloud, TierPremium},
 	TaskSummarize:       {TierCheapCloud, TierPremium},
@@ -120,6 +124,7 @@ var taskExecutionModes = map[Task]ExecutionMode{
 	TaskEnrich:          ExecutionModeBackground,
 	TaskNlSearch:        ExecutionModeInteractive,
 	TaskOfferDraft:      ExecutionModeInteractive,
+	TaskRateExtract:     ExecutionModeBackground,
 	TaskSiteExtract:     ExecutionModeBackground,
 	TaskSiteFactExtract: ExecutionModeBackground,
 	TaskSummarize:       ExecutionModeInteractive,

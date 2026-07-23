@@ -104,6 +104,7 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/customfields:ActiveColumns":             "called from inside a record store's own gated Get/List/Create/Update, whose object-level RBAC already ran; the column names/types it answers are workspace-visible schema (the same shape custom_field:read already exposes), not row data a second gate would need to narrow",
 	"internal/modules/people:WithFieldCatalog":                "composition-root wiring (injects the fieldcatalog reader the cf_* read/write paths use); no data access",
 	"internal/modules/deals:WithFieldCatalog":                 "composition-root wiring (injects the fieldcatalog reader the cf_* read/write paths use); no data access",
+	"internal/modules/deals:WithClock":                        "test-only clock injection (mutate-and-return builder like WithFieldCatalog); no data access",
 	"internal/modules/activities:LabeledCaptureCountSince":    "aggregate count read (ADR-0068 cost pre-flight) consumed only by the compose estimator; it returns a single labeled-message COUNT, never row data — RLS scopes it to the workspace and there is nothing for object-RBAC to narrow (same shape as the approvals existence probes)",
 	"internal/modules/activities:UnlabeledCaptureEmails":      "classify-backlog read driven by the worker sweep under the workspace GUC, no human principal (ADR-0063); the rows were admitted at capture time and the labels route attention only",
 	"internal/modules/activities:SetCaptureLabel":             "classify verdict write driven by the worker sweep under the workspace GUC; a CAS on capture_label IS NULL that touches nothing but the two label columns — attention routing, not a record mutation (§3.2)",
@@ -114,6 +115,7 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/overlay:WithIncumbentFactory":           "composition-root wiring (injects the per-connection incumbent adapter builder Connect seeds the owners directory through); no data access — Connect itself remains auth.Require-gated",
 	"internal/modules/overlay:WithLogger":                     "composition-root wiring (injects the logger Connect's best-effort seeding reports through); no data access",
 	"internal/modules/overlay:WithModeFlipObserver":           "composition-root wiring (injects the dispatcher-cache invalidation Connect/Disconnect notify after commit); no data access — both flip paths remain auth.Require-gated",
+	"internal/modules/webhooks:DeliveryEnabled":               "deployment-capability flag (is a signing key configured?): reads no tenant rows, returns a single boolean the gated ListWebhookSubscriptions handler surfaces so the UI can render a not-enabled state — a config posture with nothing for object-RBAC to narrow",
 }
 
 // gateFnInfo is what the gate needs to know about one function name in a

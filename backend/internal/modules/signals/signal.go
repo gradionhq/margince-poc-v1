@@ -102,7 +102,7 @@ func (s *Store) CreateSignal(ctx context.Context, in CreateSignalInput) (crmcont
 		if out, err = readSignal(ctx, tx, id, storekit.LiveOnly); err != nil {
 			return fmt.Errorf("read created signal: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "signal.detected", "signal", id.UUID, detectedPayload(out)); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, detectedPayload(out)); err != nil {
 			return fmt.Errorf("emit signal.detected: %w", err)
 		}
 		return nil
@@ -155,22 +155,25 @@ func deriveSignalDefaults(in CreateSignalInput) (signalDefaults, error) {
 	return d, nil
 }
 
-// detectedPayload is the events.md §5.11 signal.detected shape.
-func detectedPayload(sig crmcontracts.Signal) map[string]any {
-	payload := map[string]any{
-		"signal_id":        sig.Id,
-		"kind":             sig.Kind,
-		"source_channel":   sig.SourceChannel,
-		"resolution_state": sig.ResolutionState,
-		"severity":         sig.Severity,
+// detectedPayload is the events.md §5.11 signal.detected shape. The
+// entity_type/entity_id fields it carries are the signal's SUBJECT (deal |
+// organization | person) — payload data, present only when the signal was
+// created already resolved — distinct from the envelope's own entity ref,
+// which is always the signal itself (contract x-entity-type: signal).
+func detectedPayload(sig crmcontracts.Signal) crmcontracts.PublicEventSignalDetected {
+	payload := crmcontracts.PublicEventSignalDetected{
+		SignalId:        sig.Id,
+		Kind:            string(sig.Kind),
+		SourceChannel:   string(sig.SourceChannel),
+		ResolutionState: string(sig.ResolutionState),
+		Severity:        string(sig.Severity),
 	}
 	if sig.EntityType != nil {
-		payload["entity_type"] = *sig.EntityType
-		payload["entity_id"] = sig.EntityId
+		entityType := string(*sig.EntityType)
+		payload.SubjectEntityType = &entityType
+		payload.SubjectEntityId = sig.EntityId
 	}
-	if sig.ResolutionConfidence != nil {
-		payload["resolution_confidence"] = *sig.ResolutionConfidence
-	}
+	payload.ResolutionConfidence = sig.ResolutionConfidence
 	return payload
 }
 
@@ -363,10 +366,12 @@ func (s *Store) ArchiveSignal(ctx context.Context, id ids.SignalID) (crmcontract
 // signalColumns spells the SELECT list once; alias qualifies for queries
 // that join or scope.
 func signalColumns(alias string) string {
-	cols := []string{"id", "workspace_id", "kind", "source_channel", "raw_ref", "entity_type", "entity_id",
+	cols := []string{
+		"id", "workspace_id", "kind", "source_channel", "raw_ref", "entity_type", "entity_id",
 		"resolution_state", "resolution_confidence::float8", "resolved_org_id", "resolved_person_id",
 		"severity", "summary", "evidence", "status", "detected_at", "source", "captured_by",
-		"version", "created_at", "updated_at", "archived_at"}
+		"version", "created_at", "updated_at", "archived_at",
+	}
 	for i, c := range cols {
 		cols[i] = alias + "." + c
 	}

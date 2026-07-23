@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -78,7 +79,11 @@ func NewDeliverer(store *Store, client HTTPDoer, clock func() time.Time, resolve
 // enqueue failure (which recorded nothing) is returned, so the bus entry
 // redelivers and the idempotent enqueue makes it a no-op.
 func (d *Deliverer) HandleEvent(ctx context.Context, env kevents.Envelope) error {
-	body, err := json.Marshal(env)
+	wire, err := toWireEnvelope(env)
+	if err != nil {
+		return fmt.Errorf("webhooks: mapping envelope %s to the public wire shape: %w", env.EventID, err)
+	}
+	body, err := json.Marshal(wire)
 	if err != nil {
 		return fmt.Errorf("webhooks: marshaling envelope %s: %w", env.EventID, err)
 	}
@@ -88,13 +93,19 @@ func (d *Deliverer) HandleEvent(ctx context.Context, env kevents.Envelope) error
 		return fmt.Errorf("webhooks: matching subscriptions for %s: %w", env.Type, err)
 	}
 	visible := make([]ids.UUID, 0, len(cands))
+	var visErr error
 	for _, c := range cands {
 		ok, err := d.ownerCanSee(wsCtx, env, c.ownerID)
 		if err != nil {
 			// One owner's resolver/visibility failure must not strand the
-			// rest of the fan-out; skip it (fail-closed for this sub) and
-			// let the bus redelivery re-evaluate on the next pass.
+			// rest of the fan-out: process the other candidates, but RETAIN
+			// the error so this method returns non-nil at the end. A
+			// transient visibility-query failure is NOT a silent drop — the
+			// bus is at-least-once, so returning an error re-drives HandleEvent
+			// and the idempotent enqueue re-evaluates the skipped owner
+			// (already-delivered candidates de-dupe on the bus event id).
 			d.log.Error("webhooks: owner visibility check", "subscription", c.id, "owner", c.ownerID, "event", env.EventID, "err", err)
+			visErr = errors.Join(visErr, fmt.Errorf("owner %s: %w", c.ownerID, err))
 			continue
 		}
 		if ok {
@@ -107,6 +118,12 @@ func (d *Deliverer) HandleEvent(ctx context.Context, env kevents.Envelope) error
 	}
 	for _, t := range targets {
 		d.deliverOnce(wsCtx, t)
+	}
+	if visErr != nil {
+		// The visible candidates were enqueued and attempted above (idempotent
+		// on the bus event id); returning the error asks the bus to redeliver
+		// so the owner(s) whose check transiently failed get re-evaluated.
+		return fmt.Errorf("webhooks: owner visibility checks failed for event %s: %w", env.EventID, visErr)
 	}
 	return nil
 }
@@ -144,7 +161,7 @@ func (d *Deliverer) ownerCanSee(ctx context.Context, env kevents.Envelope, owner
 		TeamIDs:     rbac.TeamIDs,
 		Permissions: rbac.Permissions,
 	})
-	return d.store.entityVisibleTo(ownerCtx, env.Entity.Type, env.Entity.ID)
+	return d.store.entityVisibleTo(ownerCtx, env.Type, env.Entity.Type, env.Entity.ID)
 }
 
 // RunRetrySweep re-attempts due retries on a ticker until ctx is
@@ -250,11 +267,22 @@ func (d *Deliverer) attempt(ctx context.Context, t attemptTarget) outcome {
 	if err != nil {
 		return outcome{failure: "building request: " + err.Error()}
 	}
+	// ts is minted fresh for THIS attempt (not the delivery's original enqueue
+	// time): Standard Webhooks' replay defense depends on the timestamp
+	// reflecting when the signature was actually produced, so a retry signs
+	// under its own clock reading, not a stale one.
+	ts := d.clock().Unix()
+	sig, err := Sign(secret, t.deliveryID.String(), ts, t.payload)
+	if err != nil {
+		d.log.Error("webhooks: signing delivery", "subscription", t.subID, "delivery", t.deliveryID, "err", err)
+		return outcome{failure: "signing delivery: " + err.Error()}
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "Margince-Webhooks/1")
 	req.Header.Set(HeaderEvent, t.eventType)
-	req.Header.Set(HeaderDelivery, t.deliveryID.String())
-	req.Header.Set(HeaderSignature, Sign(secret, t.payload))
+	req.Header.Set(HeaderWebhookID, t.deliveryID.String())
+	req.Header.Set(HeaderWebhookTimestamp, strconv.FormatInt(ts, 10))
+	req.Header.Set(HeaderWebhookSignature, sig)
 
 	resp, err := d.client.Do(req)
 	if err != nil {

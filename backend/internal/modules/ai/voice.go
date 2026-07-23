@@ -23,7 +23,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -128,7 +130,8 @@ func (s *VoiceStore) ListProfiles(ctx context.Context, cursor *string, limit *in
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, storekit.SQLf(
 			`SELECT %s FROM voice_profile WHERE %s ORDER BY created_at DESC, id DESC LIMIT %d`,
-			voiceProfileColumns, where, n+1), args...)
+			voiceProfileColumns, where, n+1,
+		), args...)
 		if err != nil {
 			return err
 		}
@@ -183,7 +186,8 @@ func (s *VoiceStore) visibleProfile(ctx context.Context, tx pgx.Tx, id ids.UUID)
 	p, err := scanVoiceProfile(tx.QueryRow(ctx, storekit.SQLf(
 		`SELECT %s FROM voice_profile
 		 WHERE id = $1 AND archived_at IS NULL AND scope = 'user' AND owner_id = $2`,
-		voiceProfileColumns), id, actor.UserID))
+		voiceProfileColumns,
+	), id, actor.UserID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return VoiceProfile{}, apperrors.ErrNotFound
 	}
@@ -241,10 +245,8 @@ func (s *VoiceStore) CreateProfile(ctx context.Context, in CreateVoiceProfileInp
 		if err != nil {
 			return err
 		}
-		return storekit.Emit(ctx, tx, auditID, "voice.profile_created", "voice_profile", p.ID, map[string]any{
-			voiceKeyProfileID: p.ID, "owner_id": actor.UserID, voiceKeyMaturity: Maturity(0),
-			voiceKeyAutoLearning: false,
-		})
+		return storekit.EmitEvent(ctx, tx, auditID, p.ID,
+			voiceProfileCreatedPayload(p.ID, actor.UserID, Maturity(0), false))
 	})
 	if err != nil {
 		return VoiceProfile{}, err
@@ -344,10 +346,39 @@ func emitVoiceProfileUpdates(ctx context.Context, tx pgx.Tx, auditID ids.UUID, p
 }
 
 func emitVoiceProfileUpdated(ctx context.Context, tx pgx.Tx, auditID ids.UUID, profile VoiceProfile, summary CorpusSummary, action string) error {
-	return storekit.Emit(ctx, tx, auditID, "voice.profile_updated", "voice_profile", profile.ID, map[string]any{
-		voiceKeyProfileID: profile.ID, voiceKeyAction: action, "version": profile.Version,
-		voiceKeyMaturity: Maturity(summary.TotalWords),
-	})
+	return storekit.EmitEvent(ctx, tx, auditID, profile.ID,
+		voiceProfileUpdatedPayload(profile.ID, action, profile.Version, Maturity(summary.TotalWords)))
+}
+
+// voiceProfileCreatedPayload builds voice.profile_created's typed payload —
+// a personal profile always starts collecting, at maturity zero, with
+// automatic learning off (CreateProfile never sets otherwise).
+func voiceProfileCreatedPayload(profileID, ownerID ids.UUID, maturity string, autoLearningEnabled bool) crmcontracts.PublicEventVoiceProfileCreated {
+	return crmcontracts.PublicEventVoiceProfileCreated{
+		ProfileId:           openapi_types.UUID(profileID),
+		OwnerId:             openapi_types.UUID(ownerID),
+		Maturity:            maturity,
+		AutoLearningEnabled: autoLearningEnabled,
+	}
+}
+
+// voiceProfileUpdatedPayload builds voice.profile_updated's typed payload.
+func voiceProfileUpdatedPayload(profileID ids.UUID, action string, version int64, maturity string) crmcontracts.PublicEventVoiceProfileUpdated {
+	return crmcontracts.PublicEventVoiceProfileUpdated{
+		ProfileId: openapi_types.UUID(profileID),
+		Action:    action,
+		Version:   version,
+		Maturity:  maturity,
+	}
+}
+
+// voiceProfileArchivedPayload builds voice.profile_archived's typed payload.
+func voiceProfileArchivedPayload(profileID, ownerID ids.UUID, profileVersion int) crmcontracts.PublicEventVoiceProfileArchived {
+	return crmcontracts.PublicEventVoiceProfileArchived{
+		ProfileId:      openapi_types.UUID(profileID),
+		OwnerId:        openapi_types.UUID(ownerID),
+		ProfileVersion: profileVersion,
+	}
 }
 
 // ArchiveProfile soft-deletes the owner's profile under optimistic
@@ -381,9 +412,8 @@ func (s *VoiceStore) ArchiveProfile(ctx context.Context, id ids.UUID, ifVersion 
 		if err != nil {
 			return err
 		}
-		return storekit.Emit(ctx, tx, auditID, "voice.profile_archived", "voice_profile", id, map[string]any{
-			"profile_id": id, "owner_id": before.OwnerID.UUID, "profile_version": before.ProfileVersion,
-		})
+		return storekit.EmitEvent(ctx, tx, auditID, id,
+			voiceProfileArchivedPayload(id, before.OwnerID.UUID, before.ProfileVersion))
 	})
 	if err != nil {
 		return VoiceProfile{}, err

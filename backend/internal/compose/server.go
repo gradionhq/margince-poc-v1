@@ -24,7 +24,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
-	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
@@ -38,9 +37,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/quotas"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/modules/signals"
-	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
-	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
@@ -84,12 +81,19 @@ type Server struct {
 	attachmentExtractionHandlers
 	overlayHandlers
 	embedReindexHandlers
+	rateRefreshHandlers
 	webhooksHandlers
 
 	// gmailPush is the Pub/Sub push webhook, injected by WithGmailPush only
 	// when a subscription token is configured — the route is absent
 	// otherwise, never open.
 	gmailPush *gmailPushHandler
+
+	// overlayWebhook is the HubSpot webhook-as-signal receiver (OVA-WIRE-10),
+	// injected by WithOverlayWebhook only when the overlay app secret is
+	// configured — the route is absent otherwise, never an open unverified
+	// endpoint.
+	overlayWebhook http.Handler
 
 	// busReady is the /readyz bus probe, injected only by the process
 	// role that runs the inline relay — a split deployment's api answers
@@ -256,12 +260,9 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// predicate engine + the bundle writer's open-format rendering; the
 		// collections store resolves a saved view / dynamic list source
 		// behind its own visibility gate.
-		filteredExportHandlers: filteredExportHandlers{
-			writer:      NewFilteredExportWriter(pool),
-			collections: collections.NewStore(pool),
-		},
-		orgRollupHandlers: orgRollupHandlers{pool: pool, now: time.Now},
-		strengthHandlers:  strengthHandlers{people: people.NewStore(pool), now: time.Now},
+		filteredExportHandlers: filteredExportHandlers{writer: NewFilteredExportWriter(pool), collections: collections.NewStore(pool)},
+		orgRollupHandlers:      orgRollupHandlers{pool: pool, now: time.Now},
+		strengthHandlers:       strengthHandlers{people: people.NewStore(pool), now: time.Now},
 		// The installation's own company (the 0083 anchor). Its own store
 		// instance, like every other people-backed shadow here: the company
 		// form's write shape is people's, the transport is compose's.
@@ -291,7 +292,6 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		webhooksHandlers: newWebhookHandlers(pool, nil, log),
 		log:              log,
 		dealsStore:       deals.NewStore(pool),
-		toolRegistry:     NewRegistry(pool),
 		// Constructed unconditionally: WithKeyvault rebuilds
 		// overlayHandlers over this SAME instance rather than minting a
 		// second one, and contractAPI's Dispatcher spends force-fresh
@@ -308,6 +308,12 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 	// boot-time SetOverlayIncumbentResolver reaches the same instance this
 	// field serves reads through.
 	srv.sorDispatch = NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, srv.overlayMeter, nil), pool)
+	// toolRegistry backs ListAgentTools AND the MCP tool transport; it carries
+	// the vault-backed live-incumbent resolver so overlay write-back
+	// (Create/Update/Archive) actually reaches HubSpot from the agent surface.
+	// The closure captures srv and reads srv.vault LAZILY at request time, so
+	// building it here (before WithKeyvault installs the vault) is fine.
+	srv.toolRegistry = NewRegistryWithIncumbent(pool, srv.resolveOverlayIncumbent(pool))
 	// /me reports the workspace's system-of-record mode so the client can
 	// gate its list UI (an overlay mirror refuses sort/filter dials). The
 	// dispatch owns mode resolution; identity never imports overlay.
@@ -328,8 +334,27 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 // or vault failure surfaces as an error (which FreshnessReader logs and
 // then degrades on, never faking authority).
 func (s *Server) resolveOverlayIncumbent(pool *pgxpool.Pool) func(context.Context) (overlay.Incumbent, error) {
+	// s.vault is read LAZILY (per call) because WithKeyvault installs it after
+	// newServer builds the dispatch — so delegate to OverlayIncumbentResolver
+	// at request time with whatever vault is then wired.
 	return func(ctx context.Context) (overlay.Incumbent, error) {
-		if s.vault == nil {
+		return OverlayIncumbentResolver(pool, s.vault)(ctx)
+	}
+}
+
+// OverlayIncumbentResolver builds the per-request live-incumbent resolver from
+// a KNOWN vault: for the request's workspace it reads the active
+// incumbent_connection and unseals its private-app token, returning a live
+// HubSpot adapter. A nil vault, no active connection (ErrNotFound), or a
+// non-HubSpot incumbent all degrade honestly to a nil adapter (force-fresh
+// falls back to the mirror; write-back answers errNoWriteIncumbent) — never a
+// faked authority. Only a genuine connection-read or vault failure surfaces as
+// an error. The api server passes its (lazily-wired) vault via
+// resolveOverlayIncumbent; the standalone MCP server and the worker's Surface-B
+// runner pass their own FromEnv vault so those agent surfaces reach write-back too.
+func OverlayIncumbentResolver(pool *pgxpool.Pool, vault keyvault.Vault) func(context.Context) (overlay.Incumbent, error) {
+	return func(ctx context.Context) (overlay.Incumbent, error) {
+		if vault == nil {
 			return nil, nil
 		}
 		conn, err := overlay.ActiveConnection(ctx, pool)
@@ -339,10 +364,10 @@ func (s *Server) resolveOverlayIncumbent(pool *pgxpool.Pool) func(context.Contex
 			}
 			return nil, err
 		}
-		if conn.Incumbent != "hubspot" {
+		if conn.Incumbent != incumbentHubSpot {
 			return nil, nil
 		}
-		token, err := s.vault.Get(ctx, conn.Workspace, conn.CredentialRef)
+		token, err := vault.Get(ctx, conn.Workspace, conn.CredentialRef)
 		if err != nil {
 			return nil, err
 		}
@@ -354,76 +379,6 @@ func (s *Server) resolveOverlayIncumbent(pool *pgxpool.Pool) func(context.Contex
 // admission layer, which rides INSIDE the router (it needs the matched
 // route pattern) and shares the MCP surface's tier table, approvals
 // staging, and live-authority gate — one gate, two transports.
-func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) http.Handler {
-	gate := auth.NewGate(identitySvc)
-	registry := registryWithGate(pool, gate, srv.replyDrafter)
-	// The ADR-0055 admission layer and the MCP tool surface share one
-	// provider seam: agentGate's StageResolver dispatches per workspace
-	// exactly like the MCP registry's tools do — and the overlay-mode
-	// human read shadows (overlayread.go) ride this same instance.
-	provider := srv.sorDispatch
-	staging := approvalsAdapter{svc: approvals.NewService(pool)}
-	// Wrap order: the generated router applies the slice left-to-right
-	// around the handler, so the LAST entry is outermost — idempotency
-	// must sit outside the agent gate so a staged-approval refusal is
-	// never recorded as "the" response for a key (the approved retry is
-	// the same request under the same key).
-	api := crmcontracts.HandlerWithOptions(srv, crmcontracts.ChiServerOptions{
-		BaseURL: "/v1",
-		Middlewares: []crmcontracts.MiddlewareFunc{
-			agentGate(registry, staging, provider, fieldOwnership{pool: pool}, gate),
-			idempotency(pool),
-			// Outermost: an overlay-mode SoR write is refused before it can
-			// be recorded under an idempotency key or staged as an agent
-			// approval — the honest unsupported_by_sor, for every principal.
-			overlayWriteGuard(srv.sorDispatch),
-		},
-		// Keep query/path/header parse failures on the problem+json path:
-		// the generated default writes err.Error() as text/plain, an
-		// off-contract shape that also leaks the parser's internal text.
-		ErrorHandlerFunc: paramParseError,
-	})
-	return api
-}
-
-// operationalMux mounts the contract surface next to the operational
-// edges: health probes, metrics, the anonymous public paths, and the A2
-// authorization server.
-func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, api http.Handler) *http.ServeMux {
-	// Only /v1 rides the session middleware; the health probes and the
-	// other operational edges are unauthenticated by design.
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", httpserver.Healthz)
-	mux.HandleFunc("/readyz", httpserver.Readyz(srv.aiStateOrDefault(), srv.readyzEmbedState(), srv.readinessChecks(pool.Ping)...))
-	mux.HandleFunc("/metrics", httpserver.Metrics(pool,
-		func(ctx context.Context) (int64, error) { return events.OutboxBacklog(ctx, pool) },
-		events.PublishedTotal,
-		srv.writeAIMetrics,
-		overlayMetricsSection(srv, pool)))
-	// The anonymous public edges sit between the session middleware (which
-	// lets /v1/public/ through without session or workspace) and the
-	// router: each resolves its own token/slug → tenant, throttles, and
-	// binds a confined system principal. The preference edge wraps the
-	// booking edge — each passes a non-matching path straight through.
-	publicEdge := publicPreferences(consent.NewStore(pool), newPublicPreferenceLimiters())(
-		publicBooking(activities.NewStore(pool), newPublicBookingLimiters())(api),
-	)
-	mux.Handle("/v1/", httpserver.Correlate(httpserver.AccessLog(log, authH.Middleware(publicEdge))))
-	// The A2 authorization server (ADR-0013): AS endpoints live outside
-	// the generated resource surface but behind the same workspace and
-	// session middleware; the discovery documents are static.
-	mux.Handle("/oauth/", httpserver.Correlate(httpserver.AccessLog(log, authH.Middleware(authH.OAuthRouter()))))
-	mux.HandleFunc("/.well-known/oauth-authorization-server", identity.OAuthServerMetadata)
-	mux.HandleFunc("/.well-known/oauth-protected-resource", identity.ProtectedResourceMetadata)
-	// Provider push webhooks: unauthenticated by nature (the provider is the
-	// caller), each verified by its own mechanism inside the handler; mounted
-	// only when configured — the route is absent otherwise.
-	if srv.gmailPush != nil {
-		mux.Handle("/webhooks/gmail-push", httpserver.Correlate(httpserver.AccessLog(log, srv.gmailPush)))
-	}
-	return mux
-}
-
 // readyzEmbedState builds /readyz's embed-status closure (Task 17) over
 // whatever embed lane this process role already wired via
 // WithEmbedReindex — the SAME store and embedder embedReindexHandlers'

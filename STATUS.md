@@ -22,27 +22,73 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
-**The conversational onboarding (flagged) + the honest voice corpus.**
-Onboarding is becoming ONE Margince conversation. Landed so far: the
-corpus honesty layer (server speaker preview, kept-vs-discarded ingest
-stats, diarizer/timestamp transcript parsing — only the owner's words
-ever count), the conversation primitives (pure act/phase machine with
-run-correlated events, poll-delta narration with a paced queue,
-thread/entry components), and the conversational COMPANY act behind the
-`conv` flag (`#/onboarding?conv` or localStorage `margince.conv`):
-narrated site read, deterministic clarify questions (legal entity /
-registered address / human-conflict) whose answered option is
+**Rate-proposal precondition + supersede (#225, `fix/rate-proposal-precondition`).**
+The three deferred P1s from the rates-refresh review, fixed on BOTH refresh
+paths (fx and model-cost): a proposal now carries the prior value it was
+diffed against and the apply effect re-reads inside the redeem-and-apply
+transaction, refusing with `ErrVersionSkew` when the sheet moved (the
+approval stays approved-unconsumed; the remedy is a fresh refresh); staging
+gained a logical-identity mode (`approvals.StageInput.Identity`) so a fresher
+diff force-expires the stale pending proposal for the same currency/model
+instead of competing with it in the inbox; and producers diff against the
+effective-as-of-today rate (`ListEffectiveFxRates` / `ListEffectiveModelRates`),
+not the sheet head, so a future-scheduled row neither masks nor manufactures
+proposals. No contract, migration, or status-enum change — supersession is
+forced expiry with the audit row carrying the survivor.
+
+**The Rates & costs editor (Phase 1, `feat/rates-costs`).** Admin/ops can now
+view and update the two effective-dated price sheets — `fx_rate` (deals) and
+`ai_model_rate` (ai) — from a new Settings "Rates & costs" tab. Strict
+append-forward: `effective_date` defaults to today, a past date is refused, a
+same-day write corrects in place, and there is **no delete** (a past-dated row
+is immutable — it prices historical rollups and AI calls). Two new admin/ops-only
+RBAC objects (+ a `0116` JSONB backfill for existing workspaces); four
+human-admin-only endpoints (`GET/POST /fx-rates`, `/ai-model-rates`,
+`x-agent-access: human-only`); prices speak USD/MTok on the wire, µUSD in the
+store; both writes are audit-only by ratification (EVT-NOEVT-3 — the closed
+event catalog has no fx/ai-pricing stream, the product rate-card precedent).
+Craft + security reviewed (1 craft blocker fixed: no build-invented event type;
+security clean). **Contract-first flag (P3):** these endpoints, and the Phase-2
+`rate_extract` task + proposal kinds still to come, do **not** exist in the
+upstream `margince-foundation` spec (whose posture is "operators edit rows
+directly") — raised for upstream reconciliation, not a silent divergence.
+**Phase 2 (async AI refresh) is built too.** Two admin-only "Refresh from
+sources" endpoints enqueue async River jobs: the FX producer fetches a
+structured JSON API (deterministic, netguard-guarded) and the model-cost
+producer crawls configured pricing pages via `webread` and AI-extracts prices
+with the new `rate_extract` task (**certified for Gemini** — reliability 1.00).
+Both diff against the sheet and stage 🟡 `fx_rate_proposal` /
+`ai_model_rate_proposal` approvals (registered in `approvals/authority.go`);
+approving applies through the Phase-1 write path (edit-before-approve works).
+Sources live in the deployment config's `rates:` block (`fx_source` + a
+provider→url `model_pricing` map); absent config = honest no-op.
+
+**The conversational onboarding is now THE onboarding; the classic
+wizard is deleted.** Onboarding is ONE Margince conversation. Landed:
+the corpus honesty layer (server speaker preview, kept-vs-discarded
+ingest stats, diarizer/timestamp transcript parsing — only the owner's
+words ever count), the conversation primitives (pure act/phase machine
+with run-correlated events, poll-delta narration with a paced queue,
+thread/entry components), the conversational COMPANY act (narrated site
+read, deterministic clarify questions whose answered option is
 server-verified before it authorizes exactly that change, the proposal
-read (`GET /onboarding/company/proposal`), and the in-thread confirm
-card. The voice act joins in `feat/onboarding-voice-act` (upload-in-chat,
-speaker question, build narration) together with three builder fixes a
-live corpus surfaced: validator-rejected completions evict from the
-result cache, the builder prompt enumerates citable sample ids with
-fabricated supplementary citations dropped, and the worker logs the real
-build error. Classic wizard remains the default; flip is planned after
-the results/connect acts + restore (plan:
-`~/.claude/plans/while-you-are-waiting-snug-horizon.md` Phases 5-7 —
-restore must also stop deriving member-path from "company exists").
+read, the in-thread confirm card), the voice act (upload-in-chat,
+speaker question, build narration), the results/connect acts, and
+restore (wizard-state `path` is THE member signal). Phase 6 flipped the
+default: `OnboardingScreen` renders the conversational shell
+unconditionally (the `conv` flag and its plumbing are gone), and the
+superseded stepper coordinator, Footer, VoiceStep, and ConnectStep
+wizard wrapper were deleted with their tests and i18n keys.
+`screens/onboarding.tsx` now holds only the shared vocabulary (draft,
+URL, wizard-state, corpus constants) with the surviving shared
+components split into `onboarding-company-form.tsx`,
+`onboarding-manual-interview.tsx`, `onboarding-results.tsx`, and
+`onboarding-connect-panels.tsx`; the pinned invariants that survived are
+re-tested through the conversational surface. Outstanding: Phase 7
+polish (RevealText, orb choreography, reduced-motion audit) per
+`~/.claude/plans/while-you-are-waiting-snug-horizon.md`, and the
+upstream spec raises (4,000-word onboarding gate decision;
+conversational re-pinning of AC-onboarding-*).
 
 **The CI integration lane is sharded per test across twelve runners.** The
 single-runner lane took ~6.5 minutes and floored at `compose/integration`

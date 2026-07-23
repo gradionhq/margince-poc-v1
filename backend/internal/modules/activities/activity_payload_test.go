@@ -1,0 +1,238 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package activities
+
+// The activities family's payload builders: drives the functions this
+// package's emit sites call — activityCapturedPayload (activity.go),
+// activityUpdatedChangedFields (lifecycle.go's UpdateActivity), and
+// relinkedChangedFields (lifecycle.go's RelinkActivity) — then round-trips
+// each result through JSON exactly as storekit.EmitEvent marshals it into
+// the outbox envelope's payload column. There is no non-integration harness
+// in this repo that drives a Store method against a real Postgres (every
+// such test lives under compose/integration, gated `//go:build
+// integration`, needing db-up); testing the production
+// payload-construction functions directly — the one place a schema/code
+// mismatch would show up — is the honest substitute.
+
+import (
+	"encoding/json"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+)
+
+// TestActivityCapturedPayload_DirectLog proves the direct-log path
+// (activity.go's logActivityInTx) sets kind only — no source_system, since
+// that field is exclusive to the capture auto-create path.
+func TestActivityCapturedPayload_DirectLog(t *testing.T) {
+	payload := activityCapturedPayload("meeting")
+
+	if !reflect.DeepEqual(payload.EventType(), "activity.captured") {
+		t.Errorf("got %v, want %v", payload.EventType(), "activity.captured")
+	}
+	if !reflect.DeepEqual(payload.EntityType(), "activity") {
+		t.Errorf("got %v, want %v", payload.EntityType(), "activity")
+	}
+	if !reflect.DeepEqual(payload.Kind, "meeting") {
+		t.Errorf("got %v, want %v", payload.Kind, "meeting")
+	}
+	if payload.SourceSystem != nil {
+		t.Errorf("expected nil, got %v", payload.SourceSystem)
+	}
+
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(string(raw), "source_system") {
+		t.Errorf("an absent source_system must be omitted from the wire body, not marshaled as null: should not contain %v", "source_system")
+	}
+	var decoded crmcontracts.PublicEventActivityCaptured
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
+}
+
+// TestActivityCapturedKindJSONTagIsStable is the A9 key-binding regression
+// test: automation/handlers_event.go's capturedActivityKind decodes
+// activity.captured's outbox payload by the literal JSON key "kind"
+// (automation cannot import the activities or contracts payload type — it
+// reads the generic map[string]any the bus hands every subscriber). A
+// future rename of this schema field must break THIS test, not silently
+// stop the post_meeting_recap automation trigger from matching.
+func TestActivityCapturedKindJSONTagIsStable(t *testing.T) {
+	payload := crmcontracts.PublicEventActivityCaptured{Kind: "meeting"}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var decoded map[string]any
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	got, ok := decoded["kind"]
+	if !ok {
+		t.Errorf(`expected JSON key "kind" (bound in automation/handlers_event.go's capturedActivityKind) in %s`, raw)
+	}
+	if !reflect.DeepEqual(got, "meeting") {
+		t.Errorf("got %v, want %v", got, "meeting")
+	}
+}
+
+// TestActivityArchivedEmitsTypedPayload proves the archive path emits the
+// empty struct (activity.archived carries no data).
+func TestActivityArchivedEmitsTypedPayload(t *testing.T) {
+	payload := crmcontracts.PublicEventActivityArchived{}
+	if !reflect.DeepEqual(payload.EventType(), "activity.archived") {
+		t.Errorf("got %v, want %v", payload.EventType(), "activity.archived")
+	}
+	if !reflect.DeepEqual(payload.EntityType(), "activity") {
+		t.Errorf("got %v, want %v", payload.EntityType(), "activity")
+	}
+
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !reflect.DeepEqual(string(raw), "{}") {
+		t.Errorf("got %v, want %v", string(raw), "{}")
+	}
+}
+
+// TestActivityUpdatedChangedFields_FieldPatch proves
+// activityUpdatedChangedFields maps UpdateActivity's optional-field input
+// onto the typed changed_fields struct — subject/occurred_at/is_done
+// touched, body/due_at/remind_at/assignee_id untouched (and therefore
+// omitted, not nulled).
+func TestActivityUpdatedChangedFields_FieldPatch(t *testing.T) {
+	subject := "Follow-up call"
+	occurredAt := time.Date(2026, 7, 22, 10, 0, 0, 0, time.UTC)
+	isDone := true
+	in := UpdateActivityInput{
+		Subject:    &subject,
+		OccurredAt: &occurredAt,
+		IsDone:     &isDone,
+	}
+
+	fields := activityUpdatedChangedFields(in)
+	if fields.Subject == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*fields.Subject, subject) {
+		t.Errorf("got %v, want %v", *fields.Subject, subject)
+	}
+	if fields.OccurredAt == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*fields.OccurredAt, occurredAt) {
+		t.Errorf("got %v, want %v", *fields.OccurredAt, occurredAt)
+	}
+	if fields.IsDone == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !(*fields.IsDone) {
+		t.Error("expected the condition to be true")
+	}
+	if fields.Body != nil {
+		t.Errorf("expected nil, got %v", fields.Body)
+	}
+	if fields.DueAt != nil {
+		t.Errorf("expected nil, got %v", fields.DueAt)
+	}
+	if fields.RemindAt != nil {
+		t.Errorf("expected nil, got %v", fields.RemindAt)
+	}
+	if fields.AssigneeId != nil {
+		t.Errorf("expected nil, got %v", fields.AssigneeId)
+	}
+	if fields.Relinked != nil {
+		t.Errorf("expected nil, got %v", fields.Relinked)
+	}
+
+	payload := crmcontracts.PublicEventActivityUpdated{ChangedFields: fields}
+	if !reflect.DeepEqual(payload.EventType(), "activity.updated") {
+		t.Errorf("got %v, want %v", payload.EventType(), "activity.updated")
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(string(raw), "due_at") {
+		t.Errorf("an untouched field must be omitted from changed_fields, not marshaled as null: should not contain %v", "due_at")
+	}
+	var decoded crmcontracts.PublicEventActivityUpdated
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
+}
+
+// TestActivityUpdatedChangedFields_BodyIsPresenceOnly proves the body delta
+// carries a presence flag, not the (potentially large) body content —
+// matching updateDelta's existing "body: true" convention.
+func TestActivityUpdatedChangedFields_BodyIsPresenceOnly(t *testing.T) {
+	body := "a very long email body that must never be echoed onto the wire"
+	in := UpdateActivityInput{Body: &body}
+
+	fields := activityUpdatedChangedFields(in)
+	if fields.Body == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !(*fields.Body) {
+		t.Error("expected the condition to be true")
+	}
+
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(string(raw), body) {
+		t.Errorf("the body's content must never be published on the wire: should not contain %v", body)
+	}
+}
+
+// TestRelinkedChangedFields proves RelinkActivity's changed_fields carries
+// the relinked target as a typed sub-object, not the old ad hoc nested map.
+func TestRelinkedChangedFields(t *testing.T) {
+	entityID := ids.NewV7()
+	fields := relinkedChangedFields("deal", entityID)
+
+	if fields.Relinked == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(fields.Relinked.EntityType, "deal") {
+		t.Errorf("got %v, want %v", fields.Relinked.EntityType, "deal")
+	}
+	if !reflect.DeepEqual(fields.Relinked.EntityId, openapi_types.UUID(entityID)) {
+		t.Errorf("got %v, want %v", fields.Relinked.EntityId, openapi_types.UUID(entityID))
+	}
+	if fields.Subject != nil {
+		t.Errorf("expected nil, got %v", fields.Subject)
+	}
+
+	payload := crmcontracts.PublicEventActivityUpdated{ChangedFields: fields}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var decoded crmcontracts.PublicEventActivityUpdated
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
+	}
+}

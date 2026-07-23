@@ -33,6 +33,12 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// incumbentHubSpot is the connection.Incumbent discriminator for HubSpot —
+// the one spelling the reconcile poller, the re-fetch worker, the webhook
+// binder, and the human-read shadow all gate on, so a role never routes an
+// overlay connection to the wrong adapter by a mistyped literal.
+const incumbentHubSpot = "hubspot"
+
 // failClosedOverlayMeter is the OVB meter a surface with no Redis-backed
 // meter uses: nil client, so every band sheds and every reservation is
 // declined (a role never spends live quota it cannot account for). The
@@ -117,7 +123,14 @@ func hubspotIncumbentFactory(region, token string) overlay.Incumbent {
 func NewOverlayProvider(pool *pgxpool.Pool, meter *overlaybudget.Meter, resolveIncumbent func(context.Context) (overlay.Incumbent, error)) *overlay.Provider {
 	ms := overlay.NewMirrorStore(pool, unresolvedOwnerEmails{})
 	ff := overlay.NewFreshnessReader(resolveIncumbent, ms, meter, hubspot.IncumbentClassesFor)
-	return overlay.NewProvider(ms, ff)
+	p := overlay.NewProvider(ms, ff)
+	// Wire the write-back path's incumbent resolver too — NewProvider stores
+	// only ms+ff, so without this the Provider's Create/Update/Archive verbs
+	// answer errNoWriteIncumbent even when a resolver was supplied. A caller
+	// that passes nil (the sorDispatch, which is wired later by WithKeyvault)
+	// leaves it unset here and SetOverlayIncumbentResolver installs it then.
+	p.SetFreshnessIncumbentResolver(resolveIncumbent)
+	return p
 }
 
 // unresolvedOwnerEmails is the construction-time placeholder
@@ -177,7 +190,7 @@ func (r overlayReconciler) Reconcile(ctx context.Context) error {
 	}
 	for _, d := range due {
 		if d.Workspace.UUID == wsID {
-			err := reconcileConnection(ctx, r.vault, r.ms, r.meter, r.log, d, r.newIncumbent)
+			err := reconcileConnection(ctx, r.pool, r.vault, r.ms, r.meter, r.log, d, r.newIncumbent)
 			if errors.Is(err, overlay.ErrConnectionGone) {
 				// The connection was revoked between the due-scan above and the
 				// sweep's first fenced write (a disconnect racing this on-demand

@@ -9,6 +9,42 @@ import { restorePlan } from "./restore";
 
 type OnboardingState = components["schemas"]["OnboardingState"];
 type CompanyProfile = components["schemas"]["CompanyProfile"];
+type CompanySiteRead = components["schemas"]["CompanySiteRead"];
+
+function readRow(status: CompanySiteRead["status"]): CompanySiteRead {
+  return {
+    id: "018f3a1b-0000-7000-8000-0000000000c3",
+    target_kind: "onboarding",
+    organization_id: null,
+    root_url: "https://gradion.com",
+    status,
+    status_code: null,
+    status_detail: null,
+    next_attempt_at: null,
+    phase: null,
+    pages_read: 12,
+    pages: [],
+    profile_fields: [
+      {
+        field: "legal_name",
+        value: "Gradion GmbH",
+        evidence_snippet: "© 2026 Gradion GmbH",
+        source_kind: "url",
+        source_url: "https://gradion.com",
+        confidence: 0.9,
+      },
+    ],
+    facts: [],
+    comparisons: [],
+    people: [],
+    legal_entities: [],
+    warnings: [],
+    draft_version: 2,
+    proposal_hash: "proposal-2",
+    created_at: "2026-07-22T08:00:00Z",
+    updated_at: "2026-07-22T08:10:00Z",
+  };
+}
 
 function stateRow(overrides: Partial<OnboardingState> = {}): OnboardingState {
   return {
@@ -57,6 +93,7 @@ describe("restorePlan", () => {
         state: null,
         profile: null,
         voice: null,
+        read: null,
         routeConnect: false,
       }),
     ).toEqual({
@@ -64,13 +101,20 @@ describe("restorePlan", () => {
       memberPath: false,
       companyConfirmed: false,
       resumeTarget: null,
+      adoptRead: null,
       recap: [],
     });
   });
 
   it("falls back to company-exists as the member signal ONLY without a state row", () => {
     expect(
-      restorePlan({ state: null, profile, voice: null, routeConnect: false }),
+      restorePlan({
+        state: null,
+        profile,
+        voice: null,
+        read: null,
+        routeConnect: false,
+      }),
     ).toMatchObject({ memberPath: true });
     // A returning creator has both a saved company and a state row saying
     // creator; the profile must not demote them to the member path.
@@ -79,6 +123,7 @@ describe("restorePlan", () => {
         state: stateRow({ step: "voice" }),
         profile,
         voice: emptyVoice,
+        read: null,
         routeConnect: false,
       }),
     ).toMatchObject({ memberPath: false, resumeTarget: "vo.invite" });
@@ -90,6 +135,7 @@ describe("restorePlan", () => {
         state: stateRow({ path: "member", step: "connect" }),
         profile,
         voice: null,
+        read: null,
         routeConnect: false,
       }),
     ).toMatchObject({
@@ -106,6 +152,7 @@ describe("restorePlan", () => {
           state: stateRow({ step }),
           profile: null,
           voice: null,
+          read: null,
           routeConnect: false,
         }),
       ).toMatchObject({
@@ -121,6 +168,7 @@ describe("restorePlan", () => {
       state: stateRow({ step: "voice" }),
       profile,
       voice: words(1240),
+      read: null,
       routeConnect: false,
     });
     expect(plan).toMatchObject({ resumeTarget: "vo.collecting" });
@@ -141,6 +189,7 @@ describe("restorePlan", () => {
         state: stateRow({ step: "voice", voice_skipped: true }),
         profile,
         voice: emptyVoice,
+        read: null,
         routeConnect: false,
       }),
     ).toMatchObject({ resumeTarget: "vo.skipped" });
@@ -148,6 +197,7 @@ describe("restorePlan", () => {
       state: stateRow({ step: "results", voice_skipped: true }),
       profile,
       voice: emptyVoice,
+      read: null,
       routeConnect: false,
     });
     expect(results).toMatchObject({ resumeTarget: "re.recap" });
@@ -164,6 +214,7 @@ describe("restorePlan", () => {
       state: stateRow({ step: "connect" }),
       profile: null,
       voice: { ...words(2000), built: true },
+      read: null,
       routeConnect: false,
     });
     expect(plan).toMatchObject({ resumeTarget: "cn.consent" });
@@ -183,9 +234,77 @@ describe("restorePlan", () => {
         state: stateRow({ step: "voice" }),
         profile,
         voice: emptyVoice,
+        read: null,
         routeConnect: true,
       }),
     ).toMatchObject({ resumeTarget: "cn.consent" });
+  });
+
+  it("adopts a persisted terminal read so the finished review stays reachable", () => {
+    for (const status of ["ready", "partial"] as const) {
+      const plan = restorePlan({
+        state: stateRow({ step: "confirm" }),
+        profile: null,
+        voice: null,
+        read: readRow(status),
+        routeConnect: false,
+      });
+      expect(plan).toMatchObject({
+        companyConfirmed: false,
+        adoptRead: { id: readRow(status).id },
+      });
+      if (plan.kind !== "start") {
+        throw new Error("expected a start plan");
+      }
+      expect(plan.recap).toContainEqual(
+        expect.objectContaining({
+          i18nKey: "ob.conv.recap.readTerminal",
+          params: { host: "gradion.com", count: 1 },
+        }),
+      );
+    }
+  });
+
+  it("adopts a still-running read so polling resumes", () => {
+    const plan = restorePlan({
+      state: stateRow(),
+      profile: null,
+      voice: null,
+      read: readRow("reading"),
+      routeConnect: false,
+    });
+    expect(plan).toMatchObject({ adoptRead: { id: readRow("reading").id } });
+    if (plan.kind !== "start") {
+      throw new Error("expected a start plan");
+    }
+    expect(plan.recap).toContainEqual(
+      expect.objectContaining({
+        i18nKey: "ob.conv.recap.readReading",
+        params: { host: "gradion.com", pages: 12 },
+      }),
+    );
+  });
+
+  it("reopens fresh with an honest line for a failed or deferred read", () => {
+    for (const [status, key] of [
+      ["failed", "ob.conv.recap.readFailed"],
+      ["deferred", "ob.conv.recap.readDeferred"],
+    ] as const) {
+      const plan = restorePlan({
+        state: stateRow(),
+        profile: null,
+        voice: null,
+        read: readRow(status),
+        routeConnect: false,
+      });
+      expect(plan).toMatchObject({ adoptRead: null });
+      if (plan.kind !== "start") {
+        throw new Error("expected a start plan");
+      }
+      expect(plan.recap).toContainEqual(
+        expect.objectContaining({ i18nKey: key }),
+      );
+    }
   });
 
   it("a completed journey leaves onboarding", () => {
@@ -194,6 +313,7 @@ describe("restorePlan", () => {
         state: stateRow({ step: "complete" }),
         profile,
         voice: null,
+        read: null,
         routeConnect: false,
       }),
     ).toEqual({ kind: "complete" });

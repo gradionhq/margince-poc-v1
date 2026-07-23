@@ -22,6 +22,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -241,9 +242,11 @@ func (s *Store) ApplyDeepReadTx(ctx context.Context, tx pgx.Tx, in DeepReadPropo
 	if err != nil {
 		return fmt.Errorf("audit deepread apply: %w", err)
 	}
-	if err := storekit.Emit(ctx, tx, auditID, "organization.updated", "organization", in.OrganizationID.UUID, map[string]any{
-		eventKeyDelta:  map[string]any{auditKeyFields: appliedFields, auditKeyFacts: appliedFacts},
-		auditKeySource: companySourceSiteRead, auditKeySourceURL: in.SourceURL,
+	if err := storekit.EmitEvent(ctx, tx, auditID, in.OrganizationID.UUID, crmcontracts.PublicEventOrganizationUpdated{
+		ChangedFields: map[string]any{
+			eventKeyDelta:  map[string]any{auditKeyFields: appliedFields, auditKeyFacts: appliedFacts},
+			auditKeySource: companySourceSiteRead, auditKeySourceURL: in.SourceURL,
+		},
 	}); err != nil {
 		return fmt.Errorf("emit organization.updated: %w", err)
 	}

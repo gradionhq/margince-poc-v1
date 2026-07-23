@@ -35,6 +35,13 @@ import (
 type Provider struct {
 	ms *MirrorStore
 	ff *FreshnessReader
+	// resolveIncumbent yields the acting workspace's live incumbent adapter
+	// for the write-back path (design.md §4.5). It is the SAME per-request
+	// resolver the force-fresh reader uses (SetFreshnessIncumbentResolver
+	// wires both), so a write reaches the incumbent exactly as a force-fresh
+	// read does. nil until wired (the write-verb unit tests) — writes then
+	// answer errNoWriteIncumbent rather than nil-panic.
+	resolveIncumbent func(context.Context) (Incumbent, error)
 }
 
 // NewProvider constructs a Provider over ms (mirror reads) and ff
@@ -43,11 +50,13 @@ func NewProvider(ms *MirrorStore, ff *FreshnessReader) *Provider {
 	return &Provider{ms: ms, ff: ff}
 }
 
-// SetFreshnessIncumbentResolver forwards the per-request live-incumbent
-// resolver to the force-fresh reader (boot-time only; see
-// FreshnessReader.SetIncumbentResolver). A Provider built without a
-// force-fresh reader ignores it.
+// SetFreshnessIncumbentResolver wires the per-request live-incumbent
+// resolver used by BOTH the force-fresh reader (force-fresh reads) and the
+// write-back path (Create/Update/Archive) — one resolver, one wiring point
+// (boot-time only; see FreshnessReader.SetIncumbentResolver). A Provider
+// built without a force-fresh reader still records it for the write path.
 func (p *Provider) SetFreshnessIncumbentResolver(resolveIncumbent func(context.Context) (Incumbent, error)) {
+	p.resolveIncumbent = resolveIncumbent
 	if p.ff != nil {
 		p.ff.SetIncumbentResolver(resolveIncumbent)
 	}
@@ -343,36 +352,6 @@ func (p *Provider) StageSemantic(_ context.Context, _ ids.UUID) (string, ids.UUI
 // example) — declared unsupported, not silently stubbed.
 func (p *Provider) RunReport(_ context.Context, _ datasource.ReportPlan) (datasource.ReportResult, error) {
 	return datasource.ReportResult{}, apperrors.ErrUnsupportedBySoR
-}
-
-// Create is unsupported until branch 2's write-back path lands.
-func (p *Provider) Create(_ context.Context, _ datasource.CreateInput) (datasource.EntityRef, error) {
-	return datasource.EntityRef{}, apperrors.ErrUnsupportedBySoR
-}
-
-// Update is unsupported until branch 2's write-back path lands.
-func (p *Provider) Update(_ context.Context, _ datasource.UpdateInput) (datasource.EntityRef, error) {
-	return datasource.EntityRef{}, apperrors.ErrUnsupportedBySoR
-}
-
-// AdvanceDeal is unsupported until branch 2's write-back path lands.
-func (p *Provider) AdvanceDeal(_ context.Context, _ datasource.AdvanceDealInput) (datasource.EntityRef, error) {
-	return datasource.EntityRef{}, apperrors.ErrUnsupportedBySoR
-}
-
-// Archive is unsupported until branch 2's write-back path lands.
-func (p *Provider) Archive(_ context.Context, _ datasource.EntityRef) (datasource.EntityRef, error) {
-	return datasource.EntityRef{}, apperrors.ErrUnsupportedBySoR
-}
-
-// Merge is unsupported until branch 2's write-back path lands.
-func (p *Provider) Merge(_ context.Context, _ datasource.MergeInput) (datasource.EntityRef, error) {
-	return datasource.EntityRef{}, apperrors.ErrUnsupportedBySoR
-}
-
-// PromoteLead is unsupported until branch 2's write-back path lands.
-func (p *Provider) PromoteLead(_ context.Context, _ ids.UUID, _ string, _ *string) (datasource.EntityRef, bool, error) {
-	return datasource.EntityRef{}, false, apperrors.ErrUnsupportedBySoR
 }
 
 // Freshness delegates to ff (the metered force-fresh reader) when

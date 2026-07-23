@@ -22,6 +22,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -143,7 +144,7 @@ func (s *Store) ensurePerson(ctx context.Context, tx pgx.Tx, in EnsureCounterpar
 	if err != nil {
 		return err
 	}
-	if err := storekit.Emit(ctx, tx, auditID, "person.created", entityPerson, id.UUID, map[string]any{fieldFullName: name}); err != nil {
+	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventPersonCreated{FullName: name}); err != nil {
 		return err
 	}
 	res.PersonID = id
@@ -204,7 +205,7 @@ func (s *Store) ensureOrgAndEmployment(ctx context.Context, tx pgx.Tx, in Ensure
 		if err != nil {
 			return err
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "organization.created", entityOrganization, orgID.UUID, map[string]any{fieldDisplayName: in.Domain}); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, orgID.UUID, crmcontracts.PublicEventOrganizationCreated{DisplayName: &in.Domain}); err != nil {
 			return err
 		}
 		res.OrgCreated = true

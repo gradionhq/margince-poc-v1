@@ -4,7 +4,8 @@ import type { components } from "../../api/schema";
 import { Button } from "../../design-system/atoms";
 import { useT } from "../../i18n";
 import type { CompanyDraft, CompanyFieldName } from "../onboarding";
-import { CompanyStep, ManualCompanyInterview } from "../onboarding";
+import { CompanyStep } from "../onboarding-company-form";
+import { ManualCompanyInterview } from "../onboarding-manual-interview";
 import { ReadEvidence } from "../onboarding-read";
 
 // The right panel of the company act: a living dossier of what the read
@@ -23,7 +24,8 @@ export type FindingHighlight = Readonly<{
   ids: readonly string[];
 }>;
 
-const PULSE_MS = 1600;
+// Matches the ob-conv-pulse animation length in conversation.css.
+const PULSE_MS = 1200;
 
 type CompanyActArtifactProps = Readonly<{
   mode: ArtifactMode;
@@ -47,7 +49,33 @@ type CompanyActArtifactProps = Readonly<{
 export function CompanyActArtifact(props: CompanyActArtifactProps) {
   const t = useT();
   const container = useRef<HTMLDivElement>(null);
+  // Mirrors the thread's follow-the-bottom discipline: while the pointer is
+  // over the dossier the human owns its scroll position, and a pulse must
+  // not yank it.
+  const hovered = useRef(false);
   const { highlight } = props;
+
+  // Native listeners (not JSX handlers): the panel stays a static, purely
+  // presentational element — hover is an input to the pulse effect, not an
+  // interaction of its own.
+  useEffect(() => {
+    const root = container.current;
+    if (!root) {
+      return;
+    }
+    const enter = () => {
+      hovered.current = true;
+    };
+    const leave = () => {
+      hovered.current = false;
+    };
+    root.addEventListener("mouseenter", enter);
+    root.addEventListener("mouseleave", leave);
+    return () => {
+      root.removeEventListener("mouseenter", enter);
+      root.removeEventListener("mouseleave", leave);
+    };
+  }, []);
 
   useEffect(() => {
     if (!highlight) {
@@ -65,6 +93,17 @@ export function CompanyActArtifact(props: CompanyActArtifactProps) {
     );
     for (const node of nodes) {
       node.classList.add("ob-conv-pulse");
+    }
+    const first = nodes[0];
+    if (first !== undefined && !hovered.current) {
+      const reduceMotion =
+        globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ??
+        false;
+      // jsdom has no scrollIntoView; in the browser it always exists.
+      first.scrollIntoView?.({
+        block: "nearest",
+        behavior: reduceMotion ? "auto" : "smooth",
+      });
     }
     const timer = globalThis.setTimeout(() => {
       for (const node of nodes) {
@@ -97,9 +136,8 @@ export function CompanyActArtifact(props: CompanyActArtifactProps) {
   );
 }
 
-// Wizard-state persistence for the conversational shell lands with restore
-// (plan Phase 5); until then blur/persist callbacks intentionally store
-// nothing rather than pretending to.
+// The conversational shell persists at act transitions and on confirm, not
+// per keystroke: blur/persist callbacks intentionally store nothing here.
 function persistLater(): undefined {
   return undefined;
 }

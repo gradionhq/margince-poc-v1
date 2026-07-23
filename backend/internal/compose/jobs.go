@@ -28,6 +28,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
+	"github.com/gradionhq/margince/backend/internal/platform/fxsource"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
@@ -296,6 +297,22 @@ type JobRunnerConfig struct {
 	// so a queued build on a brainless worker finishes failed with an
 	// actionable message instead of sitting queued forever.
 	VoiceBrain completer
+	// FxSourceURL is the structured FX JSON API the fx-rate refresh job
+	// fetches from; empty = the worker registers but the producer no-ops
+	// (honest: no source configured, nothing to propose).
+	FxSourceURL string
+	// FxBootstrapCurrencies is the candidate foreign-currency set the fx-rate
+	// refresh proposes when the sheet is still empty (a fresh install has no
+	// tracked currency to derive symbols from). Empty ⇒ an empty sheet stays a
+	// no-op; a human still approves every bootstrapped proposal.
+	FxBootstrapCurrencies []string
+	// RateExtractBrain is the model lane the model-cost refresh job extracts
+	// pricing with (modelPath.RateExtract); nil = the worker registers but
+	// the producer no-ops (same posture as the deep-read brain).
+	RateExtractBrain completer
+	// ModelPricingSources binds provider names to pricing-page URLs the
+	// model-cost refresh crawls; empty = no-op.
+	ModelPricingSources []pricingSource
 }
 
 // NewJobRunner wires the deals correctors and the automation time-scan
@@ -340,6 +357,15 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	// needs the worker registered, same posture as the deep-read worker
 	// above.
 	river.AddWorker(workers, &embedReindexWorker{store: search.NewStore(pool), embedder: cfg.Embedder})
+	// The rate-refresh jobs are not periodic — the api enqueues one per admin
+	// "Refresh from sources" click; the worker registers regardless of whether
+	// a source is configured (a nil client no-ops honestly).
+	var fxClient *fxsource.Client
+	if cfg.FxSourceURL != "" {
+		fxClient = fxsource.New(cfg.FxSourceURL, nil)
+	}
+	river.AddWorker(workers, newFxRefreshWorker(pool, fxClient, cfg.FxBootstrapCurrencies, log))
+	river.AddWorker(workers, newModelCostRefreshWorker(pool, cfg.RateExtractBrain, cfg.ModelPricingSources, log))
 
 	periodic := []*river.PeriodicJob{
 		river.NewPeriodicJob(
@@ -437,6 +463,12 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 			meter = failClosedOverlayMeter()
 		}
 		river.AddWorker(workers, &overlayReconcileWorker{pool: pool, vault: cfg.OverlayVault, ms: ms, meter: meter, log: log, newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit)})
+		// The webhook-as-signal re-fetch worker (OVA-WIRE-10): consumes the
+		// coalesced OverlayRefetchArgs the receiver enqueues, refreshing one
+		// record through the same store the poller uses. Registered whenever
+		// the overlay vault is present (the receiver only enqueues when the api
+		// role has the app secret wired).
+		river.AddWorker(workers, &overlayRefetchWorker{pool: pool, vault: cfg.OverlayVault, ms: ms, log: log, newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit)})
 		periodic = append(periodic, river.NewPeriodicJob(
 			river.PeriodicInterval(cfg.OverlayInterval),
 			func() (river.JobArgs, *river.InsertOpts) { return OverlayReconcileArgs{}, sweepInsertOpts() },
@@ -450,6 +482,10 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 			// Deep reads run on their own bounded pool so long crawls cannot
 			// evict the short maintenance jobs from the default queue.
 			deepReadQueue: {MaxWorkers: deepReadMaxWorkers},
+			// Rate refreshes (FX fetch + pricing-page crawl+LLM extract) are
+			// likewise long; their own bounded pool keeps a multi-workspace
+			// burst from starving close-date, reconcile, and capture jobs.
+			rateRefreshQueue: {MaxWorkers: rateRefreshMaxWorkers},
 		},
 		Workers:      workers,
 		PeriodicJobs: periodic,

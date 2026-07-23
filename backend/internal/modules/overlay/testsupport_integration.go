@@ -94,8 +94,10 @@ func testWorkspaceCtx(t *testing.T) (context.Context, *pgxpool.Pool, ids.UUID) {
 		Permissions: principal.Permissions{
 			RoleKeys: []string{"admin"},
 			// admin's identity/internal/policy default: full CRUD on
-			// overlay_connection plus Read on the mirrored entities —
-			// hand-built here (see overlayAdminObjectGrants) the same way
+			// overlay_connection AND on the mirrored entities (the entity
+			// write grants are what let the write-back verb tests exercise
+			// Create/Update/Archive) — hand-built here (see
+			// overlayAdminObjectGrants) the same way
 			// internal/modules/consent/dsr_integration_test.go's setupDSR
 			// declares its own object's grant, since this fixture builds a
 			// Principal directly rather than running it through policy.Merge.
@@ -108,21 +110,22 @@ func testWorkspaceCtx(t *testing.T) (context.Context, *pgxpool.Pool, ids.UUID) {
 
 // overlayAdminObjectGrants is the object-capability set the overlay
 // integration fixtures bind for an admin actor: full CRUD on
-// overlay_connection (Connect/Disconnect are admin/ops-only) plus Read on
-// every mirrored entity type. The entity-Read grants are required now that
-// the overlay Provider object-gates its reads like the native stores —
-// without them the fixture actor would be denied the very mirror rows the
-// read tests assert on. The mirrored-entity set is derived from
-// knownEntityTypes (the provider's own list), so a new mirrored type can
-// never silently lack its fixture grant. RowScope stays all; overlay row
-// scope is the store's mirror_visibility deny-join, not the RBAC owner
-// predicate.
+// overlay_connection (Connect/Disconnect are admin/ops-only) plus full CRUD
+// on every mirrored entity type. The entity grants are required now that
+// the overlay Provider object-gates BOTH its reads and its write-back verbs
+// (Create/Update/Archive) like the native stores — without them the fixture
+// actor would be denied the very mirror rows the read tests assert on and
+// the write-back the write tests exercise. The mirrored-entity set is
+// derived from knownEntityTypes (the provider's own list), so a new mirrored
+// type can never silently lack its fixture grant. RowScope stays all;
+// overlay row scope is the store's mirror_visibility deny-join, not the RBAC
+// owner predicate.
 func overlayAdminObjectGrants() map[string]principal.ObjectGrant {
 	grants := map[string]principal.ObjectGrant{
 		overlayConnectionObject: {Create: true, Read: true, Update: true, Delete: true},
 	}
 	for _, et := range knownEntityTypes {
-		grants[string(et)] = principal.ObjectGrant{Read: true}
+		grants[string(et)] = principal.ObjectGrant{Create: true, Read: true, Update: true, Delete: true}
 	}
 	return grants
 }

@@ -33,6 +33,7 @@ type Config struct {
 	Auth           Auth            `yaml:"auth"`
 	Email          Email           `yaml:"email"`
 	AI             AIConfig        `yaml:"ai"`
+	Rates          RatesConfig     `yaml:"rates"`
 	Capture        Capture         `yaml:"capture"`
 	CompanyContext CompanyContext  `yaml:"company_context"`
 	OverlayBudget  OverlayBudget   `yaml:"overlay_budget"`
@@ -341,6 +342,9 @@ func (c Config) validate() error {
 	}
 	if cur := c.Organization.BaseCurrency; cur != "" && !isCurrencyCode(cur) {
 		return fmt.Errorf("deployconfig: organization.base_currency %q is not a 3-letter ISO 4217 code", cur)
+	}
+	if err := c.Rates.validate(); err != nil {
+		return err
 	}
 	if c.BootstrapAdmin != nil {
 		if err := c.BootstrapAdmin.validate(); err != nil {

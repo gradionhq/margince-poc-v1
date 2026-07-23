@@ -31,6 +31,88 @@ type OverlayReconcileArgs struct{}
 // Kind is the stable job identifier River persists in river_job.
 func (OverlayReconcileArgs) Kind() string { return "overlay_reconcile" }
 
+// OverlayRefetchArgs is the webhook-as-signal targeted re-fetch (OVA-WIRE-10):
+// a validly-signed, portal-bound webhook enqueues one of these to refresh the
+// named record through the same idempotent ingest the poller uses. The args
+// ARE the coalescing key — River's unique-by-args (OVA-PARAM-10, scheduled a
+// short window ahead) collapses a record edited rapidly in the incumbent to
+// ONE re-fetch rather than N. IncumbentClass is the HubSpot object class
+// (contacts/companies/deals/leads); ExternalID is the mirror external id.
+type OverlayRefetchArgs struct {
+	Workspace      string `json:"workspace"`
+	IncumbentClass string `json:"incumbent_class"`
+	ExternalID     string `json:"external_id"`
+}
+
+// Kind is the stable job identifier River persists in river_job.
+func (OverlayRefetchArgs) Kind() string { return "overlay_refetch" }
+
+// overlayRefetchWorker executes one webhook-driven single-record re-fetch: it
+// resolves the workspace's active connection, builds a live incumbent adapter
+// over its vaulted token, reads the one record, and ingests it through the
+// fenced, resolver-bound store — the SAME idempotent, owner-revalidating path
+// the reconcile sweep uses, so a webhook refresh and a poller sweep converge
+// on one mirror state. The poller still heals any gap a signal misses.
+type overlayRefetchWorker struct {
+	river.WorkerDefaults[OverlayRefetchArgs]
+	pool         *pgxpool.Pool
+	vault        keyvault.Vault
+	ms           *overlay.MirrorStore
+	log          *slog.Logger
+	newIncumbent func(region, token string) overlay.Incumbent
+}
+
+func (w *overlayRefetchWorker) Work(ctx context.Context, job *river.Job[OverlayRefetchArgs]) error {
+	wsID, err := ids.ParseAs[ids.WorkspaceKind](job.Args.Workspace)
+	if err != nil {
+		// A malformed workspace id is a permanent defect, not a transient
+		// failure — return nil so River does not retry an unfixable job.
+		w.log.ErrorContext(ctx, "overlay refetch: unparseable workspace id in job args",
+			"workspace", job.Args.Workspace, "err", err)
+		return nil
+	}
+	wsCtx := reconcileWorkerCtx(ctx, wsID)
+	conn, err := overlay.ActiveConnection(wsCtx, w.pool)
+	if err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			// The workspace disconnected since the signal arrived — nothing to
+			// refresh, and teardown owns the mirror. Not a retryable failure.
+			return nil
+		}
+		return fmt.Errorf("overlay refetch: reading the active connection: %w", err)
+	}
+	if conn.Incumbent != incumbentHubSpot {
+		return nil
+	}
+	token, err := w.vault.Get(wsCtx, conn.Workspace, conn.CredentialRef)
+	if err != nil {
+		return fmt.Errorf("overlay refetch: resolving the vaulted token: %w", err)
+	}
+	inc := w.newIncumbent(conn.Region, string(token))
+	rec, err := inc.Get(wsCtx, job.Args.IncumbentClass, job.Args.ExternalID)
+	if err != nil {
+		// A connection-level failure (rate-limit/auth/unreachable) is retryable
+		// — return it so River backs off and retries. A record that is simply
+		// gone or unmappable is not retryable: the deletion feed / poller
+		// reconciles it, so log and drop rather than retry forever.
+		if isConnectionLevelIncumbentError(err) {
+			return fmt.Errorf("overlay refetch: reading %s/%s: %w", job.Args.IncumbentClass, job.Args.ExternalID, err)
+		}
+		w.log.WarnContext(wsCtx, "overlay refetch: record read failed (not retryable), leaving it to the poller",
+			"workspace", job.Args.Workspace, "class", job.Args.IncumbentClass, "id", job.Args.ExternalID, "err", err)
+		return nil
+	}
+	if err := w.ms.WithResolver(inc).WithFence().Ingest(wsCtx, rec); err != nil {
+		if errors.Is(err, overlay.ErrConnectionGone) {
+			// Disconnected mid-refetch — the fence aborted the write, nothing
+			// resurrected into a now-native workspace. Clean stop.
+			return nil
+		}
+		return fmt.Errorf("overlay refetch: ingesting %s/%s: %w", job.Args.IncumbentClass, job.Args.ExternalID, err)
+	}
+	return nil
+}
+
 // overlayObjectClasses are the HubSpot object classes design.md §9 maps —
 // the poller sweeps each, per due connection, resuming each object class's
 // own persisted watermark. The five engagement classes
@@ -103,7 +185,7 @@ func (w *overlayReconcileWorker) Work(ctx context.Context, _ *river.Job[OverlayR
 	recMS := w.ms.WithFence()
 	for _, d := range due {
 		wsCtx := reconcileWorkerCtx(ctx, d.Workspace)
-		err := reconcileConnection(wsCtx, w.vault, w.ms, w.meter, w.log, d, w.newIncumbent)
+		err := reconcileConnection(wsCtx, w.pool, w.vault, w.ms, w.meter, w.log, d, w.newIncumbent)
 		// Record the sweep outcome so a connection-level failure backs the
 		// next sweep off (overlay_sync_state), instead of re-sweeping a
 		// revoked/rate-limited/unreachable connection hot every tick; one
@@ -176,8 +258,8 @@ func isConnectionLevelIncumbentError(err error) bool {
 // sweep and returns an error, which the periodic caller records as a
 // backoff (overlay_sync_state) so a dead or throttled connection is not
 // re-swept hot every tick.
-func reconcileConnection(ctx context.Context, vault keyvault.Vault, ms *overlay.MirrorStore, meter *overlaybudget.Meter, log *slog.Logger, d overlay.DueOverlayConnection, newIncumbent func(region, token string) overlay.Incumbent) error {
-	if d.Incumbent != "hubspot" {
+func reconcileConnection(ctx context.Context, pool *pgxpool.Pool, vault keyvault.Vault, ms *overlay.MirrorStore, meter *overlaybudget.Meter, log *slog.Logger, d overlay.DueOverlayConnection, newIncumbent func(region, token string) overlay.Incumbent) error {
+	if d.Incumbent != incumbentHubSpot {
 		// Branch 1 wires only HubSpot (design.md §2 D2/D3) — a connection
 		// row naming any other incumbent has no adapter here; an honest,
 		// named gap, never a guessed adapter.
@@ -192,6 +274,16 @@ func reconcileConnection(ctx context.Context, vault keyvault.Vault, ms *overlay.
 	// the whole sweep is drivable against a fake incumbent in a test,
 	// rather than reaching a real HubSpot over the network.
 	inc := newIncumbent(d.Region, string(token))
+	// Self-heal the webhook tenant binding (OVA-DDL-3): if the connect-time
+	// portal fetch failed (best-effort, left null), fill it from this sweep's
+	// live adapter so the webhook lane can bind that portal — a transient
+	// connect-time blip no longer permanently disables push refresh. Gated on
+	// the binding being unset, so a bound connection pays no per-sweep call.
+	// Best-effort: a failure here never aborts the record sweep below.
+	if err := overlay.BackfillPortalBinding(ctx, pool, inc); err != nil {
+		log.WarnContext(ctx, "overlay reconcile: backfilling the webhook portal binding failed",
+			"workspace", d.Workspace.String(), "err", err)
+	}
 	// Bind the store to THIS connection's live adapter so seeding,
 	// UpsertUserMap's email re-verification, and Ingest's owner-change
 	// revalidation all resolve against the incumbent's CURRENT owner

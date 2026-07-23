@@ -1,9 +1,8 @@
 import { Paperclip, Send, Sparkles } from "lucide-react";
-import type { ChangeEvent, Dispatch, DragEvent } from "react";
-import { useRef, useState } from "react";
+import type { ChangeEvent, Dispatch } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { components } from "../../api/schema";
 import { Button } from "../../design-system/atoms";
-import type { MarginceCoreState } from "../../design-system/margince-core";
 import { useT } from "../../i18n";
 import { ACCEPTED_CORPUS_ATTR, VOICE_MIN_WORDS } from "../onboarding";
 import { parseVoiceInsights, VoiceInsights } from "../voice-insights";
@@ -12,6 +11,8 @@ import type {
   ConversationState,
 } from "./conversation-machine";
 import { NarrationBubble } from "./entries";
+import { NextStepBar } from "./next-step-bar";
+import { presenceFor } from "./presence";
 import { ConversationThread } from "./thread";
 import { useVoiceBuild } from "./use-voice-build";
 import { useVoiceCorpus } from "./use-voice-corpus";
@@ -37,22 +38,6 @@ type VoiceActProps = Readonly<{
   initialSummary?: CorpusSummary | null;
 }>;
 
-function corePresence(state: ConversationState): MarginceCoreState {
-  if (state.phase === "vo.building") {
-    return "working";
-  }
-  if (state.phase === "vo.invite" || state.phase === "vo.speaker") {
-    return "attention";
-  }
-  if (state.phase === "vo.result") {
-    if (state.lastBuildStatus === "succeeded") {
-      return "success";
-    }
-    return state.lastBuildStatus === "failed" ? "error" : "quiet";
-  }
-  return "listening";
-}
-
 export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
   const t = useT();
   const machine = useRef(state);
@@ -67,6 +52,7 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
   const [pendingPaste, setPendingPaste] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const composer = useRef<HTMLTextAreaElement>(null);
 
   const collecting =
     state.phase === "vo.collecting" || state.phase === "vo.speaker";
@@ -82,29 +68,60 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
     event.target.value = "";
   };
 
-  // The whole thread is a drop target while collecting; preventDefault on
-  // dragover is what makes it legal — without it the browser navigates to
-  // the dropped file.
-  const dropProps = collecting
-    ? {
-        onDragOver: (event: DragEvent<HTMLDivElement>) => {
-          event.preventDefault();
-          setDragOver(true);
-        },
-        onDragLeave: () => setDragOver(false),
-        onDrop: (event: DragEvent<HTMLDivElement>) => {
-          event.preventDefault();
-          setDragOver(false);
-          corpus.addFiles(Array.from(event.dataTransfer.files));
-        },
+  // The hint promises "drop files anywhere in this conversation", so the
+  // WHOLE window is the drop target — a file landing on the composer, the
+  // artifact panel, or a layout gap must feed the corpus, and outside the
+  // collecting phases a stray drop must still be neutralized: the browser's
+  // default is to NAVIGATE to the dropped file, which would tear the user
+  // out of the onboarding mid-act.
+  const { addFiles } = corpus;
+  useEffect(() => {
+    // Only FILE drags are claimed: dragging selected text into the composer
+    // is a native interaction this act must not swallow.
+    const isFileDrag = (event: globalThis.DragEvent) =>
+      event.dataTransfer?.types.includes("Files") ?? false;
+    const onDragOver = (event: globalThis.DragEvent) => {
+      if (!isFileDrag(event)) {
+        return;
       }
-    : {};
+      event.preventDefault();
+      setDragOver(collecting);
+    };
+    const onDragLeave = (event: globalThis.DragEvent) => {
+      // relatedTarget is null only when the drag exits the window; moving
+      // between elements inside it must not flicker the affordance off.
+      if (event.relatedTarget === null) {
+        setDragOver(false);
+      }
+    };
+    const onDrop = (event: globalThis.DragEvent) => {
+      if (!isFileDrag(event)) {
+        return;
+      }
+      event.preventDefault();
+      setDragOver(false);
+      if (collecting) {
+        addFiles(Array.from(event.dataTransfer?.files ?? []));
+      }
+    };
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("dragleave", onDragLeave);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("dragleave", onDragLeave);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, [collecting, addFiles]);
 
   const submitComposer = () => {
     const text = draft.trim();
     if (text === "" || state.phase !== "vo.collecting") {
       return;
     }
+    // Sending must not strand focus on the send button: the composer stays
+    // the keyboard home while the conversation continues.
+    composer.current?.focus();
     if (text.split(/\s+/).length >= PASTE_OFFER_MIN_WORDS) {
       setPendingPaste(text);
     } else {
@@ -126,9 +143,12 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
     corpus.answerSpeaker(questionId, value);
   };
 
+  const presence = presenceFor(state);
+
   return (
     <ConversationWorkbench
-      core={corePresence(state)}
+      core={presence.core}
+      progress={presence.progress}
       status={t(
         state.phase === "vo.building"
           ? "ob.conv.voice.statusBuilding"
@@ -143,10 +163,7 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
         />
       }
     >
-      <div
-        className={`mw-thread${dragOver ? " ob-conv-dragover" : ""}`}
-        {...dropProps}
-      >
+      <div className={`mw-thread${dragOver ? " ob-conv-dragover" : ""}`}>
         <ConversationThread
           entries={state.thread}
           pendingQuestionId={state.pendingQuestion?.id ?? null}
@@ -190,6 +207,7 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
           )}
         </ConversationThread>
       </div>
+      <VoiceNextStep state={state} canBuild={canBuild} />
       {collecting && (
         <div className="mw-composer">
           <input
@@ -207,6 +225,7 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
             <Paperclip aria-hidden />
           </Button>
           <textarea
+            ref={composer}
             value={draft}
             maxLength={100_000}
             rows={2}
@@ -237,6 +256,34 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
       )}
     </ConversationWorkbench>
   );
+}
+
+// The pinned next-step line of the voice act: the open speaker decision
+// outranks the build chip once the server corpus clears the floor.
+function VoiceNextStep({
+  state,
+  canBuild,
+}: Readonly<{ state: ConversationState; canBuild: boolean }>) {
+  const t = useT();
+  if (state.pendingQuestion !== null) {
+    return (
+      <NextStepBar
+        label={t("ob.conv.next.decisionOne")}
+        targetSelector="fieldset.ob-conv-question:not([disabled])"
+        revision={state.seq}
+      />
+    );
+  }
+  if (canBuild) {
+    return (
+      <NextStepBar
+        label={t("ob.conv.next.build")}
+        targetSelector=".ob-conv-build-chip"
+        revision={state.seq}
+      />
+    );
+  }
+  return null;
 }
 
 function InviteChips({
@@ -326,6 +373,7 @@ function CollectingControls({
           <Button
             small
             variant="primary"
+            className="ob-conv-build-chip"
             disabled={startPending}
             onClick={onBuild}
           >

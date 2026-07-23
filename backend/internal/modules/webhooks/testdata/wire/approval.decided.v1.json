@@ -1,0 +1,10 @@
+{
+  "decided_by": "00000000-0000-0000-0000-0000000000c2",
+  "diff_hash": "sha256:abc123",
+  "edited": true,
+  "edited_change": {
+    "stage_id": "00000000-0000-0000-0000-0000000000c1"
+  },
+  "kind": "advance_deal",
+  "verdict": "approved"
+}

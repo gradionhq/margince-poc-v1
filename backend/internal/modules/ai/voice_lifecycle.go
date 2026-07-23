@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -169,11 +171,26 @@ func (s *VoiceStore) GetBuild(ctx context.Context, profileID, buildID ids.UUID) 
 }
 
 func emitVoiceBuild(ctx context.Context, tx pgx.Tx, auditID ids.UUID, build VoiceBuild) error {
-	return storekit.Emit(ctx, tx, auditID, "voice.build_changed", "voice_profile", build.ProfileID, map[string]any{
-		voiceKeyProfileID: build.ProfileID, "build_id": build.ID, voiceKeyReason: build.Reason,
-		voiceKeyStatus: build.Status, "stage": build.Stage, voiceKeySourceHash: build.SourceHash,
-		voiceKeySourceCount: build.SourceCount, "result_version": build.ResultVersion,
-		voiceKeyCandidateAction: build.CandidateAction, voiceKeyStatusCode: build.StatusCode,
-		"next_attempt_at": build.NextAttemptAt,
-	})
+	return storekit.EmitEvent(ctx, tx, auditID, build.ProfileID, voiceBuildChangedPayload(build))
+}
+
+// voiceBuildChangedPayload builds voice.build_changed's typed payload.
+// Stage/ResultVersion/StatusCode/NextAttemptAt are pointers on VoiceBuild
+// itself — nil on a freshly-queued build, set once one exists (a returned
+// in-flight/deferred build) — so they carry through as-is.
+func voiceBuildChangedPayload(build VoiceBuild) crmcontracts.PublicEventVoiceBuildChanged {
+	payload := crmcontracts.PublicEventVoiceBuildChanged{
+		ProfileId:       openapi_types.UUID(build.ProfileID),
+		BuildId:         openapi_types.UUID(build.ID),
+		Reason:          build.Reason,
+		Status:          build.Status,
+		Stage:           build.Stage,
+		SourceHash:      build.SourceHash,
+		SourceCount:     build.SourceCount,
+		ResultVersion:   build.ResultVersion,
+		CandidateAction: build.CandidateAction,
+		StatusCode:      build.StatusCode,
+		NextAttemptAt:   build.NextAttemptAt,
+	}
+	return payload
 }

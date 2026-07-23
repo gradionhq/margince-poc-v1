@@ -5,17 +5,17 @@ import { navigate } from "../../app/router";
 import { Button } from "../../design-system/atoms";
 import { useT } from "../../i18n";
 import type { MessageKey } from "../../i18n/en";
+import { EMPTY_DRAFT } from "../onboarding";
 import {
-  EMPTY_DRAFT,
   GoogleConnectPanel,
   ImapConnectPanel,
-  MicrosoftConnectPanel,
-} from "../onboarding";
+} from "../onboarding-connect-panels";
 import type {
   ConversationEvent,
   ConversationState,
 } from "./conversation-machine";
 import { NarrationBubble } from "./entries";
+import { presenceFor } from "./presence";
 import { ConversationThread } from "./thread";
 import type { WizardPersistInput } from "./use-wizard-state";
 import { ConversationWorkbench } from "./workbench";
@@ -86,7 +86,7 @@ export function ConnectAct({
 
   return (
     <ConversationWorkbench
-      core={state.act === "done" ? "success" : "listening"}
+      core={presenceFor(state).core}
       status={t("ob.ai.ready")}
       artifact={
         <div className="mw-review ob-conv-artifact">
@@ -102,9 +102,6 @@ export function ConnectAct({
           )}
           {provider === "google" && (
             <GoogleConnectPanel outcome={outcome} onComplete={finish} />
-          )}
-          {provider === "microsoft" && (
-            <MicrosoftConnectPanel onComplete={finish} />
           )}
           {provider === "imap" && <ImapConnectPanel onComplete={finish} />}
         </div>
@@ -153,16 +150,26 @@ export function ConnectAct({
                 </div>
               )}
               <div className="ob-conv-chips">
-                {(Object.keys(providerLabels) as Provider[]).map((key) => (
-                  <Button
-                    key={key}
-                    small
-                    variant={provider === key ? "primary" : undefined}
-                    onClick={() => setProvider(key)}
-                  >
-                    {t(providerLabels[key])}
-                  </Button>
-                ))}
+                {(Object.keys(providerLabels) as Provider[]).map((key) => {
+                  // Microsoft has no live OAuth path yet: the chip is disabled
+                  // and badged "Soon" in place, so it can never open a dead
+                  // panel — an honest not-yet, not a cosmetic label.
+                  const soon = key === "microsoft";
+                  return (
+                    <Button
+                      key={key}
+                      small
+                      variant={provider === key ? "primary" : undefined}
+                      disabled={soon}
+                      onClick={soon ? undefined : () => setProvider(key)}
+                    >
+                      {t(providerLabels[key])}
+                      {soon && (
+                        <span className="ob-chip-soon">{t("ob.s4.soon")}</span>
+                      )}
+                    </Button>
+                  );
+                })}
                 <Button
                   small
                   variant="ghost"

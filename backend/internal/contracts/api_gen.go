@@ -4152,6 +4152,21 @@ func (e RecordGrantSubjectType) Valid() bool {
 	}
 }
 
+// Defines values for RefreshAcceptedStatus.
+const (
+	Enqueued RefreshAcceptedStatus = "enqueued"
+)
+
+// Valid indicates whether the value is a known member of the RefreshAcceptedStatus enum.
+func (e RefreshAcceptedStatus) Valid() bool {
+	switch e {
+	case Enqueued:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RelationshipKind.
 const (
 	RelationshipKindCoSellWith      RelationshipKind = "co_sell_with"
@@ -5493,6 +5508,21 @@ func (e VoiceCorpusSummaryQualityBand) Valid() bool {
 	}
 }
 
+// Defines values for VoiceCorpusSummaryTargetWords.
+const (
+	N30000 VoiceCorpusSummaryTargetWords = 30000
+)
+
+// Valid indicates whether the value is a known member of the VoiceCorpusSummaryTargetWords enum.
+func (e VoiceCorpusSummaryTargetWords) Valid() bool {
+	switch e {
+	case N30000:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for VoiceProfileMaturity.
 const (
 	VoiceProfileMaturityBuilding    VoiceProfileMaturity = "building"
@@ -5616,6 +5646,36 @@ func (e VoiceProfileEvaluationClassification) Valid() bool {
 	case VoiceProfileEvaluationClassificationMaterial:
 		return true
 	case VoiceProfileEvaluationClassificationRoutine:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VoiceProfileEvaluationHeldOutPrompts.
+const (
+	N5 VoiceProfileEvaluationHeldOutPrompts = 5
+)
+
+// Valid indicates whether the value is a known member of the VoiceProfileEvaluationHeldOutPrompts enum.
+func (e VoiceProfileEvaluationHeldOutPrompts) Valid() bool {
+	switch e {
+	case N5:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VoiceProfileEvaluationRepeatsPerPrompt.
+const (
+	N3 VoiceProfileEvaluationRepeatsPerPrompt = 3
+)
+
+// Valid indicates whether the value is a known member of the VoiceProfileEvaluationRepeatsPerPrompt enum.
+func (e VoiceProfileEvaluationRepeatsPerPrompt) Valid() bool {
+	switch e {
+	case N3:
 		return true
 	default:
 		return false
@@ -6779,6 +6839,22 @@ type AiCallSummary struct {
 	Tier      string `json:"tier"`
 	TokensIn  int    `json:"tokens_in"`
 	TokensOut int    `json:"tokens_out"`
+}
+
+// AiModelRate One effective-dated model price. The four buckets are USD per 1M tokens as decimal strings (the server stores µUSD integers). Transparency-only — never gates routing.
+type AiModelRate struct {
+	CacheReadPerMtok  string             `json:"cache_read_per_mtok"`
+	CacheWritePerMtok string             `json:"cache_write_per_mtok"`
+	EffectiveDate     openapi_types.Date `json:"effective_date"`
+	InputPerMtok      string             `json:"input_per_mtok"`
+	ModelId           string             `json:"model_id"`
+	OutputPerMtok     string             `json:"output_per_mtok"`
+	Provider          string             `json:"provider"`
+}
+
+// AiModelRateListResponse defines model for AiModelRateListResponse.
+type AiModelRateListResponse struct {
+	Data []AiModelRate `json:"data"`
 }
 
 // AiProfile defines model for AiProfile.
@@ -8779,6 +8855,23 @@ type FilteredExportRequestFormat string
 // FilteredExportRequestObject The object type to filter-export; requires `filter`. Mutually exclusive with view_id/list_id.
 type FilteredExportRequestObject string
 
+// FxRate One effective-dated FX rate converting from_currency into the workspace base (to_currency). rate is a decimal string (numeric(20,10)), never a float.
+type FxRate struct {
+	EffectiveDate openapi_types.Date `json:"effective_date"`
+	FromCurrency  string             `json:"from_currency"`
+
+	// Rate Decimal rate (from -> base)
+	Rate string `json:"rate"`
+
+	// ToCurrency The workspace base currency.
+	ToCurrency string `json:"to_currency"`
+}
+
+// FxRateListResponse defines model for FxRateListResponse.
+type FxRateListResponse struct {
+	Data []FxRate `json:"data"`
+}
+
 // ImapConnectRequest defines model for ImapConnectRequest.
 type ImapConnectRequest struct {
 	// Email Mailbox login / address.
@@ -10225,6 +10318,14 @@ type RecordGrantRecordType string
 // RecordGrantSubjectType defines model for RecordGrant.SubjectType.
 type RecordGrantSubjectType string
 
+// RefreshAccepted An async refresh was enqueued; proposals will appear in the approvals inbox.
+type RefreshAccepted struct {
+	Status RefreshAcceptedStatus `json:"status"`
+}
+
+// RefreshAcceptedStatus defines model for RefreshAccepted.Status.
+type RefreshAcceptedStatus string
+
 // RejectOfferRequest defines model for RejectOfferRequest.
 type RejectOfferRequest struct {
 	// Reason Optional buyer-given decline reason (rides offer.rejected).
@@ -10481,6 +10582,38 @@ type SendEmailRequest struct {
 	ConsentPurpose string                `json:"consent_purpose"`
 	Subject        string                `json:"subject"`
 	To             []openapi_types.Email `json:"to"`
+}
+
+// SetAiModelRateRequest defines model for SetAiModelRateRequest.
+type SetAiModelRateRequest struct {
+	// CacheReadPerMtok USD per 1M cache-read tokens.
+	CacheReadPerMtok string `json:"cache_read_per_mtok"`
+
+	// CacheWritePerMtok USD per 1M cache-write tokens.
+	CacheWritePerMtok string `json:"cache_write_per_mtok"`
+
+	// EffectiveDate Defaults to today; must not be in the past (append-forward).
+	EffectiveDate *openapi_types.Date `json:"effective_date,omitempty"`
+
+	// InputPerMtok USD per 1M input tokens. Plain non-negative decimal
+	InputPerMtok string `json:"input_per_mtok"`
+	ModelId      string `json:"model_id"`
+
+	// OutputPerMtok USD per 1M output tokens.
+	OutputPerMtok string `json:"output_per_mtok"`
+	Provider      string `json:"provider"`
+}
+
+// SetFxRateRequest defines model for SetFxRateRequest.
+type SetFxRateRequest struct {
+	// EffectiveDate Defaults to today; must not be in the past (append-forward).
+	EffectiveDate *openapi_types.Date `json:"effective_date,omitempty"`
+
+	// FromCurrency 3-letter ISO; must not equal the base currency.
+	FromCurrency string `json:"from_currency"`
+
+	// Rate Positive decimal (from -> base). Plain decimal
+	Rate string `json:"rate"`
 }
 
 // Signal A surfaced "something changed / worth attention" item. Mirrors the `signal` table:
@@ -11218,7 +11351,7 @@ type VoiceCorpusSummary struct {
 	QualityBand   VoiceCorpusSummaryQualityBand `json:"quality_band"`
 	RegisterWords map[string]int                `json:"register_words"`
 	SourceCount   int                           `json:"source_count"`
-	TargetWords   int                           `json:"target_words"`
+	TargetWords   VoiceCorpusSummaryTargetWords `json:"target_words"`
 	TotalWords    int                           `json:"total_words"`
 }
 
@@ -11227,6 +11360,9 @@ type VoiceCorpusSummaryMaturity string
 
 // VoiceCorpusSummaryQualityBand defines model for VoiceCorpusSummary.QualityBand.
 type VoiceCorpusSummaryQualityBand string
+
+// VoiceCorpusSummaryTargetWords defines model for VoiceCorpusSummary.TargetWords.
+type VoiceCorpusSummaryTargetWords int
 
 // VoiceIngestStats What the speaker filter did to one ingested source; kept words are the only words that count.
 type VoiceIngestStats struct {
@@ -11324,23 +11460,29 @@ type VoiceProfileDeltaClassification string
 
 // VoiceProfileEvaluation defines model for VoiceProfileEvaluation.
 type VoiceProfileEvaluation struct {
-	ActiveMedianVoiceScore    *float32                             `json:"active_median_voice_score"`
-	AntiAiHardFailures        int                                  `json:"anti_ai_hard_failures"`
-	CandidateMedianVoiceScore *float32                             `json:"candidate_median_voice_score,omitempty"`
-	Classification            VoiceProfileEvaluationClassification `json:"classification"`
-	CorpusCitationsValid      bool                                 `json:"corpus_citations_valid"`
-	HeldOutPrompts            int                                  `json:"held_out_prompts"`
-	IdentityWordJaccard       float32                              `json:"identity_word_jaccard"`
-	Passed                    bool                                 `json:"passed"`
-	RemovedAvoidRules         int                                  `json:"removed_avoid_rules"`
-	RemovedRegisterRules      int                                  `json:"removed_register_rules"`
-	RepeatsPerPrompt          int                                  `json:"repeats_per_prompt"`
-	SignatureSetJaccard       float32                              `json:"signature_set_jaccard"`
-	StructuredOutputValid     bool                                 `json:"structured_output_valid"`
+	ActiveMedianVoiceScore    *float32                               `json:"active_median_voice_score"`
+	AntiAiHardFailures        int                                    `json:"anti_ai_hard_failures"`
+	CandidateMedianVoiceScore *float32                               `json:"candidate_median_voice_score,omitempty"`
+	Classification            VoiceProfileEvaluationClassification   `json:"classification"`
+	CorpusCitationsValid      bool                                   `json:"corpus_citations_valid"`
+	HeldOutPrompts            VoiceProfileEvaluationHeldOutPrompts   `json:"held_out_prompts"`
+	IdentityWordJaccard       float32                                `json:"identity_word_jaccard"`
+	Passed                    bool                                   `json:"passed"`
+	RemovedAvoidRules         int                                    `json:"removed_avoid_rules"`
+	RemovedRegisterRules      int                                    `json:"removed_register_rules"`
+	RepeatsPerPrompt          VoiceProfileEvaluationRepeatsPerPrompt `json:"repeats_per_prompt"`
+	SignatureSetJaccard       float32                                `json:"signature_set_jaccard"`
+	StructuredOutputValid     bool                                   `json:"structured_output_valid"`
 }
 
 // VoiceProfileEvaluationClassification defines model for VoiceProfileEvaluation.Classification.
 type VoiceProfileEvaluationClassification string
+
+// VoiceProfileEvaluationHeldOutPrompts defines model for VoiceProfileEvaluation.HeldOutPrompts.
+type VoiceProfileEvaluationHeldOutPrompts int
+
+// VoiceProfileEvaluationRepeatsPerPrompt defines model for VoiceProfileEvaluation.RepeatsPerPrompt.
+type VoiceProfileEvaluationRepeatsPerPrompt int
 
 // VoiceProfileVersion defines model for VoiceProfileVersion.
 type VoiceProfileVersion struct {
@@ -11427,9 +11569,9 @@ type WebhookSubscription struct {
 // WebhookSubscriptionState defines model for WebhookSubscription.State.
 type WebhookSubscriptionState string
 
-// WebhookSubscriptionCreated The create/rotate response — the subscription plus the `signing_secret`, which is shown EXACTLY ONCE and never retrievable again. Store it now: deliveries are signed (HMAC-SHA256) with it.
+// WebhookSubscriptionCreated The create/rotate response — the subscription plus the `signing_secret`, which is shown EXACTLY ONCE and never retrievable again. Store it now: deliveries are signed with it on the Standard Webhooks scheme (standardwebhooks.com).
 type WebhookSubscriptionCreated struct {
-	// SigningSecret The per-subscription signing secret. Shown once; use it to verify X-Margince-Signature.
+	// SigningSecret The per-subscription signing secret (`whsec_` + standard base64). Shown once; decode the base64 to raw bytes and use them as the HMAC-SHA256 key to verify the `webhook-signature` header against `{webhook-id}.{webhook-timestamp}.{raw body}` (Standard Webhooks — standardwebhooks.com).
 	SigningSecret string `json:"signing_secret"`
 
 	// Subscription An outbound webhook subscription (`webhook_subscription`): a tenant-configured target URL that receives signed HTTP POSTs for a chosen subset of the published event catalog. The signing secret is NEVER returned here — it is surfaced once, at create/rotate, in `WebhookSubscriptionCreated`.
@@ -11439,7 +11581,10 @@ type WebhookSubscriptionCreated struct {
 // WebhookSubscriptionListResponse defines model for WebhookSubscriptionListResponse.
 type WebhookSubscriptionListResponse struct {
 	Data []WebhookSubscription `json:"data"`
-	Page PageInfo              `json:"page"`
+
+	// DeliveryEnabled Whether this deployment has a signing key configured. When false, subscriptions can be listed and inspected but create/rotate/replay are unavailable (they answer 503 webhooks_not_configured), so the UI renders a not-enabled state instead of controls that would only fail on click.
+	DeliveryEnabled bool     `json:"delivery_enabled"`
+	Page            PageInfo `json:"page"`
 }
 
 // ApprovalToken defines model for ApprovalToken.
@@ -11620,6 +11765,12 @@ type SendEmailParams struct {
 	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
 	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
 	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
+}
+
+// ListAiModelRatesParams defines parameters for ListAiModelRates.
+type ListAiModelRatesParams struct {
+	Provider *string `form:"provider,omitempty" json:"provider,omitempty"`
+	ModelId  *string `form:"model_id,omitempty" json:"model_id,omitempty"`
 }
 
 // ListAiCallsParams defines parameters for ListAiCalls.
@@ -12260,6 +12411,12 @@ type GetFieldHistoryParamsEntityType string
 
 // GetFieldHistoryParamsActorType defines parameters for GetFieldHistory.
 type GetFieldHistoryParamsActorType string
+
+// ListFxRatesParams defines parameters for ListFxRates.
+type ListFxRatesParams struct {
+	// From 3-letter ISO currency; when set, returns that pair's history.
+	From *string `form:"from,omitempty" json:"from,omitempty"`
+}
 
 // ListLeadsParams defines parameters for ListLeads.
 type ListLeadsParams struct {
@@ -13607,6 +13764,9 @@ type RelinkActivityJSONRequestBody RelinkActivityJSONBody
 // SendEmailJSONRequestBody defines body for SendEmail for application/json ContentType.
 type SendEmailJSONRequestBody = SendEmailRequest
 
+// SetAiModelRateJSONRequestBody defines body for SetAiModelRate for application/json ContentType.
+type SetAiModelRateJSONRequestBody = SetAiModelRateRequest
+
 // ApproveApprovalJSONRequestBody defines body for ApproveApproval for application/json ContentType.
 type ApproveApprovalJSONRequestBody = ApproveRequest
 
@@ -13714,6 +13874,9 @@ type EmbedReindexStartJSONRequestBody = EmbedReindexStartRequest
 
 // CreateFilteredExportJSONRequestBody defines body for CreateFilteredExport for application/json ContentType.
 type CreateFilteredExportJSONRequestBody = FilteredExportRequest
+
+// SetFxRateJSONRequestBody defines body for SetFxRate for application/json ContentType.
+type SetFxRateJSONRequestBody = SetFxRateRequest
 
 // CreateLeadJSONRequestBody defines body for CreateLead for application/json ContentType.
 type CreateLeadJSONRequestBody = CreateLeadRequest
@@ -18769,6 +18932,15 @@ type ServerInterface interface {
 	// The governed tool surface (registry metadata) for the operator UI.
 	// (GET /agent-tools)
 	ListAgentTools(w http.ResponseWriter, r *http.Request)
+	// List current AI model prices (latest per model), or one model's history.
+	// (GET /ai-model-rates)
+	ListAiModelRates(w http.ResponseWriter, r *http.Request, params ListAiModelRatesParams)
+	// Set an AI model price effective today or later (append-forward).
+	// (POST /ai-model-rates)
+	SetAiModelRate(w http.ResponseWriter, r *http.Request)
+	// Enqueue an async model-cost refresh (stages 🟡 proposals).
+	// (POST /ai-model-rates/propose-refresh)
+	ProposeAiModelRateRefresh(w http.ResponseWriter, r *http.Request)
 	// The AI call trace — every terminal model call, newest first.
 	// (GET /ai/calls)
 	ListAiCalls(w http.ResponseWriter, r *http.Request, params ListAiCallsParams)
@@ -19033,6 +19205,15 @@ type ServerInterface interface {
 	// Per-field change history for one record, projected from audit_log before/after diffs.
 	// (GET /field-history)
 	GetFieldHistory(w http.ResponseWriter, r *http.Request, params GetFieldHistoryParams)
+	// List current FX rates (latest per currency), or one pair's history.
+	// (GET /fx-rates)
+	ListFxRates(w http.ResponseWriter, r *http.Request, params ListFxRatesParams)
+	// Set an FX rate effective today or later (append-forward).
+	// (POST /fx-rates)
+	SetFxRate(w http.ResponseWriter, r *http.Request)
+	// Enqueue an async FX-rate refresh (stages 🟡 proposals).
+	// (POST /fx-rates/propose-refresh)
+	ProposeFxRateRefresh(w http.ResponseWriter, r *http.Request)
 	// List leads (their OWN list, distinct from contacts; cursor-paginated).
 	// (GET /leads)
 	ListLeads(w http.ResponseWriter, r *http.Request, params ListLeadsParams)
@@ -19567,6 +19748,24 @@ func (_ Unimplemented) ListAgentTools(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// List current AI model prices (latest per model), or one model's history.
+// (GET /ai-model-rates)
+func (_ Unimplemented) ListAiModelRates(w http.ResponseWriter, r *http.Request, params ListAiModelRatesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Set an AI model price effective today or later (append-forward).
+// (POST /ai-model-rates)
+func (_ Unimplemented) SetAiModelRate(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Enqueue an async model-cost refresh (stages 🟡 proposals).
+// (POST /ai-model-rates/propose-refresh)
+func (_ Unimplemented) ProposeAiModelRateRefresh(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // The AI call trace — every terminal model call, newest first.
 // (GET /ai/calls)
 func (_ Unimplemented) ListAiCalls(w http.ResponseWriter, r *http.Request, params ListAiCallsParams) {
@@ -20092,6 +20291,24 @@ func (_ Unimplemented) CreateFilteredExport(w http.ResponseWriter, r *http.Reque
 // Per-field change history for one record, projected from audit_log before/after diffs.
 // (GET /field-history)
 func (_ Unimplemented) GetFieldHistory(w http.ResponseWriter, r *http.Request, params GetFieldHistoryParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List current FX rates (latest per currency), or one pair's history.
+// (GET /fx-rates)
+func (_ Unimplemented) ListFxRates(w http.ResponseWriter, r *http.Request, params ListFxRatesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Set an FX rate effective today or later (append-forward).
+// (POST /fx-rates)
+func (_ Unimplemented) SetFxRate(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Enqueue an async FX-rate refresh (stages 🟡 proposals).
+// (POST /fx-rates/propose-refresh)
+func (_ Unimplemented) ProposeFxRateRefresh(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -21571,6 +21788,98 @@ func (siw *ServerInterfaceWrapper) ListAgentTools(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListAgentTools(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAiModelRates operation middleware
+func (siw *ServerInterfaceWrapper) ListAiModelRates(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAiModelRatesParams
+
+	// ------------- Optional query parameter "provider" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "provider", r.URL.Query(), &params.Provider, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "provider"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "model_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "model_id", r.URL.Query(), &params.ModelId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "model_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "model_id", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAiModelRates(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetAiModelRate operation middleware
+func (siw *ServerInterfaceWrapper) SetAiModelRate(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetAiModelRate(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ProposeAiModelRateRefresh operation middleware
+func (siw *ServerInterfaceWrapper) ProposeAiModelRateRefresh(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ProposeAiModelRateRefresh(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -25371,6 +25680,85 @@ func (siw *ServerInterfaceWrapper) GetFieldHistory(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetFieldHistory(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListFxRates operation middleware
+func (siw *ServerInterfaceWrapper) ListFxRates(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListFxRatesParams
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListFxRates(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetFxRate operation middleware
+func (siw *ServerInterfaceWrapper) SetFxRate(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetFxRate(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ProposeFxRateRefresh operation middleware
+func (siw *ServerInterfaceWrapper) ProposeFxRateRefresh(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ProposeFxRateRefresh(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -33316,6 +33704,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/agent-tools", wrapper.ListAgentTools)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/ai-model-rates", wrapper.ListAiModelRates)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/ai-model-rates", wrapper.SetAiModelRate)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/ai-model-rates/propose-refresh", wrapper.ProposeAiModelRateRefresh)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/ai/calls", wrapper.ListAiCalls)
 	})
 	r.Group(func(r chi.Router) {
@@ -33578,6 +33975,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/field-history", wrapper.GetFieldHistory)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/fx-rates", wrapper.ListFxRates)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/fx-rates", wrapper.SetFxRate)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/fx-rates/propose-refresh", wrapper.ProposeFxRateRefresh)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/leads", wrapper.ListLeads)

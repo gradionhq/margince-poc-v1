@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
 // pageSize is the fixed Backfill/Modified page size the fake pages by.
@@ -26,7 +27,17 @@ type Adapter struct {
 	assocs    map[assocKey][]overlay.Assoc
 	owners    map[string]string
 	deletions map[string][]overlay.Deletion
+	accountID string // the portal/account id AccountID reports (empty = unset)
+	// writeSeq drives deterministic Create ids and modified-at stamps for the
+	// write seam — a monotonic counter, never a real clock, so a test
+	// exercising write-back never flakes on wall-time (T11).
+	writeSeq int
 }
+
+// writeEpoch is the base time the fake stamps written records at, advanced one
+// second per write by writeSeq — deterministic and strictly increasing, so a
+// drift check (ModifiedAt vs baseline) has stable, orderable timestamps.
+var writeEpoch = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // assocKey identifies one Associations(fromClass, fromID, toClass) query
 // — the same triple SeedAssoc and Associations key their lookup by.
@@ -47,6 +58,16 @@ func New() *Adapter {
 func (a *Adapter) SeedOwner(ownerExternalID, email string) {
 	a.owners[ownerExternalID] = email
 }
+
+// SeedAccountID sets the portal/account id AccountID reports — the value the
+// webhook portal-binding backfill (overlay.BackfillPortalBinding) persists.
+func (a *Adapter) SeedAccountID(id string) { a.accountID = id }
+
+// AccountID reports the seeded portal/account id (OVA-DDL-3), letting the fake
+// stand in for hubspot.Adapter's incumbentAccountReader in the portal-binding
+// backfill path. An unset id returns "" with no error — the same "no account to
+// bind" no-op a real adapter with no accessor would produce.
+func (a *Adapter) AccountID(context.Context) (string, error) { return a.accountID, nil }
 
 // Rec builds an overlay.Record for externalID carrying fields, stamped
 // with the current time as ModifiedAt.
@@ -247,6 +268,109 @@ func (a *Adapter) Owners(_ context.Context) ([]overlay.OwnerRef, error) {
 		out = append(out, overlay.OwnerRef{ExternalID: id, Email: a.owners[id]})
 	}
 	return out, nil
+}
+
+// Create appends a new record of canonicalClass from the field bag, stamping
+// a collision-free id and a strictly-increasing modified-at, and returns it —
+// the write seam's canonical-in/canonical-out contract. An empty field bag is
+// rejected, matching the real Incumbent.Create contract (a create must carry
+// something writable), so a fake-backed test can never pass on a write the
+// production adapter would reject.
+//
+// Records are keyed by CANONICAL class here (not the incumbent bucket the read
+// feed pages by): the fake cannot know the incumbent class mapping (that lives
+// in the hubspot adapter, which package fake cannot import), so its write
+// methods are canonical-keyed. Write-back integration that needs the incumbent
+// bucketing uses a purpose-built double instead of this fake.
+//
+//craft:ignore naked-any fields is the canonical field bag the seam carries; the any is inherent to the decoded shape
+func (a *Adapter) Create(_ context.Context, canonicalClass string, fields map[string]any) (overlay.Record, error) {
+	if len(fields) == 0 {
+		return overlay.Record{}, fmt.Errorf("fake: cannot create a %s with no fields", canonicalClass)
+	}
+	rec := overlay.Record{
+		ExternalID:  a.nextWriteID(),
+		ObjectClass: canonicalClass,
+		Fields:      fields,
+		ModifiedAt:  writeEpoch.Add(time.Duration(a.writeSeq) * time.Second),
+	}
+	a.records[canonicalClass] = append(a.records[canonicalClass], rec)
+	return rec, nil
+}
+
+// nextWriteID advances writeSeq to an id no existing record (seeded or
+// written, in any bucket) already uses, so a Create can never collide with a
+// seeded id and be mistaken for the existing row.
+func (a *Adapter) nextWriteID() string {
+	used := make(map[string]bool)
+	for _, recs := range a.records {
+		for _, r := range recs {
+			used[r.ExternalID] = true
+		}
+	}
+	for {
+		a.writeSeq++
+		if id := fmt.Sprint(a.writeSeq); !used[id] {
+			return id
+		}
+	}
+}
+
+// Update applies the drift check (ModifiedAt vs baseline — incumbent-wins,
+// AC-OV-4), then merges the patch fields onto the stored record and advances
+// its modified-at PAST both the sequence epoch and the record's current stamp
+// (so a re-mirror is never rejected by the mirror's staleness guard for moving
+// the baseline backward). A patch of an unknown record is an error; a caller
+// passing no fields gets the record unchanged.
+//
+//craft:ignore naked-any fields is the canonical patch bag the seam carries; the any is inherent to the decoded shape
+func (a *Adapter) Update(_ context.Context, canonicalClass, externalID string, fields map[string]any, baseline time.Time) (overlay.Record, error) {
+	recs := a.records[canonicalClass]
+	for i := range recs {
+		if recs[i].ExternalID != externalID {
+			continue
+		}
+		if len(fields) == 0 {
+			return recs[i], nil
+		}
+		if recs[i].ModifiedAt.After(baseline) {
+			return overlay.Record{}, apperrors.ErrVersionSkew
+		}
+		merged := make(map[string]any, len(recs[i].Fields)+len(fields))
+		for k, v := range recs[i].Fields {
+			merged[k] = v
+		}
+		for k, v := range fields {
+			merged[k] = v
+		}
+		a.writeSeq++
+		next := writeEpoch.Add(time.Duration(a.writeSeq) * time.Second)
+		if !next.After(recs[i].ModifiedAt) {
+			next = recs[i].ModifiedAt.Add(time.Nanosecond)
+		}
+		recs[i].Fields = merged
+		recs[i].ModifiedAt = next
+		return recs[i], nil
+	}
+	return overlay.Record{}, fmt.Errorf("fake: no %s record with external id %s to update", canonicalClass, externalID)
+}
+
+// Archive removes canonicalClass's record for externalID after the same
+// baseline drift check the real seam applies (incumbent-wins): a record newer
+// than baseline is not deleted (ErrVersionSkew). An unknown record is an error
+// rather than a silent no-op.
+func (a *Adapter) Archive(_ context.Context, canonicalClass, externalID string, baseline time.Time) error {
+	recs := a.records[canonicalClass]
+	for i := range recs {
+		if recs[i].ExternalID == externalID {
+			if recs[i].ModifiedAt.After(baseline) {
+				return apperrors.ErrVersionSkew
+			}
+			a.records[canonicalClass] = append(recs[:i], recs[i+1:]...)
+			return nil
+		}
+	}
+	return fmt.Errorf("fake: no %s record with external id %s to archive", canonicalClass, externalID)
 }
 
 // parseCursor decodes a Backfill/Modified cursor to its index offset;

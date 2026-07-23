@@ -106,6 +106,11 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 		httperr.Write(w, r, httperr.Validation(missing.Field, "required", missing.Error()))
 		return
 	}
+	var fxInvalidErr *FxRateValidationError
+	if errors.As(err, &fxInvalidErr) {
+		httperr.Write(w, r, httperr.Validation(fxInvalidErr.Field, fxInvalidErr.Code, fxInvalidErr.Message))
+		return
+	}
 	var amountPair *AmountCurrencyPairError
 	if errors.As(err, &amountPair) {
 		httperr.Write(w, r, httperr.Validation("currency", "amount_currency_pair", amountPair.Error()))

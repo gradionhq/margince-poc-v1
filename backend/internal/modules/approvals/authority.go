@@ -13,9 +13,12 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -50,6 +53,11 @@ var decisionGrants = map[string][]struct {
 	// transport gate by an agent caller.
 	"coldstart": {{"organization", principal.ActionUpdate}},
 	"enrich":    {{"organization", principal.ActionUpdate}},
+	// A rate refresh proposes an effective-dated row on a workspace-shared
+	// price sheet; deciding it needs the same admin/ops Create grant the
+	// editor's write path requires.
+	"fx_rate_proposal":       {{"fx_rate", principal.ActionCreate}},
+	"ai_model_rate_proposal": {{"ai_model_rate", principal.ActionCreate}},
 	// Accepting a deep site read writes profile fields and category facts
 	// onto the target organization — the same update authority enrich needs.
 	"deepread": {{"organization", principal.ActionUpdate}},
@@ -67,10 +75,24 @@ var decisionGrants = map[string][]struct {
 	"deal_follow_up": {{"activity", principal.ActionCreate}},
 }
 
+// decidedEcho builds the approved/rejected payload a kind's decision
+// echoes, given the decided approval's own id and the deciding human's
+// user id — the fixed shape every decided-echo carries today.
+type decidedEcho struct {
+	approved, rejected func(approvalID, decidedBy openapi_types.UUID) events.Payload
+}
+
 // kindDecidedEvents names the domain event a decision echoes for kinds
 // whose lifecycle the event catalog tracks beyond approval.decided.
-var kindDecidedEvents = map[string]struct{ approved, rejected string }{
-	"coldstart": {approved: "coldstart.accepted", rejected: "coldstart.rejected"},
+var kindDecidedEvents = map[string]decidedEcho{
+	"coldstart": {
+		approved: func(approvalID, decidedBy openapi_types.UUID) events.Payload {
+			return crmcontracts.PublicEventColdstartAccepted{ApprovalId: approvalID, DecidedBy: decidedBy}
+		},
+		rejected: func(approvalID, decidedBy openapi_types.UUID) events.Payload {
+			return crmcontracts.PublicEventColdstartRejected{ApprovalId: approvalID, DecidedBy: decidedBy}
+		},
+	},
 }
 
 // decidable is the ONE visibility-and-authority predicate for the inbox
@@ -139,6 +161,17 @@ func targetVisible(ctx context.Context, tx pgx.Tx, a row) (bool, error) {
 			return false, err
 		}
 		return exists, nil
+	case "fx_rate", "ai_model_rate":
+		// Effective-dated price sheets are workspace-shared admin config
+		// with no row scope. A refresh proposal targets the workspace (a
+		// brand-new currency/model has no row yet), so existence is not the
+		// floor here — the decision-grant check above (admin/ops Create) is
+		// the authority. The floor that remains is that the shown target IS
+		// the acting workspace: a proposal whose target_id is some other
+		// workspace is not decidable here (its effect would write to this
+		// context's sheet, not the claimed one).
+		wsID, ok := principal.WorkspaceID(ctx)
+		return ok && *a.TargetID == wsID, nil
 	case "signal":
 		// A signal has no owner_id — it is visible when its SUBJECT entity
 		// is (the same scope the signals store applies), so a staged

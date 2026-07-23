@@ -364,3 +364,46 @@
   padding: 0 var(--space-2);
   margin-bottom: var(--space-1);
 }
+
+/* Connected inboxes (Integrations tab): one row per live capture connection. */
+.connectors-list {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.connector-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+}
+.connector-id {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.connector-id > svg {
+  width: 18px;
+  height: 18px;
+  color: var(--accent);
+}
+.connector-id > span {
+  display: flex;
+  flex-direction: column;
+}
+.connector-synced {
+  color: var(--textSecondary);
+}
+.connector-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}

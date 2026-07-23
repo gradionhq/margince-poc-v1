@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import { CircleAlert, CircleCheck, CircleUserRound, Clock } from "lucide-react";
+import { Fragment, useEffect, useRef } from "react";
 import { Button } from "../../design-system/atoms";
 import { useT } from "../../i18n";
 import type { MessageKey } from "../../i18n/en";
@@ -31,10 +32,57 @@ function resolvedParams(
   return { ...params, ...translated };
 }
 
+// Word-by-word reveal for narration that arrives LIVE — speech gets a beat,
+// factual cards (questions, outcomes, user turns) never do. The animated copy
+// is presentation only (aria-hidden, per-word spans); the full sentence rides
+// along visually hidden so assistive tech and text queries always see one
+// coherent string. The stagger shrinks with word count so a long sentence
+// finishes inside the same cap as a short one; prefers-reduced-motion
+// collapses the animation entirely (conversation.css).
+
+const REVEAL_WORD_STEP_MS = 90;
+const REVEAL_TOTAL_CAP_MS = 1200;
+
+export function RevealText({ text }: Readonly<{ text: string }>) {
+  const words = text.split(/\s+/).filter((word) => word !== "");
+  const step = Math.min(
+    REVEAL_WORD_STEP_MS,
+    REVEAL_TOTAL_CAP_MS / Math.max(1, words.length),
+  );
+  // Repeated words need distinct keys; an occurrence counter keeps them
+  // stable without keying on the array index.
+  const seen = new Map<string, number>();
+  return (
+    <>
+      <span className="ob-conv-reveal-source">{text}</span>
+      <span className="ob-conv-reveal" aria-hidden>
+        {words.map((word, position) => {
+          const occurrence = (seen.get(word) ?? 0) + 1;
+          seen.set(word, occurrence);
+          return (
+            <Fragment key={`${word}:${occurrence}`}>
+              <span
+                style={{ animationDelay: `${Math.round(position * step)}ms` }}
+              >
+                {word}
+              </span>{" "}
+            </Fragment>
+          );
+        })}
+      </span>
+    </>
+  );
+}
+
 export function NarrationBubble({
   entry,
-}: Readonly<{ entry: NarrationEntry }>) {
+  reveal = false,
+}: Readonly<{ entry: NarrationEntry; reveal?: boolean }>) {
   const t = useT();
+  const text = t(
+    entry.i18nKey,
+    resolvedParams(t, entry.params, entry.paramKeys),
+  );
   return (
     <div
       className="ob-conv-narration"
@@ -47,9 +95,7 @@ export function NarrationBubble({
       >
         <span aria-hidden>{t("ob.ai.speaker")}</span>
       </span>
-      <p>
-        {t(entry.i18nKey, resolvedParams(t, entry.params, entry.paramKeys))}
-      </p>
+      <p>{reveal ? <RevealText text={text} /> : text}</p>
     </div>
   );
 }
@@ -83,41 +129,113 @@ export function OutcomeCard({ entry }: Readonly<{ entry: OutcomeEntry }>) {
   );
 }
 
+/** What a resolved card recorded: the chosen option, or the dismissal. */
+export type QuestionSelection =
+  | { kind: "option"; value: string }
+  | { kind: "dismissed" };
+
 type QuestionCardProps = Readonly<{
   question: ConversationQuestion;
-  /** Set after the question is answered; options stay visible but inert. */
+  /**
+   * Set for every card that is NOT the machine's current pending question
+   * instance (answered, dismissed, or superseded). Inertness is stamped on
+   * EVERY control, not just the fieldset: a fieldset-only disable leaves the
+   * options looking and, in some engines, acting live — a zombie card that
+   * eats clicks the machine then rightly ignores.
+   */
   answered?: boolean;
+  /** The recorded choice, shown on the inert card when one exists. */
+  selection?: QuestionSelection | null;
+  /** The card is the one live question: keyboard focus moves to its first
+   * option — unless the human is mid-thought in a text field. */
+  focusFirstOption?: boolean;
   onAnswer: (questionId: string, value: string) => void;
+  /** The local-dismiss escape; rendered only when the question carries a
+   * dismiss label AND the surface wires a handler. */
+  onDismiss?: (questionId: string) => void;
 }>;
 
 export function QuestionCard({
   question,
   answered = false,
+  selection = null,
+  focusFirstOption = false,
   onAnswer,
+  onDismiss,
 }: QuestionCardProps) {
   const t = useT();
+  const card = useRef<HTMLFieldSetElement>(null);
+
+  useEffect(() => {
+    if (!focusFirstOption || answered) {
+      return;
+    }
+    const button = card.current?.querySelector("button");
+    if (button == null) {
+      return;
+    }
+    // Never steal focus from someone typing: any focused text field wins,
+    // and a composer still holding a draft keeps its claim even unfocused.
+    const active = button.ownerDocument.activeElement;
+    if (
+      active instanceof HTMLTextAreaElement ||
+      active instanceof HTMLInputElement
+    ) {
+      return;
+    }
+    const composer = button
+      .closest(".ob-workbench-panel")
+      ?.querySelector<HTMLTextAreaElement>(".mw-composer textarea");
+    if (composer != null && composer.value !== "") {
+      return;
+    }
+    button.focus();
+  }, [focusFirstOption, answered]);
+
   return (
-    <fieldset className="ob-conv-question" disabled={answered}>
+    <fieldset ref={card} className="ob-conv-question" disabled={answered}>
       <legend>{t(question.i18nKey, question.params)}</legend>
       <div className="ob-conv-options">
-        {question.options.map((option) => (
-          <Button
-            key={option.value}
-            small
-            className="ob-conv-option"
-            onClick={() => onAnswer(question.id, option.value)}
-          >
-            <span>
-              {option.labelKey
-                ? t(option.labelKey, option.params)
-                : option.label}
-            </span>
-            {option.detailKey && (
-              <small>{t(option.detailKey, option.params)}</small>
-            )}
-          </Button>
-        ))}
+        {question.options.map((option) => {
+          const label = option.labelKey
+            ? t(option.labelKey, option.params)
+            : option.label;
+          const chosen =
+            selection?.kind === "option" && selection.value === option.value;
+          return (
+            <Button
+              key={option.value}
+              small
+              className={`ob-conv-option${chosen ? " ob-conv-option-selected" : ""}`}
+              // The chip clamps long values visually (CSS line-clamp); the
+              // full text stays the accessible name via content and here as
+              // the hover title.
+              title={label}
+              disabled={answered}
+              aria-pressed={selection === null ? undefined : chosen}
+              onClick={() => onAnswer(question.id, option.value)}
+            >
+              <span>{label}</span>
+              {option.detailKey && (
+                <small>{t(option.detailKey, option.params)}</small>
+              )}
+            </Button>
+          );
+        })}
       </div>
+      {question.dismissLabelKey !== undefined && onDismiss !== undefined && (
+        <Button
+          small
+          variant="ghost"
+          className={`ob-conv-question-dismiss${
+            selection?.kind === "dismissed" ? " ob-conv-option-selected" : ""
+          }`}
+          disabled={answered}
+          onClick={() => onDismiss(question.id)}
+        >
+          {t(question.dismissLabelKey)}
+        </Button>
+      )}
     </fieldset>
   );
 }

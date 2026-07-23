@@ -28,6 +28,8 @@ func TestCleanupOrphanedRefDeletesAndAnswersAlreadyConnected(t *testing.T) {
 		t.Fatalf("seeding a vault ref: %v", err)
 	}
 
+	// cleanupOrphanedRef deletes the orphaned ref (the lost-race path) and
+	// answers ErrIncumbentAlreadyConnected.
 	err = svc.cleanupOrphanedRef(context.Background(), ws, ref)
 	if !errors.Is(err, apperrors.ErrIncumbentAlreadyConnected) {
 		t.Fatalf("cleanupOrphanedRef err = %v, want errors.Is(_, ErrIncumbentAlreadyConnected)", err)

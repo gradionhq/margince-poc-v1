@@ -1,0 +1,10 @@
+{
+  "action": "included",
+  "origin": "manual",
+  "profile_id": "00000000-0000-0000-0000-0000000000a1",
+  "register": "email",
+  "source_count": 4,
+  "source_hash": "abc123",
+  "source_id": "00000000-0000-0000-0000-0000000000a3",
+  "word_delta": 120
+}

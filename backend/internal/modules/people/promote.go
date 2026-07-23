@@ -9,14 +9,14 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
-
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
@@ -43,8 +43,10 @@ func ParsePromoteTrigger(raw string) (PromoteTrigger, error) {
 	case TriggerInboundReply, TriggerMeetingBooked, TriggerMeetingHeld, TriggerHumanQualify:
 		return tr, nil
 	}
-	return "", &values.ParseError{Field: "trigger", Code: "invalid_promote_trigger",
-		Message: "trigger is one of inbound_reply, meeting_booked, meeting_held, human_qualify"}
+	return "", &values.ParseError{
+		Field: "trigger", Code: "invalid_promote_trigger",
+		Message: "trigger is one of inbound_reply, meeting_booked, meeting_held, human_qualify",
+	}
 }
 
 // PromoteLeadInput carries the genuine-engagement trigger and the
@@ -115,7 +117,7 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.LeadID, in PromoteLeadIn
 			return err
 		}
 
-		personID, err := s.promoteTarget(ctx, tx, lead, by, &merged)
+		personID, mergeFields, err := s.promoteTarget(ctx, tx, lead, by, &merged)
 		if err != nil {
 			return err
 		}
@@ -123,7 +125,7 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.LeadID, in PromoteLeadIn
 			return fmt.Errorf("carry lead consent: %w", err)
 		}
 
-		person, err = finalizeLeadPromotion(ctx, tx, id, in, lead, personID, merged, active)
+		person, err = finalizeLeadPromotion(ctx, tx, id, in, lead, personID, merged, mergeFields, active)
 		return err
 	})
 	return person, merged, err
@@ -183,7 +185,7 @@ func carryLeadConsent(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, personI
 // recording trigger + evidence + the resulting person), and the paired
 // lead.promoted + person.* events — all inside the caller's transaction,
 // still under the lead row lock taken by PromoteLead.
-func finalizeLeadPromotion(ctx context.Context, tx pgx.Tx, id ids.LeadID, in PromoteLeadInput, lead crmcontracts.Lead, personID ids.PersonID, merged bool, active []fieldcatalog.Column) (crmcontracts.Person, error) {
+func finalizeLeadPromotion(ctx context.Context, tx pgx.Tx, id ids.LeadID, in PromoteLeadInput, lead crmcontracts.Lead, personID ids.PersonID, merged bool, mergeFields map[string]any, active []fieldcatalog.Column) (crmcontracts.Person, error) {
 	now := time.Now().UTC()
 	tag, err := tx.Exec(ctx,
 		`UPDATE lead SET status = 'promoted', promoted_person_id = $2, promoted_at = $3, archived_at = $3
@@ -226,22 +228,57 @@ func finalizeLeadPromotion(ctx context.Context, tx pgx.Tx, id ids.LeadID, in Pro
 
 	// lead.promoted is the first-class verb (events.md §5.5) — the
 	// moment the context graph adds the node; never a lead.updated.
-	if err := storekit.Emit(ctx, tx, auditID, "lead.promoted", "lead", id.UUID, map[string]any{
-		"promoted_person_id": personID,
-		"dedupe_outcome":     outcome,
-		"trigger":            in.Trigger,
-		"evidence_ref":       in.EvidenceActivityID,
-	}); err != nil {
+	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, leadPromotedPayload(personID, outcome, in.Trigger, in.EvidenceActivityID)); err != nil {
 		return crmcontracts.Person{}, fmt.Errorf("emit lead.promoted: %w", err)
 	}
-	personEvent, personPayload := "person.created", map[string]any{"full_name": person.FullName}
-	if merged {
-		personEvent, personPayload = "person.updated", map[string]any{"converted_from_lead_id": id}
-	}
-	if err := storekit.Emit(ctx, tx, auditID, personEvent, "person", personID.UUID, personPayload); err != nil {
-		return crmcontracts.Person{}, fmt.Errorf("emit %s: %w", personEvent, err)
+	// A fill-only merge that changed nothing has no person.updated to emit —
+	// a changed_fields note with no fields would be a false claim, so skip it
+	// (lead.promoted above still records the promotion). A create always emits
+	// person.created.
+	if personPayload := promotedPersonPayload(person, merged, mergeFields); personPayload != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, personID.UUID, personPayload); err != nil {
+			return crmcontracts.Person{}, fmt.Errorf("emit %s: %w", personPayload.EventType(), err)
+		}
 	}
 	return person, nil
+}
+
+// promotedPersonPayload builds the person-side event a lead promotion
+// emits — its own verb (person.created) on a fresh person, or a
+// person.updated changed_fields note carrying the fields the merge ACTUALLY
+// applied when the promotion instead merged into an existing person
+// (merged=true, PO-F-1). changed_fields is the real merge delta (mergeFields),
+// so it reports a filled title and omits converted_from_lead_id when that was
+// already set — not a fixed map that could misstate the change. A merge that
+// applied nothing returns nil (no person.updated to emit). The two shapes are
+// different published events, not variants of one, so the return type is the
+// shared events.Payload seam rather than a single struct.
+//
+//nolint:ireturn // dispatches to PublicEventPersonCreated vs Updated by the merged condition; tested directly via the interface in person_organization_payload_test.go
+func promotedPersonPayload(person crmcontracts.Person, merged bool, mergeFields map[string]any) events.Payload {
+	if merged {
+		if len(mergeFields) == 0 {
+			return nil
+		}
+		return crmcontracts.PublicEventPersonUpdated{ChangedFields: mergeFields}
+	}
+	return crmcontracts.PublicEventPersonCreated{FullName: person.FullName}
+}
+
+// leadPromotedPayload builds the lead-side event a promotion emits —
+// its own verb (events.md §5.5), never a lead.updated. evidenceActivityID
+// is nil for a human_qualify with no linked activity; the wire field is
+// then omitted rather than marshaled as null.
+func leadPromotedPayload(personID ids.PersonID, outcome, trigger string, evidenceActivityID *ids.ActivityID) crmcontracts.PublicEventLeadPromoted {
+	p := crmcontracts.PublicEventLeadPromoted{
+		PromotedPersonId: openapi_types.UUID(personID.UUID),
+		DedupeOutcome:    outcome,
+		Trigger:          trigger,
+	}
+	if evidenceActivityID != nil {
+		p.EvidenceRef = uuidPtr(&evidenceActivityID.UUID)
+	}
+	return p
 }
 
 // promotableLead loads the lead and enforces every promotion guard:
@@ -285,8 +322,10 @@ func promotableLead(ctx context.Context, tx pgx.Tx, id ids.LeadID, in PromoteLea
 
 // promoteTarget resolves where the lead lands: the §1.3 dedupe path — a
 // live person already holding the lead's email is merged into, anything
-// else creates. Returns the person id and sets *merged.
-func (s *Store) promoteTarget(ctx context.Context, tx pgx.Tx, lead crmcontracts.Lead, by string, merged *bool) (ids.PersonID, error) {
+// else creates. Returns the person id, sets *merged, and (on the merge path)
+// the fields the merge actually applied so the person.updated event reports
+// the true delta (nil on the create path).
+func (s *Store) promoteTarget(ctx context.Context, tx pgx.Tx, lead crmcontracts.Lead, by string, merged *bool) (ids.PersonID, map[string]any, error) {
 	if lead.Email != nil {
 		var existing ids.PersonID
 		err := tx.QueryRow(ctx,
@@ -298,15 +337,16 @@ func (s *Store) promoteTarget(ctx context.Context, tx pgx.Tx, lead crmcontracts.
 			// promoter cannot see answers a bare conflict, not the record.
 			visible, verr := auth.VisibleTo(ctx, tx, "person", existing.UUID)
 			if verr != nil {
-				return ids.PersonID{}, verr
+				return ids.PersonID{}, nil, verr
 			}
 			if !visible {
-				return ids.PersonID{}, apperrors.ErrConflict
+				return ids.PersonID{}, nil, apperrors.ErrConflict
 			}
 			*merged = true
-			return existing, s.mergeLeadIntoPerson(ctx, tx, lead, existing)
+			mergeFields, merr := s.mergeLeadIntoPerson(ctx, tx, lead, existing)
+			return existing, mergeFields, merr
 		case !errors.Is(err, pgx.ErrNoRows):
-			return ids.PersonID{}, fmt.Errorf("probe person email dedupe: %w", err)
+			return ids.PersonID{}, nil, fmt.Errorf("probe person email dedupe: %w", err)
 		}
 	}
 
@@ -322,31 +362,35 @@ func (s *Store) promoteTarget(ctx context.Context, tx pgx.Tx, lead crmcontracts.
 		`INSERT INTO person (id, workspace_id, full_name, title, owner_id, source, captured_by, converted_from_lead_id)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		id, wsID, name, lead.Title, uuidPtrToIDs(lead.OwnerId), lead.Source, by, ids.UUID(lead.Id)); err != nil {
-		return ids.PersonID{}, fmt.Errorf("insert promoted person: %w", err)
+		return ids.PersonID{}, nil, fmt.Errorf("insert promoted person: %w", err)
 	}
 	if lead.Email != nil {
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO person_email (workspace_id, person_id, email, email_type, is_primary, position, source, captured_by)
 			 VALUES ($1, $2, lower($3), 'work', true, 1, $4, $5)`,
 			wsID, id, string(*lead.Email), lead.Source, by); err != nil {
-			return ids.PersonID{}, fmt.Errorf("insert promoted person email: %w", err)
+			return ids.PersonID{}, nil, fmt.Errorf("insert promoted person email: %w", err)
 		}
 	}
-	return id, nil
+	return id, nil, nil
 }
 
 // mergeLeadIntoPerson is the non-lossy merge half: the person gains the
 // origin pointer and any identity the lead has that the person lacks
 // (fill-only — a promotion never overwrites human-curated contact data).
-func (s *Store) mergeLeadIntoPerson(ctx context.Context, tx pgx.Tx, lead crmcontracts.Lead, personID ids.PersonID) error {
+// It returns the fields the merge actually applied (the patch's after map),
+// so person.updated.changed_fields reports the real delta — not a fixed
+// converted_from_lead_id that lies when the field was already set, and never
+// omitting a title it just filled. A no-op merge returns a nil map.
+func (s *Store) mergeLeadIntoPerson(ctx context.Context, tx pgx.Tx, lead crmcontracts.Lead, personID ids.PersonID) (map[string]any, error) {
 	lock, err := storekit.LockRow(ctx, tx, "person", personID.UUID, storekit.LiveOnly)
 	if err != nil {
-		return fmt.Errorf("lock merge-target person: %w", err)
+		return nil, fmt.Errorf("lock merge-target person: %w", err)
 	}
 	// A fill-only decision read, never the wire — core columns suffice.
 	current, err := readPerson(ctx, tx, personID, storekit.LiveOnly, nil)
 	if err != nil {
-		return fmt.Errorf("read merge-target person: %w", err)
+		return nil, fmt.Errorf("read merge-target person: %w", err)
 	}
 	p := storekit.NewPatch()
 	if current.ConvertedFromLeadId == nil {
@@ -356,9 +400,15 @@ func (s *Store) mergeLeadIntoPerson(ctx context.Context, tx pgx.Tx, lead crmcont
 		p.Set("title", nil, *lead.Title)
 	}
 	if p.Empty() {
-		return nil
+		// A no-op fill-only merge: no columns changed. Return an empty (not
+		// nil) map so the caller reads "no delta" via len == 0 and skips the
+		// person.updated event, without a nil-nil return.
+		return map[string]any{}, nil
 	}
-	return p.ApplyLocked(ctx, tx, lock)
+	if err := p.ApplyLocked(ctx, tx, lock); err != nil {
+		return nil, err
+	}
+	return p.After(), nil
 }
 
 // uuidPtrToIDs converts the contract's optional UUID back to the kernel

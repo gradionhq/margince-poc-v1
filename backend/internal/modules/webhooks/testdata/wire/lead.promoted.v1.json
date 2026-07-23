@@ -1,0 +1,6 @@
+{
+  "dedupe_outcome": "created",
+  "evidence_ref": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+  "promoted_person_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  "trigger": "inbound_reply"
+}

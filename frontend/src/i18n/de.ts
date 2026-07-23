@@ -589,6 +589,8 @@ export const de = {
   "deepread.kindOther": "Sonstiges",
 
   "create.cancel": "Abbrechen",
+  "create.multiselect.required":
+    "Erforderlich – mindestens eine Option wählen.",
   "create.save": "Anlegen",
   "create.saving": "Wird angelegt…",
   "create.contact": "Neuer Kontakt",
@@ -840,24 +842,13 @@ export const de = {
   "stage.semWon": "Gewonnen",
   "stage.semLost": "Verloren",
 
-  "ob.title": "Margince einrichten",
   "ob.read": "Einlesen",
   "ob.confirm": "Bestätigen",
-  "ob.company": "Firma",
-  "ob.voice": "Stimme",
-  "ob.results": "Ergebnisse",
-  "ob.connect": "Verbinden",
   "ob.url": "Website",
   "ob.urlScheme": "https://",
-  "ob.next": "Weiter",
   "ob.back": "Zurück",
   "ob.finish": "In den Workspace",
-  "ob.skipStep": "Schritt überspringen",
   "ob.restoring": "Deine Einrichtung wird wiederhergestellt…",
-  "ob.stateConflict":
-    "Diese Einrichtung wurde in einem anderen Tab geändert. Wir haben den gespeicherten Stand neu geladen, damit nichts still überschrieben wird.",
-  "ob.stateSaveFailed":
-    "Wir konnten deinen Einrichtungsfortschritt nicht speichern. Bitte versuche es erneut.",
   "ob.readKick": "Schritt 1 von 4 · Firmenkontext",
   "ob.readTitle": "Dein Unternehmen",
   "ob.readSub": "Von deiner Website lesen, oder selbst eintragen.",
@@ -996,21 +987,10 @@ export const de = {
   "ob.s1.omitBody":
     "Ich habe nur gefüllt, was ich von deiner Seite zitieren kann. Was ich nicht belegen konnte, kannst du ergänzen.",
   "ob.readGo": "Meine Website einlesen",
-  "ob.reading": "Wird gelesen…",
-  "ob.readAgain": "Erneut einlesen",
   "ob.trustPublic": "Ich lese nur deine öffentliche Website. Kein Login nötig.",
   "ob.urlWillRead": "Ich lese {host}",
-  "ob.urlInvalid":
-    "Das sieht nicht nach einer Web-Adresse aus — versuch z. B. {example}",
   "ob.readFromSite": "von der Website gelesen",
   "ob.failTitle": "Ich konnte von dieser Website nicht genug lesen",
-  "ob.failBody":
-    "Ich habe die Website erreicht, aber zu wenig öffentliche Inhalte gefunden, um ein Profil zu belegen. Deshalb rate ich nicht und habe nichts gespeichert.",
-  "ob.failWhy1":
-    "Die Seite rendert ihre Inhalte vielleicht per JavaScript, das wir im öffentlichen HTML nicht lesen",
-  "ob.failWhy2":
-    "Es kann eine Login-Wand, eine Platzhalterseite oder ein robots.txt-Verbot sein",
-  "ob.failWhy3": "Oder es ist schlicht zu wenig Text vorhanden",
   "ob.tryAnother": "Andere URL versuchen",
 
   "ob.manualChapterLegal": "Deine rechtliche Organisation",
@@ -1091,77 +1071,6 @@ export const de = {
   "ob.field.industry": "Branche",
   "ob.field.history": "Firmengeschichte",
 
-  "ob.s2.kick": "Schritt 2 von 4 · optional",
-  "ob.s2.title": "Jetzt lernen wir,",
-  "ob.s2.titleEm": "wie du wirklich schreibst.",
-  "ob.s2.sub":
-    "Wir raten deinen Ton nicht aus zwei E-Mails. Gib uns einen echten Korpus — Posts, E-Mails und vor allem Gesprächstranskripte — und wir modellieren, wie du wirklich klingst: dein Rhythmus, deine typischen Wendungen, die Wörter, die du nutzt, und die, die du nie sagst. Ziel: ~30.000 Wörter. Alles bleibt in deinem Workspace.",
-  "ob.s2.optinTitle": "Warum jetzt — und warum optional.",
-  "ob.s2.optinBody":
-    "Du hast dein Geschäft zurückgelesen bekommen (Schritt 1) und siehst gleich einen echten Entwurf (Schritt 3). Dieser Schritt lässt diese Entwürfe unverkennbar nach dir klingen. Es ist der einzige Schritt, der eigene Inhalte verlangt — also ganz deine Entscheidung.",
-  "ob.s2.optinYes": "Ja, jetzt meine Stimme bauen",
-  "ob.s2.optinSkip": "Überspringen — später in den Einstellungen",
-  "ob.s2.dropTitle": "Dateien hierher ziehen, oder durchsuchen",
-  "ob.s2.dropFmt":
-    ".txt .md .vtt .srt .json · nur Text · wir behalten nur deine Redeanteile",
-  "ob.s2.dropSkipped":
-    "{files} übersprungen — kein Textformat. Als .txt/.md konvertieren oder den Text direkt einfügen.",
-  "ob.s2.speakerAsk": "Wer bist du in {file}?",
-  "ob.s2.speakerOption": "{name} · Wörter: {words} · Redeanteile: {turns}",
-  "ob.s2.keptOnly": "{kept} von {total} gezählt — nur was {speaker} gesagt hat",
-  "ob.s2.unattributed":
-    "In {file} kann ich nicht erkennen, wer was sagt — deshalb zählt nichts davon. Ergänze Sprecher-Labels oder füge nur deine eigenen Worte ein.",
-  "ob.reg.spoken": "gesprochen",
-  "ob.reg.written": "geschrieben",
-  "ob.reg.casual": "locker",
-  "ob.src.emails": "Gesendete E-Mails",
-  "ob.src.emailsHint":
-    "Deine reichste Stimmquelle für E-Mail-Entwürfe — schaltet frei, sobald du dein Postfach verbindest",
-  "ob.src.transcripts": "Call- / Meeting-Transkripte",
-  "ob.src.transcriptsHint":
-    "Fathom, Otter, Fireflies — wir behalten nur deine Redeanteile",
-  "ob.src.posts": "LinkedIn- / X-Posts",
-  "ob.src.postsHint": "Dein Post-Verlauf — exportieren oder einfügen",
-  "ob.src.longform": "Blogposts / Newsletter",
-  "ob.src.longformHint": "Substack, Medium, Notion-Exporte",
-  "ob.src.chat": "Slack / WhatsApp",
-  "ob.src.chatHint": "Nachrichten, die du gesendet hast",
-  "ob.src.memos": "Sprachmemos",
-  "ob.src.memosHint": "Sprich 2 Minuten frei — wird transkribiert",
-  "ob.s2.whenConnected": "lernt daraus, sobald verbunden",
-  "ob.s2.words": "{count} / {target} Wörter",
-  "ob.s2.qualStart": "füg ein paar Quellen hinzu",
-  "ob.s2.qualThin": "dünn — leg ein, zwei Transkripte nach",
-  "ob.s2.qualGood": "gut — fast da",
-  "ob.s2.qualRich": "dicht — eine eigene Stimme nimmt Form an",
-  "ob.s2.qualSharp": "scharf — unverkennbar du",
-  "ob.s2.mix":
-    "gesprochen {spoken}% · geschrieben {written}% · {sources} Quellen",
-  "ob.s2.spokenHint":
-    "Eine Handvoll Gesprächstranskripte schlägt 30 LinkedIn-Posts — Gesprochenes trägt deinen echten Rhythmus. Bei Transkripten behalten wir nur deine Redeanteile.",
-  "ob.s2.emailCallout":
-    "Deine gesendeten E-Mails sind deine reichste Stimmquelle. Diese erste Voice DNA wird deutlich schärfer, sobald du dein Postfach verbindest (der letzte Schritt), und lernt dann aus jeder E-Mail weiter, die du sendest.",
-  "ob.s2.pasteLabel": "Oder Schreibproben einfügen",
-  "ob.s2.pastePlaceholder":
-    "Füg ein paar E-Mails, Posts oder irgendetwas ein, das du selbst geschrieben hast…",
-  "ob.s2.pasteSource": "Eingefügter Text",
-  "ob.s2.build": "Meine Voice DNA bauen",
-  "ob.s2.building": "Baue deine Voice DNA aus {count} Wörtern…",
-  "ob.s2.minWords":
-    "Füg mindestens {min} Wörter in deiner eigenen Stimme hinzu, um eine erste Voice DNA zu bauen.",
-  "ob.s2.vpMeta": "{count} Wörter · {sources} Quellen",
-  "ob.s2.builtTitle": "Deine Voice DNA",
-  "ob.s2.builtEmpty":
-    "Deine Voice DNA wird gebaut — sie erscheint gleich hier und in den Einstellungen.",
-  "ob.s2.deferredTitle": "Deine Voice DNA wird gebaut",
-  "ob.s2.deferredBody":
-    "Sie ist in der Warteschlange und gleich fertig — du kannst weitermachen. Sie schärft sich automatisch, sobald du im letzten Schritt dein Postfach verbindest.",
-  "ob.s2.failedTitle": "Wir konnten sie gerade nicht bauen",
-  "ob.s2.failedBody":
-    "Beim Bauen deiner Voice DNA ist etwas schiefgegangen. Versuch es noch mal, oder überspring es und bau sie später in den Einstellungen.",
-  "ob.s2.vpFootnote":
-    "Aus {count} Wörtern gebaut. Verbinde als Nächstes dein Postfach, und deine gesendete Post schärft das weiter — dann lernt es aus jeder E-Mail weiter.",
-
   "ob.s3.kick": "Schritt 3 von 4",
   "ob.s3.title": "Sieh, was du gebaut hast —",
   "ob.s3.titleEm": "ganz ohne Anbindung.",
@@ -1195,20 +1104,18 @@ export const de = {
     "Keine Magie — es ist die Standard-B2B-Stufenvorlage, aus dem Schritt-1-Read auf deine Branche gestimmt. Sie ist gerade leer. Wenn du dein Postfach verbindest, liest Capture deine gesendete Post und Meetings und schlägt Deals in diese Stufen vor — jeder belegt und umkehrbar. Du gibst frei, was ein Deal wird.",
   "ob.s3.stillNothing":
     "Noch immer nichts verbunden. Du bestimmst, wann sich das ändert.",
-  "ob.s3.cta": "Postfach verbinden",
 
-  "ob.s4.kick": "Schritt 4 von 4 · der letzte Schritt",
-  "ob.s4.title": "Bereit,",
-  "ob.s4.titleEm": "es zum Leben zu erwecken?",
   "ob.s4.sub":
     "Das Hirn steht. Verbinde dein Postfach, und dein CRM füllt sich selbst — Menschen, Firmen und Deals werden automatisch erfasst, du tippst sie nie.",
   "ob.s4.provGoogle": "Google",
   "ob.s4.provMicrosoft": "Microsoft",
   "ob.s4.provImap": "Beliebiges Postfach (IMAP)",
   "ob.s4.googleBtn": "Mit Google fortfahren",
-  "ob.s4.msBtn": "Mit Microsoft fortfahren",
+  "ob.s4.soon": "Bald",
   "ob.s4.googleHint":
     "Nur Lesezugriff. Du bestätigst ihn auf Googles eigener Einwilligungsseite — und du kannst die Verbindung jederzeit wieder trennen.",
+  "ob.s4.googleUnverified":
+    "Falls Google einen Hinweis „nicht verifizierte App“ zeigt, wähle Erweitert → Fortfahren. Margince liest deine Mail nur — es sendet nie.",
   "ob.s4.googleOkTitle": "Gmail verbunden",
   "ob.s4.googleOkBody":
     "Die Erfassung läuft im Hintergrund — neue Mails erscheinen innerhalb von etwa einer Minute auf deiner Timeline und bleiben ab jetzt von selbst synchron.",
@@ -1257,19 +1164,44 @@ export const de = {
   "backfill.errorTitle": "Der Import hat ein Problem",
   "backfill.cancelledTitle": "Import abgebrochen",
   "backfill.progressLabel": "Import-Fortschritt",
-  "backfill.countScanned": "Durchsucht",
+  "backfill.countScanned": "Nachrichten durchsucht",
   "backfill.countCaptured": "Erfasst",
+  "backfill.statEmails": "E-Mails erfasst",
+  "backfill.statPeople": "Personen",
+  "backfill.statCompanies": "Firmen",
   "backfill.errorNote":
     "Er versucht es selbstständig erneut; alles bisher Erfasste bleibt erhalten.",
   "backfill.cancel": "Import stoppen",
   "backfill.cancelledNote": "Gestoppt. Alles bisher Erfasste bleibt erhalten.",
+
+  // Connected inboxes (Einstellungen → Integrationen).
+  "connectors.title": "Verbundene Postfächer",
+  "connectors.sub":
+    "Postfächer, die dein CRM automatisch füllen. Trenne eines bei Bedarf — bereits erfasste Datensätze bleiben.",
+  "connectors.loading": "Verbindungen werden geladen…",
+  "connectors.loadFailed": "Verbindungen konnten nicht geladen werden.",
+  "connectors.empty": "Noch kein Postfach verbunden.",
+  "connectors.connectCta": "Postfach verbinden",
+  "connectors.provGmail": "Gmail",
+  "connectors.provGcal": "Google Kalender",
+  "connectors.provGraph": "Microsoft",
+  "connectors.provImap": "IMAP-Postfach",
+  "connectors.statusConnected": "Aktiv",
+  "connectors.statusReauth": "Neu verbinden nötig",
+  "connectors.statusError": "Sync-Fehler",
+  "connectors.statusDisconnected": "Getrennt",
+  "connectors.lastSynced": "Zuletzt synchronisiert {at}",
+  "connectors.neverSynced": "Wartet auf die erste Synchronisierung",
+  "connectors.reconnect": "Neu verbinden",
+  "connectors.disconnect": "Trennen",
+  "connectors.disconnectTitle": "Dieses Postfach trennen?",
+  "connectors.disconnectBody":
+    "Die Erfassung stoppt sofort. Alles bereits Erfasste bleibt in deinem CRM, und du kannst jederzeit neu verbinden.",
   "ob.s4.googleVerifying": "Verbindung wird geprüft…",
   "ob.s4.googleDenied": "Du hast die Google-Einwilligung abgelehnt",
   "ob.s4.googleFailed": "Die Google-Verbindung wurde nicht abgeschlossen",
   "ob.s4.googleRetry":
     "Es wurde nichts gespeichert. Versuch es jederzeit erneut — oder verbinde stattdessen über IMAP.",
-  "ob.s4.oauthSoon":
-    "Ein-Klick-Anmeldung für Microsoft kommt. Verbinde oben Google oder jedes Postfach über IMAP — beides ist echte, live Erfassung.",
   "ob.s4.imapHost": "IMAP-Host",
   "ob.s4.imapHostPlaceholder": "imap.gmail.com",
   "ob.s4.imapEmail": "E-Mail",
@@ -1373,7 +1305,7 @@ export const de = {
   "ob.conv.voice.buildChip": "Mein Stimmprofil bauen",
   "ob.conv.voice.retryBuild": "Aufbau erneut versuchen",
   "ob.conv.voice.buildPollFailed":
-    "Ich habe die Verbindung während des Aufbaus verloren. Deine Texte bleiben erhalten, versuche den Aufbau erneut.",
+    "Ich habe die Verbindung während des Aufbaus verloren. Deine Texte bleiben erhalten. Versuche den Aufbau erneut.",
   "ob.conv.voice.statusBuilding": "Dein Stimmprofil entsteht",
   "ob.conv.voice.resultTitle":
     "Das ist deine Stimme, in deinen eigenen Worten.",
@@ -1393,7 +1325,7 @@ export const de = {
   "ob.conv.voice.manifestWords": "{words} Wörter",
   "ob.conv.voice.registerMix": "Register: {mix}",
   "ob.conv.voice.stageTitle": "Aufbau-Fortschritt",
-  "ob.conv.corpus.words": "Eigene Worte jetzt im Korpus: {words}.",
+  "ob.conv.corpus.words": "Eigene Wörter jetzt im Korpus: {words}.",
   "ob.conv.corpus.band": "Korpusqualität ist jetzt {band}.",
   "ob.conv.build.snapshot": "Ich friere deinen Korpus ein.",
   "ob.conv.build.extract": "Ich suche deine typischen Formulierungen.",
@@ -1413,6 +1345,10 @@ export const de = {
   "ob.conv.tellInstead": "Ich erzähle es dir lieber direkt",
   "ob.conv.clarify.question": "{question}",
   "ob.conv.clarify.optionDetail": "{detail}",
+  "ob.conv.clarify.dismiss": "Überspringen - ich trage es selbst ein",
+  "ob.conv.clarify.keepMine": "Meinen Wert behalten",
+  "ob.conv.review.skipped":
+    "Du hast übersprungen: {fields}. Du kannst sie jederzeit bearbeiten.",
   "ob.conv.clarify.applyFailed":
     "Ich konnte diese Wahl nicht übernehmen: {detail} Wähle bitte erneut.",
   "ob.conv.clarify.applyMissing":
@@ -1458,12 +1394,24 @@ export const de = {
     "Du hast das Stimmprofil übersprungen. Entwürfe nutzen eine neutrale Startstimme.",
   "ob.conv.recap.corpus":
     "Dein Korpus enthält bereits {words} deiner eigenen Wörter.",
+  "ob.conv.recap.readTerminal":
+    "Willkommen zurück. Ich habe {host} bereits fertig gelesen: {count} belegte Funde. Deine Durchsicht ist unten bereit.",
+  "ob.conv.recap.readReading":
+    "Willkommen zurück. Ich lese {host} noch. Seiten bisher: {pages}.",
+  "ob.conv.recap.readFailed":
+    "Willkommen zurück. Mein früherer Lesevorgang von {host} wurde nicht fertig. Nenn mir wieder eine Website oder erzähl es mir direkt.",
+  "ob.conv.recap.readDeferred":
+    "Willkommen zurück. Mein Lesevorgang von {host} pausiert gerade. Nenn mir wieder eine Website oder erzähl es mir direkt.",
   "ob.conv.connect.pick":
     "Wähle einen Anbieter, um genau zu sehen, was das Verbinden tut. Oder überspringe es und verbinde später in den Einstellungen.",
   "ob.conv.connect.skip": "Verbinden vorerst überspringen",
   "ob.conv.connect.artifactTitle": "Postfach-Verbindung",
   "ob.conv.connect.artifactEmpty":
     "Wähle im Gespräch einen Anbieter, dann öffnet sich hier sein Verbindungs-Panel.",
+  "ob.conv.next.decisionOne": "1 Entscheidung offen",
+  "ob.conv.next.decisionMany": "{count} Entscheidungen offen",
+  "ob.conv.next.review": "Deine Durchsicht ist bereit",
+  "ob.conv.next.build": "Bereit, deine Stimme zu bauen",
 
   "auth.title": "Margince",
   "auth.checking": "Sitzung wird geprüft…",
@@ -1764,11 +1712,39 @@ export const de = {
   "settings.tab.ai": "KI & Autonomie",
   "settings.tab.data": "Datenmodell",
   "settings.tab.catalog": "Katalog",
+  "settings.tab.rates": "Kurse & Kosten",
   "settings.tab.privacy": "Datenschutz & Einwilligung",
   "settings.tab.audit": "Audit-Log",
   "settings.tab.voice": "Voice DNA",
+  "settings.tab.integrations": "Integrationen",
   "settings.group.you": "Deine Einstellungen",
   "settings.group.org": "Organisation",
+  "settings.rates.fxTitle": "Währungskurse",
+  "settings.rates.fxIntro":
+    "Wechselkurse, die Fremdwährungsbeträge in deine Basiswährung umrechnen. Neue Kurse gelten ab heute oder später; vergangene Kurse werden nie geändert.",
+  "settings.rates.fxAdd": "Kurs setzen",
+  "settings.rates.fxEmpty": "Noch keine Währungskurse.",
+  "settings.rates.fxModalTitle": "Währungskurs setzen",
+  "settings.rates.rateToBase": "Kurs (zur Basiswährung)",
+  "settings.rates.modelTitle": "KI-Modellkosten",
+  "settings.rates.modelIntro":
+    "Preise je Modell in USD pro 1 Mio. Token zur Schätzung der KI-Kosten. Nur zur Transparenz — Preise ändern das Modell-Routing nie.",
+  "settings.rates.modelAdd": "Modellpreis hinzufügen",
+  "settings.rates.modelEmpty": "Noch keine Modellpreise.",
+  "settings.rates.modelModalTitle": "Modellpreis setzen",
+  "settings.rates.setRate": "Speichern",
+  "settings.rates.refresh": "Von Quellen aktualisieren",
+  "settings.rates.refreshEnqueued":
+    "Aktualisierung angefordert — etwaige Vorschläge erscheinen im Posteingang.",
+  "settings.rates.colFrom": "Von",
+  "settings.rates.colRate": "Kurs (→{base})",
+  "settings.rates.colEffective": "Gültig ab",
+  "settings.rates.colProvider": "Anbieter",
+  "settings.rates.colModel": "Modell",
+  "settings.rates.colInput": "Eingabe $/M",
+  "settings.rates.colOutput": "Ausgabe $/M",
+  "settings.rates.colCacheRead": "Cache-Lesen $/M",
+  "settings.rates.colCacheWrite": "Cache-Schreiben $/M",
   "settings.voice.title": "Voice DNA",
   "settings.voice.intro":
     "Deine persönliche Schreibstimme. Sie prägt Entwürfe, die für dich gemacht werden, bleibt privat und lernt nur aus Quellen, die du hinzufügst.",
@@ -1822,8 +1798,6 @@ export const de = {
   "voice.outcome.rollback": "wiederhergestellt",
   "voice.history.versionRow": "v{n} \u00b7",
   "voice.history.loadMore": "\u00c4ltere Eintr\u00e4ge anzeigen",
-  "ob.s2.candidateNote":
-    "Diese Version wartet auf deine Pr\u00fcfung \u2014 unter Einstellungen \u2192 Stimme anwenden oder ablehnen.",
   "voice.insights.provenance": "Aus deinem Korpus gebaut \u00b7 v{n}",
   "voice.insights.statWords": "W\u00f6rter: {count}",
   "voice.insights.statSources": "Quellen: {count}",
@@ -2130,6 +2104,56 @@ export const de = {
   "quotas.archive.confirm":
     "Das Archivieren entfernt diese Quota aus der Liste und stoppt die Verfolgung der Zielerreichung. Archivierte Quotas können nicht bearbeitet werden.",
 
+  "webhooks.title": "Webhooks",
+  "webhooks.sub":
+    "Ausgehende Abonnements, die signierte HTTP-POSTs für ausgewählte Ereignisse empfangen.",
+  "webhooks.new": "Neues Abonnement",
+  "webhooks.notConfigured":
+    "Ausgehende Webhooks sind auf dieser Installation nicht aktiviert — zuerst muss ein Signaturschlüssel konfiguriert werden.",
+  "webhooks.state.active": "Aktiv",
+  "webhooks.state.paused": "Pausiert",
+  "webhooks.updated": "Aktualisiert {date}",
+  "webhooks.field.targetUrl": "Ziel-URL",
+  "webhooks.field.eventTypes": "Ereignistypen",
+  "webhooks.field.state": "Status",
+  "webhooks.edit": "Bearbeiten",
+  "webhooks.archive": "Archivieren",
+  "webhooks.archiveConfirm":
+    "Das Archivieren stoppt jede Zustellung für dieses Abonnement. Dies kann nicht rückgängig gemacht werden.",
+  "webhooks.rotate": "Schlüssel rotieren",
+  "webhooks.rotateConfirm.title": "Signaturschlüssel rotieren?",
+  "webhooks.rotateConfirm.body":
+    "Mit dem Bestätigen wird der aktuelle Schlüssel sofort ungültig und der neue Schlüssel danach einmalig angezeigt. Kopieren Sie ihn und aktualisieren Sie Ihren Empfänger, sobald die Rotation abgeschlossen ist.",
+  "webhooks.secret.title": "Signaturschlüssel",
+  "webhooks.secret.warning":
+    "Dieser Schlüssel wird nur einmal angezeigt und kann danach nicht erneut abgerufen werden. Speichern Sie ihn jetzt — Zustellungen werden damit signiert.",
+  "webhooks.secret.copy": "Kopieren",
+  "webhooks.secret.copied": "Kopiert",
+  "webhooks.secret.copyFailed":
+    "Automatisches Kopieren fehlgeschlagen — bitte den Schlüssel manuell auswählen und kopieren.",
+  "webhooks.secret.done": "Fertig",
+
+  "webhooks.deliveries.show": "Zustellungen anzeigen",
+  "webhooks.deliveries.hide": "Zustellungen ausblenden",
+  "webhooks.deliveries.empty": "Noch keine Zustellversuche.",
+  "webhooks.deliveries.deadLetterGroup": "Dead-Letter ({count})",
+  "webhooks.deliveries.allGroup": "Weitere Versuche",
+  "webhooks.deliveries.column.status": "Status",
+  "webhooks.deliveries.column.event": "Ereignis",
+  "webhooks.deliveries.column.attempts": "Versuche",
+  "webhooks.deliveries.column.lastStatusCode": "Letzter Status",
+  "webhooks.deliveries.column.lastError": "Letzter Fehler",
+  "webhooks.deliveries.column.created": "Erstellt",
+  "webhooks.deliveries.column.resolved": "Abgeschlossen / nächster Versuch",
+  "webhooks.deliveries.status.pending": "Ausstehend",
+  "webhooks.deliveries.status.delivered": "Zugestellt",
+  "webhooks.deliveries.status.retrying": "Wird wiederholt",
+  "webhooks.deliveries.status.dead_lettered": "Dead-Letter",
+  "webhooks.deliveries.replay": "Erneut zustellen",
+  "webhooks.deliveries.replayConfirm.title":
+    "Diese Zustellung erneut versuchen?",
+  "webhooks.deliveries.replayConfirm.body":
+    "Versucht die Zustellung sofort erneut, signiert mit dem aktuellen Schlüssel und einem neuen Zeitstempel. Es wird nicht auf den nächsten geplanten Versuch gewartet.",
   "reindexbanner.needed": "Neuindizierung erforderlich",
   "reindexbanner.link": "In den Einstellungen prüfen",
 

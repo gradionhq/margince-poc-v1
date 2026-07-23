@@ -576,6 +576,7 @@ export const en = {
   "deepread.kindOther": "Other",
 
   "create.cancel": "Cancel",
+  "create.multiselect.required": "Required — select at least one.",
   "create.save": "Create",
   "create.saving": "Creating…",
   "create.contact": "New contact",
@@ -823,24 +824,13 @@ export const en = {
   "stage.semWon": "Won",
   "stage.semLost": "Lost",
 
-  "ob.title": "Set up Margince",
   "ob.read": "Read",
   "ob.confirm": "Confirm",
-  "ob.company": "Company",
-  "ob.voice": "Voice",
-  "ob.results": "Results",
-  "ob.connect": "Connect",
   "ob.url": "Website",
   "ob.urlScheme": "https://",
-  "ob.next": "Continue",
   "ob.back": "Back",
   "ob.finish": "Into the workspace",
-  "ob.skipStep": "Skip this step",
   "ob.restoring": "Restoring your setup…",
-  "ob.stateConflict":
-    "This setup changed in another tab. We reloaded the saved version so nothing is silently overwritten.",
-  "ob.stateSaveFailed":
-    "We couldn't save your setup progress. Please try again.",
   "ob.readKick": "Step 1 of 4 · company context",
   "ob.readTitle": "Your company",
   "ob.readSub": "Read it from your website, or type it in.",
@@ -979,21 +969,10 @@ export const en = {
   "ob.s1.omitBody":
     "I filled only what I could quote from your site. You can add anything I couldn't verify.",
   "ob.readGo": "Read my website",
-  "ob.reading": "Reading…",
-  "ob.readAgain": "Read again",
   "ob.trustPublic": "I only read your public website. No login required.",
   "ob.urlWillRead": "I'll read {host}",
-  "ob.urlInvalid":
-    "That doesn't look like a website address — try e.g. {example}",
   "ob.readFromSite": "read from site",
   "ob.failTitle": "I couldn't read enough from this website",
-  "ob.failBody":
-    "I reached the site but couldn't find enough public text to ground a profile, so I won't guess. I saved nothing.",
-  "ob.failWhy1":
-    "The page may render its content with JavaScript we can't read from the public HTML",
-  "ob.failWhy2":
-    "It may be a login wall, a holding page, or block automated reads in robots.txt",
-  "ob.failWhy3": "There may simply be too little text to work from",
   "ob.tryAnother": "Try another URL",
 
   "ob.manualChapterLegal": "Your legal organization",
@@ -1071,76 +1050,6 @@ export const en = {
   "ob.field.industry": "Industry",
   "ob.field.history": "Company history",
 
-  "ob.s2.kick": "Step 2 of 4 · optional",
-  "ob.s2.title": "Now let's learn",
-  "ob.s2.titleEm": "how you really write.",
-  "ob.s2.sub":
-    "We don't guess your tone from two emails. Feed us a real corpus — posts, emails, and especially call transcripts — and we model your actual voice: cadence, signature moves, the words you use and the ones you never do. Aim for ~30,000 words. Everything stays in your workspace.",
-  "ob.s2.optinTitle": "Why now — and why it's optional.",
-  "ob.s2.optinBody":
-    "You've seen your business read back (Step 1) and you'll see a working draft next (Step 3). This step makes those drafts sound unmistakably like you. It's the one step that asks for your own content, so it's entirely your call.",
-  "ob.s2.optinYes": "Yes, build my voice now",
-  "ob.s2.optinSkip": "Skip — I'll do this later in Settings",
-  "ob.s2.dropTitle": "Drag & drop files here, or browse",
-  "ob.s2.dropFmt":
-    ".txt .md .vtt .srt .json · text only · we keep only your turns",
-  "ob.s2.dropSkipped":
-    "Skipped {files} — not a text format. Convert to .txt/.md or paste the text instead.",
-  "ob.s2.speakerAsk": "Which speaker are you in {file}?",
-  "ob.s2.speakerOption": "{name} · words: {words} · turns: {turns}",
-  "ob.s2.keptOnly": "counted {kept} of {total} — only what {speaker} said",
-  "ob.s2.unattributed":
-    "I can't tell who says what in {file}, so none of it is counted. Add speaker labels, or paste only your own words.",
-  "ob.reg.spoken": "spoken",
-  "ob.reg.written": "written",
-  "ob.reg.casual": "casual",
-  "ob.src.emails": "Sent emails",
-  "ob.src.emailsHint":
-    "Your richest voice source for email drafting — unlocks when you connect your inbox",
-  "ob.src.transcripts": "Call / meeting transcripts",
-  "ob.src.transcriptsHint":
-    "Fathom, Otter, Fireflies — we keep only your turns",
-  "ob.src.posts": "LinkedIn / X posts",
-  "ob.src.postsHint": "Your post history — export or paste",
-  "ob.src.longform": "Blog posts / newsletters",
-  "ob.src.longformHint": "Substack, Medium, Notion exports",
-  "ob.src.chat": "Slack / WhatsApp",
-  "ob.src.chatHint": "Messages you sent",
-  "ob.src.memos": "Voice memos",
-  "ob.src.memosHint": "Record a 2-min monologue — transcribed",
-  "ob.s2.whenConnected": "learns from this once connected",
-  "ob.s2.words": "{count} / {target} words",
-  "ob.s2.qualStart": "add a few sources to start",
-  "ob.s2.qualThin": "thin — add a transcript or two",
-  "ob.s2.qualGood": "good — getting there",
-  "ob.s2.qualRich": "rich — a distinctive voice takes shape",
-  "ob.s2.qualSharp": "sharp — unmistakably you",
-  "ob.s2.mix": "spoken {spoken}% · written {written}% · {sources} sources",
-  "ob.s2.spokenHint":
-    "A handful of call transcripts beats 30 LinkedIn posts — spoken sources carry your real cadence. For transcripts we keep only your turns.",
-  "ob.s2.emailCallout":
-    "Your sent emails are your richest voice source. This first Voice DNA gets much sharper the moment you connect your inbox (the last step), then keeps learning from every email you send.",
-  "ob.s2.pasteLabel": "Or paste writing samples",
-  "ob.s2.pastePlaceholder":
-    "Paste a few emails, posts, or anything you've written in your own words…",
-  "ob.s2.pasteSource": "Pasted writing",
-  "ob.s2.build": "Build my Voice DNA",
-  "ob.s2.building": "Building your Voice DNA from {count} words…",
-  "ob.s2.minWords":
-    "Add at least {min} words in your own voice to build a first Voice DNA.",
-  "ob.s2.vpMeta": "{count} words · {sources} sources",
-  "ob.s2.builtTitle": "Your Voice DNA",
-  "ob.s2.builtEmpty":
-    "Your Voice DNA is building — it'll appear here and in Settings shortly.",
-  "ob.s2.deferredTitle": "Building your Voice DNA",
-  "ob.s2.deferredBody":
-    "It's queued and will be ready shortly — you can move on. It sharpens automatically once you connect your inbox in the last step.",
-  "ob.s2.failedTitle": "We couldn't build it just now",
-  "ob.s2.failedBody":
-    "Something went wrong building your Voice DNA. Try again, or skip and build it later in Settings.",
-  "ob.s2.vpFootnote":
-    "Built from {count} words. Connect your inbox next and your sent email pushes this sharper — then it keeps learning from every email you send.",
-
   "ob.s3.kick": "Step 3 of 4",
   "ob.s3.title": "Look what you've built —",
   "ob.s3.titleEm": "with nothing connected.",
@@ -1173,20 +1082,18 @@ export const en = {
     "No magic — it's the standard B2B stage template, tuned to your industry from the Step-1 read. It's empty right now. When you connect your inbox, capture reads your sent mail and meetings, then proposes deals into these stages — each one evidenced and reversible. You approve what becomes a deal.",
   "ob.s3.stillNothing":
     "Still nothing connected. You're in control of when that changes.",
-  "ob.s3.cta": "Connect my inbox",
 
-  "ob.s4.kick": "Step 4 of 4 · the last step",
-  "ob.s4.title": "Ready to",
-  "ob.s4.titleEm": "bring it to life?",
   "ob.s4.sub":
     "You've built the brain. Connect your inbox and your CRM fills itself — people, companies, and deals captured automatically, so you never type them.",
   "ob.s4.provGoogle": "Google",
   "ob.s4.provMicrosoft": "Microsoft",
   "ob.s4.provImap": "Any inbox (IMAP)",
   "ob.s4.googleBtn": "Continue with Google",
-  "ob.s4.msBtn": "Continue with Microsoft",
+  "ob.s4.soon": "Soon",
   "ob.s4.googleHint":
     "Read-only access. You'll approve it on Google's own consent screen, and you can disconnect it again any time.",
+  "ob.s4.googleUnverified":
+    "If Google shows an “unverified app” notice, choose Advanced → Continue. Margince only ever reads your mail — it never sends.",
   "ob.s4.googleOkTitle": "Gmail connected",
   "ob.s4.googleOkBody":
     "Capture is running in the background — new mail lands on your timeline within about a minute, and it keeps itself in sync from here on.",
@@ -1235,19 +1142,45 @@ export const en = {
   "backfill.errorTitle": "The import hit a problem",
   "backfill.cancelledTitle": "Import cancelled",
   "backfill.progressLabel": "Import progress",
-  "backfill.countScanned": "Scanned",
+  "backfill.countScanned": "Messages scanned",
   "backfill.countCaptured": "Captured",
+  "backfill.statEmails": "Emails captured",
+  "backfill.statPeople": "People",
+  "backfill.statCompanies": "Companies",
   "backfill.errorNote":
     "It will retry on its own; everything captured so far is kept.",
   "backfill.cancel": "Stop the import",
   "backfill.cancelledNote": "Stopped. Everything captured so far is kept.",
+
+  // Connected inboxes (Settings → Integrations): the "manage in Settings"
+  // surface the onboarding copy promises.
+  "connectors.title": "Connected inboxes",
+  "connectors.sub":
+    "Mailboxes capturing into your CRM. Disconnect any one when you need to — already-captured records stay.",
+  "connectors.loading": "Loading your connections…",
+  "connectors.loadFailed": "Couldn't load your connections.",
+  "connectors.empty": "No inbox is connected yet.",
+  "connectors.connectCta": "Connect an inbox",
+  "connectors.provGmail": "Gmail",
+  "connectors.provGcal": "Google Calendar",
+  "connectors.provGraph": "Microsoft",
+  "connectors.provImap": "IMAP mailbox",
+  "connectors.statusConnected": "Capturing",
+  "connectors.statusReauth": "Needs reconnect",
+  "connectors.statusError": "Sync error",
+  "connectors.statusDisconnected": "Disconnected",
+  "connectors.lastSynced": "Last synced {at}",
+  "connectors.neverSynced": "Waiting for the first sync",
+  "connectors.reconnect": "Reconnect",
+  "connectors.disconnect": "Disconnect",
+  "connectors.disconnectTitle": "Disconnect this inbox?",
+  "connectors.disconnectBody":
+    "Capture stops immediately. Everything already captured stays in your CRM, and you can reconnect any time.",
   "ob.s4.googleVerifying": "Verifying the connection…",
   "ob.s4.googleDenied": "You declined the Google consent",
   "ob.s4.googleFailed": "The Google connection didn't complete",
   "ob.s4.googleRetry":
     "Nothing was stored. You can try again whenever you like — or connect over IMAP instead.",
-  "ob.s4.oauthSoon":
-    "One-click Microsoft sign-in is coming. Connect Google above, or any mailbox over IMAP — both are real, live capture.",
   "ob.s4.imapHost": "IMAP host",
   "ob.s4.imapHostPlaceholder": "imap.gmail.com",
   "ob.s4.imapEmail": "Email",
@@ -1320,7 +1253,7 @@ export const en = {
   "ob.conv.voice.dropHint":
     "You can also drop files anywhere in this conversation.",
   "ob.conv.voice.fileSkipped":
-    "I can not read {name}. I take .txt, .md, .vtt, .srt, or .json.",
+    "I cannot read {name}. I take .txt, .md, .vtt, .srt, or .json.",
   "ob.conv.voice.fileEmpty":
     "There are no words in {name}, so nothing was counted.",
   "ob.conv.voice.reactionTranscript":
@@ -1328,7 +1261,7 @@ export const en = {
   "ob.conv.voice.reactionDocument":
     "Words counted: {words}. Every word here is yours, so all of them count.",
   "ob.conv.voice.refusalUnattributed":
-    "That looks like a conversation, but I can not tell which words are yours. I counted nothing, because I only count words that are provably yours.",
+    "That looks like a conversation, but I cannot tell which words are yours. I counted nothing, because I only count words that are provably yours.",
   "ob.conv.voice.refusalSpeaker":
     "I could not find that speaker in the transcript. Nothing was counted.",
   "ob.conv.voice.refusalUnsupported":
@@ -1387,6 +1320,9 @@ export const en = {
   "ob.conv.tellInstead": "I would rather tell you directly",
   "ob.conv.clarify.question": "{question}",
   "ob.conv.clarify.optionDetail": "{detail}",
+  "ob.conv.clarify.dismiss": "Skip this - I will set it myself",
+  "ob.conv.clarify.keepMine": "Keep my value",
+  "ob.conv.review.skipped": "You skipped: {fields}. Edit them any time.",
   "ob.conv.clarify.applyFailed":
     "I could not record that choice: {detail} Pick it again.",
   "ob.conv.clarify.applyMissing":
@@ -1428,12 +1364,24 @@ export const en = {
     "You skipped the voice profile. Drafts use a neutral starter voice.",
   "ob.conv.recap.corpus":
     "Your corpus already holds {words} of your own words.",
+  "ob.conv.recap.readTerminal":
+    "Welcome back. I already finished reading {host}: {count} findings with sources. Your review is ready below.",
+  "ob.conv.recap.readReading":
+    "Welcome back. I am still reading {host}. Pages so far: {pages}.",
+  "ob.conv.recap.readFailed":
+    "Welcome back. My earlier read of {host} did not finish. Give me a website again, or tell me directly.",
+  "ob.conv.recap.readDeferred":
+    "Welcome back. My read of {host} is paused for now. Give me a website again, or tell me directly.",
   "ob.conv.connect.pick":
     "Pick a provider to see exactly what connecting does, or skip and connect later in Settings.",
   "ob.conv.connect.skip": "Skip connecting for now",
   "ob.conv.connect.artifactTitle": "Inbox connection",
   "ob.conv.connect.artifactEmpty":
     "Pick a provider in the conversation and its connection panel opens here.",
+  "ob.conv.next.decisionOne": "1 decision open",
+  "ob.conv.next.decisionMany": "{count} decisions open",
+  "ob.conv.next.review": "Your review is ready",
+  "ob.conv.next.build": "Ready to build your voice",
 
   "auth.title": "Margince",
   "auth.checking": "Checking your session…",
@@ -1728,11 +1676,39 @@ export const en = {
   "settings.tab.ai": "AI & autonomy",
   "settings.tab.data": "Data model",
   "settings.tab.catalog": "Catalog",
+  "settings.tab.rates": "Rates & costs",
   "settings.tab.privacy": "Privacy & consent",
   "settings.tab.audit": "Audit log",
   "settings.tab.voice": "Voice DNA",
+  "settings.tab.integrations": "Integrations",
   "settings.group.you": "Your settings",
   "settings.group.org": "Organization",
+  "settings.rates.fxTitle": "Currency rates",
+  "settings.rates.fxIntro":
+    "Exchange rates that convert foreign-currency amounts to your base currency. New rates take effect today or later; past rates are never changed.",
+  "settings.rates.fxAdd": "Set rate",
+  "settings.rates.fxEmpty": "No currency rates yet.",
+  "settings.rates.fxModalTitle": "Set a currency rate",
+  "settings.rates.rateToBase": "Rate (to base currency)",
+  "settings.rates.modelTitle": "AI model costs",
+  "settings.rates.modelIntro":
+    "Per-model prices in USD per 1M tokens, used to estimate AI spend. Transparency only — prices never change how models are routed.",
+  "settings.rates.modelAdd": "Add model rate",
+  "settings.rates.modelEmpty": "No model rates yet.",
+  "settings.rates.modelModalTitle": "Set a model price",
+  "settings.rates.setRate": "Save",
+  "settings.rates.refresh": "Refresh from sources",
+  "settings.rates.refreshEnqueued":
+    "Refresh requested — any proposed changes will appear in the inbox.",
+  "settings.rates.colFrom": "From",
+  "settings.rates.colRate": "Rate (→{base})",
+  "settings.rates.colEffective": "Effective",
+  "settings.rates.colProvider": "Provider",
+  "settings.rates.colModel": "Model",
+  "settings.rates.colInput": "Input $/M",
+  "settings.rates.colOutput": "Output $/M",
+  "settings.rates.colCacheRead": "Cache read $/M",
+  "settings.rates.colCacheWrite": "Cache write $/M",
   "settings.voice.title": "Voice DNA",
   "settings.voice.intro":
     "Your personal writing voice. It shapes drafts made for you, stays private to you, and only learns from sources you add.",
@@ -1786,8 +1762,6 @@ export const en = {
   "voice.outcome.rollback": "restored",
   "voice.history.versionRow": "v{n} \u00b7",
   "voice.history.loadMore": "Show older entries",
-  "ob.s2.candidateNote":
-    "This version is waiting for your review \u2014 apply or reject it under Settings \u2192 Voice.",
   "voice.insights.provenance": "Built from your corpus \u00b7 v{n}",
   "voice.insights.statWords": "Words: {count}",
   "voice.insights.statSources": "Sources: {count}",
@@ -2088,6 +2062,55 @@ export const en = {
   "quotas.archive.confirm":
     "Archiving drops this quota from the list and stops tracking its attainment. Archived quotas can't be edited.",
 
+  "webhooks.title": "Webhooks",
+  "webhooks.sub":
+    "Outbound subscriptions that receive signed HTTP POSTs for chosen events.",
+  "webhooks.new": "New subscription",
+  "webhooks.notConfigured":
+    "Outbound webhooks are not enabled on this deployment — a signing key must be configured first.",
+  "webhooks.state.active": "Active",
+  "webhooks.state.paused": "Paused",
+  "webhooks.updated": "Updated {date}",
+  "webhooks.field.targetUrl": "Target URL",
+  "webhooks.field.eventTypes": "Event types",
+  "webhooks.field.state": "State",
+  "webhooks.edit": "Edit",
+  "webhooks.archive": "Archive",
+  "webhooks.archiveConfirm":
+    "Archiving stops all delivery for this subscription. This can't be undone.",
+  "webhooks.rotate": "Rotate secret",
+  "webhooks.rotateConfirm.title": "Rotate signing secret?",
+  "webhooks.rotateConfirm.body":
+    "Confirming invalidates the current secret immediately and then reveals the new secret once. Copy it and update your receiver as soon as rotation completes.",
+  "webhooks.secret.title": "Signing secret",
+  "webhooks.secret.warning":
+    "This secret is shown once and can't be retrieved again. Store it now — deliveries are signed with it.",
+  "webhooks.secret.copy": "Copy",
+  "webhooks.secret.copied": "Copied",
+  "webhooks.secret.copyFailed":
+    "Couldn't copy automatically — select and copy the secret manually.",
+  "webhooks.secret.done": "Done",
+
+  "webhooks.deliveries.show": "View deliveries",
+  "webhooks.deliveries.hide": "Hide deliveries",
+  "webhooks.deliveries.empty": "No delivery attempts yet.",
+  "webhooks.deliveries.deadLetterGroup": "Dead-lettered ({count})",
+  "webhooks.deliveries.allGroup": "Other attempts",
+  "webhooks.deliveries.column.status": "Status",
+  "webhooks.deliveries.column.event": "Event",
+  "webhooks.deliveries.column.attempts": "Attempts",
+  "webhooks.deliveries.column.lastStatusCode": "Last status",
+  "webhooks.deliveries.column.lastError": "Last error",
+  "webhooks.deliveries.column.created": "Created",
+  "webhooks.deliveries.column.resolved": "Resolved / next retry",
+  "webhooks.deliveries.status.pending": "Pending",
+  "webhooks.deliveries.status.delivered": "Delivered",
+  "webhooks.deliveries.status.retrying": "Retrying",
+  "webhooks.deliveries.status.dead_lettered": "Dead-lettered",
+  "webhooks.deliveries.replay": "Replay",
+  "webhooks.deliveries.replayConfirm.title": "Replay this delivery?",
+  "webhooks.deliveries.replayConfirm.body":
+    "Re-attempts delivery now, signed with the current secret and a fresh timestamp. It doesn't wait for the next scheduled retry.",
   "reindexbanner.needed": "Reindex needed",
   "reindexbanner.link": "Review in settings",
 

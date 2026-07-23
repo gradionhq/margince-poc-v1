@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import type { Dispatch } from "react";
 import { useEffect, useReducer, useRef } from "react";
 import { api } from "../../api/client";
 import type { components } from "../../api/schema";
@@ -10,7 +11,9 @@ import { EMPTY_DRAFT, pickBuiltVersion, useCompany } from "../onboarding";
 import { CompanyAct } from "./company-act";
 import { ConnectAct } from "./connect-act";
 import {
+  type ConversationEvent,
   type ConversationPhase,
+  type ConversationState,
   conversationReducer,
   initialConversationState,
 } from "./conversation-machine";
@@ -20,17 +23,15 @@ import type { WizardPersistInput } from "./use-wizard-state";
 import { useWizardStatePersist } from "./use-wizard-state";
 import { VoiceAct } from "./voice-act";
 
-// The conversational onboarding shell: one pure machine owns where the
-// conversation is, and each act renders inside the shared Margince
-// workbench. On mount the shell reads the server truth (wizard state,
-// company, voice) and restores through START + RESUME; the wizard state's
-// `path` field is THE member signal, with company-exists only the fallback
-// when no state row exists. The classic stepper stays the default; this
-// screen mounts only behind the flag (see flag.ts).
-
-export { conversationFlagEnabled } from "./flag";
+// The conversational onboarding shell — THE onboarding experience: one pure
+// machine owns where the conversation is, and each act renders inside the
+// shared Margince workbench. On mount the shell reads the server truth
+// (wizard state, company, voice) and restores through START + RESUME; the
+// wizard state's `path` field is THE member signal, with company-exists only
+// the fallback when no state row exists.
 
 type OnboardingState = components["schemas"]["OnboardingState"];
+type CompanySiteRead = components["schemas"]["CompanySiteRead"];
 
 // The wizard steps whose restore needs the voice server truth (built
 // versions, corpus meter); the member path never does.
@@ -143,16 +144,16 @@ function RestoreGate({ lookups }: Readonly<{ lookups: RestoreLookup[] }>) {
   );
 }
 
-export function OnboardingConversationScreen() {
-  const route = useRoute();
-  const [state, dispatch] = useReducer(
-    conversationReducer,
-    initialConversationState,
-  );
-  const { persist } = useWizardStatePersist();
-  // GET /company 404s until a human saved one; only a SETTLED lookup may
-  // route — a transient error must not send an existing member down the
-  // creator flow (nor a returning creator down the member flow).
+// The restore lookups and the one START/RESUME dispatch, as a hook: the
+// server truth (wizard state, company, voice, persisted read) is read once,
+// and only a SETTLED set of lookups may route — a transient error must not
+// send an existing member down the creator flow (nor a returning creator
+// down the member flow).
+function useRestore(
+  state: ConversationState,
+  dispatch: Dispatch<ConversationEvent>,
+  routeConnect: boolean,
+) {
   const existing = useCompany(true);
   const wizard = useQuery({
     queryKey: ["onboarding-conv-state"],
@@ -167,10 +168,40 @@ export function OnboardingConversationScreen() {
     queryFn: probeVoice,
     enabled: voiceNeeded,
   });
+  // The persisted read is only worth fetching while the company act is
+  // still open: a reload must reattach a running or finished read instead
+  // of stranding the user's work behind a fresh intro.
+  const persistedReadId =
+    wizard.data != null &&
+    (wizard.data.step === "read" || wizard.data.step === "confirm")
+      ? (wizard.data.site_read_id ?? null)
+      : null;
+  const persistedRead = useQuery({
+    queryKey: ["onboarding-conv-read", persistedReadId],
+    enabled: persistedReadId !== null,
+    queryFn: async (): Promise<CompanySiteRead | null> => {
+      const { data, error, response } = await api.GET(
+        "/company/site-reads/{readId}",
+        { params: { path: { readId: persistedReadId ?? "" } } },
+      );
+      if (error) {
+        // A read the server no longer serves is not a restore failure; the
+        // company act simply reopens fresh.
+        if (response.status === 404) {
+          return null;
+        }
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+  });
 
   const restored = useRef(false);
   const settled =
-    existing.isSuccess && wizard.isSuccess && (!voiceNeeded || voice.isSuccess);
+    existing.isSuccess &&
+    wizard.isSuccess &&
+    (!voiceNeeded || voice.isSuccess) &&
+    (persistedReadId === null || persistedRead.isSuccess);
   useEffect(() => {
     if (restored.current || state.act !== "welcome" || !settled) {
       return;
@@ -180,7 +211,8 @@ export function OnboardingConversationScreen() {
       state: wizard.data ?? null,
       profile: existing.data ?? null,
       voice: voice.data ?? null,
-      routeConnect: route.id === "connect",
+      read: persistedRead.data ?? null,
+      routeConnect,
     });
     if (plan.kind === "complete") {
       navigate({ screen: "home" });
@@ -192,10 +224,45 @@ export function OnboardingConversationScreen() {
       companyConfirmed: plan.companyConfirmed,
       recap: plan.recap,
     });
+    // Reattaching happens through the ordinary machine event, so legality
+    // and correlation hold exactly as for a live read.
+    if (plan.adoptRead !== null) {
+      dispatch({ type: "READ_STARTED", readId: plan.adoptRead.id });
+    }
     if (plan.companyConfirmed && plan.resumeTarget !== null) {
       dispatch({ type: "RESUME", target: plan.resumeTarget });
     }
-  }, [state.act, settled, wizard.data, existing.data, voice.data, route.id]);
+  }, [
+    state.act,
+    settled,
+    wizard.data,
+    existing.data,
+    voice.data,
+    persistedRead.data,
+    routeConnect,
+    dispatch,
+  ]);
+
+  return {
+    existing,
+    voice,
+    persistedRead,
+    lookups: [existing, wizard, voice, persistedRead],
+  };
+}
+
+export function OnboardingConversationScreen() {
+  const route = useRoute();
+  const [state, dispatch] = useReducer(
+    conversationReducer,
+    initialConversationState,
+  );
+  const { persist } = useWizardStatePersist();
+  const { existing, voice, persistedRead, lookups } = useRestore(
+    state,
+    dispatch,
+    route.id === "connect",
+  );
 
   // Act-transition checkpoints: the server remembers where the journey is,
   // so a mid-onboarding reload restores to the right act with recap. Only
@@ -221,7 +288,7 @@ export function OnboardingConversationScreen() {
   }, [state.phase, state.lastBuildStatus, persist]);
 
   if (state.act === "welcome") {
-    return <RestoreGate lookups={[existing, wizard, voice]} />;
+    return <RestoreGate lookups={lookups} />;
   }
 
   const voiceBuilt =
@@ -235,6 +302,12 @@ export function OnboardingConversationScreen() {
           dispatch={dispatch}
           profile={existing.data ?? null}
           persist={persist}
+          adoptedRead={
+            persistedRead.data != null &&
+            persistedRead.data.id === state.activeReadId
+              ? persistedRead.data
+              : null
+          }
         />
       )}
       {state.act === "voice" && (

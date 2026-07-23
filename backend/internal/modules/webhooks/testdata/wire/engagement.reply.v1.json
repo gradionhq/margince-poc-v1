@@ -1,0 +1,6 @@
+{
+  "channel": "email",
+  "idempotency_key": "gmail:msg-42",
+  "matched_outbound_activity_id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+  "occurred_at": "2026-07-22T09:30:00Z"
+}

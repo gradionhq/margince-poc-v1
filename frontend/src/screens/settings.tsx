@@ -7,6 +7,7 @@ import {
 import {
   Building2,
   ChevronDown,
+  Coins,
   Database,
   Factory,
   type LucideIcon,
@@ -16,6 +17,7 @@ import {
   ShieldCheck,
   Sparkles,
   UsersRound,
+  Webhook,
 } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { api } from "../api/client";
@@ -57,13 +59,16 @@ import {
   CompanyContextCard,
   useCompanyContextCapabilities,
 } from "./company-context";
+import { ConnectorsCard } from "./connectors";
 import { CreateAction, type CreateField, CreateRecordModal } from "./create";
 import { EditAction } from "./edit";
 import { EmbedReindexCard } from "./embedreindex";
 import { EntityRef } from "./entityref";
 import { ConsentPurposesCard, PrivacyInboxCard } from "./privacy";
+import { RatesScreen } from "./rates";
 import { UsersAdminCard } from "./users-admin";
 import { VoiceDnaCard } from "./voice-dna";
+import { WebhooksCard } from "./webhooks";
 import "./settings.css";
 
 // Settings governance surface (B-EP09.13b): renders FROM the live seams —
@@ -93,8 +98,10 @@ const SETTINGS_TABS = [
   { id: "users", icon: UsersRound, group: "org" },
   { id: "data", icon: Database, group: "org" },
   { id: "catalog", icon: Package, group: "org" },
+  { id: "rates", icon: Coins, group: "org" },
   { id: "privacy", icon: ShieldCheck, group: "org" },
   { id: "audit", icon: ScrollText, group: "org" },
+  { id: "integrations", icon: Webhook, group: "org" },
 ] as const satisfies readonly {
   id: string;
   icon: LucideIcon;
@@ -137,8 +144,17 @@ function tabContent(id: SettingsTabId): ReactNode {
           <PrivacyInboxCard />
         </>
       );
+    case "rates":
+      return <RatesScreen />;
     case "audit":
       return <AuditLogCard />;
+    case "integrations":
+      return (
+        <>
+          <ConnectorsCard />
+          <WebhooksCard />
+        </>
+      );
   }
 }
 
@@ -152,6 +168,15 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
   // a rep/manager never sees the Organization group. The server re-checks.
   const isOrgAdmin = canConfigureAutomations(me.data?.roles);
   const tabs = SETTINGS_TABS.filter((entry) => {
+    // Integrations is read-capable by EVERY role (the seeded policy grants
+    // webhook_subscription read to admin/ops/manager/rep/read_only; only
+    // create/rotate/replay are admin/ops-only, and WebhooksCard gates those
+    // per-card). So it is exempt from the org-admin nav filter — a read-only
+    // role must still reach the subscription list + delivery-health views,
+    // and its deep link must not fall back to Account.
+    if (entry.id === "integrations") {
+      return true;
+    }
     if (entry.group === "org" && !isOrgAdmin) {
       return false;
     }

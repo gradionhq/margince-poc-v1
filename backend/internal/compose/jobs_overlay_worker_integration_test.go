@@ -25,6 +25,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
@@ -229,7 +230,7 @@ func TestReconcileConnectionBackfillsAndSeedsViaFakeIncumbent(t *testing.T) {
 	}
 
 	sweepCtx := reconcileWorkerCtx(context.Background(), ids.From[ids.WorkspaceKind](e.WS))
-	if err := reconcileConnection(sweepCtx, vault, ms, workerBudgetMeter(t),
+	if err := reconcileConnection(sweepCtx, e.Pool, vault, ms, workerBudgetMeter(t),
 		slog.New(slog.DiscardHandler), d, func(_, _ string) overlay.Incumbent { return fakeInc }); err != nil {
 		t.Fatalf("reconcileConnection: %v", err)
 	}
@@ -303,7 +304,7 @@ func TestReconcileConnectionStopsCleanlyWhenDisconnectedMidSweep(t *testing.T) {
 	}
 
 	sweepCtx := reconcileWorkerCtx(context.Background(), ids.From[ids.WorkspaceKind](e.WS))
-	err = reconcileConnection(sweepCtx, vault, ms, workerBudgetMeter(t),
+	err = reconcileConnection(sweepCtx, e.Pool, vault, ms, workerBudgetMeter(t),
 		slog.New(slog.DiscardHandler), d, func(_, _ string) overlay.Incumbent { return fakeInc })
 	if !errors.Is(err, overlay.ErrConnectionGone) {
 		t.Fatalf("reconcileConnection over a revoked connection = %v, want overlay.ErrConnectionGone (clean stop)", err)
@@ -471,7 +472,7 @@ func TestReconcileConnectionPurgesIncumbentDeletedRecord(t *testing.T) {
 	meter := workerBudgetMeter(t)
 
 	// First sweep mirrors the live record; the mapped reader can see it.
-	if err := reconcileConnection(sweepCtx, vault, ms, meter, slog.New(slog.DiscardHandler), d, newInc); err != nil {
+	if err := reconcileConnection(sweepCtx, e.Pool, vault, ms, meter, slog.New(slog.DiscardHandler), d, newInc); err != nil {
 		t.Fatalf("first sweep: %v", err)
 	}
 	if _, err := ms.Get(overlayReaderCtx(e.WS, e.Rep1), "person", "990009"); err != nil {
@@ -483,10 +484,157 @@ func TestReconcileConnectionPurgesIncumbentDeletedRecord(t *testing.T) {
 	fakeInc.SeedDeletion(overlay.IncumbentClassContacts, overlay.Deletion{
 		ExternalID: "990009", ObjectClass: "person", DeletedAt: rec.ModifiedAt.Add(time.Hour),
 	})
-	if err := reconcileConnection(sweepCtx, vault, ms, meter, slog.New(slog.DiscardHandler), d, newInc); err != nil {
+	if err := reconcileConnection(sweepCtx, e.Pool, vault, ms, meter, slog.New(slog.DiscardHandler), d, newInc); err != nil {
 		t.Fatalf("second sweep: %v", err)
 	}
 	if _, err := ms.Get(overlayReaderCtx(e.WS, e.Rep1), "person", "990009"); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("Rep1 must NOT see the record after it was deleted incumbent-side, got: %v", err)
+	}
+}
+
+// TestReconcileConnectionBackfillsTheWebhookPortalBinding proves the
+// self-healing portal binding (OVA-DDL-3): a connection whose connect-time
+// portal fetch was skipped/failed starts with a NULL incumbent_account_id (so a
+// webhook for that portal resolves to nothing), and the next reconcile sweep
+// fills it from the live adapter's account id — after which the portal binds to
+// the workspace. This is the retry path that keeps a transient connect-time
+// blip from permanently disabling webhook refresh.
+func TestReconcileConnectionBackfillsTheWebhookPortalBinding(t *testing.T) {
+	e := integration.Setup(t)
+	vault := keyvault.NewMemory()
+	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
+
+	// Connect with NO incumbent factory: fetchPortalID is skipped, so the
+	// binding starts NULL — the exact state the backfill exists to heal.
+	if _, err := overlay.NewService(e.Pool, vault, ms).
+		Connect(overlayAdminCtx(e.WS, e.Rep1), overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	// Initially unbound: a webhook for the portal resolves to nothing.
+	if _, err := overlay.WorkspaceForPortal(context.Background(), e.Pool, "hubspot", "portal-X"); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("before backfill: WorkspaceForPortal = %v, want ErrNotFound (binding still null)", err)
+	}
+
+	due, err := overlay.DueOverlayConnections(overlayAdminCtx(e.WS, e.Rep1), e.Pool)
+	if err != nil {
+		t.Fatalf("DueOverlayConnections: %v", err)
+	}
+	var d overlay.DueOverlayConnection
+	for _, c := range due {
+		if c.Workspace.UUID == e.WS {
+			d = c
+		}
+	}
+	if d.Incumbent == "" {
+		t.Fatal("no due overlay connection for the workspace after connect")
+	}
+
+	fakeInc := fake.New()
+	fakeInc.SeedAccountID("portal-X")
+	sweepCtx := reconcileWorkerCtx(context.Background(), ids.From[ids.WorkspaceKind](e.WS))
+	if err := reconcileConnection(sweepCtx, e.Pool, vault, ms, workerBudgetMeter(t),
+		slog.New(slog.DiscardHandler), d, func(_, _ string) overlay.Incumbent { return fakeInc }); err != nil {
+		t.Fatalf("reconcileConnection: %v", err)
+	}
+
+	// The sweep backfilled the binding: the portal now resolves to this workspace.
+	got, err := overlay.WorkspaceForPortal(context.Background(), e.Pool, "hubspot", "portal-X")
+	if err != nil {
+		t.Fatalf("after backfill: WorkspaceForPortal(portal-X): %v", err)
+	}
+	if got.UUID != e.WS {
+		t.Errorf("WorkspaceForPortal(portal-X) = %s, want the swept workspace %s", got.UUID, e.WS)
+	}
+}
+
+// TestOverlayRefetchWorkerFreshensTheMirrorRecord is the webhook-signal
+// re-fetch worker's real-Postgres proof (OVA-WIRE-10): given an active HubSpot
+// overlay whose owner map the poller has already seeded, one Work call Gets a
+// single record from the incumbent and ingests it through the same fenced,
+// resolver-bound store the poller uses. So a first signal CREATES the mirror
+// row a seed-mapped user can read; a fresher signal FRESHENS it in place; and
+// an out-of-order (stale) signal is held back by the ingest staleness guard,
+// never regressing the mirror. This is the receiver's payoff — a change in
+// HubSpot reaches the mirror without waiting for the next poll.
+func TestOverlayRefetchWorkerFreshensTheMirrorRecord(t *testing.T) {
+	e := integration.Setup(t)
+	vault := keyvault.NewMemory()
+	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
+
+	adminCtx := overlayAdminCtx(e.WS, e.Rep1)
+	if _, err := overlay.NewService(e.Pool, vault, ms).
+		Connect(adminCtx, overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	// The poller's sweep would have seeded the owner map from the directory;
+	// seed it directly (through a directory-bound resolver, exactly as the
+	// sweep does) so this test isolates the re-fetch worker's Get→Ingest rather
+	// than re-exercising the backfill lane. owner-1's directory email is Rep1's
+	// (a@authz.test — the shared harness seeds Rep1 as a@authz.test).
+	dir := fake.New()
+	dir.SeedOwner("owner-1", "a@authz.test")
+	if err := ms.WithResolver(dir).SeedUserMap(adminCtx, incumbentHubSpot,
+		[]overlay.OwnerRef{{ExternalID: "owner-1", Email: "a@authz.test"}}); err != nil {
+		t.Fatalf("SeedUserMap: %v", err)
+	}
+
+	// version builds a fresh single-record incumbent for one signal. baseline
+	// is set explicitly (never the wall clock) so the staleness ordering under
+	// test is deterministic.
+	base := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	version := func(firstname string, modified time.Time) *fake.Adapter {
+		inc := fake.New()
+		// A live adapter resolves the record's owner email; the fake must too,
+		// or ingest's owner-set revalidation would drop the seeded mapping as
+		// unconfirmable (fail-closed) and hide the record.
+		inc.SeedOwner("owner-1", "a@authz.test")
+		rec := fake.Rec("c-1", map[string]any{"firstname": firstname})
+		rec.ObjectClass = "person" // canonical — the mapping adapter's own translation, simulated
+		rec.OwnerExternalID = "owner-1"
+		rec.ModifiedAt = modified
+		inc.Seed(overlay.IncumbentClassContacts, rec)
+		return inc
+	}
+	runRefetch := func(inc *fake.Adapter) {
+		t.Helper()
+		w := &overlayRefetchWorker{
+			pool: e.Pool, vault: vault, ms: ms,
+			log:          slog.New(slog.DiscardHandler),
+			newIncumbent: func(_, _ string) overlay.Incumbent { return inc },
+		}
+		if err := w.Work(context.Background(), &river.Job[OverlayRefetchArgs]{
+			Args: OverlayRefetchArgs{Workspace: e.WS.String(), IncumbentClass: overlay.IncumbentClassContacts, ExternalID: "c-1"},
+		}); err != nil {
+			t.Fatalf("refetch Work: %v", err)
+		}
+	}
+	firstname := func() any {
+		t.Helper()
+		row, err := ms.Get(overlayReaderCtx(e.WS, e.Rep1), "person", "c-1")
+		if err != nil {
+			t.Fatalf("Rep1 must see the re-fetched record: %v", err)
+		}
+		return row.Fields["firstname"]
+	}
+
+	// First signal: the record is not in the mirror yet — the worker creates
+	// it, and the seed-mapped Rep1 can read it.
+	runRefetch(version("Ada", base))
+	if got := firstname(); got != "Ada" {
+		t.Fatalf("firstname after first re-fetch = %v, want Ada", got)
+	}
+
+	// A fresher signal (newer baseline) freshens the same row in place.
+	runRefetch(version("Ada Lovelace", base.Add(time.Minute)))
+	if got := firstname(); got != "Ada Lovelace" {
+		t.Fatalf("firstname after freshen = %v, want Ada Lovelace", got)
+	}
+
+	// A stale re-fetch (older baseline than the mirror already holds) is held
+	// back by the ingest staleness guard — an out-of-order signal never
+	// regresses the mirror.
+	runRefetch(version("Stale", base))
+	if got := firstname(); got != "Ada Lovelace" {
+		t.Fatalf("a stale re-fetch must not regress the mirror; firstname = %v, want Ada Lovelace", got)
 	}
 }

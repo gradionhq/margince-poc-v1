@@ -139,7 +139,7 @@ func transformAmountMinorByCurrency(v any) (any, error) {
 		}
 		if amount := strings.TrimSpace(amountStr); amount != "" {
 			scale := int64(1)
-			for i := 0; i < iso4217MinorUnitExponent(code); i++ {
+			for i := 0; i < ISO4217MinorUnitExponent(code); i++ {
 				scale *= 10
 			}
 			minor, err := decimalStringToMinor(amount, scale)
@@ -156,12 +156,15 @@ func transformAmountMinorByCurrency(v any) (any, error) {
 	return nil, nil //nolint:nilnil // deliberate: null amount_minor is a valid, non-error mapping result
 }
 
-// iso4217MinorUnitExponent returns a currency's minor-unit exponent. Two is
+// ISO4217MinorUnitExponent returns a currency's minor-unit exponent. Two is
 // ISO-4217's own default and covers the vast majority; the exceptions are the
 // zero-decimal and three-decimal currencies enumerated here. Choosing the
 // exponent from the code — not a blanket ×100 — is what the money model
-// (data-semantics §1 / DM-CONV-9) requires.
-func iso4217MinorUnitExponent(code string) int {
+// (data-semantics §1 / DM-CONV-9) requires. Exported so the HubSpot write
+// mapping (hubspot.mapWrite, OVA-MAP-W2) scales amount_minor BACK to a decimal
+// string against the SAME exponent table the read transform scales it in by —
+// one spelling of the ISO fact, never a second copy that could drift.
+func ISO4217MinorUnitExponent(code string) int {
 	switch code {
 	case "BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW", "PYG", "RWF", "UGX", "UYI", "VND", "VUV", "XAF", "XOF", "XPF":
 		return 0

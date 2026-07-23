@@ -179,7 +179,7 @@ func (s *Store) resolveTx(ctx context.Context, tx pgx.Tx, actor principal.Princi
 	if err != nil {
 		return crmcontracts.Signal{}, fmt.Errorf("read resolved signal: %w", err)
 	}
-	if err := storekit.Emit(ctx, tx, auditID, "signal.resolved", "signal", signalID.UUID, resolvedPayload(out, candidates)); err != nil {
+	if err := storekit.EmitEvent(ctx, tx, auditID, signalID.UUID, resolvedPayload(out, candidates)); err != nil {
 		return crmcontracts.Signal{}, fmt.Errorf("emit signal.resolved: %w", err)
 	}
 	return out, nil
@@ -288,8 +288,10 @@ func matchCandidates(ctx context.Context, tx pgx.Tx, a rawAttribution) ([]candid
 			return nil, fmt.Errorf("domain match: %w", err)
 		}
 		if err := eachID(rows, func(orgID ids.OrganizationID) {
-			consider(candidate{OrgID: orgID, MatchedOn: "domain", Confidence: confidenceDomain,
-				Detail: "domain " + a.Domain + " is registered to the organization"})
+			consider(candidate{
+				OrgID: orgID, MatchedOn: "domain", Confidence: confidenceDomain,
+				Detail: "domain " + a.Domain + " is registered to the organization",
+			})
 		}); err != nil {
 			return nil, err
 		}
@@ -308,8 +310,10 @@ func matchCandidates(ctx context.Context, tx pgx.Tx, a rawAttribution) ([]candid
 			return nil, fmt.Errorf("prior-interaction match: %w", err)
 		}
 		if err := eachID(rows, func(orgID ids.OrganizationID) {
-			consider(candidate{OrgID: orgID, MatchedOn: "prior_interaction", Confidence: confidencePriorInteraction,
-				Detail: "the sender is a known contact currently at the organization"})
+			consider(candidate{
+				OrgID: orgID, MatchedOn: "prior_interaction", Confidence: confidencePriorInteraction,
+				Detail: "the sender is a known contact currently at the organization",
+			})
 		}); err != nil {
 			return nil, err
 		}
@@ -321,8 +325,10 @@ func matchCandidates(ctx context.Context, tx pgx.Tx, a rawAttribution) ([]candid
 			return nil, fmt.Errorf("name match: %w", err)
 		}
 		if err := eachID(rows, func(orgID ids.OrganizationID) {
-			consider(candidate{OrgID: orgID, MatchedOn: "name", Confidence: confidenceName,
-				Detail: "display name matches the mention exactly"})
+			consider(candidate{
+				OrgID: orgID, MatchedOn: "name", Confidence: confidenceName,
+				Detail: "display name matches the mention exactly",
+			})
 		}); err != nil {
 			return nil, err
 		}
@@ -420,7 +426,8 @@ func consentedPerson(ctx context.Context, tx pgx.Tx, email string, orgID ids.Org
 
 // appendMatchBasis writes the append-only inspectable match record.
 func appendMatchBasis(ctx context.Context, tx pgx.Tx, actor principal.Principal, signalID ids.SignalID,
-	matchedOn string, orgID *ids.OrganizationID, confidence *float64, detail string) error {
+	matchedOn string, orgID *ids.OrganizationID, confidence *float64, detail string,
+) error {
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO signal_resolution (id, workspace_id, signal_id, matched_on, matched_org_id, match_confidence, match_detail, source, captured_by)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
@@ -458,20 +465,22 @@ func candidateDetail(cs []candidate, chosen *candidate) (string, error) {
 }
 
 // resolvedPayload is the events.md §5.11 signal.resolved shape.
-func resolvedPayload(sig crmcontracts.Signal, candidates []candidate) map[string]any {
-	payload := map[string]any{
-		"signal_id":        sig.Id,
-		"resolution_state": sig.ResolutionState,
+func resolvedPayload(sig crmcontracts.Signal, candidates []candidate) crmcontracts.PublicEventSignalResolved {
+	payload := crmcontracts.PublicEventSignalResolved{
+		SignalId:        sig.Id,
+		ResolutionState: string(sig.ResolutionState),
 	}
 	if sig.ResolvedOrgId != nil {
-		payload["resolved_org_id"] = *sig.ResolvedOrgId
+		payload.ResolvedOrgId = sig.ResolvedOrgId
 	}
 	if sig.ResolvedPersonId != nil {
-		payload["resolved_person_id"] = *sig.ResolvedPersonId
+		payload.ResolvedPersonId = sig.ResolvedPersonId
 	}
 	if len(candidates) > 0 {
-		payload["matched_on"] = candidates[0].MatchedOn
-		payload["match_confidence"] = candidates[0].Confidence
+		matchedOn := candidates[0].MatchedOn
+		payload.MatchedOn = &matchedOn
+		confidence := float32(candidates[0].Confidence)
+		payload.MatchConfidence = &confidence
 	}
 	return payload
 }

@@ -206,7 +206,7 @@ func (s *Store) enqueueForSubscriptions(ctx context.Context, subIDs []ids.UUID, 
 				INSERT INTO webhook_delivery
 				  (workspace_id, subscription_id, event_id, event_type, payload, status)
 				SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-				       m.id, $2, $1, $3::jsonb, 'pending'
+				       m.id, $2, $1, $3::text, 'pending'
 				FROM matched m
 				ON CONFLICT (workspace_id, subscription_id, event_id) DO NOTHING
 				RETURNING id, subscription_id
@@ -228,101 +228,6 @@ func (s *Store) enqueueForSubscriptions(ctx context.Context, subIDs []ids.UUID, 
 		return rows.Err()
 	})
 	return targets, err
-}
-
-// workspaceLevelEntities are the event subject types with NO per-owner row
-// scope: workspace/admin/overlay-level facts (pipeline & stage config, the
-// identity/access-revocation cascade, the audit ledger, the overlay mirror)
-// whose envelope is a bare entity ref — a receiver reads any detail back
-// under its own scope (events.md §0). They deliver to any live subscription
-// owner. This is an ALLOW-list, not the default: every subject type that is
-// not listed here and has no explicit row-scope probe below is DENIED
-// (entityVisibleTo's fail-closed default), so a newly-subscribable
-// row-scoped subject can never silently inherit fan-out-to-everyone
-// (BYO-EVT-4). Adding a subscribable event whose subject is row-scoped
-// means adding a probe below; adding one that is genuinely ownerless means
-// adding it here — the choice is forced, never defaulted.
-var workspaceLevelEntities = map[string]struct{}{
-	"pipeline":   {},
-	"stage":      {},
-	"approval":   {},
-	"audit":      {},
-	"user":       {},
-	"role":       {},
-	"passport":   {},
-	"onboarding": {},
-	"mirror":     {},
-	"incumbent":  {},
-	"coldstart":  {},
-}
-
-// entityVisibleTo reports whether the entity an event names is visible to
-// ctx's principal under the row-scope gate (BYO-EVT-4: fan-out never
-// escalates past what the owner may see). Row-scoped subjects are probed
-// against the owner's live scope; an offer inherits its parent deal's
-// scope; genuinely ownerless workspace-level subjects (workspaceLevelEntities)
-// deliver to any live owner; ANY OTHER type is DENIED (fail-closed) so an
-// unclassified subject can never leak. Out of scope reads as not-visible,
-// never an error that would strand the whole fan-out.
-func (s *Store) entityVisibleTo(ctx context.Context, entityType string, entityID ids.UUID) (bool, error) {
-	switch entityType {
-	case "person", "organization", "deal", "lead", "voice_profile":
-		return s.probeVisible(ctx, func(c context.Context, tx pgx.Tx) error {
-			return auth.EnsureVisible(c, tx, entityType, entityID)
-		})
-	case "activity":
-		return s.probeVisible(ctx, func(c context.Context, tx pgx.Tx) error {
-			return auth.EnsureActivityVisible(c, tx, entityID)
-		})
-	case "signal":
-		return s.probeVisible(ctx, func(c context.Context, tx pgx.Tx) error {
-			return auth.EnsureSignalVisible(c, tx, entityID)
-		})
-	case "offer":
-		// An offer has no owner of its own — it is row-scoped through its
-		// parent deal, exactly as the offer read path gates (deals/offer.go).
-		return s.offerVisibleTo(ctx, entityID)
-	default:
-		if _, ok := workspaceLevelEntities[entityType]; ok {
-			return true, nil
-		}
-		// Fail closed: an unclassified subject type is NOT delivered.
-		return false, nil
-	}
-}
-
-// probeVisible runs a single-row visibility probe in the ctx's workspace
-// and maps its outcome to (visible, err): nil → visible, ErrNotFound → not
-// visible (out of scope), anything else → a real error the caller surfaces.
-func (s *Store) probeVisible(ctx context.Context, probe func(context.Context, pgx.Tx) error) (bool, error) {
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error { return probe(ctx, tx) })
-	switch {
-	case err == nil:
-		return true, nil
-	case errors.Is(err, apperrors.ErrNotFound):
-		return false, nil
-	default:
-		return false, err
-	}
-}
-
-// offerVisibleTo resolves an offer's parent deal and gates on the owner's
-// visibility of THAT deal — an offer carries no owner_id, so its
-// sensitivity is the deal's. An absent offer reads as not-visible.
-func (s *Store) offerVisibleTo(ctx context.Context, offerID ids.UUID) (bool, error) {
-	var dealID ids.UUID
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT deal_id FROM offer WHERE id = $1`, offerID).Scan(&dealID)
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return s.probeVisible(ctx, func(c context.Context, tx pgx.Tx) error {
-		return auth.EnsureVisible(c, tx, "deal", dealID)
-	})
 }
 
 // liveWorkspaces lists the tenants a sweep pass iterates. Like the

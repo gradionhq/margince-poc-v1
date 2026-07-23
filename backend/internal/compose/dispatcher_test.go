@@ -67,17 +67,21 @@ func TestDispatcherRoutesEveryVerbToTheOverlayProviderWhenCached(t *testing.T) {
 	if _, _, err := d.StageSemantic(ctx, ids.NewV7()); err == nil {
 		t.Error("StageSemantic: want ErrUnsupportedBySoR, got nil")
 	}
+	// Create/Update/Archive are supported write-back verbs now, so their
+	// error here is the overlay provider's own (object-RBAC/nil-store), not
+	// ErrUnsupportedBySoR — the assertion still proves the verb routed to the
+	// overlay provider rather than the (nil) native one.
 	if _, err := d.Create(ctx, datasource.CreateInput{EntityType: datasource.EntityPerson}); err == nil {
-		t.Error("Create: want ErrUnsupportedBySoR, got nil")
+		t.Error("Create: want the overlay provider's error, got nil")
 	}
 	if _, err := d.Update(ctx, datasource.UpdateInput{Ref: ref}); err == nil {
-		t.Error("Update: want ErrUnsupportedBySoR, got nil")
+		t.Error("Update: want the overlay provider's error, got nil")
 	}
 	if _, err := d.AdvanceDeal(ctx, datasource.AdvanceDealInput{}); err == nil {
 		t.Error("AdvanceDeal: want ErrUnsupportedBySoR, got nil")
 	}
 	if _, err := d.Archive(ctx, ref); err == nil {
-		t.Error("Archive: want ErrUnsupportedBySoR, got nil")
+		t.Error("Archive: want the overlay provider's error, got nil")
 	}
 	if _, err := d.Merge(ctx, datasource.MergeInput{Type: datasource.EntityPerson}); err == nil {
 		t.Error("Merge: want ErrUnsupportedBySoR, got nil")
