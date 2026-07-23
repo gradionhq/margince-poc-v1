@@ -11,7 +11,9 @@ package approvals
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +21,96 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
+
+// Identity is only meaningful under JoinPending — without it there is no
+// serialized per-identity section, so a supersede could race a plain
+// insert. And because the supersede match is JSONB containment (every object
+// contains {}), an empty or non-object identity would withdraw EVERY live
+// pending proposal of the kind+target — both are refused before any
+// transaction is opened.
+func TestStageIdentityValidation(t *testing.T) {
+	svc := NewService(nil)
+	if _, err := svc.Stage(context.Background(), StageInput{
+		Kind: "fx_rate_proposal", DiffHash: "h", Identity: json.RawMessage(`{"from_currency":"GBP"}`),
+	}); err == nil || !strings.Contains(err.Error(), "JoinPending") {
+		t.Fatalf("err = %v, want identity-requires-JoinPending error", err)
+	}
+	for _, identity := range []string{`{}`, `[]`, `"x"`, `null`} {
+		if _, err := svc.Stage(context.Background(), StageInput{
+			Kind: "fx_rate_proposal", DiffHash: "h", JoinPending: true, Identity: json.RawMessage(identity),
+		}); err == nil || !strings.Contains(err.Error(), "non-empty JSON object") {
+			t.Fatalf("identity %s: err = %v, want non-empty-object refusal", identity, err)
+		}
+	}
+	// An identity the payload does not carry could never containment-match a
+	// stored proposed_change — supersession would be silently disabled.
+	if _, err := svc.Stage(context.Background(), StageInput{
+		Kind: "fx_rate_proposal", DiffHash: "h", JoinPending: true,
+		ProposedChange: json.RawMessage(`{"from_currency":"USD","rate":"1"}`),
+		Identity:       json.RawMessage(`{"from_currency":"GBP"}`),
+	}); err == nil || !strings.Contains(err.Error(), "not carried by ProposedChange") {
+		t.Fatalf("mismatched identity: err = %v, want not-carried refusal", err)
+	}
+}
+
+// Identity values must be strings, a null field the payload omits must be
+// refused, and trailing data past the object must be rejected — each edge, if
+// admitted, would let a lock key and jsonb containment disagree and leave
+// competing live proposals for one logical identity.
+func TestCanonicalIdentityRejectsNonStringNullAndTrailingData(t *testing.T) {
+	// A numeric identity value is refused: 1, 1.0 and 1e0 hash to different
+	// lock keys but jsonb containment sees one number, so a numeric identity
+	// could bypass the per-identity lock. Strings have no such spelling gap.
+	if _, err := canonicalIdentity(
+		json.RawMessage(`{"seq":1}`),
+		json.RawMessage(`{"seq":1}`),
+	); err == nil || !strings.Contains(err.Error(), "must be a string") {
+		t.Fatalf("numeric identity: err = %v, want must-be-a-string refusal", err)
+	}
+	// A null field the payload omits is refused (not silently passed).
+	if _, err := canonicalIdentity(
+		json.RawMessage(`{"k":null}`),
+		json.RawMessage(`{"other":"v"}`),
+	); err == nil {
+		t.Fatal("null-vs-omitted identity validated, want refusal")
+	}
+	// Trailing data after the object is rejected: Identity is ONE object.
+	if _, err := canonicalIdentity(
+		json.RawMessage(`{"from_currency":"GBP"} {"x":"y"}`),
+		json.RawMessage(`{"from_currency":"GBP"}`),
+	); err == nil {
+		t.Fatal("trailing data after identity validated, want refusal")
+	}
+	// A string identity carried by the payload validates and canonicalizes.
+	canonical, err := canonicalIdentity(
+		json.RawMessage(`{"from_currency":"GBP"}`),
+		json.RawMessage(`{"from_currency":"GBP","rate":"1.1"}`),
+	)
+	if err != nil {
+		t.Fatalf("valid string identity: %v", err)
+	}
+	if string(canonical) != `{"from_currency":"GBP"}` {
+		t.Fatalf("canonical = %s, want {\"from_currency\":\"GBP\"}", canonical)
+	}
+}
+
+// Two spellings of one identity (key order, spacing) must canonicalize to the
+// same bytes: the advisory lock hashes those bytes, so a spelling difference
+// would let two stagers of one identity race past the per-identity section.
+func TestCanonicalIdentityNormalizesSpelling(t *testing.T) {
+	payload := json.RawMessage(`{"provider":"a","model_id":"m","rate":"1"}`)
+	a, err := canonicalIdentity(json.RawMessage(`{ "model_id":"m", "provider":"a" }`), payload)
+	if err != nil {
+		t.Fatalf("canonicalize a: %v", err)
+	}
+	b, err := canonicalIdentity(json.RawMessage(`{"provider":"a","model_id":"m"}`), payload)
+	if err != nil {
+		t.Fatalf("canonicalize b: %v", err)
+	}
+	if string(a) != string(b) {
+		t.Fatalf("canonical forms differ: %s vs %s", a, b)
+	}
+}
 
 // A pending staging past its expiry reads as expired everywhere — there
 // is no sweeper, so this fold IS the pending→expired transition; a

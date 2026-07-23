@@ -5,6 +5,7 @@ package compose
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -72,10 +73,10 @@ func (f fxRefresh) run(ctx context.Context) error {
 	}
 	current, err := f.store.ListLatestFxRates(ctx)
 	if err != nil {
-		return fmt.Errorf("fx refresh: read current rates: %w", err)
+		return fmt.Errorf("fx refresh: read tracked currencies: %w", err)
 	}
 
-	base, symbols, currentRate, err := f.plan(ctx, current)
+	base, symbols, err := f.plan(ctx, current)
 	if err != nil {
 		return err
 	}
@@ -84,6 +85,19 @@ func (f fxRefresh) run(ctx context.Context) error {
 		// held only the base currency — nothing the source can price for us.
 		f.log.Info("fx rate refresh: nothing to refresh", "tracked", len(current))
 		return nil
+	}
+
+	// Diff against what is in force TODAY, not the sheet head: approval writes
+	// effective today, so a future-scheduled row must neither mask a real
+	// change nor manufacture an ineffective proposal. Empty on a bootstrap run
+	// (empty sheet) — every fetched rate is then a fresh proposal.
+	effective, err := f.store.ListEffectiveFxRates(ctx)
+	if err != nil {
+		return fmt.Errorf("fx refresh: read effective rates: %w", err)
+	}
+	priorRate := make(map[string]string, len(effective))
+	for _, r := range effective {
+		priorRate[r.FromCurrency] = r.Rate
 	}
 
 	fetched, err := f.client.LatestRates(ctx, base, symbols)
@@ -103,18 +117,21 @@ func (f fxRefresh) run(ctx context.Context) error {
 	ws := storekit.MustWorkspace(ctx)
 	staged := 0
 	for cur, newRate := range fetched {
-		was, tracked := currentRate[cur]
-		if tracked && newRate == was {
-			continue // unchanged
+		prior := priorRate[cur]
+		if prior != "" && sameRate(newRate, prior) {
+			continue // unchanged vs the rate in force
 		}
-		var summary string
-		if tracked {
-			summary = fmt.Sprintf("%s → %s %s (was %s)", cur, base, newRate, was)
-		} else {
-			summary = fmt.Sprintf("%s → %s %s (new)", cur, base, newRate)
+		was := prior
+		if was == "" {
+			was = "none in force today"
+		}
+		summary := fmt.Sprintf("%s → %s %s (was %s)", cur, base, newRate, was)
+		identity, err := json.Marshal(map[string]string{"from_currency": cur})
+		if err != nil {
+			return fmt.Errorf("fx refresh: identity %s: %w", cur, err)
 		}
 		if err := stageRateProposal(ctx, f.svc, fxRateProposalKind, fxRateTargetType, ws,
-			fxRateProposal{FromCurrency: cur, Rate: newRate}, summary); err != nil {
+			fxRateProposal{FromCurrency: cur, Rate: newRate, ExpectedPriorRate: prior}, identity, summary); err != nil {
 			return fmt.Errorf("fx refresh: stage %s: %w", cur, err)
 		}
 		staged++
@@ -123,29 +140,28 @@ func (f fxRefresh) run(ctx context.Context) error {
 	return nil
 }
 
-// plan resolves the base currency, the symbols to fetch, and the currently
-// tracked rate per currency for the diff. With a non-empty sheet it derives all
-// three from the tracked rows (base = every row's ToCurrency). With an empty
-// sheet it reads the workspace base and uses the configured candidate set
-// (dropping the base itself — a base→base rate is always 1), leaving currentRate
-// empty so every fetched rate is a fresh proposal.
-func (f fxRefresh) plan(ctx context.Context, current []deals.FxRateRow) (base string, symbols []string, currentRate map[string]string, err error) {
+// plan resolves the base currency and the symbols to fetch. With a non-empty
+// sheet it derives both from the tracked rows (base = every row's ToCurrency).
+// With an empty sheet it reads the workspace base and uses the configured
+// candidate set (dropping the base itself — a base→base rate is always 1) so a
+// fresh install can bootstrap; an empty candidate set leaves symbols empty and
+// the run no-ops. The diff base is read separately (effective-as-of-today), so
+// plan does not compute it.
+func (f fxRefresh) plan(ctx context.Context, current []deals.FxRateRow) (base string, symbols []string, err error) {
 	if len(current) > 0 {
 		base = current[0].ToCurrency
 		symbols = make([]string, 0, len(current))
-		currentRate = make(map[string]string, len(current))
 		for _, r := range current {
 			symbols = append(symbols, r.FromCurrency)
-			currentRate[r.FromCurrency] = r.Rate
 		}
-		return base, symbols, currentRate, nil
+		return base, symbols, nil
 	}
 	if len(f.bootstrapCurrencies) == 0 {
-		return "", nil, nil, nil
+		return "", nil, nil
 	}
 	base, err = f.store.WorkspaceBaseCurrency(ctx)
 	if err != nil {
-		return "", nil, nil, fmt.Errorf("fx refresh: %w", err)
+		return "", nil, fmt.Errorf("fx refresh: %w", err)
 	}
 	symbols = make([]string, 0, len(f.bootstrapCurrencies))
 	for _, c := range f.bootstrapCurrencies {
@@ -155,7 +171,7 @@ func (f fxRefresh) plan(ctx context.Context, current []deals.FxRateRow) (base st
 		}
 		symbols = append(symbols, c)
 	}
-	return base, symbols, map[string]string{}, nil
+	return base, symbols, nil
 }
 
 type fxRefreshWorker struct {

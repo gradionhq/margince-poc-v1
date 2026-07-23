@@ -16,12 +16,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -116,5 +119,243 @@ func TestFxRateProposalEditBeforeApprove(t *testing.T) {
 	}
 	if n := e.WsCount(t, `SELECT count(*) FROM fx_rate WHERE from_currency='CHF' AND rate=1.5`); n != 1 {
 		t.Fatalf("CHF@1.5 rows = %d, want 1 (edit-before-approve applied)", n)
+	}
+}
+
+// The staged diff was computed against a prior rate; if the sheet moved
+// since (manual write, competing approval), applying would restore a stale
+// value — the effect must refuse with version skew, leave the approval
+// approved-unconsumed, and write nothing.
+func TestFxRateProposalApplyRefusesWhenPriorMoved(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
+	svc := rateSvc(e)
+	store := deals.NewStore(e.Pool)
+
+	if _, err := store.SetFxRate(ctx, deals.SetFxRateInput{FromCurrency: "GBP", Rate: "1.0"}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	id := stageProposal(ctx, t, svc, fxRateProposalKind, fxRateTargetType, e.WS,
+		map[string]string{"from_currency": "GBP", "rate": "1.2", "expected_prior_rate": "1.0"}, "GBP")
+	// The sheet moves after the diff was staged.
+	if _, err := store.SetFxRate(ctx, deals.SetFxRateInput{FromCurrency: "GBP", Rate: "1.1"}); err != nil {
+		t.Fatalf("move: %v", err)
+	}
+
+	_, err := svc.Decide(ctx, id, true, nil)
+	if !errors.Is(err, apperrors.ErrVersionSkew) {
+		t.Fatalf("approve err = %v, want ErrVersionSkew", err)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM fx_rate WHERE from_currency='GBP' AND rate=1.2`); n != 0 {
+		t.Fatal("stale proposal applied despite moved prior")
+	}
+	if n := e.WsCount(t,
+		`SELECT count(*) FROM approval WHERE id=$1 AND status='approved' AND consumed_at IS NULL`, id); n != 1 {
+		t.Fatal("approval must stay approved-unconsumed after a refused apply")
+	}
+}
+
+// A proposal diffed when NO rate was in force (expected_prior_rate empty —
+// also the shape of any pre-existing pending payload without the field)
+// must refuse once a rate exists: the world it diffed against is gone.
+func TestFxRateProposalApplyRefusesWhenPriorAppeared(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
+	svc := rateSvc(e)
+
+	id := stageProposal(ctx, t, svc, fxRateProposalKind, fxRateTargetType, e.WS,
+		map[string]string{"from_currency": "NOK", "rate": "0.09"}, "NOK")
+	if _, err := deals.NewStore(e.Pool).SetFxRate(ctx, deals.SetFxRateInput{FromCurrency: "NOK", Rate: "0.088"}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := svc.Decide(ctx, id, true, nil); !errors.Is(err, apperrors.ErrVersionSkew) {
+		t.Fatalf("approve err = %v, want ErrVersionSkew", err)
+	}
+}
+
+// The precondition is scale-blind: "1.0" diffed against a stored
+// numeric(20,10) ("1.0000000000") still matches, and the apply proceeds.
+func TestFxRateProposalApplyMatchingPriorApplies(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
+	svc := rateSvc(e)
+
+	if _, err := deals.NewStore(e.Pool).SetFxRate(ctx, deals.SetFxRateInput{FromCurrency: "DKK", Rate: "0.134"}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	id := stageProposal(ctx, t, svc, fxRateProposalKind, fxRateTargetType, e.WS,
+		map[string]string{"from_currency": "DKK", "rate": "0.135", "expected_prior_rate": "0.134"}, "DKK")
+	if _, err := svc.Decide(ctx, id, true, nil); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM fx_rate WHERE from_currency='DKK' AND rate=0.135`); n != 1 {
+		t.Fatal("matching-prior proposal must apply")
+	}
+}
+
+// The model-rate mirror of the fx precondition: a proposal whose diffed-
+// against price moved refuses with version skew, leaves the approval
+// approved-unconsumed, and writes nothing.
+func TestModelRateProposalApplyRefusesWhenPriorMoved(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
+	svc := rateSvc(e)
+	rates := ai.NewRateStore(e.Pool)
+
+	if _, err := rates.SetModelRate(ctx, ai.SetModelRateInput{
+		Provider: "acme", ModelID: "m", InputUsd: "5", OutputUsd: "25", CacheReadUsd: "0", CacheWriteUsd: "0",
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	id := stageProposal(ctx, t, svc, aiModelRateProposalKind, aiModelRateTargetType, e.WS,
+		map[string]any{
+			"provider": "acme", "model_id": "m",
+			"input_per_mtok": "6", "output_per_mtok": "25", "cache_read_per_mtok": "0", "cache_write_per_mtok": "0",
+			"expected_prior": map[string]string{
+				"input_per_mtok": "5", "output_per_mtok": "25", "cache_read_per_mtok": "0", "cache_write_per_mtok": "0",
+			},
+		}, "acme/m")
+	// The sheet moves after the diff was staged.
+	if _, err := rates.SetModelRate(ctx, ai.SetModelRateInput{
+		Provider: "acme", ModelID: "m", InputUsd: "5.5", OutputUsd: "25", CacheReadUsd: "0", CacheWriteUsd: "0",
+	}); err != nil {
+		t.Fatalf("move: %v", err)
+	}
+	if _, err := svc.Decide(ctx, id, true, nil); !errors.Is(err, apperrors.ErrVersionSkew) {
+		t.Fatalf("approve err = %v, want ErrVersionSkew", err)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM ai_model_rate WHERE provider='acme' AND model_id='m' AND input_per_mtok_microusd=6000000`); n != 0 {
+		t.Fatal("stale model proposal applied despite moved prior")
+	}
+	if n := e.WsCount(t,
+		`SELECT count(*) FROM approval WHERE id=$1 AND status='approved' AND consumed_at IS NULL`, id); n != 1 {
+		t.Fatal("approval must stay approved-unconsumed after a refused apply")
+	}
+}
+
+// A new-model proposal (no expected_prior — also the shape of a pre-existing
+// pending payload) refuses once the model gets priced before approval.
+func TestModelRateProposalApplyRefusesWhenPriorAppeared(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
+	svc := rateSvc(e)
+
+	id := stageProposal(ctx, t, svc, aiModelRateProposalKind, aiModelRateTargetType, e.WS,
+		map[string]string{
+			"provider": "acme", "model_id": "new",
+			"input_per_mtok": "3", "output_per_mtok": "15", "cache_read_per_mtok": "0", "cache_write_per_mtok": "0",
+		}, "acme/new")
+	if _, err := ai.NewRateStore(e.Pool).SetModelRate(ctx, ai.SetModelRateInput{
+		Provider: "acme", ModelID: "new", InputUsd: "2", OutputUsd: "10", CacheReadUsd: "0", CacheWriteUsd: "0",
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := svc.Decide(ctx, id, true, nil); !errors.Is(err, apperrors.ErrVersionSkew) {
+		t.Fatalf("approve err = %v, want ErrVersionSkew", err)
+	}
+}
+
+// The precondition compares in µUSD: a wire-scale spelling of the same prior
+// ("5" vs a re-rendered "5.00") still matches, and the apply proceeds.
+func TestModelRateProposalApplyMatchingPriorApplies(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
+	svc := rateSvc(e)
+
+	if _, err := ai.NewRateStore(e.Pool).SetModelRate(ctx, ai.SetModelRateInput{
+		Provider: "acme", ModelID: "m2", InputUsd: "5", OutputUsd: "25", CacheReadUsd: "0", CacheWriteUsd: "0",
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	id := stageProposal(ctx, t, svc, aiModelRateProposalKind, aiModelRateTargetType, e.WS,
+		map[string]any{
+			"provider": "acme", "model_id": "m2",
+			"input_per_mtok": "6", "output_per_mtok": "25", "cache_read_per_mtok": "0", "cache_write_per_mtok": "0",
+			"expected_prior": map[string]string{
+				"input_per_mtok": "5.00", "output_per_mtok": "25", "cache_read_per_mtok": "0", "cache_write_per_mtok": "0",
+			},
+		}, "acme/m2")
+	if _, err := svc.Decide(ctx, id, true, nil); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM ai_model_rate WHERE provider='acme' AND model_id='m2' AND input_per_mtok_microusd=6000000`); n != 1 {
+		t.Fatal("matching-prior model proposal must apply")
+	}
+}
+
+// An apply that crosses UTC midnight between the precondition read and the
+// write must refuse (the write is pinned to the day the precondition
+// sampled, so the append-forward guard fires) — never overwrite the new
+// day's already-scheduled row.
+func TestFxRateProposalApplyRefusesAcrossMidnight(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
+	seed := deals.NewStore(e.Pool)
+	tomorrow := time.Now().UTC().Add(24 * time.Hour)
+	seedFx(ctx, t, seed, "SEK", "1.0", time.Time{})
+	seedFx(ctx, t, seed, "SEK", "9.9", tomorrow)
+
+	// The effect store's clock crosses midnight right after the precondition
+	// read: first sample = today, every later sample = the next day.
+	calls := 0
+	crossing := deals.NewStore(e.Pool).WithClock(func() time.Time {
+		calls++
+		if calls == 1 {
+			return time.Now().UTC()
+		}
+		return time.Now().UTC().Add(24 * time.Hour)
+	})
+	svc := approvals.NewService(e.Pool)
+	svc.WithEffect(fxRateProposalKind, fxRateAcceptEffect(svc, crossing))
+
+	id := stageProposal(ctx, t, svc, fxRateProposalKind, fxRateTargetType, e.WS,
+		map[string]string{"from_currency": "SEK", "rate": "1.2", "expected_prior_rate": "1.0"}, "SEK")
+	if _, err := svc.Decide(ctx, id, true, nil); err == nil {
+		t.Fatal("cross-midnight apply succeeded, want append-forward refusal")
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM fx_rate WHERE from_currency='SEK' AND rate=9.9`); n != 1 {
+		t.Fatal("the next day's scheduled row must survive a cross-midnight apply")
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM fx_rate WHERE from_currency='SEK' AND rate=1.2`); n != 0 {
+		t.Fatal("a cross-midnight apply must write nothing")
+	}
+}
+
+// The model-rate mirror of the cross-midnight refusal.
+func TestModelRateProposalApplyRefusesAcrossMidnight(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
+	seed := ai.NewRateStore(e.Pool)
+	tomorrow := time.Now().UTC().Add(24 * time.Hour)
+	seedModelRate(ctx, t, seed, "mx", "5", time.Time{})
+	seedModelRate(ctx, t, seed, "mx", "9", tomorrow)
+
+	calls := 0
+	crossing := ai.NewRateStore(e.Pool).WithClock(func() time.Time {
+		calls++
+		if calls == 1 {
+			return time.Now().UTC()
+		}
+		return time.Now().UTC().Add(24 * time.Hour)
+	})
+	svc := approvals.NewService(e.Pool)
+	svc.WithEffect(aiModelRateProposalKind, aiModelRateAcceptEffect(svc, crossing))
+
+	id := stageProposal(ctx, t, svc, aiModelRateProposalKind, aiModelRateTargetType, e.WS,
+		map[string]any{
+			"provider": "acme", "model_id": "mx",
+			"input_per_mtok": "6", "output_per_mtok": "25", "cache_read_per_mtok": "0", "cache_write_per_mtok": "0",
+			"expected_prior": map[string]string{
+				"input_per_mtok": "5", "output_per_mtok": "25", "cache_read_per_mtok": "0", "cache_write_per_mtok": "0",
+			},
+		}, "acme/mx")
+	if _, err := svc.Decide(ctx, id, true, nil); err == nil {
+		t.Fatal("cross-midnight apply succeeded, want append-forward refusal")
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM ai_model_rate WHERE provider='acme' AND model_id='mx' AND input_per_mtok_microusd=9000000`); n != 1 {
+		t.Fatal("the next day's scheduled row must survive a cross-midnight apply")
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM ai_model_rate WHERE provider='acme' AND model_id='mx' AND input_per_mtok_microusd=6000000`); n != 0 {
+		t.Fatal("a cross-midnight apply must write nothing")
 	}
 }

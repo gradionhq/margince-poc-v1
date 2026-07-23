@@ -77,3 +77,75 @@ func TestModelCostRefreshStagesChangedAndDropsUngrounded(t *testing.T) {
 		t.Fatalf("producer wrote %d sheet rows, want 0 (stage-only)", n)
 	}
 }
+
+// seedModelRate seeds one effective-dated price for a model of the test
+// provider "acme" (the provider every refresh fixture crawls).
+func seedModelRate(ctx context.Context, t *testing.T, rates *ai.RateStore, modelID, inputUsd string, eff time.Time) {
+	t.Helper()
+	if _, err := rates.SetModelRate(ctx, ai.SetModelRateInput{
+		Provider: "acme", ModelID: modelID,
+		InputUsd: inputUsd, OutputUsd: "25", CacheReadUsd: "0", CacheWriteUsd: "0",
+		EffectiveDate: eff,
+	}); err != nil {
+		t.Fatalf("seed acme/%s@%s: %v", modelID, inputUsd, err)
+	}
+}
+
+func extractionFixture(provider, modelID, inputUsd string) string {
+	return `{"models":[{"provider":"` + provider + `","model_id":"` + modelID +
+		`","input_per_mtok":"` + inputUsd +
+		`","output_per_mtok":"25","cache_read_per_mtok":"0","cache_write_per_mtok":"0","evidence":"s0","confidence":"0.95"}]}`
+}
+
+func runModelRefresh(t *testing.T, e *integration.Env, extraction string) {
+	t.Helper()
+	m := modelCostRefresh{
+		rates:   ai.NewRateStore(e.Pool),
+		svc:     approvals.NewService(e.Pool),
+		fetcher: fakeFetcher{text: "pricing page text"},
+		brain:   fakeBrain{text: extraction},
+		sources: []pricingSource{{Provider: "acme", URL: "https://prices.test/pricing"}},
+		log:     quietLog(),
+	}
+	if err := m.run(rateRefreshWorkerCtx(context.Background(), e.WS, e.Rep1.String())); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
+// The diff base is the price in force TODAY: a future-scheduled row must not
+// mask a change to today's price, the proposal carries today's buckets as
+// expected_prior, and a re-run extracting a different price supersedes the
+// first pending proposal instead of competing with it.
+func TestModelRefreshDiffsAgainstEffectiveTodayAndSupersedes(t *testing.T) {
+	e := integration.Setup(t)
+	adminCtx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
+	rates := ai.NewRateStore(e.Pool)
+	tomorrow := time.Now().UTC().Add(24 * time.Hour)
+
+	// Today the model costs input=5; tomorrow a scheduled row already says 6.
+	seedModelRate(adminCtx, t, rates, "m1", "5", time.Time{})
+	seedModelRate(adminCtx, t, rates, "m1", "6", tomorrow)
+
+	// The page states input=6: equal to the future row, but a diff vs TODAY.
+	runModelRefresh(t, e, extractionFixture("acme", "m1", "6"))
+	livePending := func() int {
+		return e.WsCount(t, `SELECT count(*) FROM approval WHERE kind='ai_model_rate_proposal' AND status='pending' AND expires_at > now()`)
+	}
+	if livePending() != 1 {
+		t.Fatalf("live proposals = %d, want 1 (future row must not mask today's diff)", livePending())
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM approval WHERE kind='ai_model_rate_proposal'
+			AND proposed_change#>>'{expected_prior,input_per_mtok}'='5'`); n != 1 {
+		t.Fatal("proposal must carry today's price as expected_prior")
+	}
+
+	// A later run extracts input=7: the fresher diff replaces the pending 6.
+	runModelRefresh(t, e, extractionFixture("acme", "m1", "7"))
+	if livePending() != 1 {
+		t.Fatalf("live proposals after re-run = %d, want 1 (stale diff superseded)", livePending())
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM approval WHERE kind='ai_model_rate_proposal' AND status='pending' AND expires_at > now()
+			AND proposed_change->>'input_per_mtok'='7'`); n != 1 {
+		t.Fatal("the surviving proposal must be the fresher extraction")
+	}
+}

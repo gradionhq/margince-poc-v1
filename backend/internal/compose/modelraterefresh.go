@@ -123,13 +123,16 @@ func (m modelCostRefresh) run(ctx context.Context) error {
 		m.log.Info("model-cost refresh skipped: no sources or brain configured")
 		return nil
 	}
-	current, err := m.rates.ListLatestModelRates(ctx)
+	// Diff against what is in force TODAY, not the sheet head: approval writes
+	// effective today, so a future-scheduled row must neither mask a real
+	// change nor manufacture an ineffective proposal.
+	current, err := m.rates.ListEffectiveModelRates(ctx)
 	if err != nil {
-		return fmt.Errorf("model refresh: read current rates: %w", err)
+		return fmt.Errorf("model refresh: read effective rates: %w", err)
 	}
-	currentByKey := make(map[string]ai.ModelRateRow, len(current))
+	currentByKey := make(map[modelIdentity]ai.ModelRateRow, len(current))
 	for _, r := range current {
-		currentByKey[r.Provider+"/"+r.ModelID] = r
+		currentByKey[modelIdentity{r.Provider, r.ModelID}] = r
 	}
 
 	ws := storekit.MustWorkspace(ctx)
@@ -156,7 +159,11 @@ func (m modelCostRefresh) run(ctx context.Context) error {
 				continue
 			}
 			summary := fmt.Sprintf("%s/%s input %s (was %s)", em.Provider, em.ModelID, prop.InputUsd, changed)
-			if err := stageRateProposal(ctx, m.svc, aiModelRateProposalKind, aiModelRateTargetType, ws, prop, summary); err != nil {
+			identity, err := json.Marshal(map[string]string{"provider": em.Provider, "model_id": em.ModelID})
+			if err != nil {
+				return fmt.Errorf("model refresh: identity %s/%s: %w", em.Provider, em.ModelID, err)
+			}
+			if err := stageRateProposal(ctx, m.svc, aiModelRateProposalKind, aiModelRateTargetType, ws, prop, identity, summary); err != nil {
 				return fmt.Errorf("model refresh: stage %s/%s: %w", em.Provider, em.ModelID, err)
 			}
 			staged++
@@ -223,10 +230,15 @@ func (m modelCostRefresh) extract(ctx context.Context, src pricingSource) ([]ext
 	return kept, nil
 }
 
+// modelIdentity keys the effective-sheet map by the composite identity as a
+// struct — a concatenated string key would let a provider containing "/"
+// alias another model's entry and attach the wrong expected prior.
+type modelIdentity struct{ provider, modelID string }
+
 // diffModel returns (currentInputForSummary, proposal, changed?) — changed is
 // true when the extracted model is new or any of its four µUSD buckets differ
 // from the sheet. An extracted price that fails validation drops the model.
-func diffModel(em extractedModel, current map[string]ai.ModelRateRow) (string, aiModelRateProposal, bool) {
+func diffModel(em extractedModel, current map[modelIdentity]ai.ModelRateRow) (string, aiModelRateProposal, bool) {
 	newMicro, ok := allMicro(em)
 	if !ok {
 		return "", aiModelRateProposal{}, false
@@ -236,7 +248,7 @@ func diffModel(em extractedModel, current map[string]ai.ModelRateRow) (string, a
 		InputUsd: em.InputUsd, OutputUsd: em.OutputUsd,
 		CacheReadUsd: em.CacheReadUsd, CacheWriteUsd: em.CacheWriteUsd,
 	}
-	cur, found := current[em.Provider+"/"+em.ModelID]
+	cur, found := current[modelIdentity{em.Provider, em.ModelID}]
 	if !found {
 		return "(new)", prop, true
 	}
@@ -246,6 +258,10 @@ func diffModel(em extractedModel, current map[string]ai.ModelRateRow) (string, a
 	})
 	if ok && newMicro == curMicro {
 		return "", aiModelRateProposal{}, false // unchanged
+	}
+	prop.ExpectedPrior = &aiModelRatePrior{
+		InputUsd: cur.InputUsd, OutputUsd: cur.OutputUsd,
+		CacheReadUsd: cur.CacheReadUsd, CacheWriteUsd: cur.CacheWriteUsd,
 	}
 	return cur.InputUsd, prop, true
 }
