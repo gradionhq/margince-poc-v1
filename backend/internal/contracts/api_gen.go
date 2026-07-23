@@ -6781,6 +6781,22 @@ type AiCallSummary struct {
 	TokensOut int    `json:"tokens_out"`
 }
 
+// AiModelRate One effective-dated model price. The four buckets are USD per 1M tokens as decimal strings (the server stores µUSD integers). Transparency-only — never gates routing.
+type AiModelRate struct {
+	CacheReadPerMtok  string             `json:"cache_read_per_mtok"`
+	CacheWritePerMtok string             `json:"cache_write_per_mtok"`
+	EffectiveDate     openapi_types.Date `json:"effective_date"`
+	InputPerMtok      string             `json:"input_per_mtok"`
+	ModelId           string             `json:"model_id"`
+	OutputPerMtok     string             `json:"output_per_mtok"`
+	Provider          string             `json:"provider"`
+}
+
+// AiModelRateListResponse defines model for AiModelRateListResponse.
+type AiModelRateListResponse struct {
+	Data []AiModelRate `json:"data"`
+}
+
 // AiProfile defines model for AiProfile.
 type AiProfile struct {
 	// ConfiguredModels Authenticated tier-to-model bindings. Credentials and endpoints never appear here.
@@ -8779,6 +8795,23 @@ type FilteredExportRequestFormat string
 // FilteredExportRequestObject The object type to filter-export; requires `filter`. Mutually exclusive with view_id/list_id.
 type FilteredExportRequestObject string
 
+// FxRate One effective-dated FX rate converting from_currency into the workspace base (to_currency). rate is a decimal string (numeric(20,10)), never a float.
+type FxRate struct {
+	EffectiveDate openapi_types.Date `json:"effective_date"`
+	FromCurrency  string             `json:"from_currency"`
+
+	// Rate Decimal rate (from -> base)
+	Rate string `json:"rate"`
+
+	// ToCurrency The workspace base currency.
+	ToCurrency string `json:"to_currency"`
+}
+
+// FxRateListResponse defines model for FxRateListResponse.
+type FxRateListResponse struct {
+	Data []FxRate `json:"data"`
+}
+
 // ImapConnectRequest defines model for ImapConnectRequest.
 type ImapConnectRequest struct {
 	// Email Mailbox login / address.
@@ -10483,6 +10516,38 @@ type SendEmailRequest struct {
 	To             []openapi_types.Email `json:"to"`
 }
 
+// SetAiModelRateRequest defines model for SetAiModelRateRequest.
+type SetAiModelRateRequest struct {
+	// CacheReadPerMtok USD per 1M cache-read tokens.
+	CacheReadPerMtok string `json:"cache_read_per_mtok"`
+
+	// CacheWritePerMtok USD per 1M cache-write tokens.
+	CacheWritePerMtok string `json:"cache_write_per_mtok"`
+
+	// EffectiveDate Defaults to today; must not be in the past (append-forward).
+	EffectiveDate *openapi_types.Date `json:"effective_date,omitempty"`
+
+	// InputPerMtok USD per 1M input tokens (non-negative decimal).
+	InputPerMtok string `json:"input_per_mtok"`
+	ModelId      string `json:"model_id"`
+
+	// OutputPerMtok USD per 1M output tokens.
+	OutputPerMtok string `json:"output_per_mtok"`
+	Provider      string `json:"provider"`
+}
+
+// SetFxRateRequest defines model for SetFxRateRequest.
+type SetFxRateRequest struct {
+	// EffectiveDate Defaults to today; must not be in the past (append-forward).
+	EffectiveDate *openapi_types.Date `json:"effective_date,omitempty"`
+
+	// FromCurrency 3-letter ISO; must not equal the base currency.
+	FromCurrency string `json:"from_currency"`
+
+	// Rate Positive decimal (from -> base).
+	Rate string `json:"rate"`
+}
+
 // Signal A surfaced "something changed / worth attention" item. Mirrors the `signal` table:
 // company-level and consent-gated by construction — the only mandatory attribution is
 // organizational (`resolved_org_id` after resolution); `resolved_person_id` is optional
@@ -11622,6 +11687,12 @@ type SendEmailParams struct {
 	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
 }
 
+// ListAiModelRatesParams defines parameters for ListAiModelRates.
+type ListAiModelRatesParams struct {
+	Provider *string `form:"provider,omitempty" json:"provider,omitempty"`
+	ModelId  *string `form:"model_id,omitempty" json:"model_id,omitempty"`
+}
+
 // ListAiCallsParams defines parameters for ListAiCalls.
 type ListAiCallsParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
@@ -12260,6 +12331,12 @@ type GetFieldHistoryParamsEntityType string
 
 // GetFieldHistoryParamsActorType defines parameters for GetFieldHistory.
 type GetFieldHistoryParamsActorType string
+
+// ListFxRatesParams defines parameters for ListFxRates.
+type ListFxRatesParams struct {
+	// From 3-letter ISO currency; when set, returns that pair's history.
+	From *string `form:"from,omitempty" json:"from,omitempty"`
+}
 
 // ListLeadsParams defines parameters for ListLeads.
 type ListLeadsParams struct {
@@ -13607,6 +13684,9 @@ type RelinkActivityJSONRequestBody RelinkActivityJSONBody
 // SendEmailJSONRequestBody defines body for SendEmail for application/json ContentType.
 type SendEmailJSONRequestBody = SendEmailRequest
 
+// SetAiModelRateJSONRequestBody defines body for SetAiModelRate for application/json ContentType.
+type SetAiModelRateJSONRequestBody = SetAiModelRateRequest
+
 // ApproveApprovalJSONRequestBody defines body for ApproveApproval for application/json ContentType.
 type ApproveApprovalJSONRequestBody = ApproveRequest
 
@@ -13714,6 +13794,9 @@ type EmbedReindexStartJSONRequestBody = EmbedReindexStartRequest
 
 // CreateFilteredExportJSONRequestBody defines body for CreateFilteredExport for application/json ContentType.
 type CreateFilteredExportJSONRequestBody = FilteredExportRequest
+
+// SetFxRateJSONRequestBody defines body for SetFxRate for application/json ContentType.
+type SetFxRateJSONRequestBody = SetFxRateRequest
 
 // CreateLeadJSONRequestBody defines body for CreateLead for application/json ContentType.
 type CreateLeadJSONRequestBody = CreateLeadRequest
@@ -18769,6 +18852,12 @@ type ServerInterface interface {
 	// The governed tool surface (registry metadata) for the operator UI.
 	// (GET /agent-tools)
 	ListAgentTools(w http.ResponseWriter, r *http.Request)
+	// List current AI model prices (latest per model), or one model's history.
+	// (GET /ai-model-rates)
+	ListAiModelRates(w http.ResponseWriter, r *http.Request, params ListAiModelRatesParams)
+	// Set an AI model price effective today or later (append-forward).
+	// (POST /ai-model-rates)
+	SetAiModelRate(w http.ResponseWriter, r *http.Request)
 	// The AI call trace — every terminal model call, newest first.
 	// (GET /ai/calls)
 	ListAiCalls(w http.ResponseWriter, r *http.Request, params ListAiCallsParams)
@@ -19033,6 +19122,12 @@ type ServerInterface interface {
 	// Per-field change history for one record, projected from audit_log before/after diffs.
 	// (GET /field-history)
 	GetFieldHistory(w http.ResponseWriter, r *http.Request, params GetFieldHistoryParams)
+	// List current FX rates (latest per currency), or one pair's history.
+	// (GET /fx-rates)
+	ListFxRates(w http.ResponseWriter, r *http.Request, params ListFxRatesParams)
+	// Set an FX rate effective today or later (append-forward).
+	// (POST /fx-rates)
+	SetFxRate(w http.ResponseWriter, r *http.Request)
 	// List leads (their OWN list, distinct from contacts; cursor-paginated).
 	// (GET /leads)
 	ListLeads(w http.ResponseWriter, r *http.Request, params ListLeadsParams)
@@ -19567,6 +19662,18 @@ func (_ Unimplemented) ListAgentTools(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// List current AI model prices (latest per model), or one model's history.
+// (GET /ai-model-rates)
+func (_ Unimplemented) ListAiModelRates(w http.ResponseWriter, r *http.Request, params ListAiModelRatesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Set an AI model price effective today or later (append-forward).
+// (POST /ai-model-rates)
+func (_ Unimplemented) SetAiModelRate(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // The AI call trace — every terminal model call, newest first.
 // (GET /ai/calls)
 func (_ Unimplemented) ListAiCalls(w http.ResponseWriter, r *http.Request, params ListAiCallsParams) {
@@ -20092,6 +20199,18 @@ func (_ Unimplemented) CreateFilteredExport(w http.ResponseWriter, r *http.Reque
 // Per-field change history for one record, projected from audit_log before/after diffs.
 // (GET /field-history)
 func (_ Unimplemented) GetFieldHistory(w http.ResponseWriter, r *http.Request, params GetFieldHistoryParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List current FX rates (latest per currency), or one pair's history.
+// (GET /fx-rates)
+func (_ Unimplemented) ListFxRates(w http.ResponseWriter, r *http.Request, params ListFxRatesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Set an FX rate effective today or later (append-forward).
+// (POST /fx-rates)
+func (_ Unimplemented) SetFxRate(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -21571,6 +21690,80 @@ func (siw *ServerInterfaceWrapper) ListAgentTools(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListAgentTools(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAiModelRates operation middleware
+func (siw *ServerInterfaceWrapper) ListAiModelRates(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAiModelRatesParams
+
+	// ------------- Optional query parameter "provider" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "provider", r.URL.Query(), &params.Provider, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "provider"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "model_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "model_id", r.URL.Query(), &params.ModelId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "model_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "model_id", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAiModelRates(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetAiModelRate operation middleware
+func (siw *ServerInterfaceWrapper) SetAiModelRate(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetAiModelRate(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -25371,6 +25564,67 @@ func (siw *ServerInterfaceWrapper) GetFieldHistory(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetFieldHistory(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListFxRates operation middleware
+func (siw *ServerInterfaceWrapper) ListFxRates(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListFxRatesParams
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListFxRates(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetFxRate operation middleware
+func (siw *ServerInterfaceWrapper) SetFxRate(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetFxRate(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -33316,6 +33570,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/agent-tools", wrapper.ListAgentTools)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/ai-model-rates", wrapper.ListAiModelRates)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/ai-model-rates", wrapper.SetAiModelRate)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/ai/calls", wrapper.ListAiCalls)
 	})
 	r.Group(func(r chi.Router) {
@@ -33578,6 +33838,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/field-history", wrapper.GetFieldHistory)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/fx-rates", wrapper.ListFxRates)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/fx-rates", wrapper.SetFxRate)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/leads", wrapper.ListLeads)
