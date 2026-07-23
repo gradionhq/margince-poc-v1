@@ -8,6 +8,7 @@ package ai
 // deterministically replay its own failure until the TTL expired.
 
 import (
+	"context"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
@@ -37,4 +38,23 @@ func TestValidationFailureEvictsTheCachedAnswer(t *testing.T) {
 	if calls := len(cheap.Calls()); calls != 3 {
 		t.Fatalf("cheap served %d calls, want 3 - the second logical call must miss the cache", calls)
 	}
+}
+
+func TestSecondAttemptFailureAlsoEvictsItsCachedAnswer(t *testing.T) {
+	cheap := NewFakeClient().Script("not json", "still not json", `{"ok":true}`)
+	premium := NewFakeClient().Script(`{"ok":true}`)
+	r := testRouter(map[Tier]model.Client{TierCheapCloud: cheap, TierPremium: premium},
+		&memMeter{}, DefaultMonthlyTokens, ProfileEUHosted)
+	resp, _, err := r.CompleteStructured(wsContext(t), TaskColdStart, structuredReq(), jsonObjectValidator)
+	if err != nil || resp.Text != `{"ok":true}` {
+		t.Fatalf("escalated success: %v %q", err, resp.Text)
+	}
+}
+
+func TestForgetCachedToleratesAMissingWorkspace(t *testing.T) {
+	r := testRouter(map[Tier]model.Client{TierCheapCloud: NewFakeClient().Script("x")},
+		&memMeter{}, DefaultMonthlyTokens, ProfileEUHosted)
+	// Outside a workspace there is no cache row to evict; the helper must
+	// simply return rather than derive a key it cannot scope.
+	r.forgetCached(context.Background(), TaskColdStart, structuredReq())
 }
