@@ -32,24 +32,24 @@ const opAgentToolInvoke = "agent.tool.invoke"
 const extensionPkgPath = "github.com/gradionhq/margince/backend/pkg/extension"
 
 // unitManifest is one extension's manifest.generated.json: identity plus
-// the AUTONOMY TIERS it requests — every operation the extension adds
+// the RISK TIERS it requests — every operation the extension adds
 // that runs at a 🟢/🟡 tier or asks for a scope, the things §7 makes an
 // operator resolve. Passive policy an extension merely supplies (a
 // jurisdiction pack the core consults, never invokes — no operation, no
-// tier) requests no autonomy and never appears here.
+// tier) requests no risk tier and never appears here.
 type unitManifest struct {
-	Schema        int                   `json:"schema"`
-	Name          string                `json:"name"`
-	Version       string                `json:"version"`
-	AutonomyTiers []autonomyTierRequest `json:"autonomy_tiers"`
+	Schema    int               `json:"schema"`
+	Name      string            `json:"name"`
+	Version   string            `json:"version"`
+	RiskTiers []riskTierRequest `json:"risk_tiers"`
 }
 
-// autonomyTierRequest is one governed operation and the autonomy tier it
+// riskTierRequest is one governed operation and the risk tier it
 // requests, carrying its ADR-0069 §5 security descriptor: id, operation,
 // requested scopes and requested tier are what §7 resolutions bind to,
 // through Digest over exactly those four. The scopes are sorted so the
 // digest does not depend on declaration order.
-type autonomyTierRequest struct {
+type riskTierRequest struct {
 	ID        string   `json:"id"`
 	Operation string   `json:"operation"`
 	Scopes    []string `json:"scopes"`
@@ -61,7 +61,7 @@ type autonomyTierRequest struct {
 // operation, scopes, tier (ADR-0069 §5), nothing else: the kind-specific
 // context around it may change and carry forward, but a change to any of
 // these four re-opens operator resolution.
-func descriptorDigest(c autonomyTierRequest) (string, error) {
+func descriptorDigest(c riskTierRequest) (string, error) {
 	canonical, err := json.Marshal(struct {
 		ID        string   `json:"id"`
 		Operation string   `json:"operation"`

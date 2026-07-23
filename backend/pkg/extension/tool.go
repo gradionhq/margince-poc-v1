@@ -8,7 +8,7 @@ import (
 	"regexp"
 )
 
-// Tier is the autonomy class an extension REQUESTS for a governed tool
+// Tier is the risk tier an extension REQUESTS for a governed tool
 // (ADR-0026/A34): auto-execute runs without confirmation, confirmation-
 // required stages every call for human approval. The constant names are
 // semantic; their string values are the core "green"/"yellow" wire tiers,
@@ -36,7 +36,7 @@ func (t Tier) Validate() error {
 	case TierAutoExecute, TierConfirmationRequired:
 		return nil
 	}
-	return fmt.Errorf("autonomy tier %q is not one an extension may request — declare TierAutoExecute or TierConfirmationRequired (a dynamic per-call tier needs a resolver and is not declarable statically)", string(t))
+	return fmt.Errorf("risk tier %q is not one an extension may request — declare TierAutoExecute or TierConfirmationRequired (a dynamic per-call tier needs a resolver and is not declarable statically)", string(t))
 }
 
 // Scope is a Passport verb class a governed tool requires
@@ -73,7 +73,7 @@ func (s Scope) Validate() error {
 var toolNameGrammar = regexp.MustCompile(`^[a-z][a-z0-9]*(_[a-z0-9]+)*$`)
 
 // Tool is a governed agent tool the unit contributes to the agent
-// surface: a named operation running at a requested autonomy Tier and
+// surface: a named operation running at a requested risk Tier and
 // requiring Scopes. It is a GOVERNED capability — its tier and scopes are
 // requests an operator resolves (§7), recorded in the unit manifest.
 //
@@ -87,7 +87,7 @@ type Tool struct {
 	// Version is the tool's own version, recorded for the registry; it
 	// carries no authority (§7 binds decisions to digests, not versions).
 	Version string
-	// Tier is the requested autonomy class (green or yellow).
+	// Tier is the requested risk tier (green or yellow).
 	Tier Tier
 	// RequestedScope is the single Passport verb class the tool requests —
 	// one scope per tool, as core tools declare it

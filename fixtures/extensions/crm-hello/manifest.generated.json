@@ -2,7 +2,7 @@
   "schema": 1,
   "name": "crm-hello",
   "version": "0.1.0",
-  "autonomy_tiers": [
+  "risk_tiers": [
     {
       "id": "tool/hello_ping",
       "operation": "agent.tool.invoke",

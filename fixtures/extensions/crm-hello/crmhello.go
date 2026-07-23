@@ -18,7 +18,7 @@ import (
 // New returns the unit's declaration (the ADR-0069 §4 constructor
 // contract the generated composition calls). It exercises both kinds the
 // manifest reader distinguishes: a jurisdiction pack (passive policy, no
-// manifest entry) and a governed agent tool (a 🟡 autonomy-tier request
+// manifest entry) and a governed agent tool (a 🟡 risk-tier request
 // that DOES appear in manifest.generated.json).
 func New() extension.Extension {
 	return extension.Extension{
