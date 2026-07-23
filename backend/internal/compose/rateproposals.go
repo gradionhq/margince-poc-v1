@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math/big"
 
 	"github.com/jackc/pgx/v5"
 
@@ -37,25 +38,51 @@ const (
 type fxRateProposal struct {
 	FromCurrency string `json:"from_currency"`
 	Rate         string `json:"rate"`
+	// ExpectedPriorRate is the rate in force (as of the staging day) the diff
+	// was computed against; empty = no rate was in force. The apply effect
+	// re-reads and refuses on mismatch (ErrVersionSkew) so an old proposal can
+	// never overwrite a newer manual or approved rate.
+	ExpectedPriorRate string `json:"expected_prior_rate,omitempty"`
 }
 
-type aiModelRateProposal struct {
-	Provider      string `json:"provider"`
-	ModelID       string `json:"model_id"`
+// aiModelRatePrior carries the four per-MTok USD buckets in force (as of the
+// staging day) a model-price diff was computed against; the apply effect
+// re-reads and must match. Absent = the model was unpriced when diffed.
+type aiModelRatePrior struct {
 	InputUsd      string `json:"input_per_mtok"`
 	OutputUsd     string `json:"output_per_mtok"`
 	CacheReadUsd  string `json:"cache_read_per_mtok"`
 	CacheWriteUsd string `json:"cache_write_per_mtok"`
 }
 
+type aiModelRateProposal struct {
+	Provider      string            `json:"provider"`
+	ModelID       string            `json:"model_id"`
+	InputUsd      string            `json:"input_per_mtok"`
+	OutputUsd     string            `json:"output_per_mtok"`
+	CacheReadUsd  string            `json:"cache_read_per_mtok"`
+	CacheWriteUsd string            `json:"cache_write_per_mtok"`
+	ExpectedPrior *aiModelRatePrior `json:"expected_prior,omitempty"`
+}
+
+// sameRate reports numeric equality of two decimal strings — numeric(20,10)
+// text and a source's text may spell one value at different scales.
+func sameRate(a, b string) bool {
+	ra, okA := new(big.Rat).SetString(a)
+	rb, okB := new(big.Rat).SetString(b)
+	return okA && okB && ra.Cmp(rb) == 0
+}
+
 // stageRateProposal marshals a proposal, computes its identity-bearing diff
 // hash (sha256 over the payload, per the scrape.go shape), and stages it under
-// JoinPending — the atomic advisory-locked path that collapses an identical
-// live proposal to a no-op. Two workers racing the same diff cannot both
-// insert (the pre-check-then-stage window a plain HasPendingFor left open).
+// JoinPending with the sheet row's logical identity — the atomic
+// advisory-locked path that collapses an identical live proposal to a no-op
+// AND withdraws a stale pending diff for the same identity (two refreshes
+// fetching different values must not leave competing proposals whose late
+// approval restores the older value).
 //
 //craft:ignore naked-any payload is any JSON-marshalable proposal struct (fx or model); the concrete type rides through json.Marshal
-func stageRateProposal(ctx context.Context, svc *approvals.Service, kind, targetType string, ws ids.UUID, payload any, summary string) error {
+func stageRateProposal(ctx context.Context, svc *approvals.Service, kind, targetType string, ws ids.UUID, payload any, identity json.RawMessage, summary string) error {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("compose: marshal %s: %w", kind, err)
@@ -65,7 +92,7 @@ func stageRateProposal(ctx context.Context, svc *approvals.Service, kind, target
 	_, err = svc.Stage(ctx, approvals.StageInput{
 		Kind: kind, ProposedChange: raw, DiffHash: hash,
 		TargetType: targetType, TargetID: ws, Summary: summary,
-		JoinPending: true,
+		JoinPending: true, Identity: identity,
 	})
 	return err
 }

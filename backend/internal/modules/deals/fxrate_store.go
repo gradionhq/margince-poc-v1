@@ -5,6 +5,7 @@ package deals
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"strings"
@@ -216,6 +217,57 @@ func (s *Store) ListLatestFxRates(ctx context.Context) ([]FxRateRow, error) {
 		return err
 	})
 	return rows, err
+}
+
+// ListEffectiveFxRates returns the rate in force TODAY per foreign currency —
+// the latest row with rate_date <= today (store clock), the list form of
+// freezeFx's as-of resolution. Deliberately distinct from ListLatestFxRates
+// (sheet head, which may be future-scheduled): a refresh diff and an apply
+// precondition compare against what is in force, not what is scheduled.
+// Admin/ops read gate.
+func (s *Store) ListEffectiveFxRates(ctx context.Context) ([]FxRateRow, error) {
+	if err := auth.Require(ctx, "fx_rate", principal.ActionRead); err != nil {
+		return nil, err
+	}
+	today := s.todayUTC()
+	var rows []FxRateRow
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		r, err := tx.Query(ctx, `
+			SELECT DISTINCT ON (from_currency) from_currency, to_currency, rate::text, rate_date
+			FROM fx_rate WHERE rate_date <= $1
+			ORDER BY from_currency, rate_date DESC`, today)
+		if err != nil {
+			return fmt.Errorf("list effective fx_rate: %w", err)
+		}
+		defer r.Close()
+		rows, err = scanFxRows(r)
+		return err
+	})
+	return rows, err
+}
+
+// EffectiveFxRateInTx resolves the rate in force TODAY (store clock) for one
+// currency through a caller-owned transaction — the approval-effect
+// precondition read, which must see the same state the apply writes into.
+// found=false means no rate is in force, a materially different answer from
+// any value. Admin/ops read gate.
+func (s *Store) EffectiveFxRateInTx(ctx context.Context, tx pgx.Tx, fromCurrency string) (string, bool, error) {
+	if err := auth.Require(ctx, "fx_rate", principal.ActionRead); err != nil {
+		return "", false, err
+	}
+	from := strings.ToUpper(strings.TrimSpace(fromCurrency))
+	var rate string
+	err := tx.QueryRow(ctx, `
+		SELECT rate::text FROM fx_rate
+		WHERE from_currency = $1 AND rate_date <= $2
+		ORDER BY rate_date DESC LIMIT 1`, from, s.todayUTC()).Scan(&rate)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("effective fx_rate for %s: %w", from, err)
+	}
+	return rate, true, nil
 }
 
 // FxRateHistory returns every effective-dated row for one pair, newest

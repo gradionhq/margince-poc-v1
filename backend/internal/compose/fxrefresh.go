@@ -5,6 +5,7 @@ package compose
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -63,7 +64,7 @@ func (f fxRefresh) run(ctx context.Context) error {
 	}
 	current, err := f.store.ListLatestFxRates(ctx)
 	if err != nil {
-		return fmt.Errorf("fx refresh: read current rates: %w", err)
+		return fmt.Errorf("fx refresh: read tracked currencies: %w", err)
 	}
 	if len(current) == 0 {
 		f.log.Info("fx rate refresh: no tracked currencies to refresh")
@@ -71,10 +72,19 @@ func (f fxRefresh) run(ctx context.Context) error {
 	}
 	base := current[0].ToCurrency
 	symbols := make([]string, 0, len(current))
-	currentRate := make(map[string]string, len(current))
 	for _, r := range current {
 		symbols = append(symbols, r.FromCurrency)
-		currentRate[r.FromCurrency] = r.Rate
+	}
+	// Diff against what is in force TODAY, not the sheet head: approval writes
+	// effective today, so a future-scheduled row must neither mask a real
+	// change nor manufacture an ineffective proposal.
+	effective, err := f.store.ListEffectiveFxRates(ctx)
+	if err != nil {
+		return fmt.Errorf("fx refresh: read effective rates: %w", err)
+	}
+	priorRate := make(map[string]string, len(effective))
+	for _, r := range effective {
+		priorRate[r.FromCurrency] = r.Rate
 	}
 
 	fetched, err := f.client.LatestRates(ctx, base, symbols)
@@ -84,12 +94,21 @@ func (f fxRefresh) run(ctx context.Context) error {
 	ws := storekit.MustWorkspace(ctx)
 	staged := 0
 	for cur, newRate := range fetched {
-		if newRate == currentRate[cur] {
-			continue // unchanged
+		prior := priorRate[cur]
+		if prior != "" && sameRate(newRate, prior) {
+			continue // unchanged vs the rate in force
 		}
-		summary := fmt.Sprintf("%s → %s %s (was %s)", cur, base, newRate, currentRate[cur])
+		was := prior
+		if was == "" {
+			was = "none in force today"
+		}
+		summary := fmt.Sprintf("%s → %s %s (was %s)", cur, base, newRate, was)
+		identity, err := json.Marshal(map[string]string{"from_currency": cur})
+		if err != nil {
+			return fmt.Errorf("fx refresh: identity %s: %w", cur, err)
+		}
 		if err := stageRateProposal(ctx, f.svc, fxRateProposalKind, fxRateTargetType, ws,
-			fxRateProposal{FromCurrency: cur, Rate: newRate}, summary); err != nil {
+			fxRateProposal{FromCurrency: cur, Rate: newRate, ExpectedPriorRate: prior}, identity, summary); err != nil {
 			return fmt.Errorf("fx refresh: stage %s: %w", cur, err)
 		}
 		staged++

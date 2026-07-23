@@ -156,7 +156,11 @@ func (m modelCostRefresh) run(ctx context.Context) error {
 				continue
 			}
 			summary := fmt.Sprintf("%s/%s input %s (was %s)", em.Provider, em.ModelID, prop.InputUsd, changed)
-			if err := stageRateProposal(ctx, m.svc, aiModelRateProposalKind, aiModelRateTargetType, ws, prop, summary); err != nil {
+			identity, err := json.Marshal(map[string]string{"provider": em.Provider, "model_id": em.ModelID})
+			if err != nil {
+				return fmt.Errorf("model refresh: identity %s/%s: %w", em.Provider, em.ModelID, err)
+			}
+			if err := stageRateProposal(ctx, m.svc, aiModelRateProposalKind, aiModelRateTargetType, ws, prop, identity, summary); err != nil {
 				return fmt.Errorf("model refresh: stage %s/%s: %w", em.Provider, em.ModelID, err)
 			}
 			staged++
