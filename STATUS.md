@@ -22,6 +22,20 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**Rate-proposal precondition + supersede (#225, `fix/rate-proposal-precondition`).**
+The three deferred P1s from the rates-refresh review, fixed on BOTH refresh
+paths (fx and model-cost): a proposal now carries the prior value it was
+diffed against and the apply effect re-reads inside the redeem-and-apply
+transaction, refusing with `ErrVersionSkew` when the sheet moved (the
+approval stays approved-unconsumed; the remedy is a fresh refresh); staging
+gained a logical-identity mode (`approvals.StageInput.Identity`) so a fresher
+diff force-expires the stale pending proposal for the same currency/model
+instead of competing with it in the inbox; and producers diff against the
+effective-as-of-today rate (`ListEffectiveFxRates` / `ListEffectiveModelRates`),
+not the sheet head, so a future-scheduled row neither masks nor manufactures
+proposals. No contract, migration, or status-enum change — supersession is
+forced expiry with the audit row carrying the survivor.
+
 **The Rates & costs editor (Phase 1, `feat/rates-costs`).** Admin/ops can now
 view and update the two effective-dated price sheets — `fx_rate` (deals) and
 `ai_model_rate` (ai) — from a new Settings "Rates & costs" tab. Strict
