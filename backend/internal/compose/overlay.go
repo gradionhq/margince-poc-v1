@@ -117,7 +117,14 @@ func hubspotIncumbentFactory(region, token string) overlay.Incumbent {
 func NewOverlayProvider(pool *pgxpool.Pool, meter *overlaybudget.Meter, resolveIncumbent func(context.Context) (overlay.Incumbent, error)) *overlay.Provider {
 	ms := overlay.NewMirrorStore(pool, unresolvedOwnerEmails{})
 	ff := overlay.NewFreshnessReader(resolveIncumbent, ms, meter, hubspot.IncumbentClassesFor)
-	return overlay.NewProvider(ms, ff)
+	p := overlay.NewProvider(ms, ff)
+	// Wire the write-back path's incumbent resolver too — NewProvider stores
+	// only ms+ff, so without this the Provider's Create/Update/Archive verbs
+	// answer errNoWriteIncumbent even when a resolver was supplied. A caller
+	// that passes nil (the sorDispatch, which is wired later by WithKeyvault)
+	// leaves it unset here and SetOverlayIncumbentResolver installs it then.
+	p.SetFreshnessIncumbentResolver(resolveIncumbent)
+	return p
 }
 
 // unresolvedOwnerEmails is the construction-time placeholder

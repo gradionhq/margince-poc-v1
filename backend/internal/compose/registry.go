@@ -19,6 +19,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -29,17 +30,25 @@ import (
 // seam, which identity implements — injected here so platform/auth never
 // imports a module (ADR-0054 §5).
 func NewRegistry(pool *pgxpool.Pool) *agents.Registry {
-	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil)
+	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, nil)
 }
 
-func registryWithDraftBrain(pool *pgxpool.Pool, brain completer) *agents.Registry {
+// NewRegistryWithIncumbent is NewRegistry plus the per-workspace live-incumbent
+// resolver the overlay write-back path (Create/Update/Archive) reaches HubSpot
+// through — the wiring a role with a vault (the api server) installs so the MCP
+// tool surface can actually write back, not just answer errNoWriteIncumbent.
+func NewRegistryWithIncumbent(pool *pgxpool.Pool, resolveIncumbent func(context.Context) (overlay.Incumbent, error)) *agents.Registry {
+	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent)
+}
+
+func registryWithDraftBrain(pool *pgxpool.Pool, brain completer, resolveIncumbent func(context.Context) (overlay.Incumbent, error)) *agents.Registry {
 	if brain == nil {
-		return NewRegistry(pool)
+		return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent)
 	}
-	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), newReplyDrafter(pool, brain, nil))
+	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), newReplyDrafter(pool, brain, nil), resolveIncumbent)
 }
 
-func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.EmailDrafter) *agents.Registry {
+func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.EmailDrafter, resolveIncumbent func(context.Context) (overlay.Incumbent, error)) *agents.Registry {
 	// The Dispatcher is the datasource seam every core/slipping tool
 	// rides: a native-mode workspace lands on the composite SoR
 	// Provider exactly as before, an overlay-mode workspace's reads land
@@ -51,7 +60,7 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// fail-closed placeholder (no Redis), never charged. When a metered MCP
 	// force-fresh path lands, this becomes a Redis-backed NewOverlayMeter
 	// like the REST surface's, sharing the same per-workspace windows.
-	provider := NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, failClosedOverlayMeter(), nil), pool)
+	provider := NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, failClosedOverlayMeter(), resolveIncumbent), pool)
 	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate)
 	agents.RegisterCoreTools(registry, provider, provider, provider, fieldOwnership{pool: pool})
 	agents.RegisterReportTool(registry, reportToolRunner(newReportEngine(pool)))
