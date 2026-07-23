@@ -238,7 +238,15 @@ func (s *Service) Connect(ctx context.Context, in ConnectInput) (Connection, err
 		return Connection{}, fmt.Errorf("overlay: sealing the incumbent credential: %w", err)
 	}
 
-	out, err := s.insertConnection(ctx, in, ref)
+	// Fetch the incumbent's portal id BEFORE the insert tx (it is a network
+	// call — never held inside a DB transaction) so the webhook-as-signal
+	// tenant binding is recorded at connect (OVA-DDL-3). Best-effort: a fetch
+	// failure or an incumbent with no account accessor leaves it null (the
+	// connection still works; the webhook lane simply cannot bind that portal
+	// until a reconnect/backfill fills it) rather than failing the connect.
+	accountID := s.fetchPortalID(ctx, in)
+
+	out, err := s.insertConnection(ctx, in, ref, accountID)
 	if err != nil {
 		if storekit.IsUniqueViolation(err) {
 			return Connection{}, s.cleanupOrphanedRef(ctx, ws, ref)
@@ -248,6 +256,35 @@ func (s *Service) Connect(ctx context.Context, in ConnectInput) (Connection, err
 	s.notifyModeFlip(ws)
 	s.seedUserMapOnConnect(ctx, in)
 	return out, nil
+}
+
+// incumbentAccountReader is the optional accessor an incumbent adapter exposes
+// to report its account/portal id (HubSpot's portalId). It is a narrow
+// type-assertion rather than a method on the Incumbent seam so the many
+// read-only test doubles that never need it take on no obligation.
+type incumbentAccountReader interface {
+	AccountID(ctx context.Context) (string, error)
+}
+
+// fetchPortalID best-effort resolves the incumbent's portal id for the
+// webhook tenant binding. It returns "" (→ stored NULL) when no incumbent
+// factory is wired, the adapter exposes no account accessor, or the fetch
+// fails — the connect still succeeds.
+func (s *Service) fetchPortalID(ctx context.Context, in ConnectInput) string {
+	if s.incumbent == nil {
+		return ""
+	}
+	acct, ok := s.incumbent(in.Region, in.Token).(incumbentAccountReader)
+	if !ok {
+		return ""
+	}
+	id, err := acct.AccountID(ctx)
+	if err != nil {
+		s.log.WarnContext(ctx, "overlay connect: fetching the incumbent portal id failed; webhook binding deferred",
+			"incumbent", in.Incumbent, "err", err)
+		return ""
+	}
+	return id
 }
 
 // seedUserMapOnConnect populates mirror_user_map from the incumbent's
@@ -308,17 +345,24 @@ func incumbentConnectedPayload(incumbent, region string, scopes []string, status
 // insertConnection runs Connect's write-shape transaction: the domain
 // row + Audit + Emit + the workspace mode flip, all in one
 // database.WithWorkspaceTx.
-func (s *Service) insertConnection(ctx context.Context, in ConnectInput, ref keyvault.Ref) (Connection, error) {
+func (s *Service) insertConnection(ctx context.Context, in ConnectInput, ref keyvault.Ref, accountID string) (Connection, error) {
 	var out Connection
+	// A blank account id (the portal fetch failed or the incumbent exposes no
+	// account accessor) stores NULL — "not bindable yet", never an empty-string
+	// portal a webhook could spuriously match.
+	var accountArg any
+	if accountID != "" {
+		accountArg = accountID
+	}
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var id ids.UUID
 		var connectedAt time.Time
 		if scanErr := tx.QueryRow(
 			ctx, `
-			INSERT INTO incumbent_connection (workspace_id, incumbent, region, credential_ref, scopes)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4)
+			INSERT INTO incumbent_connection (workspace_id, incumbent, region, credential_ref, scopes, incumbent_account_id)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5)
 			RETURNING id, connected_at`,
-			in.Incumbent, in.Region, string(ref), leastPrivilegeHubSpotScopes,
+			in.Incumbent, in.Region, string(ref), leastPrivilegeHubSpotScopes, accountArg,
 		).Scan(&id, &connectedAt); scanErr != nil {
 			return scanErr
 		}

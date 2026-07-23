@@ -97,6 +97,56 @@ func DueOverlayConnections(ctx context.Context, pool *pgxpool.Pool) ([]DueOverla
 	return due, errs
 }
 
+// WorkspaceForPortal resolves the workspace whose ACTIVE incumbent connection
+// recorded incumbentAccountID (an inbound webhook's portalId) — the
+// webhook-as-signal tenant binding (OVA-DDL-3, OVA-WIRE-10). A webhook carries
+// no session/tenant, so this is the fleet-walk counterpart the receiver needs:
+// it enumerates every overlay-mode workspace and probes each under its own GUC
+// for an active connection carrying that portal (the same rls-exempt shape
+// DueOverlayConnections uses — never a raw cross-tenant read). Fail-closed: a
+// portal matching NO active connection returns apperrors.ErrNotFound, so the
+// receiver rejects it and never ingests cross-tenant; a blank portal (a
+// connection that recorded none yet) is likewise unbindable.
+func WorkspaceForPortal(ctx context.Context, pool *pgxpool.Pool, incumbent, incumbentAccountID string) (ids.WorkspaceID, error) {
+	if incumbentAccountID == "" {
+		return ids.WorkspaceID{}, apperrors.ErrNotFound
+	}
+	// rls-exempt: fleet enumeration — the workspace table is not workspace-scoped; this reads every tenant before entering each workspace's own GUC to probe its connection.
+	rows, err := pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL AND x_sor_mode = 'overlay'`)
+	if err != nil {
+		return ids.WorkspaceID{}, fmt.Errorf("overlay: listing overlay-mode workspaces for portal binding: %w", err)
+	}
+	workspaces, err := pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
+	if err != nil {
+		return ids.WorkspaceID{}, fmt.Errorf("overlay: collecting workspace ids for portal binding: %w", err)
+	}
+	for _, wsID := range workspaces {
+		wsCtx := principal.WithWorkspaceID(ctx, wsID)
+		var found bool
+		if walkErr := database.WithWorkspaceTx(wsCtx, pool, func(tx pgx.Tx) error {
+			var one int
+			scanErr := tx.QueryRow(wsCtx, `
+				SELECT 1 FROM incumbent_connection
+				WHERE status = $1 AND incumbent = $2 AND incumbent_account_id = $3`,
+				statusActive, incumbent, incumbentAccountID).Scan(&one)
+			if errors.Is(scanErr, pgx.ErrNoRows) {
+				return nil
+			}
+			if scanErr != nil {
+				return scanErr
+			}
+			found = true
+			return nil
+		}); walkErr != nil {
+			return ids.WorkspaceID{}, fmt.Errorf("overlay: probing workspace %s for portal binding: %w", wsID, walkErr)
+		}
+		if found {
+			return ids.From[ids.WorkspaceKind](wsID), nil
+		}
+	}
+	return ids.WorkspaceID{}, apperrors.ErrNotFound
+}
+
 // ActiveConnection reads ctx's workspace's ACTIVE incumbent connection —
 // the per-request counterpart to DueOverlayConnections' fleet walk. The
 // read path (FreshnessReader's live force-fresh resolver, wired in
