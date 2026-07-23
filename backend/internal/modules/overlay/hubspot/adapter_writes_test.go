@@ -25,7 +25,9 @@ func TestAdapterCreatePostsMappedProps(t *testing.T) {
 		if r.Method != http.MethodPost || r.URL.Path != "/crm/v3/objects/contacts" {
 			t.Fatalf("got %s %s, want POST /crm/v3/objects/contacts", r.Method, r.URL.Path)
 		}
-		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("decoding POST body: %v", err)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"id":"555","properties":{"hs_object_id":"555",
 			"firstname":"Ada","lastname":"Lovelace","lastmodifieddate":"2026-05-01T00:00:00Z"}}`))
@@ -93,7 +95,9 @@ func TestAdapterUpdateAppliesWhenBaselineFresh(t *testing.T) {
 			_, _ = w.Write([]byte(`{"results":[{"id":"555","properties":{"hs_object_id":"555",
 				"lastmodifieddate":"2026-05-01T00:00:00Z"}}]}`))
 		case r.Method == http.MethodPatch && r.URL.Path == "/crm/v3/objects/contacts/555":
-			_ = json.NewDecoder(r.Body).Decode(&patchBody)
+			if err := json.NewDecoder(r.Body).Decode(&patchBody); err != nil {
+				t.Errorf("decoding PATCH body: %v", err)
+			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"id":"555","properties":{"hs_object_id":"555",
 				"firstname":"Ada2","lastmodifieddate":"2026-06-02T00:00:00Z"}}`))
