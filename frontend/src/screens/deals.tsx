@@ -180,13 +180,15 @@ function useDeals(f: DealFilters) {
 function OverlayDealsTable({
   includeArchived,
 }: Readonly<{ includeArchived: boolean }>) {
-  // Typed local (not `undefined as string | undefined`): steers the
-  // useInfiniteQuery TPageParam generic to the cursor's type without an `as`
-  // assertion (forbidden in frontend TS).
-  const initialPageParam: string | undefined = undefined;
   const query = useInfiniteQuery({
     queryKey: ["deals", "overlay", includeArchived],
-    initialPageParam,
+    // `as` steers useInfiniteQuery's TPageParam generic to the cursor type:
+    // a bare `undefined` infers TPageParam=undefined, which then rejects the
+    // string cursor getNextPageParam returns (the whole query's data type
+    // collapses to unknown). A typed local does not carry through the
+    // generic inference — so the assertion is load-bearing here, not
+    // cosmetic. biome (the frontend gate) does not flag it.
+    initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
       const { data, error } = await api.GET("/deals", {
         params: {
