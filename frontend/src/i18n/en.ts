@@ -1871,6 +1871,15 @@ export const en = {
   "webhooks.updated": "Updated {date}",
   "webhooks.field.targetUrl": "Target URL",
   "webhooks.field.eventTypes": "Event types",
+  "webhooks.field.state": "State",
+  "webhooks.edit": "Edit",
+  "webhooks.archive": "Archive",
+  "webhooks.archiveConfirm":
+    "Archiving stops all delivery for this subscription. This can't be undone.",
+  "webhooks.rotate": "Rotate secret",
+  "webhooks.rotateConfirm.title": "Rotate signing secret?",
+  "webhooks.rotateConfirm.body":
+    "The current secret stops verifying deliveries immediately. Update your receiver with the new secret before confirming.",
   "webhooks.secret.title": "Signing secret",
   "webhooks.secret.warning":
     "This secret is shown once and can't be retrieved again. Store it now — deliveries are signed with it.",

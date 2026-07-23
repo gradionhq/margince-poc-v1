@@ -1904,6 +1904,15 @@ export const de = {
   "webhooks.updated": "Aktualisiert {date}",
   "webhooks.field.targetUrl": "Ziel-URL",
   "webhooks.field.eventTypes": "Ereignistypen",
+  "webhooks.field.state": "Status",
+  "webhooks.edit": "Bearbeiten",
+  "webhooks.archive": "Archivieren",
+  "webhooks.archiveConfirm":
+    "Das Archivieren stoppt jede Zustellung für dieses Abonnement. Dies kann nicht rückgängig gemacht werden.",
+  "webhooks.rotate": "Schlüssel rotieren",
+  "webhooks.rotateConfirm.title": "Signaturschlüssel rotieren?",
+  "webhooks.rotateConfirm.body":
+    "Der aktuelle Schlüssel verifiziert Zustellungen ab sofort nicht mehr. Aktualisieren Sie Ihren Empfänger mit dem neuen Schlüssel, bevor Sie bestätigen.",
   "webhooks.secret.title": "Signaturschlüssel",
   "webhooks.secret.warning":
     "Dieser Schlüssel wird nur einmal angezeigt und kann danach nicht erneut abgerufen werden. Speichern Sie ihn jetzt — Zustellungen werden damit signiert.",

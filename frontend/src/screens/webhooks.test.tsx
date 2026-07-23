@@ -294,4 +294,197 @@ describe("WebhooksCard", () => {
     );
     expect(screen.queryByTestId("new-webhook-subscription")).toBeNull();
   });
+
+  it("hides the manage row (edit/rotate/archive) for a non-admin/ops role", async () => {
+    vi.stubGlobal("fetch", backendFor(["rep"]));
+    render(<WebhooksCard />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("https://example.test/hooks/margince"),
+      ).toBeTruthy(),
+    );
+    expect(screen.queryByTestId("edit-record")).toBeNull();
+    expect(screen.queryByTestId("rotate-webhook-secret")).toBeNull();
+    expect(screen.queryByTestId("archive-record")).toBeNull();
+  });
+});
+
+// Task 9 (B-E10.14): pause/resume + re-target (EditAction, If-Match), archive
+// (ArchiveAction, DELETE), and rotate-secret (ConfirmModal → the shared
+// SecretRevealModal). Each mutation invalidates the list + record queries.
+describe("WebhooksCard — pause/resume + re-target (EditAction)", () => {
+  function backendForEdit(patchResponder: (body: unknown) => Response) {
+    const calls: { ifMatch: string | null; body: unknown }[] = [];
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const req =
+          input instanceof Request ? input : new Request(String(input), init);
+        if (req.url.endsWith("/v1/me")) {
+          return jsonResponse({
+            user: { email: "admin@acme.test" },
+            roles: ["admin"],
+            teams: [],
+          });
+        }
+        if (
+          req.url.includes("/webhook-subscriptions") &&
+          req.method === "GET"
+        ) {
+          return jsonResponse(SUBSCRIPTIONS);
+        }
+        if (req.url.includes("/sub-1") && req.method === "PATCH") {
+          const body = await req.clone().json();
+          calls.push({ ifMatch: req.headers.get("If-Match"), body });
+          return patchResponder(body);
+        }
+        throw new Error(`unexpected request: ${req.method} ${req.url}`);
+      },
+    );
+    return { fetchMock, calls };
+  }
+
+  it("sends If-Match: version with {state, event_types} on save", async () => {
+    const user = userEvent.setup();
+    const { fetchMock, calls } = backendForEdit((body) =>
+      jsonResponse({
+        ...SUBSCRIPTIONS.data[0],
+        state: (body as { state: string }).state,
+        event_types: (body as { event_types: string[] }).event_types,
+        version: 2,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WebhooksCard />);
+
+    await user.click(await screen.findByTestId("edit-record"));
+    // Flip state to paused via the select control; event_types stays as the
+    // subscription's current, prefilled selection.
+    const stateSelect = screen.getByLabelText(/^State/);
+    await user.selectOptions(stateSelect, "paused");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(calls.length).toBe(1));
+    expect(calls[0].ifMatch).toBe("1");
+    expect(calls[0].body).toMatchObject({
+      state: "paused",
+      event_types: ["deal.stage_changed", "lead.promoted"],
+    });
+  });
+
+  it("shows the version-skew copy on a 409 code:version_skew", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = backendForEdit(() =>
+      jsonResponse(
+        {
+          type: "about:blank",
+          title: "Conflict",
+          detail: "if-match version 1 does not match current version 2",
+          code: "version_skew",
+        },
+        409,
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WebhooksCard />);
+
+    await user.click(await screen.findByTestId("edit-record"));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "This record changed since you opened it — reload and try again.",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(
+      screen.queryByText("if-match version 1 does not match current version 2"),
+    ).toBeNull();
+  });
+});
+
+describe("WebhooksCard — archive", () => {
+  it("confirms then DELETEs /webhook-subscriptions/{id}", async () => {
+    const user = userEvent.setup();
+    let deleted = false;
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const req =
+          input instanceof Request ? input : new Request(String(input), init);
+        if (req.url.endsWith("/v1/me")) {
+          return jsonResponse({
+            user: { email: "admin@acme.test" },
+            roles: ["admin"],
+            teams: [],
+          });
+        }
+        if (
+          req.url.includes("/webhook-subscriptions") &&
+          req.method === "GET"
+        ) {
+          return jsonResponse(SUBSCRIPTIONS);
+        }
+        if (req.url.includes("/sub-1") && req.method === "DELETE") {
+          deleted = true;
+          return jsonResponse({
+            ...SUBSCRIPTIONS.data[0],
+            archived_at: "2026-07-23T00:00:00Z",
+          });
+        }
+        throw new Error(`unexpected request: ${req.method} ${req.url}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WebhooksCard />);
+
+    await user.click(await screen.findByTestId("archive-record"));
+    await user.click(screen.getByTestId("archive-confirm"));
+
+    await waitFor(() => expect(deleted).toBe(true));
+  });
+});
+
+describe("WebhooksCard — rotate secret", () => {
+  it("confirms, calls rotate-secret, and reveals the new secret via SecretRevealModal", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const req =
+          input instanceof Request ? input : new Request(String(input), init);
+        if (req.url.endsWith("/v1/me")) {
+          return jsonResponse({
+            user: { email: "admin@acme.test" },
+            roles: ["admin"],
+            teams: [],
+          });
+        }
+        if (
+          req.url.includes("/webhook-subscriptions") &&
+          req.method === "GET"
+        ) {
+          return jsonResponse(SUBSCRIPTIONS);
+        }
+        if (req.url.includes("/sub-1/rotate-secret") && req.method === "POST") {
+          return jsonResponse({
+            subscription: { ...SUBSCRIPTIONS.data[0], version: 2 },
+            signing_secret: "whsec_rotatedNEW123==",
+          });
+        }
+        throw new Error(`unexpected request: ${req.method} ${req.url}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WebhooksCard />);
+
+    await user.click(await screen.findByTestId("rotate-webhook-secret"));
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("whsec_rotatedNEW123==")).toBeTruthy(),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.queryByText("whsec_rotatedNEW123==")).toBeNull();
+  });
 });

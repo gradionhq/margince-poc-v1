@@ -174,6 +174,65 @@ export const SecretRevealed: Story = {
   },
 };
 
+// Task 9 (B-E10.14): the edit form (pause/resume + re-target the event set),
+// the rotate-secret confirm, and the archive confirm — all gated on the same
+// admin/ops role the create affordance already gates on.
+export const EditOpen: Story = {
+  render: cardStory({
+    "GET /me": meRoute(["admin"]),
+    "GET /webhook-subscriptions": () =>
+      jsonResponse({ data: [activeSubscription], page }),
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByTestId("edit-record"));
+  },
+};
+
+export const RotateSecretConfirm: Story = {
+  render: cardStory({
+    "GET /me": meRoute(["admin"]),
+    "GET /webhook-subscriptions": () =>
+      jsonResponse({ data: [activeSubscription], page }),
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByTestId("rotate-webhook-secret"));
+  },
+};
+
+// The rotated secret revealed through the SAME SecretRevealModal a create
+// shows — proof rotate reuses it rather than growing a second reveal UI.
+export const RotateSecretRevealed: Story = {
+  render: cardStory({
+    "GET /me": meRoute(["admin"]),
+    "GET /webhook-subscriptions": () =>
+      jsonResponse({ data: [activeSubscription], page }),
+    "POST /webhook-subscriptions/sub-active/rotate-secret": () =>
+      jsonResponse({
+        subscription: { ...activeSubscription, version: 3 },
+        signing_secret: "whsec_rotatedNEW9f3c2b7a1d==",
+      }),
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByTestId("rotate-webhook-secret"));
+    await userEvent.click(canvas.getByRole("button", { name: "Confirm" }));
+  },
+};
+
+export const ArchiveConfirm: Story = {
+  render: cardStory({
+    "GET /me": meRoute(["admin"]),
+    "GET /webhook-subscriptions": () =>
+      jsonResponse({ data: [activeSubscription], page }),
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByTestId("archive-record"));
+  },
+};
+
 // The pure delivery-status → badge mapping the deliveries panel reuses — no
 // fetch, no providers beyond the locale (mirrors quotas.stories.tsx's Ring).
 export const DeliveryStatusBadges: StoryObj = {

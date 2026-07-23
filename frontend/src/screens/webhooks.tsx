@@ -4,6 +4,7 @@ import { useId, useState } from "react";
 import { api } from "../api/client";
 import { subscribableEventTypeValues } from "../api/public-events";
 import type { components } from "../api/schema";
+import { ifMatch } from "../api/version";
 import {
   Badge,
   Button,
@@ -12,20 +13,26 @@ import {
   Modal,
   SectionHeader,
 } from "../design-system/atoms";
+import { ConfirmModal } from "../design-system/confirmmodal";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
+import { ArchiveAction } from "./archive";
 import {
   canConfigureAutomations,
   problemMessage,
   QueryGate,
+  throwProblem,
   useMe,
 } from "./common";
 import {
   type CreateField,
   type CreateFieldOption,
   CreateRecordModal,
+  joinMultiselectValue,
   splitMultiselectValue,
 } from "./create";
+import { EditAction } from "./edit";
 
 // Settings → Integrations (B-E10.14): the subscription list for outbound
 // webhooks. The list wire (WebhookSubscription) carries no per-item delivery
@@ -37,6 +44,8 @@ import {
 
 type WebhookSubscription = components["schemas"]["WebhookSubscription"];
 type WebhookDeliveryStatus = components["schemas"]["WebhookDelivery"]["status"];
+type UpdateWebhookSubscriptionRequest =
+  components["schemas"]["UpdateWebhookSubscriptionRequest"];
 
 // The shared delivery-status → Badge tone mapping (events.md §5's four
 // delivery states): kept here, next to the subscription list it health-
@@ -116,6 +125,50 @@ const CREATE_SUBSCRIPTION_FIELDS: CreateField[] = [
   },
 ];
 
+// The edit form: pause/resume (state) and re-target the subscribed event set
+// (event_types) — the only two fields `UpdateWebhookSubscriptionRequest`
+// accepts (the contract has no target_url update; re-targeting means the
+// event set, not the URL). `event_types`'s `toInput` joins the record's
+// `string[]` through the SAME multiselect delimiter the field's own
+// checkbox-toggle uses, so the edit form prefills the subscription's
+// current selection rather than falling back to Array#toString's
+// coincidentally-matching-but-unspecified comma join.
+function editSubscriptionFields(t: (key: MessageKey) => string): CreateField[] {
+  return [
+    {
+      key: "state",
+      label: "webhooks.field.state",
+      type: "select",
+      required: true,
+      options: [
+        { value: "active", label: t("webhooks.state.active") },
+        { value: "paused", label: t("webhooks.state.paused") },
+      ],
+    },
+    {
+      key: "event_types",
+      label: "webhooks.field.eventTypes",
+      type: "multiselect",
+      required: true,
+      options: EVENT_TYPE_OPTIONS,
+      toInput: (raw) =>
+        joinMultiselectValue(Array.isArray(raw) ? (raw as string[]) : []),
+    },
+  ];
+}
+
+// The PATCH body from the edit form's values — the ONE place that knows the
+// form's comma-joined `event_types` string decodes back to the wire's
+// `string[]`, so a screen mistake here can't silently drop the split.
+export function mapWebhookUpdate(
+  values: Record<string, unknown>,
+): UpdateWebhookSubscriptionRequest {
+  return {
+    state: values.state as WebhookSubscription["state"],
+    event_types: splitMultiselectValue(String(values.event_types ?? "")),
+  };
+}
+
 // Registering a subscription is registering outbound egress, not landing on
 // a record 360 — there is no webhook-subscription screen to navigate to, so
 // this is a bespoke mutation (mirrors tasks.tsx's create-in-place) rather
@@ -145,6 +198,102 @@ function useCreateWebhookSubscription(onCreated: (secret: string) => void) {
       onCreated(created.signing_secret);
     },
   });
+}
+
+// The EditAction transport: PATCH with If-Match(current version) — the
+// standard optimistic-concurrency precondition every native mutating
+// endpoint accepts. A 409 code:version_skew surfaces through EditAction's own
+// error handling (edit.tsx), never handled again here.
+function updateWebhookSubscription(
+  subscription: WebhookSubscription,
+): (values: Record<string, unknown>) => Promise<WebhookSubscription> {
+  return async (values) => {
+    const { data, error } = await api.PATCH("/webhook-subscriptions/{id}", {
+      params: {
+        path: { id: subscription.id },
+        ...ifMatch(subscription.version),
+      },
+      body: mapWebhookUpdate(values),
+    });
+    if (error) {
+      throwProblem(error);
+    }
+    return data;
+  };
+}
+
+// Archive stops all delivery (DELETE, no If-Match — mirrors products.tsx/
+// people.tsx's ArchiveAction usage: archiving isn't a concurrent-edit hazard
+// the way a field patch is).
+async function archiveWebhookSubscription(
+  subscription: WebhookSubscription,
+): Promise<WebhookSubscription> {
+  const { data, error } = await api.DELETE("/webhook-subscriptions/{id}", {
+    params: { path: { id: subscription.id } },
+  });
+  if (error) {
+    throwProblem(error);
+  }
+  return data ?? subscription;
+}
+
+// Rotate-secret: a Button + the shared ConfirmModal chrome (mirrors offers.tsx's
+// RejectOfferAction) guarding the one irreversible side effect — the OLD
+// secret stops verifying the moment this succeeds. The new secret is handed
+// up to the card so it reuses the SAME SecretRevealModal a create shows.
+function RotateSecretAction({
+  subscription,
+  onRotated,
+}: Readonly<{
+  subscription: WebhookSubscription;
+  onRotated: (secret: string) => void;
+}>) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [confirming, setConfirming] = useState(false);
+  const mutation = useMutation({
+    mutationFn: async (): Promise<WebhookSubscriptionCreated> => {
+      const { data, error } = await api.POST(
+        "/webhook-subscriptions/{id}/rotate-secret",
+        { params: { path: { id: subscription.id } } },
+      );
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+    onSuccess: (created) => {
+      queryClient.invalidateQueries({ queryKey: ["webhook-subscriptions"] });
+      queryClient.invalidateQueries({
+        queryKey: ["webhook-subscription", subscription.id],
+      });
+      setConfirming(false);
+      onRotated(created.signing_secret);
+    },
+  });
+
+  return (
+    <>
+      <Button
+        small
+        onClick={() => setConfirming(true)}
+        data-testid="rotate-webhook-secret"
+      >
+        {t("webhooks.rotate")}
+      </Button>
+      <ConfirmModal
+        open={confirming}
+        onClose={() => setConfirming(false)}
+        title={t("webhooks.rotateConfirm.title")}
+        confirmLabel={t("deals.confirm")}
+        onConfirm={() => mutation.mutate()}
+        pending={mutation.isPending}
+        error={mutation.isError ? mutation.error.message : null}
+      >
+        <p className="t-body">{t("webhooks.rotateConfirm.body")}</p>
+      </ConfirmModal>
+    </>
+  );
 }
 
 // The one-time secret reveal: shown immediately after a successful create,
@@ -224,7 +373,13 @@ function NotConfiguredState() {
 
 function SubscriptionRow({
   subscription,
-}: Readonly<{ subscription: WebhookSubscription }>) {
+  canManage,
+  onRotated,
+}: Readonly<{
+  subscription: WebhookSubscription;
+  canManage: boolean;
+  onRotated: (secret: string) => void;
+}>) {
   const t = useT();
   const { locale } = useLocale();
   return (
@@ -266,6 +421,36 @@ function SubscriptionRow({
             ),
           })}
         </p>
+      )}
+      {canManage && (
+        <div
+          style={{
+            display: "flex",
+            gap: "var(--space-2)",
+            marginTop: "var(--space-2)",
+          }}
+        >
+          <EditAction
+            label={t("webhooks.edit")}
+            invalidate="webhook-subscriptions"
+            recordKey="webhook-subscription"
+            record={{ ...subscription }}
+            update={updateWebhookSubscription(subscription)}
+            fields={editSubscriptionFields(t)}
+          />
+          <RotateSecretAction
+            subscription={subscription}
+            onRotated={onRotated}
+          />
+          <ArchiveAction
+            label={t("webhooks.archive")}
+            confirmText={t("webhooks.archiveConfirm")}
+            invalidate="webhook-subscriptions"
+            recordKey="webhook-subscription"
+            onArchived={() => {}}
+            archive={() => archiveWebhookSubscription(subscription)}
+          />
+        </div>
       )}
     </Card>
   );
@@ -325,6 +510,8 @@ export function WebhooksCard() {
                 <SubscriptionRow
                   key={subscription.id}
                   subscription={subscription}
+                  canManage={canManage}
+                  onRotated={setRevealedSecret}
                 />
               ))}
             </div>
