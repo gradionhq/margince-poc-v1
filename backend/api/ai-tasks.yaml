@@ -41,6 +41,8 @@ tasks:
                      doc: "the aicert quality judge — pinned to its own router in the cert lane, never the candidate's binding"}
   voice_build:      {ladder: [cheap_cloud, premium], execution_mode: background, on_budget_exhausted: queue,
                      doc: "owner-requested or automatic durable Voice DNA candidate build; own-authored corpus only, CompanyContext none (ADR-0066)"}
+  rate_extract:     {ladder: [premium, cheap_cloud], execution_mode: background, on_budget_exhausted: queue,
+                     doc: "extract per-model AI pricing (per-MTok buckets) from a fetched pricing page, evidence-gated; feeds the model-cost refresh proposal producer"}
 
 degrade_to:
   premium: cheap_cloud
