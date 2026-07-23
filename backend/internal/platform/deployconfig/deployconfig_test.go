@@ -190,6 +190,37 @@ func TestParseRatesFxCurrencies(t *testing.T) {
 	}
 }
 
+// The annotated example shipped for operators must always satisfy the real
+// parser — a schema change here without a matching edit there would hand every
+// new deployment (and every `make dev`, which copies it) a config that fails at
+// boot. It also guards the now-active rates block against a typo.
+func TestShippedExampleConfigParses(t *testing.T) {
+	cfg, err := Load("../../../../config/margince.example.yaml")
+	if err != nil {
+		t.Fatalf("config/margince.example.yaml no longer parses: %v", err)
+	}
+	if got := strings.Join(cfg.Rates.FxCurrencies, ","); got != "USD,GBP,CHF" {
+		t.Fatalf("example rates.fx_currencies = %q, want the documented USD,GBP,CHF", got)
+	}
+}
+
+func TestParseRatesFxCurrenciesFailsClosed(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		doc  string
+	}{
+		{"non-iso code", "version: 1\nrates:\n  fx_currencies: [USD, US]\n"},
+		{"non-letter code", "version: 1\nrates:\n  fx_currencies: [USD, \"12$\"]\n"},
+		{"duplicate", "version: 1\nrates:\n  fx_currencies: [USD, usd]\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := Parse([]byte(tc.doc)); err == nil {
+				t.Fatalf("%s: Parse accepted a malformed fx_currencies set; a typo must fail at boot", tc.name)
+			}
+		})
+	}
+}
+
 func TestBootstrapAdminPasswordComesFromTheFileReference(t *testing.T) {
 	pwFile := filepath.Join(t.TempDir(), "pw")
 	if err := os.WriteFile(pwFile, []byte("a bootstrap password!\n"), 0o600); err != nil {

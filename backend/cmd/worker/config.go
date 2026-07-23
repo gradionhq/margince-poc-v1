@@ -207,7 +207,9 @@ var defaultFxBootstrapCurrencies = []string{"USD", "GBP", "CHF"}
 // default when none is configured.
 func fxBootstrapCurrencies(configured []string) []string {
 	if len(configured) == 0 {
-		return defaultFxBootstrapCurrencies
+		// Copy, never hand out the package-level slice — a consumer that
+		// mutated it would rewrite the default process-wide.
+		return append([]string(nil), defaultFxBootstrapCurrencies...)
 	}
 	return configured
 }
