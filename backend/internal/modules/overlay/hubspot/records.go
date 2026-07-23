@@ -182,9 +182,15 @@ func (c *Client) Associations(ctx context.Context, fromClass, fromID, toClass st
 		if out.Paging.Next.After == "" {
 			return assocs, nil
 		}
+		// A cursor that does not advance would otherwise spin to the page cap,
+		// firing thousands of duplicate requests and accumulating duplicate
+		// edges — catch it on the first repeat instead.
+		if out.Paging.Next.After == after {
+			return nil, fmt.Errorf("hubspot: associations %s/%s->%s returned a non-advancing paging cursor %q", fromClass, fromID, toClass, after)
+		}
 		after = out.Paging.Next.After
 	}
-	return nil, fmt.Errorf("hubspot: associations %s/%s->%s did not terminate within %d pages — the API is echoing a non-advancing cursor", fromClass, fromID, toClass, associationsMaxPages)
+	return nil, fmt.Errorf("hubspot: associations %s/%s->%s did not terminate within %d pages", fromClass, fromID, toClass, associationsMaxPages)
 }
 
 // associationsMaxPages bounds Associations' pagination: 10k pages × 500/page
@@ -248,9 +254,14 @@ func (c *Client) Owners(ctx context.Context) ([]Owner, error) {
 		if out.Paging.Next.After == "" {
 			return owners, nil
 		}
+		// Catch a non-advancing cursor on the first repeat rather than
+		// spinning to the page cap (the same guard Associations uses).
+		if out.Paging.Next.After == after {
+			return nil, fmt.Errorf("hubspot: owners directory returned a non-advancing paging cursor %q", after)
+		}
 		after = out.Paging.Next.After
 	}
-	return nil, fmt.Errorf("hubspot: owners directory did not terminate within %d pages — the API is echoing a non-advancing cursor", ownersMaxPages)
+	return nil, fmt.Errorf("hubspot: owners directory did not terminate within %d pages", ownersMaxPages)
 }
 
 // ownersMaxPages bounds Owners' pagination: 10k pages × 100/page = a

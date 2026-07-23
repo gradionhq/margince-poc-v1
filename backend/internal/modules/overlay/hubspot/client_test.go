@@ -277,6 +277,27 @@ func TestClientAssociationsFollowsPaging(t *testing.T) {
 	}
 }
 
+func TestClientAssociationsFailsFastOnNonAdvancingCursor(t *testing.T) {
+	// A server that always echoes the same next cursor must be caught on the
+	// first repeat, not spun to the page cap.
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		mustWrite(t, w, `{"results":[{"toObjectId":1,"associationTypes":[]}],"paging":{"next":{"after":"stuck"}}}`)
+	}))
+	defer srv.Close()
+
+	c := hubspot.NewClient("us", "test-token", hubspot.WithBaseURL(srv.URL))
+	if _, err := c.Associations(t.Context(), "deals", "123", "companies"); err == nil {
+		t.Fatal("Associations with a non-advancing cursor: want an error, got nil")
+	}
+	// One page with a real cursor, then one more that repeats it → caught.
+	if calls != 2 {
+		t.Fatalf("server calls = %d, want 2 (fail fast on the first repeated cursor, not spin to the cap)", calls)
+	}
+}
+
 func TestClientOwnerParsesEmail(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/crm/v3/owners/1197833249" {
