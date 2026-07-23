@@ -279,17 +279,22 @@ func (s *Store) approvalVisibleTo(ctx context.Context, approvalID ids.UUID) (boo
 	return s.approvalTargetVisible(ctx, *targetType, *targetID)
 }
 
-// approvalTargetVisible mirrors approvals.targetVisible (approvals/
-// authority.go) exactly: it applies the TARGET record's OWN row scope (person/
-// organization/deal/lead/offer/signal/activity) or, for the workspace-shared
+// approvalTargetVisible applies approvals.targetVisible's TARGET-visibility
+// half (approvals/authority.go): the target record's OWN row scope (person/
+// organization/deal/lead/offer/signal/activity), or for the workspace-shared
 // admin config the approvals surface also stages against (product,
-// custom_field), the same existence floor — NOT the object-read capability the
-// direct read path adds. Diverging from entityVisibleTo is deliberate: the
-// approval authority model is decision-grant + target row visibility, so a
-// webhook owner must receive an approval exactly when the inbox would show it,
-// no more and no less. An unknown target type is fail-closed. This is a
-// self-contained duplicate of the sibling module's rule (a module never
-// imports a sibling); the two must stay in step.
+// custom_field) the same existence floor. That target-visibility check IS the
+// confidentiality boundary this gate owes: a subscriber receives an approval's
+// details (summary, target ids, edited_change) only about a target it can
+// already read, never one it cannot. It deliberately does NOT also apply the
+// inbox's `decidable` decision-grant half — that governs who may ACT on an
+// approval (an authorization concern), not who may learn a visible target's
+// proposed change, so a webhook owner's fan-out set may be broader than the
+// inbox's decidable set while disclosing nothing beyond what the owner could
+// already read. (Diverging from entityVisibleTo's object-read capability is the
+// same deliberate choice, for the same reason.) Unknown target type: fail
+// closed. Self-contained duplicate of the sibling rule (a module never imports
+// a sibling); the target-visibility branches must stay in step.
 func (s *Store) approvalTargetVisible(ctx context.Context, targetType string, targetID ids.UUID) (bool, error) {
 	switch targetType {
 	case "person", "organization", "deal", "lead":
