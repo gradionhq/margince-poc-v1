@@ -38,8 +38,16 @@ security clean). **Contract-first flag (P3):** these endpoints, and the Phase-2
 `rate_extract` task + proposal kinds still to come, do **not** exist in the
 upstream `margince-foundation` spec (whose posture is "operators edit rows
 directly") — raised for upstream reconciliation, not a silent divergence.
-**Phase 2** (async River-job AI refresh that crawls sources and stages 🟡
-approvals) is designed and planned (`.tmp/rates-costs-settings/`), not yet built.
+**Phase 2 (async AI refresh) is built too.** Two admin-only "Refresh from
+sources" endpoints enqueue async River jobs: the FX producer fetches a
+structured JSON API (deterministic, netguard-guarded) and the model-cost
+producer crawls configured pricing pages via `webread` and AI-extracts prices
+with the new `rate_extract` task (**certified for Gemini** — reliability 1.00).
+Both diff against the sheet and stage 🟡 `fx_rate_proposal` /
+`ai_model_rate_proposal` approvals (registered in `approvals/authority.go`);
+approving applies through the Phase-1 write path (edit-before-approve works).
+Sources are worker config (`--fx-source-url`, `--model-pricing-sources`); absent
+config = honest no-op.
 
 **The conversational onboarding (flagged) + the honest voice corpus.**
 Onboarding is becoming ONE Margince conversation. Landed so far: the
