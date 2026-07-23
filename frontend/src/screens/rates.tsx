@@ -68,10 +68,16 @@ function RefreshFromSources({
         {t("settings.rates.refresh")}
       </Button>
       {refresh.isSuccess ? (
-        <span className="t-small">{t("settings.rates.refreshEnqueued")}</span>
+        <span className="t-small" role="status">
+          {t("settings.rates.refreshEnqueued")}
+        </span>
       ) : null}
       {refresh.isError ? (
-        <span className="t-small" style={{ color: "var(--danger)" }}>
+        <span
+          className="t-small"
+          role="alert"
+          style={{ color: "var(--danger)" }}
+        >
           {refresh.error.message}
         </span>
       ) : null}

@@ -16,6 +16,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
 // FxRateRow is one effective-dated FX rate: the rate that converts
@@ -59,34 +60,6 @@ func isISO4217(s string) bool {
 	}
 	for _, r := range s {
 		if r < 'A' || r > 'Z' {
-			return false
-		}
-	}
-	return true
-}
-
-// plainDecimal answers whether s is a plain non-negative decimal — digits
-// with at most one dot, within maxInt integer and maxFrac fractional digits.
-// It rejects the rational ("1/3") and scientific ("1e3") forms big.Rat also
-// accepts, which would pass a Sign() check and then fail the ::numeric cast
-// (a 500 where a clean 422 was intended).
-func plainDecimal(s string, maxInt, maxFrac int) bool {
-	if s == "" {
-		return false
-	}
-	intPart, fracPart, hasDot := strings.Cut(s, ".")
-	if intPart == "" || len(intPart) > maxInt || !allDigits(intPart) {
-		return false
-	}
-	if hasDot && (fracPart == "" || len(fracPart) > maxFrac || !allDigits(fracPart)) {
-		return false
-	}
-	return true
-}
-
-func allDigits(s string) bool {
-	for _, r := range s {
-		if r < '0' || r > '9' {
 			return false
 		}
 	}
@@ -163,7 +136,7 @@ func normalizeFxInput(in SetFxRateInput, today time.Time) (from string, err erro
 		return "", fxInvalid("from_currency", "fx_rate_currency", "from_currency must be a 3-letter ISO code")
 	}
 	rate := strings.TrimSpace(in.Rate)
-	if !plainDecimal(rate, 10, 10) {
+	if !values.PlainDecimal(rate, 10, 10) {
 		return "", fxInvalid("rate", "fx_rate_positive",
 			"rate must be a plain decimal (up to 10 integer and 10 fractional digits)")
 	}

@@ -10,6 +10,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 )
 
@@ -25,6 +26,10 @@ func toContractFxRate(r FxRateRow) crmcontracts.FxRate {
 // ListFxRates returns the latest rate per currency, or (with ?from=USD) one
 // pair's effective-dated history. Admin/ops-gated in the store.
 func (h Handlers) ListFxRates(w http.ResponseWriter, r *http.Request, params crmcontracts.ListFxRatesParams) {
+	if err := auth.RequireHuman(r.Context()); err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
 	var (
 		rows []FxRateRow
 		err  error

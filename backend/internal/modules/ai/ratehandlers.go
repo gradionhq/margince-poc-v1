@@ -11,6 +11,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 )
 
@@ -40,6 +41,10 @@ func writeRateErr(w http.ResponseWriter, r *http.Request, err error) {
 // ListAiModelRates returns the latest price per model, or (with both
 // provider and model_id) one model's effective-dated history. Admin/ops-gated.
 func (h Handlers) ListAiModelRates(w http.ResponseWriter, r *http.Request, params crmcontracts.ListAiModelRatesParams) {
+	if err := auth.RequireHuman(r.Context()); err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
 	var (
 		rows []ModelRateRow
 		err  error

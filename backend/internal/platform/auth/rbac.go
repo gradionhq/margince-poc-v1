@@ -51,6 +51,24 @@ func Require(ctx context.Context, object string, action principal.Action) error 
 	return nil
 }
 
+// RequireHuman refuses an AGENT (Passport) principal outright, whatever its
+// scope or the granting human's RBAC. It is the runtime twin of the
+// contract's `x-agent-access: human-only` for the operations the agent gate
+// cannot cover: reads. The gate only inspects mutating methods, so a
+// human-only GET (an admin-only sheet) must reject an agent principal here,
+// or an admin-minted read-scoped passport would satisfy the object grant and
+// see it. The connector and system principals are not agents and pass.
+func RequireHuman(ctx context.Context) error {
+	p, err := rbacActor(ctx)
+	if err != nil {
+		return err
+	}
+	if p.Type == principal.PrincipalAgent {
+		return fmt.Errorf("human-only operation: %w", apperrors.ErrPermissionDenied)
+	}
+	return nil
+}
+
 // Unbounded reports whether the actor sees every row of a permitted
 // object: the system principal, or row_scope=all.
 func Unbounded(p principal.Principal) bool {

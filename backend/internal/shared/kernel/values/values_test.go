@@ -237,3 +237,26 @@ func TestParseTimezone(t *testing.T) {
 		t.Error("Local must not parse — it means a different zone per host")
 	}
 }
+
+func TestPlainDecimal(t *testing.T) {
+	ok := []string{"0", "5", "0.25", "5.00", "1234567890", "0.000001"}
+	for _, s := range ok {
+		if !PlainDecimal(s, 13, 6) {
+			t.Errorf("PlainDecimal(%q) = false, want true", s)
+		}
+	}
+	// rejected: empty, sign, rational/scientific, over-long int/frac, non-digit.
+	bad := []string{"", "-1", "1/3", "1e3", ".5", "5.", "12.3456789", "abc", "1..2"}
+	for _, s := range bad {
+		if PlainDecimal(s, 6, 6) {
+			t.Errorf("PlainDecimal(%q) = true, want false", s)
+		}
+	}
+	// the caps bind independently.
+	if PlainDecimal("1234567", 6, 6) {
+		t.Error("integer digit cap not enforced")
+	}
+	if PlainDecimal("1.1234567", 6, 6) {
+		t.Error("fractional digit cap not enforced")
+	}
+}

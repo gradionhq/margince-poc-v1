@@ -6,6 +6,7 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -130,12 +131,20 @@ func (m modelCostRefresh) run(ctx context.Context) error {
 
 	ws := storekit.MustWorkspace(ctx)
 	staged := 0
+	var srcErrs []error
 	for _, src := range m.sources {
+		// A canceled/timed-out job must report the cancellation, not a
+		// silent success — River retries on a returned error.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		models, err := m.extract(ctx, src)
 		if err != nil {
 			// One down/unparseable source must not block the others — log and
-			// carry on so the remaining providers still get their proposals.
+			// carry on so the remaining providers still get their proposals,
+			// but retain the error so an all-failed run is detectable.
 			m.log.Warn("model-cost refresh: source failed", "provider", src.Provider, "err", err)
+			srcErrs = append(srcErrs, fmt.Errorf("%s: %w", src.Provider, err))
 			continue
 		}
 		for _, em := range models {
@@ -151,6 +160,11 @@ func (m modelCostRefresh) run(ctx context.Context) error {
 		}
 	}
 	m.log.Info("model-cost refresh complete", "staged", staged)
+	if len(srcErrs) == len(m.sources) {
+		// Every configured source failed: surface it so the job is retried,
+		// not reported as a successful no-op refresh.
+		return fmt.Errorf("model refresh: all %d source(s) failed: %w", len(m.sources), errors.Join(srcErrs...))
+	}
 	return nil
 }
 
@@ -180,6 +194,10 @@ func (m modelCostRefresh) extract(ctx context.Context, src pricingSource) ([]ext
 	}
 	kept := out.Models[:0]
 	for _, em := range out.Models {
+		// Normalize the id the same way the write path (SetModelRate) does, so
+		// a padded id isn't diffed as a distinct model or staged only to fail
+		// validation at approval time.
+		em.ModelID = strings.TrimSpace(em.ModelID)
 		if em.ModelID == "" || strings.TrimSpace(em.Evidence) == "" {
 			continue // no-guess: an ungrounded row is dropped, never applied
 		}
