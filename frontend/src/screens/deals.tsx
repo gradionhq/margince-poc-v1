@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   type Dispatch,
   type DragEvent,
@@ -34,6 +39,7 @@ import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
 import {
+  LoadMoreButton,
   OverlayUnavailable,
   problemMessage,
   QueryGate,
@@ -145,10 +151,13 @@ function dealsQueryParams(f: DealFilters) {
 }
 
 // The board is not paginated — limit:100 is an honest documented cap (a
-// live Kanban reads one screenful, not a keyset walk).
+// live Kanban reads one screenful, not a keyset walk). Disabled in overlay
+// mode: there the flat mirror table paginates through OverlayDealsTable
+// (its own keyset walk), so this single-page native query does not fetch.
 function useDeals(f: DealFilters) {
   return useQuery({
     queryKey: ["deals", f],
+    enabled: !f.overlay,
     queryFn: async () => {
       const { data, error } = await api.GET("/deals", {
         params: { query: dealsQueryParams(f) },
@@ -159,6 +168,51 @@ function useDeals(f: DealFilters) {
       return data;
     },
   });
+}
+
+// OverlayDealsTable is the overlay-mode deals view: a flat mirror table
+// (a stage-keyed board cannot place a mirror deal, whose pipeline/stage is
+// null — OVA-MAP-6) that walks the keyset cursor the API returns
+// (page.next_cursor / page.has_more) with a Load-more affordance, rather
+// than the native board's honest one-screenful cap. Overlay reads 422 every
+// sort/filter dial, so it sends only limit + include_archived + cursor.
+function OverlayDealsTable({
+  includeArchived,
+}: Readonly<{ includeArchived: boolean }>) {
+  const query = useInfiniteQuery({
+    queryKey: ["deals", "overlay", includeArchived],
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) => {
+      const { data, error } = await api.GET("/deals", {
+        params: {
+          query: {
+            limit: 100,
+            include_archived: includeArchived || undefined,
+            cursor: pageParam,
+          },
+        },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+    getNextPageParam: (last) =>
+      last.page?.has_more ? (last.page.next_cursor ?? undefined) : undefined,
+  });
+  return (
+    <QueryGate
+      query={query}
+      empty={(data) => data.pages.every((p) => p.data.length === 0)}
+    >
+      {(data) => (
+        <>
+          <DealTable deals={data.pages.flatMap((p) => p.data)} stages={[]} />
+          <LoadMoreButton query={query} />
+        </>
+      )}
+    </QueryGate>
+  );
 }
 
 function toBoardDeal(deal: Deal): BoardDeal {
@@ -765,33 +819,39 @@ export function DealsScreen({
         setQuery={setQuery}
         meUserId={meQuery.data?.user.id ?? ""}
       />
-      <QueryGate query={pipelinesQuery}>
-        {() =>
-          effectivePipeline ? (
-            <QueryGate query={dealsQuery}>
-              {(page) => {
-                const columns = buildColumns(
-                  effectivePipeline.stages ?? [],
-                  page.data,
-                );
-                return view === "board" ? (
-                  <PipelineBoard
-                    columns={columns}
-                    onOpen={openDeal}
-                    cardDragHandlers={cardDragHandlers}
-                    columnDropHandlers={columnDropHandlers}
-                  />
-                ) : (
-                  <DealTable
-                    deals={page.data}
-                    stages={effectivePipeline.stages ?? []}
-                  />
-                );
-              }}
-            </QueryGate>
-          ) : null
-        }
-      </QueryGate>
+      {overlay ? (
+        // Overlay mode: the flat, keyset-paginated mirror table (its own
+        // infinite query) — no pipeline board, no stage columns.
+        <OverlayDealsTable includeArchived={query.includeArchived} />
+      ) : (
+        <QueryGate query={pipelinesQuery}>
+          {() =>
+            effectivePipeline ? (
+              <QueryGate query={dealsQuery}>
+                {(page) => {
+                  const columns = buildColumns(
+                    effectivePipeline.stages ?? [],
+                    page.data,
+                  );
+                  return view === "board" ? (
+                    <PipelineBoard
+                      columns={columns}
+                      onOpen={openDeal}
+                      cardDragHandlers={cardDragHandlers}
+                      columnDropHandlers={columnDropHandlers}
+                    />
+                  ) : (
+                    <DealTable
+                      deals={page.data}
+                      stages={effectivePipeline.stages ?? []}
+                    />
+                  );
+                }}
+              </QueryGate>
+            ) : null
+          }
+        </QueryGate>
+      )}
       {advance.isError && (
         <p
           className="t-caption"
