@@ -1086,6 +1086,11 @@ export const en = {
     ".txt .md .vtt .srt .json · text only · we keep only your turns",
   "ob.s2.dropSkipped":
     "Skipped {files} — not a text format. Convert to .txt/.md or paste the text instead.",
+  "ob.s2.speakerAsk": "Which speaker are you in {file}?",
+  "ob.s2.speakerOption": "{name} · words: {words} · turns: {turns}",
+  "ob.s2.keptOnly": "counted {kept} of {total} — only what {speaker} said",
+  "ob.s2.unattributed":
+    "I can't tell who says what in {file}, so none of it is counted. Add speaker labels, or paste only your own words.",
   "ob.reg.spoken": "spoken",
   "ob.reg.written": "written",
   "ob.reg.casual": "casual",
@@ -1269,6 +1274,166 @@ export const en = {
   "ob.s4.enterCrm": "Enter your CRM",
   "ob.s4.connectFailed": "Couldn't connect that mailbox",
   "ob.s4.skipLater": "Skip for now — I'll connect later",
+
+  "ob.conv.threadLabel": "Onboarding conversation",
+  "ob.conv.welcome":
+    "Hi, I am Margince. I set up your CRM by reading what is already true about your business, and I show a source for everything I keep.",
+  "ob.conv.welcomeMember":
+    "Hi, I am Margince. Your team is already set up. Two short steps and you are in.",
+  "ob.conv.askUrl": "Where should I start reading? Your website works best.",
+  "ob.conv.read.started": "Reading {host} now. I will tell you what I find.",
+  "ob.conv.read.pages": "Pages read so far: {pages}.",
+  "ob.conv.read.learnedField": "Learned {field}: {value}",
+  "ob.conv.read.extracting":
+    "Done crawling. Now extracting what the site says about your business.",
+  "ob.conv.read.warning": "Heads up: {warning}",
+  "ob.conv.read.done": "Finished reading. Findings with sources: {count}.",
+  "ob.conv.read.partial":
+    "I could not read everything. Findings with sources: {count}.",
+  "ob.conv.read.failed":
+    "I could not read that site. Try another URL, or tell me directly.",
+  "ob.conv.read.deferred":
+    "The read is paused for now. I will pick it up again automatically.",
+  "ob.conv.read.pollFailed":
+    "I lost the connection while reading. What I already found is kept.",
+  "ob.conv.clarify.intro":
+    "One thing I need you to decide. The site is ambiguous here.",
+  "ob.conv.clarify.entity":
+    "The site names more than one legal entity. Which one is this installation for?",
+  "ob.conv.review.ready":
+    "I prepared the mapping. Review it and confirm what is right.",
+  "ob.conv.company.confirmed":
+    "Company profile confirmed. Everything I stored carries its source.",
+  "ob.conv.manual.chosen": "I will type it in myself.",
+  "ob.conv.voice.invite":
+    "Want me to learn how you write? Share a few texts you wrote and drafts will sound like you.",
+  "ob.conv.voice.optIn": "Yes, learn my voice.",
+  "ob.conv.voice.skipped": "Skip voice for now.",
+  "ob.conv.voice.uploadAdded": "Added {name}.",
+  "ob.conv.voice.speakerQuestion":
+    "This transcript has several speakers. Which one is you? Only your own words count.",
+  "ob.conv.voice.speakerOptionDetail": "words: {words} · turns: {turns}",
+  "ob.conv.voice.collectAsk":
+    "Send me things you wrote. Call transcripts are best: .vtt, .srt, .json, or text with speaker labels. Plain documents work too, and you can paste text below.",
+  "ob.conv.voice.composer": "Paste a text you wrote, or attach files",
+  "ob.conv.voice.attach": "Attach files",
+  "ob.conv.voice.dropHint":
+    "You can also drop files anywhere in this conversation.",
+  "ob.conv.voice.fileSkipped":
+    "I can not read {name}. I take .txt, .md, .vtt, .srt, or .json.",
+  "ob.conv.voice.fileEmpty":
+    "There are no words in {name}, so nothing was counted.",
+  "ob.conv.voice.reactionTranscript":
+    "Words kept: {kept} of {total}. Only your turns count, and spoken register is exactly what sharpens your voice.",
+  "ob.conv.voice.reactionDocument":
+    "Words counted: {words}. Every word here is yours, so all of them count.",
+  "ob.conv.voice.refusalUnattributed":
+    "That looks like a conversation, but I can not tell which words are yours. I counted nothing, because I only count words that are provably yours.",
+  "ob.conv.voice.refusalSpeaker":
+    "I could not find that speaker in the transcript. Nothing was counted.",
+  "ob.conv.voice.refusalUnsupported":
+    "I could not parse that file as text or a transcript. Nothing was counted.",
+  "ob.conv.voice.ingestFailed": "I could not add that source: {detail}",
+  "ob.conv.voice.pasteOffer":
+    "That reads like voice material. Should I add it to your corpus?",
+  "ob.conv.voice.pasteAdd": "Yes, add it to my corpus.",
+  "ob.conv.voice.pasteDiscard": "No, discard it.",
+  "ob.conv.voice.pasteTooShort":
+    "That is too short to teach me much. Attach files, or paste a longer text you wrote.",
+  "ob.conv.voice.pasteSource": "Pasted text",
+  "ob.conv.voice.buildFloor":
+    "Own words so far: {words}. I need at least {min} before I can build.",
+  "ob.conv.voice.buildNudge":
+    "I have enough to build. More material still helps: 4,000 or more words make your voice noticeably sharper.",
+  "ob.conv.voice.buildChip": "Build my voice profile",
+  "ob.conv.voice.retryBuild": "Try the build again",
+  "ob.conv.voice.buildPollFailed":
+    "I lost the connection during the build. Your texts are kept; try the build again.",
+  "ob.conv.voice.statusBuilding": "Building your voice profile",
+  "ob.conv.voice.resultTitle": "Here is your voice, in your own words.",
+  "ob.conv.voice.resultLoading": "Loading what the build learned.",
+  "ob.conv.voice.resultEmpty":
+    "The build finished, but there is nothing to show yet. You can review it in Settings.",
+  "ob.conv.voice.candidateNote":
+    "This version needs your review before it goes live. You can approve it in Settings.",
+  "ob.conv.voice.artifactTitle": "Voice corpus",
+  "ob.conv.voice.artifactBody":
+    "Only your own words count here. Every number comes from the server after speaker filtering.",
+  "ob.conv.voice.artifactEmpty":
+    "Nothing collected yet. Attach a transcript or a text you wrote.",
+  "ob.conv.voice.meterWords": "Own words: {words} of {target}",
+  "ob.conv.voice.meterBand": "Quality: {band}",
+  "ob.conv.voice.manifestKept": "Kept {kept} of {total} words",
+  "ob.conv.voice.manifestWords": "{words} words",
+  "ob.conv.voice.registerMix": "Registers: {mix}",
+  "ob.conv.voice.stageTitle": "Build progress",
+  "ob.conv.corpus.words": "Own words in your corpus now: {words}.",
+  "ob.conv.corpus.band": "Corpus quality moved to {band}.",
+  "ob.conv.build.snapshot": "Locking in your corpus.",
+  "ob.conv.build.extract": "Finding your signature moves.",
+  "ob.conv.build.evaluate": "Testing drafts against held-out samples.",
+  "ob.conv.build.activate": "Activating your voice profile.",
+  "ob.conv.build.succeeded": "Your voice profile is ready.",
+  "ob.conv.build.deferred":
+    "The build is queued behind budget. It will run automatically.",
+  "ob.conv.build.failed":
+    "The build did not finish. Your texts are kept and you can retry anytime.",
+  "ob.conv.recap":
+    "Here is what your CRM knows now, with a source for every item.",
+  "ob.conv.consent":
+    "Last step: what may I capture, and for which purpose? Nothing is on by default.",
+  "ob.conv.done": "Setup complete. Your CRM is ready.",
+  "ob.conv.composer": "Type your website address, or ask me a question",
+  "ob.conv.tellInstead": "I would rather tell you directly",
+  "ob.conv.clarify.question": "{question}",
+  "ob.conv.clarify.optionDetail": "{detail}",
+  "ob.conv.clarify.applyFailed":
+    "I could not record that choice: {detail} Pick it again.",
+  "ob.conv.clarify.applyMissing":
+    "The server did not confirm that choice. Pick it again.",
+  "ob.conv.loadFailed": "I could not check your setup. Please try again.",
+  "ob.conv.retry": "Try again",
+  "ob.conv.connect.persistFailed": "I could not record the finish. Try again.",
+  "ob.conv.review.title": "Company profile, prepared from sources",
+  "ob.conv.review.openQuestions": "Decide these before I save anything.",
+  "ob.conv.review.missing": "I still need: {fields}. Add them and I can save.",
+  "ob.conv.review.acceptAll": "Accept all",
+  "ob.conv.review.editDirectly": "Edit fields directly",
+  "ob.conv.review.backToDossier": "Back to the dossier",
+  "ob.conv.review.proposalFallback":
+    "I could not load the prepared mapping. Review what I read directly; every field keeps its source.",
+  "ob.conv.review.confirmFailed":
+    "I could not save that yet: {detail} Fix it and accept again.",
+  "ob.conv.artifact.empty":
+    "Nothing read yet. Give me a website and this panel fills with sourced findings.",
+  "ob.conv.results.continue": "Continue",
+  "ob.conv.results.artifactTitle": "Setup recap",
+  "ob.conv.results.artifactBody":
+    "What your CRM starts with. Nothing here claims more than what actually happened.",
+  "ob.conv.results.company":
+    "Company profile confirmed for {name}. Everything stored carries its source.",
+  "ob.conv.results.companyUnsaved":
+    "Your company details are not saved yet. You can complete them later in Settings.",
+  "ob.conv.results.voiceBuilt":
+    "Your voice profile is built. Drafts will sound like you.",
+  "ob.conv.results.voiceSkipped":
+    "No voice profile yet. Drafts use a neutral starter voice, and you can build yours later in Settings.",
+  "ob.conv.recap.back": "Welcome back. Here is where we stand.",
+  "ob.conv.recap.company": "Your company profile for {name} is confirmed.",
+  "ob.conv.recap.companyUnsaved":
+    "Your company details are not saved yet. You can complete them in Settings.",
+  "ob.conv.recap.voiceBuilt":
+    "Your voice profile is built. Drafts can sound like you.",
+  "ob.conv.recap.voiceSkipped":
+    "You skipped the voice profile. Drafts use a neutral starter voice.",
+  "ob.conv.recap.corpus":
+    "Your corpus already holds {words} of your own words.",
+  "ob.conv.connect.pick":
+    "Pick a provider to see exactly what connecting does, or skip and connect later in Settings.",
+  "ob.conv.connect.skip": "Skip connecting for now",
+  "ob.conv.connect.artifactTitle": "Inbox connection",
+  "ob.conv.connect.artifactEmpty":
+    "Pick a provider in the conversation and its connection panel opens here.",
 
   "auth.title": "Margince",
   "auth.checking": "Checking your session…",

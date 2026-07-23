@@ -269,6 +269,10 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		siteReadHandlers: siteReadHandlers{companyContextRollout: companyContextRolloutOnboarding},
 		onboardingStateHandlers: onboardingStateHandlers{
 			state: identity.NewOnboardingStore(pool), company: people.NewStore(pool),
+			proposal: &onboardingProposalEngine{
+				state: identity.NewOnboardingStore(pool), people: people.NewStore(pool),
+				rollout: companyContextRolloutOnboarding,
+			},
 		},
 		// The schema-change pool is boot-optional; nil
 		// here means Create/SetOptions stay their generated 501 until the

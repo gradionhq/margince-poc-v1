@@ -57,6 +57,10 @@ import {
   useCompanyContextCapabilities,
 } from "./company-context";
 import { confidenceLevel } from "./inbox";
+import {
+  conversationFlagEnabled,
+  OnboardingConversationScreen,
+} from "./onboarding-conversation/index";
 import { ReadCompanyStep } from "./onboarding-read";
 import { parseVoiceInsights, VoiceInsights } from "./voice-insights";
 import "./onboarding.css";
@@ -71,7 +75,7 @@ const STEPS = [
 const VOICE_TARGET = 30000;
 // The facts endpoint accepts at most this many selected keys; preselecting
 // more than the API takes would make the default state unsubmittable.
-const MAX_SELECTED_FACTS = 100;
+export const MAX_SELECTED_FACTS = 100;
 
 type CompanyProfile = components["schemas"]["CompanyProfile"];
 type ColdField = components["schemas"]["ColdStartField"];
@@ -114,18 +118,18 @@ const SALES_FIELDS = [
   "sales_motion",
 ] as const;
 
-type CompanyFieldName =
+export type CompanyFieldName =
   | "website"
   | (typeof LEGAL_IDENTITY_FIELDS)[number]
   | (typeof OFFER_FIELDS)[number]
   | (typeof CUSTOMER_FIELDS)[number]
   | (typeof SALES_FIELDS)[number];
-type CompanyForm = Record<CompanyFieldName, string>;
+export type CompanyForm = Record<CompanyFieldName, string>;
 
 // The universal semantic minimum is enough to tell later product calls who the
 // company is, what it sells, and to whom. Legal and registry details stay
 // optional until a workflow with a real invoicing or jurisdictional need asks.
-const REQUIRED_FIELDS = [
+export const REQUIRED_FIELDS = [
   "display_name",
   "offer_summary",
   "icp",
@@ -256,7 +260,7 @@ type Grounded = Partial<Record<ColdField["field"], ColdField>>;
 
 // One state object, because the three parts move together: typing a value
 // drops its site grounding (the value is the human's now) and marks it typed.
-type CompanyDraft = {
+export type CompanyDraft = {
   values: CompanyForm;
   grounded: Grounded;
   edited: ReadonlySet<CompanyFieldName>;
@@ -282,7 +286,7 @@ const EMPTY_FORM: CompanyForm = {
   history: "",
 };
 
-const EMPTY_DRAFT: CompanyDraft = {
+export const EMPTY_DRAFT: CompanyDraft = {
   values: EMPTY_FORM,
   grounded: {},
   edited: new Set(),
@@ -292,7 +296,7 @@ function orEmpty(value: string | null | undefined): string {
   return value ?? "";
 }
 
-function formFromProfile(p: CompanyProfile): CompanyForm {
+export function formFromProfile(p: CompanyProfile): CompanyForm {
   return {
     display_name: p.display_name,
     website: orEmpty(p.website),
@@ -343,7 +347,7 @@ export function useCompany(enabled: boolean) {
 // cleared first, then the new read fills what it can quote — a field the new
 // site does not ground goes back to empty for manual entry (the no-guess
 // gate), and a field the human typed or edited keeps their text throughout.
-function prefill(
+export function prefill(
   draft: CompanyDraft,
   fields: readonly ColdField[],
 ): CompanyDraft {
@@ -366,7 +370,7 @@ function prefill(
   return { values, grounded, edited: draft.edited };
 }
 
-function changeDraftField(
+export function changeDraftField(
   draft: CompanyDraft,
   field: CompanyFieldName,
   value: string,
@@ -383,7 +387,7 @@ function changeDraftField(
 }
 
 // URL normalization/validation (S-E01.1: scheme/host/dedupe, honest invalid).
-function normalizeUrl(raw: string): {
+export function normalizeUrl(raw: string): {
   ok: boolean;
   host: string;
   full: string;
@@ -419,7 +423,7 @@ function optionalDraftValue(value: string): string | null {
   return trimmed === "" ? null : value;
 }
 
-function onboardingDraftPayload(values: CompanyForm) {
+export function onboardingDraftPayload(values: CompanyForm) {
   return {
     display_name: optionalDraftValue(values.display_name),
     offer_summary: optionalDraftValue(values.offer_summary),
@@ -462,7 +466,7 @@ class WizardStateWriteError extends Error {
   }
 }
 
-async function writeWizardState(body: PutOnboardingState) {
+export async function writeWizardState(body: PutOnboardingState) {
   const { data, error, response } = await api.PUT("/onboarding/state", {
     params: { header: { "Idempotency-Key": crypto.randomUUID() } },
     body,
@@ -473,7 +477,7 @@ async function writeWizardState(body: PutOnboardingState) {
   return data;
 }
 
-function wizardStateBody(input: {
+export function wizardStateBody(input: {
   expectedVersion: number;
   nextStep: number;
   mode: SourceMode | null;
@@ -536,6 +540,11 @@ export function OnboardingScreen() {
   const capabilities = useCompanyContextCapabilities();
   if (capabilities.data && !capabilities.data.onboarding_enabled) {
     return <ManualCompanySetup />;
+  }
+  // The conversational shell ships behind an opt-in flag until it covers the
+  // whole journey; the stepper coordinator stays the default experience.
+  if (conversationFlagEnabled()) {
+    return <OnboardingConversationScreen />;
   }
   return <OnboardingCoordinator />;
 }
@@ -1217,7 +1226,7 @@ function Footer({
 
 // ---- step 1: company -------------------------------------------------------
 
-function ManualCompanyInterview({
+export function ManualCompanyInterview({
   values,
   setField,
   onPersist,
@@ -1327,7 +1336,7 @@ function ManualCompanyInterview({
   );
 }
 
-function CompanyStep({
+export function CompanyStep({
   draft,
   setField,
   read,
@@ -1690,7 +1699,7 @@ export function WebsiteReadBar({
 
 // A field the read-back grounded and the human has not touched still carries
 // the site's evidence; anything else is the human's own.
-function groundingOf(
+export function groundingOf(
   draft: CompanyDraft,
   field: CompanyFieldName,
 ): ColdField | null {
@@ -1874,30 +1883,50 @@ const SOURCES: Source[] = [
 
 // The accepted corpus formats, mirroring the contract's format enum
 // (crm.yaml IngestVoiceCorpusSourceRequest.format: txt/md/vtt/srt/json).
-const ACCEPTED_CORPUS_FILE = /\.(txt|md|vtt|srt|json)$/i;
-const ACCEPTED_CORPUS_ATTR = ".txt,.md,.vtt,.srt,.json";
+export const ACCEPTED_CORPUS_FILE = /\.(txt|md|vtt|srt|json)$/i;
+export const ACCEPTED_CORPUS_ATTR = ".txt,.md,.vtt,.srt,.json";
 
 type VoicePiece = {
   ref: string;
   label: string;
+  // words is what actually counts toward the voice: for a transcript, the
+  // server-computed word count of ONLY the owner's turns; totalWords is the
+  // whole file, kept so the honest "kept X of Y" line can be shown.
   words: number;
+  totalWords: number;
   content: string;
   register: components["schemas"]["IngestVoiceCorpusSourceRequest"]["register"];
   kind: components["schemas"]["IngestVoiceCorpusSourceRequest"]["kind"];
+  format: components["schemas"]["IngestVoiceCorpusSourceRequest"]["format"];
+  speakerLabel?: string;
 };
+
+type CorpusPreview = components["schemas"]["VoiceCorpusPreviewResult"];
+
+// A transcript whose speakers are known but whose owner is not yet: the
+// step asks "which of these is you?" before a single word is counted.
+type SpeakerAsk = {
+  ref: string;
+  label: string;
+  content: string;
+  totalWords: number;
+  preview: CorpusPreview;
+};
+
+export const TRANSCRIPT_EXT = /\.(vtt|srt|json)$/i;
 
 // The corpus meter is honest: it counts only the real words the owner uploaded
 // or pasted here (the build ingests exactly these). Presets below are examples
 // of what will feed the voice once connected — never fabricated word counts.
 // 800 mirrors the server's build floor ("at least 800 eligible own-authored
 // words"): gating the button here turns that 422 into a clear, up-front ask.
-const VOICE_MIN_WORDS = 800;
+export const VOICE_MIN_WORDS = 800;
 const PASTE_REF = "onboarding:paste";
 
 // pickBuiltVersion names the version the build just produced: the highest
 // numbered active-or-candidate row — active when it auto-activated,
 // candidate when it awaits review.
-function pickBuiltVersion(
+export function pickBuiltVersion(
   items: components["schemas"]["VoiceProfileVersion"][],
 ): components["schemas"]["VoiceProfileVersion"] | null {
   let built: components["schemas"]["VoiceProfileVersion"] | null = null;
@@ -1964,6 +1993,11 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
   const [pieces, setPieces] = useState<VoicePiece[]>([]);
   const [paste, setPaste] = useState("");
   const [skipped, setSkipped] = useState<string[]>([]);
+  const [speakerAsks, setSpeakerAsks] = useState<SpeakerAsk[]>([]);
+  // Per-file refusals: a corrected re-upload clears its own entry instead
+  // of one file's failure masking another's.
+  const [probeErrors, setProbeErrors] = useState<Record<string, string>>({});
+  const [probesInFlight, setProbesInFlight] = useState(0);
   const [dragOver, setDragOver] = useState(false);
   const [built, setBuilt] = useState(false);
   const [building, setBuilding] = useState(false);
@@ -2009,43 +2043,150 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
     };
   }, [pieces, pasteWords]);
 
+  const addPiece = (piece: VoicePiece) => {
+    setPieces((prev) => [...prev.filter((p) => p.ref !== piece.ref), piece]);
+  };
+
+  // Parallel uploads share ONE profile resolution: concurrent
+  // ensureProfileId calls would race each other into the server's
+  // one-live-profile conflict. A failed resolution clears the slot so the
+  // next upload can retry rather than inheriting a dead promise.
+  const profileIdInFlight = useRef<Promise<string> | null>(null);
+  const sharedProfileId = () => {
+    profileIdInFlight.current ??= ensureProfileId().catch((err: unknown) => {
+      profileIdInFlight.current = null;
+      throw err;
+    });
+    return profileIdInFlight.current;
+  };
+
+  // classifyUpload decides what one file honestly IS before anything counts:
+  // the server preview detects transcript structure and counts each
+  // speaker's SPOKEN words (labels and timestamps are never words), so a
+  // conversation never enters the meter whole — the owner is asked which
+  // speaker they are first (features/09 §B1.2).
+  async function classifyUpload(name: string, text: string) {
+    if (text.split(/\s+/).filter(Boolean).length === 0) {
+      return;
+    }
+    const ref = `onboarding:upload:${name}`;
+    const profileId = await sharedProfileId();
+    const { data, error } = await api.POST(
+      "/voice-profiles/{id}/sources/preview",
+      {
+        params: { path: { id: profileId } },
+        body: { format: "transcript", content: text },
+      },
+    );
+    if (error) {
+      throw new Error(problemMessage(error));
+    }
+    if (!mounted.current) {
+      return;
+    }
+    setProbeErrors((prev) => {
+      const { [ref]: _cleared, ...rest } = prev;
+      return rest;
+    });
+    const attributedWords = data.speakers.reduce(
+      (sum, speaker) => sum + speaker.words,
+      0,
+    );
+    // A .txt can be a pasted transcript too: treat it as one when the
+    // preview attributes most of its spoken words to labelled speakers.
+    const conversational =
+      TRANSCRIPT_EXT.test(name) ||
+      (data.ingestible_as_transcript &&
+        attributedWords >= data.total_words * 0.8);
+    if (conversational && data.ingestible_as_transcript) {
+      // A re-upload replaces any previously counted piece under this ref:
+      // nothing may stay in the meter while its replacement awaits the
+      // speaker answer.
+      setPieces((prev) => prev.filter((p) => p.ref !== ref));
+      setSpeakerAsks((prev) => [
+        ...prev.filter((ask) => ask.ref !== ref),
+        {
+          ref,
+          label: name,
+          content: text,
+          totalWords: data.total_words,
+          preview: data,
+        },
+      ]);
+      return;
+    }
+    if (TRANSCRIPT_EXT.test(name)) {
+      // Transcript-shaped but nobody is attributable: none of it can be
+      // proven the owner's own words, so none of it is counted.
+      setPieces((prev) => prev.filter((p) => p.ref !== ref));
+      setProbeErrors((prev) => ({
+        ...prev,
+        [ref]: t("ob.s2.unattributed", { file: name }),
+      }));
+      return;
+    }
+    addPiece({
+      ref,
+      label: name,
+      words: data.total_words,
+      totalWords: data.total_words,
+      content: text,
+      register: "general",
+      kind: "document",
+      format: "text",
+    });
+  }
+
   // One intake for both entry paths — the file picker and a drag&drop onto
-  // the dropzone feed the exact same corpus pipeline.
+  // the dropzone feed the exact same corpus pipeline. V1 corpus is text only
+  // (features/09 §B1.1); binary documents (.docx/.pdf) are refused.
   const addFiles = (files: File[]) => {
     const rejected: string[] = [];
     for (const file of files) {
-      // V1 corpus is text only (features/09 §B1.1): the meter counts the real
-      // words of what was read — never an estimate — and the text is KEPT so
-      // the real build can ingest it. Binary documents (.docx/.pdf) are
-      // refused; deferred: B-E07.5c (server-side extraction).
       if (!ACCEPTED_CORPUS_FILE.test(file.name)) {
         rejected.push(file.name);
         continue;
       }
-      file.text().then((text) => {
-        if (!mounted.current) {
-          return;
-        }
-        const words = text.split(/\s+/).filter(Boolean).length;
-        if (words === 0) {
-          return;
-        }
-        const spoken = /\.(vtt|srt)$/i.test(file.name);
-        const ref = `onboarding:upload:${file.name}`;
-        setPieces((prev) => [
-          ...prev.filter((p) => p.ref !== ref),
-          {
-            ref,
-            label: file.name,
-            words,
-            content: text,
-            register: spoken ? "spoken" : "general",
-            kind: spoken ? "transcript" : "document",
-          },
-        ]);
-      });
+      setProbesInFlight((n) => n + 1);
+      file
+        .text()
+        .then((text) => classifyUpload(file.name, text))
+        .catch((err: unknown) => {
+          if (mounted.current) {
+            setProbeErrors((prev) => ({
+              ...prev,
+              [`onboarding:upload:${file.name}`]:
+                err instanceof Error ? err.message : String(err),
+            }));
+          }
+        })
+        .finally(() => {
+          if (mounted.current) {
+            setProbesInFlight((n) => n - 1);
+          }
+        });
     }
     setSkipped(rejected);
+  };
+
+  // The owner named themselves: only THAT speaker's server-counted words
+  // enter the meter; the rest of the conversation contributes zero.
+  const resolveSpeaker = (
+    ask: SpeakerAsk,
+    speaker: CorpusPreview["speakers"][number],
+  ) => {
+    setSpeakerAsks((prev) => prev.filter((p) => p.ref !== ask.ref));
+    addPiece({
+      ref: ask.ref,
+      label: ask.label,
+      words: speaker.words,
+      totalWords: ask.totalWords,
+      content: ask.content,
+      register: "spoken",
+      kind: "transcript",
+      format: "transcript",
+      speakerLabel: speaker.label,
+    });
   };
 
   const onFiles = (e: ChangeEvent<HTMLInputElement>) => {
@@ -2054,7 +2195,14 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
   };
 
   const quality = corpusQuality(corpus.total);
-  const canBuild = corpus.total >= VOICE_MIN_WORDS && !building;
+  // Building must wait for every upload to finish classifying and every
+  // speaker question to be answered — a build that silently omitted a file
+  // still being probed would misrepresent what the voice was made from.
+  const canBuild =
+    corpus.total >= VOICE_MIN_WORDS &&
+    !building &&
+    probesInFlight === 0 &&
+    speakerAsks.length === 0;
 
   async function ingest(profileId: string, piece: VoicePiece) {
     const { error } = await api.POST("/voice-profiles/{id}/sources", {
@@ -2065,7 +2213,8 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
         weight: 1,
         source_label: piece.label,
         source_ref: piece.ref,
-        format: "text",
+        format: piece.format,
+        speaker_label: piece.speakerLabel ?? null,
         content: piece.content,
       },
     });
@@ -2134,9 +2283,11 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
         ref: PASTE_REF,
         label: t("ob.s2.pasteSource"),
         words: pasteWords,
+        totalWords: pasteWords,
         content: paste,
         register: "general",
         kind: "other",
+        format: "text",
       });
     }
   }
@@ -2196,7 +2347,7 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
     setBuilding(true);
     setBuildError(null);
     try {
-      const profileId = await ensureProfileId();
+      const profileId = await sharedProfileId();
       await ingestCorpus(profileId);
       const outcome = await pollBuild(profileId, await startBuild(profileId));
       if (mounted.current) {
@@ -2300,15 +2451,71 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
           accept={ACCEPTED_CORPUS_ATTR}
           onChange={onFiles}
         />
+        {speakerAsks.map((ask) => (
+          <fieldset
+            key={ask.ref}
+            className="card"
+            style={{
+              marginTop: "var(--space-2)",
+              padding: "var(--space-3)",
+              border: 0,
+            }}
+          >
+            <legend style={{ fontWeight: 600 }}>
+              {t("ob.s2.speakerAsk", { file: ask.label })}
+            </legend>
+            <div
+              style={{
+                display: "flex",
+                gap: "var(--space-2)",
+                flexWrap: "wrap",
+                marginTop: "var(--space-2)",
+              }}
+            >
+              {ask.preview.speakers.map((speaker) => (
+                <Button
+                  small
+                  key={speaker.label}
+                  onClick={() => resolveSpeaker(ask, speaker)}
+                >
+                  {t("ob.s2.speakerOption", {
+                    name: speaker.label,
+                    words: speaker.words.toLocaleString(),
+                    turns: speaker.turns,
+                  })}
+                </Button>
+              ))}
+            </div>
+          </fieldset>
+        ))}
         {pieces.length > 0 && (
           <ul className="vp-list" style={{ marginTop: 10 }}>
             {pieces.map((p) => (
               <li key={p.ref}>
                 <Check aria-hidden /> {p.label} · {p.words.toLocaleString()}
+                {p.speakerLabel && (
+                  <span className="t-small">
+                    {" "}
+                    {t("ob.s2.keptOnly", {
+                      kept: p.words.toLocaleString(),
+                      total: p.totalWords.toLocaleString(),
+                      speaker: p.speakerLabel,
+                    })}
+                  </span>
+                )}
               </li>
             ))}
           </ul>
         )}
+        {Object.entries(probeErrors).map(([ref, message]) => (
+          <output
+            key={ref}
+            className="ob-sub"
+            style={{ display: "block", marginTop: "var(--space-2)" }}
+          >
+            {message}
+          </output>
+        ))}
 
         <div className="field" style={{ marginTop: "var(--space-3)" }}>
           <label className="t-label" htmlFor="voice-paste">
@@ -2456,7 +2663,7 @@ function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
 
 // ---- step 3: results -------------------------------------------------------
 
-function ResultsStep({
+export function ResultsStep({
   voiceBuilt,
   profileSaved,
   profile,
@@ -2667,7 +2874,7 @@ function ConnectWarn({ title, body }: { title: string; body: string }) {
 // Google: the server mints the consent URL (and the signed state + CSRF
 // cookie that guard the callback); the browser just goes. The return deep
 // link lands back here with the outcome in the route.
-function GoogleConnectPanel({
+export function GoogleConnectPanel({
   outcome,
   onComplete,
 }: Readonly<{
@@ -2800,7 +3007,7 @@ function GoogleConnectPanel({
   );
 }
 
-function MicrosoftConnectPanel({
+export function MicrosoftConnectPanel({
   onComplete,
 }: Readonly<{ onComplete: (skipped: boolean) => Promise<void> }>) {
   const t = useT();
@@ -2819,7 +3026,7 @@ function MicrosoftConnectPanel({
 }
 
 // IMAP: the one-shot pull, exactly as before — the form is the consent.
-function ImapConnectPanel({
+export function ImapConnectPanel({
   onComplete,
 }: Readonly<{ onComplete: (skipped: boolean) => Promise<void> }>) {
   const t = useT();

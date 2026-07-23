@@ -2879,16 +2879,16 @@ func (e FieldHistoryEntryEntityType) Valid() bool {
 
 // Defines values for FilteredExportRequestFormat.
 const (
-	Csv  FilteredExportRequestFormat = "csv"
-	Json FilteredExportRequestFormat = "json"
+	FilteredExportRequestFormatCsv  FilteredExportRequestFormat = "csv"
+	FilteredExportRequestFormatJson FilteredExportRequestFormat = "json"
 )
 
 // Valid indicates whether the value is a known member of the FilteredExportRequestFormat enum.
 func (e FilteredExportRequestFormat) Valid() bool {
 	switch e {
-	case Csv:
+	case FilteredExportRequestFormatCsv:
 		return true
-	case Json:
+	case FilteredExportRequestFormatJson:
 		return true
 	default:
 		return false
@@ -3297,10 +3297,38 @@ func (e OmittedExtractionFieldReason) Valid() bool {
 	}
 }
 
+// Defines values for OnboardingAct.
+const (
+	OnboardingActCompany OnboardingAct = "company"
+	OnboardingActConnect OnboardingAct = "connect"
+	OnboardingActResults OnboardingAct = "results"
+	OnboardingActVoice   OnboardingAct = "voice"
+)
+
+// Valid indicates whether the value is a known member of the OnboardingAct enum.
+func (e OnboardingAct) Valid() bool {
+	switch e {
+	case OnboardingActCompany:
+		return true
+	case OnboardingActConnect:
+		return true
+	case OnboardingActResults:
+		return true
+	case OnboardingActVoice:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for OnboardingCompanyMessageReplyAvailableAction.
 const (
-	OnboardingAvailableActionConfirmCompany OnboardingCompanyMessageReplyAvailableAction = "confirm_company"
-	OnboardingAvailableActionNone           OnboardingCompanyMessageReplyAvailableAction = "<nil>"
+	OnboardingAvailableActionConfirmCompany    OnboardingCompanyMessageReplyAvailableAction = "confirm_company"
+	OnboardingAvailableActionConnectInbox      OnboardingCompanyMessageReplyAvailableAction = "connect_inbox"
+	OnboardingAvailableActionFinish            OnboardingCompanyMessageReplyAvailableAction = "finish"
+	OnboardingAvailableActionNone              OnboardingCompanyMessageReplyAvailableAction = "<nil>"
+	OnboardingAvailableActionStartVoiceBuild   OnboardingCompanyMessageReplyAvailableAction = "start_voice_build"
+	OnboardingAvailableActionUploadVoiceSource OnboardingCompanyMessageReplyAvailableAction = "upload_voice_source"
 )
 
 // Valid indicates whether the value is a known member of the OnboardingCompanyMessageReplyAvailableAction enum.
@@ -3308,7 +3336,15 @@ func (e OnboardingCompanyMessageReplyAvailableAction) Valid() bool {
 	switch e {
 	case OnboardingAvailableActionConfirmCompany:
 		return true
+	case OnboardingAvailableActionConnectInbox:
+		return true
+	case OnboardingAvailableActionFinish:
+		return true
 	case OnboardingAvailableActionNone:
+		return true
+	case OnboardingAvailableActionStartVoiceBuild:
+		return true
+	case OnboardingAvailableActionUploadVoiceSource:
 		return true
 	default:
 		return false
@@ -5292,6 +5328,48 @@ func (e VoiceBuildStatusCode) Valid() bool {
 	}
 }
 
+// Defines values for VoiceCorpusPreviewRequestFormat.
+const (
+	VoiceCorpusPreviewRequestFormatText       VoiceCorpusPreviewRequestFormat = "text"
+	VoiceCorpusPreviewRequestFormatTranscript VoiceCorpusPreviewRequestFormat = "transcript"
+)
+
+// Valid indicates whether the value is a known member of the VoiceCorpusPreviewRequestFormat enum.
+func (e VoiceCorpusPreviewRequestFormat) Valid() bool {
+	switch e {
+	case VoiceCorpusPreviewRequestFormatText:
+		return true
+	case VoiceCorpusPreviewRequestFormatTranscript:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VoiceCorpusPreviewResultDetectedFormat.
+const (
+	VoiceCorpusPreviewResultDetectedFormatJson VoiceCorpusPreviewResultDetectedFormat = "json"
+	VoiceCorpusPreviewResultDetectedFormatSrt  VoiceCorpusPreviewResultDetectedFormat = "srt"
+	VoiceCorpusPreviewResultDetectedFormatTxt  VoiceCorpusPreviewResultDetectedFormat = "txt"
+	VoiceCorpusPreviewResultDetectedFormatVtt  VoiceCorpusPreviewResultDetectedFormat = "vtt"
+)
+
+// Valid indicates whether the value is a known member of the VoiceCorpusPreviewResultDetectedFormat enum.
+func (e VoiceCorpusPreviewResultDetectedFormat) Valid() bool {
+	switch e {
+	case VoiceCorpusPreviewResultDetectedFormatJson:
+		return true
+	case VoiceCorpusPreviewResultDetectedFormatSrt:
+		return true
+	case VoiceCorpusPreviewResultDetectedFormatTxt:
+		return true
+	case VoiceCorpusPreviewResultDetectedFormatVtt:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for VoiceCorpusSourceKind.
 const (
 	VoiceCorpusSourceKindDocument   VoiceCorpusSourceKind = "document"
@@ -5660,31 +5738,31 @@ func (e CaptureProvider) Valid() bool {
 
 // Defines values for ListActivitiesParamsKind.
 const (
-	ListActivitiesParamsKindCall     ListActivitiesParamsKind = "call"
-	ListActivitiesParamsKindEmail    ListActivitiesParamsKind = "email"
-	ListActivitiesParamsKindMeeting  ListActivitiesParamsKind = "meeting"
-	ListActivitiesParamsKindNote     ListActivitiesParamsKind = "note"
-	ListActivitiesParamsKindTask     ListActivitiesParamsKind = "task"
-	ListActivitiesParamsKindTelegram ListActivitiesParamsKind = "telegram"
-	ListActivitiesParamsKindWhatsapp ListActivitiesParamsKind = "whatsapp"
+	Call     ListActivitiesParamsKind = "call"
+	Email    ListActivitiesParamsKind = "email"
+	Meeting  ListActivitiesParamsKind = "meeting"
+	Note     ListActivitiesParamsKind = "note"
+	Task     ListActivitiesParamsKind = "task"
+	Telegram ListActivitiesParamsKind = "telegram"
+	Whatsapp ListActivitiesParamsKind = "whatsapp"
 )
 
 // Valid indicates whether the value is a known member of the ListActivitiesParamsKind enum.
 func (e ListActivitiesParamsKind) Valid() bool {
 	switch e {
-	case ListActivitiesParamsKindCall:
+	case Call:
 		return true
-	case ListActivitiesParamsKindEmail:
+	case Email:
 		return true
-	case ListActivitiesParamsKindMeeting:
+	case Meeting:
 		return true
-	case ListActivitiesParamsKindNote:
+	case Note:
 		return true
-	case ListActivitiesParamsKindTask:
+	case Task:
 		return true
-	case ListActivitiesParamsKindTelegram:
+	case Telegram:
 		return true
-	case ListActivitiesParamsKindWhatsapp:
+	case Whatsapp:
 		return true
 	default:
 		return false
@@ -6114,6 +6192,24 @@ func (e ListListsParamsEntityType) Valid() bool {
 	case ListListsParamsEntityTypeOrganization:
 		return true
 	case ListListsParamsEntityTypePerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GetOnboardingCompanyProposalParamsLocale.
+const (
+	OnboardingProposalLocaleDE GetOnboardingCompanyProposalParamsLocale = "de"
+	OnboardingProposalLocaleEN GetOnboardingCompanyProposalParamsLocale = "en"
+)
+
+// Valid indicates whether the value is a known member of the GetOnboardingCompanyProposalParamsLocale enum.
+func (e GetOnboardingCompanyProposalParamsLocale) Valid() bool {
+	switch e {
+	case OnboardingProposalLocaleDE:
+		return true
+	case OnboardingProposalLocaleEN:
 		return true
 	default:
 		return false
@@ -8724,7 +8820,11 @@ type ImapConnectResult struct {
 
 // IngestVoiceCorpusSourceRequest defines model for IngestVoiceCorpusSourceRequest.
 type IngestVoiceCorpusSourceRequest struct {
-	Content     *string                                `json:"content,omitempty"`
+	Content *string `json:"content,omitempty"`
+
+	// Format Send `transcript` for anything conversational — .vtt, .srt, transcript JSON,
+	// and speaker-labelled plain text ("Name: …" lines) alike; the server detects
+	// the concrete shape. `text` is for single-author prose only.
 	Format      IngestVoiceCorpusSourceRequestFormat   `json:"format"`
 	Kind        IngestVoiceCorpusSourceRequestKind     `json:"kind"`
 	OccurredAt  *time.Time                             `json:"occurred_at,omitempty"`
@@ -8737,7 +8837,9 @@ type IngestVoiceCorpusSourceRequest struct {
 	Weight       *float32 `json:"weight,omitempty"`
 }
 
-// IngestVoiceCorpusSourceRequestFormat defines model for IngestVoiceCorpusSourceRequest.Format.
+// IngestVoiceCorpusSourceRequestFormat Send `transcript` for anything conversational — .vtt, .srt, transcript JSON,
+// and speaker-labelled plain text ("Name: …" lines) alike; the server detects
+// the concrete shape. `text` is for single-author prose only.
 type IngestVoiceCorpusSourceRequestFormat string
 
 // IngestVoiceCorpusSourceRequestKind defines model for IngestVoiceCorpusSourceRequest.Kind.
@@ -9258,6 +9360,45 @@ type OmittedExtractionField struct {
 // OmittedExtractionFieldReason defines model for OmittedExtractionField.Reason.
 type OmittedExtractionFieldReason string
 
+// OnboardingAct The four onboarding conversation acts.
+type OnboardingAct string
+
+// OnboardingClarify One server-detected open question with its closed option list. Options are produced
+// deterministically from the persisted read (legal-entity census, human-conflict
+// comparisons) — never by a model. Answers travel back either as `selected_option` on the
+// next message or as a CompanySiteReadResolution at confirm time.
+type OnboardingClarify struct {
+	// AllowFreeText Whether typing a different value is also a valid answer.
+	AllowFreeText *bool `json:"allow_free_text,omitempty"`
+
+	// Field The profile field or comparison key the question resolves.
+	Field string `json:"field"`
+
+	// Id Stable per read draft version, e.g. clarify:<field>:<draft_version>.
+	Id       string                    `json:"id"`
+	Options  []OnboardingClarifyOption `json:"options"`
+	Question string                    `json:"question"`
+}
+
+// OnboardingClarifyOption defines model for OnboardingClarifyOption.
+type OnboardingClarifyOption struct {
+	// Detail Provenance or disambiguation help for this option.
+	Detail          *string `json:"detail,omitempty"`
+	EvidenceSnippet *string `json:"evidence_snippet,omitempty"`
+	EvidenceUrl     *string `json:"evidence_url,omitempty"`
+	Label           string  `json:"label"`
+
+	// Value The exact string the selection authorizes — verbatim from the read or the current record.
+	Value string `json:"value"`
+}
+
+// OnboardingClarifySelection defines model for OnboardingClarifySelection.
+type OnboardingClarifySelection struct {
+	ClarifyId string `json:"clarify_id"`
+	Field     string `json:"field"`
+	Value     string `json:"value"`
+}
+
 // OnboardingCompanyDraft Partial human-editable company input retained while the wizard is unfinished. Every field
 // is optional here because this is not confirmed company truth; confirmation uses the stricter
 // CompanyProfileInput or ConfirmCompanySiteReadRequest contract. Values are bounded because the
@@ -9283,10 +9424,19 @@ type OnboardingCompanyDraft struct {
 
 // OnboardingCompanyMessageReply defines model for OnboardingCompanyMessageReply.
 type OnboardingCompanyMessageReply struct {
+	// Act The four onboarding conversation acts.
+	Act OnboardingAct `json:"act"`
+
 	// AiRuntime Cumulative price-on-read transparency for model calls carrying one run correlation id.
-	AiRuntime               AiRunSummary                                           `json:"ai_runtime"`
-	AvailableAction         *OnboardingCompanyMessageReplyAvailableAction          `json:"available_action,omitempty"`
-	Citations               []CompanySiteReadCitation                              `json:"citations"`
+	AiRuntime       AiRunSummary                                  `json:"ai_runtime"`
+	AvailableAction *OnboardingCompanyMessageReplyAvailableAction `json:"available_action,omitempty"`
+	Citations       []CompanySiteReadCitation                     `json:"citations"`
+
+	// Clarify One server-detected open question with its closed option list. Options are produced
+	// deterministically from the persisted read (legal-entity census, human-conflict
+	// comparisons) — never by a model. Answers travel back either as `selected_option` on the
+	// next message or as a CompanySiteReadResolution at confirm time.
+	Clarify                 *OnboardingClarify                                     `json:"clarify,omitempty"`
 	Kind                    CompanyConversationResponseKind                        `json:"kind"`
 	Message                 string                                                 `json:"message"`
 	NextRequiredField       *OnboardingCompanyMessageReplyNextRequiredField        `json:"next_required_field,omitempty"`
@@ -9305,18 +9455,46 @@ type OnboardingCompanyMessageReplyRemainingRequiredFields string
 
 // OnboardingCompanyMessageRequest defines model for OnboardingCompanyMessageRequest.
 type OnboardingCompanyMessageRequest struct {
+	// Act The four onboarding conversation acts.
+	Act *OnboardingAct `json:"act,omitempty"`
+
 	// CompanyDraft Partial human-editable company input retained while the wizard is unfinished. Every field
 	// is optional here because this is not confirmed company truth; confirmation uses the stricter
 	// CompanyProfileInput or ConfirmCompanySiteReadRequest contract. Values are bounded because the
 	// same draft may be supplied as context to the conversational assistant.
-	CompanyDraft *OnboardingCompanyDraft               `json:"company_draft,omitempty"`
-	History      *[]CompanySiteReadConversationTurn    `json:"history,omitempty"`
-	Locale       OnboardingCompanyMessageRequestLocale `json:"locale"`
-	Message      string                                `json:"message"`
+	CompanyDraft   *OnboardingCompanyDraft               `json:"company_draft,omitempty"`
+	History        *[]CompanySiteReadConversationTurn    `json:"history,omitempty"`
+	Locale         OnboardingCompanyMessageRequestLocale `json:"locale"`
+	Message        string                                `json:"message"`
+	SelectedOption *OnboardingClarifySelection           `json:"selected_option,omitempty"`
 }
 
 // OnboardingCompanyMessageRequestLocale defines model for OnboardingCompanyMessageRequest.Locale.
 type OnboardingCompanyMessageRequestLocale string
+
+// OnboardingCompanyProposal The deterministic "prepared mapping" snapshot the conversational shell narrates. Everything
+// here is computed from the persisted read — no model call. `draft_version` and
+// `proposal_hash` are the pair ConfirmCompanySiteRead must echo.
+type OnboardingCompanyProposal struct {
+	DraftVersion  *int                              `json:"draft_version,omitempty"`
+	Facts         *[]CompanySiteReadFact            `json:"facts,omitempty"`
+	Fields        *[]OnboardingCompanyProposalField `json:"fields,omitempty"`
+	OpenQuestions *[]OnboardingClarify              `json:"open_questions,omitempty"`
+	ProposalHash  *string                           `json:"proposal_hash,omitempty"`
+
+	// Ready False while the read is still queued
+	Ready                   bool      `json:"ready"`
+	RemainingRequiredFields *[]string `json:"remaining_required_fields,omitempty"`
+}
+
+// OnboardingCompanyProposalField defines model for OnboardingCompanyProposalField.
+type OnboardingCompanyProposalField struct {
+	Confidence      float32 `json:"confidence"`
+	EvidenceSnippet string  `json:"evidence_snippet"`
+	Field           string  `json:"field"`
+	SourceUrl       string  `json:"source_url"`
+	Value           string  `json:"value"`
+}
 
 // OnboardingState defines model for OnboardingState.
 type OnboardingState struct {
@@ -10968,6 +11146,37 @@ type VoiceBuildStatus string
 // VoiceBuildStatusCode defines model for VoiceBuild.StatusCode.
 type VoiceBuildStatusCode string
 
+// VoiceCorpusPreviewRequest defines model for VoiceCorpusPreviewRequest.
+type VoiceCorpusPreviewRequest struct {
+	Content *string `json:"content,omitempty"`
+
+	// Format Send transcript for anything conversational - the server detects the
+	// concrete shape (vtt, srt, transcript JSON, or labelled plain text).
+	// text skips speaker detection entirely.
+	Format VoiceCorpusPreviewRequestFormat `json:"format"`
+}
+
+// VoiceCorpusPreviewRequestFormat Send transcript for anything conversational - the server detects the
+// concrete shape (vtt, srt, transcript JSON, or labelled plain text).
+// text skips speaker detection entirely.
+type VoiceCorpusPreviewRequestFormat string
+
+// VoiceCorpusPreviewResult Dry-run inspection of a candidate source; nothing is stored.
+type VoiceCorpusPreviewResult struct {
+	DetectedFormat         VoiceCorpusPreviewResultDetectedFormat `json:"detected_format"`
+	IngestibleAsTranscript bool                                   `json:"ingestible_as_transcript"`
+	Speakers               []struct {
+		Label string `json:"label"`
+		Turns int    `json:"turns"`
+		Words int    `json:"words"`
+	} `json:"speakers"`
+	TotalWords        int `json:"total_words"`
+	UnattributedWords int `json:"unattributed_words"`
+}
+
+// VoiceCorpusPreviewResultDetectedFormat defines model for VoiceCorpusPreviewResult.DetectedFormat.
+type VoiceCorpusPreviewResultDetectedFormat string
+
 // VoiceCorpusSource Privacy-safe source manifest. Retained source text is deliberately not returned.
 type VoiceCorpusSource struct {
 	ArchivedAt       *time.Time                `json:"archived_at"`
@@ -11018,6 +11227,15 @@ type VoiceCorpusSummaryMaturity string
 
 // VoiceCorpusSummaryQualityBand defines model for VoiceCorpusSummary.QualityBand.
 type VoiceCorpusSummaryQualityBand string
+
+// VoiceIngestStats What the speaker filter did to one ingested source; kept words are the only words that count.
+type VoiceIngestStats struct {
+	DiscardedTurns int      `json:"discarded_turns"`
+	InputWords     int      `json:"input_words"`
+	KeptTurns      int      `json:"kept_turns"`
+	KeptWords      int      `json:"kept_words"`
+	SpeakersSeen   []string `json:"speakers_seen"`
+}
 
 // VoiceLearningSummary defines model for VoiceLearningSummary.
 type VoiceLearningSummary struct {
@@ -12304,6 +12522,15 @@ type SendOfferParams struct {
 	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
+
+// GetOnboardingCompanyProposalParams defines parameters for GetOnboardingCompanyProposal.
+type GetOnboardingCompanyProposalParams struct {
+	// Locale Language for the open questions' copy; option values are locale-invariant.
+	Locale *GetOnboardingCompanyProposalParamsLocale `form:"locale,omitempty" json:"locale,omitempty"`
+}
+
+// GetOnboardingCompanyProposalParamsLocale defines parameters for GetOnboardingCompanyProposal.
+type GetOnboardingCompanyProposalParamsLocale string
 
 // PutOnboardingStateParams defines parameters for PutOnboardingState.
 type PutOnboardingStateParams struct {
@@ -13649,6 +13876,9 @@ type RejectVoiceDraftJSONRequestBody = RejectVoiceDraftRequest
 
 // IngestVoiceCorpusSourceJSONRequestBody defines body for IngestVoiceCorpusSource for application/json ContentType.
 type IngestVoiceCorpusSourceJSONRequestBody = IngestVoiceCorpusSourceRequest
+
+// PreviewVoiceCorpusSourceJSONRequestBody defines body for PreviewVoiceCorpusSource for application/json ContentType.
+type PreviewVoiceCorpusSourceJSONRequestBody = VoiceCorpusPreviewRequest
 
 // UpdateVoiceCorpusSourceJSONRequestBody defines body for UpdateVoiceCorpusSource for application/json ContentType.
 type UpdateVoiceCorpusSourceJSONRequestBody = UpdateVoiceCorpusSourceRequest
@@ -18896,6 +19126,9 @@ type ServerInterface interface {
 	// Continue the scoped company-setup conversation with or without a website read.
 	// (POST /onboarding/company/messages)
 	MessageOnboardingCompany(w http.ResponseWriter, r *http.Request)
+	// The deterministic evidence-backed company proposal derived from the onboarding website read.
+	// (GET /onboarding/company/proposal)
+	GetOnboardingCompanyProposal(w http.ResponseWriter, r *http.Request, params GetOnboardingCompanyProposalParams)
 	// Get the acting user's resumable onboarding state.
 	// (GET /onboarding/state)
 	GetOnboardingState(w http.ResponseWriter, r *http.Request)
@@ -19229,6 +19462,9 @@ type ServerInterface interface {
 	// Ingest or replace one manual own-authored text source.
 	// (POST /voice-profiles/{id}/sources)
 	IngestVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id, params IngestVoiceCorpusSourceParams)
+	// Dry-run one candidate source; detect its shape and speakers without storing anything.
+	// (POST /voice-profiles/{id}/sources/preview)
+	PreviewVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id)
 	// Permanently remove one retained source and mark any active artifact stale.
 	// (DELETE /voice-profiles/{id}/sources/{sourceId})
 	DeleteVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id, sourceId openapi_types.UUID, params DeleteVoiceCorpusSourceParams)
@@ -20045,6 +20281,12 @@ func (_ Unimplemented) MessageOnboardingCompany(w http.ResponseWriter, r *http.R
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// The deterministic evidence-backed company proposal derived from the onboarding website read.
+// (GET /onboarding/company/proposal)
+func (_ Unimplemented) GetOnboardingCompanyProposal(w http.ResponseWriter, r *http.Request, params GetOnboardingCompanyProposalParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Get the acting user's resumable onboarding state.
 // (GET /onboarding/state)
 func (_ Unimplemented) GetOnboardingState(w http.ResponseWriter, r *http.Request) {
@@ -20708,6 +20950,12 @@ func (_ Unimplemented) ListVoiceCorpusSources(w http.ResponseWriter, r *http.Req
 // Ingest or replace one manual own-authored text source.
 // (POST /voice-profiles/{id}/sources)
 func (_ Unimplemented) IngestVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id, params IngestVoiceCorpusSourceParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Dry-run one candidate source; detect its shape and speakers without storing anything.
+// (POST /voice-profiles/{id}/sources/preview)
+func (_ Unimplemented) PreviewVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -26707,6 +26955,45 @@ func (siw *ServerInterfaceWrapper) MessageOnboardingCompany(w http.ResponseWrite
 	handler.ServeHTTP(w, r)
 }
 
+// GetOnboardingCompanyProposal operation middleware
+func (siw *ServerInterfaceWrapper) GetOnboardingCompanyProposal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetOnboardingCompanyProposalParams
+
+	// ------------- Optional query parameter "locale" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "locale", r.URL.Query(), &params.Locale, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "locale"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "locale", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOnboardingCompanyProposal(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetOnboardingState operation middleware
 func (siw *ServerInterfaceWrapper) GetOnboardingState(w http.ResponseWriter, r *http.Request) {
 
@@ -32082,6 +32369,38 @@ func (siw *ServerInterfaceWrapper) IngestVoiceCorpusSource(w http.ResponseWriter
 	handler.ServeHTTP(w, r)
 }
 
+// PreviewVoiceCorpusSource operation middleware
+func (siw *ServerInterfaceWrapper) PreviewVoiceCorpusSource(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PreviewVoiceCorpusSource(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeleteVoiceCorpusSource operation middleware
 func (siw *ServerInterfaceWrapper) DeleteVoiceCorpusSource(w http.ResponseWriter, r *http.Request) {
 
@@ -33354,6 +33673,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/onboarding/company/messages", wrapper.MessageOnboardingCompany)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/onboarding/company/proposal", wrapper.GetOnboardingCompanyProposal)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/onboarding/state", wrapper.GetOnboardingState)
 	})
 	r.Group(func(r chi.Router) {
@@ -33685,6 +34007,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/voice-profiles/{id}/sources", wrapper.IngestVoiceCorpusSource)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/voice-profiles/{id}/sources/preview", wrapper.PreviewVoiceCorpusSource)
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/voice-profiles/{id}/sources/{sourceId}", wrapper.DeleteVoiceCorpusSource)

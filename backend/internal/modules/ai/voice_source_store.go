@@ -21,13 +21,13 @@ import (
 // register-tag → count) and upserts the manifest row by source_ref:
 // re-ingesting a source replaces it — the meter never double-counts —
 // and re-adding an excluded source is an explicit opt back in.
-func (s *VoiceStore) IngestSource(ctx context.Context, profileID ids.UUID, in IngestSourceInput) (VoiceCorpusSource, CorpusSummary, error) {
+func (s *VoiceStore) IngestSource(ctx context.Context, profileID ids.UUID, in IngestSourceInput) (VoiceCorpusSource, CorpusSummary, CorpusIngestStats, error) {
 	if err := auth.Require(ctx, "voice_profile", principal.ActionUpdate); err != nil {
-		return VoiceCorpusSource{}, CorpusSummary{}, err
+		return VoiceCorpusSource{}, CorpusSummary{}, CorpusIngestStats{}, err
 	}
 	prepared, err := prepareSource(in)
 	if err != nil {
-		return VoiceCorpusSource{}, CorpusSummary{}, err
+		return VoiceCorpusSource{}, CorpusSummary{}, CorpusIngestStats{}, err
 	}
 
 	var (
@@ -40,9 +40,24 @@ func (s *VoiceStore) IngestSource(ctx context.Context, profileID ids.UUID, in In
 		return err
 	})
 	if err != nil {
-		return VoiceCorpusSource{}, CorpusSummary{}, err
+		return VoiceCorpusSource{}, CorpusSummary{}, CorpusIngestStats{}, err
 	}
-	return source, summary, nil
+	return source, summary, prepared.Stats, nil
+}
+
+// PreviewSource dry-runs one candidate source under the owner gate:
+// detected shape and per-speaker word counts, nothing stored.
+func (s *VoiceStore) PreviewSource(ctx context.Context, profileID ids.UUID, format, content string) (CorpusPreview, error) {
+	if err := auth.Require(ctx, "voice_profile", principal.ActionUpdate); err != nil {
+		return CorpusPreview{}, err
+	}
+	if err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		_, err := s.visibleProfile(ctx, tx, profileID)
+		return err
+	}); err != nil {
+		return CorpusPreview{}, err
+	}
+	return PreviewCorpusText(format, content)
 }
 
 type priorVoiceSource struct {

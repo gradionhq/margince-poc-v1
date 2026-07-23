@@ -3366,6 +3366,45 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
 
+  /onboarding/company/proposal:
+    get:
+      tags: [Organizations]
+      operationId: getOnboardingCompanyProposal
+      summary: The deterministic evidence-backed company proposal derived from the onboarding website read.
+      description: |
+        Serves the mapping the conversational shell presents: evidence-carrying profile fields at or
+        above the cold-start confidence floor, the read's facts for selection, the deterministically
+        detected open clarification questions, the required fields still missing from the resumable
+        draft, and the version/hash pair the confirm call must echo. Assembled without a model call —
+        every value, number, and option comes from the persisted read. `ready` is false while the
+        read is still queued, deferred, or running.
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      parameters:
+        - name: locale
+          in: query
+          required: false
+          description: Language for the open questions' copy; option values are locale-invariant.
+          schema:
+            type: string
+            enum: [en, de]
+            default: en
+            x-enum-varnames: [OnboardingProposalLocaleEN, OnboardingProposalLocaleDE]
+      responses:
+        '200':
+          description: The current deterministic proposal snapshot.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OnboardingCompanyProposal' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: No onboarding state exists yet, or it references no website read.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   # ----------------------------- /company -----------------------------------
   /company:
     get:
@@ -5412,12 +5451,55 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [source, summary]
+                required: [source, summary, ingest_stats]
                 properties:
                   source: { $ref: '#/components/schemas/VoiceCorpusSource' }
                   summary: { $ref: '#/components/schemas/VoiceCorpusSummary' }
+                  ingest_stats: { $ref: '#/components/schemas/VoiceIngestStats' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/ValidationError' }
+        '422':
+          description: |
+            Unusable input. details.errors[].code is stable and voiceable:
+            unattributed_transcript, speaker_label_required, speaker_not_found,
+            unsupported_format, or the generic invalid.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /voice-profiles/{id}/sources/preview:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Voice]
+      operationId: previewVoiceCorpusSource
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Dry-run one candidate source; detect its shape and speakers without storing anything.
+      description: |
+        Answers "who is speaking in this file?" before ingest, so the owner can be asked
+        which speaker they are. Pure inspection - no persistence, no model call.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VoiceCorpusPreviewRequest' }
+      responses:
+        '200':
+          description: |
+            Detected shape and per-speaker word counts. Word totals count spoken
+            text only - timestamps, cue counters, speaker labels and JSON keys are
+            serialization, never words.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceCorpusPreviewResult' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: |
+            Unusable input. details.errors[].code is stable and voiceable:
+            unsupported_format, or the generic invalid.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   /voice-profiles/{id}/sources/{sourceId}:
     parameters:
@@ -10412,6 +10494,18 @@ components:
           type: string
           enum: [en, de]
           x-enum-varnames: [OnboardingCompanyLocaleEN, OnboardingCompanyLocaleDE]
+        act:
+          $ref: '#/components/schemas/OnboardingAct'
+          default: company
+          description: Which onboarding act the conversation is in; omitted means company.
+        selected_option:
+          $ref: '#/components/schemas/OnboardingClarifySelection'
+          description: |
+            The clarify option the administrator clicked, echoed verbatim. Valid only in the company
+            act; it authorizes exactly one proposed change — the selected field with the selected
+            value — and nothing else. The server re-derives its current clarifications and verifies
+            the tuple against them: an unknown or stale clarify_id, a mismatched field, or a value
+            outside a closed option list is refused with 422.
         history:
           type: array
           maxItems: 8
@@ -10422,10 +10516,18 @@ components:
 
     OnboardingCompanyMessageReply:
       type: object
-      required: [kind, message, proposed_changes, citations, remaining_required_fields, ai_runtime]
+      required: [kind, message, act, proposed_changes, citations, remaining_required_fields, ai_runtime]
       properties:
         kind: { $ref: '#/components/schemas/CompanyConversationResponseKind' }
         message: { type: string, minLength: 1 }
+        act:
+          $ref: '#/components/schemas/OnboardingAct'
+          description: Echoes the act the request addressed.
+        clarify:
+          $ref: '#/components/schemas/OnboardingClarify'
+          description: |
+            A deterministically detected open question, attached only when the server's own
+            detectors found one — options are never model-invented.
         proposed_changes:
           type: array
           maxItems: 5
@@ -10446,9 +10548,86 @@ components:
             x-enum-varnames: [OnboardingRequiredDisplayName, OnboardingRequiredOfferSummary, OnboardingRequiredICP]
         available_action:
           type: [string, 'null']
-          enum: [null, confirm_company]
-          x-enum-varnames: [OnboardingAvailableActionNone, OnboardingAvailableActionConfirmCompany]
+          enum: [null, confirm_company, start_voice_build, upload_voice_source, connect_inbox, finish]
+          x-enum-varnames: [OnboardingAvailableActionNone, OnboardingAvailableActionConfirmCompany, OnboardingAvailableActionStartVoiceBuild, OnboardingAvailableActionUploadVoiceSource, OnboardingAvailableActionConnectInbox, OnboardingAvailableActionFinish]
         ai_runtime: { $ref: '#/components/schemas/AiRunSummary' }
+
+    OnboardingAct:
+      type: string
+      description: The four onboarding conversation acts.
+      enum: [company, voice, results, connect]
+      x-enum-varnames: [OnboardingActCompany, OnboardingActVoice, OnboardingActResults, OnboardingActConnect]
+
+    OnboardingClarify:
+      type: object
+      description: |
+        One server-detected open question with its closed option list. Options are produced
+        deterministically from the persisted read (legal-entity census, human-conflict
+        comparisons) — never by a model. Answers travel back either as `selected_option` on the
+        next message or as a CompanySiteReadResolution at confirm time.
+      required: [id, question, field, options]
+      properties:
+        id: { type: string, description: 'Stable per read draft version, e.g. clarify:<field>:<draft_version>.' }
+        question: { type: string }
+        field: { type: string, description: The profile field or comparison key the question resolves. }
+        options:
+          type: array
+          maxItems: 6
+          items: { $ref: '#/components/schemas/OnboardingClarifyOption' }
+        allow_free_text: { type: boolean, description: Whether typing a different value is also a valid answer. }
+
+    OnboardingClarifyOption:
+      type: object
+      required: [value, label]
+      properties:
+        value: { type: string, description: The exact string the selection authorizes — verbatim from the read or the current record. }
+        label: { type: string }
+        evidence_url: { type: [string, 'null'], format: uri }
+        evidence_snippet: { type: [string, 'null'] }
+        detail: { type: [string, 'null'], description: Provenance or disambiguation help for this option. }
+
+    OnboardingClarifySelection:
+      type: object
+      additionalProperties: false
+      required: [clarify_id, field, value]
+      properties:
+        clarify_id: { type: string }
+        field: { type: string }
+        value: { type: string }
+
+    OnboardingCompanyProposalField:
+      type: object
+      required: [field, value, confidence, evidence_snippet, source_url]
+      properties:
+        field: { type: string }
+        value: { type: string }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        evidence_snippet: { type: string, minLength: 1 }
+        source_url: { type: string, format: uri }
+
+    OnboardingCompanyProposal:
+      type: object
+      description: |
+        The deterministic "prepared mapping" snapshot the conversational shell narrates. Everything
+        here is computed from the persisted read — no model call. `draft_version` and
+        `proposal_hash` are the pair ConfirmCompanySiteRead must echo.
+      required: [ready]
+      properties:
+        ready: { type: boolean, description: False while the read is still queued, deferred, or running. }
+        fields:
+          type: array
+          items: { $ref: '#/components/schemas/OnboardingCompanyProposalField' }
+        facts:
+          type: array
+          items: { $ref: '#/components/schemas/CompanySiteReadFact' }
+        open_questions:
+          type: array
+          items: { $ref: '#/components/schemas/OnboardingClarify' }
+        remaining_required_fields:
+          type: array
+          items: { type: string }
+        draft_version: { type: integer }
+        proposal_hash: { type: string }
 
     CompanySiteRead:
       type: object
@@ -11072,7 +11251,13 @@ components:
         weight: { type: number, minimum: 0, maximum: 2, default: 1 }
         source_label: { type: string, minLength: 1, maxLength: 255 }
         source_ref: { type: string, minLength: 1, maxLength: 512 }
-        format: { type: string, enum: [text, transcript] }
+        format:
+          type: string
+          enum: [text, transcript]
+          description: |
+            Send `transcript` for anything conversational — .vtt, .srt, transcript JSON,
+            and speaker-labelled plain text ("Name: …" lines) alike; the server detects
+            the concrete shape. `text` is for single-author prose only.
         speaker_label: { type: [string, 'null'], description: Required for transcript format; only this speaker is retained. }
         occurred_at: { type: [string, 'null'], format: date-time }
         content: { type: string, minLength: 1, maxLength: 1000000, writeOnly: true }
@@ -11083,6 +11268,49 @@ components:
       properties:
         included: { type: boolean }
         weight: { type: number, minimum: 0, maximum: 2 }
+
+    VoiceIngestStats:
+      type: object
+      description: What the speaker filter did to one ingested source; kept words are the only words that count.
+      required: [input_words, kept_words, kept_turns, discarded_turns, speakers_seen]
+      properties:
+        input_words: { type: integer, minimum: 0 }
+        kept_words: { type: integer, minimum: 0 }
+        kept_turns: { type: integer, minimum: 0 }
+        discarded_turns: { type: integer, minimum: 0 }
+        speakers_seen: { type: array, items: { type: string } }
+
+    VoiceCorpusPreviewRequest:
+      type: object
+      required: [format, content]
+      properties:
+        format:
+          type: string
+          enum: [text, transcript]
+          description: |
+            Send transcript for anything conversational - the server detects the
+            concrete shape (vtt, srt, transcript JSON, or labelled plain text).
+            text skips speaker detection entirely.
+        content: { type: string, minLength: 1, maxLength: 1000000, writeOnly: true }
+
+    VoiceCorpusPreviewResult:
+      type: object
+      description: Dry-run inspection of a candidate source; nothing is stored.
+      required: [detected_format, total_words, speakers, unattributed_words, ingestible_as_transcript]
+      properties:
+        detected_format: { type: string, enum: [txt, vtt, srt, json] }
+        total_words: { type: integer, minimum: 0 }
+        speakers:
+          type: array
+          items:
+            type: object
+            required: [label, turns, words]
+            properties:
+              label: { type: string }
+              turns: { type: integer, minimum: 0 }
+              words: { type: integer, minimum: 0 }
+        unattributed_words: { type: integer, minimum: 0 }
+        ingestible_as_transcript: { type: boolean }
 
     VoiceCorpusSummary:
       type: object

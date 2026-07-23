@@ -13,6 +13,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -47,6 +49,7 @@ func (r *Router) CompleteStructured(ctx context.Context, task Task, req model.Re
 	if firstErr == nil {
 		return resp, info, nil
 	}
+	r.forgetCached(ctx, task, req)
 
 	retry := withValidatorFeedback(req, resp.Text, firstErr)
 	resp, info, err = r.serveAttempt(ctx, lc, task, ladder, retry, attemptReasonSchemaInvalid)
@@ -57,6 +60,7 @@ func (r *Router) CompleteStructured(ctx context.Context, task Task, req model.Re
 	if secondErr == nil {
 		return resp, info, nil
 	}
+	r.forgetCached(ctx, task, retry)
 
 	escalated := withValidatorFeedback(req, resp.Text, secondErr)
 	resp, info, err = r.completeEscalated(ctx, lc, task, escalated)
@@ -64,11 +68,33 @@ func (r *Router) CompleteStructured(ctx context.Context, task Task, req model.Re
 		return model.Response{}, info, err
 	}
 	if finalErr := validate(resp.Text); finalErr != nil {
+		r.forgetCached(ctx, task, escalated)
 		return model.Response{}, info, fmt.Errorf(
 			"ai: %s output failed validation after retry and escalation: %w", task, finalErr,
 		)
 	}
 	return resp, info, nil
+}
+
+// forgetCached evicts the cached completion for exactly this request: a
+// response the validator rejected must not be replayed to a future
+// identical call. Without this, a retried BUILD with an unchanged corpus
+// deterministically replays its own failure from the cache until the TTL
+// expires. Best-effort — a request outside a workspace has no cache row.
+func (r *Router) forgetCached(ctx context.Context, task Task, req model.Request) {
+	rawWS, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		return
+	}
+	key, err := cacheKey(ids.From[ids.WorkspaceKind](rawWS), task, req)
+	if err != nil {
+		// The serve path derived this same key moments ago, so a failure
+		// here is a real anomaly: an unevicted invalid answer would replay
+		// on retry, which must not stay invisible to the operator.
+		r.log.WarnContext(ctx, "ai: cache eviction skipped", "task", string(task), "err", err)
+		return
+	}
+	r.cache.forget(key)
 }
 
 // withValidatorFeedback appends the failed output and its validation

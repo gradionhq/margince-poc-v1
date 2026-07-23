@@ -1887,6 +1887,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/onboarding/company/proposal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The deterministic evidence-backed company proposal derived from the onboarding website read.
+         * @description Serves the mapping the conversational shell presents: evidence-carrying profile fields at or
+         *     above the cold-start confidence floor, the read's facts for selection, the deterministically
+         *     detected open clarification questions, the required fields still missing from the resumable
+         *     draft, and the version/hash pair the confirm call must echo. Assembled without a model call —
+         *     every value, number, and option comes from the persisted read. `ready` is false while the
+         *     read is still queued, deferred, or running.
+         */
+        get: operations["getOnboardingCompanyProposal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/company": {
         parameters: {
             query?: never;
@@ -3225,6 +3250,30 @@ export interface paths {
          *     documents. Ingest updates the meter and marks a built profile stale but makes no model call.
          */
         post: operations["ingestVoiceCorpusSource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}/sources/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dry-run one candidate source; detect its shape and speakers without storing anything.
+         * @description Answers "who is speaking in this file?" before ingest, so the owner can be asked
+         *     which speaker they are. Pure inspection - no persistence, no model call.
+         */
+        post: operations["previewVoiceCorpusSource"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7450,6 +7499,19 @@ export interface components {
             message: string;
             /** @enum {string} */
             locale: "en" | "de";
+            /**
+             * @description Which onboarding act the conversation is in; omitted means company.
+             * @default company
+             */
+            act: components["schemas"]["OnboardingAct"];
+            /**
+             * @description The clarify option the administrator clicked, echoed verbatim. Valid only in the company
+             *     act; it authorizes exactly one proposed change — the selected field with the selected
+             *     value — and nothing else. The server re-derives its current clarifications and verifies
+             *     the tuple against them: an unknown or stale clarify_id, a mismatched field, or a value
+             *     outside a closed option list is refused with 422.
+             */
+            selected_option?: components["schemas"]["OnboardingClarifySelection"];
             history?: components["schemas"]["CompanySiteReadConversationTurn"][];
             /** @description The administrator's current unsaved artifact, used only as conversational context. */
             company_draft?: components["schemas"]["OnboardingCompanyDraft"];
@@ -7457,14 +7519,80 @@ export interface components {
         OnboardingCompanyMessageReply: {
             kind: components["schemas"]["CompanyConversationResponseKind"];
             message: string;
+            /** @description Echoes the act the request addressed. */
+            act: components["schemas"]["OnboardingAct"];
+            /**
+             * @description A deterministically detected open question, attached only when the server's own
+             *     detectors found one — options are never model-invented.
+             */
+            clarify?: components["schemas"]["OnboardingClarify"];
             proposed_changes: components["schemas"]["CompanySiteReadSuggestedChange"][];
             citations: components["schemas"]["CompanySiteReadCitation"][];
             /** @enum {string|null} */
             next_required_field?: null | "display_name" | "offer_summary" | "icp";
             remaining_required_fields: ("display_name" | "offer_summary" | "icp")[];
             /** @enum {string|null} */
-            available_action?: null | "confirm_company";
+            available_action?: null | "confirm_company" | "start_voice_build" | "upload_voice_source" | "connect_inbox" | "finish";
             ai_runtime: components["schemas"]["AiRunSummary"];
+        };
+        /**
+         * @description The four onboarding conversation acts.
+         * @enum {string}
+         */
+        OnboardingAct: "company" | "voice" | "results" | "connect";
+        /**
+         * @description One server-detected open question with its closed option list. Options are produced
+         *     deterministically from the persisted read (legal-entity census, human-conflict
+         *     comparisons) — never by a model. Answers travel back either as `selected_option` on the
+         *     next message or as a CompanySiteReadResolution at confirm time.
+         */
+        OnboardingClarify: {
+            /** @description Stable per read draft version, e.g. clarify:<field>:<draft_version>. */
+            id: string;
+            question: string;
+            /** @description The profile field or comparison key the question resolves. */
+            field: string;
+            options: components["schemas"]["OnboardingClarifyOption"][];
+            /** @description Whether typing a different value is also a valid answer. */
+            allow_free_text?: boolean;
+        };
+        OnboardingClarifyOption: {
+            /** @description The exact string the selection authorizes — verbatim from the read or the current record. */
+            value: string;
+            label: string;
+            /** Format: uri */
+            evidence_url?: string | null;
+            evidence_snippet?: string | null;
+            /** @description Provenance or disambiguation help for this option. */
+            detail?: string | null;
+        };
+        OnboardingClarifySelection: {
+            clarify_id: string;
+            field: string;
+            value: string;
+        };
+        OnboardingCompanyProposalField: {
+            field: string;
+            value: string;
+            confidence: number;
+            evidence_snippet: string;
+            /** Format: uri */
+            source_url: string;
+        };
+        /**
+         * @description The deterministic "prepared mapping" snapshot the conversational shell narrates. Everything
+         *     here is computed from the persisted read — no model call. `draft_version` and
+         *     `proposal_hash` are the pair ConfirmCompanySiteRead must echo.
+         */
+        OnboardingCompanyProposal: {
+            /** @description False while the read is still queued */
+            ready: boolean;
+            fields?: components["schemas"]["OnboardingCompanyProposalField"][];
+            facts?: components["schemas"]["CompanySiteReadFact"][];
+            open_questions?: components["schemas"]["OnboardingClarify"][];
+            remaining_required_fields?: string[];
+            draft_version?: number;
+            proposal_hash?: string;
         };
         CompanySiteRead: {
             /** Format: uuid */
@@ -8200,7 +8328,12 @@ export interface components {
             weight: number;
             source_label: string;
             source_ref: string;
-            /** @enum {string} */
+            /**
+             * @description Send `transcript` for anything conversational — .vtt, .srt, transcript JSON,
+             *     and speaker-labelled plain text ("Name: …" lines) alike; the server detects
+             *     the concrete shape. `text` is for single-author prose only.
+             * @enum {string}
+             */
             format: "text" | "transcript";
             /** @description Required for transcript format; only this speaker is retained. */
             speaker_label?: string | null;
@@ -8211,6 +8344,37 @@ export interface components {
         UpdateVoiceCorpusSourceRequest: {
             included?: boolean;
             weight?: number;
+        };
+        /** @description What the speaker filter did to one ingested source; kept words are the only words that count. */
+        VoiceIngestStats: {
+            input_words: number;
+            kept_words: number;
+            kept_turns: number;
+            discarded_turns: number;
+            speakers_seen: string[];
+        };
+        VoiceCorpusPreviewRequest: {
+            /**
+             * @description Send transcript for anything conversational - the server detects the
+             *     concrete shape (vtt, srt, transcript JSON, or labelled plain text).
+             *     text skips speaker detection entirely.
+             * @enum {string}
+             */
+            format: "text" | "transcript";
+            content: string;
+        };
+        /** @description Dry-run inspection of a candidate source; nothing is stored. */
+        VoiceCorpusPreviewResult: {
+            /** @enum {string} */
+            detected_format: "txt" | "vtt" | "srt" | "json";
+            total_words: number;
+            speakers: {
+                label: string;
+                turns: number;
+                words: number;
+            }[];
+            unattributed_words: number;
+            ingestible_as_transcript: boolean;
         };
         VoiceCorpusSummary: {
             total_words: number;
@@ -13234,6 +13398,41 @@ export interface operations {
             };
         };
     };
+    getOnboardingCompanyProposal: {
+        parameters: {
+            query?: {
+                /** @description Language for the open questions' copy; option values are locale-invariant. */
+                locale?: "en" | "de";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current deterministic proposal snapshot. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingCompanyProposal"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description No onboarding state exists yet, or it references no website read. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
     getCompany: {
         parameters: {
             query?: never;
@@ -15609,11 +15808,68 @@ export interface operations {
                     "application/json": {
                         source: components["schemas"]["VoiceCorpusSource"];
                         summary: components["schemas"]["VoiceCorpusSummary"];
+                        ingest_stats: components["schemas"]["VoiceIngestStats"];
                     };
                 };
             };
             404: components["responses"]["NotFound"];
-            422: components["responses"]["ValidationError"];
+            /**
+             * @description Unusable input. details.errors[].code is stable and voiceable:
+             *     unattributed_transcript, speaker_label_required, speaker_not_found,
+             *     unsupported_format, or the generic invalid.
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    previewVoiceCorpusSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VoiceCorpusPreviewRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description Detected shape and per-speaker word counts. Word totals count spoken
+             *     text only - timestamps, cue counters, speaker labels and JSON keys are
+             *     serialization, never words.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceCorpusPreviewResult"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            /**
+             * @description Unusable input. details.errors[].code is stable and voiceable:
+             *     unsupported_format, or the generic invalid.
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     deleteVoiceCorpusSource: {

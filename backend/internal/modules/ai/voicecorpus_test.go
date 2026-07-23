@@ -302,3 +302,198 @@ func TestConversationalKindsDemandAttributableInput(t *testing.T) {
 		t.Fatal("an unlabelled conversational transcript passed whole — attribution is required to filter it")
 	}
 }
+
+func TestSpeakerPrefixAcceptsDiarizerNumberedLabels(t *testing.T) {
+	cases := map[string]struct {
+		line    string
+		speaker string
+	}{
+		"plain name":            {"Lars: we ship on Monday", "Lars"},
+		"numbered diarizer":     {"Speaker 1: we ship on Monday", "Speaker 1"},
+		"german diarizer":       {"Sprecher 2: wir liefern am Montag", "Sprecher 2"},
+		"attached number":       {"Speaker2: we ship", "Speaker2"},
+		"clock time":            {"12:30 we ship", ""},
+		"url":                   {"https://example.test/page", ""},
+		"timestamp with colons": {"00:01:02: hello", ""},
+		"long number run":       {"Speaker 12345: hello", ""},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			speaker, _ := splitSpeakerLine(tc.line)
+			if speaker != tc.speaker {
+				t.Fatalf("speaker = %q, want %q", speaker, tc.speaker)
+			}
+		})
+	}
+}
+
+func TestNumberedSpeakerTranscriptFiltersToTheOwnersTurns(t *testing.T) {
+	content := "Speaker 1: my words here today\nSpeaker 2: their words never counted at all"
+	text, err := NormalizeCorpusText("srt", content, "Speaker 1", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text != "my words here today" {
+		t.Fatalf("kept %q — only Speaker 1's turns may survive", text)
+	}
+}
+
+func TestBracketOpenedLabelledTextIsNotMistakenForJSON(t *testing.T) {
+	content := "[10:03] intro\nLars: my own words\nAnna: her words"
+	if format := transcriptCorpusFormat(content); format != "srt" {
+		t.Fatalf("sniffed %q, want srt — a bracket-opened labelled transcript is not JSON", format)
+	}
+	prepared, err := prepareSource(IngestSourceInput{
+		Kind: "transcript", SourceLabel: "call", Format: "transcript",
+		SpeakerLabel: "Lars", Content: content,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prepared.Text != "my own words" {
+		t.Fatalf("kept %q, want only Lars's turn", prepared.Text)
+	}
+}
+
+func TestPreviewReportsSpeakersWithoutStoringAnything(t *testing.T) {
+	content := "WEBVTT\n\n00:00.000 --> 00:04.000\n<v Lars>one two three\n\n00:04.000 --> 00:08.000\n<v Anna>four five six seven\n\n00:08.000 --> 00:10.000\n<v Lars>eight nine"
+	preview, err := PreviewCorpusText("transcript", content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.DetectedFormat != "vtt" || !preview.IngestibleAsTranscript {
+		t.Fatalf("detected %q ingestible=%v", preview.DetectedFormat, preview.IngestibleAsTranscript)
+	}
+	if len(preview.Speakers) != 2 {
+		t.Fatalf("speakers = %+v, want Lars and Anna", preview.Speakers)
+	}
+	lars, anna := preview.Speakers[0], preview.Speakers[1]
+	if lars.Label != "Lars" || lars.Turns != 2 || lars.Words != 5 {
+		t.Fatalf("lars = %+v", lars)
+	}
+	if preview.TotalWords != 9 || preview.UnattributedWords != 0 {
+		t.Fatalf("totals = %d/%d — word totals count spoken text only, never timestamps or headers",
+			preview.TotalWords, preview.UnattributedWords)
+	}
+	if anna.Label != "Anna" || anna.Turns != 1 || anna.Words != 4 {
+		t.Fatalf("anna = %+v", anna)
+	}
+}
+
+func TestPreviewOfPlainProseCarriesNoSpeakers(t *testing.T) {
+	preview, err := PreviewCorpusText("text", "just my own six words of prose")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.DetectedFormat != "txt" || preview.IngestibleAsTranscript || len(preview.Speakers) != 0 {
+		t.Fatalf("preview = %+v — plain prose has no transcript structure", preview)
+	}
+	if preview.TotalWords != 7 {
+		t.Fatalf("total = %d, want 7", preview.TotalWords)
+	}
+}
+
+func TestIngestStatsTellTheKeptVersusDiscardedStory(t *testing.T) {
+	content := "Lars: one two three\nAnna: four five six seven\nLars: eight"
+	prepared, err := prepareSource(IngestSourceInput{
+		Kind: "transcript", SourceLabel: "call", Format: "transcript",
+		SpeakerLabel: "lars", Content: content,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stats := prepared.Stats
+	if stats.KeptWords != 4 || stats.KeptTurns != 2 || stats.DiscardedTurns != 1 {
+		t.Fatalf("stats = %+v", stats)
+	}
+	if stats.InputWords != 8 {
+		t.Fatalf("input = %d, want 8 — spoken words only, labels are not words", stats.InputWords)
+	}
+	if len(stats.SpeakersSeen) != 2 {
+		t.Fatalf("speakers seen = %v", stats.SpeakersSeen)
+	}
+}
+
+func TestCorpusRefusalsCarryStableMachineCodes(t *testing.T) {
+	cases := map[string]struct {
+		run  func() error
+		code string
+	}{
+		"unattributed transcript": {func() error {
+			_, err := NormalizeCorpusText("json", `[{"text": "hello there"}]`, "", true)
+			return err
+		}, CorpusErrUnattributedTranscript},
+		"missing speaker label": {func() error {
+			_, err := NormalizeCorpusText("srt", "Lars: hello", "", false)
+			return err
+		}, CorpusErrSpeakerLabelRequired},
+		"speaker not found": {func() error {
+			_, err := prepareSource(IngestSourceInput{
+				Kind: "transcript", SourceLabel: "call",
+				Format: "transcript", SpeakerLabel: "Nobody", Content: "Lars: hello there",
+			})
+			return err
+		}, CorpusErrSpeakerNotFound},
+		"unsupported format": {func() error {
+			_, _, err := corpusTurns("docx", "binary")
+			return err
+		}, CorpusErrUnsupportedFormat},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := tc.run()
+			var ingest *CorpusIngestError
+			if !errors.As(err, &ingest) || ingest.Code != tc.code {
+				t.Fatalf("err = %v, want code %q", err, tc.code)
+			}
+		})
+	}
+}
+
+func TestTimestampHeaderTranscriptsAttributeTheFollowingLines(t *testing.T) {
+	content := "00:00:00 Daniel Pohlmann\nEbenso, wo erreiche ich dich?\n00:00:03 Lars Jankowfsky\nDu, ich bin heute in Bangkok.\n00:00:38 Lars Jankowfsky\nUnd dann war ich einen Tag unterwegs.\n00:00:49 Daniel Pohlmann\nDann machen wir das entspannt."
+	preview, err := PreviewCorpusText("transcript", content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.Speakers) != 2 {
+		t.Fatalf("speakers = %+v, want the two meeting participants", preview.Speakers)
+	}
+	text, err := NormalizeCorpusText("srt", content, "Lars Jankowfsky", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(text, "erreiche") || !strings.Contains(text, "Bangkok") {
+		t.Fatalf("kept %q — only Lars's turns may survive", text)
+	}
+}
+
+func TestWrappedCueLinesFoldIntoOneTurn(t *testing.T) {
+	content := "Lars: first line of one turn\ncontinues on a wrapped line\nAnna: her reply"
+	preview, err := PreviewCorpusText("transcript", content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Speakers[0].Turns != 1 {
+		t.Fatalf("lars turns = %d, want 1 — a wrapped cue is one turn, not two", preview.Speakers[0].Turns)
+	}
+}
+
+func TestClockOpenedDialogueIsNotASpeakerHeader(t *testing.T) {
+	content := "00:00:03 Lars Jankowfsky\n00:12 Great point everyone, let us continue with the plan today.\nMore of the same turn."
+	preview, err := PreviewCorpusText("transcript", content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.Speakers) != 1 || preview.Speakers[0].Label != "Lars Jankowfsky" {
+		t.Fatalf("speakers = %+v — a long clock-opened dialogue line is not a header", preview.Speakers)
+	}
+}
+
+func TestPreviewRefusesAnUnknownWireFormat(t *testing.T) {
+	_, err := PreviewCorpusText("docx", "binary blob")
+	var ingest *CorpusIngestError
+	if !errors.As(err, &ingest) || ingest.Code != CorpusErrUnsupportedFormat {
+		t.Fatalf("err = %v, want unsupported_format", err)
+	}
+}

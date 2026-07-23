@@ -532,6 +532,10 @@ func (stubs) MessageOnboardingCompany(w nethttp.ResponseWriter, r *nethttp.Reque
 	httperr.NotImplemented(w, r, "MessageOnboardingCompany")
 }
 
+func (stubs) GetOnboardingCompanyProposal(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetOnboardingCompanyProposalParams) {
+	httperr.NotImplemented(w, r, "GetOnboardingCompanyProposal")
+}
+
 func (stubs) GetOnboardingState(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetOnboardingState")
 }
@@ -974,6 +978,10 @@ func (stubs) ListVoiceCorpusSources(w nethttp.ResponseWriter, r *nethttp.Request
 
 func (stubs) IngestVoiceCorpusSource(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.IngestVoiceCorpusSourceParams) {
 	httperr.NotImplemented(w, r, "IngestVoiceCorpusSource")
+}
+
+func (stubs) PreviewVoiceCorpusSource(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "PreviewVoiceCorpusSource")
 }
 
 func (stubs) DeleteVoiceCorpusSource(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, sourceId openapi_types.UUID, params crmcontracts.DeleteVoiceCorpusSourceParams) {

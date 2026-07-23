@@ -1106,6 +1106,11 @@ export const de = {
     ".txt .md .vtt .srt .json · nur Text · wir behalten nur deine Redeanteile",
   "ob.s2.dropSkipped":
     "{files} übersprungen — kein Textformat. Als .txt/.md konvertieren oder den Text direkt einfügen.",
+  "ob.s2.speakerAsk": "Wer bist du in {file}?",
+  "ob.s2.speakerOption": "{name} · Wörter: {words} · Redeanteile: {turns}",
+  "ob.s2.keptOnly": "{kept} von {total} gezählt — nur was {speaker} gesagt hat",
+  "ob.s2.unattributed":
+    "In {file} kann ich nicht erkennen, wer was sagt — deshalb zählt nichts davon. Ergänze Sprecher-Labels oder füge nur deine eigenen Worte ein.",
   "ob.reg.spoken": "gesprochen",
   "ob.reg.written": "geschrieben",
   "ob.reg.casual": "locker",
@@ -1292,6 +1297,173 @@ export const de = {
   "ob.s4.enterCrm": "Ins CRM",
   "ob.s4.connectFailed": "Dieses Postfach ließ sich nicht verbinden",
   "ob.s4.skipLater": "Erstmal überspringen — später verbinden",
+
+  "ob.conv.threadLabel": "Einrichtungsgespräch",
+  "ob.conv.welcome":
+    "Hallo, ich bin Margince. Ich richte dein CRM ein, indem ich lese, was über dein Unternehmen bereits belegt ist, und zeige zu allem eine Quelle.",
+  "ob.conv.welcomeMember":
+    "Hallo, ich bin Margince. Dein Team ist schon eingerichtet. Zwei kurze Schritte, dann bist du drin.",
+  "ob.conv.askUrl":
+    "Wo soll ich mit dem Lesen beginnen? Deine Website eignet sich am besten.",
+  "ob.conv.read.started": "Ich lese jetzt {host}. Ich sage dir, was ich finde.",
+  "ob.conv.read.pages": "Bisher gelesene Seiten: {pages}.",
+  "ob.conv.read.learnedField": "{field} gelernt: {value}",
+  "ob.conv.read.extracting":
+    "Das Durchsuchen ist fertig. Jetzt werte ich aus, was die Website über dein Geschäft sagt.",
+  "ob.conv.read.warning": "Hinweis: {warning}",
+  "ob.conv.read.done": "Fertig gelesen. Belegte Funde: {count}.",
+  "ob.conv.read.partial":
+    "Ich konnte nicht alles lesen. Belegte Funde: {count}.",
+  "ob.conv.read.failed":
+    "Ich konnte diese Website nicht lesen. Probiere eine andere URL oder sag es mir direkt.",
+  "ob.conv.read.pollFailed":
+    "Ich habe die Verbindung beim Lesen verloren. Was ich schon gefunden habe, bleibt erhalten.",
+  "ob.conv.read.deferred":
+    "Das Einlesen pausiert gerade. Ich setze es automatisch fort.",
+  "ob.conv.clarify.intro":
+    "Eine Sache musst du entscheiden. Die Website ist hier nicht eindeutig.",
+  "ob.conv.clarify.entity":
+    "Die Website nennt mehr als eine juristische Person. Für welche ist diese Installation?",
+  "ob.conv.review.ready":
+    "Ich habe die Zuordnung vorbereitet. Prüfe sie und bestätige, was stimmt.",
+  "ob.conv.company.confirmed":
+    "Firmenprofil bestätigt. Alles Gespeicherte trägt seine Quelle.",
+  "ob.conv.manual.chosen": "Ich tippe es selbst ein.",
+  "ob.conv.voice.invite":
+    "Soll ich lernen, wie du schreibst? Teile ein paar eigene Texte, dann klingen Entwürfe nach dir.",
+  "ob.conv.voice.optIn": "Ja, lerne meine Stimme.",
+  "ob.conv.voice.skipped": "Stimme erstmal überspringen.",
+  "ob.conv.voice.uploadAdded": "{name} hinzugefügt.",
+  "ob.conv.voice.speakerQuestion":
+    "Dieses Transkript hat mehrere Sprecher. Wer davon bist du? Nur deine eigenen Worte zählen.",
+  "ob.conv.voice.speakerOptionDetail": "Wörter: {words} · Beiträge: {turns}",
+  "ob.conv.voice.collectAsk":
+    "Schick mir Texte, die du geschrieben hast. Gesprächs-Transkripte sind am besten: .vtt, .srt, .json oder Text mit Sprecher-Labels. Einfache Dokumente gehen auch, und unten kannst du Text einfügen.",
+  "ob.conv.voice.composer": "Füge einen eigenen Text ein oder hänge Dateien an",
+  "ob.conv.voice.attach": "Dateien anhängen",
+  "ob.conv.voice.dropHint":
+    "Du kannst Dateien auch überall in dieses Gespräch ziehen.",
+  "ob.conv.voice.fileSkipped":
+    "Ich kann {name} nicht lesen. Ich nehme .txt, .md, .vtt, .srt oder .json.",
+  "ob.conv.voice.fileEmpty":
+    "In {name} stehen keine Wörter, also wurde nichts gezählt.",
+  "ob.conv.voice.reactionTranscript":
+    "Behaltene Wörter: {kept} von {total}. Nur deine Beiträge zählen, und gesprochene Sprache schärft deine Stimme am meisten.",
+  "ob.conv.voice.reactionDocument":
+    "Gezählte Wörter: {words}. Jedes Wort hier ist deins, also zählen alle.",
+  "ob.conv.voice.refusalUnattributed":
+    "Das sieht nach einem Gespräch aus, aber ich kann nicht erkennen, welche Wörter deine sind. Ich habe nichts gezählt, denn ich zähle nur Wörter, die nachweislich von dir stammen.",
+  "ob.conv.voice.refusalSpeaker":
+    "Ich konnte diesen Sprecher im Transkript nicht finden. Nichts wurde gezählt.",
+  "ob.conv.voice.refusalUnsupported":
+    "Ich konnte diese Datei weder als Text noch als Transkript lesen. Nichts wurde gezählt.",
+  "ob.conv.voice.ingestFailed":
+    "Ich konnte diese Quelle nicht hinzufügen: {detail}",
+  "ob.conv.voice.pasteOffer":
+    "Das liest sich wie Stimm-Material. Soll ich es deinem Korpus hinzufügen?",
+  "ob.conv.voice.pasteAdd": "Ja, in meinen Korpus.",
+  "ob.conv.voice.pasteDiscard": "Nein, verwerfen.",
+  "ob.conv.voice.pasteTooShort":
+    "Das ist zu kurz, um viel zu lernen. Hänge Dateien an oder füge einen längeren eigenen Text ein.",
+  "ob.conv.voice.pasteSource": "Eingefügter Text",
+  "ob.conv.voice.buildFloor":
+    "Eigene Wörter bisher: {words}. Ich brauche mindestens {min}, bevor ich bauen kann.",
+  "ob.conv.voice.buildNudge":
+    "Ich habe genug zum Bauen. Mehr Material hilft trotzdem: Ab 4.000 Wörtern wird deine Stimme deutlich schärfer.",
+  "ob.conv.voice.buildChip": "Mein Stimmprofil bauen",
+  "ob.conv.voice.retryBuild": "Aufbau erneut versuchen",
+  "ob.conv.voice.buildPollFailed":
+    "Ich habe die Verbindung während des Aufbaus verloren. Deine Texte bleiben erhalten, versuche den Aufbau erneut.",
+  "ob.conv.voice.statusBuilding": "Dein Stimmprofil entsteht",
+  "ob.conv.voice.resultTitle":
+    "Das ist deine Stimme, in deinen eigenen Worten.",
+  "ob.conv.voice.resultLoading": "Ich lade, was der Aufbau gelernt hat.",
+  "ob.conv.voice.resultEmpty":
+    "Der Aufbau ist fertig, aber es gibt noch nichts zu zeigen. Du kannst ihn in den Einstellungen prüfen.",
+  "ob.conv.voice.candidateNote":
+    "Diese Version braucht deine Prüfung, bevor sie aktiv wird. Freigeben kannst du sie in den Einstellungen.",
+  "ob.conv.voice.artifactTitle": "Stimm-Korpus",
+  "ob.conv.voice.artifactBody":
+    "Hier zählen nur deine eigenen Wörter. Jede Zahl kommt vom Server, nach dem Sprecher-Filter.",
+  "ob.conv.voice.artifactEmpty":
+    "Noch nichts gesammelt. Hänge ein Transkript oder einen eigenen Text an.",
+  "ob.conv.voice.meterWords": "Eigene Wörter: {words} von {target}",
+  "ob.conv.voice.meterBand": "Qualität: {band}",
+  "ob.conv.voice.manifestKept": "{kept} von {total} Wörtern behalten",
+  "ob.conv.voice.manifestWords": "{words} Wörter",
+  "ob.conv.voice.registerMix": "Register: {mix}",
+  "ob.conv.voice.stageTitle": "Aufbau-Fortschritt",
+  "ob.conv.corpus.words": "Eigene Worte jetzt im Korpus: {words}.",
+  "ob.conv.corpus.band": "Korpusqualität ist jetzt {band}.",
+  "ob.conv.build.snapshot": "Ich friere deinen Korpus ein.",
+  "ob.conv.build.extract": "Ich suche deine typischen Formulierungen.",
+  "ob.conv.build.evaluate": "Ich teste Entwürfe gegen zurückgehaltene Proben.",
+  "ob.conv.build.activate": "Ich aktiviere dein Stimmprofil.",
+  "ob.conv.build.succeeded": "Dein Stimmprofil ist fertig.",
+  "ob.conv.build.deferred":
+    "Der Aufbau wartet auf Budget. Er läuft automatisch an.",
+  "ob.conv.build.failed":
+    "Der Aufbau wurde nicht fertig. Deine Texte bleiben erhalten, du kannst es jederzeit erneut versuchen.",
+  "ob.conv.recap":
+    "Das weiß dein CRM jetzt, mit einer Quelle zu jedem Eintrag.",
+  "ob.conv.consent":
+    "Letzter Schritt: Was darf ich erfassen, und zu welchem Zweck? Nichts ist standardmäßig aktiv.",
+  "ob.conv.done": "Einrichtung abgeschlossen. Dein CRM ist bereit.",
+  "ob.conv.composer": "Gib deine Website ein oder stell mir eine Frage",
+  "ob.conv.tellInstead": "Ich erzähle es dir lieber direkt",
+  "ob.conv.clarify.question": "{question}",
+  "ob.conv.clarify.optionDetail": "{detail}",
+  "ob.conv.clarify.applyFailed":
+    "Ich konnte diese Wahl nicht übernehmen: {detail} Wähle bitte erneut.",
+  "ob.conv.clarify.applyMissing":
+    "Der Server hat diese Wahl nicht bestätigt. Wähle bitte erneut.",
+  "ob.conv.loadFailed":
+    "Ich konnte deine Einrichtung nicht prüfen. Bitte versuche es erneut.",
+  "ob.conv.retry": "Erneut versuchen",
+  "ob.conv.connect.persistFailed":
+    "Ich konnte den Abschluss nicht speichern. Versuche es erneut.",
+  "ob.conv.review.title": "Firmenprofil, aus Quellen vorbereitet",
+  "ob.conv.review.openQuestions":
+    "Entscheide diese Punkte, bevor ich etwas speichere.",
+  "ob.conv.review.missing":
+    "Mir fehlt noch: {fields}. Ergänze das und ich kann speichern.",
+  "ob.conv.review.acceptAll": "Alles übernehmen",
+  "ob.conv.review.editDirectly": "Felder direkt bearbeiten",
+  "ob.conv.review.backToDossier": "Zurück zum Dossier",
+  "ob.conv.review.proposalFallback":
+    "Ich konnte die vorbereitete Zuordnung nicht laden. Prüfe direkt, was ich gelesen habe. Jedes Feld behält seine Quelle.",
+  "ob.conv.review.confirmFailed":
+    "Ich konnte noch nicht speichern: {detail} Korrigiere das und übernimm erneut.",
+  "ob.conv.artifact.empty":
+    "Noch nichts gelesen. Nenn mir eine Website und dieses Panel füllt sich mit belegten Funden.",
+  "ob.conv.results.continue": "Weiter",
+  "ob.conv.results.artifactTitle": "Einrichtung im Überblick",
+  "ob.conv.results.artifactBody":
+    "Womit dein CRM startet. Hier steht nichts, das nicht wirklich passiert ist.",
+  "ob.conv.results.company":
+    "Firmenprofil für {name} bestätigt. Alles Gespeicherte trägt seine Quelle.",
+  "ob.conv.results.companyUnsaved":
+    "Deine Firmendaten sind noch nicht gespeichert. Du kannst sie später in den Einstellungen vervollständigen.",
+  "ob.conv.results.voiceBuilt":
+    "Dein Stimmprofil ist gebaut. Entwürfe klingen nach dir.",
+  "ob.conv.results.voiceSkipped":
+    "Noch kein Stimmprofil. Entwürfe nutzen eine neutrale Startstimme; deins kannst du später in den Einstellungen bauen.",
+  "ob.conv.recap.back": "Willkommen zurück. Hier stehen wir.",
+  "ob.conv.recap.company": "Dein Firmenprofil für {name} ist bestätigt.",
+  "ob.conv.recap.companyUnsaved":
+    "Deine Firmendaten sind noch nicht gespeichert. Du kannst sie in den Einstellungen vervollständigen.",
+  "ob.conv.recap.voiceBuilt":
+    "Dein Stimmprofil ist gebaut. Entwürfe können nach dir klingen.",
+  "ob.conv.recap.voiceSkipped":
+    "Du hast das Stimmprofil übersprungen. Entwürfe nutzen eine neutrale Startstimme.",
+  "ob.conv.recap.corpus":
+    "Dein Korpus enthält bereits {words} deiner eigenen Wörter.",
+  "ob.conv.connect.pick":
+    "Wähle einen Anbieter, um genau zu sehen, was das Verbinden tut. Oder überspringe es und verbinde später in den Einstellungen.",
+  "ob.conv.connect.skip": "Verbinden vorerst überspringen",
+  "ob.conv.connect.artifactTitle": "Postfach-Verbindung",
+  "ob.conv.connect.artifactEmpty":
+    "Wähle im Gespräch einen Anbieter, dann öffnet sich hier sein Verbindungs-Panel.",
 
   "auth.title": "Margince",
   "auth.checking": "Sitzung wird geprüft…",

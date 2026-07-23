@@ -251,7 +251,7 @@ func TestOnboardingCompanyStatusQuestionsNeverBecomeChanges(t *testing.T) {
 		t.Fatal("an in-scope company question was classified as a workspace status question")
 	}
 
-	reply := onboardingCompanyReply(companyReadModelReply{
+	reply := onboardingCompanyReply(string(crmcontracts.OnboardingActCompany), companyReadModelReply{
 		Kind: "status", Message: onboardingStatusMessage("en", onboardingResearchState{ready: true}, 2),
 	}, nil, []string{"display_name", "icp"}, onboardingResearchState{ready: true}, ai.RunSummary{Currency: "USD"})
 	if reply.Kind != crmcontracts.CompanyConversationStatus || len(reply.ProposedChanges) != 0 ||
