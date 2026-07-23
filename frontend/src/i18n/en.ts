@@ -1888,6 +1888,27 @@ export const en = {
   "webhooks.secret.copyFailed":
     "Couldn't copy automatically — select and copy the secret manually.",
   "webhooks.secret.done": "Done",
+
+  "webhooks.deliveries.show": "View deliveries",
+  "webhooks.deliveries.hide": "Hide deliveries",
+  "webhooks.deliveries.empty": "No delivery attempts yet.",
+  "webhooks.deliveries.deadLetterGroup": "Dead-lettered ({count})",
+  "webhooks.deliveries.allGroup": "Other attempts",
+  "webhooks.deliveries.column.status": "Status",
+  "webhooks.deliveries.column.event": "Event",
+  "webhooks.deliveries.column.attempts": "Attempts",
+  "webhooks.deliveries.column.lastStatusCode": "Last status",
+  "webhooks.deliveries.column.lastError": "Last error",
+  "webhooks.deliveries.column.created": "Created",
+  "webhooks.deliveries.column.resolved": "Resolved",
+  "webhooks.deliveries.status.pending": "Pending",
+  "webhooks.deliveries.status.delivered": "Delivered",
+  "webhooks.deliveries.status.retrying": "Retrying",
+  "webhooks.deliveries.status.dead_lettered": "Dead-lettered",
+  "webhooks.deliveries.replay": "Replay",
+  "webhooks.deliveries.replayConfirm.title": "Replay this delivery?",
+  "webhooks.deliveries.replayConfirm.body":
+    "Re-attempts delivery now, signed with the current secret and a fresh timestamp. It doesn't wait for the next scheduled retry.",
 } as const;
 
 export type MessageKey = keyof typeof en;

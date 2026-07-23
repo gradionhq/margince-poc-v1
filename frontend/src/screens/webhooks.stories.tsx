@@ -233,6 +233,95 @@ export const ArchiveConfirm: Story = {
   },
 };
 
+// Task 10 (B-E10.14/B-E10.15): the deliveries + dead-letter panel, opened
+// from a subscription row's "View deliveries" toggle — mixed statuses, the
+// dead-lettered group, honest has_more (LoadMoreButton), and the replay
+// confirm.
+
+const activeDelivery = {
+  id: "del-active",
+  subscription_id: "sub-active",
+  event_id: "evt-1",
+  event_type: "offer.accepted",
+  status: "delivered",
+  attempts: 1,
+  last_status_code: 200,
+  last_error: null,
+  next_retry_at: null,
+  delivered_at: "2026-07-21T12:00:00Z",
+  dead_lettered_at: null,
+  created_at: "2026-07-21T11:59:00Z",
+  updated_at: "2026-07-21T12:00:00Z",
+};
+
+const retryingDelivery = {
+  id: "del-retrying",
+  subscription_id: "sub-active",
+  event_id: "evt-2",
+  event_type: "lead.promoted",
+  status: "retrying",
+  attempts: 3,
+  last_status_code: 503,
+  last_error: "upstream returned 503",
+  next_retry_at: "2026-07-22T09:00:00Z",
+  delivered_at: null,
+  dead_lettered_at: null,
+  created_at: "2026-07-21T08:00:00Z",
+  updated_at: "2026-07-21T08:04:00Z",
+};
+
+const deadLetteredDelivery = {
+  id: "del-dead",
+  subscription_id: "sub-active",
+  event_id: "evt-3",
+  event_type: "organization.updated",
+  status: "dead_lettered",
+  attempts: 6,
+  last_status_code: 500,
+  last_error: "connection refused",
+  next_retry_at: null,
+  delivered_at: null,
+  dead_lettered_at: "2026-07-20T10:00:00Z",
+  created_at: "2026-07-20T09:00:00Z",
+  updated_at: "2026-07-20T10:00:00Z",
+};
+
+export const DeliveriesPanelOpen: Story = {
+  render: cardStory({
+    "GET /me": meRoute(["admin"]),
+    "GET /webhook-subscriptions": () =>
+      jsonResponse({ data: [activeSubscription], page }),
+    "GET /webhook-subscriptions/sub-active/deliveries": () =>
+      jsonResponse({
+        data: [activeDelivery, retryingDelivery, deadLetteredDelivery],
+        page: { next_cursor: null, has_more: true },
+      }),
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByTestId("view-deliveries"));
+    await canvas.findByTestId("dead-letter-group");
+  },
+};
+
+export const DeliveriesReplayConfirm: Story = {
+  render: cardStory({
+    "GET /me": meRoute(["admin"]),
+    "GET /webhook-subscriptions": () =>
+      jsonResponse({ data: [activeSubscription], page }),
+    "GET /webhook-subscriptions/sub-active/deliveries": () =>
+      jsonResponse({
+        data: [deadLetteredDelivery],
+        page: { next_cursor: null, has_more: false },
+      }),
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByTestId("view-deliveries"));
+    await userEvent.click(await canvas.findByTestId("replay-delivery"));
+  },
+};
+
 // The pure delivery-status → badge mapping the deliveries panel reuses — no
 // fetch, no providers beyond the locale (mirrors quotas.stories.tsx's Ring).
 export const DeliveryStatusBadges: StoryObj = {

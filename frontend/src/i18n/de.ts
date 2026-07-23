@@ -1921,4 +1921,26 @@ export const de = {
   "webhooks.secret.copyFailed":
     "Automatisches Kopieren fehlgeschlagen — bitte den Schlüssel manuell auswählen und kopieren.",
   "webhooks.secret.done": "Fertig",
+
+  "webhooks.deliveries.show": "Zustellungen anzeigen",
+  "webhooks.deliveries.hide": "Zustellungen ausblenden",
+  "webhooks.deliveries.empty": "Noch keine Zustellversuche.",
+  "webhooks.deliveries.deadLetterGroup": "Dead-Letter ({count})",
+  "webhooks.deliveries.allGroup": "Weitere Versuche",
+  "webhooks.deliveries.column.status": "Status",
+  "webhooks.deliveries.column.event": "Ereignis",
+  "webhooks.deliveries.column.attempts": "Versuche",
+  "webhooks.deliveries.column.lastStatusCode": "Letzter Status",
+  "webhooks.deliveries.column.lastError": "Letzter Fehler",
+  "webhooks.deliveries.column.created": "Erstellt",
+  "webhooks.deliveries.column.resolved": "Abgeschlossen",
+  "webhooks.deliveries.status.pending": "Ausstehend",
+  "webhooks.deliveries.status.delivered": "Zugestellt",
+  "webhooks.deliveries.status.retrying": "Wird wiederholt",
+  "webhooks.deliveries.status.dead_lettered": "Dead-Letter",
+  "webhooks.deliveries.replay": "Erneut zustellen",
+  "webhooks.deliveries.replayConfirm.title":
+    "Diese Zustellung erneut versuchen?",
+  "webhooks.deliveries.replayConfirm.body":
+    "Versucht die Zustellung sofort erneut, signiert mit dem aktuellen Schlüssel und einem neuen Zeitstempel. Es wird nicht auf den nächsten geplanten Versuch gewartet.",
 } as const satisfies Record<MessageKey, string>;

@@ -445,6 +445,221 @@ describe("WebhooksCard — archive", () => {
   });
 });
 
+// Task 10 (B-E10.14/B-E10.15): the per-subscription deliveries + dead-letter
+// inspection panel — lists the subscription's attempt log (newest-first, as
+// the endpoint already orders it), honest `has_more` pagination via
+// LoadMoreButton (the backend contract only carries a `limit` — there is no
+// cursor query param on this endpoint, so "load more" honestly means
+// re-asking for a bigger page, never a fabricated next_cursor), and a
+// per-row replay action gated on canConfigureAutomations.
+describe("WebhooksCard — deliveries panel (Task 10)", () => {
+  const DELIVERED_DELIVERY = {
+    id: "del-2",
+    subscription_id: "sub-1",
+    event_id: "evt-2",
+    event_type: "offer.accepted",
+    status: "delivered",
+    attempts: 1,
+    last_status_code: 200,
+    last_error: null,
+    next_retry_at: null,
+    delivered_at: "2026-07-21T12:00:00Z",
+    dead_lettered_at: null,
+    created_at: "2026-07-21T11:59:00Z",
+    updated_at: "2026-07-21T12:00:00Z",
+  };
+  const DEAD_LETTERED_DELIVERY = {
+    id: "del-1",
+    subscription_id: "sub-1",
+    event_id: "evt-1",
+    event_type: "organization.updated",
+    status: "dead_lettered",
+    attempts: 6,
+    last_status_code: 500,
+    last_error: "connection refused",
+    next_retry_at: null,
+    delivered_at: null,
+    dead_lettered_at: "2026-07-20T10:00:00Z",
+    created_at: "2026-07-20T09:00:00Z",
+    updated_at: "2026-07-20T10:00:00Z",
+  };
+
+  function backendForDeliveries(options: {
+    hasMore: boolean;
+    onReplay?: () => void;
+  }) {
+    const getDeliveryCalls: string[] = [];
+    let replayed = false;
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const req =
+          input instanceof Request ? input : new Request(String(input), init);
+        if (req.url.endsWith("/v1/me")) {
+          return jsonResponse({
+            user: { email: "admin@acme.test" },
+            roles: ["admin"],
+            teams: [],
+          });
+        }
+        if (
+          req.url.includes("/webhook-subscriptions") &&
+          !req.url.includes("/deliveries") &&
+          req.method === "GET"
+        ) {
+          return jsonResponse(SUBSCRIPTIONS);
+        }
+        if (
+          req.url.includes("/sub-1/deliveries/del-1/replay") &&
+          req.method === "POST"
+        ) {
+          replayed = true;
+          options.onReplay?.();
+          return jsonResponse({
+            ...DEAD_LETTERED_DELIVERY,
+            status: "delivered",
+          });
+        }
+        if (req.url.includes("/sub-1/deliveries") && req.method === "GET") {
+          getDeliveryCalls.push(req.url);
+          const dead = replayed
+            ? { ...DEAD_LETTERED_DELIVERY, status: "delivered" }
+            : DEAD_LETTERED_DELIVERY;
+          return jsonResponse({
+            data: [DELIVERED_DELIVERY, dead],
+            page: { next_cursor: null, has_more: options.hasMore },
+          });
+        }
+        throw new Error(`unexpected request: ${req.method} ${req.url}`);
+      },
+    );
+    return { fetchMock, getDeliveryCalls: () => getDeliveryCalls };
+  }
+
+  function jsonResponse(body: unknown, status = 200) {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  it("lists deliveries newest-first with status badges, grouping dead-lettered rows", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = backendForDeliveries({ hasMore: false });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WebhooksCard />);
+
+    await user.click(await screen.findByTestId("view-deliveries"));
+
+    await waitFor(() =>
+      expect(screen.getByText("offer.accepted")).toBeTruthy(),
+    );
+    expect(screen.getByText("organization.updated")).toBeTruthy();
+    expect(screen.getByText("500")).toBeTruthy();
+    expect(screen.getByText("connection refused")).toBeTruthy();
+    expect(screen.getByText("Delivered")).toBeTruthy();
+    expect(screen.getByText("Dead-lettered")).toBeTruthy();
+    // Dead-lettered rows read as a visually distinct group, not just a badge
+    // buried in an undifferentiated list.
+    expect(screen.getByTestId("dead-letter-group")).toBeTruthy();
+  });
+
+  it("shows LoadMoreButton honestly off the real has_more, and fetches a bigger page on click", async () => {
+    const user = userEvent.setup();
+    const { fetchMock, getDeliveryCalls } = backendForDeliveries({
+      hasMore: true,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WebhooksCard />);
+
+    await user.click(await screen.findByTestId("view-deliveries"));
+    await waitFor(() =>
+      expect(screen.getByText("offer.accepted")).toBeTruthy(),
+    );
+
+    const loadMore = screen.getByRole("button", { name: "Load more" });
+    expect(loadMore).toBeTruthy();
+
+    await user.click(loadMore);
+    await waitFor(() => expect(getDeliveryCalls().length).toBe(2));
+    expect(getDeliveryCalls()[1]).not.toBe(getDeliveryCalls()[0]);
+  });
+
+  it("hides LoadMoreButton when has_more is false", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = backendForDeliveries({ hasMore: false });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WebhooksCard />);
+
+    await user.click(await screen.findByTestId("view-deliveries"));
+    await waitFor(() =>
+      expect(screen.getByText("offer.accepted")).toBeTruthy(),
+    );
+    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+  });
+
+  it("replays a dead-lettered delivery via confirm, then refreshes the row", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = backendForDeliveries({ hasMore: false });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WebhooksCard />);
+
+    await user.click(await screen.findByTestId("view-deliveries"));
+    await waitFor(() =>
+      expect(screen.getByText("organization.updated")).toBeTruthy(),
+    );
+
+    await user.click(await screen.findByTestId("replay-delivery"));
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+
+    // The dead-lettered row refreshes to reflect the replay's outcome — the
+    // list-invalidation contract (["webhook-deliveries", id]).
+    await waitFor(() => {
+      const badges = screen.getAllByText("Delivered");
+      expect(badges.length).toBe(2);
+    });
+    expect(screen.queryByText("Dead-lettered")).toBeNull();
+  });
+
+  it("hides the replay action for a non-admin/ops role", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const req =
+          input instanceof Request ? input : new Request(String(input), init);
+        if (req.url.endsWith("/v1/me")) {
+          return jsonResponse({
+            user: { email: "rep@acme.test" },
+            roles: ["rep"],
+            teams: [],
+          });
+        }
+        if (
+          req.url.includes("/webhook-subscriptions") &&
+          !req.url.includes("/deliveries") &&
+          req.method === "GET"
+        ) {
+          return jsonResponse(SUBSCRIPTIONS);
+        }
+        if (req.url.includes("/sub-1/deliveries") && req.method === "GET") {
+          return jsonResponse({
+            data: [DEAD_LETTERED_DELIVERY],
+            page: { next_cursor: null, has_more: false },
+          });
+        }
+        throw new Error(`unexpected request: ${req.method} ${req.url}`);
+      }),
+    );
+    render(<WebhooksCard />);
+
+    await user.click(await screen.findByTestId("view-deliveries"));
+    await waitFor(() =>
+      expect(screen.getByText("organization.updated")).toBeTruthy(),
+    );
+    expect(screen.queryByTestId("replay-delivery")).toBeNull();
+  });
+});
+
 describe("WebhooksCard — rotate secret", () => {
   it("confirms, calls rotate-secret, and reveals the new secret via SecretRevealModal", async () => {
     const user = userEvent.setup();

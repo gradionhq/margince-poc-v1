@@ -1,6 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Webhook } from "lucide-react";
-import { useId, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { api } from "../api/client";
 import { subscribableEventTypeValues } from "../api/public-events";
 import type { components } from "../api/schema";
@@ -9,6 +14,7 @@ import {
   Badge,
   Button,
   Card,
+  DataTable,
   EmptyState,
   Modal,
   SectionHeader,
@@ -20,8 +26,10 @@ import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
 import {
   canConfigureAutomations,
+  LoadMoreButton,
   problemMessage,
   QueryGate,
+  QueryStates,
   throwProblem,
   useMe,
 } from "./common";
@@ -43,7 +51,10 @@ import { EditAction } from "./edit";
 // is a deliberate, documented feature-off state, never an error.
 
 type WebhookSubscription = components["schemas"]["WebhookSubscription"];
-type WebhookDeliveryStatus = components["schemas"]["WebhookDelivery"]["status"];
+type WebhookDelivery = components["schemas"]["WebhookDelivery"];
+type WebhookDeliveryStatus = WebhookDelivery["status"];
+type WebhookDeliveryListResponse =
+  components["schemas"]["WebhookDeliveryListResponse"];
 type UpdateWebhookSubscriptionRequest =
   components["schemas"]["UpdateWebhookSubscriptionRequest"];
 
@@ -371,6 +382,295 @@ function NotConfiguredState() {
   return <EmptyState>{t("webhooks.notConfigured")}</EmptyState>;
 }
 
+// Deliveries + dead-letter inspection (Task 10, B-E10.13c/B-E10.15): the
+// list endpoint has no cursor query param — only `limit` — so it never hands
+// back a usable `next_cursor` (confirmed: the handler always answers
+// `page.has_more` alone). "Load more" is therefore honestly implemented as
+// re-asking for a BIGGER page rather than fabricating a cursor the contract
+// doesn't have: `has_more` still drives LoadMoreButton's visibility
+// truthfully, it just grows the page instead of paging past it.
+const DELIVERIES_PAGE_SIZE = 20;
+
+function useWebhookDeliveries(subscriptionId: string) {
+  const [limit, setLimit] = useState(DELIVERIES_PAGE_SIZE);
+  const query = useQuery({
+    queryKey: ["webhook-deliveries", subscriptionId, limit],
+    queryFn: async (): Promise<WebhookDeliveryListResponse> => {
+      const { data, error } = await api.GET(
+        "/webhook-subscriptions/{id}/deliveries",
+        { params: { path: { id: subscriptionId }, query: { limit } } },
+      );
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+    // Keeps the current page's rows on screen while the bigger page loads,
+    // instead of flashing back to a skeleton on every "Load more" click.
+    placeholderData: keepPreviousData,
+  });
+  return {
+    query,
+    loadMore: () => setLimit((current) => current + DELIVERIES_PAGE_SIZE),
+  };
+}
+
+// Replays a parked (dead-lettered) delivery on demand, then invalidates
+// every deliveries query for this subscription (across every page-size the
+// user has grown into) so the replayed row's refreshed status is visible
+// without a manual refetch.
+function useReplayWebhookDelivery(subscriptionId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (deliveryId: string): Promise<WebhookDelivery> => {
+      const { data, error } = await api.POST(
+        "/webhook-subscriptions/{id}/deliveries/{deliveryId}/replay",
+        { params: { path: { id: subscriptionId, deliveryId } } },
+      );
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["webhook-deliveries", subscriptionId],
+      });
+    },
+  });
+}
+
+// The per-row replay affordance: a Button + the shared ConfirmModal chrome
+// (mirrors RotateSecretAction above) guarding the one side effect — a
+// dead-lettered delivery re-attempts on demand rather than waiting for the
+// next scheduled sweep.
+function ReplayDeliveryAction({
+  subscriptionId,
+  delivery,
+}: Readonly<{
+  subscriptionId: string;
+  delivery: WebhookDelivery;
+}>) {
+  const t = useT();
+  const [confirming, setConfirming] = useState(false);
+  const mutation = useReplayWebhookDelivery(subscriptionId);
+
+  return (
+    <>
+      <Button
+        small
+        onClick={() => setConfirming(true)}
+        data-testid="replay-delivery"
+      >
+        {t("webhooks.deliveries.replay")}
+      </Button>
+      <ConfirmModal
+        open={confirming}
+        onClose={() => setConfirming(false)}
+        title={t("webhooks.deliveries.replayConfirm.title")}
+        confirmLabel={t("deals.confirm")}
+        onConfirm={() =>
+          mutation.mutate(delivery.id, {
+            onSuccess: () => setConfirming(false),
+          })
+        }
+        pending={mutation.isPending}
+        error={mutation.isError ? mutation.error.message : null}
+      >
+        <p className="t-body">{t("webhooks.deliveries.replayConfirm.body")}</p>
+      </ConfirmModal>
+    </>
+  );
+}
+
+// The terminal/next timestamp a delivery row cares about most: when it
+// delivered, when it dead-lettered, or (still mid-retry) when it retries
+// next — whichever of those the row actually carries. Falls back to the em
+// dash the rest of this codebase already uses for "no value" (T7: honest
+// about what a pending-with-no-terminal-timestamp-yet row can show).
+function deliveryResolvedAt(delivery: WebhookDelivery): string | null {
+  return (
+    delivery.delivered_at ??
+    delivery.dead_lettered_at ??
+    delivery.next_retry_at ??
+    null
+  );
+}
+
+function deliveryColumns(
+  t: (key: MessageKey, vars?: Record<string, string | number>) => string,
+  locale: ReturnType<typeof useLocale>["locale"],
+  subscriptionId: string,
+  canManage: boolean,
+): {
+  key: string;
+  header: string;
+  render: (delivery: WebhookDelivery) => ReactNode;
+}[] {
+  const columns = [
+    {
+      key: "status",
+      header: t("webhooks.deliveries.column.status"),
+      render: (delivery: WebhookDelivery) => (
+        <Badge tone={webhookStatusBadge(delivery.status)}>
+          {t(`webhooks.deliveries.status.${delivery.status}`)}
+        </Badge>
+      ),
+    },
+    {
+      key: "event",
+      header: t("webhooks.deliveries.column.event"),
+      render: (delivery: WebhookDelivery) => (
+        <span className="t-mono">{delivery.event_type}</span>
+      ),
+    },
+    {
+      key: "attempts",
+      header: t("webhooks.deliveries.column.attempts"),
+      render: (delivery: WebhookDelivery) => String(delivery.attempts),
+    },
+    {
+      key: "lastStatusCode",
+      header: t("webhooks.deliveries.column.lastStatusCode"),
+      render: (delivery: WebhookDelivery) =>
+        delivery.last_status_code != null
+          ? String(delivery.last_status_code)
+          : "—",
+    },
+    {
+      key: "lastError",
+      header: t("webhooks.deliveries.column.lastError"),
+      render: (delivery: WebhookDelivery) => delivery.last_error ?? "—",
+    },
+    {
+      key: "created",
+      header: t("webhooks.deliveries.column.created"),
+      render: (delivery: WebhookDelivery) =>
+        delivery.created_at
+          ? formatDateTime(delivery.created_at, locale, "Europe/Berlin")
+          : "—",
+    },
+    {
+      key: "resolved",
+      header: t("webhooks.deliveries.column.resolved"),
+      render: (delivery: WebhookDelivery) => {
+        const at = deliveryResolvedAt(delivery);
+        return at ? formatDateTime(at, locale, "Europe/Berlin") : "—";
+      },
+    },
+  ];
+  if (!canManage) {
+    return columns;
+  }
+  return [
+    ...columns,
+    {
+      key: "actions",
+      header: "",
+      render: (delivery: WebhookDelivery) =>
+        delivery.status === "dead_lettered" ? (
+          <ReplayDeliveryAction
+            subscriptionId={subscriptionId}
+            delivery={delivery}
+          />
+        ) : null,
+    },
+  ];
+}
+
+// The dead-letter-grouped delivery list: dead-lettered rows read as a
+// visually distinct table (their own heading + count), never buried
+// undifferentiated among the healthy ones — this IS the "grouped/marked"
+// requirement, on top of the per-row status Badge (danger tone) that already
+// marks them individually.
+function DeliveriesPanel({
+  subscription,
+  canManage,
+}: Readonly<{ subscription: WebhookSubscription; canManage: boolean }>) {
+  const t = useT();
+  const { locale } = useLocale();
+  const { query, loadMore } = useWebhookDeliveries(subscription.id);
+
+  return (
+    <div
+      className="webhook-deliveries-panel"
+      style={{ marginTop: "var(--space-3)" }}
+    >
+      <QueryStates query={query}>
+        <DeliveriesBody
+          response={query.data}
+          subscriptionId={subscription.id}
+          canManage={canManage}
+          locale={locale}
+          t={t}
+          loadMoreQuery={{
+            hasNextPage: query.data?.page.has_more ?? false,
+            isFetchingNextPage: query.isFetching,
+            fetchNextPage: loadMore,
+          }}
+        />
+      </QueryStates>
+    </div>
+  );
+}
+
+function DeliveriesBody({
+  response,
+  subscriptionId,
+  canManage,
+  locale,
+  t,
+  loadMoreQuery,
+}: Readonly<{
+  response: WebhookDeliveryListResponse | undefined;
+  subscriptionId: string;
+  canManage: boolean;
+  locale: ReturnType<typeof useLocale>["locale"];
+  t: (key: MessageKey, vars?: Record<string, string | number>) => string;
+  loadMoreQuery: {
+    hasNextPage: boolean;
+    isFetchingNextPage: boolean;
+    fetchNextPage: () => unknown;
+  };
+}>) {
+  const deliveries = response?.data ?? [];
+  if (deliveries.length === 0) {
+    return <EmptyState>{t("webhooks.deliveries.empty")}</EmptyState>;
+  }
+  const deadLettered = deliveries.filter((d) => d.status === "dead_lettered");
+  const others = deliveries.filter((d) => d.status !== "dead_lettered");
+  const columns = deliveryColumns(t, locale, subscriptionId, canManage);
+  return (
+    <>
+      {deadLettered.length > 0 && (
+        <div data-testid="dead-letter-group">
+          <SectionHeader
+            title={t("webhooks.deliveries.deadLetterGroup", {
+              count: deadLettered.length,
+            })}
+          />
+          <DataTable
+            columns={columns}
+            rows={deadLettered}
+            rowKey={(d) => d.id}
+          />
+        </div>
+      )}
+      {others.length > 0 && (
+        <div
+          style={{ marginTop: deadLettered.length > 0 ? "var(--space-3)" : 0 }}
+        >
+          {deadLettered.length > 0 && (
+            <SectionHeader title={t("webhooks.deliveries.allGroup")} />
+          )}
+          <DataTable columns={columns} rows={others} rowKey={(d) => d.id} />
+        </div>
+      )}
+      <LoadMoreButton query={loadMoreQuery} />
+    </>
+  );
+}
+
 function SubscriptionRow({
   subscription,
   canManage,
@@ -382,6 +682,7 @@ function SubscriptionRow({
 }>) {
   const t = useT();
   const { locale } = useLocale();
+  const [showDeliveries, setShowDeliveries] = useState(false);
   return (
     <Card inset className="webhook-row">
       <div
@@ -422,35 +723,49 @@ function SubscriptionRow({
           })}
         </p>
       )}
-      {canManage && (
-        <div
-          style={{
-            display: "flex",
-            gap: "var(--space-2)",
-            marginTop: "var(--space-2)",
-          }}
+      <div
+        style={{
+          display: "flex",
+          gap: "var(--space-2)",
+          marginTop: "var(--space-2)",
+        }}
+      >
+        <Button
+          small
+          data-testid="view-deliveries"
+          onClick={() => setShowDeliveries((prev) => !prev)}
         >
-          <EditAction
-            label={t("webhooks.edit")}
-            invalidate="webhook-subscriptions"
-            recordKey="webhook-subscription"
-            record={{ ...subscription }}
-            update={updateWebhookSubscription(subscription)}
-            fields={editSubscriptionFields(t)}
-          />
-          <RotateSecretAction
-            subscription={subscription}
-            onRotated={onRotated}
-          />
-          <ArchiveAction
-            label={t("webhooks.archive")}
-            confirmText={t("webhooks.archiveConfirm")}
-            invalidate="webhook-subscriptions"
-            recordKey="webhook-subscription"
-            onArchived={() => {}}
-            archive={() => archiveWebhookSubscription(subscription)}
-          />
-        </div>
+          {showDeliveries
+            ? t("webhooks.deliveries.hide")
+            : t("webhooks.deliveries.show")}
+        </Button>
+        {canManage && (
+          <>
+            <EditAction
+              label={t("webhooks.edit")}
+              invalidate="webhook-subscriptions"
+              recordKey="webhook-subscription"
+              record={{ ...subscription }}
+              update={updateWebhookSubscription(subscription)}
+              fields={editSubscriptionFields(t)}
+            />
+            <RotateSecretAction
+              subscription={subscription}
+              onRotated={onRotated}
+            />
+            <ArchiveAction
+              label={t("webhooks.archive")}
+              confirmText={t("webhooks.archiveConfirm")}
+              invalidate="webhook-subscriptions"
+              recordKey="webhook-subscription"
+              onArchived={() => {}}
+              archive={() => archiveWebhookSubscription(subscription)}
+            />
+          </>
+        )}
+      </div>
+      {showDeliveries && (
+        <DeliveriesPanel subscription={subscription} canManage={canManage} />
       )}
     </Card>
   );
