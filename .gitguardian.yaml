@@ -27,8 +27,9 @@ secret:
     # — `TaskContractHash`, a 64-char hex that changes whenever ai-tasks.yaml
     # changes. It trips the generic high-entropy detector but is a content hash
     # gating contract drift, never a credential. The file is fully generated
-    # (make gen) and drift-gated; scoped to the one generated file, not all *_gen.
-    - "**/tasks_gen.go"
+    # (make gen) and drift-gated; scoped to its exact path, not a glob, so no
+    # other file can ride this exemption.
+    - "backend/internal/modules/ai/tasks_gen.go"
   ignored-matches:
     - name: throwaway localhost dev DB password (margince_app_dev)
       match: margince_app_dev
