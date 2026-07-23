@@ -76,7 +76,7 @@ func (s *RateStore) EffectiveModelRateInTx(ctx context.Context, tx pgx.Tx, provi
 		return nil, time.Time{}, err
 	}
 	provider, modelID = strings.TrimSpace(provider), strings.TrimSpace(modelID)
-	if err := storekit.LockWriteIdentity(ctx, tx, "ai_model_rate", provider+"/"+modelID); err != nil {
+	if err := storekit.LockWriteIdentity(ctx, tx, "ai_model_rate", modelRateLockKey(provider, modelID)); err != nil {
 		return nil, time.Time{}, err
 	}
 	asOf := s.todayUTC()

@@ -53,6 +53,39 @@ func TestStageIdentityValidation(t *testing.T) {
 	}
 }
 
+// A null-valued identity field must not validate against a payload that omits
+// the field: jsonb containment treats {"k":null} as present-and-null, so such
+// an identity would pass and then never containment-match — silently
+// disabling supersession. And a large-integer identity must survive
+// validation digit-for-digit rather than round through float64.
+func TestCanonicalIdentityRejectsNullAndPreservesBigNumbers(t *testing.T) {
+	// Null field the payload omits: refused as not-carried.
+	if _, err := canonicalIdentity(
+		json.RawMessage(`{"k":null}`),
+		json.RawMessage(`{"other":"v"}`),
+	); err == nil || !strings.Contains(err.Error(), "not carried by ProposedChange") {
+		t.Fatalf("null-vs-omitted: err = %v, want not-carried refusal", err)
+	}
+	// A large integer that would round under float64: exact match validates,
+	// and the canonical form preserves the digits (no rounding, no quoting).
+	big := `{"seq":12345678901234567890}`
+	canonical, err := canonicalIdentity(json.RawMessage(big), json.RawMessage(`{"seq":12345678901234567890,"x":"y"}`))
+	if err != nil {
+		t.Fatalf("big-int identity: %v", err)
+	}
+	if string(canonical) != `{"seq":12345678901234567890}` {
+		t.Fatalf("canonical = %s, want the exact integer preserved", canonical)
+	}
+	// A payload whose value rounds to the same float64 but differs exactly is
+	// still rejected (lossless comparison).
+	if _, err := canonicalIdentity(
+		json.RawMessage(`{"seq":12345678901234567890}`),
+		json.RawMessage(`{"seq":12345678901234567891}`),
+	); err == nil {
+		t.Fatal("near-equal big integers validated, want exact-mismatch refusal")
+	}
+}
+
 // Two spellings of one identity (key order, spacing) must canonicalize to the
 // same bytes: the advisory lock hashes those bytes, so a spelling difference
 // would let two stagers of one identity race past the per-identity section.

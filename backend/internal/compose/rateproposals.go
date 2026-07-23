@@ -124,9 +124,9 @@ func fxRateAcceptEffect(svc *approvals.Service, store *deals.Store) approvals.Ap
 		// Redeem the authority object and apply the sheet write in ONE
 		// transaction: a failed write leaves the approval unconsumed and the
 		// job retryable, never permanently consumed with the sheet unchanged.
-		// A zero EffectiveDate applies the rate effective today, derived inside
-		// the store's write transaction (a cross-midnight approval must not
-		// miss the past-date guard).
+		// The precondition read returns the day it sampled and the write is
+		// pinned to that SAME day, so a cross-midnight apply fails the
+		// past-date guard rather than overwriting the new day's scheduled row.
 		return svc.RedeemAndApply(ctx, approvalID, fxRateProposalKind, diffHash, func(tx pgx.Tx) error {
 			// The diff was computed against the rate then in force; if the sheet
 			// moved since (manual write, competing approval), applying would
@@ -182,8 +182,10 @@ func aiModelRateAcceptEffect(svc *approvals.Service, rates *ai.RateStore) approv
 			return err
 		}
 		// Single-transaction redeem-and-apply (see fxRateAcceptEffect): a
-		// failed write keeps the approval redeemable. Zero EffectiveDate ⇒
-		// effective today, derived inside the store's write transaction.
+		// failed write keeps the approval redeemable. The write is pinned to
+		// the day the precondition read sampled (asOf below), so a cross-
+		// midnight apply fails the past-date guard rather than overwriting the
+		// new day's scheduled row.
 		return svc.RedeemAndApply(ctx, approvalID, aiModelRateProposalKind, diffHash, func(tx pgx.Tx) error {
 			// Same precondition as the fx effect: the price in force must still
 			// be the one the diff was computed against, or applying restores a

@@ -4,6 +4,7 @@
 package approvals
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -101,16 +102,22 @@ func (s *Service) Stage(ctx context.Context, in StageInput) (ids.ApprovalID, err
 // the identity bytes) and the containment agree on what "same identity"
 // means across callers.
 func canonicalIdentity(identity, proposedChange json.RawMessage) (json.RawMessage, error) {
-	var idFields map[string]any
-	if err := json.Unmarshal(identity, &idFields); err != nil || len(idFields) == 0 {
+	idFields, err := decodeJSONObject(identity)
+	if err != nil || len(idFields) == 0 {
 		return nil, errors.New("crmapprovals: Identity must be a non-empty JSON object")
 	}
-	var payload map[string]any
-	if err := json.Unmarshal(proposedChange, &payload); err != nil {
+	payload, err := decodeJSONObject(proposedChange)
+	if err != nil {
 		return nil, errors.New("crmapprovals: Identity staging requires a JSON-object ProposedChange")
 	}
 	for field, want := range idFields {
-		if !reflect.DeepEqual(payload[field], want) {
+		// Membership must be checked separately from value equality: a missing
+		// key and an explicit null both read back as a nil any, but jsonb
+		// containment treats {"k":null} as present-and-null — an identity
+		// asserting a field the payload omits would pass here yet never
+		// containment-match, silently disabling supersession.
+		got, ok := payload[field]
+		if !ok || !reflect.DeepEqual(got, want) {
 			return nil, fmt.Errorf("crmapprovals: Identity field %q is not carried by ProposedChange", field)
 		}
 	}
@@ -119,6 +126,25 @@ func canonicalIdentity(identity, proposedChange json.RawMessage) (json.RawMessag
 		return nil, fmt.Errorf("crmapprovals: canonicalize Identity: %w", err)
 	}
 	return canonical, nil
+}
+
+// decodeJSONObject unmarshals a JSON object with lossless numbers: UseNumber
+// keeps every numeric value as its exact decimal text rather than a float64,
+// so a large-integer identity is compared and re-marshaled digit-for-digit.
+// A float64 round would let a mismatched value pass validation and then fail
+// the jsonb containment supersede against the payload's exact number. A
+// non-object (array, scalar, null) is not an object and returns an error.
+func decodeJSONObject(raw json.RawMessage) (map[string]any, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var m map[string]any
+	if err := dec.Decode(&m); err != nil {
+		return nil, err
+	}
+	if m == nil {
+		return nil, errors.New("not a JSON object")
+	}
+	return m, nil
 }
 
 // stageOrJoinPendingInTx serializes one proposal identity and returns its live

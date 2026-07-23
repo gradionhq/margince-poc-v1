@@ -49,6 +49,15 @@ func (s *RateStore) todayUTC() time.Time {
 	return s.clock().UTC().Truncate(24 * time.Hour)
 }
 
+// modelRateLockKey encodes (provider, model_id) into ONE injective advisory-
+// lock string. A plain "provider/model_id" join is ambiguous — ("a/b","c")
+// and ("a","b/c") would collide onto one lock and serialize two unrelated
+// rows — so the provider is length-prefixed, which no concatenation of a
+// different split can reproduce.
+func modelRateLockKey(provider, modelID string) string {
+	return fmt.Sprintf("%d:%s%s", len(provider), provider, modelID)
+}
+
 // modelRateMicroUSD converts the four USD/MTok string buckets to µUSD, failing
 // on the first invalid one (all typed 422s).
 func modelRateMicroUSD(in SetModelRateInput) (input, output, cacheRead, cacheWrite int64, err error) {
@@ -144,7 +153,7 @@ func (s *RateStore) writeModelRate(ctx context.Context, tx pgx.Tx, p preparedMod
 	// Serialize writers of this model's sheet identity BEFORE sampling the
 	// clock: a write that waited here for a precondition-holding transaction
 	// must judge append-forward against the day it actually runs.
-	if err := storekit.LockWriteIdentity(ctx, tx, "ai_model_rate", p.provider+"/"+p.modelID); err != nil {
+	if err := storekit.LockWriteIdentity(ctx, tx, "ai_model_rate", modelRateLockKey(p.provider, p.modelID)); err != nil {
 		return ModelRateRow{}, err
 	}
 	today := s.todayUTC()
