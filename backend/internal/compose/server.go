@@ -257,12 +257,9 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// predicate engine + the bundle writer's open-format rendering; the
 		// collections store resolves a saved view / dynamic list source
 		// behind its own visibility gate.
-		filteredExportHandlers: filteredExportHandlers{
-			writer:      NewFilteredExportWriter(pool),
-			collections: collections.NewStore(pool),
-		},
-		orgRollupHandlers: orgRollupHandlers{pool: pool, now: time.Now},
-		strengthHandlers:  strengthHandlers{people: people.NewStore(pool), now: time.Now},
+		filteredExportHandlers: filteredExportHandlers{writer: NewFilteredExportWriter(pool), collections: collections.NewStore(pool)},
+		orgRollupHandlers:      orgRollupHandlers{pool: pool, now: time.Now},
+		strengthHandlers:       strengthHandlers{people: people.NewStore(pool), now: time.Now},
 		// The installation's own company (the 0083 anchor). Its own store
 		// instance, like every other people-backed shadow here: the company
 		// form's write shape is people's, the transport is compose's.
