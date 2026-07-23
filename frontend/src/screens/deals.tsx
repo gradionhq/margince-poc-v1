@@ -180,9 +180,13 @@ function useDeals(f: DealFilters) {
 function OverlayDealsTable({
   includeArchived,
 }: Readonly<{ includeArchived: boolean }>) {
+  // Typed local (not `undefined as string | undefined`): steers the
+  // useInfiniteQuery TPageParam generic to the cursor's type without an `as`
+  // assertion (forbidden in frontend TS).
+  const initialPageParam: string | undefined = undefined;
   const query = useInfiniteQuery({
     queryKey: ["deals", "overlay", includeArchived],
-    initialPageParam: undefined as string | undefined,
+    initialPageParam,
     queryFn: async ({ pageParam }) => {
       const { data, error } = await api.GET("/deals", {
         params: {
