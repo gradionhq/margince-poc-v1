@@ -227,24 +227,18 @@ func (h *treeHasher) addFileOrEmpty(rel string) error {
 
 // addTree hashes every regular file under rel — the whole subtree, not
 // just .go — so a non-Go asset the published surface gains (a go:embed
-// template, a schema) still invalidates the composition when it changes.
-// Dot-prefixed entries are skipped (Go's own build ignores them, and they
-// are OS/editor/VCS junk — .DS_Store, .git — never part of what ships, so
-// the digest must not depend on their local presence). A non-regular
-// entry is refused, as in digestTree.
+// template or schema, including a dot-prefixed one an `all:` pattern can
+// embed) still invalidates the composition when it changes. Only *_test.go
+// files are excluded: they compile into neither the published surface an
+// extension builds against nor the composed binary, so an edit to one must
+// not force a rebuild. A non-regular entry is refused, as in digestTree.
 func (h *treeHasher) addTree(rel string) error {
 	root := filepath.Join(h.root, filepath.FromSlash(rel))
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
+		if err != nil || d.IsDir() {
 			return err
 		}
-		if d.IsDir() {
-			if path != root && strings.HasPrefix(d.Name(), ".") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if strings.HasPrefix(d.Name(), ".") {
+		if strings.HasSuffix(d.Name(), "_test.go") {
 			return nil
 		}
 		if !d.Type().IsRegular() {
@@ -272,20 +266,8 @@ func (h *treeHasher) sum() string {
 func digestTree(dir string) (string, error) {
 	h := newTreeHasher(dir)
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
+		if err != nil || d.IsDir() {
 			return err
-		}
-		if d.IsDir() {
-			if path != dir && strings.HasPrefix(d.Name(), ".") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		// Dot-prefixed entries are OS/editor/VCS junk (.DS_Store, .git),
-		// which Go's build ignores and which never ships — the digest must
-		// not depend on their local presence.
-		if strings.HasPrefix(d.Name(), ".") {
-			return nil
 		}
 		if !d.Type().IsRegular() {
 			// A symlink would digest as its target's bytes while

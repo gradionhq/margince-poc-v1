@@ -45,26 +45,40 @@ const (
 	}
 }
 
-// TestDigestTreeSkipsHiddenFiles: OS/editor junk (a .DS_Store dropped into
-// a unit) must not change the tree digest — the digest reflects what
-// ships, not a dev machine's incidental files.
-func TestDigestTreeSkipsHiddenFiles(t *testing.T) {
+// TestAddTreeExcludesTestFilesButHashesAssets: the published-surface
+// digest skips *_test.go (tests are in neither the compile-against surface
+// nor the composed binary, so a test edit must not force a rebuild) but
+// covers every shipping asset — including a dot-prefixed one an `all:`
+// go:embed pattern can embed, whose change DOES alter the binary.
+func TestAddTreeExcludesTestFilesButHashesAssets(t *testing.T) {
 	root := t.TempDir()
-	writeUnit(t, root, "u", map[string]string{"go.mod": "module m\n", "a.go": "package a\n"})
-	dir := filepath.Join(root, "extensions", "u")
-	before, err := digestTree(dir)
-	if err != nil {
+	base := filepath.Join(root, "pkg")
+	if err := os.MkdirAll(base, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".DS_Store"), []byte("junk"), 0o644); err != nil {
-		t.Fatal(err)
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(base, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
-	after, err := digestTree(dir)
-	if err != nil {
-		t.Fatal(err)
+	write("a.go", "package a\n")
+	write("a_test.go", "package a\n")
+	write(".embedded", "v1")
+	digest := func() string {
+		h := newTreeHasher(root)
+		if err := h.addTree("pkg"); err != nil {
+			t.Fatal(err)
+		}
+		return h.sum()
 	}
-	if before != after {
-		t.Fatal("a hidden file changed the tree digest")
+	before := digest()
+	write("a_test.go", "package a // edited\n")
+	if digest() != before {
+		t.Fatal("a _test.go edit changed the published-surface digest")
+	}
+	write(".embedded", "v2")
+	if digest() == before {
+		t.Fatal("a dot-prefixed embedded asset change was not digested")
 	}
 }
 

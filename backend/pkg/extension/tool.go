@@ -20,10 +20,11 @@ import (
 type Tier string
 
 const (
-	// TierAutoExecute runs without human confirmation (the 🟢 wire tier).
+	// TierAutoExecute REQUESTS auto-execution without human confirmation
+	// (the 🟢 wire tier). Effective only once an operator resolves it (§7).
 	TierAutoExecute Tier = "green"
-	// TierConfirmationRequired stages every call for confirm-first human
-	// approval (the 🟡 wire tier).
+	// TierConfirmationRequired REQUESTS confirm-first staging — every call
+	// waits for human approval (the 🟡 wire tier).
 	TierConfirmationRequired Tier = "yellow"
 )
 

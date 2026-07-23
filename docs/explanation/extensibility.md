@@ -89,7 +89,8 @@ That value is the entire contract. `Name` is the canonical unit name (it must eq
 name, obeys `^[a-z0-9]+(-[a-z0-9]+)*$`, ≤32 chars) and keys the unit's namespace everywhere it will
 touch — `x_<name>_<table>` tables, `/x/<name>/` paths, the `x_<name>` database role. `Version` is
 recorded in the boot inventory and carries no authority. **Capabilities are the remaining fields** —
-today just `Jurisdictions`.
+`Jurisdictions` (passive policy) and `Tools` (the first *governed* kind, deriving autonomy-tier
+requests into the manifest; not yet served — see §3).
 
 ### 2. The published surface — and the marker that gates it
 
@@ -128,7 +129,7 @@ without compiling or executing its code. The first governed kind is the **agent 
 autonomy-tier request carrying the §5 security descriptor (id, operation, scopes, tier) and its
 digest. Declaring a tool records the request in the manifest — *serving* it, registration behind the
 operator-approval gate, arrives in a later slice; until then a declared tool is inert. Passive policy
-an extension merely supplies requests no autonomy and does not appear: a jurisdiction pack exposes no
+that an extension merely supplies requests no autonomy and does not appear: a jurisdiction pack exposes no
 governed operation (the core consults its policy at boot — it is never an agent that acts) and asks
 for no tier, so a jurisdiction-only unit (like `de`) carries an empty autonomy-tiers list — there is
 nothing to approve. The returned `extension.Extension` literal and the fields the manifest derives
