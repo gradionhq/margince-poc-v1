@@ -166,17 +166,15 @@ func (w *voiceBuildWorker) Work(ctx context.Context, job *river.Job[VoiceBuildAr
 			return nil
 		}
 	}
-	// Terminal transitions run on a detached context: a job timeout must
-	// never cancel the write that records the outcome (deep-read precedent).
-	terminal, cancel := terminalCtx(ctx)
-	defer cancel()
 	claimedAt := claimTime(input)
 	if w.brain == nil {
-		return w.fail(terminal, buildID, claimedAt, "model_unavailable",
+		return w.fail(ctx, buildID, claimedAt, "model_unavailable",
 			"Voice building is unavailable until an AI provider is configured on the worker role.")
 	}
-	if err := w.run(ctx, terminal, buildID, input); err != nil {
+	if err := w.run(ctx, buildID, input); err != nil {
 		if errors.Is(err, ai.ErrBudgetDeferred) {
+			terminal, cancel := terminalCtx(ctx)
+			defer cancel()
 			if deferErr := w.store.DeferBuild(terminal, buildID, claimedAt,
 				"The monthly AI budget is exhausted; the build resumes in the next window.",
 				w.deferralDeadline(err)); deferErr != nil {
@@ -187,7 +185,7 @@ func (w *voiceBuildWorker) Work(ctx context.Context, job *river.Job[VoiceBuildAr
 		// The row carries only the safe detail; the OPERATOR needs the real
 		// cause or a repeated invalid_output is undiagnosable from any log.
 		w.log.WarnContext(ctx, "voice build error", "build", buildID.String(), "err", err)
-		return w.fail(terminal, buildID, claimedAt, failureStatusCode(err), ai.SafeVoiceBuildFailure(err))
+		return w.fail(ctx, buildID, claimedAt, failureStatusCode(err), ai.SafeVoiceBuildFailure(err))
 	}
 	return nil
 }
@@ -236,9 +234,12 @@ func (w *voiceBuildWorker) deferralDeadline(err error) time.Time {
 	return w.now().Add(voiceBuildDeferral)
 }
 
-// run drives extract → evaluate → activate on a claimed build; terminal is
-// the detached context the completing write uses.
-func (w *voiceBuildWorker) run(ctx, terminal context.Context, buildID ids.UUID, input ai.VoiceBuildInput) error {
+// run drives extract → evaluate → activate on a claimed build. Every
+// terminal write below mints its detached context AT write time (deep-read
+// precedent): a context minted before the model calls would carry a deadline
+// the run itself already spent, and the outcome could then never be
+// recorded — the build would sit "running" until reclaim, forever retrying.
+func (w *voiceBuildWorker) run(ctx context.Context, buildID ids.UUID, input ai.VoiceBuildInput) error {
 	heldOut, buildSamples := splitVoiceHeldOut(input.Samples, input.Build.SourceHash)
 	if err := w.store.SetBuildStage(ctx, buildID, "extract"); err != nil {
 		w.log.WarnContext(ctx, "voice build stage update failed", "build", buildID.String(), "err", err)
@@ -264,6 +265,10 @@ func (w *voiceBuildWorker) run(ctx, terminal context.Context, buildID ids.UUID, 
 	if err := w.store.SetBuildStage(ctx, buildID, "activate"); err != nil {
 		w.log.WarnContext(ctx, "voice build stage update failed", "build", buildID.String(), "err", err)
 	}
+	// The completing write must outlive a job timeout that fires mid-run: a
+	// canceled work context must never strand a finished artifact unrecorded.
+	terminal, cancel := terminalCtx(ctx)
+	defer cancel()
 	_, err = w.store.CompleteBuild(terminal, buildID, claimTime(input), ai.VoiceBuildOutcome{
 		Artifact:     artifact,
 		Evaluation:   evaluated.Evaluation,
@@ -286,9 +291,12 @@ func (w *voiceBuildWorker) run(ctx, terminal context.Context, buildID ids.UUID, 
 }
 
 // fail records the terminal failure on the row; the job itself succeeds —
-// the row owns retry policy, not River.
+// the row owns retry policy, not River. The write runs on its own detached
+// context so it lands even when the work context is already dead.
 func (w *voiceBuildWorker) fail(ctx context.Context, buildID ids.UUID, claimedAt time.Time, statusCode, detail string) error {
-	if err := w.store.FailBuild(ctx, buildID, claimedAt, statusCode, detail); err != nil {
+	terminal, cancel := terminalCtx(ctx)
+	defer cancel()
+	if err := w.store.FailBuild(terminal, buildID, claimedAt, statusCode, detail); err != nil {
 		return fmt.Errorf("voice_build %s: record failure: %w", buildID.String(), err)
 	}
 	w.log.WarnContext(ctx, "voice build failed", "build", buildID.String(), "status_code", statusCode, "detail", detail)
