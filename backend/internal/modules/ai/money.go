@@ -1,0 +1,58 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package ai
+
+import (
+	"math/big"
+	"strings"
+)
+
+// RateValidationError is the ai module's typed 422 for a rejected model-rate
+// write; the rate handlers map it to httperr.Validation on the wire.
+type RateValidationError struct {
+	Field   string
+	Code    string
+	Message string
+}
+
+func (e *RateValidationError) Error() string { return e.Message }
+
+func rateInvalid(field, code, message string) error {
+	return &RateValidationError{Field: field, Code: code, Message: message}
+}
+
+const microUSDPerMTok = 1_000_000
+
+// UsdPerMTokToMicroUSD converts a USD-per-million-tokens decimal string
+// (e.g. "5.00") into the µUSD/MTok integer the ai_model_rate table stores
+// ("5.00" -> 5_000_000). It rejects a non-decimal, negative, or too-large
+// value (a value exceeding int64 after scaling). Rounds half-up at µUSD.
+func UsdPerMTokToMicroUSD(usd string) (int64, error) {
+	r, ok := new(big.Rat).SetString(strings.TrimSpace(usd))
+	if !ok || r.Sign() < 0 {
+		return 0, rateInvalid("price", "rate_price_nonnegative",
+			"price must be a non-negative decimal (USD per 1M tokens)")
+	}
+	r.Mul(r, new(big.Rat).SetInt64(microUSDPerMTok))
+	num, den := r.Num(), r.Denom()
+	q := new(big.Int).Quo(num, den)
+	if new(big.Int).Mul(new(big.Int).Rem(num, den), big.NewInt(2)).CmpAbs(den) >= 0 {
+		q.Add(q, big.NewInt(1))
+	}
+	if !q.IsInt64() {
+		return 0, rateInvalid("price", "rate_price_too_large", "price is too large")
+	}
+	return q.Int64(), nil
+}
+
+// MicroUSDToUsdPerMTok formats a stored µUSD/MTok integer back to a trimmed
+// USD-per-million-tokens decimal string (5_000_000 -> "5", 150_000 -> "0.15").
+func MicroUSDToUsdPerMTok(micro int64) string {
+	s := new(big.Rat).SetFrac(big.NewInt(micro), big.NewInt(microUSDPerMTok)).FloatString(6)
+	if strings.Contains(s, ".") {
+		s = strings.TrimRight(s, "0")
+		s = strings.TrimRight(s, ".")
+	}
+	return s
+}

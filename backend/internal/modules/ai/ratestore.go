@@ -21,11 +21,21 @@ import (
 // caller can see, the same as fx_rate.
 type RateStore struct {
 	pool *pgxpool.Pool
+	// clock is the "today" source for effective-dated writes; injected so
+	// append-forward date validation is deterministic in tests.
+	clock func() time.Time
 }
 
 // NewRateStore constructs the RateStore over pool.
 func NewRateStore(pool *pgxpool.Pool) *RateStore {
-	return &RateStore{pool: pool}
+	return &RateStore{pool: pool, clock: time.Now}
+}
+
+// WithClock overrides the "today" source (tests only). Returns the store
+// for chaining.
+func (s *RateStore) WithClock(clock func() time.Time) *RateStore {
+	s.clock = clock
+	return s
 }
 
 // RateFor resolves the rate effective on day for (provider, modelID) —
