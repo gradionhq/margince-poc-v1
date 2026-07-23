@@ -10,6 +10,11 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
+import {
+  type CreateField,
+  CreateRecordModal,
+  splitMultiselectValue,
+} from "./create";
 import { DealsScreen } from "./deals";
 import { ContactsScreen } from "./people";
 
@@ -160,6 +165,75 @@ describe("contact create flow", () => {
       expect(screen.getByText("full_name must not be blank")).toBeTruthy(),
     );
     expect(screen.getByLabelText("Full name *")).toBeTruthy();
+  });
+});
+
+// The multiselect CreateField type (A10): a checkbox group over `options`
+// that collects the toggled selection as a comma-joined string in the SAME
+// `values: Record<string, string>` channel every scalar field already uses —
+// `splitMultiselectValue`/`joinMultiselectValue` are the documented mapper a
+// screen's transport uses to recover the `string[]`. This keeps every
+// existing single-string field (text/email/number/date/select) untouched.
+describe("multiselect CreateField", () => {
+  const fields: CreateField[] = [
+    { key: "name", labelText: "Name", type: "text", required: true },
+    {
+      key: "event_types",
+      labelText: "Event types",
+      type: "multiselect",
+      options: [
+        { value: "deal.created", label: "Deal created" },
+        { value: "deal.won", label: "Deal won" },
+        { value: "person.created", label: "Person created" },
+      ],
+    },
+  ];
+
+  it("renders each option as a toggleable checkbox", () => {
+    render(
+      <CreateRecordModal
+        open
+        onClose={() => {}}
+        title="New webhook"
+        fields={fields}
+        pending={false}
+        error={null}
+        onSubmit={() => {}}
+      />,
+    );
+    const dealCreated = screen.getByLabelText(
+      "Deal created",
+    ) as HTMLInputElement;
+    expect(dealCreated.type).toBe("checkbox");
+    expect(dealCreated.checked).toBe(false);
+  });
+
+  it("collects toggled options as a string[] on submit, leaving an existing text field's plain string untouched", async () => {
+    const onSubmit = vi.fn();
+    render(
+      <CreateRecordModal
+        open
+        onClose={() => {}}
+        title="New webhook"
+        fields={fields}
+        pending={false}
+        error={null}
+        onSubmit={onSubmit}
+      />,
+    );
+    await userEvent.type(screen.getByLabelText("Name *"), "Peter");
+    await userEvent.click(screen.getByLabelText("Deal created"));
+    await userEvent.click(screen.getByLabelText("Person created"));
+    // toggling back off removes it from the collected selection
+    await userEvent.click(screen.getByLabelText("Deal created"));
+    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const [values] = onSubmit.mock.calls[0] as [Record<string, string>];
+    expect(values.name).toBe("Peter");
+    expect(splitMultiselectValue(values.event_types)).toEqual([
+      "person.created",
+    ]);
   });
 });
 

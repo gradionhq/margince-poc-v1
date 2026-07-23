@@ -52,6 +52,7 @@ export type CreateField = {
     | "date"
     | "datetime-local"
     | "select"
+    | "multiselect"
     | "repeatable";
   required?: boolean;
   options?: CreateFieldOption[];
@@ -77,6 +78,22 @@ export function fieldLabel(
   t: (key: MessageKey) => string,
 ): string {
   return field.labelText ?? (field.label ? t(field.label) : "");
+}
+
+// multiselect (e.g. a webhook's subscribed event types): the toggled
+// selection is collected as a comma-joined string in the SAME
+// `values: Record<string, string>` channel every scalar field already uses —
+// no new value channel, so every existing single-string field type stays
+// untouched. These are the documented mapper a screen's transport uses to
+// recover the `string[]` (join before render, split after submit).
+const MULTISELECT_DELIMITER = ",";
+
+export function splitMultiselectValue(raw: string): string[] {
+  return raw.length === 0 ? [] : raw.split(MULTISELECT_DELIMITER);
+}
+
+export function joinMultiselectValue(selected: string[]): string {
+  return selected.join(MULTISELECT_DELIMITER);
 }
 
 // One repeatable-row field's collected rows, e.g. `{ email: "a@x", email_type:
@@ -347,6 +364,60 @@ function RepeatableRowsField({
   );
 }
 
+// A multiselect field: each option renders as its own checkbox; toggling one
+// re-joins the whole selection back into `values` via `setValue` — the same
+// single-string channel every scalar field writes through (see
+// `splitMultiselectValue`/`joinMultiselectValue` above).
+function MultiselectField({
+  field,
+  formId,
+  value,
+  setValue,
+}: Readonly<{
+  field: CreateField;
+  formId: string;
+  value: string;
+  setValue: (next: string) => void;
+}>) {
+  const t = useT();
+  const selected = splitMultiselectValue(value);
+
+  function toggle(optionValue: string) {
+    const next = selected.includes(optionValue)
+      ? selected.filter((entry) => entry !== optionValue)
+      : [...selected, optionValue];
+    setValue(joinMultiselectValue(next));
+  }
+
+  return (
+    <fieldset className="field-multiselect">
+      <legend className="t-label">
+        {fieldLabel(field, t)}
+        {field.required ? " *" : ""}
+      </legend>
+      {(field.options ?? []).map((option) => {
+        const optionId = `${formId}-${field.key}-${option.value}`;
+        return (
+          <label
+            key={option.value}
+            className="t-label"
+            htmlFor={optionId}
+            style={{ display: "flex", alignItems: "center", gap: 4 }}
+          >
+            <input
+              id={optionId}
+              type="checkbox"
+              checked={selected.includes(option.value)}
+              onChange={() => toggle(option.value)}
+            />
+            {option.label}
+          </label>
+        );
+      })}
+    </fieldset>
+  );
+}
+
 // The shared modal form body: fields → controls, the error paragraph, and
 // the Cancel/Save row. Both create and edit render this identically — only
 // the values' origin (empty defaults vs. a prefilled record) and the submit
@@ -416,6 +487,17 @@ export function RecordFormBody({
               formId={formId}
               rows={rows[field.key] ?? []}
               setRows={(next) => setRows({ ...rows, [field.key]: next })}
+            />
+          );
+        }
+        if (field.type === "multiselect") {
+          return (
+            <MultiselectField
+              key={field.key}
+              field={field}
+              formId={formId}
+              value={values[field.key] ?? ""}
+              setValue={(next) => setValues({ ...values, [field.key]: next })}
             />
           );
         }
