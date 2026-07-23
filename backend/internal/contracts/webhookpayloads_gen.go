@@ -209,11 +209,20 @@ func (e SubscribableEventType) Valid() bool {
 	}
 }
 
-// SubscribableEventType The closed set of domain events a webhook subscription can select. Phase 4 fills this out family by family; today it carries the pilot event plus the deal family (Task 5a-i), the offer family (Task 5a-ii), the pipeline/stage config family (Task 5a-iii), and the person/organization family (Task 5b-personorg), the lead family (Task 5b-lead), the activities family (Task 5c), the consent/privacy family (Task 5d), the signals family (Task 5e), the ai voice family (Task 5f), the identity family (Task 5g), and the overlay family (Task 5h).
-type SubscribableEventType string
+// PublicEventActivityArchived Payload for activity.archived — an activity was archived. Carries no data.
+type PublicEventActivityArchived struct{}
 
-// WebhookActivityChangedFields activity.updated's BOUNDED delta: UpdateActivity's known mutable fields (subject, body, occurred_at, due_at, remind_at, assignee_id, is_done) each carried only when this update touched them, plus RelinkActivity's relinked target — a fixed, KNOWN key set (unlike person/organization/deal/lead.updated's genuinely open patch), so it is typed rather than an open map.
-type WebhookActivityChangedFields struct {
+// PublicEventActivityCaptured Payload for activity.captured — the first-class capture verb, emitted instead of (never alongside) a generic activity.created (events.md §1). Two emit sites: the direct-log path (activities/activity.go) that sets kind only, and the capture ingestion path (capture/sink.go) that also names its originating source system.
+type PublicEventActivityCaptured struct {
+	// Kind The activity kind (email | call | meeting | note | whatsapp | telegram). Decoded by automation/handlers_event.go's post_meeting_recap trigger — this field's JSON key is a binding contract, not just documentation.
+	Kind string `json:"kind"`
+
+	// SourceSystem The originating source system (capture ingestion only; absent on a direct log).
+	SourceSystem *string `json:"source_system,omitempty"`
+}
+
+// PublicEventActivityChangedFields activity.updated's BOUNDED delta: UpdateActivity's known mutable fields (subject, body, occurred_at, due_at, remind_at, assignee_id, is_done) each carried only when this update touched them, plus RelinkActivity's relinked target — a fixed, KNOWN key set (unlike person/organization/deal/lead.updated's genuinely open patch), so it is typed rather than an open map.
+type PublicEventActivityChangedFields struct {
 	// AssigneeId The activity's new assignee (absent when this update did not touch it).
 	AssigneeId *openapi_types.UUID `json:"assignee_id,omitempty"`
 
@@ -230,7 +239,7 @@ type WebhookActivityChangedFields struct {
 	OccurredAt *time.Time `json:"occurred_at,omitempty"`
 
 	// Relinked The entity an activity was relinked onto (activities/lifecycle.go's RelinkActivity) — an association change, not a re-capture, so it travels as one changed_fields key rather than its own event verb.
-	Relinked *WebhookActivityRelinkedRef `json:"relinked,omitempty"`
+	Relinked *PublicEventActivityRelinkedRef `json:"relinked,omitempty"`
 
 	// RemindAt The activity's new remind_at (absent when this update did not touch it).
 	RemindAt *time.Time `json:"remind_at,omitempty"`
@@ -239,8 +248,8 @@ type WebhookActivityChangedFields struct {
 	Subject *string `json:"subject,omitempty"`
 }
 
-// WebhookActivityRelinkedRef The entity an activity was relinked onto (activities/lifecycle.go's RelinkActivity) — an association change, not a re-capture, so it travels as one changed_fields key rather than its own event verb.
-type WebhookActivityRelinkedRef struct {
+// PublicEventActivityRelinkedRef The entity an activity was relinked onto (activities/lifecycle.go's RelinkActivity) — an association change, not a re-capture, so it travels as one changed_fields key rather than its own event verb.
+type PublicEventActivityRelinkedRef struct {
 	// EntityId The relink target's id.
 	EntityId openapi_types.UUID `json:"entity_id"`
 
@@ -248,68 +257,20 @@ type WebhookActivityRelinkedRef struct {
 	EntityType string `json:"entity_type"`
 }
 
-// WebhookActor Who or what caused the event, as exposed publicly.
-type WebhookActor struct {
+// PublicEventActivityUpdated Payload for activity.updated — a BOUNDED delta (unlike the person/organization/deal/lead family's genuinely open patch): UpdateActivity and RelinkActivity together cover a fixed, KNOWN set of inner keys, so changed_fields is a typed struct here, not an open map.
+type PublicEventActivityUpdated struct {
+	// ChangedFields activity.updated's BOUNDED delta: UpdateActivity's known mutable fields (subject, body, occurred_at, due_at, remind_at, assignee_id, is_done) each carried only when this update touched them, plus RelinkActivity's relinked target — a fixed, KNOWN key set (unlike person/organization/deal/lead.updated's genuinely open patch), so it is typed rather than an open map.
+	ChangedFields PublicEventActivityChangedFields `json:"changed_fields"`
+}
+
+// PublicEventActor Who or what caused the event, as exposed publicly.
+type PublicEventActor struct {
 	// Type Actor kind (e.g. human, agent, connector).
 	Type string `json:"type"`
 }
 
-// WebhookDeliveryEnvelope The public wrapper around every delivered event payload. This is the exact JSON shape a subscriber receives; it carries no internal metadata.
-type WebhookDeliveryEnvelope struct {
-	// Actor Who or what caused the event, as exposed publicly.
-	Actor WebhookActor `json:"actor"`
-
-	// CorrelationId Correlates all events emitted for one originating request.
-	CorrelationId openapi_types.UUID `json:"correlation_id"`
-
-	// Data The typed event payload (one of the WebhookPayload* schemas).
-	Data map[string]interface{} `json:"data"`
-
-	// Entity The primary entity the event concerns.
-	Entity WebhookEntityRef `json:"entity"`
-
-	// EventId Unique id of this event occurrence.
-	EventId openapi_types.UUID `json:"event_id"`
-
-	// OccurredAt When the event occurred (RFC 3339).
-	OccurredAt time.Time `json:"occurred_at"`
-
-	// Type The event type (a SubscribableEventType value).
-	Type string `json:"type"`
-
-	// Version Schema version of the payload in data.
-	Version int `json:"version"`
-}
-
-// WebhookEntityRef The primary entity the event concerns.
-type WebhookEntityRef struct {
-	// Id Stable identifier of the entity.
-	Id openapi_types.UUID `json:"id"`
-
-	// Type Entity kind (e.g. deal, person, organization).
-	Type string `json:"type"`
-}
-
-// WebhookPayloadActivityArchived Payload for activity.archived — an activity was archived. Carries no data.
-type WebhookPayloadActivityArchived struct{}
-
-// WebhookPayloadActivityCaptured Payload for activity.captured — the first-class capture verb, emitted instead of (never alongside) a generic activity.created (events.md §1). Two emit sites: the direct-log path (activities/activity.go) that sets kind only, and the capture ingestion path (capture/sink.go) that also names its originating source system.
-type WebhookPayloadActivityCaptured struct {
-	// Kind The activity kind (email | call | meeting | note | whatsapp | telegram). Decoded by automation/handlers_event.go's post_meeting_recap trigger — this field's JSON key is a binding contract, not just documentation.
-	Kind string `json:"kind"`
-
-	// SourceSystem The originating source system (capture ingestion only; absent on a direct log).
-	SourceSystem *string `json:"source_system,omitempty"`
-}
-
-// WebhookPayloadActivityUpdated Payload for activity.updated — a BOUNDED delta (unlike the person/organization/deal/lead family's genuinely open patch): UpdateActivity and RelinkActivity together cover a fixed, KNOWN set of inner keys, so changed_fields is a typed struct here, not an open map.
-type WebhookPayloadActivityUpdated struct {
-	// ChangedFields activity.updated's BOUNDED delta: UpdateActivity's known mutable fields (subject, body, occurred_at, due_at, remind_at, assignee_id, is_done) each carried only when this update touched them, plus RelinkActivity's relinked target — a fixed, KNOWN key set (unlike person/organization/deal/lead.updated's genuinely open patch), so it is typed rather than an open map.
-	ChangedFields WebhookActivityChangedFields `json:"changed_fields"`
-}
-
-// WebhookPayloadApprovalDecided Payload for approval.decided — a human approved or rejected a staged approval (approvals/decide.go). verdict and edited_change are decoded BY NAME outside this module — automation's blocked-run consumer matches verdict (automation/engine_blocked.go), the Surface-B runner's resume consumer reads edited_change (compose/runnerservice.go) — see the JSON-tag regression tests in internal/modules/webhooks. edited/diff_hash/edited_change are present only on the ADR-0036 §4 modify-then-approve arm, where the human's edited payload replaced the staged change under a freshly computed diff_hash.
-type WebhookPayloadApprovalDecided struct {
+// PublicEventApprovalDecided Payload for approval.decided — a human approved or rejected a staged approval (approvals/decide.go). verdict and edited_change are decoded BY NAME outside this module — automation's blocked-run consumer matches verdict (automation/engine_blocked.go), the Surface-B runner's resume consumer reads edited_change (compose/runnerservice.go) — see the JSON-tag regression tests in internal/modules/webhooks. edited/diff_hash/edited_change are present only on the ADR-0036 §4 modify-then-approve arm, where the human's edited payload replaced the staged change under a freshly computed diff_hash.
+type PublicEventApprovalDecided struct {
 	// DecidedBy The deciding human's user id.
 	DecidedBy openapi_types.UUID `json:"decided_by"`
 
@@ -329,8 +290,8 @@ type WebhookPayloadApprovalDecided struct {
 	Verdict string `json:"verdict"`
 }
 
-// WebhookPayloadApprovalRequested Payload for approval.requested — an agent's 🟡 call was staged pending a human decision (ADR-0036, approvals/staging.go's StageInTx). The staged approval row's own id is the event's entity ref; this payload names what was staged, its polymorphic target, and when the staging lapses into expired if undecided.
-type WebhookPayloadApprovalRequested struct {
+// PublicEventApprovalRequested Payload for approval.requested — an agent's 🟡 call was staged pending a human decision (ADR-0036, approvals/staging.go's StageInTx). The staged approval row's own id is the event's entity ref; this payload names what was staged, its polymorphic target, and when the staging lapses into expired if undecided.
+type PublicEventApprovalRequested struct {
 	// ExpiresAt When this staging lapses into expired if undecided.
 	ExpiresAt time.Time `json:"expires_at"`
 
@@ -347,11 +308,11 @@ type WebhookPayloadApprovalRequested struct {
 	TargetEntityType string `json:"target_entity_type"`
 }
 
-// WebhookPayloadAuditAppended Payload for audit.appended — not currently delivered: there is no emit site for this type, and none is planned for V1. It exists so the §5 catalog (events.Types()) is completely covered by a payload schema (the whole-catalog coverage gate), never carrying a subscribable type with no contract. An empty payload by design — the audit ledger row it would announce is workspace-level (its subject is resolved back under the receiver's own scope), so no record detail rides the event.
-type WebhookPayloadAuditAppended struct{}
+// PublicEventAuditAppended Payload for audit.appended — not currently delivered: there is no emit site for this type, and none is planned for V1. It exists so the §5 catalog (events.Types()) is completely covered by a payload schema (the whole-catalog coverage gate), never carrying a subscribable type with no contract. An empty payload by design — the audit ledger row it would announce is workspace-level (its subject is resolved back under the receiver's own scope), so no record detail rides the event.
+type PublicEventAuditAppended struct{}
 
-// WebhookPayloadColdstartAccepted Payload for coldstart.accepted — a human accepted a staged cold-start read-back (approvals/decide.go's kind-decided echo, emitted on the same audit row as approval.decided).
-type WebhookPayloadColdstartAccepted struct {
+// PublicEventColdstartAccepted Payload for coldstart.accepted — a human accepted a staged cold-start read-back (approvals/decide.go's kind-decided echo, emitted on the same audit row as approval.decided).
+type PublicEventColdstartAccepted struct {
 	// ApprovalId The decided approval's id (same as the envelope's entity ref).
 	ApprovalId openapi_types.UUID `json:"approval_id"`
 
@@ -359,8 +320,8 @@ type WebhookPayloadColdstartAccepted struct {
 	DecidedBy openapi_types.UUID `json:"decided_by"`
 }
 
-// WebhookPayloadColdstartReadBackProposed Payload for coldstart.read_back_proposed — a cold-start read-back was staged as a "coldstart" approval (compose/coldstart.go's stage, carried through approvals/staging.go's Announce alongside approval.requested on the same audit row). Carries only the read-back's shape, never the extracted field values or the pasted source text/statement — tenant data never rides an announced event.
-type WebhookPayloadColdstartReadBackProposed struct {
+// PublicEventColdstartReadBackProposed Payload for coldstart.read_back_proposed — a cold-start read-back was staged as a "coldstart" approval (compose/coldstart.go's stage, carried through approvals/staging.go's Announce alongside approval.requested on the same audit row). Carries only the read-back's shape, never the extracted field values or the pasted source text/statement — tenant data never rides an announced event.
+type PublicEventColdstartReadBackProposed struct {
 	// FieldCount How many fields the read-back grounded.
 	FieldCount int `json:"field_count"`
 
@@ -371,8 +332,8 @@ type WebhookPayloadColdstartReadBackProposed struct {
 	SourceUrl *string `json:"source_url,omitempty"`
 }
 
-// WebhookPayloadColdstartRejected Payload for coldstart.rejected — a human rejected a staged cold-start read-back (approvals/decide.go's kind-decided echo, emitted on the same audit row as approval.decided).
-type WebhookPayloadColdstartRejected struct {
+// PublicEventColdstartRejected Payload for coldstart.rejected — a human rejected a staged cold-start read-back (approvals/decide.go's kind-decided echo, emitted on the same audit row as approval.decided).
+type PublicEventColdstartRejected struct {
 	// ApprovalId The decided approval's id (same as the envelope's entity ref).
 	ApprovalId openapi_types.UUID `json:"approval_id"`
 
@@ -380,8 +341,8 @@ type WebhookPayloadColdstartRejected struct {
 	DecidedBy openapi_types.UUID `json:"decided_by"`
 }
 
-// WebhookPayloadConsentChanged Payload for consent.changed — a subject's per-purpose consent state was recorded (consent/store.go's Record). The subject is a person XOR a lead (data-model §7, before promotion) — a RUNTIME choice Record resolves via consentSubject, not a fixed type this schema can name, so this is the first dynamic-entity event (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and the emit site supplies the real entity type through storekit.EmitEventForEntity.
-type WebhookPayloadConsentChanged struct {
+// PublicEventConsentChanged Payload for consent.changed — a subject's per-purpose consent state was recorded (consent/store.go's Record). The subject is a person XOR a lead (data-model §7, before promotion) — a RUNTIME choice Record resolves via consentSubject, not a fixed type this schema can name, so this is the first dynamic-entity event (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and the emit site supplies the real entity type through storekit.EmitEventForEntity.
+type PublicEventConsentChanged struct {
 	// NewState The state now on record (granted | withdrawn).
 	NewState string `json:"new_state"`
 
@@ -392,17 +353,17 @@ type WebhookPayloadConsentChanged struct {
 	PurposeId openapi_types.UUID `json:"purpose_id"`
 }
 
-// WebhookPayloadDealArchived Payload for deal.archived — a deal was archived. Carries no data.
-type WebhookPayloadDealArchived struct{}
+// PublicEventDealArchived Payload for deal.archived — a deal was archived. Carries no data.
+type PublicEventDealArchived struct{}
 
-// WebhookPayloadDealCreated Payload for deal.created — a deal was opened.
-type WebhookPayloadDealCreated struct {
+// PublicEventDealCreated Payload for deal.created — a deal was opened.
+type PublicEventDealCreated struct {
 	// Name The deal's name at creation.
 	Name string `json:"name"`
 }
 
-// WebhookPayloadDealOwnerChanged Payload for deal.owner_changed — the deal's owner was reassigned. Emitted instead of (never alongside) deal.updated for the owner_id field (events.md §5.3).
-type WebhookPayloadDealOwnerChanged struct {
+// PublicEventDealOwnerChanged Payload for deal.owner_changed — the deal's owner was reassigned. Emitted instead of (never alongside) deal.updated for the owner_id field (events.md §5.3).
+type PublicEventDealOwnerChanged struct {
 	// FromOwnerId The previous owner (absent when the deal had none).
 	FromOwnerId *openapi_types.UUID `json:"from_owner_id,omitempty"`
 
@@ -410,11 +371,11 @@ type WebhookPayloadDealOwnerChanged struct {
 	ToOwnerId openapi_types.UUID `json:"to_owner_id"`
 }
 
-// WebhookPayloadDealRestored Payload for deal.restored. Never emitted today (no restore path exists for deal); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it.
-type WebhookPayloadDealRestored struct{}
+// PublicEventDealRestored Payload for deal.restored. Never emitted today (no restore path exists for deal); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it.
+type PublicEventDealRestored struct{}
 
-// WebhookPayloadDealStageChanged Payload for deal.stage_changed — a deal advanced between stages. Carries the amount/win-probability snapshot frozen at the moment of the move so consumers (the trajectory view, the overnight stalled/forecast sweep, the automation trigger keyed on to_status) never need a read-back.
-type WebhookPayloadDealStageChanged struct {
+// PublicEventDealStageChanged Payload for deal.stage_changed — a deal advanced between stages. Carries the amount/win-probability snapshot frozen at the moment of the move so consumers (the trajectory view, the overnight stalled/forecast sweep, the automation trigger keyed on to_status) never need a read-back.
+type PublicEventDealStageChanged struct {
 	// AmountMinorAtChange The deal's amount, frozen at the moment of the move.
 	AmountMinorAtChange *int64 `json:"amount_minor_at_change,omitempty"`
 
@@ -437,14 +398,14 @@ type WebhookPayloadDealStageChanged struct {
 	WinProbability int `json:"win_probability"`
 }
 
-// WebhookPayloadDealUpdated Payload for deal.updated — an OPEN envelope: its emit sites carry divergent shapes (a flat column patch, an accepted-offer amount sync, a close-date-correction note, a relationship delta), so the honest shape is a change-set map rather than a fixed field list.
-type WebhookPayloadDealUpdated struct {
+// PublicEventDealUpdated Payload for deal.updated — an OPEN envelope: its emit sites carry divergent shapes (a flat column patch, an accepted-offer amount sync, a close-date-correction note, a relationship delta), so the honest shape is a change-set map rather than a fixed field list.
+type PublicEventDealUpdated struct {
 	// ChangedFields Field name → new value for whatever this update touched, incl. runtime cf_* custom fields.
 	ChangedFields map[string]interface{} `json:"changed_fields"`
 }
 
-// WebhookPayloadEngagementReply Payload for engagement.reply — CAP-FORMULA-1: an inbound message in a thread we previously wrote outbound in is a reply, feeding the engagement signal scoring (capture/sink.go's emitReply).
-type WebhookPayloadEngagementReply struct {
+// PublicEventEngagementReply Payload for engagement.reply — CAP-FORMULA-1: an inbound message in a thread we previously wrote outbound in is a reply, feeding the engagement signal scoring (capture/sink.go's emitReply).
+type PublicEventEngagementReply struct {
 	// Channel The channel the reply arrived on (today always email).
 	Channel string `json:"channel"`
 
@@ -461,8 +422,44 @@ type WebhookPayloadEngagementReply struct {
 	OccurredAt time.Time `json:"occurred_at"`
 }
 
-// WebhookPayloadIncumbentConnected Payload for incumbent.connected — a workspace completed the overlay-mode incumbent-CRM connect flow (overlay/connection.go's insertConnection); the workspace flipped to x_sor_mode=overlay in the same transaction. Unlike the mirror.* events above, this event's subject is always the incumbent_connection row itself — a fixed type — so it is emitted via the plain storekit.EmitEvent.
-type WebhookPayloadIncumbentConnected struct {
+// PublicEventEntityRef The primary entity the event concerns.
+type PublicEventEntityRef struct {
+	// Id Stable identifier of the entity.
+	Id openapi_types.UUID `json:"id"`
+
+	// Type Entity kind (e.g. deal, person, organization).
+	Type string `json:"type"`
+}
+
+// PublicEventEnvelope The public wrapper around every delivered event payload. This is the exact JSON shape a subscriber receives; it carries no internal metadata.
+type PublicEventEnvelope struct {
+	// Actor Who or what caused the event, as exposed publicly.
+	Actor PublicEventActor `json:"actor"`
+
+	// CorrelationId Correlates all events emitted for one originating request.
+	CorrelationId openapi_types.UUID `json:"correlation_id"`
+
+	// Data The typed event payload (one of the PublicEvent* schemas).
+	Data map[string]interface{} `json:"data"`
+
+	// Entity The primary entity the event concerns.
+	Entity PublicEventEntityRef `json:"entity"`
+
+	// EventId Unique id of this event occurrence.
+	EventId openapi_types.UUID `json:"event_id"`
+
+	// OccurredAt When the event occurred (RFC 3339).
+	OccurredAt time.Time `json:"occurred_at"`
+
+	// Type The event type (a SubscribableEventType value).
+	Type string `json:"type"`
+
+	// Version Schema version of the payload in data.
+	Version int `json:"version"`
+}
+
+// PublicEventIncumbentConnected Payload for incumbent.connected — a workspace completed the overlay-mode incumbent-CRM connect flow (overlay/connection.go's insertConnection); the workspace flipped to x_sor_mode=overlay in the same transaction. Unlike the mirror.* events above, this event's subject is always the incumbent_connection row itself — a fixed type — so it is emitted via the plain storekit.EmitEvent.
+type PublicEventIncumbentConnected struct {
 	// Incumbent The incumbent CRM system connected (e.g. "hubspot").
 	Incumbent string `json:"incumbent"`
 
@@ -476,8 +473,8 @@ type WebhookPayloadIncumbentConnected struct {
 	Status string `json:"status"`
 }
 
-// WebhookPayloadIncumbentDisconnected Payload for incumbent.disconnected — a workspace's active incumbent-CRM connection was revoked (overlay/teardown.go's Disconnect); mirror teardown and credential cleanup follow. This event's subject is always the incumbent_connection row itself — a fixed type — so it is emitted via the plain storekit.EmitEvent.
-type WebhookPayloadIncumbentDisconnected struct {
+// PublicEventIncumbentDisconnected Payload for incumbent.disconnected — a workspace's active incumbent-CRM connection was revoked (overlay/teardown.go's Disconnect); mirror teardown and credential cleanup follow. This event's subject is always the incumbent_connection row itself — a fixed type — so it is emitted via the plain storekit.EmitEvent.
+type PublicEventIncumbentDisconnected struct {
 	// Incumbent The incumbent CRM system disconnected.
 	Incumbent string `json:"incumbent"`
 
@@ -488,17 +485,17 @@ type WebhookPayloadIncumbentDisconnected struct {
 	Status string `json:"status"`
 }
 
-// WebhookPayloadLeadCreated Payload for lead.created — a lead was created. Two emit sites: a direct create (people/lead.go) that sets no fields, and the capture auto-create engine (capture/sink.go) that names its originating source system; source_system is therefore optional.
-type WebhookPayloadLeadCreated struct {
+// PublicEventLeadCreated Payload for lead.created — a lead was created. Two emit sites: a direct create (people/lead.go) that sets no fields, and the capture auto-create engine (capture/sink.go) that names its originating source system; source_system is therefore optional.
+type PublicEventLeadCreated struct {
 	// SourceSystem The originating source system (capture auto-create only; absent on a direct create).
 	SourceSystem *string `json:"source_system,omitempty"`
 }
 
-// WebhookPayloadLeadDisqualified Payload for lead.disqualified — a lead was disqualified. Carries no data.
-type WebhookPayloadLeadDisqualified struct{}
+// PublicEventLeadDisqualified Payload for lead.disqualified — a lead was disqualified. Carries no data.
+type PublicEventLeadDisqualified struct{}
 
-// WebhookPayloadLeadPromoted Payload for lead.promoted — the lead's genuine-engagement promotion into the context graph (events.md §5.5); its own verb, never a lead.updated, since neither person.created nor person.updated on its own says a lead crossed this line.
-type WebhookPayloadLeadPromoted struct {
+// PublicEventLeadPromoted Payload for lead.promoted — the lead's genuine-engagement promotion into the context graph (events.md §5.5); its own verb, never a lead.updated, since neither person.created nor person.updated on its own says a lead crossed this line.
+type PublicEventLeadPromoted struct {
 	// DedupeOutcome Whether promotion created a new person or merged into an existing one: created or merged.
 	DedupeOutcome string `json:"dedupe_outcome"`
 
@@ -512,20 +509,20 @@ type WebhookPayloadLeadPromoted struct {
 	Trigger string `json:"trigger"`
 }
 
-// WebhookPayloadLeadUpdated Payload for lead.updated — an OPEN envelope: emit sites carry divergent shapes (a flat column patch that includes runtime cf_* custom-field columns, and behavioral-recompute/routing deltas), so the honest shape is a change-set map rather than a fixed field list.
-type WebhookPayloadLeadUpdated struct {
+// PublicEventLeadUpdated Payload for lead.updated — an OPEN envelope: emit sites carry divergent shapes (a flat column patch that includes runtime cf_* custom-field columns, and behavioral-recompute/routing deltas), so the honest shape is a change-set map rather than a fixed field list.
+type PublicEventLeadUpdated struct {
 	// ChangedFields Field name → new value for whatever this update touched, incl. runtime cf_* custom fields.
 	ChangedFields map[string]interface{} `json:"changed_fields"`
 }
 
-// WebhookPayloadMirrorBudgetDegraded Payload for mirror.budget_degraded — a force-fresh read fell back to the mirror because the workspace's shared OVB budget had shed to the "shed" band (overlay/freshness.go's emitBudgetDegraded, OVA-EVT-3). The event names the record the degraded read was about; that record's class is a RUNTIME value (the read's own entity ref), so this is a dynamic-entity event (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and the emit site supplies the real entity type through storekit.EmitEventForEntity.
-type WebhookPayloadMirrorBudgetDegraded struct {
+// PublicEventMirrorBudgetDegraded Payload for mirror.budget_degraded — a force-fresh read fell back to the mirror because the workspace's shared OVB budget had shed to the "shed" band (overlay/freshness.go's emitBudgetDegraded, OVA-EVT-3). The event names the record the degraded read was about; that record's class is a RUNTIME value (the read's own entity ref), so this is a dynamic-entity event (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and the emit site supplies the real entity type through storekit.EmitEventForEntity.
+type PublicEventMirrorBudgetDegraded struct {
 	// Band The budget band that forced the degrade (currently always "shed").
 	Band string `json:"band"`
 }
 
-// WebhookPayloadMirrorConflict Payload for mirror.conflict — the reconcile poller (overlay/ reconcile.go's emitMirrorConflict) observed the incumbent CRM had moved a record the mirror's own baseline still called current, an overwrite-worthy divergence (OVA-EVT-1). object_class is the RUNTIME canonical class of the record involved (e.g. "person", "deal") — not a fixed type this schema can name — so this is a dynamic-entity event (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and the emit site supplies the real entity type through storekit.EmitEventForEntity.
-type WebhookPayloadMirrorConflict struct {
+// PublicEventMirrorConflict Payload for mirror.conflict — the reconcile poller (overlay/ reconcile.go's emitMirrorConflict) observed the incumbent CRM had moved a record the mirror's own baseline still called current, an overwrite-worthy divergence (OVA-EVT-1). object_class is the RUNTIME canonical class of the record involved (e.g. "person", "deal") — not a fixed type this schema can name — so this is a dynamic-entity event (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and the emit site supplies the real entity type through storekit.EmitEventForEntity.
+type PublicEventMirrorConflict struct {
 	// ExternalId The record's incumbent-side natural key.
 	ExternalId string `json:"external_id"`
 
@@ -539,8 +536,8 @@ type WebhookPayloadMirrorConflict struct {
 	PriorUpdatedAt time.Time `json:"prior_updated_at"`
 }
 
-// WebhookPayloadMirrorDeleted Payload for mirror.deleted — continuous sync observed the incumbent report a record deleted, and the mirror purged its cached row, association edges, and visibility projection (overlay/mirrordeletion.go). object_class is the RUNTIME canonical class of the purged record, not a fixed type this schema can name, so this is a dynamic-entity event (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and the emit site supplies the real entity type through storekit.EmitEventForEntity.
-type WebhookPayloadMirrorDeleted struct {
+// PublicEventMirrorDeleted Payload for mirror.deleted — continuous sync observed the incumbent report a record deleted, and the mirror purged its cached row, association edges, and visibility projection (overlay/mirrordeletion.go). object_class is the RUNTIME canonical class of the purged record, not a fixed type this schema can name, so this is a dynamic-entity event (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and the emit site supplies the real entity type through storekit.EmitEventForEntity.
+type PublicEventMirrorDeleted struct {
 	// DeletedAt When the incumbent reported the deletion.
 	DeletedAt time.Time `json:"deleted_at"`
 
@@ -551,11 +548,11 @@ type WebhookPayloadMirrorDeleted struct {
 	ObjectClass string `json:"object_class"`
 }
 
-// WebhookPayloadMirrorWriteRejected Payload for mirror.write_rejected. Never emitted today — reserved for branch 2 (writes to an overlay-mode workspace's incumbent CRM, currently declared unsupported_by_sor); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it.
-type WebhookPayloadMirrorWriteRejected struct{}
+// PublicEventMirrorWriteRejected Payload for mirror.write_rejected. Never emitted today — reserved for branch 2 (writes to an overlay-mode workspace's incumbent CRM, currently declared unsupported_by_sor); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it.
+type PublicEventMirrorWriteRejected struct{}
 
-// WebhookPayloadOfferAccepted Payload for offer.accepted — a sent offer was accepted. The deal's headline amount is synced from this offer's gross in the same transaction (see deal.updated on the paired deal entity).
-type WebhookPayloadOfferAccepted struct {
+// PublicEventOfferAccepted Payload for offer.accepted — a sent offer was accepted. The deal's headline amount is synced from this offer's gross in the same transaction (see deal.updated on the paired deal entity).
+type PublicEventOfferAccepted struct {
 	// DealId The deal this offer belongs to.
 	DealId openapi_types.UUID `json:"deal_id"`
 
@@ -569,8 +566,8 @@ type WebhookPayloadOfferAccepted struct {
 	Revision *int `json:"revision,omitempty"`
 }
 
-// WebhookPayloadOfferCreated Payload for offer.created — a new Angebot revision was opened (either the first revision, via CreateOffer, or a fresh draft revision minted by RegenerateOffer).
-type WebhookPayloadOfferCreated struct {
+// PublicEventOfferCreated Payload for offer.created — a new Angebot revision was opened (either the first revision, via CreateOffer, or a fresh draft revision minted by RegenerateOffer).
+type PublicEventOfferCreated struct {
 	// CapturedBy The principal that created this revision.
 	CapturedBy string `json:"captured_by"`
 
@@ -590,8 +587,8 @@ type WebhookPayloadOfferCreated struct {
 	Source string `json:"source"`
 }
 
-// WebhookPayloadOfferRejected Payload for offer.rejected — a sent offer was rejected.
-type WebhookPayloadOfferRejected struct {
+// PublicEventOfferRejected Payload for offer.rejected — a sent offer was rejected.
+type PublicEventOfferRejected struct {
 	// DealId The deal this offer belongs to.
 	DealId openapi_types.UUID `json:"deal_id"`
 
@@ -605,8 +602,8 @@ type WebhookPayloadOfferRejected struct {
 	Revision *int `json:"revision,omitempty"`
 }
 
-// WebhookPayloadOfferSent Payload for offer.sent — a draft offer left the workspace. Carries the FX rate frozen at send time (RT-PR-C2) so consumers never need a read-back for the native-currency-to-base conversion.
-type WebhookPayloadOfferSent struct {
+// PublicEventOfferSent Payload for offer.sent — a draft offer left the workspace. Carries the FX rate frozen at send time (RT-PR-C2) so consumers never need a read-back for the native-currency-to-base conversion.
+type PublicEventOfferSent struct {
 	// DealId The deal this offer belongs to.
 	DealId openapi_types.UUID `json:"deal_id"`
 
@@ -626,8 +623,8 @@ type WebhookPayloadOfferSent struct {
 	ValidUntil *openapi_types.Date `json:"valid_until,omitempty"`
 }
 
-// WebhookPayloadOfferSuperseded Payload for offer.superseded — a sent offer was regenerated into a fresh draft revision (B-E03.19) and marked superseded; the new revision arrives as its own offer.created event.
-type WebhookPayloadOfferSuperseded struct {
+// PublicEventOfferSuperseded Payload for offer.superseded — a sent offer was regenerated into a fresh draft revision (B-E03.19) and marked superseded; the new revision arrives as its own offer.created event.
+type PublicEventOfferSuperseded struct {
 	// DealId The deal this offer belongs to.
 	DealId openapi_types.UUID `json:"deal_id"`
 
@@ -641,8 +638,8 @@ type WebhookPayloadOfferSuperseded struct {
 	ToRevision int `json:"to_revision"`
 }
 
-// WebhookPayloadOnboardingStateChanged Payload for onboarding.state_changed — the admitted human's wizard checkpoint was created or advanced (identity/onboarding.go's auditOnboardingState).
-type WebhookPayloadOnboardingStateChanged struct {
+// PublicEventOnboardingStateChanged Payload for onboarding.state_changed — the admitted human's wizard checkpoint was created or advanced (identity/onboarding.go's auditOnboardingState).
+type PublicEventOnboardingStateChanged struct {
 	// Completed Whether the wizard was completed as of this checkpoint.
 	Completed bool `json:"completed"`
 
@@ -665,11 +662,11 @@ type WebhookPayloadOnboardingStateChanged struct {
 	VoiceSkipped bool `json:"voice_skipped"`
 }
 
-// WebhookPayloadOrganizationArchived Payload for organization.archived — an organization was archived. Carries no data.
-type WebhookPayloadOrganizationArchived struct{}
+// PublicEventOrganizationArchived Payload for organization.archived — an organization was archived. Carries no data.
+type PublicEventOrganizationArchived struct{}
 
-// WebhookPayloadOrganizationCreated Payload for organization.created — a UNION across five emit sites (a direct create, the capture auto-create engine, the anchor company save, the site-read confirmation, and the cold-start profile apply), each of which sets only its own subset; every field is therefore optional.
-type WebhookPayloadOrganizationCreated struct {
+// PublicEventOrganizationCreated Payload for organization.created — a UNION across five emit sites (a direct create, the capture auto-create engine, the anchor company save, the site-read confirmation, and the cold-start profile apply), each of which sets only its own subset; every field is therefore optional.
+type PublicEventOrganizationCreated struct {
 	// Anchor Whether this is the installation's own anchor organization (company save only).
 	Anchor *bool `json:"anchor,omitempty"`
 
@@ -695,8 +692,8 @@ type WebhookPayloadOrganizationCreated struct {
 	SourceUrl *string `json:"source_url,omitempty"`
 }
 
-// WebhookPayloadOrganizationMerged Payload for organization.merged — two organization records collapsed into one (the §1.3 merge); neither organization.updated nor organization.archived can say this, so it is its own verb.
-type WebhookPayloadOrganizationMerged struct {
+// PublicEventOrganizationMerged Payload for organization.merged — two organization records collapsed into one (the §1.3 merge); neither organization.updated nor organization.archived can say this, so it is its own verb.
+type PublicEventOrganizationMerged struct {
 	// MergedFromId The merged-away (source) organization, retired but still fetchable by id.
 	MergedFromId openapi_types.UUID `json:"merged_from_id"`
 
@@ -704,14 +701,14 @@ type WebhookPayloadOrganizationMerged struct {
 	MergedIntoId openapi_types.UUID `json:"merged_into_id"`
 }
 
-// WebhookPayloadOrganizationUpdated Payload for organization.updated — an OPEN envelope: eight emit sites carry divergent shapes (a flat column patch, the anchor company save's field delta, the partner extension's nested delta, enrichment/deep-read applies, a relationship delta), so the honest shape is a change-set map rather than a fixed field list.
-type WebhookPayloadOrganizationUpdated struct {
+// PublicEventOrganizationUpdated Payload for organization.updated — an OPEN envelope: eight emit sites carry divergent shapes (a flat column patch, the anchor company save's field delta, the partner extension's nested delta, enrichment/deep-read applies, a relationship delta), so the honest shape is a change-set map rather than a fixed field list.
+type PublicEventOrganizationUpdated struct {
 	// ChangedFields Field name → new value for whatever this update touched, incl. runtime cf_* custom fields.
 	ChangedFields map[string]interface{} `json:"changed_fields"`
 }
 
-// WebhookPayloadPassportRevoked Payload for passport.revoked — an agent passport was hard-revoked (identity/passport.go's RevokePassport), so long-lived consumers drop it within one bus cycle.
-type WebhookPayloadPassportRevoked struct {
+// PublicEventPassportRevoked Payload for passport.revoked — an agent passport was hard-revoked (identity/passport.go's RevokePassport), so long-lived consumers drop it within one bus cycle.
+type PublicEventPassportRevoked struct {
 	// By The human who revoked it (the granting user, or an admin).
 	By openapi_types.UUID `json:"by"`
 
@@ -719,17 +716,17 @@ type WebhookPayloadPassportRevoked struct {
 	PassportId openapi_types.UUID `json:"passport_id"`
 }
 
-// WebhookPayloadPersonArchived Payload for person.archived — a person was archived. Carries no data.
-type WebhookPayloadPersonArchived struct{}
+// PublicEventPersonArchived Payload for person.archived — a person was archived. Carries no data.
+type PublicEventPersonArchived struct{}
 
-// WebhookPayloadPersonCreated Payload for person.created — a person was created.
-type WebhookPayloadPersonCreated struct {
+// PublicEventPersonCreated Payload for person.created — a person was created.
+type PublicEventPersonCreated struct {
 	// FullName The person's name at creation.
 	FullName string `json:"full_name"`
 }
 
-// WebhookPayloadPersonMerged Payload for person.merged — two person records collapsed into one (the §1.3 merge); neither person.updated nor person.archived can say this, so it is its own verb.
-type WebhookPayloadPersonMerged struct {
+// PublicEventPersonMerged Payload for person.merged — two person records collapsed into one (the §1.3 merge); neither person.updated nor person.archived can say this, so it is its own verb.
+type PublicEventPersonMerged struct {
 	// MergedFromId The merged-away (source) person, retired but still fetchable by id.
 	MergedFromId openapi_types.UUID `json:"merged_from_id"`
 
@@ -737,23 +734,38 @@ type WebhookPayloadPersonMerged struct {
 	MergedIntoId openapi_types.UUID `json:"merged_into_id"`
 
 	// Relinked How many child rows on each side were repointed from the merged- away person onto the survivor (people/merge.go relinkCounts).
-	Relinked WebhookPersonMergedRelinkCounts `json:"relinked"`
+	Relinked PublicEventPersonMergedRelinkCounts `json:"relinked"`
 }
 
-// WebhookPayloadPersonRestored Payload for person.restored. Never emitted today (no restore path exists for person); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it.
-type WebhookPayloadPersonRestored struct{}
+// PublicEventPersonMergedRelinkCounts How many child rows on each side were repointed from the merged- away person onto the survivor (people/merge.go relinkCounts).
+type PublicEventPersonMergedRelinkCounts struct {
+	// ActivityLinks activity_link rows relinked.
+	ActivityLinks int64 `json:"activity_links"`
 
-// WebhookPayloadPersonUpdated Payload for person.updated — an OPEN envelope: its emit sites carry divergent shapes (a flat column patch, a lead-promotion conversion note, a signature-enrichment fill, a relationship delta), so the honest shape is a change-set map rather than a fixed field list.
-type WebhookPayloadPersonUpdated struct {
+	// Emails person_email rows relinked.
+	Emails int64 `json:"emails"`
+
+	// Phones person_phone rows relinked.
+	Phones int64 `json:"phones"`
+
+	// Relationships relationship edge rows relinked.
+	Relationships int64 `json:"relationships"`
+}
+
+// PublicEventPersonRestored Payload for person.restored. Never emitted today (no restore path exists for person); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it.
+type PublicEventPersonRestored struct{}
+
+// PublicEventPersonUpdated Payload for person.updated — an OPEN envelope: its emit sites carry divergent shapes (a flat column patch, a lead-promotion conversion note, a signature-enrichment fill, a relationship delta), so the honest shape is a change-set map rather than a fixed field list.
+type PublicEventPersonUpdated struct {
 	// ChangedFields Field name → new value for whatever this update touched, incl. runtime cf_* custom fields.
 	ChangedFields map[string]interface{} `json:"changed_fields"`
 }
 
-// WebhookPayloadPipelineArchived Payload for pipeline.archived. Never emitted today (no archive path exists for pipeline); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it.
-type WebhookPayloadPipelineArchived struct{}
+// PublicEventPipelineArchived Payload for pipeline.archived. Never emitted today (no archive path exists for pipeline); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it.
+type PublicEventPipelineArchived struct{}
 
-// WebhookPayloadPipelineCreated Payload for pipeline.created — a pipeline was created with its initial stage set in the same transaction.
-type WebhookPayloadPipelineCreated struct {
+// PublicEventPipelineCreated Payload for pipeline.created — a pipeline was created with its initial stage set in the same transaction.
+type PublicEventPipelineCreated struct {
 	// IsDefault Whether this pipeline is the workspace default.
 	IsDefault bool `json:"is_default"`
 
@@ -761,17 +773,29 @@ type WebhookPayloadPipelineCreated struct {
 	Name string `json:"name"`
 
 	// Stages The pipeline's initial stages, in the order created.
-	Stages []WebhookPipelineCreatedStage `json:"stages"`
+	Stages []PublicEventPipelineCreatedStage `json:"stages"`
 }
 
-// WebhookPayloadPipelineUpdated Payload for pipeline.updated — an OPEN envelope: its emit sites carry divergent shapes (a flat name/is_default/position patch from UpdatePipeline, or a stage_positions reorder map from UpdateStage when a stage's position changes), so the honest shape is a change-set map rather than a fixed field list.
-type WebhookPayloadPipelineUpdated struct {
+// PublicEventPipelineCreatedStage One initial stage as declared on a pipeline.created event — the stage's own stage.created is NOT separately emitted for these (events.md §5.3b: one pipeline.created carries the whole set).
+type PublicEventPipelineCreatedStage struct {
+	// Name The stage's name.
+	Name string `json:"name"`
+
+	// Position The stage's position within the pipeline.
+	Position int `json:"position"`
+
+	// Semantic The stage's semantic (open | won | lost).
+	Semantic string `json:"semantic"`
+}
+
+// PublicEventPipelineUpdated Payload for pipeline.updated — an OPEN envelope: its emit sites carry divergent shapes (a flat name/is_default/position patch from UpdatePipeline, or a stage_positions reorder map from UpdateStage when a stage's position changes), so the honest shape is a change-set map rather than a fixed field list.
+type PublicEventPipelineUpdated struct {
 	// ChangedFields Field name → new value for whatever this update touched (name, is_default, position, or stage_positions).
 	ChangedFields map[string]interface{} `json:"changed_fields"`
 }
 
-// WebhookPayloadRetentionApplied Payload for retention.applied — a retention/erasure action ran against one record. Three emit sites, three different runtime subjects: the embed-call sweep (ai_call), a workspace's configured retention policy's object type (activity | deal | lead | person | ai_call_payload), and Art. 17 erasure (person) — none fixed enough for this schema to name, so this is dynamic-entity (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and each emit site supplies its own runtime entity type through storekit.EmitEventForEntity. policy/reason are a union across the three sites — the embed-call sweep sets neither, the policy-driven sweep sets policy only, Art. 17 erasure sets reason only.
-type WebhookPayloadRetentionApplied struct {
+// PublicEventRetentionApplied Payload for retention.applied — a retention/erasure action ran against one record. Three emit sites, three different runtime subjects: the embed-call sweep (ai_call), a workspace's configured retention policy's object type (activity | deal | lead | person | ai_call_payload), and Art. 17 erasure (person) — none fixed enough for this schema to name, so this is dynamic-entity (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and each emit site supplies its own runtime entity type through storekit.EmitEventForEntity. policy/reason are a union across the three sites — the embed-call sweep sets neither, the policy-driven sweep sets policy only, Art. 17 erasure sets reason only.
+type PublicEventRetentionApplied struct {
 	// Action The action that ran (archive | anonymize | erase).
 	Action string `json:"action"`
 
@@ -782,8 +806,8 @@ type WebhookPayloadRetentionApplied struct {
 	Reason *string `json:"reason,omitempty"`
 }
 
-// WebhookPayloadRoleChanged Payload for role.changed — a member's role assignments were replaced with the single target system role (identity/users.go's ChangeUserRole). from_role rides the payload only when the previous state was a single role — a multi-role history has no one "from".
-type WebhookPayloadRoleChanged struct {
+// PublicEventRoleChanged Payload for role.changed — a member's role assignments were replaced with the single target system role (identity/users.go's ChangeUserRole). from_role rides the payload only when the previous state was a single role — a multi-role history has no one "from".
+type PublicEventRoleChanged struct {
 	// By The admin who changed the role.
 	By openapi_types.UUID `json:"by"`
 
@@ -797,8 +821,8 @@ type WebhookPayloadRoleChanged struct {
 	UserId openapi_types.UUID `json:"user_id"`
 }
 
-// WebhookPayloadSignalDetected Payload for signal.detected — a signal was created (signals/signal.go's CreateSignal). entity_type/entity_id are DATA fields naming the signal's subject (deal | organization | person) when one is already known at creation time — not the envelope's own entity ref, which is the signal itself (this event's entity type is the static "signal"). Both are absent on a raw signal (only a raw_ref), which enters unresolved and waits for the resolver; resolution_confidence is set only when the signal was created already resolved.
-type WebhookPayloadSignalDetected struct {
+// PublicEventSignalDetected Payload for signal.detected — a signal was created (signals/signal.go's CreateSignal). entity_type/entity_id are DATA fields naming the signal's subject (deal | organization | person) when one is already known at creation time — not the envelope's own entity ref, which is the signal itself (this event's entity type is the static "signal"). Both are absent on a raw signal (only a raw_ref), which enters unresolved and waits for the resolver; resolution_confidence is set only when the signal was created already resolved.
+type PublicEventSignalDetected struct {
 	// SubjectEntityId The subject record's id — a payload data field, absent until a raw signal resolves.
 	SubjectEntityId *openapi_types.UUID `json:"entity_id,omitempty"`
 
@@ -824,8 +848,8 @@ type WebhookPayloadSignalDetected struct {
 	SourceChannel string `json:"source_channel"`
 }
 
-// WebhookPayloadSignalResolved Payload for signal.resolved — the resolver ran over a signal (signals/resolver.go's Resolve). The verdict IS the candidate count (P12): zero candidates drops the signal (resolved_org_id, resolved_person_id, matched_on, match_confidence all absent); exactly one resolves it to that org (resolved_org_id set, resolved_person_id set only under a recorded consent grant); several flags it low_confidence for review (matched_on/ match_confidence describe the top candidate, resolved_org_id stays absent).
-type WebhookPayloadSignalResolved struct {
+// PublicEventSignalResolved Payload for signal.resolved — the resolver ran over a signal (signals/resolver.go's Resolve). The verdict IS the candidate count (P12): zero candidates drops the signal (resolved_org_id, resolved_person_id, matched_on, match_confidence all absent); exactly one resolves it to that org (resolved_org_id set, resolved_person_id set only under a recorded consent grant); several flags it low_confidence for review (matched_on/ match_confidence describe the top candidate, resolved_org_id stays absent).
+type PublicEventSignalResolved struct {
 	// MatchConfidence The top candidate's match confidence (0–1).
 	MatchConfidence *float32 `json:"match_confidence,omitempty"`
 
@@ -845,11 +869,11 @@ type WebhookPayloadSignalResolved struct {
 	SignalId openapi_types.UUID `json:"signal_id"`
 }
 
-// WebhookPayloadStageArchived Payload for stage.archived. Never emitted today (no archive path exists for stage); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it.
-type WebhookPayloadStageArchived struct{}
+// PublicEventStageArchived Payload for stage.archived. Never emitted today (no archive path exists for stage); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it.
+type PublicEventStageArchived struct{}
 
-// WebhookPayloadStageCreated Payload for stage.created — a stage was added to a pipeline.
-type WebhookPayloadStageCreated struct {
+// PublicEventStageCreated Payload for stage.created — a stage was added to a pipeline.
+type PublicEventStageCreated struct {
 	// Name The stage's name.
 	Name string `json:"name"`
 
@@ -866,8 +890,8 @@ type WebhookPayloadStageCreated struct {
 	WinProbability int `json:"win_probability"`
 }
 
-// WebhookPayloadStageUpdated Payload for stage.updated — a BOUNDED delta: UpdateStage's known mutable fields (name, semantic, win_probability) each carried only when this update touched them. A position change is instead published as ONE pipeline.updated with a stage_positions delta (never an N-way stage.updated), so position never appears here.
-type WebhookPayloadStageUpdated struct {
+// PublicEventStageUpdated Payload for stage.updated — a BOUNDED delta: UpdateStage's known mutable fields (name, semantic, win_probability) each carried only when this update touched them. A position change is instead published as ONE pipeline.updated with a stage_positions delta (never an N-way stage.updated), so position never appears here.
+type PublicEventStageUpdated struct {
 	// Name The stage's new name (absent when this update did not touch it).
 	Name *string `json:"name,omitempty"`
 
@@ -881,8 +905,8 @@ type WebhookPayloadStageUpdated struct {
 	WinProbability *int `json:"win_probability,omitempty"`
 }
 
-// WebhookPayloadUserDeactivated Payload for user.deactivated — a member's sessions and passports were hard-revoked (identity/users.go's DeactivateUser). reason is the operator-supplied free text, absent when none was given.
-type WebhookPayloadUserDeactivated struct {
+// PublicEventUserDeactivated Payload for user.deactivated — a member's sessions and passports were hard-revoked (identity/users.go's DeactivateUser). reason is the operator-supplied free text, absent when none was given.
+type PublicEventUserDeactivated struct {
 	// By The admin who deactivated the member.
 	By openapi_types.UUID `json:"by"`
 
@@ -893,8 +917,8 @@ type WebhookPayloadUserDeactivated struct {
 	UserId openapi_types.UUID `json:"user_id"`
 }
 
-// WebhookPayloadUserInvited Payload for user.invited — an admin provisioned a new active member with a single-use set-password token (identity/users.go's InviteUser).
-type WebhookPayloadUserInvited struct {
+// PublicEventUserInvited Payload for user.invited — an admin provisioned a new active member with a single-use set-password token (identity/users.go's InviteUser).
+type PublicEventUserInvited struct {
 	// By The admin who issued the invite.
 	By openapi_types.UUID `json:"by"`
 
@@ -905,8 +929,8 @@ type WebhookPayloadUserInvited struct {
 	UserId openapi_types.UUID `json:"user_id"`
 }
 
-// WebhookPayloadUserReactivated Payload for user.reactivated — a deactivated member was returned to active (identity/users.go's ReactivateUser).
-type WebhookPayloadUserReactivated struct {
+// PublicEventUserReactivated Payload for user.reactivated — a deactivated member was returned to active (identity/users.go's ReactivateUser).
+type PublicEventUserReactivated struct {
 	// By The admin who reactivated the member.
 	By openapi_types.UUID `json:"by"`
 
@@ -914,8 +938,8 @@ type WebhookPayloadUserReactivated struct {
 	UserId openapi_types.UUID `json:"user_id"`
 }
 
-// WebhookPayloadVoiceBuildChanged Payload for voice.build_changed — a Voice DNA build was queued or an already-pending one was returned in place of a duplicate request (ai/voice_lifecycle.go's RequestBuild). stage/result_version/ status_code/next_attempt_at describe an in-flight or deferred build and are therefore absent on a freshly-queued one.
-type WebhookPayloadVoiceBuildChanged struct {
+// PublicEventVoiceBuildChanged Payload for voice.build_changed — a Voice DNA build was queued or an already-pending one was returned in place of a duplicate request (ai/voice_lifecycle.go's RequestBuild). stage/result_version/ status_code/next_attempt_at describe an in-flight or deferred build and are therefore absent on a freshly-queued one.
+type PublicEventVoiceBuildChanged struct {
 	// BuildId The build row.
 	BuildId openapi_types.UUID `json:"build_id"`
 
@@ -950,8 +974,8 @@ type WebhookPayloadVoiceBuildChanged struct {
 	StatusCode *string `json:"status_code,omitempty"`
 }
 
-// WebhookPayloadVoiceCorpusChanged Payload for voice.corpus_changed — a UNION across four emit sites that all mutate the corpus feeding a profile's build: a source's inclusion/weight was updated (voice_source_mutations.go's recordSourceUpdate), a source was removed (RemoveSource), a source was ingested/re-ingested (voice_source_store.go's recordSourceIngest), or the whole corpus was cleared (voice_source_mutations.go's ClearCorpus). source_id/origin/register name the touched source and are therefore absent on the clear site, which acts on the corpus as a whole.
-type WebhookPayloadVoiceCorpusChanged struct {
+// PublicEventVoiceCorpusChanged Payload for voice.corpus_changed — a UNION across four emit sites that all mutate the corpus feeding a profile's build: a source's inclusion/weight was updated (voice_source_mutations.go's recordSourceUpdate), a source was removed (RemoveSource), a source was ingested/re-ingested (voice_source_store.go's recordSourceIngest), or the whole corpus was cleared (voice_source_mutations.go's ClearCorpus). source_id/origin/register name the touched source and are therefore absent on the clear site, which acts on the corpus as a whole.
+type PublicEventVoiceCorpusChanged struct {
 	// Action What happened to the corpus (included | excluded | removed | cleared).
 	Action string `json:"action"`
 
@@ -977,8 +1001,8 @@ type WebhookPayloadVoiceCorpusChanged struct {
 	WordDelta int `json:"word_delta"`
 }
 
-// WebhookPayloadVoiceDraftOutcomeRecorded Payload for voice.draft_outcome_recorded — a drafted-with-voice signal's outcome was recorded (ai/voice_history.go's RecordDraftOutcome), feeding the automatic-learning corpus.
-type WebhookPayloadVoiceDraftOutcomeRecorded struct {
+// PublicEventVoiceDraftOutcomeRecorded Payload for voice.draft_outcome_recorded — a drafted-with-voice signal's outcome was recorded (ai/voice_history.go's RecordDraftOutcome), feeding the automatic-learning corpus.
+type PublicEventVoiceDraftOutcomeRecorded struct {
 	// Outcome The recorded outcome (drafted | sent_unedited | sent_edited | rejected).
 	Outcome string `json:"outcome"`
 
@@ -992,8 +1016,8 @@ type WebhookPayloadVoiceDraftOutcomeRecorded struct {
 	TransformationCount int `json:"transformation_count"`
 }
 
-// WebhookPayloadVoiceProfileArchived Payload for voice.profile_archived — the owner's profile was soft-deleted (ai/voice.go's ArchiveProfile).
-type WebhookPayloadVoiceProfileArchived struct {
+// PublicEventVoiceProfileArchived Payload for voice.profile_archived — the owner's profile was soft-deleted (ai/voice.go's ArchiveProfile).
+type PublicEventVoiceProfileArchived struct {
 	// OwnerId The human who owned this profile.
 	OwnerId openapi_types.UUID `json:"owner_id"`
 
@@ -1004,8 +1028,8 @@ type WebhookPayloadVoiceProfileArchived struct {
 	ProfileVersion int `json:"profile_version"`
 }
 
-// WebhookPayloadVoiceProfileCreated Payload for voice.profile_created — the admitted human opened their one personal Voice DNA profile (ai/voice.go's CreateProfile). Always starts collecting, at maturity zero, with automatic learning off.
-type WebhookPayloadVoiceProfileCreated struct {
+// PublicEventVoiceProfileCreated Payload for voice.profile_created — the admitted human opened their one personal Voice DNA profile (ai/voice.go's CreateProfile). Always starts collecting, at maturity zero, with automatic learning off.
+type PublicEventVoiceProfileCreated struct {
 	// AutoLearningEnabled Whether automatic learning starts enabled (always false at creation).
 	AutoLearningEnabled bool `json:"auto_learning_enabled"`
 
@@ -1019,8 +1043,8 @@ type WebhookPayloadVoiceProfileCreated struct {
 	ProfileId openapi_types.UUID `json:"profile_id"`
 }
 
-// WebhookPayloadVoiceProfileUpdated Payload for voice.profile_updated — the owner replaced their human-authored preferences and/or their automatic-learning opt-in (ai/voice.go's UpdateProfile). action names which of the two (or both) this update touched.
-type WebhookPayloadVoiceProfileUpdated struct {
+// PublicEventVoiceProfileUpdated Payload for voice.profile_updated — the owner replaced their human-authored preferences and/or their automatic-learning opt-in (ai/voice.go's UpdateProfile). action names which of the two (or both) this update touched.
+type PublicEventVoiceProfileUpdated struct {
 	// Action What this update did (preferences_replaced | learning_enabled | learning_disabled).
 	Action string `json:"action"`
 
@@ -1034,8 +1058,8 @@ type WebhookPayloadVoiceProfileUpdated struct {
 	Version int64 `json:"version"`
 }
 
-// WebhookPayloadVoiceVersionChanged Payload for voice.version_changed — a derived Voice DNA version's status changed: minted as a candidate, manually activated, rejected, or restored by rollback (ai/voice_versions.go). predecessor_version is absent for a profile's first version, which has none.
-type WebhookPayloadVoiceVersionChanged struct {
+// PublicEventVoiceVersionChanged Payload for voice.version_changed — a derived Voice DNA version's status changed: minted as a candidate, manually activated, rejected, or restored by rollback (ai/voice_versions.go). predecessor_version is absent for a profile's first version, which has none.
+type PublicEventVoiceVersionChanged struct {
 	// ActivationOutcome What happened to this version (auto_activated | manually_activated | rejected | rollback).
 	ActivationOutcome string `json:"activation_outcome"`
 
@@ -1058,295 +1082,267 @@ type WebhookPayloadVoiceVersionChanged struct {
 	Status string `json:"status"`
 }
 
-// WebhookPersonMergedRelinkCounts How many child rows on each side were repointed from the merged- away person onto the survivor (people/merge.go relinkCounts).
-type WebhookPersonMergedRelinkCounts struct {
-	// ActivityLinks activity_link rows relinked.
-	ActivityLinks int64 `json:"activity_links"`
+// SubscribableEventType The closed set of domain events a webhook subscription can select. Phase 4 fills this out family by family; today it carries the pilot event plus the deal family (Task 5a-i), the offer family (Task 5a-ii), the pipeline/stage config family (Task 5a-iii), and the person/organization family (Task 5b-personorg), the lead family (Task 5b-lead), the activities family (Task 5c), the consent/privacy family (Task 5d), the signals family (Task 5e), the ai voice family (Task 5f), the identity family (Task 5g), and the overlay family (Task 5h).
+type SubscribableEventType string
 
-	// Emails person_email rows relinked.
-	Emails int64 `json:"emails"`
+func (PublicEventActivityArchived) EventType() string { return "activity.archived" }
 
-	// Phones person_phone rows relinked.
-	Phones int64 `json:"phones"`
+func (PublicEventActivityArchived) EntityType() string { return "activity" }
 
-	// Relationships relationship edge rows relinked.
-	Relationships int64 `json:"relationships"`
-}
+func (PublicEventActivityCaptured) EventType() string { return "activity.captured" }
 
-// WebhookPipelineCreatedStage One initial stage as declared on a pipeline.created event — the stage's own stage.created is NOT separately emitted for these (events.md §5.3b: one pipeline.created carries the whole set).
-type WebhookPipelineCreatedStage struct {
-	// Name The stage's name.
-	Name string `json:"name"`
+func (PublicEventActivityCaptured) EntityType() string { return "activity" }
 
-	// Position The stage's position within the pipeline.
-	Position int `json:"position"`
+func (PublicEventActivityUpdated) EventType() string { return "activity.updated" }
 
-	// Semantic The stage's semantic (open | won | lost).
-	Semantic string `json:"semantic"`
-}
+func (PublicEventActivityUpdated) EntityType() string { return "activity" }
 
-func (WebhookPayloadActivityArchived) EventType() string { return "activity.archived" }
+func (PublicEventApprovalDecided) EventType() string { return "approval.decided" }
 
-func (WebhookPayloadActivityArchived) EntityType() string { return "activity" }
+func (PublicEventApprovalDecided) EntityType() string { return "approval" }
 
-func (WebhookPayloadActivityCaptured) EventType() string { return "activity.captured" }
+func (PublicEventApprovalRequested) EventType() string { return "approval.requested" }
 
-func (WebhookPayloadActivityCaptured) EntityType() string { return "activity" }
+func (PublicEventApprovalRequested) EntityType() string { return "approval" }
 
-func (WebhookPayloadActivityUpdated) EventType() string { return "activity.updated" }
+func (PublicEventAuditAppended) EventType() string { return "audit.appended" }
 
-func (WebhookPayloadActivityUpdated) EntityType() string { return "activity" }
+func (PublicEventAuditAppended) EntityType() string { return "audit" }
 
-func (WebhookPayloadApprovalDecided) EventType() string { return "approval.decided" }
+func (PublicEventColdstartAccepted) EventType() string { return "coldstart.accepted" }
 
-func (WebhookPayloadApprovalDecided) EntityType() string { return "approval" }
+func (PublicEventColdstartAccepted) EntityType() string { return "approval" }
 
-func (WebhookPayloadApprovalRequested) EventType() string { return "approval.requested" }
+func (PublicEventColdstartReadBackProposed) EventType() string { return "coldstart.read_back_proposed" }
 
-func (WebhookPayloadApprovalRequested) EntityType() string { return "approval" }
+func (PublicEventColdstartReadBackProposed) EntityType() string { return "approval" }
 
-func (WebhookPayloadAuditAppended) EventType() string { return "audit.appended" }
+func (PublicEventColdstartRejected) EventType() string { return "coldstart.rejected" }
 
-func (WebhookPayloadAuditAppended) EntityType() string { return "audit" }
+func (PublicEventColdstartRejected) EntityType() string { return "approval" }
 
-func (WebhookPayloadColdstartAccepted) EventType() string { return "coldstart.accepted" }
+func (PublicEventConsentChanged) EventType() string { return "consent.changed" }
 
-func (WebhookPayloadColdstartAccepted) EntityType() string { return "approval" }
+func (PublicEventConsentChanged) EntityType() string { return "dynamic" }
 
-func (WebhookPayloadColdstartReadBackProposed) EventType() string {
-	return "coldstart.read_back_proposed"
-}
+func (PublicEventDealArchived) EventType() string { return "deal.archived" }
 
-func (WebhookPayloadColdstartReadBackProposed) EntityType() string { return "approval" }
+func (PublicEventDealArchived) EntityType() string { return "deal" }
 
-func (WebhookPayloadColdstartRejected) EventType() string { return "coldstart.rejected" }
+func (PublicEventDealCreated) EventType() string { return "deal.created" }
 
-func (WebhookPayloadColdstartRejected) EntityType() string { return "approval" }
+func (PublicEventDealCreated) EntityType() string { return "deal" }
 
-func (WebhookPayloadConsentChanged) EventType() string { return "consent.changed" }
+func (PublicEventDealOwnerChanged) EventType() string { return "deal.owner_changed" }
 
-func (WebhookPayloadConsentChanged) EntityType() string { return "dynamic" }
+func (PublicEventDealOwnerChanged) EntityType() string { return "deal" }
 
-func (WebhookPayloadDealArchived) EventType() string { return "deal.archived" }
+func (PublicEventDealRestored) EventType() string { return "deal.restored" }
 
-func (WebhookPayloadDealArchived) EntityType() string { return "deal" }
+func (PublicEventDealRestored) EntityType() string { return "deal" }
 
-func (WebhookPayloadDealCreated) EventType() string { return "deal.created" }
+func (PublicEventDealStageChanged) EventType() string { return "deal.stage_changed" }
 
-func (WebhookPayloadDealCreated) EntityType() string { return "deal" }
+func (PublicEventDealStageChanged) EntityType() string { return "deal" }
 
-func (WebhookPayloadDealOwnerChanged) EventType() string { return "deal.owner_changed" }
+func (PublicEventDealUpdated) EventType() string { return "deal.updated" }
 
-func (WebhookPayloadDealOwnerChanged) EntityType() string { return "deal" }
+func (PublicEventDealUpdated) EntityType() string { return "deal" }
 
-func (WebhookPayloadDealRestored) EventType() string { return "deal.restored" }
+func (PublicEventEngagementReply) EventType() string { return "engagement.reply" }
 
-func (WebhookPayloadDealRestored) EntityType() string { return "deal" }
+func (PublicEventEngagementReply) EntityType() string { return "activity" }
 
-func (WebhookPayloadDealStageChanged) EventType() string { return "deal.stage_changed" }
+func (PublicEventIncumbentConnected) EventType() string { return "incumbent.connected" }
 
-func (WebhookPayloadDealStageChanged) EntityType() string { return "deal" }
+func (PublicEventIncumbentConnected) EntityType() string { return "incumbent_connection" }
 
-func (WebhookPayloadDealUpdated) EventType() string { return "deal.updated" }
+func (PublicEventIncumbentDisconnected) EventType() string { return "incumbent.disconnected" }
 
-func (WebhookPayloadDealUpdated) EntityType() string { return "deal" }
+func (PublicEventIncumbentDisconnected) EntityType() string { return "incumbent_connection" }
 
-func (WebhookPayloadEngagementReply) EventType() string { return "engagement.reply" }
+func (PublicEventLeadCreated) EventType() string { return "lead.created" }
 
-func (WebhookPayloadEngagementReply) EntityType() string { return "activity" }
+func (PublicEventLeadCreated) EntityType() string { return "lead" }
 
-func (WebhookPayloadIncumbentConnected) EventType() string { return "incumbent.connected" }
+func (PublicEventLeadDisqualified) EventType() string { return "lead.disqualified" }
 
-func (WebhookPayloadIncumbentConnected) EntityType() string { return "incumbent_connection" }
+func (PublicEventLeadDisqualified) EntityType() string { return "lead" }
 
-func (WebhookPayloadIncumbentDisconnected) EventType() string { return "incumbent.disconnected" }
+func (PublicEventLeadPromoted) EventType() string { return "lead.promoted" }
 
-func (WebhookPayloadIncumbentDisconnected) EntityType() string { return "incumbent_connection" }
+func (PublicEventLeadPromoted) EntityType() string { return "lead" }
 
-func (WebhookPayloadLeadCreated) EventType() string { return "lead.created" }
+func (PublicEventLeadUpdated) EventType() string { return "lead.updated" }
 
-func (WebhookPayloadLeadCreated) EntityType() string { return "lead" }
+func (PublicEventLeadUpdated) EntityType() string { return "lead" }
 
-func (WebhookPayloadLeadDisqualified) EventType() string { return "lead.disqualified" }
+func (PublicEventMirrorBudgetDegraded) EventType() string { return "mirror.budget_degraded" }
 
-func (WebhookPayloadLeadDisqualified) EntityType() string { return "lead" }
+func (PublicEventMirrorBudgetDegraded) EntityType() string { return "dynamic" }
 
-func (WebhookPayloadLeadPromoted) EventType() string { return "lead.promoted" }
+func (PublicEventMirrorConflict) EventType() string { return "mirror.conflict" }
 
-func (WebhookPayloadLeadPromoted) EntityType() string { return "lead" }
+func (PublicEventMirrorConflict) EntityType() string { return "dynamic" }
 
-func (WebhookPayloadLeadUpdated) EventType() string { return "lead.updated" }
+func (PublicEventMirrorDeleted) EventType() string { return "mirror.deleted" }
 
-func (WebhookPayloadLeadUpdated) EntityType() string { return "lead" }
+func (PublicEventMirrorDeleted) EntityType() string { return "dynamic" }
 
-func (WebhookPayloadMirrorBudgetDegraded) EventType() string { return "mirror.budget_degraded" }
+func (PublicEventMirrorWriteRejected) EventType() string { return "mirror.write_rejected" }
 
-func (WebhookPayloadMirrorBudgetDegraded) EntityType() string { return "dynamic" }
+func (PublicEventMirrorWriteRejected) EntityType() string { return "dynamic" }
 
-func (WebhookPayloadMirrorConflict) EventType() string { return "mirror.conflict" }
+func (PublicEventOfferAccepted) EventType() string { return "offer.accepted" }
 
-func (WebhookPayloadMirrorConflict) EntityType() string { return "dynamic" }
+func (PublicEventOfferAccepted) EntityType() string { return "offer" }
 
-func (WebhookPayloadMirrorDeleted) EventType() string { return "mirror.deleted" }
+func (PublicEventOfferCreated) EventType() string { return "offer.created" }
 
-func (WebhookPayloadMirrorDeleted) EntityType() string { return "dynamic" }
+func (PublicEventOfferCreated) EntityType() string { return "offer" }
 
-func (WebhookPayloadMirrorWriteRejected) EventType() string { return "mirror.write_rejected" }
+func (PublicEventOfferRejected) EventType() string { return "offer.rejected" }
 
-func (WebhookPayloadMirrorWriteRejected) EntityType() string { return "dynamic" }
+func (PublicEventOfferRejected) EntityType() string { return "offer" }
 
-func (WebhookPayloadOfferAccepted) EventType() string { return "offer.accepted" }
+func (PublicEventOfferSent) EventType() string { return "offer.sent" }
 
-func (WebhookPayloadOfferAccepted) EntityType() string { return "offer" }
+func (PublicEventOfferSent) EntityType() string { return "offer" }
 
-func (WebhookPayloadOfferCreated) EventType() string { return "offer.created" }
+func (PublicEventOfferSuperseded) EventType() string { return "offer.superseded" }
 
-func (WebhookPayloadOfferCreated) EntityType() string { return "offer" }
+func (PublicEventOfferSuperseded) EntityType() string { return "offer" }
 
-func (WebhookPayloadOfferRejected) EventType() string { return "offer.rejected" }
+func (PublicEventOnboardingStateChanged) EventType() string { return "onboarding.state_changed" }
 
-func (WebhookPayloadOfferRejected) EntityType() string { return "offer" }
+func (PublicEventOnboardingStateChanged) EntityType() string { return "onboarding_wizard_state" }
 
-func (WebhookPayloadOfferSent) EventType() string { return "offer.sent" }
+func (PublicEventOrganizationArchived) EventType() string { return "organization.archived" }
 
-func (WebhookPayloadOfferSent) EntityType() string { return "offer" }
+func (PublicEventOrganizationArchived) EntityType() string { return "organization" }
 
-func (WebhookPayloadOfferSuperseded) EventType() string { return "offer.superseded" }
+func (PublicEventOrganizationCreated) EventType() string { return "organization.created" }
 
-func (WebhookPayloadOfferSuperseded) EntityType() string { return "offer" }
+func (PublicEventOrganizationCreated) EntityType() string { return "organization" }
 
-func (WebhookPayloadOnboardingStateChanged) EventType() string { return "onboarding.state_changed" }
+func (PublicEventOrganizationMerged) EventType() string { return "organization.merged" }
 
-func (WebhookPayloadOnboardingStateChanged) EntityType() string { return "onboarding_wizard_state" }
+func (PublicEventOrganizationMerged) EntityType() string { return "organization" }
 
-func (WebhookPayloadOrganizationArchived) EventType() string { return "organization.archived" }
+func (PublicEventOrganizationUpdated) EventType() string { return "organization.updated" }
 
-func (WebhookPayloadOrganizationArchived) EntityType() string { return "organization" }
+func (PublicEventOrganizationUpdated) EntityType() string { return "organization" }
 
-func (WebhookPayloadOrganizationCreated) EventType() string { return "organization.created" }
+func (PublicEventPassportRevoked) EventType() string { return "passport.revoked" }
 
-func (WebhookPayloadOrganizationCreated) EntityType() string { return "organization" }
+func (PublicEventPassportRevoked) EntityType() string { return "passport" }
 
-func (WebhookPayloadOrganizationMerged) EventType() string { return "organization.merged" }
+func (PublicEventPersonArchived) EventType() string { return "person.archived" }
 
-func (WebhookPayloadOrganizationMerged) EntityType() string { return "organization" }
+func (PublicEventPersonArchived) EntityType() string { return "person" }
 
-func (WebhookPayloadOrganizationUpdated) EventType() string { return "organization.updated" }
+func (PublicEventPersonCreated) EventType() string { return "person.created" }
 
-func (WebhookPayloadOrganizationUpdated) EntityType() string { return "organization" }
+func (PublicEventPersonCreated) EntityType() string { return "person" }
 
-func (WebhookPayloadPassportRevoked) EventType() string { return "passport.revoked" }
+func (PublicEventPersonMerged) EventType() string { return "person.merged" }
 
-func (WebhookPayloadPassportRevoked) EntityType() string { return "passport" }
+func (PublicEventPersonMerged) EntityType() string { return "person" }
 
-func (WebhookPayloadPersonArchived) EventType() string { return "person.archived" }
+func (PublicEventPersonRestored) EventType() string { return "person.restored" }
 
-func (WebhookPayloadPersonArchived) EntityType() string { return "person" }
+func (PublicEventPersonRestored) EntityType() string { return "person" }
 
-func (WebhookPayloadPersonCreated) EventType() string { return "person.created" }
+func (PublicEventPersonUpdated) EventType() string { return "person.updated" }
 
-func (WebhookPayloadPersonCreated) EntityType() string { return "person" }
+func (PublicEventPersonUpdated) EntityType() string { return "person" }
 
-func (WebhookPayloadPersonMerged) EventType() string { return "person.merged" }
+func (PublicEventPipelineArchived) EventType() string { return "pipeline.archived" }
 
-func (WebhookPayloadPersonMerged) EntityType() string { return "person" }
+func (PublicEventPipelineArchived) EntityType() string { return "pipeline" }
 
-func (WebhookPayloadPersonRestored) EventType() string { return "person.restored" }
+func (PublicEventPipelineCreated) EventType() string { return "pipeline.created" }
 
-func (WebhookPayloadPersonRestored) EntityType() string { return "person" }
+func (PublicEventPipelineCreated) EntityType() string { return "pipeline" }
 
-func (WebhookPayloadPersonUpdated) EventType() string { return "person.updated" }
+func (PublicEventPipelineUpdated) EventType() string { return "pipeline.updated" }
 
-func (WebhookPayloadPersonUpdated) EntityType() string { return "person" }
+func (PublicEventPipelineUpdated) EntityType() string { return "pipeline" }
 
-func (WebhookPayloadPipelineArchived) EventType() string { return "pipeline.archived" }
+func (PublicEventRetentionApplied) EventType() string { return "retention.applied" }
 
-func (WebhookPayloadPipelineArchived) EntityType() string { return "pipeline" }
+func (PublicEventRetentionApplied) EntityType() string { return "dynamic" }
 
-func (WebhookPayloadPipelineCreated) EventType() string { return "pipeline.created" }
+func (PublicEventRoleChanged) EventType() string { return "role.changed" }
 
-func (WebhookPayloadPipelineCreated) EntityType() string { return "pipeline" }
+func (PublicEventRoleChanged) EntityType() string { return "user" }
 
-func (WebhookPayloadPipelineUpdated) EventType() string { return "pipeline.updated" }
+func (PublicEventSignalDetected) EventType() string { return "signal.detected" }
 
-func (WebhookPayloadPipelineUpdated) EntityType() string { return "pipeline" }
+func (PublicEventSignalDetected) EntityType() string { return "signal" }
 
-func (WebhookPayloadRetentionApplied) EventType() string { return "retention.applied" }
+func (PublicEventSignalResolved) EventType() string { return "signal.resolved" }
 
-func (WebhookPayloadRetentionApplied) EntityType() string { return "dynamic" }
+func (PublicEventSignalResolved) EntityType() string { return "signal" }
 
-func (WebhookPayloadRoleChanged) EventType() string { return "role.changed" }
+func (PublicEventStageArchived) EventType() string { return "stage.archived" }
 
-func (WebhookPayloadRoleChanged) EntityType() string { return "user" }
+func (PublicEventStageArchived) EntityType() string { return "stage" }
 
-func (WebhookPayloadSignalDetected) EventType() string { return "signal.detected" }
+func (PublicEventStageCreated) EventType() string { return "stage.created" }
 
-func (WebhookPayloadSignalDetected) EntityType() string { return "signal" }
+func (PublicEventStageCreated) EntityType() string { return "stage" }
 
-func (WebhookPayloadSignalResolved) EventType() string { return "signal.resolved" }
+func (PublicEventStageUpdated) EventType() string { return "stage.updated" }
 
-func (WebhookPayloadSignalResolved) EntityType() string { return "signal" }
+func (PublicEventStageUpdated) EntityType() string { return "stage" }
 
-func (WebhookPayloadStageArchived) EventType() string { return "stage.archived" }
+func (PublicEventUserDeactivated) EventType() string { return "user.deactivated" }
 
-func (WebhookPayloadStageArchived) EntityType() string { return "stage" }
+func (PublicEventUserDeactivated) EntityType() string { return "user" }
 
-func (WebhookPayloadStageCreated) EventType() string { return "stage.created" }
+func (PublicEventUserInvited) EventType() string { return "user.invited" }
 
-func (WebhookPayloadStageCreated) EntityType() string { return "stage" }
+func (PublicEventUserInvited) EntityType() string { return "user" }
 
-func (WebhookPayloadStageUpdated) EventType() string { return "stage.updated" }
+func (PublicEventUserReactivated) EventType() string { return "user.reactivated" }
 
-func (WebhookPayloadStageUpdated) EntityType() string { return "stage" }
+func (PublicEventUserReactivated) EntityType() string { return "user" }
 
-func (WebhookPayloadUserDeactivated) EventType() string { return "user.deactivated" }
+func (PublicEventVoiceBuildChanged) EventType() string { return "voice.build_changed" }
 
-func (WebhookPayloadUserDeactivated) EntityType() string { return "user" }
+func (PublicEventVoiceBuildChanged) EntityType() string { return "voice_profile" }
 
-func (WebhookPayloadUserInvited) EventType() string { return "user.invited" }
+func (PublicEventVoiceCorpusChanged) EventType() string { return "voice.corpus_changed" }
 
-func (WebhookPayloadUserInvited) EntityType() string { return "user" }
+func (PublicEventVoiceCorpusChanged) EntityType() string { return "voice_profile" }
 
-func (WebhookPayloadUserReactivated) EventType() string { return "user.reactivated" }
+func (PublicEventVoiceDraftOutcomeRecorded) EventType() string { return "voice.draft_outcome_recorded" }
 
-func (WebhookPayloadUserReactivated) EntityType() string { return "user" }
+func (PublicEventVoiceDraftOutcomeRecorded) EntityType() string { return "voice_profile" }
 
-func (WebhookPayloadVoiceBuildChanged) EventType() string { return "voice.build_changed" }
+func (PublicEventVoiceProfileArchived) EventType() string { return "voice.profile_archived" }
 
-func (WebhookPayloadVoiceBuildChanged) EntityType() string { return "voice_profile" }
+func (PublicEventVoiceProfileArchived) EntityType() string { return "voice_profile" }
 
-func (WebhookPayloadVoiceCorpusChanged) EventType() string { return "voice.corpus_changed" }
+func (PublicEventVoiceProfileCreated) EventType() string { return "voice.profile_created" }
 
-func (WebhookPayloadVoiceCorpusChanged) EntityType() string { return "voice_profile" }
+func (PublicEventVoiceProfileCreated) EntityType() string { return "voice_profile" }
 
-func (WebhookPayloadVoiceDraftOutcomeRecorded) EventType() string {
-	return "voice.draft_outcome_recorded"
-}
+func (PublicEventVoiceProfileUpdated) EventType() string { return "voice.profile_updated" }
 
-func (WebhookPayloadVoiceDraftOutcomeRecorded) EntityType() string { return "voice_profile" }
+func (PublicEventVoiceProfileUpdated) EntityType() string { return "voice_profile" }
 
-func (WebhookPayloadVoiceProfileArchived) EventType() string { return "voice.profile_archived" }
+func (PublicEventVoiceVersionChanged) EventType() string { return "voice.version_changed" }
 
-func (WebhookPayloadVoiceProfileArchived) EntityType() string { return "voice_profile" }
+func (PublicEventVoiceVersionChanged) EntityType() string { return "voice_profile" }
 
-func (WebhookPayloadVoiceProfileCreated) EventType() string { return "voice.profile_created" }
-
-func (WebhookPayloadVoiceProfileCreated) EntityType() string { return "voice_profile" }
-
-func (WebhookPayloadVoiceProfileUpdated) EventType() string { return "voice.profile_updated" }
-
-func (WebhookPayloadVoiceProfileUpdated) EntityType() string { return "voice_profile" }
-
-func (WebhookPayloadVoiceVersionChanged) EventType() string { return "voice.version_changed" }
-
-func (WebhookPayloadVoiceVersionChanged) EntityType() string { return "voice_profile" }
-
-// WebhookPayloadVersions maps every subscribable event type carrying a
-// WebhookPayload<Event> schema to that schema's x-version extension
+// PublicEventVersions maps every subscribable event type carrying a
+// PublicEvent<Event> schema to that schema's x-version extension
 // (default 1 when absent). It is the single generated source of truth for
 // both the coverage gate (every subscribable event type must be a key here)
 // and the version gate (VersionOf(type) must equal this map's value).
-var WebhookPayloadVersions = map[string]int{
+var PublicEventVersions = map[string]int{
 	"activity.archived":            1,
 	"activity.captured":            1,
 	"activity.updated":             1,

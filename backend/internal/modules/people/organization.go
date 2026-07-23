@@ -103,7 +103,7 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 		if err != nil {
 			return fmt.Errorf("audit organization create: %w", err)
 		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.WebhookPayloadOrganizationCreated{DisplayName: &in.DisplayName}); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventOrganizationCreated{DisplayName: &in.DisplayName}); err != nil {
 			return fmt.Errorf("emit organization.created: %w", err)
 		}
 		if err := match.recordIfReview(ctx, tx, id, in.DisplayName, in.Source, by); err != nil {
@@ -234,7 +234,7 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.OrganizationID, i
 		if err != nil {
 			return fmt.Errorf("audit organization update: %w", err)
 		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.WebhookPayloadOrganizationUpdated{ChangedFields: after}); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventOrganizationUpdated{ChangedFields: after}); err != nil {
 			return fmt.Errorf("emit organization.updated: %w", err)
 		}
 		if out, err = readOrganization(ctx, tx, id, storekit.LiveOnly, active); err != nil {
@@ -323,7 +323,7 @@ func (s *Store) ArchiveOrganization(ctx context.Context, id ids.OrganizationID) 
 		if err != nil {
 			return err
 		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.WebhookPayloadOrganizationArchived{}); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventOrganizationArchived{}); err != nil {
 			return err
 		}
 		out, err = readOrganization(ctx, tx, id, storekit.IncludeArchived, active)

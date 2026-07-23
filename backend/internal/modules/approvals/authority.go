@@ -82,10 +82,10 @@ type decidedEcho struct {
 var kindDecidedEvents = map[string]decidedEcho{
 	"coldstart": {
 		approved: func(approvalID, decidedBy openapi_types.UUID) events.Payload {
-			return crmcontracts.WebhookPayloadColdstartAccepted{ApprovalId: approvalID, DecidedBy: decidedBy}
+			return crmcontracts.PublicEventColdstartAccepted{ApprovalId: approvalID, DecidedBy: decidedBy}
 		},
 		rejected: func(approvalID, decidedBy openapi_types.UUID) events.Payload {
-			return crmcontracts.WebhookPayloadColdstartRejected{ApprovalId: approvalID, DecidedBy: decidedBy}
+			return crmcontracts.PublicEventColdstartRejected{ApprovalId: approvalID, DecidedBy: decidedBy}
 		},
 	},
 }

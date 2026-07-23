@@ -77,7 +77,7 @@ func (s *Store) UpdatePipeline(ctx context.Context, id ids.PipelineID, in Update
 		if err != nil {
 			return fmt.Errorf("audit pipeline update: %w", err)
 		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.WebhookPayloadPipelineUpdated{
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventPipelineUpdated{
 			ChangedFields: map[string]any{"name": in.Name, "is_default": in.IsDefault, "position": in.Position},
 		}); err != nil {
 			return fmt.Errorf("emit pipeline.updated: %w", err)
@@ -161,8 +161,8 @@ func (s *Store) CreateStage(ctx context.Context, in CreateStageInput) (crmcontra
 // CreateStage's resolved inputs — the ONE place that maps the local
 // values onto the published schema, so a future field rename shows up
 // here rather than at an independently-drifting map literal.
-func stageCreatedPayload(pipelineID ids.PipelineID, name string, position int, semantic string, winProbability int) crmcontracts.WebhookPayloadStageCreated {
-	return crmcontracts.WebhookPayloadStageCreated{
+func stageCreatedPayload(pipelineID ids.PipelineID, name string, position int, semantic string, winProbability int) crmcontracts.PublicEventStageCreated {
+	return crmcontracts.PublicEventStageCreated{
 		PipelineId:     openapi_types.UUID(pipelineID.UUID),
 		Name:           name,
 		Position:       position,
@@ -199,7 +199,8 @@ func (s *Store) ListStages(ctx context.Context, pipelineID *ids.PipelineID, arch
 			where += " AND archived_at IS NULL"
 		}
 		rows, err := tx.Query(ctx, storekit.SQLf(
-			`SELECT id FROM stage WHERE %s ORDER BY pipeline_id, position`, where), args...)
+			`SELECT id FROM stage WHERE %s ORDER BY pipeline_id, position`, where,
+		), args...)
 		if err != nil {
 			return err
 		}
@@ -286,7 +287,7 @@ func (s *Store) UpdateStage(ctx context.Context, id ids.StageID, in UpdateStageI
 		// Reorders are pipeline-level facts (ONE pipeline.updated with
 		// the position delta); everything else is a stage.updated.
 		if in.Position != nil {
-			err = storekit.EmitEvent(ctx, tx, auditID, pipelineID.UUID, crmcontracts.WebhookPayloadPipelineUpdated{
+			err = storekit.EmitEvent(ctx, tx, auditID, pipelineID.UUID, crmcontracts.PublicEventPipelineUpdated{
 				ChangedFields: map[string]any{"stage_positions": map[string]any{id.String(): *in.Position}},
 			})
 		} else {
@@ -310,8 +311,8 @@ func (s *Store) UpdateStage(ctx context.Context, id ids.StageID, in UpdateStageI
 // change publishes a pipeline.updated instead, per the caller's branch),
 // so an untouched field stays a nil pointer and is omitted from the wire
 // body rather than marshaled as null.
-func stageUpdatedPayload(pipelineID ids.PipelineID, in UpdateStageInput) crmcontracts.WebhookPayloadStageUpdated {
-	return crmcontracts.WebhookPayloadStageUpdated{
+func stageUpdatedPayload(pipelineID ids.PipelineID, in UpdateStageInput) crmcontracts.PublicEventStageUpdated {
+	return crmcontracts.PublicEventStageUpdated{
 		PipelineId:     openapi_types.UUID(pipelineID.UUID),
 		Name:           in.Name,
 		Semantic:       in.Semantic,

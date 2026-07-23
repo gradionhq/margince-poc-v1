@@ -118,7 +118,7 @@ func createOfferTx(ctx context.Context, tx pgx.Tx, dealID ids.DealID, in CreateO
 	if err != nil {
 		return crmcontracts.Offer{}, fmt.Errorf("audit offer create: %w", err)
 	}
-	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.WebhookPayloadOfferCreated{
+	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventOfferCreated{
 		OfferId: openapi_types.UUID(id.UUID), DealId: openapi_types.UUID(dealID.UUID), Revision: 1,
 		Currency: in.Currency, Source: in.Source, CapturedBy: by,
 	}); err != nil {

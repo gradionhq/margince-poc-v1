@@ -144,7 +144,7 @@ func (s *Store) ensurePerson(ctx context.Context, tx pgx.Tx, in EnsureCounterpar
 	if err != nil {
 		return err
 	}
-	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.WebhookPayloadPersonCreated{FullName: name}); err != nil {
+	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventPersonCreated{FullName: name}); err != nil {
 		return err
 	}
 	res.PersonID = id
@@ -205,7 +205,7 @@ func (s *Store) ensureOrgAndEmployment(ctx context.Context, tx pgx.Tx, in Ensure
 		if err != nil {
 			return err
 		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, orgID.UUID, crmcontracts.WebhookPayloadOrganizationCreated{DisplayName: &in.Domain}); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, orgID.UUID, crmcontracts.PublicEventOrganizationCreated{DisplayName: &in.Domain}); err != nil {
 			return err
 		}
 		res.OrgCreated = true

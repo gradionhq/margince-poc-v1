@@ -36,8 +36,8 @@ import (
 // EMIT-INVENTORY.md). policyID/reason are each nil where that site's
 // action carries no such value — the union this schema's optional
 // policy/reason fields exist for.
-func retentionAppliedPayload(action string, policyID *ids.UUID, reason *string) crmcontracts.WebhookPayloadRetentionApplied {
-	payload := crmcontracts.WebhookPayloadRetentionApplied{Action: action}
+func retentionAppliedPayload(action string, policyID *ids.UUID, reason *string) crmcontracts.PublicEventRetentionApplied {
+	payload := crmcontracts.PublicEventRetentionApplied{Action: action}
 	if policyID != nil {
 		policy := openapi_types.UUID(*policyID)
 		payload.Policy = &policy

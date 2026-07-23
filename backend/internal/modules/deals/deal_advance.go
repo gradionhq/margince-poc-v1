@@ -133,8 +133,8 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.DealID, in AdvanceDealIn
 // that maps AdvanceDeal's local values onto the published schema, so a
 // future field rename shows up here (and at its call site) rather than at
 // two independently-drifting map literals.
-func dealStageChangedPayload(current crmcontracts.Deal, toStageID ids.StageID, toStatus string, winProbability int) crmcontracts.WebhookPayloadDealStageChanged {
-	return crmcontracts.WebhookPayloadDealStageChanged{
+func dealStageChangedPayload(current crmcontracts.Deal, toStageID ids.StageID, toStatus string, winProbability int) crmcontracts.PublicEventDealStageChanged {
+	return crmcontracts.PublicEventDealStageChanged{
 		FromStageId:         current.StageId,
 		ToStageId:           openapi_types.UUID(toStageID.UUID),
 		FromStatus:          string(current.Status),

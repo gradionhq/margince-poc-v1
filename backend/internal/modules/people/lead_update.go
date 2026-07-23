@@ -122,7 +122,7 @@ func (s *Store) updateLeadTx(ctx context.Context, tx pgx.Tx, id ids.LeadID, in U
 	if err != nil {
 		return crmcontracts.Lead{}, err
 	}
-	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.WebhookPayloadLeadUpdated{ChangedFields: p.After()}); err != nil {
+	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventLeadUpdated{ChangedFields: p.After()}); err != nil {
 		return crmcontracts.Lead{}, err
 	}
 	// Clearing an override immediately recomputes from current signals

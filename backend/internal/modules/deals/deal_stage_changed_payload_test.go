@@ -19,7 +19,7 @@ package deals
 //
 // Before the deal family migration these fields (from_status, to_status,
 // amount_minor_at_change, currency_at_change, win_probability) did not exist
-// on crmcontracts.WebhookPayloadDealStageChanged — the pilot schema only
+// on crmcontracts.PublicEventDealStageChanged — the pilot schema only
 // carried deal_id/pipeline_id/from_stage_id/to_stage_id — so this test
 // failed to compile (RED) until public-events.yaml was reconciled to the
 // actual emit-site fields and `make gen` regenerated the struct.
@@ -66,7 +66,7 @@ func TestDealStageChangedEmitsTypedPayload(t *testing.T) {
 	// snapshot gates both check.
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadDealStageChanged
+	var decoded crmcontracts.PublicEventDealStageChanged
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -79,7 +79,7 @@ func TestDealStageChangedEmitsTypedPayload(t *testing.T) {
 // subscriber). A future rename of this schema field must break THIS test,
 // not silently stop the automation trigger from matching.
 func TestDealStageChangedToStatusJSONTagIsStable(t *testing.T) {
-	payload := crmcontracts.WebhookPayloadDealStageChanged{
+	payload := crmcontracts.PublicEventDealStageChanged{
 		ToStageId:      openapi_types.UUID(ids.NewV7()),
 		FromStatus:     "open",
 		ToStatus:       "lost",

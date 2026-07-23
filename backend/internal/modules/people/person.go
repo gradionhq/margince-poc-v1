@@ -127,7 +127,7 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 		if err != nil {
 			return fmt.Errorf("audit person create: %w", err)
 		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.WebhookPayloadPersonCreated{FullName: in.FullName}); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventPersonCreated{FullName: in.FullName}); err != nil {
 			return fmt.Errorf("emit person.created: %w", err)
 		}
 		if err := match.recordIfReview(ctx, tx, id, in.FullName, in.Source, by); err != nil {
@@ -227,7 +227,7 @@ func (s *Store) UpdatePerson(ctx context.Context, id ids.PersonID, in UpdatePers
 		if err != nil {
 			return fmt.Errorf("audit person update: %w", err)
 		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.WebhookPayloadPersonUpdated{ChangedFields: after}); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventPersonUpdated{ChangedFields: after}); err != nil {
 			return fmt.Errorf("emit person.updated: %w", err)
 		}
 		if out, err = readPerson(ctx, tx, id, storekit.LiveOnly, active); err != nil {
@@ -316,7 +316,7 @@ func (s *Store) ArchivePerson(ctx context.Context, id ids.PersonID) (crmcontract
 		if err != nil {
 			return err
 		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.WebhookPayloadPersonArchived{}); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventPersonArchived{}); err != nil {
 			return err
 		}
 		out, err = readPerson(ctx, tx, id, storekit.IncludeArchived, active)

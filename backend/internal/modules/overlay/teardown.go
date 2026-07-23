@@ -114,8 +114,8 @@ func (s *Service) Disconnect(ctx context.Context) error {
 // payload. Unlike the mirror.* events, this event's subject is always
 // the incumbent_connection row itself — a fixed type — so it is emitted
 // via the plain storekit.EmitEvent.
-func incumbentDisconnectedPayload(incumbent, region, status string) crmcontracts.WebhookPayloadIncumbentDisconnected {
-	return crmcontracts.WebhookPayloadIncumbentDisconnected{
+func incumbentDisconnectedPayload(incumbent, region, status string) crmcontracts.PublicEventIncumbentDisconnected {
+	return crmcontracts.PublicEventIncumbentDisconnected{
 		Incumbent: incumbent,
 		Region:    region,
 		Status:    status,
@@ -129,7 +129,8 @@ func incumbentDisconnectedPayload(incumbent, region, status string) crmcontracts
 func revokeConnection(ctx context.Context, tx pgx.Tx) (credentialRef string, err error) {
 	var connID ids.UUID
 	var incumbent, region string
-	if scanErr := tx.QueryRow(ctx, `
+	if scanErr := tx.QueryRow(
+		ctx, `
 		SELECT id, incumbent, region, credential_ref
 		FROM incumbent_connection
 		WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid

@@ -91,7 +91,7 @@ func (s *Store) UpdateActivity(ctx context.Context, id ids.ActivityID, in Update
 		if err != nil {
 			return err
 		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.WebhookPayloadActivityUpdated{
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventActivityUpdated{
 			ChangedFields: activityUpdatedChangedFields(in),
 		}); err != nil {
 			return err
@@ -122,7 +122,7 @@ func (s *Store) ArchiveActivity(ctx context.Context, id ids.ActivityID) (crmcont
 		if err != nil {
 			return err
 		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.WebhookPayloadActivityArchived{}); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventActivityArchived{}); err != nil {
 			return err
 		}
 		out, err = readActivity(ctx, tx, id, storekit.IncludeArchived)
@@ -182,7 +182,7 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.ActivityID, in Relink
 			if err != nil {
 				return err
 			}
-			if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.WebhookPayloadActivityUpdated{
+			if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventActivityUpdated{
 				ChangedFields: relinkedChangedFields(in.EntityType, in.EntityID),
 			}); err != nil {
 				return err
@@ -230,8 +230,8 @@ func updateDelta(in UpdateActivityInput) map[string]any {
 // changed_fields struct rather than an open map. body carries a presence
 // flag, never the content — bodies can be large and are never echoed onto
 // the wire.
-func activityUpdatedChangedFields(in UpdateActivityInput) crmcontracts.WebhookActivityChangedFields {
-	var fields crmcontracts.WebhookActivityChangedFields
+func activityUpdatedChangedFields(in UpdateActivityInput) crmcontracts.PublicEventActivityChangedFields {
+	var fields crmcontracts.PublicEventActivityChangedFields
 	if in.Subject != nil {
 		fields.Subject = in.Subject
 	}
@@ -261,9 +261,9 @@ func activityUpdatedChangedFields(in UpdateActivityInput) crmcontracts.WebhookAc
 // relinkedChangedFields is RelinkActivity's activity.updated builder: the
 // relink is an association change, not a field patch, so changed_fields
 // carries only the typed relinked target.
-func relinkedChangedFields(entityType string, entityID ids.UUID) crmcontracts.WebhookActivityChangedFields {
-	return crmcontracts.WebhookActivityChangedFields{
-		Relinked: &crmcontracts.WebhookActivityRelinkedRef{
+func relinkedChangedFields(entityType string, entityID ids.UUID) crmcontracts.PublicEventActivityChangedFields {
+	return crmcontracts.PublicEventActivityChangedFields{
+		Relinked: &crmcontracts.PublicEventActivityRelinkedRef{
 			EntityType: entityType,
 			EntityId:   openapi_types.UUID(entityID),
 		},

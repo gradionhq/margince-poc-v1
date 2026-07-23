@@ -17,7 +17,7 @@ import (
 // generated shape honest — leaking an internal field would fail this test, not
 // merely a review.
 func TestPublicEnvelopeOmitsInternalFields(t *testing.T) {
-	var e crmcontracts.WebhookDeliveryEnvelope
+	var e crmcontracts.PublicEventEnvelope
 	j, err := json.Marshal(e)
 	require.NoError(t, err)
 	s := string(j)

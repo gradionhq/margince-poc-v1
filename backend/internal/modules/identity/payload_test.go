@@ -14,7 +14,7 @@ package identity
 // marshals it into the outbox envelope's payload column, mirroring the
 // ai voice family's TestVoice*Payload (webhooks Task 5f).
 //
-// Before this migration none of crmcontracts.WebhookPayloadUserInvited/
+// Before this migration none of crmcontracts.PublicEventUserInvited/
 // UserDeactivated/UserReactivated/RoleChanged/PassportRevoked/
 // OnboardingStateChanged existed, and none of the builder functions
 // existed (every site inlined a map[string]any), so this test failed to
@@ -51,7 +51,7 @@ func TestUserInvitedPayload(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadUserInvited
+	var decoded crmcontracts.PublicEventUserInvited
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -69,7 +69,7 @@ func TestUserDeactivatedPayload_WithReason(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadUserDeactivated
+	var decoded crmcontracts.PublicEventUserDeactivated
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -94,7 +94,7 @@ func TestUserReactivatedPayload(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadUserReactivated
+	var decoded crmcontracts.PublicEventUserReactivated
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -113,7 +113,7 @@ func TestRoleChangedPayload_WithFromRole(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadRoleChanged
+	var decoded crmcontracts.PublicEventRoleChanged
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -138,7 +138,7 @@ func TestPassportRevokedPayload(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadPassportRevoked
+	var decoded crmcontracts.PublicEventPassportRevoked
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -158,7 +158,7 @@ func TestOnboardingStateChangedPayload(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadOnboardingStateChanged
+	var decoded crmcontracts.PublicEventOnboardingStateChanged
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }

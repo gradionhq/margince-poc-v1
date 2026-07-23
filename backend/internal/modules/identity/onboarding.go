@@ -408,7 +408,8 @@ func auditOnboardingState(
 	}
 	return storekit.EmitEvent(ctx, tx, auditID, after.ID, onboardingStateChangedPayload(
 		userID, after.Path, after.Step, after.Version,
-		after.VoiceSkipped, after.ConnectSkipped, after.CompletedAt != nil))
+		after.VoiceSkipped, after.ConnectSkipped, after.CompletedAt != nil,
+	))
 }
 
 // onboardingStateChangedPayload builds onboarding.state_changed's typed
@@ -418,8 +419,8 @@ func onboardingStateChangedPayload(
 	path, step string,
 	version int64,
 	voiceSkipped, connectSkipped, completed bool,
-) crmcontracts.WebhookPayloadOnboardingStateChanged {
-	return crmcontracts.WebhookPayloadOnboardingStateChanged{
+) crmcontracts.PublicEventOnboardingStateChanged {
+	return crmcontracts.PublicEventOnboardingStateChanged{
 		UserId:         openapi_types.UUID(userID),
 		Path:           path,
 		Step:           step,

@@ -172,7 +172,8 @@ func (s *VoiceStore) LearningSummary(ctx context.Context, profileID ids.UUID) (V
 			       count(*) FILTER (WHERE outcome = 'rejected')::int
 			FROM voice_learning_signal
 			WHERE voice_profile_id = $1 AND archived_at IS NULL`, profileID).Scan(
-			&summary.Drafted, &summary.Accepted, &summary.EditedSent, &summary.Rejected); err != nil {
+			&summary.Drafted, &summary.Accepted, &summary.EditedSent, &summary.Rejected,
+		); err != nil {
 			return err
 		}
 		if err := tx.QueryRow(ctx, `
@@ -180,7 +181,8 @@ func (s *VoiceStore) LearningSummary(ctx context.Context, profileID ids.UUID) (V
 			FROM voice_corpus_source
 			WHERE voice_profile_id = $1 AND origin = 'draft_signal' AND NOT excluded
 			  AND archived_at IS NULL AND content_erased_at IS NULL`, profileID).Scan(
-			&summary.QualifyingSourceCount, &summary.QualifyingWords); err != nil {
+			&summary.QualifyingSourceCount, &summary.QualifyingWords,
+		); err != nil {
 			return err
 		}
 		rows, err := tx.Query(ctx, `
@@ -271,8 +273,8 @@ func (s *VoiceStore) RejectDraft(ctx context.Context, profileID ids.UUID, draftR
 
 // voiceDraftOutcomeRecordedPayload builds voice.draft_outcome_recorded's
 // typed payload.
-func voiceDraftOutcomeRecordedPayload(profileID ids.UUID, outcome string, qualifiesAsSource bool, transformationCount int) crmcontracts.WebhookPayloadVoiceDraftOutcomeRecorded {
-	return crmcontracts.WebhookPayloadVoiceDraftOutcomeRecorded{
+func voiceDraftOutcomeRecordedPayload(profileID ids.UUID, outcome string, qualifiesAsSource bool, transformationCount int) crmcontracts.PublicEventVoiceDraftOutcomeRecorded {
+	return crmcontracts.PublicEventVoiceDraftOutcomeRecorded{
 		ProfileId:           openapi_types.UUID(profileID),
 		Outcome:             outcome,
 		QualifiesAsSource:   qualifiesAsSource,

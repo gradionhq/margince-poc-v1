@@ -288,8 +288,10 @@ func matchCandidates(ctx context.Context, tx pgx.Tx, a rawAttribution) ([]candid
 			return nil, fmt.Errorf("domain match: %w", err)
 		}
 		if err := eachID(rows, func(orgID ids.OrganizationID) {
-			consider(candidate{OrgID: orgID, MatchedOn: "domain", Confidence: confidenceDomain,
-				Detail: "domain " + a.Domain + " is registered to the organization"})
+			consider(candidate{
+				OrgID: orgID, MatchedOn: "domain", Confidence: confidenceDomain,
+				Detail: "domain " + a.Domain + " is registered to the organization",
+			})
 		}); err != nil {
 			return nil, err
 		}
@@ -308,8 +310,10 @@ func matchCandidates(ctx context.Context, tx pgx.Tx, a rawAttribution) ([]candid
 			return nil, fmt.Errorf("prior-interaction match: %w", err)
 		}
 		if err := eachID(rows, func(orgID ids.OrganizationID) {
-			consider(candidate{OrgID: orgID, MatchedOn: "prior_interaction", Confidence: confidencePriorInteraction,
-				Detail: "the sender is a known contact currently at the organization"})
+			consider(candidate{
+				OrgID: orgID, MatchedOn: "prior_interaction", Confidence: confidencePriorInteraction,
+				Detail: "the sender is a known contact currently at the organization",
+			})
 		}); err != nil {
 			return nil, err
 		}
@@ -321,8 +325,10 @@ func matchCandidates(ctx context.Context, tx pgx.Tx, a rawAttribution) ([]candid
 			return nil, fmt.Errorf("name match: %w", err)
 		}
 		if err := eachID(rows, func(orgID ids.OrganizationID) {
-			consider(candidate{OrgID: orgID, MatchedOn: "name", Confidence: confidenceName,
-				Detail: "display name matches the mention exactly"})
+			consider(candidate{
+				OrgID: orgID, MatchedOn: "name", Confidence: confidenceName,
+				Detail: "display name matches the mention exactly",
+			})
 		}); err != nil {
 			return nil, err
 		}
@@ -420,7 +426,8 @@ func consentedPerson(ctx context.Context, tx pgx.Tx, email string, orgID ids.Org
 
 // appendMatchBasis writes the append-only inspectable match record.
 func appendMatchBasis(ctx context.Context, tx pgx.Tx, actor principal.Principal, signalID ids.SignalID,
-	matchedOn string, orgID *ids.OrganizationID, confidence *float64, detail string) error {
+	matchedOn string, orgID *ids.OrganizationID, confidence *float64, detail string,
+) error {
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO signal_resolution (id, workspace_id, signal_id, matched_on, matched_org_id, match_confidence, match_detail, source, captured_by)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
@@ -458,8 +465,8 @@ func candidateDetail(cs []candidate, chosen *candidate) (string, error) {
 }
 
 // resolvedPayload is the events.md §5.11 signal.resolved shape.
-func resolvedPayload(sig crmcontracts.Signal, candidates []candidate) crmcontracts.WebhookPayloadSignalResolved {
-	payload := crmcontracts.WebhookPayloadSignalResolved{
+func resolvedPayload(sig crmcontracts.Signal, candidates []candidate) crmcontracts.PublicEventSignalResolved {
+	payload := crmcontracts.PublicEventSignalResolved{
 		SignalId:        sig.Id,
 		ResolutionState: string(sig.ResolutionState),
 	}

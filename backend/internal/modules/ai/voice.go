@@ -130,7 +130,8 @@ func (s *VoiceStore) ListProfiles(ctx context.Context, cursor *string, limit *in
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, storekit.SQLf(
 			`SELECT %s FROM voice_profile WHERE %s ORDER BY created_at DESC, id DESC LIMIT %d`,
-			voiceProfileColumns, where, n+1), args...)
+			voiceProfileColumns, where, n+1,
+		), args...)
 		if err != nil {
 			return err
 		}
@@ -185,7 +186,8 @@ func (s *VoiceStore) visibleProfile(ctx context.Context, tx pgx.Tx, id ids.UUID)
 	p, err := scanVoiceProfile(tx.QueryRow(ctx, storekit.SQLf(
 		`SELECT %s FROM voice_profile
 		 WHERE id = $1 AND archived_at IS NULL AND scope = 'user' AND owner_id = $2`,
-		voiceProfileColumns), id, actor.UserID))
+		voiceProfileColumns,
+	), id, actor.UserID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return VoiceProfile{}, apperrors.ErrNotFound
 	}
@@ -351,8 +353,8 @@ func emitVoiceProfileUpdated(ctx context.Context, tx pgx.Tx, auditID ids.UUID, p
 // voiceProfileCreatedPayload builds voice.profile_created's typed payload —
 // a personal profile always starts collecting, at maturity zero, with
 // automatic learning off (CreateProfile never sets otherwise).
-func voiceProfileCreatedPayload(profileID, ownerID ids.UUID, maturity string, autoLearningEnabled bool) crmcontracts.WebhookPayloadVoiceProfileCreated {
-	return crmcontracts.WebhookPayloadVoiceProfileCreated{
+func voiceProfileCreatedPayload(profileID, ownerID ids.UUID, maturity string, autoLearningEnabled bool) crmcontracts.PublicEventVoiceProfileCreated {
+	return crmcontracts.PublicEventVoiceProfileCreated{
 		ProfileId:           openapi_types.UUID(profileID),
 		OwnerId:             openapi_types.UUID(ownerID),
 		Maturity:            maturity,
@@ -361,8 +363,8 @@ func voiceProfileCreatedPayload(profileID, ownerID ids.UUID, maturity string, au
 }
 
 // voiceProfileUpdatedPayload builds voice.profile_updated's typed payload.
-func voiceProfileUpdatedPayload(profileID ids.UUID, action string, version int64, maturity string) crmcontracts.WebhookPayloadVoiceProfileUpdated {
-	return crmcontracts.WebhookPayloadVoiceProfileUpdated{
+func voiceProfileUpdatedPayload(profileID ids.UUID, action string, version int64, maturity string) crmcontracts.PublicEventVoiceProfileUpdated {
+	return crmcontracts.PublicEventVoiceProfileUpdated{
 		ProfileId: openapi_types.UUID(profileID),
 		Action:    action,
 		Version:   version,
@@ -371,8 +373,8 @@ func voiceProfileUpdatedPayload(profileID ids.UUID, action string, version int64
 }
 
 // voiceProfileArchivedPayload builds voice.profile_archived's typed payload.
-func voiceProfileArchivedPayload(profileID, ownerID ids.UUID, profileVersion int) crmcontracts.WebhookPayloadVoiceProfileArchived {
-	return crmcontracts.WebhookPayloadVoiceProfileArchived{
+func voiceProfileArchivedPayload(profileID, ownerID ids.UUID, profileVersion int) crmcontracts.PublicEventVoiceProfileArchived {
+	return crmcontracts.PublicEventVoiceProfileArchived{
 		ProfileId:      openapi_types.UUID(profileID),
 		OwnerId:        openapi_types.UUID(ownerID),
 		ProfileVersion: profileVersion,

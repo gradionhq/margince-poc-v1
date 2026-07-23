@@ -129,20 +129,20 @@ about it needs pruning:
   **As shipped it is narrower than the runtime catalog**: `validateEventTypes` (`store.go`) actually
   gates a create/update against `events.Types()` minus the pipeline class (63 types), while the enum
   lists only 57 — missing the `approval.*`/`coldstart.*` family and `audit.appended`, each of which
-  *does* have a published `WebhookPayload<Event>` schema and *is* accepted and delivered by the API. The
+  *does* have a published `PublicEvent<Event>` schema and *is* accepted and delivered by the API. The
   practical effect: those six types can be subscribed to over curl/REST today, but the frontend's
   event-type picker (§9, generated from this same enum) cannot offer them as a choice. Raised for
   reconciliation; not worked around here.
-- **`WebhookDeliveryEnvelope`** — the public wire wrapper (§3c below).
-- One **`WebhookPayload<Event>`** schema per subscribable event (`WebhookPayloadDealStageChanged`,
-  `WebhookPayloadPersonMerged`, …), each carrying `x-event-type` / `x-entity-type` / `x-version`
+- **`PublicEventEnvelope`** — the public wire wrapper (§3c below).
+- One **`PublicEvent<Event>`** schema per subscribable event (`PublicEventDealStageChanged`,
+  `PublicEventPersonMerged`, …), each carrying `x-event-type` / `x-entity-type` / `x-version`
   extensions.
 
 **The generator.** `backend/tools/gen-payloads` reuses the `oapi-codegen` *library* (not its CLI) over
 this isolated file and writes `internal/contracts/webhookpayloads_gen.go` (package `crmcontracts`) —
 plain generated structs, **plus** two things a stock schema-to-struct generator doesn't give you: for
 every schema carrying `x-event-type`/`x-entity-type`, an `EventType()` / `EntityType()` method pair, and
-a package-level `WebhookPayloadVersions` registry mapping every such event type to its `x-version`. The
+a package-level `PublicEventVersions` registry mapping every such event type to its `x-version`. The
 generator is config-driven (`gen-payloads/config.go`) — a "group" is one source file → one output
 package, nothing in the generator itself is webhooks-specific, so a second isolated contract (should one
 ever exist) reuses the same tool. Regenerate with `pnpm gen:events`'s Go counterpart, wired into
@@ -158,7 +158,7 @@ storekit.EmitEventForEntity(ctx, tx, auditID, entityType, entityID, payload)  //
 ```
 
 `EmitEvent` derives the event type and entity type FROM the payload struct (`payload.EventType()`,
-`payload.EntityType()`) — a call site cannot pair `WebhookPayloadDealCreated` with `person.created`
+`payload.EntityType()`) — a call site cannot pair `PublicEventDealCreated` with `person.created`
 without the code failing to *compile*, not just failing a test. `EmitEventForEntity` is the same
 guarantee for the handful of dynamic-entity types (`mirror.*`, `consent.changed`, `retention.applied`)
 whose subject is a runtime value the caller resolves rather than the payload's static type. This was
@@ -171,7 +171,7 @@ it, since a staged approval's entity is always itself).
 ### 3a. Versioning — additive-only, or a new name
 
 A payload's `x-version` may only grow by **addition**: a new optional field, never a renamed, removed,
-or re-typed one. `WebhookPayloadVersions` and `events.VersionOf` are the two ends of the same fact
+or re-typed one. `PublicEventVersions` and `events.VersionOf` are the two ends of the same fact
 (pinned equal by the root fitness test `backend/publicevents_test.go`), and `payload_version_test.go`'s golden wire snapshots
 (`testdata/wire/<type>.v<n>.json`) ratchet the shape byte-for-byte — a field rename or removal changes
 the marshaled bytes and fails the snapshot comparison, forcing a reviewed, deliberate regeneration
@@ -216,7 +216,7 @@ for a verification snippet.
 
 `toWireEnvelope` (`internal/modules/webhooks/wireenvelope.go`) maps the INTERNAL bus envelope (the shape
 every module publishes to the outbox, carrying full governance metadata) onto the PUBLIC
-`WebhookDeliveryEnvelope` a subscriber receives — deliberately different shapes:
+`PublicEventEnvelope` a subscriber receives — deliberately different shapes:
 
 ```json
 {
@@ -334,7 +334,7 @@ for these specific subjects — fail-**safe**, not fail-silent: the gap is in `U
 spec to grow an ownership model these subjects can be scoped by, not worked around here.
 
 **Catalogued, never emitted.** Six schemas exist purely for whole-catalog coverage (`events.Types()` is
-completely covered by a `WebhookPayload<Event>`, the fitness-test definition of "Phase 4 done") but have
+completely covered by a `PublicEvent<Event>`, the fitness-test definition of "Phase 4 done") but have
 no emit site in the codebase today, so nothing is ever delivered for them regardless of the visibility
 gate: `deal.restored`, `person.restored`, `pipeline.archived`, `stage.archived`, `mirror.write_rejected`
 (reserved for a branch-2 overlay feature), and `audit.appended` (the audit ledger's own row is
@@ -426,7 +426,7 @@ affordances.
 ## Rules of thumb
 
 - **The wire payload is generated, never hand-shaped.** `api/public-events.yaml` → `gen-payloads` →
-  `crmcontracts.WebhookPayload<Event>`, with `EventType()`/`EntityType()` methods that make an emit site
+  `crmcontracts.PublicEvent<Event>`, with `EventType()`/`EntityType()` methods that make an emit site
   mismatch a compile error. Two emit paths only: `storekit.EmitEvent`/`EmitEventForEntity`, and
   `approvals.Service.emit`.
 - **Versions grow by addition, never by mutation.** A breaking change is a new event-type name, opted

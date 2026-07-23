@@ -394,7 +394,7 @@ func (c *CloseDateCorrector) apply(ctx context.Context, cand closeDateCandidate,
 		for k, v := range extra {
 			changedFields[k] = v
 		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, cand.id.UUID, crmcontracts.WebhookPayloadDealUpdated{ChangedFields: changedFields}); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, cand.id.UUID, crmcontracts.PublicEventDealUpdated{ChangedFields: changedFields}); err != nil {
 			return fmt.Errorf("emit %s: %w", correction, err)
 		}
 		return nil

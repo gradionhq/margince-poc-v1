@@ -344,8 +344,8 @@ func emitVoiceVersion(ctx context.Context, tx pgx.Tx, auditID ids.UUID, version 
 
 // voiceVersionChangedPayload builds voice.version_changed's typed payload.
 // PredecessorVersion is nil for a profile's first version, which has none.
-func voiceVersionChangedPayload(version VoiceProfileVersion, classification, outcome string) crmcontracts.WebhookPayloadVoiceVersionChanged {
-	return crmcontracts.WebhookPayloadVoiceVersionChanged{
+func voiceVersionChangedPayload(version VoiceProfileVersion, classification, outcome string) crmcontracts.PublicEventVoiceVersionChanged {
+	return crmcontracts.PublicEventVoiceVersionChanged{
 		ProfileId:          openapi_types.UUID(version.ProfileID),
 		ProfileVersion:     version.ProfileVersion,
 		Status:             version.Status,

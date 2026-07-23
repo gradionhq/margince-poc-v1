@@ -259,7 +259,7 @@ func recordSiteReadConfirmation(ctx context.Context, tx pgx.Tx, read SiteRead, c
 // not variants of one, so the return type is the shared events.Payload
 // seam.
 //
-//nolint:ireturn // dispatches to WebhookPayloadOrganizationCreated vs Updated by confirmation.created; tested directly via the interface in person_organization_payload_test.go
+//nolint:ireturn // dispatches to PublicEventOrganizationCreated vs Updated by confirmation.created; tested directly via the interface in person_organization_payload_test.go
 func siteReadConfirmationPayload(read SiteRead, confirmation siteReadConfirmation) events.Payload {
 	delta := map[string]any{
 		auditKeyFields: confirmation.appliedSite,
@@ -271,7 +271,7 @@ func siteReadConfirmationPayload(read SiteRead, confirmation siteReadConfirmatio
 		sourceURL := read.SeedURL
 		siteReadID := openapi_types.UUID(read.ID)
 		capturedBy := companySiteReadCapturedBy
-		return crmcontracts.WebhookPayloadOrganizationCreated{
+		return crmcontracts.PublicEventOrganizationCreated{
 			Delta:      &delta,
 			Source:     &source,
 			SourceUrl:  &sourceURL,
@@ -279,7 +279,7 @@ func siteReadConfirmationPayload(read SiteRead, confirmation siteReadConfirmatio
 			CapturedBy: &capturedBy,
 		}
 	}
-	return crmcontracts.WebhookPayloadOrganizationUpdated{
+	return crmcontracts.PublicEventOrganizationUpdated{
 		ChangedFields: map[string]any{
 			eventKeyDelta:  delta,
 			auditKeySource: companySourceSiteRead, auditKeySourceURL: read.SeedURL,

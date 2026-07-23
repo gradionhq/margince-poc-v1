@@ -247,19 +247,19 @@ func (s *Store) SaveCompany(ctx context.Context, in SaveCompanyInput) (Company, 
 // published schema. The two shapes are different published events, not
 // variants of one, so the return type is the shared events.Payload seam.
 //
-//nolint:ireturn // dispatches to WebhookPayloadOrganizationCreated vs Updated by the created condition; tested directly via the interface in person_organization_payload_test.go
+//nolint:ireturn // dispatches to PublicEventOrganizationCreated vs Updated by the created condition; tested directly via the interface in person_organization_payload_test.go
 func companySaveEventPayload(created bool, applied map[string]any, by string) events.Payload {
 	if created {
 		source := companySourceHuman
 		anchor := true
-		return crmcontracts.WebhookPayloadOrganizationCreated{
+		return crmcontracts.PublicEventOrganizationCreated{
 			Delta:      &applied,
 			Source:     &source,
 			Anchor:     &anchor,
 			CapturedBy: &by,
 		}
 	}
-	return crmcontracts.WebhookPayloadOrganizationUpdated{
+	return crmcontracts.PublicEventOrganizationUpdated{
 		ChangedFields: map[string]any{
 			eventKeyDelta: applied, auditKeySource: companySourceHuman, "anchor": true, "captured_by": by,
 		},

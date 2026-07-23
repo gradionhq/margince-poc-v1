@@ -93,7 +93,7 @@ func (s *Store) ApplyEnrichment(ctx context.Context, orgID ids.OrganizationID, i
 		if err != nil {
 			return fmt.Errorf("audit enrichment apply: %w", err)
 		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, orgID.UUID, crmcontracts.WebhookPayloadOrganizationUpdated{
+		if err := storekit.EmitEvent(ctx, tx, auditID, orgID.UUID, crmcontracts.PublicEventOrganizationUpdated{
 			ChangedFields: map[string]any{
 				eventKeyDelta: applied, auditKeySource: companySourceSiteRead, auditKeySourceURL: in.SourceURL,
 			},

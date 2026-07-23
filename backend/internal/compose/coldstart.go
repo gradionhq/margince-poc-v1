@@ -149,9 +149,9 @@ func coldStartProposalKind(req crmcontracts.ColdStartRequest) crmcontracts.ColdS
 // announced coldstart.read_back_proposed payload. The pasted text /
 // statement is tenant data and never announced — only its kind and how
 // much it grounded.
-func coldStartStagingNotice(req crmcontracts.ColdStartRequest, kind crmcontracts.ColdStartProposalSourceKind, fieldCount int) (string, crmcontracts.WebhookPayloadColdstartReadBackProposed) {
+func coldStartStagingNotice(req crmcontracts.ColdStartRequest, kind crmcontracts.ColdStartProposalSourceKind, fieldCount int) (string, crmcontracts.PublicEventColdstartReadBackProposed) {
 	if req.Url != nil {
-		return "Cold-start read-back of " + *req.Url, crmcontracts.WebhookPayloadColdstartReadBackProposed{
+		return "Cold-start read-back of " + *req.Url, crmcontracts.PublicEventColdstartReadBackProposed{
 			SourceUrl:  req.Url,
 			FieldCount: fieldCount,
 		}
@@ -161,7 +161,7 @@ func coldStartStagingNotice(req crmcontracts.ColdStartRequest, kind crmcontracts
 		subject = "a self-description"
 	}
 	sourceKind := string(kind)
-	return "Cold-start read-back of " + subject, crmcontracts.WebhookPayloadColdstartReadBackProposed{
+	return "Cold-start read-back of " + subject, crmcontracts.PublicEventColdstartReadBackProposed{
 		SourceKind: &sourceKind,
 		FieldCount: fieldCount,
 	}
@@ -171,7 +171,7 @@ func coldStartStagingNotice(req crmcontracts.ColdStartRequest, kind crmcontracts
 // IS the proposal (ADR-0036: staged rows are the authority object), so the
 // proposal id is the approval id. Identical for every input kind: 🟡 always,
 // auto-write never.
-func (e *coldStartEngine) stage(ctx context.Context, proposal crmcontracts.ColdStartProposal, summary string, announce crmcontracts.WebhookPayloadColdstartReadBackProposed) (crmcontracts.ColdStartProposal, error) {
+func (e *coldStartEngine) stage(ctx context.Context, proposal crmcontracts.ColdStartProposal, summary string, announce crmcontracts.PublicEventColdstartReadBackProposed) (crmcontracts.ColdStartProposal, error) {
 	proposedChange, err := json.Marshal(proposal)
 	if err != nil {
 		return crmcontracts.ColdStartProposal{}, err

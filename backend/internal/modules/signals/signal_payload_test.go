@@ -15,8 +15,8 @@ package signals
 // mismatch would show up — is the honest substitute, mirroring the activity
 // family's TestActivityCapturedPayload_DirectLog (webhooks Task 5c).
 //
-// Before this migration neither crmcontracts.WebhookPayloadSignalDetected nor
-// WebhookPayloadSignalResolved existed, and both builder functions returned a
+// Before this migration neither crmcontracts.PublicEventSignalDetected nor
+// PublicEventSignalResolved existed, and both builder functions returned a
 // map[string]any, so this test failed to compile (RED) until
 // public-events.yaml gained the schemas, `make gen` regenerated the structs,
 // and signal.go/resolver.go's builders were retyped.
@@ -66,7 +66,7 @@ func TestDetectedPayload_Unresolved(t *testing.T) {
 	require.NotContains(t, string(raw), "entity_type",
 		"an absent entity_type must be omitted from the wire body, not marshaled as null")
 	require.NotContains(t, string(raw), "resolution_confidence")
-	var decoded crmcontracts.WebhookPayloadSignalDetected
+	var decoded crmcontracts.PublicEventSignalDetected
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -97,7 +97,7 @@ func TestDetectedPayload_WithSubject(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadSignalDetected
+	var decoded crmcontracts.PublicEventSignalDetected
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -123,7 +123,7 @@ func TestResolvedPayload_Dropped(t *testing.T) {
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
 	require.NotContains(t, string(raw), "matched_on")
-	var decoded crmcontracts.WebhookPayloadSignalResolved
+	var decoded crmcontracts.PublicEventSignalResolved
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -149,7 +149,7 @@ func TestResolvedPayload_ResolvedToOrg(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadSignalResolved
+	var decoded crmcontracts.PublicEventSignalResolved
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }

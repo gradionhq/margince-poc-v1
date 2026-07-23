@@ -20,7 +20,7 @@ package people
 // mirroring the person/organization family's
 // TestPromotedPersonPayload_Created (webhooks Task 5b-personorg).
 //
-// Before this migration crmcontracts.WebhookPayloadLeadCreated/
+// Before this migration crmcontracts.PublicEventLeadCreated/
 // Disqualified/Promoted/Updated did not exist and leadPromotedPayload
 // did not exist, so this test failed to compile (RED) until
 // public-events.yaml gained the schemas, `make gen` regenerated the
@@ -53,7 +53,7 @@ func TestLeadPromotedPayload_WithEvidence(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadLeadPromoted
+	var decoded crmcontracts.PublicEventLeadPromoted
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -77,7 +77,7 @@ func TestLeadPromotedPayload_MergedNoEvidence(t *testing.T) {
 // custom-field key verbatim — the honest reason lead.updated is an open
 // map rather than a strictly typed struct (EMIT-INVENTORY.md).
 func TestLeadUpdatedChangedFieldsPreservesCustomField(t *testing.T) {
-	payload := crmcontracts.WebhookPayloadLeadUpdated{
+	payload := crmcontracts.PublicEventLeadUpdated{
 		ChangedFields: map[string]any{
 			"score":              float64(72),
 			"cf_lead_source_ref": "partner-9f2",
@@ -89,7 +89,7 @@ func TestLeadUpdatedChangedFieldsPreservesCustomField(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadLeadUpdated
+	var decoded crmcontracts.PublicEventLeadUpdated
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, "partner-9f2", decoded.ChangedFields["cf_lead_source_ref"],
 		"the open changed_fields map must preserve a cf_* custom-field key untouched")

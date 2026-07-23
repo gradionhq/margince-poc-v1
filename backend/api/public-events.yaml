@@ -95,7 +95,7 @@ components:
         - coldstart.rejected
         - audit.appended
 
-    WebhookActor:
+    PublicEventActor:
       type: object
       description: Who or what caused the event, as exposed publicly.
       required: [type]
@@ -105,7 +105,7 @@ components:
           description: Actor kind (e.g. human, agent, connector).
       additionalProperties: false
 
-    WebhookEntityRef:
+    PublicEventEntityRef:
       type: object
       description: The primary entity the event concerns.
       required: [type, id]
@@ -119,7 +119,7 @@ components:
           description: Stable identifier of the entity.
       additionalProperties: false
 
-    WebhookDeliveryEnvelope:
+    PublicEventEnvelope:
       type: object
       description: >-
         The public wrapper around every delivered event payload. This is the
@@ -149,19 +149,19 @@ components:
           format: date-time
           description: When the event occurred (RFC 3339).
         actor:
-          $ref: '#/components/schemas/WebhookActor'
+          $ref: '#/components/schemas/PublicEventActor'
         entity:
-          $ref: '#/components/schemas/WebhookEntityRef'
+          $ref: '#/components/schemas/PublicEventEntityRef'
         correlation_id:
           type: string
           format: uuid
           description: Correlates all events emitted for one originating request.
         data:
           type: object
-          description: The typed event payload (one of the WebhookPayload* schemas).
+          description: The typed event payload (one of the PublicEvent* schemas).
       additionalProperties: false
 
-    WebhookPayloadDealCreated:
+    PublicEventDealCreated:
       type: object
       x-event-type: deal.created
       x-entity-type: deal
@@ -175,7 +175,7 @@ components:
           description: The deal's name at creation.
       additionalProperties: false
 
-    WebhookPayloadDealOwnerChanged:
+    PublicEventDealOwnerChanged:
       type: object
       x-event-type: deal.owner_changed
       x-entity-type: deal
@@ -197,7 +197,7 @@ components:
           description: The previous owner (absent when the deal had none).
       additionalProperties: false
 
-    WebhookPayloadDealStageChanged:
+    PublicEventDealStageChanged:
       type: object
       x-event-type: deal.stage_changed
       x-entity-type: deal
@@ -242,7 +242,7 @@ components:
           description: The target stage's win probability, frozen at the moment of the move.
       additionalProperties: false
 
-    WebhookPayloadDealArchived:
+    PublicEventDealArchived:
       type: object
       x-event-type: deal.archived
       x-entity-type: deal
@@ -250,7 +250,7 @@ components:
       description: Payload for deal.archived — a deal was archived. Carries no data.
       additionalProperties: false
 
-    WebhookPayloadDealUpdated:
+    PublicEventDealUpdated:
       type: object
       x-event-type: deal.updated
       x-entity-type: deal
@@ -271,7 +271,7 @@ components:
             incl. runtime cf_* custom fields.
       additionalProperties: false
 
-    WebhookPayloadDealRestored:
+    PublicEventDealRestored:
       type: object
       x-event-type: deal.restored
       x-entity-type: deal
@@ -283,7 +283,7 @@ components:
         rather than silently omitting it.
       additionalProperties: false
 
-    WebhookPayloadOfferCreated:
+    PublicEventOfferCreated:
       type: object
       x-event-type: offer.created
       x-entity-type: offer
@@ -322,7 +322,7 @@ components:
           description: The principal that created this revision.
       additionalProperties: false
 
-    WebhookPayloadOfferSent:
+    PublicEventOfferSent:
       type: object
       x-event-type: offer.sent
       x-entity-type: offer
@@ -362,7 +362,7 @@ components:
           description: The offer's validity date (absent when unset).
       additionalProperties: false
 
-    WebhookPayloadOfferAccepted:
+    PublicEventOfferAccepted:
       type: object
       x-event-type: offer.accepted
       x-entity-type: offer
@@ -392,7 +392,7 @@ components:
           description: The offer's gross total, now also the deal's amount.
       additionalProperties: false
 
-    WebhookPayloadOfferRejected:
+    PublicEventOfferRejected:
       type: object
       x-event-type: offer.rejected
       x-entity-type: offer
@@ -418,7 +418,7 @@ components:
           description: The optional rejection reason (absent when none was given).
       additionalProperties: false
 
-    WebhookPayloadOfferSuperseded:
+    PublicEventOfferSuperseded:
       type: object
       x-event-type: offer.superseded
       x-entity-type: offer
@@ -448,7 +448,7 @@ components:
           description: The new revision number minted by the regenerate.
       additionalProperties: false
 
-    WebhookPipelineCreatedStage:
+    PublicEventPipelineCreatedStage:
       type: object
       description: >-
         One initial stage as declared on a pipeline.created event — the
@@ -470,7 +470,7 @@ components:
           description: The stage's semantic (open | won | lost).
       additionalProperties: false
 
-    WebhookPayloadPipelineCreated:
+    PublicEventPipelineCreated:
       type: object
       x-event-type: pipeline.created
       x-entity-type: pipeline
@@ -491,11 +491,11 @@ components:
           description: Whether this pipeline is the workspace default.
         stages:
           type: array
-          items: { $ref: '#/components/schemas/WebhookPipelineCreatedStage' }
+          items: { $ref: '#/components/schemas/PublicEventPipelineCreatedStage' }
           description: The pipeline's initial stages, in the order created.
       additionalProperties: false
 
-    WebhookPayloadPipelineUpdated:
+    PublicEventPipelineUpdated:
       type: object
       x-event-type: pipeline.updated
       x-entity-type: pipeline
@@ -517,7 +517,7 @@ components:
             (name, is_default, position, or stage_positions).
       additionalProperties: false
 
-    WebhookPayloadPipelineArchived:
+    PublicEventPipelineArchived:
       type: object
       x-event-type: pipeline.archived
       x-entity-type: pipeline
@@ -529,7 +529,7 @@ components:
         explicitly rather than silently omitting it.
       additionalProperties: false
 
-    WebhookPayloadStageCreated:
+    PublicEventStageCreated:
       type: object
       x-event-type: stage.created
       x-entity-type: stage
@@ -560,7 +560,7 @@ components:
           description: The stage's win probability (won=100, lost=0, open=0..100).
       additionalProperties: false
 
-    WebhookPayloadStageUpdated:
+    PublicEventStageUpdated:
       type: object
       x-event-type: stage.updated
       x-entity-type: stage
@@ -593,7 +593,7 @@ components:
             not touch it).
       additionalProperties: false
 
-    WebhookPayloadStageArchived:
+    PublicEventStageArchived:
       type: object
       x-event-type: stage.archived
       x-entity-type: stage
@@ -605,7 +605,7 @@ components:
         rather than silently omitting it.
       additionalProperties: false
 
-    WebhookPersonMergedRelinkCounts:
+    PublicEventPersonMergedRelinkCounts:
       type: object
       description: >-
         How many child rows on each side were repointed from the merged-
@@ -634,7 +634,7 @@ components:
           description: activity_link rows relinked.
       additionalProperties: false
 
-    WebhookPayloadPersonCreated:
+    PublicEventPersonCreated:
       type: object
       x-event-type: person.created
       x-entity-type: person
@@ -648,7 +648,7 @@ components:
           description: The person's name at creation.
       additionalProperties: false
 
-    WebhookPayloadPersonArchived:
+    PublicEventPersonArchived:
       type: object
       x-event-type: person.archived
       x-entity-type: person
@@ -656,7 +656,7 @@ components:
       description: Payload for person.archived — a person was archived. Carries no data.
       additionalProperties: false
 
-    WebhookPayloadPersonMerged:
+    PublicEventPersonMerged:
       type: object
       x-event-type: person.merged
       x-entity-type: person
@@ -679,10 +679,10 @@ components:
           format: uuid
           description: The survivor (target) person.
         relinked:
-          $ref: '#/components/schemas/WebhookPersonMergedRelinkCounts'
+          $ref: '#/components/schemas/PublicEventPersonMergedRelinkCounts'
       additionalProperties: false
 
-    WebhookPayloadPersonUpdated:
+    PublicEventPersonUpdated:
       type: object
       x-event-type: person.updated
       x-entity-type: person
@@ -703,7 +703,7 @@ components:
             incl. runtime cf_* custom fields.
       additionalProperties: false
 
-    WebhookPayloadPersonRestored:
+    PublicEventPersonRestored:
       type: object
       x-event-type: person.restored
       x-entity-type: person
@@ -715,7 +715,7 @@ components:
         explicitly rather than silently omitting it.
       additionalProperties: false
 
-    WebhookPayloadOrganizationCreated:
+    PublicEventOrganizationCreated:
       type: object
       x-event-type: organization.created
       x-entity-type: organization
@@ -755,7 +755,7 @@ components:
           description: The principal that created this organization.
       additionalProperties: false
 
-    WebhookPayloadOrganizationArchived:
+    PublicEventOrganizationArchived:
       type: object
       x-event-type: organization.archived
       x-entity-type: organization
@@ -763,7 +763,7 @@ components:
       description: Payload for organization.archived — an organization was archived. Carries no data.
       additionalProperties: false
 
-    WebhookPayloadOrganizationMerged:
+    PublicEventOrganizationMerged:
       type: object
       x-event-type: organization.merged
       x-entity-type: organization
@@ -786,7 +786,7 @@ components:
           description: The survivor (target) organization.
       additionalProperties: false
 
-    WebhookPayloadOrganizationUpdated:
+    PublicEventOrganizationUpdated:
       type: object
       x-event-type: organization.updated
       x-entity-type: organization
@@ -809,7 +809,7 @@ components:
             incl. runtime cf_* custom fields.
       additionalProperties: false
 
-    WebhookPayloadLeadCreated:
+    PublicEventLeadCreated:
       type: object
       x-event-type: lead.created
       x-entity-type: lead
@@ -827,7 +827,7 @@ components:
             absent on a direct create).
       additionalProperties: false
 
-    WebhookPayloadLeadDisqualified:
+    PublicEventLeadDisqualified:
       type: object
       x-event-type: lead.disqualified
       x-entity-type: lead
@@ -835,7 +835,7 @@ components:
       description: Payload for lead.disqualified — a lead was disqualified. Carries no data.
       additionalProperties: false
 
-    WebhookPayloadLeadPromoted:
+    PublicEventLeadPromoted:
       type: object
       x-event-type: lead.promoted
       x-entity-type: lead
@@ -866,7 +866,7 @@ components:
           description: The inbound activity that evidenced the trigger (absent for a human_qualify with no linked activity).
       additionalProperties: false
 
-    WebhookPayloadLeadUpdated:
+    PublicEventLeadUpdated:
       type: object
       x-event-type: lead.updated
       x-entity-type: lead
@@ -888,7 +888,7 @@ components:
             incl. runtime cf_* custom fields.
       additionalProperties: false
 
-    WebhookPayloadActivityCaptured:
+    PublicEventActivityCaptured:
       type: object
       x-event-type: activity.captured
       x-entity-type: activity
@@ -917,7 +917,7 @@ components:
             absent on a direct log).
       additionalProperties: false
 
-    WebhookPayloadActivityArchived:
+    PublicEventActivityArchived:
       type: object
       x-event-type: activity.archived
       x-entity-type: activity
@@ -925,7 +925,7 @@ components:
       description: Payload for activity.archived — an activity was archived. Carries no data.
       additionalProperties: false
 
-    WebhookActivityRelinkedRef:
+    PublicEventActivityRelinkedRef:
       type: object
       description: >-
         The entity an activity was relinked onto (activities/lifecycle.go's
@@ -944,7 +944,7 @@ components:
           description: The relink target's id.
       additionalProperties: false
 
-    WebhookActivityChangedFields:
+    PublicEventActivityChangedFields:
       type: object
       description: >-
         activity.updated's BOUNDED delta: UpdateActivity's known mutable
@@ -983,10 +983,10 @@ components:
           type: boolean
           description: The activity's new completion state (absent when this update did not touch it).
         relinked:
-          $ref: '#/components/schemas/WebhookActivityRelinkedRef'
+          $ref: '#/components/schemas/PublicEventActivityRelinkedRef'
       additionalProperties: false
 
-    WebhookPayloadActivityUpdated:
+    PublicEventActivityUpdated:
       type: object
       x-event-type: activity.updated
       x-entity-type: activity
@@ -1001,10 +1001,10 @@ components:
         - changed_fields
       properties:
         changed_fields:
-          $ref: '#/components/schemas/WebhookActivityChangedFields'
+          $ref: '#/components/schemas/PublicEventActivityChangedFields'
       additionalProperties: false
 
-    WebhookPayloadEngagementReply:
+    PublicEventEngagementReply:
       type: object
       x-event-type: engagement.reply
       x-entity-type: activity
@@ -1042,7 +1042,7 @@ components:
             ensure).
       additionalProperties: false
 
-    WebhookPayloadConsentChanged:
+    PublicEventConsentChanged:
       type: object
       x-event-type: consent.changed
       x-entity-type: dynamic
@@ -1073,7 +1073,7 @@ components:
           description: The state now on record (granted | withdrawn).
       additionalProperties: false
 
-    WebhookPayloadRetentionApplied:
+    PublicEventRetentionApplied:
       type: object
       x-event-type: retention.applied
       x-entity-type: dynamic
@@ -1110,7 +1110,7 @@ components:
             absent for both retention-sweep sites).
       additionalProperties: false
 
-    WebhookPayloadSignalDetected:
+    PublicEventSignalDetected:
       type: object
       x-event-type: signal.detected
       x-entity-type: signal
@@ -1170,7 +1170,7 @@ components:
           description: The match confidence (0–1), set only when created already resolved.
       additionalProperties: false
 
-    WebhookPayloadSignalResolved:
+    PublicEventSignalResolved:
       type: object
       x-event-type: signal.resolved
       x-entity-type: signal
@@ -1214,7 +1214,7 @@ components:
           description: The top candidate's match confidence (0–1).
       additionalProperties: false
 
-    WebhookPayloadVoiceProfileCreated:
+    PublicEventVoiceProfileCreated:
       type: object
       x-event-type: voice.profile_created
       x-entity-type: voice_profile
@@ -1245,7 +1245,7 @@ components:
           description: Whether automatic learning starts enabled (always false at creation).
       additionalProperties: false
 
-    WebhookPayloadVoiceProfileUpdated:
+    PublicEventVoiceProfileUpdated:
       type: object
       x-event-type: voice.profile_updated
       x-entity-type: voice_profile
@@ -1279,7 +1279,7 @@ components:
           description: The corpus maturity band as of this update.
       additionalProperties: false
 
-    WebhookPayloadVoiceProfileArchived:
+    PublicEventVoiceProfileArchived:
       type: object
       x-event-type: voice.profile_archived
       x-entity-type: voice_profile
@@ -1305,7 +1305,7 @@ components:
           description: The profile's derived-artifact version at the moment it was archived.
       additionalProperties: false
 
-    WebhookPayloadVoiceCorpusChanged:
+    PublicEventVoiceCorpusChanged:
       type: object
       x-event-type: voice.corpus_changed
       x-entity-type: voice_profile
@@ -1363,7 +1363,7 @@ components:
           description: The corpus's content hash after this change.
       additionalProperties: false
 
-    WebhookPayloadVoiceBuildChanged:
+    PublicEventVoiceBuildChanged:
       type: object
       x-event-type: voice.build_changed
       x-entity-type: voice_profile
@@ -1423,7 +1423,7 @@ components:
           description: When a deferred build will next be attempted (absent unless deferred).
       additionalProperties: false
 
-    WebhookPayloadVoiceVersionChanged:
+    PublicEventVoiceVersionChanged:
       type: object
       x-event-type: voice.version_changed
       x-entity-type: voice_profile
@@ -1467,7 +1467,7 @@ components:
             | rejected | rollback).
       additionalProperties: false
 
-    WebhookPayloadVoiceDraftOutcomeRecorded:
+    PublicEventVoiceDraftOutcomeRecorded:
       type: object
       x-event-type: voice.draft_outcome_recorded
       x-entity-type: voice_profile
@@ -1497,7 +1497,7 @@ components:
           description: How many transformation edits were applied before send (0 for rejected).
       additionalProperties: false
 
-    WebhookPayloadUserInvited:
+    PublicEventUserInvited:
       type: object
       x-event-type: user.invited
       x-entity-type: user
@@ -1524,7 +1524,7 @@ components:
           description: The admin who issued the invite.
       additionalProperties: false
 
-    WebhookPayloadUserDeactivated:
+    PublicEventUserDeactivated:
       type: object
       x-event-type: user.deactivated
       x-entity-type: user
@@ -1550,7 +1550,7 @@ components:
           description: The operator-supplied reason (absent when none was given).
       additionalProperties: false
 
-    WebhookPayloadUserReactivated:
+    PublicEventUserReactivated:
       type: object
       x-event-type: user.reactivated
       x-entity-type: user
@@ -1572,7 +1572,7 @@ components:
           description: The admin who reactivated the member.
       additionalProperties: false
 
-    WebhookPayloadRoleChanged:
+    PublicEventRoleChanged:
       type: object
       x-event-type: role.changed
       x-entity-type: user
@@ -1605,7 +1605,7 @@ components:
             than one role before this change).
       additionalProperties: false
 
-    WebhookPayloadPassportRevoked:
+    PublicEventPassportRevoked:
       type: object
       x-event-type: passport.revoked
       x-entity-type: passport
@@ -1628,7 +1628,7 @@ components:
           description: The human who revoked it (the granting user, or an admin).
       additionalProperties: false
 
-    WebhookPayloadOnboardingStateChanged:
+    PublicEventOnboardingStateChanged:
       type: object
       x-event-type: onboarding.state_changed
       x-entity-type: onboarding_wizard_state
@@ -1671,7 +1671,7 @@ components:
           description: Whether the wizard was completed as of this checkpoint.
       additionalProperties: false
 
-    WebhookPayloadMirrorConflict:
+    PublicEventMirrorConflict:
       type: object
       x-event-type: mirror.conflict
       x-entity-type: dynamic
@@ -1708,7 +1708,7 @@ components:
           description: The incumbent's reported modification timestamp.
       additionalProperties: false
 
-    WebhookPayloadMirrorBudgetDegraded:
+    PublicEventMirrorBudgetDegraded:
       type: object
       x-event-type: mirror.budget_degraded
       x-entity-type: dynamic
@@ -1731,7 +1731,7 @@ components:
           description: The budget band that forced the degrade (currently always "shed").
       additionalProperties: false
 
-    WebhookPayloadMirrorDeleted:
+    PublicEventMirrorDeleted:
       type: object
       x-event-type: mirror.deleted
       x-entity-type: dynamic
@@ -1763,7 +1763,7 @@ components:
           description: When the incumbent reported the deletion.
       additionalProperties: false
 
-    WebhookPayloadMirrorWriteRejected:
+    PublicEventMirrorWriteRejected:
       type: object
       x-event-type: mirror.write_rejected
       x-entity-type: dynamic
@@ -1777,7 +1777,7 @@ components:
         omitting it.
       additionalProperties: false
 
-    WebhookPayloadIncumbentConnected:
+    PublicEventIncumbentConnected:
       type: object
       x-event-type: incumbent.connected
       x-entity-type: incumbent_connection
@@ -1811,7 +1811,7 @@ components:
           description: The connection's status after this change (active).
       additionalProperties: false
 
-    WebhookPayloadIncumbentDisconnected:
+    PublicEventIncumbentDisconnected:
       type: object
       x-event-type: incumbent.disconnected
       x-entity-type: incumbent_connection
@@ -1838,7 +1838,7 @@ components:
           description: The connection's status after this change (revoked).
       additionalProperties: false
 
-    WebhookPayloadApprovalRequested:
+    PublicEventApprovalRequested:
       type: object
       x-event-type: approval.requested
       x-entity-type: approval
@@ -1876,7 +1876,7 @@ components:
           description: When this staging lapses into expired if undecided.
       additionalProperties: false
 
-    WebhookPayloadApprovalDecided:
+    PublicEventApprovalDecided:
       type: object
       x-event-type: approval.decided
       x-entity-type: approval
@@ -1930,7 +1930,7 @@ components:
             staging kind adds).
       additionalProperties: false
 
-    WebhookPayloadColdstartReadBackProposed:
+    PublicEventColdstartReadBackProposed:
       type: object
       x-event-type: coldstart.read_back_proposed
       x-entity-type: approval
@@ -1959,7 +1959,7 @@ components:
             for a url-kind read-back, which sets source_url instead.
       additionalProperties: false
 
-    WebhookPayloadColdstartAccepted:
+    PublicEventColdstartAccepted:
       type: object
       x-event-type: coldstart.accepted
       x-entity-type: approval
@@ -1982,7 +1982,7 @@ components:
           description: The deciding human's user id.
       additionalProperties: false
 
-    WebhookPayloadColdstartRejected:
+    PublicEventColdstartRejected:
       type: object
       x-event-type: coldstart.rejected
       x-entity-type: approval
@@ -2005,7 +2005,7 @@ components:
           description: The deciding human's user id.
       additionalProperties: false
 
-    WebhookPayloadAuditAppended:
+    PublicEventAuditAppended:
       type: object
       x-event-type: audit.appended
       x-entity-type: audit

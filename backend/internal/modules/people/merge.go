@@ -156,11 +156,11 @@ func (s *Store) mergePersonTx(ctx context.Context, tx pgx.Tx, sourceID, targetID
 // the local relinkCounts shape onto the published schema, so a future
 // field rename shows up here rather than at an independently-drifting
 // map literal.
-func personMergedPayload(sourceID, targetID ids.PersonID, counts relinkCounts) crmcontracts.WebhookPayloadPersonMerged {
-	return crmcontracts.WebhookPayloadPersonMerged{
+func personMergedPayload(sourceID, targetID ids.PersonID, counts relinkCounts) crmcontracts.PublicEventPersonMerged {
+	return crmcontracts.PublicEventPersonMerged{
 		MergedFromId: openapi_types.UUID(sourceID.UUID),
 		MergedIntoId: openapi_types.UUID(targetID.UUID),
-		Relinked: crmcontracts.WebhookPersonMergedRelinkCounts{
+		Relinked: crmcontracts.PublicEventPersonMergedRelinkCounts{
 			Emails:        counts.Emails,
 			Phones:        counts.Phones,
 			Relationships: counts.Relationships,
@@ -287,7 +287,8 @@ func readPersonMergeState(ctx context.Context, tx pgx.Tx, id ids.PersonID) (crmc
 // so an out-of-scope target answers a bare conflict, and an archived one
 // can survive nothing.
 func mergePair[T any, K ids.EntityKind](ctx context.Context, tx pgx.Tx, kind string, sourceID, targetID ids.ID[K],
-	read func(context.Context, pgx.Tx, ids.ID[K]) (T, *ids.UUID, error)) (source, target T, err error) {
+	read func(context.Context, pgx.Tx, ids.ID[K]) (T, *ids.UUID, error),
+) (source, target T, err error) {
 	var zero T
 	if err := auth.EnsureVisible(ctx, tx, kind, sourceID.UUID); err != nil {
 		return zero, zero, err

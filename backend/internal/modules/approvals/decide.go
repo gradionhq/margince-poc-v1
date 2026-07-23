@@ -125,7 +125,7 @@ func (s *Service) decideInTx(ctx context.Context, tx pgx.Tx, p principal.Princip
 	auditEvidence := map[string]any{
 		approvalKeyKind: a.Kind, "verdict": verdict, "reason": reason,
 	}
-	decidedPayload := crmcontracts.WebhookPayloadApprovalDecided{
+	decidedPayload := crmcontracts.PublicEventApprovalDecided{
 		Kind: a.Kind, Verdict: verdict, DecidedBy: openapi_types.UUID(p.UserID),
 	}
 	if edited != nil {
@@ -158,7 +158,7 @@ func (s *Service) decideInTx(ctx context.Context, tx pgx.Tx, p principal.Princip
 // — what the agent proposed, and what the human actually released. The
 // decided event carries the human's version, so a suspended agent run
 // resumes with THIS call; the original hash no longer opens anything.
-func applyEditedPayload(ctx context.Context, tx pgx.Tx, id ids.ApprovalID, edited json.RawMessage, a row, auditEvidence map[string]any, decidedPayload *crmcontracts.WebhookPayloadApprovalDecided) error {
+func applyEditedPayload(ctx context.Context, tx pgx.Tx, id ids.ApprovalID, edited json.RawMessage, a row, auditEvidence map[string]any, decidedPayload *crmcontracts.PublicEventApprovalDecided) error {
 	canonical, editedHash, hashErr := diffhash.Canonical(edited)
 	if hashErr != nil {
 		return &InvalidEditError{Cause: hashErr}

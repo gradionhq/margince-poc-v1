@@ -21,8 +21,8 @@ import (
 // payload — the subject travels separately (the read's own entity ref,
 // passed to storekit.EmitEventForEntity), since this event's entity is
 // dynamic (whichever record class the degraded read was about).
-func mirrorBudgetDegradedPayload(band string) crmcontracts.WebhookPayloadMirrorBudgetDegraded {
-	return crmcontracts.WebhookPayloadMirrorBudgetDegraded{Band: band}
+func mirrorBudgetDegradedPayload(band string) crmcontracts.PublicEventMirrorBudgetDegraded {
+	return crmcontracts.PublicEventMirrorBudgetDegraded{Band: band}
 }
 
 // FreshnessReader is the real force-fresh read-through (design.md §4.5

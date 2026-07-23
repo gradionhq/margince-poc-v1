@@ -186,8 +186,8 @@ func structifyEmptyEventPayloads(body string, spec *openapi3.T) (string, error) 
 // schema carrying x-event-type / x-entity-type (the Go type name is the
 // component name — the source authors them as valid PascalCase identifiers,
 // which is exactly what oapi-codegen emits for such names), and
-// WebhookPayloadVersions, the map from each such schema's event type to its
-// x-version extension (default 1 when absent). WebhookPayloadVersions is the
+// PublicEventVersions, the map from each such schema's event type to its
+// x-version extension (default 1 when absent). PublicEventVersions is the
 // single generated source of truth both the coverage gate (every
 // subscribable event type must be a key) and the version gate (the catalog's
 // VersionOf must agree with the value) read — see
@@ -242,12 +242,12 @@ func eventMethodsAndVersions(spec *openapi3.T) (methods, versions string, err er
 	sort.Slice(entries, func(i, j int) bool { return entries[i].eventType < entries[j].eventType })
 
 	var versionsB strings.Builder
-	versionsB.WriteString("// WebhookPayloadVersions maps every subscribable event type carrying a\n")
-	versionsB.WriteString("// WebhookPayload<Event> schema to that schema's x-version extension\n")
+	versionsB.WriteString("// PublicEventVersions maps every subscribable event type carrying a\n")
+	versionsB.WriteString("// PublicEvent<Event> schema to that schema's x-version extension\n")
 	versionsB.WriteString("// (default 1 when absent). It is the single generated source of truth for\n")
 	versionsB.WriteString("// both the coverage gate (every subscribable event type must be a key here)\n")
 	versionsB.WriteString("// and the version gate (VersionOf(type) must equal this map's value).\n")
-	versionsB.WriteString("var WebhookPayloadVersions = map[string]int{\n")
+	versionsB.WriteString("var PublicEventVersions = map[string]int{\n")
 	for _, e := range entries {
 		fmt.Fprintf(&versionsB, "\t%q: %d,\n", e.eventType, e.version)
 	}
@@ -256,7 +256,7 @@ func eventMethodsAndVersions(spec *openapi3.T) (methods, versions string, err er
 	return methodsB.String(), versionsB.String(), nil
 }
 
-// payloadVersionEntry is one WebhookPayloadVersions row before it is
+// payloadVersionEntry is one PublicEventVersions row before it is
 // rendered — collected once per schema alongside its EventType()/EntityType()
 // methods so extension parsing is not duplicated across two passes.
 type payloadVersionEntry struct {

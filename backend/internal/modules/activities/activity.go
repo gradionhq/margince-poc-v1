@@ -29,8 +29,8 @@ const fieldKind = "kind"
 // direct-log path (this package's only emit site of the event's two) — it
 // never names a source_system, which is exclusive to the capture
 // auto-create path (capture/sink.go's own local builder).
-func activityCapturedPayload(kind string) crmcontracts.WebhookPayloadActivityCaptured {
-	return crmcontracts.WebhookPayloadActivityCaptured{Kind: kind}
+func activityCapturedPayload(kind string) crmcontracts.PublicEventActivityCaptured {
+	return crmcontracts.PublicEventActivityCaptured{Kind: kind}
 }
 
 // ActivityLinkInput ties one activity to a person, organization or deal.

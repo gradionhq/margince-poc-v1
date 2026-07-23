@@ -13,12 +13,12 @@ export interface components {
          */
         SubscribableEventType: "deal.created" | "deal.owner_changed" | "deal.stage_changed" | "deal.archived" | "deal.updated" | "deal.restored" | "offer.created" | "offer.sent" | "offer.accepted" | "offer.rejected" | "offer.superseded" | "pipeline.created" | "pipeline.updated" | "pipeline.archived" | "stage.created" | "stage.updated" | "stage.archived" | "person.created" | "person.archived" | "person.merged" | "person.updated" | "person.restored" | "organization.created" | "organization.archived" | "organization.merged" | "organization.updated" | "lead.created" | "lead.disqualified" | "lead.promoted" | "lead.updated" | "activity.captured" | "activity.archived" | "activity.updated" | "engagement.reply" | "consent.changed" | "retention.applied" | "signal.detected" | "signal.resolved" | "voice.profile_created" | "voice.profile_updated" | "voice.profile_archived" | "voice.corpus_changed" | "voice.build_changed" | "voice.version_changed" | "voice.draft_outcome_recorded" | "user.invited" | "user.deactivated" | "user.reactivated" | "role.changed" | "passport.revoked" | "onboarding.state_changed" | "mirror.conflict" | "mirror.budget_degraded" | "mirror.deleted" | "mirror.write_rejected" | "incumbent.connected" | "incumbent.disconnected" | "approval.requested" | "approval.decided" | "coldstart.read_back_proposed" | "coldstart.accepted" | "coldstart.rejected" | "audit.appended";
         /** @description Who or what caused the event, as exposed publicly. */
-        WebhookActor: {
+        PublicEventActor: {
             /** @description Actor kind (e.g. human, agent, connector). */
             type: string;
         };
         /** @description The primary entity the event concerns. */
-        WebhookEntityRef: {
+        PublicEventEntityRef: {
             /** @description Entity kind (e.g. deal, person, organization). */
             type: string;
             /**
@@ -28,7 +28,7 @@ export interface components {
             id: string;
         };
         /** @description The public wrapper around every delivered event payload. This is the exact JSON shape a subscriber receives; it carries no internal metadata. */
-        WebhookDeliveryEnvelope: {
+        PublicEventEnvelope: {
             /**
              * Format: uuid
              * @description Unique id of this event occurrence.
@@ -43,23 +43,23 @@ export interface components {
              * @description When the event occurred (RFC 3339).
              */
             occurred_at: string;
-            actor: components["schemas"]["WebhookActor"];
-            entity: components["schemas"]["WebhookEntityRef"];
+            actor: components["schemas"]["PublicEventActor"];
+            entity: components["schemas"]["PublicEventEntityRef"];
             /**
              * Format: uuid
              * @description Correlates all events emitted for one originating request.
              */
             correlation_id: string;
-            /** @description The typed event payload (one of the WebhookPayload* schemas). */
+            /** @description The typed event payload (one of the PublicEvent* schemas). */
             data: Record<string, never>;
         };
         /** @description Payload for deal.created — a deal was opened. */
-        WebhookPayloadDealCreated: {
+        PublicEventDealCreated: {
             /** @description The deal's name at creation. */
             name: string;
         };
         /** @description Payload for deal.owner_changed — the deal's owner was reassigned. Emitted instead of (never alongside) deal.updated for the owner_id field (events.md §5.3). */
-        WebhookPayloadDealOwnerChanged: {
+        PublicEventDealOwnerChanged: {
             /**
              * Format: uuid
              * @description The new owner.
@@ -72,7 +72,7 @@ export interface components {
             from_owner_id?: string;
         };
         /** @description Payload for deal.stage_changed — a deal advanced between stages. Carries the amount/win-probability snapshot frozen at the moment of the move so consumers (the trajectory view, the overnight stalled/forecast sweep, the automation trigger keyed on to_status) never need a read-back. */
-        WebhookPayloadDealStageChanged: {
+        PublicEventDealStageChanged: {
             /**
              * Format: uuid
              * @description Stage the deal left (absent on first placement).
@@ -98,18 +98,18 @@ export interface components {
             win_probability: number;
         };
         /** @description Payload for deal.archived — a deal was archived. Carries no data. */
-        WebhookPayloadDealArchived: Record<string, never>;
+        PublicEventDealArchived: Record<string, never>;
         /** @description Payload for deal.updated — an OPEN envelope: its emit sites carry divergent shapes (a flat column patch, an accepted-offer amount sync, a close-date-correction note, a relationship delta), so the honest shape is a change-set map rather than a fixed field list. */
-        WebhookPayloadDealUpdated: {
+        PublicEventDealUpdated: {
             /** @description Field name → new value for whatever this update touched, incl. runtime cf_* custom fields. */
             changed_fields: {
                 [key: string]: unknown;
             };
         };
         /** @description Payload for deal.restored. Never emitted today (no restore path exists for deal); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it. */
-        WebhookPayloadDealRestored: Record<string, never>;
+        PublicEventDealRestored: Record<string, never>;
         /** @description Payload for offer.created — a new Angebot revision was opened (either the first revision, via CreateOffer, or a fresh draft revision minted by RegenerateOffer). */
-        WebhookPayloadOfferCreated: {
+        PublicEventOfferCreated: {
             /**
              * Format: uuid
              * @description The created offer revision.
@@ -130,7 +130,7 @@ export interface components {
             captured_by: string;
         };
         /** @description Payload for offer.sent — a draft offer left the workspace. Carries the FX rate frozen at send time (RT-PR-C2) so consumers never need a read-back for the native-currency-to-base conversion. */
-        WebhookPayloadOfferSent: {
+        PublicEventOfferSent: {
             /**
              * Format: uuid
              * @description The sent offer.
@@ -157,7 +157,7 @@ export interface components {
             valid_until?: string;
         };
         /** @description Payload for offer.accepted — a sent offer was accepted. The deal's headline amount is synced from this offer's gross in the same transaction (see deal.updated on the paired deal entity). */
-        WebhookPayloadOfferAccepted: {
+        PublicEventOfferAccepted: {
             /**
              * Format: uuid
              * @description The accepted offer.
@@ -177,7 +177,7 @@ export interface components {
             gross_minor?: number;
         };
         /** @description Payload for offer.rejected — a sent offer was rejected. */
-        WebhookPayloadOfferRejected: {
+        PublicEventOfferRejected: {
             /**
              * Format: uuid
              * @description The rejected offer.
@@ -194,7 +194,7 @@ export interface components {
             reason?: string;
         };
         /** @description Payload for offer.superseded — a sent offer was regenerated into a fresh draft revision (B-E03.19) and marked superseded; the new revision arrives as its own offer.created event. */
-        WebhookPayloadOfferSuperseded: {
+        PublicEventOfferSuperseded: {
             /**
              * Format: uuid
              * @description The superseded (prior) offer revision.
@@ -211,7 +211,7 @@ export interface components {
             to_revision: number;
         };
         /** @description One initial stage as declared on a pipeline.created event — the stage's own stage.created is NOT separately emitted for these (events.md §5.3b: one pipeline.created carries the whole set). */
-        WebhookPipelineCreatedStage: {
+        PublicEventPipelineCreatedStage: {
             /** @description The stage's name. */
             name: string;
             /** @description The stage's position within the pipeline. */
@@ -220,25 +220,25 @@ export interface components {
             semantic: string;
         };
         /** @description Payload for pipeline.created — a pipeline was created with its initial stage set in the same transaction. */
-        WebhookPayloadPipelineCreated: {
+        PublicEventPipelineCreated: {
             /** @description The pipeline's name. */
             name: string;
             /** @description Whether this pipeline is the workspace default. */
             is_default: boolean;
             /** @description The pipeline's initial stages, in the order created. */
-            stages: components["schemas"]["WebhookPipelineCreatedStage"][];
+            stages: components["schemas"]["PublicEventPipelineCreatedStage"][];
         };
         /** @description Payload for pipeline.updated — an OPEN envelope: its emit sites carry divergent shapes (a flat name/is_default/position patch from UpdatePipeline, or a stage_positions reorder map from UpdateStage when a stage's position changes), so the honest shape is a change-set map rather than a fixed field list. */
-        WebhookPayloadPipelineUpdated: {
+        PublicEventPipelineUpdated: {
             /** @description Field name → new value for whatever this update touched (name, is_default, position, or stage_positions). */
             changed_fields: {
                 [key: string]: unknown;
             };
         };
         /** @description Payload for pipeline.archived. Never emitted today (no archive path exists for pipeline); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it. */
-        WebhookPayloadPipelineArchived: Record<string, never>;
+        PublicEventPipelineArchived: Record<string, never>;
         /** @description Payload for stage.created — a stage was added to a pipeline. */
-        WebhookPayloadStageCreated: {
+        PublicEventStageCreated: {
             /**
              * Format: uuid
              * @description The pipeline this stage belongs to.
@@ -254,7 +254,7 @@ export interface components {
             win_probability: number;
         };
         /** @description Payload for stage.updated — a BOUNDED delta: UpdateStage's known mutable fields (name, semantic, win_probability) each carried only when this update touched them. A position change is instead published as ONE pipeline.updated with a stage_positions delta (never an N-way stage.updated), so position never appears here. */
-        WebhookPayloadStageUpdated: {
+        PublicEventStageUpdated: {
             /**
              * Format: uuid
              * @description The pipeline this stage belongs to.
@@ -268,9 +268,9 @@ export interface components {
             win_probability?: number;
         };
         /** @description Payload for stage.archived. Never emitted today (no archive path exists for stage); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it. */
-        WebhookPayloadStageArchived: Record<string, never>;
+        PublicEventStageArchived: Record<string, never>;
         /** @description How many child rows on each side were repointed from the merged- away person onto the survivor (people/merge.go relinkCounts). */
-        WebhookPersonMergedRelinkCounts: {
+        PublicEventPersonMergedRelinkCounts: {
             /**
              * Format: int64
              * @description person_email rows relinked.
@@ -293,14 +293,14 @@ export interface components {
             activity_links: number;
         };
         /** @description Payload for person.created — a person was created. */
-        WebhookPayloadPersonCreated: {
+        PublicEventPersonCreated: {
             /** @description The person's name at creation. */
             full_name: string;
         };
         /** @description Payload for person.archived — a person was archived. Carries no data. */
-        WebhookPayloadPersonArchived: Record<string, never>;
+        PublicEventPersonArchived: Record<string, never>;
         /** @description Payload for person.merged — two person records collapsed into one (the §1.3 merge); neither person.updated nor person.archived can say this, so it is its own verb. */
-        WebhookPayloadPersonMerged: {
+        PublicEventPersonMerged: {
             /**
              * Format: uuid
              * @description The merged-away (source) person, retired but still fetchable by id.
@@ -311,19 +311,19 @@ export interface components {
              * @description The survivor (target) person.
              */
             merged_into_id: string;
-            relinked: components["schemas"]["WebhookPersonMergedRelinkCounts"];
+            relinked: components["schemas"]["PublicEventPersonMergedRelinkCounts"];
         };
         /** @description Payload for person.updated — an OPEN envelope: its emit sites carry divergent shapes (a flat column patch, a lead-promotion conversion note, a signature-enrichment fill, a relationship delta), so the honest shape is a change-set map rather than a fixed field list. */
-        WebhookPayloadPersonUpdated: {
+        PublicEventPersonUpdated: {
             /** @description Field name → new value for whatever this update touched, incl. runtime cf_* custom fields. */
             changed_fields: {
                 [key: string]: unknown;
             };
         };
         /** @description Payload for person.restored. Never emitted today (no restore path exists for person); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it. */
-        WebhookPayloadPersonRestored: Record<string, never>;
+        PublicEventPersonRestored: Record<string, never>;
         /** @description Payload for organization.created — a UNION across five emit sites (a direct create, the capture auto-create engine, the anchor company save, the site-read confirmation, and the cold-start profile apply), each of which sets only its own subset; every field is therefore optional. */
-        WebhookPayloadOrganizationCreated: {
+        PublicEventOrganizationCreated: {
             /** @description The organization's display name at creation (absent when the site never set one). */
             display_name?: string;
             /** @description The organization's primary domain (cold-start apply only). */
@@ -347,9 +347,9 @@ export interface components {
             captured_by?: string;
         };
         /** @description Payload for organization.archived — an organization was archived. Carries no data. */
-        WebhookPayloadOrganizationArchived: Record<string, never>;
+        PublicEventOrganizationArchived: Record<string, never>;
         /** @description Payload for organization.merged — two organization records collapsed into one (the §1.3 merge); neither organization.updated nor organization.archived can say this, so it is its own verb. */
-        WebhookPayloadOrganizationMerged: {
+        PublicEventOrganizationMerged: {
             /**
              * Format: uuid
              * @description The merged-away (source) organization, retired but still fetchable by id.
@@ -362,21 +362,21 @@ export interface components {
             merged_into_id: string;
         };
         /** @description Payload for organization.updated — an OPEN envelope: eight emit sites carry divergent shapes (a flat column patch, the anchor company save's field delta, the partner extension's nested delta, enrichment/deep-read applies, a relationship delta), so the honest shape is a change-set map rather than a fixed field list. */
-        WebhookPayloadOrganizationUpdated: {
+        PublicEventOrganizationUpdated: {
             /** @description Field name → new value for whatever this update touched, incl. runtime cf_* custom fields. */
             changed_fields: {
                 [key: string]: unknown;
             };
         };
         /** @description Payload for lead.created — a lead was created. Two emit sites: a direct create (people/lead.go) that sets no fields, and the capture auto-create engine (capture/sink.go) that names its originating source system; source_system is therefore optional. */
-        WebhookPayloadLeadCreated: {
+        PublicEventLeadCreated: {
             /** @description The originating source system (capture auto-create only; absent on a direct create). */
             source_system?: string;
         };
         /** @description Payload for lead.disqualified — a lead was disqualified. Carries no data. */
-        WebhookPayloadLeadDisqualified: Record<string, never>;
+        PublicEventLeadDisqualified: Record<string, never>;
         /** @description Payload for lead.promoted — the lead's genuine-engagement promotion into the context graph (events.md §5.5); its own verb, never a lead.updated, since neither person.created nor person.updated on its own says a lead crossed this line. */
-        WebhookPayloadLeadPromoted: {
+        PublicEventLeadPromoted: {
             /**
              * Format: uuid
              * @description The person this lead promoted into (fresh or an existing survivor).
@@ -393,23 +393,23 @@ export interface components {
             evidence_ref?: string;
         };
         /** @description Payload for lead.updated — an OPEN envelope: emit sites carry divergent shapes (a flat column patch that includes runtime cf_* custom-field columns, and behavioral-recompute/routing deltas), so the honest shape is a change-set map rather than a fixed field list. */
-        WebhookPayloadLeadUpdated: {
+        PublicEventLeadUpdated: {
             /** @description Field name → new value for whatever this update touched, incl. runtime cf_* custom fields. */
             changed_fields: {
                 [key: string]: unknown;
             };
         };
         /** @description Payload for activity.captured — the first-class capture verb, emitted instead of (never alongside) a generic activity.created (events.md §1). Two emit sites: the direct-log path (activities/activity.go) that sets kind only, and the capture ingestion path (capture/sink.go) that also names its originating source system. */
-        WebhookPayloadActivityCaptured: {
+        PublicEventActivityCaptured: {
             /** @description The activity kind (email | call | meeting | note | whatsapp | telegram). Decoded by automation/handlers_event.go's post_meeting_recap trigger — this field's JSON key is a binding contract, not just documentation. */
             kind: string;
             /** @description The originating source system (capture ingestion only; absent on a direct log). */
             source_system?: string;
         };
         /** @description Payload for activity.archived — an activity was archived. Carries no data. */
-        WebhookPayloadActivityArchived: Record<string, never>;
+        PublicEventActivityArchived: Record<string, never>;
         /** @description The entity an activity was relinked onto (activities/lifecycle.go's RelinkActivity) — an association change, not a re-capture, so it travels as one changed_fields key rather than its own event verb. */
-        WebhookActivityRelinkedRef: {
+        PublicEventActivityRelinkedRef: {
             /** @description The relink target's kind (person | organization | deal | lead). */
             entity_type: string;
             /**
@@ -419,7 +419,7 @@ export interface components {
             entity_id: string;
         };
         /** @description activity.updated's BOUNDED delta: UpdateActivity's known mutable fields (subject, body, occurred_at, due_at, remind_at, assignee_id, is_done) each carried only when this update touched them, plus RelinkActivity's relinked target — a fixed, KNOWN key set (unlike person/organization/deal/lead.updated's genuinely open patch), so it is typed rather than an open map. */
-        WebhookActivityChangedFields: {
+        PublicEventActivityChangedFields: {
             /** @description The activity's new subject (absent when this update did not touch it). */
             subject?: string;
             /** @description Whether the body was touched (a presence flag, not the content — bodies can be large and are never echoed onto the wire). */
@@ -446,14 +446,14 @@ export interface components {
             assignee_id?: string;
             /** @description The activity's new completion state (absent when this update did not touch it). */
             is_done?: boolean;
-            relinked?: components["schemas"]["WebhookActivityRelinkedRef"];
+            relinked?: components["schemas"]["PublicEventActivityRelinkedRef"];
         };
         /** @description Payload for activity.updated — a BOUNDED delta (unlike the person/organization/deal/lead family's genuinely open patch): UpdateActivity and RelinkActivity together cover a fixed, KNOWN set of inner keys, so changed_fields is a typed struct here, not an open map. */
-        WebhookPayloadActivityUpdated: {
-            changed_fields: components["schemas"]["WebhookActivityChangedFields"];
+        PublicEventActivityUpdated: {
+            changed_fields: components["schemas"]["PublicEventActivityChangedFields"];
         };
         /** @description Payload for engagement.reply — CAP-FORMULA-1: an inbound message in a thread we previously wrote outbound in is a reply, feeding the engagement signal scoring (capture/sink.go's emitReply). */
-        WebhookPayloadEngagementReply: {
+        PublicEventEngagementReply: {
             /**
              * Format: uuid
              * @description The prior outbound activity this inbound message replies to.
@@ -475,7 +475,7 @@ export interface components {
             contact_id?: string;
         };
         /** @description Payload for consent.changed — a subject's per-purpose consent state was recorded (consent/store.go's Record). The subject is a person XOR a lead (data-model §7, before promotion) — a RUNTIME choice Record resolves via consentSubject, not a fixed type this schema can name, so this is the first dynamic-entity event (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and the emit site supplies the real entity type through storekit.EmitEventForEntity. */
-        WebhookPayloadConsentChanged: {
+        PublicEventConsentChanged: {
             /**
              * Format: uuid
              * @description The consent purpose this state change applies to.
@@ -487,7 +487,7 @@ export interface components {
             new_state: string;
         };
         /** @description Payload for retention.applied — a retention/erasure action ran against one record. Three emit sites, three different runtime subjects: the embed-call sweep (ai_call), a workspace's configured retention policy's object type (activity | deal | lead | person | ai_call_payload), and Art. 17 erasure (person) — none fixed enough for this schema to name, so this is dynamic-entity (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and each emit site supplies its own runtime entity type through storekit.EmitEventForEntity. policy/reason are a union across the three sites — the embed-call sweep sets neither, the policy-driven sweep sets policy only, Art. 17 erasure sets reason only. */
-        WebhookPayloadRetentionApplied: {
+        PublicEventRetentionApplied: {
             /** @description The action that ran (archive | anonymize | erase). */
             action: string;
             /**
@@ -499,7 +499,7 @@ export interface components {
             reason?: string;
         };
         /** @description Payload for signal.detected — a signal was created (signals/signal.go's CreateSignal). entity_type/entity_id are DATA fields naming the signal's subject (deal | organization | person) when one is already known at creation time — not the envelope's own entity ref, which is the signal itself (this event's entity type is the static "signal"). Both are absent on a raw signal (only a raw_ref), which enters unresolved and waits for the resolver; resolution_confidence is set only when the signal was created already resolved. */
-        WebhookPayloadSignalDetected: {
+        PublicEventSignalDetected: {
             /**
              * Format: uuid
              * @description The signal that was detected.
@@ -524,7 +524,7 @@ export interface components {
             resolution_confidence?: number;
         };
         /** @description Payload for signal.resolved — the resolver ran over a signal (signals/resolver.go's Resolve). The verdict IS the candidate count (P12): zero candidates drops the signal (resolved_org_id, resolved_person_id, matched_on, match_confidence all absent); exactly one resolves it to that org (resolved_org_id set, resolved_person_id set only under a recorded consent grant); several flags it low_confidence for review (matched_on/ match_confidence describe the top candidate, resolved_org_id stays absent). */
-        WebhookPayloadSignalResolved: {
+        PublicEventSignalResolved: {
             /**
              * Format: uuid
              * @description The signal the resolver ran over.
@@ -548,7 +548,7 @@ export interface components {
             match_confidence?: number;
         };
         /** @description Payload for voice.profile_created — the admitted human opened their one personal Voice DNA profile (ai/voice.go's CreateProfile). Always starts collecting, at maturity zero, with automatic learning off. */
-        WebhookPayloadVoiceProfileCreated: {
+        PublicEventVoiceProfileCreated: {
             /**
              * Format: uuid
              * @description The created profile.
@@ -565,7 +565,7 @@ export interface components {
             auto_learning_enabled: boolean;
         };
         /** @description Payload for voice.profile_updated — the owner replaced their human-authored preferences and/or their automatic-learning opt-in (ai/voice.go's UpdateProfile). action names which of the two (or both) this update touched. */
-        WebhookPayloadVoiceProfileUpdated: {
+        PublicEventVoiceProfileUpdated: {
             /**
              * Format: uuid
              * @description The updated profile.
@@ -582,7 +582,7 @@ export interface components {
             maturity: string;
         };
         /** @description Payload for voice.profile_archived — the owner's profile was soft-deleted (ai/voice.go's ArchiveProfile). */
-        WebhookPayloadVoiceProfileArchived: {
+        PublicEventVoiceProfileArchived: {
             /**
              * Format: uuid
              * @description The archived profile.
@@ -597,7 +597,7 @@ export interface components {
             profile_version: number;
         };
         /** @description Payload for voice.corpus_changed — a UNION across four emit sites that all mutate the corpus feeding a profile's build: a source's inclusion/weight was updated (voice_source_mutations.go's recordSourceUpdate), a source was removed (RemoveSource), a source was ingested/re-ingested (voice_source_store.go's recordSourceIngest), or the whole corpus was cleared (voice_source_mutations.go's ClearCorpus). source_id/origin/register name the touched source and are therefore absent on the clear site, which acts on the corpus as a whole. */
-        WebhookPayloadVoiceCorpusChanged: {
+        PublicEventVoiceCorpusChanged: {
             /**
              * Format: uuid
              * @description The profile whose corpus changed.
@@ -622,7 +622,7 @@ export interface components {
             source_hash: string;
         };
         /** @description Payload for voice.build_changed — a Voice DNA build was queued or an already-pending one was returned in place of a duplicate request (ai/voice_lifecycle.go's RequestBuild). stage/result_version/ status_code/next_attempt_at describe an in-flight or deferred build and are therefore absent on a freshly-queued one. */
-        WebhookPayloadVoiceBuildChanged: {
+        PublicEventVoiceBuildChanged: {
             /**
              * Format: uuid
              * @description The profile this build belongs to.
@@ -656,7 +656,7 @@ export interface components {
             next_attempt_at?: string;
         };
         /** @description Payload for voice.version_changed — a derived Voice DNA version's status changed: minted as a candidate, manually activated, rejected, or restored by rollback (ai/voice_versions.go). predecessor_version is absent for a profile's first version, which has none. */
-        WebhookPayloadVoiceVersionChanged: {
+        PublicEventVoiceVersionChanged: {
             /**
              * Format: uuid
              * @description The profile this version belongs to.
@@ -676,7 +676,7 @@ export interface components {
             activation_outcome: string;
         };
         /** @description Payload for voice.draft_outcome_recorded — a drafted-with-voice signal's outcome was recorded (ai/voice_history.go's RecordDraftOutcome), feeding the automatic-learning corpus. */
-        WebhookPayloadVoiceDraftOutcomeRecorded: {
+        PublicEventVoiceDraftOutcomeRecorded: {
             /**
              * Format: uuid
              * @description The profile this learning signal belongs to.
@@ -690,7 +690,7 @@ export interface components {
             transformation_count: number;
         };
         /** @description Payload for user.invited — an admin provisioned a new active member with a single-use set-password token (identity/users.go's InviteUser). */
-        WebhookPayloadUserInvited: {
+        PublicEventUserInvited: {
             /**
              * Format: uuid
              * @description The invited member.
@@ -705,7 +705,7 @@ export interface components {
             by: string;
         };
         /** @description Payload for user.deactivated — a member's sessions and passports were hard-revoked (identity/users.go's DeactivateUser). reason is the operator-supplied free text, absent when none was given. */
-        WebhookPayloadUserDeactivated: {
+        PublicEventUserDeactivated: {
             /**
              * Format: uuid
              * @description The deactivated member.
@@ -720,7 +720,7 @@ export interface components {
             reason?: string;
         };
         /** @description Payload for user.reactivated — a deactivated member was returned to active (identity/users.go's ReactivateUser). */
-        WebhookPayloadUserReactivated: {
+        PublicEventUserReactivated: {
             /**
              * Format: uuid
              * @description The reactivated member.
@@ -733,7 +733,7 @@ export interface components {
             by: string;
         };
         /** @description Payload for role.changed — a member's role assignments were replaced with the single target system role (identity/users.go's ChangeUserRole). from_role rides the payload only when the previous state was a single role — a multi-role history has no one "from". */
-        WebhookPayloadRoleChanged: {
+        PublicEventRoleChanged: {
             /**
              * Format: uuid
              * @description The member whose role changed.
@@ -750,7 +750,7 @@ export interface components {
             from_role?: string;
         };
         /** @description Payload for passport.revoked — an agent passport was hard-revoked (identity/passport.go's RevokePassport), so long-lived consumers drop it within one bus cycle. */
-        WebhookPayloadPassportRevoked: {
+        PublicEventPassportRevoked: {
             /**
              * Format: uuid
              * @description The revoked passport.
@@ -763,7 +763,7 @@ export interface components {
             by: string;
         };
         /** @description Payload for onboarding.state_changed — the admitted human's wizard checkpoint was created or advanced (identity/onboarding.go's auditOnboardingState). */
-        WebhookPayloadOnboardingStateChanged: {
+        PublicEventOnboardingStateChanged: {
             /**
              * Format: uuid
              * @description The human whose wizard state this is.
@@ -786,7 +786,7 @@ export interface components {
             completed: boolean;
         };
         /** @description Payload for mirror.conflict — the reconcile poller (overlay/ reconcile.go's emitMirrorConflict) observed the incumbent CRM had moved a record the mirror's own baseline still called current, an overwrite-worthy divergence (OVA-EVT-1). object_class is the RUNTIME canonical class of the record involved (e.g. "person", "deal") — not a fixed type this schema can name — so this is a dynamic-entity event (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and the emit site supplies the real entity type through storekit.EmitEventForEntity. */
-        WebhookPayloadMirrorConflict: {
+        PublicEventMirrorConflict: {
             /** @description The canonical Margince class of the diverged record. */
             object_class: string;
             /** @description The record's incumbent-side natural key. */
@@ -803,12 +803,12 @@ export interface components {
             incumbent_updated_at: string;
         };
         /** @description Payload for mirror.budget_degraded — a force-fresh read fell back to the mirror because the workspace's shared OVB budget had shed to the "shed" band (overlay/freshness.go's emitBudgetDegraded, OVA-EVT-3). The event names the record the degraded read was about; that record's class is a RUNTIME value (the read's own entity ref), so this is a dynamic-entity event (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and the emit site supplies the real entity type through storekit.EmitEventForEntity. */
-        WebhookPayloadMirrorBudgetDegraded: {
+        PublicEventMirrorBudgetDegraded: {
             /** @description The budget band that forced the degrade (currently always "shed"). */
             band: string;
         };
         /** @description Payload for mirror.deleted — continuous sync observed the incumbent report a record deleted, and the mirror purged its cached row, association edges, and visibility projection (overlay/mirrordeletion.go). object_class is the RUNTIME canonical class of the purged record, not a fixed type this schema can name, so this is a dynamic-entity event (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and the emit site supplies the real entity type through storekit.EmitEventForEntity. */
-        WebhookPayloadMirrorDeleted: {
+        PublicEventMirrorDeleted: {
             /** @description The canonical Margince class of the purged record. */
             object_class: string;
             /** @description The record's incumbent-side natural key. */
@@ -820,9 +820,9 @@ export interface components {
             deleted_at: string;
         };
         /** @description Payload for mirror.write_rejected. Never emitted today — reserved for branch 2 (writes to an overlay-mode workspace's incumbent CRM, currently declared unsupported_by_sor); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it. */
-        WebhookPayloadMirrorWriteRejected: Record<string, never>;
+        PublicEventMirrorWriteRejected: Record<string, never>;
         /** @description Payload for incumbent.connected — a workspace completed the overlay-mode incumbent-CRM connect flow (overlay/connection.go's insertConnection); the workspace flipped to x_sor_mode=overlay in the same transaction. Unlike the mirror.* events above, this event's subject is always the incumbent_connection row itself — a fixed type — so it is emitted via the plain storekit.EmitEvent. */
-        WebhookPayloadIncumbentConnected: {
+        PublicEventIncumbentConnected: {
             /** @description The incumbent CRM system connected (e.g. "hubspot"). */
             incumbent: string;
             /** @description The incumbent account's data-residency region. */
@@ -833,7 +833,7 @@ export interface components {
             status: string;
         };
         /** @description Payload for incumbent.disconnected — a workspace's active incumbent-CRM connection was revoked (overlay/teardown.go's Disconnect); mirror teardown and credential cleanup follow. This event's subject is always the incumbent_connection row itself — a fixed type — so it is emitted via the plain storekit.EmitEvent. */
-        WebhookPayloadIncumbentDisconnected: {
+        PublicEventIncumbentDisconnected: {
             /** @description The incumbent CRM system disconnected. */
             incumbent: string;
             /** @description The incumbent account's data-residency region. */
@@ -842,7 +842,7 @@ export interface components {
             status: string;
         };
         /** @description Payload for approval.requested — an agent's 🟡 call was staged pending a human decision (ADR-0036, approvals/staging.go's StageInTx). The staged approval row's own id is the event's entity ref; this payload names what was staged, its polymorphic target, and when the staging lapses into expired if undecided. */
-        WebhookPayloadApprovalRequested: {
+        PublicEventApprovalRequested: {
             /** @description The staged tool/kind name (e.g. advance_deal). */
             kind: string;
             /** @description The human-readable summary the inbox shows. */
@@ -861,7 +861,7 @@ export interface components {
             expires_at: string;
         };
         /** @description Payload for approval.decided — a human approved or rejected a staged approval (approvals/decide.go). verdict and edited_change are decoded BY NAME outside this module — automation's blocked-run consumer matches verdict (automation/engine_blocked.go), the Surface-B runner's resume consumer reads edited_change (compose/runnerservice.go) — see the JSON-tag regression tests in internal/modules/webhooks. edited/diff_hash/edited_change are present only on the ADR-0036 §4 modify-then-approve arm, where the human's edited payload replaced the staged change under a freshly computed diff_hash. */
-        WebhookPayloadApprovalDecided: {
+        PublicEventApprovalDecided: {
             /** @description The decided staging's kind. */
             kind: string;
             /** @description The decision outcome (approved | rejected). */
@@ -881,7 +881,7 @@ export interface components {
             };
         };
         /** @description Payload for coldstart.read_back_proposed — a cold-start read-back was staged as a "coldstart" approval (compose/coldstart.go's stage, carried through approvals/staging.go's Announce alongside approval.requested on the same audit row). Carries only the read-back's shape, never the extracted field values or the pasted source text/statement — tenant data never rides an announced event. */
-        WebhookPayloadColdstartReadBackProposed: {
+        PublicEventColdstartReadBackProposed: {
             /** @description How many fields the read-back grounded. */
             field_count: number;
             /** @description The read-back's source URL (url-kind read-backs only). */
@@ -890,7 +890,7 @@ export interface components {
             source_kind?: string;
         };
         /** @description Payload for coldstart.accepted — a human accepted a staged cold-start read-back (approvals/decide.go's kind-decided echo, emitted on the same audit row as approval.decided). */
-        WebhookPayloadColdstartAccepted: {
+        PublicEventColdstartAccepted: {
             /**
              * Format: uuid
              * @description The decided approval's id (same as the envelope's entity ref).
@@ -903,7 +903,7 @@ export interface components {
             decided_by: string;
         };
         /** @description Payload for coldstart.rejected — a human rejected a staged cold-start read-back (approvals/decide.go's kind-decided echo, emitted on the same audit row as approval.decided). */
-        WebhookPayloadColdstartRejected: {
+        PublicEventColdstartRejected: {
             /**
              * Format: uuid
              * @description The decided approval's id (same as the envelope's entity ref).
@@ -916,7 +916,7 @@ export interface components {
             decided_by: string;
         };
         /** @description Payload for audit.appended — not currently delivered: there is no emit site for this type, and none is planned for V1. It exists so the §5 catalog (events.Types()) is completely covered by a payload schema (the whole-catalog coverage gate), never carrying a subscribable type with no contract. An empty payload by design — the audit ledger row it would announce is workspace-level (its subject is resolved back under the receiver's own scope), so no record detail rides the event. */
-        WebhookPayloadAuditAppended: Record<string, never>;
+        PublicEventAuditAppended: Record<string, never>;
     };
     responses: never;
     parameters: never;

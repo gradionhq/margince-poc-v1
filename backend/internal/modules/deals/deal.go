@@ -135,7 +135,7 @@ func createDealTx(ctx context.Context, tx pgx.Tx, in CreateDealInput, by string,
 	if err != nil {
 		return crmcontracts.Deal{}, fmt.Errorf("audit deal create: %w", err)
 	}
-	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.WebhookPayloadDealCreated{Name: in.Name}); err != nil {
+	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventDealCreated{Name: in.Name}); err != nil {
 		return crmcontracts.Deal{}, fmt.Errorf("emit deal.created: %w", err)
 	}
 	out, err := readDeal(ctx, tx, id, storekit.LiveOnly, active)
@@ -180,7 +180,7 @@ func recordDealUpdate(ctx context.Context, tx pgx.Tx, id ids.DealID, current crm
 	after := p.After()
 	ownerChanged := in.OwnerID != nil && (current.OwnerId == nil || ids.UUID(*current.OwnerId) != in.OwnerID.UUID)
 	if ownerChanged {
-		payload := crmcontracts.WebhookPayloadDealOwnerChanged{ToOwnerId: openapi_types.UUID(in.OwnerID.UUID)}
+		payload := crmcontracts.PublicEventDealOwnerChanged{ToOwnerId: openapi_types.UUID(in.OwnerID.UUID)}
 		if current.OwnerId != nil {
 			payload.FromOwnerId = current.OwnerId
 		}
@@ -196,7 +196,7 @@ func recordDealUpdate(ctx context.Context, tx pgx.Tx, id ids.DealID, current crm
 		rest[field] = v
 	}
 	if len(rest) > 0 {
-		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.WebhookPayloadDealUpdated{ChangedFields: rest}); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventDealUpdated{ChangedFields: rest}); err != nil {
 			return fmt.Errorf("emit deal.updated: %w", err)
 		}
 	}
@@ -395,7 +395,7 @@ func (s *Store) ArchiveDeal(ctx context.Context, id ids.DealID) (crmcontracts.De
 		if err != nil {
 			return fmt.Errorf("audit deal archive: %w", err)
 		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.WebhookPayloadDealArchived{}); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventDealArchived{}); err != nil {
 			return fmt.Errorf("emit deal.archived: %w", err)
 		}
 		if out, err = readDeal(ctx, tx, id, storekit.IncludeArchived, active); err != nil {

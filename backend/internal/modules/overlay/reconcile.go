@@ -32,8 +32,8 @@ import (
 // subject travels separately (rec.ObjectClass/id, passed to
 // storekit.EmitEventForEntity), since this event's entity is dynamic (the
 // runtime object class the reconcile sweep observed).
-func mirrorConflictPayload(objectClass, externalID string, priorUpdatedAt, incumbentUpdatedAt time.Time) crmcontracts.WebhookPayloadMirrorConflict {
-	return crmcontracts.WebhookPayloadMirrorConflict{
+func mirrorConflictPayload(objectClass, externalID string, priorUpdatedAt, incumbentUpdatedAt time.Time) crmcontracts.PublicEventMirrorConflict {
+	return crmcontracts.PublicEventMirrorConflict{
 		ObjectClass:        objectClass,
 		ExternalId:         externalID,
 		PriorUpdatedAt:     priorUpdatedAt,

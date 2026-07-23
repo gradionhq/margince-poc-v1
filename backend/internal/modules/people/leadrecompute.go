@@ -85,7 +85,7 @@ func recomputeLeadScoreTx(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, now
 		if err != nil {
 			return err
 		}
-		return storekit.EmitEvent(ctx, tx, auditID, leadID.UUID, crmcontracts.WebhookPayloadLeadUpdated{
+		return storekit.EmitEvent(ctx, tx, auditID, leadID.UUID, crmcontracts.PublicEventLeadUpdated{
 			ChangedFields: map[string]any{eventKeyDelta: map[string]any{"score_computed": machine}},
 		})
 	}
@@ -101,7 +101,7 @@ func recomputeLeadScoreTx(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, now
 	if err != nil {
 		return err
 	}
-	return storekit.EmitEvent(ctx, tx, auditID, leadID.UUID, crmcontracts.WebhookPayloadLeadUpdated{
+	return storekit.EmitEvent(ctx, tx, auditID, leadID.UUID, crmcontracts.PublicEventLeadUpdated{
 		ChangedFields: map[string]any{"delta": map[string]any{"score": machine}},
 	})
 }

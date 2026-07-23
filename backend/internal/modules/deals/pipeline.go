@@ -95,12 +95,12 @@ func createPipelineTx(ctx context.Context, tx pgx.Tx, in CreatePipelineInput) (c
 // createPipelineTx's inputs — the ONE place that maps CreatePipeline's
 // local values onto the published schema, so a future field rename shows
 // up here rather than at an independently-drifting map literal.
-func pipelineCreatedPayload(name string, isDefault bool, stages []StageInput) crmcontracts.WebhookPayloadPipelineCreated {
-	out := make([]crmcontracts.WebhookPipelineCreatedStage, 0, len(stages))
+func pipelineCreatedPayload(name string, isDefault bool, stages []StageInput) crmcontracts.PublicEventPipelineCreated {
+	out := make([]crmcontracts.PublicEventPipelineCreatedStage, 0, len(stages))
 	for _, st := range stages {
-		out = append(out, crmcontracts.WebhookPipelineCreatedStage{Name: st.Name, Position: st.Position, Semantic: st.Semantic})
+		out = append(out, crmcontracts.PublicEventPipelineCreatedStage{Name: st.Name, Position: st.Position, Semantic: st.Semantic})
 	}
-	return crmcontracts.WebhookPayloadPipelineCreated{Name: name, IsDefault: isDefault, Stages: out}
+	return crmcontracts.PublicEventPipelineCreated{Name: name, IsDefault: isDefault, Stages: out}
 }
 
 func (s *Store) GetPipeline(ctx context.Context, id ids.PipelineID) (crmcontracts.Pipeline, error) {
@@ -272,7 +272,8 @@ func (s *Store) SeedPipelineTx(ctx context.Context, tx pgx.Tx, name string, open
 			Name: st.Name, Position: i + 1, Semantic: "open", WinProbability: st.WinProbability,
 		})
 	}
-	stages = append(stages,
+	stages = append(
+		stages,
 		StageInput{Name: "Won", Position: len(open) + 1, Semantic: "won", WinProbability: 100},
 		StageInput{Name: "Lost", Position: len(open) + 2, Semantic: "lost", WinProbability: 0},
 	)

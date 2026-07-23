@@ -17,7 +17,7 @@ package ai
 // marshals it into the outbox envelope's payload column, mirroring the
 // signals family's TestDetectedPayload_* (webhooks Task 5e).
 //
-// Before this migration none of crmcontracts.WebhookPayloadVoice* existed,
+// Before this migration none of crmcontracts.PublicEventVoice* existed,
 // and none of the builder functions existed (every site inlined a
 // map[string]any), so this test failed to compile (RED) until
 // public-events.yaml gained the schemas, `make gen` regenerated the
@@ -56,7 +56,7 @@ func TestVoiceProfileCreatedPayload(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadVoiceProfileCreated
+	var decoded crmcontracts.PublicEventVoiceProfileCreated
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -73,7 +73,7 @@ func TestVoiceProfileUpdatedPayload(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadVoiceProfileUpdated
+	var decoded crmcontracts.PublicEventVoiceProfileUpdated
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -89,7 +89,7 @@ func TestVoiceProfileArchivedPayload(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadVoiceProfileArchived
+	var decoded crmcontracts.PublicEventVoiceProfileArchived
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -117,7 +117,7 @@ func TestVoiceCorpusChangedPayload_WithSource(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadVoiceCorpusChanged
+	var decoded crmcontracts.PublicEventVoiceCorpusChanged
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -139,7 +139,7 @@ func TestVoiceCorpusChangedPayload_Clear(t *testing.T) {
 		"the clear site has no single touched source — source_id must be omitted, not null")
 	require.NotContains(t, string(raw), "origin")
 	require.NotContains(t, string(raw), "register")
-	var decoded crmcontracts.WebhookPayloadVoiceCorpusChanged
+	var decoded crmcontracts.PublicEventVoiceCorpusChanged
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -173,7 +173,7 @@ func TestVoiceBuildChangedPayload_Queued(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(raw), "stage",
 		"a freshly-queued build has no stage yet — it must be omitted, not null")
-	var decoded crmcontracts.WebhookPayloadVoiceBuildChanged
+	var decoded crmcontracts.PublicEventVoiceBuildChanged
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -204,7 +204,7 @@ func TestVoiceBuildChangedPayload_Deferred(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadVoiceBuildChanged
+	var decoded crmcontracts.PublicEventVoiceBuildChanged
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -229,7 +229,7 @@ func TestVoiceVersionChangedPayload_FirstVersion(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(raw), "predecessor_version",
 		"a profile's first version has no predecessor — it must be omitted, not null")
-	var decoded crmcontracts.WebhookPayloadVoiceVersionChanged
+	var decoded crmcontracts.PublicEventVoiceVersionChanged
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -249,7 +249,7 @@ func TestVoiceVersionChangedPayload_Rollback(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadVoiceVersionChanged
+	var decoded crmcontracts.PublicEventVoiceVersionChanged
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -266,7 +266,7 @@ func TestVoiceDraftOutcomeRecordedPayload(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadVoiceDraftOutcomeRecorded
+	var decoded crmcontracts.PublicEventVoiceDraftOutcomeRecorded
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }

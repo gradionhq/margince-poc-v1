@@ -80,7 +80,7 @@ func (s *Store) ApplySignatureFields(ctx context.Context, personID ids.PersonID,
 		if err != nil {
 			return err
 		}
-		return storekit.EmitEvent(ctx, tx, auditID, personID.UUID, crmcontracts.WebhookPayloadPersonUpdated{
+		return storekit.EmitEvent(ctx, tx, auditID, personID.UUID, crmcontracts.PublicEventPersonUpdated{
 			ChangedFields: map[string]any{auditKeyFields: appliedFields, auditKeySource: enrichSource},
 		})
 	})

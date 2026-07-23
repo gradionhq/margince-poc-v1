@@ -108,8 +108,8 @@ func (s *Service) InviteUser(ctx context.Context, actor Identity, in InviteUserI
 }
 
 // userInvitedPayload builds user.invited's typed payload.
-func userInvitedPayload(userID ids.UserID, role string, by ids.UserID) crmcontracts.WebhookPayloadUserInvited {
-	return crmcontracts.WebhookPayloadUserInvited{
+func userInvitedPayload(userID ids.UserID, role string, by ids.UserID) crmcontracts.PublicEventUserInvited {
+	return crmcontracts.PublicEventUserInvited{
 		UserId: openapi_types.UUID(userID.UUID),
 		Role:   role,
 		By:     openapi_types.UUID(by.UUID),
@@ -159,8 +159,8 @@ func (s *Service) ReactivateUser(ctx context.Context, actor Identity, userID ids
 }
 
 // userReactivatedPayload builds user.reactivated's typed payload.
-func userReactivatedPayload(userID ids.UserID, by ids.UserID) crmcontracts.WebhookPayloadUserReactivated {
-	return crmcontracts.WebhookPayloadUserReactivated{
+func userReactivatedPayload(userID ids.UserID, by ids.UserID) crmcontracts.PublicEventUserReactivated {
+	return crmcontracts.PublicEventUserReactivated{
 		UserId: openapi_types.UUID(userID.UUID),
 		By:     openapi_types.UUID(by.UUID),
 	}
@@ -296,8 +296,8 @@ func (s *Service) DeactivateUser(ctx context.Context, actor Identity, in Deactiv
 
 // userDeactivatedPayload builds user.deactivated's typed payload. reason
 // rides the payload only when the operator supplied one.
-func userDeactivatedPayload(userID ids.UserID, by ids.UserID, reason *string) crmcontracts.WebhookPayloadUserDeactivated {
-	return crmcontracts.WebhookPayloadUserDeactivated{
+func userDeactivatedPayload(userID ids.UserID, by ids.UserID, reason *string) crmcontracts.PublicEventUserDeactivated {
+	return crmcontracts.PublicEventUserDeactivated{
 		UserId: openapi_types.UUID(userID.UUID),
 		By:     openapi_types.UUID(by.UUID),
 		Reason: reason,
@@ -384,8 +384,8 @@ func (s *Service) ChangeUserRole(ctx context.Context, actor Identity, userID ids
 // roleChangedPayload builds role.changed's typed payload. fromRole rides
 // the payload only when the previous state was a single role — a
 // multi-role history has no one "from".
-func roleChangedPayload(userID ids.UserID, toRole string, by ids.UserID, fromRole *string) crmcontracts.WebhookPayloadRoleChanged {
-	return crmcontracts.WebhookPayloadRoleChanged{
+func roleChangedPayload(userID ids.UserID, toRole string, by ids.UserID, fromRole *string) crmcontracts.PublicEventRoleChanged {
+	return crmcontracts.PublicEventRoleChanged{
 		UserId:   openapi_types.UUID(userID.UUID),
 		ToRole:   toRole,
 		By:       openapi_types.UUID(by.UUID),

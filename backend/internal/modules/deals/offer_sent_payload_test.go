@@ -16,7 +16,7 @@ package deals
 // mirroring the deal family's TestDealStageChangedEmitsTypedPayload
 // (webhooks Task 5a-i).
 //
-// Before the offer family migration crmcontracts.WebhookPayloadOfferSent
+// Before the offer family migration crmcontracts.PublicEventOfferSent
 // did not exist and offerSentPayload did not exist, so this test failed to
 // compile (RED) until public-events.yaml gained the schema, `make gen`
 // regenerated the struct, and offer_lifecycle.go grew the builder.
@@ -63,7 +63,7 @@ func TestOfferSentEmitsTypedPayload(t *testing.T) {
 	// snapshot gate checks.
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadOfferSent
+	var decoded crmcontracts.PublicEventOfferSent
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }

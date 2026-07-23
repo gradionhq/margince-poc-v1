@@ -296,8 +296,8 @@ func (in ConnectInput) validate() error {
 // Unlike the mirror.* events, this event's subject is always the
 // incumbent_connection row itself — a fixed type — so it is emitted via
 // the plain storekit.EmitEvent.
-func incumbentConnectedPayload(incumbent, region string, scopes []string, status string) crmcontracts.WebhookPayloadIncumbentConnected {
-	return crmcontracts.WebhookPayloadIncumbentConnected{
+func incumbentConnectedPayload(incumbent, region string, scopes []string, status string) crmcontracts.PublicEventIncumbentConnected {
+	return crmcontracts.PublicEventIncumbentConnected{
 		Incumbent: incumbent,
 		Region:    region,
 		Scopes:    scopes,

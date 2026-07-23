@@ -32,7 +32,7 @@ import (
 // package the arch DAG lets import both (.go-arch-lint.yml: platform
 // mayDependOn contracts).
 func TestPilotPayloadSatisfiesPayloadInterface(t *testing.T) {
-	var p events.Payload = crmcontracts.WebhookPayloadDealStageChanged{}
+	var p events.Payload = crmcontracts.PublicEventDealStageChanged{}
 	if got := p.EventType(); got != "deal.stage_changed" {
 		t.Fatalf("EventType() = %q, want %q", got, "deal.stage_changed")
 	}
@@ -63,9 +63,11 @@ func (f *fakeTx) Exec(_ context.Context, sql string, arguments ...any) (pgconn.C
 func (f *fakeTx) Begin(context.Context) (pgx.Tx, error) { panic("fakeTx: Begin not implemented") }
 func (f *fakeTx) Commit(context.Context) error          { panic("fakeTx: Commit not implemented") }
 func (f *fakeTx) Rollback(context.Context) error        { panic("fakeTx: Rollback not implemented") }
+
 func (f *fakeTx) CopyFrom(context.Context, pgx.Identifier, []string, pgx.CopyFromSource) (int64, error) {
 	panic("fakeTx: CopyFrom not implemented")
 }
+
 func (f *fakeTx) SendBatch(context.Context, *pgx.Batch) pgx.BatchResults {
 	panic("fakeTx: SendBatch not implemented")
 }
@@ -73,9 +75,11 @@ func (f *fakeTx) LargeObjects() pgx.LargeObjects { panic("fakeTx: LargeObjects n
 func (f *fakeTx) Prepare(context.Context, string, string) (*pgconn.StatementDescription, error) {
 	panic("fakeTx: Prepare not implemented")
 }
+
 func (f *fakeTx) Query(context.Context, string, ...any) (pgx.Rows, error) {
 	panic("fakeTx: Query not implemented")
 }
+
 func (f *fakeTx) QueryRow(context.Context, string, ...any) pgx.Row {
 	panic("fakeTx: QueryRow not implemented")
 }
@@ -126,7 +130,7 @@ func TestEmitEvent_derivesTypeAndEntityFromPayload(t *testing.T) {
 	tx := &fakeTx{}
 	auditID := ids.NewV7()
 	dealID := ids.NewV7()
-	payload := crmcontracts.WebhookPayloadDealStageChanged{}
+	payload := crmcontracts.PublicEventDealStageChanged{}
 
 	if err := EmitEvent(ctx, tx, auditID, dealID, payload); err != nil {
 		t.Fatalf("EmitEvent: %v", err)
@@ -149,7 +153,7 @@ func TestEmitEvent_derivesTypeAndEntityFromPayload(t *testing.T) {
 		t.Fatalf("envelope.Trace.AuditLogID = %v, want %v", env.Trace.AuditLogID, auditID)
 	}
 
-	var decodedPayload crmcontracts.WebhookPayloadDealStageChanged
+	var decodedPayload crmcontracts.PublicEventDealStageChanged
 	if err := json.Unmarshal(env.Payload, &decodedPayload); err != nil {
 		t.Fatalf("unmarshaling the staged payload: %v", err)
 	}
@@ -164,7 +168,7 @@ func TestEmitEventForEntity_overridesEntityType(t *testing.T) {
 	tx := &fakeTx{}
 	auditID := ids.NewV7()
 	runtimeEntityID := ids.NewV7()
-	payload := crmcontracts.WebhookPayloadDealStageChanged{}
+	payload := crmcontracts.PublicEventDealStageChanged{}
 
 	if err := EmitEventForEntity(ctx, tx, auditID, "consent_purpose", runtimeEntityID, payload); err != nil {
 		t.Fatalf("EmitEventForEntity: %v", err)

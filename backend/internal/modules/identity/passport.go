@@ -214,8 +214,8 @@ func (s *Service) RevokePassport(ctx context.Context, id Identity, passportID id
 }
 
 // passportRevokedPayload builds passport.revoked's typed payload.
-func passportRevokedPayload(passportID ids.PassportID, by ids.UserID) crmcontracts.WebhookPayloadPassportRevoked {
-	return crmcontracts.WebhookPayloadPassportRevoked{
+func passportRevokedPayload(passportID ids.PassportID, by ids.UserID) crmcontracts.PublicEventPassportRevoked {
+	return crmcontracts.PublicEventPassportRevoked{
 		PassportId: openapi_types.UUID(passportID.UUID),
 		By:         openapi_types.UUID(by.UUID),
 	}

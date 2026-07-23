@@ -23,7 +23,7 @@ components:
       properties:
         name:
           type: string
-    WebhookPayloadX:
+    PublicEventX:
       type: object
       x-event-type: x.happened
       x-entity-type: widget
@@ -31,7 +31,7 @@ components:
       properties:
         id:
           type: string
-    WebhookPayloadY:
+    PublicEventY:
       type: object
       x-event-type: y.happened
       x-entity-type: widget2
@@ -51,7 +51,7 @@ info:
   version: "1"
 components:
   schemas:
-    WebhookPayloadNil:
+    PublicEventNil:
       type: object
       x-event-type: nil.happened
       x-entity-type: widget3
@@ -67,9 +67,9 @@ func TestGenerateSourceEmitsTypesAndEventMethods(t *testing.T) {
 	want := []string{
 		"package testpkg",
 		"type PlainThing struct",
-		"type WebhookPayloadX struct",
-		`func (WebhookPayloadX) EventType() string { return "x.happened" }`,
-		`func (WebhookPayloadX) EntityType() string { return "widget" }`,
+		"type PublicEventX struct",
+		`func (PublicEventX) EventType() string { return "x.happened" }`,
+		`func (PublicEventX) EntityType() string { return "widget" }`,
 	}
 	for _, w := range want {
 		if !strings.Contains(src, w) {
@@ -90,18 +90,18 @@ func TestGenerateSourceOmitsMethodsForPlainSchema(t *testing.T) {
 	}
 }
 
-// TestGenerateSourceEmitsWebhookPayloadVersions proves the generated
-// WebhookPayloadVersions map carries one entry per event-tagged schema: the
-// explicit x-version for WebhookPayloadX, and the default-to-1 for
-// WebhookPayloadY (which declares no x-version at all) — the single
+// TestGenerateSourceEmitsPublicEventVersions proves the generated
+// PublicEventVersions map carries one entry per event-tagged schema: the
+// explicit x-version for PublicEventX, and the default-to-1 for
+// PublicEventY (which declares no x-version at all) — the single
 // generated source of truth the coverage and version gates read.
-func TestGenerateSourceEmitsWebhookPayloadVersions(t *testing.T) {
+func TestGenerateSourceEmitsPublicEventVersions(t *testing.T) {
 	src, err := generateSource([]byte(fixtureSpec), "testpkg")
 	if err != nil {
 		t.Fatalf("generateSource: %v", err)
 	}
 	want := []string{
-		"var WebhookPayloadVersions = map[string]int{",
+		"var PublicEventVersions = map[string]int{",
 		`"x.happened": 2,`,
 		`"y.happened": 1,`,
 	}
@@ -111,7 +111,7 @@ func TestGenerateSourceEmitsWebhookPayloadVersions(t *testing.T) {
 		}
 	}
 	if strings.Contains(src, `"PlainThing"`) {
-		t.Errorf("WebhookPayloadVersions must not carry a plain (non-event) schema\n---\n%s", src)
+		t.Errorf("PublicEventVersions must not carry a plain (non-event) schema\n---\n%s", src)
 	}
 }
 
@@ -126,15 +126,15 @@ func TestGenerateSourceStructifiesEmptyEventPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generateSource: %v", err)
 	}
-	if !strings.Contains(src, "type WebhookPayloadNil struct{}") {
+	if !strings.Contains(src, "type PublicEventNil struct{}") {
 		t.Errorf("generated source missing the structified empty type\n---\n%s", src)
 	}
-	if strings.Contains(src, "WebhookPayloadNil = map[string]interface{}") {
+	if strings.Contains(src, "PublicEventNil = map[string]interface{}") {
 		t.Errorf("generated source still aliases the nil-payload event to a map\n---\n%s", src)
 	}
 	for _, w := range []string{
-		`func (WebhookPayloadNil) EventType() string { return "nil.happened" }`,
-		`func (WebhookPayloadNil) EntityType() string { return "widget3" }`,
+		`func (PublicEventNil) EventType() string { return "nil.happened" }`,
+		`func (PublicEventNil) EntityType() string { return "widget3" }`,
 	} {
 		if !strings.Contains(src, w) {
 			t.Errorf("generated source missing %q\n---\n%s", w, src)

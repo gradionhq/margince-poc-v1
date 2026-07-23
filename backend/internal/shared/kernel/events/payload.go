@@ -5,7 +5,7 @@ package events
 
 // Payload is the seam that binds a generated webhook payload struct to its
 // event type at compile time (gen-payloads, Task 1): EventType/EntityType
-// are generated methods on each `crmcontracts.WebhookPayload*` struct, so a
+// are generated methods on each `crmcontracts.PublicEvent*` struct, so a
 // caller that hands storekit.EmitEvent the wrong payload for an event is
 // impossible to express — the compiler enforces the pairing instead of a
 // reviewer catching a mismatched literal string at the call site.

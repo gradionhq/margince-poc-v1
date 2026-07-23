@@ -305,8 +305,10 @@ func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
 			consentChangedPayload(in.PurposeID, purposeKey, in.NewState)); err != nil {
 			return err
 		}
-		out = State{PurposeID: in.PurposeID, PurposeKey: purposeKey, State: in.NewState,
-			LawfulBasis: in.LawfulBasis, DoubleOptInConfirmedAt: doiConfirmedAt, UpdatedAt: &capturedAt}
+		out = State{
+			PurposeID: in.PurposeID, PurposeKey: purposeKey, State: in.NewState,
+			LawfulBasis: in.LawfulBasis, DoubleOptInConfirmedAt: doiConfirmedAt, UpdatedAt: &capturedAt,
+		}
 		return nil
 	})
 	return out, err
@@ -317,8 +319,8 @@ func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
 // storekit.EmitEventForEntity), since this event's entity is dynamic
 // (person XOR lead): the payload itself only ever carries the
 // purpose/state triple.
-func consentChangedPayload(purposeID ids.PurposeID, purposeKey, newState string) crmcontracts.WebhookPayloadConsentChanged {
-	return crmcontracts.WebhookPayloadConsentChanged{
+func consentChangedPayload(purposeID ids.PurposeID, purposeKey, newState string) crmcontracts.PublicEventConsentChanged {
+	return crmcontracts.PublicEventConsentChanged{
 		PurposeId: openapi_types.UUID(purposeID.UUID),
 		Purpose:   purposeKey,
 		NewState:  newState,

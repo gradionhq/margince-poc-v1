@@ -43,8 +43,10 @@ func ParsePromoteTrigger(raw string) (PromoteTrigger, error) {
 	case TriggerInboundReply, TriggerMeetingBooked, TriggerMeetingHeld, TriggerHumanQualify:
 		return tr, nil
 	}
-	return "", &values.ParseError{Field: "trigger", Code: "invalid_promote_trigger",
-		Message: "trigger is one of inbound_reply, meeting_booked, meeting_held, human_qualify"}
+	return "", &values.ParseError{
+		Field: "trigger", Code: "invalid_promote_trigger",
+		Message: "trigger is one of inbound_reply, meeting_booked, meeting_held, human_qualify",
+	}
 }
 
 // PromoteLeadInput carries the genuine-engagement trigger and the
@@ -244,20 +246,20 @@ func finalizeLeadPromotion(ctx context.Context, tx pgx.Tx, id ids.LeadID, in Pro
 // of one, so the return type is the shared events.Payload seam rather
 // than a single struct.
 //
-//nolint:ireturn // dispatches to WebhookPayloadPersonCreated vs Updated by the merged condition; tested directly via the interface in person_organization_payload_test.go
+//nolint:ireturn // dispatches to PublicEventPersonCreated vs Updated by the merged condition; tested directly via the interface in person_organization_payload_test.go
 func promotedPersonPayload(person crmcontracts.Person, merged bool, leadID ids.LeadID) events.Payload {
 	if merged {
-		return crmcontracts.WebhookPayloadPersonUpdated{ChangedFields: map[string]any{"converted_from_lead_id": leadID}}
+		return crmcontracts.PublicEventPersonUpdated{ChangedFields: map[string]any{"converted_from_lead_id": leadID}}
 	}
-	return crmcontracts.WebhookPayloadPersonCreated{FullName: person.FullName}
+	return crmcontracts.PublicEventPersonCreated{FullName: person.FullName}
 }
 
 // leadPromotedPayload builds the lead-side event a promotion emits —
 // its own verb (events.md §5.5), never a lead.updated. evidenceActivityID
 // is nil for a human_qualify with no linked activity; the wire field is
 // then omitted rather than marshaled as null.
-func leadPromotedPayload(personID ids.PersonID, outcome, trigger string, evidenceActivityID *ids.ActivityID) crmcontracts.WebhookPayloadLeadPromoted {
-	p := crmcontracts.WebhookPayloadLeadPromoted{
+func leadPromotedPayload(personID ids.PersonID, outcome, trigger string, evidenceActivityID *ids.ActivityID) crmcontracts.PublicEventLeadPromoted {
+	p := crmcontracts.PublicEventLeadPromoted{
 		PromotedPersonId: openapi_types.UUID(personID.UUID),
 		DedupeOutcome:    outcome,
 		Trigger:          trigger,

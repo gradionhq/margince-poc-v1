@@ -178,8 +178,8 @@ func emitVoiceBuild(ctx context.Context, tx pgx.Tx, auditID ids.UUID, build Voic
 // Stage/ResultVersion/StatusCode/NextAttemptAt are pointers on VoiceBuild
 // itself — nil on a freshly-queued build, set once one exists (a returned
 // in-flight/deferred build) — so they carry through as-is.
-func voiceBuildChangedPayload(build VoiceBuild) crmcontracts.WebhookPayloadVoiceBuildChanged {
-	payload := crmcontracts.WebhookPayloadVoiceBuildChanged{
+func voiceBuildChangedPayload(build VoiceBuild) crmcontracts.PublicEventVoiceBuildChanged {
+	payload := crmcontracts.PublicEventVoiceBuildChanged{
 		ProfileId:       openapi_types.UUID(build.ProfileID),
 		BuildId:         openapi_types.UUID(build.ID),
 		Reason:          build.Reason,

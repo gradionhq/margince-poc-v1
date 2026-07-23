@@ -13,7 +13,7 @@ dead-letter panel — use whichever is convenient, they hit the same API.
 **First-party, outbound only.** This registers a *subscription* Margince delivers to — it is not an
 inbound receiver and not a third-party app install. Deliveries are signed HTTP POSTs of a **typed,
 contract-generated** payload (`backend/api/public-events.yaml` → `internal/contracts`, one
-`WebhookPayload<Event>` schema per event type) on the [Standard Webhooks](https://www.standardwebhooks.com/)
+`PublicEvent<Event>` schema per event type) on the [Standard Webhooks](https://www.standardwebhooks.com/)
 scheme — the same convention used by Anthropic, OpenAI, Stripe, and Svix — so any off-the-shelf SW
 verifier library works unmodified.
 
@@ -78,7 +78,7 @@ curl -X POST http://localhost:8080/v1/webhook-subscriptions \
   ```sh
   grep -A200 'SubscribableEventType:' backend/api/public-events.yaml | grep '^\s*- ' | sed 's/^\s*- //'
   ```
-  Every type in that enum has a published `WebhookPayload<Event>` schema in the same file, describing
+  Every type in that enum has a published `PublicEvent<Event>` schema in the same file, describing
   the exact `data` shape your receiver will see for it — a few are catalogued but not yet emitted or not
   yet delivered (`explanation/outbound-webhooks.md` §5); their schema's own description says so.
 
@@ -223,7 +223,7 @@ A paused subscription holds its retries until it resumes; an archived one stops 
 5. **The key-gate is honest.** Unset `MARGINCE_WEBHOOK_KEY` and restart: reads still list, but
    create/rotate/replay answer `503 webhooks_not_configured` — never an unsigned delivery.
 6. **The delivered `data` matches the published schema.** For any event you subscribe to, diff your
-   receiver's `data` field against that event's `WebhookPayload<Event>` schema in
+   receiver's `data` field against that event's `PublicEvent<Event>` schema in
    `backend/api/public-events.yaml` — they must agree field-for-field (the compile-time seam that
    guarantees this is [explanation/outbound-webhooks.md §3](../explanation/outbound-webhooks.md)).
 7. **A ratified deferred-delivery type stays honestly silent.** Subscribe to `mirror.conflict` or

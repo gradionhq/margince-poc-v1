@@ -76,7 +76,7 @@ var (
 func TestDealStageChangedWireSnapshot(t *testing.T) {
 	amount := int64(250000)
 	currency := "EUR"
-	sample := crmcontracts.WebhookPayloadDealStageChanged{
+	sample := crmcontracts.PublicEventDealStageChanged{
 		FromStageId:         &dealSnapshotFromStage,
 		ToStageId:           dealSnapshotToStage,
 		FromStatus:          "open",
@@ -100,7 +100,7 @@ var (
 // TestOfferCreatedWireSnapshot pins the offer.created wire shape (webhooks
 // Task 5a-ii, offer family).
 func TestOfferCreatedWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadOfferCreated{
+	sample := crmcontracts.PublicEventOfferCreated{
 		OfferId:    offerSnapshotOfferID,
 		DealId:     offerSnapshotDealID,
 		Revision:   1,
@@ -116,7 +116,7 @@ func TestOfferSentWireSnapshot(t *testing.T) {
 	revision := 1
 	gross := int64(500000)
 	validUntil := openapi_types.Date{Time: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)}
-	sample := crmcontracts.WebhookPayloadOfferSent{
+	sample := crmcontracts.PublicEventOfferSent{
 		OfferId:      offerSnapshotOfferID,
 		DealId:       offerSnapshotDealID,
 		Revision:     &revision,
@@ -131,7 +131,7 @@ func TestOfferSentWireSnapshot(t *testing.T) {
 func TestOfferAcceptedWireSnapshot(t *testing.T) {
 	revision := 1
 	gross := int64(500000)
-	sample := crmcontracts.WebhookPayloadOfferAccepted{
+	sample := crmcontracts.PublicEventOfferAccepted{
 		OfferId:    offerSnapshotOfferID,
 		DealId:     offerSnapshotDealID,
 		Revision:   &revision,
@@ -144,7 +144,7 @@ func TestOfferAcceptedWireSnapshot(t *testing.T) {
 func TestOfferRejectedWireSnapshot(t *testing.T) {
 	revision := 1
 	reason := "price too high"
-	sample := crmcontracts.WebhookPayloadOfferRejected{
+	sample := crmcontracts.PublicEventOfferRejected{
 		OfferId:  offerSnapshotOfferID,
 		DealId:   offerSnapshotDealID,
 		Revision: &revision,
@@ -156,7 +156,7 @@ func TestOfferRejectedWireSnapshot(t *testing.T) {
 // TestOfferSupersededWireSnapshot pins the offer.superseded wire shape.
 func TestOfferSupersededWireSnapshot(t *testing.T) {
 	fromRevision := 1
-	sample := crmcontracts.WebhookPayloadOfferSuperseded{
+	sample := crmcontracts.PublicEventOfferSuperseded{
 		OfferId:      offerSnapshotOfferID,
 		DealId:       offerSnapshotDealID,
 		FromRevision: &fromRevision,
@@ -174,10 +174,10 @@ var pipelineSnapshotStageID = uuid.MustParse("77777777-7777-7777-7777-7777777777
 // TestPipelineCreatedWireSnapshot pins the pipeline.created wire shape
 // (webhooks Task 5a-iii, pipeline/stage config family).
 func TestPipelineCreatedWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadPipelineCreated{
+	sample := crmcontracts.PublicEventPipelineCreated{
 		Name:      "Sales",
 		IsDefault: true,
-		Stages: []crmcontracts.WebhookPipelineCreatedStage{
+		Stages: []crmcontracts.PublicEventPipelineCreatedStage{
 			{Name: "New", Position: 0, Semantic: "open"},
 			{Name: "Won", Position: 1, Semantic: "won"},
 		},
@@ -191,7 +191,7 @@ func TestPipelineCreatedWireSnapshot(t *testing.T) {
 // schema, just a different map value, so it needs no separate snapshot).
 func TestPipelineUpdatedWireSnapshot(t *testing.T) {
 	isDefault := true
-	sample := crmcontracts.WebhookPayloadPipelineUpdated{
+	sample := crmcontracts.PublicEventPipelineUpdated{
 		ChangedFields: map[string]any{"name": "Enterprise Sales", "is_default": isDefault},
 	}
 	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
@@ -199,7 +199,7 @@ func TestPipelineUpdatedWireSnapshot(t *testing.T) {
 
 // TestStageCreatedWireSnapshot pins the stage.created wire shape.
 func TestStageCreatedWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadStageCreated{
+	sample := crmcontracts.PublicEventStageCreated{
 		PipelineId:     pipelineSnapshotStageID,
 		Name:           "Negotiation",
 		Position:       2,
@@ -214,7 +214,7 @@ func TestStageCreatedWireSnapshot(t *testing.T) {
 // that an untouched semantic/win_probability is OMITTED, not nulled.
 func TestStageUpdatedWireSnapshot(t *testing.T) {
 	name := "Qualified"
-	sample := crmcontracts.WebhookPayloadStageUpdated{
+	sample := crmcontracts.PublicEventStageUpdated{
 		PipelineId: pipelineSnapshotStageID,
 		Name:       &name,
 	}
@@ -233,16 +233,16 @@ var (
 // TestPersonCreatedWireSnapshot pins the person.created wire shape
 // (webhooks Task 5b-personorg, person/organization family).
 func TestPersonCreatedWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadPersonCreated{FullName: "Ada Lovelace"}
+	sample := crmcontracts.PublicEventPersonCreated{FullName: "Ada Lovelace"}
 	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
 }
 
 // TestPersonMergedWireSnapshot pins the person.merged wire shape.
 func TestPersonMergedWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadPersonMerged{
+	sample := crmcontracts.PublicEventPersonMerged{
 		MergedFromId: personSnapshotSource,
 		MergedIntoId: personSnapshotTarget,
-		Relinked: crmcontracts.WebhookPersonMergedRelinkCounts{
+		Relinked: crmcontracts.PublicEventPersonMergedRelinkCounts{
 			Emails: 2, Phones: 1, Relationships: 3, ActivityLinks: 5,
 		},
 	}
@@ -252,7 +252,7 @@ func TestPersonMergedWireSnapshot(t *testing.T) {
 // TestPersonUpdatedWireSnapshot pins the person.updated wire shape — the
 // OPEN changed_fields envelope, sampled with a flat column patch.
 func TestPersonUpdatedWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadPersonUpdated{
+	sample := crmcontracts.PublicEventPersonUpdated{
 		ChangedFields: map[string]any{"title": "VP Sales"},
 	}
 	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
@@ -264,13 +264,13 @@ func TestPersonUpdatedWireSnapshot(t *testing.T) {
 // people-package payload-builder unit tests).
 func TestOrganizationCreatedWireSnapshot(t *testing.T) {
 	displayName := "Acme GmbH"
-	sample := crmcontracts.WebhookPayloadOrganizationCreated{DisplayName: &displayName}
+	sample := crmcontracts.PublicEventOrganizationCreated{DisplayName: &displayName}
 	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
 }
 
 // TestOrganizationMergedWireSnapshot pins the organization.merged wire shape.
 func TestOrganizationMergedWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadOrganizationMerged{
+	sample := crmcontracts.PublicEventOrganizationMerged{
 		MergedFromId: personSnapshotSource,
 		MergedIntoId: personSnapshotTarget,
 	}
@@ -281,7 +281,7 @@ func TestOrganizationMergedWireSnapshot(t *testing.T) {
 // shape — the OPEN changed_fields envelope, sampled with a flat column
 // patch.
 func TestOrganizationUpdatedWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadOrganizationUpdated{
+	sample := crmcontracts.PublicEventOrganizationUpdated{
 		ChangedFields: map[string]any{"industry": "software"},
 	}
 	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
@@ -297,7 +297,7 @@ var leadSnapshotPersonID = uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 // (webhooks Task 5b-lead, lead family), sampled with an evidence_ref set.
 func TestLeadPromotedWireSnapshot(t *testing.T) {
 	evidenceRef := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
-	sample := crmcontracts.WebhookPayloadLeadPromoted{
+	sample := crmcontracts.PublicEventLeadPromoted{
 		PromotedPersonId: leadSnapshotPersonID,
 		DedupeOutcome:    "created",
 		Trigger:          "inbound_reply",
@@ -311,7 +311,7 @@ func TestLeadPromotedWireSnapshot(t *testing.T) {
 // key alongside a routing delta, proving the open map carries both
 // verbatim.
 func TestLeadUpdatedWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadLeadUpdated{
+	sample := crmcontracts.PublicEventLeadUpdated{
 		ChangedFields: map[string]any{
 			"delta":              map[string]any{"owner_id": leadSnapshotPersonID},
 			"cf_lead_source_ref": "partner-9f2",
@@ -331,7 +331,7 @@ var activitySnapshotMatched = uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccc
 // subset (kind + source_system both set).
 func TestActivityCapturedWireSnapshot(t *testing.T) {
 	sourceSystem := "gmail"
-	sample := crmcontracts.WebhookPayloadActivityCaptured{
+	sample := crmcontracts.PublicEventActivityCaptured{
 		Kind:         "email",
 		SourceSystem: &sourceSystem,
 	}
@@ -345,8 +345,8 @@ func TestActivityCapturedWireSnapshot(t *testing.T) {
 func TestActivityUpdatedWireSnapshot(t *testing.T) {
 	subject := "Follow-up call"
 	isDone := true
-	sample := crmcontracts.WebhookPayloadActivityUpdated{
-		ChangedFields: crmcontracts.WebhookActivityChangedFields{
+	sample := crmcontracts.PublicEventActivityUpdated{
+		ChangedFields: crmcontracts.PublicEventActivityChangedFields{
 			Subject: &subject,
 			IsDone:  &isDone,
 		},
@@ -356,7 +356,7 @@ func TestActivityUpdatedWireSnapshot(t *testing.T) {
 
 // TestEngagementReplyWireSnapshot pins the engagement.reply wire shape.
 func TestEngagementReplyWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadEngagementReply{
+	sample := crmcontracts.PublicEventEngagementReply{
 		MatchedOutboundActivityId: activitySnapshotMatched,
 		Channel:                   "email",
 		OccurredAt:                time.Date(2026, 7, 22, 9, 30, 0, 0, time.UTC),
@@ -377,7 +377,7 @@ var consentSnapshotPurposeID = uuid.MustParse("dddddddd-dddd-dddd-dddd-ddddddddd
 // itself, only in the envelope's entity ref (storekit.EmitEventForEntity's
 // separate entityType argument).
 func TestConsentChangedWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadConsentChanged{
+	sample := crmcontracts.PublicEventConsentChanged{
 		PurposeId: consentSnapshotPurposeID,
 		Purpose:   "marketing_email",
 		NewState:  "granted",
@@ -393,7 +393,7 @@ func TestConsentChangedWireSnapshot(t *testing.T) {
 // together.
 func TestRetentionAppliedWireSnapshot(t *testing.T) {
 	policy := consentSnapshotPurposeID
-	sample := crmcontracts.WebhookPayloadRetentionApplied{
+	sample := crmcontracts.PublicEventRetentionApplied{
 		Action: "archive",
 		Policy: &policy,
 	}
@@ -418,7 +418,7 @@ var (
 func TestSignalDetectedWireSnapshot(t *testing.T) {
 	entityType := "organization"
 	confidence := float32(0.95)
-	sample := crmcontracts.WebhookPayloadSignalDetected{
+	sample := crmcontracts.PublicEventSignalDetected{
 		SignalId:             signalSnapshotID,
 		Kind:                 "champion_left",
 		SourceChannel:        "inbound",
@@ -437,7 +437,7 @@ func TestSignalDetectedWireSnapshot(t *testing.T) {
 func TestSignalResolvedWireSnapshot(t *testing.T) {
 	matchedOn := "domain"
 	confidence := float32(0.95)
-	sample := crmcontracts.WebhookPayloadSignalResolved{
+	sample := crmcontracts.PublicEventSignalResolved{
 		SignalId:        signalSnapshotID,
 		ResolutionState: "resolved",
 		ResolvedOrgId:   &signalSnapshotOrgID,
@@ -459,7 +459,7 @@ var (
 
 // TestVoiceProfileCreatedWireSnapshot pins voice.profile_created's wire shape.
 func TestVoiceProfileCreatedWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadVoiceProfileCreated{
+	sample := crmcontracts.PublicEventVoiceProfileCreated{
 		ProfileId:           voiceSnapshotProfileID,
 		OwnerId:             voiceSnapshotOwnerID,
 		Maturity:            "collecting",
@@ -470,7 +470,7 @@ func TestVoiceProfileCreatedWireSnapshot(t *testing.T) {
 
 // TestVoiceProfileUpdatedWireSnapshot pins voice.profile_updated's wire shape.
 func TestVoiceProfileUpdatedWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadVoiceProfileUpdated{
+	sample := crmcontracts.PublicEventVoiceProfileUpdated{
 		ProfileId: voiceSnapshotProfileID,
 		Action:    "preferences_replaced",
 		Version:   3,
@@ -481,7 +481,7 @@ func TestVoiceProfileUpdatedWireSnapshot(t *testing.T) {
 
 // TestVoiceProfileArchivedWireSnapshot pins voice.profile_archived's wire shape.
 func TestVoiceProfileArchivedWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadVoiceProfileArchived{
+	sample := crmcontracts.PublicEventVoiceProfileArchived{
 		ProfileId:      voiceSnapshotProfileID,
 		OwnerId:        voiceSnapshotOwnerID,
 		ProfileVersion: 2,
@@ -494,7 +494,7 @@ func TestVoiceProfileArchivedWireSnapshot(t *testing.T) {
 // optional field.
 func TestVoiceCorpusChangedWireSnapshot(t *testing.T) {
 	origin, register := "manual", "email"
-	sample := crmcontracts.WebhookPayloadVoiceCorpusChanged{
+	sample := crmcontracts.PublicEventVoiceCorpusChanged{
 		ProfileId:   voiceSnapshotProfileID,
 		SourceId:    &voiceSnapshotSourceID,
 		Action:      "included",
@@ -514,7 +514,7 @@ func TestVoiceBuildChangedWireSnapshot(t *testing.T) {
 	resultVersion := 5
 	statusCode := "rate_limited"
 	nextAttempt := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
-	sample := crmcontracts.WebhookPayloadVoiceBuildChanged{
+	sample := crmcontracts.PublicEventVoiceBuildChanged{
 		ProfileId:       voiceSnapshotProfileID,
 		BuildId:         voiceSnapshotBuildID,
 		Reason:          "onboarding",
@@ -534,7 +534,7 @@ func TestVoiceBuildChangedWireSnapshot(t *testing.T) {
 // shape — sampled with the rollback branch, which sets predecessor_version.
 func TestVoiceVersionChangedWireSnapshot(t *testing.T) {
 	predecessor := 4
-	sample := crmcontracts.WebhookPayloadVoiceVersionChanged{
+	sample := crmcontracts.PublicEventVoiceVersionChanged{
 		ProfileId:          voiceSnapshotProfileID,
 		ProfileVersion:     5,
 		Status:             "active",
@@ -549,7 +549,7 @@ func TestVoiceVersionChangedWireSnapshot(t *testing.T) {
 // TestVoiceDraftOutcomeRecordedWireSnapshot pins
 // voice.draft_outcome_recorded's wire shape.
 func TestVoiceDraftOutcomeRecordedWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadVoiceDraftOutcomeRecorded{
+	sample := crmcontracts.PublicEventVoiceDraftOutcomeRecorded{
 		ProfileId:           voiceSnapshotProfileID,
 		Outcome:             "sent_edited",
 		QualifiesAsSource:   true,
@@ -571,7 +571,7 @@ var (
 // TestUserInvitedWireSnapshot pins user.invited's wire shape (webhooks
 // Task 5g, identity family).
 func TestUserInvitedWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadUserInvited{
+	sample := crmcontracts.PublicEventUserInvited{
 		UserId: identitySnapshotUserID,
 		Role:   "manager",
 		By:     identitySnapshotActorID,
@@ -583,7 +583,7 @@ func TestUserInvitedWireSnapshot(t *testing.T) {
 // sampled with reason set, the branch that carries every optional field.
 func TestUserDeactivatedWireSnapshot(t *testing.T) {
 	reason := "policy violation"
-	sample := crmcontracts.WebhookPayloadUserDeactivated{
+	sample := crmcontracts.PublicEventUserDeactivated{
 		UserId: identitySnapshotUserID,
 		By:     identitySnapshotActorID,
 		Reason: &reason,
@@ -593,7 +593,7 @@ func TestUserDeactivatedWireSnapshot(t *testing.T) {
 
 // TestUserReactivatedWireSnapshot pins user.reactivated's wire shape.
 func TestUserReactivatedWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadUserReactivated{
+	sample := crmcontracts.PublicEventUserReactivated{
 		UserId: identitySnapshotUserID,
 		By:     identitySnapshotActorID,
 	}
@@ -604,7 +604,7 @@ func TestUserReactivatedWireSnapshot(t *testing.T) {
 // with from_role set, the branch that carries every optional field.
 func TestRoleChangedWireSnapshot(t *testing.T) {
 	fromRole := "member"
-	sample := crmcontracts.WebhookPayloadRoleChanged{
+	sample := crmcontracts.PublicEventRoleChanged{
 		UserId:   identitySnapshotUserID,
 		ToRole:   "manager",
 		By:       identitySnapshotActorID,
@@ -615,7 +615,7 @@ func TestRoleChangedWireSnapshot(t *testing.T) {
 
 // TestPassportRevokedWireSnapshot pins passport.revoked's wire shape.
 func TestPassportRevokedWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadPassportRevoked{
+	sample := crmcontracts.PublicEventPassportRevoked{
 		PassportId: identitySnapshotPassportID,
 		By:         identitySnapshotActorID,
 	}
@@ -625,7 +625,7 @@ func TestPassportRevokedWireSnapshot(t *testing.T) {
 // TestOnboardingStateChangedWireSnapshot pins onboarding.state_changed's
 // wire shape.
 func TestOnboardingStateChangedWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadOnboardingStateChanged{
+	sample := crmcontracts.PublicEventOnboardingStateChanged{
 		UserId:         identitySnapshotUserID,
 		Path:           "member",
 		Step:           "connect",
@@ -643,7 +643,7 @@ func TestOnboardingStateChangedWireSnapshot(t *testing.T) {
 // static-entity families above, the subject class rides INSIDE the
 // payload (object_class) rather than only in the envelope's entity ref.
 func TestMirrorConflictWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadMirrorConflict{
+	sample := crmcontracts.PublicEventMirrorConflict{
 		ObjectClass:        "deal",
 		ExternalId:         "hs-4821",
 		PriorUpdatedAt:     time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC),
@@ -656,13 +656,13 @@ func TestMirrorConflictWireSnapshot(t *testing.T) {
 // shape — like mirror.conflict, dynamic-entity, so the subject class is
 // carried only by the envelope's entity ref, not this payload.
 func TestMirrorBudgetDegradedWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadMirrorBudgetDegraded{Band: "shed"}
+	sample := crmcontracts.PublicEventMirrorBudgetDegraded{Band: "shed"}
 	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
 }
 
 // TestMirrorDeletedWireSnapshot pins mirror.deleted's wire shape.
 func TestMirrorDeletedWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadMirrorDeleted{
+	sample := crmcontracts.PublicEventMirrorDeleted{
 		ObjectClass: "person",
 		ExternalId:  "hs-9931",
 		DeletedAt:   time.Date(2026, 7, 22, 11, 0, 0, 0, time.UTC),
@@ -674,7 +674,7 @@ func TestMirrorDeletedWireSnapshot(t *testing.T) {
 // shape — this event's entity is static (incumbent_connection), unlike
 // the mirror.* family above.
 func TestIncumbentConnectedWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadIncumbentConnected{
+	sample := crmcontracts.PublicEventIncumbentConnected{
 		Incumbent: "hubspot",
 		Region:    "eu",
 		Scopes:    []string{"crm.objects.contacts.read", "crm.objects.deals.read"},
@@ -686,7 +686,7 @@ func TestIncumbentConnectedWireSnapshot(t *testing.T) {
 // TestIncumbentDisconnectedWireSnapshot pins incumbent.disconnected's
 // wire shape.
 func TestIncumbentDisconnectedWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadIncumbentDisconnected{
+	sample := crmcontracts.PublicEventIncumbentDisconnected{
 		Incumbent: "hubspot",
 		Region:    "eu",
 		Status:    "revoked",
@@ -710,7 +710,7 @@ var (
 // optional field.
 func TestApprovalRequestedWireSnapshot(t *testing.T) {
 	targetID := openapi_types.UUID(approvalSnapshotTargetID)
-	sample := crmcontracts.WebhookPayloadApprovalRequested{
+	sample := crmcontracts.PublicEventApprovalRequested{
 		Kind:             "advance_deal",
 		Summary:          "Advance Acme GmbH to Negotiation",
 		TargetEntityType: "deal",
@@ -727,7 +727,7 @@ func TestApprovalDecidedWireSnapshot(t *testing.T) {
 	edited := true
 	diffHash := "sha256:abc123"
 	editedChange := map[string]interface{}{"stage_id": approvalSnapshotTargetID.String()}
-	sample := crmcontracts.WebhookPayloadApprovalDecided{
+	sample := crmcontracts.PublicEventApprovalDecided{
 		Kind:         "advance_deal",
 		Verdict:      "approved",
 		DecidedBy:    openapi_types.UUID(approvalSnapshotDecidedBy),
@@ -743,7 +743,7 @@ func TestApprovalDecidedWireSnapshot(t *testing.T) {
 // approval.decided's outbox payload by the literal JSON key "verdict",
 // and compose/runnerservice.go's HandleEvent decodes "edited_change" —
 // both read the generic map/struct the bus hands every subscriber, never
-// crmcontracts.WebhookPayloadApprovalDecided itself (automation and
+// crmcontracts.PublicEventApprovalDecided itself (automation and
 // compose/runnerservice cannot import each other's payload-construction
 // module). A future rename of either field must break THIS test, not
 // silently stop those consumers from matching. edited_change must also
@@ -756,7 +756,7 @@ func TestApprovalDecidedKeyBindingIsStable(t *testing.T) {
 		"note":     "moved after the call",
 		"nested":   map[string]interface{}{"amount_minor": float64(50000)},
 	}
-	sample := crmcontracts.WebhookPayloadApprovalDecided{
+	sample := crmcontracts.PublicEventApprovalDecided{
 		Kind:         "advance_deal",
 		Verdict:      "rejected",
 		DecidedBy:    openapi_types.UUID(approvalSnapshotDecidedBy),
@@ -783,7 +783,7 @@ func TestApprovalDecidedKeyBindingIsStable(t *testing.T) {
 // read-back branch (source_url set, source_kind absent).
 func TestColdstartReadBackProposedWireSnapshot(t *testing.T) {
 	sourceURL := "https://acme.example"
-	sample := crmcontracts.WebhookPayloadColdstartReadBackProposed{
+	sample := crmcontracts.PublicEventColdstartReadBackProposed{
 		FieldCount: 4,
 		SourceUrl:  &sourceURL,
 	}
@@ -792,7 +792,7 @@ func TestColdstartReadBackProposedWireSnapshot(t *testing.T) {
 
 // TestColdstartAcceptedWireSnapshot pins coldstart.accepted's wire shape.
 func TestColdstartAcceptedWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadColdstartAccepted{
+	sample := crmcontracts.PublicEventColdstartAccepted{
 		ApprovalId: openapi_types.UUID(approvalSnapshotID),
 		DecidedBy:  openapi_types.UUID(approvalSnapshotDecidedBy),
 	}
@@ -801,7 +801,7 @@ func TestColdstartAcceptedWireSnapshot(t *testing.T) {
 
 // TestColdstartRejectedWireSnapshot pins coldstart.rejected's wire shape.
 func TestColdstartRejectedWireSnapshot(t *testing.T) {
-	sample := crmcontracts.WebhookPayloadColdstartRejected{
+	sample := crmcontracts.PublicEventColdstartRejected{
 		ApprovalId: openapi_types.UUID(approvalSnapshotID),
 		DecidedBy:  openapi_types.UUID(approvalSnapshotDecidedBy),
 	}

@@ -10,7 +10,7 @@ package backendarch
 // registry and the tree rather than any hand-kept list:
 //
 //  1. Coverage — every subscribable event (events.Types() minus the
-//     entity-less pipeline class) carries a WebhookPayload<Event> schema in
+//     entity-less pipeline class) carries a PublicEvent<Event> schema in
 //     the generated registry. The definition of "Phase 4 done".
 //  2. No-orphan — every registry key is a real catalog event; a schema for
 //     a type the runtime never emits is dead contract.
@@ -75,12 +75,12 @@ func subscribableTypes() []string {
 func TestEverySubscribableEventHasAPayloadSchema(t *testing.T) {
 	var uncovered []string
 	for _, tp := range subscribableTypes() {
-		if _, ok := crmcontracts.WebhookPayloadVersions[tp]; !ok {
+		if _, ok := crmcontracts.PublicEventVersions[tp]; !ok {
 			uncovered = append(uncovered, tp)
 		}
 	}
 	if len(uncovered) > 0 {
-		t.Errorf("no WebhookPayload schema for %d subscribable event(s): %v (add each to %s)",
+		t.Errorf("no PublicEvent schema for %d subscribable event(s): %v (add each to %s)",
 			len(uncovered), uncovered, publicEventsPath)
 	}
 }
@@ -90,17 +90,17 @@ func TestNoOrphanPayloadSchema(t *testing.T) {
 	for _, tp := range events.Types() {
 		catalog[tp] = true
 	}
-	for tp := range crmcontracts.WebhookPayloadVersions {
+	for tp := range crmcontracts.PublicEventVersions {
 		if !catalog[tp] {
-			t.Errorf("WebhookPayloadVersions has %q, which is not a published event type — dead contract, remove the schema or add the catalog entry", tp)
+			t.Errorf("PublicEventVersions has %q, which is not a published event type — dead contract, remove the schema or add the catalog entry", tp)
 		}
 	}
 }
 
 func TestPayloadVersionsMatchCatalog(t *testing.T) {
-	for tp, wantVersion := range crmcontracts.WebhookPayloadVersions {
+	for tp, wantVersion := range crmcontracts.PublicEventVersions {
 		if got := events.VersionOf(tp); got != wantVersion {
-			t.Errorf("version drift for %q: events.VersionOf = %d, WebhookPayloadVersions = %d (contract x-version and catalog.go disagree)", tp, got, wantVersion)
+			t.Errorf("version drift for %q: events.VersionOf = %d, PublicEventVersions = %d (contract x-version and catalog.go disagree)", tp, got, wantVersion)
 		}
 	}
 }
@@ -166,9 +166,9 @@ func parseSubscribableEventTypeEnum(t *testing.T) []string {
 // picker's source (the SubscribableEventType enum, from which
 // openapi-typescript emits subscribableEventTypeValues and gen-payloads
 // emits the Go consts) to the full subscribable catalog
-// (crmcontracts.WebhookPayloadVersions — every event with a payload
+// (crmcontracts.PublicEventVersions — every event with a payload
 // schema). Nothing else binds the two together: a family that gets a
-// WebhookPayload<Event> schema but is never appended to the enum drifts
+// PublicEvent<Event> schema but is never appended to the enum drifts
 // silently, and the picker quietly under-offers it forever.
 func TestSubscribableEventTypeEnumMatchesPayloadCatalog(t *testing.T) {
 	enum := map[string]bool{}
@@ -180,7 +180,7 @@ func TestSubscribableEventTypeEnumMatchesPayloadCatalog(t *testing.T) {
 	}
 
 	var missingFromEnum []string
-	for tp := range crmcontracts.WebhookPayloadVersions {
+	for tp := range crmcontracts.PublicEventVersions {
 		if !enum[tp] {
 			missingFromEnum = append(missingFromEnum, tp)
 		}
@@ -193,19 +193,19 @@ func TestSubscribableEventTypeEnumMatchesPayloadCatalog(t *testing.T) {
 
 	var missingFromCatalog []string
 	for tp := range enum {
-		if _, ok := crmcontracts.WebhookPayloadVersions[tp]; !ok {
+		if _, ok := crmcontracts.PublicEventVersions[tp]; !ok {
 			missingFromCatalog = append(missingFromCatalog, tp)
 		}
 	}
 	sort.Strings(missingFromCatalog)
 	if len(missingFromCatalog) > 0 {
-		t.Errorf("SubscribableEventType enum lists %d event(s) with no WebhookPayload schema: %v (dead enum value, or a missing schema — reconcile with %s)",
+		t.Errorf("SubscribableEventType enum lists %d event(s) with no PublicEvent schema: %v (dead enum value, or a missing schema — reconcile with %s)",
 			len(missingFromCatalog), missingFromCatalog, publicEventsPath)
 	}
 
-	if len(enum) != len(crmcontracts.WebhookPayloadVersions) {
-		t.Errorf("SubscribableEventType enum has %d value(s), WebhookPayloadVersions has %d — should be equal (see the mismatches reported above)",
-			len(enum), len(crmcontracts.WebhookPayloadVersions))
+	if len(enum) != len(crmcontracts.PublicEventVersions) {
+		t.Errorf("SubscribableEventType enum has %d value(s), PublicEventVersions has %d — should be equal (see the mismatches reported above)",
+			len(enum), len(crmcontracts.PublicEventVersions))
 	}
 }
 

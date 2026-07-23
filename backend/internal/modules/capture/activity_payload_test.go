@@ -11,7 +11,7 @@ package capture
 // envelope's payload column, mirroring the lead family's
 // TestLeadPromotedPayload_WithEvidence (webhooks Task 5b-lead).
 //
-// Before this migration crmcontracts.WebhookPayloadActivityCaptured/
+// Before this migration crmcontracts.PublicEventActivityCaptured/
 // EngagementReply did not exist, and neither builder existed, so this test
 // failed to compile (RED) until public-events.yaml gained the schemas,
 // `make gen` regenerated the structs, and sink.go grew the builders.
@@ -42,7 +42,7 @@ func TestActivityCaptureEventPayload(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadActivityCaptured
+	var decoded crmcontracts.PublicEventActivityCaptured
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -67,7 +67,7 @@ func TestEngagementReplyPayload_WithContact(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadEngagementReply
+	var decoded crmcontracts.PublicEventEngagementReply
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }

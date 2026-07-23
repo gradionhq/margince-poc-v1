@@ -213,7 +213,7 @@ func (s *Store) RouteLead(ctx context.Context, leadID ids.LeadID, cfg RoutingCon
 		if err != nil {
 			return err
 		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, leadID.UUID, crmcontracts.WebhookPayloadLeadUpdated{
+		if err := storekit.EmitEvent(ctx, tx, auditID, leadID.UUID, crmcontracts.PublicEventLeadUpdated{
 			ChangedFields: map[string]any{eventKeyDelta: map[string]any{"owner_id": chosen}},
 		}); err != nil {
 			return err

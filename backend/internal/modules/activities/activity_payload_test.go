@@ -17,7 +17,7 @@ package activities
 // mirroring the deal family's TestDealStageChangedEmitsTypedPayload
 // (webhooks Task 5a-i).
 //
-// Before this migration none of crmcontracts.WebhookPayloadActivityCaptured/
+// Before this migration none of crmcontracts.PublicEventActivityCaptured/
 // Archived/Updated existed, and none of the builder functions existed, so
 // this test failed to compile (RED) until public-events.yaml gained the
 // schemas, `make gen` regenerated the structs, and activity.go/lifecycle.go
@@ -51,7 +51,7 @@ func TestActivityCapturedPayload_DirectLog(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(raw), "source_system",
 		"an absent source_system must be omitted from the wire body, not marshaled as null")
-	var decoded crmcontracts.WebhookPayloadActivityCaptured
+	var decoded crmcontracts.PublicEventActivityCaptured
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -64,7 +64,7 @@ func TestActivityCapturedPayload_DirectLog(t *testing.T) {
 // future rename of this schema field must break THIS test, not silently
 // stop the post_meeting_recap automation trigger from matching.
 func TestActivityCapturedKindJSONTagIsStable(t *testing.T) {
-	payload := crmcontracts.WebhookPayloadActivityCaptured{Kind: "meeting"}
+	payload := crmcontracts.PublicEventActivityCaptured{Kind: "meeting"}
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
 
@@ -78,7 +78,7 @@ func TestActivityCapturedKindJSONTagIsStable(t *testing.T) {
 // TestActivityArchivedEmitsTypedPayload proves the archive path emits the
 // empty struct (activity.archived carries no data).
 func TestActivityArchivedEmitsTypedPayload(t *testing.T) {
-	payload := crmcontracts.WebhookPayloadActivityArchived{}
+	payload := crmcontracts.PublicEventActivityArchived{}
 	require.Equal(t, "activity.archived", payload.EventType())
 	require.Equal(t, "activity", payload.EntityType())
 
@@ -115,13 +115,13 @@ func TestActivityUpdatedChangedFields_FieldPatch(t *testing.T) {
 	require.Nil(t, fields.AssigneeId)
 	require.Nil(t, fields.Relinked)
 
-	payload := crmcontracts.WebhookPayloadActivityUpdated{ChangedFields: fields}
+	payload := crmcontracts.PublicEventActivityUpdated{ChangedFields: fields}
 	require.Equal(t, "activity.updated", payload.EventType())
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
 	require.NotContains(t, string(raw), "due_at",
 		"an untouched field must be omitted from changed_fields, not marshaled as null")
-	var decoded crmcontracts.WebhookPayloadActivityUpdated
+	var decoded crmcontracts.PublicEventActivityUpdated
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -153,10 +153,10 @@ func TestRelinkedChangedFields(t *testing.T) {
 	require.Equal(t, openapi_types.UUID(entityID), fields.Relinked.EntityId)
 	require.Nil(t, fields.Subject)
 
-	payload := crmcontracts.WebhookPayloadActivityUpdated{ChangedFields: fields}
+	payload := crmcontracts.PublicEventActivityUpdated{ChangedFields: fields}
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadActivityUpdated
+	var decoded crmcontracts.PublicEventActivityUpdated
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }

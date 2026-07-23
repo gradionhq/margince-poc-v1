@@ -122,7 +122,7 @@ func finalizeOrgMerge(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.Org
 	if err != nil {
 		return crmcontracts.Organization{}, fmt.Errorf("audit organization merge: %w", err)
 	}
-	if err := storekit.EmitEvent(ctx, tx, auditID, sourceID.UUID, crmcontracts.WebhookPayloadOrganizationMerged{
+	if err := storekit.EmitEvent(ctx, tx, auditID, sourceID.UUID, crmcontracts.PublicEventOrganizationMerged{
 		MergedFromId: openapi_types.UUID(sourceID.UUID),
 		MergedIntoId: openapi_types.UUID(targetID.UUID),
 	}); err != nil {

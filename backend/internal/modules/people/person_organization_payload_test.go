@@ -19,8 +19,8 @@ package people
 // substitute, mirroring the deal family's
 // TestDealStageChangedEmitsTypedPayload (webhooks Task 5a-i).
 //
-// Before this migration none of crmcontracts.WebhookPayloadPersonCreated/
-// Archived/Merged/Updated/Restored or WebhookPayloadOrganizationCreated/
+// Before this migration none of crmcontracts.PublicEventPersonCreated/
+// Archived/Merged/Updated/Restored or PublicEventOrganizationCreated/
 // Archived/Merged/Updated existed, and none of the builder functions
 // existed, so this test failed to compile (RED) until public-events.yaml
 // gained the schemas, `make gen` regenerated the structs, and
@@ -46,13 +46,13 @@ func TestPromotedPersonPayload_Created(t *testing.T) {
 
 	require.Equal(t, "person.created", payload.EventType())
 	require.Equal(t, "person", payload.EntityType())
-	created, ok := payload.(crmcontracts.WebhookPayloadPersonCreated)
+	created, ok := payload.(crmcontracts.PublicEventPersonCreated)
 	require.True(t, ok)
 	require.Equal(t, "Ada Lovelace", created.FullName)
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadPersonCreated
+	var decoded crmcontracts.PublicEventPersonCreated
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, created, decoded)
 }
@@ -64,7 +64,7 @@ func TestPromotedPersonPayload_Merged(t *testing.T) {
 	payload := promotedPersonPayload(person, true, leadID)
 
 	require.Equal(t, "person.updated", payload.EventType())
-	updated, ok := payload.(crmcontracts.WebhookPayloadPersonUpdated)
+	updated, ok := payload.(crmcontracts.PublicEventPersonUpdated)
 	require.True(t, ok)
 	require.Equal(t, leadID, updated.ChangedFields["converted_from_lead_id"])
 }
@@ -87,7 +87,7 @@ func TestPersonMergedPayload(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadPersonMerged
+	var decoded crmcontracts.PublicEventPersonMerged
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -98,7 +98,7 @@ func TestCompanySaveEventPayload_Created(t *testing.T) {
 	payload := companySaveEventPayload(true, applied, "human:u1")
 
 	require.Equal(t, "organization.created", payload.EventType())
-	created, ok := payload.(crmcontracts.WebhookPayloadOrganizationCreated)
+	created, ok := payload.(crmcontracts.PublicEventOrganizationCreated)
 	require.True(t, ok)
 	require.NotNil(t, created.Delta)
 	require.Equal(t, applied, *created.Delta)
@@ -111,7 +111,7 @@ func TestCompanySaveEventPayload_Created(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadOrganizationCreated
+	var decoded crmcontracts.PublicEventOrganizationCreated
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, created, decoded)
 }
@@ -122,7 +122,7 @@ func TestCompanySaveEventPayload_Updated(t *testing.T) {
 	payload := companySaveEventPayload(false, applied, "human:u1")
 
 	require.Equal(t, "organization.updated", payload.EventType())
-	updated, ok := payload.(crmcontracts.WebhookPayloadOrganizationUpdated)
+	updated, ok := payload.(crmcontracts.PublicEventOrganizationUpdated)
 	require.True(t, ok)
 	require.Equal(t, applied, updated.ChangedFields["delta"])
 	require.Equal(t, "human", updated.ChangedFields["source"])
@@ -142,7 +142,7 @@ func TestSiteReadConfirmationPayload_Created(t *testing.T) {
 	payload := siteReadConfirmationPayload(read, confirmation)
 
 	require.Equal(t, "organization.created", payload.EventType())
-	created, ok := payload.(crmcontracts.WebhookPayloadOrganizationCreated)
+	created, ok := payload.(crmcontracts.PublicEventOrganizationCreated)
 	require.True(t, ok)
 	require.NotNil(t, created.Delta)
 	require.Equal(t, confirmation.appliedSite, (*created.Delta)["fields"])
@@ -166,7 +166,7 @@ func TestSiteReadConfirmationPayload_Updated(t *testing.T) {
 	payload := siteReadConfirmationPayload(read, confirmation)
 
 	require.Equal(t, "organization.updated", payload.EventType())
-	updated, ok := payload.(crmcontracts.WebhookPayloadOrganizationUpdated)
+	updated, ok := payload.(crmcontracts.PublicEventOrganizationUpdated)
 	require.True(t, ok)
 	require.Equal(t, "https://acme.example", updated.ChangedFields["source_url"])
 	require.Equal(t, read.ID, updated.ChangedFields["site_read_id"])
@@ -181,7 +181,7 @@ func TestColdStartApplyPayload_Created(t *testing.T) {
 	payload := coldStartApplyPayload(true, in, "acme.example", "agent:coldstart", nil)
 
 	require.Equal(t, "organization.created", payload.EventType())
-	created, ok := payload.(crmcontracts.WebhookPayloadOrganizationCreated)
+	created, ok := payload.(crmcontracts.PublicEventOrganizationCreated)
 	require.True(t, ok)
 	require.NotNil(t, created.DisplayName)
 	require.Equal(t, "Acme GmbH", *created.DisplayName)
@@ -198,7 +198,7 @@ func TestColdStartApplyPayload_Updated(t *testing.T) {
 	payload := coldStartApplyPayload(false, in, "acme.example", "agent:coldstart", applied)
 
 	require.Equal(t, "organization.updated", payload.EventType())
-	updated, ok := payload.(crmcontracts.WebhookPayloadOrganizationUpdated)
+	updated, ok := payload.(crmcontracts.PublicEventOrganizationUpdated)
 	require.True(t, ok)
 	require.Equal(t, applied, updated.ChangedFields["delta"])
 	require.Equal(t, "https://acme.example", updated.ChangedFields["source_url"])
@@ -209,13 +209,13 @@ func TestRelationshipUpdatedPayload_PerAnchor(t *testing.T) {
 
 	dealPayload := relationshipUpdatedPayload("deal", delta)
 	require.Equal(t, "deal.updated", dealPayload.EventType())
-	require.Equal(t, delta, dealPayload.(crmcontracts.WebhookPayloadDealUpdated).ChangedFields)
+	require.Equal(t, delta, dealPayload.(crmcontracts.PublicEventDealUpdated).ChangedFields)
 
 	personPayload := relationshipUpdatedPayload("person", delta)
 	require.Equal(t, "person.updated", personPayload.EventType())
-	require.Equal(t, delta, personPayload.(crmcontracts.WebhookPayloadPersonUpdated).ChangedFields)
+	require.Equal(t, delta, personPayload.(crmcontracts.PublicEventPersonUpdated).ChangedFields)
 
 	orgPayload := relationshipUpdatedPayload("organization", delta)
 	require.Equal(t, "organization.updated", orgPayload.EventType())
-	require.Equal(t, delta, orgPayload.(crmcontracts.WebhookPayloadOrganizationUpdated).ChangedFields)
+	require.Equal(t, delta, orgPayload.(crmcontracts.PublicEventOrganizationUpdated).ChangedFields)
 }

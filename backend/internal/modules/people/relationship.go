@@ -102,7 +102,8 @@ func relationshipEndpointScope(ctx context.Context, alias string, arg func(any) 
 		clauses = append(clauses, fmt.Sprintf(
 			`(%[1]s.%[2]s IS NULL OR EXISTS (
 			   SELECT 1 FROM %[3]s ep WHERE ep.id = %[1]s.%[2]s AND ep.archived_at IS NULL AND %[4]s))`,
-			alias, endpoint.column, endpoint.table, predicate("ep")))
+			alias, endpoint.column, endpoint.table, predicate("ep"),
+		))
 	}
 	return "(" + strings.Join(clauses, " AND ") + ")", nil
 }
@@ -177,8 +178,10 @@ func ensureRelationshipEndpoints(ctx context.Context, tx pgx.Tx, in CreateRelati
 		table string
 		id    *ids.UUID
 	}{
-		{"person", untypedPtr(in.PersonID)}, {"organization", untypedPtr(in.OrganizationID)},
-		{"organization", untypedPtr(in.CounterpartyOrgID)}, {"deal", untypedPtr(in.DealID)},
+		{"person", untypedPtr(in.PersonID)},
+		{"organization", untypedPtr(in.OrganizationID)},
+		{"organization", untypedPtr(in.CounterpartyOrgID)},
+		{"deal", untypedPtr(in.DealID)},
 	} {
 		if ref.id == nil {
 			continue
@@ -361,15 +364,15 @@ func emitRelationshipChange(ctx context.Context, tx pgx.Tx, action string, rel r
 // changed_fields shape, so the only real work here is picking the right
 // generated struct for the anchor.
 //
-//nolint:ireturn // dispatches to one of WebhookPayloadDealUpdated/PersonUpdated/OrganizationUpdated by anchorObject; tested directly via the interface in person_organization_payload_test.go
+//nolint:ireturn // dispatches to one of PublicEventDealUpdated/PersonUpdated/OrganizationUpdated by anchorObject; tested directly via the interface in person_organization_payload_test.go
 func relationshipUpdatedPayload(anchorObject string, changedFields map[string]any) events.Payload {
 	switch anchorObject {
 	case "deal":
-		return crmcontracts.WebhookPayloadDealUpdated{ChangedFields: changedFields}
+		return crmcontracts.PublicEventDealUpdated{ChangedFields: changedFields}
 	case "person":
-		return crmcontracts.WebhookPayloadPersonUpdated{ChangedFields: changedFields}
+		return crmcontracts.PublicEventPersonUpdated{ChangedFields: changedFields}
 	default: // organization
-		return crmcontracts.WebhookPayloadOrganizationUpdated{ChangedFields: changedFields}
+		return crmcontracts.PublicEventOrganizationUpdated{ChangedFields: changedFields}
 	}
 }
 

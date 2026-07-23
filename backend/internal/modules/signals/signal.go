@@ -160,8 +160,8 @@ func deriveSignalDefaults(in CreateSignalInput) (signalDefaults, error) {
 // organization | person) — payload data, present only when the signal was
 // created already resolved — distinct from the envelope's own entity ref,
 // which is always the signal itself (contract x-entity-type: signal).
-func detectedPayload(sig crmcontracts.Signal) crmcontracts.WebhookPayloadSignalDetected {
-	payload := crmcontracts.WebhookPayloadSignalDetected{
+func detectedPayload(sig crmcontracts.Signal) crmcontracts.PublicEventSignalDetected {
+	payload := crmcontracts.PublicEventSignalDetected{
 		SignalId:        sig.Id,
 		Kind:            string(sig.Kind),
 		SourceChannel:   string(sig.SourceChannel),
@@ -366,10 +366,12 @@ func (s *Store) ArchiveSignal(ctx context.Context, id ids.SignalID) (crmcontract
 // signalColumns spells the SELECT list once; alias qualifies for queries
 // that join or scope.
 func signalColumns(alias string) string {
-	cols := []string{"id", "workspace_id", "kind", "source_channel", "raw_ref", "entity_type", "entity_id",
+	cols := []string{
+		"id", "workspace_id", "kind", "source_channel", "raw_ref", "entity_type", "entity_id",
 		"resolution_state", "resolution_confidence::float8", "resolved_org_id", "resolved_person_id",
 		"severity", "summary", "evidence", "status", "detected_at", "source", "captured_by",
-		"version", "created_at", "updated_at", "archived_at"}
+		"version", "created_at", "updated_at", "archived_at",
+	}
 	for i, c := range cols {
 		cols[i] = alias + "." + c
 	}

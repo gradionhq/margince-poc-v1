@@ -126,7 +126,7 @@ func (s *Service) StageInTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.
 	if err != nil {
 		return ids.ApprovalID{}, err
 	}
-	requested := crmcontracts.WebhookPayloadApprovalRequested{
+	requested := crmcontracts.PublicEventApprovalRequested{
 		Kind:             in.Kind,
 		Summary:          in.Summary,
 		TargetEntityType: in.TargetType,

@@ -27,7 +27,7 @@ package overlay
 // is needed for them — EmitEvent derives the entity type from the
 // payload's own EntityType() (as proven by the builder tests below).
 //
-// Before this migration none of crmcontracts.WebhookPayloadMirrorConflict/
+// Before this migration none of crmcontracts.PublicEventMirrorConflict/
 // MirrorBudgetDegraded/MirrorDeleted/IncumbentConnected/
 // IncumbentDisconnected existed, and neither did any of the builder
 // functions (every site inlined a map[string]any), so this test failed to
@@ -68,7 +68,7 @@ func TestMirrorConflictPayload(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadMirrorConflict
+	var decoded crmcontracts.PublicEventMirrorConflict
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.True(t, decoded.PriorUpdatedAt.Equal(payload.PriorUpdatedAt))
 	require.True(t, decoded.IncumbentUpdatedAt.Equal(payload.IncumbentUpdatedAt))
@@ -84,7 +84,7 @@ func TestMirrorBudgetDegradedPayload(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadMirrorBudgetDegraded
+	var decoded crmcontracts.PublicEventMirrorBudgetDegraded
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -102,7 +102,7 @@ func TestMirrorDeletedPayload(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadMirrorDeleted
+	var decoded crmcontracts.PublicEventMirrorDeleted
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.True(t, decoded.DeletedAt.Equal(payload.DeletedAt))
 }
@@ -119,7 +119,7 @@ func TestIncumbentConnectedPayload(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadIncumbentConnected
+	var decoded crmcontracts.PublicEventIncumbentConnected
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -135,7 +135,7 @@ func TestIncumbentDisconnectedPayload(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadIncumbentDisconnected
+	var decoded crmcontracts.PublicEventIncumbentDisconnected
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -160,9 +160,11 @@ func (f *fakeTx) Exec(_ context.Context, sql string, arguments ...any) (pgconn.C
 func (f *fakeTx) Begin(context.Context) (pgx.Tx, error) { panic("fakeTx: Begin not implemented") }
 func (f *fakeTx) Commit(context.Context) error          { panic("fakeTx: Commit not implemented") }
 func (f *fakeTx) Rollback(context.Context) error        { panic("fakeTx: Rollback not implemented") }
+
 func (f *fakeTx) CopyFrom(context.Context, pgx.Identifier, []string, pgx.CopyFromSource) (int64, error) {
 	panic("fakeTx: CopyFrom not implemented")
 }
+
 func (f *fakeTx) SendBatch(context.Context, *pgx.Batch) pgx.BatchResults {
 	panic("fakeTx: SendBatch not implemented")
 }
@@ -170,9 +172,11 @@ func (f *fakeTx) LargeObjects() pgx.LargeObjects { panic("fakeTx: LargeObjects n
 func (f *fakeTx) Prepare(context.Context, string, string) (*pgconn.StatementDescription, error) {
 	panic("fakeTx: Prepare not implemented")
 }
+
 func (f *fakeTx) Query(context.Context, string, ...any) (pgx.Rows, error) {
 	panic("fakeTx: Query not implemented")
 }
+
 func (f *fakeTx) QueryRow(context.Context, string, ...any) pgx.Row {
 	panic("fakeTx: QueryRow not implemented")
 }

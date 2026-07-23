@@ -26,7 +26,7 @@ package consent
 // emitevent_test.go uses, since consent (a module) may depend on storekit
 // (platform) but not the other way around.
 //
-// Before this migration crmcontracts.WebhookPayloadConsentChanged did not
+// Before this migration crmcontracts.PublicEventConsentChanged did not
 // exist, and neither did consentChangedPayload, so this test failed to
 // compile (RED) until public-events.yaml gained the schema, `make gen`
 // regenerated the struct, and store.go grew the builder.
@@ -65,7 +65,7 @@ func TestConsentChangedPayload(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadConsentChanged
+	var decoded crmcontracts.PublicEventConsentChanged
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -89,9 +89,11 @@ func (f *fakeTx) Exec(_ context.Context, sql string, arguments ...any) (pgconn.C
 func (f *fakeTx) Begin(context.Context) (pgx.Tx, error) { panic("fakeTx: Begin not implemented") }
 func (f *fakeTx) Commit(context.Context) error          { panic("fakeTx: Commit not implemented") }
 func (f *fakeTx) Rollback(context.Context) error        { panic("fakeTx: Rollback not implemented") }
+
 func (f *fakeTx) CopyFrom(context.Context, pgx.Identifier, []string, pgx.CopyFromSource) (int64, error) {
 	panic("fakeTx: CopyFrom not implemented")
 }
+
 func (f *fakeTx) SendBatch(context.Context, *pgx.Batch) pgx.BatchResults {
 	panic("fakeTx: SendBatch not implemented")
 }
@@ -99,9 +101,11 @@ func (f *fakeTx) LargeObjects() pgx.LargeObjects { panic("fakeTx: LargeObjects n
 func (f *fakeTx) Prepare(context.Context, string, string) (*pgconn.StatementDescription, error) {
 	panic("fakeTx: Prepare not implemented")
 }
+
 func (f *fakeTx) Query(context.Context, string, ...any) (pgx.Rows, error) {
 	panic("fakeTx: Query not implemented")
 }
+
 func (f *fakeTx) QueryRow(context.Context, string, ...any) pgx.Row {
 	panic("fakeTx: QueryRow not implemented")
 }

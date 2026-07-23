@@ -18,7 +18,7 @@ package deals
 // TestDealStageChangedEmitsTypedPayload (webhooks Task 5a-i) and the offer
 // family's TestOfferSentEmitsTypedPayload (Task 5a-ii).
 //
-// Before this migration crmcontracts.WebhookPayloadPipelineCreated/
+// Before this migration crmcontracts.PublicEventPipelineCreated/
 // StageCreated/StageUpdated did not exist and none of the three builder
 // functions existed, so this test failed to compile (RED) until
 // public-events.yaml gained the schemas, `make gen` regenerated the
@@ -56,7 +56,7 @@ func TestPipelineCreatedEmitsTypedPayload(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadPipelineCreated
+	var decoded crmcontracts.PublicEventPipelineCreated
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -74,7 +74,7 @@ func TestStageCreatedEmitsTypedPayload(t *testing.T) {
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	var decoded crmcontracts.WebhookPayloadStageCreated
+	var decoded crmcontracts.PublicEventStageCreated
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }
@@ -99,7 +99,7 @@ func TestStageUpdatedEmitsTypedPayload(t *testing.T) {
 	require.NotContains(t, string(raw), `"semantic"`)
 	require.NotContains(t, string(raw), `"win_probability"`)
 
-	var decoded crmcontracts.WebhookPayloadStageUpdated
+	var decoded crmcontracts.PublicEventStageUpdated
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Equal(t, payload, decoded)
 }

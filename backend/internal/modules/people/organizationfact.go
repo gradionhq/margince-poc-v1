@@ -242,7 +242,7 @@ func (s *Store) ApplyDeepReadTx(ctx context.Context, tx pgx.Tx, in DeepReadPropo
 	if err != nil {
 		return fmt.Errorf("audit deepread apply: %w", err)
 	}
-	if err := storekit.EmitEvent(ctx, tx, auditID, in.OrganizationID.UUID, crmcontracts.WebhookPayloadOrganizationUpdated{
+	if err := storekit.EmitEvent(ctx, tx, auditID, in.OrganizationID.UUID, crmcontracts.PublicEventOrganizationUpdated{
 		ChangedFields: map[string]any{
 			eventKeyDelta:  map[string]any{auditKeyFields: appliedFields, auditKeyFacts: appliedFacts},
 			auditKeySource: companySourceSiteRead, auditKeySourceURL: in.SourceURL,

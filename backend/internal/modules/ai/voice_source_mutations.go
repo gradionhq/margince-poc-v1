@@ -24,8 +24,9 @@ import (
 // whole corpus cleared). sourceID/origin/register are nil on the clear
 // site, which has no single touched source.
 func voiceCorpusChangedPayload(profileID ids.UUID, sourceID *ids.UUID, action string, origin, register *string,
-	wordDelta, sourceCount int, sourceHash string) crmcontracts.WebhookPayloadVoiceCorpusChanged {
-	payload := crmcontracts.WebhookPayloadVoiceCorpusChanged{
+	wordDelta, sourceCount int, sourceHash string,
+) crmcontracts.PublicEventVoiceCorpusChanged {
+	payload := crmcontracts.PublicEventVoiceCorpusChanged{
 		ProfileId:   openapi_types.UUID(profileID),
 		Action:      action,
 		Origin:      origin,
@@ -91,7 +92,8 @@ func (s *VoiceStore) updateVoiceSource(ctx context.Context, tx pgx.Tx, profileID
 	before, err := scanVoiceSource(tx.QueryRow(ctx, storekit.SQLf(
 		`SELECT %s FROM voice_corpus_source
 			 WHERE id = $1 AND voice_profile_id = $2 AND archived_at IS NULL`,
-		voiceSourceColumns), sourceID, profileID))
+		voiceSourceColumns,
+	), sourceID, profileID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return VoiceCorpusSource{}, CorpusSummary{}, apperrors.ErrNotFound
 	}

@@ -208,8 +208,8 @@ func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.Nor
 // capture ingestion path — the one emit site (of the event's two) that
 // names an originating source system; the direct-log path
 // (activities/activity.go) sets no fields but kind.
-func activityCaptureEventPayload(kind, sourceSystem string) crmcontracts.WebhookPayloadActivityCaptured {
-	return crmcontracts.WebhookPayloadActivityCaptured{Kind: kind, SourceSystem: &sourceSystem}
+func activityCaptureEventPayload(kind, sourceSystem string) crmcontracts.PublicEventActivityCaptured {
+	return crmcontracts.PublicEventActivityCaptured{Kind: kind, SourceSystem: &sourceSystem}
 }
 
 // emitReply is CAP-FORMULA-1: an INBOUND message in a thread we previously
@@ -255,8 +255,8 @@ func (s *Sink) emitReply(ctx context.Context, tx pgx.Tx, auditID ids.UUID, id id
 // engagementReplyPayload builds the engagement.reply event — the reply's
 // contact_id is carried only when the counterparty already resolves to a
 // known person (absent, not null, otherwise).
-func engagementReplyPayload(matched ids.UUID, occurredAt time.Time, idempotencyKey string, contactID *ids.PersonID) crmcontracts.WebhookPayloadEngagementReply {
-	payload := crmcontracts.WebhookPayloadEngagementReply{
+func engagementReplyPayload(matched ids.UUID, occurredAt time.Time, idempotencyKey string, contactID *ids.PersonID) crmcontracts.PublicEventEngagementReply {
+	payload := crmcontracts.PublicEventEngagementReply{
 		MatchedOutboundActivityId: openapi_types.UUID(matched),
 		Channel:                   "email",
 		OccurredAt:                occurredAt,
@@ -333,8 +333,8 @@ func (s *Sink) captureLead(ctx context.Context, tx pgx.Tx, rec connector.Normali
 // capture auto-create path — the one emit site (of the event's two)
 // that names an originating source system; the direct-create path
 // (people/lead.go) sets no fields at all.
-func leadCreatedCapturePayload(sourceSystem string) crmcontracts.WebhookPayloadLeadCreated {
-	return crmcontracts.WebhookPayloadLeadCreated{SourceSystem: &sourceSystem}
+func leadCreatedCapturePayload(sourceSystem string) crmcontracts.PublicEventLeadCreated {
+	return crmcontracts.PublicEventLeadCreated{SourceSystem: &sourceSystem}
 }
 
 func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields ActivityFields) (ids.ActivityID, bool, error) {

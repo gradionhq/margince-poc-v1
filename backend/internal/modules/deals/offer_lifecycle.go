@@ -101,8 +101,8 @@ func (s *Store) SendOffer(ctx context.Context, id ids.OfferID, ifVersion *int64)
 // maps SendOffer's local values onto the published schema, so a future
 // field rename shows up here (and at its call site) rather than at a
 // map literal that drifts silently from the schema.
-func offerSentPayload(current crmcontracts.Offer, rate string) crmcontracts.WebhookPayloadOfferSent {
-	return crmcontracts.WebhookPayloadOfferSent{
+func offerSentPayload(current crmcontracts.Offer, rate string) crmcontracts.PublicEventOfferSent {
+	return crmcontracts.PublicEventOfferSent{
 		OfferId:      current.Id,
 		DealId:       current.DealId,
 		Revision:     current.Revision,
@@ -184,13 +184,13 @@ func (s *Store) AcceptOffer(ctx context.Context, id ids.OfferID, ifVersion *int6
 		if err != nil {
 			return fmt.Errorf("audit offer accept: %w", err)
 		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.WebhookPayloadOfferAccepted{
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventOfferAccepted{
 			OfferId: current.Id, DealId: current.DealId, Revision: current.Revision,
 			GrossMinor: current.GrossMinor,
 		}); err != nil {
 			return fmt.Errorf("emit offer.accepted: %w", err)
 		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, dealID.UUID, crmcontracts.WebhookPayloadDealUpdated{
+		if err := storekit.EmitEvent(ctx, tx, auditID, dealID.UUID, crmcontracts.PublicEventDealUpdated{
 			ChangedFields: map[string]any{"amount_minor": current.GrossMinor, "currency": current.Currency},
 		}); err != nil {
 			return fmt.Errorf("emit paired deal.updated: %w", err)
@@ -271,7 +271,7 @@ func (s *Store) RejectOffer(ctx context.Context, id ids.OfferID, reason *string,
 		if err != nil {
 			return fmt.Errorf("audit offer reject: %w", err)
 		}
-		payload := crmcontracts.WebhookPayloadOfferRejected{
+		payload := crmcontracts.PublicEventOfferRejected{
 			OfferId: current.Id, DealId: current.DealId, Revision: current.Revision,
 		}
 		if reason != nil {
@@ -338,13 +338,13 @@ func (s *Store) RegenerateOffer(ctx context.Context, id ids.OfferID) (crmcontrac
 		if err != nil {
 			return fmt.Errorf("audit offer regenerate: %w", err)
 		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.WebhookPayloadOfferSuperseded{
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventOfferSuperseded{
 			OfferId: current.Id, DealId: current.DealId,
 			FromRevision: current.Revision, ToRevision: nextRevision,
 		}); err != nil {
 			return fmt.Errorf("emit offer.superseded: %w", err)
 		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, newID.UUID, crmcontracts.WebhookPayloadOfferCreated{
+		if err := storekit.EmitEvent(ctx, tx, auditID, newID.UUID, crmcontracts.PublicEventOfferCreated{
 			OfferId: openapi_types.UUID(newID.UUID), DealId: current.DealId, Revision: nextRevision,
 			Currency: current.Currency, Source: current.Source, CapturedBy: by,
 		}); err != nil {

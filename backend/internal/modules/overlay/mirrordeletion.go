@@ -27,8 +27,8 @@ import (
 // subject travels separately (del.ObjectClass/id, passed to
 // storekit.EmitEventForEntity), since this event's entity is dynamic (the
 // runtime object class of the purged record).
-func mirrorDeletedPayload(objectClass, externalID string, deletedAt time.Time) crmcontracts.WebhookPayloadMirrorDeleted {
-	return crmcontracts.WebhookPayloadMirrorDeleted{
+func mirrorDeletedPayload(objectClass, externalID string, deletedAt time.Time) crmcontracts.PublicEventMirrorDeleted {
+	return crmcontracts.PublicEventMirrorDeleted{
 		ObjectClass: objectClass,
 		ExternalId:  externalID,
 		DeletedAt:   deletedAt,
