@@ -135,7 +135,8 @@ func TestStandingIMAPConnectRefusals(t *testing.T) {
 }
 
 func TestStandingIMAPConnectFailureMapping(t *testing.T) {
-	authed := imapConnectCtx(t, principal.ScopeRead)
+	// A realistic signed-in human session carries no passport scopes.
+	authed := imapConnectCtx(t)
 	creds := imapConnectBody{Imap: &imapCredsBody{
 		Host: "mail.example", Port: 993, Username: "a@b.example", Secret: "s",
 	}}

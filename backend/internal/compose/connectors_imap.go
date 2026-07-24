@@ -44,14 +44,15 @@ func (h connectorHandlers) connectIMAP(w http.ResponseWriter, r *http.Request) {
 	// A cookie-session human carries RBAC (Permissions/SeatType) but no
 	// passport Scopes — those are an agent concept (principal.go). The connector
 	// authority model (the probe and Registry.Connect) is scope-based, so the
-	// granting human must be given the connector's read scope explicitly, just
-	// as the OAuth callback does for gmail/graph (connectors.go). Without this a
-	// real signed-in human is refused for lack of a scope no session ever holds.
-	// The endpoint is human-only and reached only past the 401 check above, so a
-	// human connecting their own mailbox is, by construction, authorized to
-	// grant read; the dial itself stays SSRF-guarded by netguard, not by scope.
+	// granting human must be given the connector's declared scopes explicitly,
+	// just as the OAuth callback does for gmail/graph (connectors.go). Without
+	// this a real signed-in human is refused for a scope no session ever holds.
+	// The scopes come from the descriptor so grant and requirement stay coupled
+	// at one source. The endpoint is human-only and reached only past the 401
+	// check above, so a human connecting their own mailbox is, by construction,
+	// authorized to grant them; the dial stays SSRF-guarded by netguard.
 	grantor := actor
-	grantor.Scopes = principal.NewScopeSet(principal.ScopeRead)
+	grantor.Scopes = principal.NewScopeSet(imap.NewStanding().Descriptor().Scopes...)
 	r = r.WithContext(principal.WithActor(r.Context(), grantor))
 	// The shared decoder bounds the body (1 MiB), rejects trailing/noncanonical
 	// input, and answers malformed JSON itself — so a decode failure is handled,
@@ -115,10 +116,14 @@ func (h connectorHandlers) connectIMAP(w http.ResponseWriter, r *http.Request) {
 func (h connectorHandlers) persistIMAPConnection(w http.ResponseWriter, r *http.Request, auth connector.Auth) {
 	if _, err := h.registry.Connect(r.Context(), providerIMAP, auth); err != nil {
 		if errors.Is(err, apperrors.ErrScopeExceeded) {
+			// Defense-in-depth: connectIMAP grants the descriptor's scopes from
+			// the human's authority, so a human cannot normally trip this. Kept
+			// as the persistence-invariant re-check; the message names the gap
+			// generically rather than blaming a session that in fact holds it.
 			httperr.Write(w, r, &httperr.DetailedError{
 				Status: http.StatusForbidden,
 				Code:   "scope_exceeded",
-				Detail: "Connecting a mailbox needs the read scope your session does not hold.",
+				Detail: "This mailbox connection requires a capture scope that was not granted.",
 			})
 			return
 		}
