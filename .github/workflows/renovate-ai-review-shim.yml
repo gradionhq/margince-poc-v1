@@ -59,7 +59,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
-          gh pr list --repo "$REPO" --author app/renovate --state open \
+          gh pr list --repo "$REPO" --app renovate --state open \
             --json number,headRefOid --jq '.[] | "\(.number) \(.headRefOid)"' |
           while read -r num sha; do
             echo "Posting CodeRabbit status on #${num} (${sha})"
