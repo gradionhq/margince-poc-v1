@@ -35,6 +35,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // webhookMaxBody caps the request body the receiver reads: HubSpot batches are
@@ -67,11 +68,25 @@ type refetchEnqueuer interface {
 	Enqueue(ctx context.Context, args river.JobArgs, opts *river.InsertOpts) error
 }
 
+// echoClassifier classifies one inbound propertyChange against the our-write
+// ledger (OVA-DDL-6). overlay.WriteLedger.Classify satisfies it; a seam so the
+// receiver's suppression decision is unit-testable without Postgres.
+type echoClassifier func(ctx context.Context, objectClass, externalID, property, value string) (overlay.Classification, error)
+
+// haltChecker reports whether a workspace's mirror is halted (a ledger collision
+// tripped the fail-safe). overlay.WriteLedger.Halted satisfies it.
+type haltChecker func(ctx context.Context) (bool, error)
+
 type hubspotWebhookHandler struct {
 	bind         portalBinder
 	enqueue      refetchEnqueuer
 	clientSecret string
 	log          *slog.Logger
+	// classify and halted are the echo-suppression ledger seams (OVA-DDL-6).
+	// Both nil when no ledger is wired — the receiver then skips suppression and
+	// the halt gate (the receiver still functions; it just cannot drop echoes).
+	classify echoClassifier
+	halted   haltChecker
 }
 
 // WithOverlayWebhook mounts POST /webhooks/hubspot. An empty client secret (or
@@ -81,6 +96,7 @@ func WithOverlayWebhook(inserter *jobs.Runner, clientSecret string) Option {
 		if clientSecret == "" || inserter == nil {
 			return
 		}
+		ledger := overlay.NewWriteLedger(pool)
 		s.overlayWebhook = &hubspotWebhookHandler{
 			bind: func(ctx context.Context, incumbent, portalID string) (ids.WorkspaceID, error) {
 				return overlay.WorkspaceForPortal(ctx, pool, incumbent, portalID)
@@ -88,6 +104,8 @@ func WithOverlayWebhook(inserter *jobs.Runner, clientSecret string) Option {
 			enqueue:      inserter,
 			clientSecret: clientSecret,
 			log:          s.log,
+			classify:     ledger.Classify,
+			halted:       ledger.Halted,
 		}
 	}
 }
@@ -140,9 +158,9 @@ func (h *hubspotWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 	// cross-tenant write; an unmapped subscription type is likewise dropped.
 	// A per-event enqueue failure answers 500 so HubSpot redelivers (the
 	// enqueue is unique-by-args, so a redelivery cannot double-run).
-	portalWS := map[string]string{} // portalId → workspace id ("" = unbound)
+	cache := map[string]portalResolution{}
 	for _, ev := range events {
-		wsID, ok, err := h.resolveWorkspace(r, portalWS, ev)
+		wsID, ok, err := h.resolveWorkspace(r, cache, ev)
 		if err != nil {
 			// A transient binding failure (DB/transaction) is NOT an unbound
 			// portal: answer 500 so HubSpot redelivers rather than dropping the
@@ -156,13 +174,54 @@ func (h *hubspotWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		if !ok {
 			continue
 		}
+		// Every ledger read/write is workspace-scoped (RLS): bind the resolved
+		// tenant onto the context for the halt gate and the echo classification.
+		wsCtx := principal.WithWorkspaceID(r.Context(), wsID.UUID)
+		// Halt gate (OVA-AC-3 fail-safe): a mirror halted by a prior ledger
+		// collision refuses further signals until an operator clears it, rather
+		// than risk mis-suppressing on a mirror we no longer trust.
+		if h.halted != nil {
+			halted, err := h.halted(wsCtx)
+			if err != nil {
+				h.log.ErrorContext(wsCtx, "overlay webhook: reading the mirror-halt flag", "err", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			if halted {
+				h.log.WarnContext(wsCtx, "overlay webhook: mirror is halted (ledger collision), ignoring the signal",
+					"workspace", wsID.String())
+				continue
+			}
+		}
 		class, ok := hubspot.ObjectClassForSubscription(ev.SubscriptionType)
 		if !ok {
 			continue
 		}
-		if err := h.enqueueRefetch(r, wsID, class, ev.ObjectIDString()); err != nil {
+		// Echo suppression (OVA-DDL-6): a propertyChange carrying a property we
+		// just wrote (same value, inside the open window) is our own echo — drop
+		// it so the overlay does not re-fetch its own write. A collision halts
+		// the mirror (inside Classify) and is never silently suppressed.
+		if h.classify != nil && ev.PropertyName != "" {
+			switch verdict, err := h.classify(wsCtx, class, ev.ObjectIDString(), ev.PropertyName, ev.PropertyValue); {
+			case err != nil:
+				h.log.ErrorContext(wsCtx, "overlay webhook: classifying against the write ledger",
+					"workspace", wsID.String(), "id", ev.ObjectIDString(), "property", ev.PropertyName, "err", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			case verdict == overlay.ClassEcho:
+				continue // our own write-back echoing — suppress, no re-fetch
+			case verdict == overlay.ClassCollision:
+				// The mirror was just halted inside Classify. Do NOT suppress and
+				// do NOT re-fetch: the next iteration's halt gate skips the rest;
+				// an operator must review before sync resumes.
+				h.log.ErrorContext(wsCtx, "overlay webhook: write-ledger value-hash collision — mirror halted",
+					"workspace", wsID.String(), "id", ev.ObjectIDString(), "property", ev.PropertyName)
+				continue
+			}
+		}
+		if err := h.enqueueRefetch(r, wsID.String(), class, ev.ObjectIDString()); err != nil {
 			h.log.ErrorContext(r.Context(), "overlay webhook: enqueueing re-fetch",
-				"workspace", wsID, "class", class, "id", ev.ObjectIDString(), "err", err)
+				"workspace", wsID.String(), "class", class, "id", ev.ObjectIDString(), "err", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -170,32 +229,40 @@ func (h *hubspotWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// portalResolution is the per-request cache entry for one portal id: the
+// resolved workspace and whether the portal is bound at all (an unbound portal
+// is cached so a batch of its events costs one fleet-walk, never re-probed).
+type portalResolution struct {
+	ws    ids.WorkspaceID
+	bound bool
+}
+
 // resolveWorkspace returns the workspace bound to the event's portal (via the
 // per-request cache). ok=false with a nil error is a genuinely unbound portal
 // (fail-closed — skip, ingest nothing); a non-nil error is a transient lookup
 // failure the caller turns into a 500 so the signal is redelivered rather than
 // lost. Only ErrNotFound is treated as unbound; every other error propagates.
-func (h *hubspotWebhookHandler) resolveWorkspace(r *http.Request, cache map[string]string, ev hubspot.WebhookEvent) (string, bool, error) {
+func (h *hubspotWebhookHandler) resolveWorkspace(r *http.Request, cache map[string]portalResolution, ev hubspot.WebhookEvent) (ids.WorkspaceID, bool, error) {
 	portal := ev.PortalIDString()
-	if ws, seen := cache[portal]; seen {
-		return ws, ws != "", nil
+	if got, seen := cache[portal]; seen {
+		return got.ws, got.bound, nil
 	}
 	ws, err := h.bind(r.Context(), incumbentHubSpot, portal)
 	if err != nil {
 		if !errors.Is(err, apperrors.ErrNotFound) {
 			// Transient failure — do NOT cache it (a redelivery must re-probe)
 			// and do NOT treat it as unbound; propagate so the caller 500s.
-			return "", false, err
+			return ids.WorkspaceID{}, false, err
 		}
 		// A genuinely unbound portal: cache the miss so a batch of events for
 		// the same portal costs one fleet-walk, and never treat it as a tenant.
-		cache[portal] = ""
+		cache[portal] = portalResolution{}
 		h.log.WarnContext(r.Context(), "overlay webhook: portal not bound to an active connection, ignoring",
 			"portal", portal)
-		return "", false, nil
+		return ids.WorkspaceID{}, false, nil
 	}
-	cache[portal] = ws.String()
-	return ws.String(), true, nil
+	cache[portal] = portalResolution{ws: ws, bound: true}
+	return ws, true, nil
 }
 
 // enqueueRefetch schedules the coalesced re-fetch job.

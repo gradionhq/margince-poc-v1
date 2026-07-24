@@ -61,6 +61,20 @@ type Record struct {
 	OwnerExternalID string
 }
 
+// WriteResult is what a write through the Incumbent seam (Create/Update)
+// returns: the incumbent's post-write state mapped back to canonical (Record,
+// which the mirror ingests) plus the echo-suppression ledger's producer inputs
+// (OVA-DDL-6). IncumbentClass is the incumbent object class the write targeted
+// (e.g. "contacts") and WrittenProps maps each incumbent property actually
+// written to its canonicalized value — keyed exactly as an echo webhook for the
+// same record will present them, so the receiver can recognize our own write.
+// WrittenProps is empty when a patch of only read-only fields wrote nothing.
+type WriteResult struct {
+	Record         Record
+	IncumbentClass string
+	WrittenProps   map[string]string
+}
+
 // Deletion is one incumbent-CRM record reported deleted or archived
 // through the Incumbent seam. Continuous sync purges its mirrored cache
 // row — with its association edges and visibility projection — on
@@ -149,11 +163,12 @@ type Incumbent interface {
 	// Create writes a new record of canonicalClass to the incumbent from the
 	// canonical field bag (the JSON-decoded contract the datasource seam
 	// carries) and returns the incumbent's stored state mapped back to
-	// canonical — the state the mirror ingests. A field with no writable
-	// incumbent counterpart (a read-only/derived field, OVA-MAP-W) is not
-	// written; a create whose every field is read-only is an error, never a
-	// blank incumbent record.
-	Create(ctx context.Context, canonicalClass string, fields map[string]any) (Record, error)
+	// canonical — the state the mirror ingests — together with the incumbent
+	// properties actually written (the echo-suppression ledger's producer
+	// inputs, OVA-DDL-6). A field with no writable incumbent counterpart (a
+	// read-only/derived field, OVA-MAP-W) is not written; a create whose every
+	// field is read-only is an error, never a blank incumbent record.
+	Create(ctx context.Context, canonicalClass string, fields map[string]any) (WriteResult, error)
 	// Update applies a canonical patch to an existing record after a
 	// stored-baseline drift check (design.md §4.5, AC-OV-4): if the incumbent's
 	// current record is newer than baseline — the mirror's lost-update baseline
@@ -161,7 +176,7 @@ type Incumbent interface {
 	// apperrors.ErrVersionSkew and nothing is written (incumbent-wins, never a
 	// blind overwrite). externalID is the mirror id (namespaced for an activity,
 	// OVA-MAP-7). A patch of only read-only fields writes nothing and returns
-	// the current record unchanged.
+	// the current record unchanged with no written properties.
 	//
 	// The V1 guarantee is BEST-EFFORT, not atomic: HubSpot v3 has no
 	// caller-supplied If-Match/ETag primitive, so the drift check is a
@@ -169,7 +184,7 @@ type Incumbent interface {
 	// inside that window can still be overwritten. A true compare-and-write
 	// waits on the incumbent's own precondition primitive (SF/Dynamics ETag,
 	// S-E19.3/S-E20.3) — a documented fast-follow, not a regression here.
-	Update(ctx context.Context, canonicalClass, externalID string, fields map[string]any, baseline time.Time) (Record, error)
+	Update(ctx context.Context, canonicalClass, externalID string, fields map[string]any, baseline time.Time) (WriteResult, error)
 	// Archive removes a record from the incumbent via its own archive/delete,
 	// after the SAME stored-baseline drift check Update applies: archiving from
 	// a stale mirror must not delete a record a third party changed since we

@@ -27,24 +27,30 @@ import (
 // incumbent object — that is an honest error, never a POST of a blank record.
 //
 //craft:ignore naked-any fields is the JSON-decoded canonical bag from the datasource seam; the any is inherent to the decoded shape
-func (a *Adapter) Create(ctx context.Context, canonicalClass string, fields map[string]any) (overlay.Record, error) {
+func (a *Adapter) Create(ctx context.Context, canonicalClass string, fields map[string]any) (overlay.WriteResult, error) {
 	mw, err := mapWrite(canonicalClass, fields, false)
 	if err != nil {
-		return overlay.Record{}, err
+		return overlay.WriteResult{}, err
 	}
 	if len(mw.Props) == 0 {
-		return overlay.Record{}, fmt.Errorf("overlay: cannot create a %s in HubSpot — every supplied field is read-only or derived (nothing to write)", canonicalClass)
+		return overlay.WriteResult{}, fmt.Errorf("overlay: cannot create a %s in HubSpot — every supplied field is read-only or derived (nothing to write)", canonicalClass)
 	}
 	created, err := a.client.CreateObject(ctx, mw.ObjectClass, mw.Props)
 	if err != nil {
-		return overlay.Record{}, err
+		return overlay.WriteResult{}, err
 	}
 	// Re-read the created record through the SAME path a sync read uses
 	// (a.Get requests the baseline watermark property), so the mirrored
 	// record's ModifiedAt is the object-specific baseline (lastmodifieddate /
 	// hs_lastmodifieddate / hs_timestamp) the drift check compares against —
 	// never HubSpot's top-level updatedAt, which can diverge from it.
-	return a.Get(ctx, mw.ObjectClass, mirrorActivityExternalID(mw.ObjectClass, created.ID))
+	rec, err := a.Get(ctx, mw.ObjectClass, mirrorActivityExternalID(mw.ObjectClass, created.ID))
+	if err != nil {
+		return overlay.WriteResult{}, err
+	}
+	// WrittenProps carries the exact HubSpot properties+values written so the
+	// echo-suppression ledger (OVA-DDL-6) recognizes this write's echo webhook.
+	return overlay.WriteResult{Record: rec, IncumbentClass: mw.ObjectClass, WrittenProps: mw.Props}, nil
 }
 
 // Update applies a canonical patch to an existing record after the
@@ -57,10 +63,10 @@ func (a *Adapter) Create(ctx context.Context, canonicalClass string, fields map[
 // OVA-MAP-7).
 //
 //craft:ignore naked-any fields is the JSON-decoded canonical patch from the datasource seam; the any is inherent to the decoded shape
-func (a *Adapter) Update(ctx context.Context, canonicalClass, externalID string, fields map[string]any, baseline time.Time) (overlay.Record, error) {
+func (a *Adapter) Update(ctx context.Context, canonicalClass, externalID string, fields map[string]any, baseline time.Time) (overlay.WriteResult, error) {
 	mw, err := mapWrite(canonicalClass, fields, true)
 	if err != nil {
-		return overlay.Record{}, err
+		return overlay.WriteResult{}, err
 	}
 	// An activity's engagement class is fixed by its mirror id's "<class>:"
 	// prefix (OVA-MAP-7); a patch that carried a changed/inconsistent kind
@@ -69,27 +75,36 @@ func (a *Adapter) Update(ctx context.Context, canonicalClass, externalID string,
 	if canonicalClass == activityTarget {
 		want, err := incumbentClassFor(canonicalClass, externalID)
 		if err != nil {
-			return overlay.Record{}, err
+			return overlay.WriteResult{}, err
 		}
 		if mw.ObjectClass != want {
-			return overlay.Record{}, fmt.Errorf("overlay: activity %s is a %s; its kind cannot be changed to a %s on update", externalID, want, mw.ObjectClass)
+			return overlay.WriteResult{}, fmt.Errorf("overlay: activity %s is a %s; its kind cannot be changed to a %s on update", externalID, want, mw.ObjectClass)
 		}
 	}
 	if len(mw.Props) == 0 {
-		// A read-only-only patch writes nothing; return the current record.
-		// No drift check — a no-op cannot lose a concurrent edit.
-		return a.Get(ctx, mw.ObjectClass, externalID)
+		// A read-only-only patch writes nothing; return the current record with
+		// no written properties. No drift check — a no-op cannot lose a
+		// concurrent edit, and no ledger entry is opened (nothing was written).
+		rec, err := a.Get(ctx, mw.ObjectClass, externalID)
+		if err != nil {
+			return overlay.WriteResult{}, err
+		}
+		return overlay.WriteResult{Record: rec, IncumbentClass: mw.ObjectClass}, nil
 	}
 	if err := a.driftCheck(ctx, mw.ObjectClass, externalID, baseline); err != nil {
-		return overlay.Record{}, err
+		return overlay.WriteResult{}, err
 	}
 	if _, err := a.client.UpdateObject(ctx, mw.ObjectClass, incumbentActivityID(mw.ObjectClass, externalID), mw.Props); err != nil {
-		return overlay.Record{}, err
+		return overlay.WriteResult{}, err
 	}
 	// Re-read through the sync-read path so the mirrored ModifiedAt is the
 	// baseline watermark property, consistent with reads and the drift check
 	// (see Create's note).
-	return a.Get(ctx, mw.ObjectClass, externalID)
+	rec, err := a.Get(ctx, mw.ObjectClass, externalID)
+	if err != nil {
+		return overlay.WriteResult{}, err
+	}
+	return overlay.WriteResult{Record: rec, IncumbentClass: mw.ObjectClass, WrittenProps: mw.Props}, nil
 }
 
 // Archive removes a record from HubSpot via its own archive/delete, after the

@@ -36,12 +36,15 @@ import (
 // the test configures — so the Provider's incumbent-first contract can be
 // asserted against a known ack or reject.
 type writeBackIncumbent struct {
-	createRec  Record
-	createErr  error
-	updateRec  Record
-	updateErr  error
-	archiveErr error
-	archived   bool
+	createRec   Record
+	createErr   error
+	createProps map[string]string // WrittenProps the Create reports (echo-ledger producer input)
+	updateRec   Record
+	updateErr   error
+	updateProps map[string]string // WrittenProps the Update reports
+	incClass    string            // IncumbentClass the write reports (defaults to "contacts" when unset)
+	archiveErr  error
+	archived    bool
 }
 
 func (w *writeBackIncumbent) Name() string { return "writeback-double" }
@@ -70,12 +73,25 @@ func (w *writeBackIncumbent) OwnerEmail(context.Context, string) (string, error)
 }
 func (w *writeBackIncumbent) Owners(context.Context) ([]OwnerRef, error) { return nil, nil }
 
-func (w *writeBackIncumbent) Create(context.Context, string, map[string]any) (Record, error) {
-	return w.createRec, w.createErr
+func (w *writeBackIncumbent) Create(context.Context, string, map[string]any) (WriteResult, error) {
+	if w.createErr != nil {
+		return WriteResult{}, w.createErr
+	}
+	return WriteResult{Record: w.createRec, IncumbentClass: w.incumbentClass(), WrittenProps: w.createProps}, nil
 }
 
-func (w *writeBackIncumbent) Update(context.Context, string, string, map[string]any, time.Time) (Record, error) {
-	return w.updateRec, w.updateErr
+func (w *writeBackIncumbent) Update(context.Context, string, string, map[string]any, time.Time) (WriteResult, error) {
+	if w.updateErr != nil {
+		return WriteResult{}, w.updateErr
+	}
+	return WriteResult{Record: w.updateRec, IncumbentClass: w.incumbentClass(), WrittenProps: w.updateProps}, nil
+}
+
+func (w *writeBackIncumbent) incumbentClass() string {
+	if w.incClass != "" {
+		return w.incClass
+	}
+	return "contacts"
 }
 
 func (w *writeBackIncumbent) Archive(context.Context, string, string, time.Time) error {
@@ -170,6 +186,47 @@ func TestProviderCreateMirrorsIncumbentResult(t *testing.T) {
 	// A mirror read is never authoritative — the incumbent stays the SoR.
 	if rec.Freshness.Authoritative {
 		t.Error("a mirrored write result must not claim incumbent authority (T2, AC-OV-5)")
+	}
+}
+
+// TestProviderWriteOpensEchoLedgerEntries (OVA-DDL-6 producer): a successful
+// write-back opens an our-write ledger entry per property written, keyed
+// exactly as the echo webhook will present it — so the entry the receiver later
+// classifies against actually exists. Proves the producer half end to end.
+func TestProviderWriteOpensEchoLedgerEntries(t *testing.T) {
+	ctx, pool, _ := testWorkspaceCtx(t)
+	ms := NewMirrorStore(pool, noOwnerEmails{})
+	mapActorToOwner(ctx, t, ms)
+	seedActiveConnection(ctx, t, pool)
+
+	inc := &writeBackIncumbent{
+		createRec: Record{
+			ObjectClass:     "person",
+			ExternalID:      "555",
+			Fields:          map[string]any{"first_name": "Ada"},
+			ModifiedAt:      time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			OwnerExternalID: writebackOwner,
+		},
+		// The incumbent reports the HubSpot properties it wrote — the ledger keys
+		// on exactly these, as the echo webhook will present them.
+		createProps: map[string]string{"firstname": "Ada"},
+		incClass:    "contacts",
+	}
+	ledger := NewWriteLedger(pool)
+	p := providerFor(ms, inc)
+	p.SetWriteLedger(ledger)
+
+	if _, err := p.Create(ctx, datasource.CreateInput{
+		EntityType: datasource.EntityPerson,
+		Fields:     map[string]any{"first_name": "Ada"},
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// The write's echo — a propertyChange for contacts/555.firstname="Ada" — now
+	// classifies as our own write, exactly what suppresses the sync loop.
+	if c, err := ledger.Classify(ctx, "contacts", "555", "firstname", "Ada"); err != nil || c != ClassEcho {
+		t.Errorf("after write, the echo of firstname=Ada must classify ClassEcho, got (%v, %v)", c, err)
 	}
 }
 

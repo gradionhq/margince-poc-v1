@@ -1,0 +1,35 @@
+-- 20260724120000_overlay_write_ledger_activate (OVA-DDL-6 / OVA-AC-3): wire the
+-- reserved overlay_write_ledger for echo suppression, and add the mirror-halt
+-- flag the value-hash collision guard raises.
+--
+-- The ledger stores, per property we wrote back, the SHA-256 value-hash
+-- (OVA-PARAM-4 — the fast index/identity of the written value) AND the
+-- canonicalized value itself. The value is required, not redundant: a hash
+-- collision is by definition two DIFFERENT values sharing one hash, so hash-only
+-- storage cannot detect one — the stored value is what lets the consumer confirm
+-- an inbound value that HASHES like our write actually EQUALS it (echo) versus
+-- differs (a collision ⇒ flag + halt, never a silent mis-suppression). It is a
+-- 24h-bounded (OVA-PARAM-3), workspace-scoped duplicate of already-mirrored
+-- same-tenant data — no new PII category — purged with the mirror on teardown.
+ALTER TABLE overlay_write_ledger ADD COLUMN IF NOT EXISTS value_canonical text NOT NULL DEFAULT '';
+
+-- overlay_mirror_halt is the fail-safe the collision guard sets (OVA-AC-3 /
+-- UC-E18-02 F2): a detected value-hash collision flags the workspace's mirror as
+-- halted, and the webhook receiver refuses to process further signals for it
+-- until an operator clears the row — never silently mis-suppressing a real
+-- external change. One row per workspace (the halt is workspace-wide).
+CREATE TABLE overlay_mirror_halt (
+  workspace_id uuid PRIMARY KEY REFERENCES workspace(id) ON DELETE RESTRICT,
+  reason text NOT NULL,
+  detected_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE overlay_mirror_halt ENABLE ROW LEVEL SECURITY;
+ALTER TABLE overlay_mirror_halt FORCE ROW LEVEL SECURITY;
+CREATE POLICY overlay_mirror_halt_tenant_isolation ON overlay_mirror_halt
+  USING (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid)
+  WITH CHECK (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid);
+
+-- The consumer looks entries up by their full identity within the open window;
+-- opened_at supports the window filter (OVA-PARAM-3) and eventual pruning.
+CREATE INDEX IF NOT EXISTS idx_overlay_write_ledger_opened_at
+  ON overlay_write_ledger (workspace_id, opened_at);

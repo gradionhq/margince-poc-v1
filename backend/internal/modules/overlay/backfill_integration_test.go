@@ -75,12 +75,12 @@ func (p *pagingCompanies) OwnerEmail(_ context.Context, _ string) (string, error
 }
 
 func (p *pagingCompanies) Owners(context.Context) ([]OwnerRef, error) { return nil, nil }
-func (p *pagingCompanies) Create(context.Context, string, map[string]any) (Record, error) {
-	return Record{}, fmt.Errorf("pagingCompanies: Create is not fixtured")
+func (p *pagingCompanies) Create(context.Context, string, map[string]any) (WriteResult, error) {
+	return WriteResult{}, fmt.Errorf("pagingCompanies: Create is not fixtured")
 }
 
-func (p *pagingCompanies) Update(context.Context, string, string, map[string]any, time.Time) (Record, error) {
-	return Record{}, fmt.Errorf("pagingCompanies: Update is not fixtured")
+func (p *pagingCompanies) Update(context.Context, string, string, map[string]any, time.Time) (WriteResult, error) {
+	return WriteResult{}, fmt.Errorf("pagingCompanies: Update is not fixtured")
 }
 
 func (p *pagingCompanies) Archive(context.Context, string, string, time.Time) error {

@@ -89,12 +89,12 @@ func (s *sweptRecords) OwnerEmail(context.Context, string) (string, error) {
 }
 
 func (s *sweptRecords) Owners(context.Context) ([]OwnerRef, error) { return nil, nil }
-func (s *sweptRecords) Create(context.Context, string, map[string]any) (Record, error) {
-	return Record{}, fmt.Errorf("sweptRecords: Create is not fixtured")
+func (s *sweptRecords) Create(context.Context, string, map[string]any) (WriteResult, error) {
+	return WriteResult{}, fmt.Errorf("sweptRecords: Create is not fixtured")
 }
 
-func (s *sweptRecords) Update(context.Context, string, string, map[string]any, time.Time) (Record, error) {
-	return Record{}, fmt.Errorf("sweptRecords: Update is not fixtured")
+func (s *sweptRecords) Update(context.Context, string, string, map[string]any, time.Time) (WriteResult, error) {
+	return WriteResult{}, fmt.Errorf("sweptRecords: Update is not fixtured")
 }
 
 func (s *sweptRecords) Archive(context.Context, string, string, time.Time) error {

@@ -192,14 +192,17 @@ func (p *Provider) Create(ctx context.Context, in datasource.CreateInput) (datas
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
-	rec, err := inc.Create(ctx, string(in.EntityType), fields)
+	res, err := inc.Create(ctx, string(in.EntityType), fields)
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
-	if err := p.mirrorWriteResult(ctx, inc, rec); err != nil {
+	if err := p.mirrorWriteResult(ctx, inc, res.Record); err != nil {
 		return datasource.EntityRef{}, err
 	}
-	id, err := externalIDToUUID(rec.ExternalID)
+	if err := p.openWriteLedger(ctx, res); err != nil {
+		return datasource.EntityRef{}, err
+	}
+	id, err := externalIDToUUID(res.Record.ExternalID)
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
@@ -242,14 +245,31 @@ func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datas
 	if err := p.completeWritePatch(in.Ref.Type, fields, row); err != nil {
 		return datasource.EntityRef{}, err
 	}
-	rec, err := inc.Update(ctx, string(in.Ref.Type), externalID, fields, row.UpdatedAtBaseline)
+	res, err := inc.Update(ctx, string(in.Ref.Type), externalID, fields, row.UpdatedAtBaseline)
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
-	if err := p.mirrorWriteResult(ctx, inc, rec); err != nil {
+	if err := p.mirrorWriteResult(ctx, inc, res.Record); err != nil {
+		return datasource.EntityRef{}, err
+	}
+	if err := p.openWriteLedger(ctx, res); err != nil {
 		return datasource.EntityRef{}, err
 	}
 	return in.Ref, nil
+}
+
+// openWriteLedger records the echo-suppression ledger entries for a completed
+// write (OVA-DDL-6) — one per property the incumbent write actually sent, keyed
+// so the webhook receiver recognizes this write's own echo. It runs right after
+// mirrorWriteResult and is surfaced the same way: a failure returns to the
+// caller (it is a local write against the same pool the mirror ingest just used,
+// so a failure here signals the same local-store trouble). No ledger wired (the
+// write-verb unit tests) or a read-only-only write (no WrittenProps) is a no-op.
+func (p *Provider) openWriteLedger(ctx context.Context, res WriteResult) error {
+	if p.ledger == nil || len(res.WrittenProps) == 0 {
+		return nil
+	}
+	return p.ledger.OpenEntries(ctx, res.IncumbentClass, res.Record.ExternalID, res.WrittenProps)
 }
 
 // completeWritePatch fills in the cross-field context a partial patch needs to
