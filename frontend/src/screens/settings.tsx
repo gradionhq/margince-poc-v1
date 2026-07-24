@@ -59,6 +59,7 @@ import {
   CompanyContextCard,
   useCompanyContextCapabilities,
 } from "./company-context";
+import { CaptureExclusionsCard } from "./capture-exclusions";
 import { ConnectorsCard } from "./connectors";
 import { CreateAction, type CreateField, CreateRecordModal } from "./create";
 import { EditAction } from "./edit";
@@ -152,6 +153,7 @@ function tabContent(id: SettingsTabId): ReactNode {
       return (
         <>
           <ConnectorsCard />
+          <CaptureExclusionsCard />
           <WebhooksCard />
         </>
       );

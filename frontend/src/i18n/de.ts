@@ -1234,6 +1234,26 @@ export const de = {
   "connectors.imapLoginRejected":
     "Das Postfach hat diese Zugangsdaten abgelehnt. Prüfe Server, E-Mail und App-Passwort.",
   "connectors.imapUnreachable": "Der Mailserver konnte nicht erreicht werden.",
+
+  // Persönliche Mail-Ausschlüsse (RC-2, Task 8).
+  "exclusions.title": "Ausschlüsse für persönliche Mails",
+  "exclusions.sub":
+    "Bestimmte Mails vollständig aus deinem CRM heraushalten. Eine passende Nachricht erzeugt null CRM-Datensätze — nichts wird erfasst und dann versteckt, es wird schlicht nie erfasst.",
+  "exclusions.kind.senderDomain": "Mail von dieser Domain",
+  "exclusions.kind.recipientDomain": "Mail an diese Domain",
+  "exclusions.kind.label": "Mail mit diesem Label",
+  "exclusions.new": "Neue Regel",
+  "exclusions.none": "Noch keine Ausschlussregeln.",
+  "exclusions.modalTitle": "Ausschlussregel hinzufügen",
+  "exclusions.fieldKind": "Regeltyp",
+  "exclusions.value": "Wert",
+  "exclusions.add": "Hinzufügen",
+  "exclusions.alreadyPresent": "Diese Regel ist bereits in deiner Liste.",
+  "exclusions.remove": "Entfernen",
+  "exclusions.removeTitle": "Diese Regel entfernen?",
+  "exclusions.removeConfirm":
+    "Mails, die auf diese Regel passen, werden nicht mehr ausgeschlossen — neue Nachrichten werden wieder normal erfasst.",
+
   "ob.s4.googleVerifying": "Verbindung wird geprüft…",
   "ob.s4.googleDenied": "Du hast die Google-Einwilligung abgelehnt",
   "ob.s4.googleFailed": "Die Google-Verbindung wurde nicht abgeschlossen",
