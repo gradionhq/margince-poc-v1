@@ -894,10 +894,16 @@ Open work, roughly in priority order:
   will take the outbound signal from an authenticated provider label — Gmail
   `SENT` / IMAP `\Sent` — before honoring it as a bypass. Capture-audit
   minimization also moves to 2b.)
-  **Still open (contract-first-gated on ADR-0072):** 2b (the T1 gate with an
-  authenticated outbound signal + the pending ledger + deferred creation + the
-  `capture_counterparty_verdict` job + review queue + noise hide-then-redact +
-  capture-audit minimization), 3 (corroborated signature org-name promotion).
+  **2b is landing in slices.** Slice 1 (landed): **capture-audit minimization** —
+  a connector-captured activity's audit after-image is metadata-only (natural
+  key + kind + direction + timestamp), never the subject/body, which stay on the
+  activity row + raw_capture under their own retention (the "noise is not stored
+  in the append-only spine" hardening; human-authored activities keep their full
+  image).
+  **Still open (contract-first-gated on ADR-0072):** the rest of 2b — the T1 gate
+  with an authenticated outbound signal + the pending ledger + deferred creation
+  + the `capture_counterparty_verdict` job + review queue + noise
+  hide-then-redact — and 3 (corroborated signature org-name promotion).
 
 - **Site-read legal census — three known gaps (#162).** `FinishSiteRead`'s CAS
   guards only on `status = 'running'`, so a reclaimed-then-returning worker can

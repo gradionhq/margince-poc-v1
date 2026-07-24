@@ -294,6 +294,31 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 		}
 	})
 
+	t.Run("a captured activity's audit image is metadata-only, never the body", func(t *testing.T) {
+		// Capture-audit minimization (ADR-0072/A118): the connector-captured
+		// activity's audit after-image carries the natural key + kind + direction
+		// + timestamp, but NEVER the subject/body — the message content stays on
+		// the activity row and raw_capture under their own retention, off the
+		// append-only audit spine.
+		var hasBody, hasSubject, hasKind, hasSourceID bool
+		err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+			return tx.QueryRow(context.Background(), `
+				SELECT after ? 'body', after ? 'subject', after ? 'kind', after ? 'source_id'
+				FROM audit_log
+				WHERE entity_type = 'activity' AND action = 'create'
+				ORDER BY occurred_at LIMIT 1`).Scan(&hasBody, &hasSubject, &hasKind, &hasSourceID)
+		})
+		if err != nil {
+			t.Fatalf("reading the captured-activity audit image: %v", err)
+		}
+		if hasBody || hasSubject {
+			t.Fatalf("captured-activity audit after leaked content (body=%v subject=%v) — must be metadata-only", hasBody, hasSubject)
+		}
+		if !hasKind || !hasSourceID {
+			t.Fatal("captured-activity audit after must keep the metadata (kind, natural key)")
+		}
+	})
+
 	t.Run("the workspace's own domain creates nothing", func(t *testing.T) {
 		sync(t, email("carol@myco.example", "Carol Colleague", autoCreateOwner, "c1@myco.example", ""))
 		if n := countRows(t, e, `
