@@ -5,9 +5,13 @@ hydrate. For the mental model (the two SoR modes, the mirror-as-cache, fail-clos
 branch 1 does and doesn't do), read [explanation/overlay-augmentation.md](../explanation/overlay-augmentation.md)
 first.
 
-**Read + continuous sync only.** This connects a *read-side* overlay: HubSpot stays canonical, records
-flow into Margince's mirror. There is no write-back yet — every write verb against an overlay-mode
-workspace answers `unsupported_by_sor`.
+**Read, continuous sync, and write-back.** HubSpot stays canonical; records flow into Margince's
+mirror, and a write to an overlay-mode record is applied to HubSpot **first**, then re-mirrored
+(incumbent-first, with a stored-baseline drift check). The mapped write verbs —
+create/update/archive on person, organization, and deal — are live; `advance-deal`, `merge`, and
+`promote-lead` still answer `unsupported_by_sor` (not yet wired for overlay). To test write-back
+locally against an isolated HubSpot test account, see
+[test-overlay-locally.md](test-overlay-locally.md).
 
 > **Single-organization installation (ADR-0061/A107).** One installation serves one organization; the
 > server resolves its singleton organization itself, so no request selects a tenant — there is no
@@ -34,8 +38,9 @@ Grant only the read scopes the adapter needs:
 - **`crm.objects.owners.read`** — easy to miss, and required: the Owners API 403s without it, and the
   whole per-user visibility projection depends on resolving `hubspot_owner_id` to an email through it.
 
-Do not grant `crm.schemas.*.write` or any object write scope — branch 1 is read-only, and an
-over-scoped token is a needless blast-radius increase for a connection this build never uses to write.
+Grant object **write** scopes (`crm.objects.{contacts,companies,deals}.write`) only if you intend to
+exercise write-back; a read-only connection needs none, and an over-scoped token is a needless
+blast-radius increase.
 
 Copy the generated token (`pat-…`) — HubSpot shows it once.
 
