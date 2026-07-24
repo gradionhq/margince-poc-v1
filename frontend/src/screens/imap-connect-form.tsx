@@ -11,9 +11,9 @@ import { ProblemError, problemCode, throwProblem } from "./common";
 // The IMAP connect flavor (RC-8/Task 6): the credential providers' first-
 // connect and reconnect both happen through this one form, in Settings —
 // there is no OAuth redirect to bounce through, so the standing connect
-// (Task 1's `{imap:{...}}` shape) IS the whole act. The typed client only;
-// the transient one-shot `/connectors/imap/connect` fetch this used to be
-// (onboarding-connect-panels.tsx) is a separate, still-unmigrated surface.
+// (Task 1's `{imap:{...}}` shape) IS the whole act. The typed client only,
+// hitting the same standing `/connectors/imap/connect` onboarding's
+// ImapConnectPanel (onboarding-connect-panels.tsx) posts to.
 
 type ImapConnectRequest = {
   host: string;
