@@ -9,9 +9,10 @@ import (
 )
 
 // RatesConfig is the (worker-role) source config for the admin "Refresh from
-// sources" jobs. Fx is the base-relative rates JSON API URL (defaults to
-// api.frankfurter.dev when empty); FxCurrencies is the candidate set the FX
-// refresh proposes to bootstrap an empty sheet (worker default: USD/GBP/CHF).
+// sources" jobs. Fx is the URL of a page the FX refresh fetches and AI-extracts
+// rates from (defaults to api.frankfurter.dev when empty — read as page text,
+// not parsed JSON); FxCurrencies is the candidate set the FX refresh proposes to
+// bootstrap an empty sheet (worker default: USD/GBP/CHF).
 // ModelPricing maps a provider to its pricing-page URL; absent ⇒ the model-cost
 // refresh no-ops. The FX refresh, by contrast, always has a source and a
 // candidate set (both default), so it never no-ops on absence. Neither refresh

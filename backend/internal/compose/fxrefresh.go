@@ -13,12 +13,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
-	"github.com/gradionhq/margince/backend/internal/platform/fxsource"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
 // FxRateRefreshArgs is the async FX-rate refresh job: fetch fresh rates for the
@@ -48,17 +49,21 @@ func rateRefreshWorkerCtx(ctx context.Context, ws ids.UUID, requestedBy string) 
 	return principal.WithCorrelationID(ctx, ids.NewV7())
 }
 
-// fxRefresh is the FX producer: fetch fresh rates from the source and stage a
-// proposal per changed rate. It has two modes on one path — refresh the
-// currencies the sheet already tracks, or, when the sheet is still empty,
-// bootstrap the configured candidate set against the workspace base so the
-// admin button is not dead on a fresh install. Either way a human approves
-// every proposal — a rate is never invented, only proposed from the source. A
-// nil client (no source configured) is an honest no-op.
+// fxRefresh is the FX producer: fetch the configured rates page, AI-extract the
+// currency pairs it states (evidence-cited, confidence-gated), normalize each to
+// from->base, diff against the rate in force today, and stage a proposal per
+// changed rate. It has two modes on one path — refresh the currencies the sheet
+// already tracks, or, when the sheet is empty, bootstrap the configured
+// candidate set against the workspace base so the admin button is not dead on a
+// fresh install. Either way a human approves every proposal — a rate is never
+// invented, only proposed from the source. A nil fetcher/brain or empty URL (no
+// source configured) is an honest no-op.
 type fxRefresh struct {
-	store  *deals.Store
-	svc    *approvals.Service
-	client *fxsource.Client
+	store   *deals.Store
+	svc     *approvals.Service
+	fetcher pageFetcher
+	brain   completer
+	url     string
 	// bootstrapCurrencies is the candidate foreign-currency set proposed when
 	// the sheet is empty (there is nothing tracked to derive symbols from).
 	// Empty ⇒ an empty sheet stays a no-op (never a fabricated rate).
@@ -67,8 +72,8 @@ type fxRefresh struct {
 }
 
 func (f fxRefresh) run(ctx context.Context) error {
-	if f.client == nil {
-		f.log.Info("fx rate refresh skipped: no FX source configured")
+	if f.fetcher == nil || f.brain == nil || f.url == "" {
+		f.log.Info("fx rate refresh skipped: no FX source or model configured")
 		return nil
 	}
 	current, err := f.store.ListLatestFxRates(ctx)
@@ -82,7 +87,7 @@ func (f fxRefresh) run(ctx context.Context) error {
 	}
 	if len(symbols) == 0 {
 		// Either an empty sheet with no candidate set, or a candidate set that
-		// held only the base currency — nothing the source can price for us.
+		// held only the base currency — nothing to price.
 		f.log.Info("fx rate refresh: nothing to refresh", "tracked", len(current))
 		return nil
 	}
@@ -100,20 +105,16 @@ func (f fxRefresh) run(ctx context.Context) error {
 		priorRate[r.FromCurrency] = r.Rate
 	}
 
-	fetched, err := f.client.LatestRates(ctx, base, symbols)
+	pairs, err := f.extract(ctx)
 	if err != nil {
-		return fmt.Errorf("fx refresh: fetch rates: %w", err)
+		return fmt.Errorf("fx refresh: %w", err)
 	}
-	// A requested currency the source did not price (a well-formed but
-	// unsupported/misspelled code — the config gate only checks the ISO 4217
-	// shape, matching organization.base_currency) is dropped by the client, so
-	// it stages no proposal. Name it rather than let the gap stay silent.
-	for _, sym := range symbols {
-		if _, ok := fetched[sym]; !ok {
-			f.log.Warn("fx rate refresh: source returned no rate for a requested currency — nothing staged for it",
-				"currency", sym, "base", base)
-		}
+	want := make(map[string]bool, len(symbols))
+	for _, s := range symbols {
+		want[strings.ToUpper(strings.TrimSpace(s))] = true
 	}
+	fetched := f.collect(base, pairs, want)
+
 	ws := storekit.MustWorkspace(ctx)
 	staged := 0
 	for cur, newRate := range fetched {
@@ -138,6 +139,74 @@ func (f fxRefresh) run(ctx context.Context) error {
 	}
 	f.log.Info("fx rate refresh complete", "staged", staged, "tracked", len(current), "bootstrap", len(current) == 0)
 	return nil
+}
+
+// extract fetches the configured page and returns the model's extracted pairs
+// (raw — gating and anchoring happen in collect). The page text is wrapped in
+// the <untrusted> data envelope so a hostile page cannot break out of it.
+func (f fxRefresh) extract(ctx context.Context) ([]extractedFxPair, error) {
+	text, err := f.fetcher.Fetch(ctx, f.url)
+	if err != nil {
+		return nil, fmt.Errorf("fetch: %w", err)
+	}
+	req := model.Request{
+		System: fxExtractSystem,
+		Messages: []model.Message{{
+			Role:    chatRoleUser,
+			Content: "<untrusted>\n" + numberPassages(text) + "\n</untrusted>",
+		}},
+		MaxTokens:      ai.ReasoningOutputMaxTokens,
+		ResponseSchema: fxExtractSchema,
+		SecretStripper: ai.NewSecretStripper(),
+	}
+	resp, err := f.brain.Complete(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("extract: %w", err)
+	}
+	return parseFxExtraction(resp.Text)
+}
+
+// collect gates, anchors, and normalizes the extracted pairs into a
+// currency->(from->base rate) map restricted to the currencies we asked for.
+// Every dropped pair is named at Warn with the actual reason (ungrounded,
+// un-anchorable cross-pair, or unusable rate), and a requested currency the
+// page never priced is called out too — no gap stays silent.
+func (f fxRefresh) collect(base string, pairs []extractedFxPair, want map[string]bool) map[string]string {
+	fetched := make(map[string]string, len(want))
+	for _, p := range pairs {
+		if !fxPairAccepted(p) {
+			continue // no-guess: ungrounded or low-confidence
+		}
+		cur, invert, ok := fxAnchor(base, p)
+		if !ok {
+			// A cross-pair (neither side is the base) cannot be expressed
+			// against the base — dropped rather than guessed. Name it.
+			f.log.Warn("fx rate refresh: dropped a cross-pair not anchorable to base",
+				"from", p.FromCurrency, "to", p.ToCurrency, "base", base)
+			continue
+		}
+		if !want[cur] {
+			continue // not tracked / not a bootstrap candidate
+		}
+		rate, err := fxRateString(p.Rate, invert)
+		if err != nil {
+			// Anchored, but the stated rate is unusable (garbage decimal,
+			// rounds to zero, or over numeric(20,10)) — dropped, not staged.
+			f.log.Warn("fx rate refresh: dropped a pair with an unusable rate",
+				"currency", cur, "rate", p.Rate, "base", base, "err", err)
+			continue
+		}
+		fetched[cur] = rate
+	}
+	// A requested currency the page did not price stages no proposal — name it
+	// rather than let the gap stay silent.
+	for cur := range want {
+		if _, ok := fetched[cur]; !ok {
+			f.log.Warn("fx rate refresh: source priced no rate for a requested currency — nothing staged for it",
+				"currency", cur, "base", base)
+		}
+	}
+	return fetched
 }
 
 // plan resolves the base currency and the symbols to fetch. With a non-empty
@@ -183,11 +252,13 @@ func (w *fxRefreshWorker) Work(ctx context.Context, job *river.Job[FxRateRefresh
 	return w.refresh.run(rateRefreshWorkerCtx(ctx, job.Args.WorkspaceID, job.Args.RequestedBy))
 }
 
-func newFxRefreshWorker(pool *pgxpool.Pool, client *fxsource.Client, bootstrapCurrencies []string, log *slog.Logger) *fxRefreshWorker {
+func newFxRefreshWorker(pool *pgxpool.Pool, fetcher pageFetcher, brain completer, url string, bootstrapCurrencies []string, log *slog.Logger) *fxRefreshWorker {
 	return &fxRefreshWorker{refresh: fxRefresh{
 		store:               deals.NewStore(pool),
 		svc:                 approvals.NewService(pool),
-		client:              client,
+		fetcher:             fetcher,
+		brain:               brain,
+		url:                 url,
 		bootstrapCurrencies: bootstrapCurrencies,
 		log:                 log,
 	}}
