@@ -44,6 +44,14 @@ const (
 	// robotsTTL bounds how long a fetched policy is trusted; a crawl session
 	// asks once, a later session re-asks.
 	robotsTTL = 15 * time.Minute
+	// acceptMarkdown is the single-page fetch's content-negotiation preference:
+	// markdown first, then HTML, then anything — a strict-negotiating server
+	// returns HTML rather than 406.
+	acceptMarkdown = "text/markdown, text/html;q=0.9, */*;q=0.8"
+	// acceptHTML is the crawler's preference: HTML only. The link harvest runs
+	// the HTML tokenizer over the body, so a server must not be allowed to pick
+	// markdown — better a 406 the crawler skips than markdown it silently mangles.
+	acceptHTML = "text/html"
 )
 
 // ErrRobotsDisallowed marks a fetch the target site's robots.txt refuses for
@@ -115,47 +123,75 @@ func newFetcher(transport http.RoundTripper) *Fetcher {
 	return f
 }
 
-// Fetch retrieves one page as whitespace-normalized text, refusing what the
-// site's robots.txt disallows for this bot.
-func (f *Fetcher) Fetch(ctx context.Context, rawURL string) (string, error) {
-	page, err := f.FetchPage(ctx, rawURL)
+// Fetch retrieves one page as model-ready text, negotiating markdown: when the
+// server serves text/markdown the body is returned verbatim (StripTags would
+// corrupt it); otherwise it is whitespace-normalized. The
+// returned Doc carries the media type so callers can log which they got, and
+// the fetch refuses what the site's robots.txt disallows for this bot.
+func (f *Fetcher) Fetch(ctx context.Context, rawURL string) (Doc, error) {
+	body, mediaType, err := f.fetchDoc(ctx, rawURL, acceptMarkdown)
 	if err != nil {
-		return "", err
+		return Doc{}, err
 	}
-	return page.Text, nil
+	doc := Doc{MediaType: mediaType}
+	if doc.IsMarkdown() {
+		doc.Text = body
+	} else {
+		doc.Text = StripTags(body)
+	}
+	return doc, nil
 }
 
-// get is the capped GET treating anything but a 200 as failure — the page
-// fetch's reading. Sitemap and robots lookups read statuses themselves.
-func (f *Fetcher) get(ctx context.Context, rawURL string) (string, error) {
-	body, status, err := f.getRaw(ctx, rawURL)
+// fetchDoc is the shared page-fetch: URL parse, robots gate, capped GET with the
+// given Accept header, and a 200-or-error status policy. It returns the raw body
+// with its parsed media type. accept == "" sends no Accept header (robots and
+// sitemap lookups). Both single-page and crawler paths run through here, so the
+// SSRF guard, robots gate, and redirect cap are identical for both.
+func (f *Fetcher) fetchDoc(ctx context.Context, rawURL, accept string) (string, string, error) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Host == "" {
+		return "", "", fmt.Errorf("webread: %q is not a fetchable URL", rawURL)
+	}
+	allowed, err := f.pathAllowed(ctx, parsed)
 	if err != nil {
-		return "", err
+		return "", "", err
+	}
+	if !allowed {
+		return "", "", fmt.Errorf("%w: %s", ErrRobotsDisallowed, parsed.Path)
+	}
+	body, status, contentType, err := f.getRaw(ctx, rawURL, accept)
+	if err != nil {
+		return "", "", err
 	}
 	if status != http.StatusOK {
-		return "", fmt.Errorf("webread: page answered %d", status)
+		return "", "", fmt.Errorf("webread: page answered %d", status)
 	}
-	return body, nil
+	return body, parseMediaType(contentType), nil
 }
 
-// getRaw is the network-level capped GET: body and status, no status policy.
-func (f *Fetcher) getRaw(ctx context.Context, rawURL string) (string, int, error) {
+// getRaw is the network-level capped GET: body, status, and declared media type,
+// no status policy. A non-empty accept sets the Accept header; robots and
+// sitemap lookups pass "" — they never negotiate markdown.
+func (f *Fetcher) getRaw(ctx context.Context, rawURL, accept string) (string, int, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return "", 0, err
+		return "", 0, "", err
 	}
 	req.Header.Set("User-Agent", UserAgent)
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
 	resp, err := f.client.Do(req)
 	if err != nil {
-		return "", 0, err
+		return "", 0, "", err
 	}
 	//craft:ignore swallowed-errors best-effort close: the capped read below may leave the body mid-stream, so a close error carries no signal for the fetch result
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxFetchBytes))
 	if err != nil {
-		return "", 0, err
+		return "", 0, "", err
 	}
-	return string(body), resp.StatusCode, nil
+	return string(body), resp.StatusCode, resp.Header.Get("Content-Type"), nil
 }
 
 // pathAllowed resolves the host's robots policy (cached per host) and asks it

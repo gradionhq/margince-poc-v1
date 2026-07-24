@@ -94,12 +94,12 @@ func TestFetchHonorsTheSitesRobotsAnswer(t *testing.T) {
 	f := testFetcher()
 
 	// An allowed path fetches and strips.
-	text, err := f.Fetch(context.Background(), srv.URL+"/impressum")
+	doc, err := f.Fetch(context.Background(), srv.URL+"/impressum")
 	if err != nil {
 		t.Fatalf("allowed fetch: %v", err)
 	}
-	if text != "Acme GmbH, HRB 12345" {
-		t.Fatalf("stripped text = %q", text)
+	if doc.Text != "Acme GmbH, HRB 12345" {
+		t.Fatalf("stripped text = %q", doc.Text)
 	}
 
 	// A disallowed path is refused as the site's answer, not fetched anyway.
@@ -119,9 +119,9 @@ func TestFetchWithoutARobotsPolicyProceeds(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	text, err := testFetcher().Fetch(context.Background(), srv.URL+"/page")
-	if err != nil || text != "hello" {
-		t.Fatalf("fetch under a 404 robots = %q, %v — a missing policy is allow-all", text, err)
+	doc, err := testFetcher().Fetch(context.Background(), srv.URL+"/page")
+	if err != nil || doc.Text != "hello" {
+		t.Fatalf("fetch under a 404 robots = %q, %v — a missing policy is allow-all", doc.Text, err)
 	}
 }
 

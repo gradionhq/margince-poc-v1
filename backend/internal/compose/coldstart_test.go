@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/platform/webread"
 )
 
 // The contract's oneOf: EXACTLY ONE of url|text|self_description. Zero or
@@ -150,7 +151,9 @@ func TestColdStartPreviewIsNotImplementedWithoutAModelPath(t *testing.T) {
 // the gate's verdict, not the network.
 type stubPage string
 
-func (p stubPage) Fetch(context.Context, string) (string, error) { return string(p), nil }
+func (p stubPage) Fetch(context.Context, string) (webread.Doc, error) {
+	return webread.Doc{Text: string(p)}, nil
+}
 
 // A read-back that can quote nothing is refused HONESTLY: the transport maps
 // the unreadable verdict onto the contract's coldstart_unreadable 422, whose

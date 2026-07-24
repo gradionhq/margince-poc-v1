@@ -18,6 +18,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/platform/webread"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
@@ -30,7 +31,9 @@ func (f fakeBrain) Complete(_ context.Context, _ model.Request) (model.Response,
 
 type fakeFetcher struct{ text string }
 
-func (f fakeFetcher) Fetch(_ context.Context, _ string) (string, error) { return f.text, nil }
+func (f fakeFetcher) Fetch(_ context.Context, _ string) (webread.Doc, error) {
+	return webread.Doc{Text: f.text}, nil
+}
 
 func TestModelCostRefreshStagesChangedAndDropsUngrounded(t *testing.T) {
 	e := integration.Setup(t)

@@ -92,8 +92,8 @@ func TestFetchPageKeepsTheTextContractAndHarvestsLinks(t *testing.T) {
 	if page.Text != StripTags(pageHTML) {
 		t.Fatalf("Page.Text = %q diverged from StripTags", page.Text)
 	}
-	if text, err := f.Fetch(context.Background(), srv.URL+"/"); err != nil || text != page.Text {
-		t.Fatalf("Fetch = %q, %v — must delegate to the same reduction", text, err)
+	if doc, err := f.Fetch(context.Background(), srv.URL+"/"); err != nil || doc.Text != page.Text {
+		t.Fatalf("Fetch = %q, %v — must reduce HTML the same way the crawler does", doc.Text, err)
 	}
 	if want := []string{srv.URL + "/impressum"}; !reflect.DeepEqual(page.Links, want) {
 		t.Fatalf("Page.Links = %v, want %v", page.Links, want)

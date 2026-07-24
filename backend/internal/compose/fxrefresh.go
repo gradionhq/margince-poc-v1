@@ -146,15 +146,18 @@ func (f fxRefresh) run(ctx context.Context) error {
 // (raw — gating and anchoring happen in collect). The page text is wrapped in
 // the <untrusted> data envelope so a hostile page cannot break out of it.
 func (f fxRefresh) extract(ctx context.Context) ([]extractedFxPair, error) {
-	text, err := f.fetcher.Fetch(ctx, f.url)
+	doc, err := f.fetcher.Fetch(ctx, f.url)
 	if err != nil {
 		return nil, fmt.Errorf("fetch: %w", err)
+	}
+	if doc.IsMarkdown() {
+		f.log.Debug("fx source served markdown", "url", f.url)
 	}
 	req := model.Request{
 		System: fxExtractSystem,
 		Messages: []model.Message{{
 			Role:    chatRoleUser,
-			Content: "<untrusted>\n" + numberPassages(text) + "\n</untrusted>",
+			Content: "<untrusted>\n" + numberPassages(doc.Text) + "\n</untrusted>",
 		}},
 		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		ResponseSchema: fxExtractSchema,
