@@ -3,9 +3,10 @@
 Connect a mailbox so Margince captures its mail onto the timeline — creating people, organizations, and
 activities through the one dedupe chokepoint. This guide is **UI-first**: you drive it from the app,
 with the equivalent `curl` shown alongside for scripting and verification. It covers the two paths you
-can exercise locally — **Gmail over OAuth** (a standing connection with background sync + backfill) and
-**IMAP one-shot pull** (a transient capture, which is how you reach a **Gmail** or **Outlook / Microsoft
-365** mailbox with an app-password). For the mental model — the connector seam, the one Sink, the three
+can drive from the **UI** — **Gmail over OAuth** (a standing connection with background sync + backfill)
+and **IMAP one-shot pull** (a transient capture, which is how you reach a **Gmail** or **Outlook /
+Microsoft 365** mailbox with an app-password) — plus a **Graph** (`curl`-only) path for Outlook (Path C).
+For the mental model — the connector seam, the one Sink, the three
 ingestion modes, credential custody — read
 [explanation/capture-connectors.md](../explanation/capture-connectors.md) first.
 
@@ -160,15 +161,20 @@ Basic-auth IMAP with your normal password is blocked by both providers — you n
 
 <details><summary>Same thing via <code>curl</code></summary>
 
+Read the app-password **silently** and build the JSON on stdin, so the secret never lands in your shell
+history or a process listing (mirroring the "never logged" guarantee):
+
 ```sh
-curl -X POST http://localhost:8080/v1/connectors/imap/connect \
-  --cookie 'crm_session=<session>' -H 'Content-Type: application/json' \
-  -d '{ "host": "imap.gmail.com", "port": 993, "email": "you@gmail.com",
-        "password": "<app-password>", "mailbox": "INBOX", "max_messages": 50 }' \
-  | jq '{connected, mailbox, captured, skipped, contacts}'
+read -rsp 'IMAP app-password: ' APP_PW; echo    # silent — never in argv/history
+jq -n --arg pw "$APP_PW" \
+  '{host:"imap.gmail.com", port:993, email:"you@gmail.com", password:$pw, mailbox:"INBOX", max_messages:50}' \
+| curl -X POST http://localhost:8080/v1/connectors/imap/connect \
+    --cookie 'crm_session=<session>' -H 'Content-Type: application/json' --data @- \
+| jq '{connected, mailbox, captured, skipped, contacts}'
+unset APP_PW
 ```
 
-For Outlook, use `"host": "outlook.office365.com"` and your `@outlook.com` / tenant address.
+For Outlook, set `email` to your `@outlook.com` / tenant address and `host` to `outlook.office365.com`.
 </details>
 
 Failure modes are honest and leak no internals — the form surfaces them directly:

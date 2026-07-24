@@ -98,8 +98,9 @@ boot (idempotent).
 A connector's records reach the CRM through one of three paths, all converging on the same Sink:
 
 1. **Bounded backfill — preview before spend (ADR-0063/ADR-0020).** On connect, a `Backfiller` fills the
-   CRM *backward* over a chosen window. `EstimateBackfill` returns the provider-side count (and an
-   estimated AI cost) *before* anything runs — the consent surface. `StartBackfill` enqueues a job the
+   CRM *backward* over a chosen window. The connector's `EstimateBackfill` returns only the provider-side
+   message count; the `/backfill/preview` endpoint pairs that count with an estimated AI cost it derives
+   separately — together the consent surface, shown *before* anything runs. `StartBackfill` enqueues a job the
    worker walks one page per tick, committing the cursor per page so a crash resumes honestly. Windows
    are **widen-only** (3m → 6m → 12m); cancel keeps every row already captured.
 2. **Continuous incremental sync — the sweep.** The worker's dispatcher (every `30s`) selects **due**
@@ -182,9 +183,13 @@ OAuth2 to the Microsoft identity platform with delegated scopes `offline_access 
 (`ErrDeltaGone`, HTTP 410) re-anchors to a bounded 7-day window. It is a `Backfiller` but **not** a
 `Watcher` — there is no change-notification subscription built, so Outlook latency is the poll interval,
 not a push p95. **To run:** a Microsoft Entra (Azure AD) app + tenant + the vault key. **UI:** none to
-*initiate* yet — connect via `curl`; the roster manages an existing connection. Note Microsoft rotates
-the refresh token per redemption and Margince does not yet persist the rotation, so the stored token
-works within its ~90-day confidential-client window.
+*initiate* yet — connect via `curl`; the roster manages an existing connection. Note Microsoft **rotates
+the refresh token on every redemption** and Margince does not yet persist the rotated value: the stored
+original typically keeps working up to Microsoft's default **90-day inactive lifetime** for a confidential
+client (an actively-syncing mailbox stays inside it), **but it can be revoked or expire earlier** (a
+password change, an admin revoke, a conditional-access policy). When it stops working, the sync/connect
+path surfaces `reauth_required` and the user must **reconnect** — there is no silent recovery until the
+credential-update seam lands.
 
 ### Google Calendar (gcal) — standing OAuth, poll-only
 
@@ -235,8 +240,10 @@ Per [STATUS.md](../../STATUS.md) — the pipeline is live; these were scoped out
 - **Graph is poll-only.** The change-notification subscription (validationToken handshake, `clientState`,
   ≤3-day renewal) is unbuilt, so Outlook latency is the poll interval. (The Gmail push-watch renewal runs,
   but the poll remains the active sync path even for Gmail today.)
-- **Graph refresh-token rotation isn't persisted.** It works within the ~90-day confidential-client
-  window; persisting the rotated token needs a credential-update seam the `Connector` interface lacks.
+- **Graph refresh-token rotation isn't persisted.** The stored token usually lasts up to Microsoft's
+  default 90-day inactive lifetime (a confidential client) but can be revoked or expire earlier; on
+  expiry the connection goes `reauth_required` and the user reconnects. Avoiding that reauth needs a
+  credential-update seam the `Connector` interface lacks.
 - **Standing IMAP is latent.** The one-shot pull is the exposed IMAP path; the UID-watermark standing
   connection exists in the backend but isn't wired to a reachable route.
 - **No UI for exclusions or connector-health.** The personal-mail exclusion CRUD and the digest's
