@@ -844,8 +844,7 @@ tooling and gate suite the baseline needs. Merged so far:
 Open work, roughly in priority order:
 
 - **Capture quality gates + captured-company auto-enrichment — spec ratified,
-  implementation in flight (plan
-  `/Users/lars/.claude/plans/yes-and-while-we-crispy-stearns.md`).**
+  implementation in flight (margince-foundation ADR-0072/A118).**
   **Phase 0 (spec):** ADR-0072/A118 authored in `margince-foundation`
   (renumbered from the plan's "ADR-0070", now taken by A116/A117) — the tiered
   creation gate, the `capture_counterparty_verdict` no-payload AI task,

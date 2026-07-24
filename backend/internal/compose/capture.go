@@ -52,6 +52,16 @@ type CaptureConfig struct {
 	TransactionalNever []string // capture.transactional_never (CAP-PARAM-6 allowlist)
 }
 
+// WithCaptureConfig records the deployment's capture suppression-list config on
+// the Server so EVERY registry construction — the Gmail one, the vault-rebuilt
+// IMAP/fallback one (WithKeyvault), and the graph-only one (WithGraphCapture) —
+// applies the transactional/free-mail additions, not only the Gmail path. Apply
+// it before WithKeyvault/WithGraphCapture in the option list; omitting it keeps
+// the pinned baselines.
+func WithCaptureConfig(cfg CaptureConfig) Option {
+	return func(s *Server, _ *pgxpool.Pool) { s.captureConfig = cfg }
+}
+
 // CaptureConfigFromDeploy maps the deployment's `capture:` block onto the
 // compose suppression config the Sink gates read (CAP-PARAM-5/6, ADR-0072).
 func CaptureConfigFromDeploy(c deployconfig.Capture) CaptureConfig {
@@ -288,7 +298,7 @@ func WithGraphCapture(c GraphConfig) Option {
 			return
 		}
 		if s.connectorHandlers.registry == nil {
-			s.connectorHandlers.registry = NewCaptureRegistry(pool, s.vault, CaptureConfig{})
+			s.connectorHandlers.registry = NewCaptureRegistry(pool, s.vault, s.captureConfig)
 			s.signer = newStateSigner([]byte(c.StateKey))
 			s.publicBaseURL = c.PublicBaseURL
 			s.apiBaseURL = c.APIBaseURL

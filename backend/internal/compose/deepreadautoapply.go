@@ -41,23 +41,11 @@ func isAutoEnrichRequest(requestedBy string) bool { return requestedBy == system
 // facts directly, stage site people as leads, and record the cursor outcome.
 func (w *siteDeepReadWorker) autoApply(ctx context.Context, args SiteDeepReadArgs, claim people.SiteReadClaim, mergedFields []evidencedField, mergedFacts []people.DeepReadFact, mergedPeople []sitePerson) ([]ids.UUID, error) {
 	orgID := ids.From[ids.OrganizationKind](*claim.OrganizationID)
-	fields := deepReadFields(mergedFields)
-	outcome := autoEnrichOutcomeEmpty
-	if len(fields) > 0 || len(mergedFacts) > 0 {
-		if err := w.people.ApplyDeepRead(ctx, people.DeepReadProposal{
-			OrganizationID: orgID,
-			SourceURL:      claim.SeedURL,
-			SiteReadID:     args.SiteReadID,
-			Fields:         fields,
-			Facts:          mergedFacts,
-		}); err != nil {
-			if markErr := w.autoEnrich.MarkResolved(ctx, orgID, autoEnrichOutcomeFailed); markErr != nil {
-				w.log.WarnContext(ctx, "auto-enrich cursor (failed) not recorded", "org", orgID.String(), "err", markErr)
-			}
-			return nil, fmt.Errorf("auto-applying the deep read: %w", err)
-		}
-		outcome = autoEnrichOutcomeApplied
-	}
+
+	// Site people stage as leads regardless of the field/fact apply outcome —
+	// the leads were evidenced independently of the org columns, and dropping
+	// them on an apply failure would break the strangers-stay-staged invariant
+	// (NEVER-8). Staged first so a later apply error cannot skip them.
 	var proposalIDs []ids.UUID
 	for _, person := range mergedPeople {
 		approvalID, err := w.stageSiteLead(ctx, args.SiteReadID, claim, person)
@@ -66,11 +54,33 @@ func (w *siteDeepReadWorker) autoApply(ctx context.Context, args SiteDeepReadArg
 		}
 		proposalIDs = append(proposalIDs, approvalID.UUID)
 	}
+
+	fields := deepReadFields(mergedFields)
+	outcome := autoEnrichOutcomeEmpty
+	var applyErr error
+	if len(fields) > 0 || len(mergedFacts) > 0 {
+		if err := w.people.ApplyDeepRead(ctx, people.DeepReadProposal{
+			OrganizationID: orgID,
+			SourceURL:      claim.SeedURL,
+			SiteReadID:     args.SiteReadID,
+			Fields:         fields,
+			Facts:          mergedFacts,
+		}); err != nil {
+			applyErr, outcome = err, autoEnrichOutcomeFailed
+		} else {
+			outcome = autoEnrichOutcomeApplied
+		}
+	}
 	if err := w.autoEnrich.MarkResolved(ctx, orgID, outcome); err != nil {
-		// The findings already applied; a missed terminal write at worst lets
-		// the next sweep reconsider a now-enriched org, which the dossier-exists
-		// gate then filters out.
+		// A missed terminal write at worst lets the next sweep reconsider the
+		// org, which the dossier-exists gate then filters out (or, on a failed
+		// apply, retries it) — never the read's success or failure.
 		w.log.WarnContext(ctx, "auto-enrich cursor not recorded", "org", orgID.String(), "outcome", outcome, "err", err)
+	}
+	if applyErr != nil {
+		// The people are staged; surface the apply failure so the read finishes
+		// failed and the sweep retries the org.
+		return proposalIDs, fmt.Errorf("auto-applying the deep read: %w", applyErr)
 	}
 	return proposalIDs, nil
 }

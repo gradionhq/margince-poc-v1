@@ -110,6 +110,14 @@ type Server struct {
 	// path; nil means a role that resolves no stored connector credentials.
 	vault keyvault.Vault
 
+	// captureConfig is the deployment's capture suppression-list config
+	// (CAP-PARAM-5/6, ADR-0072), injected by WithCaptureConfig. The options
+	// that rebuild the capture registry (WithKeyvault, WithGraphCapture) read
+	// it so the transactional/free-mail additions apply on EVERY registry, not
+	// only the Gmail one WithGmailCapture threads it into. Zero value = the
+	// pinned baselines.
+	captureConfig CaptureConfig
+
 	// schemaPoolReady is the /readyz schema-pool probe, injected only by
 	// WithSchemaPool — a role that never mounted --schema-dsn declares
 	// that by omission (customfields.Create/SetOptions stay their

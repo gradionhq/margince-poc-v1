@@ -132,11 +132,15 @@ func coldStartApplyPayload(created bool, in ApplyColdStartProfileInput, host, by
 	if created {
 		displayName := fieldValue(in.Fields, "legal_name")
 		if displayName == "" {
-			// The org row is stored with host as its display name when no
+			// The org row is stored with the domain-derived name when no
 			// legal_name was accepted (resolveOrCreateColdStartOrg's fallback),
-			// so organization.created must publish the same — never an empty
-			// display_name the record does not actually carry.
-			displayName = host
+			// so organization.created must publish the SAME derived value —
+			// never the raw host or an empty display_name the record does not
+			// actually carry.
+			displayName = DisplayNameFromDomain(host)
+			if displayName == "" {
+				displayName = host
+			}
 		}
 		primaryDomain := host
 		source := companySourceSiteRead
@@ -172,17 +176,21 @@ func resolveOrCreateColdStartOrg(ctx context.Context, tx pgx.Tx, wsID ids.Worksp
 	}
 
 	orgID = ids.New[ids.OrganizationKind]()
-	// Name-source authority (ADR-0072/A118, PO-F-2a): a bare-domain fallback
-	// name is provisional ('domain') so a later dossier/signature may overwrite
-	// it; a scraped/confirmed legal name is authoritative ('human'), never
-	// clobbered. This mirrors migration 0120's own backfill rule (a name equal
-	// to the domain is 'domain', everything else 'human') applied forward at the
-	// second automated domain-namer, so this site never diverges from it.
-	displayName := host
+	// Name-source authority (ADR-0072/A118, PO-F-2a). Without a scraped legal
+	// name the org is named from the domain's registrable label ("Docusign",
+	// not "eu.docusign.net") and marked provisional ('domain'), overwritable by
+	// a richer source. A site-stated legal name accepted here is dossier-sourced
+	// ('dossier') — read from the site and human-confirmed, but NOT a raw human
+	// edit ('human' is reserved for UpdateOrganization) — so a later human edit
+	// still wins while a weaker signature/domain source cannot clobber it.
+	displayName := DisplayNameFromDomain(host)
+	if displayName == "" {
+		displayName = host
+	}
 	nameSource := nameSourceDomain
 	if legal := fieldValue(fields, "legal_name"); legal != "" {
 		displayName = legal
-		nameSource = nameSourceHuman
+		nameSource = nameSourceDossier
 	}
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO organization (id, workspace_id, display_name, name_source, source, captured_by)

@@ -243,6 +243,10 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 // was opened.
 func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.CaptureConfig, pool *pgxpool.Pool, logger *slog.Logger, stdout io.Writer) ([]compose.Option, func(), error) {
 	var opts []compose.Option
+	// Record the deployment's capture suppression-list config first, so the
+	// registry rebuilds in WithKeyvault/WithGraphCapture apply it too — not just
+	// the Gmail path WithGmailCapture threads it into (ADR-0072).
+	opts = append(opts, compose.WithCaptureConfig(capCfg))
 	if cfg.publicBaseURL != "" {
 		opts = append(opts, compose.WithPublicBaseURL(cfg.publicBaseURL))
 	}
