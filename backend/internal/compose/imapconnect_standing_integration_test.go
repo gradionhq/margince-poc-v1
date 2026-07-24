@@ -35,6 +35,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture/imap"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
@@ -200,6 +201,36 @@ func TestStandingIMAPConnectTransport(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
+		}
+	})
+
+	t.Run("a non-default mailbox and max_messages reach the sealed credentials", func(t *testing.T) {
+		body := map[string]any{"imap": map[string]any{
+			"host": host, "port": port, "username": standingIMAPUser, "secret": standingIMAPPass,
+			"mailbox": "Archive", "max_messages": 17,
+		}}
+		rec := post(t, authed, body)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200 (%s)", rec.Code, rec.Body.String())
+		}
+		var ref string
+		err := database.WithWorkspaceTx(authed, e.Pool, func(tx pgx.Tx) error {
+			return tx.QueryRow(context.Background(), `
+				SELECT credential_ref FROM capture_connection WHERE provider = 'imap'`).Scan(&ref)
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		secret, err := vault.Get(context.Background(), ids.From[ids.WorkspaceKind](e.WS), keyvault.Ref(ref))
+		if err != nil {
+			t.Fatalf("resolving the sealed bundle: %v", err)
+		}
+		var sealed imap.Credentials
+		if err := json.Unmarshal(secret, &sealed); err != nil {
+			t.Fatalf("unmarshaling the sealed bundle: %v", err)
+		}
+		if sealed.Mailbox != "Archive" || sealed.MaxMessages != 17 {
+			t.Fatalf("sealed credentials = %+v, want mailbox=Archive max_messages=17 — these fields must never be defaulted away", sealed)
 		}
 	})
 }

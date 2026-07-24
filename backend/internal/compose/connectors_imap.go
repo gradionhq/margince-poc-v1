@@ -6,8 +6,7 @@ package compose
 // The standing IMAP connect transport (POST /v1/connectors/imap/connect): probe
 // the supplied credentials, seal them to the vault via Registry.Connect, and let
 // the background sweep take over — the OAuth-less sibling of the Google/graph
-// connect flow in connectors.go. The transient one-shot pull remains a separate
-// surface until its callers migrate.
+// connect flow in connectors.go.
 
 import (
 	"encoding/json"
@@ -30,9 +29,7 @@ const codeConnectorStoreFailed = "connector_store_failed"
 // connectIMAP establishes a STANDING imap connection: the credentials are
 // probed (dial + login, session closed), sealed to the vault by
 // Registry.Connect, and the background sweep takes over — the same lifecycle
-// as gmail, minus the OAuth ceremony. The transient one-shot pull
-// (/connectors/imap/connect) remains a separate surface until its callers
-// migrate.
+// as gmail, minus the OAuth ceremony.
 func (h connectorHandlers) connectIMAP(w http.ResponseWriter, r *http.Request) {
 	actor, ok := principal.Actor(r.Context())
 	_, hasWS := principal.WorkspaceID(r.Context())
@@ -78,12 +75,24 @@ func (h connectorHandlers) connectIMAP(w http.ResponseWriter, r *http.Request) {
 	if req.Imap.Port != nil {
 		port = *req.Imap.Port
 	}
-	authReq, err := imap.AuthRequestFrom(imap.Credentials{
+	creds := imap.Credentials{
 		Host:     req.Imap.Host,
 		Port:     port,
 		Email:    req.Imap.Username,
 		Password: *req.Imap.Secret,
-	})
+	}
+	// Mailbox/MaxMessages are optional on the wire specifically so they are
+	// NOT defaulted here — an absent value leaves the zero value, and
+	// normalizeCredentials (the standing Authenticate path) applies the
+	// connector's own defaults/caps. Copying a zero here instead of the
+	// caller's choice would silently force every connection onto INBOX/50.
+	if req.Imap.Mailbox != nil {
+		creds.Mailbox = *req.Imap.Mailbox
+	}
+	if req.Imap.MaxMessages != nil {
+		creds.MaxMessages = *req.Imap.MaxMessages
+	}
+	authReq, err := imap.AuthRequestFrom(creds)
 	if err != nil {
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusUnprocessableEntity,
