@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -94,21 +95,63 @@ func (r *Registry) Connections(ctx context.Context) ([]ConnectionView, error) {
 	return out, nil
 }
 
-// Disconnect disconnects the CALLING human's connection for provider name in
-// the current workspace: it flips status to 'disconnected' so the poller stops
-// selecting it (DueConnections filters on 'connected'). Idempotent — a missing
-// or already-disconnected connection is a no-op, not an error. Already-captured
-// activities are retained; capture simply stops. The stored credential is
-// left for a follow-up vault sweep (revocation upstream is the real cut-off).
+// Disconnect disconnects the CALLING human's connection for provider name: the
+// status flips to 'disconnected' so the poller stops selecting it
+// (DueConnections filters on 'connected'|'error'), the legacy auth column is
+// cleared, and the sealed credential is destroyed. Already-captured activities
+// are retained; capture simply stops. Idempotent — a missing or
+// already-fully-disconnected connection is a no-op.
+//
+// Ordering closes the leak this method exists to close, and a naive order would
+// re-open it. The credential_ref is KEPT through the status flip and cleared
+// only AFTER the vault delete succeeds; a delete that fails leaves the row
+// 'disconnected' (poller already skips it) with a live ref to retry. Retrying
+// keys on 'credential_ref IS NOT NULL', so a partial failure converges rather
+// than orphaning the secret. Delete is idempotent (keyvault contract), so the
+// retry is safe.
 func (r *Registry) Disconnect(ctx context.Context, name string) error {
 	actor, ok := principal.Actor(ctx)
 	if !ok || actor.Type != principal.PrincipalHuman {
 		return errors.New("capture: only a human disconnects a connector")
 	}
+	ws, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		return errors.New("capture: disconnect without a workspace in context")
+	}
+
+	// Phase 1: stop capture. Flip status and clear the legacy auth bytea (a row
+	// whose vault migration never ran holds its credential there — it must not
+	// escape erasure through the older column). Keep credential_ref: phase 2
+	// needs it, and a crash between phases leaves a recoverable state.
+	var ref *string
+	if err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			UPDATE capture_connection
+			   SET status = 'disconnected', auth = NULL
+			 WHERE user_id = $1 AND provider = $2 AND credential_ref IS NOT NULL
+			RETURNING credential_ref`,
+			actor.UserID, name,
+		).Scan(&ref)
+	}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// No live credential to clear: never connected, or already fully
+			// disconnected on a prior call. Idempotent no-op.
+			return nil
+		}
+		return err
+	}
+
+	// Phase 2: destroy the secret, THEN drop the ref. If the delete fails the
+	// error surfaces and the ref stays, so the next call retries phase 2.
+	if r.vault != nil && ref != nil {
+		if err := r.vault.Delete(ctx, ids.From[ids.WorkspaceKind](ws), keyvault.Ref(*ref)); err != nil {
+			return fmt.Errorf("capture: deleting the disconnected credential: %w", err)
+		}
+	}
 	return database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			UPDATE capture_connection SET status = 'disconnected'
-			WHERE user_id = $1 AND provider = $2 AND status <> 'disconnected'`,
+			UPDATE capture_connection SET credential_ref = NULL
+			 WHERE user_id = $1 AND provider = $2`,
 			actor.UserID, name)
 		return err
 	})
