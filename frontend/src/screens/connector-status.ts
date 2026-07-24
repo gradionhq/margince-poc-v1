@@ -68,8 +68,12 @@ export function errorClassKey(cls: string | null | undefined): MessageKey {
   }
 }
 
-/** Home surfaces a connector line only when something needs attention: a
- *  healthy connector is not news, and a permanent green row is noise. */
+/** Home surfaces a connector line only when something needs the user's
+ *  attention: a healthy connector is not news, and a deliberately
+ *  disconnected mailbox (the headline disconnect flow's own result) is not
+ *  a fault — it is quiet on purpose, matching Settings, which filters
+ *  `disconnected` rows out of its list entirely. Only a genuinely broken
+ *  connection (`error` or `reauth_required`) is news. */
 export function isUnhealthy(status: ConnectorStatus): boolean {
-  return status !== "connected";
+  return status === "error" || status === "reauth_required";
 }

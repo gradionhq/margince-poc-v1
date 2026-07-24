@@ -35,10 +35,12 @@ describe("errorClassKey", () => {
 });
 
 describe("isUnhealthy", () => {
-  it("treats only connected as healthy — home shows a line for the rest", () => {
-    expect(isUnhealthy("connected")).toBe(false);
+  it("flags only a genuinely broken connection — not a deliberate disconnect, not a healthy one", () => {
     expect(isUnhealthy("error")).toBe(true);
     expect(isUnhealthy("reauth_required")).toBe(true);
-    expect(isUnhealthy("disconnected")).toBe(true);
+    expect(isUnhealthy("connected")).toBe(false);
+    // A deliberately disconnected mailbox is quiet on home, matching
+    // Settings, which filters `disconnected` rows out of its list entirely.
+    expect(isUnhealthy("disconnected")).toBe(false);
   });
 });
