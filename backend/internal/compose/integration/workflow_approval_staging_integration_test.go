@@ -49,28 +49,30 @@ func (a testApprovalsAdapter) Stage(ctx context.Context, in automation.StageRequ
 	})
 }
 
-// yellowStagingProbe is a synthetic 🟡 handler that exists only for this
+// confirmationRequiredStagingProbe is a synthetic 🟡 (confirmation_required) handler that exists only for this
 // suite: none of the shipped starters carries a 🟡 action yet (every
 // seeded template is 🟢; assign_lead_owner and the lead-score recompute
 // are always-on system invariants with no approval-tier action either),
 // so nothing else currently exercises ApplyActions' 🟡 branch against a
 // real database.
-type yellowStagingProbe struct {
+type confirmationRequiredStagingProbe struct {
 	approvals automation.Approvals
 	toStage   ids.UUID
 }
 
-func (yellowStagingProbe) Spec() workflow.Spec {
+func (confirmationRequiredStagingProbe) Spec() workflow.Spec {
 	return workflow.Spec{
-		Name:    "task10_yellow_staging_probe",
+		Name:    "task10_confirmation_required_staging_probe",
 		Trigger: workflow.Trigger{EventType: "deal.stage_changed"},
-		Tier:    mcp.TierYellow,
+		Tier:    mcp.TierConfirmationRequired,
 	}
 }
 
-func (yellowStagingProbe) Match(context.Context, workflow.Event) (bool, error) { return true, nil }
+func (confirmationRequiredStagingProbe) Match(context.Context, workflow.Event) (bool, error) {
+	return true, nil
+}
 
-func (p yellowStagingProbe) Plan(_ context.Context, ev workflow.Event) (workflow.Effect, error) {
+func (p confirmationRequiredStagingProbe) Plan(_ context.Context, ev workflow.Event) (workflow.Effect, error) {
 	args, err := json.Marshal(map[string]any{"to_stage_id": p.toStage})
 	if err != nil {
 		return workflow.Effect{}, err
@@ -80,7 +82,7 @@ func (p yellowStagingProbe) Plan(_ context.Context, ev workflow.Event) (workflow
 	}}}, nil
 }
 
-func (p yellowStagingProbe) Apply(ctx context.Context, _ workflow.Event, eff workflow.Effect, _ *workflow.ApprovalToken) (workflow.RunResult, error) {
+func (p confirmationRequiredStagingProbe) Apply(ctx context.Context, _ workflow.Event, eff workflow.Effect, _ *workflow.ApprovalToken) (workflow.RunResult, error) {
 	// A zero-value Provider: a 🟡 action stages instead of writing, so
 	// this proves ApplyActions never reaches the write side on this path
 	// (engine.go).
@@ -88,19 +90,19 @@ func (p yellowStagingProbe) Apply(ctx context.Context, _ workflow.Event, eff wor
 	return workflow.RunResult{Applied: applied}, err
 }
 
-func (yellowStagingProbe) IdempotencyKey(ev workflow.Event) string {
-	return "task10_yellow_staging_probe:" + ev.ID.String()
+func (confirmationRequiredStagingProbe) IdempotencyKey(ev workflow.Event) string {
+	return "task10_confirmation_required_staging_probe:" + ev.ID.String()
 }
 
-func TestYellowActionStagesARealApprovalAndRejectionBlocksTheRun(t *testing.T) {
+func TestConfirmationRequiredActionStagesARealApprovalAndRejectionBlocksTheRun(t *testing.T) {
 	e := Setup(t)
 	owner := OwnerConn(t)
 	pipeline, open, won := DealFixture(t, e)
-	dealID := e.SeedDeal(t, "Yellow Probe Deal", pipeline, open, nil)
+	dealID := e.SeedDeal(t, "Confirmation-Required Probe Deal", pipeline, open, nil)
 
 	svc := approvals.NewService(e.Pool)
 	engine := compose.NewWorkflowEngine(e.Pool)
-	engine.RegisterSystemWorkflow(yellowStagingProbe{
+	engine.RegisterSystemWorkflow(confirmationRequiredStagingProbe{
 		approvals: testApprovalsAdapter{svc: svc},
 		toStage:   won.UUID,
 	})
@@ -121,7 +123,7 @@ func TestYellowActionStagesARealApprovalAndRejectionBlocksTheRun(t *testing.T) {
 		if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 			return tx.QueryRow(context.Background(),
 				`SELECT status, detail->>'approval_id', detail->>'reason'
-				 FROM workflow_run WHERE handler = 'task10_yellow_staging_probe'`,
+				 FROM workflow_run WHERE handler = 'task10_confirmation_required_staging_probe'`,
 			).Scan(&status, &approvalIDStr, &reason)
 		}); err != nil {
 			t.Fatal(err)

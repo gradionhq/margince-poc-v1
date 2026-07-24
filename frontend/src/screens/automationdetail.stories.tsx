@@ -30,7 +30,7 @@ const run = (over: Partial<AutomationRun>): AutomationRun => ({
   automation_id: "au-1",
   occurred_at: "2026-07-14T10:00:00Z",
   outcome: "fired",
-  tier: "green",
+  tier: "auto_execute",
   ...over,
 });
 
@@ -43,7 +43,7 @@ const mixedRuns: AutomationRun[] = [
   run({
     id: "r-fired",
     outcome: "fired",
-    tier: "green",
+    tier: "auto_execute",
     trigger_evidence: "deal BÄR Pharma entered Negotiation",
     target_ref: "deal:BÄR Pharma",
     action_result: "created follow-up task",
@@ -51,7 +51,7 @@ const mixedRuns: AutomationRun[] = [
   run({
     id: "r-failed",
     outcome: "failed",
-    tier: "yellow",
+    tier: "confirmation_required",
     trigger_evidence: "no activity 14d on deal Globex Renewal",
     target_ref: "deal:Globex Renewal",
     reason: "email provider error",
@@ -59,20 +59,20 @@ const mixedRuns: AutomationRun[] = [
   run({
     id: "r-blocked",
     outcome: "blocked",
-    tier: "yellow",
+    tier: "confirmation_required",
     target_ref: "person:Anna Weber",
     reason: "Passport no longer permits send",
   }),
   run({
     id: "r-skipped",
     outcome: "skipped",
-    tier: "green",
+    tier: "auto_execute",
     reason: "already had an open task",
   }),
   run({
     id: "r-queued",
     outcome: "queued_for_approval",
-    tier: "yellow",
+    tier: "confirmation_required",
     approval_required: true,
     action_result: "staged to approval inbox",
   }),

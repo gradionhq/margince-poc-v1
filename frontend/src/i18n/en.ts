@@ -704,11 +704,11 @@ export const en = {
   "ai.sub": "bring your own agent — governed by the two-tier contract",
   "ai.fromPalette": "From the palette",
   "ai.tiers": "What an agent may do",
-  "ai.tierGreen": "Read & draft run instantly.",
-  "ai.tierGreenDetail":
+  "ai.tierAutoExecute": "Read & draft run instantly.",
+  "ai.tierAutoExecuteDetail":
     "Lookups, summaries, drafts — visible, reversible, logged.",
-  "ai.tierYellow": "Write & send wait for you.",
-  "ai.tierYellowDetail":
+  "ai.tierConfirmationRequired": "Write & send wait for you.",
+  "ai.tierConfirmationRequiredDetail":
     "External sends and record changes stage into the inbox first.",
   "ai.connect": "Connect an agent",
   "ai.connectDetail":

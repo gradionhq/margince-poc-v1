@@ -93,8 +93,8 @@ func TestStageChangeNotifySpecNamesTheCatalogKey(t *testing.T) {
 	if spec.Trigger.EventType != eventDealStageChanged {
 		t.Errorf("Spec().Trigger.EventType = %q, want %q", spec.Trigger.EventType, eventDealStageChanged)
 	}
-	if spec.Tier != mcp.TierGreen {
-		t.Errorf("Spec().Tier = %v, want TierGreen", spec.Tier)
+	if spec.Tier != mcp.TierAutoExecute {
+		t.Errorf("Spec().Tier = %v, want TierAutoExecute", spec.Tier)
 	}
 }
 
@@ -253,8 +253,8 @@ func TestPostMeetingRecapSpecNamesTheCatalogKey(t *testing.T) {
 	if spec.Trigger.EventType != eventActivityCaptured {
 		t.Errorf("Spec().Trigger.EventType = %q, want %q", spec.Trigger.EventType, eventActivityCaptured)
 	}
-	if spec.Tier != mcp.TierGreen {
-		t.Errorf("Spec().Tier = %v, want TierGreen", spec.Tier)
+	if spec.Tier != mcp.TierAutoExecute {
+		t.Errorf("Spec().Tier = %v, want TierAutoExecute", spec.Tier)
 	}
 }
 

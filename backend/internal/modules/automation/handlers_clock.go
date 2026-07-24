@@ -208,7 +208,7 @@ func (noActivityReminder) Spec() workflow.Spec {
 	return workflow.Spec{
 		Name:    noActivityReminderName,
 		Trigger: workflow.Trigger{Schedule: noActivityScheduleMarker},
-		Tier:    mcp.TierGreen,
+		Tier:    mcp.TierAutoExecute,
 	}
 }
 
@@ -297,7 +297,7 @@ func (checkInCadence) Spec() workflow.Spec {
 	return workflow.Spec{
 		Name:    checkInCadenceName,
 		Trigger: workflow.Trigger{Schedule: checkInCadenceScheduleMarker},
-		Tier:    mcp.TierGreen,
+		Tier:    mcp.TierAutoExecute,
 	}
 }
 
@@ -432,7 +432,7 @@ func (renewalReminder) Spec() workflow.Spec {
 	return workflow.Spec{
 		Name:    renewalReminderName,
 		Trigger: workflow.Trigger{Schedule: renewalScheduleMarker},
-		Tier:    mcp.TierGreen,
+		Tier:    mcp.TierAutoExecute,
 	}
 }
 

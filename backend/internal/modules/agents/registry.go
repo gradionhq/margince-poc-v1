@@ -99,9 +99,9 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 	ctx, err = r.gate.Admit(ctx, spec, resolve)
 	switch {
 	case err == nil:
-		// A green call may still carry approval_id: the retry of a
-		// per-field precedence staging (interfaces.md §2.1) admits green,
-		// so its asserted authority is consumed HERE — validated against
+		// An auto-execute call may still carry approval_id: the retry of a
+		// per-field precedence staging (interfaces.md §2.1) admits at the
+		// auto-execute tier, so its asserted authority is consumed HERE — validated against
 		// the identical-call hash, never ignored. The redeemed mark tells
 		// the handler the overwrite it is about to make was human-released.
 		if !approvalID.IsZero() {

@@ -165,7 +165,7 @@ func (c *Connector) Descriptor() connector.Descriptor {
 		Name:     connectorName,
 		Version:  "1",
 		Scopes:   []principal.Scope{principal.ScopeRead},
-		RiskTier: mcp.TierGreen, // read-only capture
+		RiskTier: mcp.TierAutoExecute, // read-only capture
 		Produces: []datasource.EntityType{datasource.EntityActivity},
 	}
 }

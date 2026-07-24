@@ -368,7 +368,7 @@ describe("DealsScreen", () => {
           {
             name: "progress_deal",
             required_scope: "write",
-            tier: "green",
+            tier: "auto_execute",
             egress: false,
           },
         ],
@@ -390,7 +390,7 @@ describe("DealsScreen", () => {
     wonColumn.dispatchEvent(dropEvent as unknown as Event);
 
     await waitFor(() => expect(screen.getByText("Move to Won?")).toBeTruthy());
-    // progress_deal is catalogued "green" (auto-execute) — a hardcoded
+    // progress_deal is catalogued "auto_execute" — a hardcoded
     // "confirm" dot would render "confirm-first" here instead.
     await waitFor(() =>
       expect(screen.getByLabelText("auto-execute")).toBeTruthy(),

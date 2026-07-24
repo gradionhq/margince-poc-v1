@@ -58,7 +58,7 @@ func (f *authAssertingFake) Descriptor() connector.Descriptor {
 		// Persisted as capture_connection.provider → must be in the CAP-DDL-2 set.
 		Name: "graph", Version: "1.0.0",
 		Scopes:   []principal.Scope{principal.ScopeRead},
-		RiskTier: mcp.TierGreen,
+		RiskTier: mcp.TierAutoExecute,
 	}
 }
 

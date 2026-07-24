@@ -5,9 +5,9 @@ package agents
 
 // The per-field human-edit-precedence split (interfaces.md §2.1):
 // update_record is 🟢, but an agent never silently undoes a person.
-// When a green patch touches fields whose CURRENT value a human last
+// When an auto-execute patch touches fields whose CURRENT value a human last
 // wrote, exactly those fields are split off into a 🟡 staged approval
-// while the remainder of the patch proceeds green in the same call.
+// while the remainder of the patch proceeds at the auto-execute tier in the same call.
 // This file is the ONE spelling of that partition — the MCP tool and
 // the REST agent gate both split through it, so the two transports
 // cannot drift on which fields a human decision protects.
@@ -22,18 +22,18 @@ import (
 )
 
 // PatchSplit is one patch partitioned by field ownership. Staged holds
-// exactly the human-owned fields the patch would overwrite; Green holds
+// exactly the human-owned fields the patch would overwrite; AutoExecute holds
 // the remainder, nil when every touched field is human-owned. Field
-// values keep their original raw bytes — the green remainder reaches the
+// values keep their original raw bytes — the auto-execute remainder reaches the
 // store exactly as the agent sent it.
 type PatchSplit struct {
-	Conflicts []string
-	Staged    json.RawMessage
-	Green     json.RawMessage
+	Conflicts   []string
+	Staged      json.RawMessage
+	AutoExecute json.RawMessage
 }
 
 // SplitHumanOwned partitions patch by the audit-trail ownership answer.
-// No conflicts leaves the whole patch green (Staged nil, Green = patch).
+// No conflicts leaves the whole patch at the auto-execute tier (Staged nil, AutoExecute = patch).
 // A nil ownership resolver fails closed: without the audit-trail lookup
 // the precedence question cannot be answered, and "cannot check" must
 // never degrade into "agent overwrites the human".
@@ -46,7 +46,7 @@ func SplitHumanOwned(ctx context.Context, ownership FieldOwnership, entityType s
 		return PatchSplit{}, err
 	}
 	if len(conflicts) == 0 {
-		return PatchSplit{Green: patch}, nil
+		return PatchSplit{AutoExecute: patch}, nil
 	}
 
 	var fields map[string]json.RawMessage
@@ -72,7 +72,7 @@ func SplitHumanOwned(ctx context.Context, ownership FieldOwnership, entityType s
 	if len(fields) == 0 {
 		return split, nil
 	}
-	if split.Green, err = json.Marshal(fields); err != nil {
+	if split.AutoExecute, err = json.Marshal(fields); err != nil {
 		return PatchSplit{}, fmt.Errorf("crmagents: human-edit precedence: %w", err)
 	}
 	return split, nil

@@ -49,13 +49,13 @@ const tools = () =>
       {
         name: "search_records",
         required_scope: "read",
-        tier: "green",
+        tier: "auto_execute",
         egress: false,
       },
       {
         name: "send_email",
         required_scope: "send",
-        tier: "yellow",
+        tier: "confirmation_required",
         egress: true,
       },
     ],

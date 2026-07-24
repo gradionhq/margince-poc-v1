@@ -93,8 +93,8 @@ func TestRouteLeadSpecNamesTheCatalogKey(t *testing.T) {
 	if spec.Trigger.EventType != eventLeadCreated {
 		t.Errorf("Spec().Trigger.EventType = %q, want %q", spec.Trigger.EventType, eventLeadCreated)
 	}
-	if spec.Tier != mcp.TierGreen {
-		t.Errorf("Spec().Tier = %v, want TierGreen", spec.Tier)
+	if spec.Tier != mcp.TierAutoExecute {
+		t.Errorf("Spec().Tier = %v, want TierAutoExecute", spec.Tier)
 	}
 }
 

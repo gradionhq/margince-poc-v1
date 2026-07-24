@@ -92,13 +92,13 @@ func AuthRequestFrom(code, redirectURI string) (connector.AuthRequest, error) {
 }
 
 // Descriptor is the connector's static metadata: name "gmail", read-only
-// (TierGreen), producing activities. Read at registration.
+// (TierAutoExecute), producing activities. Read at registration.
 func (c *Connector) Descriptor() connector.Descriptor {
 	return connector.Descriptor{
 		Name:     connectorName,
 		Version:  "1",
 		Scopes:   []principal.Scope{principal.ScopeRead},
-		RiskTier: mcp.TierGreen, // read-only capture
+		RiskTier: mcp.TierAutoExecute, // read-only capture
 		Produces: []datasource.EntityType{datasource.EntityActivity},
 	}
 }

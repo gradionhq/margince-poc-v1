@@ -33,7 +33,7 @@ func (bothFieldsHandler) Spec() workflow.Spec {
 	return workflow.Spec{
 		Name:    "both_fields_test_handler",
 		Trigger: workflow.Trigger{EventType: "some.event", Schedule: "@daily"},
-		Tier:    mcp.TierGreen,
+		Tier:    mcp.TierAutoExecute,
 	}
 }
 

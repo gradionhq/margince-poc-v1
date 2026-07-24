@@ -65,7 +65,7 @@ func TestAutomationCatalogAndCRUD(t *testing.T) {
 // assertAutomationCatalogIsClosed checks the catalog is the closed
 // authorable library — the six seeded templates plus assign_lead_owner
 // and stage_change_create_task (authorable, never seeded) — every
-// entry green and shipping a params schema for the editor form.
+// entry auto_execute and shipping a params schema for the editor form.
 func assertAutomationCatalogIsClosed(t *testing.T, e *env) {
 	t.Helper()
 	// The catalog is the closed authorable library.
@@ -83,8 +83,8 @@ func assertAutomationCatalogIsClosed(t *testing.T, e *env) {
 		t.Fatalf("catalog carries %d types, want the closed set of 8", len(catalog.Data))
 	}
 	for _, entry := range catalog.Data {
-		if entry.Tier != "green" {
-			t.Fatalf("starter %s tier = %q, want green", entry.Key, entry.Tier)
+		if entry.Tier != "auto_execute" {
+			t.Fatalf("starter %s tier = %q, want auto_execute", entry.Key, entry.Tier)
 		}
 		if entry.ParamsSchema == nil {
 			t.Fatalf("starter %s ships no params_schema — the editor form has nothing to render", entry.Key)

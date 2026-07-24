@@ -194,9 +194,9 @@ func (%[2]s) Spec() workflow.Spec {
 			// StarterWorkflows().
 			EventType: "replace_me.set_the_real_trigger_event_type",
 		},
-		// TierGreen auto-executes; TierYellow stages for approval before
+		// TierAutoExecute auto-executes; TierConfirmationRequired stages for approval before
 		// Apply runs. Set the tier this handler's effect actually needs.
-		Tier: mcp.TierGreen,
+		Tier: mcp.TierAutoExecute,
 	}
 }
 
@@ -252,7 +252,7 @@ func TestGenerated%[2]sDeclaresTriggerAndTier(t *testing.T) {
 		t.Fatal("Spec().Trigger declares neither EventType nor Schedule — RegisterWorkflow refuses a triggerless handler")
 	}
 	switch spec.Tier {
-	case mcp.TierGreen, mcp.TierYellow, mcp.TierDynamic:
+	case mcp.TierAutoExecute, mcp.TierConfirmationRequired, mcp.TierDynamic:
 	default:
 		t.Fatalf("Spec().Tier %%v is not a known risk tier", spec.Tier)
 	}

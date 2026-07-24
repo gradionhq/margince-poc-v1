@@ -6,8 +6,8 @@ package compose
 // Fitness function for the approval surface (M5): every tool the
 // registry admits at 🟡 (or dynamically escalates to 🟡) stages
 // approvals under its own kind — and the approvals module's decidable()
-// fails closed on kinds it has no decision-grant mapping for. A yellow
-// tool without a mapping would strand every staging in a queue no inbox
+// fails closed on kinds it has no decision-grant mapping for. A
+// confirmation_required tool without a mapping would strand every staging in a queue no inbox
 // shows and no human may decide. The tool list is derived from the live
 // registry, so registering a new 🟡 tool without extending
 // decisionGrants fails here, not in production.
@@ -61,14 +61,14 @@ func (stubComms) BookMeeting(context.Context, agents.BookMeetingArgs) (json.RawM
 	return nil, nil
 }
 
-func TestEveryYellowToolHasADecisionGrantMapping(t *testing.T) {
+func TestEveryConfirmationRequiredToolHasADecisionGrantMapping(t *testing.T) {
 	registry := agents.NewRegistry(stubApprovals{}, nil)
 	agents.RegisterCoreTools(registry, nil, nil, nil, nil)
 	agents.RegisterIntentTools(registry, stubRetriever{})
 	agents.RegisterCommsTools(registry, stubComms{})
 
 	for _, spec := range registry.Specs() {
-		if spec.Tier == mcp.TierGreen {
+		if spec.Tier == mcp.TierAutoExecute {
 			continue // never staged, never decided
 		}
 		if !approvals.KindHasDecisionGrants(spec.Name) {

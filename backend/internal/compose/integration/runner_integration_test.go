@@ -195,7 +195,7 @@ func TestRunnerFullLoopWritesAsGovernedAgent(t *testing.T) {
 	}
 }
 
-func TestRunnerYellowSuspendApproveResume(t *testing.T) {
+func TestRunnerConfirmationRequiredSuspendApproveResume(t *testing.T) {
 	re := setupRunner(t)
 
 	var person struct {
@@ -205,7 +205,7 @@ func TestRunnerYellowSuspendApproveResume(t *testing.T) {
 		t.Fatalf("create person → %d", status)
 	}
 
-	trigger := "overnight_at_risk_sweep:e2e-yellow"
+	trigger := "overnight_at_risk_sweep:e2e-confirmation-required"
 	re.brain.Script(
 		fmt.Sprintf(`{"tool":"archive_record","args":{"record_type":"person","id":"%s"}}`, person.ID),
 		`{"final":{"summary":"archive executed after approval"}}`,
@@ -254,7 +254,7 @@ func TestRunnerYellowSuspendApproveResume(t *testing.T) {
 	}
 }
 
-func TestRunnerYellowRejectionReplansWithoutEffect(t *testing.T) {
+func TestRunnerConfirmationRequiredRejectionReplansWithoutEffect(t *testing.T) {
 	re := setupRunner(t)
 
 	var person struct {

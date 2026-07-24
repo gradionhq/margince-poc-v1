@@ -50,7 +50,7 @@ const run = (over: Partial<AutomationRun>): AutomationRun => ({
   automation_id: "au-1",
   occurred_at: "2026-07-14T10:00:00Z",
   outcome: "fired",
-  tier: "green",
+  tier: "auto_execute",
   ...over,
 });
 
@@ -80,7 +80,7 @@ describe("AutomationRuns", () => {
       "fetch",
       vi.fn(async () =>
         jsonResponse({
-          data: [run({ outcome: "fired", tier: "green" })],
+          data: [run({ outcome: "fired", tier: "auto_execute" })],
           page: { next_cursor: null },
         }),
       ),
@@ -104,7 +104,7 @@ describe("AutomationRuns", () => {
             run({
               id: "r2",
               outcome: "failed",
-              tier: "yellow",
+              tier: "confirmation_required",
               trigger_evidence: "no activity 14d on deal BÄR Pharma",
               target_ref: "deal:BÄR Pharma",
               action_result: "send failed",

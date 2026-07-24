@@ -29,12 +29,12 @@ func TestContractTierNeverBelowRegistryTier(t *testing.T) {
 			continue // unregistered verbs default-deny (🟡) or admit at the annotation tier — never below it
 		}
 		switch spec.Tier {
-		case mcp.TierYellow:
-			if pol.Tier != "yellow" {
+		case mcp.TierConfirmationRequired:
+			if pol.Tier != "confirmation_required" {
 				t.Errorf("%s (%s): tool %s is 🟡 but the contract annotates %q", route, pol.Op, pol.Tool, pol.Tier)
 			}
 		case mcp.TierDynamic:
-			if pol.Tier != "dynamic" && pol.Tier != "yellow" {
+			if pol.Tier != "dynamic" && pol.Tier != "confirmation_required" {
 				t.Errorf("%s (%s): tool %s is dynamic but the contract annotates %q — the resolver would never run", route, pol.Op, pol.Tool, pol.Tier)
 			}
 		}
@@ -44,16 +44,16 @@ func TestContractTierNeverBelowRegistryTier(t *testing.T) {
 // Human-edit precedence is per FIELD, not per call (interfaces.md §2.1):
 // update_record is 🟢 in the tool registry AND in every contract
 // annotation that rides it — the split into a 🟡 staged residue happens
-// inside the green Update path, never by re-tiering the whole verb. A
-// dynamic or yellow update_record annotation would resurrect whole-patch
+// inside the auto-execute Update path, never by re-tiering the whole verb. A
+// dynamic or confirmation_required update_record annotation would resurrect whole-patch
 // staging, so both artifacts are pinned.
-func TestUpdateRecordIsGreenOnBothArtifacts(t *testing.T) {
+func TestUpdateRecordIsAutoExecuteOnBothArtifacts(t *testing.T) {
 	registry := agents.NewRegistry(stubApprovals{}, nil)
 	agents.RegisterCoreTools(registry, nil, nil, nil, nil)
 
 	spec, ok := registry.Spec("update_record")
-	if !ok || spec.Tier != mcp.TierGreen {
-		t.Fatalf("update_record registry tier = %v (registered %v), want TierGreen", spec.Tier, ok)
+	if !ok || spec.Tier != mcp.TierAutoExecute {
+		t.Fatalf("update_record registry tier = %v (registered %v), want TierAutoExecute", spec.Tier, ok)
 	}
 	seen := 0
 	for route, pol := range agentPolicies {
@@ -61,10 +61,10 @@ func TestUpdateRecordIsGreenOnBothArtifacts(t *testing.T) {
 			continue
 		}
 		seen++
-		// DELETE-shaped rides may tighten to yellow (archive semantics);
-		// a field-patch op must be green and none may say dynamic.
-		if pol.Tier != "green" && pol.Tier != "yellow" {
-			t.Errorf("%s (%s): update_record annotated %q — the per-field split runs inside the green path", route, pol.Op, pol.Tier)
+		// DELETE-shaped rides may tighten to confirmation_required (archive semantics);
+		// a field-patch op must be auto_execute and none may say dynamic.
+		if pol.Tier != "auto_execute" && pol.Tier != "confirmation_required" {
+			t.Errorf("%s (%s): update_record annotated %q — the per-field split runs inside the auto-execute path", route, pol.Op, pol.Tier)
 		}
 	}
 	if seen == 0 {
@@ -110,17 +110,17 @@ func TestOperationSpecTightenOnly(t *testing.T) {
 	registry := agents.NewRegistry(stubApprovals{}, nil)
 	agents.RegisterCoreTools(registry, nil, nil, nil, nil)
 
-	spec, ok := operationSpec(agentPolicy{Op: "archivePerson", Access: "tool", Tool: "update_record", Tier: "yellow"}, registry)
-	if !ok || spec.Tier != mcp.TierYellow {
-		t.Fatalf("🟡 annotation over a 🟢 verb → tier %v ok=%v, want TierYellow (tighten-only)", spec.Tier, ok)
+	spec, ok := operationSpec(agentPolicy{Op: "archivePerson", Access: "tool", Tool: "update_record", Tier: "confirmation_required"}, registry)
+	if !ok || spec.Tier != mcp.TierConfirmationRequired {
+		t.Fatalf("🟡 annotation over a 🟢 verb → tier %v ok=%v, want TierConfirmationRequired (tighten-only)", spec.Tier, ok)
 	}
 
 	if _, ok := operationSpec(agentPolicy{Op: "phantom", Access: "tool", Tool: "no_such_tool", Tier: "dynamic"}, registry); ok {
 		t.Fatal("dynamic annotation without a registered dynamic tool must fail closed")
 	}
 
-	spec, ok = operationSpec(agentPolicy{Op: "sendEmail", Access: "tool", Tool: "send_email", Tier: "yellow"}, registry)
-	if !ok || spec.Tier != mcp.TierYellow {
+	spec, ok = operationSpec(agentPolicy{Op: "sendEmail", Access: "tool", Tool: "send_email", Tier: "confirmation_required"}, registry)
+	if !ok || spec.Tier != mcp.TierConfirmationRequired {
 		t.Fatalf("unregistered verb admits at the annotation tier, got %v ok=%v", spec.Tier, ok)
 	}
 }

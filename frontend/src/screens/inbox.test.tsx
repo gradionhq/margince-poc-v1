@@ -169,14 +169,14 @@ describe("InboxScreen (B-EP09.12a)", () => {
         {
           name: "send_email",
           required_scope: "write",
-          tier: "green",
+          tier: "auto_execute",
           egress: true,
         },
       ]),
     );
     render(<InboxScreen />);
     await waitFor(() => expect(screen.getByText("send_email")).toBeTruthy());
-    // send_email is catalogued "green" (auto-execute) — a hardcoded
+    // send_email is catalogued "auto_execute" — a hardcoded
     // "confirm" dot would render "confirm-first" here instead.
     await waitFor(() =>
       expect(screen.getByLabelText("auto-execute")).toBeTruthy(),
@@ -191,7 +191,7 @@ describe("InboxScreen (B-EP09.12a)", () => {
         {
           name: "send_email",
           required_scope: "write",
-          tier: "yellow",
+          tier: "confirmation_required",
           egress: true,
         },
       ]),

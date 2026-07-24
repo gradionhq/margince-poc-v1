@@ -1770,7 +1770,7 @@ export interface paths {
         };
         /**
          * The governed tool surface (registry metadata) for the operator UI.
-         * @description Read-only inventory of the tools an agent passport can call — name, action verb, the passport scope each requires, its autonomy tier (green/yellow/dynamic) and whether it reaches outside the workspace. This is governance metadata, not tenant data; it mirrors exactly what an MCP client sees from `tools/list`.
+         * @description Read-only inventory of the tools an agent passport can call — name, action verb, the passport scope each requires, its autonomy tier (auto_execute/confirmation_required/dynamic) and whether it reaches outside the workspace. This is governance metadata, not tenant data; it mirrors exactly what an MCP client sees from `tools/list`.
          */
         get: operations["listAgentTools"];
         put?: never;
@@ -7206,7 +7206,7 @@ export interface components {
             /** @description Passport scope required to call it. */
             required_scope?: string;
             /** @enum {string} */
-            tier: "green" | "yellow" | "dynamic";
+            tier: "auto_execute" | "confirmation_required" | "dynamic";
             /** @description True if the tool reaches outside the workspace. */
             egress: boolean;
         };
@@ -8326,10 +8326,10 @@ export interface components {
             /** @description What it does (e.g. create_task or send_email). */
             action: string;
             /**
-             * @description yellow actions stage to /approvals at run time.
+             * @description confirmation_required actions stage to /approvals at run time.
              * @enum {string}
              */
-            tier?: "green" | "yellow";
+            tier?: "auto_execute" | "confirmation_required";
             /** @description JSON-schema for this type's parameters (drives the editor form). */
             params_schema: {
                 [key: string]: unknown;
@@ -8421,7 +8421,7 @@ export interface components {
              * @description The tier that fired for this run.
              * @enum {string}
              */
-            tier: "green" | "yellow";
+            tier: "auto_execute" | "confirmation_required";
             approval_required?: boolean;
             /** @description What matched (e.g. "no activity 14d on deal BÄR Pharma") — the "why did this fire?" line. */
             trigger_evidence?: string | null;

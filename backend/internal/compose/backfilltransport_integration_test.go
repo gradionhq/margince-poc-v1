@@ -62,7 +62,7 @@ func (f *backfillFakeConnector) Descriptor() connector.Descriptor {
 	return connector.Descriptor{
 		Name: f.name, Version: "1",
 		Scopes:   []principal.Scope{principal.ScopeRead},
-		RiskTier: mcp.TierGreen,
+		RiskTier: mcp.TierAutoExecute,
 		Produces: []datasource.EntityType{datasource.EntityActivity},
 	}
 }
@@ -117,7 +117,7 @@ func (plainSyncConnector) Descriptor() connector.Descriptor {
 	return connector.Descriptor{
 		Name: "graph", Version: "1",
 		Scopes:   []principal.Scope{principal.ScopeRead},
-		RiskTier: mcp.TierGreen,
+		RiskTier: mcp.TierAutoExecute,
 		Produces: []datasource.EntityType{datasource.EntityActivity},
 	}
 }

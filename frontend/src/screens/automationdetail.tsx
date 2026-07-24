@@ -119,7 +119,7 @@ function RunRow({ run }: Readonly<{ run: AutomationRun }>) {
         >
           {formatDateTime(run.occurred_at, locale, zone)}
         </time>
-        <AutonomyDot tier={run.tier === "green" ? "auto" : "confirm"} />
+        <AutonomyDot tier={run.tier === "auto_execute" ? "auto" : "confirm"} />
         {run.approval_required && (
           <span className="t-caption">{t("auto.runs.needsApproval")}</span>
         )}

@@ -36,7 +36,7 @@ func (m *moodyConnector) Descriptor() connector.Descriptor {
 	return connector.Descriptor{
 		Name: m.name, Version: "1",
 		Scopes:   []principal.Scope{principal.ScopeRead},
-		RiskTier: mcp.TierGreen,
+		RiskTier: mcp.TierAutoExecute,
 		Produces: []datasource.EntityType{datasource.EntityActivity},
 	}
 }
