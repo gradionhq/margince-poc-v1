@@ -1088,6 +1088,21 @@ export const en = {
   "ob.s4.provGoogle": "Google",
   "ob.s4.provMicrosoft": "Microsoft",
   "ob.s4.provImap": "Any inbox (IMAP)",
+  "ob.s4.microsoftBtn": "Connect Microsoft",
+  "ob.s4.microsoftHint":
+    "Read-only mail access. You can disconnect any time from Settings.",
+  "ob.s4.microsoftUnverified":
+    'You may see an "unverified app" notice — that\'s this self-hosted install, not a third party.',
+  "ob.s4.microsoftFailed": "The Microsoft connection didn't complete.",
+  "ob.s4.connectOkTitle": "You're connected",
+  "ob.s4.connectOkBody":
+    "Your mailbox is linked. Capture begins on the next sync.",
+  "ob.s4.connectVerifying": "Confirming the connection…",
+  "ob.s4.connectLive": "Live and capturing",
+  "ob.s4.connectConfirmFailed": "We couldn't confirm the connection.",
+  "ob.s4.connectRetry":
+    "Head to Settings → Integrations to try connecting again.",
+  "ob.s4.connectDenied": "You declined access — nothing was connected.",
   "ob.s4.googleBtn": "Continue with Google",
   "ob.s4.soon": "Soon",
   "ob.s4.googleHint":
@@ -1211,6 +1226,15 @@ export const en = {
   "connectors.oauthError":
     "The connection couldn't be completed — please try again.",
   "connectors.dismissOutcome": "Dismiss",
+
+  // The always-present "Add a connection" affordance (Task 1): the empty
+  // state and the roster footer share the same not-yet-connected provider
+  // buttons, so the copy that names them lives once here.
+  "connectors.addConnection": "Add a connection",
+  "connectors.googleSeparateNote":
+    "Gmail and Google Calendar connect separately.",
+  "connectors.providerNotConfigured":
+    "{provider} isn't configured in this deployment.",
 
   // The inline IMAP connect form (Task 6): first-connect and reconnect for
   // the one credential provider, done in Settings instead of bouncing to

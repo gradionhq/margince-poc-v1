@@ -1110,6 +1110,23 @@ export const de = {
   "ob.s4.provGoogle": "Google",
   "ob.s4.provMicrosoft": "Microsoft",
   "ob.s4.provImap": "Beliebiges Postfach (IMAP)",
+  "ob.s4.microsoftBtn": "Microsoft verbinden",
+  "ob.s4.microsoftHint":
+    "Nur-Lese-Zugriff auf E-Mails. Du kannst die Verbindung jederzeit in den Einstellungen trennen.",
+  "ob.s4.microsoftUnverified":
+    "Eventuell erscheint ein Hinweis „nicht verifizierte App“ — das ist diese selbstgehostete Installation, kein Dritter.",
+  "ob.s4.microsoftFailed":
+    "Die Microsoft-Verbindung wurde nicht abgeschlossen.",
+  "ob.s4.connectOkTitle": "Verbunden",
+  "ob.s4.connectOkBody":
+    "Dein Postfach ist verknüpft. Die Erfassung startet beim nächsten Sync.",
+  "ob.s4.connectVerifying": "Verbindung wird bestätigt…",
+  "ob.s4.connectLive": "Aktiv und erfassend",
+  "ob.s4.connectConfirmFailed": "Die Verbindung konnte nicht bestätigt werden.",
+  "ob.s4.connectRetry":
+    "Öffne Einstellungen → Integrationen, um es erneut zu versuchen.",
+  "ob.s4.connectDenied":
+    "Du hast den Zugriff abgelehnt — es wurde nichts verbunden.",
   "ob.s4.googleBtn": "Mit Google fortfahren",
   "ob.s4.soon": "Bald",
   "ob.s4.googleHint":
@@ -1234,6 +1251,15 @@ export const de = {
   "connectors.oauthError":
     "Die Verbindung konnte nicht hergestellt werden — bitte versuchen Sie es erneut.",
   "connectors.dismissOutcome": "Schließen",
+
+  // Das immer sichtbare "Verbindung hinzufügen"-Element (Task 1): der
+  // Leerzustand und die Fußzeile der Liste teilen sich dieselben Buttons für
+  // noch nicht verbundene Anbieter.
+  "connectors.addConnection": "Verbindung hinzufügen",
+  "connectors.googleSeparateNote":
+    "Gmail und Google Kalender werden separat verbunden.",
+  "connectors.providerNotConfigured":
+    "{provider} ist in dieser Installation nicht konfiguriert.",
 
   // Das eingebettete IMAP-Verbindungsformular (Task 6).
   "connectors.imapConnectCta": "IMAP-Postfach verbinden",

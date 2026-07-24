@@ -2,12 +2,13 @@
 
 Connect a mailbox so Margince captures its mail onto the timeline — creating people, organizations, and
 activities through the one dedupe chokepoint. This guide is **UI-first**: you drive it from the app,
-with the equivalent `curl` shown alongside for scripting and verification. It covers the two paths you
-can drive from the **UI** — **Gmail over OAuth** (a standing connection with background sync + backfill)
-and **IMAP one-shot pull** (a transient capture, which is how you reach a **Gmail** or **Outlook /
-Microsoft 365** mailbox with an app-password) — plus a **Graph** (`curl`-only) path for Outlook (Path C).
-For the mental model — the connector seam, the one Sink, the three
-ingestion modes, credential custody — read
+with the equivalent `curl` shown alongside for scripting and verification. It covers the three paths you
+can drive from the **UI** — **Gmail over OAuth** (a standing connection with background sync + backfill),
+**IMAP one-shot pull** (a transient capture, which is how you reach a **Gmail** or **Outlook /
+Microsoft 365** mailbox with an app-password), and **Graph OAuth** for Outlook / Microsoft 365 (a standing
+connection, Path C) — plus **Google Calendar (`gcal`)**, a separate standing connection you add
+alongside Gmail from the same Settings surface (Path D). For the mental model — the connector seam, the
+one Sink, the three ingestion modes, credential custody — read
 [explanation/capture-connectors.md](../explanation/capture-connectors.md) first.
 
 > **Single-organization installation (ADR-0061/A107).** One installation serves one organization; the
@@ -20,11 +21,17 @@ Two entry points, both hitting the same API:
 
 - **Settings → Integrations** (`ConnectorsCard`) — the standing-connection roster: each live connection
   with a status badge (`connected` / `reauth_required` / `error`) and last-synced time, a **reconnect**
-  action for a `reauth_required` OAuth connection, and a confirm-gated **disconnect**. When empty it
-  shows a **Connect** button that takes you to the connect step below.
-- **Onboarding → connect step** — where you *add* a connection: a **Connect Google** button (OAuth) and
-  an **IMAP form**. On a fresh install this is step in the first-run flow; afterwards, reach it from the
-  Settings → Integrations **Connect** button (or the `onboarding / connect` command).
+  action for a `reauth_required` OAuth connection, and a confirm-gated **disconnect**. Below the roster
+  (or in its place, when nothing is connected yet) sits an always-present **"Add a connection"**
+  affordance offering whichever of **Gmail**, **Google Calendar**, **Microsoft 365**, and **IMAP** aren't
+  already connected. Picking an OAuth provider (Gmail / Calendar / Microsoft) redirects straight to that
+  provider's consent screen from Settings — no detour through onboarding; picking IMAP opens the inline
+  connect form right there. If a provider's backend app isn't configured, the button click surfaces
+  **"{provider} isn't configured in this deployment"** instead of a raw error.
+- **Onboarding → connect step** — the same connect step, reached on a fresh install (or via the
+  `onboarding / connect` command): chips for **Google**, **Microsoft**, and **IMAP** (Google Calendar has
+  no onboarding chip — add it from Settings). All three chips are live; Microsoft opens the same Graph
+  OAuth redirect Settings does.
 
 > **Restart after backend config.** The api is a compiled binary — changing an OAuth env var (below)
 > needs `make dev` again to take effect; Vite hot-reloads the SPA but not the Go api.
@@ -36,7 +43,8 @@ Two entry points, both hitting the same API:
 | **Gmail** | OAuth standing connection | Yes | Yes (+ Pub/Sub push) | a Google OAuth app + the vault key |
 | **Gmail** | IMAP one-shot pull | No | No (re-run to capture more) | a Google **app-password** |
 | **Outlook / M365** | IMAP one-shot pull | No | No | an Outlook **app-password** |
-| **Outlook / M365** | Graph OAuth standing connection | Yes | Sync + backfill (poll-only) | a Microsoft Entra app + the vault key (no first-connect UI yet) |
+| **Outlook / M365** | Graph OAuth standing connection | Yes | Sync + backfill (poll-only) | a Microsoft Entra app + the vault key |
+| **Google Calendar** | `gcal` OAuth standing connection (separate from Gmail) | Yes | Sync only (poll-only, no backfill) | the same Google app as Gmail, with the calendar scope + redirect URI added |
 
 Start with **IMAP one-shot** if you just want to see capture work against a real mailbox from the UI — it
 needs no OAuth app and no deployment config. Use **Gmail OAuth** to exercise the standing connection,
@@ -71,15 +79,16 @@ export MARGINCE_PUBLIC_BASE_URL="http://localhost:8080"         # post-consent l
 ```
 
 Without the client id/secret + state key + public base URL, `/connectors/gmail/*` stays its declared
-`501` and the **Connect Google** button will land on an error. The full table is
+`501` and clicking **Gmail** in the Add-a-connection panel shows "Gmail isn't configured in this
+deployment" instead of redirecting. The full table is
 [reference/configuration.md → Capture connector OAuth](../reference/configuration.md).
 
 ### A2. Connect from the UI
 
-1. Open the app, go to **Settings → Integrations**, and click **Connect** (or complete the onboarding
-   connect step on a fresh install).
-2. Click **Connect Google**. The page redirects to Google — sign in and consent to the read-only Gmail
-   scope.
+1. Open the app, go to **Settings → Integrations**, and click **Gmail** in the **Add a connection**
+   footer or empty state (or click the **Google** chip on the onboarding connect step, on a fresh
+   install).
+2. The page redirects to Google — sign in and consent to the read-only Gmail scope.
 3. Google returns you to the app; the panel **proves** the connection by re-reading `GET /connectors`
    and shows a trust pill for the live `gmail` connection. Back in **Settings → Integrations** you'll now
    see a `gmail` row with a **connected** badge.
@@ -152,7 +161,8 @@ Basic-auth IMAP with your normal password is blocked by both providers — you n
 
 ### B2. Pull from the UI
 
-1. **Settings → Integrations → Connect** (or the onboarding connect step) → choose the **IMAP** option.
+1. **Settings → Integrations** → click **IMAP mailbox** in the **Add a connection** footer or empty state
+   (or the **IMAP** chip on the onboarding connect step).
 2. Fill the form: **host** (`imap.gmail.com` or `outlook.office365.com`), **email** (the mailbox
    address / login), **password** (the app-password), **mailbox** (`INBOX`), **max messages** (default
    `30`, capped at `200`).
@@ -193,11 +203,13 @@ mailbox is easiest). This is a security guard, not a bug.
 
 ---
 
-## Path C — Outlook / Microsoft 365 over Graph (standing connection, no UI yet)
+## Path C — Outlook / Microsoft 365 over Graph (standing connection)
 
 Graph is the richer Outlook path — a standing connection with delta-cursor sync and backfill — but it is
-**poll-only** (no push) and has **no first-connect UI yet** (the onboarding Microsoft chip is disabled,
-"Soon"), so today you connect it by `curl`. The shape mirrors Path A:
+**poll-only** (no push subscription built yet). The shape mirrors Path A, and it now has the same
+first-connect UI: an onboarding **Microsoft** chip and a Settings **Add a connection** button.
+
+### C1. Prerequisites (operator config)
 
 ```sh
 export MARGINCE_GRAPH_CLIENT_ID="<entra-app-id>"
@@ -207,23 +219,73 @@ export MARGINCE_GRAPH_TENANT="common"   # or a specific tenant id
 ```
 
 Register a Microsoft Entra (Azure AD) app with delegated scopes `offline_access User.Read Mail.Read` and
-a redirect URI of `<api-base>/v1/connectors/graph/callback`, then get the consent URL and open it:
+a redirect URI of `<api-base>/v1/connectors/graph/callback`, then `make dev` to pick up the env.
+
+### C2. Connect from the UI
+
+1. Either click the **Microsoft** chip on the onboarding connect step, or go to **Settings →
+   Integrations** and click **Microsoft** in the **Add a connection** footer (or empty state).
+2. The page redirects to Microsoft — sign in and consent to `offline_access User.Read Mail.Read`.
+3. Microsoft returns you to the app; **Settings → Integrations** shows a `graph` row with a **connected**
+   badge, reconnect/disconnect actions, and the backfill panel.
+
+<details><summary>Same thing via <code>curl</code></summary>
 
 ```sh
 curl -X POST http://localhost:8080/v1/connectors/graph/connect \
   --cookie 'crm_session=<session>' -H 'Content-Type: application/json' -d '{}' | jq -r '.authorize_url'
 ```
 
-Consent in the browser; the callback seals the refresh token and the worker syncs it. Backfill
-(`/connectors/graph/backfill*`) works exactly as in A3. Once connected, the `graph` row **does** appear
-in the Settings → Integrations roster and can be reconnected/disconnected there.
+Consent in the browser; the callback seals the refresh token and the worker syncs it.
+</details>
+
+### C3. Backfill
+
+Backfill (`/connectors/graph/backfill*`) works exactly as in [A3](#a3-backfill-existing-mail-preview-before-spend) —
+same window/preview/progress panel, just on the `graph` connection.
+
+---
+
+## Path D — Google Calendar over OAuth (standing connection, separate from Gmail)
+
+Google Calendar (`gcal`) is a **second, independent** standing connection, not a mode of the Gmail one.
+It reuses the same Google OAuth app as Path A but requests only `calendar.readonly` as its own
+authorization (deliberately never `include_granted_scopes`), so the calendar grant never inherits — and
+never bleeds into — the Gmail mail-read grant. **Connecting both means signing two separate Google
+consent screens** — a deliberate least-privilege split, not a rough edge.
+
+### D1. Prerequisites (operator config)
+
+Same env vars as [A1](#a1-prerequisites-operator-config) (`MARGINCE_GMAIL_CLIENT_ID/SECRET`,
+`MARGINCE_CONNECTOR_STATE_KEY`, `MARGINCE_KEYVAULT_ROOT_KEY`, `MARGINCE_PUBLIC_BASE_URL`) — Calendar rides
+the same Google OAuth app as Gmail. On that app's Google Cloud project, additionally enable the
+**Calendar API** and add `<api-base>/v1/connectors/gcal/callback` (dev:
+`http://localhost:8080/v1/connectors/gcal/callback`) as an authorized redirect URI.
+
+### D2. Connect from the UI
+
+1. Go to **Settings → Integrations** and click **Google Calendar** in the **Add a connection** footer (or
+   empty state) — there is no onboarding chip for Calendar, so Settings is the only first-connect path.
+2. The page redirects to Google — sign in and consent to the read-only Calendar scope (a separate consent
+   screen from Gmail's, even if you're already connected to Gmail).
+3. Google returns you to the app; **Settings → Integrations** shows a `gcal` row with a **connected**
+   badge. There is no backfill panel for Calendar — it syncs forward from connect time only.
+
+<details><summary>Same thing via <code>curl</code></summary>
+
+```sh
+curl -X POST http://localhost:8080/v1/connectors/gcal/connect \
+  --cookie 'crm_session=<session>' -H 'Content-Type: application/json' -d '{}' \
+  | jq -r '.authorize_url'
+```
+</details>
 
 ---
 
 ## Verify end-to-end
 
-1. **The mailbox connected.** For Gmail/Graph, **Settings → Integrations** shows a `connected` row (or
-   `GET /connectors`); for IMAP, the result panel shows `connected` with a non-zero **captured**.
+1. **The mailbox connected.** For Gmail/Graph/gcal, **Settings → Integrations** shows a `connected` row
+   (or `GET /connectors`); for IMAP, the result panel shows `connected` with a non-zero **captured**.
 2. **Mail became timeline activities.** Open a captured counterparty's timeline (or `GET /activities`)
    and confirm each message is an email activity, provenance-stamped `connector:<name>`.
 3. **People and organizations were auto-created.** A new external counterparty becomes a person (and, for
@@ -241,9 +303,11 @@ in the Settings → Integrations roster and can be reconnected/disconnected ther
 
 ## Current UI gaps
 
-The connect/roster/backfill UI is live; a few capture surfaces are still API-only (tracked in
-`.tmp/MISSING-UI-V4.md` §8): **no Microsoft first-connect** (connect Graph via `curl`), **no
-personal-mail exclusions screen** (`/capture/exclusions` is API-only), and **adding a new Outlook/IMAP
-connection or re-running a backfill from Settings** still routes through the onboarding connect step.
-See [explanation/capture-connectors.md → Honest limitations](../explanation/capture-connectors.md#honest-limitations)
-for the full list.
+The connect UI is now live for all four connectors: Gmail, Google Calendar, Graph, and IMAP each have a
+first-connect affordance from **Settings → Integrations**, and Gmail, Microsoft, and IMAP have one from
+**onboarding** too (Google Calendar is Settings-only — there's no onboarding chip for it). The roster and
+backfill panel, though, only apply to Gmail and Graph: IMAP is a one-shot pull with no standing
+connection to roster and no backfill to run, and Google Calendar has no backfill (it syncs forward from
+connect time only — see the [Calendar section](#d2-connect-from-the-ui) above). See
+[explanation/capture-connectors.md → Honest limitations](../explanation/capture-connectors.md#honest-limitations)
+for what's still scoped out of the pipeline overall.

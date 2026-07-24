@@ -117,6 +117,26 @@ export const Empty: Story = {
   render: cardStory([]),
 };
 
+// The "Add a connection" affordance (Task 1): the empty state offers all
+// four providers, and once one is connected the roster grows a footer
+// offering only the ones still missing.
+export const EmptyStateAllProviders: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ data: [] }),
+    });
+    return (
+      <StoryProviders>
+        <ConnectorsCard />
+      </StoryProviders>
+    );
+  },
+};
+
+export const OneConnectedWithFooter: Story = {
+  render: cardStory([gmailConnected]),
+};
+
 export const LoadFailed: Story = {
   render: () => {
     installFetchStub({

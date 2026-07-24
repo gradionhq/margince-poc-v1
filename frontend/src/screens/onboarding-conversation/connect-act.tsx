@@ -7,8 +7,9 @@ import { useT } from "../../i18n";
 import type { MessageKey } from "../../i18n/en";
 import { EMPTY_DRAFT } from "../onboarding";
 import {
-  GoogleConnectPanel,
   ImapConnectPanel,
+  OAuthConnectPanel,
+  OAuthReturnPanel,
 } from "../onboarding-connect-panels";
 import type {
   ConversationEvent,
@@ -45,7 +46,7 @@ type ConnectActProps = Readonly<{
   state: ConversationState;
   dispatch: Dispatch<ConversationEvent>;
   persist: (input: WizardPersistInput) => Promise<boolean>;
-  /** The Google consent return's outcome from the deep-link route. */
+  /** The OAuth consent return's outcome from the deep-link route. */
   outcome?: string;
 }>;
 
@@ -56,11 +57,10 @@ export function ConnectAct({
   outcome,
 }: ConnectActProps) {
   const t = useT();
-  // Returning from the Google consent lands here with an outcome in the
-  // route; the Google panel is then the one that explains what happened.
-  const [provider, setProvider] = useState<Provider | null>(
-    outcome !== undefined ? "google" : null,
-  );
+  // The OAuth return view no longer depends on which chip was open when the
+  // consent redirect left this screen — it reads the connector roster fresh,
+  // so `provider` only tracks which pre-consent panel is open right now.
+  const [provider, setProvider] = useState<Provider | null>(null);
   const [finishing, setFinishing] = useState(false);
   const [finishFailed, setFinishFailed] = useState(false);
 
@@ -95,15 +95,24 @@ export function ConnectAct({
             <h2>{t("ob.conv.connect.artifactTitle")}</h2>
             <p>{t("ob.s4.sub")}</p>
           </div>
-          {provider === null && (
-            <p className="ob-conv-artifact-empty">
-              {t("ob.conv.connect.artifactEmpty")}
-            </p>
+          {outcome !== undefined ? (
+            <OAuthReturnPanel outcome={outcome} onComplete={finish} />
+          ) : (
+            <>
+              {provider === null && (
+                <p className="ob-conv-artifact-empty">
+                  {t("ob.conv.connect.artifactEmpty")}
+                </p>
+              )}
+              {provider === "google" && (
+                <OAuthConnectPanel provider="gmail" onComplete={finish} />
+              )}
+              {provider === "microsoft" && (
+                <OAuthConnectPanel provider="graph" onComplete={finish} />
+              )}
+              {provider === "imap" && <ImapConnectPanel onComplete={finish} />}
+            </>
           )}
-          {provider === "google" && (
-            <GoogleConnectPanel outcome={outcome} onComplete={finish} />
-          )}
-          {provider === "imap" && <ImapConnectPanel onComplete={finish} />}
         </div>
       }
     >
@@ -150,26 +159,16 @@ export function ConnectAct({
                 </div>
               )}
               <div className="ob-conv-chips">
-                {(Object.keys(providerLabels) as Provider[]).map((key) => {
-                  // Microsoft has no live OAuth path yet: the chip is disabled
-                  // and badged "Soon" in place, so it can never open a dead
-                  // panel — an honest not-yet, not a cosmetic label.
-                  const soon = key === "microsoft";
-                  return (
-                    <Button
-                      key={key}
-                      small
-                      variant={provider === key ? "primary" : undefined}
-                      disabled={soon}
-                      onClick={soon ? undefined : () => setProvider(key)}
-                    >
-                      {t(providerLabels[key])}
-                      {soon && (
-                        <span className="ob-chip-soon">{t("ob.s4.soon")}</span>
-                      )}
-                    </Button>
-                  );
-                })}
+                {(Object.keys(providerLabels) as Provider[]).map((key) => (
+                  <Button
+                    key={key}
+                    small
+                    variant={provider === key ? "primary" : undefined}
+                    onClick={() => setProvider(key)}
+                  >
+                    {t(providerLabels[key])}
+                  </Button>
+                ))}
                 <Button
                   small
                   variant="ghost"

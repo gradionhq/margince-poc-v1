@@ -41,6 +41,11 @@ const providerLabel: Record<Provider, MessageKey> = {
 // a credential provider never redirects.
 const OAUTH_PROVIDERS = new Set<Provider>(["gmail", "gcal", "graph"]);
 
+// The full connector roster the "Add a connection" affordance offers from —
+// the empty state shows all four, the footer shows whichever aren't already
+// present in GET /connectors.
+const ALL_PROVIDERS: Provider[] = ["gmail", "gcal", "graph", "imap"];
+
 // Disconnecting an OAuth connection deletes OUR stored credential; it does
 // not reach out to the vendor to revoke the grant on their side (there is no
 // such API call here), so the confirm names the vendor-specific place a
@@ -121,6 +126,60 @@ function OAuthOutcomeNote() {
   );
 }
 
+// The "Add a connection" affordance (Task 1): shared between the empty
+// state and the roster footer — an OAuth pick connects+redirects, IMAP
+// opens the inline form, and a provider-specific 501 renders a provider-
+// named note. Split out of ConnectorsCard so this branching stays off that
+// function's complexity budget (same reasoning as OAuthOutcomeNote above).
+function ConnectorAddPanel({
+  addable,
+  pending,
+  notConfigured501,
+  onConnect,
+  onImap,
+}: Readonly<{
+  addable: Provider[];
+  pending: boolean;
+  notConfigured501: Provider | null;
+  onConnect: (provider: Provider) => void;
+  onImap: () => void;
+}>) {
+  const t = useT();
+  return (
+    <>
+      {(addable.includes("gcal") || addable.includes("gmail")) && (
+        <p className="t-small">{t("connectors.googleSeparateNote")}</p>
+      )}
+      <div className="connector-add-actions">
+        {addable.map((p) =>
+          p === "imap" ? (
+            <Button key={p} small onClick={onImap}>
+              <Mail aria-hidden /> {t(providerLabel[p])}
+            </Button>
+          ) : (
+            <Button
+              key={p}
+              small
+              variant={p === "gmail" ? "primary" : undefined}
+              disabled={pending}
+              onClick={() => onConnect(p)}
+            >
+              <Plug aria-hidden /> {t(providerLabel[p])}
+            </Button>
+          ),
+        )}
+      </div>
+      {notConfigured501 && (
+        <p className="t-small" style={{ color: "var(--danger)" }}>
+          {t("connectors.providerNotConfigured", {
+            provider: t(providerLabel[notConfigured501]),
+          })}
+        </p>
+      )}
+    </>
+  );
+}
+
 export function ConnectorsCard() {
   const t = useT();
   const { locale } = useLocale();
@@ -129,6 +188,9 @@ export function ConnectorsCard() {
     null,
   );
   const [imapConnectOpen, setImapConnectOpen] = useState(false);
+  const [notConfigured501, setNotConfigured501] = useState<Provider | null>(
+    null,
+  );
 
   const connectors = useQuery({
     queryKey: ["connectors"],
@@ -144,21 +206,32 @@ export function ConnectorsCard() {
     },
   });
 
-  const reconnect = useMutation({
+  const connect = useMutation({
     mutationFn: async (provider: Provider) => {
-      const { data, error } = await api.POST("/connectors/{provider}/connect", {
-        params: { path: { provider } },
-        // Lands the post-consent redirect back on Settings (Task 2's
-        // contract field) rather than the default onboarding landing.
-        body: { return_to: "settings" },
-      });
+      setNotConfigured501(null);
+      const { data, error, response } = await api.POST(
+        "/connectors/{provider}/connect",
+        {
+          params: { path: { provider } },
+          // Lands the post-consent redirect back on Settings (Task 2's
+          // contract field) rather than the default onboarding landing.
+          body: { return_to: "settings" },
+        },
+      );
+      // A deployment that never wired this specific provider answers 501
+      // code:not_implemented — a calm, provider-named state, never a claim
+      // dressed up as a generic failure.
+      if (response.status === 501 && problemCode(error) === "not_implemented") {
+        setNotConfigured501(provider);
+        return null;
+      }
       if (error) {
         throw new Error(problemMessage(error));
       }
       return data;
     },
     onSuccess: (data) => {
-      if (data.authorize_url) {
+      if (data?.authorize_url) {
         globalThis.location.assign(data.authorize_url);
       }
     },
@@ -187,6 +260,23 @@ export function ConnectorsCard() {
     ? OAUTH_DISCONNECT_NOTE[pendingDisconnect]
     : undefined;
 
+  const present = new Set(rows.map((r) => r.provider));
+  const addable = ALL_PROVIDERS.filter((p) => !present.has(p));
+  const addPanel = (
+    <ConnectorAddPanel
+      addable={addable}
+      pending={connect.isPending}
+      notConfigured501={notConfigured501}
+      onConnect={(p) => connect.mutate(p)}
+      onImap={() => {
+        // A stale "X isn't configured" note from an earlier OAuth attempt
+        // must not linger once the user pivots to the IMAP form instead.
+        setNotConfigured501(null);
+        setImapConnectOpen(true);
+      }}
+    />
+  );
+
   return (
     <Card>
       <SectionHeader title={t("connectors.title")} sub={t("connectors.sub")} />
@@ -209,26 +299,7 @@ export function ConnectorsCard() {
       {connectors.isSuccess && !notConfigured && rows.length === 0 && (
         <EmptyState>
           <p>{t("connectors.empty")}</p>
-          <div
-            style={{
-              display: "flex",
-              gap: "var(--space-2)",
-              justifyContent: "center",
-              flexWrap: "wrap",
-            }}
-          >
-            <Button
-              small
-              variant="primary"
-              disabled={reconnect.isPending}
-              onClick={() => reconnect.mutate("gmail")}
-            >
-              <Plug aria-hidden /> {t("connectors.connectCta")}
-            </Button>
-            <Button small onClick={() => setImapConnectOpen(true)}>
-              <Mail aria-hidden /> {t("connectors.imapConnectCta")}
-            </Button>
-          </div>
+          {addable.length > 0 && addPanel}
         </EmptyState>
       )}
       {!notConfigured && rows.length > 0 && (
@@ -296,8 +367,8 @@ export function ConnectorsCard() {
                   (OAUTH_PROVIDERS.has(conn.provider) ? (
                     <Button
                       small
-                      disabled={reconnect.isPending}
-                      onClick={() => reconnect.mutate(conn.provider)}
+                      disabled={connect.isPending}
+                      onClick={() => connect.mutate(conn.provider)}
                     >
                       <RefreshCw aria-hidden /> {t("connectors.reconnect")}
                     </Button>
@@ -326,9 +397,17 @@ export function ConnectorsCard() {
           ))}
         </ul>
       )}
-      {reconnect.isError && (
+      {!notConfigured &&
+        rows.length > 0 &&
+        (addable.length > 0 || notConfigured501) && (
+          <div className="connector-add">
+            <SectionHeader title={t("connectors.addConnection")} />
+            {addPanel}
+          </div>
+        )}
+      {connect.isError && (
         <p className="t-small" style={{ color: "var(--danger)" }}>
-          {reconnect.error.message}
+          {connect.error.message}
         </p>
       )}
       <ConfirmModal

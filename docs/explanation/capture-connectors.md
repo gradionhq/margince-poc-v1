@@ -149,7 +149,7 @@ differences that matter:
 | Cursor | `historyId` | — | `deltaLink` | `syncToken` |
 | Push | Pub/Sub 7-day | — | — (poll) | — (poll) |
 | Backfill | ✔ | — | ✔ | — |
-| Connect UI | ✔ | ✔ | ✘ (curl) | ✘ (curl) |
+| Connect UI | onboarding + Settings | onboarding + Settings | onboarding + Settings | Settings only |
 
 ### Gmail — standing OAuth, push-capable
 
@@ -158,8 +158,9 @@ walks the **history API** from a `historyId` watermark; a stale watermark (`ErrH
 expires it ~weekly) degrades to a bounded re-list, not a full re-scan. It implements **both** optional
 seams: a `Watcher` (the Pub/Sub 7-day push watch, renewed by the worker every `6h`, `48h` ahead of
 expiry) and a `Backfiller` (3/6/12-month widen-only windows). **To run:** a Google OAuth app + the vault
-key; a Pub/Sub topic is optional (without it, capture runs on the 2-minute poll). **UI:** the onboarding
-"Connect Google" button + the backfill panel; the Settings roster reconnects/disconnects.
+key; a Pub/Sub topic is optional (without it, capture runs on the 2-minute poll). **UI:** a first-connect
+affordance from both the onboarding **Google** chip and the Settings **Add a connection** footer, plus the
+backfill panel; the Settings roster reconnects/disconnects.
 
 ### IMAP — one-shot pull, nothing persisted
 
@@ -169,8 +170,9 @@ capture each; to capture more, run it again. There is no cursor, no push, no bac
 needed**. The dialer is **SSRF-guarded** (`netguard.RefusePrivate`, checked post-DNS on the concrete IP),
 so it refuses private/loopback hosts — you cannot point it at a localhost mailserver. **To run:** the
 host + port + email + an **app-password** (both Gmail and Outlook block basic-auth IMAP with a normal
-password; an app-password satisfies the provider requirement). **UI:** the onboarding IMAP form → a
-captured/contacts/skipped tally.
+password; an app-password satisfies the provider requirement). **UI:** the same inline form is reachable from both
+the onboarding **IMAP** chip and the Settings **Add a connection** footer → a captured/contacts/skipped
+tally.
 
 > A *standing* IMAP connection (a UID-watermark cursor, a vault-sealed credential) exists in the backend,
 > but the exposed connect route is the one-shot; there is no reachable path to create the standing one
@@ -182,8 +184,9 @@ OAuth2 to the Microsoft identity platform with delegated scopes `offline_access 
 (tenant defaults to `common`). Incremental sync walks a **delta query** from a `deltaLink`; a stale link
 (`ErrDeltaGone`, HTTP 410) re-anchors to a bounded 7-day window. It is a `Backfiller` but **not** a
 `Watcher` — there is no change-notification subscription built, so Outlook latency is the poll interval,
-not a push p95. **To run:** a Microsoft Entra (Azure AD) app + tenant + the vault key. **UI:** none to
-*initiate* yet — connect via `curl`; the roster manages an existing connection. Note Microsoft **rotates
+not a push p95. **To run:** a Microsoft Entra (Azure AD) app + tenant + the vault key. **UI:** a
+first-connect affordance from both the onboarding **Microsoft** chip and the Settings **Add a connection**
+footer; the roster manages an existing connection. Note Microsoft **rotates
 the refresh token on every redemption** and Margince does not yet persist the rotated value: the stored
 original typically keeps working up to Microsoft's default **90-day inactive lifetime** for a confidential
 client (an actively-syncing mailbox stays inside it), **but it can be revoked or expire earlier** (a
@@ -198,7 +201,8 @@ OAuth2 to Google with `calendar.readonly`. It **reuses the same Google OAuth app
 mail-read grant never bleeds into this credential). Incremental sync uses a `syncToken`; a stale token
 (`ErrSyncTokenGone`) re-anchors. No push, no backfill. **To run:** the *same* Google app as Gmail, with
 the calendar scope enabled and a `/connectors/gcal/callback` redirect URI added, + the vault key. **UI:**
-none to *initiate* yet — connect via `curl`; the roster manages an existing connection.
+Settings **Add a connection** starts it (no onboarding chip for Calendar — Gmail, Microsoft, and IMAP are
+the three onboarding chips); the roster manages an existing connection.
 
 ## Where each piece runs
 
@@ -217,26 +221,35 @@ flag/env table is [reference/configuration.md → Capture connector OAuth](../re
 
 ## The connect UI
 
-Two entry points, both hitting the same API:
+Two entry points, both hitting the same API, and between them able to *start* every backend-live
+connector — the connect-initiate gap the roster used to have (a connection with no way to add it) is
+closed: onboarding starts Gmail, Microsoft, and IMAP; Settings adds those three plus Google Calendar,
+which has no onboarding chip and so is Settings-only.
 
-- **Onboarding → connect step** (`onboarding-connect-panels.tsx`) — where you *add* a connection.
-  `GoogleConnectPanel` does a full-page OAuth redirect, proves the connection, and renders the
-  `BackfillPanel` (window → estimate → start → live progress). `ImapConnectPanel` is a form that runs the
-  one-shot pull and shows the tally. The **Microsoft chip is disabled ("Soon")**, and there is no gcal
-  affordance at all.
+- **Onboarding → connect step** (`onboarding-connect-panels.tsx`) — where a fresh install *adds* a
+  connection. `OAuthConnectPanel` is parametrized by provider (`gmail` or `graph`): a full-page OAuth
+  redirect, then it proves the connection and renders the `BackfillPanel` (window → estimate → start →
+  live progress) for the ones that support it. `ImapConnectPanel` is a form that runs the one-shot pull
+  and shows the tally. The connect step (`connect-act.tsx`) offers three live chips — **Google**,
+  **Microsoft**, and **IMAP** — Microsoft included; there is still no onboarding chip for Calendar.
 - **Settings → Integrations** (`connectors.tsx`, `ConnectorsCard`) — the standing-connection roster: a
   status badge (`connected` / `reauth_required` / `error`) + last-synced per connection, a **reconnect**
-  action for a `reauth_required` OAuth connection, and a confirm-gated **disconnect**. It sits next to
-  the `WebhooksCard` (the egress side).
+  action for a `reauth_required` OAuth connection, and a confirm-gated **disconnect**. Below the roster
+  (or in the empty state, when nothing is connected) sits an always-present **"Add a connection"**
+  affordance offering whichever of **Gmail**, **Google Calendar**, **Microsoft**, and **IMAP** aren't
+  already connected — an OAuth pick redirects to that provider's consent screen directly from Settings; an
+  IMAP pick opens the same inline form. A provider whose backend app isn't configured answers its declared
+  `501`, and the panel renders "{provider} isn't configured in this deployment" rather than a raw error.
+  It sits next to the `WebhooksCard` (the egress side).
 
 ## Honest limitations
 
 Per [STATUS.md](../../STATUS.md) — the pipeline is live; these were scoped out, not missed:
 
-- **No first-connect UI for Graph or Calendar.** Both `graph` and `gcal` are fully wired OAuth connectors
-  (same `connect`/`callback`/`disconnect` + sync as Gmail), and the roster shows/reconnects/disconnects an
-  *existing* connection — but nothing in the UI *starts* one. Both are pure-FE follow-ups
-  (`.tmp/MISSING-UI-V4.md` §8a); the backend is ready.
+- **No onboarding chip for Calendar.** `gcal` is a fully wired OAuth connector (same
+  `connect`/`callback`/`disconnect` + sync as Gmail/Graph); Settings' **Add a connection** footer starts
+  one, but the onboarding connect step's three chips (Google, Microsoft, IMAP) don't include it — adding
+  Calendar during first-run onboarding still means a trip to Settings afterward.
 - **Graph is poll-only.** The change-notification subscription (validationToken handshake, `clientState`,
   ≤3-day renewal) is unbuilt, so Outlook latency is the poll interval. (The Gmail push-watch renewal runs,
   but the poll remains the active sync path even for Gmail today.)
@@ -246,9 +259,9 @@ Per [STATUS.md](../../STATUS.md) — the pipeline is live; these were scoped out
   credential-update seam the `Connector` interface lacks.
 - **Standing IMAP is latent.** The one-shot pull is the exposed IMAP path; the UID-watermark standing
   connection exists in the backend but isn't wired to a reachable route.
-- **No UI for exclusions or connector-health.** The personal-mail exclusion CRUD and the digest's
-  `connectors[]` health rows are live on the API but have no screen yet (`.tmp/MISSING-UI-V4.md`
-  §8 CN-3/CN-4).
+- **No dedicated connector-health screen.** The digest's `connectors[]` health rows surface as a single
+  summary link on the home digest card (the worst-offending connection's error class, linking to Settings)
+  rather than a per-connector health screen.
 
 ## Rules of thumb
 
@@ -286,7 +299,7 @@ Per [STATUS.md](../../STATUS.md) — the pipeline is live; these were scoped out
 | Background jobs (dispatcher, sync, backfill, watch renewal, digest) | `internal/compose/jobs.go`, `capturejobs.go`; `backend/cmd/worker/main.go` |
 | The tables + RLS | `raw_capture, capture_connection, capture_exclusion_rule, capture_sync_state, capture_backfill, workspace_email_domain, capture_digest` |
 | The REST contract | `backend/api/crm.yaml` (`/connectors*`, `/capture/exclusions`, `/digest`) |
-| The connect UI (Settings + onboarding) | `frontend/src/screens/connectors.tsx`, `onboarding-connect-panels.tsx`, `backfill.tsx` |
+| The connect UI (Settings + onboarding) | `frontend/src/screens/connectors.tsx`, `onboarding-connect-panels.tsx`, `onboarding-conversation/connect-act.tsx`, `backfill.tsx` |
 
 ## Where to go next
 
