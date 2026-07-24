@@ -197,6 +197,16 @@ func (f fxRefresh) collect(base string, pairs []extractedFxPair, want map[string
 				"currency", cur, "rate", p.Rate, "base", base, "err", err)
 			continue
 		}
+		if existing, dup := fetched[cur]; dup {
+			// The page priced the same currency twice (e.g. both directions).
+			// Keep the first grounded value; name a conflicting duplicate rather
+			// than let one silently overwrite the other.
+			if existing != rate {
+				f.log.Warn("fx rate refresh: source stated conflicting rates for a currency — keeping the first",
+					"currency", cur, "kept", existing, "dropped", rate)
+			}
+			continue
+		}
 		fetched[cur] = rate
 	}
 	// A requested currency the page did not price stages no proposal — name it
