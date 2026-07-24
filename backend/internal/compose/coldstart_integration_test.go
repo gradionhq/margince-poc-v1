@@ -25,12 +25,15 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/webread"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 type fixturePage string
 
-func (p fixturePage) Fetch(context.Context, string) (string, error) { return string(p), nil }
+func (p fixturePage) Fetch(context.Context, string) (webread.Doc, error) {
+	return webread.Doc{Text: string(p)}, nil
+}
 
 // The three input kinds, named so a test reads as the thing it exercises
 // rather than as pointer plumbing.

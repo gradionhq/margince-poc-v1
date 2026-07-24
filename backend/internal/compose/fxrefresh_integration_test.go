@@ -24,6 +24,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/platform/webread"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
@@ -35,7 +36,9 @@ func quietLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, n
 // returns the extracted pairs regardless of it.
 type stubFetcher struct{}
 
-func (stubFetcher) Fetch(context.Context, string) (string, error) { return "rates page", nil }
+func (stubFetcher) Fetch(context.Context, string) (webread.Doc, error) {
+	return webread.Doc{Text: "rates page"}, nil
+}
 
 // fixedBrain returns fixed extractor JSON, ignoring the request — it stands in
 // for the rate_extract model lane.

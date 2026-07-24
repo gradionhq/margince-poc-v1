@@ -41,7 +41,7 @@ type scriptedClockWorkflow struct {
 }
 
 func (s *scriptedClockWorkflow) Spec() workflow.Spec {
-	return workflow.Spec{Name: s.name, Trigger: workflow.Trigger{Schedule: "@daily"}, Tier: mcp.TierGreen}
+	return workflow.Spec{Name: s.name, Trigger: workflow.Trigger{Schedule: "@daily"}, Tier: mcp.TierAutoExecute}
 }
 
 func (s *scriptedClockWorkflow) Match(_ context.Context, _ workflow.Event) (bool, error) {

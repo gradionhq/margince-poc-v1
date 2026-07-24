@@ -307,7 +307,7 @@ func (leadRouting) Spec() workflow.Spec {
 	return workflow.Spec{
 		Name:    assignLeadOwnerName,
 		Trigger: workflow.Trigger{EventType: "lead.created"},
-		Tier:    mcp.TierGreen,
+		Tier:    mcp.TierAutoExecute,
 	}
 }
 

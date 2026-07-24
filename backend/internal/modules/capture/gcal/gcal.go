@@ -60,7 +60,7 @@ func AuthRequestFrom(code, redirectURI string) (connector.AuthRequest, error) {
 }
 
 // Descriptor is the connector's static metadata: name "gcal", read-only
-// (TierGreen), producing activities — the shared Google connector shape.
+// (TierAutoExecute), producing activities — the shared Google connector shape.
 func (c *Connector) Descriptor() connector.Descriptor {
 	return googleconn.Descriptor(connectorName)
 }

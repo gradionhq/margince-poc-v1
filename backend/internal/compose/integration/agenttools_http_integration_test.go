@@ -37,11 +37,11 @@ func TestListAgentToolsMirrorsTheGovernedSurface(t *testing.T) {
 	for _, tool := range page.Data {
 		if tool.Name == "search_records" {
 			found = true
-			if tool.Tier != "green" || tool.Egress {
-				t.Fatalf("search_records = %+v, want green/non-egress", tool)
+			if tool.Tier != "auto_execute" || tool.Egress {
+				t.Fatalf("search_records = %+v, want auto_execute/non-egress", tool)
 			}
 		}
-		if tool.Tier != "green" && tool.Tier != "yellow" && tool.Tier != "dynamic" {
+		if tool.Tier != "auto_execute" && tool.Tier != "confirmation_required" && tool.Tier != "dynamic" {
 			t.Fatalf("tool %q has unmapped tier %q", tool.Name, tool.Tier)
 		}
 	}

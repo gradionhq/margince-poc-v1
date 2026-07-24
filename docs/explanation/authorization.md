@@ -76,8 +76,8 @@ and how a per-record share widens visibility on top, is its own page:
 An action's autonomy tier is **declared once in the contract** (`x-mcp-tool: { tier: … }`) and enforced
 **below the transport**, so REST and MCP behave identically:
 
-- **🟢 (green)** — reversible internal actions **auto-execute**, audited, with agent-stamped provenance.
-- **🟡 (yellow)** — outbound / irreversible actions (send, merge, archive, close a deal, …) **stage a
+- **🟢 `auto_execute`** — reversible internal actions **auto-execute**, audited, with agent-stamped provenance.
+- **🟡 `confirmation_required`** — outbound / irreversible actions (send, merge, archive, close a deal, …) **stage a
   confirm-first approval** that a human decides in the inbox; the agent then redeems the decision by
   re-issuing the same call.
 - **Human-only** routes (approvals, consent, DSR) **refuse an agent principal outright**.

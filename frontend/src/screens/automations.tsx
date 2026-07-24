@@ -269,7 +269,9 @@ export function AutomationRow({
         }}
       >
         {entry?.tier && (
-          <AutonomyDot tier={entry.tier === "green" ? "auto" : "confirm"} />
+          <AutonomyDot
+            tier={entry.tier === "auto_execute" ? "auto" : "confirm"}
+          />
         )}
         <strong>{automation.name}</strong>
         <span className="t-mono t-small">{automation.key}</span>
@@ -443,7 +445,9 @@ export function AutomationsScreen() {
                     >
                       {entry.tier && (
                         <AutonomyDot
-                          tier={entry.tier === "green" ? "auto" : "confirm"}
+                          tier={
+                            entry.tier === "auto_execute" ? "auto" : "confirm"
+                          }
                         />
                       )}
                       <strong>{entry.name}</strong>

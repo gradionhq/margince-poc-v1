@@ -58,7 +58,7 @@ func (m *mailFake) Descriptor() connector.Descriptor {
 		// a standing OAuth mail provider.
 		Name: "graph", Version: "1.0.0",
 		Scopes:   scopes,
-		RiskTier: mcp.TierGreen,
+		RiskTier: mcp.TierAutoExecute,
 		Produces: []datasource.EntityType{datasource.EntityActivity, datasource.EntityLead},
 	}
 }

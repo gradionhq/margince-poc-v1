@@ -158,7 +158,7 @@ func TestRefusalFedBackAsObservation(t *testing.T) {
 	}
 }
 
-func TestYellowStagingSuspendsRun(t *testing.T) {
+func TestConfirmationRequiredStagingSuspendsRun(t *testing.T) {
 	approvalID := ids.New[ids.ApprovalKind]()
 	surface := &fakeSurface{errs: map[string]error{
 		"send_email": &workflow.StagedApprovalError{ApprovalID: approvalID},

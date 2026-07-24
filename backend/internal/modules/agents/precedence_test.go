@@ -47,18 +47,18 @@ func TestSplitHumanOwnedPartitionsThePatch(t *testing.T) {
 	if len(split.Conflicts) != 1 || split.Conflicts[0] != "full_name" {
 		t.Fatalf("conflicts = %v, want [full_name]", split.Conflicts)
 	}
-	var staged, green map[string]string
+	var staged, autoExec map[string]string
 	if err := json.Unmarshal(split.Staged, &staged); err != nil {
 		t.Fatal(err)
 	}
-	if err := json.Unmarshal(split.Green, &green); err != nil {
+	if err := json.Unmarshal(split.AutoExecute, &autoExec); err != nil {
 		t.Fatal(err)
 	}
 	if len(staged) != 1 || staged["full_name"] != "Greta Machine" {
 		t.Fatalf("staged sub-patch = %v, want exactly the human-owned field", staged)
 	}
-	if len(green) != 2 || green["title"] != "CTO" || green["email"] != "g@example.com" {
-		t.Fatalf("green remainder = %v, want the two agent-safe fields", green)
+	if len(autoExec) != 2 || autoExec["title"] != "CTO" || autoExec["email"] != "g@example.com" {
+		t.Fatalf("auto-execute remainder = %v, want the two agent-safe fields", autoExec)
 	}
 }
 
@@ -67,16 +67,16 @@ func TestSplitHumanOwnedEdges(t *testing.T) {
 	id := ids.NewV7()
 	patch := json.RawMessage(`{"full_name":"Greta Machine"}`)
 
-	// No conflicts: the whole patch is green, nothing staged.
+	// No conflicts: the whole patch is auto-execute, nothing staged.
 	split, err := SplitHumanOwned(ctx, fixedOwnership{}, "person", id, patch)
-	if err != nil || split.Staged != nil || string(split.Green) != string(patch) {
-		t.Fatalf("conflict-free split = %+v (err %v), want the untouched patch green", split, err)
+	if err != nil || split.Staged != nil || string(split.AutoExecute) != string(patch) {
+		t.Fatalf("conflict-free split = %+v (err %v), want the untouched patch auto-execute", split, err)
 	}
 
-	// Every field human-owned: no green remainder.
+	// Every field human-owned: no auto-execute remainder.
 	split, err = SplitHumanOwned(ctx, fixedOwnership{conflicts: []string{"full_name"}}, "person", id, patch)
-	if err != nil || split.Green != nil {
-		t.Fatalf("all-conflict split = %+v (err %v), want no green remainder", split, err)
+	if err != nil || split.AutoExecute != nil {
+		t.Fatalf("all-conflict split = %+v (err %v), want no auto-execute remainder", split, err)
 	}
 
 	// A nil resolver cannot answer the precedence question — fail closed.
@@ -157,7 +157,7 @@ func agentCtx() context.Context {
 }
 
 // splitRegistry wires update_record over fakes: a person whose full_name
-// is human-owned, an approvals recorder, and a green admission gate.
+// is human-owned, an approvals recorder, and an auto-execute admission gate.
 func splitRegistry(conflicts []string, approvals *recordingApprovals, provider *fixedProvider) *Registry {
 	r := NewRegistry(approvals, auth.NewGate(fullSeatAuthority{}))
 	r.Register(updateRecord{p: provider, ownership: fixedOwnership{conflicts: conflicts}, staging: r.approvals})
@@ -206,12 +206,12 @@ func TestUpdateRecordMixedPatchSplitsAndBindsTheSubPatch(t *testing.T) {
 	call := fmt.Sprintf(`{"record_type":"person","id":%q,"fields":{"full_name":"Greta Machine","title":"CTO"}}`, target)
 	out, err := r.Invoke(agentCtx(), "update_record", json.RawMessage(call))
 	if err != nil {
-		t.Fatalf("mixed patch must succeed for its green half: %v", err)
+		t.Fatalf("mixed patch must succeed for its auto-execute half: %v", err)
 	}
 
-	// The green half applied exactly the non-conflicting field.
+	// The auto-execute half applied exactly the non-conflicting field.
 	if len(provider.updates) != 1 {
-		t.Fatalf("updates = %d, want exactly the green remainder applied once", len(provider.updates))
+		t.Fatalf("updates = %d, want exactly the auto-execute remainder applied once", len(provider.updates))
 	}
 	var applied map[string]string
 	if err := json.Unmarshal(patchBytes(t, provider.updates[0].Patch), &applied); err != nil {
@@ -304,7 +304,7 @@ func TestUpdateRecordAllHumanOwnedStagesTheWholeCall(t *testing.T) {
 	}
 }
 
-func TestGreenCallWithApprovalIDValidatesInsteadOfIgnoring(t *testing.T) {
+func TestAutoExecuteCallWithApprovalIDValidatesInsteadOfIgnoring(t *testing.T) {
 	target := ids.NewV7()
 	provider := &fixedProvider{record: datasource.Record{
 		Ref: datasource.EntityRef{Type: datasource.EntityPerson, ID: target},
@@ -314,7 +314,7 @@ func TestGreenCallWithApprovalIDValidatesInsteadOfIgnoring(t *testing.T) {
 
 	call := fmt.Sprintf(`{"record_type":"person","id":%q,"fields":{"title":"CTO"},"approval_id":%q}`, target, ids.NewV7())
 	if _, err := r.Invoke(agentCtx(), "update_record", json.RawMessage(call)); !errors.Is(err, apperrors.ErrApprovalTokenInvalid) {
-		t.Fatalf("asserted-but-invalid approval_id → %v, want the redemption failure, not a silent green run", err)
+		t.Fatalf("asserted-but-invalid approval_id → %v, want the redemption failure, not a silent auto-execute run", err)
 	}
 	if len(provider.updates) != 0 {
 		t.Fatal("a failed redemption must have zero side effects")

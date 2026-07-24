@@ -41,7 +41,7 @@ func (notifyNoTransportProbe) Spec() workflow.Spec {
 	return workflow.Spec{
 		Name:    "task11a_notify_no_transport_probe",
 		Trigger: workflow.Trigger{EventType: "deal.stage_changed"},
-		Tier:    mcp.TierGreen,
+		Tier:    mcp.TierAutoExecute,
 	}
 }
 
@@ -124,7 +124,7 @@ func (addToListProbe) Spec() workflow.Spec {
 	return workflow.Spec{
 		Name:    "task11a_add_to_list_probe",
 		Trigger: workflow.Trigger{EventType: "deal.stage_changed"},
-		Tier:    mcp.TierGreen,
+		Tier:    mcp.TierAutoExecute,
 	}
 }
 
@@ -232,7 +232,7 @@ func (draftEmailProbe) Spec() workflow.Spec {
 	return workflow.Spec{
 		Name:    "task11a_draft_email_probe",
 		Trigger: workflow.Trigger{EventType: "deal.stage_changed"},
-		Tier:    mcp.TierGreen,
+		Tier:    mcp.TierAutoExecute,
 	}
 }
 

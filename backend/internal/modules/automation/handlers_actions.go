@@ -134,7 +134,7 @@ func applyDraftEmail(ctx context.Context, comms Comms, action workflow.Action) (
 // what lets this function's own tests prove the 🟡 branch against a
 // synthetic scaled scope, never a caller-set override.
 func applyAssignOwner(ctx context.Context, ex Executors, action workflow.Action, scope AssignOwnerScope) error {
-	if resolveAssignOwnerTier(scope) == mcp.TierYellow {
+	if resolveAssignOwnerTier(scope) == mcp.TierConfirmationRequired {
 		id, err := stageForApproval(ctx, ex.Approvals, action)
 		if err != nil {
 			return err

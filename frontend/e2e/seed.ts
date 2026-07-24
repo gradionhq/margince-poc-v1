@@ -186,7 +186,7 @@ export const automationCatalog = [
     description: "Staged a follow-up when a deal stalls.",
     trigger: "deal.stalled",
     action: "send_email",
-    tier: "yellow",
+    tier: "confirmation_required",
     params_schema: {
       type: "object",
       properties: {
@@ -201,7 +201,7 @@ export const automationCatalog = [
     description: "Creates a task when a deal enters a stage.",
     trigger: "deal.stage_changed",
     action: "create_task",
-    tier: "green",
+    tier: "auto_execute",
     params_schema: {
       type: "object",
       properties: {
@@ -743,13 +743,13 @@ export async function mockApi(target: Page): Promise<void> {
           {
             name: "search_records",
             required_scope: "read",
-            tier: "green",
+            tier: "auto_execute",
             egress: false,
           },
           {
             name: "send_email",
             required_scope: "send",
-            tier: "yellow",
+            tier: "confirmation_required",
             egress: true,
           },
         ],

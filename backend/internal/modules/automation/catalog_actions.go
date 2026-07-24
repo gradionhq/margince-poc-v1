@@ -27,9 +27,9 @@ const (
 // Tier vocabulary for ActionDef.Tier, named so the registry reads in one
 // spelling and a mis-tier is a build error rather than a silent typo.
 const (
-	tierGreen   = "green"
-	tierYellow  = "yellow"
-	tierDynamic = "dynamic"
+	tierAutoExecute          = "auto_execute"
+	tierConfirmationRequired = "confirmation_required"
+	tierDynamic              = "dynamic"
 )
 
 // The RBAC object and verb spellings the author-time ceiling gates on —
@@ -94,7 +94,7 @@ type Permission struct {
 // must already hold. Tier is read from here and never from the caller.
 type ActionDef struct {
 	Type               ActionType
-	Tier               string // "green" | "yellow" | "dynamic"
+	Tier               string // "auto_execute" | "confirmation_required" | "dynamic"
 	Executor           workflow.ActionKind
 	RequiredPermission Permission
 }
@@ -145,11 +145,11 @@ type ActionDef struct {
 // catalog_closure_test.go).
 var actionDefs = map[ActionType]ActionDef{
 	ActionTypeCreateTask: {
-		Type: ActionTypeCreateTask, Tier: tierGreen, Executor: workflow.ActionCreateTask,
+		Type: ActionTypeCreateTask, Tier: tierAutoExecute, Executor: workflow.ActionCreateTask,
 		RequiredPermission: Permission{Shape: PermissionPinned, Object: rbacObjActivity, Action: rbacVerbCreate},
 	},
 	ActionTypeNotify: {
-		Type: ActionTypeNotify, Tier: tierGreen, Executor: workflow.ActionNotify,
+		Type: ActionTypeNotify, Tier: tierAutoExecute, Executor: workflow.ActionNotify,
 		RequiredPermission: Permission{Shape: PermissionPinned, Object: rbacObjActivity, Action: rbacVerbCreate},
 	},
 	ActionTypeAssignOwner: {
@@ -157,19 +157,19 @@ var actionDefs = map[ActionType]ActionDef{
 		RequiredPermission: Permission{Shape: PermissionTargetScoped, Action: rbacVerbUpdate},
 	},
 	ActionTypeAddToList: {
-		Type: ActionTypeAddToList, Tier: tierGreen, Executor: workflow.ActionAddToList,
+		Type: ActionTypeAddToList, Tier: tierAutoExecute, Executor: workflow.ActionAddToList,
 		RequiredPermission: Permission{Shape: PermissionPinned, Object: rbacObjList, Action: rbacVerbUpdate},
 	},
 	ActionTypeSetField: {
-		Type: ActionTypeSetField, Tier: tierGreen, Executor: workflow.ActionUpdateRecord,
+		Type: ActionTypeSetField, Tier: tierAutoExecute, Executor: workflow.ActionUpdateRecord,
 		RequiredPermission: Permission{Shape: PermissionTargetScoped, Action: rbacVerbUpdate},
 	},
 	ActionTypeDraftEmail: {
-		Type: ActionTypeDraftEmail, Tier: tierGreen, Executor: workflow.ActionDraftEmail,
+		Type: ActionTypeDraftEmail, Tier: tierAutoExecute, Executor: workflow.ActionDraftEmail,
 		RequiredPermission: Permission{Shape: PermissionPinned, Object: rbacObjActivity, Action: rbacVerbCreate},
 	},
 	ActionTypeRequestApproval: {
-		Type: ActionTypeRequestApproval, Tier: tierYellow, Executor: workflow.ActionEmitFlowEvent,
+		Type: ActionTypeRequestApproval, Tier: tierConfirmationRequired, Executor: workflow.ActionEmitFlowEvent,
 		RequiredPermission: Permission{Shape: PermissionPinned, Object: rbacObjActivity, Action: rbacVerbCreate},
 	},
 }

@@ -5,7 +5,7 @@ package agents
 
 // The update_record tool: 🟢 by tier, with the per-field human-edit-
 // precedence split (interfaces.md §2.1) inside its Handle — human-owned
-// fields become a 🟡 staged approval, the remainder applies green in the
+// fields become a 🟡 staged approval, the remainder applies at the auto-execute tier in the
 // same call. The partition itself is SplitHumanOwned (precedence.go),
 // shared with the REST agent gate.
 
@@ -46,7 +46,7 @@ func (t updateRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "update_record", Version: "1.0.0",
 		RequiredScope: principal.ScopeWrite,
-		Tier:          mcp.TierGreen,
+		Tier:          mcp.TierAutoExecute,
 		OpenAPIOp:     "updatePerson/updateOrganization/updateDeal/updateLead",
 		InputSchema: schema(`{"type":"object","required":["record_type","id","fields"],"properties":{
 			"record_type":{"type":"string","enum":["person","organization","deal","lead"]},
@@ -95,7 +95,7 @@ func (t updateRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 		return nil, fmt.Errorf("fields %s were last edited by a human, and this surface has no approvals engine to stage the overwrite: %w",
 			strings.Join(split.Conflicts, ", "), apperrors.ErrRequiresApproval)
 	}
-	if split.Green == nil {
+	if split.AutoExecute == nil {
 		// Every touched field is human-owned: nothing applies, the whole
 		// call is the staged change — the approved retry IS this call.
 		canonical, hash, err := diffhash.Canonical(in)
@@ -109,11 +109,11 @@ func (t updateRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 		return nil, &workflow.StagedApprovalError{ApprovalID: id}
 	}
 
-	// Mixed patch: the green remainder lands first, then the residue is
+	// Mixed patch: the auto-execute remainder lands first, then the residue is
 	// staged against the post-write version — the version the approving
 	// human actually sees, so the pin (ADR-0036 §2) covers this call's
-	// own green half instead of being invalidated by it.
-	applied, err := t.applyRecord(ctx, args, split.Green)
+	// own auto-execute half instead of being invalidated by it.
+	applied, err := t.applyRecord(ctx, args, split.AutoExecute)
 	if err != nil {
 		return nil, err
 	}
@@ -152,9 +152,9 @@ func (t updateRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 }
 
 // stageConflicts records the 🟡 residue of one split update. The read
-// here runs AFTER any green remainder landed, so the pinned version
+// here runs AFTER any auto-execute remainder landed, so the pinned version
 // (ADR-0036 §2) is the state the approving human will actually judge —
-// this call's own green half cannot invalidate its staged half.
+// this call's own auto-execute half cannot invalidate its staged half.
 func (t updateRecord) stageConflicts(ctx context.Context, args updateRecordArgs, split PatchSplit, canonical json.RawMessage, hash string) (ids.ApprovalID, error) {
 	rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(args.RecordType), ID: args.ID})
 	if err != nil {

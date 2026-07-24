@@ -55,7 +55,7 @@ func noResolve() (mcp.TierResolverInput, error) { return mcp.TierResolverInput{}
 
 func TestScopeIsCheckedBeforeTier(t *testing.T) {
 	authority := &stubAuthority{seat: principal.SeatFull}
-	spec := mcp.ToolSpec{Name: "send_email", RequiredScope: principal.ScopeSend, Tier: mcp.TierYellow}
+	spec := mcp.ToolSpec{Name: "send_email", RequiredScope: principal.ScopeSend, Tier: mcp.TierConfirmationRequired}
 
 	_, err := NewGate(authority).Admit(agentCtx(principal.ScopeRead, principal.ScopeWrite), spec, noResolve)
 	if !errors.Is(err, apperrors.ErrScopeExceeded) {
@@ -66,15 +66,15 @@ func TestScopeIsCheckedBeforeTier(t *testing.T) {
 	}
 }
 
-func TestYellowIsBlockedBehindApproval(t *testing.T) {
-	spec := mcp.ToolSpec{Name: "archive_record", RequiredScope: principal.ScopeWrite, Tier: mcp.TierYellow}
+func TestConfirmationRequiredIsBlockedBehindApproval(t *testing.T) {
+	spec := mcp.ToolSpec{Name: "archive_record", RequiredScope: principal.ScopeWrite, Tier: mcp.TierConfirmationRequired}
 	if _, err := fullSeatGate().Admit(agentCtx(principal.ScopeWrite), spec, noResolve); !errors.Is(err, apperrors.ErrRequiresApproval) {
 		t.Fatalf("🟡 without approval → %v, want ErrRequiresApproval", err)
 	}
 }
 
-func TestGreenIsAdmitted(t *testing.T) {
-	spec := mcp.ToolSpec{Name: "read_record", RequiredScope: principal.ScopeRead, Tier: mcp.TierGreen}
+func TestAutoExecuteIsAdmitted(t *testing.T) {
+	spec := mcp.ToolSpec{Name: "read_record", RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute}
 	if _, err := fullSeatGate().Admit(agentCtx(principal.ScopeRead), spec, noResolve); err != nil {
 		t.Fatalf("🟢 in scope → %v, want admitted", err)
 	}
@@ -83,9 +83,9 @@ func TestGreenIsAdmitted(t *testing.T) {
 func TestDynamicTierIsResolvedPerCall(t *testing.T) {
 	resolver := func(in mcp.TierResolverInput) mcp.RiskTier {
 		if in.TargetStageSemantic == "open" {
-			return mcp.TierGreen
+			return mcp.TierAutoExecute
 		}
-		return mcp.TierYellow
+		return mcp.TierConfirmationRequired
 	}
 	spec := mcp.ToolSpec{
 		Name: "advance_deal", RequiredScope: principal.ScopeWrite,
@@ -119,7 +119,7 @@ func TestHumansDoNotRideTheScopeModel(t *testing.T) {
 	ctx := principal.WithActor(context.Background(), principal.Principal{
 		Type: principal.PrincipalHuman, ID: "human:u1",
 	})
-	spec := mcp.ToolSpec{Name: "archive_record", RequiredScope: principal.ScopeWrite, Tier: mcp.TierYellow}
+	spec := mcp.ToolSpec{Name: "archive_record", RequiredScope: principal.ScopeWrite, Tier: mcp.TierConfirmationRequired}
 	if _, err := NewGate(nil).Admit(ctx, spec, noResolve); err != nil {
 		t.Fatalf("human through the gate → %v; human authority is their RBAC, enforced at the store", err)
 	}
@@ -139,7 +139,7 @@ func TestSeatIsReDerivedLiveAtAdmission(t *testing.T) {
 		Scopes: principal.NewScopeSet(principal.ScopeRead, principal.ScopeWrite),
 	})
 
-	write := mcp.ToolSpec{Name: "create_record", RequiredScope: principal.ScopeWrite, Tier: mcp.TierGreen}
+	write := mcp.ToolSpec{Name: "create_record", RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute}
 	_, err := gate.Admit(ctx, write, noResolve)
 	if !errors.Is(err, apperrors.ErrSeatTierInsufficient) {
 		t.Fatalf("live read seat under a stamped full seat → %v, want ErrSeatTierInsufficient", err)
@@ -148,7 +148,7 @@ func TestSeatIsReDerivedLiveAtAdmission(t *testing.T) {
 		t.Fatal("a read-seat mutation must not be staged for approval")
 	}
 
-	read := mcp.ToolSpec{Name: "read_record", RequiredScope: principal.ScopeRead, Tier: mcp.TierGreen}
+	read := mcp.ToolSpec{Name: "read_record", RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute}
 	if _, err := gate.Admit(ctx, read, noResolve); err != nil {
 		t.Fatalf("read-seat read tool → %v, want admitted", err)
 	}
@@ -163,7 +163,7 @@ func TestAdmissionRefreshesThePrincipalAuthority(t *testing.T) {
 		RowScope: principal.RowScopeTeam,
 	}
 	gate := NewGate(&stubAuthority{seat: principal.SeatFull, rbac: authz.RBAC{Permissions: livePerms}})
-	spec := mcp.ToolSpec{Name: "create_record", RequiredScope: principal.ScopeWrite, Tier: mcp.TierGreen}
+	spec := mcp.ToolSpec{Name: "create_record", RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute}
 
 	ctx, err := gate.Admit(agentCtx(principal.ScopeWrite), spec, noResolve)
 	if err != nil {
@@ -180,7 +180,7 @@ func TestUnresolvableGrantingHumanIsDenied(t *testing.T) {
 	// the gate answers denial, and an infrastructure failure stays an
 	// error — an outage is never an authorization answer.
 	gone := NewGate(&stubAuthority{err: apperrors.ErrNotFound})
-	spec := mcp.ToolSpec{Name: "create_record", RequiredScope: principal.ScopeWrite, Tier: mcp.TierGreen}
+	spec := mcp.ToolSpec{Name: "create_record", RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute}
 	if _, err := gone.Admit(agentCtx(principal.ScopeWrite), spec, noResolve); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("vanished granting human → %v, want ErrPermissionDenied", err)
 	}
@@ -194,7 +194,7 @@ func TestUnresolvableGrantingHumanIsDenied(t *testing.T) {
 func TestUncomposedGateFailsClosedForAgents(t *testing.T) {
 	// A gate composed without an authority resolver (and a nil gate)
 	// must refuse agents rather than admit on missing data.
-	spec := mcp.ToolSpec{Name: "create_record", RequiredScope: principal.ScopeWrite, Tier: mcp.TierGreen}
+	spec := mcp.ToolSpec{Name: "create_record", RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute}
 	if _, err := NewGate(nil).Admit(agentCtx(principal.ScopeWrite), spec, noResolve); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("resolver-less gate → %v, want ErrPermissionDenied", err)
 	}
@@ -212,14 +212,14 @@ func TestAgentWithoutGrantingHumanIsDenied(t *testing.T) {
 		Type: principal.PrincipalAgent, ID: "agent:test",
 		Scopes: principal.NewScopeSet(principal.ScopeWrite),
 	})
-	spec := mcp.ToolSpec{Name: "create_record", RequiredScope: principal.ScopeWrite, Tier: mcp.TierGreen}
+	spec := mcp.ToolSpec{Name: "create_record", RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute}
 	if _, err := fullSeatGate().Admit(ctx, spec, noResolve); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("agent without granting human → %v, want ErrPermissionDenied", err)
 	}
 }
 
 func TestNoPrincipalIsRefused(t *testing.T) {
-	spec := mcp.ToolSpec{Name: "read_record", RequiredScope: principal.ScopeRead, Tier: mcp.TierGreen}
+	spec := mcp.ToolSpec{Name: "read_record", RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute}
 	if _, err := fullSeatGate().Admit(context.Background(), spec, noResolve); err == nil {
 		t.Fatal("anonymous context admitted")
 	}

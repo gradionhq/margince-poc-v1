@@ -44,7 +44,7 @@ const (
 // so tests feed fixtures and the sovereign profile can refuse egress
 // wholesale.
 type PageFetcher interface {
-	Fetch(ctx context.Context, rawURL string) (string, error)
+	Fetch(ctx context.Context, rawURL string) (webread.Doc, error)
 }
 
 // evidencedField is the neutral result the gate emits; each caller narrows it
@@ -238,10 +238,11 @@ var legalPageFields = map[string]bool{
 // too little OR no field survives the gate on any page — honest degradation,
 // zero fabricated fields (ADR-0006 §2/§4).
 func (x evidenceExtractor) extract(ctx context.Context, rawURL string, accept func(string) bool) ([]evidencedField, error) {
-	seedText, err := x.fetch.Fetch(ctx, rawURL)
+	seedDoc, err := x.fetch.Fetch(ctx, rawURL)
 	if err != nil {
 		return nil, &unreadableError{cause: fmt.Errorf("fetch %s: %w", rawURL, err)}
 	}
+	seedText := seedDoc.Text
 	// The rune floor measures FETCH quality: a page that reduced to
 	// nav-crumbs is not worth a model call. Text a human supplied
 	// deliberately (paste / self-description) skips it — the evidence gate
@@ -256,7 +257,7 @@ func (x evidenceExtractor) extract(ctx context.Context, rawURL string, accept fu
 	}
 
 	var legalFields []evidencedField
-	if legalURL, legalText := x.probeLegalPage(ctx, rawURL, seedText); legalText != "" {
+	if legalURL, legalText := x.probeLegalPage(ctx, rawURL, seedDoc); legalText != "" {
 		// A probe failure is a page that does not exist, not a broken read:
 		// the seed page alone is still an honest (if thinner) answer.
 		legalFields, err = x.extractFields(ctx, "Legal notice page "+legalURL, legalText, legalURL, accept)
@@ -289,7 +290,7 @@ func (x evidenceExtractor) extract(ctx context.Context, rawURL string, accept fu
 // "the Impressum probe kept timing out" must be findable when legal fields
 // come back thin, even though the seed page alone still yields an honest
 // (thinner) read.
-func (x evidenceExtractor) probeLegalPage(ctx context.Context, seedURL, seedText string) (string, string) {
+func (x evidenceExtractor) probeLegalPage(ctx context.Context, seedURL string, seed webread.Doc) (string, string) {
 	parsed, err := url.Parse(seedURL)
 	if err != nil || parsed.Host == "" {
 		return "", ""
@@ -303,7 +304,7 @@ func (x evidenceExtractor) probeLegalPage(ctx context.Context, seedURL, seedText
 			return "", ""
 		}
 		probeCtx, cancel := context.WithTimeout(ctx, perProbeTimeout)
-		text, err := x.fetch.Fetch(probeCtx, origin+path)
+		doc, err := x.fetch.Fetch(probeCtx, origin+path)
 		cancel()
 		if err != nil {
 			if !errors.Is(err, webread.ErrRobotsDisallowed) && !errors.Is(probeCtx.Err(), context.DeadlineExceeded) {
@@ -311,10 +312,10 @@ func (x evidenceExtractor) probeLegalPage(ctx context.Context, seedURL, seedText
 			}
 			continue
 		}
-		if len([]rune(text)) < minReadableRunes || text == seedText {
+		if len([]rune(doc.Text)) < minReadableRunes || doc.Text == seed.Text {
 			continue
 		}
-		return origin + path, text
+		return origin + path, doc.Text
 	}
 	return "", ""
 }
@@ -358,6 +359,10 @@ func (x evidenceExtractor) extractFields(ctx context.Context, sourceLabel, sourc
 	if runes := []rune(sourceText); len(runes) > maxExtractionText {
 		sourceText = string(runes[:maxExtractionText])
 	}
+	// Defang any forged envelope markers before wrapping — a verbatim-markdown
+	// page can carry a literal </untrusted>, which stripped HTML never could.
+	// The gate below matches evidence against this same neutralized text.
+	sourceText = neutralizeEnvelope(sourceText)
 
 	req := model.Request{
 		System: companyFactsSystem,

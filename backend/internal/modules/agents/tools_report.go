@@ -35,7 +35,7 @@ type runReport struct {
 func (t runReport) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "run_report", Version: "1.0.0",
-		RequiredScope: principal.ScopeRead, Tier: mcp.TierGreen,
+		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "runReport",
 		InputSchema: schema(`{"type":"object","required":["report"],"properties":{
 			"report":{"type":"string","description":"Prebuilt report key (e.g. open-deals-per-company, deals-by-stage, activities-by-kind)"},

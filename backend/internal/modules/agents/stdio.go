@@ -139,12 +139,12 @@ func (s *StdioServer) toolList() []map[string]any {
 	specs := s.registry.Specs()
 	tools := make([]map[string]any, 0, len(specs))
 	for _, spec := range specs {
-		tier := "green (runs immediately)"
+		tier := "auto_execute (runs immediately)"
 		switch spec.Tier {
-		case mcp.TierYellow:
-			tier = "yellow (requires human approval)"
+		case mcp.TierConfirmationRequired:
+			tier = "confirmation_required (requires human approval)"
 		case mcp.TierDynamic:
-			tier = "green, except moves that close a deal require human approval"
+			tier = "auto_execute, except moves that close a deal require human approval"
 		}
 		tools = append(tools, map[string]any{
 			"name":        spec.Name,

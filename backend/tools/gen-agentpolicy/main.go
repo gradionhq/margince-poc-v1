@@ -33,7 +33,7 @@ type policy struct {
 	Access     string // "tool" | "human-only" | "auth-bootstrap"
 	Tool       string // x-mcp-tool verb (Access == "tool")
 	RecordType string // x-mcp-tool record_type ("" when the tool is not record-typed)
-	Tier       string // x-mcp-tool tier: green | yellow | dynamic
+	Tier       string // x-mcp-tool tier: auto_execute | confirmation_required | dynamic
 }
 
 func main() {
@@ -111,8 +111,8 @@ func derivePolicies(paths map[string]map[string]yaml.Node) ([]policy, []string) 
 				p.Tool = op.MCPTool.Verb
 				p.RecordType = op.MCPTool.RecordType
 				p.Tier = op.MCPTool.Tier
-				if p.Tool == "" || (p.Tier != "green" && p.Tier != "yellow" && p.Tier != "dynamic") {
-					defects = append(defects, fmt.Sprintf("%s %s (%s): x-mcp-tool needs a verb and a green|yellow|dynamic tier", httpMethod, path, op.OperationID))
+				if p.Tool == "" || (p.Tier != "auto_execute" && p.Tier != "confirmation_required" && p.Tier != "dynamic") {
+					defects = append(defects, fmt.Sprintf("%s %s (%s): x-mcp-tool needs a verb and an auto_execute|confirmation_required|dynamic tier", httpMethod, path, op.OperationID))
 					continue
 				}
 			default:
@@ -141,7 +141,7 @@ type agentPolicy struct {
 	Access     string // "tool" | "human-only" | "auth-bootstrap"
 	Tool       string // backing MCP tool verb (Access == "tool")
 	RecordType string // the record type the operation targets
-	Tier       string // contract-declared tier: green | yellow | dynamic
+	Tier       string // contract-declared tier: auto_execute | confirmation_required | dynamic
 }
 
 // agentPolicies is keyed by "METHOD <chi route pattern>" as the generated

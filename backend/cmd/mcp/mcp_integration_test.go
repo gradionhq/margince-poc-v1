@@ -29,7 +29,7 @@ func TestMCPSurfaceEndToEnd(t *testing.T) {
 	c := startMCP(t, e.rw.Token, "agent-test", e.svc, e.pool)
 
 	assertHandshakeAndSurface(t, c)
-	personID := exerciseGreenTools(t, e, c)
+	personID := exerciseAutoExecuteTools(t, e, c)
 	dealID, winArgs, staged := stageWonAdvance(t, e, c)
 	exerciseApprovalLoop(t, e, c, dealID, winArgs, extractApprovalID(t, staged))
 	exerciseStaleAndRejectedApprovals(t, e, c, personID)
@@ -66,10 +66,10 @@ func assertHandshakeAndSurface(t *testing.T, c *mcpClient) {
 	}
 }
 
-// exerciseGreenTools runs the 🟢 lane: create with server-stamped agent
+// exerciseAutoExecuteTools runs the 🟢 (auto-execute) lane: create with server-stamped agent
 // provenance, then the search/read/log round-trip. Returns the created
 // person's id.
-func exerciseGreenTools(t *testing.T, e *mcpEnv, c *mcpClient) ids.UUID {
+func exerciseAutoExecuteTools(t *testing.T, e *mcpEnv, c *mcpClient) ids.UUID {
 	t.Helper()
 	text, isErr := c.callTool("create_record", map[string]any{
 		"record_type": "person",

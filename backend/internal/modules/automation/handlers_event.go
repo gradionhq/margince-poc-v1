@@ -69,7 +69,7 @@ func (stageChangeCreateTask) Spec() workflow.Spec {
 	return workflow.Spec{
 		Name:    stageChangeCreateTaskName,
 		Trigger: workflow.Trigger{EventType: eventDealStageChanged},
-		Tier:    mcp.TierGreen,
+		Tier:    mcp.TierAutoExecute,
 	}
 }
 
@@ -139,7 +139,7 @@ func (routeLeadCreateTask) Spec() workflow.Spec {
 	return workflow.Spec{
 		Name:    routeLeadName,
 		Trigger: workflow.Trigger{EventType: eventLeadCreated},
-		Tier:    mcp.TierGreen,
+		Tier:    mcp.TierAutoExecute,
 	}
 }
 
@@ -202,7 +202,7 @@ func (stageChangeNotify) Spec() workflow.Spec {
 	return workflow.Spec{
 		Name:    stageChangeNotifyName,
 		Trigger: workflow.Trigger{EventType: eventDealStageChanged},
-		Tier:    mcp.TierGreen,
+		Tier:    mcp.TierAutoExecute,
 	}
 }
 
@@ -291,7 +291,7 @@ func (postMeetingRecap) Spec() workflow.Spec {
 	return workflow.Spec{
 		Name:    postMeetingRecapName,
 		Trigger: workflow.Trigger{EventType: eventActivityCaptured},
-		Tier:    mcp.TierGreen,
+		Tier:    mcp.TierAutoExecute,
 	}
 }
 

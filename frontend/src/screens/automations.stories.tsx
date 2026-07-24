@@ -27,7 +27,7 @@ const entry: CatalogEntry = {
   description: "Stages a follow-up when a deal stalls.",
   trigger: "deal.stalled",
   action: "send_email",
-  tier: "yellow",
+  tier: "confirmation_required",
   params_schema: {
     type: "object",
     properties: {

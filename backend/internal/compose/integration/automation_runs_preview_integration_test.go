@@ -185,8 +185,8 @@ func assertRunsRenderEveryOutcomeWithItsTrace(t *testing.T, e *env, autoID strin
 			parked.Outcome, failed.Outcome, fired.Outcome)
 	}
 	for _, run := range page.Data {
-		if run.AutomationID != autoID || run.Tier != "green" {
-			t.Fatalf("run %s carries automation %s tier %s, want the parent %s at tier green", run.ID, run.AutomationID, run.Tier, autoID)
+		if run.AutomationID != autoID || run.Tier != "auto_execute" {
+			t.Fatalf("run %s carries automation %s tier %s, want the parent %s at tier auto_execute", run.ID, run.AutomationID, run.Tier, autoID)
 		}
 		if run.TriggerEvidence == nil || !strings.HasPrefix(*run.TriggerEvidence, "triggered by event ") {
 			t.Fatalf("run %s trigger_evidence = %v, want the triggering-event line", run.ID, run.TriggerEvidence)

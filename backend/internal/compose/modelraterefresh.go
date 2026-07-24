@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -46,7 +47,7 @@ const minRateExtractConfidence = 0.5
 // pageFetcher is the webread seam (production passes webread.New(); tests stub
 // it, since webread's SSRF guard rightly refuses loopback test servers).
 type pageFetcher interface {
-	Fetch(ctx context.Context, rawURL string) (string, error)
+	Fetch(ctx context.Context, rawURL string) (webread.Doc, error)
 }
 
 // pricingSource binds a provider name to its pricing page URL.
@@ -186,15 +187,18 @@ func (m modelCostRefresh) run(ctx context.Context) error {
 
 // extract fetches one pricing page and returns the evidence-gated models.
 func (m modelCostRefresh) extract(ctx context.Context, src pricingSource) ([]extractedModel, error) {
-	text, err := m.fetcher.Fetch(ctx, src.URL)
+	doc, err := m.fetcher.Fetch(ctx, src.URL)
 	if err != nil {
 		return nil, fmt.Errorf("fetch: %w", err)
+	}
+	if doc.IsMarkdown() {
+		m.log.Debug("model pricing page served markdown", "provider", src.Provider, "url", src.URL)
 	}
 	req := model.Request{
 		System: rateExtractSystem,
 		Messages: []model.Message{{
 			Role:    chatRoleUser,
-			Content: "<untrusted>\n" + numberPassages(text) + "\n</untrusted>",
+			Content: "<untrusted>\n" + numberPassages(doc.Text) + "\n</untrusted>",
 		}},
 		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		ResponseSchema: rateExtractSchema,
@@ -279,6 +283,21 @@ func allMicro(em extractedModel) (microBuckets, bool) {
 	return microBuckets{in, out, cr, cw}, true
 }
 
+// untrustedEnvelopeMarker matches an <untrusted> boundary tag in any case and
+// with stray whitespace (</UNTRUSTED>, <untrusted >, < / untrusted >), so a
+// hostile page cannot impersonate the boundary with a spelling variant the
+// model might still read as the tag.
+var untrustedEnvelopeMarker = regexp.MustCompile(`(?i)<\s*/?\s*untrusted\s*>`)
+
+// neutralizeEnvelope defangs the <untrusted> boundary markers in fetched page
+// text so a hostile page cannot forge the envelope's closing tag and break out
+// of the data section into instruction context. Every site that wraps page text
+// in the <untrusted> envelope runs its input through here first, and the
+// evidence gate matches against the same neutralized text.
+func neutralizeEnvelope(text string) string {
+	return untrustedEnvelopeMarker.ReplaceAllString(text, "< untrusted>")
+}
+
 // numberPassages prefixes each non-empty line with a passage id ([s0], [s1], …)
 // — the format the aicert corpus grounds against, so the model can cite an id.
 // It first neutralizes any literal <untrusted> markers in the fetched page so a
@@ -286,8 +305,7 @@ func allMicro(em extractedModel) (microBuckets, bool) {
 // it in (defense-in-depth; a bad extraction still only ever STAGES a proposal a
 // human must approve, and SetModelRate re-validates).
 func numberPassages(text string) string {
-	text = strings.ReplaceAll(text, "</untrusted>", "< /untrusted>")
-	text = strings.ReplaceAll(text, "<untrusted>", "< untrusted>")
+	text = neutralizeEnvelope(text)
 	var b strings.Builder
 	n := 0
 	for _, line := range strings.Split(text, "\n") {

@@ -39,12 +39,16 @@ export function AskAiScreen() {
           }}
         >
           <li>
-            <AutonomyDot tier="auto" /> <strong>{t("ai.tierGreen")}</strong>{" "}
-            <span className="t-caption">{t("ai.tierGreenDetail")}</span>
+            <AutonomyDot tier="auto" />{" "}
+            <strong>{t("ai.tierAutoExecute")}</strong>{" "}
+            <span className="t-caption">{t("ai.tierAutoExecuteDetail")}</span>
           </li>
           <li>
-            <AutonomyDot tier="confirm" /> <strong>{t("ai.tierYellow")}</strong>{" "}
-            <span className="t-caption">{t("ai.tierYellowDetail")}</span>
+            <AutonomyDot tier="confirm" />{" "}
+            <strong>{t("ai.tierConfirmationRequired")}</strong>{" "}
+            <span className="t-caption">
+              {t("ai.tierConfirmationRequiredDetail")}
+            </span>
           </li>
         </ul>
       </div>

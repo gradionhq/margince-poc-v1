@@ -77,7 +77,7 @@ absent, or out-of-workspace subscription reads as `404` everywhere (existence-hi
 stops at archive.
 
 **Agent access is 🟡.** A human on a session registers directly. An *agent* principal's create/update
-is a 🟡 governed tool (`x-mcp-tool` tier yellow) — registering or widening outbound egress is staged
+is a 🟡 governed tool (`x-mcp-tool` tier confirmation_required) — registering or widening outbound egress is staged
 for human approval (ADR-0036, UC-E10-04 E4) and redeemed with an `X-Approval-Token`. Rotate, replay,
 and all reads are human-only.
 

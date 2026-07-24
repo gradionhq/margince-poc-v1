@@ -89,7 +89,7 @@ type Descriptor struct {
 	Name     string // stable id: "gmail", "gcal", "hubspot", "coldstart-scrape"
 	Version  string
 	Scopes   []principal.Scope
-	RiskTier mcp.RiskTier // capture/read = green; any outbound = yellow
+	RiskTier mcp.RiskTier // capture/read = auto_execute; any outbound = confirmation_required
 	Tools    []mcp.ToolSpec
 	Produces []datasource.EntityType
 }

@@ -719,11 +719,11 @@ export const de = {
   "ai.sub": "bring deinen eigenen Agenten mit — geregelt über die zwei Stufen",
   "ai.fromPalette": "Aus der Palette",
   "ai.tiers": "Was ein Agent darf",
-  "ai.tierGreen": "Lesen & Entwerfen läuft sofort.",
-  "ai.tierGreenDetail":
+  "ai.tierAutoExecute": "Lesen & Entwerfen läuft sofort.",
+  "ai.tierAutoExecuteDetail":
     "Nachschlagen, Zusammenfassen, Entwürfe — sichtbar, umkehrbar, protokolliert.",
-  "ai.tierYellow": "Schreiben & Senden wartet auf dich.",
-  "ai.tierYellowDetail":
+  "ai.tierConfirmationRequired": "Schreiben & Senden wartet auf dich.",
+  "ai.tierConfirmationRequiredDetail":
     "Externe Sendungen und Datenänderungen landen zuerst im Eingang.",
   "ai.connect": "Agent verbinden",
   "ai.connectDetail":

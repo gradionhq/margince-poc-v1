@@ -191,19 +191,19 @@ func (e AdvanceDealRequestStatus) Valid() bool {
 
 // Defines values for AgentToolTier.
 const (
-	AgentToolTierDynamic AgentToolTier = "dynamic"
-	AgentToolTierGreen   AgentToolTier = "green"
-	AgentToolTierYellow  AgentToolTier = "yellow"
+	AgentToolTierAutoExecute          AgentToolTier = "auto_execute"
+	AgentToolTierConfirmationRequired AgentToolTier = "confirmation_required"
+	AgentToolTierDynamic              AgentToolTier = "dynamic"
 )
 
 // Valid indicates whether the value is a known member of the AgentToolTier enum.
 func (e AgentToolTier) Valid() bool {
 	switch e {
+	case AgentToolTierAutoExecute:
+		return true
+	case AgentToolTierConfirmationRequired:
+		return true
 	case AgentToolTierDynamic:
-		return true
-	case AgentToolTierGreen:
-		return true
-	case AgentToolTierYellow:
 		return true
 	default:
 		return false
@@ -791,16 +791,16 @@ func (e AutomationStatus) Valid() bool {
 
 // Defines values for AutomationCatalogEntryTier.
 const (
-	AutomationCatalogEntryTierGreen  AutomationCatalogEntryTier = "green"
-	AutomationCatalogEntryTierYellow AutomationCatalogEntryTier = "yellow"
+	AutomationCatalogEntryTierAutoExecute          AutomationCatalogEntryTier = "auto_execute"
+	AutomationCatalogEntryTierConfirmationRequired AutomationCatalogEntryTier = "confirmation_required"
 )
 
 // Valid indicates whether the value is a known member of the AutomationCatalogEntryTier enum.
 func (e AutomationCatalogEntryTier) Valid() bool {
 	switch e {
-	case AutomationCatalogEntryTierGreen:
+	case AutomationCatalogEntryTierAutoExecute:
 		return true
-	case AutomationCatalogEntryTierYellow:
+	case AutomationCatalogEntryTierConfirmationRequired:
 		return true
 	default:
 		return false
@@ -836,16 +836,16 @@ func (e AutomationRunOutcome) Valid() bool {
 
 // Defines values for AutomationRunTier.
 const (
-	Green  AutomationRunTier = "green"
-	Yellow AutomationRunTier = "yellow"
+	AutoExecute          AutomationRunTier = "auto_execute"
+	ConfirmationRequired AutomationRunTier = "confirmation_required"
 )
 
 // Valid indicates whether the value is a known member of the AutomationRunTier enum.
 func (e AutomationRunTier) Valid() bool {
 	switch e {
-	case Green:
+	case AutoExecute:
 		return true
-	case Yellow:
+	case ConfirmationRequired:
 		return true
 	default:
 		return false
@@ -7279,14 +7279,14 @@ type AutomationCatalogEntry struct {
 	// ParamsSchema JSON-schema for this type's parameters (drives the editor form).
 	ParamsSchema map[string]interface{} `json:"params_schema"`
 
-	// Tier yellow actions stage to /approvals at run time.
+	// Tier confirmation_required actions stage to /approvals at run time.
 	Tier *AutomationCatalogEntryTier `json:"tier,omitempty"`
 
 	// Trigger What fires it (e.g. deal.stage_changed or schedule).
 	Trigger string `json:"trigger"`
 }
 
-// AutomationCatalogEntryTier yellow actions stage to /approvals at run time.
+// AutomationCatalogEntryTier confirmation_required actions stage to /approvals at run time.
 type AutomationCatalogEntryTier string
 
 // AutomationPreview Read-only blast-radius result for the designer's dry-run. No side effects.
