@@ -280,6 +280,20 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 		}
 	})
 
+	t.Run("captured mail stamps the counterparty email on the activity", func(t *testing.T) {
+		// The alice thread above captured inbound + outbound mail with alice;
+		// each activity carries her normalized address, so phase 2b's
+		// correspondence predicate will be an index-backed lookup (CAP-DDL-7).
+		if n := countRows(t, e, `SELECT count(*) FROM activity WHERE counterparty_email = 'alice@acme.example'`); n < 1 {
+			t.Fatal("captured activities must stamp counterparty_email")
+		}
+		// An outbound leg stamps it too — the substrate that 2b's
+		// correspondence-positive gate reads.
+		if n := countRows(t, e, `SELECT count(*) FROM activity WHERE counterparty_email = 'alice@acme.example' AND direction = 'outbound'`); n < 1 {
+			t.Fatal("the outbound leg must stamp counterparty_email for the correspondence predicate")
+		}
+	})
+
 	t.Run("the workspace's own domain creates nothing", func(t *testing.T) {
 		sync(t, email("carol@myco.example", "Carol Colleague", autoCreateOwner, "c1@myco.example", ""))
 		if n := countRows(t, e, `

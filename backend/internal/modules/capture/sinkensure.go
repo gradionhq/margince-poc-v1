@@ -96,10 +96,11 @@ func (s *Sink) ensureCounterparty(ctx context.Context, rec connector.NormalizedR
 	// DocuSign envelope or a SendGrid relay is not a counterparty's company.
 	// Suppress person AND org derivation — the activity already committed and
 	// stands (a DocuSign envelope is a real timeline item) — and record the
-	// reason durably for observability. Runs after the internal-domain gate;
-	// the correspondence-positive check that must precede it lands with the
-	// identity column (ADR-0072 phase 2a), and until then the corroboration
-	// requirement on prefix rules keeps a known contact from being suppressed.
+	// reason durably for observability. The T1 correspondence-positive spare
+	// (CAP-DDL-7) that lets a known contact through lands in phase 2b, where the
+	// "outbound" signal is taken from an authenticated provider label — deriving
+	// it from the forgeable From header (as `direction` does today) would let a
+	// spoofed From:owner mail whitelist an arbitrary address past this gate.
 	if s.transactional != nil {
 		if suppress, reason := s.transactional.Suppress(transactionalInput(cp)); suppress {
 			s.logSuppression(ctx, rec, reason)

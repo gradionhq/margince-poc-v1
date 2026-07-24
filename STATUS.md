@@ -881,9 +881,23 @@ Open work, roughly in priority order:
   optimization); per-run crawl caps pinned lower for auto reads (12 pages);
   and `ApplySitePersonFields` (auto-filling an exact/unique-match existing
   person instead of always staging a lead).
-  **Still open (contract-first-gated on ADR-0072):** 2a (counterparty identity +
-  disposition ledger + deferred creation), 2b (the verdict job + review queue +
-  noise disposition), 3 (corroborated signature org-name promotion).
+  **Phase 2a (build, landed):** the counterparty-identity column
+  (`activity.counterparty_email`, migration 0123, partial index) stamped
+  (lowercased) at capture — captured from now so the phase-2b correspondence
+  gate has real outbound history the day it ships. (Re-scoped from the plan for
+  two reasons: (1) the `capture_pending_counterparty` ledger + deferred creation
+  move to 2b so the deferral lands together with its verdict resolver — landing
+  the deferral alone would leave ambiguous senders in limbo; (2) the **T1
+  correspondence-positive suppression spare also moves to 2b**: a security review
+  flagged that deriving the "outbound" signal from the forgeable `From` header
+  lets a spoofed `From:owner` mail whitelist an arbitrary address past T2, so 2b
+  will take the outbound signal from an authenticated provider label — Gmail
+  `SENT` / IMAP `\Sent` — before honoring it as a bypass. Capture-audit
+  minimization also moves to 2b.)
+  **Still open (contract-first-gated on ADR-0072):** 2b (the T1 gate with an
+  authenticated outbound signal + the pending ledger + deferred creation + the
+  `capture_counterparty_verdict` job + review queue + noise hide-then-redact +
+  capture-audit minimization), 3 (corroborated signature org-name promotion).
 
 - **Site-read legal census — three known gaps (#162).** `FinishSiteRead`'s CAS
   guards only on `status = 'running'`, so a reclaimed-then-returning worker can
