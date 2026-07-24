@@ -301,13 +301,29 @@ func tombstoneCollateralScrubs(ctx context.Context, tx pgx.Tx, entityType string
 // bodies whose free text is about the subject alone. Rows shared with
 // another person on the thread are excluded on purpose: redacting them
 // would erase a different subject's record.
+//
+// A subject-only row is ALSO excluded when it is linked to an organization
+// or deal under legal_hold — the same transitive freeze the retention
+// engine applies (retention.go: "a hold on the subject must cover the
+// evidence about them"). Without this, an activity that is subject-only to
+// erasure yet transitively held to retention gets destroyed here, spoliating
+// litigation-held evidence the nightly evaluator explicitly refuses to touch.
+// The held-person arm is unnecessary: an activity linked to any other person
+// is already not subject-only, and the erased subject itself is proven
+// unheld before this runs (ErasePerson's own-hold check).
 const subjectOnlyActivities = `
 	SELECT l.activity_id FROM activity_link l
 	WHERE l.person_id = $1
 	  AND NOT EXISTS (
 	    SELECT 1 FROM activity_link o
 	    WHERE o.activity_id = l.activity_id
-	      AND o.person_id IS NOT NULL AND o.person_id <> $1)`
+	      AND o.person_id IS NOT NULL AND o.person_id <> $1)
+	  AND NOT EXISTS (
+	    SELECT 1 FROM activity_link h
+	    LEFT JOIN organization org ON org.id = h.organization_id
+	    LEFT JOIN deal dl ON dl.id = h.deal_id
+	    WHERE h.activity_id = l.activity_id
+	      AND (coalesce(org.legal_hold, false) OR coalesce(dl.legal_hold, false)))`
 
 // redactSubjectTimeline erases the subject's free text from the activity
 // timeline: subject/body of every subject-only activity are wiped (the
