@@ -33,7 +33,11 @@ while IFS= read -r line; do
     echo "UNPINNED REF: $line" >&2
     fail=1
   fi
-done < <(grep -rn 'uses:' "$workflow_dir"/*.yml "$workflow_dir"/*.yaml 2>/dev/null || true)
+# Match `uses:` only as a YAML key: optional indentation, an optional list
+# marker, then the key — never a bare substring. Anchoring this way keeps the
+# `statuses:` permission (`stat[uses:]`), a `uses:` inside a comment, and a
+# `uses:` in a scalar value from being flagged as an unpinned action.
+done < <(grep -rnE '^[[:space:]]*(-[[:space:]]+)?uses:' "$workflow_dir"/*.yml "$workflow_dir"/*.yaml 2>/dev/null || true)
 
 # --- Container images (workflow services + compose): pinned by digest ---
 # A tag pin is not enough for images: tags are mutable, only @sha256: binds
@@ -50,7 +54,8 @@ while IFS= read -r line; do
     echo "UNPINNED IMAGE (pin as tag@sha256:<digest>): $line" >&2
     fail=1
   fi
-done < <(grep -rn 'image:' "$workflow_dir"/*.yml "$workflow_dir"/*.yaml $compose_files 2>/dev/null || true)
+# `image:` as a YAML key too (same key-anchoring as `uses:` above).
+done < <(grep -rnE '^[[:space:]]*(-[[:space:]]+)?image:' "$workflow_dir"/*.yml "$workflow_dir"/*.yaml $compose_files 2>/dev/null || true)
 
 if [ "$fail" -eq 0 ]; then
   echo "image pins OK"
