@@ -417,3 +417,18 @@
   flex-basis: 100%;
   margin-top: var(--space-2);
 }
+
+/* "Add a connection" affordance: shared by the empty state and the roster
+   footer. In the footer it sits below the roster with clear separation; the
+   button row itself always wraps horizontally with the connector-row gap. */
+.connector-add {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--borderSubtle);
+}
+.connector-add-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: center;
+}
