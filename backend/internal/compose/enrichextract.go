@@ -277,11 +277,7 @@ func (x evidenceExtractor) extract(ctx context.Context, rawURL string, accept fu
 // and returns the first page that reads as a real, DISTINCT document. Sites
 // that answer every path with the same page (SPA catch-alls — and fixtures)
 // yield the seed text again; treating that as a legal page would double every
-// model call for nothing, so identical text is a miss. The duplicate test is
-// media-type-aware: it fires only when the probe and the seed were served the
-// same way (both markdown or both stripped HTML), so a rare mixed-negotiation
-// pair is let through rather than falsely deduped — benign, the evidence gate
-// and human approval still hold.
+// model call for nothing, so identical text is a miss.
 //
 // The probe fires ONLY when the seed is the host root: on a path-hosted site
 // (sites.example.com/company/), the host root's /impressum belongs to a
@@ -316,8 +312,7 @@ func (x evidenceExtractor) probeLegalPage(ctx context.Context, seedURL string, s
 			}
 			continue
 		}
-		if len([]rune(doc.Text)) < minReadableRunes ||
-			(doc.IsMarkdown() == seed.IsMarkdown() && doc.Text == seed.Text) {
+		if len([]rune(doc.Text)) < minReadableRunes || doc.Text == seed.Text {
 			continue
 		}
 		return origin + path, doc.Text
@@ -364,6 +359,10 @@ func (x evidenceExtractor) extractFields(ctx context.Context, sourceLabel, sourc
 	if runes := []rune(sourceText); len(runes) > maxExtractionText {
 		sourceText = string(runes[:maxExtractionText])
 	}
+	// Defang any forged envelope markers before wrapping — a verbatim-markdown
+	// page can carry a literal </untrusted>, which stripped HTML never could.
+	// The gate below matches evidence against this same neutralized text.
+	sourceText = neutralizeEnvelope(sourceText)
 
 	req := model.Request{
 		System: companyFactsSystem,

@@ -282,6 +282,17 @@ func allMicro(em extractedModel) (microBuckets, bool) {
 	return microBuckets{in, out, cr, cw}, true
 }
 
+// neutralizeEnvelope defangs the <untrusted> boundary markers in fetched page
+// text so a hostile page cannot forge the envelope's closing tag and break out
+// of the data section into instruction context. Every site that wraps page text
+// in the <untrusted> envelope runs its input through here first, and the
+// evidence gate matches against the same neutralized text.
+func neutralizeEnvelope(text string) string {
+	text = strings.ReplaceAll(text, "</untrusted>", "< /untrusted>")
+	text = strings.ReplaceAll(text, "<untrusted>", "< untrusted>")
+	return text
+}
+
 // numberPassages prefixes each non-empty line with a passage id ([s0], [s1], …)
 // — the format the aicert corpus grounds against, so the model can cite an id.
 // It first neutralizes any literal <untrusted> markers in the fetched page so a
@@ -289,8 +300,7 @@ func allMicro(em extractedModel) (microBuckets, bool) {
 // it in (defense-in-depth; a bad extraction still only ever STAGES a proposal a
 // human must approve, and SetModelRate re-validates).
 func numberPassages(text string) string {
-	text = strings.ReplaceAll(text, "</untrusted>", "< /untrusted>")
-	text = strings.ReplaceAll(text, "<untrusted>", "< untrusted>")
+	text = neutralizeEnvelope(text)
 	var b strings.Builder
 	n := 0
 	for _, line := range strings.Split(text, "\n") {

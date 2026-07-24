@@ -121,7 +121,7 @@ func newFetcher(transport http.RoundTripper) *Fetcher {
 
 // Fetch retrieves one page as model-ready text, negotiating markdown: when the
 // server serves text/markdown the body is returned verbatim (StripTags would
-// corrupt it); otherwise it is whitespace-normalized, exactly as before. The
+// corrupt it); otherwise it is whitespace-normalized. The
 // returned Doc carries the media type so callers can log which they got, and
 // the fetch refuses what the site's robots.txt disallows for this bot.
 func (f *Fetcher) Fetch(ctx context.Context, rawURL string) (Doc, error) {
@@ -167,7 +167,7 @@ func (f *Fetcher) fetchDoc(ctx context.Context, rawURL, accept string) (string, 
 
 // getRaw is the network-level capped GET: body, status, and declared media type,
 // no status policy. A non-empty accept sets the Accept header; robots and
-// sitemap lookups pass "" (today's behavior — they never negotiate markdown).
+// sitemap lookups pass "" — they never negotiate markdown.
 func (f *Fetcher) getRaw(ctx context.Context, rawURL, accept string) (string, int, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {

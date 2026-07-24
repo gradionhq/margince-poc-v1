@@ -11,7 +11,7 @@ import (
 // Doc is one fetched page reduced to model-ready text, plus the media type the
 // server served — so a caller can tell verbatim markdown from stripped HTML and
 // log which it got. Text is the server's markdown verbatim when it negotiated
-// text/markdown; otherwise it is StripTags of the HTML, exactly as before.
+// text/markdown; otherwise it is StripTags of the HTML.
 type Doc struct {
 	Text      string
 	MediaType string // parsed, parameter-stripped (e.g. "text/markdown"); "" when the server declared none
