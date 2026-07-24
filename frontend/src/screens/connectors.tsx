@@ -254,7 +254,10 @@ export function ConnectorsCard() {
               </span>
               {conn.status === "connected" && (
                 <div className="connector-backfill">
-                  <BackfillPanel provider={conn.provider} initial={conn.backfill} />
+                  <BackfillPanel
+                    provider={conn.provider}
+                    initial={conn.backfill}
+                  />
                 </div>
               )}
             </li>
