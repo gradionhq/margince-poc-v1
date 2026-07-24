@@ -189,12 +189,25 @@ func (r *Registry) BackfillStatus(ctx context.Context, provider string, userID i
 // "none". The connection-list read shares this with BackfillStatus so the
 // two surfaces cannot drift.
 func latestBackfill(ctx context.Context, tx pgx.Tx, connID ids.UUID) (*BackfillRun, error) {
+	// People and organizations are LIVE counts of the connector-created rows
+	// since this run began — not the capture_backfill counters, which the
+	// page-commit path never fills (the counterparty auto-create runs in its
+	// own transaction, decoupled from the page result) and so always read
+	// zero. This mirrors the morning digest's own count, so the two mail
+	// surfaces report the same reality: emails captured AND the people and
+	// companies they grew. Both tables are RLS-scoped to the workspace inside
+	// this transaction; the run's started_at bounds the window.
 	row := tx.QueryRow(ctx, `
-		SELECT id, connection_id, window_months, after_date, status, cursor, total_estimate,
-		       scanned, captured, skipped, people_created, organizations_created, dedupe_candidates,
-		       started_at, completed_at, updated_at, last_error_class
-		FROM capture_backfill WHERE connection_id = $1
-		ORDER BY created_at DESC LIMIT 1`, connID)
+		SELECT b.id, b.connection_id, b.window_months, b.after_date, b.status, b.cursor, b.total_estimate,
+		       b.scanned, b.captured, b.skipped,
+		       (SELECT count(*) FROM person
+		          WHERE captured_by LIKE 'connector:%' AND created_at >= b.started_at),
+		       (SELECT count(*) FROM organization
+		          WHERE captured_by LIKE 'connector:%' AND created_at >= b.started_at),
+		       b.dedupe_candidates,
+		       b.started_at, b.completed_at, b.updated_at, b.last_error_class
+		FROM capture_backfill b WHERE b.connection_id = $1
+		ORDER BY b.created_at DESC LIMIT 1`, connID)
 	var b BackfillRun
 	err := row.Scan(&b.ID, &b.ConnectionID, &b.WindowMonths, &b.AfterDate, &b.Status, &b.Cursor, &b.Estimate,
 		&b.Scanned, &b.Captured, &b.Skipped, &b.People, &b.Organizations, &b.DedupeCands,
