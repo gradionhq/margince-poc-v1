@@ -22,6 +22,12 @@ const gmailConnected: CaptureConnection = {
   last_synced_at: "2026-07-23T09:30:00Z",
   next_sync_due_at: "2026-07-23T09:35:00Z",
   watch_expires_at: "2026-08-01T00:00:00Z",
+  // Seeds the mounted BackfillPanel so it renders the finished state with no
+  // extra request against a route this story never stubs.
+  backfill: {
+    state: "done",
+    counts: { captured: 842, people_created: 96, organizations_created: 21 },
+  },
 };
 
 const gcalReauth: CaptureConnection = {
@@ -55,12 +61,22 @@ const imapPolled: CaptureConnection = {
   last_synced_at: "2026-07-23T09:00:00Z",
   next_sync_due_at: "2026-07-23T09:15:00Z",
   watch_expires_at: null,
+  // IMAP has no Backfiller (connector_unsupported) — the panel's own
+  // capability statement, seeded straight from "none" with no run ever
+  // possible, needs no preview stub here since IMAP never reaches preview
+  // successfully in the first place.
+  backfill: { state: "none" },
 };
 
 function cardStory(connections: CaptureConnection[]) {
   return () => {
     installFetchStub({
       "GET /connectors": () => jsonResponse({ data: connections }),
+      // IMAP has no Backfiller — the mounted BackfillPanel's setup screen
+      // auto-loads this preview and must render the capability statement
+      // rather than crash on the default empty-list fallback shape.
+      "POST /connectors/imap/backfill/preview": () =>
+        jsonResponse({ code: "connector_unsupported" }, 422),
     });
     return (
       <StoryProviders>

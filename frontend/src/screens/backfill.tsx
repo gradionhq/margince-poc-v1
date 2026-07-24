@@ -4,9 +4,10 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Button } from "../design-system/atoms";
-import { useT } from "../i18n";
+import { formatDuration } from "../format/format";
+import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessage } from "./common";
+import { ProblemError, problemCode, throwProblem } from "./common";
 
 // The bounded connect-time backfill (ADR-0063): pick a window, see the scope
 // BEFORE anything spends (ADR-0020 preview-before-spend — the estimate card
@@ -15,8 +16,14 @@ import { problemMessage } from "./common";
 // fabricated client-side (CAP-AC-OPEN-1). The scope preview auto-loads so the
 // first thing a newly-connected user sees is honest scope, not a blank form —
 // but the spend still waits for the explicit "Start the import" consent.
+//
+// This panel is mounted in two places now: the onboarding coldstart (no
+// `initial`, always fetches) and the Settings connected-inboxes card (which
+// already holds the run row via the embedded `CaptureConnection.backfill` —
+// seeding from it renders a live run with no extra request).
 
 type BackfillStatus = components["schemas"]["BackfillStatus"];
+type Provider = components["schemas"]["CaptureConnection"]["provider"];
 type BackfillWindow = "3m" | "6m" | "12m";
 
 const WINDOWS: { value: BackfillWindow; label: MessageKey }[] = [
@@ -25,12 +32,40 @@ const WINDOWS: { value: BackfillWindow; label: MessageKey }[] = [
   { value: "12m", label: "backfill.window12m" },
 ];
 
+// A run whose updated_at hasn't moved in this long is honestly "stuck", not
+// "in progress" — the contract's own doc comment on BackfillStatus.updated_at
+// calls this out ("a killed worker leaves this honest"). Long enough that
+// ordinary poll jitter or a slow provider batch never false-positives, short
+// enough that a genuinely dead worker surfaces within a couple of polls of
+// the threshold rather than staying "live" indefinitely.
+const STALE_AFTER_MS = 3 * 60_000;
+
+const isLiveState = (state: BackfillStatus["state"] | undefined) =>
+  state === "running" || state === "queued";
+
+// Both preview and start can answer connector_unsupported (a provider with no
+// Backfiller — IMAP today) or window_narrowing (start only, a widen-only
+// re-run) — pull the RFC 7807 code out of a thrown ProblemError so the render
+// can branch to its own honest sentence instead of the raw server detail.
+function errorCodeOf(error: unknown): string | null {
+  return error instanceof ProblemError ? problemCode(error.problem) : null;
+}
+
 // statusQueryKey is shared by every reader of the run row so a start or
 // cancel invalidates them all.
 const statusQueryKey = (provider: string) => ["backfill-status", provider];
 
-export function BackfillPanel({ provider }: { provider: "gmail" }) {
+export function BackfillPanel({
+  provider,
+  initial,
+}: {
+  provider: Provider;
+  // The run row already embedded in GET /connectors (CaptureConnection.
+  // backfill) — seeds the first render so a live run shows immediately.
+  initial?: BackfillStatus;
+}) {
   const t = useT();
+  const { locale } = useLocale();
   const qc = useQueryClient();
   const [window, setWindow] = useState<BackfillWindow>("6m");
   const [skipped, setSkipped] = useState(false);
@@ -42,16 +77,20 @@ export function BackfillPanel({ provider }: { provider: "gmail" }) {
         params: { path: { provider } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
+    initialData: initial,
+    // The embedded snapshot already answered this read once; skip the
+    // mount-time re-fetch it would otherwise trigger (react-query treats
+    // fresh-but-present data as needing revalidation by default) and rely on
+    // the live poll below, or an explicit invalidate (start/cancel), for a
+    // fresher row. Without a seed, behave exactly as before: fetch on mount.
+    staleTime: initial !== undefined ? Number.POSITIVE_INFINITY : 0,
     // Poll while a run is live: the status read is a single indexed row
     // (CAP-PARAM-2), so polling is indistinguishable from push here.
-    refetchInterval: (q) =>
-      q.state.data?.state === "running" || q.state.data?.state === "queued"
-        ? 2500
-        : false,
+    refetchInterval: (q) => (isLiveState(q.state.data?.state) ? 2500 : false),
   });
 
   const preview = useMutation({
@@ -61,7 +100,7 @@ export function BackfillPanel({ provider }: { provider: "gmail" }) {
         { params: { path: { provider } }, body: { window: w } },
       );
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -77,7 +116,7 @@ export function BackfillPanel({ provider }: { provider: "gmail" }) {
         },
       );
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -92,13 +131,24 @@ export function BackfillPanel({ provider }: { provider: "gmail" }) {
         { params: { path: { provider } } },
       );
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: statusQueryKey(provider) }),
   });
+
+  // connector_unsupported is a structural fact about the provider (no
+  // Backfiller behind it), independent of which window was picked — either
+  // op can be the one that surfaces it, depending on whether the setup
+  // screen's auto-preview or an explicit start round-trips first.
+  const unsupported =
+    errorCodeOf(preview.error) === "connector_unsupported" ||
+    errorCodeOf(start.error) === "connector_unsupported";
+  // window_narrowing only ever comes from start (preview never enqueues a
+  // run), so it needs no such either/or.
+  const narrowing = errorCodeOf(start.error) === "window_narrowing";
 
   // Auto-load the scope for the selected window the moment the setup view is
   // live (no run yet, not skipped) — the user sees honest scope immediately.
@@ -134,6 +184,21 @@ export function BackfillPanel({ provider }: { provider: "gmail" }) {
 
   const run = status.data;
   if (run.state === "none") {
+    // A provider with no Backfiller behind it (IMAP today) can't run this
+    // op at all, whichever window is picked — the honest answer is a
+    // capability statement, not a retryable error inside the setup form.
+    if (unsupported) {
+      return (
+        <div className="backfill-setup">
+          <h3 className="backfill-h">
+            <History aria-hidden /> {t("backfill.title")}
+          </h3>
+          <p className="t-small backfill-unsupported">
+            {t("backfill.unsupportedNote")}
+          </p>
+        </div>
+      );
+    }
     return (
       <div className="backfill-setup">
         <h3 className="backfill-h">
@@ -171,7 +236,9 @@ export function BackfillPanel({ provider }: { provider: "gmail" }) {
           />
         )}
         {start.isError && (
-          <p className="t-small backfill-error">{start.error.message}</p>
+          <p className="t-small backfill-error">
+            {narrowing ? t("backfill.narrowingNote") : start.error.message}
+          </p>
         )}
         <button
           type="button"
@@ -275,6 +342,7 @@ function RunView({
   onCancel: () => void;
 }) {
   const t = useT();
+  const { locale } = useLocale();
   const counts = run.counts;
   const scanned = counts?.messages_scanned ?? 0;
   const live = run.state === "running" || run.state === "queued";
@@ -283,6 +351,14 @@ function RunView({
     run.estimated_messages && run.estimated_messages > 0
       ? Math.min(1, scanned / run.estimated_messages)
       : null;
+  // updated_at is the contract's own staleness stamp ("a killed worker
+  // leaves this honest") — a live run that hasn't moved past the threshold
+  // isn't progressing, whatever the fraction says, so the progress bar and
+  // the spinning icon both stop claiming otherwise.
+  const updatedAgoMs = run.updated_at
+    ? Math.max(0, Date.now() - new Date(run.updated_at).getTime())
+    : null;
+  const stale = live && updatedAgoMs !== null && updatedAgoMs > STALE_AFTER_MS;
 
   return (
     <div className={`capture-hero${done ? " done" : ""}`} aria-live="polite">
@@ -293,7 +369,7 @@ function RunView({
           </>
         ) : (
           <>
-            <History aria-hidden className={live ? "spin-slow" : ""} />{" "}
+            <History aria-hidden className={live && !stale ? "spin-slow" : ""} />{" "}
             {t(stateTitle(run.state))}
           </>
         )}
@@ -308,8 +384,15 @@ function RunView({
           />
         ))}
       </div>
-      {fraction !== null && live && (
+      {fraction !== null && live && !stale && (
         <progress value={fraction} aria-label={t("backfill.progressLabel")} />
+      )}
+      {stale && (
+        <p className="t-small backfill-stale">
+          {t("backfill.staleUpdated", {
+            duration: formatDuration(updatedAgoMs ?? 0, locale),
+          })}
+        </p>
       )}
       <p className="t-small capture-scanned">
         {t("backfill.countScanned")} {scanned.toLocaleString()}

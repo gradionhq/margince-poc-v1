@@ -26,6 +26,12 @@ const gmailConnected: CaptureConnection = {
   status: "connected",
   scopes: ["read"],
   last_synced_at: "2026-07-23T09:30:00Z",
+  // A finished backfill: mounting BackfillPanel below the row must not fire
+  // an extra request (the panel seeds from this embedded snapshot). "none"
+  // would auto-fire the setup screen's scope preview against an unstubbed
+  // route — "done" is the honest, inert terminal state for an established
+  // connection these fixtures otherwise don't care about.
+  backfill: { state: "done" },
 };
 
 const gmailStale: CaptureConnection = {

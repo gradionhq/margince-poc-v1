@@ -1151,6 +1151,11 @@ export const en = {
     "It will retry on its own; everything captured so far is kept.",
   "backfill.cancel": "Stop the import",
   "backfill.cancelledNote": "Stopped. Everything captured so far is kept.",
+  "backfill.unsupportedNote":
+    "This mailbox type can't be backfilled — only new mail is captured from now on.",
+  "backfill.narrowingNote":
+    "A wider window already ran for this mailbox; the import window can only be widened, not narrowed.",
+  "backfill.staleUpdated": "Last updated {duration} ago — no recent progress.",
 
   // Connected inboxes (Settings → Integrations): the "manage in Settings"
   // surface the onboarding copy promises.

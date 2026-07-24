@@ -1173,6 +1173,12 @@ export const de = {
     "Er versucht es selbstständig erneut; alles bisher Erfasste bleibt erhalten.",
   "backfill.cancel": "Import stoppen",
   "backfill.cancelledNote": "Gestoppt. Alles bisher Erfasste bleibt erhalten.",
+  "backfill.unsupportedNote":
+    "Dieser Postfachtyp kann nicht rückwirkend importiert werden — ab jetzt werden nur neue E-Mails erfasst.",
+  "backfill.narrowingNote":
+    "Für dieses Postfach lief bereits ein größerer Zeitraum; der Import-Zeitraum kann nur erweitert, nicht verkleinert werden.",
+  "backfill.staleUpdated":
+    "Zuletzt aktualisiert vor {duration} — kein aktueller Fortschritt.",
 
   // Connected inboxes (Einstellungen → Integrationen).
   "connectors.title": "Verbundene Postfächer",

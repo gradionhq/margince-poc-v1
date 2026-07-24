@@ -14,6 +14,7 @@ import { ConfirmModal } from "../design-system/confirmmodal";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
+import { BackfillPanel } from "./backfill";
 import { problemCode, problemMessage } from "./common";
 import { errorClassKey, statusLabel, statusTone } from "./connector-status";
 import { ImapConnectForm } from "./imap-connect-form";
@@ -251,6 +252,11 @@ export function ConnectorsCard() {
                   {t("connectors.disconnect")}
                 </Button>
               </span>
+              {conn.status === "connected" && (
+                <div className="connector-backfill">
+                  <BackfillPanel provider={conn.provider} initial={conn.backfill} />
+                </div>
+              )}
             </li>
           ))}
         </ul>
