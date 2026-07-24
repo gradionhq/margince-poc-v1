@@ -129,36 +129,67 @@ func (r *Registry) Disconnect(ctx context.Context, name string) error {
 	// whose vault migration never ran holds its credential there — it must not
 	// escape erasure through the older column). Keep credential_ref: phase 2
 	// needs it, and a crash between phases leaves a recoverable state.
+	//
+	// The predicate matches a row that is either still LIVE (status <>
+	// 'disconnected') or still holds a ref (a prior call's phase 2 failed and
+	// this call is retrying it):
+	//   - fresh vault row (connected, ref set): live → matches, ref returned.
+	//   - legacy row (connected, ref NULL, credential in auth): live →
+	//     matches; auth is erased here, ref stays NULL — nothing to
+	//     vault-delete, phase 2/3 are a no-op below.
+	//   - partial-failure retry (already disconnected, ref still set):
+	//     ref IS NOT NULL → matches, retries the vault delete.
+	//   - fully done (disconnected, ref NULL): matches neither arm →
+	//     ErrNoRows → idempotent no-op.
+	// A credential_ref-only predicate (the prior version) misses the legacy
+	// case entirely: credential_ref IS NULL there even though a live secret
+	// sits in auth, so the row would never match and disconnect would be a
+	// silent no-op that leaves the row connected and the credential intact.
 	var ref *string
 	if err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			UPDATE capture_connection
 			   SET status = 'disconnected', auth = NULL
-			 WHERE user_id = $1 AND provider = $2 AND credential_ref IS NOT NULL
+			 WHERE user_id = $1 AND provider = $2
+			   AND (status <> 'disconnected' OR credential_ref IS NOT NULL)
 			RETURNING credential_ref`,
 			actor.UserID, name,
 		).Scan(&ref)
 	}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			// No live credential to clear: never connected, or already fully
-			// disconnected on a prior call. Idempotent no-op.
+			// No row to flip: never connected, or already fully disconnected
+			// (disconnected + no ref) on a prior call. Idempotent no-op.
 			return nil
 		}
 		return err
 	}
+	if ref == nil {
+		// A legacy row: the credential lived in auth (just cleared above),
+		// never in the vault. There is no ref to delete or null.
+		return nil
+	}
 
 	// Phase 2: destroy the secret, THEN drop the ref. If the delete fails the
-	// error surfaces and the ref stays, so the next call retries phase 2.
-	if r.vault != nil && ref != nil {
-		if err := r.vault.Delete(ctx, ids.From[ids.WorkspaceKind](ws), keyvault.Ref(*ref)); err != nil {
-			return fmt.Errorf("capture: deleting the disconnected credential: %w", err)
-		}
+	// error surfaces and the ref stays, so the next call retries phase 2. A
+	// ref with no vault configured is a wiring fault, not something to skip
+	// past — silently continuing to phase 3 would null the only pointer to a
+	// secret nobody deleted.
+	if r.vault == nil {
+		return errors.New("capture: connection carries a credential ref but no keyvault is configured to delete it")
 	}
+	if err := r.vault.Delete(ctx, ids.From[ids.WorkspaceKind](ws), keyvault.Ref(*ref)); err != nil {
+		return fmt.Errorf("capture: deleting the disconnected credential: %w", err)
+	}
+	// Phase 3: clear only the ref THIS call resolved and deleted
+	// (credential_ref = $3). Without that guard, a reconnect landing between
+	// phase 1 and here — Connect writes a NEW ref onto the same row — would
+	// have its live, still-vaulted ref nulled out from under it: a
+	// 'connected' row with no credential, and the fresh secret orphaned.
 	return database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			UPDATE capture_connection SET credential_ref = NULL
-			 WHERE user_id = $1 AND provider = $2`,
-			actor.UserID, name)
+			 WHERE user_id = $1 AND provider = $2 AND credential_ref = $3`,
+			actor.UserID, name, *ref)
 		return err
 	})
 }

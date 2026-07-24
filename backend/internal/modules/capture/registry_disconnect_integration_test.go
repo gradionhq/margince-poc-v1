@@ -145,13 +145,13 @@ func newCaptureRegistryFixture(t *testing.T) (context.Context, *capture.Registry
 	return actorCtx, reg, vault, ids.From[ids.WorkspaceKind](wsUUID)
 }
 
-// connectFixtureConnection grants provider under ctx's actor via
-// Registry.Connect, then reads back the credential_ref the write produced —
-// the fixture's own precondition (a live secret exists before disconnect),
-// not the code under test.
-func connectFixtureConnection(ctx context.Context, t *testing.T, reg *capture.Registry, provider string) keyvault.Ref {
+// connectFixtureConnection grants the "gmail" provider (the only one
+// fixtureConnector registers under) via Registry.Connect, then reads back the
+// credential_ref the write produced — the fixture's own precondition (a live
+// secret exists before disconnect), not the code under test.
+func connectFixtureConnection(ctx context.Context, t *testing.T, reg *capture.Registry) keyvault.Ref {
 	t.Helper()
-	if _, err := reg.Connect(ctx, provider, connector.Auth("fixture-token")); err != nil {
+	if _, err := reg.Connect(ctx, "gmail", connector.Auth("fixture-token")); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	wsUUID, ok := principal.WorkspaceID(ctx)
@@ -161,7 +161,7 @@ func connectFixtureConnection(ctx context.Context, t *testing.T, reg *capture.Re
 	var status string
 	var ref *string
 	var auth []byte
-	if err := queryConnectionRow(ctx, t, ids.From[ids.WorkspaceKind](wsUUID), provider, &status, &ref, &auth); err != nil {
+	if err := queryConnectionRow(ctx, t, ids.From[ids.WorkspaceKind](wsUUID), &status, &ref, &auth); err != nil {
 		t.Fatalf("reading back the connection Connect wrote: %v", err)
 	}
 	if ref == nil {
@@ -170,16 +170,17 @@ func connectFixtureConnection(ctx context.Context, t *testing.T, reg *capture.Re
 	return keyvault.Ref(*ref)
 }
 
-// queryConnectionRow reads one capture_connection row's disconnect-relevant
-// columns straight off the owner connection — bypassing RLS on purpose, since
-// the test asserts what the row actually holds, not what one workspace's
-// policy exposes.
-func queryConnectionRow(ctx context.Context, t *testing.T, ws ids.WorkspaceID, provider string, status *string, credentialRef **string, auth *[]byte) error {
+// queryConnectionRow reads the "gmail" capture_connection row's
+// disconnect-relevant columns straight off the owner connection — bypassing
+// RLS on purpose, since the test asserts what the row actually holds, not
+// what one workspace's policy exposes. "gmail" is the only provider any
+// fixture in this file connects.
+func queryConnectionRow(ctx context.Context, t *testing.T, ws ids.WorkspaceID, status *string, credentialRef **string, auth *[]byte) error {
 	t.Helper()
 	owner, _ := setupCaptureDB(t)
 	return owner.QueryRow(ctx,
-		`SELECT status, credential_ref, auth FROM capture_connection WHERE workspace_id = $1 AND provider = $2`,
-		ws.UUID, provider).Scan(status, credentialRef, auth)
+		`SELECT status, credential_ref, auth FROM capture_connection WHERE workspace_id = $1 AND provider = 'gmail'`,
+		ws.UUID).Scan(status, credentialRef, auth)
 }
 
 // Disconnecting must not leave a live credential behind: the row stops being
@@ -188,7 +189,7 @@ func queryConnectionRow(ctx context.Context, t *testing.T, ws ids.WorkspaceID, p
 func TestDisconnectDeletesTheStoredCredential(t *testing.T) {
 	ctx, reg, vault, ws := newCaptureRegistryFixture(t)
 
-	ref := connectFixtureConnection(ctx, t, reg, "gmail")
+	ref := connectFixtureConnection(ctx, t, reg)
 	if _, err := vault.Get(ctx, ws, ref); err != nil {
 		t.Fatalf("precondition: the secret should exist before disconnect: %v", err)
 	}
@@ -204,7 +205,7 @@ func TestDisconnectDeletesTheStoredCredential(t *testing.T) {
 	var status string
 	var credentialRef *string
 	var authBytes []byte
-	if err := queryConnectionRow(ctx, t, ws, "gmail", &status, &credentialRef, &authBytes); err != nil {
+	if err := queryConnectionRow(ctx, t, ws, &status, &credentialRef, &authBytes); err != nil {
 		t.Fatalf("reading the row back: %v", err)
 	}
 	if status != "disconnected" {
@@ -222,7 +223,7 @@ func TestDisconnectDeletesTheStoredCredential(t *testing.T) {
 // and the secret is already gone.
 func TestDisconnectIsIdempotentAfterTheSecretIsGone(t *testing.T) {
 	ctx, reg, _, _ := newCaptureRegistryFixture(t)
-	connectFixtureConnection(ctx, t, reg, "gmail")
+	connectFixtureConnection(ctx, t, reg)
 
 	if err := reg.Disconnect(ctx, "gmail"); err != nil {
 		t.Fatalf("first Disconnect: %v", err)
@@ -237,7 +238,7 @@ func TestDisconnectIsIdempotentAfterTheSecretIsGone(t *testing.T) {
 // from sync_cursor would leave it null until the first successful sync.
 func TestConnectRecordsTheAccountLabel(t *testing.T) {
 	ctx, reg, _, _ := newCaptureRegistryFixture(t)
-	connectFixtureConnection(ctx, t, reg, "gmail")
+	connectFixtureConnection(ctx, t, reg)
 
 	views, err := reg.Connections(ctx)
 	if err != nil {
@@ -253,4 +254,216 @@ func TestConnectRecordsTheAccountLabel(t *testing.T) {
 		return
 	}
 	t.Fatal("no gmail connection in the read-back")
+}
+
+// insertLegacyConnection writes a capture_connection row the way a
+// pre-vault-migration row looks: the credential lives in the auth bytea
+// column, credential_ref is NULL. Registry.Connect always vault-seals, so a
+// legacy row can only be produced directly against the DB — this is the
+// fixture's own precondition, not the code under test.
+func insertLegacyConnection(ctx context.Context, t *testing.T, ws ids.WorkspaceID, userID ids.UserID, provider string, authBytes []byte) {
+	t.Helper()
+	owner, _ := setupCaptureDB(t)
+	if _, err := owner.Exec(ctx, `
+		INSERT INTO capture_connection (workspace_id, provider, user_id, status, auth)
+		VALUES ($1, $2, $3, 'connected', $4)`,
+		ws.UUID, provider, userID.UUID, authBytes); err != nil {
+		t.Fatalf("inserting the legacy connection fixture: %v", err)
+	}
+}
+
+// A legacy row (credential in auth, credential_ref NULL — resolveCredential's
+// documented fallback for a row whose vault migration never ran) must not
+// survive disconnect: a credential_ref-only predicate matches no such row,
+// leaving it connected with the secret still in auth column forever.
+func TestDisconnectErasesALegacyAuthOnlyRow(t *testing.T) {
+	ctx, reg, _, ws := newCaptureRegistryFixture(t)
+	actor, _ := principal.Actor(ctx)
+	insertLegacyConnection(ctx, t, ws, ids.From[ids.UserKind](actor.UserID), "gmail", []byte("legacy-refresh-token"))
+
+	if err := reg.Disconnect(ctx, "gmail"); err != nil {
+		t.Fatalf("Disconnect: %v", err)
+	}
+
+	var status string
+	var credentialRef *string
+	var authBytes []byte
+	if err := queryConnectionRow(ctx, t, ws, &status, &credentialRef, &authBytes); err != nil {
+		t.Fatalf("reading the row back: %v", err)
+	}
+	if status != "disconnected" {
+		t.Errorf("status = %q, want %q — the legacy row must actually stop syncing", status, "disconnected")
+	}
+	if authBytes != nil {
+		t.Error("legacy auth column still holds the credential bytes — disconnect was a silent no-op on this row shape")
+	}
+	if credentialRef != nil {
+		t.Errorf("credential_ref = %q, want NULL", *credentialRef)
+	}
+}
+
+// A reconnect (Connect called again for a provider that already has a live
+// connection — the reauth_required → Reconnect flow) must destroy the secret
+// it replaces, not just overwrite the row's pointer to it. Otherwise every
+// reconnect strands the previous refresh token in the vault, live and
+// decryptable, forever.
+func TestReconnectDeletesThePriorSecret(t *testing.T) {
+	ctx, reg, vault, ws := newCaptureRegistryFixture(t)
+
+	firstRef := connectFixtureConnection(ctx, t, reg)
+	if _, err := vault.Get(ctx, ws, firstRef); err != nil {
+		t.Fatalf("precondition: the first secret should exist: %v", err)
+	}
+
+	if _, err := reg.Connect(ctx, "gmail", connector.Auth("fixture-token-2")); err != nil {
+		t.Fatalf("reconnect: %v", err)
+	}
+
+	if _, err := vault.Get(ctx, ws, firstRef); err == nil {
+		t.Error("the superseded secret survived the reconnect — a stale credential outlives the row that named it")
+	}
+
+	var status string
+	var secondRef *string
+	var authBytes []byte
+	if err := queryConnectionRow(ctx, t, ws, &status, &secondRef, &authBytes); err != nil {
+		t.Fatalf("reading the row back: %v", err)
+	}
+	if secondRef == nil {
+		t.Fatal("credential_ref is NULL after reconnect — the row lost its credential entirely")
+	}
+	if keyvault.Ref(*secondRef) == firstRef {
+		t.Fatal("the row still points at the first secret — the reconnect did not seal a new one")
+	}
+	if _, err := vault.Get(ctx, ws, keyvault.Ref(*secondRef)); err != nil {
+		t.Fatalf("the new secret should resolve: %v", err)
+	}
+}
+
+// A Disconnect that fails to delete the vault secret must surface the error
+// and leave the row in a RECOVERABLE state: 'disconnected' (the poller
+// already stops selecting it) with credential_ref still set, so a retry can
+// find and finish the job. Nulling the ref anyway would point at nothing —
+// the destroyed-secret half of the invariant would be a lie.
+func TestDisconnectSurfacesAFailingVaultDeleteAndLeavesARecoverableRow(t *testing.T) {
+	ctx, reg, vault, ws := newCaptureRegistryFixture(t)
+	ref := connectFixtureConnection(ctx, t, reg)
+
+	failing := &deleteFailsVault{Vault: vault}
+	reg2 := capture.NewRegistry(poolFromFixture(t), nil, nil, failing)
+	reg2.Register(fixtureConnector{})
+	_ = reg // the fixture's Connect already ran against the shared pool/vault
+
+	if err := reg2.Disconnect(ctx, "gmail"); err == nil {
+		t.Fatal("Disconnect must surface a failing vault delete, not swallow it")
+	}
+
+	var status string
+	var credentialRef *string
+	var authBytes []byte
+	if err := queryConnectionRow(ctx, t, ws, &status, &credentialRef, &authBytes); err != nil {
+		t.Fatalf("reading the row back: %v", err)
+	}
+	if status != "disconnected" {
+		t.Errorf("status = %q, want %q — capture must stop even though the delete failed", status, "disconnected")
+	}
+	if credentialRef == nil || keyvault.Ref(*credentialRef) != ref {
+		t.Errorf("credential_ref = %v, want the still-live ref %q — a failed delete must stay retryable", credentialRef, ref)
+	}
+	if authBytes != nil {
+		t.Error("legacy auth column should already be cleared regardless of the vault outcome")
+	}
+}
+
+// A reconnect landing between Disconnect's phase 1 (flip status, read the
+// old ref) and phase 3 (null the ref, after the vault delete completes) must
+// not have its NEW ref nulled by the disconnect it raced. Phase 3 guards on
+// "clear only the ref THIS call resolved" — without that guard the row would
+// end up 'connected' with no credential_ref, and the fresh secret orphaned.
+func TestDisconnectPhase3DoesNotClobberAConcurrentReconnect(t *testing.T) {
+	ctx, reg, vault, ws := newCaptureRegistryFixture(t)
+	firstRef := connectFixtureConnection(ctx, t, reg)
+
+	deleteStarted := make(chan struct{})
+	proceed := make(chan struct{})
+	blocking := &blockingDeleteVault{Vault: vault, started: deleteStarted, proceed: proceed}
+	reg2 := capture.NewRegistry(poolFromFixture(t), nil, nil, blocking)
+	reg2.Register(fixtureConnector{})
+
+	disconnectErr := make(chan error, 1)
+	go func() { disconnectErr <- reg2.Disconnect(ctx, "gmail") }()
+
+	<-deleteStarted // phase 1 has committed (status disconnected, ref = firstRef); phase 2's Delete is blocked
+
+	// The concurrent reconnect: a fresh Registry sharing the same pool/vault,
+	// exactly like a second request would land on the same process.
+	reg3 := capture.NewRegistry(poolFromFixture(t), nil, nil, vault)
+	reg3.Register(fixtureConnector{})
+	if _, err := reg3.Connect(ctx, "gmail", connector.Auth("fixture-token-reconnect")); err != nil {
+		t.Fatalf("concurrent reconnect: %v", err)
+	}
+	var secondRef *string
+	if err := queryConnectionRow(ctx, t, ws, new(string), &secondRef, new([]byte)); err != nil {
+		t.Fatalf("reading the reconnected row: %v", err)
+	}
+	if secondRef == nil || keyvault.Ref(*secondRef) == firstRef {
+		t.Fatal("precondition: the reconnect should have sealed a new ref")
+	}
+
+	close(proceed) // let the racing Disconnect's phase 2/3 finish
+	if err := <-disconnectErr; err != nil {
+		t.Fatalf("Disconnect: %v", err)
+	}
+
+	var status string
+	var finalRef *string
+	if err := queryConnectionRow(ctx, t, ws, &status, &finalRef, new([]byte)); err != nil {
+		t.Fatalf("reading the final row: %v", err)
+	}
+	if status != "connected" {
+		t.Errorf("status = %q, want %q — the racing disconnect must not undo a reconnect that landed after it read the row", status, "connected")
+	}
+	if finalRef == nil || *finalRef != *secondRef {
+		t.Errorf("credential_ref = %v, want the reconnect's ref %q untouched by the racing disconnect", finalRef, *secondRef)
+	}
+	if _, err := vault.Get(ctx, ws, keyvault.Ref(*secondRef)); err != nil {
+		t.Errorf("the reconnect's secret should still resolve: %v", err)
+	}
+}
+
+// deleteFailsVault wraps a real Vault and fails every Delete, so
+// Disconnect's failure path (surface the error, leave the row recoverable)
+// is exercised against a genuine vault failure, not a mock that only proves
+// the mock.
+type deleteFailsVault struct {
+	keyvault.Vault
+}
+
+func (deleteFailsVault) Delete(context.Context, ids.WorkspaceID, keyvault.Ref) error {
+	return errors.New("keyvault: simulated delete failure")
+}
+
+// blockingDeleteVault wraps a real Vault and pauses inside Delete until the
+// test releases it — the seam that lets TestDisconnectPhase3DoesNotClobberAConcurrentReconnect
+// interleave a real concurrent Connect between Disconnect's phase 1 and
+// phase 3, deterministically, without a time.Sleep race.
+type blockingDeleteVault struct {
+	keyvault.Vault
+	started chan struct{}
+	proceed chan struct{}
+}
+
+func (v *blockingDeleteVault) Delete(ctx context.Context, ws ids.WorkspaceID, ref keyvault.Ref) error {
+	close(v.started)
+	<-v.proceed
+	return v.Vault.Delete(ctx, ws, ref)
+}
+
+// poolFromFixture exposes the shared pool setupCaptureDB memoizes, so a test
+// can stand up a second Registry against the SAME database (simulating a
+// second request on the same process) without re-parsing DSNs.
+func poolFromFixture(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	_, pool := setupCaptureDB(t)
+	return pool
 }

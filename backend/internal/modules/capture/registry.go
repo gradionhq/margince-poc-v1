@@ -167,7 +167,24 @@ func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth
 		}
 	}
 	var id ids.UUID
+	var priorRef *string
 	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+		// Capture the credential_ref this (re)connect is about to overwrite,
+		// if a row for this (workspace, user, provider) already exists. The
+		// FOR UPDATE lock holds the row still for the span of this
+		// transaction, so a concurrent disconnect/reconnect on the same row
+		// serializes behind this one rather than racing it. Without this
+		// read, the upsert below would silently orphan the previous secret
+		// in the vault — every reconnect (including the reauth_required →
+		// Reconnect flow) would leak the prior credential.
+		if err := tx.QueryRow(ctx, `
+			SELECT credential_ref FROM capture_connection
+			 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+			   AND user_id = $1 AND provider = $2
+			   FOR UPDATE`,
+			actor.UserID, name).Scan(&priorRef); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO capture_connection (workspace_id, provider, user_id, scopes, credential_ref, status, account_label)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, 'connected', $5)
@@ -189,6 +206,19 @@ func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth
 	})
 	if err != nil {
 		return ids.Nil, fmt.Errorf("capture: storing connection: %w", err)
+	}
+	// The row now names the fresh ref; a prior ref (a genuine reconnect over
+	// an existing row) is unreachable from any row from here on and must be
+	// destroyed — the same invariant Disconnect enforces, on the overwrite
+	// path rather than the withdraw path. A first-time connect has no prior
+	// ref: nothing to delete. The delete runs AFTER commit (put-then-commit's
+	// mirror: the row is already safely repointed at the new secret before
+	// the old one is destroyed) and its error surfaces rather than leaving a
+	// decryptable stale credential silently orphaned.
+	if priorRef != nil && *priorRef != "" {
+		if err := r.vault.Delete(ctx, ids.From[ids.WorkspaceKind](ws), keyvault.Ref(*priorRef)); err != nil {
+			return id, fmt.Errorf("capture: deleting the superseded credential: %w", err)
+		}
 	}
 	return id, nil
 }
