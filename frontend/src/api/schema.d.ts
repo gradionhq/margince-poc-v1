@@ -2197,9 +2197,10 @@ export interface paths {
          * Disconnect the calling user's mail/calendar capture.
          * @description Disconnects the caller's connection: capture stops immediately (the connection flips to
          *     `disconnected`, RC-8) and the poller no longer selects it. No upstream token revocation is
-         *     performed — the user removes the grant at the provider themselves; the stored credential is
-         *     retired by a background vault sweep, not deleted inline. Idempotent. Already-captured
-         *     activities are retained — they are real history; capture simply stops. Human-only.
+         *     performed — the user removes the grant at the provider themselves. The stored credential
+         *     IS deleted from the vault as part of this call, not merely retired for a later sweep.
+         *     Idempotent. Already-captured activities are retained — they are real history; capture
+         *     simply stops. Human-only.
          */
         post: operations["disconnectConnector"];
         delete?: never;
