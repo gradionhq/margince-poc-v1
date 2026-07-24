@@ -843,6 +843,48 @@ tooling and gate suite the baseline needs. Merged so far:
 
 Open work, roughly in priority order:
 
+- **Capture quality gates + captured-company auto-enrichment — spec ratified,
+  implementation in flight (margince-foundation ADR-0072/A118).**
+  **Phase 0 (spec):** ADR-0072/A118 authored in `margince-foundation`
+  (renumbered from the plan's "ADR-0070", now taken by A116/A117) — the tiered
+  creation gate, the `capture_counterparty_verdict` no-payload AI task,
+  noise=hide-then-redact, `organization.name_source` authority, and the
+  `capture_auto_enrich` setting + daily cap (foundation PR #1184, G1 green).
+  **Phase 1 (build, landed):** transactional/ESP suppression (CAP-PARAM-6:
+  `capture/transactional.go` — exact-eSLD infra suppresses standalone, prefix
+  rules only with List-Unsubscribe/machine-localpart corroboration, PSL/IDNA
+  normalization, `capture.transactional_extra`/`_never` config) runs T2 in the
+  Sink (person+org suppressed, activity stands, `system_log` breadcrumb); and
+  honest org display names (`people/orgname.go` `DisplayNameFromDomain`:
+  "gitex.com"→"Gitex") with the `organization.name_source` provenance column
+  (0118; capture stamps `'domain'`, a human edit stamps `'human'`). `make check`
+  + the full zero-skip integration lane green.
+  **Phase 4A (build, landed):** the `capture_auto_enrich` workspace setting +
+  `GET/PATCH /capture/settings` (new `capture_settings` RBAC object — read all
+  roles, PATCH admin/ops human-only, audit-only write EVT-NOEVT-3; migration
+  0119 + policy seed; the Settings → Integrations `CaptureSettingsCard`, i18n
+  en+de, vitest).
+  **Phase 4B (build, landed):** the captured-organization auto-enrich sweep +
+  auto-apply lane. A run-on-start daily River sweep (`capture_auto_enrich_sweep`)
+  enqueues a system deep read (`system:capture_auto_enrich`) for every
+  domain-named captured org (`name_source='domain'`) with a live domain and no
+  dossier, newest-first, under an atomically-reserved per-workspace daily cap
+  (N=10; migration 0120 adds `capture_auto_enrich_state` cursor +
+  `capture_auto_enrich_budget`, both FORCE-RLS). The deep-read worker's
+  auto-apply lane applies a system-requested read's fields+facts DIRECTLY
+  (fill-empty + human-precedence, idempotent) instead of staging a confirm-first
+  proposal; site people still stage as leads (NEVER-8). The flag is re-read each
+  pass (toggle-off stops new reads). `make check` + `make check-fe` + full
+  zero-skip integration lane green.
+  **Deferred follow-ups (noted, not blocking):** the synchronous
+  enrich-on-capture trigger (the sweep already self-heals, so it's a latency
+  optimization); per-run crawl caps pinned lower for auto reads (12 pages);
+  and `ApplySitePersonFields` (auto-filling an exact/unique-match existing
+  person instead of always staging a lead).
+  **Still open (contract-first-gated on ADR-0072):** 2a (counterparty identity +
+  disposition ledger + deferred creation), 2b (the verdict job + review queue +
+  noise disposition), 3 (corroborated signature org-name promotion).
+
 - **Site-read legal census — three known gaps (#162).** `FinishSiteRead`'s CAS
   guards only on `status = 'running'`, so a reclaimed-then-returning worker can
   overwrite the dossier (pre-existing; the finish half now lives in

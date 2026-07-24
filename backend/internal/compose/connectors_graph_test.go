@@ -159,7 +159,7 @@ func TestWithGraphCaptureWiresSharesOrSkips(t *testing.T) {
 	// Both apps configured → one shared registry carrying both connectors.
 	var s Server
 	s.vault = fakeVault{}
-	WithGmailCapture(gmailFull)(&s, nil)
+	WithGmailCapture(gmailFull, CaptureConfig{})(&s, nil)
 	WithGraphCapture(graphFull)(&s, nil)
 	if s.graphOAuth == nil {
 		t.Fatal("WithGraphCapture(full) with a vault did not wire the graph OAuth app")
@@ -199,13 +199,13 @@ func TestWithGraphCaptureWiresSharesOrSkips(t *testing.T) {
 func TestCaptureSyncRegistryRegistersConfiguredProviders(t *testing.T) {
 	both := CaptureSyncRegistry(nil, nil,
 		GmailConfig{ClientID: "id", ClientSecret: "sec"},
-		GraphConfig{ClientID: "ms-id", ClientSecret: "ms-sec"})
+		GraphConfig{ClientID: "ms-id", ClientSecret: "ms-sec"}, CaptureConfig{})
 	names := registeredNames(both.Connectors())
 	if !names["imap"] || !names["gmail"] || !names["graph"] {
 		t.Errorf("connectors = %v, want imap+gmail+graph", names)
 	}
 
-	bare := CaptureSyncRegistry(nil, nil, GmailConfig{}, GraphConfig{})
+	bare := CaptureSyncRegistry(nil, nil, GmailConfig{}, GraphConfig{}, CaptureConfig{})
 	names = registeredNames(bare.Connectors())
 	if !names["imap"] || names["gmail"] || names["graph"] {
 		t.Errorf("connectors = %v, want imap only when neither app is configured", names)

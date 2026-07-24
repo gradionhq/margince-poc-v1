@@ -82,7 +82,7 @@ func WithKeyvault(vault keyvault.Vault) Option {
 		// OAuth app; WithGmailCapture later replaces this with its own
 		// gmail-carrying registry when the app is configured.
 		if s.connectorHandlers.registry == nil {
-			s.connectorHandlers = connectorHandlers{registry: NewCaptureRegistry(pool, vault)}
+			s.connectorHandlers = connectorHandlers{registry: NewCaptureRegistry(pool, vault, s.captureConfig)}
 		}
 		// The overlay incumbent connection lifecycle needs the same
 		// custodian: Connect seals the private-app token, Disconnect

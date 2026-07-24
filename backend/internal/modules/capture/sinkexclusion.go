@@ -96,9 +96,9 @@ func hasMatchAttrs(a connector.ExclusionAttrs) bool {
 // its ledger trace link is the system_log row's id.
 func (s *Sink) emitSkip(ctx context.Context, rec connector.NormalizedRecord, rule exclusion.Rule) error {
 	detail := map[string]any{
-		"reason":          "personal_exclusion",
+		fieldReason:       "personal_exclusion",
 		fieldSourceSystem: rec.NaturalKey.SourceSystem,
-		"source_id":       rec.NaturalKey.SourceID,
+		fieldSourceID:     rec.NaturalKey.SourceID,
 		"rule_kind":       rule.Kind,
 	}
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {

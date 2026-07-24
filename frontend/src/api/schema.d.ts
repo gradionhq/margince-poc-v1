@@ -2310,6 +2310,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/capture/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The workspace's capture settings.
+         * @description Reads the workspace-shared capture posture (ADR-0072/A118, CAP-PARAM-7). Every role
+         *     may read it — a rep needs to see whether captured-organization auto-enrichment is on;
+         *     only admin/ops may change it (PATCH). Governed by the `capture_settings` RBAC object.
+         */
+        get: operations["getCaptureSettings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update the workspace's capture settings (admin/ops).
+         * @description Admin/ops-only. Toggles the captured-organization auto-enrich posture (ADR-0072/A118):
+         *     when ON, every surviving auto-created company gets a governed deep-read under a daily
+         *     spend cap. Human session only (x-agent-access: human-only) — an agent never changes a
+         *     workspace-wide capture posture. Audit-only write (no event stream, EVT-NOEVT-3).
+         */
+        patch: operations["updateCaptureSettings"];
+        trace?: never;
+    };
     "/ai/usage": {
         parameters: {
             query?: never;
@@ -4666,6 +4695,22 @@ export interface components {
         WebhookDeliveryListResponse: {
             data: components["schemas"]["WebhookDelivery"][];
             page: components["schemas"]["PageInfo"];
+        };
+        /**
+         * @description The workspace-shared capture posture (ADR-0072/A118, CAP-PARAM-7). Read by every role,
+         *     changed only by admin/ops.
+         */
+        CaptureSettings: {
+            /**
+             * @description When true, every surviving auto-created organization gets a governed web deep-read
+             *     under a daily spend cap. Default is ON (the testing posture).
+             */
+            auto_enrich: boolean;
+        };
+        /** @description A sparse capture-settings patch (admin/ops). */
+        UpdateCaptureSettingsRequest: {
+            /** @description Toggle captured-organization auto-enrichment. */
+            auto_enrich?: boolean;
         };
         /**
          * @description A per-user mail/calendar capture connection + sync state (capture.md CAP-DDL-2). The
@@ -14129,6 +14174,55 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    getCaptureSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The capture settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptureSettings"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    updateCaptureSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateCaptureSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated capture settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptureSettings"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
         };
     };
     getAiUsage: {

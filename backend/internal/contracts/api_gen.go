@@ -7519,6 +7519,14 @@ type CaptureExclusionRuleListResponse struct {
 	Data []CaptureExclusionRule `json:"data"`
 }
 
+// CaptureSettings The workspace-shared capture posture (ADR-0072/A118, CAP-PARAM-7). Read by every role,
+// changed only by admin/ops.
+type CaptureSettings struct {
+	// AutoEnrich When true, every surviving auto-created organization gets a governed web deep-read
+	// under a daily spend cap. Default is ON (the testing posture).
+	AutoEnrich bool `json:"auto_enrich"`
+}
+
 // ChangeUserRoleRequest defines model for ChangeUserRoleRequest.
 type ChangeUserRoleRequest struct {
 	Role ChangeUserRoleRequestRole `json:"role"`
@@ -10991,6 +10999,12 @@ type UpdateAutomationRequest struct {
 // UpdateAutomationRequestStatus defines model for UpdateAutomationRequest.Status.
 type UpdateAutomationRequestStatus string
 
+// UpdateCaptureSettingsRequest A sparse capture-settings patch (admin/ops).
+type UpdateCaptureSettingsRequest struct {
+	// AutoEnrich Toggle captured-organization auto-enrichment.
+	AutoEnrich *bool `json:"auto_enrich,omitempty"`
+}
+
 // UpdateCustomFieldOptionsRequest CUSTOM-FIELDS-PARAM-5. Replaces the picklist's full allowed-option set (ordered); at least one option is required — an empty array is rejected (422).
 type UpdateCustomFieldOptionsRequest struct {
 	Options []string `json:"options"`
@@ -13829,6 +13843,9 @@ type SnoozeBriefItemJSONRequestBody = BriefSnoozeRequest
 
 // CreateCaptureExclusionJSONRequestBody defines body for CreateCaptureExclusion for application/json ContentType.
 type CreateCaptureExclusionJSONRequestBody = CreateCaptureExclusionRequest
+
+// UpdateCaptureSettingsJSONRequestBody defines body for UpdateCaptureSettings for application/json ContentType.
+type UpdateCaptureSettingsJSONRequestBody = UpdateCaptureSettingsRequest
 
 // ColdStartReadbackJSONRequestBody defines body for ColdStartReadback for application/json ContentType.
 type ColdStartReadbackJSONRequestBody = ColdStartRequest
@@ -19082,6 +19099,12 @@ type ServerInterface interface {
 	// Remove a personal-mail exclusion rule (RC-2).
 	// (DELETE /capture/exclusions/{id})
 	DeleteCaptureExclusion(w http.ResponseWriter, r *http.Request, id Id)
+	// The workspace's capture settings.
+	// (GET /capture/settings)
+	GetCaptureSettings(w http.ResponseWriter, r *http.Request)
+	// Update the workspace's capture settings (admin/ops).
+	// (PATCH /capture/settings)
+	UpdateCaptureSettings(w http.ResponseWriter, r *http.Request)
 	// Website cold-start read-back — returns a staged proposal with evidence.
 	// (POST /coldstart)
 	ColdStartReadback(w http.ResponseWriter, r *http.Request)
@@ -20021,6 +20044,18 @@ func (_ Unimplemented) CreateCaptureExclusion(w http.ResponseWriter, r *http.Req
 // Remove a personal-mail exclusion rule (RC-2).
 // (DELETE /capture/exclusions/{id})
 func (_ Unimplemented) DeleteCaptureExclusion(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The workspace's capture settings.
+// (GET /capture/settings)
+func (_ Unimplemented) GetCaptureSettings(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Update the workspace's capture settings (admin/ops).
+// (PATCH /capture/settings)
+func (_ Unimplemented) UpdateCaptureSettings(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -23431,6 +23466,46 @@ func (siw *ServerInterfaceWrapper) DeleteCaptureExclusion(w http.ResponseWriter,
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DeleteCaptureExclusion(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCaptureSettings operation middleware
+func (siw *ServerInterfaceWrapper) GetCaptureSettings(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCaptureSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateCaptureSettings operation middleware
+func (siw *ServerInterfaceWrapper) UpdateCaptureSettings(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateCaptureSettings(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -33823,6 +33898,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/capture/exclusions/{id}", wrapper.DeleteCaptureExclusion)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/capture/settings", wrapper.GetCaptureSettings)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/capture/settings", wrapper.UpdateCaptureSettings)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/coldstart", wrapper.ColdStartReadback)

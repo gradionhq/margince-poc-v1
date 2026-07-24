@@ -3875,6 +3875,50 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /capture/settings:
+    get:
+      tags: [Capture]
+      operationId: getCaptureSettings
+      security: [ { cookieAuth: [] } ]
+      summary: The workspace's capture settings.
+      description: |
+        Reads the workspace-shared capture posture (ADR-0072/A118, CAP-PARAM-7). Every role
+        may read it — a rep needs to see whether captured-organization auto-enrichment is on;
+        only admin/ops may change it (PATCH). Governed by the `capture_settings` RBAC object.
+      responses:
+        '200':
+          description: The capture settings.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CaptureSettings' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    patch:
+      tags: [Capture]
+      operationId: updateCaptureSettings
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Update the workspace's capture settings (admin/ops).
+      description: |
+        Admin/ops-only. Toggles the captured-organization auto-enrich posture (ADR-0072/A118):
+        when ON, every surviving auto-created company gets a governed deep-read under a daily
+        spend cap. Human session only (x-agent-access: human-only) — an agent never changes a
+        workspace-wide capture posture. Audit-only write (no event stream, EVT-NOEVT-3).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateCaptureSettingsRequest' }
+      responses:
+        '200':
+          description: The updated capture settings.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CaptureSettings' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /ai/usage:
     get:
       tags: [AI]
@@ -7919,6 +7963,25 @@ components:
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/WebhookDelivery' } }
         page: { $ref: '#/components/schemas/PageInfo' }
+
+    # ---- capture settings (workspace-shared posture; CAP-PARAM-7, ADR-0072) ----
+    CaptureSettings:
+      type: object
+      description: |
+        The workspace-shared capture posture (ADR-0072/A118, CAP-PARAM-7). Read by every role,
+        changed only by admin/ops.
+      required: [auto_enrich]
+      properties:
+        auto_enrich:
+          type: boolean
+          description: |
+            When true, every surviving auto-created organization gets a governed web deep-read
+            under a daily spend cap. Default is ON (the testing posture).
+    UpdateCaptureSettingsRequest:
+      type: object
+      description: A sparse capture-settings patch (admin/ops).
+      properties:
+        auto_enrich: { type: boolean, description: Toggle captured-organization auto-enrichment. }
 
     # ---- capture connectors (per-user OAuth mail/calendar; RC-8, CAP-WIRE-1) ----
     CaptureConnection:

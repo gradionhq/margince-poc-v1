@@ -25,6 +25,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture/imap"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -40,14 +41,44 @@ const gmailReadonlyScope = "https://www.googleapis.com/auth/gmail.readonly"
 // modify.
 var graphScopes = []string{"offline_access", "User.Read", "Mail.Read"}
 
+// CaptureConfig is the deployment's capture list-config, threaded from
+// margince.yaml's `capture:` block into the Sink's suppression gates: the
+// CAP-PARAM-5 free-mail additions and the CAP-PARAM-6 transactional/ESP
+// additions plus its allowlist (ADR-0072). The zero value is the pinned
+// baselines with no deployment additions.
+type CaptureConfig struct {
+	FreemailExtra      []string // capture.freemail_extra (CAP-PARAM-5)
+	TransactionalExtra []string // capture.transactional_extra (CAP-PARAM-6 infra eSLDs)
+	TransactionalNever []string // capture.transactional_never (CAP-PARAM-6 allowlist)
+}
+
+// WithCaptureConfig records the deployment's capture suppression-list config on
+// the Server so EVERY registry construction — the Gmail one, the vault-rebuilt
+// IMAP/fallback one (WithKeyvault), and the graph-only one (WithGraphCapture) —
+// applies the transactional/free-mail additions, not only the Gmail path. Apply
+// it before WithKeyvault/WithGraphCapture in the option list; omitting it keeps
+// the pinned baselines.
+func WithCaptureConfig(cfg CaptureConfig) Option {
+	return func(s *Server, _ *pgxpool.Pool) { s.captureConfig = cfg }
+}
+
+// CaptureConfigFromDeploy maps the deployment's `capture:` block onto the
+// compose suppression config the Sink gates read (CAP-PARAM-5/6, ADR-0072).
+func CaptureConfigFromDeploy(c deployconfig.Capture) CaptureConfig {
+	return CaptureConfig{
+		FreemailExtra:      c.FreemailExtra,
+		TransactionalExtra: c.TransactionalExtra,
+		TransactionalNever: c.TransactionalNever,
+	}
+}
+
 // NewCaptureRegistry builds the connector registry; process roles register
 // their compiled-in connectors on it and drive SyncOnce. The vault seals and
 // resolves each connection's credential (nil is valid for a role that only
-// runs the transient one-shot pull, which persists no credential).
-// freemailExtra is the deployment's CAP-PARAM-5 blocklist additions
-// (margince.yaml capture.freemail_extra); omitted = the pinned baseline.
-func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault, freemailExtra ...string) *capture.Registry {
-	r := capture.NewRegistry(pool, newCaptureSink(pool, freemailExtra), identity.NewService(pool), vault)
+// runs the transient one-shot pull, which persists no credential). cfg carries
+// the deployment's suppression-list additions; the zero value is the baselines.
+func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault, cfg CaptureConfig) *capture.Registry {
+	r := capture.NewRegistry(pool, newCaptureSink(pool, cfg), identity.NewService(pool), vault)
 	// The standing IMAP connector needs no deployment config — credentials
 	// are per-connection, vault-sealed — so every capture-capable role
 	// carries it.
@@ -60,7 +91,7 @@ func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault, freemailExtra 
 // resolver attached. Every capture path shares this spelling: the connector
 // registry above, and the site_lead accept effect (siteleadaccept.go),
 // which captures through the Sink directly without needing a registry.
-func newCaptureSink(pool *pgxpool.Pool, freemailExtra []string) *capture.Sink {
+func newCaptureSink(pool *pgxpool.Pool, cfg CaptureConfig) *capture.Sink {
 	return capture.NewSink(pool).
 		WithStager(mergeStager{svc: approvals.NewService(pool)}).
 		// The RC-2 personal-mail exclusion gate runs in the ONE Sink before
@@ -69,8 +100,12 @@ func newCaptureSink(pool *pgxpool.Pool, freemailExtra []string) *capture.Sink {
 		WithExclusions(capture.NewExclusions(pool)).
 		// The ADR-0063 auto-create pipeline: every captured mail ensures
 		// its counterparty exists, through the people module's ONE dedupe
-		// chokepoint — composed here so capture never imports people.
-		WithEnsurer(peopleEnsurer{store: people.NewStore(pool)}, capture.NewFreemailList(freemailExtra))
+		// chokepoint — composed here so capture never imports people. The
+		// free-mail (CAP-PARAM-5) and transactional/ESP (CAP-PARAM-6, ADR-0072)
+		// gates decide which senders derive no company / no counterparty.
+		WithEnsurer(peopleEnsurer{store: people.NewStore(pool)},
+			capture.NewFreemailList(cfg.FreemailExtra),
+			capture.NewTransactionalList(cfg.TransactionalExtra, cfg.TransactionalNever))
 }
 
 // peopleEnsurer adapts the people module's auto-create engine onto
@@ -165,8 +200,8 @@ func newGcalOAuth(c GmailConfig) gcal.OAuth {
 // and Google Calendar — so Registry.Connect (api) and SyncOnce (worker poller)
 // can resolve each by name. A deployment without the app configured gets a
 // plain registry (both absent by omission). Returns nil only if pool is nil.
-func NewCaptureRegistryWithGmail(pool *pgxpool.Pool, vault keyvault.Vault, c GmailConfig, freemailExtra ...string) *capture.Registry {
-	reg := NewCaptureRegistry(pool, vault, freemailExtra...)
+func NewCaptureRegistryWithGmail(pool *pgxpool.Pool, vault keyvault.Vault, c GmailConfig, cfg CaptureConfig) *capture.Registry {
+	reg := NewCaptureRegistry(pool, vault, cfg)
 	if c.canSync() {
 		reg.Register(gmail.New(newGmailOAuth(c), gmail.NewAPI(nil, "")))
 		reg.Register(gcal.New(newGcalOAuth(c), gcal.NewAPI(nil, "")))
@@ -178,23 +213,23 @@ func NewCaptureRegistryWithGmail(pool *pgxpool.Pool, vault keyvault.Vault, c Gma
 // worker's background poller (Gmail + Calendar), or nil when the Google app is
 // not configured — nil tells NewJobRunner to skip the polls entirely (no
 // connector, no job).
-func GmailPollRegistry(pool *pgxpool.Pool, vault keyvault.Vault, c GmailConfig, freemailExtra ...string) *capture.Registry {
+func GmailPollRegistry(pool *pgxpool.Pool, vault keyvault.Vault, c GmailConfig, cfg CaptureConfig) *capture.Registry {
 	if !c.canSync() {
 		return nil
 	}
-	return NewCaptureRegistryWithGmail(pool, vault, c, freemailExtra...)
+	return NewCaptureRegistryWithGmail(pool, vault, c, cfg)
 }
 
 // CaptureSyncRegistry is the worker's sweep registry: always non-nil —
 // the standing IMAP connector needs no deployment config — with the gmail
 // and graph connectors added when their OAuth apps are configured. A provider
 // nobody registered simply never appears in the dispatcher's provider list.
-func CaptureSyncRegistry(pool *pgxpool.Pool, vault keyvault.Vault, c GmailConfig, g GraphConfig, freemailExtra ...string) *capture.Registry {
+func CaptureSyncRegistry(pool *pgxpool.Pool, vault keyvault.Vault, c GmailConfig, g GraphConfig, cfg CaptureConfig) *capture.Registry {
 	var reg *capture.Registry
 	if c.canSync() {
-		reg = NewCaptureRegistryWithGmail(pool, vault, c, freemailExtra...)
+		reg = NewCaptureRegistryWithGmail(pool, vault, c, cfg)
 	} else {
-		reg = NewCaptureRegistry(pool, vault, freemailExtra...)
+		reg = NewCaptureRegistry(pool, vault, cfg)
 	}
 	if g.canSync() {
 		reg.Register(graph.New(newGraphOAuth(g), graph.NewAPI(nil, "")))
@@ -263,7 +298,7 @@ func WithGraphCapture(c GraphConfig) Option {
 			return
 		}
 		if s.connectorHandlers.registry == nil {
-			s.connectorHandlers.registry = NewCaptureRegistry(pool, s.vault)
+			s.connectorHandlers.registry = NewCaptureRegistry(pool, s.vault, s.captureConfig)
 			s.signer = newStateSigner([]byte(c.StateKey))
 			s.publicBaseURL = c.PublicBaseURL
 			s.apiBaseURL = c.APIBaseURL
@@ -278,7 +313,7 @@ func WithGraphCapture(c GraphConfig) Option {
 // transport (api role). It requires the vault (so WithKeyvault must precede it
 // in the option list) and a fully-configured app; absent any of those the
 // connector surface keeps its declared-but-unimplemented 501 by omission.
-func WithGmailCapture(c GmailConfig, freemailExtra ...string) Option {
+func WithGmailCapture(c GmailConfig, cfg CaptureConfig) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		// Without a vault the connect flow can't seal the refresh token, so
 		// mounting the endpoints would only fail at the callback — leave the
@@ -287,7 +322,7 @@ func WithGmailCapture(c GmailConfig, freemailExtra ...string) Option {
 			return
 		}
 		s.connectorHandlers = connectorHandlers{
-			registry:      NewCaptureRegistryWithGmail(pool, s.vault, c, freemailExtra...),
+			registry:      NewCaptureRegistryWithGmail(pool, s.vault, c, cfg),
 			oauth:         newGmailOAuth(c),
 			gmailAPI:      gmail.NewAPI(nil, ""),
 			gcalOAuth:     newGcalOAuth(c),

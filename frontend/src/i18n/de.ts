@@ -2202,6 +2202,16 @@ export const de = {
   "quotas.archive.confirm":
     "Das Archivieren entfernt diese Quota aus der Liste und stoppt die Verfolgung der Zielerreichung. Archivierte Quotas können nicht bearbeitet werden.",
 
+  "captureSettings.title": "Erfassung",
+  "captureSettings.sub":
+    "Wie erfasste Unternehmen und Kontakte nach ihrer Erstellung angereichert werden.",
+  "captureSettings.autoEnrich.label":
+    "Erfasste Unternehmen automatisch anreichern",
+  "captureSettings.autoEnrich.help":
+    "Wenn aktiviert, erhält jedes aus erfassten E-Mails erstellte Unternehmen automatisch ein Web-Dossier — seine Website wird gelesen und sein Profil ausgefüllt. Läuft unter einem Tageslimit.",
+  "captureSettings.adminOnly":
+    "Nur ein Administrator oder Ops kann dies ändern.",
+
   "webhooks.title": "Webhooks",
   "webhooks.sub":
     "Ausgehende Abonnements, die signierte HTTP-POSTs für ausgewählte Ereignisse empfangen.",

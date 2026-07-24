@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -45,13 +46,17 @@ type EnsureRequest struct {
 	SuppressOrg bool // free-mail domain: person yes, company no
 }
 
-// WithEnsurer returns a copy wired to the counterparty auto-create path;
-// freemail decides which domains never derive a company. nil ensurer keeps
-// capture activity-only (a role that wired no resolver).
-func (s *Sink) WithEnsurer(ensurer CounterpartyEnsurer, freemail *FreemailList) *Sink {
+// WithEnsurer returns a copy wired to the counterparty auto-create path:
+// freemail decides which domains never derive a company (CAP-PARAM-5), and
+// transactional decides which senders are mail infrastructure that derive no
+// counterparty at all while the activity stands (CAP-PARAM-6, ADR-0072). A nil
+// ensurer keeps capture activity-only (a role that wired no resolver); a nil
+// transactional list simply runs no T2 suppression.
+func (s *Sink) WithEnsurer(ensurer CounterpartyEnsurer, freemail *FreemailList, transactional *TransactionalList) *Sink {
 	c := *s
 	c.ensurer = ensurer
 	c.freemail = freemail
+	c.transactional = transactional
 	return &c
 }
 
@@ -87,6 +92,20 @@ func (s *Sink) ensureCounterparty(ctx context.Context, rec connector.NormalizedR
 		// creates nothing.
 		return
 	}
+	// T2 transactional / ESP infrastructure (CAP-PARAM-6, ADR-0072): a
+	// DocuSign envelope or a SendGrid relay is not a counterparty's company.
+	// Suppress person AND org derivation — the activity already committed and
+	// stands (a DocuSign envelope is a real timeline item) — and record the
+	// reason durably for observability. Runs after the internal-domain gate;
+	// the correspondence-positive check that must precede it lands with the
+	// identity column (ADR-0072 phase 2a), and until then the corroboration
+	// requirement on prefix rules keeps a known contact from being suppressed.
+	if s.transactional != nil {
+		if suppress, reason := s.transactional.Suppress(transactionalInput(cp)); suppress {
+			s.logSuppression(ctx, rec, reason)
+			return
+		}
+	}
 	suppressOrg := s.freemail != nil && s.freemail.IsFreemail(cp.Domain)
 	err = s.ensurer.EnsureCounterparty(ctx, EnsureRequest{
 		Email:       cp.Email,
@@ -121,14 +140,45 @@ func (s *Sink) internalDomain(ctx context.Context, domain string) (bool, error) 
 	return internal, nil
 }
 
+// transactionalInput builds the transactional-gate input from a captured
+// counterparty: the domain, the address local part (machine-sender
+// corroboration), and the List-Unsubscribe signal the connector parsed.
+func transactionalInput(cp connector.Counterparty) TransactionalInput {
+	local, _, _ := strings.Cut(cp.Email, "@")
+	return TransactionalInput{
+		Domain:          cp.Domain,
+		Localpart:       local,
+		ListUnsubscribe: cp.ListUnsubscribe,
+	}
+}
+
+// logSuppression records a T2 transactional suppression in system_log — the
+// activity stands, no counterparty was derived, and the reason is durable for
+// ops (until CAP-DDL-8's disposition row carries it, ADR-0072 phase 2a). Never
+// fails capture: a failed breadcrumb only loses observability, not correctness.
+func (s *Sink) logSuppression(ctx context.Context, rec connector.NormalizedRecord, reason string) {
+	detail := map[string]any{
+		fieldReason:       reason,
+		fieldSourceSystem: rec.NaturalKey.SourceSystem,
+		fieldSourceID:     rec.NaturalKey.SourceID,
+	}
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		_, logErr := storekit.LogSystem(ctx, tx, "capture_transactional_suppressed", detail)
+		return logErr
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "capture: recording transactional suppression", "err", err, "reason", reason)
+	}
+}
+
 // logEnsureFault records an auto-create failure in system_log — the
 // activity is already committed and stays; the nightly reconcile re-runs
 // the resolver over link-less connector activities.
 func (s *Sink) logEnsureFault(ctx context.Context, rec connector.NormalizedRecord, cause error) {
 	detail := map[string]any{
-		"reason":          "counterparty_ensure_failed",
+		fieldReason:       "counterparty_ensure_failed",
 		fieldSourceSystem: rec.NaturalKey.SourceSystem,
-		"source_id":       rec.NaturalKey.SourceID,
+		fieldSourceID:     rec.NaturalKey.SourceID,
 		"error":           cause.Error(),
 	}
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {

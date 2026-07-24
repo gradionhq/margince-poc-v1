@@ -2160,6 +2160,14 @@ export const en = {
   "quotas.archive.confirm":
     "Archiving drops this quota from the list and stops tracking its attainment. Archived quotas can't be edited.",
 
+  "captureSettings.title": "Capture",
+  "captureSettings.sub":
+    "How captured companies and contacts are enriched after they are created.",
+  "captureSettings.autoEnrich.label": "Auto-enrich captured companies",
+  "captureSettings.autoEnrich.help":
+    "When on, each new company created from captured mail gets an automatic web dossier — its site is read and its profile filled in. Runs under a daily limit.",
+  "captureSettings.adminOnly": "Only an admin or ops can change this.",
+
   "webhooks.title": "Webhooks",
   "webhooks.sub":
     "Outbound subscriptions that receive signed HTTP POSTs for chosen events.",

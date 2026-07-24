@@ -44,6 +44,7 @@ var agentPolicies = map[string]agentPolicy{
 	"DELETE /v1/webhook-subscriptions/{id}":                              {Op: "archiveWebhookSubscription", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"PATCH /v1/activities/{id}":                                          {Op: "updateActivity", Access: "tool", Tool: "update_record", RecordType: "activity", Tier: "auto_execute"},
 	"PATCH /v1/automations/{id}":                                         {Op: "updateAutomation", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"PATCH /v1/capture/settings":                                         {Op: "updateCaptureSettings", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"PATCH /v1/custom-fields/{id}":                                       {Op: "renameCustomField", Access: "tool", Tool: "update_record", RecordType: "custom_field", Tier: "auto_execute"},
 	"PATCH /v1/custom-fields/{id}/options":                               {Op: "updateCustomFieldOptions", Access: "tool", Tool: "update_record", RecordType: "custom_field", Tier: "confirmation_required"},
 	"PATCH /v1/data-subject-requests/{id}":                               {Op: "updateDataSubjectRequest", Access: "human-only", Tool: "", RecordType: "", Tier: ""},

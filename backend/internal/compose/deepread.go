@@ -32,6 +32,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -79,13 +80,14 @@ func siteDeepReadInsertOpts() *river.InsertOpts {
 // queued forever.
 type siteDeepReadWorker struct {
 	river.WorkerDefaults[SiteDeepReadArgs]
-	people    *people.Store
-	crawler   *siteCrawler
-	extract   evidenceExtractor
-	approvals *approvals.Service
-	log       *slog.Logger
-	caps      CrawlCaps
-	now       func() time.Time
+	people     *people.Store
+	crawler    *siteCrawler
+	extract    evidenceExtractor
+	approvals  *approvals.Service
+	autoEnrich *capture.AutoEnrichStore
+	log        *slog.Logger
+	caps       CrawlCaps
+	now        func() time.Time
 }
 
 // newSiteDeepReadWorker assembles the worker-role deep read over one
@@ -97,13 +99,14 @@ func newSiteDeepReadWorker(pool *pgxpool.Pool, brain, factBrain completer, log *
 	fetcher := webread.New()
 	caps = caps.withDefaults()
 	return &siteDeepReadWorker{
-		people:    people.NewStore(pool),
-		crawler:   newSiteCrawler(fetcher, caps),
-		extract:   evidenceExtractor{fetch: fetcher, brain: brain, factBrain: factBrain},
-		approvals: approvals.NewService(pool),
-		log:       log,
-		caps:      caps,
-		now:       time.Now,
+		people:     people.NewStore(pool),
+		crawler:    newSiteCrawler(fetcher, caps),
+		extract:    evidenceExtractor{fetch: fetcher, brain: brain, factBrain: factBrain},
+		approvals:  approvals.NewService(pool),
+		autoEnrich: capture.NewAutoEnrichStore(pool),
+		log:        log,
+		caps:       caps,
+		now:        time.Now,
 	}
 }
 
@@ -222,7 +225,17 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 
 	var proposalIDs []ids.UUID
 	if claim.OrganizationID != nil {
-		proposalIDs, err = w.stageProposals(ctx, args.SiteReadID, claim, mergedFields, extraction.merged.facts, extraction.merged.people, len(readPages))
+		if isAutoEnrichRequest(args.RequestedBy) {
+			// The auto-enrich lane applies the org's fields + facts directly
+			// (fill-empty, human-precedence) instead of staging a confirm-first
+			// proposal — the system chose to enrich this company, so there is no
+			// human to confirm. Site people still stage as leads (strangers stay
+			// staged, NEVER-8). Applied under the worker's PrincipalSystem ctx,
+			// which ApplyDeepReadTx's auth.Require accepts.
+			proposalIDs, err = w.autoApply(ctx, args, claim, mergedFields, extraction.merged.facts, extraction.merged.people)
+		} else {
+			proposalIDs, err = w.stageProposals(ctx, args.SiteReadID, claim, mergedFields, extraction.merged.facts, extraction.merged.people, len(readPages))
+		}
 		if err != nil {
 			return w.fail(ctx, args.SiteReadID, fmt.Errorf("site deep read %s: %w", args.SiteReadID, err))
 		}

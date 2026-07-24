@@ -187,12 +187,19 @@ func (s *Store) ensureOrgAndEmployment(ctx context.Context, tx pgx.Tx, in Ensure
 	if match.Decision != DecisionExactCollision {
 		wsID := workspaceID(ctx)
 		orgID = ids.New[ids.OrganizationKind]()
-		// The domain IS the honest name until enrichment learns better —
-		// inventing a prettier one here would be fabrication.
+		// A readable name derived from the domain's registrable label
+		// ("gitex.com" → "Gitex"), marked name_source='domain' so a richer
+		// source (dossier, corroborated signature) may overwrite it later
+		// without ever clobbering a human (ADR-0072/A118, PO-F-2a). The domain
+		// is retained as the honest fallback when no label can be derived.
+		displayName := DisplayNameFromDomain(in.Domain)
+		if displayName == "" {
+			displayName = in.Domain
+		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO organization (id, workspace_id, display_name, owner_id, source, captured_by, visibility)
-			VALUES ($1, $2, $3, $4, $5, $6, 'owner')`,
-			orgID, wsID, in.Domain, in.OwnerID, in.Source, in.CapturedBy); err != nil {
+			INSERT INTO organization (id, workspace_id, display_name, name_source, owner_id, source, captured_by, visibility)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, 'owner')`,
+			orgID, wsID, displayName, nameSourceDomain, in.OwnerID, in.Source, in.CapturedBy); err != nil {
 			return fmt.Errorf("people: insert captured organization: %w", err)
 		}
 		if _, err := tx.Exec(ctx, `
@@ -201,11 +208,11 @@ func (s *Store) ensureOrgAndEmployment(ctx context.Context, tx pgx.Tx, in Ensure
 			wsID, orgID, in.Domain, in.Source, in.CapturedBy); err != nil {
 			return fmt.Errorf("people: insert captured organization domain: %w", err)
 		}
-		auditID, err := storekit.Audit(ctx, tx, "create", entityOrganization, orgID.UUID, nil, map[string]any{fieldDisplayName: in.Domain})
+		auditID, err := storekit.Audit(ctx, tx, "create", entityOrganization, orgID.UUID, nil, map[string]any{fieldDisplayName: displayName})
 		if err != nil {
 			return err
 		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, orgID.UUID, crmcontracts.PublicEventOrganizationCreated{DisplayName: &in.Domain}); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, orgID.UUID, crmcontracts.PublicEventOrganizationCreated{DisplayName: &displayName}); err != nil {
 			return err
 		}
 		res.OrgCreated = true

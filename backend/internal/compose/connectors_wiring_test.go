@@ -131,10 +131,10 @@ func TestGmailConfigGating(t *testing.T) {
 }
 
 func TestGmailPollRegistryNilWhenUnconfigured(t *testing.T) {
-	if reg := GmailPollRegistry(nil, nil, GmailConfig{}); reg != nil {
+	if reg := GmailPollRegistry(nil, nil, GmailConfig{}, CaptureConfig{}); reg != nil {
 		t.Errorf("unconfigured GmailPollRegistry = %v, want nil (poll skipped)", reg)
 	}
-	if reg := GmailPollRegistry(nil, nil, GmailConfig{ClientID: "id", ClientSecret: "sec"}); reg == nil {
+	if reg := GmailPollRegistry(nil, nil, GmailConfig{ClientID: "id", ClientSecret: "sec"}, CaptureConfig{}); reg == nil {
 		t.Error("configured GmailPollRegistry returned nil, want a registry with gmail registered")
 	}
 }
@@ -145,7 +145,7 @@ func TestWithGmailCaptureWiresOrSkips(t *testing.T) {
 	// Fully configured + a vault → the connector transport is wired.
 	var s Server
 	s.vault = fakeVault{}
-	WithGmailCapture(full)(&s, nil)
+	WithGmailCapture(full, CaptureConfig{})(&s, nil)
 	if !s.wired() {
 		t.Error("WithGmailCapture(full) with a vault did not wire the connector handlers")
 	}
@@ -160,7 +160,7 @@ func TestWithGmailCaptureWiresOrSkips(t *testing.T) {
 
 	// Fully configured but NO vault → no-op (can't seal the refresh token).
 	var s2 Server
-	WithGmailCapture(full)(&s2, nil)
+	WithGmailCapture(full, CaptureConfig{})(&s2, nil)
 	if s2.wired() {
 		t.Error("WithGmailCapture without a vault should be a no-op")
 	}
@@ -168,7 +168,7 @@ func TestWithGmailCaptureWiresOrSkips(t *testing.T) {
 	// Missing the state key → no-op, surface stays its 501.
 	var s3 Server
 	s3.vault = fakeVault{}
-	WithGmailCapture(GmailConfig{ClientID: "id", ClientSecret: "sec"})(&s3, nil)
+	WithGmailCapture(GmailConfig{ClientID: "id", ClientSecret: "sec"}, CaptureConfig{})(&s3, nil)
 	if s3.wired() {
 		t.Error("WithGmailCapture without a state key/base URL should be a no-op")
 	}
