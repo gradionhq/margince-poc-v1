@@ -268,7 +268,12 @@ export function ConnectorsCard() {
       pending={connect.isPending}
       notConfigured501={notConfigured501}
       onConnect={(p) => connect.mutate(p)}
-      onImap={() => setImapConnectOpen(true)}
+      onImap={() => {
+        // A stale "X isn't configured" note from an earlier OAuth attempt
+        // must not linger once the user pivots to the IMAP form instead.
+        setNotConfigured501(null);
+        setImapConnectOpen(true);
+      }}
     />
   );
 
