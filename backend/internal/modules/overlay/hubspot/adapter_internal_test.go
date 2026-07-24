@@ -25,3 +25,24 @@ func TestWatermarkPropertyPerObject(t *testing.T) {
 		}
 	}
 }
+
+// TestEveryMappingProjectsOwnerVisibility is the OVA-MAP fitness function
+// behind ownerIDField's own doc: every mirrored object class MUST map
+// hubspot_owner_id → owner_id, because ProjectOwnerVisibility grants the
+// owner's seats their visibility from that field — a class that omits it
+// ingests rows no one can ever see. Derived from objectMappings so a
+// newly-added class is covered without editing this test.
+func TestEveryMappingProjectsOwnerVisibility(t *testing.T) {
+	for _, m := range objectMappings {
+		var found bool
+		for _, f := range m.Fields {
+			if f.To == "owner_id" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("object mapping %q (target %q) does not map to owner_id; every mirrored class must, or its rows are invisible (see ownerIDField's doc)", m.Source, m.Target)
+		}
+	}
+}

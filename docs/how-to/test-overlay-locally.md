@@ -73,8 +73,12 @@ curl -sS -X POST http://localhost:8080/v1/overlay/connection -b cookies.txt \
   -H 'content-type: application/json' \
   -d '{"incumbent":"hubspot","region":"us","privateAppToken":"pat-XXXX"}'
 
-# 4. Trigger the initial backfill now (else it runs on the poller interval)
-curl -sS -X POST http://localhost:8080/v1/overlay/reconcile -b cookies.txt
+# 4. Trigger the initial backfill now (else it runs on the poller interval).
+#    Call the API DIRECTLY on :18080, not the :8080 Vite proxy: the first
+#    sweep is synchronous and can run ~30s+, and the dev proxy hangs up long
+#    requests (you'd see a spurious 500 / "socket hang up" even though the API
+#    returns 202). The background poller also runs it every ~2min regardless.
+curl -sS -X POST http://localhost:18080/v1/overlay/reconcile -b cookies.txt
 
 # 5. Watch it hydrate, then read the fixture back FROM THE MIRROR
 curl -sS http://localhost:8080/v1/overlay/sync-status -b cookies.txt | jq '.objects'
@@ -112,9 +116,13 @@ HUBSPOT_TOKEN=pat-XXXX scripts/overlay-hubspot-fixture.sh whoami  # print the ow
 
 - **Connected but the mirror is empty.** The owner-email rule above — your margince admin email must
   equal the fixture owner's email. Re-check with `… whoami`; fix `config/margince.yaml` + `make dev-fresh`.
-- **A whole object class stays empty / a `403` in the `make dev` worker logs.** A missing read scope on
-  the token. Leads are best-effort — if `crm.objects.leads.read` is absent (or the object isn't
-  enabled) only leads are skipped; contacts/companies/deals still mirror.
+- **`leads`/`emails`/engagement `403`/`400` skips in the `make dev` worker logs.** Expected, not a
+  failure. The overlay requests read scope only for contacts/companies/deals; leads and the engagement
+  classes (calls/meetings/emails/notes/tasks) are swept **best-effort** with no requested scope, so a
+  portal that gates one of them (HubSpot 403s leads/emails, 400s some engagement endpoints on a starter
+  portal) logs a "best-effort object class not accessible … skipping" line and moves on. The
+  scope-backed classes (contacts/companies/deals → person/organization/deal) still mirror fully. A `403`
+  on one of *those* three, by contrast, is a real token/scope problem and aborts the sweep.
 - **`sync-status` shows `pending`/`stale`.** Give the poller a beat or `POST /overlay/reconcile` again;
   `backfillComplete: true` + `state: "fresh"` per class means it's caught up.
 - **`budget.band` is `shed`.** Force-fresh reads are degrading to the mirror rather than spending live

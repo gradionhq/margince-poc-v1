@@ -33,7 +33,8 @@ else
   TOKEN="${1:-}"; SUBCMD="${2:-}"
 fi
 # Markers that identify OUR fixture records (and nothing else).
-EMAIL_DOMAIN="overlay-fixture.test"     # contact emails end with @overlay-fixture.test
+EMAIL_DOMAIN="overlay-fixture.example.com"  # contact emails end here; a valid TLD
+                                        # (HubSpot rejects the reserved .test TLD as INVALID_EMAIL)
 NAME_PREFIX="[fixture] "                # company/deal/lead names start with this
 
 if [ -z "${TOKEN}" ]; then
@@ -100,16 +101,19 @@ associate() {
 }
 
 # archive_marked OBJECT SEARCH_JSON — search fixtures by marker, batch-archive
-# ONLY those. Paginates until the search is exhausted.
+# ONLY those. Paginates until the search is exhausted. A failed search (e.g. an
+# object not enabled on the account) propagates as a non-zero return so the
+# caller's best-effort guard can skip it — never a spurious "archived" line.
 archive_marked() {
-  local object="$1" search="$2" ids after resp
+  local object="$1" search="$2" ids count after resp
   while :; do
-    resp="$(hs POST "/crm/v3/objects/${object}/search" "$(printf '%s' "$search" | jq --arg a "${after:-}" '. + (if $a=="" then {} else {after:$a} end)')")"
-    ids="$(printf '%s' "$resp" | jq -r '[.results[].id] | @json')"
-    if [ "$ids" != "[]" ]; then
+    resp="$(hs POST "/crm/v3/objects/${object}/search" "$(printf '%s' "$search" | jq --arg a "${after:-}" '. + (if $a=="" then {} else {after:$a} end)')")" || return 1
+    count="$(printf '%s' "$resp" | jq -r '.results | length')"
+    if [ "${count:-0}" -gt 0 ]; then
+      ids="$(printf '%s' "$resp" | jq -c '[.results[].id]')"
       hs POST "/crm/v3/objects/${object}/batch/archive" \
-        "$(printf '%s' "$ids" | jq '{inputs: [ .[] | {id: .} ]}')" >/dev/null
-      echo "  archived $(printf '%s' "$ids" | jq 'length') ${object}"
+        "$(printf '%s' "$ids" | jq '{inputs: [ .[] | {id: .} ]}')" >/dev/null || return 1
+      echo "  archived ${count} ${object}"
     fi
     after="$(printf '%s' "$resp" | jq -r '.paging.next.after // empty')"
     [ -n "$after" ] || break
@@ -138,14 +142,14 @@ cmd_seed() {
 
   # Companies
   local acme globex
-  acme="$(create companies "$(jq -n --arg o "$OWNER_ID" '{properties:{name:"[fixture] Acme Overlay",domain:"acme.overlay-fixture.test",hubspot_owner_id:$o}}')")"
-  globex="$(create companies "$(jq -n --arg o "$OWNER_ID" '{properties:{name:"[fixture] Globex Overlay",domain:"globex.overlay-fixture.test",hubspot_owner_id:$o}}')")"
+  acme="$(create companies "$(jq -n --arg o "$OWNER_ID" '{properties:{name:"[fixture] Acme Overlay",domain:"acme.overlay-fixture.example.com",hubspot_owner_id:$o}}')")"
+  globex="$(create companies "$(jq -n --arg o "$OWNER_ID" '{properties:{name:"[fixture] Globex Overlay",domain:"globex.overlay-fixture.example.com",hubspot_owner_id:$o}}')")"
 
   # Contacts
   local ada grace linus
-  ada="$(create contacts "$(jq -n --arg o "$OWNER_ID" '{properties:{email:"ada.fixture@overlay-fixture.test",firstname:"Ada",lastname:"Lovelace",hubspot_owner_id:$o}}')")"
-  grace="$(create contacts "$(jq -n --arg o "$OWNER_ID" '{properties:{email:"grace.fixture@overlay-fixture.test",firstname:"Grace",lastname:"Hopper",hubspot_owner_id:$o}}')")"
-  linus="$(create contacts "$(jq -n --arg o "$OWNER_ID" '{properties:{email:"linus.fixture@overlay-fixture.test",firstname:"Linus",lastname:"Torvalds",hubspot_owner_id:$o}}')")"
+  ada="$(create contacts "$(jq -n --arg o "$OWNER_ID" '{properties:{email:"ada.fixture@overlay-fixture.example.com",firstname:"Ada",lastname:"Lovelace",hubspot_owner_id:$o}}')")"
+  grace="$(create contacts "$(jq -n --arg o "$OWNER_ID" '{properties:{email:"grace.fixture@overlay-fixture.example.com",firstname:"Grace",lastname:"Hopper",hubspot_owner_id:$o}}')")"
+  linus="$(create contacts "$(jq -n --arg o "$OWNER_ID" '{properties:{email:"linus.fixture@overlay-fixture.example.com",firstname:"Linus",lastname:"Torvalds",hubspot_owner_id:$o}}')")"
   associate contacts "$ada" companies "$acme"
   associate contacts "$grace" companies "$acme"
   associate contacts "$linus" companies "$globex"
