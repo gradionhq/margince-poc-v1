@@ -1225,6 +1225,16 @@ export const de = {
   "connectors.errUnknown":
     "Bei der Erfassung ist ein Problem aufgetreten, das wir noch nicht einordnen können. Wir versuchen es weiter.",
 
+  // Das OAuth-Rückkehrergebnis (Task 2): der Callback landet auf
+  // #/settings/integrations/{outcome} — ein schließbarer Hinweis, gesteuert
+  // von diesem Routensegment.
+  "connectors.oauthOk": "Verbunden. Ihr Postfach erfasst jetzt.",
+  "connectors.oauthDenied":
+    "Sie haben den Zugriff abgelehnt — es wurde nichts verbunden.",
+  "connectors.oauthError":
+    "Die Verbindung konnte nicht hergestellt werden — bitte versuchen Sie es erneut.",
+  "connectors.dismissOutcome": "Schließen",
+
   // Das eingebettete IMAP-Verbindungsformular (Task 6).
   "connectors.imapConnectCta": "IMAP-Postfach verbinden",
   "connectors.imapModalTitle": "IMAP-Postfach verbinden",

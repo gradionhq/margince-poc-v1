@@ -109,6 +109,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  globalThis.location.hash = "";
 });
 
 describe("the connected-inboxes card", () => {
@@ -326,5 +327,64 @@ describe("the connected-inboxes card's richer health line", () => {
       await screen.findByText(/delete the credential we stored/i),
     ).toBeTruthy();
     expect(screen.queryByText(/Google may still list Margince/i)).toBeNull();
+  });
+});
+
+// The OAuth return outcome (Task 2): the backend now lands the callback on
+// #/settings/integrations/{outcome} — the route parses to
+// {screen:"settings", id:"integrations", id2:<outcome>} and the card renders
+// a dismissible inline note from that segment, never a claim the server
+// hasn't confirmed.
+describe("the OAuth return outcome", () => {
+  it("renders an honest denial note when the user declined access", async () => {
+    globalThis.location.hash = "#/settings/integrations/denied";
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ data: [] }),
+    });
+    render(<ConnectorsCard />);
+    expect(await screen.findByText(/you declined access/i)).toBeTruthy();
+    expect(screen.queryByText(/couldn't be completed/i)).toBeNull();
+  });
+
+  it("renders an honest failure note when the connection could not complete", async () => {
+    globalThis.location.hash = "#/settings/integrations/error";
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ data: [] }),
+    });
+    render(<ConnectorsCard />);
+    expect(await screen.findByText(/couldn't be completed/i)).toBeTruthy();
+    expect(screen.queryByText(/you declined access/i)).toBeNull();
+  });
+
+  it("renders a brief success note on ok — never an error", async () => {
+    globalThis.location.hash = "#/settings/integrations/ok";
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ data: [gmailConnected] }),
+    });
+    render(<ConnectorsCard />);
+    expect(await screen.findByText(/mailbox is now capturing/i)).toBeTruthy();
+    expect(screen.queryByText(/couldn't be completed/i)).toBeNull();
+    expect(screen.queryByText(/you declined access/i)).toBeNull();
+  });
+
+  it("renders no outcome note when the route carries none", async () => {
+    globalThis.location.hash = "#/settings/integrations";
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ data: [] }),
+    });
+    render(<ConnectorsCard />);
+    await screen.findByText(/No inbox is connected yet/);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("dismisses the note and clears it", async () => {
+    globalThis.location.hash = "#/settings/integrations/denied";
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ data: [] }),
+    });
+    render(<ConnectorsCard />);
+    await screen.findByText(/you declined access/i);
+    await userEvent.click(screen.getByRole("button", { name: /dismiss/i }));
+    expect(screen.queryByText(/you declined access/i)).toBeNull();
   });
 });

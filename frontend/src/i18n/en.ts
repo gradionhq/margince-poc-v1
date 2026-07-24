@@ -1203,6 +1203,15 @@ export const en = {
   "connectors.errUnknown":
     "Capture hit a problem we can't classify yet. We'll keep retrying.",
 
+  // The OAuth return outcome (Task 2): the callback lands back on
+  // #/settings/integrations/{outcome} — a dismissible inline note driven by
+  // that route segment, never a claim the server hasn't confirmed.
+  "connectors.oauthOk": "Connected. Your mailbox is now capturing.",
+  "connectors.oauthDenied": "You declined access — nothing was connected.",
+  "connectors.oauthError":
+    "The connection couldn't be completed — please try again.",
+  "connectors.dismissOutcome": "Dismiss",
+
   // The inline IMAP connect form (Task 6): first-connect and reconnect for
   // the one credential provider, done in Settings instead of bouncing to
   // onboarding.

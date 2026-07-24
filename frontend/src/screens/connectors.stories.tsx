@@ -146,3 +146,33 @@ export const NotConfigured: Story = {
     );
   },
 };
+
+// The OAuth return outcome (Task 2): the backend lands the callback on
+// #/settings/integrations/{outcome}; the card reads id2 off the route and
+// renders a dismissible inline note. Each story sets the hash before
+// mounting, exactly like installFetchStub is wired before mount.
+function outcomeStory(outcome: string, connections: CaptureConnection[]) {
+  return () => {
+    globalThis.location.hash = `#/settings/integrations/${outcome}`;
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ data: connections }),
+    });
+    return (
+      <StoryProviders>
+        <ConnectorsCard />
+      </StoryProviders>
+    );
+  };
+}
+
+export const OAuthDenied: Story = {
+  render: outcomeStory("denied", []),
+};
+
+export const OAuthError: Story = {
+  render: outcomeStory("error", []),
+};
+
+export const OAuthOk: Story = {
+  render: outcomeStory("ok", [gmailConnected]),
+};

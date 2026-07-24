@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Mail, Plug, RefreshCw } from "lucide-react";
+import { Mail, Plug, RefreshCw, X } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { useRoute } from "../app/router";
 import {
   Badge,
   Button,
@@ -51,6 +52,19 @@ const OAUTH_DISCONNECT_NOTE: Partial<Record<Provider, MessageKey>> = {
   graph: "connectors.disconnectBodyMicrosoftNote",
 };
 
+// The OAuth callback lands back on #/settings/integrations/{outcome} — the
+// route parses to id2 = "ok" | "denied" | "error". Only these three are
+// server-defined (contract-first); any other value is silently ignored
+// rather than rendering a raw route segment.
+const OAUTH_OUTCOME_NOTE: Record<
+  string,
+  { key: MessageKey; tone: "success" | "danger" }
+> = {
+  ok: { key: "connectors.oauthOk", tone: "success" },
+  denied: { key: "connectors.oauthDenied", tone: "danger" },
+  error: { key: "connectors.oauthError", tone: "danger" },
+};
+
 type ConnectorsResult = {
   // GET /connectors answers 501 code:not_implemented when this deployment
   // never wired mail capture (httperr.NotImplemented) — a calm, documented
@@ -59,6 +73,53 @@ type ConnectorsResult = {
   notConfigured: boolean;
   data: CaptureConnection[];
 };
+
+// The OAuth return outcome (Task 2): the callback lands back on
+// #/settings/integrations/{outcome} — id2 on that route only, never parsed
+// from location.hash directly (the router already owns that). Split out of
+// ConnectorsCard so its dismissal state and branching stay off that
+// function's complexity budget. Dismissing (or navigating away, which
+// unmounts this card) clears it; the list itself already refetches on
+// mount, so "ok" needs no extra invalidation here.
+function OAuthOutcomeNote() {
+  const t = useT();
+  const route = useRoute();
+  const oauthOutcome =
+    route.screen === "settings" && route.id === "integrations"
+      ? route.id2
+      : undefined;
+  const [dismissedOutcome, setDismissedOutcome] = useState<string | null>(null);
+  const note =
+    oauthOutcome && oauthOutcome !== dismissedOutcome
+      ? OAUTH_OUTCOME_NOTE[oauthOutcome]
+      : undefined;
+  if (!note) {
+    return null;
+  }
+  return (
+    <p
+      role="status"
+      className="t-small connector-oauth-note"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "var(--space-2)",
+        color: note.tone === "success" ? "var(--success)" : "var(--danger)",
+      }}
+    >
+      <span>{t(note.key)}</span>
+      <Button
+        small
+        variant="ghost"
+        aria-label={t("connectors.dismissOutcome")}
+        onClick={() => setDismissedOutcome(oauthOutcome ?? null)}
+      >
+        <X aria-hidden />
+      </Button>
+    </p>
+  );
+}
 
 export function ConnectorsCard() {
   const t = useT();
@@ -129,6 +190,7 @@ export function ConnectorsCard() {
   return (
     <Card>
       <SectionHeader title={t("connectors.title")} sub={t("connectors.sub")} />
+      <OAuthOutcomeNote />
       {connectors.isPending && (
         <p className="t-small">{t("connectors.loading")}</p>
       )}
