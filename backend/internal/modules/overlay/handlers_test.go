@@ -57,7 +57,7 @@ func TestBudgetToWireExposesBreakdownHeadroomAndSearch(t *testing.T) {
 	}
 	if w.Search == nil || w.Search.Window == nil || *w.Search.Window != "1s" ||
 		budgetI64(w.Search.Consumed) != 2 || budgetI64(w.Search.Limit) != 4 ||
-		w.Search.Band == nil || *w.Search.Band != crmcontracts.OverlayBudgetSearchBandOk {
+		w.Search.Band == nil || *w.Search.Band != crmcontracts.OverlayBudgetBandOk {
 		t.Errorf("search window not carried through: %+v", w.Search)
 	}
 }

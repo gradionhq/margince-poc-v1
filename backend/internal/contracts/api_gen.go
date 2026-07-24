@@ -3711,27 +3711,6 @@ func (e OverlayBudgetBand) Valid() bool {
 	}
 }
 
-// Defines values for OverlayBudgetSearchBand.
-const (
-	OverlayBudgetSearchBandOk   OverlayBudgetSearchBand = "ok"
-	OverlayBudgetSearchBandShed OverlayBudgetSearchBand = "shed"
-	OverlayBudgetSearchBandWarn OverlayBudgetSearchBand = "warn"
-)
-
-// Valid indicates whether the value is a known member of the OverlayBudgetSearchBand enum.
-func (e OverlayBudgetSearchBand) Valid() bool {
-	switch e {
-	case OverlayBudgetSearchBandOk:
-		return true
-	case OverlayBudgetSearchBandShed:
-		return true
-	case OverlayBudgetSearchBandWarn:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for OverlayConnectRequestIncumbent.
 const (
 	OverlayConnectRequestIncumbentHubspot OverlayConnectRequestIncumbent = "hubspot"
@@ -5024,19 +5003,19 @@ func (e UpdateOrganizationRequestSizeBand) Valid() bool {
 
 // Defines values for UpdateSignalRequestSeverity.
 const (
-	Info   UpdateSignalRequestSeverity = "info"
-	Urgent UpdateSignalRequestSeverity = "urgent"
-	Warn   UpdateSignalRequestSeverity = "warn"
+	UpdateSignalRequestSeverityInfo   UpdateSignalRequestSeverity = "info"
+	UpdateSignalRequestSeverityUrgent UpdateSignalRequestSeverity = "urgent"
+	UpdateSignalRequestSeverityWarn   UpdateSignalRequestSeverity = "warn"
 )
 
 // Valid indicates whether the value is a known member of the UpdateSignalRequestSeverity enum.
 func (e UpdateSignalRequestSeverity) Valid() bool {
 	switch e {
-	case Info:
+	case UpdateSignalRequestSeverityInfo:
 		return true
-	case Urgent:
+	case UpdateSignalRequestSeverityUrgent:
 		return true
-	case Warn:
+	case UpdateSignalRequestSeverityWarn:
 		return true
 	default:
 		return false
@@ -9790,6 +9769,7 @@ type OrganizationProfileFieldListResponse struct {
 
 // OverlayBudget The incumbent REST budget window's consumption and degradation band, its per-source breakdown, honest headroom, and the per-second Search window (overlay-budget.md "The budget read (wire shape)", OVB-AC-1/AC-5).
 type OverlayBudget struct {
+	// Band The degradation band of a budget window — healthy (`ok`), approaching the cap (`warn`), or at/over the shed threshold (`shed`). Shared by the REST and Search windows so both read the one band vocabulary.
 	Band     *OverlayBudgetBand `json:"band,omitempty"`
 	Consumed *int64             `json:"consumed,omitempty"`
 
@@ -9809,19 +9789,17 @@ type OverlayBudget struct {
 	Window *string `json:"window,omitempty"`
 }
 
-// OverlayBudgetBand defines model for OverlayBudget.Band.
+// OverlayBudgetBand The degradation band of a budget window — healthy (`ok`), approaching the cap (`warn`), or at/over the shed threshold (`shed`). Shared by the REST and Search windows so both read the one band vocabulary.
 type OverlayBudgetBand string
 
 // OverlayBudgetSearch The per-second Search-API window — metered, not gated, in branch 1, so the admin surface sees search pressure alongside REST.
 type OverlayBudgetSearch struct {
-	Band     *OverlayBudgetSearchBand `json:"band,omitempty"`
-	Consumed *int64                   `json:"consumed,omitempty"`
-	Limit    *int64                   `json:"limit,omitempty"`
-	Window   *string                  `json:"window,omitempty"`
+	// Band The degradation band of a budget window — healthy (`ok`), approaching the cap (`warn`), or at/over the shed threshold (`shed`). Shared by the REST and Search windows so both read the one band vocabulary.
+	Band     *OverlayBudgetBand `json:"band,omitempty"`
+	Consumed *int64             `json:"consumed,omitempty"`
+	Limit    *int64             `json:"limit,omitempty"`
+	Window   *string            `json:"window,omitempty"`
 }
-
-// OverlayBudgetSearchBand defines model for OverlayBudgetSearch.Band.
-type OverlayBudgetSearchBand string
 
 // OverlayConnectRequest defines model for OverlayConnectRequest.
 type OverlayConnectRequest struct {

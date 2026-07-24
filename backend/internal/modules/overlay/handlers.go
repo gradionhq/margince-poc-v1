@@ -283,7 +283,7 @@ func budgetToWire(b overlaybudget.Budget) crmcontracts.OverlayBudget {
 	searchWindow := b.SearchWindow
 	searchConsumed := int64(b.SearchConsumed)
 	searchLimit := int64(b.SearchLimit)
-	searchBand := crmcontracts.OverlayBudgetSearchBand(b.SearchBand)
+	searchBand := crmcontracts.OverlayBudgetBand(b.SearchBand)
 
 	return crmcontracts.OverlayBudget{
 		Window:   &window,

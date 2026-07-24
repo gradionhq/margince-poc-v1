@@ -5143,8 +5143,7 @@ export interface components {
             consumed?: number;
             /** Format: int64 */
             limit?: number;
-            /** @enum {string} */
-            band?: "ok" | "warn" | "shed";
+            band?: components["schemas"]["OverlayBudgetBand"];
             /** @description Per-source REST breakdown; the values sum exactly to `consumed` (OVB-AC-5). Absent sources have spent nothing this window. Integer counts, so the per-source sum equals `consumed` exactly (a float would round independently and could break the sum above 2^24). */
             sources?: {
                 /** Format: int64 */
@@ -5165,9 +5164,13 @@ export interface components {
             consumed?: number;
             /** Format: int64 */
             limit?: number;
-            /** @enum {string} */
-            band?: "ok" | "warn" | "shed";
+            band?: components["schemas"]["OverlayBudgetBand"];
         };
+        /**
+         * @description The degradation band of a budget window — healthy (`ok`), approaching the cap (`warn`), or at/over the shed threshold (`shed`). Shared by the REST and Search windows so both read the one band vocabulary.
+         * @enum {string}
+         */
+        OverlayBudgetBand: "ok" | "warn" | "shed";
         /** @description RFC 7807 problem+json with a stable machine `code` and structured `details`. */
         Problem: {
             /**

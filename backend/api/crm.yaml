@@ -8364,7 +8364,7 @@ components:
         window: { type: string }
         consumed: { type: integer, format: int64 }
         limit: { type: integer, format: int64 }
-        band: { type: string, enum: [ok, warn, shed] }
+        band: { $ref: '#/components/schemas/OverlayBudgetBand' }
         sources:
           type: object
           description: >-
@@ -8394,7 +8394,15 @@ components:
         window: { type: string }
         consumed: { type: integer, format: int64 }
         limit: { type: integer, format: int64 }
-        band: { type: string, enum: [ok, warn, shed] }
+        band: { $ref: '#/components/schemas/OverlayBudgetBand' }
+
+    OverlayBudgetBand:
+      type: string
+      enum: [ok, warn, shed]
+      description: >-
+        The degradation band of a budget window — healthy (`ok`), approaching the
+        cap (`warn`), or at/over the shed threshold (`shed`). Shared by the REST
+        and Search windows so both read the one band vocabulary.
 
     # ---- error (RFC 7807) ----
     Problem:
