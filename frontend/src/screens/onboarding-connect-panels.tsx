@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
   CheckCircle2,
@@ -187,6 +187,7 @@ export function ImapConnectPanel({
   onComplete,
 }: Readonly<{ onComplete: (skipped: boolean) => Promise<void> }>) {
   const t = useT();
+  const qc = useQueryClient();
   const [host, setHostVal] = useState("imap.gmail.com");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -212,6 +213,13 @@ export function ImapConnectPanel({
         throwProblem(error);
       }
       return data;
+    },
+    onSuccess: () => {
+      // The Settings connected-inboxes card shares this query key — a
+      // connect made here (onboarding) must land there immediately, not
+      // only on that card's next mount (DESIGN §5, one implementation at
+      // runtime).
+      void qc.invalidateQueries({ queryKey: ["connectors"] });
     },
     onError: () => {
       // The secret is never retained after a failed submit, matching the

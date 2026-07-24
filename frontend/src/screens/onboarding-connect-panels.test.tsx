@@ -22,10 +22,11 @@ import { installFetchStub, jsonResponse } from "./story-utils";
 // BEFORE any mail is read, so the panel must never fabricate a capture
 // count it was never given.
 
-function render(ui: ReactNode) {
+function render(ui: ReactNode, client?: QueryClient) {
   return rtlRender(
     <QueryClientProvider
       client={
+        client ??
         new QueryClient({ defaultOptions: { queries: { retry: false } } })
       }
     >
@@ -151,6 +152,34 @@ describe("ImapConnectPanel", () => {
     );
     await screen.findByText(/could not be reached/i);
     expect(screen.getByLabelText("App password")).toHaveValue("");
+  });
+
+  it("invalidates the shared connectors query so Settings picks up the new connection immediately", async () => {
+    installFetchStub({
+      "POST /connectors/imap/connect": () =>
+        jsonResponse({
+          connection: {
+            id: "c1",
+            provider: "imap",
+            status: "connected",
+            scopes: [],
+          },
+        }),
+    });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const invalidateSpy = vi.spyOn(client, "invalidateQueries");
+    render(
+      <ImapConnectPanel onComplete={vi.fn().mockResolvedValue(undefined)} />,
+      client,
+    );
+    await fillValidForm();
+    await userEvent.click(
+      screen.getByRole("button", { name: /connect mailbox/i }),
+    );
+    await screen.findByText(/mailbox connected/i);
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["connectors"] });
   });
 
   it("skips the step without ever contacting the server", async () => {
