@@ -19,9 +19,11 @@ package capture
 //   allowlist wins → exact eSLD infra suppresses standalone →
 //   subdomain-prefix rule suppresses ONLY with corroboration → otherwise keep.
 //
-// This is the pure decision only. The Sink runs it AFTER the correspondence-
-// positive check (a known human is never suppressed) and records every
-// suppression durably for observability.
+// This is the pure decision only. The Sink runs it after the internal-domain
+// gate and records every suppression durably for observability. The T1
+// correspondence-positive spare that lets a known contact through lands in
+// phase 2b (ADR-0072), on an authenticated provider outbound signal — the
+// forgeable From header cannot be trusted to grant a suppression bypass.
 
 import (
 	"strings"
