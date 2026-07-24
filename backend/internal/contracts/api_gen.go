@@ -3711,6 +3711,27 @@ func (e OverlayBudgetBand) Valid() bool {
 	}
 }
 
+// Defines values for OverlayBudgetSearchBand.
+const (
+	OverlayBudgetSearchBandOk   OverlayBudgetSearchBand = "ok"
+	OverlayBudgetSearchBandShed OverlayBudgetSearchBand = "shed"
+	OverlayBudgetSearchBandWarn OverlayBudgetSearchBand = "warn"
+)
+
+// Valid indicates whether the value is a known member of the OverlayBudgetSearchBand enum.
+func (e OverlayBudgetSearchBand) Valid() bool {
+	switch e {
+	case OverlayBudgetSearchBandOk:
+		return true
+	case OverlayBudgetSearchBandShed:
+		return true
+	case OverlayBudgetSearchBandWarn:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for OverlayConnectRequestIncumbent.
 const (
 	OverlayConnectRequestIncumbentHubspot OverlayConnectRequestIncumbent = "hubspot"
@@ -5003,19 +5024,19 @@ func (e UpdateOrganizationRequestSizeBand) Valid() bool {
 
 // Defines values for UpdateSignalRequestSeverity.
 const (
-	UpdateSignalRequestSeverityInfo   UpdateSignalRequestSeverity = "info"
-	UpdateSignalRequestSeverityUrgent UpdateSignalRequestSeverity = "urgent"
-	UpdateSignalRequestSeverityWarn   UpdateSignalRequestSeverity = "warn"
+	Info   UpdateSignalRequestSeverity = "info"
+	Urgent UpdateSignalRequestSeverity = "urgent"
+	Warn   UpdateSignalRequestSeverity = "warn"
 )
 
 // Valid indicates whether the value is a known member of the UpdateSignalRequestSeverity enum.
 func (e UpdateSignalRequestSeverity) Valid() bool {
 	switch e {
-	case UpdateSignalRequestSeverityInfo:
+	case Info:
 		return true
-	case UpdateSignalRequestSeverityUrgent:
+	case Urgent:
 		return true
-	case UpdateSignalRequestSeverityWarn:
+	case Warn:
 		return true
 	default:
 		return false
@@ -9767,16 +9788,40 @@ type OrganizationProfileFieldListResponse struct {
 	Data []CompanyProfileField `json:"data"`
 }
 
-// OverlayBudget The incumbent API budget window's consumption and degradation band.
+// OverlayBudget The incumbent REST budget window's consumption and degradation band, its per-source breakdown, honest headroom, and the per-second Search window (overlay-budget.md "The budget read (wire shape)", OVB-AC-1/AC-5).
 type OverlayBudget struct {
 	Band     *OverlayBudgetBand `json:"band,omitempty"`
 	Consumed *float32           `json:"consumed,omitempty"`
-	Limit    *float32           `json:"limit,omitempty"`
-	Window   *string            `json:"window,omitempty"`
+
+	// Headroom Free REST capacity derived from our own counts, or the `~unknown` sentinel (OVB-PARAM-5) when a share cannot be attributed — never a fabricated number (OVB-AC-1).
+	Headroom *string  `json:"headroom,omitempty"`
+	Limit    *float32 `json:"limit,omitempty"`
+
+	// Search The per-second Search-API window — metered, not gated, in branch 1, so the admin surface sees search pressure alongside REST.
+	Search *OverlayBudgetSearch `json:"search,omitempty"`
+
+	// Sources Per-source REST breakdown; the values sum exactly to `consumed` (OVB-AC-5). Absent sources have spent nothing this window.
+	Sources *struct {
+		Capture    *float32 `json:"capture,omitempty"`
+		ForceFresh *float32 `json:"force_fresh,omitempty"`
+		Poller     *float32 `json:"poller,omitempty"`
+	} `json:"sources,omitempty"`
+	Window *string `json:"window,omitempty"`
 }
 
 // OverlayBudgetBand defines model for OverlayBudget.Band.
 type OverlayBudgetBand string
+
+// OverlayBudgetSearch The per-second Search-API window — metered, not gated, in branch 1, so the admin surface sees search pressure alongside REST.
+type OverlayBudgetSearch struct {
+	Band     *OverlayBudgetSearchBand `json:"band,omitempty"`
+	Consumed *float32                 `json:"consumed,omitempty"`
+	Limit    *float32                 `json:"limit,omitempty"`
+	Window   *string                  `json:"window,omitempty"`
+}
+
+// OverlayBudgetSearchBand defines model for OverlayBudgetSearch.Band.
+type OverlayBudgetSearchBand string
 
 // OverlayConnectRequest defines model for OverlayConnectRequest.
 type OverlayConnectRequest struct {

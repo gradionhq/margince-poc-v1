@@ -10,10 +10,56 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
+
+// budgetF32 dereferences a generated *float32 wire field, returning -1 for a
+// nil pointer so a missing field fails a numeric assertion loudly.
+func budgetF32(p *float32) float32 {
+	if p == nil {
+		return -1
+	}
+	return *p
+}
+
+// TestBudgetToWireExposesBreakdownHeadroomAndSearch is the OVB-AC-1 admin-surface
+// contract test: the budget read carries the per-source breakdown (summing to
+// consumed, OVB-AC-5), renders unattributable headroom as the `~unknown`
+// sentinel — never a number (OVB-AC-1) — and includes the per-second Search
+// window. An absent source (capture here) spent nothing and reads 0.
+func TestBudgetToWireExposesBreakdownHeadroomAndSearch(t *testing.T) {
+	w := budgetToWire(overlaybudget.Budget{
+		Window: "24h", Consumed: 7, Limit: 10, Band: overlaybudget.BandWarn,
+		Headroom: overlaybudget.UnknownHeadroom,
+		Breakdown: map[overlaybudget.Source]int{
+			overlaybudget.SourceForceFresh: 4,
+			overlaybudget.SourcePoller:     3,
+		},
+		SearchWindow: "1s", SearchConsumed: 2, SearchLimit: 4, SearchBand: overlaybudget.BandOK,
+	})
+
+	if w.Headroom == nil || *w.Headroom != overlaybudget.UnknownHeadroom {
+		t.Errorf("headroom = %v, want the %q sentinel (never a number, OVB-AC-1)", w.Headroom, overlaybudget.UnknownHeadroom)
+	}
+	if w.Sources == nil {
+		t.Fatal("the budget read must carry the per-source breakdown (OVB-AC-1)")
+	}
+	ff, poller, capture := budgetF32(w.Sources.ForceFresh), budgetF32(w.Sources.Poller), budgetF32(w.Sources.Capture)
+	if ff != 4 || poller != 3 || capture != 0 {
+		t.Errorf("breakdown = force_fresh:%v poller:%v capture:%v, want 4/3/0", ff, poller, capture)
+	}
+	if sum := ff + poller + capture; sum != budgetF32(w.Consumed) {
+		t.Errorf("breakdown sum = %v, want consumed %v (OVB-AC-5)", sum, budgetF32(w.Consumed))
+	}
+	if w.Search == nil || budgetF32(w.Search.Consumed) != 2 || budgetF32(w.Search.Limit) != 4 ||
+		w.Search.Band == nil || *w.Search.Band != crmcontracts.OverlayBudgetSearchBandOk {
+		t.Errorf("search window not carried through: %+v", w.Search)
+	}
+}
 
 // fakeReconciler is a Reconciler stub that records whether it ran — the
 // RBAC-deny proof needs to see it was NEVER invoked when the object gate
