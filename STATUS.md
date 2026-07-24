@@ -53,15 +53,23 @@ security clean). **Contract-first flag (P3):** these endpoints, and the Phase-2
 upstream `margince-foundation` spec (whose posture is "operators edit rows
 directly") — raised for upstream reconciliation, not a silent divergence.
 **Phase 2 (async AI refresh) is built too.** Two admin-only "Refresh from
-sources" endpoints enqueue async River jobs: the FX producer fetches a
-structured JSON API (deterministic, netguard-guarded) and the model-cost
-producer crawls configured pricing pages via `webread` and AI-extracts prices
-with the new `rate_extract` task (**certified for Gemini** — reliability 1.00).
-Both diff against the sheet and stage 🟡 `fx_rate_proposal` /
+sources" endpoints enqueue async River jobs: BOTH producers now fetch a
+configured page via `webread` and AI-extract with the `rate_extract` task
+(**certified for Gemini** — reliability 1.00). The FX producer reads *any* rates
+page (no longer a fixed JSON-API shape — the `fxsource` client is deleted),
+extracts the pairs it states verbatim, and anchors each to the workspace base in
+Go with `big.Rat` (base-as-to direct, base-as-from inverted, cross-pairs
+dropped); the model-cost producer extracts per-model prices. Both diff against
+the rate in force **today** (not the sheet head), carry the prior rate as an
+`expected_prior_rate` precondition the apply effect re-checks, supersede a stale
+pending proposal on a fresher diff, and stage 🟡 `fx_rate_proposal` /
 `ai_model_rate_proposal` approvals (registered in `approvals/authority.go`);
 approving applies through the Phase-1 write path (edit-before-approve works).
-Sources live in the deployment config's `rates:` block (`fx_source` + a
-provider→url `model_pricing` map); absent config = honest no-op.
+Sources live in the deployment config's `rates:` block (`fx_source` is now a
+page URL + a provider→url `model_pricing` map); absent config = honest no-op.
+Caveat: the `fx_source` default (api.frankfurter.dev) returns EUR-based rates
+with no query params, so a non-EUR-base workspace should configure a
+base-appropriate rates page.
 
 **The conversational onboarding is now THE onboarding; the classic
 wizard is deleted.** Onboarding is ONE Margince conversation. Landed:

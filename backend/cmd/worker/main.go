@@ -304,11 +304,12 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 		VoiceBrain: modelPath.VoiceBuild,
 		// The rate-refresh producers register regardless; without a source
 		// (empty FX url / no pricing sources) or a model (nil RateExtract)
-		// they no-op honestly. FX is deterministic (no model); model-cost
-		// needs the extraction lane.
+		// they no-op honestly. FX and model-cost both extract from a fetched
+		// page via the shared RateExtract lane.
 		RateExtractBrain:      modelPath.RateExtract,
 		FxSourceURL:           cmp.Or(cfg.ratesFx, "https://api.frankfurter.dev/v1/latest"),
 		FxBootstrapCurrencies: fxBootstrapCurrencies(cfg.ratesCurrencies),
+		FxExtractBrain:        modelPath.RateExtract,
 		ModelPricingSources:   compose.PricingSourcesFromMap(cfg.ratesModelPricing),
 		DeepReadCaps: compose.CrawlCaps{
 			MaxPages: cfg.deepReadMaxPages,

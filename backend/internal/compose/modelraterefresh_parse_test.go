@@ -33,6 +33,26 @@ func TestRateExtractPromptMatchesCorpus(t *testing.T) {
 	}
 }
 
+// TestFxExtractPromptMatchesCorpus is the FX twin of the above: the production
+// fxExtractSystem const must be byte-identical to the aicert corpus scenario's
+// system prompt, so the committed cert record certifies the exact prompt the FX
+// producer sends.
+func TestFxExtractPromptMatchesCorpus(t *testing.T) {
+	raw, err := os.ReadFile("aicert/corpus/rate_extract/fx_grounded.yaml")
+	if err != nil {
+		t.Fatalf("read corpus: %v", err)
+	}
+	var doc struct {
+		System string `yaml:"system"`
+	}
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("parse corpus: %v", err)
+	}
+	if doc.System != fxExtractSystem {
+		t.Errorf("corpus system prompt differs from fxExtractSystem — the shipped prompt is uncertified.\n--- corpus ---\n%q\n--- const ---\n%q", doc.System, fxExtractSystem)
+	}
+}
+
 // A real sample captured from https://ai.google.dev/gemini-api/docs/pricing —
 // the model-cost crawl's live target. It proves numberPassages turns a real
 // (messy, free-tier-interleaved) pricing page into cited passages the

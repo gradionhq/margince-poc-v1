@@ -81,7 +81,7 @@ func (r *Registry) Connections(ctx context.Context) ([]ConnectionView, error) {
 		// A user holds at most a handful of connections, so the per-row
 		// latest-run read stays a bounded loop, not an N-problem.
 		for i := range out {
-			run, err := latestBackfill(ctx, tx, out[i].ID)
+			run, err := latestBackfill(ctx, tx, out[i].ID, out[i].Provider)
 			if err != nil {
 				return err
 			}

@@ -20,9 +20,122 @@ import (
 
 	"github.com/riverqueue/river"
 
+	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
+
+// propertyChangePayload is a validly-shaped propertyChange webhook body for the
+// bound portal, carrying the property fields the echo ledger keys on.
+const propertyChangePayload = `[{"portalId":777,"objectId":42,"subscriptionType":"contact.propertyChange","propertyName":"firstname","propertyValue":"Ada"}]`
+
+// TestWebhookReceiverSuppressesEcho (AC-OV-13 e / OVA-AC-3 echo-drop): a
+// propertyChange the ledger classifies as our own write-back echo enqueues NO
+// re-fetch — the overlay does not sync-loop on its own write.
+func TestWebhookReceiverSuppressesEcho(t *testing.T) {
+	enq := &capturingEnqueuer{}
+	h := newTestWebhookHandler(enq, ids.New[ids.WorkspaceKind]())
+	h.classify = func(context.Context, string, string, string, string) (overlay.Classification, error) {
+		return overlay.ClassEcho, nil
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, signedWebhookRequest(t, propertyChangePayload))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", rec.Code)
+	}
+	if len(enq.jobs) != 0 {
+		t.Errorf("an echo must be suppressed (no re-fetch), got %d jobs", len(enq.jobs))
+	}
+}
+
+// TestWebhookReceiverIngestsGenuineChange (OVA-AC-3 non-echo-ingest): a
+// propertyChange the ledger classifies as a genuine third-party change is NOT
+// dropped — it enqueues a re-fetch.
+func TestWebhookReceiverIngestsGenuineChange(t *testing.T) {
+	enq := &capturingEnqueuer{}
+	ws := ids.New[ids.WorkspaceKind]()
+	h := newTestWebhookHandler(enq, ws)
+	h.classify = func(context.Context, string, string, string, string) (overlay.Classification, error) {
+		return overlay.ClassGenuine, nil
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, signedWebhookRequest(t, propertyChangePayload))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", rec.Code)
+	}
+	if len(enq.jobs) != 1 {
+		t.Fatalf("a genuine change must enqueue one re-fetch, got %d", len(enq.jobs))
+	}
+	if enq.jobs[0].Workspace != ws.String() || enq.jobs[0].IncumbentClass != "contacts" {
+		t.Errorf("enqueued %+v, want a contacts re-fetch for the bound workspace", enq.jobs[0])
+	}
+}
+
+// TestWebhookReceiverCollisionHaltsTheRestOfTheBatch (OVA-AC-3 collision + halt
+// gate): a value-hash collision enqueues nothing AND — because Classify halts
+// the mirror — every later event in the same batch is skipped by the halt gate,
+// so a genuine change riding behind a collision is not ingested against a mirror
+// we no longer trust. The classify seam flips the (real-ledger) halt state that
+// the halted seam then reports, mirroring production.
+func TestWebhookReceiverCollisionHaltsTheRestOfTheBatch(t *testing.T) {
+	enq := &capturingEnqueuer{}
+	h := newTestWebhookHandler(enq, ids.New[ids.WorkspaceKind]())
+	halted := false
+	h.classify = func(context.Context, string, string, string, string) (overlay.Classification, error) {
+		halted = true // Classify halts the mirror on a collision
+		return overlay.ClassCollision, nil
+	}
+	h.halted = func(context.Context) (bool, error) { return halted, nil }
+
+	rec := httptest.NewRecorder()
+	// Two propertyChange events for the same record: the first collides (halts),
+	// the second is a would-be genuine change that must be skipped.
+	h.ServeHTTP(rec, signedWebhookRequest(t,
+		`[{"portalId":777,"objectId":42,"subscriptionType":"contact.propertyChange","propertyName":"firstname","propertyValue":"Ada"},`+
+			`{"portalId":777,"objectId":43,"subscriptionType":"contact.propertyChange","propertyName":"lastname","propertyValue":"Lovelace"}]`))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", rec.Code)
+	}
+	if len(enq.jobs) != 0 {
+		t.Errorf("a collision must enqueue nothing and halt the rest of the batch, got %d jobs", len(enq.jobs))
+	}
+}
+
+// TestWebhookReceiverAnswers500OnClassifyError (safety-critical seam): a ledger
+// classification failure (DB/store trouble) answers 500 so HubSpot redelivers,
+// and enqueues nothing — never guessing echo-vs-genuine on a failed lookup.
+func TestWebhookReceiverAnswers500OnClassifyError(t *testing.T) {
+	enq := &capturingEnqueuer{}
+	h := newTestWebhookHandler(enq, ids.New[ids.WorkspaceKind]())
+	h.classify = func(context.Context, string, string, string, string) (overlay.Classification, error) {
+		return overlay.ClassGenuine, errors.New("ledger unavailable")
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, signedWebhookRequest(t, propertyChangePayload))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 so HubSpot redelivers", rec.Code)
+	}
+	if len(enq.jobs) != 0 {
+		t.Errorf("a classify failure must enqueue nothing, got %d jobs", len(enq.jobs))
+	}
+}
+
+// TestWebhookReceiverRefusesHaltedMirror (OVA-AC-3 halt gate): once the mirror
+// is halted, the receiver ingests nothing for that workspace — the fail-safe
+// holds across signals until an operator clears it.
+func TestWebhookReceiverRefusesHaltedMirror(t *testing.T) {
+	enq := &capturingEnqueuer{}
+	h := newTestWebhookHandler(enq, ids.New[ids.WorkspaceKind]())
+	h.halted = func(context.Context) (bool, error) { return true, nil }
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, signedWebhookRequest(t, propertyChangePayload))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204 (accepted-but-ignored)", rec.Code)
+	}
+	if len(enq.jobs) != 0 {
+		t.Errorf("a halted mirror must ingest nothing, got %d jobs", len(enq.jobs))
+	}
+}
 
 // capturingEnqueuer records the re-fetch jobs the handler enqueues, standing in
 // for the real River inserter so the handler's verify→bind→enqueue decision is

@@ -130,6 +130,9 @@ func NewOverlayProvider(pool *pgxpool.Pool, meter *overlaybudget.Meter, resolveI
 	// that passes nil (the sorDispatch, which is wired later by WithKeyvault)
 	// leaves it unset here and SetOverlayIncumbentResolver installs it then.
 	p.SetFreshnessIncumbentResolver(resolveIncumbent)
+	// Wire the echo-suppression ledger's producer half (OVA-DDL-6): each
+	// write-back opens ledger entries so the webhook receiver can drop its echo.
+	p.SetWriteLedger(overlay.NewWriteLedger(pool), slog.Default())
 	return p
 }
 

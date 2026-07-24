@@ -269,3 +269,52 @@ func TestBackfillStepFaultsAreTerminal(t *testing.T) {
 		assertTerminalError(t, startWithCursor(t, `{"page_token":"not-an-offset"}`))
 	})
 }
+
+// The backfill status reports people and companies as LIVE counts of the
+// connector-created rows since the run began (the stored counters are never
+// filled), and it excludes anything a human created — so the hero shows the
+// real reach of the import, not a stuck zero.
+func TestBackfillStatusCountsConnectorCounterpartiesSinceStart(t *testing.T) {
+	e := setupSearch(t)
+	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
+	registry.Register(&pagedConnector{messages: 25, pageSize: 10})
+	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	rep := ids.From[ids.UserKind](e.Rep1)
+
+	if _, err := registry.StartBackfill(grantCtx, "gmail", rep, 6, 25); err != nil {
+		t.Fatalf("StartBackfill: %v", err)
+	}
+	// Two connector-created counterparties (what the auto-create path lands)
+	// and one human-created person that must NOT inflate the import's count.
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		for _, q := range []string{
+			`INSERT INTO person (workspace_id, full_name, source, captured_by)
+			   VALUES (current_setting('app.workspace_id')::uuid, 'Ada Capture', 'capture', 'connector:gmail')`,
+			`INSERT INTO person (workspace_id, full_name, source, captured_by)
+			   VALUES (current_setting('app.workspace_id')::uuid, 'Manually Typed', 'manual', 'human:someone')`,
+			`INSERT INTO organization (workspace_id, display_name, source, captured_by)
+			   VALUES (current_setting('app.workspace_id')::uuid, 'Acme Capture', 'capture', 'connector:gmail')`,
+		} {
+			if _, execErr := tx.Exec(e.Admin(), q); execErr != nil {
+				return execErr
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("seed counterparties: %v", err)
+	}
+
+	run, err := registry.BackfillStatus(grantCtx, "gmail", rep)
+	if err != nil || run == nil {
+		t.Fatalf("BackfillStatus: %v (run=%v)", err, run)
+	}
+	if run.People != 1 {
+		t.Fatalf("people = %d, want 1 — the connector person counted, the human one excluded", run.People)
+	}
+	if run.Organizations != 1 {
+		t.Fatalf("organizations = %d, want 1 — the connector org counted", run.Organizations)
+	}
+}

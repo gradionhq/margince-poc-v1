@@ -4,6 +4,7 @@
 package gmail
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -56,6 +57,14 @@ func googleStub(t *testing.T) *httptest.Server {
 	mux.HandleFunc("/messages/m1", func(w http.ResponseWriter, _ *http.Request) {
 		raw := base64.RawURLEncoding.EncodeToString([]byte("Subject: hi\r\n\r\nbody"))
 		writeJSON(w, map[string]any{"id": "m1", "raw": raw})
+	})
+
+	// A message whose RAW body is larger than the old 8 MiB read cap — a phone
+	// photo is enough. The response JSON exceeds 8 MiB, so a truncating reader
+	// would fail to decode it.
+	mux.HandleFunc("/messages/big", func(w http.ResponseWriter, _ *http.Request) {
+		body := append([]byte("Subject: big\r\n\r\n"), bytes.Repeat([]byte("A"), 9<<20)...)
+		writeJSON(w, map[string]any{"id": "big", "raw": base64.RawURLEncoding.EncodeToString(body)})
 	})
 
 	mux.HandleFunc("/watch", func(w http.ResponseWriter, _ *http.Request) {
@@ -178,6 +187,23 @@ func TestGetRawDecodesBase64URL(t *testing.T) {
 
 // A 404 on GetRaw (the id vanished since it was listed) maps to the skip
 // sentinel, not the reachability error — the pull skips it and continues.
+// A large message (RAW body over the old 8 MiB read cap) must decode whole,
+// not truncate — a single big email used to fail the JSON decode and wedge
+// the entire pull as a spurious "unreachable".
+func TestGetRawDecodesAMessageLargerThanEightMiB(t *testing.T) {
+	_, api := newTestClients(t)
+	raw, err := api.GetRaw(context.Background(), "access-2", "big")
+	if err != nil {
+		t.Fatalf("GetRaw on a >8 MiB message: %v", err)
+	}
+	if len(raw) < 9<<20 {
+		t.Fatalf("decoded %d bytes, want the full body (~9 MiB) — the response was truncated", len(raw))
+	}
+	if !bytes.HasPrefix(raw, []byte("Subject: big")) {
+		t.Fatalf("decoded body does not start with the header: %q", raw[:32])
+	}
+}
+
 func TestGetRawMissingMessageMapsGoneSentinel(t *testing.T) {
 	_, api := newTestClients(t)
 	// The stub only serves /messages/m1; any other id 404s, exactly as Gmail

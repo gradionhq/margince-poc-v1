@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"sort"
 
@@ -192,14 +193,19 @@ func (p *Provider) Create(ctx context.Context, in datasource.CreateInput) (datas
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
-	rec, err := inc.Create(ctx, string(in.EntityType), fields)
+	res, err := inc.Create(ctx, string(in.EntityType), fields)
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
-	if err := p.mirrorWriteResult(ctx, inc, rec); err != nil {
+	// Open the echo-ledger entries BEFORE mirroring so the entry is visible as
+	// early as possible after the incumbent commit — narrowing the window in
+	// which our own echo could arrive before the ledger recognizes it. Never
+	// fails the write (fail-open — see openWriteLedger).
+	p.openWriteLedger(ctx, res)
+	if err := p.mirrorWriteResult(ctx, inc, res.Record); err != nil {
 		return datasource.EntityRef{}, err
 	}
-	id, err := externalIDToUUID(rec.ExternalID)
+	id, err := externalIDToUUID(res.Record.ExternalID)
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
@@ -242,14 +248,39 @@ func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datas
 	if err := p.completeWritePatch(in.Ref.Type, fields, row); err != nil {
 		return datasource.EntityRef{}, err
 	}
-	rec, err := inc.Update(ctx, string(in.Ref.Type), externalID, fields, row.UpdatedAtBaseline)
+	res, err := inc.Update(ctx, string(in.Ref.Type), externalID, fields, row.UpdatedAtBaseline)
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
-	if err := p.mirrorWriteResult(ctx, inc, rec); err != nil {
+	p.openWriteLedger(ctx, res) // fail-open, before mirroring (see Create)
+	if err := p.mirrorWriteResult(ctx, inc, res.Record); err != nil {
 		return datasource.EntityRef{}, err
 	}
 	return in.Ref, nil
+}
+
+// openWriteLedger records the echo-suppression ledger entries for a completed
+// write (OVA-DDL-6) — one per property the incumbent write actually sent, keyed
+// so the webhook receiver recognizes this write's own echo.
+//
+// It is FAIL-OPEN: the incumbent write has already committed, so a ledger
+// failure must never propagate as a write failure — a caller told the write
+// failed could retry and mint a duplicate incumbent record. A missed entry only
+// costs a redundant re-fetch when the echo arrives (idempotent, poller-healed),
+// so the failure is logged and swallowed here. No ledger wired (the write-verb
+// unit tests) or a read-only-fields write (no WrittenProps) is a no-op.
+func (p *Provider) openWriteLedger(ctx context.Context, res WriteResult) {
+	if p.ledger == nil || len(res.WrittenProps) == 0 {
+		return
+	}
+	if err := p.ledger.OpenEntries(ctx, res.IncumbentClass, res.Record.ExternalID, res.WrittenProps); err != nil {
+		log := p.log
+		if log == nil {
+			log = slog.Default()
+		}
+		log.WarnContext(ctx, "overlay: opening echo-suppression ledger entries failed; the write's echo may cost a redundant re-fetch",
+			"class", res.IncumbentClass, "external_id", res.Record.ExternalID, "err", err)
+	}
 }
 
 // completeWritePatch fills in the cross-field context a partial patch needs to

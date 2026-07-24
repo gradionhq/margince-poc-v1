@@ -202,15 +202,20 @@ func TestFakeWriteBackRoundTrip(t *testing.T) {
 	f := fake.New()
 	ctx := context.Background()
 
-	created, err := f.Create(ctx, "person", map[string]any{"first_name": "Ada"})
+	createRes, err := f.Create(ctx, "person", map[string]any{"first_name": "Ada"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
+	created := createRes.Record
 	if created.ExternalID == "" || created.ObjectClass != "person" {
 		t.Fatalf("Create returned %+v, want a stamped person record", created)
 	}
 	if created.Fields["first_name"] != "Ada" {
 		t.Errorf("Create fields = %+v, want first_name=Ada", created.Fields)
+	}
+	// The write reports the properties it wrote (the echo-ledger producer input).
+	if createRes.WrittenProps["first_name"] != "Ada" {
+		t.Errorf("Create WrittenProps = %+v, want first_name=Ada", createRes.WrittenProps)
 	}
 
 	// A patch older than the stored record's ModifiedAt is refused
@@ -220,21 +225,29 @@ func TestFakeWriteBackRoundTrip(t *testing.T) {
 	}
 
 	// A patch at or after the record's baseline merges and re-stamps.
-	updated, err := f.Update(ctx, "person", created.ExternalID, map[string]any{"first_name": "Ada2"}, created.ModifiedAt)
+	updateRes, err := f.Update(ctx, "person", created.ExternalID, map[string]any{"first_name": "Ada2"}, created.ModifiedAt)
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
+	updated := updateRes.Record
 	if updated.Fields["first_name"] != "Ada2" {
 		t.Errorf("Update fields = %+v, want first_name=Ada2", updated.Fields)
 	}
+	if updateRes.WrittenProps["first_name"] != "Ada2" {
+		t.Errorf("Update WrittenProps = %+v, want first_name=Ada2", updateRes.WrittenProps)
+	}
 
-	// An empty patch returns the record unchanged.
-	same, err := f.Update(ctx, "person", created.ExternalID, nil, updated.ModifiedAt)
+	// An empty patch returns the record unchanged and writes nothing (no ledger).
+	sameRes, err := f.Update(ctx, "person", created.ExternalID, nil, updated.ModifiedAt)
 	if err != nil {
 		t.Fatalf("no-op Update: %v", err)
 	}
+	same := sameRes.Record
 	if same.Fields["first_name"] != "Ada2" {
 		t.Errorf("no-op Update should return the record unchanged, got %+v", same.Fields)
+	}
+	if len(sameRes.WrittenProps) != 0 {
+		t.Errorf("a read-only-fields Update must write nothing, got WrittenProps %+v", sameRes.WrittenProps)
 	}
 
 	// Archiving with a baseline older than the record is refused (drift).

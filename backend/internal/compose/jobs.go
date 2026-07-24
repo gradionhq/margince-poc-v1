@@ -28,7 +28,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
-	"github.com/gradionhq/margince/backend/internal/platform/fxsource"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
@@ -297,8 +296,8 @@ type JobRunnerConfig struct {
 	// so a queued build on a brainless worker finishes failed with an
 	// actionable message instead of sitting queued forever.
 	VoiceBrain completer
-	// FxSourceURL is the structured FX JSON API the fx-rate refresh job
-	// fetches from; empty = the worker registers but the producer no-ops
+	// FxSourceURL is the URL of the rates page the fx-rate refresh fetches and
+	// AI-extracts from; empty = the worker registers but the producer no-ops
 	// (honest: no source configured, nothing to propose).
 	FxSourceURL string
 	// FxBootstrapCurrencies is the candidate foreign-currency set the fx-rate
@@ -306,6 +305,10 @@ type JobRunnerConfig struct {
 	// tracked currency to derive symbols from). Empty ⇒ an empty sheet stays a
 	// no-op; a human still approves every bootstrapped proposal.
 	FxBootstrapCurrencies []string
+	// FxExtractBrain is the model lane the fx-rate refresh extracts with
+	// (modelPath.RateExtract, shared with the model-cost refresh); nil = the
+	// worker registers but the producer no-ops (same posture as RateExtractBrain).
+	FxExtractBrain completer
 	// RateExtractBrain is the model lane the model-cost refresh job extracts
 	// pricing with (modelPath.RateExtract); nil = the worker registers but
 	// the producer no-ops (same posture as the deep-read brain).
@@ -359,12 +362,8 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	river.AddWorker(workers, &embedReindexWorker{store: search.NewStore(pool), embedder: cfg.Embedder})
 	// The rate-refresh jobs are not periodic — the api enqueues one per admin
 	// "Refresh from sources" click; the worker registers regardless of whether
-	// a source is configured (a nil client no-ops honestly).
-	var fxClient *fxsource.Client
-	if cfg.FxSourceURL != "" {
-		fxClient = fxsource.New(cfg.FxSourceURL, nil)
-	}
-	river.AddWorker(workers, newFxRefreshWorker(pool, fxClient, cfg.FxBootstrapCurrencies, log))
+	// a source is configured (a nil brain / empty url no-ops honestly).
+	river.AddWorker(workers, newFxRefreshWorker(pool, cfg.FxExtractBrain, cfg.FxSourceURL, cfg.FxBootstrapCurrencies, log))
 	river.AddWorker(workers, newModelCostRefreshWorker(pool, cfg.RateExtractBrain, cfg.ModelPricingSources, log))
 
 	periodic := []*river.PeriodicJob{
@@ -468,7 +467,7 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		// record through the same store the poller uses. Registered whenever
 		// the overlay vault is present (the receiver only enqueues when the api
 		// role has the app secret wired).
-		river.AddWorker(workers, &overlayRefetchWorker{pool: pool, vault: cfg.OverlayVault, ms: ms, log: log, newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit)})
+		river.AddWorker(workers, &overlayRefetchWorker{pool: pool, vault: cfg.OverlayVault, ms: ms, meter: meter, log: log, newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit)})
 		periodic = append(periodic, river.NewPeriodicJob(
 			river.PeriodicInterval(cfg.OverlayInterval),
 			func() (river.JobArgs, *river.InsertOpts) { return OverlayReconcileArgs{}, sweepInsertOpts() },

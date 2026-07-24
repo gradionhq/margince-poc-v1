@@ -26,6 +26,13 @@ type WebhookEvent struct {
 	ObjectID         int64  `json:"objectId"`         //nolint:tagliatelle // HubSpot's wire format (camelCase)
 	SubscriptionType string `json:"subscriptionType"` //nolint:tagliatelle // HubSpot's wire format (camelCase)
 	OccurredAt       int64  `json:"occurredAt"`       //nolint:tagliatelle // HubSpot's wire format (camelCase)
+	// PropertyName / PropertyValue are present on a propertyChange event — the
+	// property that changed and its new value. The echo-suppression ledger
+	// (OVA-DDL-6) keys on them to recognize the echo of our own write-back;
+	// they are empty for creation/deletion events (which carry no single
+	// property), and such events fall through to a normal re-fetch.
+	PropertyName  string `json:"propertyName"`  //nolint:tagliatelle // HubSpot's wire format (camelCase)
+	PropertyValue string `json:"propertyValue"` //nolint:tagliatelle // HubSpot's wire format (camelCase)
 }
 
 // PortalIDString renders the portalId as the decimal string the connection's

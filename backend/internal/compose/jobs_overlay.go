@@ -55,9 +55,22 @@ func (OverlayRefetchArgs) Kind() string { return "overlay_refetch" }
 // on one mirror state. The poller still heals any gap a signal misses.
 type overlayRefetchWorker struct {
 	river.WorkerDefaults[OverlayRefetchArgs]
-	pool         *pgxpool.Pool
-	vault        keyvault.Vault
-	ms           *overlay.MirrorStore
+	pool  *pgxpool.Pool
+	vault keyvault.Vault
+	ms    *overlay.MirrorStore
+	// meter is the OVB budget. A webhook re-fetch is a live single-record REST
+	// read-through — the same traffic category force-fresh meters, so it
+	// reserves against SourceForceFresh before the incumbent read and SHEDS to
+	// the poller when the budget is spent. A single-record GET is GATE-able
+	// against the REST window (reserve/shed); the poller's Modified sweep, by
+	// contrast, is a Search-API call PACED by the per-second search window with
+	// its REST spend consumed unconditionally on SourcePoller — so reserve/shed
+	// is the right shape here, force-fresh's shape, not the poller's. Without
+	// this, a burst of signals would spend incumbent REST quota the OVB budget
+	// never sees. A dedicated webhook source (admin-breakdown granularity) would
+	// be an OVB-AC-5 spec change — a tracked follow-up, not needed for the
+	// "account for every live call" invariant this closes.
+	meter        *overlaybudget.Meter
 	log          *slog.Logger
 	newIncumbent func(region, token string) overlay.Incumbent
 }
@@ -84,11 +97,38 @@ func (w *overlayRefetchWorker) Work(ctx context.Context, job *river.Job[OverlayR
 	if conn.Incumbent != incumbentHubSpot {
 		return nil
 	}
+	// A mirror halted by a ledger value-hash collision (OVA-AC-3) refuses all
+	// sync — do not spend an incumbent read or ingest against a mirror we no
+	// longer trust (the halt is cleared by disconnect today). This closes the
+	// gap where a re-fetch enqueued before the halt (coalesced 5s ahead) would
+	// otherwise still run: the halt is re-checked here, at execution.
+	if halted, err := overlay.NewWriteLedger(w.pool).Halted(wsCtx); err != nil {
+		return fmt.Errorf("overlay refetch: reading the mirror-halt flag: %w", err)
+	} else if halted {
+		w.log.WarnContext(wsCtx, "overlay refetch: mirror is halted (ledger collision), skipping",
+			"workspace", job.Args.Workspace, "class", job.Args.IncumbentClass, "id", job.Args.ExternalID)
+		return nil
+	}
 	token, err := w.vault.Get(wsCtx, conn.Workspace, conn.CredentialRef)
 	if err != nil {
 		return fmt.Errorf("overlay refetch: resolving the vaulted token: %w", err)
 	}
 	inc := w.newIncumbent(conn.Region, string(token))
+	// Reserve one REST unit BEFORE the live read (OVB-AC-2/AC-5), so the
+	// webhook lane's incumbent calls are accounted for like every other. On
+	// shed skip the re-fetch — the signal is an optimization, and the poller
+	// heals within its interval; never spend live quota we cannot account for.
+	// A role wired without a configured meter gets the fail-closed placeholder
+	// (nil Redis client) here, which sheds every reservation — so an
+	// unaccountable read is skipped, never made. A meter error is transient —
+	// retry.
+	if allowed, err := w.meter.ReserveREST(wsCtx, conn.Incumbent, overlaybudget.SourceForceFresh, 1); err != nil {
+		return fmt.Errorf("overlay refetch: reserving the incumbent budget: %w", err)
+	} else if !allowed {
+		w.log.InfoContext(wsCtx, "overlay refetch: incumbent budget shed, deferring to the poller",
+			"workspace", job.Args.Workspace, "class", job.Args.IncumbentClass, "id", job.Args.ExternalID)
+		return nil
+	}
 	rec, err := inc.Get(wsCtx, job.Args.IncumbentClass, job.Args.ExternalID)
 	if err != nil {
 		// A connection-level failure (rate-limit/auth/unreachable) is retryable
@@ -282,6 +322,14 @@ func reconcileConnection(ctx context.Context, pool *pgxpool.Pool, vault keyvault
 	// Best-effort: a failure here never aborts the record sweep below.
 	if err := overlay.BackfillPortalBinding(ctx, pool, inc); err != nil {
 		log.WarnContext(ctx, "overlay reconcile: backfilling the webhook portal binding failed",
+			"workspace", d.Workspace.String(), "err", err)
+	}
+	// Prune expired echo-ledger entries (OVA-DDL-6 hygiene): bounds the table's
+	// growth and does not retain a value_canonical past the window. Best-effort
+	// — correctness never depends on it (Classify already filters by the open
+	// window), so a failure never aborts the record sweep.
+	if _, err := overlay.NewWriteLedger(pool).PruneExpired(ctx); err != nil {
+		log.WarnContext(ctx, "overlay reconcile: pruning expired write-ledger entries failed",
 			"workspace", d.Workspace.String(), "err", err)
 	}
 	// Bind the store to THIS connection's live adapter so seeding,

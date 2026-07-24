@@ -94,16 +94,38 @@ func (c *Connector) BackfillPage(ctx context.Context, auth connector.Auth, after
 // paramMaxResults is Gmail's page-size query parameter.
 const paramMaxResults = "maxResults"
 
-// EstimateAfter returns messages.list's resultSizeEstimate for a query.
+const (
+	// estimatePageSize is Gmail's max ids per messages.list page.
+	estimatePageSize = 500
+	// estimateMaxPages bounds the count so a very large mailbox cannot turn a
+	// preview into a long scan: up to 500 × 40 = 20,000 messages are counted
+	// exactly; beyond that the returned floor is honest-but-low (the scope
+	// preview is a bound to consent to, not a contract).
+	estimateMaxPages = 40
+)
+
+// EstimateAfter counts the messages matching the query by paging their ids —
+// metadata only, no bodies — up to a page cap. Gmail's own resultSizeEstimate
+// is notoriously unreliable (off by multiples: a 1,300-message window can read
+// as ~200), which is exactly the "made-up number" a user distrusts; an exact
+// id count is a few cheap calls and honest. The count also feeds the spend
+// preview, so its accuracy is a consent property, not just cosmetics.
 func (a *httpAPI) EstimateAfter(ctx context.Context, accessToken, query string) (int, error) {
-	var out struct {
-		ResultSizeEstimate int `json:"resultSizeEstimate"` //nolint:tagliatelle // Google names this field
+	total, pageToken := 0, ""
+	for range estimateMaxPages {
+		ids, next, err := a.ListAfter(ctx, accessToken, query, pageToken, estimatePageSize)
+		if err != nil {
+			return 0, err
+		}
+		total += len(ids)
+		if next == "" {
+			return total, nil
+		}
+		pageToken = next
 	}
-	q := url.Values{"q": {query}, paramMaxResults: {"1"}}
-	if _, err := a.get(ctx, accessToken, "/messages", q, &out); err != nil {
-		return 0, err
-	}
-	return out.ResultSizeEstimate, nil
+	// Hit the page cap on a very large mailbox: report the counted floor. The
+	// live meter is the source of truth once the import runs.
+	return total, nil
 }
 
 // ListAfter returns one page of message ids matching the query.
@@ -118,7 +140,7 @@ func (a *httpAPI) ListAfter(ctx context.Context, accessToken, query, pageToken s
 	if pageToken != "" {
 		q.Set("pageToken", pageToken)
 	}
-	if _, err := a.get(ctx, accessToken, "/messages", q, &out); err != nil {
+	if _, err := a.get(ctx, accessToken, "/messages", q, &out, maxJSONResponseBytes); err != nil {
 		return nil, "", err
 	}
 	ids := make([]string, 0, len(out.Messages))

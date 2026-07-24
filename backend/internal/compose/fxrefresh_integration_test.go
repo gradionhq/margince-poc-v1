@@ -5,75 +5,108 @@
 
 package compose
 
-// The FX refresh producer over real Postgres: it prices only the currencies
-// the workspace already tracks, stages a proposal for each changed rate, and a
-// re-run stages nothing new (per-identity JoinPending dedupe). When the sheet
-// is still empty it bootstraps from a configured candidate set against the
-// workspace base currency, so "Refresh from sources" is not a dead button on a
-// fresh install.
+// The FX refresh producer over real Postgres: it AI-extracts rates from a
+// fetched page, prices only the currencies the workspace tracks (or the
+// bootstrap candidate set on an empty sheet), diffs against the rate in force
+// TODAY, and stages one proposal per changed rate carrying the prior rate as a
+// precondition; a fresh diff supersedes a stale pending one and an unchanged
+// re-run stages nothing new. webread's SSRF guard refuses loopback, so the page
+// fetcher and the model are stubbed rather than served over httptest — the page
+// text is irrelevant here (the fake brain returns the extracted pairs directly).
 
 import (
 	"context"
 	"io"
 	"log/slog"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
-	"github.com/gradionhq/margince/backend/internal/platform/fxsource"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
 func quietLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
+
+// stubFetcher returns fixed page text for any URL (webread's SSRF guard would
+// refuse a loopback httptest server). The text is inert — the fake brain below
+// returns the extracted pairs regardless of it.
+type stubFetcher struct{}
+
+func (stubFetcher) Fetch(context.Context, string) (string, error) { return "rates page", nil }
+
+// fixedBrain returns fixed extractor JSON, ignoring the request — it stands in
+// for the rate_extract model lane.
+type fixedBrain struct{ json string }
+
+func (b fixedBrain) Complete(context.Context, model.Request) (model.Response, error) {
+	return model.Response{Text: b.json}, nil
+}
+
+// fxRefreshWith builds the producer over the workspace pool with a fake brain
+// that will "extract" the given pairs JSON.
+func fxRefreshWith(e *integration.Env, reply string, bootstrap []string) fxRefresh {
+	return fxRefresh{
+		store:               deals.NewStore(e.Pool),
+		svc:                 approvals.NewService(e.Pool),
+		fetcher:             stubFetcher{},
+		brain:               fixedBrain{json: reply},
+		url:                 "https://rates.test/latest",
+		bootstrapCurrencies: bootstrap,
+		log:                 quietLog(),
+	}
+}
+
+// pair is a shorthand for one extracted, grounded, confident pair.
+func pair(from, to, rate string) string {
+	return `{"from_currency":"` + from + `","to_currency":"` + to + `","rate":"` + rate + `","evidence":"s0","confidence":"0.9"}`
+}
+
+func fxReply(pairs ...string) string {
+	out := `{"pairs":[`
+	for i, p := range pairs {
+		if i > 0 {
+			out += ","
+		}
+		out += p
+	}
+	return out + `]}`
+}
 
 func TestFxRefreshStagesChangedRates(t *testing.T) {
 	e := integration.Setup(t)
 	adminCtx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
 
-	// The workspace tracks USD at 0.92.
+	// The workspace tracks USD at 0.92 (base EUR).
 	if _, err := deals.NewStore(e.Pool).SetFxRate(adminCtx,
 		deals.SetFxRateInput{FromCurrency: "USD", Rate: "0.92", EffectiveDate: time.Now().UTC()}); err != nil {
 		t.Fatalf("seed USD: %v", err)
 	}
 
-	// The source reports 1 EUR = 1.08 USD -> USD->EUR = 0.9259..., a change.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if _, err := w.Write([]byte(`{"base":"EUR","rates":{"USD":1.08,"JPY":160.5}}`)); err != nil {
-			t.Errorf("write response: %v", err)
-		}
-	}))
-	defer srv.Close()
-
-	f := fxRefresh{
-		store:  deals.NewStore(e.Pool),
-		svc:    approvals.NewService(e.Pool),
-		client: fxsource.New(srv.URL, srv.Client()),
-		log:    quietLog(),
-	}
+	// The page states 1 EUR = 1.08 USD -> USD->EUR = 0.9259..., a change. JPY is
+	// also on the page but untracked, so it must not be proposed.
+	f := fxRefreshWith(e, fxReply(pair("EUR", "USD", "1.08"), pair("EUR", "JPY", "160.5")), nil)
 	wctx := rateRefreshWorkerCtx(context.Background(), e.WS, e.Rep1.String())
 
 	if err := f.run(wctx); err != nil {
 		t.Fatalf("first run: %v", err)
 	}
-	pending := func() int {
-		return e.WsCount(t, `SELECT count(*) FROM approval WHERE kind='fx_rate_proposal' AND status='pending'`)
-	}
-	// JPY is not tracked, so only the changed USD is proposed.
-	if n := pending(); n != 1 {
+	if n := fxPending(t, e); n != 1 {
 		t.Fatalf("staged %d fx proposals, want 1 (only tracked+changed USD)", n)
 	}
-
 	// A re-run with the same rate stages nothing new (per-identity dedupe).
 	if err := f.run(wctx); err != nil {
 		t.Fatalf("second run: %v", err)
 	}
-	if n := pending(); n != 1 {
+	if n := fxPending(t, e); n != 1 {
 		t.Fatalf("after re-run staged %d, want still 1 (JoinPending dedupe)", n)
 	}
+}
+
+func fxPending(t *testing.T, e *integration.Env) int {
+	return e.WsCount(t, `SELECT count(*) FROM approval WHERE kind='fx_rate_proposal' AND status='pending'`)
 }
 
 func seedFx(ctx context.Context, t *testing.T, store *deals.Store, cur, rate string, eff time.Time) {
@@ -81,15 +114,6 @@ func seedFx(ctx context.Context, t *testing.T, store *deals.Store, cur, rate str
 	if _, err := store.SetFxRate(ctx, deals.SetFxRateInput{FromCurrency: cur, Rate: rate, EffectiveDate: eff}); err != nil {
 		t.Fatalf("seed %s@%s: %v", cur, rate, err)
 	}
-}
-
-func fxServer(t *testing.T, body string) *httptest.Server {
-	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if _, err := w.Write([]byte(body)); err != nil {
-			t.Errorf("write response: %v", err)
-		}
-	}))
 }
 
 // The diff base is the rate in force TODAY, not the sheet head: a
@@ -108,13 +132,9 @@ func TestFxRefreshDiffsAgainstEffectiveTodayNotSheetHead(t *testing.T) {
 	seedFx(adminCtx, t, store, "CHF", "2.0", time.Time{})
 	seedFx(adminCtx, t, store, "CHF", "0.5", tomorrow)
 
-	// 1/1.25 = USD->EUR 0.8000000000 (matches today), 1/2 = CHF->EUR 0.5.
-	srv := fxServer(t, `{"base":"EUR","rates":{"USD":1.25,"CHF":2}}`)
-	defer srv.Close()
-	f := fxRefresh{
-		store: store, svc: approvals.NewService(e.Pool),
-		client: fxsource.New(srv.URL, srv.Client()), log: quietLog(),
-	}
+	// 1 EUR = 1.25 USD -> USD->EUR 0.8000000000 (matches today); 1 EUR = 2 CHF
+	// -> CHF->EUR 0.5 (differs from today's 2.0).
+	f := fxRefreshWith(e, fxReply(pair("EUR", "USD", "1.25"), pair("EUR", "CHF", "2")), nil)
 	if err := f.run(rateRefreshWorkerCtx(context.Background(), e.WS, e.Rep1.String())); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -138,18 +158,14 @@ func TestFxRefreshSupersedesStalePendingProposal(t *testing.T) {
 	store := deals.NewStore(e.Pool)
 	seedFx(adminCtx, t, store, "USD", "0.9", time.Time{})
 
-	svc := approvals.NewService(e.Pool)
 	wctx := rateRefreshWorkerCtx(context.Background(), e.WS, e.Rep1.String())
-	for _, body := range []string{
-		`{"base":"EUR","rates":{"USD":1.25}}`, // -> 0.8000000000
-		`{"base":"EUR","rates":{"USD":1}}`,    // -> 1.0000000000
+	for _, rate := range []string{
+		"1.25", // 1 EUR = 1.25 USD -> USD->EUR 0.8000000000
+		"1",    // 1 EUR = 1 USD    -> USD->EUR 1.0000000000
 	} {
-		srv := fxServer(t, body)
-		f := fxRefresh{store: store, svc: svc, client: fxsource.New(srv.URL, srv.Client()), log: quietLog()}
-		err := f.run(wctx)
-		srv.Close()
-		if err != nil {
-			t.Fatalf("run %s: %v", body, err)
+		f := fxRefreshWith(e, fxReply(pair("EUR", "USD", rate)), nil)
+		if err := f.run(wctx); err != nil {
+			t.Fatalf("run %s: %v", rate, err)
 		}
 	}
 
@@ -165,43 +181,28 @@ func TestFxRefreshSupersedesStalePendingProposal(t *testing.T) {
 func TestFxRefreshBootstrapsEmptySheet(t *testing.T) {
 	e := integration.Setup(t)
 
-	// The workspace base is EUR and the sheet is empty (nothing seeded). The
-	// source offers USD/GBP/CHF (and JPY, which is outside the candidate set).
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if _, err := w.Write([]byte(`{"base":"EUR","rates":{"USD":1.08,"GBP":0.85,"CHF":0.96,"JPY":160.5}}`)); err != nil {
-			t.Errorf("write response: %v", err)
-		}
-	}))
-	defer srv.Close()
-
-	f := fxRefresh{
-		store:  deals.NewStore(e.Pool),
-		svc:    approvals.NewService(e.Pool),
-		client: fxsource.New(srv.URL, srv.Client()),
-		// EUR is the base and must be dropped from the candidate set; JPY is
-		// not offered as a candidate, so neither is proposed.
-		bootstrapCurrencies: []string{"USD", "GBP", "CHF", "EUR"},
-		log:                 quietLog(),
-	}
+	// Base EUR, empty sheet. The page offers USD/GBP/CHF (and JPY, outside the
+	// candidate set); EUR is the base and must be dropped from the candidates.
+	reply := fxReply(
+		pair("EUR", "USD", "1.08"), pair("EUR", "GBP", "0.85"),
+		pair("EUR", "CHF", "0.96"), pair("EUR", "JPY", "160.5"),
+	)
+	f := fxRefreshWith(e, reply, []string{"USD", "GBP", "CHF", "EUR"})
 	wctx := rateRefreshWorkerCtx(context.Background(), e.WS, e.Rep1.String())
 
 	if err := f.run(wctx); err != nil {
 		t.Fatalf("bootstrap run: %v", err)
 	}
-	pending := func() int {
-		return e.WsCount(t, `SELECT count(*) FROM approval WHERE kind='fx_rate_proposal' AND status='pending'`)
-	}
 	// USD/GBP/CHF are proposed; EUR (the base) and JPY (not a candidate) are not.
-	if n := pending(); n != 3 {
+	if n := fxPending(t, e); n != 3 {
 		t.Fatalf("bootstrap staged %d fx proposals, want 3 (USD/GBP/CHF, not base EUR or non-candidate JPY)", n)
 	}
-
 	// A re-run bootstraps nothing new — the proposals are live, so JoinPending
 	// collapses each identical diff.
 	if err := f.run(wctx); err != nil {
 		t.Fatalf("second bootstrap run: %v", err)
 	}
-	if n := pending(); n != 3 {
+	if n := fxPending(t, e); n != 3 {
 		t.Fatalf("after re-run staged %d, want still 3 (JoinPending dedupe)", n)
 	}
 }
@@ -209,29 +210,16 @@ func TestFxRefreshBootstrapsEmptySheet(t *testing.T) {
 func TestFxRefreshSkipsCandidatesTheSourceOmits(t *testing.T) {
 	e := integration.Setup(t)
 
-	// USX is ISO 4217-shaped (so it clears the config gate) but unsupported, so
-	// the source never prices it. The refresh must stage USD and skip USX
-	// gracefully — no error, no phantom proposal.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if _, err := w.Write([]byte(`{"base":"EUR","rates":{"USD":1.08}}`)); err != nil {
-			t.Errorf("write response: %v", err)
-		}
-	}))
-	defer srv.Close()
-
-	f := fxRefresh{
-		store:               deals.NewStore(e.Pool),
-		svc:                 approvals.NewService(e.Pool),
-		client:              fxsource.New(srv.URL, srv.Client()),
-		bootstrapCurrencies: []string{"USD", "USX"},
-		log:                 quietLog(),
-	}
+	// USX is ISO 4217-shaped (so it clears the config gate) but the page never
+	// prices it. The refresh must stage USD and skip USX gracefully — no error,
+	// no phantom proposal.
+	f := fxRefreshWith(e, fxReply(pair("EUR", "USD", "1.08")), []string{"USD", "USX"})
 	wctx := rateRefreshWorkerCtx(context.Background(), e.WS, e.Rep1.String())
 
 	if err := f.run(wctx); err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if n := e.WsCount(t, `SELECT count(*) FROM approval WHERE kind='fx_rate_proposal' AND status='pending'`); n != 1 {
+	if n := fxPending(t, e); n != 1 {
 		t.Fatalf("staged %d fx proposals, want 1 (USD only — USX is omitted by the source)", n)
 	}
 }
@@ -239,24 +227,9 @@ func TestFxRefreshSkipsCandidatesTheSourceOmits(t *testing.T) {
 func TestFxRefreshEmptySheetNoBootstrapSetIsNoOp(t *testing.T) {
 	e := integration.Setup(t)
 
-	// A source that would answer if asked — proving the no-op is the empty
-	// sheet + empty candidate set, not a dead client.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if _, err := w.Write([]byte(`{"base":"EUR","rates":{"USD":1.08}}`)); err != nil {
-			t.Errorf("write response: %v", err)
-		}
-	}))
-	defer srv.Close()
-
-	f := fxRefresh{
-		store:  deals.NewStore(e.Pool),
-		svc:    approvals.NewService(e.Pool),
-		client: fxsource.New(srv.URL, srv.Client()),
-		// No candidate set configured: an empty sheet has nothing to refresh
-		// and nothing to bootstrap — an honest no-op, never an invented rate.
-		bootstrapCurrencies: nil,
-		log:                 quietLog(),
-	}
+	// A page that would answer if extracted — proving the no-op is the empty
+	// sheet + empty candidate set, not a dead fetcher.
+	f := fxRefreshWith(e, fxReply(pair("EUR", "USD", "1.08")), nil)
 	wctx := rateRefreshWorkerCtx(context.Background(), e.WS, e.Rep1.String())
 
 	if err := f.run(wctx); err != nil {
@@ -264,5 +237,26 @@ func TestFxRefreshEmptySheetNoBootstrapSetIsNoOp(t *testing.T) {
 	}
 	if n := e.WsCount(t, `SELECT count(*) FROM approval WHERE kind='fx_rate_proposal'`); n != 0 {
 		t.Fatalf("staged %d fx proposals, want 0 (empty sheet, no bootstrap set)", n)
+	}
+}
+
+func TestFxRefreshDropsLowConfidenceAndCrossPairs(t *testing.T) {
+	e := integration.Setup(t)
+	adminCtx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
+	seedFx(adminCtx, t, deals.NewStore(e.Pool), "USD", "0.92", time.Now().UTC())
+
+	// USD arrives only via a low-confidence pair and a cross-pair (USD/GBP,
+	// neither side is the base EUR). Both are dropped, so nothing is staged.
+	reply := fxReply(
+		`{"from_currency":"EUR","to_currency":"USD","rate":"1.08","evidence":"s0","confidence":"0.3"}`,
+		pair("USD", "GBP", "1.27"),
+	)
+	f := fxRefreshWith(e, reply, nil)
+	wctx := rateRefreshWorkerCtx(context.Background(), e.WS, e.Rep1.String())
+	if err := f.run(wctx); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if n := fxPending(t, e); n != 0 {
+		t.Fatalf("staged %d fx proposals, want 0 (low-confidence + cross-pair both dropped)", n)
 	}
 }

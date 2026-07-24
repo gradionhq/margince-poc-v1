@@ -9768,16 +9768,39 @@ type OrganizationProfileFieldListResponse struct {
 	Data []CompanyProfileField `json:"data"`
 }
 
-// OverlayBudget The incumbent API budget window's consumption and degradation band.
+// OverlayBudget The incumbent REST budget window's consumption and degradation band, its per-source breakdown, honest headroom, and the per-second Search window (overlay-budget.md "The budget read (wire shape)", OVB-AC-1/AC-5).
 type OverlayBudget struct {
+	// Band The degradation band of a budget window — healthy (`ok`), approaching the cap (`warn`), or at/over the shed threshold (`shed`). Shared by the REST and Search windows so both read the one band vocabulary.
 	Band     *OverlayBudgetBand `json:"band,omitempty"`
-	Consumed *float32           `json:"consumed,omitempty"`
-	Limit    *float32           `json:"limit,omitempty"`
-	Window   *string            `json:"window,omitempty"`
+	Consumed *int64             `json:"consumed,omitempty"`
+
+	// Headroom Free REST capacity derived from our own counts, or the `~unknown` sentinel (OVB-PARAM-5) when a share cannot be attributed — never a fabricated number (OVB-AC-1).
+	Headroom *string `json:"headroom,omitempty"`
+	Limit    *int64  `json:"limit,omitempty"`
+
+	// Search The per-second Search-API window — metered, not gated, in branch 1, so the admin surface sees search pressure alongside REST.
+	Search *OverlayBudgetSearch `json:"search,omitempty"`
+
+	// Sources Per-source REST breakdown; the values sum exactly to `consumed` (OVB-AC-5). Absent sources have spent nothing this window. Integer counts, so the per-source sum equals `consumed` exactly (a float would round independently and could break the sum above 2^24).
+	Sources *struct {
+		Capture    *int64 `json:"capture,omitempty"`
+		ForceFresh *int64 `json:"force_fresh,omitempty"`
+		Poller     *int64 `json:"poller,omitempty"`
+	} `json:"sources,omitempty"`
+	Window *string `json:"window,omitempty"`
 }
 
-// OverlayBudgetBand defines model for OverlayBudget.Band.
+// OverlayBudgetBand The degradation band of a budget window — healthy (`ok`), approaching the cap (`warn`), or at/over the shed threshold (`shed`). Shared by the REST and Search windows so both read the one band vocabulary.
 type OverlayBudgetBand string
+
+// OverlayBudgetSearch The per-second Search-API window — metered, not gated, in branch 1, so the admin surface sees search pressure alongside REST.
+type OverlayBudgetSearch struct {
+	// Band The degradation band of a budget window — healthy (`ok`), approaching the cap (`warn`), or at/over the shed threshold (`shed`). Shared by the REST and Search windows so both read the one band vocabulary.
+	Band     *OverlayBudgetBand `json:"band,omitempty"`
+	Consumed *int64             `json:"consumed,omitempty"`
+	Limit    *int64             `json:"limit,omitempty"`
+	Window   *string            `json:"window,omitempty"`
+}
 
 // OverlayConnectRequest defines model for OverlayConnectRequest.
 type OverlayConnectRequest struct {
