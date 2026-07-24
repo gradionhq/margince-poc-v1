@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -282,15 +283,19 @@ func allMicro(em extractedModel) (microBuckets, bool) {
 	return microBuckets{in, out, cr, cw}, true
 }
 
+// untrustedEnvelopeMarker matches an <untrusted> boundary tag in any case and
+// with stray whitespace (</UNTRUSTED>, <untrusted >, < / untrusted >), so a
+// hostile page cannot impersonate the boundary with a spelling variant the
+// model might still read as the tag.
+var untrustedEnvelopeMarker = regexp.MustCompile(`(?i)<\s*/?\s*untrusted\s*>`)
+
 // neutralizeEnvelope defangs the <untrusted> boundary markers in fetched page
 // text so a hostile page cannot forge the envelope's closing tag and break out
 // of the data section into instruction context. Every site that wraps page text
 // in the <untrusted> envelope runs its input through here first, and the
 // evidence gate matches against the same neutralized text.
 func neutralizeEnvelope(text string) string {
-	text = strings.ReplaceAll(text, "</untrusted>", "< /untrusted>")
-	text = strings.ReplaceAll(text, "<untrusted>", "< untrusted>")
-	return text
+	return untrustedEnvelopeMarker.ReplaceAllString(text, "< untrusted>")
 }
 
 // numberPassages prefixes each non-empty line with a passage id ([s0], [s1], …)

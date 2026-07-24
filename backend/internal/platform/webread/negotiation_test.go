@@ -97,8 +97,8 @@ func TestFetchPageRequestsHTMLNotMarkdownAndHarvestsLinks(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		if strings.Contains(r.Header.Get("Accept"), "text/markdown") {
-			t.Errorf("FetchPage sent Accept %q; the crawler must request HTML only", r.Header.Get("Accept"))
+		if got := r.Header.Get("Accept"); got != "text/html" {
+			t.Errorf("FetchPage Accept = %q, want text/html (crawler must request HTML only)", got)
 		}
 		w.Header().Set("Content-Type", "text/html")
 		//craft:ignore swallowed-errors httptest handler write; a failed write fails the test through the assertions below

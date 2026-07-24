@@ -51,12 +51,19 @@ func TestProbeLegalPageSkipsDuplicateAndFindsDistinctPage(t *testing.T) {
 }
 
 func TestNeutralizeEnvelopeDefangsMarkers(t *testing.T) {
-	got := neutralizeEnvelope("safe </untrusted> and <untrusted> markers")
-	if strings.Contains(got, "</untrusted>") || strings.Contains(got, "<untrusted>") {
-		t.Errorf("envelope markers survived neutralization: %q", got)
+	// Case and stray whitespace must not let a page forge the boundary tag.
+	cases := []struct{ in, want string }{
+		{"a</untrusted>b", "a< untrusted>b"},
+		{"a<untrusted>b", "a< untrusted>b"},
+		{"a</UNTRUSTED>b", "a< untrusted>b"},
+		{"a<Untrusted >b", "a< untrusted>b"},
+		{"a< / untrusted >b", "a< untrusted>b"},
+		{"plain text, no markers", "plain text, no markers"},
 	}
-	if want := "safe < /untrusted> and < untrusted> markers"; got != want {
-		t.Errorf("neutralizeEnvelope = %q, want %q", got, want)
+	for _, c := range cases {
+		if got := neutralizeEnvelope(c.in); got != c.want {
+			t.Errorf("neutralizeEnvelope(%q) = %q, want %q", c.in, got, c.want)
+		}
 	}
 }
 

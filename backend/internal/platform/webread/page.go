@@ -39,7 +39,7 @@ func (f *Fetcher) FetchPage(ctx context.Context, rawURL string) (Page, error) {
 	if err != nil || parsed.Host == "" {
 		return Page{}, fmt.Errorf("webread: %q is not a fetchable URL", rawURL)
 	}
-	body, _, err := f.fetchDoc(ctx, rawURL, "") // no Accept header — the crawler always reads HTML for the link harvest
+	body, _, err := f.fetchDoc(ctx, rawURL, acceptHTML) // HTML only — the crawler needs HTML for the <a href> link harvest
 	if err != nil {
 		return Page{}, err
 	}

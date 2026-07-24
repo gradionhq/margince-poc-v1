@@ -48,6 +48,10 @@ const (
 	// markdown first, then HTML, then anything — a strict-negotiating server
 	// returns HTML rather than 406.
 	acceptMarkdown = "text/markdown, text/html;q=0.9, */*;q=0.8"
+	// acceptHTML is the crawler's preference: HTML only. The link harvest runs
+	// the HTML tokenizer over the body, so a server must not be allowed to pick
+	// markdown — better a 406 the crawler skips than markdown it silently mangles.
+	acceptHTML = "text/html"
 )
 
 // ErrRobotsDisallowed marks a fetch the target site's robots.txt refuses for
@@ -140,8 +144,8 @@ func (f *Fetcher) Fetch(ctx context.Context, rawURL string) (Doc, error) {
 
 // fetchDoc is the shared page-fetch: URL parse, robots gate, capped GET with the
 // given Accept header, and a 200-or-error status policy. It returns the raw body
-// with its parsed media type. accept == "" sends no Accept header — the crawler's
-// HTML behavior. Both single-page and crawler paths run through here, so the
+// with its parsed media type. accept == "" sends no Accept header (robots and
+// sitemap lookups). Both single-page and crawler paths run through here, so the
 // SSRF guard, robots gate, and redirect cap are identical for both.
 func (f *Fetcher) fetchDoc(ctx context.Context, rawURL, accept string) (string, string, error) {
 	parsed, err := url.Parse(rawURL)
