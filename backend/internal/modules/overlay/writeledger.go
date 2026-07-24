@@ -176,9 +176,11 @@ func haltMirrorTx(ctx context.Context, tx pgx.Tx, reason string) error {
 
 // Halted reports whether ctx's workspace mirror is halted — a ledger collision
 // tripped the fail-safe. The receiver refuses to enqueue re-fetches and the
-// re-fetch worker refuses to read/ingest for a halted workspace until an
-// operator clears the flag, so a mirror we no longer trust never
-// mis-suppresses or serves through.
+// re-fetch worker refuses to read/ingest for a halted workspace, so a mirror we
+// no longer trust never mis-suppresses or serves through. The flag is cleared
+// today only by disconnect/teardown (which purges the whole overlay); an
+// operator-facing unhalt is a tracked follow-up — acceptable because the sole
+// trigger is a SHA-256 value-hash collision, which does not occur in practice.
 func (l *WriteLedger) Halted(ctx context.Context) (bool, error) {
 	var halted bool
 	err := database.WithWorkspaceTx(ctx, l.pool, func(tx pgx.Tx) error {

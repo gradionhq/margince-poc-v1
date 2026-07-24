@@ -85,10 +85,10 @@ func (w *overlayRefetchWorker) Work(ctx context.Context, job *river.Job[OverlayR
 		return nil
 	}
 	// A mirror halted by a ledger value-hash collision (OVA-AC-3) refuses all
-	// sync until an operator clears it — do not spend an incumbent read or
-	// ingest against a mirror we no longer trust. This closes the gap where a
-	// re-fetch enqueued before the halt (coalesced 5s ahead) would otherwise
-	// still run: the halt is re-checked here, at execution.
+	// sync — do not spend an incumbent read or ingest against a mirror we no
+	// longer trust (the halt is cleared by disconnect today). This closes the
+	// gap where a re-fetch enqueued before the halt (coalesced 5s ahead) would
+	// otherwise still run: the halt is re-checked here, at execution.
 	if halted, err := overlay.NewWriteLedger(w.pool).Halted(wsCtx); err != nil {
 		return fmt.Errorf("overlay refetch: reading the mirror-halt flag: %w", err)
 	} else if halted {

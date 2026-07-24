@@ -222,7 +222,8 @@ func (h *hubspotWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 			case verdict == overlay.ClassCollision:
 				// The mirror was just halted inside Classify. Reflect it in the
 				// per-request cache so the rest of the batch is skipped, and do
-				// NOT re-fetch — an operator must review before sync resumes.
+				// NOT re-fetch — the mirror stays halted (cleared by disconnect
+				// today) rather than risk mis-suppressing on state we distrust.
 				haltByWS[wsID.String()] = true
 				h.log.ErrorContext(wsCtx, "overlay webhook: write-ledger value-hash collision — mirror halted",
 					"workspace", wsID.String(), "id", ev.ObjectIDString(), "property", ev.PropertyName)

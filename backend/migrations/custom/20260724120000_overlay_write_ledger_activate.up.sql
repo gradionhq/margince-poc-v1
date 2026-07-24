@@ -37,7 +37,8 @@ CREATE POLICY overlay_mirror_halt_tenant_isolation ON overlay_mirror_halt
   USING (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid)
   WITH CHECK (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid);
 
--- The consumer looks entries up by their full identity within the open window;
--- opened_at supports the window filter (OVA-PARAM-3) and eventual pruning.
-CREATE INDEX IF NOT EXISTS idx_overlay_write_ledger_opened_at
-  ON overlay_write_ledger (workspace_id, opened_at);
+-- No opened_at index: the consumer's Classify looks up by the full primary key
+-- (workspace_id, object_class, external_id, property, value_hash) and then
+-- narrows on opened_at on that single row, and the genuine-change DELETE hits
+-- the PK prefix — both served by the PK index. A window-scan index belongs with
+-- the periodic pruner that would use it (a tracked follow-up), not ahead of it.
