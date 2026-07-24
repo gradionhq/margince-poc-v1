@@ -161,9 +161,13 @@ function DigestSection() {
                   type="button"
                   className="digest-connector-health"
                   data-testid="digest-connector-health"
-                  onClick={() => navigate({ screen: "settings", id: "integrations" })}
+                  onClick={() =>
+                    navigate({ screen: "settings", id: "integrations" })
+                  }
                 >
-                  {t(errorClassKey(unhealthyConnectors[0].last_sync_error_class))}{" "}
+                  {t(
+                    errorClassKey(unhealthyConnectors[0].last_sync_error_class),
+                  )}{" "}
                   <ArrowRight aria-hidden />
                 </button>
               )}
