@@ -124,9 +124,25 @@ type captureBackfillWorker struct {
 	log      *slog.Logger
 }
 
-// backfillPagesPerTick bounds how many pages one Work invocation walks
-// before yielding the worker slot.
-const backfillPagesPerTick = 10
+// backfillPagesPerTick bounds how many pages one Work invocation walks before
+// yielding. ONE page: a page is up to 100 messages fetched serially, each a
+// full RAW download of a real email (megabytes for a photo), so a page can
+// take minutes on a live mailbox. Committing after every page and snoozing
+// means each page runs under a FRESH job context — a slow page can never
+// starve the next of its deadline — and the meter climbs per page.
+const backfillPagesPerTick = 1
+
+// backfillTimeout overrides River's 1-minute default: one page of large real
+// messages fetched serially over the network needs real headroom, or the job
+// context dies mid-page and both the fetch and the failure-recording write
+// fail as a spurious "unreachable". (Matches the voice-build precedent of
+// overriding the default for a multi-call, network-bound job.)
+const backfillTimeout = 8 * time.Minute
+
+// Timeout gives one page-per-tick room to finish over a live mailbox.
+func (w *captureBackfillWorker) Timeout(*river.Job[CaptureBackfillArgs]) time.Duration {
+	return backfillTimeout
+}
 
 func (w *captureBackfillWorker) Work(ctx context.Context, job *river.Job[CaptureBackfillArgs]) error {
 	ws, err := ids.Parse(job.Args.Workspace)

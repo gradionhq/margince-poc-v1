@@ -167,7 +167,7 @@ func (a *httpAPI) Profile(ctx context.Context, accessToken string) (string, stri
 		EmailAddress string `json:"emailAddress"` //nolint:tagliatelle // Google's wire format (camelCase); must match to decode
 		HistoryID    string `json:"historyId"`    //nolint:tagliatelle // Google's wire format (camelCase); must match to decode
 	}
-	if _, err := a.get(ctx, accessToken, "/profile", nil, &out); err != nil {
+	if _, err := a.get(ctx, accessToken, "/profile", nil, &out, maxJSONResponseBytes); err != nil {
 		return "", "", err
 	}
 	return out.EmailAddress, out.HistoryID, nil
@@ -180,7 +180,7 @@ func (a *httpAPI) ListRecent(ctx context.Context, accessToken string, maxResults
 		} `json:"messages"`
 	}
 	q := url.Values{"maxResults": {strconv.Itoa(maxResults)}}
-	if _, err := a.get(ctx, accessToken, "/messages", q, &out); err != nil {
+	if _, err := a.get(ctx, accessToken, "/messages", q, &out, maxJSONResponseBytes); err != nil {
 		return nil, err
 	}
 	ids := make([]string, 0, len(out.Messages))
@@ -216,7 +216,7 @@ func (a *httpAPI) History(ctx context.Context, accessToken, startHistoryID strin
 			q.Set("pageToken", pageToken)
 		}
 		var page historyPage
-		status, err := a.get(ctx, accessToken, "/history", q, &page)
+		status, err := a.get(ctx, accessToken, "/history", q, &page, maxJSONResponseBytes)
 		if err != nil {
 			if status == http.StatusNotFound {
 				return nil, "", ErrHistoryGone
@@ -246,7 +246,7 @@ func (a *httpAPI) GetRaw(ctx context.Context, accessToken, msgID string) ([]byte
 		Raw string `json:"raw"`
 	}
 	q := url.Values{"format": {"RAW"}}
-	status, err := a.get(ctx, accessToken, "/messages/"+url.PathEscape(msgID), q, &out)
+	status, err := a.get(ctx, accessToken, "/messages/"+url.PathEscape(msgID), q, &out, maxRawMessageBytes)
 	if status == http.StatusNotFound {
 		// Enumerated a moment ago, gone now — nothing to fetch. Skip it and
 		// let the pull continue rather than abort on a message that no longer
@@ -328,7 +328,20 @@ func retryAfter(resp *http.Response) time.Duration {
 	return 0
 }
 
-func (a *httpAPI) get(ctx context.Context, accessToken, path string, q url.Values, out any) (int, error) {
+// Read caps for the Gmail JSON responses. The metadata calls (profile, id
+// lists, history deltas) are a few KB; a single messages.get?format=RAW is
+// the whole RFC822 message base64url-encoded inside JSON. Gmail (Workspace)
+// receives messages up to ~50 MiB, and base64 inflates ~1.37×, so a RAW
+// response can exceed 68 MiB — the cap has to clear that or a large but
+// ordinary email (a phone photo) truncates the body, the JSON decode fails,
+// and the whole pull aborts on ErrUnreachable, wedging the mailbox. 96 MiB
+// leaves headroom above the provider ceiling; the metadata cap stays tight.
+const (
+	maxJSONResponseBytes = 8 << 20  // 8 MiB — metadata responses
+	maxRawMessageBytes   = 96 << 20 // 96 MiB — a full-size RAW message
+)
+
+func (a *httpAPI) get(ctx context.Context, accessToken, path string, q url.Values, out any, maxBytes int64) (int, error) {
 	u := a.base + path
 	if len(q) > 0 {
 		u += "?" + q.Encode()
@@ -344,7 +357,14 @@ func (a *httpAPI) get(ctx context.Context, accessToken, path string, q url.Value
 	}
 	//craft:ignore swallowed-errors best-effort close of the response body — the decoded result/status is what matters
 	defer func() { _ = resp.Body.Close() }()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	// A read fault mid-body is a real reachability failure, distinct from the
+	// size cap (LimitReader signals the cap with EOF, not an error). Surface it
+	// as such rather than letting a truncated body fail the decode with a
+	// misleading "decoding" error.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes))
+	if err != nil {
+		return resp.StatusCode, fmt.Errorf("gmail: reading %s: %w", path, ErrUnreachable)
+	}
 	if resp.StatusCode == http.StatusTooManyRequests {
 		return resp.StatusCode, &connector.RateLimitedError{RetryAfter: retryAfter(resp)}
 	}

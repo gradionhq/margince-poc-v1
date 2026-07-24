@@ -173,12 +173,24 @@ func TestBackfillPageSurfacesListFault(t *testing.T) {
 	}
 }
 
-func TestHTTPAPIEstimateAfterReadsResultSizeEstimate(t *testing.T) {
-	var gotQuery url.Values
+func TestHTTPAPIEstimateAfterCountsIDsExactlyAcrossPages(t *testing.T) {
+	// Google's resultSizeEstimate is unreliable, so EstimateAfter counts the
+	// real ids by paging. Two pages of 2 + 1 → exactly 3, and it must NOT trust
+	// any resultSizeEstimate the same body carries.
+	var queries []url.Values
 	mux := http.NewServeMux()
 	mux.HandleFunc("/messages", func(w http.ResponseWriter, r *http.Request) {
-		gotQuery = r.URL.Query()
-		if err := json.NewEncoder(w).Encode(map[string]any{"resultSizeEstimate": 777}); err != nil {
+		q := r.URL.Query()
+		queries = append(queries, q)
+		body := map[string]any{
+			"messages":           []map[string]string{{"id": "a"}, {"id": "b"}},
+			"nextPageToken":      "p2",
+			"resultSizeEstimate": 999, // the unreliable number, deliberately ignored
+		}
+		if q.Get("pageToken") == "p2" {
+			body = map[string]any{"messages": []map[string]string{{"id": "c"}}}
+		}
+		if err := json.NewEncoder(w).Encode(body); err != nil {
 			t.Errorf("encode: %v", err)
 		}
 	})
@@ -187,11 +199,14 @@ func TestHTTPAPIEstimateAfterReadsResultSizeEstimate(t *testing.T) {
 
 	api := NewAPI(srv.Client(), srv.URL)
 	got, err := api.EstimateAfter(context.Background(), "tok", "after:2026/01/05")
-	if err != nil || got != 777 {
-		t.Fatalf("EstimateAfter = %d, %v — want Google's 777", got, err)
+	if err != nil || got != 3 {
+		t.Fatalf("EstimateAfter = %d, %v — want an exact id count of 3, not the estimate", got, err)
 	}
-	if gotQuery.Get("q") != "after:2026/01/05" || gotQuery.Get("maxResults") != "1" {
-		t.Fatalf("estimate query = %v, want the after: filter at maxResults=1 (count only, no page)", gotQuery)
+	if len(queries) != 2 {
+		t.Fatalf("made %d list calls, want 2 (paged to the end)", len(queries))
+	}
+	if queries[0].Get("q") != "after:2026/01/05" || queries[0].Get("maxResults") != "500" {
+		t.Fatalf("first query = %v, want the after: filter at maxResults=500", queries[0])
 	}
 }
 
