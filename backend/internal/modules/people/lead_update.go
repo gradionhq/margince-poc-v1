@@ -163,7 +163,7 @@ func buildLeadPatch(current crmcontracts.Lead, in UpdateLeadInput) (*storekit.Pa
 		p.Set("candidate_org_key", current.CandidateOrgKey, *in.CandidateOrgKey)
 	}
 	if in.Status != nil {
-		status, err := ParseLeadStatus(*in.Status)
+		status, err := parseWritableLeadStatus(*in.Status)
 		if err != nil {
 			return nil, false, err
 		}
