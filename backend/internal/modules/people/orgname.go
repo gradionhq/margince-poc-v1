@@ -18,7 +18,7 @@ import (
 	"golang.org/x/net/publicsuffix"
 )
 
-// The organization.name_source provenance values (0118). Ordered weakest to
+// The organization.name_source provenance values (0120). Ordered weakest to
 // strongest: a stronger source may overwrite a weaker one, never the reverse,
 // and never 'human'.
 const (

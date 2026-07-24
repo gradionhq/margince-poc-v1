@@ -57,7 +57,7 @@ func TestCaptureSettingsStore(t *testing.T) {
 		return n
 	}
 
-	// Default posture is ON (the testing default, migration 0119).
+	// Default posture is ON (the testing default, migration 0121).
 	got, err := store.Get(rep)
 	if err != nil {
 		t.Fatalf("rep read: %v", err)

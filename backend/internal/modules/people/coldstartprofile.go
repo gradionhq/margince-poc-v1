@@ -175,7 +175,7 @@ func resolveOrCreateColdStartOrg(ctx context.Context, tx pgx.Tx, wsID ids.Worksp
 	// Name-source authority (ADR-0072/A118, PO-F-2a): a bare-domain fallback
 	// name is provisional ('domain') so a later dossier/signature may overwrite
 	// it; a scraped/confirmed legal name is authoritative ('human'), never
-	// clobbered. This mirrors migration 0118's own backfill rule (a name equal
+	// clobbered. This mirrors migration 0120's own backfill rule (a name equal
 	// to the domain is 'domain', everything else 'human') applied forward at the
 	// second automated domain-namer, so this site never diverges from it.
 	displayName := host
