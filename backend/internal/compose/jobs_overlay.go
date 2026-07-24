@@ -55,9 +55,19 @@ func (OverlayRefetchArgs) Kind() string { return "overlay_refetch" }
 // on one mirror state. The poller still heals any gap a signal misses.
 type overlayRefetchWorker struct {
 	river.WorkerDefaults[OverlayRefetchArgs]
-	pool         *pgxpool.Pool
-	vault        keyvault.Vault
-	ms           *overlay.MirrorStore
+	pool  *pgxpool.Pool
+	vault keyvault.Vault
+	ms    *overlay.MirrorStore
+	// meter is the OVB budget (fail-closed when unconfigured). A webhook
+	// re-fetch is a live single-record REST read-through — the same traffic
+	// category the force-fresh source meters (both charge the REST window; the
+	// poller charges the search window), so it reserves against SourceForceFresh
+	// before the incumbent read and SHEDS to the poller when the budget is spent.
+	// Without this, a burst of signals would spend incumbent REST quota the OVB
+	// budget never sees. A dedicated webhook source (admin-breakdown granularity)
+	// would be an OVB-AC-5 spec change — a tracked follow-up, not needed for the
+	// "account for every live call" invariant this closes.
+	meter        *overlaybudget.Meter
 	log          *slog.Logger
 	newIncumbent func(region, token string) overlay.Incumbent
 }
@@ -101,6 +111,18 @@ func (w *overlayRefetchWorker) Work(ctx context.Context, job *river.Job[OverlayR
 		return fmt.Errorf("overlay refetch: resolving the vaulted token: %w", err)
 	}
 	inc := w.newIncumbent(conn.Region, string(token))
+	// Reserve one REST unit BEFORE the live read (OVB-AC-2/AC-5), so the
+	// webhook lane's incumbent calls are accounted for like every other. On
+	// shed (budget spent, or fail-closed with no meter) skip the re-fetch — the
+	// signal is an optimization, and the poller heals within its interval; never
+	// spend live quota we cannot account for. A meter error is transient — retry.
+	if allowed, err := w.meter.ReserveREST(wsCtx, conn.Incumbent, overlaybudget.SourceForceFresh, 1); err != nil {
+		return fmt.Errorf("overlay refetch: reserving the incumbent budget: %w", err)
+	} else if !allowed {
+		w.log.InfoContext(wsCtx, "overlay refetch: incumbent budget shed, deferring to the poller",
+			"workspace", job.Args.Workspace, "class", job.Args.IncumbentClass, "id", job.Args.ExternalID)
+		return nil
+	}
 	rec, err := inc.Get(wsCtx, job.Args.IncumbentClass, job.Args.ExternalID)
 	if err != nil {
 		// A connection-level failure (rate-limit/auth/unreachable) is retryable

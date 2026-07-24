@@ -595,10 +595,13 @@ func TestOverlayRefetchWorkerFreshensTheMirrorRecord(t *testing.T) {
 		inc.Seed(overlay.IncumbentClassContacts, rec)
 		return inc
 	}
+	// A HubSpot-configured meter so the refetch's ReserveREST (against the
+	// connection's "hubspot" incumbent) is allowed rather than shed.
+	restMeter := budgettest.Meter(t, budgettest.SmallConfig("hubspot"))
 	runRefetch := func(inc *fake.Adapter) {
 		t.Helper()
 		w := &overlayRefetchWorker{
-			pool: e.Pool, vault: vault, ms: ms,
+			pool: e.Pool, vault: vault, ms: ms, meter: restMeter,
 			log:          slog.New(slog.DiscardHandler),
 			newIncumbent: func(_, _ string) overlay.Incumbent { return inc },
 		}
@@ -636,5 +639,54 @@ func TestOverlayRefetchWorkerFreshensTheMirrorRecord(t *testing.T) {
 	runRefetch(version("Stale", base))
 	if got := firstname(); got != "Ada Lovelace" {
 		t.Fatalf("a stale re-fetch must not regress the mirror; firstname = %v, want Ada Lovelace", got)
+	}
+}
+
+// TestOverlayRefetchWorkerShedsWhenBudgetExhausted proves the OVB gate: when the
+// meter sheds (here a fail-closed meter with no window), the worker skips the
+// incumbent read entirely — nothing is ingested, and the poller heals the gap.
+// This is the "never spend live quota we cannot account for" invariant for the
+// webhook lane.
+func TestOverlayRefetchWorkerShedsWhenBudgetExhausted(t *testing.T) {
+	e := integration.Setup(t)
+	vault := keyvault.NewMemory()
+	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
+
+	adminCtx := overlayAdminCtx(e.WS, e.Rep1)
+	if _, err := overlay.NewService(e.Pool, vault, ms).
+		Connect(adminCtx, overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	dir := fake.New()
+	dir.SeedOwner("owner-1", "a@authz.test")
+	if err := ms.WithResolver(dir).SeedUserMap(adminCtx, incumbentHubSpot,
+		[]overlay.OwnerRef{{ExternalID: "owner-1", Email: "a@authz.test"}}); err != nil {
+		t.Fatalf("SeedUserMap: %v", err)
+	}
+
+	// The incumbent HAS the record — so a non-shed run would ingest it; the
+	// record's absence afterward proves the shed skipped the read, not a miss.
+	inc := fake.New()
+	inc.SeedOwner("owner-1", "a@authz.test")
+	rec := fake.Rec("c-1", map[string]any{"firstname": "Ada"})
+	rec.ObjectClass = "person"
+	rec.OwnerExternalID = "owner-1"
+	rec.ModifiedAt = time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	inc.Seed(overlay.IncumbentClassContacts, rec)
+
+	// failClosedOverlayMeter sheds every reservation (no window to account into).
+	w := &overlayRefetchWorker{
+		pool: e.Pool, vault: vault, ms: ms, meter: failClosedOverlayMeter(),
+		log:          slog.New(slog.DiscardHandler),
+		newIncumbent: func(_, _ string) overlay.Incumbent { return inc },
+	}
+	if err := w.Work(context.Background(), &river.Job[OverlayRefetchArgs]{
+		Args: OverlayRefetchArgs{Workspace: e.WS.String(), IncumbentClass: overlay.IncumbentClassContacts, ExternalID: "c-1"},
+	}); err != nil {
+		t.Fatalf("refetch Work (shed): %v", err)
+	}
+	// Shed → skipped the read → nothing mirrored (the poller heals later).
+	if _, err := ms.Get(overlayReaderCtx(e.WS, e.Rep1), "person", "c-1"); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Errorf("a shed re-fetch must ingest nothing, got: %v", err)
 	}
 }
