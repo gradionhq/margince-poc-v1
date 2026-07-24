@@ -292,6 +292,27 @@ func (b *backfillWireEnv) do(ctx context.Context, t *testing.T, invoke func(http
 	return rec.Code, problem.Code
 }
 
+// driveBackfillToTerminal re-invokes the one-page-per-tick pager the way River
+// would — each snooze means "run me again" — until the run reaches a terminal
+// state (Work returns nil, not a snooze). A non-snooze error fails the test.
+func driveBackfillToTerminal(t *testing.T, w *captureBackfillWorker, args CaptureBackfillArgs) {
+	t.Helper()
+	for range 100 {
+		err := w.Work(context.Background(), &river.Job[CaptureBackfillArgs]{
+			JobRow: &rivertype.JobRow{}, Args: args,
+		})
+		var snooze *river.JobSnoozeError
+		if errors.As(err, &snooze) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("Work: %v", err)
+		}
+		return
+	}
+	t.Fatal("backfill did not terminate within 100 ticks")
+}
+
 func TestBackfillWire(t *testing.T) {
 	b := setupBackfillWire(t)
 	h := b.handlers
@@ -478,17 +499,15 @@ func TestBackfillWire(t *testing.T) {
 	})
 
 	t.Run("the pager worker walks the run to done", func(t *testing.T) {
-		if err := worker.Work(context.Background(), &river.Job[CaptureBackfillArgs]{
-			JobRow: &rivertype.JobRow{}, Args: CaptureBackfillArgs{Workspace: b.env.WS.String(), BackfillID: runID},
-		}); err != nil {
-			t.Fatalf("Work: %v", err)
-		}
+		// One page per tick: the worker snoozes between pages, so drive it as
+		// River would — re-invoke until it stops snoozing (the run terminated).
+		driveBackfillToTerminal(t, worker, CaptureBackfillArgs{Workspace: b.env.WS.String(), BackfillID: runID})
 		var out crmcontracts.BackfillStatus
 		if code, _ := b.do(b.human, t, status(crmcontracts.Gmail), "", &out); code != http.StatusOK {
 			t.Fatalf("status = %d, want 200", code)
 		}
 		if out.State != crmcontracts.BackfillStatusStateDone {
-			t.Fatalf("state = %s, want done (25 messages at 10/page finish in one 10-page tick)", out.State)
+			t.Fatalf("state = %s, want done (25 messages at 10/page across three ticks)", out.State)
 		}
 		if out.Counts == nil || out.Counts.MessagesScanned == nil || *out.Counts.MessagesScanned != 25 {
 			t.Fatalf("counts = %+v, want 25 scanned", out.Counts)
