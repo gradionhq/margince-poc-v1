@@ -172,14 +172,22 @@ func resolveOrCreateColdStartOrg(ctx context.Context, tx pgx.Tx, wsID ids.Worksp
 	}
 
 	orgID = ids.New[ids.OrganizationKind]()
+	// Name-source authority (ADR-0072/A118, PO-F-2a): a bare-domain fallback
+	// name is provisional ('domain') so a later dossier/signature may overwrite
+	// it; a scraped/confirmed legal name is authoritative ('human'), never
+	// clobbered. This mirrors migration 0118's own backfill rule (a name equal
+	// to the domain is 'domain', everything else 'human') applied forward at the
+	// second automated domain-namer, so this site never diverges from it.
 	displayName := host
+	nameSource := nameSourceDomain
 	if legal := fieldValue(fields, "legal_name"); legal != "" {
 		displayName = legal
+		nameSource = nameSourceHuman
 	}
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO organization (id, workspace_id, display_name, source, captured_by)
-		 VALUES ($1, $2, $3, 'coldstart', $4)`,
-		orgID, wsID, displayName, by); err != nil {
+		`INSERT INTO organization (id, workspace_id, display_name, name_source, source, captured_by)
+		 VALUES ($1, $2, $3, $4, 'coldstart', $5)`,
+		orgID, wsID, displayName, nameSource, by); err != nil {
 		return ids.OrganizationID{}, false, fmt.Errorf("insert coldstart organization: %w", err)
 	}
 	if _, err := tx.Exec(ctx,

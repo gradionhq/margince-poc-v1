@@ -79,9 +79,11 @@ func titleizeLabel(label string) string {
 	return strings.Join(words, " ")
 }
 
-// capitalizeFirst upper-cases the first rune and leaves the rest as-is (so an
-// intentional inner capital like "myCompany" is preserved, and an all-caps
-// acronym label is not forced to Title-case its tail).
+// capitalizeFirst upper-cases the first rune and leaves the rest untouched.
+// The input is always an already-lowercased domain label (mail domains are
+// case-insensitive, so the domain's own casing carries no signal and is
+// discarded at DisplayNameFromDomain's entry) — leaving the tail as-is is
+// simply the cheapest correct thing, not a bid to preserve inner case.
 func capitalizeFirst(w string) string {
 	if w == "" {
 		return ""
