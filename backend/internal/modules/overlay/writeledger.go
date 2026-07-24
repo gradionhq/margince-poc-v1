@@ -161,6 +161,31 @@ func (l *WriteLedger) Classify(ctx context.Context, objectClass, externalID, pro
 	return result, nil
 }
 
+// PruneExpired deletes ledger entries older than the open window for ctx's
+// workspace — hygiene the reconcile sweep runs so the table cannot grow without
+// bound and a stale value_canonical (a short-lived duplicate of mirrored,
+// same-tenant data) is not retained past the window that could ever suppress
+// against it. Correctness never depends on it — Classify already filters
+// opened_at > now()-window, so an unpruned expired row never suppresses — this
+// only reclaims space. Returns the number of rows removed.
+func (l *WriteLedger) PruneExpired(ctx context.Context) (int64, error) {
+	var removed int64
+	err := database.WithWorkspaceTx(ctx, l.pool, func(tx pgx.Tx) error {
+		// pgx returns a usable (zero) CommandTag alongside an error, so reading
+		// RowsAffected before returning execErr is safe — on failure removed
+		// stays 0 and the outer guard discards it.
+		tag, execErr := tx.Exec(ctx, `
+			DELETE FROM overlay_write_ledger
+			WHERE opened_at <= now() - make_interval(secs => $1)`, l.window.Seconds())
+		removed = tag.RowsAffected()
+		return execErr
+	})
+	if err != nil {
+		return 0, fmt.Errorf("overlay: pruning expired write-ledger entries: %w", err)
+	}
+	return removed, nil
+}
+
 // haltMirrorTx flags the workspace's mirror as halted within tx (one row per
 // workspace, upserted so a re-detection refreshes the reason/time).
 func haltMirrorTx(ctx context.Context, tx pgx.Tx, reason string) error {

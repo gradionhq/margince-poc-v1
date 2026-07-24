@@ -16,6 +16,7 @@ package overlay
 // expired) rather than by faking wall-clock time.
 
 import (
+	"context"
 	"testing"
 )
 
@@ -96,6 +97,46 @@ func TestWriteLedgerKeepsDistinctValuesPerProperty(t *testing.T) {
 	}
 	if c, err := l.Classify(ctx, "contacts", "42", "firstname", "Ada"); err != nil || c != ClassEcho {
 		t.Errorf("echo A (not clobbered by B): got (%v, %v), want ClassEcho", c, err)
+	}
+}
+
+// TestWriteLedgerPruneExpired proves the hygiene prune: a fresh entry survives a
+// prune at its own window, while a zero-window prune (everything expired)
+// removes it — after which the same value is a genuine change, not an echo.
+func TestWriteLedgerPruneExpired(t *testing.T) {
+	ctx, pool, _ := testWorkspaceCtx(t)
+	seedActiveConnection(ctx, t, pool)
+
+	l := NewWriteLedger(pool)
+	if err := l.OpenEntries(ctx, "contacts", "42", map[string]string{"firstname": "Ada"}); err != nil {
+		t.Fatalf("OpenEntries: %v", err)
+	}
+	// A prune at the open window removes nothing, and the entry still suppresses.
+	if n, err := l.PruneExpired(ctx); err != nil || n != 0 {
+		t.Errorf("prune of a fresh entry removed %d (err %v), want 0", n, err)
+	}
+	if c, err := l.Classify(ctx, "contacts", "42", "firstname", "Ada"); err != nil || c != ClassEcho {
+		t.Errorf("fresh entry after prune: got (%v, %v), want ClassEcho", c, err)
+	}
+
+	// A zero-window prune treats every entry as expired and reclaims it.
+	expiring := &WriteLedger{pool: pool, window: 0, hash: sha256Hex}
+	if n, err := expiring.PruneExpired(ctx); err != nil || n != 1 {
+		t.Errorf("zero-window prune removed %d (err %v), want 1", n, err)
+	}
+	if c, err := l.Classify(ctx, "contacts", "42", "firstname", "Ada"); err != nil || c != ClassGenuine {
+		t.Errorf("after prune: got (%v, %v), want ClassGenuine (entry reclaimed)", c, err)
+	}
+}
+
+// TestWriteLedgerPruneExpiredRequiresWorkspace: the prune runs under
+// WithWorkspaceTx, so a context with no workspace bound fails closed with a
+// surfaced error rather than a cross-tenant or unscoped delete.
+func TestWriteLedgerPruneExpiredRequiresWorkspace(t *testing.T) {
+	_, pool, _ := testWorkspaceCtx(t)
+	l := NewWriteLedger(pool)
+	if _, err := l.PruneExpired(context.Background()); err == nil {
+		t.Error("PruneExpired without a workspace-bound context must error, not run unscoped")
 	}
 }
 

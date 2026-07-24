@@ -324,6 +324,14 @@ func reconcileConnection(ctx context.Context, pool *pgxpool.Pool, vault keyvault
 		log.WarnContext(ctx, "overlay reconcile: backfilling the webhook portal binding failed",
 			"workspace", d.Workspace.String(), "err", err)
 	}
+	// Prune expired echo-ledger entries (OVA-DDL-6 hygiene): bounds the table's
+	// growth and does not retain a value_canonical past the window. Best-effort
+	// — correctness never depends on it (Classify already filters by the open
+	// window), so a failure never aborts the record sweep.
+	if _, err := overlay.NewWriteLedger(pool).PruneExpired(ctx); err != nil {
+		log.WarnContext(ctx, "overlay reconcile: pruning expired write-ledger entries failed",
+			"workspace", d.Workspace.String(), "err", err)
+	}
 	// Bind the store to THIS connection's live adapter so seeding,
 	// UpsertUserMap's email re-verification, and Ingest's owner-change
 	// revalidation all resolve against the incumbent's CURRENT owner
