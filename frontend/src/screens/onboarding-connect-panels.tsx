@@ -11,6 +11,7 @@ import { useState } from "react";
 import { api } from "../api/client";
 import { Button } from "../design-system/atoms";
 import { useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { BackfillPanel } from "./backfill";
 import { problemMessage, throwProblem } from "./common";
 import { imapErrorMessage } from "./imap-connect-form";
@@ -35,21 +36,47 @@ function ConnectWarn({ title, body }: { title: string; body: string }) {
   );
 }
 
-// Google: the server mints the consent URL (and the signed state + CSRF
-// cookie that guard the callback); the browser just goes. The return deep
-// link lands back here with the outcome in the route.
-export function GoogleConnectPanel({
-  outcome,
+type OAuthProvider = "gmail" | "graph";
+
+const OAUTH_COPY: Record<
+  OAuthProvider,
+  {
+    btn: MessageKey;
+    hint: MessageKey;
+    unverified: MessageKey;
+    failed: MessageKey;
+  }
+> = {
+  gmail: {
+    btn: "ob.s4.googleBtn",
+    hint: "ob.s4.googleHint",
+    unverified: "ob.s4.googleUnverified",
+    failed: "ob.s4.googleFailed",
+  },
+  graph: {
+    btn: "ob.s4.microsoftBtn",
+    hint: "ob.s4.microsoftHint",
+    unverified: "ob.s4.microsoftUnverified",
+    failed: "ob.s4.microsoftFailed",
+  },
+};
+
+// Pre-consent: the server mints the consent URL (and the signed state + CSRF
+// cookie that guard the callback); the browser just goes. One panel serves
+// every OAuth provider — only the copy and the POST path vary.
+export function OAuthConnectPanel({
+  provider,
   onComplete,
 }: Readonly<{
-  outcome?: string;
+  provider: OAuthProvider;
   onComplete: (skipped: boolean) => Promise<void>;
 }>) {
   const t = useT();
-  const google = useMutation({
+  const copy = OAUTH_COPY[provider];
+  const connect = useMutation({
     mutationFn: async () => {
       const { data, error } = await api.POST("/connectors/{provider}/connect", {
-        params: { path: { provider: "gmail" } },
+        params: { path: { provider } },
         body: {},
       });
       if (error) {
@@ -63,9 +90,53 @@ export function GoogleConnectPanel({
       }
     },
   });
+  return (
+    <>
+      {connect.isError && (
+        <ConnectWarn title={t(copy.failed)} body={connect.error.message} />
+      )}
+      <p
+        className="spoken-hint"
+        style={{ maxWidth: 460, margin: "4px auto 0" }}
+      >
+        <ShieldCheck aria-hidden /> {t(copy.hint)}
+      </p>
+      <p className="t-small ob-google-unverified">{t(copy.unverified)}</p>
+      <div className="connect-acts">
+        <Button
+          variant="primary"
+          disabled={connect.isPending}
+          onClick={() => connect.mutate()}
+        >
+          {connect.isPending ? (
+            <>
+              <span className="ob-spinner" /> {t("ob.s4.connecting")}
+            </>
+          ) : (
+            <>
+              <Mail aria-hidden /> {t(copy.btn)}
+            </>
+          )}
+        </Button>
+        <Button onClick={() => void onComplete(true)}>
+          <SkipForward aria-hidden /> {t("ob.s4.skipLater")}
+        </Button>
+      </div>
+    </>
+  );
+}
 
-  // After a successful return, show the live connection rather than a
-  // static claim — the row IS the proof (never a fake-populated screen).
+// Post-consent: the callback route carries no provider, so this reads the
+// roster and shows whichever OAuth mailbox is now live. The row IS the proof
+// — never a static claim the server hasn't confirmed.
+export function OAuthReturnPanel({
+  outcome,
+  onComplete,
+}: Readonly<{
+  outcome?: string;
+  onComplete: (skipped: boolean) => Promise<void>;
+}>) {
+  const t = useT();
   const connections = useQuery({
     queryKey: ["connectors"],
     enabled: outcome === "ok",
@@ -77,100 +148,63 @@ export function GoogleConnectPanel({
       return data;
     },
   });
-  const gmailConnected =
-    connections.data?.data.some(
-      (c) => c.provider === "gmail" && c.status === "connected",
-    ) ?? false;
+  const live = connections.data?.data.find(
+    (c) =>
+      (c.provider === "gmail" || c.provider === "graph") &&
+      c.status === "connected",
+  );
 
-  if (outcome === "ok") {
+  if (outcome === "denied") {
     return (
-      <div className="connect-result">
-        <div className="cr-h">
-          <CheckCircle2 aria-hidden /> {t("ob.s4.googleOkTitle")}
-        </div>
-        <p className="ob-sub" style={{ margin: "8px auto 0", maxWidth: 460 }}>
-          {t("ob.s4.googleOkBody")}
-        </p>
-        {connections.isPending && (
-          <p className="t-small" style={{ marginTop: "var(--space-3)" }}>
-            {t("ob.s4.googleVerifying")}
-          </p>
-        )}
-        {gmailConnected && (
-          <>
-            <span className="trustpill" style={{ marginTop: "var(--space-3)" }}>
-              <ShieldCheck aria-hidden /> {t("ob.s4.googleLive")}
-            </span>
-            <BackfillPanel provider="gmail" />
-          </>
-        )}
-        {!connections.isPending && !gmailConnected && (
-          <ConnectWarn
-            title={t("ob.s4.googleFailed")}
-            body={t("ob.s4.googleRetry")}
-          />
-        )}
-        <Button
-          variant="primary"
-          style={{ marginTop: "var(--space-4)" }}
-          onClick={() => void onComplete(false)}
-        >
-          {t("ob.s4.enterCrm")} <ArrowRight aria-hidden />
-        </Button>
-      </div>
+      <ConnectWarn
+        title={t("ob.s4.connectDenied")}
+        body={t("ob.s4.connectRetry")}
+      />
     );
   }
-
+  if (outcome !== "ok") {
+    return (
+      <ConnectWarn
+        title={t("ob.s4.connectConfirmFailed")}
+        body={t("ob.s4.connectRetry")}
+      />
+    );
+  }
   return (
-    <>
-      {outcome === "denied" && (
-        <ConnectWarn
-          title={t("ob.s4.googleDenied")}
-          body={t("ob.s4.googleRetry")}
-        />
-      )}
-      {outcome === "error" && (
-        <ConnectWarn
-          title={t("ob.s4.googleFailed")}
-          body={t("ob.s4.googleRetry")}
-        />
-      )}
-      {google.isError && (
-        <ConnectWarn
-          title={t("ob.s4.googleFailed")}
-          body={google.error.message}
-        />
-      )}
-      <p
-        className="spoken-hint"
-        style={{ maxWidth: 460, margin: "4px auto 0" }}
-      >
-        <ShieldCheck aria-hidden /> {t("ob.s4.googleHint")}
-      </p>
-      <p className="t-small ob-google-unverified">
-        {t("ob.s4.googleUnverified")}
-      </p>
-      <div className="connect-acts">
-        <Button
-          variant="primary"
-          disabled={google.isPending}
-          onClick={() => google.mutate()}
-        >
-          {google.isPending ? (
-            <>
-              <span className="ob-spinner" /> {t("ob.s4.connecting")}
-            </>
-          ) : (
-            <>
-              <Mail aria-hidden /> {t("ob.s4.googleBtn")}
-            </>
-          )}
-        </Button>
-        <Button onClick={() => void onComplete(true)}>
-          <SkipForward aria-hidden /> {t("ob.s4.skipLater")}
-        </Button>
+    <div className="connect-result">
+      <div className="cr-h">
+        <CheckCircle2 aria-hidden /> {t("ob.s4.connectOkTitle")}
       </div>
-    </>
+      <p className="ob-sub" style={{ margin: "8px auto 0", maxWidth: 460 }}>
+        {t("ob.s4.connectOkBody")}
+      </p>
+      {connections.isPending && (
+        <p className="t-small" style={{ marginTop: "var(--space-3)" }}>
+          {t("ob.s4.connectVerifying")}
+        </p>
+      )}
+      {live && (
+        <>
+          <span className="trustpill" style={{ marginTop: "var(--space-3)" }}>
+            <ShieldCheck aria-hidden /> {t("ob.s4.connectLive")}
+          </span>
+          <BackfillPanel provider={live.provider} />
+        </>
+      )}
+      {!connections.isPending && !live && (
+        <ConnectWarn
+          title={t("ob.s4.connectConfirmFailed")}
+          body={t("ob.s4.connectRetry")}
+        />
+      )}
+      <Button
+        variant="primary"
+        style={{ marginTop: "var(--space-4)" }}
+        onClick={() => void onComplete(false)}
+      >
+        {t("ob.s4.enterCrm")} <ArrowRight aria-hidden />
+      </Button>
+    </div>
   );
 }
 
