@@ -838,8 +838,13 @@ Open work, roughly in priority order:
   "gitex.com"→"Gitex") with the `organization.name_source` provenance column
   (0118; capture stamps `'domain'`, a human edit stamps `'human'`). `make check`
   + the full zero-skip integration lane green.
-  **Still open (contract-first-gated on ADR-0072):** Phase 4A (the
-  `capture_auto_enrich` setting + `/capture/settings`), 4B (auto deep-read
+  **Phase 4A (build, landed):** the `capture_auto_enrich` workspace setting +
+  `GET/PATCH /capture/settings` (new `capture_settings` RBAC object — read all
+  roles, PATCH admin/ops human-only, audit-only write EVT-NOEVT-3; migration
+  0119 + policy seed; the Settings → Integrations `CaptureSettingsCard`, i18n
+  en+de, vitest). `make check` + `make check-fe` + the full zero-skip
+  integration lane green.
+  **Still open (contract-first-gated on ADR-0072):** Phase 4B (auto deep-read
   trigger + auto-apply + sweep), 2a (counterparty identity + disposition
   ledger + deferred creation), 2b (the verdict job + review queue + noise
   disposition), 3 (corroborated signature org-name promotion).

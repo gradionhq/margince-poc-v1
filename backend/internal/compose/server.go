@@ -73,6 +73,7 @@ type Server struct {
 	connectorHandlers
 	backfillHandlers
 	captureExclusionHandlers
+	captureSettingsHandlers
 	filteredExportHandlers
 	orgRollupHandlers
 	strengthHandlers
@@ -256,6 +257,9 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// (capture.md CAP-WIRE-2); the same store backs the ONE Sink's
 		// pre-ingestion gate (wired in NewCaptureRegistry).
 		captureExclusionHandlers: captureExclusionHandlers{store: capture.NewExclusions(pool)},
+		// The workspace capture-settings surface (CAP-WIRE-7, ADR-0072):
+		// read the auto-enrich posture (all roles), toggle it (admin/ops).
+		captureSettingsHandlers: captureSettingsHandlers{store: capture.NewSettings(pool)},
 		// First-class filtered export (B-E15.13): the writer reuses the ONE
 		// predicate engine + the bundle writer's open-format rendering; the
 		// collections store resolves a saved view / dynamic list source

@@ -201,6 +201,7 @@ var crossStoreWrites = map[string]string{
 	"internal/modules/capture:activity":      "the connector sink materializes the normalized activity in the same transaction as its raw_capture original",
 	"internal/modules/capture:activity_link": "the connector sink links the materialized activity in the same ingest transaction",
 	"internal/modules/capture:lead":          "the connector sink materializes inbound leads in the same transaction as their raw_capture original",
+	"internal/modules/capture:workspace":     "capture settings toggle the workspace's own capture_auto_enrich config column (CAP-PARAM-7, ADR-0072) — a single-column workspace-config write, audit-only, the same shape overlay's x_sor_mode flip uses",
 
 	// deals' archive purges the archived deal's collection memberships in
 	// the same transaction — a dangling list/tag row would resurrect the
