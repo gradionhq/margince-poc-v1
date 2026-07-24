@@ -6,8 +6,7 @@ package compose
 // The standing IMAP connect transport (POST /v1/connectors/imap/connect): probe
 // the supplied credentials, seal them to the vault via Registry.Connect, and let
 // the background sweep take over — the OAuth-less sibling of the Google/graph
-// connect flow in connectors.go. The transient one-shot pull remains a separate
-// surface until its callers migrate.
+// connect flow in connectors.go.
 
 import (
 	"encoding/json"
@@ -30,9 +29,7 @@ const codeConnectorStoreFailed = "connector_store_failed"
 // connectIMAP establishes a STANDING imap connection: the credentials are
 // probed (dial + login, session closed), sealed to the vault by
 // Registry.Connect, and the background sweep takes over — the same lifecycle
-// as gmail, minus the OAuth ceremony. The transient one-shot pull
-// (/connectors/imap/connect) remains a separate surface until its callers
-// migrate.
+// as gmail, minus the OAuth ceremony.
 func (h connectorHandlers) connectIMAP(w http.ResponseWriter, r *http.Request) {
 	actor, ok := principal.Actor(r.Context())
 	_, hasWS := principal.WorkspaceID(r.Context())
@@ -44,21 +41,19 @@ func (h connectorHandlers) connectIMAP(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	// Scope preflight BEFORE any credential probe: the probe dials a
-	// tenant-supplied host, so an under-scoped caller must be refused before
-	// any egress happens (and before login-vs-unreachable becomes
-	// distinguishable). Registry.Connect re-checks the same scopes as the
-	// persistence invariant.
-	for _, scope := range imap.NewStanding().Descriptor().Scopes {
-		if !actor.Scopes.Has(scope) {
-			httperr.Write(w, r, &httperr.DetailedError{
-				Status: http.StatusForbidden,
-				Code:   "scope_exceeded",
-				Detail: "Connecting a mailbox needs the read scope your session does not hold.",
-			})
-			return
-		}
-	}
+	// A cookie-session human carries RBAC (Permissions/SeatType) but no
+	// passport Scopes — those are an agent concept (principal.go). The connector
+	// authority model (the probe and Registry.Connect) is scope-based, so the
+	// granting human must be given the connector's declared scopes explicitly,
+	// just as the OAuth callback does for gmail/graph (connectors.go). Without
+	// this a real signed-in human is refused for a scope no session ever holds.
+	// The scopes come from the descriptor so grant and requirement stay coupled
+	// at one source. The endpoint is human-only and reached only past the 401
+	// check above, so a human connecting their own mailbox is, by construction,
+	// authorized to grant them; the dial stays SSRF-guarded by netguard.
+	grantor := actor
+	grantor.Scopes = principal.NewScopeSet(imap.NewStanding().Descriptor().Scopes...)
+	r = r.WithContext(principal.WithActor(r.Context(), grantor))
 	// The shared decoder bounds the body (1 MiB), rejects trailing/noncanonical
 	// input, and answers malformed JSON itself — so a decode failure is handled,
 	// never conflated with the credential check below.
@@ -78,12 +73,24 @@ func (h connectorHandlers) connectIMAP(w http.ResponseWriter, r *http.Request) {
 	if req.Imap.Port != nil {
 		port = *req.Imap.Port
 	}
-	authReq, err := imap.AuthRequestFrom(imap.Credentials{
+	creds := imap.Credentials{
 		Host:     req.Imap.Host,
 		Port:     port,
 		Email:    req.Imap.Username,
 		Password: *req.Imap.Secret,
-	})
+	}
+	// Mailbox/MaxMessages are optional on the wire specifically so they are
+	// NOT defaulted here — an absent value leaves the zero value, and
+	// normalizeCredentials (the standing Authenticate path) applies the
+	// connector's own defaults/caps. Copying a zero here instead of the
+	// caller's choice would silently force every connection onto INBOX/50.
+	if req.Imap.Mailbox != nil {
+		creds.Mailbox = *req.Imap.Mailbox
+	}
+	if req.Imap.MaxMessages != nil {
+		creds.MaxMessages = *req.Imap.MaxMessages
+	}
+	authReq, err := imap.AuthRequestFrom(creds)
 	if err != nil {
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusUnprocessableEntity,
@@ -109,10 +116,14 @@ func (h connectorHandlers) connectIMAP(w http.ResponseWriter, r *http.Request) {
 func (h connectorHandlers) persistIMAPConnection(w http.ResponseWriter, r *http.Request, auth connector.Auth) {
 	if _, err := h.registry.Connect(r.Context(), providerIMAP, auth); err != nil {
 		if errors.Is(err, apperrors.ErrScopeExceeded) {
+			// Defense-in-depth: connectIMAP grants the descriptor's scopes from
+			// the human's authority, so a human cannot normally trip this. Kept
+			// as the persistence-invariant re-check; the message names the gap
+			// generically rather than blaming a session that in fact holds it.
 			httperr.Write(w, r, &httperr.DetailedError{
 				Status: http.StatusForbidden,
 				Code:   "scope_exceeded",
-				Detail: "Connecting a mailbox needs the read scope your session does not hold.",
+				Detail: "This mailbox connection requires a capture scope that was not granted.",
 			})
 			return
 		}

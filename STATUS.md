@@ -22,6 +22,28 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**Connections surface + IMAP lifecycle unification (`feat/connections-ui`).**
+The Settings → Integrations `ConnectorsCard` (#230) is now the full connected-
+inboxes surface the onboarding copy always promised: one shared connector-
+status vocabulary (`screens/connector-status.ts` — `statusTone`/`statusLabel`/
+`errorClassKey`/`isUnhealthy`) drives Settings' health line, the disconnect
+confirm, and the home digest alike, so no two surfaces describe the same
+connector state differently. IMAP's one-shot transient connect endpoint is
+retired in favor of one `connect` lifecycle for every provider (an inline
+IMAP form in Settings, `return_to` landing OAuth consent back where it
+started); disconnect now actually destroys the sealed vault credential
+instead of leaking it (the prior bug); connections carry an `account_label`;
+personal-mail exclusions and per-provider backfill re-entry are reachable
+from the card; and home's `/digest` render now surfaces a connector-health
+line — only when a source is unhealthy, deep-linking to Settings →
+Integrations — closing the one gap where a degraded mailbox was invisible
+outside Settings. **Deferred (UF-4, upstream finding):** the backfill
+contract advertises the full `CaptureProvider` enum uniformly but only
+gmail/graph implement `connector.Backfiller`; the UI branches honestly on
+the runtime refusal today, but a capability-aware contract (e.g.
+`supports_backfill`/`supports_push` on `CaptureConnection`) is its own
+follow-up, raised upstream rather than worked around here.
+
 **Rate-proposal precondition + supersede (#225, `fix/rate-proposal-precondition`).**
 The three deferred P1s from the rates-refresh review, fixed on BOTH refresh
 paths (fx and model-cost): a proposal now carries the prior value it was

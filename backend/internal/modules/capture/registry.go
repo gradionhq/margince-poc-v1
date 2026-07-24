@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync"
@@ -39,11 +40,11 @@ type Registry struct {
 	authority  authz.Resolver
 	// vault seals and resolves a connection's credential bundle. The row
 	// carries an opaque credential_ref, never the credential bytes; the vault
-	// is the custodian. May be nil for a role that only runs the transient
-	// one-shot pull (RunTransient), which never persists a credential: Connect
-	// then refuses loudly (it must seal), and SyncOnce refuses only for a row
-	// whose credential lives in the vault — a not-yet-backfilled legacy row
-	// still resolves from its auth column with no vault.
+	// is the custodian. May be nil for a role composed before WithKeyvault
+	// wires one: Connect then refuses loudly (it must seal), and SyncOnce
+	// refuses only for a row whose credential lives in the vault — a
+	// not-yet-backfilled legacy row still resolves from its auth column with
+	// no vault.
 	vault keyvault.Vault
 
 	// The scheduling state machine's knobs (ADR-0063): now is injected so
@@ -59,8 +60,8 @@ const defaultSyncInterval = 2 * time.Minute
 
 // NewRegistry builds the connector registry over the pool, the capture Sink,
 // the live-authority resolver, and the keyvault that seals/resolves each
-// connection's credential. vault may be nil for a role that only runs the
-// transient one-shot pull (which persists no credential).
+// connection's credential. vault may be nil for a role composed before its
+// custodian is wired (WithKeyvault rebuilds the registry once it is).
 func NewRegistry(pool *pgxpool.Pool, sink *Sink, authority authz.Resolver, vault keyvault.Vault) *Registry {
 	return &Registry{
 		connectors:   map[string]connector.Connector{},
@@ -154,15 +155,44 @@ func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth
 	if err != nil {
 		return ids.Nil, fmt.Errorf("capture: sealing connector credential: %w", err)
 	}
+	// Display-only; a connector that cannot name its account simply does not
+	// implement the seam. This must not fail the connect — a missing label is a
+	// blank line in the UI, not a lost connection.
+	var accountLabel *string
+	if labeler, ok := c.(connector.AccountLabeler); ok {
+		if label, err := labeler.AccountLabel(auth); err == nil && label != "" {
+			accountLabel = &label
+		} else if err != nil {
+			slog.WarnContext(ctx, "capture: connector could not name its account", "provider", name, "err", err)
+		}
+	}
 	var id ids.UUID
+	var priorRef *string
 	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+		// Capture the credential_ref this (re)connect is about to overwrite,
+		// if a row for this (workspace, user, provider) already exists. The
+		// FOR UPDATE lock holds the row still for the span of this
+		// transaction, so a concurrent disconnect/reconnect on the same row
+		// serializes behind this one rather than racing it. Without this
+		// read, the upsert below would silently orphan the previous secret
+		// in the vault — every reconnect (including the reauth_required →
+		// Reconnect flow) would leak the prior credential.
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO capture_connection (workspace_id, provider, user_id, scopes, credential_ref, status)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, 'connected')
+			SELECT credential_ref FROM capture_connection
+			 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+			   AND user_id = $1 AND provider = $2
+			   FOR UPDATE`,
+			actor.UserID, name).Scan(&priorRef); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO capture_connection (workspace_id, provider, user_id, scopes, credential_ref, status, account_label)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, 'connected', $5)
 			ON CONFLICT (workspace_id, user_id, provider)
-			DO UPDATE SET credential_ref = EXCLUDED.credential_ref, auth = NULL, status = 'connected', archived_at = NULL
+			DO UPDATE SET credential_ref = EXCLUDED.credential_ref, auth = NULL, status = 'connected', archived_at = NULL,
+			              account_label = EXCLUDED.account_label
 			RETURNING id`,
-			name, actor.UserID, scopes, string(ref)).Scan(&id); err != nil {
+			name, actor.UserID, scopes, string(ref), accountLabel).Scan(&id); err != nil {
 			return err
 		}
 		// A (re)connect starts the scheduling ladder clean: a row parked by
@@ -177,36 +207,20 @@ func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth
 	if err != nil {
 		return ids.Nil, fmt.Errorf("capture: storing connection: %w", err)
 	}
+	// The row now names the fresh ref; a prior ref (a genuine reconnect over
+	// an existing row) is unreachable from any row from here on and must be
+	// destroyed — the same invariant Disconnect enforces, on the overwrite
+	// path rather than the withdraw path. A first-time connect has no prior
+	// ref: nothing to delete. The delete runs AFTER commit (put-then-commit's
+	// mirror: the row is already safely repointed at the new secret before
+	// the old one is destroyed) and its error surfaces rather than leaving a
+	// decryptable stale credential silently orphaned.
+	if priorRef != nil && *priorRef != "" {
+		if err := r.vault.Delete(ctx, ids.From[ids.WorkspaceKind](ws), keyvault.Ref(*priorRef)); err != nil {
+			return id, fmt.Errorf("capture: deleting the superseded credential: %w", err)
+		}
+	}
 	return id, nil
-}
-
-// RunTransient runs ONE sync of an already-authenticated connector under
-// the CALLING human's live authority, WITHOUT persisting a connection: no
-// capture_connection row, no stored credentials, no cursor. It is the
-// one-shot pull path — the connector holds its live provider session and
-// its own credentials; the registry contributes the run-time connector
-// principal built from the human's LIVE RBAC. Authority is capped where every
-// capture write is: the Sink's per-entry RBAC gate against that principal (a
-// human lacking activity:create cannot land a row — that gate, not any
-// HTTP-layer seat check, is authoritative). The write lands through the same
-// Sink, so audit + outbox hold.
-func (r *Registry) RunTransient(ctx context.Context, c connector.Connector, auth connector.Auth) error {
-	actor, ok := principal.Actor(ctx)
-	if !ok || actor.Type != principal.PrincipalHuman {
-		// A one-shot pull is a human action; a non-human principal here is a
-		// wiring error, surfaced as a 403 rather than an opaque 500.
-		return fmt.Errorf("capture: only a human runs a one-shot connector pull: %w", apperrors.ErrPermissionDenied)
-	}
-	runCtx, err := r.connectorContext(ctx, c.Descriptor().Name, ids.From[ids.UserKind](actor.UserID))
-	if err != nil {
-		return err
-	}
-	// A one-shot pull has no persisted cursor to advance; the connector
-	// bounds the pull itself (last N messages).
-	if _, err := c.Sync(runCtx, auth, nil, r.sink); err != nil {
-		return err
-	}
-	return nil
 }
 
 // SyncOnce runs one incremental sync for a connection: builds the

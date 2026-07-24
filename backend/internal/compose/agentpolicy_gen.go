@@ -92,7 +92,6 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/company/site-reads":                                        {Op: "startCompanySiteRead", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/company/site-reads/{readId}/confirm":                       {Op: "confirmCompanySiteRead", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/company/site-reads/{readId}/messages":                      {Op: "messageCompanySiteRead", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
-	"POST /v1/connectors/imap/connect":                                   {Op: "connectImap", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/connectors/{provider}/backfill":                            {Op: "startConnectorBackfill", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/connectors/{provider}/backfill/preview":                    {Op: "previewConnectorBackfill", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/connectors/{provider}/connect":                             {Op: "connectConnector", Access: "human-only", Tool: "", RecordType: "", Tier: ""},

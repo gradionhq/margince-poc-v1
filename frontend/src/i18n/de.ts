@@ -1173,6 +1173,12 @@ export const de = {
     "Er versucht es selbstständig erneut; alles bisher Erfasste bleibt erhalten.",
   "backfill.cancel": "Import stoppen",
   "backfill.cancelledNote": "Gestoppt. Alles bisher Erfasste bleibt erhalten.",
+  "backfill.unsupportedNote":
+    "Dieser Postfachtyp kann nicht rückwirkend importiert werden — ab jetzt werden nur neue E-Mails erfasst.",
+  "backfill.narrowingNote":
+    "Für dieses Postfach lief bereits ein größerer Zeitraum; der Import-Zeitraum kann nur erweitert, nicht verkleinert werden.",
+  "backfill.staleUpdated":
+    "Zuletzt aktualisiert vor {duration} — kein aktueller Fortschritt.",
 
   // Connected inboxes (Einstellungen → Integrationen).
   "connectors.title": "Verbundene Postfächer",
@@ -1192,11 +1198,78 @@ export const de = {
   "connectors.statusDisconnected": "Getrennt",
   "connectors.lastSynced": "Zuletzt synchronisiert {at}",
   "connectors.neverSynced": "Wartet auf die erste Synchronisierung",
+  "connectors.nextCheck": "Nächste Prüfung ~{at}",
+  "connectors.polled": "Wird gepollt (kein Push-Abo)",
+  "connectors.pushRenewal": "Push-Erneuerung bis {at}",
+  "connectors.notConfigured":
+    "Die Mail-Erfassung ist in dieser Installation nicht konfiguriert.",
   "connectors.reconnect": "Neu verbinden",
   "connectors.disconnect": "Trennen",
   "connectors.disconnectTitle": "Dieses Postfach trennen?",
   "connectors.disconnectBody":
-    "Die Erfassung stoppt sofort. Alles bereits Erfasste bleibt in deinem CRM, und du kannst jederzeit neu verbinden.",
+    "Dies löscht die für dieses Postfach gespeicherte Zugangsdaten. Die Erfassung stoppt sofort; alles bereits Erfasste bleibt in deinem CRM, und beim erneuten Verbinden wird wieder um Erlaubnis gebeten.",
+  "connectors.disconnectBodyGoogleNote":
+    "Google listet Margince unter Umständen weiterhin unter den Drittanbieter-Zugriffen deines Kontos — entferne es dort, wenn du den Zugriff vollständig widerrufen möchtest.",
+  "connectors.disconnectBodyMicrosoftNote":
+    "Microsoft listet Margince unter Umständen weiterhin unter den verbundenen Apps deines Kontos — entferne es dort, wenn du den Zugriff vollständig widerrufen möchtest.",
+  "connectors.errRateLimited":
+    "Der Anbieter drosselt uns. Die Erfassung läuft langsamer als sonst; es geht nichts verloren.",
+  "connectors.errUnreachable":
+    "Wir konnten den Anbieter nicht erreichen. Wir versuchen es weiter.",
+  "connectors.errAuth":
+    "Der Anbieter hat unsere Zugangsdaten abgelehnt. Neu verbinden, um fortzufahren.",
+  "connectors.errHistoryGone":
+    "Der Änderungsverlauf des Anbieters ist abgelaufen. Die nächste Synchronisierung setzt neu an.",
+  "connectors.errInternal":
+    "Bei uns ist etwas schiefgelaufen. Wir haben gestoppt, statt unvollständige Daten zu erfassen.",
+  "connectors.errUnknown":
+    "Bei der Erfassung ist ein Problem aufgetreten, das wir noch nicht einordnen können. Wir versuchen es weiter.",
+
+  // Das OAuth-Rückkehrergebnis (Task 2): der Callback landet auf
+  // #/settings/integrations/{outcome} — ein schließbarer Hinweis, gesteuert
+  // von diesem Routensegment.
+  "connectors.oauthOk": "Verbunden. Ihr Postfach erfasst jetzt.",
+  "connectors.oauthDenied":
+    "Sie haben den Zugriff abgelehnt — es wurde nichts verbunden.",
+  "connectors.oauthError":
+    "Die Verbindung konnte nicht hergestellt werden — bitte versuchen Sie es erneut.",
+  "connectors.dismissOutcome": "Schließen",
+
+  // Das eingebettete IMAP-Verbindungsformular (Task 6).
+  "connectors.imapConnectCta": "IMAP-Postfach verbinden",
+  "connectors.imapModalTitle": "IMAP-Postfach verbinden",
+  "connectors.imapHost": "IMAP-Server",
+  "connectors.imapPort": "Port",
+  "connectors.imapUsername": "E-Mail-Adresse",
+  "connectors.imapSecret": "App-Passwort",
+  "connectors.imapMailbox": "Postfach",
+  "connectors.imapMaxMessages": "Nachrichten pro Synchronisierung",
+  "connectors.imapSecretHint":
+    "Verwende ein App-Passwort. Wir versiegeln es im Credential-Vault und lesen deine Mails nach Zeitplan, bis du trennst — beim Trennen wird es gelöscht.",
+  "connectors.imapSubmitCta": "Verbinden",
+  "connectors.imapLoginRejected":
+    "Das Postfach hat diese Zugangsdaten abgelehnt. Prüfe Server, E-Mail und App-Passwort.",
+  "connectors.imapUnreachable": "Der Mailserver konnte nicht erreicht werden.",
+
+  // Persönliche Mail-Ausschlüsse (RC-2, Task 8).
+  "exclusions.title": "Ausschlüsse für persönliche Mails",
+  "exclusions.sub":
+    "Bestimmte Mails vollständig aus deinem CRM heraushalten. Eine passende Nachricht erzeugt null CRM-Datensätze — nichts wird erfasst und dann versteckt, es wird schlicht nie erfasst.",
+  "exclusions.kind.senderDomain": "Mail von dieser Domain",
+  "exclusions.kind.recipientDomain": "Mail an diese Domain",
+  "exclusions.kind.label": "Mail mit diesem Label",
+  "exclusions.new": "Neue Regel",
+  "exclusions.none": "Noch keine Ausschlussregeln.",
+  "exclusions.modalTitle": "Ausschlussregel hinzufügen",
+  "exclusions.fieldKind": "Regeltyp",
+  "exclusions.value": "Wert",
+  "exclusions.add": "Hinzufügen",
+  "exclusions.alreadyPresent": "Diese Regel ist bereits in deiner Liste.",
+  "exclusions.remove": "Entfernen",
+  "exclusions.removeTitle": "Diese Regel entfernen?",
+  "exclusions.removeConfirm":
+    "Mails, die auf diese Regel passen, werden nicht mehr ausgeschlossen — neue Nachrichten werden wieder normal erfasst.",
+
   "ob.s4.googleVerifying": "Verbindung wird geprüft…",
   "ob.s4.googleDenied": "Du hast die Google-Einwilligung abgelehnt",
   "ob.s4.googleFailed": "Die Google-Verbindung wurde nicht abgeschlossen",
@@ -1209,8 +1282,8 @@ export const de = {
   "ob.s4.imapMailbox": "Postfach",
   "ob.s4.imapMax": "Wie viele aktuelle E-Mails",
   "ob.s4.imapHint":
-    "Nutz ein App-spezifisches Passwort (Gmail: Konto → Sicherheit → App-Passwörter). Wir holen deine aktuelle Post einmalig, erfassen sie als Aktivitäten und speichern dein Passwort nie.",
-  "ob.s4.imapConnect": "Verbinden & erfassen",
+    "Nutz ein App-spezifisches Passwort (Gmail: Konto → Sicherheit → App-Passwörter). Wir versiegeln es im Credential-Vault und lesen weiter neue Post, bis du die Verbindung trennst — beim Trennen wird es gelöscht.",
+  "ob.s4.imapConnect": "Postfach verbinden",
   "ob.s4.connecting": "Sichere Verbindung…",
   "ob.s4.scope1Lead": "Wir lesen — wir müllen nichts voll.",
   "ob.s4.scope1Rest":
@@ -1222,10 +1295,9 @@ export const de = {
     "Own-your-data — jederzeit alles exportieren oder löschen.",
   "ob.s4.scope4Lead": "Trennung mit einem Klick.",
   "ob.s4.scope4Rest": "Das CRM läuft weiter; es hört nur auf zu erfassen.",
-  "ob.s4.capturedTitle": "Dein Postfach ist live in deinem CRM",
-  "ob.s4.statCaptured": "erfasst",
-  "ob.s4.statContacts": "Kontakte",
-  "ob.s4.statSkipped": "übersprungen",
+  "ob.s4.capturedTitle": "Postfach verbunden",
+  "ob.s4.capturedBody":
+    "Lehn dich zurück — dein CRM baut sich von selbst auf. Neue Post trifft hier ein, sobald der erste Durchlauf läuft, meist innerhalb weniger Minuten.",
   "ob.s4.enterCrm": "Ins CRM",
   "ob.s4.connectFailed": "Dieses Postfach ließ sich nicht verbinden",
   "ob.s4.skipLater": "Erstmal überspringen — später verbinden",

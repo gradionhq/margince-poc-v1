@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Mail, Plug, RefreshCw } from "lucide-react";
+import { Mail, Plug, RefreshCw, X } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { navigate } from "../app/router";
+import { useRoute } from "../app/router";
 import {
   Badge,
   Button,
@@ -15,7 +15,10 @@ import { ConfirmModal } from "../design-system/confirmmodal";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessage } from "./common";
+import { BackfillPanel } from "./backfill";
+import { problemCode, problemMessage } from "./common";
+import { errorClassKey, statusLabel, statusTone } from "./connector-status";
+import { ImapConnectForm } from "./imap-connect-form";
 
 // The connected-inboxes card (RC-8): the Settings surface the onboarding copy
 // has always promised ("disconnect in one click", "manage in Settings"). It
@@ -25,7 +28,6 @@ import { problemMessage } from "./common";
 
 type CaptureConnection = components["schemas"]["CaptureConnection"];
 type Provider = CaptureConnection["provider"];
-type Status = CaptureConnection["status"];
 
 const providerLabel: Record<Provider, MessageKey> = {
   gmail: "connectors.provGmail",
@@ -34,23 +36,90 @@ const providerLabel: Record<Provider, MessageKey> = {
   imap: "connectors.provImap",
 };
 
-const statusTone: Record<Status, "success" | "warn" | "danger" | undefined> = {
-  connected: "success",
-  reauth_required: "warn",
-  error: "danger",
-  disconnected: undefined,
-};
-
-const statusLabel: Record<Status, MessageKey> = {
-  connected: "connectors.statusConnected",
-  reauth_required: "connectors.statusReauth",
-  error: "connectors.statusError",
-  disconnected: "connectors.statusDisconnected",
-};
-
 // The OAuth providers whose reconnect re-mints a consent URL; imap reconnects
-// through the onboarding form, not a redirect.
+// (and first-connects) through the inline ImapConnectForm below instead, since
+// a credential provider never redirects.
 const OAUTH_PROVIDERS = new Set<Provider>(["gmail", "gcal", "graph"]);
+
+// Disconnecting an OAuth connection deletes OUR stored credential; it does
+// not reach out to the vendor to revoke the grant on their side (there is no
+// such API call here), so the confirm names the vendor-specific place a
+// careful user can go finish that themselves. IMAP has no upstream grant —
+// omitted entirely rather than shown as a no-op.
+const OAUTH_DISCONNECT_NOTE: Partial<Record<Provider, MessageKey>> = {
+  gmail: "connectors.disconnectBodyGoogleNote",
+  gcal: "connectors.disconnectBodyGoogleNote",
+  graph: "connectors.disconnectBodyMicrosoftNote",
+};
+
+// The OAuth callback lands back on #/settings/integrations/{outcome} — the
+// route parses to id2 = "ok" | "denied" | "error". Only these three are
+// server-defined (contract-first); any other value is silently ignored
+// rather than rendering a raw route segment.
+const OAUTH_OUTCOME_NOTE: Record<
+  string,
+  { key: MessageKey; tone: "success" | "danger" }
+> = {
+  ok: { key: "connectors.oauthOk", tone: "success" },
+  denied: { key: "connectors.oauthDenied", tone: "danger" },
+  error: { key: "connectors.oauthError", tone: "danger" },
+};
+
+type ConnectorsResult = {
+  // GET /connectors answers 501 code:not_implemented when this deployment
+  // never wired mail capture (httperr.NotImplemented) — a calm, documented
+  // feature-off state, never an error card (mirrors webhooks.tsx's
+  // webhooks_not_configured treatment).
+  notConfigured: boolean;
+  data: CaptureConnection[];
+};
+
+// The OAuth return outcome (Task 2): the callback lands back on
+// #/settings/integrations/{outcome} — id2 on that route only, never parsed
+// from location.hash directly (the router already owns that). Split out of
+// ConnectorsCard so its dismissal state and branching stay off that
+// function's complexity budget. Dismissing (or navigating away, which
+// unmounts this card) clears it; the list itself already refetches on
+// mount, so "ok" needs no extra invalidation here.
+function OAuthOutcomeNote() {
+  const t = useT();
+  const route = useRoute();
+  const oauthOutcome =
+    route.screen === "settings" && route.id === "integrations"
+      ? route.id2
+      : undefined;
+  const [dismissedOutcome, setDismissedOutcome] = useState<string | null>(null);
+  const note =
+    oauthOutcome && oauthOutcome !== dismissedOutcome
+      ? OAUTH_OUTCOME_NOTE[oauthOutcome]
+      : undefined;
+  if (!note) {
+    return null;
+  }
+  return (
+    <p
+      role="status"
+      className="t-small connector-oauth-note"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "var(--space-2)",
+        color: note.tone === "success" ? "var(--success)" : "var(--danger)",
+      }}
+    >
+      <span>{t(note.key)}</span>
+      <Button
+        small
+        variant="ghost"
+        aria-label={t("connectors.dismissOutcome")}
+        onClick={() => setDismissedOutcome(oauthOutcome ?? null)}
+      >
+        <X aria-hidden />
+      </Button>
+    </p>
+  );
+}
 
 export function ConnectorsCard() {
   const t = useT();
@@ -59,15 +128,19 @@ export function ConnectorsCard() {
   const [pendingDisconnect, setPendingDisconnect] = useState<Provider | null>(
     null,
   );
+  const [imapConnectOpen, setImapConnectOpen] = useState(false);
 
   const connectors = useQuery({
     queryKey: ["connectors"],
-    queryFn: async () => {
-      const { data, error } = await api.GET("/connectors");
+    queryFn: async (): Promise<ConnectorsResult> => {
+      const { data, error, response } = await api.GET("/connectors");
+      if (response.status === 501 && problemCode(error) === "not_implemented") {
+        return { notConfigured: true, data: [] };
+      }
       if (error) {
         throw new Error(problemMessage(error));
       }
-      return data;
+      return { notConfigured: false, data: data.data };
     },
   });
 
@@ -75,7 +148,9 @@ export function ConnectorsCard() {
     mutationFn: async (provider: Provider) => {
       const { data, error } = await api.POST("/connectors/{provider}/connect", {
         params: { path: { provider } },
-        body: {},
+        // Lands the post-consent redirect back on Settings (Task 2's
+        // contract field) rather than the default onboarding landing.
+        body: { return_to: "settings" },
       });
       if (error) {
         throw new Error(problemMessage(error));
@@ -104,13 +179,18 @@ export function ConnectorsCard() {
     },
   });
 
+  const notConfigured = connectors.data?.notConfigured ?? false;
   const rows = (connectors.data?.data ?? []).filter(
     (c) => c.status !== "disconnected",
   );
+  const disconnectNoteKey = pendingDisconnect
+    ? OAUTH_DISCONNECT_NOTE[pendingDisconnect]
+    : undefined;
 
   return (
     <Card>
       <SectionHeader title={t("connectors.title")} sub={t("connectors.sub")} />
+      <OAuthOutcomeNote />
       {connectors.isPending && (
         <p className="t-small">{t("connectors.loading")}</p>
       )}
@@ -121,19 +201,37 @@ export function ConnectorsCard() {
             : t("connectors.loadFailed")}
         </p>
       )}
-      {connectors.isSuccess && rows.length === 0 && (
+      {connectors.isSuccess && notConfigured && (
         <EmptyState>
-          <p>{t("connectors.empty")}</p>
-          <Button
-            small
-            variant="primary"
-            onClick={() => navigate({ screen: "onboarding", id: "connect" })}
-          >
-            <Plug aria-hidden /> {t("connectors.connectCta")}
-          </Button>
+          <p>{t("connectors.notConfigured")}</p>
         </EmptyState>
       )}
-      {rows.length > 0 && (
+      {connectors.isSuccess && !notConfigured && rows.length === 0 && (
+        <EmptyState>
+          <p>{t("connectors.empty")}</p>
+          <div
+            style={{
+              display: "flex",
+              gap: "var(--space-2)",
+              justifyContent: "center",
+              flexWrap: "wrap",
+            }}
+          >
+            <Button
+              small
+              variant="primary"
+              disabled={reconnect.isPending}
+              onClick={() => reconnect.mutate("gmail")}
+            >
+              <Plug aria-hidden /> {t("connectors.connectCta")}
+            </Button>
+            <Button small onClick={() => setImapConnectOpen(true)}>
+              <Mail aria-hidden /> {t("connectors.imapConnectCta")}
+            </Button>
+          </div>
+        </EmptyState>
+      )}
+      {!notConfigured && rows.length > 0 && (
         <ul className="connectors-list">
           {rows.map((conn) => (
             <li key={conn.id} className="connector-row">
@@ -141,6 +239,11 @@ export function ConnectorsCard() {
                 <Mail aria-hidden />
                 <span>
                   <strong>{t(providerLabel[conn.provider])}</strong>
+                  {conn.account_label && (
+                    <span className="t-small connector-account">
+                      {conn.account_label}
+                    </span>
+                  )}
                   <span className="t-small connector-synced">
                     {conn.last_synced_at
                       ? t("connectors.lastSynced", {
@@ -152,14 +255,45 @@ export function ConnectorsCard() {
                         })
                       : t("connectors.neverSynced")}
                   </span>
+                  {conn.next_sync_due_at && (
+                    <span className="t-small connector-synced">
+                      {t("connectors.nextCheck", {
+                        at: formatDateTime(
+                          conn.next_sync_due_at,
+                          locale,
+                          "Europe/Berlin",
+                        ),
+                      })}
+                    </span>
+                  )}
+                  <span className="t-small connector-synced">
+                    {conn.watch_expires_at
+                      ? t("connectors.pushRenewal", {
+                          at: formatDateTime(
+                            conn.watch_expires_at,
+                            locale,
+                            "Europe/Berlin",
+                          ),
+                        })
+                      : t("connectors.polled")}
+                  </span>
+                  {(conn.status === "error" ||
+                    conn.status === "reauth_required") && (
+                    <span
+                      className="t-small"
+                      style={{ color: "var(--danger)" }}
+                    >
+                      {t(errorClassKey(conn.last_sync_error_class))}
+                    </span>
+                  )}
                 </span>
               </span>
               <span className="connector-actions">
-                <Badge tone={statusTone[conn.status]}>
-                  {t(statusLabel[conn.status])}
+                <Badge tone={statusTone(conn.status)}>
+                  {t(statusLabel(conn.status))}
                 </Badge>
                 {conn.status === "reauth_required" &&
-                  OAUTH_PROVIDERS.has(conn.provider) && (
+                  (OAUTH_PROVIDERS.has(conn.provider) ? (
                     <Button
                       small
                       disabled={reconnect.isPending}
@@ -167,7 +301,11 @@ export function ConnectorsCard() {
                     >
                       <RefreshCw aria-hidden /> {t("connectors.reconnect")}
                     </Button>
-                  )}
+                  ) : (
+                    <Button small onClick={() => setImapConnectOpen(true)}>
+                      <RefreshCw aria-hidden /> {t("connectors.reconnect")}
+                    </Button>
+                  ))}
                 <Button
                   small
                   variant="ghost"
@@ -176,6 +314,14 @@ export function ConnectorsCard() {
                   {t("connectors.disconnect")}
                 </Button>
               </span>
+              {conn.status === "connected" && (
+                <div className="connector-backfill">
+                  <BackfillPanel
+                    provider={conn.provider}
+                    initial={conn.backfill}
+                  />
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -200,7 +346,13 @@ export function ConnectorsCard() {
         }}
       >
         <p className="t-small">{t("connectors.disconnectBody")}</p>
+        {disconnectNoteKey && <p className="t-small">{t(disconnectNoteKey)}</p>}
       </ConfirmModal>
+      <ImapConnectForm
+        open={imapConnectOpen}
+        onClose={() => setImapConnectOpen(false)}
+        onConnected={() => setImapConnectOpen(false)}
+      />
     </Card>
   );
 }

@@ -4,9 +4,10 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Button } from "../design-system/atoms";
-import { useT } from "../i18n";
+import { formatDuration } from "../format/format";
+import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessage } from "./common";
+import { ProblemError, problemCode, throwProblem } from "./common";
 
 // The bounded connect-time backfill (ADR-0063): pick a window, see the scope
 // BEFORE anything spends (ADR-0020 preview-before-spend — the estimate card
@@ -15,8 +16,14 @@ import { problemMessage } from "./common";
 // fabricated client-side (CAP-AC-OPEN-1). The scope preview auto-loads so the
 // first thing a newly-connected user sees is honest scope, not a blank form —
 // but the spend still waits for the explicit "Start the import" consent.
+//
+// This panel is mounted in two places now: the onboarding coldstart (no
+// `initial`, always fetches) and the Settings connected-inboxes card (which
+// already holds the run row via the embedded `CaptureConnection.backfill` —
+// seeding from it renders a live run with no extra request).
 
 type BackfillStatus = components["schemas"]["BackfillStatus"];
+type Provider = components["schemas"]["CaptureConnection"]["provider"];
 type BackfillWindow = "3m" | "6m" | "12m";
 
 const WINDOWS: { value: BackfillWindow; label: MessageKey }[] = [
@@ -25,11 +32,75 @@ const WINDOWS: { value: BackfillWindow; label: MessageKey }[] = [
   { value: "12m", label: "backfill.window12m" },
 ];
 
+// A run whose updated_at hasn't moved in this long is honestly "stuck", not
+// "in progress" — the contract's own doc comment on BackfillStatus.updated_at
+// calls this out ("a killed worker leaves this honest"). Long enough that
+// ordinary poll jitter or a slow provider batch never false-positives, short
+// enough that a genuinely dead worker surfaces within a couple of polls of
+// the threshold rather than staying "live" indefinitely.
+const STALE_AFTER_MS = 3 * 60_000;
+
+const isLiveState = (state: BackfillStatus["state"] | undefined) =>
+  state === "running" || state === "queued";
+
+// Both preview and start can answer connector_unsupported (a provider with no
+// Backfiller — IMAP today) or window_narrowing (start only, a widen-only
+// re-run) — pull the RFC 7807 code out of a thrown ProblemError so the render
+// can branch to its own honest sentence instead of the raw server detail.
+function errorCodeOf(error: unknown): string | null {
+  return error instanceof ProblemError ? problemCode(error.problem) : null;
+}
+
+// connector_unsupported is a structural fact about the provider (no
+// Backfiller behind it), independent of which window was picked — either op
+// can be the one that surfaces it, depending on whether the setup screen's
+// auto-preview or an explicit start round-trips first. window_narrowing only
+// ever comes from start (preview never enqueues a run).
+function classifyBackfillErrors(
+  previewError: unknown,
+  startError: unknown,
+): { unsupported: boolean; narrowing: boolean } {
+  const previewCode = errorCodeOf(previewError);
+  const startCode = errorCodeOf(startError);
+  return {
+    unsupported:
+      previewCode === "connector_unsupported" ||
+      startCode === "connector_unsupported",
+    narrowing: startCode === "window_narrowing",
+  };
+}
+
+// A live run whose updated_at hasn't moved past STALE_AFTER_MS is honestly
+// "stuck", not "in progress" — the contract's own doc comment on
+// BackfillStatus.updated_at calls this out ("a killed worker leaves this
+// honest"). A done/error/cancelled run's updated_at is its finish stamp, not
+// a staleness signal, so this only applies to a live one.
+function staleness(
+  run: BackfillStatus,
+  live: boolean,
+): { stale: boolean; agoMs: number } {
+  const agoMs = run.updated_at
+    ? Math.max(0, Date.now() - new Date(run.updated_at).getTime())
+    : 0;
+  return {
+    stale: live && run.updated_at != null && agoMs > STALE_AFTER_MS,
+    agoMs,
+  };
+}
+
 // statusQueryKey is shared by every reader of the run row so a start or
 // cancel invalidates them all.
 const statusQueryKey = (provider: string) => ["backfill-status", provider];
 
-export function BackfillPanel({ provider }: { provider: "gmail" }) {
+export function BackfillPanel({
+  provider,
+  initial,
+}: {
+  provider: Provider;
+  // The run row already embedded in GET /connectors (CaptureConnection.
+  // backfill) — seeds the first render so a live run shows immediately.
+  initial?: BackfillStatus;
+}) {
   const t = useT();
   const qc = useQueryClient();
   const [window, setWindow] = useState<BackfillWindow>("6m");
@@ -42,16 +113,20 @@ export function BackfillPanel({ provider }: { provider: "gmail" }) {
         params: { path: { provider } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
+    initialData: initial,
+    // The embedded snapshot already answered this read once; skip the
+    // mount-time re-fetch it would otherwise trigger (react-query treats
+    // fresh-but-present data as needing revalidation by default) and rely on
+    // the live poll below, or an explicit invalidate (start/cancel), for a
+    // fresher row. Without a seed, behave exactly as before: fetch on mount.
+    staleTime: initial !== undefined ? Number.POSITIVE_INFINITY : 0,
     // Poll while a run is live: the status read is a single indexed row
     // (CAP-PARAM-2), so polling is indistinguishable from push here.
-    refetchInterval: (q) =>
-      q.state.data?.state === "running" || q.state.data?.state === "queued"
-        ? 2500
-        : false,
+    refetchInterval: (q) => (isLiveState(q.state.data?.state) ? 2500 : false),
   });
 
   const preview = useMutation({
@@ -61,7 +136,7 @@ export function BackfillPanel({ provider }: { provider: "gmail" }) {
         { params: { path: { provider } }, body: { window: w } },
       );
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -77,7 +152,7 @@ export function BackfillPanel({ provider }: { provider: "gmail" }) {
         },
       );
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -92,13 +167,18 @@ export function BackfillPanel({ provider }: { provider: "gmail" }) {
         { params: { path: { provider } } },
       );
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: statusQueryKey(provider) }),
   });
+
+  const { unsupported, narrowing } = classifyBackfillErrors(
+    preview.error,
+    start.error,
+  );
 
   // Auto-load the scope for the selected window the moment the setup view is
   // live (no run yet, not skipped) — the user sees honest scope immediately.
@@ -135,52 +215,19 @@ export function BackfillPanel({ provider }: { provider: "gmail" }) {
   const run = status.data;
   if (run.state === "none") {
     return (
-      <div className="backfill-setup">
-        <h3 className="backfill-h">
-          <History aria-hidden /> {t("backfill.title")}
-        </h3>
-        <p className="t-small">{t("backfill.intro")}</p>
-        <div
-          className="backfill-windows"
-          role="radiogroup"
-          aria-label={t("backfill.windowLabel")}
-        >
-          {WINDOWS.map((w) => (
-            <label key={w.value} className="backfill-window">
-              <input
-                type="radio"
-                name="backfill-window"
-                checked={window === w.value}
-                onChange={() => setWindow(w.value)}
-              />
-              {t(w.label)}
-            </label>
-          ))}
-        </div>
-        {preview.isPending && !preview.data && (
-          <p className="t-small">{t("backfill.previewLoading")}</p>
-        )}
-        {preview.isError && (
-          <p className="t-small backfill-error">{preview.error.message}</p>
-        )}
-        {preview.data && (
-          <EstimateCard
-            preview={preview.data}
-            starting={start.isPending}
-            onStart={() => start.mutate(window)}
-          />
-        )}
-        {start.isError && (
-          <p className="t-small backfill-error">{start.error.message}</p>
-        )}
-        <button
-          type="button"
-          className="backfill-skip"
-          onClick={() => setSkipped(true)}
-        >
-          {t("backfill.skip")}
-        </button>
-      </div>
+      <BackfillSetup
+        window={window}
+        onWindowChange={setWindow}
+        unsupported={unsupported}
+        narrowing={narrowing}
+        previewPending={preview.isPending}
+        previewData={preview.data}
+        previewErrorMessage={preview.isError ? preview.error.message : null}
+        startPending={start.isPending}
+        startErrorMessage={start.isError ? start.error.message : null}
+        onStart={() => start.mutate(window)}
+        onSkip={() => setSkipped(true)}
+      />
     );
   }
 
@@ -191,6 +238,102 @@ export function BackfillPanel({ provider }: { provider: "gmail" }) {
       cancelError={cancel.isError ? cancel.error.message : null}
       onCancel={() => cancel.mutate()}
     />
+  );
+}
+
+// The window-picker + scope-preview + explicit-start setup screen, shown
+// while no run has ever started. Split out of BackfillPanel so the several
+// independent honest states here (loading the scope, a generic preview/start
+// failure, a refused narrowing, and the connector_unsupported capability
+// statement) don't all pile into one function's complexity budget.
+function BackfillSetup({
+  window,
+  onWindowChange,
+  unsupported,
+  narrowing,
+  previewPending,
+  previewData,
+  previewErrorMessage,
+  startPending,
+  startErrorMessage,
+  onStart,
+  onSkip,
+}: {
+  window: BackfillWindow;
+  onWindowChange: (w: BackfillWindow) => void;
+  unsupported: boolean;
+  narrowing: boolean;
+  previewPending: boolean;
+  previewData: components["schemas"]["BackfillPreview"] | undefined;
+  previewErrorMessage: string | null;
+  startPending: boolean;
+  startErrorMessage: string | null;
+  onStart: () => void;
+  onSkip: () => void;
+}) {
+  const t = useT();
+
+  // A provider with no Backfiller behind it (IMAP today) can't run this op
+  // at all, whichever window is picked — the honest answer is a capability
+  // statement, not a retryable error inside the rest of the setup form.
+  if (unsupported) {
+    return (
+      <div className="backfill-setup">
+        <h3 className="backfill-h">
+          <History aria-hidden /> {t("backfill.title")}
+        </h3>
+        <p className="t-small backfill-unsupported">
+          {t("backfill.unsupportedNote")}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="backfill-setup">
+      <h3 className="backfill-h">
+        <History aria-hidden /> {t("backfill.title")}
+      </h3>
+      <p className="t-small">{t("backfill.intro")}</p>
+      <div
+        className="backfill-windows"
+        role="radiogroup"
+        aria-label={t("backfill.windowLabel")}
+      >
+        {WINDOWS.map((w) => (
+          <label key={w.value} className="backfill-window">
+            <input
+              type="radio"
+              name="backfill-window"
+              checked={window === w.value}
+              onChange={() => onWindowChange(w.value)}
+            />
+            {t(w.label)}
+          </label>
+        ))}
+      </div>
+      {previewPending && !previewData && (
+        <p className="t-small">{t("backfill.previewLoading")}</p>
+      )}
+      {previewErrorMessage && (
+        <p className="t-small backfill-error">{previewErrorMessage}</p>
+      )}
+      {previewData && (
+        <EstimateCard
+          preview={previewData}
+          starting={startPending}
+          onStart={onStart}
+        />
+      )}
+      {startErrorMessage && (
+        <p className="t-small backfill-error">
+          {narrowing ? t("backfill.narrowingNote") : startErrorMessage}
+        </p>
+      )}
+      <button type="button" className="backfill-skip" onClick={onSkip}>
+        {t("backfill.skip")}
+      </button>
+    </div>
   );
 }
 
@@ -283,6 +426,7 @@ function RunView({
     run.estimated_messages && run.estimated_messages > 0
       ? Math.min(1, scanned / run.estimated_messages)
       : null;
+  const { stale, agoMs } = staleness(run, live);
 
   return (
     <div className={`capture-hero${done ? " done" : ""}`} aria-live="polite">
@@ -293,7 +437,10 @@ function RunView({
           </>
         ) : (
           <>
-            <History aria-hidden className={live ? "spin-slow" : ""} />{" "}
+            <History
+              aria-hidden
+              className={live && !stale ? "spin-slow" : ""}
+            />{" "}
             {t(stateTitle(run.state))}
           </>
         )}
@@ -308,9 +455,12 @@ function RunView({
           />
         ))}
       </div>
-      {fraction !== null && live && (
-        <progress value={fraction} aria-label={t("backfill.progressLabel")} />
-      )}
+      <RunProgress
+        live={live}
+        stale={stale}
+        fraction={fraction}
+        agoMs={agoMs}
+      />
       <p className="t-small capture-scanned">
         {t("backfill.countScanned")} {scanned.toLocaleString()}
       </p>
@@ -338,6 +488,38 @@ function RunView({
       )}
     </div>
   );
+}
+
+// Either the live progress bar or the staleness note, never both: a run that
+// isn't moving forward doesn't get to keep the bar that implies otherwise.
+function RunProgress({
+  live,
+  stale,
+  fraction,
+  agoMs,
+}: {
+  live: boolean;
+  stale: boolean;
+  fraction: number | null;
+  agoMs: number;
+}) {
+  const t = useT();
+  const { locale } = useLocale();
+  if (stale) {
+    return (
+      <p className="t-small backfill-stale">
+        {t("backfill.staleUpdated", {
+          duration: formatDuration(agoMs, locale),
+        })}
+      </p>
+    );
+  }
+  if (fraction !== null && live) {
+    return (
+      <progress value={fraction} aria-label={t("backfill.progressLabel")} />
+    );
+  }
+  return null;
 }
 
 function stateTitle(state: BackfillStatus["state"]): MessageKey {

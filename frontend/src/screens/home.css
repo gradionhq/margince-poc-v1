@@ -218,6 +218,33 @@
   margin: 0;
 }
 
+/* The connector-health line (Task 11): renders only when the digest's
+ * connectors[] holds an unhealthy source — a degraded mailbox is news, a
+ * healthy one is not — and deep-links into Settings → Integrations. */
+
+.digest-connector-health {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: var(--danger);
+}
+
+.digest-connector-health:hover {
+  text-decoration: underline;
+}
+
+.digest-connector-health svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
 @media (max-width: 640px) {
   .digest-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));

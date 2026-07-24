@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
 import { ConnectorsCard } from "./connectors";
+import { installFetchStub } from "./story-utils";
 
 // The connected-inboxes card makes the onboarding promise ("disconnect in one
 // click", "manage in Settings") real. It renders server facts only, and a
@@ -25,6 +26,12 @@ const gmailConnected: CaptureConnection = {
   status: "connected",
   scopes: ["read"],
   last_synced_at: "2026-07-23T09:30:00Z",
+  // A finished backfill: mounting BackfillPanel below the row must not fire
+  // an extra request (the panel seeds from this embedded snapshot). "none"
+  // would auto-fire the setup screen's scope preview against an unstubbed
+  // route — "done" is the honest, inert terminal state for an established
+  // connection these fixtures otherwise don't care about.
+  backfill: { state: "done" },
 };
 
 const gmailStale: CaptureConnection = {
@@ -102,6 +109,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  globalThis.location.hash = "";
 });
 
 describe("the connected-inboxes card", () => {
@@ -119,6 +127,17 @@ describe("the connected-inboxes card", () => {
     expect(await screen.findByText(/No inbox is connected yet/)).toBeTruthy();
     expect(
       screen.getByRole("button", { name: /Connect an inbox/ }),
+    ).toBeTruthy();
+  });
+
+  it("opens the inline IMAP form from the empty state instead of bouncing to onboarding", async () => {
+    stubApi([]);
+    render(<ConnectorsCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Connect an IMAP mailbox/ }),
+    );
+    expect(
+      screen.getByRole("dialog", { name: "Connect an IMAP mailbox" }),
     ).toBeTruthy();
   });
 
@@ -159,6 +178,33 @@ describe("the connected-inboxes card", () => {
     );
   });
 
+  it("sends return_to=settings on reconnect so consent lands back on Settings", async () => {
+    vi.stubGlobal("location", { ...globalThis.location, assign: vi.fn() });
+    const calls = stubApi([gmailStale], {
+      connect: { authorize_url: "https://accounts.google/consent" },
+    });
+    render(<ConnectorsCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Reconnect/ }),
+    );
+    const connectRequests = await waitFor(() => {
+      const requests = requestsTo(calls, "/connect", "POST");
+      expect(requests.length).toBe(1);
+      return requests;
+    });
+    const body = await connectRequests[0].clone().json();
+    expect(body).toMatchObject({ return_to: "settings" });
+  });
+
+  it("offers the inline IMAP form to reconnect an imap connection instead of an OAuth reconnect", async () => {
+    stubApi([{ ...gmailStale, provider: "imap" }]);
+    render(<ConnectorsCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Reconnect/ }),
+    );
+    expect(await screen.findByText("Connect an IMAP mailbox")).toBeTruthy();
+  });
+
   it("surfaces a failed reconnect instead of redirecting", async () => {
     const calls = stubApi([gmailStale], { connect: { status: 502 } });
     render(<ConnectorsCard />);
@@ -186,5 +232,159 @@ describe("the connected-inboxes card", () => {
     await waitFor(() =>
       expect(requestsTo(calls, "/disconnect", "POST").length).toBe(1),
     );
+  });
+});
+
+// The richer per-row health line (account_label, next_sync_due_at,
+// watch_expires_at, the error-class sentence) and the 501 calm state, all
+// exercised through the real installFetchStub route-map shape.
+describe("the connected-inboxes card's richer health line", () => {
+  it("shows the account label beside the provider name", async () => {
+    installFetchStub({
+      "GET /connectors": () =>
+        jsonResponse({
+          data: [{ ...gmailConnected, account_label: "lars@example.de" }],
+        }),
+    });
+    render(<ConnectorsCard />);
+    expect(await screen.findByText("lars@example.de")).toBeTruthy();
+  });
+
+  it("reads a null watch_expires_at as polled, never as expired", async () => {
+    installFetchStub({
+      "GET /connectors": () =>
+        jsonResponse({
+          data: [
+            { ...gmailConnected, provider: "imap", watch_expires_at: null },
+          ],
+        }),
+    });
+    render(<ConnectorsCard />);
+    expect(await screen.findByText(/polled/i)).toBeTruthy();
+    expect(screen.queryByText(/expired/i)).toBeNull();
+  });
+
+  it("renders a push renewal deadline when watch_expires_at is set", async () => {
+    installFetchStub({
+      "GET /connectors": () =>
+        jsonResponse({
+          data: [
+            { ...gmailConnected, watch_expires_at: "2026-08-01T00:00:00Z" },
+          ],
+        }),
+    });
+    render(<ConnectorsCard />);
+    expect(await screen.findByText(/push renewal/i)).toBeTruthy();
+  });
+
+  it("renders the error-class sentence for a reauth_required connection", async () => {
+    installFetchStub({
+      "GET /connectors": () =>
+        jsonResponse({
+          data: [{ ...gmailStale, last_sync_error_class: "auth" }],
+        }),
+    });
+    render(<ConnectorsCard />);
+    expect(await screen.findByText(/rejected our credentials/i)).toBeTruthy();
+  });
+
+  it("renders the 501 not-configured response as a calm state, not an error", async () => {
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ code: "not_implemented" }, 501),
+    });
+    render(<ConnectorsCard />);
+    expect(
+      await screen.findByText(/isn't configured in this deployment/i),
+    ).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(/couldn't load/i)).toBeNull();
+  });
+
+  it("shows the updated disconnect copy naming credential deletion and Google's own access list", async () => {
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ data: [gmailConnected] }),
+    });
+    render(<ConnectorsCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^Disconnect$/ }),
+    );
+    expect(
+      await screen.findByText(/delete the credential we stored/i),
+    ).toBeTruthy();
+    expect(screen.getByText(/Google may still list Margince/i)).toBeTruthy();
+  });
+
+  it("omits the vendor-access note for an IMAP disconnect (no upstream grant)", async () => {
+    installFetchStub({
+      "GET /connectors": () =>
+        jsonResponse({ data: [{ ...gmailConnected, provider: "imap" }] }),
+    });
+    render(<ConnectorsCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^Disconnect$/ }),
+    );
+    expect(
+      await screen.findByText(/delete the credential we stored/i),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Google may still list Margince/i)).toBeNull();
+  });
+});
+
+// The OAuth return outcome (Task 2): the backend now lands the callback on
+// #/settings/integrations/{outcome} — the route parses to
+// {screen:"settings", id:"integrations", id2:<outcome>} and the card renders
+// a dismissible inline note from that segment, never a claim the server
+// hasn't confirmed.
+describe("the OAuth return outcome", () => {
+  it("renders an honest denial note when the user declined access", async () => {
+    globalThis.location.hash = "#/settings/integrations/denied";
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ data: [] }),
+    });
+    render(<ConnectorsCard />);
+    expect(await screen.findByText(/you declined access/i)).toBeTruthy();
+    expect(screen.queryByText(/couldn't be completed/i)).toBeNull();
+  });
+
+  it("renders an honest failure note when the connection could not complete", async () => {
+    globalThis.location.hash = "#/settings/integrations/error";
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ data: [] }),
+    });
+    render(<ConnectorsCard />);
+    expect(await screen.findByText(/couldn't be completed/i)).toBeTruthy();
+    expect(screen.queryByText(/you declined access/i)).toBeNull();
+  });
+
+  it("renders a brief success note on ok — never an error", async () => {
+    globalThis.location.hash = "#/settings/integrations/ok";
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ data: [gmailConnected] }),
+    });
+    render(<ConnectorsCard />);
+    expect(await screen.findByText(/mailbox is now capturing/i)).toBeTruthy();
+    expect(screen.queryByText(/couldn't be completed/i)).toBeNull();
+    expect(screen.queryByText(/you declined access/i)).toBeNull();
+  });
+
+  it("renders no outcome note when the route carries none", async () => {
+    globalThis.location.hash = "#/settings/integrations";
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ data: [] }),
+    });
+    render(<ConnectorsCard />);
+    await screen.findByText(/No inbox is connected yet/);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("dismisses the note and clears it", async () => {
+    globalThis.location.hash = "#/settings/integrations/denied";
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ data: [] }),
+    });
+    render(<ConnectorsCard />);
+    await screen.findByText(/you declined access/i);
+    await userEvent.click(screen.getByRole("button", { name: /dismiss/i }));
+    expect(screen.queryByText(/you declined access/i)).toBeNull();
   });
 });

@@ -20,6 +20,7 @@ import { formatDate, formatDateTime, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessage, QueryGate } from "./common";
+import { errorClassKey, isUnhealthy } from "./connector-status";
 import {
   ApprovalRow,
   useApprovalTokenSink,
@@ -56,7 +57,12 @@ export function useMorningBrief(): UseQueryResult<MorningBrief | null> {
 // The overnight digest (CAP-WIRE-6): the nightly build's stored counts —
 // what capture landed and what awaits review. `404 no_digest_yet` renders
 // nothing at all: before the first nightly run there is no card, never a
-// fabricated row of zeros.
+// fabricated row of zeros. The digest also carries `connectors[]` — the
+// per-source health Settings shows in full; here it surfaces only when a
+// source is unhealthy (a healthy connector is not news, and a permanent
+// green row would be noise), sharing Settings' own vocabulary
+// (isUnhealthy/errorClassKey, Task 5) so the two surfaces never describe
+// the same state differently.
 type MorningDigest = components["schemas"]["MorningDigest"];
 
 function useMorningDigest(): UseQueryResult<MorningDigest | null> {
@@ -98,7 +104,10 @@ function DigestSection() {
         if (digest === null) {
           return null;
         }
-        const { capture, review } = digest;
+        const { capture, review, connectors } = digest;
+        const unhealthyConnectors = connectors.filter(
+          (c) => c.status != null && isUnhealthy(c.status),
+        );
         return (
           <section aria-label={t("home.digest")}>
             <Card className="digest-card" data-testid="digest-card">
@@ -147,6 +156,21 @@ function DigestSection() {
                   noise: review.classify?.noise ?? 0,
                 })}
               </p>
+              {unhealthyConnectors.length > 0 && (
+                <button
+                  type="button"
+                  className="digest-connector-health"
+                  data-testid="digest-connector-health"
+                  onClick={() =>
+                    navigate({ screen: "settings", id: "integrations" })
+                  }
+                >
+                  {t(
+                    errorClassKey(unhealthyConnectors[0].last_sync_error_class),
+                  )}{" "}
+                  <ArrowRight aria-hidden />
+                </button>
+              )}
             </Card>
           </section>
         );
