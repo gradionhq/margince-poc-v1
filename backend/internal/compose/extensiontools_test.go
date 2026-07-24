@@ -59,7 +59,7 @@ func TestBuildExtensionToolsAdaptsHandlerBearingTools(t *testing.T) {
 		t.Fatalf("want 1 served tool (the inert one skipped), got %d", len(tools))
 	}
 	spec := tools[0].Spec()
-	if spec.Name != "served" || spec.Tier != mcp.TierGreen || spec.RequiredScope != principal.ScopeRead {
+	if spec.Name != "served" || spec.Tier != mcp.TierAutoExecute || spec.RequiredScope != principal.ScopeRead {
 		t.Fatalf("bad mapping: name=%q tier=%v scope=%v", spec.Name, spec.Tier, spec.RequiredScope)
 	}
 	if string(spec.InputSchema) != `{"type":"object"}` {

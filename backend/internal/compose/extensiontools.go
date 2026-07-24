@@ -90,9 +90,9 @@ func registerComposedTools(registry *agents.Registry) {
 func mcpTier(t extension.Tier) (mcp.RiskTier, error) {
 	switch t {
 	case extension.TierAutoExecute:
-		return mcp.TierGreen, nil
+		return mcp.TierAutoExecute, nil
 	case extension.TierConfirmationRequired:
-		return mcp.TierYellow, nil
+		return mcp.TierConfirmationRequired, nil
 	}
 	return 0, fmt.Errorf("tier %q has no core mapping", string(t))
 }

@@ -4,7 +4,7 @@
 // Package yogi is a first-party reference extension shipping one governed
 // agent tool: yogi_quote returns a random Yogi Berra quote. It exercises
 // the whole served-tool path — the published Tool declaration,
-// the manifest's autonomy-tier request, and boot registration into the
+// the manifest's risk-tier request, and boot registration into the
 // same MCP registry and admission gate the core tools ride. The tool is
 // read-only with no arguments, so it requests the 🟢 auto-execute tier and
 // the read scope: nothing to confirm, nothing to mutate.

@@ -2,7 +2,7 @@
   "schema": 1,
   "name": "yogi",
   "version": "1.0.0",
-  "autonomy_tiers": [
+  "risk_tiers": [
     {
       "id": "tool/yogi_quote",
       "operation": "agent.tool.invoke",
