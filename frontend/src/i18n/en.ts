@@ -1176,6 +1176,18 @@ export const en = {
   "connectors.disconnectTitle": "Disconnect this inbox?",
   "connectors.disconnectBody":
     "Capture stops immediately. Everything already captured stays in your CRM, and you can reconnect any time.",
+  "connectors.errRateLimited":
+    "The provider is throttling us. Capture is running slower than usual; nothing is lost.",
+  "connectors.errUnreachable":
+    "We couldn't reach the provider. We'll keep retrying.",
+  "connectors.errAuth":
+    "The provider rejected our credentials. Reconnect to resume.",
+  "connectors.errHistoryGone":
+    "The provider's change history expired. The next sync re-anchors from a fresh point.",
+  "connectors.errInternal":
+    "Something went wrong on our side. We stopped rather than capture partial data.",
+  "connectors.errUnknown":
+    "Capture hit a problem we can't classify yet. We'll keep retrying.",
   "ob.s4.googleVerifying": "Verifying the connection…",
   "ob.s4.googleDenied": "You declined the Google consent",
   "ob.s4.googleFailed": "The Google connection didn't complete",

@@ -1197,6 +1197,18 @@ export const de = {
   "connectors.disconnectTitle": "Dieses Postfach trennen?",
   "connectors.disconnectBody":
     "Die Erfassung stoppt sofort. Alles bereits Erfasste bleibt in deinem CRM, und du kannst jederzeit neu verbinden.",
+  "connectors.errRateLimited":
+    "Der Anbieter drosselt uns. Die Erfassung läuft langsamer als sonst; es geht nichts verloren.",
+  "connectors.errUnreachable":
+    "Wir konnten den Anbieter nicht erreichen. Wir versuchen es weiter.",
+  "connectors.errAuth":
+    "Der Anbieter hat unsere Zugangsdaten abgelehnt. Neu verbinden, um fortzufahren.",
+  "connectors.errHistoryGone":
+    "Der Änderungsverlauf des Anbieters ist abgelaufen. Die nächste Synchronisierung setzt neu an.",
+  "connectors.errInternal":
+    "Bei uns ist etwas schiefgelaufen. Wir haben gestoppt, statt unvollständige Daten zu erfassen.",
+  "connectors.errUnknown":
+    "Bei der Erfassung ist ein Problem aufgetreten, das wir noch nicht einordnen können. Wir versuchen es weiter.",
   "ob.s4.googleVerifying": "Verbindung wird geprüft…",
   "ob.s4.googleDenied": "Du hast die Google-Einwilligung abgelehnt",
   "ob.s4.googleFailed": "Die Google-Verbindung wurde nicht abgeschlossen",

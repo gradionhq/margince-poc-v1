@@ -16,6 +16,7 @@ import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessage } from "./common";
+import { statusLabel, statusTone } from "./connector-status";
 
 // The connected-inboxes card (RC-8): the Settings surface the onboarding copy
 // has always promised ("disconnect in one click", "manage in Settings"). It
@@ -25,27 +26,12 @@ import { problemMessage } from "./common";
 
 type CaptureConnection = components["schemas"]["CaptureConnection"];
 type Provider = CaptureConnection["provider"];
-type Status = CaptureConnection["status"];
 
 const providerLabel: Record<Provider, MessageKey> = {
   gmail: "connectors.provGmail",
   gcal: "connectors.provGcal",
   graph: "connectors.provGraph",
   imap: "connectors.provImap",
-};
-
-const statusTone: Record<Status, "success" | "warn" | "danger" | undefined> = {
-  connected: "success",
-  reauth_required: "warn",
-  error: "danger",
-  disconnected: undefined,
-};
-
-const statusLabel: Record<Status, MessageKey> = {
-  connected: "connectors.statusConnected",
-  reauth_required: "connectors.statusReauth",
-  error: "connectors.statusError",
-  disconnected: "connectors.statusDisconnected",
 };
 
 // The OAuth providers whose reconnect re-mints a consent URL; imap reconnects
@@ -155,8 +141,8 @@ export function ConnectorsCard() {
                 </span>
               </span>
               <span className="connector-actions">
-                <Badge tone={statusTone[conn.status]}>
-                  {t(statusLabel[conn.status])}
+                <Badge tone={statusTone(conn.status)}>
+                  {t(statusLabel(conn.status))}
                 </Badge>
                 {conn.status === "reauth_required" &&
                   OAUTH_PROVIDERS.has(conn.provider) && (
