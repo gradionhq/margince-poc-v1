@@ -357,7 +357,14 @@ func (a *httpAPI) get(ctx context.Context, accessToken, path string, q url.Value
 	}
 	//craft:ignore swallowed-errors best-effort close of the response body — the decoded result/status is what matters
 	defer func() { _ = resp.Body.Close() }()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBytes))
+	// A read fault mid-body is a real reachability failure, distinct from the
+	// size cap (LimitReader signals the cap with EOF, not an error). Surface it
+	// as such rather than letting a truncated body fail the decode with a
+	// misleading "decoding" error.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes))
+	if err != nil {
+		return resp.StatusCode, fmt.Errorf("gmail: reading %s: %w", path, ErrUnreachable)
+	}
 	if resp.StatusCode == http.StatusTooManyRequests {
 		return resp.StatusCode, &connector.RateLimitedError{RetryAfter: retryAfter(resp)}
 	}
