@@ -15,11 +15,11 @@ import (
 
 // keyvaultOptions wires the secret vault — its /readyz probe and the
 // vault-backed connector-credential path — only when a root key is
-// configured. Without one the vault stays absent: the transient one-shot IMAP
-// pull (which persists no credential) still works, and the persisting paths
-// (Connect/Sync) refuse loudly rather than nil-deref if ever invoked. A key
-// that is set but malformed is a boot error (keyvault.FromEnv), never a silent
-// fallback to something weaker.
+// configured. Without one the vault stays absent: every connector's connect
+// path (gmail, gcal, graph, imap all seal to the vault) refuses loudly rather
+// than nil-deref if ever invoked; the vault is required for any standing
+// connection. A key that is set but malformed is a boot error
+// (keyvault.FromEnv), never a silent fallback to something weaker.
 func keyvaultOptions(pool *pgxpool.Pool, stdout io.Writer, overlayBackfillLimit int) ([]compose.Option, error) {
 	vault, configured, err := keyvault.FromEnv(pool)
 	if err != nil {

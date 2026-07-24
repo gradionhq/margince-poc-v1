@@ -1935,7 +1935,7 @@ paths:
                     properties:
                       purpose_key: { type: string }
                       state:       { type: string, enum: [granted, withdrawn] }
-                      wording:     { type: string, description: The exact wording shown to the recipient, stored verbatim as proof. }
+                      wording:     { type: string, description: 'The exact wording shown to the recipient, stored verbatim as proof.' }
       responses:
         '200':
           description: The updated per-purpose state.
@@ -3649,79 +3649,13 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
-  # -------------------------- /connectors/imap ------------------------------
-  /connectors/imap/connect:
-    post:
-      tags: [Connectors]
-      operationId: connectImap
-      summary: One-shot IMAP pull — capture the most recent mailbox messages as email activities.
-      description: |
-        Dials a user's mailbox over IMAPS with the supplied credentials, pulls the most recent
-        `max_messages` messages from `mailbox`, and captures each as an email activity on the
-        timeline. This is a ONE-SHOT pull: the credentials are used for this call only — they are
-        NEVER persisted (no stored connection, no background sync) and NEVER logged. Automated /
-        system mail (no-reply, bounces, auto-submitted) is skipped. The write lands through the
-        capture Sink, so every captured row carries its audit + outbox entry in one transaction.
-        Human-only: an agent Passport is not an accepted credential here.
-      x-agent-access: human-only
-      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/ImapConnectRequest' }
-            examples:
-              inbox:
-                value:
-                  host: imap.example.com
-                  port: 993
-                  email: alice@example.com
-                  password: app-specific-password
-                  mailbox: INBOX
-                  max_messages: 50
-      responses:
-        '200':
-          description: The pull completed; the summary reports what was captured.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ImapConnectResult' }
-              examples:
-                captured:
-                  value: { connected: true, mailbox: INBOX, captured: 37, skipped: 13, contacts: 21 }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '422':
-          description: The mailbox rejected the credentials, or the request was malformed — no internals leaked.
-          content:
-            application/problem+json:
-              schema: { $ref: '#/components/schemas/Problem' }
-              examples:
-                loginRejected:
-                  value:
-                    type: 'https://errors.gradion.com/imap_login_rejected'
-                    title: Mailbox rejected the credentials
-                    status: 422
-                    code: imap_login_rejected
-                    detail: The mail server rejected these credentials. Check the host, email and password.
-        '502':
-          description: The mail server could not be reached (DNS / TCP / TLS / timeout) — the raw cause stays server-side.
-          content:
-            application/problem+json:
-              schema: { $ref: '#/components/schemas/Problem' }
-              examples:
-                unreachable:
-                  value:
-                    type: 'https://errors.gradion.com/imap_unreachable'
-                    title: Could not reach the mail server
-                    status: 502
-                    code: imap_unreachable
-                    detail: Couldn't reach that mail server. Check the host and port, then retry.
-
   # ------------------ /connectors (per-provider OAuth capture) ---------------
-  # Per-user mail/calendar connectors (RC-8): OAuth connect/callback/disconnect
-  # for gmail/gcal/graph plus the standing connection list. Distinct from the
-  # one-shot /connectors/imap/connect above — these persist a connection and
-  # sync incrementally in the background (capture.md CAP-WIRE-1). Connecting a
-  # mailbox is a human-only consent act; an agent never self-connects.
+  # Per-user mail/calendar connectors (RC-8): connect/callback/disconnect for
+  # every provider — gmail/gcal/graph (OAuth) and imap (credential submission)
+  # — plus the standing connection list; every provider persists a connection
+  # and syncs incrementally in the background (capture.md CAP-WIRE-1).
+  # Connecting a mailbox is a human-only consent act; an agent never
+  # self-connects.
   /connectors:
     get:
       tags: [Connectors]
@@ -3794,7 +3728,7 @@ paths:
         - { name: state, in: query, required: true, schema: { type: string }, description: Signed single-use binding to the initiating user + provider. }
         - { name: error, in: query, schema: { type: string }, description: Set instead of `code` when the user denied consent. }
       responses:
-        '302': { description: Redirect back into the app — connection established, or the denial surfaced honestly. }
+        '302': { description: 'Redirect back into the app — connection established, or the denial surfaced honestly.' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
   /connectors/{provider}/disconnect:
@@ -3805,9 +3739,12 @@ paths:
       operationId: disconnectConnector
       summary: Disconnect the calling user's mail/calendar capture.
       description: |
-        Revokes the stored provider token, stops the background sync, and flips the user's
-        connection to `disconnected` (RC-8). Idempotent. Already-captured activities are retained —
-        they are real history; capture simply stops. Human-only.
+        Disconnects the caller's connection: capture stops immediately (the connection flips to
+        `disconnected`, RC-8) and the poller no longer selects it. No upstream token revocation is
+        performed — the user removes the grant at the provider themselves. The stored credential
+        IS deleted from the vault as part of this call, not merely retired for a later sweep.
+        Idempotent. Already-captured activities are retained — they are real history; capture
+        simply stops. Human-only.
       x-agent-access: human-only
       security: [ { cookieAuth: [] } ]
       responses:
@@ -7625,10 +7562,11 @@ components:
       required: true
       schema: { type: string, enum: [gmail, gcal, graph, imap] }
       description: |
-        The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
-        Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
-        self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
-        WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+        The mail/calendar provider (A51 email+calendar parity). Every provider connects through
+        the same operation; gmail/gcal/graph authorize by OAuth redirect, imap by credential
+        submission. `gmail`/`gcal` = Google mail+calendar, `graph` = Microsoft 365 (Outlook via
+        Graph), `imap` = the self-hostable IMAP engine. WhatsApp/Telegram connect is the
+        messaging-channels surface, not this one.
     Id:
       name: id
       in: path
@@ -7825,7 +7763,7 @@ components:
       properties:
         from_currency: { type: string, pattern: '^[A-Z]{3}$' }
         to_currency: { type: string, pattern: '^[A-Z]{3}$', description: The workspace base currency. }
-        rate: { type: string, pattern: '^[0-9]{1,10}(\.[0-9]{1,10})?$', description: Decimal rate (from -> base), always positive. Plain decimal, up to 10 integer and 10 fractional digits (numeric(20,10)). }
+        rate: { type: string, pattern: '^[0-9]{1,10}(\.[0-9]{1,10})?$', description: 'Decimal rate (from -> base), always positive. Plain decimal, up to 10 integer and 10 fractional digits (numeric(20,10)).' }
         effective_date: { type: string, format: date }
     FxRateListResponse:
       type: object
@@ -7837,7 +7775,7 @@ components:
       required: [from_currency, rate]
       properties:
         from_currency: { type: string, pattern: '^[A-Za-z]{3}$', description: 3-letter ISO; must not equal the base currency. }
-        rate: { type: string, pattern: '^[0-9]{1,10}(\.[0-9]{1,10})?$', description: Positive decimal (from -> base). Plain decimal, up to 10 integer and 10 fractional digits. }
+        rate: { type: string, pattern: '^[0-9]{1,10}(\.[0-9]{1,10})?$', description: 'Positive decimal (from -> base). Plain decimal, up to 10 integer and 10 fractional digits.' }
         effective_date:
           type: string
           format: date
@@ -7865,7 +7803,7 @@ components:
       properties:
         provider: { type: string }
         model_id: { type: string }
-        input_per_mtok: { type: string, pattern: '^[0-9]{1,12}(\.[0-9]{1,6})?$', description: USD per 1M input tokens. Plain non-negative decimal, up to 12 integer and 6 fractional digits (keeps the stored µUSD within int64). }
+        input_per_mtok: { type: string, pattern: '^[0-9]{1,12}(\.[0-9]{1,6})?$', description: 'USD per 1M input tokens. Plain non-negative decimal, up to 12 integer and 6 fractional digits (keeps the stored µUSD within int64).' }
         output_per_mtok: { type: string, pattern: '^[0-9]{1,12}(\.[0-9]{1,6})?$', description: USD per 1M output tokens. }
         cache_read_per_mtok: { type: string, pattern: '^[0-9]{1,12}(\.[0-9]{1,6})?$', description: USD per 1M cache-read tokens. }
         cache_write_per_mtok: { type: string, pattern: '^[0-9]{1,12}(\.[0-9]{1,6})?$', description: USD per 1M cache-write tokens. }
@@ -7993,6 +7931,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         provider: { type: string, enum: [gmail, gcal, graph, imap], description: The mail/calendar provider (A51 email+calendar parity). }
+        account_label: { type: [string, 'null'], description: 'Display-only name of the connected account (e.g. the mailbox address). Null when the connector does not report one.' }
         status: { type: string, enum: [connected, disconnected, error, reauth_required], description: 'Connection state; `reauth_required` when the stored token expired/was revoked upstream.' }
         sync_cursor: { type: [string, 'null'], description: 'Opaque provider watermark (Gmail historyId / IMAP UID / Graph delta) for incremental capture — read-only.' }
         watch_expires_at: { type: [string, 'null'], format: date-time, description: 'Push/delta subscription renewal deadline (Gmail Pub/Sub / Graph change-notification), or null.' }
@@ -8011,20 +7950,35 @@ components:
     ConnectConnectorRequest:
       type: object
       description: |
-        Connect input. OAuth providers (`gmail`/`gcal`/`graph`) need only an optional `redirect_uri`
-        (the app page to return to after consent); `imap` supplies direct credentials. The secret is
-        written to the vault, never echoed.
+        Connect a capture source. Providers differ in kind, not in path: an OAuth provider
+        (gmail, gcal, graph) needs no body and answers with `authorize_url`; a credential
+        provider (imap) submits `imap` and answers with the created `connection`. Exactly one
+        of `authorize_url` or `connection` is returned.
       properties:
         redirect_uri: { type: string, format: uri, description: 'App page to return to after OAuth consent (OAuth providers).' }
+        return_to:
+          type: string
+          enum: [onboarding, settings]
+          description: |
+            Which surface the post-consent redirect lands on. Absent means `onboarding`.
+            A closed enum, never a URL — the server maps it to a fixed path, so it carries no
+            open-redirect surface. Ignored by credential providers, which never redirect.
         imap:
           type: object
           description: Direct IMAP credentials (the `imap` provider only).
           required: [host, username, secret]
           properties:
             host: { type: string }
-            port: { type: integer, default: 993, minimum: 1, maximum: 65535 }
-            username: { type: string }
-            secret: { type: string, writeOnly: true, description: 'IMAP password / app password — written to the vault, never returned.' }
+            port: { type: integer, minimum: 1, maximum: 65535, default: 993 }
+            username: { type: string, description: 'The mailbox login — an email address on most servers.' }
+            secret: { type: string, writeOnly: true, description: 'Password or app-specific password. Sealed to the vault; never returned.' }
+            mailbox: { type: string, default: INBOX, description: 'The mailbox to read.' }
+            max_messages:
+              type: integer
+              minimum: 1
+              maximum: 200
+              default: 50
+              description: 'Upper bound on messages pulled per sync, and on the bounded recent window a first sync re-anchors with.'
     ConnectConnectorResponse:
       type: object
       description: 'An OAuth redirect target (OAuth providers).'
@@ -8415,7 +8369,7 @@ components:
           format: uri
           default: about:blank
           description: A URI identifying the problem type.
-        title: { type: string, description: Short, human-readable summary. }
+        title: { type: string, description: 'Short, human-readable summary.' }
         status: { type: integer, description: HTTP status code. }
         code:
           type: string
@@ -8676,7 +8630,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         organization_id: { type: string, format: uuid }
-        domain: { type: string, description: Lowercased, no scheme, no www. }
+        domain: { type: string, description: 'Lowercased, no scheme, no www.' }
         is_primary: { type: boolean, default: false }
         source: { type: string }
         captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.' }
@@ -9454,7 +9408,7 @@ components:
           description: 'The raw→entity match outcome: an ambiguous match is `low_confidence` (surfaced, never silently asserted); an unattributable one is `dropped`.'
         resolution_confidence: { type: [number, 'null'], minimum: 0, maximum: 1 }
         resolved_org_id: { type: [string, 'null'], format: uuid, description: The organization the raw signal resolved to (the only required attribution level). }
-        resolved_person_id: { type: [string, 'null'], format: uuid, description: Optional person resolution — set only under a recorded consent grant, never inferred. }
+        resolved_person_id: { type: [string, 'null'], format: uuid, description: 'Optional person resolution — set only under a recorded consent grant, never inferred.' }
         severity: { type: string, enum: [info, warn, urgent], default: info }
         summary: { type: string }
         evidence:
@@ -10255,7 +10209,7 @@ components:
       required: [snippet, source]
       properties:
         snippet: { type: string }
-        source:  { type: string, description: Provenance ref, e.g. "activity:018f…". }
+        source:  { type: string, description: 'Provenance ref, e.g. "activity:018f…".' }
     ContextItem:
       type: object
       required: [ref]
@@ -10290,29 +10244,6 @@ components:
       required: [data]
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/AgentTool' } }
-
-    # ---- Connectors: IMAP one-shot capture ----
-    ImapConnectRequest:
-      type: object
-      required: [host, email, password]
-      properties:
-        host: { type: string, minLength: 1, description: IMAP server hostname (e.g. imap.gmail.com). }
-        port: { type: integer, minimum: 1, maximum: 65535, default: 993, description: IMAPS port; defaults to 993. }
-        email: { type: string, format: email, description: Mailbox login / address. }
-        password: { type: string, minLength: 1, description: Mailbox password (used for this call only — never stored, never logged). }
-        mailbox: { type: string, default: INBOX, description: Folder to pull from; defaults to INBOX. }
-        max_messages: { type: integer, minimum: 1, maximum: 200, default: 50, description: Most-recent messages to pull; capped at 200. }
-
-    ImapConnectResult:
-      type: object
-      description: The outcome of a one-shot IMAP pull.
-      required: [connected, mailbox, captured, skipped, contacts]
-      properties:
-        connected: { type: boolean, description: True when the mailbox was reached and read. }
-        mailbox: { type: string, description: The folder that was pulled. }
-        captured: { type: integer, description: Messages that landed as email activities. }
-        skipped: { type: integer, description: Messages intentionally dropped (automated/system mail, unparseable). }
-        contacts: { type: integer, description: Distinct counterparties seen across the captured messages. }
 
     # ---- AI: cold-start ----
     ColdStartRequest:
@@ -10452,7 +10383,7 @@ components:
         organization_id: { type: string, format: uuid, description: The anchor organization this profile belongs to. }
         display_name: { type: string, minLength: 1, description: What the company is called day to day. }
         website: { type: [string, 'null'], description: 'The company''s own domain (acme.com) — stored as its primary domain, the same handle a read-back resolves organizations by. A full URL is accepted on write and reduced to its domain.' }
-        legal_name: { type: [string, 'null'], description: The registered legal entity, when it differs from display_name. }
+        legal_name: { type: [string, 'null'], description: 'The registered legal entity, when it differs from display_name.' }
         registered_address: { type: [string, 'null'], description: The registered address as one formatted line. }
         register_vat: { type: [string, 'null'], description: 'VAT ID / commercial register entry (e.g. DE123456789, HRB 12345 B).' }
         industry: { type: [string, 'null'] }
@@ -10473,7 +10404,7 @@ components:
         facts:
           type: array
           items: { $ref: '#/components/schemas/OrganizationFact' }
-        minimum_complete: { type: boolean, description: True when display_name, offer_summary and icp are confirmed. }
+        minimum_complete: { type: boolean, description: 'True when display_name, offer_summary and icp are confirmed.' }
         updated_at: { type: string, format: date-time }
 
     CompanyProfileInput:
@@ -10879,7 +10810,7 @@ components:
         `proposal_hash` are the pair ConfirmCompanySiteRead must echo.
       required: [ready]
       properties:
-        ready: { type: boolean, description: False while the read is still queued, deferred, or running. }
+        ready: { type: boolean, description: 'False while the read is still queued, deferred, or running.' }
         fields:
           type: array
           items: { $ref: '#/components/schemas/OnboardingCompanyProposalField' }
@@ -10905,7 +10836,7 @@ components:
         root_url: { type: string, format: uri }
         status: { type: string, enum: [queued, deferred, reading, ready, partial, failed, confirmed, abandoned] }
         status_code: { type: [string, 'null'], enum: [null, budget_deferred] }
-        status_detail: { type: [string, 'null'], description: Safe guidance only; never provider payload, prompt, SQL, or stack data. }
+        status_detail: { type: [string, 'null'], description: 'Safe guidance only; never provider payload, prompt, SQL, or stack data.' }
         next_attempt_at: { type: [string, 'null'], format: date-time }
         phase: { type: [string, 'null'], enum: [crawling, extracting] }
         pages_read: { type: integer, minimum: 0 }
@@ -11006,7 +10937,7 @@ components:
         seed_url: { type: string, format: uri }
         status: { type: string, enum: [queued, deferred, running, done, partial, failed] }
         status_code: { type: [string, 'null'], enum: [null, budget_deferred] }
-        status_detail: { type: [string, 'null'], description: Safe guidance only; never provider payload, prompt, SQL, or stack data. }
+        status_detail: { type: [string, 'null'], description: 'Safe guidance only; never provider payload, prompt, SQL, or stack data.' }
         next_attempt_at: { type: [string, 'null'], format: date-time }
         pages:
           type: array
@@ -11133,7 +11064,7 @@ components:
         tool: { type: string, description: 'The exact 🟡 operation authorized (e.g. send_email, advance_deal). A token for one tool cannot authorize another.' }
         diff_hash: { type: string, description: Hash of the approved effect; binds the token to that specific staged change. }
         target_version: { type: [integer, 'null'], description: Row version the diff was staged against; re-checked at execute (see Approval.target_version). }
-        exp: { type: string, format: date-time, description: Expiry (short TTL — minutes, not hours). }
+        exp: { type: string, format: date-time, description: 'Expiry (short TTL — minutes, not hours).' }
         single_use: { type: boolean, default: true }
 
     # ---- Partner (A41/ADR-0032) ----
@@ -11151,7 +11082,7 @@ components:
         partner_role: { type: string, enum: [hosting, consulting, strategic], description: Functional role (A44/ADR-0034); implementation + dev are Gradion's turf. }
         cert_status: { type: string, enum: [applied, certified, suspended] }   # data-model §4.3 CHECK
         margin_tier: { type: [string, 'null'], enum: [null, tier1_15, tier2_20, tier3_25], description: Scenario-C margin tier (business/14-partner-program.md; data-model §4.3 CHECK). }
-        gate_metrics: { type: [object, 'null'], additionalProperties: true, description: Program gate metrics (certified seats, CSAT, ...). }
+        gate_metrics: { type: [object, 'null'], additionalProperties: true, description: 'Program gate metrics (certified seats, CSAT, ...).' }
         relationship_stage: { type: string, enum: [research, identified, contacted, in_conversation, fit_confirmed, agreement_pending, active, active_referring, dormant, no_fit], default: research }
         partner_fit_score: { type: [integer, 'null'], minimum: 0, maximum: 100, description: 'Current partner-fit score; if partner_fit_override_reason is non-null this is the Commercial Judgement value.' }
         partner_fit_score_computed: { type: [integer, 'null'], minimum: 0, maximum: 100, readOnly: true, description: 'Retained machine-computed partner-fit value while a Commercial Judgement override is in force.' }
@@ -11319,7 +11250,7 @@ components:
       properties:
         purpose_id: { type: string, format: uuid }
         policy_version: { type: string, description: Version id of the consent wording shown to the subject. }
-        wording: { type: [string, 'null'], description: The exact wording shown, stored with the consent event for demonstrability. }
+        wording: { type: [string, 'null'], description: 'The exact wording shown, stored with the consent event for demonstrability.' }
         double_opt_in_token: { type: [string, 'null'], description: Present when the surface delivered its own DOI confirmation (issueDoubleOptIn with deliver=false). }
 
     PreferenceCenter:
@@ -11611,7 +11542,7 @@ components:
         result_version: { type: [integer, 'null'], minimum: 1 }
         candidate_action: { type: string, enum: [none, auto_activated, review_required], default: none }
         status_code: { type: [string, 'null'], enum: [null, budget_deferred, model_unavailable, invalid_output, quality_regression, material_drift, internal] }
-        status_detail: { type: [string, 'null'], description: Safe operator guidance; never provider payload, prompt, SQL, or stack data. }
+        status_detail: { type: [string, 'null'], description: 'Safe operator guidance; never provider payload, prompt, SQL, or stack data.' }
         next_attempt_at: { type: [string, 'null'], format: date-time }
         version: { type: integer, minimum: 1 }
         created_at: { type: string, format: date-time }
@@ -11845,7 +11776,7 @@ components:
         name: { type: string, description: Unique per workspace among live (non-archived) templates. }
         locale: { type: string, default: de-DE, description: 'DE/EN at launch (de-DE, en-US); drives the rendered PDF label set.' }
         is_default: { type: boolean, default: false, description: At most one default template per locale (partial unique index; OFFER-DDL-4). }
-        layout: { type: object, additionalProperties: true, description: Logo/header/footer/terms-block refs — bounded params, not a CMS. }
+        layout: { type: object, additionalProperties: true, description: 'Logo/header/footer/terms-block refs — bounded params, not a CMS.' }
         version: { $ref: '#/components/schemas/RowVersion' }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
@@ -11886,7 +11817,7 @@ components:
       required: [id, position, description, unit, quantity, unit_price_minor, discount_pct, tax_rate, line_net_minor, line_tax_minor, line_total_minor, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
-        position: { type: integer, description: Display order, unique per offer. }
+        position: { type: integer, description: 'Display order, unique per offer.' }
         product_id: { type: [string, 'null'], format: uuid, description: Optional rate-card ref; the line survives the product. }
         description: { type: string }
         unit: { type: string }
@@ -11911,7 +11842,7 @@ components:
         id: { type: string, format: uuid }
         workspace_id: { type: string, format: uuid }
         deal_id: { type: string, format: uuid }
-        offer_number: { type: string, readOnly: true, description: Human-facing Angebot number, minted server-side, unique per workspace (with revision). }
+        offer_number: { type: string, readOnly: true, description: 'Human-facing Angebot number, minted server-side, unique per workspace (with revision).' }
         revision: { type: integer, readOnly: true, description: Bumped when a sent offer is regenerated; the prior revision becomes superseded. }
         status: { type: string, enum: [draft, sent, accepted, rejected, expired, superseded] }
         currency: { type: string, pattern: '^[A-Z]{3}$' }
@@ -11921,13 +11852,13 @@ components:
         valid_until: { type: [string, 'null'], format: date }
         intro_text: { type: [string, 'null'] }
         terms_text: { type: [string, 'null'] }
-        net_minor: { type: integer, format: int64, readOnly: true, description: Σ line nets — derived, never client-set. }
-        tax_minor: { type: integer, format: int64, readOnly: true, description: Σ line taxes — derived, never client-set. }
-        gross_minor: { type: integer, format: int64, readOnly: true, description: net + tax — derived, never client-set. }
+        net_minor: { type: integer, format: int64, readOnly: true, description: 'Σ line nets — derived, never client-set.' }
+        tax_minor: { type: integer, format: int64, readOnly: true, description: 'Σ line taxes — derived, never client-set.' }
+        gross_minor: { type: integer, format: int64, readOnly: true, description: 'net + tax — derived, never client-set.' }
         fx_rate_to_base: { type: [string, 'null'], readOnly: true, description: 'Native→base, frozen at send (RT-PR-C2). Decimal-as-string to avoid float rounding.' }
         fx_rate_date: { type: [string, 'null'], format: date, readOnly: true }
         template_id: { type: [string, 'null'], format: uuid, description: The offer_template used for locale/layout at render time; unset falls back to the workspace's default template for the offer's locale. }
-        pdf_asset_ref: { type: [string, 'null'], description: Rendered PDF ref, set by renderOffer (B-E03.22/WP7). }
+        pdf_asset_ref: { type: [string, 'null'], description: 'Rendered PDF ref, set by renderOffer (B-E03.22/WP7).' }
         accepted_at: { type: [string, 'null'], format: date-time, readOnly: true }
         ai_generated: { type: boolean, readOnly: true, default: false, description: 'Art. 50 AI-assisted disclosure (features/07 §11 gate 9). true only on the response of the regenerate call that produced this draft revision; false on every other read — disclosure is stamped on the drafting call itself, not persisted across future reads.' }
         ai_disclosure: { type: [string, 'null'], readOnly: true, description: 'The machine-readable Art. 50 disclosure line (features/07 §11 gate 9); non-null iff ai_generated=true.' }
@@ -12053,7 +11984,7 @@ components:
       required: [passport_id, token, scopes, on_behalf_of, expires_at]
       properties:
         passport_id: { type: string, format: uuid }
-        token:       { type: string, description: The bearer token — shown ONCE, stored only as a hash. }
+        token:       { type: string, description: 'The bearer token — shown ONCE, stored only as a hash.' }
         scopes:
           type: array
           items: { type: string }
@@ -12068,7 +11999,7 @@ components:
         id: { type: string, format: uuid }
         label: { type: string, description: Human-given name for the passport (e.g. "Marcus's Claude"). }
         scopes: { type: array, items: { type: string }, description: The granted MCP scopes (intersected with the minting human's role at bind time). }
-        agent_id: { type: [string, 'null'], description: The agent this passport is bound to, if any. }
+        agent_id: { type: [string, 'null'], description: 'The agent this passport is bound to, if any.' }
         created_at: { type: string, format: date-time }
         expires_at: { type: [string, 'null'], format: date-time }
         last_used_at: { type: [string, 'null'], format: date-time }
@@ -12104,7 +12035,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         deal_id: { type: string, format: uuid }
-        rank: { type: integer, minimum: 1, description: Position in the queue (1 = top), after the L2 re-order. }
+        rank: { type: integer, minimum: 1, description: 'Position in the queue (1 = top), after the L2 re-order.' }
         composite: { type: number, minimum: 0, maximum: 1, description: The deterministic §10.1 composite score. }
         feature_vector: { $ref: '#/components/schemas/MorningBriefFeatureVector' }
         evidence_ids:
@@ -12128,9 +12059,9 @@ components:
       required: [winnability, revenue, timing, momentum, warmth]
       properties:
         winnability: { type: number, minimum: 0, maximum: 1, description: stage win probability / 100. }
-        revenue: { type: number, minimum: 0, maximum: 1, description: min(1, base value / REVENUE_NORM); floor 0 when no evidencable amount. }
+        revenue: { type: number, minimum: 0, maximum: 1, description: 'min(1, base value / REVENUE_NORM); floor 0 when no evidencable amount.' }
         timing: { type: number, minimum: 0, maximum: 1, description: bucketed days-until-expected-close urgency. }
-        momentum: { type: number, minimum: 0, maximum: 1, description: 1.0 with an evidenced overnight change, else the 0.4 floor. }
+        momentum: { type: number, minimum: 0, maximum: 1, description: '1.0 with an evidenced overnight change, else the 0.4 floor.' }
         warmth: { type: number, minimum: 0, maximum: 1, description: strongest visible stakeholder's §4 strength / 100; floor 0 without contributing interactions. }
 
     # ---- Quota + attainment (RD-T06, RD-WIRE-2/3, RD-DDL-2, RD-FORM-2) ----

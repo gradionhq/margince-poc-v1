@@ -263,14 +263,18 @@ func TestCaptureAccountsForOutcomes(t *testing.T) {
 	}
 }
 
-// Close is safe on a connector that never authenticated (the handler defers it
-// unconditionally) and is idempotent, so double teardown can't panic.
-func TestCloseIsSafeWithoutSession(t *testing.T) {
-	c := New()
-	if err := c.Close(); err != nil {
-		t.Fatalf("Close on an unauthenticated connector: %v", err)
+func TestDescriptorDeclaresReadOnlyCapture(t *testing.T) {
+	d := NewStanding().Descriptor()
+	if d.Name != "imap" || len(d.Scopes) != 1 {
+		t.Fatalf("descriptor = %+v, want imap with exactly the read scope", d)
 	}
-	if err := c.Close(); err != nil {
-		t.Fatalf("second Close should be a no-op: %v", err)
+}
+
+func TestBoundedWindowClamps(t *testing.T) {
+	cases := map[int]uint32{0: maxMessagesCap, -3: maxMessagesCap, 7: 7, maxMessagesCap + 1: maxMessagesCap}
+	for in, want := range cases {
+		if got := boundedWindow(in); got != want {
+			t.Errorf("boundedWindow(%d) = %d, want %d", in, got, want)
+		}
 	}
 }

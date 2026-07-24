@@ -148,10 +148,10 @@ line (argv is world-readable) or in any log or error. A connector credential
 is sealed with AES-256-GCM under this key and stored as ciphertext in the
 operational `vault_secret` table; the `connector_connection` row carries only
 an opaque, workspace-scoped `credential_ref`, never the credential bytes.
-Leave `MARGINCE_KEYVAULT_ROOT_KEY` unset and the vault is
-absent: the transient one-shot IMAP pull (which persists no credential) still
-works, and the persisting paths (Connect seals, Sync resolves) refuse loudly
-rather than store a credential in the clear. Set it and the api gains the
+Leave `MARGINCE_KEYVAULT_ROOT_KEY` unset and the vault is absent: every
+connector's connect path (gmail, gcal, graph, imap all connect through the
+same operation, sealing to the vault) refuses loudly rather than store a
+credential in the clear. Set it and the api gains the
 `/readyz` keyvault probe and the vault-backed path, and the worker migrates
 any legacy `auth`-bytea rows onto the vault at boot (idempotent). A key that
 is SET but not exactly 32 bytes (base64-decoded) is a boot error — never a

@@ -1836,6 +1836,24 @@ func (e ComputedFieldKind) Valid() bool {
 	}
 }
 
+// Defines values for ConnectConnectorRequestReturnTo.
+const (
+	ConnectConnectorRequestReturnToOnboarding ConnectConnectorRequestReturnTo = "onboarding"
+	ConnectConnectorRequestReturnToSettings   ConnectConnectorRequestReturnTo = "settings"
+)
+
+// Valid indicates whether the value is a known member of the ConnectConnectorRequestReturnTo enum.
+func (e ConnectConnectorRequestReturnTo) Valid() bool {
+	switch e {
+	case ConnectConnectorRequestReturnToOnboarding:
+		return true
+	case ConnectConnectorRequestReturnToSettings:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ConsentEventActorType.
 const (
 	ConsentEventActorTypeAgent     ConsentEventActorType = "agent"
@@ -5312,31 +5330,31 @@ func (e VoiceBuildStatus) Valid() bool {
 
 // Defines values for VoiceBuildStatusCode.
 const (
-	BudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
-	Internal          VoiceBuildStatusCode = "internal"
-	InvalidOutput     VoiceBuildStatusCode = "invalid_output"
-	LessThannil       VoiceBuildStatusCode = "<nil>"
-	MaterialDrift     VoiceBuildStatusCode = "material_drift"
-	ModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
-	QualityRegression VoiceBuildStatusCode = "quality_regression"
+	VoiceBuildStatusCodeBudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
+	VoiceBuildStatusCodeInternal          VoiceBuildStatusCode = "internal"
+	VoiceBuildStatusCodeInvalidOutput     VoiceBuildStatusCode = "invalid_output"
+	VoiceBuildStatusCodeLessThannil       VoiceBuildStatusCode = "<nil>"
+	VoiceBuildStatusCodeMaterialDrift     VoiceBuildStatusCode = "material_drift"
+	VoiceBuildStatusCodeModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
+	VoiceBuildStatusCodeQualityRegression VoiceBuildStatusCode = "quality_regression"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatusCode enum.
 func (e VoiceBuildStatusCode) Valid() bool {
 	switch e {
-	case BudgetDeferred:
+	case VoiceBuildStatusCodeBudgetDeferred:
 		return true
-	case Internal:
+	case VoiceBuildStatusCodeInternal:
 		return true
-	case InvalidOutput:
+	case VoiceBuildStatusCodeInvalidOutput:
 		return true
-	case LessThannil:
+	case VoiceBuildStatusCodeLessThannil:
 		return true
-	case MaterialDrift:
+	case VoiceBuildStatusCodeMaterialDrift:
 		return true
-	case ModelUnavailable:
+	case VoiceBuildStatusCodeModelUnavailable:
 		return true
-	case QualityRegression:
+	case VoiceBuildStatusCodeQualityRegression:
 		return true
 	default:
 		return false
@@ -7419,6 +7437,9 @@ type BriefSnoozeRequest struct {
 // credential itself is NEVER in this shape — it lives encrypted in the vault, referenced only
 // server-side by `credential_ref`.
 type CaptureConnection struct {
+	// AccountLabel Display-only name of the connected account (e.g. the mailbox address). Null when the connector does not report one.
+	AccountLabel *string `json:"account_label,omitempty"`
+
 	// Backfill Summary of the connection's backfill run; state `none` when never run.
 	Backfill  *BackfillStatus    `json:"backfill,omitempty"`
 	CreatedAt *time.Time         `json:"created_at,omitempty"`
@@ -7472,7 +7493,7 @@ type CaptureConsent struct {
 	PolicyVersion string             `json:"policy_version"`
 	PurposeId     openapi_types.UUID `json:"purpose_id"`
 
-	// Wording The exact wording shown
+	// Wording The exact wording shown, stored with the consent event for demonstrability.
 	Wording *string `json:"wording,omitempty"`
 }
 
@@ -7660,10 +7681,10 @@ type CompanyProfile struct {
 	Icp      *string `json:"icp,omitempty"`
 	Industry *string `json:"industry,omitempty"`
 
-	// LegalName The registered legal entity
+	// LegalName The registered legal entity, when it differs from display_name.
 	LegalName *string `json:"legal_name,omitempty"`
 
-	// MinimumComplete True when display_name
+	// MinimumComplete True when display_name, offer_summary and icp are confirmed.
 	MinimumComplete *bool `json:"minimum_complete,omitempty"`
 
 	// OfferSummary Plain-language summary of what the company sells or delivers.
@@ -7765,7 +7786,7 @@ type CompanySiteRead struct {
 	Status         CompanySiteReadStatus         `json:"status"`
 	StatusCode     *CompanySiteReadStatusCode    `json:"status_code"`
 
-	// StatusDetail Safe guidance only; never provider payload
+	// StatusDetail Safe guidance only; never provider payload, prompt, SQL, or stack data.
 	StatusDetail *string                   `json:"status_detail"`
 	TargetKind   CompanySiteReadTargetKind `json:"target_kind"`
 	UpdatedAt    time.Time                 `json:"updated_at"`
@@ -7968,23 +7989,42 @@ type ConfirmCompanySiteReadRequest struct {
 	SelectedFactKeys []string                     `json:"selected_fact_keys"`
 }
 
-// ConnectConnectorRequest Connect input. OAuth providers (`gmail`/`gcal`/`graph`) need only an optional `redirect_uri`
-// (the app page to return to after consent); `imap` supplies direct credentials. The secret is
-// written to the vault, never echoed.
+// ConnectConnectorRequest Connect a capture source. Providers differ in kind, not in path: an OAuth provider
+// (gmail, gcal, graph) needs no body and answers with `authorize_url`; a credential
+// provider (imap) submits `imap` and answers with the created `connection`. Exactly one
+// of `authorize_url` or `connection` is returned.
 type ConnectConnectorRequest struct {
 	// Imap Direct IMAP credentials (the `imap` provider only).
 	Imap *struct {
 		Host string `json:"host"`
-		Port *int   `json:"port,omitempty"`
 
-		// Secret IMAP password / app password — written to the vault, never returned.
-		Secret   *string `json:"secret,omitempty"`
-		Username string  `json:"username"`
+		// Mailbox The mailbox to read.
+		Mailbox *string `json:"mailbox,omitempty"`
+
+		// MaxMessages Upper bound on messages pulled per sync, and on the bounded recent window a first sync re-anchors with.
+		MaxMessages *int `json:"max_messages,omitempty"`
+		Port        *int `json:"port,omitempty"`
+
+		// Secret Password or app-specific password. Sealed to the vault; never returned.
+		Secret *string `json:"secret,omitempty"`
+
+		// Username The mailbox login — an email address on most servers.
+		Username string `json:"username"`
 	} `json:"imap,omitempty"`
 
 	// RedirectUri App page to return to after OAuth consent (OAuth providers).
 	RedirectUri *string `json:"redirect_uri,omitempty"`
+
+	// ReturnTo Which surface the post-consent redirect lands on. Absent means `onboarding`.
+	// A closed enum, never a URL — the server maps it to a fixed path, so it carries no
+	// open-redirect surface. Ignored by credential providers, which never redirect.
+	ReturnTo *ConnectConnectorRequestReturnTo `json:"return_to,omitempty"`
 }
+
+// ConnectConnectorRequestReturnTo Which surface the post-consent redirect lands on. Absent means `onboarding`.
+// A closed enum, never a URL — the server maps it to a fixed path, so it carries no
+// open-redirect surface. Ignored by credential providers, which never redirect.
+type ConnectConnectorRequestReturnTo string
 
 // ConnectConnectorResponse An OAuth redirect target (OAuth providers).
 type ConnectConnectorResponse struct {
@@ -8044,7 +8084,7 @@ type ContextEntityRefType string
 type ContextEvidence struct {
 	Snippet string `json:"snippet"`
 
-	// Source Provenance ref
+	// Source Provenance ref, e.g. "activity:018f…".
 	Source string `json:"source"`
 }
 
@@ -8860,7 +8900,7 @@ type FxRate struct {
 	EffectiveDate openapi_types.Date `json:"effective_date"`
 	FromCurrency  string             `json:"from_currency"`
 
-	// Rate Decimal rate (from -> base)
+	// Rate Decimal rate (from -> base), always positive. Plain decimal, up to 10 integer and 10 fractional digits (numeric(20,10)).
 	Rate string `json:"rate"`
 
 	// ToCurrency The workspace base currency.
@@ -8870,45 +8910,6 @@ type FxRate struct {
 // FxRateListResponse defines model for FxRateListResponse.
 type FxRateListResponse struct {
 	Data []FxRate `json:"data"`
-}
-
-// ImapConnectRequest defines model for ImapConnectRequest.
-type ImapConnectRequest struct {
-	// Email Mailbox login / address.
-	Email openapi_types.Email `json:"email"`
-
-	// Host IMAP server hostname (e.g. imap.gmail.com).
-	Host string `json:"host"`
-
-	// Mailbox Folder to pull from; defaults to INBOX.
-	Mailbox *string `json:"mailbox,omitempty"`
-
-	// MaxMessages Most-recent messages to pull; capped at 200.
-	MaxMessages *int `json:"max_messages,omitempty"`
-
-	// Password Mailbox password (used for this call only — never stored
-	Password string `json:"password"`
-
-	// Port IMAPS port; defaults to 993.
-	Port *int `json:"port,omitempty"`
-}
-
-// ImapConnectResult The outcome of a one-shot IMAP pull.
-type ImapConnectResult struct {
-	// Captured Messages that landed as email activities.
-	Captured int `json:"captured"`
-
-	// Connected True when the mailbox was reached and read.
-	Connected bool `json:"connected"`
-
-	// Contacts Distinct counterparties seen across the captured messages.
-	Contacts int `json:"contacts"`
-
-	// Mailbox The folder that was pulled.
-	Mailbox string `json:"mailbox"`
-
-	// Skipped Messages intentionally dropped (automated/system mail
-	Skipped int `json:"skipped"`
 }
 
 // IngestVoiceCorpusSourceRequest defines model for IngestVoiceCorpusSourceRequest.
@@ -8975,7 +8976,7 @@ type IssuePassportResponse struct {
 	PassportId openapi_types.UUID `json:"passport_id"`
 	Scopes     []string           `json:"scopes"`
 
-	// Token The bearer token — shown ONCE
+	// Token The bearer token — shown ONCE, stored only as a hash.
 	Token string `json:"token"`
 }
 
@@ -9164,10 +9165,10 @@ type MorningBrief struct {
 
 // MorningBriefFeatureVector The §10.1 factor decomposition, each normalized 0..1 — the composite reconciles to it.
 type MorningBriefFeatureVector struct {
-	// Momentum 1.0 with an evidenced overnight change
+	// Momentum 1.0 with an evidenced overnight change, else the 0.4 floor.
 	Momentum float32 `json:"momentum"`
 
-	// Revenue min(1
+	// Revenue min(1, base value / REVENUE_NORM); floor 0 when no evidencable amount.
 	Revenue float32 `json:"revenue"`
 
 	// Timing bucketed days-until-expected-close urgency.
@@ -9196,7 +9197,7 @@ type MorningBriefItem struct {
 	FeatureVector MorningBriefFeatureVector `json:"feature_vector"`
 	Id            openapi_types.UUID        `json:"id"`
 
-	// Rank Position in the queue (1 = top)
+	// Rank Position in the queue (1 = top), after the L2 re-order.
 	Rank int `json:"rank"`
 
 	// SnoozedUntil When a snoozed item re-surfaces (A77/AC-home-6); set exactly while state=snoozed, null otherwise.
@@ -9290,7 +9291,7 @@ type Offer struct {
 	// FxRateToBase Native→base, frozen at send (RT-PR-C2). Decimal-as-string to avoid float rounding.
 	FxRateToBase *string `json:"fx_rate_to_base,omitempty"`
 
-	// GrossMinor net + tax — derived
+	// GrossMinor net + tax — derived, never client-set.
 	GrossMinor *int64             `json:"gross_minor,omitempty"`
 	Id         openapi_types.UUID `json:"id"`
 	IntroText  *string            `json:"intro_text,omitempty"`
@@ -9299,13 +9300,13 @@ type Offer struct {
 	IssuerSnapshot *map[string]interface{} `json:"issuer_snapshot,omitempty"`
 	LineItems      *[]OfferLineItem        `json:"line_items,omitempty"`
 
-	// NetMinor Σ line nets — derived
+	// NetMinor Σ line nets — derived, never client-set.
 	NetMinor *int64 `json:"net_minor,omitempty"`
 
-	// OfferNumber Human-facing Angebot number
+	// OfferNumber Human-facing Angebot number, minted server-side, unique per workspace (with revision).
 	OfferNumber *string `json:"offer_number,omitempty"`
 
-	// PdfAssetRef Rendered PDF ref
+	// PdfAssetRef Rendered PDF ref, set by renderOffer (B-E03.22/WP7).
 	PdfAssetRef *string `json:"pdf_asset_ref,omitempty"`
 
 	// Revision Bumped when a sent offer is regenerated; the prior revision becomes superseded.
@@ -9313,7 +9314,7 @@ type Offer struct {
 	Source   string      `json:"source"`
 	Status   OfferStatus `json:"status"`
 
-	// TaxMinor Σ line taxes — derived
+	// TaxMinor Σ line taxes — derived, never client-set.
 	TaxMinor *int64 `json:"tax_minor,omitempty"`
 
 	// TemplateId The offer_template used for locale/layout at render time; unset falls back to the workspace's default template for the offer's locale.
@@ -9358,7 +9359,7 @@ type OfferLineItem struct {
 	// LineTotalMinor line_net + line_tax — server-computed.
 	LineTotalMinor *int64 `json:"line_total_minor,omitempty"`
 
-	// Position Display order
+	// Position Display order, unique per offer.
 	Position int `json:"position"`
 
 	// PriceGrounded false only for an AI-proposed line whose price could not be grounded in conversation evidence or the rate card (unit_price_minor is 0 in that case — an honest sentinel, never a guessed value); true for every human-entered or grounded line.
@@ -9419,7 +9420,7 @@ type OfferTemplate struct {
 	// IsDefault At most one default template per locale (partial unique index; OFFER-DDL-4).
 	IsDefault bool `json:"is_default"`
 
-	// Layout Logo/header/footer/terms-block refs — bounded params
+	// Layout Logo/header/footer/terms-block refs — bounded params, not a CMS.
 	Layout map[string]interface{} `json:"layout"`
 
 	// Locale DE/EN at launch (de-DE, en-US); drives the rendered PDF label set.
@@ -9575,7 +9576,7 @@ type OnboardingCompanyProposal struct {
 	OpenQuestions *[]OnboardingClarify              `json:"open_questions,omitempty"`
 	ProposalHash  *string                           `json:"proposal_hash,omitempty"`
 
-	// Ready False while the read is still queued
+	// Ready False while the read is still queued, deferred, or running.
 	Ready                   bool      `json:"ready"`
 	RemainingRequiredFields *[]string `json:"remaining_required_fields,omitempty"`
 }
@@ -9685,7 +9686,7 @@ type OrganizationDomain struct {
 	CapturedBy *string    `json:"captured_by,omitempty"`
 	CreatedAt  *time.Time `json:"created_at,omitempty"`
 
-	// Domain Lowercased
+	// Domain Lowercased, no scheme, no www.
 	Domain         string              `json:"domain"`
 	Id             openapi_types.UUID  `json:"id"`
 	IsPrimary      bool                `json:"is_primary"`
@@ -9859,7 +9860,7 @@ type Partner struct {
 	CertStatus PartnerCertStatus `json:"cert_status"`
 	CreatedAt  time.Time         `json:"created_at"`
 
-	// GateMetrics Program gate metrics (certified seats
+	// GateMetrics Program gate metrics (certified seats, CSAT, ...).
 	GateMetrics   *map[string]interface{} `json:"gate_metrics,omitempty"`
 	LastContactAt *time.Time              `json:"last_contact_at,omitempty"`
 
@@ -9911,7 +9912,7 @@ type PartnerRelationshipStage string
 
 // PassportSummary Agent Seat Passport metadata for the Settings list (feedback/13). Never carries the token.
 type PassportSummary struct {
-	// AgentId The agent this passport is bound to
+	// AgentId The agent this passport is bound to, if any.
 	AgentId   *string            `json:"agent_id,omitempty"`
 	CreatedAt time.Time          `json:"created_at"`
 	ExpiresAt *time.Time         `json:"expires_at,omitempty"`
@@ -10102,7 +10103,7 @@ type Problem struct {
 	// Status HTTP status code.
 	Status int `json:"status"`
 
-	// Title Short
+	// Title Short, human-readable summary.
 	Title *string `json:"title,omitempty"`
 
 	// Type A URI identifying the problem type.
@@ -10618,7 +10619,7 @@ type SetAiModelRateRequest struct {
 	// EffectiveDate Defaults to today; must not be in the past (append-forward).
 	EffectiveDate *openapi_types.Date `json:"effective_date,omitempty"`
 
-	// InputPerMtok USD per 1M input tokens. Plain non-negative decimal
+	// InputPerMtok USD per 1M input tokens. Plain non-negative decimal, up to 12 integer and 6 fractional digits (keeps the stored µUSD within int64).
 	InputPerMtok string `json:"input_per_mtok"`
 	ModelId      string `json:"model_id"`
 
@@ -10635,7 +10636,7 @@ type SetFxRateRequest struct {
 	// FromCurrency 3-letter ISO; must not equal the base currency.
 	FromCurrency string `json:"from_currency"`
 
-	// Rate Positive decimal (from -> base). Plain decimal
+	// Rate Positive decimal (from -> base). Plain decimal, up to 10 integer and 10 fractional digits.
 	Rate string `json:"rate"`
 }
 
@@ -10671,7 +10672,7 @@ type Signal struct {
 	// ResolvedOrgId The organization the raw signal resolved to (the only required attribution level).
 	ResolvedOrgId *openapi_types.UUID `json:"resolved_org_id,omitempty"`
 
-	// ResolvedPersonId Optional person resolution — set only under a recorded consent grant
+	// ResolvedPersonId Optional person resolution — set only under a recorded consent grant, never inferred.
 	ResolvedPersonId *openapi_types.UUID `json:"resolved_person_id,omitempty"`
 	Severity         SignalSeverity      `json:"severity"`
 	Source           string              `json:"source"`
@@ -10835,7 +10836,7 @@ type SiteReadReport struct {
 	Status      SiteReadReportStatus      `json:"status"`
 	StatusCode  *SiteReadReportStatusCode `json:"status_code"`
 
-	// StatusDetail Safe guidance only; never provider payload
+	// StatusDetail Safe guidance only; never provider payload, prompt, SQL, or stack data.
 	StatusDetail *string `json:"status_detail"`
 
 	// StoppedReason Why the crawl ended early; null when it exhausted discovery.
@@ -11281,7 +11282,7 @@ type VoiceBuild struct {
 	Status          VoiceBuildStatus          `json:"status"`
 	StatusCode      *VoiceBuildStatusCode     `json:"status_code"`
 
-	// StatusDetail Safe operator guidance; never provider payload
+	// StatusDetail Safe operator guidance; never provider payload, prompt, SQL, or stack data.
 	StatusDetail *string   `json:"status_detail"`
 	UpdatedAt    time.Time `json:"updated_at"`
 	Version      int       `json:"version"`
@@ -13115,7 +13116,7 @@ type UpdatePreferencesJSONBody struct {
 		PurposeKey string                                `json:"purpose_key"`
 		State      UpdatePreferencesJSONBodyChoicesState `json:"state"`
 
-		// Wording The exact wording shown to the recipient
+		// Wording The exact wording shown to the recipient, stored verbatim as proof.
 		Wording *string `json:"wording,omitempty"`
 	} `json:"choices"`
 }
@@ -13846,9 +13847,6 @@ type ConfirmCompanySiteReadJSONRequestBody = ConfirmCompanySiteReadRequest
 
 // MessageCompanySiteReadJSONRequestBody defines body for MessageCompanySiteRead for application/json ContentType.
 type MessageCompanySiteReadJSONRequestBody = CompanySiteReadMessageRequest
-
-// ConnectImapJSONRequestBody defines body for ConnectImap for application/json ContentType.
-type ConnectImapJSONRequestBody = ImapConnectRequest
 
 // StartConnectorBackfillJSONRequestBody defines body for StartConnectorBackfill for application/json ContentType.
 type StartConnectorBackfillJSONRequestBody = StartBackfillRequest
@@ -19117,9 +19115,6 @@ type ServerInterface interface {
 	// List the calling user's capture connections + sync state.
 	// (GET /connectors)
 	ListConnectors(w http.ResponseWriter, r *http.Request)
-	// One-shot IMAP pull — capture the most recent mailbox messages as email activities.
-	// (POST /connectors/imap/connect)
-	ConnectImap(w http.ResponseWriter, r *http.Request)
 	// Cancel a running backfill — captured rows are retained.
 	// (DELETE /connectors/{provider}/backfill)
 	CancelConnectorBackfill(w http.ResponseWriter, r *http.Request, provider CaptureProvider)
@@ -20092,12 +20087,6 @@ func (_ Unimplemented) MessageCompanySiteRead(w http.ResponseWriter, r *http.Req
 // List the calling user's capture connections + sync state.
 // (GET /connectors)
 func (_ Unimplemented) ListConnectors(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// One-shot IMAP pull — capture the most recent mailbox messages as email activities.
-// (POST /connectors/imap/connect)
-func (_ Unimplemented) ConnectImap(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -23772,26 +23761,6 @@ func (siw *ServerInterfaceWrapper) ListConnectors(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListConnectors(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ConnectImap operation middleware
-func (siw *ServerInterfaceWrapper) ConnectImap(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ConnectImap(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -33887,9 +33856,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/connectors", wrapper.ListConnectors)
-	})
-	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/connectors/imap/connect", wrapper.ConnectImap)
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/connectors/{provider}/backfill", wrapper.CancelConnectorBackfill)

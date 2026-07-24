@@ -398,6 +398,9 @@
   display: flex;
   flex-direction: column;
 }
+.connector-account {
+  color: var(--textSecondary);
+}
 .connector-synced {
   color: var(--textSecondary);
 }
@@ -406,4 +409,11 @@
   align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
+}
+/* Forces the mounted BackfillPanel onto its own line below the row's id +
+   actions (the row itself is flex-wrap: wrap; a 100%-width child can't share
+   a line with its siblings so it wraps). */
+.connector-backfill {
+  flex-basis: 100%;
+  margin-top: var(--space-2);
 }

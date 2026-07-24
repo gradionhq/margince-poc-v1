@@ -36,6 +36,11 @@ type connectState struct {
 	User      ids.UUID
 	Provider  string
 	Nonce     string
+	// ReturnTo names the surface that started the connect, so the callback can
+	// land the browser where the user actually is. A closed enum resolved by
+	// landingURL, never a URL — it rides the signed payload so it cannot be
+	// tampered with after the redirect leaves us.
+	ReturnTo string
 }
 
 // wireState is the JSON form actually signed — ids.UUID as strings, plus the
@@ -45,6 +50,7 @@ type wireState struct {
 	User      string `json:"u"`
 	Provider  string `json:"p"`
 	Nonce     string `json:"n"`
+	ReturnTo  string `json:"rt,omitempty"`
 	Exp       int64  `json:"exp"` // unix seconds
 }
 
@@ -61,6 +67,7 @@ func (s stateSigner) sign(st connectState, exp time.Time) string {
 		User:      st.User.String(),
 		Provider:  st.Provider,
 		Nonce:     st.Nonce,
+		ReturnTo:  st.ReturnTo,
 		Exp:       exp.Unix(),
 	})
 	enc := base64.RawURLEncoding.EncodeToString(payload)
@@ -100,7 +107,7 @@ func (s stateSigner) verify(token string, now time.Time) (connectState, error) {
 	if err != nil {
 		return connectState{}, fmt.Errorf("connector state: bad user id: %w", err)
 	}
-	return connectState{Workspace: ws, User: user, Provider: w.Provider, Nonce: w.Nonce}, nil
+	return connectState{Workspace: ws, User: user, Provider: w.Provider, Nonce: w.Nonce, ReturnTo: w.ReturnTo}, nil
 }
 
 func (s stateSigner) mac(enc string) []byte {

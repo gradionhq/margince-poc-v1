@@ -32,11 +32,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
-// NewStanding returns the persisted-connection flavor: Authenticate probes
+// NewStanding returns the persisted-connection connector: Authenticate probes
 // and seals the credentials; every Sync dials fresh and advances a UID
-// cursor. Register this one on the capture registry; the transient one-shot
-// pull keeps using New().
-func NewStanding() *Connector { return &Connector{standing: true, dial: dialLogin} }
+// cursor. This is the only flavor — register it on the capture registry.
+func NewStanding() *Connector { return &Connector{dial: dialLogin} }
 
 // withDialer overrides the session dialer — the testable seam (the real
 // dialer's TLS and SSRF properties are its own concern; the sync logic is
