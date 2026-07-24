@@ -284,9 +284,9 @@ func (a *Adapter) Owners(_ context.Context) ([]overlay.OwnerRef, error) {
 // bucketing uses a purpose-built double instead of this fake.
 //
 //craft:ignore naked-any fields is the canonical field bag the seam carries; the any is inherent to the decoded shape
-func (a *Adapter) Create(_ context.Context, canonicalClass string, fields map[string]any) (overlay.Record, error) {
+func (a *Adapter) Create(_ context.Context, canonicalClass string, fields map[string]any) (overlay.WriteResult, error) {
 	if len(fields) == 0 {
-		return overlay.Record{}, fmt.Errorf("fake: cannot create a %s with no fields", canonicalClass)
+		return overlay.WriteResult{}, fmt.Errorf("fake: cannot create a %s with no fields", canonicalClass)
 	}
 	rec := overlay.Record{
 		ExternalID:  a.nextWriteID(),
@@ -295,7 +295,11 @@ func (a *Adapter) Create(_ context.Context, canonicalClass string, fields map[st
 		ModifiedAt:  writeEpoch.Add(time.Duration(a.writeSeq) * time.Second),
 	}
 	a.records[canonicalClass] = append(a.records[canonicalClass], rec)
-	return rec, nil
+	// The fake does no incumbent mapping, so its "written properties" are the
+	// canonical fields stringified and its object class is the canonical one —
+	// a producer/consumer pair driven by the fake stays internally consistent
+	// (the real adapter uses HubSpot names on both sides).
+	return overlay.WriteResult{Record: rec, IncumbentClass: canonicalClass, WrittenProps: stringifyProps(fields)}, nil
 }
 
 // nextWriteID advances writeSeq to an id no existing record (seeded or
@@ -324,17 +328,18 @@ func (a *Adapter) nextWriteID() string {
 // passing no fields gets the record unchanged.
 //
 //craft:ignore naked-any fields is the canonical patch bag the seam carries; the any is inherent to the decoded shape
-func (a *Adapter) Update(_ context.Context, canonicalClass, externalID string, fields map[string]any, baseline time.Time) (overlay.Record, error) {
+func (a *Adapter) Update(_ context.Context, canonicalClass, externalID string, fields map[string]any, baseline time.Time) (overlay.WriteResult, error) {
 	recs := a.records[canonicalClass]
 	for i := range recs {
 		if recs[i].ExternalID != externalID {
 			continue
 		}
 		if len(fields) == 0 {
-			return recs[i], nil
+			// Read-only-only patch: nothing written, so no ledger entry.
+			return overlay.WriteResult{Record: recs[i], IncumbentClass: canonicalClass}, nil
 		}
 		if recs[i].ModifiedAt.After(baseline) {
-			return overlay.Record{}, apperrors.ErrVersionSkew
+			return overlay.WriteResult{}, apperrors.ErrVersionSkew
 		}
 		merged := make(map[string]any, len(recs[i].Fields)+len(fields))
 		for k, v := range recs[i].Fields {
@@ -350,9 +355,20 @@ func (a *Adapter) Update(_ context.Context, canonicalClass, externalID string, f
 		}
 		recs[i].Fields = merged
 		recs[i].ModifiedAt = next
-		return recs[i], nil
+		return overlay.WriteResult{Record: recs[i], IncumbentClass: canonicalClass, WrittenProps: stringifyProps(fields)}, nil
 	}
-	return overlay.Record{}, fmt.Errorf("fake: no %s record with external id %s to update", canonicalClass, externalID)
+	return overlay.WriteResult{}, fmt.Errorf("fake: no %s record with external id %s to update", canonicalClass, externalID)
+}
+
+// stringifyProps renders a canonical field bag as the property→value string map
+// the write ledger records — the fake's stand-in for an adapter's mapped
+// incumbent properties.
+func stringifyProps(fields map[string]any) map[string]string {
+	props := make(map[string]string, len(fields))
+	for k, v := range fields {
+		props[k] = fmt.Sprintf("%v", v)
+	}
+	return props
 }
 
 // Archive removes canonicalClass's record for externalID after the same

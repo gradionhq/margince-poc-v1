@@ -41,7 +41,7 @@ func TestAdapterCreatePostsMappedProps(t *testing.T) {
 	defer srv.Close()
 
 	adapter := hubspot.NewAdapter(hubspot.NewClient("us", "tok", hubspot.WithBaseURL(srv.URL)))
-	rec, err := adapter.Create(t.Context(), "person", map[string]any{
+	res, err := adapter.Create(t.Context(), "person", map[string]any{
 		"first_name": "Ada", "last_name": "Lovelace",
 	})
 	if err != nil {
@@ -50,8 +50,14 @@ func TestAdapterCreatePostsMappedProps(t *testing.T) {
 	if gotBody.Properties["firstname"] != "Ada" || gotBody.Properties["lastname"] != "Lovelace" {
 		t.Errorf("POSTed properties = %#v, want firstname=Ada lastname=Lovelace", gotBody.Properties)
 	}
-	if rec.ExternalID != "555" || rec.Fields["first_name"] != "Ada" {
-		t.Errorf("mapped record = %+v, want ExternalID 555 + first_name Ada", rec)
+	if res.Record.ExternalID != "555" || res.Record.Fields["first_name"] != "Ada" {
+		t.Errorf("mapped record = %+v, want ExternalID 555 + first_name Ada", res.Record)
+	}
+	// WrittenProps carries the HubSpot properties actually written — the
+	// echo-suppression ledger's producer input (OVA-DDL-6), keyed as the echo
+	// webhook will present them.
+	if res.IncumbentClass != "contacts" || res.WrittenProps["firstname"] != "Ada" || res.WrittenProps["lastname"] != "Lovelace" {
+		t.Errorf("WriteResult = {class:%q props:%#v}, want contacts + firstname/lastname", res.IncumbentClass, res.WrittenProps)
 	}
 }
 
@@ -122,15 +128,18 @@ func TestAdapterUpdateAppliesWhenBaselineFresh(t *testing.T) {
 	defer srv.Close()
 
 	adapter := hubspot.NewAdapter(hubspot.NewClient("us", "tok", hubspot.WithBaseURL(srv.URL)))
-	rec, err := adapter.Update(t.Context(), "person", "555", map[string]any{"first_name": "Ada2"}, baseline)
+	res, err := adapter.Update(t.Context(), "person", "555", map[string]any{"first_name": "Ada2"}, baseline)
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	if patchBody.Properties["firstname"] != "Ada2" {
 		t.Errorf("PATCHed properties = %#v, want firstname=Ada2", patchBody.Properties)
 	}
-	if rec.Fields["first_name"] != "Ada2" {
-		t.Errorf("mapped record first_name = %v, want Ada2", rec.Fields["first_name"])
+	if res.Record.Fields["first_name"] != "Ada2" {
+		t.Errorf("mapped record first_name = %v, want Ada2", res.Record.Fields["first_name"])
+	}
+	if res.WrittenProps["firstname"] != "Ada2" {
+		t.Errorf("Update WrittenProps = %#v, want firstname=Ada2", res.WrittenProps)
 	}
 }
 
@@ -235,7 +244,7 @@ func TestAdapterCreateRejectsAllReadOnlyFields(t *testing.T) {
 func TestAdapterUpdateNoOpWhenOnlyReadOnlyFields(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPatch {
-			t.Error("a read-only-only patch must not PATCH")
+			t.Error("a read-only-fields patch must not PATCH")
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"results":[{"id":"555","properties":{"hs_object_id":"555",
@@ -244,12 +253,16 @@ func TestAdapterUpdateNoOpWhenOnlyReadOnlyFields(t *testing.T) {
 	defer srv.Close()
 
 	adapter := hubspot.NewAdapter(hubspot.NewClient("us", "tok", hubspot.WithBaseURL(srv.URL)))
-	rec, err := adapter.Update(t.Context(), "person", "555", map[string]any{"full_name": "Ada Renamed"}, time.Now())
+	res, err := adapter.Update(t.Context(), "person", "555", map[string]any{"full_name": "Ada Renamed"}, time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("no-op Update: %v", err)
 	}
-	if rec.Fields["first_name"] != "Ada" {
-		t.Errorf("no-op Update should return the current record, got %+v", rec.Fields)
+	if res.Record.Fields["first_name"] != "Ada" {
+		t.Errorf("no-op Update should return the current record, got %+v", res.Record.Fields)
+	}
+	// A read-only-fields patch wrote nothing, so it opens no ledger entry.
+	if len(res.WrittenProps) != 0 {
+		t.Errorf("a read-only-fields Update must report no written props, got %#v", res.WrittenProps)
 	}
 }
 

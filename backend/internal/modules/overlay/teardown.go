@@ -226,5 +226,15 @@ func purgeMirror(ctx context.Context, tx pgx.Tx) error {
 	if _, err := tx.Exec(ctx, `DELETE FROM overlay_sync_state`); err != nil {
 		return fmt.Errorf("overlay: purging the sweep backoff state: %w", err)
 	}
+	// The our-write ledger holds incumbent property values (OVA-DDL-6); purge it
+	// with the rest so teardown leaves no mirrored incumbent data behind. Its
+	// producer (OpenEntries) is disconnect-fenced, so an in-flight write cannot
+	// repopulate it after this delete commits (the fence aborts that write).
+	if _, err := tx.Exec(ctx, `DELETE FROM overlay_write_ledger`); err != nil {
+		return fmt.Errorf("overlay: purging the write ledger: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM overlay_mirror_halt`); err != nil {
+		return fmt.Errorf("overlay: purging the mirror-halt flag: %w", err)
+	}
 	return nil
 }

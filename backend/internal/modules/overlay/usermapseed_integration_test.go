@@ -72,12 +72,12 @@ func (s seedIncumbent) Owners(context.Context) ([]OwnerRef, error) {
 	return out, nil
 }
 
-func (seedIncumbent) Create(context.Context, string, map[string]any) (Record, error) {
-	return Record{}, fmt.Errorf("seedIncumbent: Create is not fixtured")
+func (seedIncumbent) Create(context.Context, string, map[string]any) (WriteResult, error) {
+	return WriteResult{}, fmt.Errorf("seedIncumbent: Create is not fixtured")
 }
 
-func (seedIncumbent) Update(context.Context, string, string, map[string]any, time.Time) (Record, error) {
-	return Record{}, fmt.Errorf("seedIncumbent: Update is not fixtured")
+func (seedIncumbent) Update(context.Context, string, string, map[string]any, time.Time) (WriteResult, error) {
+	return WriteResult{}, fmt.Errorf("seedIncumbent: Update is not fixtured")
 }
 
 func (seedIncumbent) Archive(context.Context, string, string, time.Time) error {

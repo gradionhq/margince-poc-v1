@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"sort"
 	"strconv"
@@ -42,12 +43,31 @@ type Provider struct {
 	// read does. nil until wired (the write-verb unit tests) — writes then
 	// answer errNoWriteIncumbent rather than nil-panic.
 	resolveIncumbent func(context.Context) (Incumbent, error)
+	// ledger is the echo-suppression our-write ledger (OVA-DDL-6): each
+	// successful write-back opens an entry per property written so the
+	// webhook receiver can drop the write's own echo. nil until wired (the
+	// write-verb unit tests) — opening entries is then a no-op, which only
+	// costs a redundant re-fetch when the echo webhook later arrives, never a
+	// correctness loss (the poller heals and the re-ingest is idempotent).
+	ledger *WriteLedger
+	// log records a ledger-open failure without failing the already-committed
+	// write. nil falls back to slog.Default().
+	log *slog.Logger
 }
 
 // NewProvider constructs a Provider over ms (mirror reads) and ff
 // (force-fresh reads). Either may be nil; see the Provider doc.
 func NewProvider(ms *MirrorStore, ff *FreshnessReader) *Provider {
 	return &Provider{ms: ms, ff: ff}
+}
+
+// SetWriteLedger wires the echo-suppression ledger's producer half (OVA-DDL-6)
+// into the write path, with the logger a ledger-open failure is reported
+// through (the write itself never fails on it). Boot-time only, like
+// SetFreshnessIncumbentResolver.
+func (p *Provider) SetWriteLedger(l *WriteLedger, log *slog.Logger) {
+	p.ledger = l
+	p.log = log
 }
 
 // SetFreshnessIncumbentResolver wires the per-request live-incumbent
