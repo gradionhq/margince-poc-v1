@@ -257,7 +257,7 @@ func (x evidenceExtractor) extract(ctx context.Context, rawURL string, accept fu
 	}
 
 	var legalFields []evidencedField
-	if legalURL, legalText := x.probeLegalPage(ctx, rawURL, seedText); legalText != "" {
+	if legalURL, legalText := x.probeLegalPage(ctx, rawURL, seedDoc); legalText != "" {
 		// A probe failure is a page that does not exist, not a broken read:
 		// the seed page alone is still an honest (if thinner) answer.
 		legalFields, err = x.extractFields(ctx, "Legal notice page "+legalURL, legalText, legalURL, accept)
@@ -277,7 +277,11 @@ func (x evidenceExtractor) extract(ctx context.Context, rawURL string, accept fu
 // and returns the first page that reads as a real, DISTINCT document. Sites
 // that answer every path with the same page (SPA catch-alls — and fixtures)
 // yield the seed text again; treating that as a legal page would double every
-// model call for nothing, so identical text is a miss.
+// model call for nothing, so identical text is a miss. The duplicate test is
+// media-type-aware: it fires only when the probe and the seed were served the
+// same way (both markdown or both stripped HTML), so a rare mixed-negotiation
+// pair is let through rather than falsely deduped — benign, the evidence gate
+// and human approval still hold.
 //
 // The probe fires ONLY when the seed is the host root: on a path-hosted site
 // (sites.example.com/company/), the host root's /impressum belongs to a
@@ -290,7 +294,7 @@ func (x evidenceExtractor) extract(ctx context.Context, rawURL string, accept fu
 // "the Impressum probe kept timing out" must be findable when legal fields
 // come back thin, even though the seed page alone still yields an honest
 // (thinner) read.
-func (x evidenceExtractor) probeLegalPage(ctx context.Context, seedURL, seedText string) (string, string) {
+func (x evidenceExtractor) probeLegalPage(ctx context.Context, seedURL string, seed webread.Doc) (string, string) {
 	parsed, err := url.Parse(seedURL)
 	if err != nil || parsed.Host == "" {
 		return "", ""
@@ -312,7 +316,8 @@ func (x evidenceExtractor) probeLegalPage(ctx context.Context, seedURL, seedText
 			}
 			continue
 		}
-		if len([]rune(doc.Text)) < minReadableRunes || doc.Text == seedText {
+		if len([]rune(doc.Text)) < minReadableRunes ||
+			(doc.IsMarkdown() == seed.IsMarkdown() && doc.Text == seed.Text) {
 			continue
 		}
 		return origin + path, doc.Text
