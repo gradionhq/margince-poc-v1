@@ -41,21 +41,18 @@ func (h connectorHandlers) connectIMAP(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	// Scope preflight BEFORE any credential probe: the probe dials a
-	// tenant-supplied host, so an under-scoped caller must be refused before
-	// any egress happens (and before login-vs-unreachable becomes
-	// distinguishable). Registry.Connect re-checks the same scopes as the
-	// persistence invariant.
-	for _, scope := range imap.NewStanding().Descriptor().Scopes {
-		if !actor.Scopes.Has(scope) {
-			httperr.Write(w, r, &httperr.DetailedError{
-				Status: http.StatusForbidden,
-				Code:   "scope_exceeded",
-				Detail: "Connecting a mailbox needs the read scope your session does not hold.",
-			})
-			return
-		}
-	}
+	// A cookie-session human carries RBAC (Permissions/SeatType) but no
+	// passport Scopes — those are an agent concept (principal.go). The connector
+	// authority model (the probe and Registry.Connect) is scope-based, so the
+	// granting human must be given the connector's read scope explicitly, just
+	// as the OAuth callback does for gmail/graph (connectors.go). Without this a
+	// real signed-in human is refused for lack of a scope no session ever holds.
+	// The endpoint is human-only and reached only past the 401 check above, so a
+	// human connecting their own mailbox is, by construction, authorized to
+	// grant read; the dial itself stays SSRF-guarded by netguard, not by scope.
+	grantor := actor
+	grantor.Scopes = principal.NewScopeSet(principal.ScopeRead)
+	r = r.WithContext(principal.WithActor(r.Context(), grantor))
 	// The shared decoder bounds the body (1 MiB), rejects trailing/noncanonical
 	// input, and answers malformed JSON itself — so a decode failure is handled,
 	// never conflated with the credential check below.

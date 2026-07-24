@@ -36,7 +36,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
@@ -134,10 +133,11 @@ func TestStandingIMAPConnectTransport(t *testing.T) {
 			"host": host, "port": port, "username": standingIMAPUser, "secret": pass,
 		}}
 	}
-	base := e.As(e.Rep1, nil, integration.AdminPerms)
-	actor, _ := principal.Actor(base)
-	actor.Scopes = principal.NewScopeSet(principal.ScopeRead)
-	authed := principal.WithActor(base, actor)
+	// A realistic signed-in human session carries RBAC (AdminPerms) but NO
+	// passport scopes — scopes are an agent concept. The handler must grant the
+	// connector's read scope from the human's authority; hand-setting it here
+	// would mask a regression where a real session is refused for lack of it.
+	authed := e.As(e.Rep1, nil, integration.AdminPerms)
 
 	t.Run("signed out is 401", func(t *testing.T) {
 		if rec := post(t, context.Background(), imapBody(standingIMAPPass)); rec.Code != http.StatusUnauthorized {

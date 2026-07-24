@@ -4,7 +4,7 @@
 package compose
 
 // The standing IMAP connect's refusal ladder, no database in sight: signed
-// out is 401, an under-scoped session is 403 BEFORE any credential probe
+// out is 401, a signed-in human is granted the connector's read scope
 // (no egress to the tenant-supplied host), a malformed body is 422, and the
 // probe's own refusals map to their statuses. Everything here returns
 // before the registry, so the branches are provable as pure transport.
@@ -91,17 +91,23 @@ func TestStandingIMAPConnectRefusals(t *testing.T) {
 		}
 	})
 
-	t.Run("an under-scoped session is 403 with zero egress", func(t *testing.T) {
-		rec := postIMAPConnect(imapConnectCtx(t /* no scopes */), t, h, creds)
-		if rec.Code != http.StatusForbidden {
-			t.Fatalf("status = %d, want 403", rec.Code)
+	t.Run("a signed-in human with no passport scopes is granted read, not refused", func(t *testing.T) {
+		// A cookie session carries RBAC but no passport scopes; the handler
+		// grants the connector's read scope from the human's authority (as the
+		// OAuth callback does), so a real human is NOT scope-refused. An empty
+		// body reaches the credential check (422) — proving the request passed
+		// the scope gate, and without any dial.
+		rec := postIMAPConnect(imapConnectCtx(t /* no scopes, like a real session */), t, h, imapConnectBody{})
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("status = %d, want 422 (passed the scope gate, missing creds)", rec.Code)
 		}
 		if probeCalls != 0 {
-			t.Fatal("the credential probe ran for an under-scoped caller — the preflight must refuse before any dial")
+			t.Fatal("no credential block was sent, yet the probe ran")
 		}
 	})
 
-	authed := imapConnectCtx(t, principal.ScopeRead)
+	// A realistic signed-in human session carries no passport scopes.
+	authed := imapConnectCtx(t)
 
 	t.Run("a missing credential block is 422", func(t *testing.T) {
 		if rec := postIMAPConnect(authed, t, h, imapConnectBody{}); rec.Code != http.StatusUnprocessableEntity {
