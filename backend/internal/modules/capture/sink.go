@@ -196,7 +196,9 @@ func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.Nor
 	if err := s.linkActivity(ctx, tx, id, rec.Links); err != nil {
 		return datasource.EntityRef{}, false, err
 	}
-	auditID, err := storekit.Audit(ctx, tx, "create", "activity", id.UUID, nil, fields)
+	// Capture-audit minimization (ADR-0072/A118): the after-image is
+	// metadata-only, never the subject/body (capturedActivityAuditImage).
+	auditID, err := storekit.Audit(ctx, tx, "create", "activity", id.UUID, nil, capturedActivityAuditImage(rec, fields))
 	if err != nil {
 		return datasource.EntityRef{}, false, err
 	}
