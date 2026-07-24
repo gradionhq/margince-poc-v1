@@ -261,20 +261,48 @@ func (h Handlers) GetOverlayBudget(w http.ResponseWriter, r *http.Request) {
 	httperr.WriteJSON(w, http.StatusOK, budgetToWire(budget))
 }
 
-// budgetToWire maps the domain Budget onto the contract's OverlayBudget
-// shape — Consumed/Limit ride as float32 per the generated schema (an
-// OpenAPI integer-as-number artifact), never fractional in practice. The
-// meter's per-source breakdown and the ~unknown headroom sentinel have no
-// field on this frozen wire shape (the admin budget surface that renders
-// them is a separate, unbuilt surface — overlay-budget chapter §"out of
-// scope"), so the endpoint reports the REST window's total, cap, and band
-// only; the breakdown stays internal to the meter.
+// budgetToWire maps the domain Budget onto the contract's OverlayBudget shape
+// (overlay-budget.md "The budget read (wire shape)", OVB-AC-1/AC-5): the REST
+// window total/cap/band, the per-source breakdown (summing to consumed), the
+// honest headroom (the meter's `~unknown` sentinel is carried through verbatim
+// as a string — never a fabricated number, OVB-AC-1), and the per-second Search
+// window. Counts ride as int64 (exact — a float would round independently and
+// could break the per-source sum above 2^24). A source that spent nothing this
+// window is a map miss (0).
 func budgetToWire(b overlaybudget.Budget) crmcontracts.OverlayBudget {
 	window := b.Window
-	consumed := float32(b.Consumed)
-	limit := float32(b.Limit)
+	consumed := int64(b.Consumed)
+	limit := int64(b.Limit)
 	band := crmcontracts.OverlayBudgetBand(b.Band)
-	return crmcontracts.OverlayBudget{Window: &window, Consumed: &consumed, Limit: &limit, Band: &band}
+	headroom := b.Headroom
+
+	forceFresh := int64(b.Breakdown[overlaybudget.SourceForceFresh])
+	poller := int64(b.Breakdown[overlaybudget.SourcePoller])
+	capture := int64(b.Breakdown[overlaybudget.SourceCapture])
+
+	searchWindow := b.SearchWindow
+	searchConsumed := int64(b.SearchConsumed)
+	searchLimit := int64(b.SearchLimit)
+	searchBand := crmcontracts.OverlayBudgetBand(b.SearchBand)
+
+	return crmcontracts.OverlayBudget{
+		Window:   &window,
+		Consumed: &consumed,
+		Limit:    &limit,
+		Band:     &band,
+		Headroom: &headroom,
+		Sources: &struct {
+			Capture    *int64 `json:"capture,omitempty"`
+			ForceFresh *int64 `json:"force_fresh,omitempty"`
+			Poller     *int64 `json:"poller,omitempty"`
+		}{Capture: &capture, ForceFresh: &forceFresh, Poller: &poller},
+		Search: &crmcontracts.OverlayBudgetSearch{
+			Window:   &searchWindow,
+			Consumed: &searchConsumed,
+			Limit:    &searchLimit,
+			Band:     &searchBand,
+		},
+	}
 }
 
 // PreflightOverlayFlip dry-runs the read-mode→overlay flip's readiness
