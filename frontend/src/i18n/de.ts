@@ -1235,6 +1235,15 @@ export const de = {
     "Die Verbindung konnte nicht hergestellt werden — bitte versuchen Sie es erneut.",
   "connectors.dismissOutcome": "Schließen",
 
+  // Das immer sichtbare "Verbindung hinzufügen"-Element (Task 1): der
+  // Leerzustand und die Fußzeile der Liste teilen sich dieselben Buttons für
+  // noch nicht verbundene Anbieter.
+  "connectors.addConnection": "Verbindung hinzufügen",
+  "connectors.googleSeparateNote":
+    "Gmail und Google Kalender werden separat verbunden.",
+  "connectors.providerNotConfigured":
+    "{provider} ist in dieser Installation nicht konfiguriert.",
+
   // Das eingebettete IMAP-Verbindungsformular (Task 6).
   "connectors.imapConnectCta": "IMAP-Postfach verbinden",
   "connectors.imapModalTitle": "IMAP-Postfach verbinden",

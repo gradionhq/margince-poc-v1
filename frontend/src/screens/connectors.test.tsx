@@ -5,6 +5,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -71,7 +72,11 @@ function stubApi(connections: CaptureConnection[], opts: StubOpts = {}) {
           authorize_url: "https://accounts.google/x",
         };
         if ("status" in c) {
-          return jsonResponse({ detail: "connect failed" }, c.status);
+          const body =
+            c.status === 501
+              ? { code: "not_implemented", detail: "capture not wired" }
+              : { detail: "connect failed" };
+          return jsonResponse(body, c.status);
         }
         return jsonResponse(c);
       }
@@ -125,16 +130,14 @@ describe("the connected-inboxes card", () => {
     stubApi([]);
     render(<ConnectorsCard />);
     expect(await screen.findByText(/No inbox is connected yet/)).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: /Connect an inbox/ }),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Gmail" })).toBeTruthy();
   });
 
   it("opens the inline IMAP form from the empty state instead of bouncing to onboarding", async () => {
     stubApi([]);
     render(<ConnectorsCard />);
     await userEvent.click(
-      await screen.findByRole("button", { name: /Connect an IMAP mailbox/ }),
+      await screen.findByRole("button", { name: "IMAP mailbox" }),
     );
     expect(
       screen.getByRole("dialog", { name: "Connect an IMAP mailbox" }),
@@ -386,5 +389,68 @@ describe("the OAuth return outcome", () => {
     await screen.findByText(/you declined access/i);
     await userEvent.click(screen.getByRole("button", { name: /dismiss/i }));
     expect(screen.queryByText(/you declined access/i)).toBeNull();
+  });
+});
+
+// The always-present "Add a connection" affordance (Task 1): the empty
+// state and the roster footer share the same not-yet-connected provider
+// buttons, an OAuth pick connects+redirects, IMAP opens the inline form, and
+// a 501 from a specific provider's connect renders an honest named note.
+describe("add a connection", () => {
+  it("offers only not-yet-connected providers when one is connected", async () => {
+    stubApi([gmailConnected]);
+    render(<ConnectorsCard />);
+    await screen.findByText("Add a connection");
+    const add = screen.getByText("Add a connection").closest(".connector-add");
+    expect(add).not.toBeNull();
+    const panel = add as HTMLElement;
+    expect(within(panel).queryByRole("button", { name: "Gmail" })).toBeNull();
+    expect(
+      within(panel).getByRole("button", { name: "Google Calendar" }),
+    ).toBeTruthy();
+    expect(
+      within(panel).getByRole("button", { name: "Microsoft" }),
+    ).toBeTruthy();
+    expect(
+      within(panel).getByRole("button", { name: "IMAP mailbox" }),
+    ).toBeTruthy();
+  });
+
+  it("redirects the browser when an OAuth provider is chosen", async () => {
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...globalThis.location, assign });
+    stubApi([gmailConnected], {
+      connect: { authorize_url: "https://accounts.google/cal" },
+    });
+    render(<ConnectorsCard />);
+    await screen.findByText("Add a connection");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Google Calendar" }),
+    );
+    await waitFor(() =>
+      expect(assign).toHaveBeenCalledWith("https://accounts.google/cal"),
+    );
+  });
+
+  it("shows an honest note when a provider is not configured (501)", async () => {
+    stubApi([gmailConnected], { connect: { status: 501 } });
+    render(<ConnectorsCard />);
+    await screen.findByText("Add a connection");
+    await userEvent.click(screen.getByRole("button", { name: "Microsoft" }));
+    expect(
+      await screen.findByText("Microsoft isn't configured in this deployment."),
+    ).toBeTruthy();
+  });
+
+  it("hides the footer when all four providers are connected", async () => {
+    stubApi([
+      gmailConnected,
+      { ...gmailConnected, id: "c2", provider: "gcal" },
+      { ...gmailConnected, id: "c3", provider: "graph" },
+      { ...gmailConnected, id: "c4", provider: "imap" },
+    ]);
+    render(<ConnectorsCard />);
+    await screen.findByText("Google Calendar"); // a roster row label
+    expect(screen.queryByText("Add a connection")).toBeNull();
   });
 });

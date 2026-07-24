@@ -1212,6 +1212,15 @@ export const en = {
     "The connection couldn't be completed — please try again.",
   "connectors.dismissOutcome": "Dismiss",
 
+  // The always-present "Add a connection" affordance (Task 1): the empty
+  // state and the roster footer share the same not-yet-connected provider
+  // buttons, so the copy that names them lives once here.
+  "connectors.addConnection": "Add a connection",
+  "connectors.googleSeparateNote":
+    "Gmail and Google Calendar connect separately.",
+  "connectors.providerNotConfigured":
+    "{provider} isn't configured in this deployment.",
+
   // The inline IMAP connect form (Task 6): first-connect and reconnect for
   // the one credential provider, done in Settings instead of bouncing to
   // onboarding.
