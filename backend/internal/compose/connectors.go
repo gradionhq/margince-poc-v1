@@ -6,7 +6,8 @@ package compose
 // The per-provider OAuth capture surface (RC-8; capture.md CAP-WIRE-1):
 // listConnectors / connectConnector / connectorOAuthCallback /
 // disconnectConnector, for the standing (persisted) mail connectors —
-// distinct from the one-shot /connectors/imap/connect. connect returns the
+// distinct from the direct-credential /connectors/imap/connect (connectors_imap.go),
+// which is itself a standing connection, just OAuth-less. connect returns the
 // provider consent URL carrying a signed state; the session-less callback
 // verifies that state, exchanges the code, reconstructs the granting human's
 // authority from the (trusted) state, and persists the connection through the
@@ -180,7 +181,7 @@ func (h connectorHandlers) oauthApp(provider string) (oauthApp, bool) {
 func (h connectorHandlers) landingURL(outcome, returnTo string) string {
 	route := "/#/onboarding/connect/"
 	if returnTo == returnToSettings {
-		route = "/#/settings/connections/"
+		route = "/#/settings/integrations/"
 	}
 	return strings.TrimRight(h.publicBaseURL, "/") + route + outcome
 }
@@ -250,9 +251,13 @@ func (h connectorHandlers) ConnectConnector(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	// The body is optional for OAuth providers (they submit nothing), so an
-	// absent one is not a failure — only a malformed one is.
+	// absent one is not a failure — only a malformed one is. ContentLength ==
+	// 0 is the reliable "definitely no body" signal; -1 (chunked, length
+	// unknown until read) must still be decoded, or a chunked request's
+	// return_to is silently dropped and a malformed chunked body skips
+	// rejection entirely.
 	returnTo := returnToOnboarding
-	if r.ContentLength > 0 {
+	if r.ContentLength != 0 {
 		var req crmcontracts.ConnectConnectorRequest
 		if !httperr.Decode(w, r, &req) {
 			return

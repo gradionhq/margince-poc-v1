@@ -203,7 +203,7 @@ func TestLandingURLMapsReturnToThroughAClosedSet(t *testing.T) {
 		returnTo string
 		want     string
 	}{
-		{"settings", "settings", "https://crm.example.com/#/settings/connections/ok"},
+		{"settings", "settings", "https://crm.example.com/#/settings/integrations/ok"},
 		{"onboarding", "onboarding", "https://crm.example.com/#/onboarding/connect/ok"},
 		{"absent falls back to onboarding", "", "https://crm.example.com/#/onboarding/connect/ok"},
 		{"unknown falls back to onboarding", "elsewhere", "https://crm.example.com/#/onboarding/connect/ok"},
