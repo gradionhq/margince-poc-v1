@@ -14,13 +14,15 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/gradionhq/margince/backend/internal/compose"
 )
 
 // workerConfig is the parsed boot configuration of the worker process.
 type workerConfig struct {
 	dsn                  string
 	configPath           string
-	freemailExtra        []string
+	captureConfig        compose.CaptureConfig
 	ratesFx              string
 	ratesCurrencies      []string
 	ratesModelPricing    map[string]string

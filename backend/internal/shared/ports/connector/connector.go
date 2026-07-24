@@ -140,6 +140,12 @@ type Counterparty struct {
 	DisplayName string
 	Domain      string
 	Direction   string
+	// ListUnsubscribe reports whether the message carried an RFC 2369
+	// List-Unsubscribe header — the bulk-mail corroboration the transactional
+	// suppression gate (CAP-PARAM-6, ADR-0072) requires before a subdomain
+	// prefix rule may suppress record creation. Mail connectors populate it;
+	// zero for records that carry no such signal.
+	ListUnsubscribe bool
 }
 
 // ExclusionAttrs is the normalized, matchable face of a captured message

@@ -821,6 +821,29 @@ tooling and gate suite the baseline needs. Merged so far:
 
 Open work, roughly in priority order:
 
+- **Capture quality gates + captured-company auto-enrichment — spec ratified,
+  implementation in flight (plan
+  `/Users/lars/.claude/plans/yes-and-while-we-crispy-stearns.md`).**
+  **Phase 0 (spec):** ADR-0072/A118 authored in `margince-foundation`
+  (renumbered from the plan's "ADR-0070", now taken by A116/A117) — the tiered
+  creation gate, the `capture_counterparty_verdict` no-payload AI task,
+  noise=hide-then-redact, `organization.name_source` authority, and the
+  `capture_auto_enrich` setting + daily cap (foundation PR #1184, G1 green).
+  **Phase 1 (build, landed):** transactional/ESP suppression (CAP-PARAM-6:
+  `capture/transactional.go` — exact-eSLD infra suppresses standalone, prefix
+  rules only with List-Unsubscribe/machine-localpart corroboration, PSL/IDNA
+  normalization, `capture.transactional_extra`/`_never` config) runs T2 in the
+  Sink (person+org suppressed, activity stands, `system_log` breadcrumb); and
+  honest org display names (`people/orgname.go` `DisplayNameFromDomain`:
+  "gitex.com"→"Gitex") with the `organization.name_source` provenance column
+  (0118; capture stamps `'domain'`, a human edit stamps `'human'`). `make check`
+  + the full zero-skip integration lane green.
+  **Still open (contract-first-gated on ADR-0072):** Phase 4A (the
+  `capture_auto_enrich` setting + `/capture/settings`), 4B (auto deep-read
+  trigger + auto-apply + sweep), 2a (counterparty identity + disposition
+  ledger + deferred creation), 2b (the verdict job + review queue + noise
+  disposition), 3 (corroborated signature org-name promotion).
+
 - **Site-read legal census — three known gaps (#162).** `FinishSiteRead`'s CAS
   guards only on `status = 'running'`, so a reclaimed-then-returning worker can
   overwrite the dossier (pre-existing; the finish half now lives in

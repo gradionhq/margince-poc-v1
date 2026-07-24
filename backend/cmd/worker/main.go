@@ -86,7 +86,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	cfg.freemailExtra = deployCfg.Capture.FreemailExtra
+	cfg.captureConfig = compose.CaptureConfigFromDeploy(deployCfg.Capture)
 	cfg.ratesFx = deployCfg.Rates.Fx
 	cfg.ratesCurrencies = deployCfg.Rates.FxCurrencies
 	cfg.ratesModelPricing = deployCfg.Rates.ModelPricing
@@ -216,7 +216,7 @@ func backfillConnectorCredentials(ctx context.Context, pool *pgxpool.Pool, stdou
 	if !configured {
 		return nil
 	}
-	migrated, err := compose.NewCaptureRegistry(pool, vault).BackfillCredentials(ctx)
+	migrated, err := compose.NewCaptureRegistry(pool, vault, compose.CaptureConfig{}).BackfillCredentials(ctx)
 	if err != nil {
 		logger.Error("connector-credential backfill did not complete; capture continues from the legacy column and the next boot retries", "err", err)
 		return nil
@@ -268,7 +268,7 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 		ClientID:     cfg.graphClientID,
 		ClientSecret: cfg.graphClientSecret,
 		Tenant:       cfg.graphTenant,
-	}, cfg.freemailExtra...).WithSyncInterval(cfg.gmailSyncInterval)
+	}, cfg.captureConfig).WithSyncInterval(cfg.gmailSyncInterval)
 	gmailWired := cfg.gmailClientID != "" && cfg.gmailClientSecret != ""
 	watchCfg := gmailWatchConfig(cfg, gmailWired)
 	overlayVault := vault

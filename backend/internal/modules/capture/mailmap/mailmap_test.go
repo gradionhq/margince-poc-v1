@@ -95,6 +95,45 @@ func TestParseClassifiesOutboundByOwner(t *testing.T) {
 	}
 }
 
+func TestParseCarriesListUnsubscribeOntoCounterparty(t *testing.T) {
+	// A bulk-mail List-Unsubscribe header from a HUMAN localpart is NOT
+	// skipped (SkipReason keeps it — it may be a real contact's newsletter),
+	// but it surfaces as the transactional-gate corroboration signal.
+	withHeader := crlf(
+		"From: hello@event.gitex.com",
+		"To: me@myco.com",
+		"Subject: Join us at GITEX",
+		"List-Unsubscribe: <https://gitex.com/unsub?x=1>",
+		"Message-ID: <blast1@event.gitex.com>",
+		"Content-Type: text/plain; charset=utf-8",
+		"",
+		"Register now.",
+		"",
+	)
+	msg, err := Parse(withHeader, "me@myco.com")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if _, drop := msg.SkipReason(); drop {
+		t.Fatalf("a human-localpart bulk mail must not be skipped outright")
+	}
+	if !msg.ToRecord("imap", withHeader).Counterparty.ListUnsubscribe {
+		t.Fatalf("Counterparty.ListUnsubscribe = false, want true when the header is present")
+	}
+
+	without := crlf(
+		"From: jane@acme.com", "To: me@myco.com", "Subject: hi",
+		"Message-ID: <m1@acme.com>", "Content-Type: text/plain", "", "body", "",
+	)
+	msg, err = Parse(without, "me@myco.com")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if msg.ToRecord("imap", without).Counterparty.ListUnsubscribe {
+		t.Fatalf("Counterparty.ListUnsubscribe = true, want false with no header")
+	}
+}
+
 func TestSkipReasonDropsAutomatedMail(t *testing.T) {
 	cases := map[string][]byte{
 		"no-reply sender": crlf(

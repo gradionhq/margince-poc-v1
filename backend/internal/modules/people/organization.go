@@ -221,6 +221,15 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.OrganizationID, i
 		}
 
 		before, after := p.Before(), p.After()
+		// A human editing the display name is the top of the name-source
+		// lattice (ADR-0072/A118): stamp 'human' so no automated source ever
+		// overwrites it. Only when the name actually changed — re-setting it to
+		// the same value is not a re-authoring.
+		if _, changed := after["display_name"]; changed {
+			if _, err := tx.Exec(ctx, `UPDATE organization SET name_source = 'human' WHERE id = $1`, id); err != nil {
+				return fmt.Errorf("stamp organization name provenance: %w", err)
+			}
+		}
 		if in.Domains != nil {
 			domainsBefore, err := reconcileOrgDomains(ctx, tx, workspaceID(ctx), id, by, *in.Domains)
 			if err != nil {

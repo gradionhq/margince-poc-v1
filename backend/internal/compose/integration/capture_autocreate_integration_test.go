@@ -95,6 +95,21 @@ func email(from, fromName, to, msgID, refs string) []byte {
 	return []byte(strings.Join(lines, "\r\n"))
 }
 
+// emailWithListUnsub builds a message carrying an RFC 2369 List-Unsubscribe
+// header — the bulk-mail corroboration the transactional prefix rule needs.
+func emailWithListUnsub(from, fromName, to, msgID string) []byte {
+	lines := []string{
+		fmt.Sprintf("From: %s <%s>", fromName, from),
+		"To: " + to,
+		"Subject: newsletter",
+		"Date: Wed, 04 Jun 2026 08:00:00 +0000",
+		"Message-ID: <" + msgID + ">",
+		"List-Unsubscribe: <https://example.com/unsub>",
+		"Content-Type: text/plain", "", "hello", "",
+	}
+	return []byte(strings.Join(lines, "\r\n"))
+}
+
 func countRows(t *testing.T, e *searchEnv, query string) int {
 	t.Helper()
 	var n int
@@ -112,7 +127,7 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 	conn := &mailBatchConnector{}
 	// The PRODUCTION wiring, not the bare test sink: the auto-create
 	// resolver and the free-mail gate are exactly what this test proves.
-	registry := compose.NewCaptureRegistry(e.Pool, newTestKeyvault(t, e))
+	registry := compose.NewCaptureRegistry(e.Pool, newTestKeyvault(t, e), compose.CaptureConfig{})
 	registry.Register(conn)
 
 	// The production authority resolves the granting human's LIVE role, so
@@ -167,8 +182,14 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 			WHERE pe.email = 'alice@acme.example'`); n != 1 {
 			t.Fatalf("%d persons for alice, want exactly 1", n)
 		}
-		if n := countRows(t, e, `SELECT count(*) FROM organization WHERE display_name = 'acme.example'`); n != 1 {
-			t.Fatalf("%d organizations for acme.example, want exactly 1", n)
+		// The org is named from the domain's registrable label ("Acme"), not
+		// the raw eSLD, and marked name_source='domain' so a later enrichment
+		// may overwrite it (ADR-0072/A118).
+		if n := countRows(t, e, `SELECT count(*) FROM organization WHERE display_name = 'Acme' AND name_source = 'domain'`); n != 1 {
+			t.Fatalf("%d organizations named 'Acme' with name_source='domain', want exactly 1", n)
+		}
+		if n := countRows(t, e, `SELECT count(*) FROM organization WHERE display_name = 'acme.example'`); n != 0 {
+			t.Fatal("the raw eSLD must no longer be used as the display name")
 		}
 		if n := countRows(t, e, `
 			SELECT count(*) FROM relationship r JOIN person_email pe ON pe.person_id = r.person_id
@@ -218,6 +239,44 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 		}
 		if n := countRows(t, e, `SELECT count(*) FROM organization WHERE display_name = 'gmail.com'`); n != 0 {
 			t.Fatal("gmail.com must never become an organization")
+		}
+	})
+
+	t.Run("transactional infrastructure keeps the activity, derives no counterparty", func(t *testing.T) {
+		// A DocuSign envelope (exact infra eSLD, no corroboration needed) and a
+		// conference blast on a prefix subdomain WITH a List-Unsubscribe header
+		// (corroborated) both suppress person+org while the timeline row stands
+		// (ADR-0072/A118, CAP-PARAM-6).
+		sync(t,
+			email("dse@eu.docusign.net", "DocuSign EU", autoCreateOwner, "ds1@docusign.net", ""),
+			emailWithListUnsub("hello@event.gitex.com", "GITEX", autoCreateOwner, "gx1@event.gitex.com"),
+		)
+		if n := countRows(t, e, `SELECT count(*) FROM activity WHERE source_id IN ('ds1@docusign.net', 'gx1@event.gitex.com')`); n != 2 {
+			t.Fatalf("%d transactional activities captured, want 2 — the timeline row must stand", n)
+		}
+		if n := countRows(t, e, `
+			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+			WHERE pe.email IN ('dse@eu.docusign.net', 'hello@event.gitex.com')`); n != 0 {
+			t.Fatal("transactional infrastructure must derive no person")
+		}
+		if n := countRows(t, e, `SELECT count(*) FROM organization WHERE display_name IN ('Docusign', 'Gitex')`); n != 0 {
+			t.Fatal("transactional infrastructure must derive no organization")
+		}
+		if n := countRows(t, e, `
+			SELECT count(*) FROM system_log
+			WHERE action = 'capture_transactional_suppressed' AND detail->>'source_id' IN ('ds1@docusign.net', 'gx1@event.gitex.com')`); n != 2 {
+			t.Fatalf("%d transactional-suppression breadcrumbs, want 2", n)
+		}
+	})
+
+	t.Run("a conference blast WITHOUT corroboration is a normal counterparty", func(t *testing.T) {
+		// The same prefix subdomain, but no List-Unsubscribe and a human
+		// localpart: not suppressed — a real company can live at event.*.
+		sync(t, email("ada@event.realco.example", "Ada Real", autoCreateOwner, "rc1@event.realco.example", ""))
+		if n := countRows(t, e, `
+			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+			WHERE pe.email = 'ada@event.realco.example'`); n != 1 {
+			t.Fatal("an uncorroborated prefix sender must create a normal person")
 		}
 	})
 
@@ -275,7 +334,7 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 		// principal: the capture itself must land, the ensure must refuse
 		// honestly (RC-8 — created rows need a human owner), and the fault
 		// must be a system_log line the nightly reconcile can find.
-		sink := capture.NewSink(e.Pool).WithEnsurer(recordingEnsurer{}, capture.NewFreemailList(nil))
+		sink := capture.NewSink(e.Pool).WithEnsurer(recordingEnsurer{}, capture.NewFreemailList(nil), capture.NewTransactionalList(nil, nil))
 		ownerless := principal.WithCorrelationID(principal.WithActor(
 			principal.WithWorkspaceID(context.Background(), e.WS), principal.Principal{
 				Type: principal.PrincipalConnector, ID: "connector:gmail",

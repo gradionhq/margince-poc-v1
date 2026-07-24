@@ -15,7 +15,7 @@ func TestCaptureRegistryComposition(t *testing.T) {
 	gmailApp := GmailConfig{ClientID: "id", ClientSecret: "secret"}
 
 	t.Run("a configured gmail app registers the connector", func(t *testing.T) {
-		reg := NewCaptureRegistryWithGmail(nil, nil, gmailApp)
+		reg := NewCaptureRegistryWithGmail(nil, nil, gmailApp, CaptureConfig{})
 		names := map[string]bool{}
 		for _, d := range reg.Connectors() {
 			names[d.Name] = true
@@ -26,7 +26,7 @@ func TestCaptureRegistryComposition(t *testing.T) {
 	})
 
 	t.Run("an unconfigured app still carries standing imap, never gmail", func(t *testing.T) {
-		reg := NewCaptureRegistryWithGmail(nil, nil, GmailConfig{})
+		reg := NewCaptureRegistryWithGmail(nil, nil, GmailConfig{}, CaptureConfig{})
 		names := map[string]bool{}
 		for _, d := range reg.Connectors() {
 			names[d.Name] = true
@@ -40,10 +40,10 @@ func TestCaptureRegistryComposition(t *testing.T) {
 	})
 
 	t.Run("the poll registry exists only with a syncable app", func(t *testing.T) {
-		if reg := GmailPollRegistry(nil, nil, GmailConfig{}); reg != nil {
+		if reg := GmailPollRegistry(nil, nil, GmailConfig{}, CaptureConfig{}); reg != nil {
 			t.Fatal("no app configured must mean no poll registry (the job stays absent)")
 		}
-		if reg := GmailPollRegistry(nil, nil, gmailApp); reg == nil {
+		if reg := GmailPollRegistry(nil, nil, gmailApp, CaptureConfig{}); reg == nil {
 			t.Fatal("a syncable app must yield the poll registry")
 		}
 	})
@@ -76,7 +76,7 @@ func TestWithKeyvaultWiresTheCredentialCustodian(t *testing.T) {
 		t.Fatal("the standing connect must get a registry when none is wired yet")
 	}
 	// A gmail-carrying registry wired earlier must NOT be replaced.
-	marker := NewCaptureRegistry(nil, nil)
+	marker := NewCaptureRegistry(nil, nil, CaptureConfig{})
 	s2 := &Server{}
 	s2.connectorHandlers.registry = marker
 	WithKeyvault(fakeVault{})(s2, nil)

@@ -47,6 +47,7 @@ type Message struct {
 	senderDomain     string   // lowercased domain of From — for the RC-2 gate
 	recipientDomains []string // lowercased, de-duped domains of every To — for the RC-2 gate
 	autoSubmit       bool
+	listUnsubscribe  bool // an RFC 2369 List-Unsubscribe header — transactional-gate corroboration
 }
 
 // Counterparty is the non-owner address on the message (the person this
@@ -104,6 +105,7 @@ func Parse(raw []byte, owner string) (Message, error) {
 		senderDomain:     domainOf(from),
 		recipientDomains: domainsOf(toList),
 		autoSubmit:       autoSubmit,
+		listUnsubscribe:  strings.TrimSpace(header.Get("List-Unsubscribe")) != "",
 	}, nil
 }
 
@@ -201,10 +203,11 @@ func (m Message) ToRecord(connectorName string, raw []byte) connector.Normalized
 			RecipientDomains: m.recipientDomains,
 		},
 		Counterparty: connector.Counterparty{
-			Email:       strings.ToLower(strings.TrimSpace(m.counterparty)),
-			DisplayName: m.counterpartyName,
-			Domain:      domainOf(m.counterparty),
-			Direction:   m.direction,
+			Email:           strings.ToLower(strings.TrimSpace(m.counterparty)),
+			DisplayName:     m.counterpartyName,
+			Domain:          domainOf(m.counterparty),
+			Direction:       m.direction,
+			ListUnsubscribe: m.listUnsubscribe,
 		},
 		ThreadKey: m.threadKey,
 	}

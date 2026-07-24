@@ -251,7 +251,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// live-authority principal swap); credentials arrive per request and
 		// are never persisted (RunTransient), so the default registry needs no
 		// vault — WithKeyvault rebuilds it with one for the persisting paths.
-		imapConnectHandlers: imapConnectHandlers{registry: NewCaptureRegistry(pool, nil)},
+		imapConnectHandlers: imapConnectHandlers{registry: NewCaptureRegistry(pool, nil, CaptureConfig{})},
 		// The RC-2 personal-mail exclusion CRUD over the caller's own rules
 		// (capture.md CAP-WIRE-2); the same store backs the ONE Sink's
 		// pre-ingestion gate (wired in NewCaptureRegistry).

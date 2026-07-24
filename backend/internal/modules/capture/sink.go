@@ -28,16 +28,21 @@ import (
 // Sink is the one connector.Sink implementation — the chokepoint every
 // captured record passes on its way into the domain.
 type Sink struct {
-	pool       *pgxpool.Pool
-	stager     MergeStager
-	exclusions ExclusionRules
-	ensurer    CounterpartyEnsurer
-	freemail   *FreemailList
+	pool          *pgxpool.Pool
+	stager        MergeStager
+	exclusions    ExclusionRules
+	ensurer       CounterpartyEnsurer
+	freemail      *FreemailList
+	transactional *TransactionalList
 }
 
-// fieldSourceSystem is the shared audit/event key for the originating
-// system — the capture chain's provenance channel.
-const fieldSourceSystem = "source_system"
+// fieldSourceSystem / fieldSourceID are the shared system_log detail keys for
+// the natural key of the record a capture breadcrumb is about.
+const (
+	fieldSourceSystem = "source_system"
+	fieldSourceID     = "source_id"
+	fieldReason       = "reason"
+)
 
 // MergeStager is the dedupe seam: a captured lead colliding with an
 // existing record NEVER auto-merges — it stages a 🟡 merge_records
