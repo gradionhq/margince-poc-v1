@@ -132,7 +132,11 @@ export function ImapConnectForm({
 
   return (
     <Modal open={open} onClose={onClose} labelledBy={headingId}>
-      <h2 id={headingId} className="t-h2" style={{ marginBottom: 12 }}>
+      <h2
+        id={headingId}
+        className="t-h2"
+        style={{ marginBottom: "var(--space-3)" }}
+      >
         {t("connectors.imapModalTitle")}
       </h2>
       <form
