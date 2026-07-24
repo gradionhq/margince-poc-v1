@@ -8,8 +8,8 @@ import (
 	"regexp"
 )
 
-// Tier is the risk tier an extension REQUESTS for a governed tool
-// : auto-execute runs without confirmation, confirmation-
+// Tier is the risk tier an extension REQUESTS for a governed tool:
+// auto-execute runs without confirmation, confirmation-
 // required stages every call for human approval. The constant names are
 // semantic; their string values are the core "green"/"yellow" wire tiers,
 // which the boot registration maps to the internal RiskTier. A dynamic
@@ -39,9 +39,9 @@ func (t Tier) Validate() error {
 	return fmt.Errorf("risk tier %q is not one an extension may request — declare TierAutoExecute or TierConfirmationRequired (a dynamic per-call tier needs a resolver and is not declarable statically)", string(t))
 }
 
-// Scope is a Passport verb class a governed tool requires
-// , its values mirroring the core scope vocabulary the
-// boot registration maps to the internal type.
+// Scope is a Passport verb class a governed tool requires; its values
+// mirror the core scope vocabulary the boot registration maps to the
+// internal type.
 type Scope string
 
 const (
