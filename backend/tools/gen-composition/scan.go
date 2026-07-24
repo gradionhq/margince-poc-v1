@@ -85,7 +85,7 @@ func scanUnit(name, dir string) (extensionUnit, error) {
 		return extensionUnit{}, err
 	}
 	if !hasGo {
-		return extensionUnit{}, fmt.Errorf("extensions/%s: go.mod present but no root package — the unit's root package must export New() (ADR-0069 §4)", name)
+		return extensionUnit{}, fmt.Errorf("extensions/%s: go.mod present but no root package — the unit's root package must export New()", name)
 	}
 	mod, err := modfile.Parse(filepath.Join(dir, "go.mod"), modBytes, nil)
 	if err != nil {
@@ -110,7 +110,7 @@ func hasRootGoFiles(dir string) (bool, error) {
 	return false, nil
 }
 
-// computeInputs digests everything generation reads (CODEORG-RULE-5):
+// computeInputs digests everything generation reads:
 // the core files feeding the composed outputs, each extension's source
 // tree, and the installation approval lock. Content digests, not git
 // revisions — identical in a work tree and a release tarball, and only
@@ -134,7 +134,14 @@ func computeInputs(root string) (manifestInputs, error) {
 		if err != nil {
 			return manifestInputs{}, fmt.Errorf("extensions/%s: %w", u.Name, err)
 		}
-		rows[u.Name] = manifestExtRow{Tree: tree}
+		// The manifest digests as it sits on disk: the fast staleness
+		// probe (-verify-inputs) catches a hand edit or a missing file by
+		// digest alone; only the full verify re-derives from the AST.
+		unitManifest, err := digestFileOrEmpty(filepath.Join(u.Dir, unitManifestFile))
+		if err != nil {
+			return manifestInputs{}, fmt.Errorf("extensions/%s: %w", u.Name, err)
+		}
+		rows[u.Name] = manifestExtRow{Tree: tree, Manifest: unitManifest}
 	}
 	return manifestInputs{Core: core, ApprovalsLock: lock, Extensions: rows}, nil
 }
@@ -177,7 +184,7 @@ func coreDigest(root string) (string, error) {
 			return "", err
 		}
 	}
-	if err := h.addGoTree("backend/pkg"); err != nil {
+	if err := h.addTree("backend/pkg"); err != nil {
 		return "", err
 	}
 	return h.sum(), nil
@@ -218,10 +225,21 @@ func (h *treeHasher) addFileOrEmpty(rel string) error {
 	return nil
 }
 
-func (h *treeHasher) addGoTree(rel string) error {
-	return filepath.WalkDir(filepath.Join(h.root, filepath.FromSlash(rel)), func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
+// addTree hashes every regular file under rel — the whole subtree, not
+// just .go — so a non-Go asset the published surface gains (a go:embed
+// template or schema, including a dot-prefixed one an `all:` pattern can
+// embed, or one that happens to end in _test.go) still invalidates the
+// composition when it changes. The digest classifies nothing by name: it
+// hashes bytes, conservatively, so the staleness probe never misses a
+// change. A non-regular entry is refused, as in digestTree.
+func (h *treeHasher) addTree(rel string) error {
+	root := filepath.Join(h.root, filepath.FromSlash(rel))
+	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
 			return err
+		}
+		if !d.Type().IsRegular() {
+			return fmt.Errorf("%s: only regular files back the composition digest (found %s)", path, d.Type())
 		}
 		sub, err := filepath.Rel(h.root, path)
 		if err != nil {
@@ -239,6 +257,9 @@ func (h *treeHasher) sum() string {
 // digestTree hashes every regular file under dir. A symlink is refused:
 // it would digest as its target's bytes while provenance points
 // elsewhere, and a real installation lands extensions as plain trees.
+// The unit's generated manifest is excluded: it derives FROM this tree,
+// so including it would make the digest chase the generator's own
+// output — it rides in its own manifestExtRow field instead.
 func digestTree(dir string) (string, error) {
 	h := newTreeHasher(dir)
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
@@ -254,6 +275,9 @@ func digestTree(dir string) (string, error) {
 		rel, err := filepath.Rel(dir, path)
 		if err != nil {
 			return err
+		}
+		if filepath.ToSlash(rel) == unitManifestFile {
+			return nil
 		}
 		return h.addFile(filepath.ToSlash(rel))
 	})

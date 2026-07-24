@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 // Command gen-composition materializes build/composition/ — the ONE
-// ignored root for every installation-dependent artifact (ADR-0069 §2):
+// ignored root for every installation-dependent artifact:
 // the composed go.work(.sum), the composition Go module wiring the
 // enabled extension set into the role binaries, the frontend and
 // contract composition (degenerate vanilla forms until their slices
@@ -10,6 +10,11 @@
 // output hashes. Vanilla (an empty extensions/ tree) reproduces the
 // committed composition/ stub byte-identically, so bare and composed
 // builds provably wire the same thing.
+//
+// It also derives each unit's manifest.generated.json next to the
+// unit — statically, from the declaration's AST, so consumers read the
+// GOVERNED capabilities an extension requests without compiling its code
+// (unitmanifest.go).
 //
 // The path default suits `make gen` (run from backend/).
 package main
@@ -83,11 +88,14 @@ type manifestInputs struct {
 	Extensions    map[string]manifestExtRow `json:"extensions"`
 }
 
-// manifestExtRow gains the manifest.generated.json digest when the
-// governance slice lands (ADR-0069 §5/§7); until then the tree digest is
-// the unit's identity.
+// manifestExtRow pins one unit's identity: the source-tree digest
+// (build provenance) and the manifest.generated.json digest (the claim
+// set operator resolutions bind to). The tree digest deliberately EXCLUDES the
+// manifest file — the manifest derives from the tree, so hashing it into
+// the tree would chase the generator's own output.
 type manifestExtRow struct {
-	Tree string `json:"tree"`
+	Tree     string `json:"tree"`
+	Manifest string `json:"manifest"`
 }
 
 func run(root string, mode genMode) error {
@@ -115,16 +123,24 @@ func run(root string, mode genMode) error {
 	return verifyOutputs(root, recorded)
 }
 
-// generate rebuilds build/composition/ from scratch: deterministic
-// content first, then the go.work.sum materialization (the one output
-// only the go command can produce), composition.json last — a crash
-// leaves no manifest claiming a half-written tree is current.
+// generate rebuilds build/composition/ from scratch: the per-unit
+// manifests first (composition.json digests them as inputs), then the
+// deterministic content, then the go.work.sum materialization (the one
+// output only the go command can produce), composition.json last — a
+// crash leaves no manifest claiming a half-written tree is current.
 func generate(root string) error {
 	outRoot := filepath.Join(root, "build", "composition")
 	if err := os.RemoveAll(outRoot); err != nil {
 		return err
 	}
 	if err := stubMatchesVanilla(root); err != nil {
+		return err
+	}
+	units, err := scanExtensions(root)
+	if err != nil {
+		return err
+	}
+	if err := generateUnitManifests(root, units); err != nil {
 		return err
 	}
 	files, err := composedFiles(root)
@@ -209,6 +225,13 @@ func verifyOutputs(root string, recorded manifest) error {
 	}
 	if recorded.Schema != 1 {
 		return fmt.Errorf("%s carries schema %d, this tool writes schema 1 — run 'make gen'", manifestFile, recorded.Schema)
+	}
+	units, err := scanExtensions(root)
+	if err != nil {
+		return err
+	}
+	if err := verifyUnitManifests(root, units); err != nil {
+		return err
 	}
 	files, err := composedFiles(root)
 	if err != nil {
@@ -348,6 +371,9 @@ func compareInputs(recorded, current manifestInputs) error {
 		}
 		if rec.Tree != row.Tree {
 			return fmt.Errorf("extension %s changed since generation", name)
+		}
+		if rec.Manifest != row.Manifest {
+			return fmt.Errorf("extension %s manifest changed since generation", name)
 		}
 	}
 	for name := range recorded.Extensions {
