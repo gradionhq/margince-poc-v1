@@ -33,7 +33,10 @@ while IFS= read -r line; do
     echo "UNPINNED REF: $line" >&2
     fail=1
   fi
-done < <(grep -rn 'uses:' "$workflow_dir"/*.yml "$workflow_dir"/*.yaml 2>/dev/null || true)
+# Anchor `uses:` as a YAML key (line start or after whitespace), not a bare
+# substring — otherwise the `statuses:` permission matches `stat[uses:]` and a
+# legitimate workflow is flagged as an unpinned action.
+done < <(grep -rnE '(^|[[:space:]])uses:' "$workflow_dir"/*.yml "$workflow_dir"/*.yaml 2>/dev/null || true)
 
 # --- Container images (workflow services + compose): pinned by digest ---
 # A tag pin is not enough for images: tags are mutable, only @sha256: binds
@@ -50,7 +53,8 @@ while IFS= read -r line; do
     echo "UNPINNED IMAGE (pin as tag@sha256:<digest>): $line" >&2
     fail=1
   fi
-done < <(grep -rn 'image:' "$workflow_dir"/*.yml "$workflow_dir"/*.yaml $compose_files 2>/dev/null || true)
+# `image:` as a YAML key too (same substring hazard as `uses:` above).
+done < <(grep -rnE '(^|[[:space:]])image:' "$workflow_dir"/*.yml "$workflow_dir"/*.yaml $compose_files 2>/dev/null || true)
 
 if [ "$fail" -eq 0 ]; then
   echo "image pins OK"
