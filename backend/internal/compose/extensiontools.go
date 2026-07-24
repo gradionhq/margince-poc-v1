@@ -32,6 +32,15 @@ var composedTools struct {
 // Tiers and scopes were already grammar-checked by preflightTools; the
 // mappings below re-check them so a bad value fails the boot rather than
 // registering a mis-tiered tool.
+//
+// TRUST MODEL: every composed unit's handler-bearing tools are served at
+// their declared tier. There is no per-capability operator resolution yet
+// (an approvals record binding a decision to each tool's digest is a later
+// governance step), so the composed set IS the trust boundary: the vanilla
+// tree ships only first-party units, and an installation adds a unit
+// deliberately — the same trust a jurisdiction pack rides when it ships
+// enabled. A distributed, less-trusted unit is not the model until that
+// resolution lands.
 func buildExtensionTools(exts []extension.Extension) ([]mcp.Tool, error) {
 	var tools []mcp.Tool
 	for _, e := range exts {
@@ -43,9 +52,24 @@ func buildExtensionTools(exts []extension.Extension) ([]mcp.Tool, error) {
 			if err != nil {
 				return nil, fmt.Errorf("compose: extension %q, tool %q: %w", e.Name, tool.Name, err)
 			}
+			// A served 🟡 tool would be refused on every call: the admission
+			// gate stages a confirm-first approval only for tools that
+			// implement the registry's staging seam, which this data-only
+			// adapter cannot. Serving one is a dead capability, so reject it
+			// until the staging seam is wired. A handler-LESS 🟡 tool is fine
+			// — it is a manifest request, not served.
+			if tier == mcp.TierConfirmationRequired {
+				return nil, fmt.Errorf("compose: extension %q, tool %q: a served confirmation-required tool is not yet supported (its approvals could never be staged)", e.Name, tool.Name)
+			}
 			scope, err := mcpScope(tool.RequestedScope)
 			if err != nil {
 				return nil, fmt.Errorf("compose: extension %q, tool %q: %w", e.Name, tool.Name, err)
+			}
+			input := tool.InputSchema
+			if input == nil {
+				// MCP requires every tool to advertise an object input schema;
+				// a tool that takes no arguments still needs one.
+				input = json.RawMessage(`{"type":"object"}`)
 			}
 			tools = append(tools, extensionTool{
 				spec: mcp.ToolSpec{
@@ -53,8 +77,11 @@ func buildExtensionTools(exts []extension.Extension) ([]mcp.Tool, error) {
 					Version:       tool.Version,
 					RequiredScope: scope,
 					Tier:          tier,
-					InputSchema:   tool.InputSchema,
+					InputSchema:   input,
 					OutputSchema:  tool.OutputSchema,
+					// A tool requesting the send scope reaches outside the
+					// workspace — surface that in the operator inventory.
+					Egress: scope == principal.ScopeSend,
 				},
 				handle: tool.Handle,
 			})

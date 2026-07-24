@@ -67,6 +67,49 @@ func TestBuildExtensionToolsAdaptsHandlerBearingTools(t *testing.T) {
 	}
 }
 
+// TestBuildExtensionToolsRejectsServedConfirmationRequired: a
+// handler-bearing 🟡 tool cannot be served — the gate would refuse it on
+// every call with no way to stage an approval — so building the set fails
+// closed rather than registering a dead capability. (A handler-less 🟡
+// tool is a manifest request, not served, and is fine.)
+func TestBuildExtensionToolsRejectsServedConfirmationRequired(t *testing.T) {
+	_, err := buildExtensionTools([]extension.Extension{{
+		Name: "demo", Version: "1.0.0",
+		Tools: []extension.Tool{{
+			Name: "archive", Version: "1.0.0",
+			Tier: extension.TierConfirmationRequired, RequestedScope: extension.ScopeWrite,
+			Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil },
+		}},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "confirmation-required tool is not yet supported") {
+		t.Fatalf("err = %v, want the served-🟡 rejection", err)
+	}
+}
+
+// TestBuildExtensionToolsDerivesEgressAndDefaultsSchema: a send-scoped tool
+// is marked egress, and a tool that omits an input schema still advertises
+// an object one (MCP requires it).
+func TestBuildExtensionToolsDerivesEgressAndDefaultsSchema(t *testing.T) {
+	tools, err := buildExtensionTools([]extension.Extension{{
+		Name: "demo", Version: "1.0.0",
+		Tools: []extension.Tool{{
+			Name: "push_webhook", Version: "1.0.0",
+			Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeSend,
+			Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil },
+		}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := tools[0].Spec()
+	if !spec.Egress {
+		t.Error("a send-scoped tool must be marked egress")
+	}
+	if string(spec.InputSchema) != `{"type":"object"}` {
+		t.Errorf("a tool without a declared input schema must advertise an object one, got %s", spec.InputSchema)
+	}
+}
+
 // TestComposedToolServesThroughAdmission is the end-to-end proof: a
 // composed 🟢/read tool registers into the same registry and admission
 // gate as core tools, and Invoke reaches its handler.
