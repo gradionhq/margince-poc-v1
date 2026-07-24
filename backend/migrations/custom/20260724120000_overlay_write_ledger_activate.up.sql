@@ -13,6 +13,14 @@
 -- same-tenant data — no new PII category — purged with the mirror on teardown.
 ALTER TABLE overlay_write_ledger ADD COLUMN IF NOT EXISTS value_canonical text NOT NULL DEFAULT '';
 
+-- The spec keys the ledger on (object, external_id, property, value-hash): a
+-- rapid A→B write-back must keep A's entry open (until A's echo is recognized)
+-- rather than clobbering it, so value_hash joins the primary key. The reserved
+-- table's PK omitted it; widen it here (the table has never been populated).
+ALTER TABLE overlay_write_ledger DROP CONSTRAINT overlay_write_ledger_pkey;
+ALTER TABLE overlay_write_ledger
+  ADD PRIMARY KEY (workspace_id, object_class, external_id, property, value_hash);
+
 -- overlay_mirror_halt is the fail-safe the collision guard sets (OVA-AC-3 /
 -- UC-E18-02 F2): a detected value-hash collision flags the workspace's mirror as
 -- halted, and the webhook receiver refuses to process further signals for it

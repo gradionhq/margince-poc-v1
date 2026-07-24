@@ -132,7 +132,7 @@ func NewOverlayProvider(pool *pgxpool.Pool, meter *overlaybudget.Meter, resolveI
 	p.SetFreshnessIncumbentResolver(resolveIncumbent)
 	// Wire the echo-suppression ledger's producer half (OVA-DDL-6): each
 	// write-back opens ledger entries so the webhook receiver can drop its echo.
-	p.SetWriteLedger(overlay.NewWriteLedger(pool))
+	p.SetWriteLedger(overlay.NewWriteLedger(pool), slog.Default())
 	return p
 }
 

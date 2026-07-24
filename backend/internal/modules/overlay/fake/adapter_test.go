@@ -247,7 +247,7 @@ func TestFakeWriteBackRoundTrip(t *testing.T) {
 		t.Errorf("no-op Update should return the record unchanged, got %+v", same.Fields)
 	}
 	if len(sameRes.WrittenProps) != 0 {
-		t.Errorf("a read-only-only Update must write nothing, got WrittenProps %+v", sameRes.WrittenProps)
+		t.Errorf("a read-only-fields Update must write nothing, got WrittenProps %+v", sameRes.WrittenProps)
 	}
 
 	// Archiving with a baseline older than the record is refused (drift).

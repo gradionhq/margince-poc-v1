@@ -71,23 +71,52 @@ func TestWebhookReceiverIngestsGenuineChange(t *testing.T) {
 	}
 }
 
-// TestWebhookReceiverCollisionEnqueuesNothing (OVA-AC-3 collision half): a
-// propertyChange the ledger flags as a value-hash collision halts the mirror
-// (inside Classify) and enqueues NO re-fetch — never silently suppressed, never
-// blindly re-fetched against a mirror we no longer trust.
-func TestWebhookReceiverCollisionEnqueuesNothing(t *testing.T) {
+// TestWebhookReceiverCollisionHaltsTheRestOfTheBatch (OVA-AC-3 collision + halt
+// gate): a value-hash collision enqueues nothing AND — because Classify halts
+// the mirror — every later event in the same batch is skipped by the halt gate,
+// so a genuine change riding behind a collision is not ingested against a mirror
+// we no longer trust. The classify seam flips the (real-ledger) halt state that
+// the halted seam then reports, mirroring production.
+func TestWebhookReceiverCollisionHaltsTheRestOfTheBatch(t *testing.T) {
 	enq := &capturingEnqueuer{}
 	h := newTestWebhookHandler(enq, ids.New[ids.WorkspaceKind]())
+	halted := false
 	h.classify = func(context.Context, string, string, string, string) (overlay.Classification, error) {
+		halted = true // Classify halts the mirror on a collision
 		return overlay.ClassCollision, nil
 	}
+	h.halted = func(context.Context) (bool, error) { return halted, nil }
+
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, signedWebhookRequest(t, propertyChangePayload))
+	// Two propertyChange events for the same record: the first collides (halts),
+	// the second is a would-be genuine change that must be skipped.
+	h.ServeHTTP(rec, signedWebhookRequest(t,
+		`[{"portalId":777,"objectId":42,"subscriptionType":"contact.propertyChange","propertyName":"firstname","propertyValue":"Ada"},`+
+			`{"portalId":777,"objectId":43,"subscriptionType":"contact.propertyChange","propertyName":"lastname","propertyValue":"Lovelace"}]`))
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204", rec.Code)
 	}
 	if len(enq.jobs) != 0 {
-		t.Errorf("a collision must enqueue nothing (mirror halted), got %d jobs", len(enq.jobs))
+		t.Errorf("a collision must enqueue nothing and halt the rest of the batch, got %d jobs", len(enq.jobs))
+	}
+}
+
+// TestWebhookReceiverAnswers500OnClassifyError (safety-critical seam): a ledger
+// classification failure (DB/store trouble) answers 500 so HubSpot redelivers,
+// and enqueues nothing — never guessing echo-vs-genuine on a failed lookup.
+func TestWebhookReceiverAnswers500OnClassifyError(t *testing.T) {
+	enq := &capturingEnqueuer{}
+	h := newTestWebhookHandler(enq, ids.New[ids.WorkspaceKind]())
+	h.classify = func(context.Context, string, string, string, string) (overlay.Classification, error) {
+		return overlay.ClassGenuine, errors.New("ledger unavailable")
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, signedWebhookRequest(t, propertyChangePayload))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 so HubSpot redelivers", rec.Code)
+	}
+	if len(enq.jobs) != 0 {
+		t.Errorf("a classify failure must enqueue nothing, got %d jobs", len(enq.jobs))
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -214,7 +215,7 @@ func TestProviderWriteOpensEchoLedgerEntries(t *testing.T) {
 	}
 	ledger := NewWriteLedger(pool)
 	p := providerFor(ms, inc)
-	p.SetWriteLedger(ledger)
+	p.SetWriteLedger(ledger, slog.New(slog.DiscardHandler))
 
 	if _, err := p.Create(ctx, datasource.CreateInput{
 		EntityType: datasource.EntityPerson,

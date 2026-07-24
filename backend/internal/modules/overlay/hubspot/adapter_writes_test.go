@@ -244,7 +244,7 @@ func TestAdapterCreateRejectsAllReadOnlyFields(t *testing.T) {
 func TestAdapterUpdateNoOpWhenOnlyReadOnlyFields(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPatch {
-			t.Error("a read-only-only patch must not PATCH")
+			t.Error("a read-only-fields patch must not PATCH")
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"results":[{"id":"555","properties":{"hs_object_id":"555",
@@ -253,16 +253,16 @@ func TestAdapterUpdateNoOpWhenOnlyReadOnlyFields(t *testing.T) {
 	defer srv.Close()
 
 	adapter := hubspot.NewAdapter(hubspot.NewClient("us", "tok", hubspot.WithBaseURL(srv.URL)))
-	res, err := adapter.Update(t.Context(), "person", "555", map[string]any{"full_name": "Ada Renamed"}, time.Now())
+	res, err := adapter.Update(t.Context(), "person", "555", map[string]any{"full_name": "Ada Renamed"}, time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("no-op Update: %v", err)
 	}
 	if res.Record.Fields["first_name"] != "Ada" {
 		t.Errorf("no-op Update should return the current record, got %+v", res.Record.Fields)
 	}
-	// A read-only-only patch wrote nothing, so it opens no ledger entry.
+	// A read-only-fields patch wrote nothing, so it opens no ledger entry.
 	if len(res.WrittenProps) != 0 {
-		t.Errorf("a read-only-only Update must report no written props, got %#v", res.WrittenProps)
+		t.Errorf("a read-only-fields Update must report no written props, got %#v", res.WrittenProps)
 	}
 }
 

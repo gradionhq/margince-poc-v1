@@ -84,6 +84,18 @@ func (w *overlayRefetchWorker) Work(ctx context.Context, job *river.Job[OverlayR
 	if conn.Incumbent != incumbentHubSpot {
 		return nil
 	}
+	// A mirror halted by a ledger value-hash collision (OVA-AC-3) refuses all
+	// sync until an operator clears it — do not spend an incumbent read or
+	// ingest against a mirror we no longer trust. This closes the gap where a
+	// re-fetch enqueued before the halt (coalesced 5s ahead) would otherwise
+	// still run: the halt is re-checked here, at execution.
+	if halted, err := overlay.NewWriteLedger(w.pool).Halted(wsCtx); err != nil {
+		return fmt.Errorf("overlay refetch: reading the mirror-halt flag: %w", err)
+	} else if halted {
+		w.log.WarnContext(wsCtx, "overlay refetch: mirror is halted (ledger collision), skipping",
+			"workspace", job.Args.Workspace, "class", job.Args.IncumbentClass, "id", job.Args.ExternalID)
+		return nil
+	}
 	token, err := w.vault.Get(wsCtx, conn.Workspace, conn.CredentialRef)
 	if err != nil {
 		return fmt.Errorf("overlay refetch: resolving the vaulted token: %w", err)

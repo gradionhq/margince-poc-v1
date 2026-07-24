@@ -159,6 +159,7 @@ func (h *hubspotWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 	// A per-event enqueue failure answers 500 so HubSpot redelivers (the
 	// enqueue is unique-by-args, so a redelivery cannot double-run).
 	cache := map[string]portalResolution{}
+	haltByWS := map[string]bool{} // per-request halt cache (workspace → halted)
 	for _, ev := range events {
 		wsID, ok, err := h.resolveWorkspace(r, cache, ev)
 		if err != nil {
@@ -174,28 +175,36 @@ func (h *hubspotWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		if !ok {
 			continue
 		}
+		// Recognize what this lane handles BEFORE any ledger transaction: an
+		// unmapped object type or a deletion-family action is dropped here, so a
+		// dropped event never opens a halt/ledger transaction or risks a 500.
+		class, ok := hubspot.ObjectClassForSubscription(ev.SubscriptionType)
+		if !ok {
+			continue
+		}
 		// Every ledger read/write is workspace-scoped (RLS): bind the resolved
 		// tenant onto the context for the halt gate and the echo classification.
 		wsCtx := principal.WithWorkspaceID(r.Context(), wsID.UUID)
 		// Halt gate (OVA-AC-3 fail-safe): a mirror halted by a prior ledger
-		// collision refuses further signals until an operator clears it, rather
-		// than risk mis-suppressing on a mirror we no longer trust.
+		// collision refuses further signals. Cached per workspace per request so
+		// a batch reads the flag once; a mid-batch collision flips the cache
+		// immediately so the rest of the batch is skipped without re-querying.
 		if h.halted != nil {
-			halted, err := h.halted(wsCtx)
-			if err != nil {
-				h.log.ErrorContext(wsCtx, "overlay webhook: reading the mirror-halt flag", "err", err)
-				w.WriteHeader(http.StatusInternalServerError)
-				return
+			halted, cached := haltByWS[wsID.String()]
+			if !cached {
+				halted, err = h.halted(wsCtx)
+				if err != nil {
+					h.log.ErrorContext(wsCtx, "overlay webhook: reading the mirror-halt flag", "err", err)
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				haltByWS[wsID.String()] = halted
 			}
 			if halted {
 				h.log.WarnContext(wsCtx, "overlay webhook: mirror is halted (ledger collision), ignoring the signal",
 					"workspace", wsID.String())
 				continue
 			}
-		}
-		class, ok := hubspot.ObjectClassForSubscription(ev.SubscriptionType)
-		if !ok {
-			continue
 		}
 		// Echo suppression (OVA-DDL-6): a propertyChange carrying a property we
 		// just wrote (same value, inside the open window) is our own echo — drop
@@ -211,9 +220,10 @@ func (h *hubspotWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 			case verdict == overlay.ClassEcho:
 				continue // our own write-back echoing — suppress, no re-fetch
 			case verdict == overlay.ClassCollision:
-				// The mirror was just halted inside Classify. Do NOT suppress and
-				// do NOT re-fetch: the next iteration's halt gate skips the rest;
-				// an operator must review before sync resumes.
+				// The mirror was just halted inside Classify. Reflect it in the
+				// per-request cache so the rest of the batch is skipped, and do
+				// NOT re-fetch — an operator must review before sync resumes.
+				haltByWS[wsID.String()] = true
 				h.log.ErrorContext(wsCtx, "overlay webhook: write-ledger value-hash collision — mirror halted",
 					"workspace", wsID.String(), "id", ev.ObjectIDString(), "property", ev.PropertyName)
 				continue

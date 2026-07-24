@@ -7,21 +7,24 @@ package overlay
 
 // The echo-suppression ledger's real-Postgres proof (OVA-AC-3 / OVA-DDL-6 /
 // OVA-PARAM-3/4): an entry opened by a write-back suppresses that write's echo,
-// a different or expired value is a genuine change (ingested, not dropped), and
-// a value-hash collision halts the mirror rather than mis-suppressing.
+// a different or expired value is a genuine change (ingested, not dropped), a
+// superseding genuine change invalidates the stale entry, and a value-hash
+// collision halts the mirror rather than mis-suppressing.
+//
+// The open/expiry clock is the database's; only the window duration is a test
+// seam, so the boundary is exercised by a zero window (every entry immediately
+// expired) rather than by faking wall-clock time.
 
 import (
 	"testing"
-	"time"
 )
 
-// TestWriteLedgerClassifiesEchoGenuineAndWindow drives the echo / non-echo /
+// TestWriteLedgerClassifiesEchoGenuineAndWindow drives the echo, non-echo, and
 // window-boundary arms with the production SHA-256 hash.
 func TestWriteLedgerClassifiesEchoGenuineAndWindow(t *testing.T) {
 	ctx, pool, _ := testWorkspaceCtx(t)
-	base := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	seedActiveConnection(ctx, t, pool) // OpenEntries is disconnect-fenced
 	l := NewWriteLedger(pool)
-	l.now = func() time.Time { return base } // deterministic window, never the wall clock
 
 	// The producer opened an entry for contacts/42.firstname = "Ada".
 	if err := l.OpenEntries(ctx, "contacts", "42", map[string]string{"firstname": "Ada"}); err != nil {
@@ -32,20 +35,67 @@ func TestWriteLedgerClassifiesEchoGenuineAndWindow(t *testing.T) {
 	if c, err := l.Classify(ctx, "contacts", "42", "firstname", "Ada"); err != nil || c != ClassEcho {
 		t.Errorf("echo: got (%v, %v), want ClassEcho", c, err)
 	}
-	// Genuine (different value): we wrote "Ada"; an inbound "Bob" is a real change.
-	if c, err := l.Classify(ctx, "contacts", "42", "firstname", "Bob"); err != nil || c != ClassGenuine {
-		t.Errorf("different value: got (%v, %v), want ClassGenuine", c, err)
-	}
-	// Genuine (no entry for this property).
+	// Genuine (no live entry for this value / property).
 	if c, err := l.Classify(ctx, "contacts", "42", "lastname", "Lovelace"); err != nil || c != ClassGenuine {
 		t.Errorf("no entry: got (%v, %v), want ClassGenuine", c, err)
 	}
 
-	// Window boundary (OVA-PARAM-3): advance now past the open window so the
-	// entry has expired — the SAME value is now a genuine change, not an echo.
-	l.now = func() time.Time { return base.Add(DefaultLedgerWindow + time.Minute) }
+	// Window boundary (OVA-PARAM-3): a zero window means the entry — opened an
+	// instant ago against the DB clock — is already outside the strict
+	// opened_at > now()-window comparison, so the SAME value is now genuine.
+	expired := &WriteLedger{pool: pool, window: 0, hash: sha256Hex}
+	if err := expired.OpenEntries(ctx, "contacts", "77", map[string]string{"firstname": "Grace"}); err != nil {
+		t.Fatalf("OpenEntries (expired case): %v", err)
+	}
+	if c, err := expired.Classify(ctx, "contacts", "77", "firstname", "Grace"); err != nil || c != ClassGenuine {
+		t.Errorf("zero-window entry: got (%v, %v), want ClassGenuine (outside the open window)", c, err)
+	}
+}
+
+// TestWriteLedgerGenuineChangeInvalidatesStaleEntry (OVA-AC-3 / E4): after the
+// incumbent genuinely moves off our written value, a later change BACK to that
+// value must not be mis-suppressed — observing the genuine change invalidates
+// our now-superseded entry.
+func TestWriteLedgerGenuineChangeInvalidatesStaleEntry(t *testing.T) {
+	ctx, pool, _ := testWorkspaceCtx(t)
+	seedActiveConnection(ctx, t, pool)
+	l := NewWriteLedger(pool)
+
+	// We wrote firstname="Ada".
+	if err := l.OpenEntries(ctx, "contacts", "42", map[string]string{"firstname": "Ada"}); err != nil {
+		t.Fatalf("OpenEntries: %v", err)
+	}
+	// A third party changes it to "Bob": genuine, and it supersedes our entry.
+	if c, err := l.Classify(ctx, "contacts", "42", "firstname", "Bob"); err != nil || c != ClassGenuine {
+		t.Fatalf("third-party change: got (%v, %v), want ClassGenuine", c, err)
+	}
+	// A change back to "Ada" is now a GENUINE change too — our stale entry was
+	// invalidated, so it is ingested, not wrongly suppressed as our echo.
 	if c, err := l.Classify(ctx, "contacts", "42", "firstname", "Ada"); err != nil || c != ClassGenuine {
-		t.Errorf("expired entry: got (%v, %v), want ClassGenuine (outside the open window)", c, err)
+		t.Errorf("change back to Ada: got (%v, %v), want ClassGenuine (stale entry invalidated)", c, err)
+	}
+}
+
+// TestWriteLedgerKeepsDistinctValuesPerProperty (OVA-DDL-6 key): a rapid A→B
+// write-back keeps BOTH entries open, so A's (delayed) echo is still recognized
+// rather than clobbered by B's entry.
+func TestWriteLedgerKeepsDistinctValuesPerProperty(t *testing.T) {
+	ctx, pool, _ := testWorkspaceCtx(t)
+	seedActiveConnection(ctx, t, pool)
+	l := NewWriteLedger(pool)
+
+	if err := l.OpenEntries(ctx, "contacts", "42", map[string]string{"firstname": "Ada"}); err != nil {
+		t.Fatalf("OpenEntries A: %v", err)
+	}
+	if err := l.OpenEntries(ctx, "contacts", "42", map[string]string{"firstname": "Bob"}); err != nil {
+		t.Fatalf("OpenEntries B: %v", err)
+	}
+	// Both our writes' echoes are recognized, in either order.
+	if c, err := l.Classify(ctx, "contacts", "42", "firstname", "Bob"); err != nil || c != ClassEcho {
+		t.Errorf("echo B: got (%v, %v), want ClassEcho", c, err)
+	}
+	if c, err := l.Classify(ctx, "contacts", "42", "firstname", "Ada"); err != nil || c != ClassEcho {
+		t.Errorf("echo A (not clobbered by B): got (%v, %v), want ClassEcho", c, err)
 	}
 }
 
@@ -55,10 +105,8 @@ func TestWriteLedgerClassifiesEchoGenuineAndWindow(t *testing.T) {
 // astronomically improbable real SHA-256 collision (production keeps sha256Hex).
 func TestWriteLedgerCollisionHaltsTheMirror(t *testing.T) {
 	ctx, pool, _ := testWorkspaceCtx(t)
-	base := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
-	l := NewWriteLedger(pool)
-	l.now = func() time.Time { return base }
-	l.hash = func(string) string { return "COLLIDE" } // every value hashes the same
+	seedActiveConnection(ctx, t, pool)
+	l := &WriteLedger{pool: pool, window: DefaultLedgerWindow, hash: func(string) string { return "COLLIDE" }}
 
 	if err := l.OpenEntries(ctx, "contacts", "42", map[string]string{"firstname": "Ada"}); err != nil {
 		t.Fatalf("OpenEntries: %v", err)

@@ -82,7 +82,7 @@ func (a *Adapter) Update(ctx context.Context, canonicalClass, externalID string,
 		}
 	}
 	if len(mw.Props) == 0 {
-		// A read-only-only patch writes nothing; return the current record with
+		// A read-only-fields patch writes nothing; return the current record with
 		// no written properties. No drift check — a no-op cannot lose a
 		// concurrent edit, and no ledger entry is opened (nothing was written).
 		rec, err := a.Get(ctx, mw.ObjectClass, externalID)

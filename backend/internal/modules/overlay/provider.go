@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"sort"
 	"strconv"
@@ -49,6 +50,9 @@ type Provider struct {
 	// costs a redundant re-fetch when the echo webhook later arrives, never a
 	// correctness loss (the poller heals and the re-ingest is idempotent).
 	ledger *WriteLedger
+	// log records a ledger-open failure without failing the already-committed
+	// write. nil falls back to slog.Default().
+	log *slog.Logger
 }
 
 // NewProvider constructs a Provider over ms (mirror reads) and ff
@@ -58,8 +62,13 @@ func NewProvider(ms *MirrorStore, ff *FreshnessReader) *Provider {
 }
 
 // SetWriteLedger wires the echo-suppression ledger's producer half (OVA-DDL-6)
-// into the write path. Boot-time only, like SetFreshnessIncumbentResolver.
-func (p *Provider) SetWriteLedger(l *WriteLedger) { p.ledger = l }
+// into the write path, with the logger a ledger-open failure is reported
+// through (the write itself never fails on it). Boot-time only, like
+// SetFreshnessIncumbentResolver.
+func (p *Provider) SetWriteLedger(l *WriteLedger, log *slog.Logger) {
+	p.ledger = l
+	p.log = log
+}
 
 // SetFreshnessIncumbentResolver wires the per-request live-incumbent
 // resolver used by BOTH the force-fresh reader (force-fresh reads) and the

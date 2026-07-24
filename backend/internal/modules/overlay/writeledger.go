@@ -12,6 +12,14 @@ package overlay
 // loop), a genuine change is ingested, and a value-hash collision HALTS the
 // mirror rather than silently mis-suppressing a real change. The open window is
 // bounded (OVA-PARAM-3) and the value hash is SHA-256 (OVA-PARAM-4).
+//
+// The ledger key is (object_class, external_id, property, value-hash) exactly as
+// the spec pins it: multiple values for one property coexist, so a rapid A→B
+// write-back keeps A's entry open until A's (possibly delayed) echo is
+// recognized rather than being clobbered by B's. The window is measured against
+// the DATABASE clock for both the entry's opened_at and the expiry comparison,
+// so a producer process and a receiver process can never disagree on the
+// boundary by their wall-clock skew.
 
 import (
 	"context"
@@ -46,12 +54,12 @@ const (
 	ClassCollision
 )
 
-// WriteLedger is the our-write ledger store. now/window/hash are injectable so a
+// WriteLedger is the our-write ledger store. window and hash are injectable so a
 // test can exercise the window boundary and the (astronomically improbable in
-// production) hash-collision path deterministically without a real collision.
+// production) hash-collision path deterministically without a real collision;
+// the open/expiry clock itself is always the database's, never a wall clock.
 type WriteLedger struct {
 	pool   *pgxpool.Pool
-	now    func() time.Time
 	window time.Duration
 	hash   func(string) string
 }
@@ -59,7 +67,7 @@ type WriteLedger struct {
 // NewWriteLedger builds the production ledger: SHA-256 value hashing and the
 // default 24h open window.
 func NewWriteLedger(pool *pgxpool.Pool) *WriteLedger {
-	return &WriteLedger{pool: pool, now: time.Now, window: DefaultLedgerWindow, hash: sha256Hex}
+	return &WriteLedger{pool: pool, window: DefaultLedgerWindow, hash: sha256Hex}
 }
 
 // sha256Hex is OVA-PARAM-4's pinned value hash: SHA-256 over the canonicalized
@@ -76,22 +84,26 @@ func sha256Hex(s string) string {
 // recognized. object_class + property naming is the adapter's own vocabulary
 // (HubSpot property names for the real adapter); the ledger is agnostic to it
 // as long as the producer and the consumer agree, which they do per adapter.
-// Re-writing a property overwrites its entry (one open value per property).
+// Distinct values for one property coexist (keyed by value-hash); re-writing
+// the SAME value refreshes its open window. The write is fenced against a
+// racing disconnect (assertActiveConnection) so a write landing after teardown
+// cannot repopulate a purged ledger.
 func (l *WriteLedger) OpenEntries(ctx context.Context, objectClass, externalID string, props map[string]string) error {
 	if len(props) == 0 {
 		return nil
 	}
 	return database.WithWorkspaceTx(ctx, l.pool, func(tx pgx.Tx) error {
+		if err := assertActiveConnection(ctx, tx); err != nil {
+			return err
+		}
 		for prop, val := range props {
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO overlay_write_ledger
-					(workspace_id, object_class, external_id, property, value_hash, value_canonical, opened_at)
-				VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5, $6)
-				ON CONFLICT (workspace_id, object_class, external_id, property)
-				DO UPDATE SET value_hash = EXCLUDED.value_hash,
-				              value_canonical = EXCLUDED.value_canonical,
-				              opened_at = EXCLUDED.opened_at`,
-				objectClass, externalID, prop, l.hash(val), val, l.now(),
+					(workspace_id, object_class, external_id, property, value_hash, value_canonical)
+				VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5)
+				ON CONFLICT (workspace_id, object_class, external_id, property, value_hash)
+				DO UPDATE SET value_canonical = EXCLUDED.value_canonical, opened_at = now()`,
+				objectClass, externalID, prop, l.hash(val), val,
 			); err != nil {
 				return fmt.Errorf("overlay: opening write-ledger entry for %s/%s.%s: %w", objectClass, externalID, prop, err)
 			}
@@ -101,57 +113,72 @@ func (l *WriteLedger) OpenEntries(ctx context.Context, objectClass, externalID s
 }
 
 // Classify decides whether an inbound property change is our own echo, a
-// genuine external change, or a hash collision — the consumer half. An entry
-// only counts when it is still inside the open window (OVA-PARAM-3). A hash
-// match is CONFIRMED against the stored value: equal ⇒ echo (suppress);
+// genuine external change, or a hash collision — the consumer half. It looks up
+// the entry keyed by the inbound value's hash within the open window (DB clock).
+// A hash hit is CONFIRMED against the stored value: equal ⇒ echo (suppress);
 // different ⇒ collision ⇒ the mirror is halted (OVA-AC-3 fail-safe) and
-// ClassCollision returned, so the change is never silently dropped.
+// ClassCollision returned, so the change is never silently dropped. On a
+// genuine change (no live entry for the inbound value) every open entry for that
+// property is invalidated: the incumbent now holds a value we did not write, so
+// our earlier written values are superseded and must not later suppress a
+// genuine change back to one of them.
 func (l *WriteLedger) Classify(ctx context.Context, objectClass, externalID, property, value string) (Classification, error) {
 	incomingHash := l.hash(value)
-	cutoff := l.now().Add(-l.window)
-	var storedHash, storedValue string
+	var result Classification
 	err := database.WithWorkspaceTx(ctx, l.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `
-			SELECT value_hash, value_canonical FROM overlay_write_ledger
-			WHERE object_class = $1 AND external_id = $2 AND property = $3 AND opened_at > $4`,
-			objectClass, externalID, property, cutoff).Scan(&storedHash, &storedValue)
+		var storedValue string
+		scanErr := tx.QueryRow(ctx, `
+			SELECT value_canonical FROM overlay_write_ledger
+			WHERE object_class = $1 AND external_id = $2 AND property = $3 AND value_hash = $4
+			  AND opened_at > now() - make_interval(secs => $5)`,
+			objectClass, externalID, property, incomingHash, l.window.Seconds()).Scan(&storedValue)
+		switch {
+		case errors.Is(scanErr, pgx.ErrNoRows):
+			// No live entry for this value: a genuine change. Invalidate our
+			// now-superseded entries for this property so a later change back to
+			// a previously-written value is not mis-suppressed as an echo.
+			result = ClassGenuine
+			_, delErr := tx.Exec(ctx, `
+				DELETE FROM overlay_write_ledger
+				WHERE object_class = $1 AND external_id = $2 AND property = $3`,
+				objectClass, externalID, property)
+			return delErr
+		case scanErr != nil:
+			return scanErr
+		case storedValue == value:
+			result = ClassEcho // our own write echoing back — suppress
+			return nil
+		default:
+			// Hash matched but the value differs: a SHA-256 collision. Never
+			// suppress — halt the mirror (fail-safe) in this same transaction.
+			result = ClassCollision
+			return haltMirrorTx(ctx, tx, fmt.Sprintf("write-ledger value-hash collision on %s/%s.%s", objectClass, externalID, property))
+		}
 	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ClassGenuine, nil // no open entry (or expired) — a genuine change
-	}
 	if err != nil {
 		return ClassGenuine, fmt.Errorf("overlay: classifying an inbound change against the write ledger: %w", err)
 	}
-	if storedHash != incomingHash {
-		return ClassGenuine, nil // we wrote a different value — a genuine change
-	}
-	if storedValue == value {
-		return ClassEcho, nil // our own write echoing back — suppress
-	}
-	// Hash matched but the value differs: a SHA-256 collision. Never suppress —
-	// halt the mirror (fail-safe) and surface it.
-	if haltErr := l.haltMirror(ctx, fmt.Sprintf("write-ledger value-hash collision on %s/%s.%s", objectClass, externalID, property)); haltErr != nil {
-		return ClassCollision, fmt.Errorf("overlay: recording the mirror halt on a ledger collision failed: %w", haltErr)
-	}
-	return ClassCollision, nil
+	return result, nil
 }
 
-// haltMirror flags the workspace's mirror as halted (one row per workspace,
-// upserted so a re-detection refreshes the reason/time).
-func (l *WriteLedger) haltMirror(ctx context.Context, reason string) error {
-	return database.WithWorkspaceTx(ctx, l.pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `
-			INSERT INTO overlay_mirror_halt (workspace_id, reason, detected_at)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2)
-			ON CONFLICT (workspace_id) DO UPDATE SET reason = EXCLUDED.reason, detected_at = EXCLUDED.detected_at`,
-			reason, l.now())
-		return err
-	})
+// haltMirrorTx flags the workspace's mirror as halted within tx (one row per
+// workspace, upserted so a re-detection refreshes the reason/time).
+func haltMirrorTx(ctx context.Context, tx pgx.Tx, reason string) error {
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO overlay_mirror_halt (workspace_id, reason)
+		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1)
+		ON CONFLICT (workspace_id) DO UPDATE SET reason = EXCLUDED.reason, detected_at = now()`,
+		reason); err != nil {
+		return fmt.Errorf("overlay: recording the mirror halt: %w", err)
+	}
+	return nil
 }
 
-// Halted reports whether ctx's workspace mirror is halted — the receiver refuses
-// to process further signals for a halted workspace until an operator clears the
-// flag, so a collision-detected mirror never silently mis-suppresses.
+// Halted reports whether ctx's workspace mirror is halted — a ledger collision
+// tripped the fail-safe. The receiver refuses to enqueue re-fetches and the
+// re-fetch worker refuses to read/ingest for a halted workspace until an
+// operator clears the flag, so a mirror we no longer trust never
+// mis-suppresses or serves through.
 func (l *WriteLedger) Halted(ctx context.Context) (bool, error) {
 	var halted bool
 	err := database.WithWorkspaceTx(ctx, l.pool, func(tx pgx.Tx) error {
