@@ -135,3 +135,43 @@ func TestAutoEnrichStoreEligibilityAndCap(t *testing.T) {
 		t.Fatalf("reservations = %v, want [true true false] at cap 2", got)
 	}
 }
+
+func TestAutoEnrichExpireExhausted(t *testing.T) {
+	e := integration.Setup(t)
+	store := capture.NewAutoEnrichStore(e.Pool)
+	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
+	org := insertDomainOrg(t, e, "fail.example")
+
+	// Two attempts used (backoff 0 so the cursor stays due, not future-armed):
+	// at the attempt bound it is no longer a candidate...
+	for range 2 {
+		if err := store.MarkQueued(ctx, org, 0); err != nil {
+			t.Fatalf("MarkQueued: %v", err)
+		}
+	}
+	due, err := store.ListDueOrgs(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListDueOrgs: %v", err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("due = %+v, want none — the org used every attempt", due)
+	}
+
+	// ...and the per-pass expiry retires it: outcome 'exhausted', cursor cleared
+	// so it leaves the due index.
+	if err := store.ExpireExhausted(ctx); err != nil {
+		t.Fatalf("ExpireExhausted: %v", err)
+	}
+	var outcome string
+	var nextAttempt *time.Time
+	if err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT last_outcome, next_attempt_at FROM capture_auto_enrich_state WHERE organization_id = $1`,
+			org).Scan(&outcome, &nextAttempt)
+	}); err != nil {
+		t.Fatalf("reading the cursor: %v", err)
+	}
+	if outcome != "exhausted" || nextAttempt != nil {
+		t.Fatalf("cursor = (%q, %v), want (exhausted, <nil>)", outcome, nextAttempt)
+	}
+}

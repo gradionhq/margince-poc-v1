@@ -21,9 +21,11 @@ CREATE TABLE capture_auto_enrich_state (
 
   attempts        int NOT NULL DEFAULT 0,
   last_attempt_at timestamptz NULL,
-  -- When the sweep may next consider this org. NULL once terminally resolved
-  -- (a dossier landed) or exhausted (attempts hit the bound) — the sweep skips
-  -- a NULL next_attempt_at, so a resolved/exhausted org never re-enqueues.
+  -- When the sweep may next consider this org. Cleared to NULL when the read
+  -- terminally resolves (a dossier applied), or when the sweep's per-pass
+  -- ExpireExhausted retires an org that used every attempt without success —
+  -- either way the row drops out of the partial due-index below and never
+  -- re-enqueues.
   next_attempt_at timestamptz NULL DEFAULT now(),
   last_outcome    text NULL CHECK (last_outcome IS NULL OR
     last_outcome IN ('queued', 'applied', 'empty', 'failed', 'exhausted')),

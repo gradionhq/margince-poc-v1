@@ -109,6 +109,11 @@ func (w *captureAutoEnrichSweepWorker) sweepWorkspace(ctx context.Context, ws id
 	if !settings.AutoEnrich {
 		return nil
 	}
+	// Retire any cursors that have used every attempt, so they leave the due
+	// index instead of being re-scanned every pass (the real 'exhausted' state).
+	if err := w.autoEnrich.ExpireExhausted(wsCtx); err != nil {
+		return err
+	}
 	due, err := w.autoEnrich.ListDueOrgs(wsCtx, w.dailyCap)
 	if err != nil {
 		return err

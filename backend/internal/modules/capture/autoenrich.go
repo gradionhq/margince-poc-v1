@@ -14,6 +14,7 @@ package capture
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -90,6 +91,26 @@ func (s *AutoEnrichStore) ListDueOrgs(ctx context.Context, limit int) ([]DueOrg,
 	return out, nil
 }
 
+// ExpireExhausted retires the cursors of orgs that have used every attempt
+// without a dossier landing: it sets last_outcome='exhausted' and clears
+// next_attempt_at, so the row drops out of the partial due-index (it is no
+// longer re-scanned every pass) — the real termination the 'exhausted' state
+// names. Called once per sweep pass, before ListDueOrgs. A resolved org already
+// has a NULL next_attempt_at, so the NOT-NULL guard leaves it untouched.
+func (s *AutoEnrichStore) ExpireExhausted(ctx context.Context) error {
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			UPDATE capture_auto_enrich_state SET
+			  last_outcome = 'exhausted', next_attempt_at = NULL, updated_at = now()
+			WHERE attempts >= $1 AND next_attempt_at IS NOT NULL`, autoEnrichMaxAttempts)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("capture: expiring exhausted auto-enrich cursors: %w", err)
+	}
+	return nil
+}
+
 // ReserveBudget atomically reserves one auto-enrich slot for the current
 // workspace's UTC day, returning false when the daily cap is already spent. The
 // reservation is the same transaction as the counter read, so two concurrent
@@ -112,8 +133,9 @@ func (s *AutoEnrichStore) ReserveBudget(ctx context.Context, dailyCap int) (bool
 			reserved = true
 			return nil
 		}
-		if err == pgx.ErrNoRows {
-			// The DO UPDATE WHERE failed the cap guard: nothing reserved.
+		if errors.Is(err, pgx.ErrNoRows) {
+			// The DO UPDATE WHERE failed the cap guard: nothing reserved. (A
+			// real error would fall through and abort the workspace pass.)
 			reserved = false
 			return nil
 		}
