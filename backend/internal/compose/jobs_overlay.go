@@ -58,14 +58,17 @@ type overlayRefetchWorker struct {
 	pool  *pgxpool.Pool
 	vault keyvault.Vault
 	ms    *overlay.MirrorStore
-	// meter is the OVB budget (fail-closed when unconfigured). A webhook
-	// re-fetch is a live single-record REST read-through — the same traffic
-	// category the force-fresh source meters (both charge the REST window; the
-	// poller charges the search window), so it reserves against SourceForceFresh
-	// before the incumbent read and SHEDS to the poller when the budget is spent.
-	// Without this, a burst of signals would spend incumbent REST quota the OVB
-	// budget never sees. A dedicated webhook source (admin-breakdown granularity)
-	// would be an OVB-AC-5 spec change — a tracked follow-up, not needed for the
+	// meter is the OVB budget. A webhook re-fetch is a live single-record REST
+	// read-through — the same traffic category force-fresh meters, so it
+	// reserves against SourceForceFresh before the incumbent read and SHEDS to
+	// the poller when the budget is spent. A single-record GET is GATE-able
+	// against the REST window (reserve/shed); the poller's Modified sweep, by
+	// contrast, is a Search-API call PACED by the per-second search window with
+	// its REST spend consumed unconditionally on SourcePoller — so reserve/shed
+	// is the right shape here, force-fresh's shape, not the poller's. Without
+	// this, a burst of signals would spend incumbent REST quota the OVB budget
+	// never sees. A dedicated webhook source (admin-breakdown granularity) would
+	// be an OVB-AC-5 spec change — a tracked follow-up, not needed for the
 	// "account for every live call" invariant this closes.
 	meter        *overlaybudget.Meter
 	log          *slog.Logger
@@ -113,9 +116,12 @@ func (w *overlayRefetchWorker) Work(ctx context.Context, job *river.Job[OverlayR
 	inc := w.newIncumbent(conn.Region, string(token))
 	// Reserve one REST unit BEFORE the live read (OVB-AC-2/AC-5), so the
 	// webhook lane's incumbent calls are accounted for like every other. On
-	// shed (budget spent, or fail-closed with no meter) skip the re-fetch — the
-	// signal is an optimization, and the poller heals within its interval; never
-	// spend live quota we cannot account for. A meter error is transient — retry.
+	// shed skip the re-fetch — the signal is an optimization, and the poller
+	// heals within its interval; never spend live quota we cannot account for.
+	// A role wired without a configured meter gets the fail-closed placeholder
+	// (nil Redis client) here, which sheds every reservation — so an
+	// unaccountable read is skipped, never made. A meter error is transient —
+	// retry.
 	if allowed, err := w.meter.ReserveREST(wsCtx, conn.Incumbent, overlaybudget.SourceForceFresh, 1); err != nil {
 		return fmt.Errorf("overlay refetch: reserving the incumbent budget: %w", err)
 	} else if !allowed {
