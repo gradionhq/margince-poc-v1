@@ -674,19 +674,38 @@ func TestOverlayRefetchWorkerShedsWhenBudgetExhausted(t *testing.T) {
 	rec.ModifiedAt = time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
 	inc.Seed(overlay.IncumbentClassContacts, rec)
 
+	// Spy on the incumbent so the test proves the live READ was skipped, not
+	// merely that nothing was ingested (the reserve gates before inc.Get).
+	spy := &getCountingIncumbent{Adapter: inc}
 	// failClosedOverlayMeter sheds every reservation (no window to account into).
 	w := &overlayRefetchWorker{
 		pool: e.Pool, vault: vault, ms: ms, meter: failClosedOverlayMeter(),
 		log:          slog.New(slog.DiscardHandler),
-		newIncumbent: func(_, _ string) overlay.Incumbent { return inc },
+		newIncumbent: func(_, _ string) overlay.Incumbent { return spy },
 	}
 	if err := w.Work(context.Background(), &river.Job[OverlayRefetchArgs]{
 		Args: OverlayRefetchArgs{Workspace: e.WS.String(), IncumbentClass: overlay.IncumbentClassContacts, ExternalID: "c-1"},
 	}); err != nil {
 		t.Fatalf("refetch Work (shed): %v", err)
 	}
-	// Shed → skipped the read → nothing mirrored (the poller heals later).
+	// Shed → the incumbent read was never made (the whole point of the gate)...
+	if spy.gets != 0 {
+		t.Errorf("a shed re-fetch must not read the incumbent, got %d Get call(s)", spy.gets)
+	}
+	// ...and so nothing was mirrored (the poller heals later).
 	if _, err := ms.Get(overlayReaderCtx(e.WS, e.Rep1), "person", "c-1"); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("a shed re-fetch must ingest nothing, got: %v", err)
 	}
+}
+
+// getCountingIncumbent counts Get calls so a test can assert the incumbent read
+// was (not) made — e.g. that a budget shed skipped the read entirely.
+type getCountingIncumbent struct {
+	*fake.Adapter
+	gets int
+}
+
+func (g *getCountingIncumbent) Get(ctx context.Context, objectClass, externalID string) (overlay.Record, error) {
+	g.gets++
+	return g.Adapter.Get(ctx, objectClass, externalID)
 }
