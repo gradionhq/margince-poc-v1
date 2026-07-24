@@ -468,7 +468,7 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		// record through the same store the poller uses. Registered whenever
 		// the overlay vault is present (the receiver only enqueues when the api
 		// role has the app secret wired).
-		river.AddWorker(workers, &overlayRefetchWorker{pool: pool, vault: cfg.OverlayVault, ms: ms, log: log, newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit)})
+		river.AddWorker(workers, &overlayRefetchWorker{pool: pool, vault: cfg.OverlayVault, ms: ms, meter: meter, log: log, newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit)})
 		periodic = append(periodic, river.NewPeriodicJob(
 			river.PeriodicInterval(cfg.OverlayInterval),
 			func() (river.JobArgs, *river.InsertOpts) { return OverlayReconcileArgs{}, sweepInsertOpts() },
