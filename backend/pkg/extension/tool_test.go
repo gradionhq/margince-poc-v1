@@ -3,7 +3,10 @@
 
 package extension
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestTierValidate(t *testing.T) {
 	for _, valid := range []Tier{TierAutoExecute, TierConfirmationRequired} {
@@ -49,6 +52,9 @@ func TestToolValidate(t *testing.T) {
 		{"tier not requestable", Tool{Name: "ping", Version: "1.0.0", Tier: "dynamic", RequestedScope: ScopeRead}},
 		{"scope outside vocabulary", Tool{Name: "ping", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: "admin"}},
 		{"missing scope", Tool{Name: "ping", Version: "1.0.0", Tier: TierAutoExecute}},
+		{"non-object input schema", Tool{Name: "ping", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: ScopeRead, InputSchema: json.RawMessage(`"scalar"`)}},
+		{"input schema not type object", Tool{Name: "ping", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: ScopeRead, InputSchema: json.RawMessage(`{"type":"array"}`)}},
+		{"malformed output schema", Tool{Name: "ping", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: ScopeRead, OutputSchema: json.RawMessage(`{bad`)}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

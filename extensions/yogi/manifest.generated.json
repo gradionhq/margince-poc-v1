@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "name": "yogi",
+  "version": "1.0.0",
+  "risk_tiers": [
+    {
+      "id": "tool/yogi_quote",
+      "operation": "agent.tool.invoke",
+      "scopes": [
+        "read"
+      ],
+      "tier": "green",
+      "digest": "sha256:d24318cb19acc99cc603b0e2022fd53f01b59e928b165631acc3abdd5d69836e"
+    }
+  ]
+}
