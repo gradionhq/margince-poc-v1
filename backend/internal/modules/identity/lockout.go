@@ -18,7 +18,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/identity/internal/password"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
-	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -64,19 +63,17 @@ func (s lockoutState) fail(now time.Time) lockoutState {
 	return next
 }
 
-// accountLockedError maps to permission_denied (403): the sentinel
-// registry (interfaces.md §0) has no 423 account_locked yet — it is a
-// comment-registry future — and a locked account is a refusal of the
-// credential holder, not a missing record or a rate limit.
-type accountLockedError struct{}
-
-func (accountLockedError) Error() string {
-	return "crmauth: account locked after repeated failed logins; retry after the lockout window"
-}
-
-func (accountLockedError) Is(target error) bool {
-	return target == apperrors.ErrPermissionDenied
-}
+// errAccountLocked signals a §27 lock from checkCredentials. It is a
+// distinct sentinel from ErrBadCredentials so the Login path can refuse a
+// locked account WITHOUT running recordFailedLogin — a probe against a
+// locked account must not extend its own lock or churn the audit (an
+// attacker-drivable DoS, and a distinct audit/timing cadence would itself
+// leak account existence). It is NEVER surfaced to the client: Login
+// translates it to ErrBadCredentials, so a locked account and an unknown
+// email are one indistinguishable 401 with equalized timing — no
+// account-existence oracle (F-005). A distinguishable 403 "account locked"
+// before password verification was exactly that oracle.
+var errAccountLocked = errors.New("crmauth: account locked")
 
 // loginCredentials is the account a verified password attempt resolved.
 type loginCredentials struct {
@@ -112,9 +109,14 @@ func (s *Service) checkCredentials(ctx context.Context, tx pgx.Tx, email, plaint
 	}
 	// §27: while locked, even the correct password is refused — the
 	// check sits before Verify so attempts during the lock neither
-	// succeed nor extend the streak.
+	// succeed nor extend the streak. The refusal must be INDISTINGUISHABLE
+	// from bad credentials, so run the decoy verify here too: the locked
+	// path then does the same Argon2 work as the unknown-email and
+	// wrong-password paths, and Login renders all three as one 401.
 	if lock.locked(s.now()) {
-		return loginCredentials{}, accountLockedError{}
+		//craft:ignore swallowed-errors the decoy verification exists only to equalize timing with the bad-credentials path; its result is meaningless by design
+		_ = password.Verify(plaintext, decoyHash)
+		return loginCredentials{}, errAccountLocked
 	}
 	if err := password.Verify(plaintext, *hash); err != nil {
 		if errors.Is(err, password.ErrMismatch) {
