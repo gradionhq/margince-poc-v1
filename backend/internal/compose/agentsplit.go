@@ -91,29 +91,29 @@ func splitOrRedeemUpdate(w http.ResponseWriter, r *http.Request, next http.Handl
 			strings.Join(split.Conflicts, ", "), apperrors.ErrRequiresApproval))
 		return
 	}
-	if split.Green == nil {
+	if split.AutoExecute == nil {
 		// Every touched field is human-owned: nothing applies, the whole
 		// request is the staged change — the approved retry is this exact
 		// request again.
 		stageRefusal(w, r, staging, pol, body)
 		return
 	}
-	applyGreenAndStageResidue(w, r, next, staging, pol, targetID, split)
+	applyAutoExecuteAndStageResidue(w, r, next, staging, pol, targetID, split)
 }
 
-// applyGreenAndStageResidue handles the mixed patch: the green remainder
+// applyAutoExecuteAndStageResidue handles the mixed patch: the auto-execute remainder
 // runs through the real handler first, then the residue is staged against
 // the post-write version — the state the approving human will actually
-// judge, so this call's own green half cannot invalidate its staged half
+// judge, so this call's own auto-execute half cannot invalidate its staged half
 // (ADR-0036 §2). The staging note is spliced into the handler's own 2xx
 // record body, making the split legible in a single response.
-func applyGreenAndStageResidue(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, pol agentPolicy, targetID ids.UUID, split agents.PatchSplit) {
-	r.Body = io.NopCloser(bytes.NewReader(split.Green))
-	r.ContentLength = int64(len(split.Green))
+func applyAutoExecuteAndStageResidue(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, pol agentPolicy, targetID ids.UUID, split agents.PatchSplit) {
+	r.Body = io.NopCloser(bytes.NewReader(split.AutoExecute))
+	r.ContentLength = int64(len(split.AutoExecute))
 	buffered := newBufferedResponse()
 	next.ServeHTTP(buffered, r)
 	if buffered.status < 200 || buffered.status > 299 {
-		// The green half was refused (validation, version skew, …): that
+		// The auto-execute half was refused (validation, version skew, …): that
 		// refusal is the whole answer, and nothing is staged — the agent
 		// must fix the call, which re-runs the split from scratch.
 		buffered.flushTo(w)
@@ -162,7 +162,7 @@ func applyGreenAndStageResidue(w http.ResponseWriter, r *http.Request, next http
 	buffered.flushJSON(w, record)
 }
 
-// recordVersion pins the staged residue to the record version the green
+// recordVersion pins the staged residue to the record version the auto-execute
 // half of the split produced. Contract record bodies carry the read-only
 // `version` (RowVersion, ADR-0036 §3); a response without one yields no
 // pin rather than a wrong one. The body is decoded with UseNumber, so the

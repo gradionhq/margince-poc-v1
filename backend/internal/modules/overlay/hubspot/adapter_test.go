@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -134,6 +135,26 @@ func TestAdapterModifiedUsesLastModifiedDateWatermarkForContacts(t *testing.T) {
 	sort0, _ := sorts[0].(map[string]any)
 	if sort0["propertyName"] != "lastmodifieddate" {
 		t.Fatalf("sorts[0].propertyName = %v, want lastmodifieddate (design §7's contacts watermark)", sort0["propertyName"])
+	}
+
+	// The watermark filter value must be epoch MILLISECONDS, not an RFC 3339
+	// string: HubSpot's Search API rejects a datetime filter given an RFC 3339
+	// value with a 400, so an RFC-formatted sweep never returns a record.
+	groups, _ := gotBody["filterGroups"].([]any)
+	if len(groups) != 1 {
+		t.Fatalf("filterGroups = %#v, want exactly one group", gotBody["filterGroups"])
+	}
+	filters, _ := groups[0].(map[string]any)["filters"].([]any)
+	if len(filters) != 1 {
+		t.Fatalf("filterGroups[0].filters = %#v, want exactly one filter", groups[0])
+	}
+	f0, _ := filters[0].(map[string]any)
+	if f0["propertyName"] != "lastmodifieddate" || f0["operator"] != "GTE" {
+		t.Fatalf("filter = %#v, want lastmodifieddate GTE", f0)
+	}
+	wantValue := strconv.FormatInt(since.UnixMilli(), 10)
+	if f0["value"] != wantValue {
+		t.Fatalf("filter value = %v, want epoch-millis %q (HubSpot 400s on an RFC 3339 datetime value)", f0["value"], wantValue)
 	}
 
 	if page.NextCursor != "2" {

@@ -165,7 +165,7 @@ func (w leadScoreRecompute) Spec() workflow.Spec {
 	return workflow.Spec{
 		Name:    w.name,
 		Trigger: workflow.Trigger{EventType: w.trigger},
-		Tier:    mcp.TierGreen,
+		Tier:    mcp.TierAutoExecute,
 	}
 }
 

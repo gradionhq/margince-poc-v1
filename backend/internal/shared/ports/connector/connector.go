@@ -73,12 +73,23 @@ type WatchResult struct {
 	ExpiresAt time.Time
 }
 
+// AccountLabeler names the account an Auth bundle belongs to — the mailbox
+// address, for display only. Optional and type-asserted, exactly like Watcher
+// and Backfiller: the Connector interface stays frozen, and a connector that
+// cannot name its account simply does not implement this.
+//
+// The label is never an identifier: nothing routes, authorizes or deduplicates
+// on it. capture_connection is keyed (workspace_id, user_id, provider).
+type AccountLabeler interface {
+	AccountLabel(auth Auth) (string, error)
+}
+
 // Descriptor — declared capabilities; ⊆ the granting human's scopes.
 type Descriptor struct {
 	Name     string // stable id: "gmail", "gcal", "hubspot", "coldstart-scrape"
 	Version  string
 	Scopes   []principal.Scope
-	RiskTier mcp.RiskTier // capture/read = green; any outbound = yellow
+	RiskTier mcp.RiskTier // capture/read = auto_execute; any outbound = confirmation_required
 	Tools    []mcp.ToolSpec
 	Produces []datasource.EntityType
 }

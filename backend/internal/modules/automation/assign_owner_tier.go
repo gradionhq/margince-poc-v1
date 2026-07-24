@@ -4,7 +4,7 @@
 package automation
 
 // The dynamic assign_owner tier (AUTO-T07, catalog_actions.go's
-// tierDynamic): "reassign-at-scale is the held (yellow) form of
+// tierDynamic): "reassign-at-scale is the held (confirmation_required) form of
 // assign/reassign" — the same ADR-0026 §3 shape advance_deal already
 // runs (🟢 between open stages, 🟡 to Won/Lost). Scale is a property of
 // the automation's OWN filter/scope, never the caller — an agent or a
@@ -39,7 +39,7 @@ type AssignOwnerScope struct {
 // AssignOwnerScope can carry, so there is no third case to get wrong.
 func resolveAssignOwnerTier(scope AssignOwnerScope) mcp.RiskTier {
 	if scope.Bulk {
-		return mcp.TierYellow
+		return mcp.TierConfirmationRequired
 	}
-	return mcp.TierGreen
+	return mcp.TierAutoExecute
 }

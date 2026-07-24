@@ -117,8 +117,8 @@ func (fx *autoFixture) seedAutomation(t *testing.T, key string) ids.AutomationID
 	t.Helper()
 	id := ids.New[ids.AutomationKind]()
 	fx.exec(t, `
-		INSERT INTO automation (id, workspace_id, key, name, trigger, action, params, enabled)
-		VALUES ($1, $2, $3, $3, '{"event_type":"test"}', '{"kind":"test"}', '{}'::jsonb, true)`,
+		INSERT INTO automation (id, workspace_id, key, name, trigger, action, params, enabled, tier)
+		VALUES ($1, $2, $3, $3, '{"event_type":"test"}', '{"kind":"test"}', '{}'::jsonb, true, 'auto_execute')`,
 		id, fx.ws, key)
 	return id
 }
@@ -131,8 +131,8 @@ func (fx *autoFixture) seedAutomationWithOwner(t *testing.T, key string, owner i
 	t.Helper()
 	id := ids.New[ids.AutomationKind]()
 	fx.exec(t, `
-		INSERT INTO automation (id, workspace_id, key, name, trigger, action, params, owner_id, enabled)
-		VALUES ($1, $2, $3, $3, '{"event_type":"test"}', '{"kind":"test"}', '{}'::jsonb, $4, true)`,
+		INSERT INTO automation (id, workspace_id, key, name, trigger, action, params, owner_id, enabled, tier)
+		VALUES ($1, $2, $3, $3, '{"event_type":"test"}', '{"kind":"test"}', '{}'::jsonb, $4, true, 'auto_execute')`,
 		id, fx.ws, key, owner)
 }
 
@@ -161,7 +161,7 @@ type scriptedWorkflow struct {
 const scriptedTrigger = "history.test_event"
 
 func (s scriptedWorkflow) Spec() workflow.Spec {
-	return workflow.Spec{Name: s.name, Trigger: workflow.Trigger{EventType: scriptedTrigger}, Tier: mcp.TierGreen}
+	return workflow.Spec{Name: s.name, Trigger: workflow.Trigger{EventType: scriptedTrigger}, Tier: mcp.TierAutoExecute}
 }
 
 func (s scriptedWorkflow) Match(_ context.Context, ev workflow.Event) (bool, error) {

@@ -71,7 +71,7 @@ func TestListRunsPagesNewestFirstScopedToTheInstance(t *testing.T) {
 		t.Fatalf("page1 = %d items hasMore=%v — want 2 with a cursor", len(page1.Items), page1.HasMore)
 	}
 	// Newest first: the last-seeded status leads, stamped with the tier.
-	if page1.Items[0].Status != "requires_approval" || page1.Items[0].Tier != "green" {
+	if page1.Items[0].Status != "requires_approval" || page1.Items[0].Tier != "auto_execute" {
 		t.Fatalf("page1[0] = %s/%s, want the newest run stamped with the automation's tier", page1.Items[0].Status, page1.Items[0].Tier)
 	}
 	all := append([]AutomationRunRecord(nil), page1.Items...)

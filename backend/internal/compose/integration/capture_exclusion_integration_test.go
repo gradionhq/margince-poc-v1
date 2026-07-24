@@ -40,7 +40,7 @@ func (m *exclusionFake) Descriptor() connector.Descriptor {
 		// the emitted rows keep their own 'graph' provenance (unconstrained).
 		Name: "graph", Version: "1.0.0",
 		Scopes:   []principal.Scope{principal.ScopeRead},
-		RiskTier: mcp.TierGreen,
+		RiskTier: mcp.TierAutoExecute,
 		Produces: []datasource.EntityType{datasource.EntityActivity},
 	}
 }

@@ -704,11 +704,11 @@ export const en = {
   "ai.sub": "bring your own agent — governed by the two-tier contract",
   "ai.fromPalette": "From the palette",
   "ai.tiers": "What an agent may do",
-  "ai.tierGreen": "Read & draft run instantly.",
-  "ai.tierGreenDetail":
+  "ai.tierAutoExecute": "Read & draft run instantly.",
+  "ai.tierAutoExecuteDetail":
     "Lookups, summaries, drafts — visible, reversible, logged.",
-  "ai.tierYellow": "Write & send wait for you.",
-  "ai.tierYellowDetail":
+  "ai.tierConfirmationRequired": "Write & send wait for you.",
+  "ai.tierConfirmationRequiredDetail":
     "External sends and record changes stage into the inbox first.",
   "ai.connect": "Connect an agent",
   "ai.connectDetail":
@@ -1151,6 +1151,11 @@ export const en = {
     "It will retry on its own; everything captured so far is kept.",
   "backfill.cancel": "Stop the import",
   "backfill.cancelledNote": "Stopped. Everything captured so far is kept.",
+  "backfill.unsupportedNote":
+    "This mailbox type can't be backfilled — only new mail is captured from now on.",
+  "backfill.narrowingNote":
+    "A wider window already ran for this mailbox; the import window can only be widened, not narrowed.",
+  "backfill.staleUpdated": "Last updated {duration} ago — no recent progress.",
 
   // Connected inboxes (Settings → Integrations): the "manage in Settings"
   // surface the onboarding copy promises.
@@ -1171,11 +1176,81 @@ export const en = {
   "connectors.statusDisconnected": "Disconnected",
   "connectors.lastSynced": "Last synced {at}",
   "connectors.neverSynced": "Waiting for the first sync",
+  "connectors.nextCheck": "Next check ~{at}",
+  "connectors.polled": "Polled on a schedule (no push subscription)",
+  "connectors.pushRenewal": "Push renewal by {at}",
+  "connectors.notConfigured":
+    "Mail capture isn't configured in this deployment.",
   "connectors.reconnect": "Reconnect",
   "connectors.disconnect": "Disconnect",
   "connectors.disconnectTitle": "Disconnect this inbox?",
   "connectors.disconnectBody":
-    "Capture stops immediately. Everything already captured stays in your CRM, and you can reconnect any time.",
+    "This will delete the credential we stored for this mailbox. Capture stops immediately; everything already captured stays in your CRM, and reconnecting will ask for permission again.",
+  "connectors.disconnectBodyGoogleNote":
+    "Google may still list Margince under your account's third-party access — remove it there if you want to revoke it fully.",
+  "connectors.disconnectBodyMicrosoftNote":
+    "Microsoft may still list Margince among your account's connected apps — remove it there if you want to revoke it fully.",
+  "connectors.errRateLimited":
+    "The provider is throttling us. Capture is running slower than usual; nothing is lost.",
+  "connectors.errUnreachable":
+    "We couldn't reach the provider. We'll keep retrying.",
+  "connectors.errAuth":
+    "The provider rejected our credentials. Reconnect to resume.",
+  "connectors.errHistoryGone":
+    "The provider's change history expired. The next sync re-anchors from a fresh point.",
+  "connectors.errInternal":
+    "Something went wrong on our side. We stopped rather than capture partial data.",
+  "connectors.errUnknown":
+    "Capture hit a problem we can't classify yet. We'll keep retrying.",
+
+  // The OAuth return outcome (Task 2): the callback lands back on
+  // #/settings/integrations/{outcome} — a dismissible inline note driven by
+  // that route segment, never a claim the server hasn't confirmed.
+  "connectors.oauthOk": "Connected. Your mailbox is now capturing.",
+  "connectors.oauthDenied": "You declined access — nothing was connected.",
+  "connectors.oauthError":
+    "The connection couldn't be completed — please try again.",
+  "connectors.dismissOutcome": "Dismiss",
+
+  // The inline IMAP connect form (Task 6): first-connect and reconnect for
+  // the one credential provider, done in Settings instead of bouncing to
+  // onboarding.
+  "connectors.imapConnectCta": "Connect an IMAP mailbox",
+  "connectors.imapModalTitle": "Connect an IMAP mailbox",
+  "connectors.imapHost": "IMAP server",
+  "connectors.imapPort": "Port",
+  "connectors.imapUsername": "Email address",
+  "connectors.imapSecret": "App password",
+  "connectors.imapMailbox": "Mailbox",
+  "connectors.imapMaxMessages": "Messages per sync",
+  "connectors.imapSecretHint":
+    "Use an app-specific password. We seal it in the credential vault and read your mail on a schedule until you disconnect — disconnecting deletes it.",
+  "connectors.imapSubmitCta": "Connect",
+  "connectors.imapLoginRejected":
+    "The mailbox rejected these credentials. Check host, email and app password.",
+  "connectors.imapUnreachable": "The mail server could not be reached.",
+
+  // Personal-mail exclusions (RC-2, Task 8): a reachable UI for a privacy
+  // control that already had live mail syncing and no button — human-only,
+  // an agent must not widen or narrow a human's personal-mail boundary.
+  "exclusions.title": "Personal-mail exclusions",
+  "exclusions.sub":
+    "Keep specific mail out of your CRM entirely. A matching message produces zero CRM rows — nothing is captured and then hidden, it's simply never captured.",
+  "exclusions.kind.senderDomain": "mail from this domain",
+  "exclusions.kind.recipientDomain": "mail to this domain",
+  "exclusions.kind.label": "mail with this label",
+  "exclusions.new": "New rule",
+  "exclusions.none": "No exclusion rules yet.",
+  "exclusions.modalTitle": "Add an exclusion rule",
+  "exclusions.fieldKind": "Rule type",
+  "exclusions.value": "Value",
+  "exclusions.add": "Add",
+  "exclusions.alreadyPresent": "This rule already exists in your list.",
+  "exclusions.remove": "Remove",
+  "exclusions.removeTitle": "Remove this rule?",
+  "exclusions.removeConfirm":
+    "Mail matching this rule will stop being excluded — new messages will be captured normally again.",
+
   "ob.s4.googleVerifying": "Verifying the connection…",
   "ob.s4.googleDenied": "You declined the Google consent",
   "ob.s4.googleFailed": "The Google connection didn't complete",
@@ -1188,8 +1263,8 @@ export const en = {
   "ob.s4.imapMailbox": "Mailbox",
   "ob.s4.imapMax": "How many recent emails",
   "ob.s4.imapHint":
-    "Use an app-specific password (Gmail: Account → Security → App passwords). We pull your recent mail once, capture it as activities, and never store your password.",
-  "ob.s4.imapConnect": "Connect & capture",
+    "Use an app-specific password (Gmail: Account → Security → App passwords). We seal it in the credential vault and keep reading new mail until you disconnect — disconnecting deletes it.",
+  "ob.s4.imapConnect": "Connect mailbox",
   "ob.s4.connecting": "Connecting securely…",
   "ob.s4.scope1Lead": "We read — we don't clutter.",
   "ob.s4.scope1Rest":
@@ -1200,10 +1275,9 @@ export const en = {
   "ob.s4.scope3Rest": "Own-your-data — export or delete everything anytime.",
   "ob.s4.scope4Lead": "Disconnect in one click.",
   "ob.s4.scope4Rest": "The CRM keeps working; it just stops capturing.",
-  "ob.s4.capturedTitle": "Your inbox is live in your CRM",
-  "ob.s4.statCaptured": "captured",
-  "ob.s4.statContacts": "contacts",
-  "ob.s4.statSkipped": "skipped",
+  "ob.s4.capturedTitle": "Mailbox connected",
+  "ob.s4.capturedBody":
+    "Sit back — your CRM is building itself. New mail keeps arriving here as the first sweep runs, usually within a couple of minutes.",
   "ob.s4.enterCrm": "Enter your CRM",
   "ob.s4.connectFailed": "Couldn't connect that mailbox",
   "ob.s4.skipLater": "Skip for now — I'll connect later",

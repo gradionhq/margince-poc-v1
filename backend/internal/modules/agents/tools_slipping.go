@@ -71,7 +71,7 @@ type whatsSlippingThisWeek struct {
 func (t whatsSlippingThisWeek) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "whats_slipping_this_week", Version: "1.0.0",
-		RequiredScope: principal.ScopeRead, Tier: mcp.TierGreen,
+		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "listDeals",
 		InputSchema: schema(`{"type":"object","properties":{
 			"limit":{"type":"integer","minimum":1,"maximum":50,"description":"Cap the ranked set; omit for the full evidenced set"}},
@@ -112,7 +112,7 @@ type draftFollowUpsFor struct {
 func (t draftFollowUpsFor) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "draft_follow_ups_for", Version: "1.0.0",
-		RequiredScope: principal.ScopeDraft, Tier: mcp.TierGreen,
+		RequiredScope: principal.ScopeDraft, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "listDeals + draftEmail + logActivity",
 		InputSchema: schema(`{"type":"object","required":["segment"],"properties":{
 			"segment":{"type":"string","enum":["slipping"],"description":"The deal set to draft follow-ups for; drafts land on each deal's timeline and are NEVER sent"}},

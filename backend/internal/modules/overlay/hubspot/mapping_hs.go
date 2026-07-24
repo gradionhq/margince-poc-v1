@@ -266,6 +266,7 @@ var dealsMapping = overlay.ObjectMapping{
 		{From: []string{"pipeline"}, To: "pipeline_id", Kind: overlay.TargetColumn},
 		{From: []string{"dealstage"}, To: "stage_id", Kind: overlay.TargetColumn},
 		{From: []string{"closedate"}, To: "expected_close_date", Kind: overlay.TargetColumn},
+		ownerIDField,
 	},
 }
 

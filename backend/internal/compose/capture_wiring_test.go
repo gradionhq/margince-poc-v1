@@ -69,9 +69,6 @@ func TestWithKeyvaultWiresTheCredentialCustodian(t *testing.T) {
 	if s.vault == nil {
 		t.Fatal("the vault must be held for the connector-credential paths")
 	}
-	if s.imapConnectHandlers.registry == nil {
-		t.Fatal("the transient IMAP pull must get a vault-carrying registry")
-	}
 	if s.connectorHandlers.registry == nil {
 		t.Fatal("the standing connect must get a registry when none is wired yet")
 	}

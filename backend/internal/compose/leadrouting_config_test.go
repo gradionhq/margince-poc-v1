@@ -24,7 +24,7 @@ func TestLeadRoutingConfigValidatesAndDecodesFromOneFixture(t *testing.T) {
 	if !ok {
 		t.Fatal("assign_lead_owner left the closed catalog")
 	}
-	if entry.Trigger != "lead.created" || entry.Action != "assign_owner" || entry.Tier != "green" {
+	if entry.Trigger != "lead.created" || entry.Action != "assign_owner" || entry.Tier != "auto_execute" {
 		t.Fatalf("assign_lead_owner entry drifted: trigger=%s action=%s tier=%s", entry.Trigger, entry.Action, entry.Tier)
 	}
 

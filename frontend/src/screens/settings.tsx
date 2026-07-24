@@ -46,6 +46,7 @@ import { useLocale, useT } from "../i18n";
 import { AiCallsCard } from "./aicalls";
 import { AiUsageCard } from "./aiusage";
 import { ActorTag } from "./audit";
+import { CaptureExclusionsCard } from "./capture-exclusions";
 import { CaptureSettingsCard } from "./capture-settings";
 import {
   canConfigureAutomations,
@@ -154,6 +155,7 @@ function tabContent(id: SettingsTabId): ReactNode {
         <>
           <ConnectorsCard />
           <CaptureSettingsCard />
+          <CaptureExclusionsCard />
           <WebhooksCard />
         </>
       );

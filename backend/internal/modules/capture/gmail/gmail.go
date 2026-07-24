@@ -52,8 +52,9 @@ type Connector struct {
 func New(oauth OAuth, api API) *Connector { return &Connector{oauth: oauth, api: api} }
 
 var (
-	_ connector.Connector = (*Connector)(nil)
-	_ connector.Watcher   = (*Connector)(nil)
+	_ connector.Connector      = (*Connector)(nil)
+	_ connector.Watcher        = (*Connector)(nil)
+	_ connector.AccountLabeler = (*Connector)(nil)
 )
 
 // authState is the persisted credential bundle (the opaque connector.Auth).
@@ -92,13 +93,13 @@ func AuthRequestFrom(code, redirectURI string) (connector.AuthRequest, error) {
 }
 
 // Descriptor is the connector's static metadata: name "gmail", read-only
-// (TierGreen), producing activities. Read at registration.
+// (TierAutoExecute), producing activities. Read at registration.
 func (c *Connector) Descriptor() connector.Descriptor {
 	return connector.Descriptor{
 		Name:     connectorName,
 		Version:  "1",
 		Scopes:   []principal.Scope{principal.ScopeRead},
-		RiskTier: mcp.TierGreen, // read-only capture
+		RiskTier: mcp.TierAutoExecute, // read-only capture
 		Produces: []datasource.EntityType{datasource.EntityActivity},
 	}
 }
@@ -294,6 +295,16 @@ func (c *Connector) HealthCheck(ctx context.Context, auth connector.Auth) error 
 		return err
 	}
 	return nil
+}
+
+// AccountLabel reports the authorizing mailbox, read from the sealed bundle the
+// caller already holds — no vault round-trip, no network.
+func (c *Connector) AccountLabel(auth connector.Auth) (string, error) {
+	var st authState
+	if err := json.Unmarshal(auth, &st); err != nil {
+		return "", fmt.Errorf("gmail: malformed auth bundle: %w", err)
+	}
+	return st.Owner, nil
 }
 
 // parseCursor reads the stored watermark. An empty cursor means a genuinely

@@ -11,7 +11,9 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	"github.com/gradionhq/margince/backend/internal/modules/overlay/hubspot"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -31,6 +33,42 @@ func TestJobKindsAreStable(t *testing.T) {
 	}
 	if got := (TimeScanArgs{}).Kind(); got != "time_scan" {
 		t.Errorf("TimeScanArgs.Kind() = %q, want time_scan", got)
+	}
+}
+
+// TestOverlaySweepAbortsToleratesBestEffortClassInaccessibility pins the
+// connection sweep's abort-vs-skip decision. The overlay requests read scope
+// for exactly contacts/companies/deals (connection.go
+// leastPrivilegeHubSpotScopes), so a permission/absence error sweeping one of
+// THOSE is a real connection-level failure (token revoked or downscoped) and
+// aborts the whole sweep. leads and the engagement classes are swept
+// best-effort with no requested scope; a portal that gates one of them
+// (HubSpot 403s leads and emails on a starter portal, confirmed against a live
+// developer account) must skip only that class, never abort the classes we do
+// hold scope for. A portal-wide failure (an outage or quota exhaustion) still
+// aborts even a best-effort class.
+func TestOverlaySweepAbortsToleratesBestEffortClassInaccessibility(t *testing.T) {
+	cases := []struct {
+		name        string
+		objectClass string
+		err         error
+		wantAbort   bool
+	}{
+		{"required class, permission denied -> abort", overlay.IncumbentClassContacts, apperrors.ErrPermissionDenied, true},
+		{"required class, not found -> abort", overlay.IncumbentClassCompanies, apperrors.ErrNotFound, true},
+		{"required class, permission denied -> abort (deals)", overlay.IncumbentClassDeals, apperrors.ErrPermissionDenied, true},
+		{"best-effort leads, permission denied -> skip", overlay.IncumbentClassLeads, apperrors.ErrPermissionDenied, false},
+		{"best-effort leads, not found -> skip", overlay.IncumbentClassLeads, apperrors.ErrNotFound, false},
+		{"best-effort engagement (emails), permission denied -> skip", "emails", apperrors.ErrPermissionDenied, false},
+		{"best-effort engagement (meetings), validation 400/unreachable -> skip", "meetings", hubspot.ErrUnreachable, false},
+		{"best-effort leads, outage/unreachable -> skip (scope-backed classes swept first)", overlay.IncumbentClassLeads, hubspot.ErrUnreachable, false},
+		{"best-effort leads, budget exhausted -> abort (connection-wide quota)", overlay.IncumbentClassLeads, apperrors.ErrIncumbentBudgetExhausted, true},
+		{"best-effort leads, connection gone -> abort (disconnect race, connection-wide)", overlay.IncumbentClassLeads, overlay.ErrConnectionGone, true},
+	}
+	for _, tc := range cases {
+		if got := overlaySweepAborts(tc.objectClass, tc.err); got != tc.wantAbort {
+			t.Errorf("%s: overlaySweepAborts(%q, %v) = %v, want %v", tc.name, tc.objectClass, tc.err, got, tc.wantAbort)
+		}
 	}
 }
 

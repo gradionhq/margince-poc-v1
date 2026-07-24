@@ -33,14 +33,14 @@ func (f *fakeApprovals) Stage(_ context.Context, in StageRequest) (ids.ApprovalI
 	return f.id, nil
 }
 
-// TestApplyActionsStagesAYellowActionInsteadOfDeadEnding is the AUTO-T05
+// TestApplyActionsStagesAConfirmationRequiredActionInsteadOfDeadEnding is the AUTO-T05
 // regression: before the Approvals seam was wired in, a 🟡 action returned
 // a bare apperrors.ErrRequiresApproval with no approval row ever created —
 // runOne parked the run with nothing in detail for MarkRunBlocked to find
 // (engine_blocked.go), so it stayed parked forever. ApplyActions must
 // call Stage and hand back the real id via StagedApprovalError so runOne
 // can record it (rundetail.go's stagedApprovalDetail).
-func TestApplyActionsStagesAYellowActionInsteadOfDeadEnding(t *testing.T) {
+func TestApplyActionsStagesAConfirmationRequiredActionInsteadOfDeadEnding(t *testing.T) {
 	fake := &fakeApprovals{id: ids.New[ids.ApprovalKind]()}
 	target := datasource.EntityRef{Type: datasource.EntityDeal, ID: ids.NewV7()}
 	action := workflow.Action{
@@ -84,7 +84,7 @@ func TestApplyActionsStagesAYellowActionInsteadOfDeadEnding(t *testing.T) {
 }
 
 // TestApplyActionsRequestApprovalActionAlsoStages proves the request_approval
-// catalog action (executor ActionEmitFlowEvent, tierYellow per
+// catalog action (executor ActionEmitFlowEvent, tierConfirmationRequired per
 // catalog_actions.go) reaches the same staging path as advance_deal and
 // send_email — it is confirm-first by its own nature, not merely an
 // unimplemented executor.

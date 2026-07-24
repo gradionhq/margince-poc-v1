@@ -21,7 +21,7 @@ package integration
 // compose/agentgate.go's own doc comment); every request this suite
 // issues rides the bootstrap admin's human session cookie, so it never
 // exercises the staged-approval path. That path is already covered at
-// the gate/store level: TestEveryYellowToolHasADecisionGrantMapping (the
+// the gate/store level: TestEveryConfirmationRequiredToolHasADecisionGrantMapping (the
 // decisionGrants fitness test) plus the compose agentgate/agentsplit
 // suites prove createCustomField/retireCustomField/updateCustomFieldOptions
 // resolve a decision grant and that renameCustomField is excluded from

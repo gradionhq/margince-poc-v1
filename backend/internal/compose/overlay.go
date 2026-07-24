@@ -179,35 +179,37 @@ type overlayReconciler struct {
 }
 
 func (r overlayReconciler) Reconcile(ctx context.Context) error {
-	wsID, ok := principal.WorkspaceID(ctx)
-	if !ok {
+	if _, ok := principal.WorkspaceID(ctx); !ok {
 		return fmt.Errorf("compose: reconcile called outside a workspace context")
 	}
-	// DueOverlayConnections is a fleet-wide, rls-exempt enumerator (it has
-	// to be: workspace is not itself workspace-scoped) — filtered down to
-	// the ONE connection this request's own workspace owns, rather than
-	// sweeping every tenant on an admin's single-workspace request.
-	due, err := overlay.DueOverlayConnections(ctx, r.pool)
+	// An explicit "sync my workspace now" resolves THIS workspace's active
+	// connection DIRECTLY via ActiveConnection — never the poller's
+	// DueOverlayConnections, whose next_sweep_at backoff gate would make a
+	// connection the poller recently swept (or one still backed off from an
+	// earlier failure) silently answer "not due". Routing the on-demand call
+	// through that gate turned a squarely-in-overlay-mode workspace into a
+	// misleading mode_not_overlay whenever the poller had just run — an admin
+	// pressing "sync now" must not be told the workspace is not in overlay
+	// mode. The backoff is the poller's own concern, not the human's.
+	d, err := overlay.ActiveConnection(ctx, r.pool)
 	if err != nil {
-		return fmt.Errorf("compose: reconcile: listing overlay-mode workspaces: %w", err)
-	}
-	for _, d := range due {
-		if d.Workspace.UUID == wsID {
-			err := reconcileConnection(ctx, r.pool, r.vault, r.ms, r.meter, r.log, d, r.newIncumbent)
-			if errors.Is(err, overlay.ErrConnectionGone) {
-				// The connection was revoked between the due-scan above and the
-				// sweep's first fenced write (a disconnect racing this on-demand
-				// reconcile). That is the same mode-question the fallthrough
-				// below answers — not an opaque 500 — so collapse it here.
-				return apperrors.ErrModeNotOverlay
-			}
-			return err
+		if errors.Is(err, apperrors.ErrNotFound) {
+			// No active connection for THIS workspace — the same mode-question
+			// GetSyncStatus/GetBudget answer with ErrModeNotOverlay, since a
+			// reconcile sweep is meaningless without one.
+			return apperrors.ErrModeNotOverlay
 		}
+		return fmt.Errorf("compose: reconcile: resolving the active overlay connection: %w", err)
 	}
-	// No active connection for THIS workspace — the same mode-question
-	// GetSyncStatus/GetBudget answer with ErrModeNotOverlay, since a
-	// reconcile sweep is meaningless without one.
-	return apperrors.ErrModeNotOverlay
+	err = reconcileConnection(ctx, r.pool, r.vault, r.ms, r.meter, r.log, d, r.newIncumbent)
+	if errors.Is(err, overlay.ErrConnectionGone) {
+		// The connection was revoked between the resolve above and the sweep's
+		// first fenced write (a disconnect racing this on-demand reconcile).
+		// That is the same mode-question ErrNotFound answers above — not an
+		// opaque 500 — so collapse it here.
+		return apperrors.ErrModeNotOverlay
+	}
+	return err
 }
 
 // overlayMetricsSection answers the /metrics overlay section for srv,

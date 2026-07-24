@@ -27,13 +27,15 @@ import (
 	"github.com/emersion/go-imap/v2/imapclient"
 	"github.com/emersion/go-imap/v2/imapserver"
 	"github.com/emersion/go-imap/v2/imapserver/imapmemserver"
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/imap"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
@@ -109,6 +111,10 @@ func TestStandingIMAPConnectTransport(t *testing.T) {
 		imapAuthenticate: plainProbe,
 	}
 
+	// Route through the real mux: calling the handler directly is what let the
+	// shadowed-route defect survive review, so this asserts reachability too.
+	srv := Server{connectorHandlers: h}
+	mux := crmcontracts.HandlerFromMuxWithBaseURL(srv, chi.NewRouter(), "/v1")
 	post := func(t *testing.T, ctx context.Context, body map[string]any) *httptest.ResponseRecorder {
 		t.Helper()
 		payload, err := json.Marshal(body)
@@ -118,7 +124,7 @@ func TestStandingIMAPConnectTransport(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/v1/connectors/imap/connect", bytes.NewReader(payload))
 		req = req.WithContext(ctx)
 		rec := httptest.NewRecorder()
-		h.ConnectConnector(rec, req, "imap")
+		mux.ServeHTTP(rec, req)
 		return rec
 	}
 
@@ -127,10 +133,11 @@ func TestStandingIMAPConnectTransport(t *testing.T) {
 			"host": host, "port": port, "username": standingIMAPUser, "secret": pass,
 		}}
 	}
-	base := e.As(e.Rep1, nil, integration.AdminPerms)
-	actor, _ := principal.Actor(base)
-	actor.Scopes = principal.NewScopeSet(principal.ScopeRead)
-	authed := principal.WithActor(base, actor)
+	// A realistic signed-in human session carries RBAC (AdminPerms) but NO
+	// passport scopes — scopes are an agent concept. The handler must grant the
+	// connector's read scope from the human's authority; hand-setting it here
+	// would mask a regression where a real session is refused for lack of it.
+	authed := e.As(e.Rep1, nil, integration.AdminPerms)
 
 	t.Run("signed out is 401", func(t *testing.T) {
 		if rec := post(t, context.Background(), imapBody(standingIMAPPass)); rec.Code != http.StatusUnauthorized {
@@ -194,6 +201,36 @@ func TestStandingIMAPConnectTransport(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
+		}
+	})
+
+	t.Run("a non-default mailbox and max_messages reach the sealed credentials", func(t *testing.T) {
+		body := map[string]any{"imap": map[string]any{
+			"host": host, "port": port, "username": standingIMAPUser, "secret": standingIMAPPass,
+			"mailbox": "Archive", "max_messages": 17,
+		}}
+		rec := post(t, authed, body)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200 (%s)", rec.Code, rec.Body.String())
+		}
+		var ref string
+		err := database.WithWorkspaceTx(authed, e.Pool, func(tx pgx.Tx) error {
+			return tx.QueryRow(context.Background(), `
+				SELECT credential_ref FROM capture_connection WHERE provider = 'imap'`).Scan(&ref)
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		secret, err := vault.Get(context.Background(), ids.From[ids.WorkspaceKind](e.WS), keyvault.Ref(ref))
+		if err != nil {
+			t.Fatalf("resolving the sealed bundle: %v", err)
+		}
+		var sealed imap.Credentials
+		if err := json.Unmarshal(secret, &sealed); err != nil {
+			t.Fatalf("unmarshaling the sealed bundle: %v", err)
+		}
+		if sealed.Mailbox != "Archive" || sealed.MaxMessages != 17 {
+			t.Fatalf("sealed credentials = %+v, want mailbox=Archive max_messages=17 — these fields must never be defaulted away", sealed)
 		}
 	})
 }

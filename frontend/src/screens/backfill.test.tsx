@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
 import { BackfillPanel } from "./backfill";
+import { installFetchStub } from "./story-utils";
 
 // The connect-time backfill is the coldstart payoff: the scope must auto-load
 // (honest scope before any click), the spend must still wait for the explicit
@@ -220,5 +221,75 @@ describe("the connect-time backfill payoff", () => {
     expect(
       screen.getByText(/everything captured so far is kept/i),
     ).toBeTruthy();
+  });
+});
+
+// The connections-card mount (connectors.tsx) seeds the panel from
+// CaptureConnection.backfill, already embedded in GET /connectors — these
+// exercise the honest branches that seed unlocks: a provider with no
+// Backfiller, a run whose updated_at stopped moving, a null estimate, and a
+// refused window narrowing. Real installFetchStub route-map stubs throughout.
+describe("honest capability and staleness", () => {
+  it("renders an unsupported source as a capability statement, not an error", async () => {
+    installFetchStub({
+      "POST /connectors/imap/backfill/preview": () =>
+        jsonResponse({ code: "connector_unsupported" }, 422),
+    });
+    render(<BackfillPanel provider="imap" initial={{ state: "none" }} />);
+
+    expect(await screen.findByText(/can't be backfilled/i)).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+    // Not a retryable error state: no window picker offered for a provider
+    // that structurally can't run this op.
+    expect(screen.queryByRole("radiogroup")).toBeNull();
+  });
+
+  it("does not animate a running run whose updated_at is stale", () => {
+    const staleUpdatedAt = new Date(Date.now() - 20 * 60_000).toISOString();
+    render(
+      <BackfillPanel
+        provider="gmail"
+        initial={{
+          ...countsStatus("running", { captured: 40, messages_scanned: 40 }),
+          updated_at: staleUpdatedAt,
+        }}
+      />,
+    );
+
+    expect(screen.getByText(/last updated/i)).toBeTruthy();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+
+  it("shows absolute counts and no percentage when estimated_messages is null", () => {
+    render(
+      <BackfillPanel
+        provider="gmail"
+        initial={{
+          state: "running",
+          estimated_messages: null,
+          counts: { captured: 12 },
+        }}
+      />,
+    );
+
+    expect(screen.getByText("12")).toBeTruthy();
+    expect(screen.queryByText(/%/)).toBeNull();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+
+  it("explains a refused narrowing instead of failing generically", async () => {
+    installFetchStub({
+      "POST /connectors/gmail/backfill/preview": () =>
+        jsonResponse(previewOf(400)),
+      "POST /connectors/gmail/backfill": () =>
+        jsonResponse({ code: "window_narrowing" }, 409),
+    });
+    render(<BackfillPanel provider="gmail" initial={{ state: "none" }} />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Start the import/ }),
+    );
+
+    expect(await screen.findByText(/only be widened/i)).toBeTruthy();
   });
 });

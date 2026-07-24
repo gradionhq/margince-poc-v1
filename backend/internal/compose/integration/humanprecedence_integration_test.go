@@ -202,7 +202,7 @@ func mcpAgentInvoker(t *testing.T, e *env, agentToken string) func(tool, args st
 }
 
 // A mixed patch splits per field (interfaces.md §2.1): the agent-safe
-// fields apply green in the same PATCH, the human-owned field is staged,
+// fields apply at the auto-execute tier in the same PATCH, the human-owned field is staged,
 // the 200 response names the split, and the approved replay of ONLY the
 // staged fields — the ADR-0036-bound sub-patch — lands the overwrite.
 func TestEndToEnd_perFieldSplitOnAgentRESTUpdate(t *testing.T) {
@@ -233,10 +233,10 @@ func TestEndToEnd_perFieldSplitOnAgentRESTUpdate(t *testing.T) {
 		"first_name": "Petra", "full_name": "Petra Machine", "title": "CEO",
 	}, bearer, &split)
 	if status != 200 {
-		t.Fatalf("mixed agent patch → %d, want 200 for its green half", status)
+		t.Fatalf("mixed agent patch → %d, want 200 for its auto-execute half", status)
 	}
 	if split.FirstName != "Petra" || split.FullName != "Petra Human" {
-		t.Fatalf("green half wrong: first_name %q full_name %q — want the new first name and the untouched human name", split.FirstName, split.FullName)
+		t.Fatalf("auto-execute half wrong: first_name %q full_name %q — want the new first name and the untouched human name", split.FirstName, split.FullName)
 	}
 	if split.StagedApproval.ApprovalID == "" || len(split.StagedApproval.Fields) != 2 ||
 		split.StagedApproval.Fields[0] != "full_name" || split.StagedApproval.Fields[1] != "title" {
@@ -273,7 +273,7 @@ func TestEndToEnd_perFieldSplitOnAgentRESTUpdate(t *testing.T) {
 	}
 	if status := e.call(t, "GET", "/v1/people/"+personID, nil, bearer, &current); status != 200 ||
 		current.FullName != "Petra Machine" || current.Title != "CEO" || current.FirstName != "Petra" {
-		t.Fatalf("post-approval record = %+v, want the released overwrite plus the earlier green write", current)
+		t.Fatalf("post-approval record = %+v, want the released overwrite plus the earlier auto-execute write", current)
 	}
 }
 
@@ -313,7 +313,7 @@ func TestEndToEnd_rejectedSplitWritesNothing(t *testing.T) {
 	}
 	if status := e.call(t, "GET", "/v1/people/"+personID, nil, bearer, &current); status != 200 ||
 		current.FullName != "Rita Human" || current.FirstName != "Rita" {
-		t.Fatalf("post-rejection record = %+v, want the human name intact and only the green write applied", current)
+		t.Fatalf("post-rejection record = %+v, want the human name intact and only the auto-execute write applied", current)
 	}
 }
 
@@ -354,8 +354,8 @@ func personNameAndTitle(t *testing.T, invoke func(tool, args string) (json.RawMe
 }
 
 // The SAME split fires on the MCP transport — one spelling, two
-// surfaces: a green-only tool patch runs to completion, a mixed patch
-// applies its green half and stages the human-owned residue, and the
+// surfaces: an auto-execute-only tool patch runs to completion, a mixed patch
+// applies its auto-execute half and stages the human-owned residue, and the
 // approved replay (staged fields + approval_id) redeems exactly once.
 func TestEndToEnd_perFieldSplitOnMCPUpdate(t *testing.T) {
 	e := setup(t)
@@ -364,21 +364,21 @@ func TestEndToEnd_perFieldSplitOnMCPUpdate(t *testing.T) {
 	personID, agentToken := stagePersonAndAgent(t, e, "Mona Human", "mcp split agent")
 	invoke := mcpAgentInvoker(t, e, agentToken)
 
-	// Green-only: a field no human wrote updates without any staging.
+	// Auto-execute-only: a field no human wrote updates without any staging.
 	out, err := invoke("update_record", fmt.Sprintf(
 		`{"record_type":"person","id":%q,"fields":{"title":"CTO"}}`, personID))
 	if err != nil {
-		t.Fatalf("green tool patch → %v", err)
+		t.Fatalf("auto-execute tool patch → %v", err)
 	}
 	if strings.Contains(string(out), "staged_approval") {
-		t.Fatalf("green tool patch staged something: %s", out)
+		t.Fatalf("auto-execute tool patch staged something: %s", out)
 	}
 
 	// Mixed: title is agent-owned now, full_name is the human's.
 	out, err = invoke("update_record", fmt.Sprintf(
 		`{"record_type":"person","id":%q,"fields":{"full_name":"Mona Machine","title":"VP Engineering"}}`, personID))
 	if err != nil {
-		t.Fatalf("mixed tool patch must succeed for its green half: %v", err)
+		t.Fatalf("mixed tool patch must succeed for its auto-execute half: %v", err)
 	}
 	var result struct {
 		Fields struct {
@@ -395,7 +395,7 @@ func TestEndToEnd_perFieldSplitOnMCPUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result.Fields.FullName != "Mona Human" || result.Fields.Title != "VP Engineering" {
-		t.Fatalf("mixed result record = %+v, want the green half applied and the human name untouched", result.Fields)
+		t.Fatalf("mixed result record = %+v, want the auto-execute half applied and the human name untouched", result.Fields)
 	}
 	if result.StagedApproval.ApprovalID == "" || len(result.StagedApproval.Fields) != 1 || result.StagedApproval.Fields[0] != "full_name" {
 		t.Fatalf("staged_approval = %+v, want exactly full_name staged", result.StagedApproval)
@@ -425,10 +425,10 @@ func TestEndToEnd_perFieldSplitOnMCPUpdate(t *testing.T) {
 	}
 	// The redeemed write moved ownership: full_name's latest audited
 	// writer is now the AGENT, so its next patch of the field is plain
-	// green — precedence protects people, not machines.
+	// auto-execute — precedence protects people, not machines.
 	out, err = invoke("update_record", fmt.Sprintf(
 		`{"record_type":"person","id":%q,"fields":{"full_name":"Mona Machine II"}}`, personID))
 	if err != nil || strings.Contains(string(out), "staged_approval") {
-		t.Fatalf("agent re-patch of its own field → %v %s, want a plain green update", err, out)
+		t.Fatalf("agent re-patch of its own field → %v %s, want a plain auto-execute update", err, out)
 	}
 }

@@ -93,7 +93,7 @@ type searchRecords struct {
 func (t searchRecords) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "search_records", Version: "1.0.0",
-		RequiredScope: principal.ScopeRead, Tier: mcp.TierGreen,
+		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "listPeople/listOrganizations/listDeals/listLeads",
 		InputSchema: schema(`{"type":"object","properties":{
 			"q":{"type":"string","description":"Full-text query over names/titles"},
@@ -176,7 +176,7 @@ type readRecord struct {
 func (t readRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "read_record", Version: "1.0.0",
-		RequiredScope: principal.ScopeRead, Tier: mcp.TierGreen,
+		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "getPerson/getOrganization/getDeal/getLead/getActivity",
 		InputSchema: schema(`{"type":"object","required":["record_type","id"],"properties":{
 			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity"]},
@@ -210,7 +210,7 @@ type createRecord struct {
 func (t createRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "create_record", Version: "1.0.0",
-		RequiredScope: principal.ScopeWrite, Tier: mcp.TierGreen,
+		RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "createPerson/createOrganization/createDeal/createLead",
 		InputSchema: schema(`{"type":"object","required":["record_type","fields"],"properties":{
 			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity"]},
@@ -248,7 +248,7 @@ type logActivity struct {
 func (t logActivity) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "log_activity", Version: "1.0.0",
-		RequiredScope: principal.ScopeWrite, Tier: mcp.TierGreen,
+		RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "logActivity",
 		InputSchema: schema(`{"type":"object","required":["kind"],"properties":{
 			"kind":{"type":"string","enum":["note","email","call","meeting","task"]},
@@ -318,9 +318,9 @@ func (t advanceDeal) Spec() mcp.ToolSpec {
 // malformed semantic fails toward the approval gate, never away from it.
 func advanceDealTier(in mcp.TierResolverInput) mcp.RiskTier {
 	if in.TargetStageSemantic == "open" {
-		return mcp.TierGreen
+		return mcp.TierAutoExecute
 	}
-	return mcp.TierYellow
+	return mcp.TierConfirmationRequired
 }
 
 // ResolverInput reads the target stage's semantic from pipeline config —

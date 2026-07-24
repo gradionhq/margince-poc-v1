@@ -316,4 +316,61 @@ describe("HomeScreen (Morning Brief on the /brief spine)", () => {
     expect(screen.queryByTestId("digest-card")).toBeNull();
     expect(screen.queryByText("Overnight capture")).toBeNull();
   });
+
+  // This is the one place connector health reaches a user without visiting
+  // Settings (Task 11) — a degraded source is news, so the sentence (the
+  // shared connectors.* vocabulary, Task 5) shows and jumps into Settings →
+  // Integrations.
+  const digestBase = {
+    date: "2026-07-16",
+    generated_at: "2026-07-17T03:00:00Z",
+    capture: {
+      messages_synced: 42,
+      activities_created: 42,
+      people_created: 5,
+      organizations_created: 2,
+    },
+    review: {
+      dedupe_open: 0,
+      approvals_pending: 0,
+      classify: { commitments: 0, meetings: 0, noise: 0 },
+    },
+  };
+
+  it("shows a connector-health line when a digest source is unhealthy, and jumps to Settings → Integrations", async () => {
+    stubApi({
+      "GET /brief": () => jsonResponse({ title: "Not Found" }, 404),
+      "GET /digest": () =>
+        jsonResponse({
+          ...digestBase,
+          connectors: [
+            {
+              provider: "gmail",
+              status: "reauth_required",
+              last_sync_error_class: "auth",
+            },
+          ],
+        }),
+    });
+    render(<HomeScreen />);
+    const line = await screen.findByText(/rejected our credentials/i);
+    await userEvent.click(line);
+    expect(window.location.hash).toBe("#/settings/integrations");
+  });
+
+  it("stays quiet when every digest connector is healthy — a green row is noise", async () => {
+    stubApi({
+      "GET /brief": () => jsonResponse({ title: "Not Found" }, 404),
+      "GET /digest": () =>
+        jsonResponse({
+          ...digestBase,
+          connectors: [{ provider: "gmail", status: "connected" }],
+        }),
+    });
+    render(<HomeScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Overnight capture")).toBeTruthy(),
+    );
+    expect(screen.queryByTestId("digest-connector-health")).toBeNull();
+  });
 });

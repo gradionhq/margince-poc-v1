@@ -1119,6 +1119,12 @@
 .backfill-skipped {
   margin-top: var(--space-3);
 }
+/* Neutral, not danger-tinted: a capability gap and a stalled-progress note
+   are honest states, not errors. */
+.backfill-unsupported,
+.backfill-stale {
+  color: var(--textSecondary);
+}
 .ob-google-unverified {
   max-width: 460px;
   margin: var(--space-2) auto 0;

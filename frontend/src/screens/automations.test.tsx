@@ -75,7 +75,7 @@ const catalog: CatalogEntry[] = [
     description: "Stages a follow-up when a deal stalls.",
     trigger: "deal.stalled",
     action: "send_email",
-    tier: "yellow",
+    tier: "confirmation_required",
     params_schema: dueInDaysSchema(3),
   },
   {
@@ -83,7 +83,7 @@ const catalog: CatalogEntry[] = [
     name: "Task on stage entry",
     trigger: "deal.stage_changed",
     action: "create_task",
-    tier: "green",
+    tier: "auto_execute",
     params_schema: dueInDaysSchema(7),
   },
 ];
@@ -228,27 +228,37 @@ describe("AutomationsScreen (B-EP09.15)", () => {
 
   it("each row wears its catalog autonomy tier through AutonomyDot", async () => {
     const automations = [
-      instance({ id: "au-1", key: "stalled_deal_nudge", name: "Yellow one" }),
+      instance({
+        id: "au-1",
+        key: "stalled_deal_nudge",
+        name: "Confirmation-required one",
+      }),
       instance({
         id: "au-2",
         key: "task_on_stage_entry",
-        name: "Green one",
+        name: "Auto-execute one",
         params: { due_in_days: 7 },
       }),
     ];
     vi.stubGlobal("fetch", automationsBackend(automations, []));
     render(<AutomationsScreen />);
-    await waitFor(() => expect(screen.getByText("Yellow one")).toBeTruthy());
-    const yellow = screen.getByText("Yellow one").closest("li");
-    const green = screen.getByText("Green one").closest("li");
-    expect(yellow).not.toBeNull();
-    expect(green).not.toBeNull();
-    if (yellow && green) {
+    await waitFor(() =>
+      expect(screen.getByText("Confirmation-required one")).toBeTruthy(),
+    );
+    const confirmationRequired = screen
+      .getByText("Confirmation-required one")
+      .closest("li");
+    const autoExecute = screen.getByText("Auto-execute one").closest("li");
+    expect(confirmationRequired).not.toBeNull();
+    expect(autoExecute).not.toBeNull();
+    if (confirmationRequired && autoExecute) {
       expect(
-        within(yellow).getByRole("img", { name: "confirm-first" }),
+        within(confirmationRequired).getByRole("img", {
+          name: "confirm-first",
+        }),
       ).toBeTruthy();
       expect(
-        within(green).getByRole("img", { name: "auto-execute" }),
+        within(autoExecute).getByRole("img", { name: "auto-execute" }),
       ).toBeTruthy();
     }
   });

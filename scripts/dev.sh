@@ -350,6 +350,12 @@ up)
     echo "dev: $routing_src binds provider(s) whose key is not set (${missing_keys# }) — cold-start runs on the offline fake; set the key(s) in .env.local or rebind the provider in $routing_src"
   fi
 
+  # The dev keyvault seals connector credentials (IMAP app passwords, OAuth
+  # refresh tokens). Export it unconditionally so `make dev` can connect an IMAP
+  # mailbox with no Google OAuth app configured — the gmail branch below adds
+  # only the OAuth-specific state key and base URLs.
+  export MARGINCE_KEYVAULT_ROOT_KEY="${MARGINCE_KEYVAULT_ROOT_KEY:-bWFyZ2luY2UtZGV2LW9ubHkta2V5dmF1bHQtcm9vdGs=}"
+
   # Gmail capture connector: when .env.local supplies a Google OAuth app, pass
   # its flags to the api and run the sync worker. Absent it, `make dev` is
   # unchanged and the /connectors/gmail/* surface stays its declared 501.
@@ -359,10 +365,9 @@ up)
     gmail_enabled=1
     # Secrets travel via the environment, NEVER CLI flags (argv is visible in
     # the process table). The client id/secret are already exported from
-    # .env.local; export the dev vault + state keys too. The api/worker flags
+    # .env.local; export the OAuth state key too. The api/worker flags
     # default to these env vars, so we pass only the non-secret, dev-computed
     # URLs on the command line.
-    export MARGINCE_KEYVAULT_ROOT_KEY="${MARGINCE_KEYVAULT_ROOT_KEY:-bWFyZ2luY2UtZGV2LW9ubHkta2V5dmF1bHQtcm9vdGs=}"
     export MARGINCE_CONNECTOR_STATE_KEY="${MARGINCE_CONNECTOR_STATE_KEY:-margince-dev-connector-state-key-0001}"
     gmail_api_flags=(
       # public base = the SPA (:fe_port), where the browser lands after consent;

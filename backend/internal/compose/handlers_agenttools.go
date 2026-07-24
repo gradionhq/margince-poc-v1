@@ -36,22 +36,22 @@ func agentToolsFromSpecs(specs []mcp.ToolSpec) []crmcontracts.AgentTool {
 	return out
 }
 
-// tierWire maps the closed Green/Yellow/Dynamic RiskTier set (the only
+// tierWire maps the closed AutoExecute/ConfirmationRequired/Dynamic RiskTier set (the only
 // tiers RiskTier's definition currently admits) onto the wire enum. The
-// fallthrough below is a conservative Yellow floor for the unreachable
+// fallthrough below is a conservative ConfirmationRequired floor for the unreachable
 // case, not a fitness guarantee: TestTierWireIsExhaustive only checks
 // today's three known tiers and would not catch a new 4th RiskTier value
 // going unhandled here — adding one requires updating this switch by hand.
 func tierWire(t mcp.RiskTier) crmcontracts.AgentToolTier {
 	switch t {
-	case mcp.TierGreen:
-		return crmcontracts.AgentToolTierGreen
-	case mcp.TierYellow:
-		return crmcontracts.AgentToolTierYellow
+	case mcp.TierAutoExecute:
+		return crmcontracts.AgentToolTierAutoExecute
+	case mcp.TierConfirmationRequired:
+		return crmcontracts.AgentToolTierConfirmationRequired
 	case mcp.TierDynamic:
 		return crmcontracts.AgentToolTierDynamic
 	}
-	return crmcontracts.AgentToolTierYellow // unreachable; conservative floor if a tier is added without updating this switch
+	return crmcontracts.AgentToolTierConfirmationRequired // unreachable; conservative floor if a tier is added without updating this switch
 }
 
 func ptrString(v string) *string { return &v }

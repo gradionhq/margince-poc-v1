@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { problemMessage } from "../screens/common";
 
-export type TierName = "green" | "yellow" | "dynamic";
+export type TierName = "auto_execute" | "confirmation_required" | "dynamic";
 export type VerbTierMap = Record<string, TierName>;
 
 // Approval `kind` → the tool verb that stages it. Any item in the approvals
@@ -16,7 +16,7 @@ export const KIND_TO_VERB: Record<string, string> = {
 };
 
 export function dotTier(tier: string | undefined): "auto" | "confirm" {
-  return tier === "green" ? "auto" : "confirm";
+  return tier === "auto_execute" ? "auto" : "confirm";
 }
 
 export function approvalDotTier(

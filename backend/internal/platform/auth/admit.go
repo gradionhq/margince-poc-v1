@@ -108,7 +108,7 @@ func (g *Gate) Admit(ctx context.Context, spec mcp.ToolSpec, resolve func() (mcp
 		}
 		tier = spec.TierResolver(in)
 	}
-	if tier != mcp.TierGreen {
+	if tier != mcp.TierAutoExecute {
 		return ctx, fmt.Errorf("gate: %s is a confirm-first (🟡) action: %w", spec.Name, apperrors.ErrRequiresApproval)
 	}
 	return ctx, nil

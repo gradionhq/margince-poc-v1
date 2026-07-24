@@ -25,7 +25,7 @@ type CatalogEntry struct {
 	Description  string
 	Trigger      string // event type that fires it
 	Action       string // closed workflow.ActionKind it plans
-	Tier         string // green | yellow (from the handler, never the caller)
+	Tier         string // auto_execute | confirmation_required (from the handler, never the caller)
 	ParamsSchema map[string]any
 	Validate     func(params map[string]any) error
 	// Seeded marks the entry as one of the SIX starter templates
@@ -209,7 +209,7 @@ func seededCatalogEntries() []CatalogEntry {
 			Description:  "Reminds an entity's owner once its most recent captured activity has gone quiet for N days.",
 			Trigger:      noActivityScheduleMarker,
 			Action:       string(ActionTypeCreateTask),
-			Tier:         tierGreen,
+			Tier:         tierAutoExecute,
 			ParamsSchema: noActivityReminderSchema(),
 			Validate:     validateNoActivityReminderParams,
 			Seeded:       true,
@@ -220,7 +220,7 @@ func seededCatalogEntries() []CatalogEntry {
 			Description:  "Reminds an entity's owner as its configured renewal date approaches.",
 			Trigger:      renewalScheduleMarker,
 			Action:       string(ActionTypeCreateTask),
-			Tier:         tierGreen,
+			Tier:         tierAutoExecute,
 			ParamsSchema: renewalReminderSchema(),
 			Validate:     validateRenewalReminderParams,
 			Seeded:       true,
@@ -231,7 +231,7 @@ func seededCatalogEntries() []CatalogEntry {
 			Description:  "Notifies the deal's owner on every stage move, including the closes that end the follow-up cadence.",
 			Trigger:      eventDealStageChanged,
 			Action:       string(ActionTypeNotify),
-			Tier:         tierGreen,
+			Tier:         tierAutoExecute,
 			ParamsSchema: noParamsSchema(),
 			Validate:     validateNoParams,
 			Seeded:       true,
@@ -242,7 +242,7 @@ func seededCatalogEntries() []CatalogEntry {
 			Description:  "Mints a follow-up task the moment a new lead is captured, so every lead gets a first next step.",
 			Trigger:      eventLeadCreated,
 			Action:       string(ActionTypeCreateTask),
-			Tier:         tierGreen,
+			Tier:         tierAutoExecute,
 			ParamsSchema: dueInDaysSchema(defaultRouteLeadDueInDays, "How many days out the follow-up task on the new lead is due."),
 			Validate:     validateDueInDays,
 			Seeded:       true,
@@ -253,7 +253,7 @@ func seededCatalogEntries() []CatalogEntry {
 			Description:  "Reminds an entity's owner to re-engage once it has gone quiet for the automation's own (typically longer) cadence.",
 			Trigger:      checkInCadenceScheduleMarker,
 			Action:       string(ActionTypeCreateTask),
-			Tier:         tierGreen,
+			Tier:         tierAutoExecute,
 			ParamsSchema: checkInCadenceSchema(),
 			Validate:     validateCheckInCadenceParams,
 			Seeded:       true,
@@ -264,7 +264,7 @@ func seededCatalogEntries() []CatalogEntry {
 			Description:  "Drafts a follow-up recap whenever a meeting is logged.",
 			Trigger:      eventActivityCaptured,
 			Action:       string(ActionTypeDraftEmail),
-			Tier:         tierGreen,
+			Tier:         tierAutoExecute,
 			ParamsSchema: noParamsSchema(),
 			Validate:     validateNoParams,
 			Seeded:       true,
@@ -281,11 +281,11 @@ func authorableOnlyCatalogEntries() []CatalogEntry {
 			// AUTHORABLE, not seeded: the honest name for the owner-
 			// assignment behaviour the OLD route_lead key carried before
 			// AUTO-NOTE-2's reconciliation (migrations/core/0078 re-keys
-			// any live row). Tier is green, not actionDefs' "dynamic" label
+			// any live row). Tier is auto_execute, not actionDefs' "dynamic" label
 			// for assign_owner (catalog_actions.go) — the automation.tier
 			// column's own CHECK constraint (migrations/core/0035) and the
 			// wire contract's tier enum (crm.yaml) both close tier to
-			// green|yellow, and green is the honest default: no shipped
+			// auto_execute|confirmation_required, and auto_execute is the honest default: no shipped
 			// automation's own params carry a scale signal yet
 			// (assign_owner_tier.go's own doc), so every real firing today
 			// resolves single-entity — resolveAssignOwnerTier's own
@@ -295,7 +295,7 @@ func authorableOnlyCatalogEntries() []CatalogEntry {
 			Description:  "Assigns every new lead an owner: matching rules first, else round-robin across the pool, never exceeding capacity caps.",
 			Trigger:      eventLeadCreated,
 			Action:       string(ActionTypeAssignOwner),
-			Tier:         tierGreen,
+			Tier:         tierAutoExecute,
 			ParamsSchema: leadRoutingSchema(),
 			Validate:     validateLeadRoutingParams,
 			Seeded:       false,
@@ -311,7 +311,7 @@ func authorableOnlyCatalogEntries() []CatalogEntry {
 			Description:  "Mints a follow-up task on the deal timeline after every open stage move.",
 			Trigger:      eventDealStageChanged,
 			Action:       string(ActionTypeCreateTask),
-			Tier:         tierGreen,
+			Tier:         tierAutoExecute,
 			ParamsSchema: dueInDaysSchema(2, "How many days out the follow-up task is due."),
 			Validate:     validateDueInDays,
 			Seeded:       false,
