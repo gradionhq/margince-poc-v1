@@ -117,7 +117,10 @@ type Stats struct {
 // New returns an unauthenticated connector ready for one pull.
 func New() *Connector { return &Connector{} }
 
-var _ connector.Connector = (*Connector)(nil)
+var (
+	_ connector.Connector      = (*Connector)(nil)
+	_ connector.AccountLabeler = (*Connector)(nil)
+)
 
 // authConfig is the non-secret handshake state Authenticate hands to Sync
 // via the opaque Auth bytes. The password is NEVER placed here: it is
@@ -421,6 +424,15 @@ func (c *Connector) HealthCheck(ctx context.Context, auth connector.Auth) error 
 
 // Stats returns the outcome of the last Sync on this connector.
 func (c *Connector) Stats() Stats { return c.stats }
+
+// AccountLabel reports the mailbox login this connection authenticates as.
+func (c *Connector) AccountLabel(auth connector.Auth) (string, error) {
+	var creds Credentials
+	if err := json.Unmarshal(auth, &creds); err != nil {
+		return "", fmt.Errorf("imap: malformed auth bundle: %w", err)
+	}
+	return creds.Email, nil
+}
 
 // readMessageBody reads the message's BODY[] literal, bounded to maxRawLen. It
 // walks the FETCH data items to the end so the streamed literal is fully

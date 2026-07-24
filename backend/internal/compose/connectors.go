@@ -376,6 +376,7 @@ func toContractConnection(v capture.ConnectionView) crmcontracts.CaptureConnecti
 		Status:         crmcontracts.CaptureConnectionStatus(v.Status),
 		Scopes:         v.Scopes,
 		WatchExpiresAt: v.WatchExpiresAt,
+		AccountLabel:   v.AccountLabel,
 	}
 	if c.Scopes == nil {
 		c.Scopes = []string{}

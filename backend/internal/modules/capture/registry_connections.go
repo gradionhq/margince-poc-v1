@@ -35,6 +35,12 @@ type ConnectionView struct {
 	WatchExpiresAt *time.Time // push/delta subscription renewal deadline, or nil
 	Scopes         []string   // the scopes frozen at grant time
 
+	// AccountLabel is the display-only mailbox address the connector reported
+	// at connect time (AccountLabeler), or nil when the connector implements
+	// no such seam or could not read one from the bundle. Never routed or
+	// authorized on.
+	AccountLabel *string
+
 	// Sync health from the CAP-DDL-5 sidecar; all nil before the first sync
 	// (a connection with no sidecar row is simply due immediately).
 	LastSyncedAt   *time.Time
@@ -58,7 +64,7 @@ func (r *Registry) Connections(ctx context.Context) ([]ConnectionView, error) {
 	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT c.id, c.provider, c.status, c.sync_cursor, c.watch_expires_at, c.scopes,
-			       s.last_synced_at, s.last_error_class, s.next_sync_at
+			       c.account_label, s.last_synced_at, s.last_error_class, s.next_sync_at
 			FROM capture_connection c
 			LEFT JOIN capture_sync_state s ON s.connection_id = c.id
 			WHERE c.user_id = $1 AND c.archived_at IS NULL
@@ -70,7 +76,7 @@ func (r *Registry) Connections(ctx context.Context) ([]ConnectionView, error) {
 		for rows.Next() {
 			var v ConnectionView
 			if err := rows.Scan(&v.ID, &v.Provider, &v.Status, &v.Cursor, &v.WatchExpiresAt, &v.Scopes,
-				&v.LastSyncedAt, &v.LastErrorClass, &v.NextSyncDueAt); err != nil {
+				&v.AccountLabel, &v.LastSyncedAt, &v.LastErrorClass, &v.NextSyncDueAt); err != nil {
 				return err
 			}
 			out = append(out, v)

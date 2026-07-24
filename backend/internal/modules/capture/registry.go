@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync"
@@ -154,15 +155,27 @@ func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth
 	if err != nil {
 		return ids.Nil, fmt.Errorf("capture: sealing connector credential: %w", err)
 	}
+	// Display-only; a connector that cannot name its account simply does not
+	// implement the seam. This must not fail the connect — a missing label is a
+	// blank line in the UI, not a lost connection.
+	var accountLabel *string
+	if labeler, ok := c.(connector.AccountLabeler); ok {
+		if label, err := labeler.AccountLabel(auth); err == nil && label != "" {
+			accountLabel = &label
+		} else if err != nil {
+			slog.WarnContext(ctx, "capture: connector could not name its account", "provider", name, "err", err)
+		}
+	}
 	var id ids.UUID
 	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO capture_connection (workspace_id, provider, user_id, scopes, credential_ref, status)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, 'connected')
+			INSERT INTO capture_connection (workspace_id, provider, user_id, scopes, credential_ref, status, account_label)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, 'connected', $5)
 			ON CONFLICT (workspace_id, user_id, provider)
-			DO UPDATE SET credential_ref = EXCLUDED.credential_ref, auth = NULL, status = 'connected', archived_at = NULL
+			DO UPDATE SET credential_ref = EXCLUDED.credential_ref, auth = NULL, status = 'connected', archived_at = NULL,
+			              account_label = EXCLUDED.account_label
 			RETURNING id`,
-			name, actor.UserID, scopes, string(ref)).Scan(&id); err != nil {
+			name, actor.UserID, scopes, string(ref), accountLabel).Scan(&id); err != nil {
 			return err
 		}
 		// A (re)connect starts the scheduling ladder clean: a row parked by

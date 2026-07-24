@@ -65,10 +65,17 @@ func setupCaptureDB(t *testing.T) (*pgx.Conn, *pgxpool.Pool) {
 	return captureDB.owner, captureDB.pool
 }
 
+// fixtureOwnerEmail is the mailbox fixtureConnector reports through
+// AccountLabeler — a fixed value, since the fixture's opaque auth bytes
+// ("fixture-token") carry no real account identity to parse out.
+const fixtureOwnerEmail = "fixture-owner@example.test"
+
 // fixtureConnector is the minimal connector.Connector the disconnect path
 // needs registered: Disconnect never calls Sync/Normalize/HealthCheck, and
 // Connect only reads Descriptor().Scopes (left empty, so the grant needs no
-// scope from the fixture actor).
+// scope from the fixture actor). It also implements AccountLabeler so
+// TestConnectRecordsTheAccountLabel can assert the label is written at
+// connect time.
 type fixtureConnector struct{}
 
 func (fixtureConnector) Descriptor() connector.Descriptor {
@@ -90,6 +97,12 @@ func (fixtureConnector) Normalize(context.Context, connector.RawRecord) ([]conne
 func (fixtureConnector) HealthCheck(context.Context, connector.Auth) error {
 	return nil
 }
+
+func (fixtureConnector) AccountLabel(connector.Auth) (string, error) {
+	return fixtureOwnerEmail, nil
+}
+
+var _ connector.AccountLabeler = fixtureConnector{}
 
 // newCaptureRegistryFixture bootstraps a fresh workspace + human user, a
 // Registry wired to a real (in-memory) Vault and the fixture connector, and
@@ -217,4 +230,27 @@ func TestDisconnectIsIdempotentAfterTheSecretIsGone(t *testing.T) {
 	if err := reg.Disconnect(ctx, "gmail"); err != nil {
 		t.Errorf("second Disconnect: %v — disconnect must stay idempotent", err)
 	}
+}
+
+// The label must be present the instant the row exists — right after connect is
+// exactly when a user asks "did I authorize the right account?". Deriving it
+// from sync_cursor would leave it null until the first successful sync.
+func TestConnectRecordsTheAccountLabel(t *testing.T) {
+	ctx, reg, _, _ := newCaptureRegistryFixture(t)
+	connectFixtureConnection(ctx, t, reg, "gmail")
+
+	views, err := reg.Connections(ctx)
+	if err != nil {
+		t.Fatalf("Connections: %v", err)
+	}
+	for _, v := range views {
+		if v.Provider != "gmail" {
+			continue
+		}
+		if v.AccountLabel == nil || *v.AccountLabel != fixtureOwnerEmail {
+			t.Errorf("AccountLabel = %v, want %q", v.AccountLabel, fixtureOwnerEmail)
+		}
+		return
+	}
+	t.Fatal("no gmail connection in the read-back")
 }
