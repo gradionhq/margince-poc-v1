@@ -1,10 +1,6 @@
 /** @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  cleanup,
-  render as rtlRender,
-  screen,
-} from "@testing-library/react";
+import { cleanup, render as rtlRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -20,7 +16,9 @@ import { installFetchStub, jsonResponse } from "./story-utils";
 function render(ui: ReactNode) {
   return rtlRender(
     <QueryClientProvider
-      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
     >
       <LocaleProvider initial="en">{ui}</LocaleProvider>
     </QueryClientProvider>,
@@ -132,10 +130,14 @@ describe("CaptureExclusionsCard", () => {
   it("confirms before removing a rule", async () => {
     installFetchStub({
       "GET /capture/exclusions": () =>
-        jsonResponse({ data: [{ id: "e1", kind: "label", value: "Personal" }] }),
+        jsonResponse({
+          data: [{ id: "e1", kind: "label", value: "Personal" }],
+        }),
     });
     render(<CaptureExclusionsCard />);
-    await userEvent.click(await screen.findByRole("button", { name: /remove/i }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /remove/i }),
+    );
     expect(await screen.findByText(/stop being excluded/i)).toBeTruthy();
   });
 });

@@ -46,6 +46,7 @@ import { useLocale, useT } from "../i18n";
 import { AiCallsCard } from "./aicalls";
 import { AiUsageCard } from "./aiusage";
 import { ActorTag } from "./audit";
+import { CaptureExclusionsCard } from "./capture-exclusions";
 import {
   canConfigureAutomations,
   LoadMoreButton,
@@ -59,7 +60,6 @@ import {
   CompanyContextCard,
   useCompanyContextCapabilities,
 } from "./company-context";
-import { CaptureExclusionsCard } from "./capture-exclusions";
 import { ConnectorsCard } from "./connectors";
 import { CreateAction, type CreateField, CreateRecordModal } from "./create";
 import { EditAction } from "./edit";

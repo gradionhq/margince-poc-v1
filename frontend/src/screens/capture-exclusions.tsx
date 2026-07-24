@@ -174,10 +174,7 @@ function AddExclusionModal({
           if (!ready) {
             return;
           }
-          create.mutate(
-            { kind, value: value.trim() },
-            { onSuccess: onClose },
-          );
+          create.mutate({ kind, value: value.trim() }, { onSuccess: onClose });
         }}
       >
         <div className="field">
@@ -188,9 +185,7 @@ function AddExclusionModal({
             id={`${headingId}-kind`}
             className="input"
             value={kind}
-            onChange={(event) =>
-              setKind(event.target.value as ExclusionKind)
-            }
+            onChange={(event) => setKind(event.target.value as ExclusionKind)}
           >
             {KIND_OPTIONS.map((option) => (
               <option key={option} value={option}>
