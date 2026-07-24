@@ -357,7 +357,11 @@ func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.Norm
 		RETURNING id`,
 		fields.Kind, fields.Subject, fields.Body, occurredAt, fields.Direction,
 		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, captureSource(rec), rec.CapturedBy, rec.ThreadKey,
-		rec.Counterparty.Email).Scan(&id)
+		// Stored lowercased to match every reader (correspondencePositive, the
+		// reply-contact lookup, person_email) — a connector need not normalize
+		// the header case, and a mixed-case store would silently miss the
+		// index-backed correspondence EXISTS (a false suppression).
+		strings.ToLower(strings.TrimSpace(rec.Counterparty.Email))).Scan(&id)
 	if err == nil {
 		// Field-level provenance (B-E02.12) for the content fields this
 		// capture set — same source/author the row itself carries.

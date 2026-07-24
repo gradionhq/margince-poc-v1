@@ -882,19 +882,22 @@ Open work, roughly in priority order:
   and `ApplySitePersonFields` (auto-filling an exact/unique-match existing
   person instead of always staging a lead).
   **Phase 2a (build, landed):** the counterparty-identity column
-  (`activity.counterparty_email`, migration 0123, index-backed) stamped at
-  capture, and the **T1 correspondence-positive gate** that runs BEFORE the T2
-  transactional suppression — a contact the owner has ever written to (an
-  index-backed EXISTS over outbound activities) is never suppressed as
-  infrastructure, even with a List-Unsubscribe footer. (Re-sliced from the plan:
-  the `capture_pending_counterparty` ledger + deferred creation move to 2b so the
-  deferral lands together with its verdict resolver — landing the deferral alone
-  would leave ambiguous senders in limbo. Capture-audit minimization also moves
-  to 2b, alongside the noise-redaction work it shares a theme with.)
-  **Still open (contract-first-gated on ADR-0072):** 2b (the pending ledger +
-  deferred creation + the `capture_counterparty_verdict` job + review queue +
-  noise hide-then-redact + capture-audit minimization), 3 (corroborated
-  signature org-name promotion).
+  (`activity.counterparty_email`, migration 0123, partial index) stamped
+  (lowercased) at capture — captured from now so the phase-2b correspondence
+  gate has real outbound history the day it ships. (Re-scoped from the plan for
+  two reasons: (1) the `capture_pending_counterparty` ledger + deferred creation
+  move to 2b so the deferral lands together with its verdict resolver — landing
+  the deferral alone would leave ambiguous senders in limbo; (2) the **T1
+  correspondence-positive suppression spare also moves to 2b**: a security review
+  flagged that deriving the "outbound" signal from the forgeable `From` header
+  lets a spoofed `From:owner` mail whitelist an arbitrary address past T2, so 2b
+  will take the outbound signal from an authenticated provider label — Gmail
+  `SENT` / IMAP `\Sent` — before honoring it as a bypass. Capture-audit
+  minimization also moves to 2b.)
+  **Still open (contract-first-gated on ADR-0072):** 2b (the T1 gate with an
+  authenticated outbound signal + the pending ledger + deferred creation + the
+  `capture_counterparty_verdict` job + review queue + noise hide-then-redact +
+  capture-audit minimization), 3 (corroborated signature org-name promotion).
 
 - **Site-read legal census — three known gaps (#162).** `FinishSiteRead`'s CAS
   guards only on `status = 'running'`, so a reclaimed-then-returning worker can
