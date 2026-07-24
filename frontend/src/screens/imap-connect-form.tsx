@@ -31,8 +31,10 @@ const DEFAULT_MAX_MESSAGES = "50";
 // The two IMAP-specific server conditions get their own honest sentence;
 // anything else falls through to the mutation's generic message. Neither
 // sentence ever echoes the submitted host — the server doesn't send it back
-// either, so there is nothing here to leak.
-function imapErrorMessage(
+// either, so there is nothing here to leak. Exported so the onboarding IMAP
+// panel (onboarding-connect-panels.tsx) reads the same two sentences off the
+// same server codes, rather than growing its own copy of this mapping.
+export function imapErrorMessage(
   error: unknown,
   t: (
     key: "connectors.imapLoginRejected" | "connectors.imapUnreachable",

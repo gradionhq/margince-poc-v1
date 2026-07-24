@@ -1272,8 +1272,8 @@ export const de = {
   "ob.s4.imapMailbox": "Postfach",
   "ob.s4.imapMax": "Wie viele aktuelle E-Mails",
   "ob.s4.imapHint":
-    "Nutz ein App-spezifisches Passwort (Gmail: Konto → Sicherheit → App-Passwörter). Wir holen deine aktuelle Post einmalig, erfassen sie als Aktivitäten und speichern dein Passwort nie.",
-  "ob.s4.imapConnect": "Verbinden & erfassen",
+    "Nutz ein App-spezifisches Passwort (Gmail: Konto → Sicherheit → App-Passwörter). Wir versiegeln es im Credential-Vault und lesen weiter neue Post, bis du die Verbindung trennst — beim Trennen wird es gelöscht.",
+  "ob.s4.imapConnect": "Postfach verbinden",
   "ob.s4.connecting": "Sichere Verbindung…",
   "ob.s4.scope1Lead": "Wir lesen — wir müllen nichts voll.",
   "ob.s4.scope1Rest":
@@ -1285,10 +1285,9 @@ export const de = {
     "Own-your-data — jederzeit alles exportieren oder löschen.",
   "ob.s4.scope4Lead": "Trennung mit einem Klick.",
   "ob.s4.scope4Rest": "Das CRM läuft weiter; es hört nur auf zu erfassen.",
-  "ob.s4.capturedTitle": "Dein Postfach ist live in deinem CRM",
-  "ob.s4.statCaptured": "erfasst",
-  "ob.s4.statContacts": "Kontakte",
-  "ob.s4.statSkipped": "übersprungen",
+  "ob.s4.capturedTitle": "Postfach verbunden",
+  "ob.s4.capturedBody":
+    "Lehn dich zurück — dein CRM baut sich von selbst auf. Neue Post trifft hier ein, sobald der erste Durchlauf läuft, meist innerhalb weniger Minuten.",
   "ob.s4.enterCrm": "Ins CRM",
   "ob.s4.connectFailed": "Dieses Postfach ließ sich nicht verbinden",
   "ob.s4.skipLater": "Erstmal überspringen — später verbinden",

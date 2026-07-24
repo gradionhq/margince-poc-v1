@@ -12,20 +12,13 @@ import { api } from "../api/client";
 import { Button } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { BackfillPanel } from "./backfill";
-import { problemMessage } from "./common";
+import { problemMessage, throwProblem } from "./common";
+import { imapErrorMessage } from "./imap-connect-form";
 
 // The provider connect panels: real inbox capture, one panel per provider.
 // The conversational connect act renders them in the artifact panel behind
 // the per-purpose consent turn; connecting stays value-before-permission
 // and the panels never claim a connection the server did not confirm.
-
-type ConnectResult = {
-  connected: boolean;
-  mailbox: string;
-  captured: number;
-  skipped: number;
-  contacts: number;
-};
 
 // The honest-failure banner the connect panels share.
 function ConnectWarn({ title, body }: { title: string; body: string }) {
@@ -181,7 +174,15 @@ export function GoogleConnectPanel({
   );
 }
 
-// IMAP: the one-shot pull, exactly as before — the form is the consent.
+// IMAP: a standing connection, mirroring the Settings inline form's typed
+// POST (imap-connect-form.tsx) — the same nested `{imap:{...}}` shape and the
+// same two IMAP-specific error sentences, so onboarding and Settings can
+// never drift onto two different ideas of what "connect" means for this
+// provider. The connect call returns BEFORE any mail is read: there is no
+// capture count to show here, honestly — only a live row (last_synced_at)
+// that fills in a few minutes later, once the sweep runs.
+const IMAP_DEFAULT_PORT = 993;
+
 export function ImapConnectPanel({
   onComplete,
 }: Readonly<{ onComplete: (skipped: boolean) => Promise<void> }>) {
@@ -194,37 +195,28 @@ export function ImapConnectPanel({
 
   const connect = useMutation({
     mutationFn: async () => {
-      const res = await fetch(
-        `${globalThis.location.origin}/v1/connectors/imap/connect`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
+      const { data, error } = await api.POST("/connectors/{provider}/connect", {
+        params: { path: { provider: "imap" } },
+        body: {
+          imap: {
             host: host.trim(),
-            email: email.trim(),
-            password,
+            port: IMAP_DEFAULT_PORT,
+            username: email.trim(),
+            secret: password,
             mailbox: mailbox.trim() || "INBOX",
             max_messages: Number(max) || 30,
-          }),
+          },
         },
-      );
-      if (!res.ok) {
-        let detail = "";
-        try {
-          const body = (await res.json()) as {
-            detail?: string;
-            title?: string;
-          };
-          detail = body.detail ?? body.title ?? "";
-        } catch {
-          detail = "";
-        }
-        throw new Error(detail || t("ob.s4.connectFailed"));
+      });
+      if (error) {
+        throwProblem(error);
       }
-      return (await res.json()) as ConnectResult;
+      return data;
+    },
+    onError: () => {
+      // The secret is never retained after a failed submit, matching the
+      // Settings form's practice.
+      setPassword("");
     },
   });
 
@@ -237,26 +229,15 @@ export function ImapConnectPanel({
     parsedMax >= 1 &&
     parsedMax <= 200;
 
-  if (connect.data?.connected) {
+  if (connect.data?.connection) {
     return (
       <div className="connect-result">
         <div className="cr-h">
           <CheckCircle2 aria-hidden /> {t("ob.s4.capturedTitle")}
         </div>
-        <div className="cr-stats">
-          <div className="cr-stat">
-            <b>{connect.data.captured}</b>
-            <span>{t("ob.s4.statCaptured")}</span>
-          </div>
-          <div className="cr-stat">
-            <b>{connect.data.contacts}</b>
-            <span>{t("ob.s4.statContacts")}</span>
-          </div>
-          <div className="cr-stat">
-            <b>{connect.data.skipped}</b>
-            <span>{t("ob.s4.statSkipped")}</span>
-          </div>
-        </div>
+        <p className="ob-sub" style={{ margin: "8px auto 0", maxWidth: 460 }}>
+          {t("ob.s4.capturedBody")}
+        </p>
         <Button
           variant="primary"
           style={{ marginTop: "var(--space-4)" }}
@@ -331,13 +312,7 @@ export function ImapConnectPanel({
       {connect.isError && (
         <ConnectWarn
           title={t("ob.s4.connectFailed")}
-          body={connect.error.message}
-        />
-      )}
-      {connect.data && !connect.data.connected && (
-        <ConnectWarn
-          title={t("ob.s4.connectFailed")}
-          body={t("ob.s4.googleRetry")}
+          body={imapErrorMessage(connect.error, t) ?? t("ob.s4.connectFailed")}
         />
       )}
 

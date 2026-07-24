@@ -1254,8 +1254,8 @@ export const en = {
   "ob.s4.imapMailbox": "Mailbox",
   "ob.s4.imapMax": "How many recent emails",
   "ob.s4.imapHint":
-    "Use an app-specific password (Gmail: Account → Security → App passwords). We pull your recent mail once, capture it as activities, and never store your password.",
-  "ob.s4.imapConnect": "Connect & capture",
+    "Use an app-specific password (Gmail: Account → Security → App passwords). We seal it in the credential vault and keep reading new mail until you disconnect — disconnecting deletes it.",
+  "ob.s4.imapConnect": "Connect mailbox",
   "ob.s4.connecting": "Connecting securely…",
   "ob.s4.scope1Lead": "We read — we don't clutter.",
   "ob.s4.scope1Rest":
@@ -1266,10 +1266,9 @@ export const en = {
   "ob.s4.scope3Rest": "Own-your-data — export or delete everything anytime.",
   "ob.s4.scope4Lead": "Disconnect in one click.",
   "ob.s4.scope4Rest": "The CRM keeps working; it just stops capturing.",
-  "ob.s4.capturedTitle": "Your inbox is live in your CRM",
-  "ob.s4.statCaptured": "captured",
-  "ob.s4.statContacts": "contacts",
-  "ob.s4.statSkipped": "skipped",
+  "ob.s4.capturedTitle": "Mailbox connected",
+  "ob.s4.capturedBody":
+    "Sit back — your CRM is building itself. New mail keeps arriving here as the first sweep runs, usually within a couple of minutes.",
   "ob.s4.enterCrm": "Enter your CRM",
   "ob.s4.connectFailed": "Couldn't connect that mailbox",
   "ob.s4.skipLater": "Skip for now — I'll connect later",
