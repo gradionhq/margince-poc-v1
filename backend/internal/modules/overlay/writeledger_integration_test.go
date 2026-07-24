@@ -16,6 +16,7 @@ package overlay
 // expired) rather than by faking wall-clock time.
 
 import (
+	"context"
 	"testing"
 )
 
@@ -125,6 +126,17 @@ func TestWriteLedgerPruneExpired(t *testing.T) {
 	}
 	if c, err := l.Classify(ctx, "contacts", "42", "firstname", "Ada"); err != nil || c != ClassGenuine {
 		t.Errorf("after prune: got (%v, %v), want ClassGenuine (entry reclaimed)", c, err)
+	}
+}
+
+// TestWriteLedgerPruneExpiredRequiresWorkspace: the prune runs under
+// WithWorkspaceTx, so a context with no workspace bound fails closed with a
+// surfaced error rather than a cross-tenant or unscoped delete.
+func TestWriteLedgerPruneExpiredRequiresWorkspace(t *testing.T) {
+	_, pool, _ := testWorkspaceCtx(t)
+	l := NewWriteLedger(pool)
+	if _, err := l.PruneExpired(context.Background()); err == nil {
+		t.Error("PruneExpired without a workspace-bound context must error, not run unscoped")
 	}
 }
 

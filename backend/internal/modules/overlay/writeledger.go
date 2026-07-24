@@ -171,14 +171,14 @@ func (l *WriteLedger) Classify(ctx context.Context, objectClass, externalID, pro
 func (l *WriteLedger) PruneExpired(ctx context.Context) (int64, error) {
 	var removed int64
 	err := database.WithWorkspaceTx(ctx, l.pool, func(tx pgx.Tx) error {
+		// pgx returns a usable (zero) CommandTag alongside an error, so reading
+		// RowsAffected before returning execErr is safe — on failure removed
+		// stays 0 and the outer guard discards it.
 		tag, execErr := tx.Exec(ctx, `
 			DELETE FROM overlay_write_ledger
 			WHERE opened_at <= now() - make_interval(secs => $1)`, l.window.Seconds())
-		if execErr != nil {
-			return execErr
-		}
 		removed = tag.RowsAffected()
-		return nil
+		return execErr
 	})
 	if err != nil {
 		return 0, fmt.Errorf("overlay: pruning expired write-ledger entries: %w", err)
