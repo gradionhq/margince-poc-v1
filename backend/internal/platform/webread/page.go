@@ -27,26 +27,19 @@ type Page struct {
 	Bytes int
 }
 
-// FetchPage retrieves one page like Fetch, but also harvests the <a href>
-// targets. The harvest runs on the RAW HTML before StripTags — stripping
-// destroys hrefs, and StripTags' output is an evidence-matching contract that
-// must stay byte-identical to what single-page callers see. Links come back
-// absolute (resolved against the page URL), http(s)-only, fragment-free, and
-// deduplicated in document order.
+// FetchPage retrieves one page for the crawler: stripped text plus the <a href>
+// targets it carried. It requests HTML (never markdown) so link harvesting works
+// — the single-page Fetch may return verbatim markdown when a server offers it,
+// but the crawler's stripped text is unchanged. The harvest runs on the RAW HTML
+// before StripTags (stripping destroys hrefs). Links come back absolute (resolved
+// against the page URL), http(s)-only, fragment-free, and deduplicated in
+// document order.
 func (f *Fetcher) FetchPage(ctx context.Context, rawURL string) (Page, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil || parsed.Host == "" {
 		return Page{}, fmt.Errorf("webread: %q is not a fetchable URL", rawURL)
 	}
-	allowed, err := f.pathAllowed(ctx, parsed)
-	if err != nil {
-		return Page{}, err
-	}
-	if !allowed {
-		return Page{}, fmt.Errorf("%w: %s", ErrRobotsDisallowed, parsed.Path)
-	}
-
-	body, err := f.get(ctx, rawURL)
+	body, _, err := f.fetchDoc(ctx, rawURL, "") // no Accept header → HTML, as today
 	if err != nil {
 		return Page{}, err
 	}
@@ -130,7 +123,7 @@ func (f *Fetcher) FetchSitemap(ctx context.Context, origin string) ([]string, er
 		return nil, fmt.Errorf("%w: %s", ErrRobotsDisallowed, parsed.Path)
 	}
 
-	body, status, err := f.getRaw(ctx, sitemapURL)
+	body, status, _, err := f.getRaw(ctx, sitemapURL, "")
 	if err != nil {
 		return nil, err
 	}

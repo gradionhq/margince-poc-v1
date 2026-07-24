@@ -44,7 +44,7 @@ const (
 // so tests feed fixtures and the sovereign profile can refuse egress
 // wholesale.
 type PageFetcher interface {
-	Fetch(ctx context.Context, rawURL string) (string, error)
+	Fetch(ctx context.Context, rawURL string) (webread.Doc, error)
 }
 
 // evidencedField is the neutral result the gate emits; each caller narrows it
@@ -238,10 +238,11 @@ var legalPageFields = map[string]bool{
 // too little OR no field survives the gate on any page — honest degradation,
 // zero fabricated fields (ADR-0006 §2/§4).
 func (x evidenceExtractor) extract(ctx context.Context, rawURL string, accept func(string) bool) ([]evidencedField, error) {
-	seedText, err := x.fetch.Fetch(ctx, rawURL)
+	seedDoc, err := x.fetch.Fetch(ctx, rawURL)
 	if err != nil {
 		return nil, &unreadableError{cause: fmt.Errorf("fetch %s: %w", rawURL, err)}
 	}
+	seedText := seedDoc.Text
 	// The rune floor measures FETCH quality: a page that reduced to
 	// nav-crumbs is not worth a model call. Text a human supplied
 	// deliberately (paste / self-description) skips it — the evidence gate
@@ -303,7 +304,7 @@ func (x evidenceExtractor) probeLegalPage(ctx context.Context, seedURL, seedText
 			return "", ""
 		}
 		probeCtx, cancel := context.WithTimeout(ctx, perProbeTimeout)
-		text, err := x.fetch.Fetch(probeCtx, origin+path)
+		doc, err := x.fetch.Fetch(probeCtx, origin+path)
 		cancel()
 		if err != nil {
 			if !errors.Is(err, webread.ErrRobotsDisallowed) && !errors.Is(probeCtx.Err(), context.DeadlineExceeded) {
@@ -311,10 +312,10 @@ func (x evidenceExtractor) probeLegalPage(ctx context.Context, seedURL, seedText
 			}
 			continue
 		}
-		if len([]rune(text)) < minReadableRunes || text == seedText {
+		if len([]rune(doc.Text)) < minReadableRunes || doc.Text == seedText {
 			continue
 		}
-		return origin + path, text
+		return origin + path, doc.Text
 	}
 	return "", ""
 }

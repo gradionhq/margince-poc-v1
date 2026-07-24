@@ -46,7 +46,7 @@ const minRateExtractConfidence = 0.5
 // pageFetcher is the webread seam (production passes webread.New(); tests stub
 // it, since webread's SSRF guard rightly refuses loopback test servers).
 type pageFetcher interface {
-	Fetch(ctx context.Context, rawURL string) (string, error)
+	Fetch(ctx context.Context, rawURL string) (webread.Doc, error)
 }
 
 // pricingSource binds a provider name to its pricing page URL.
@@ -186,15 +186,18 @@ func (m modelCostRefresh) run(ctx context.Context) error {
 
 // extract fetches one pricing page and returns the evidence-gated models.
 func (m modelCostRefresh) extract(ctx context.Context, src pricingSource) ([]extractedModel, error) {
-	text, err := m.fetcher.Fetch(ctx, src.URL)
+	doc, err := m.fetcher.Fetch(ctx, src.URL)
 	if err != nil {
 		return nil, fmt.Errorf("fetch: %w", err)
+	}
+	if doc.IsMarkdown() {
+		m.log.Debug("model pricing page served markdown", "provider", src.Provider, "url", src.URL)
 	}
 	req := model.Request{
 		System: rateExtractSystem,
 		Messages: []model.Message{{
 			Role:    chatRoleUser,
-			Content: "<untrusted>\n" + numberPassages(text) + "\n</untrusted>",
+			Content: "<untrusted>\n" + numberPassages(doc.Text) + "\n</untrusted>",
 		}},
 		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		ResponseSchema: rateExtractSchema,

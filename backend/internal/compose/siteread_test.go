@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/platform/webread"
+
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
@@ -23,11 +25,11 @@ import (
 // fixturePage. Unknown paths 404 like a real site.
 type hostPages map[string]string
 
-func (p hostPages) Fetch(_ context.Context, rawURL string) (string, error) {
+func (p hostPages) Fetch(_ context.Context, rawURL string) (webread.Doc, error) {
 	if text, ok := p[rawURL]; ok {
-		return text, nil
+		return webread.Doc{Text: text}, nil
 	}
-	return "", errNotFound
+	return webread.Doc{}, errNotFound
 }
 
 var errNotFound = errors.New("fixture: no such page")
