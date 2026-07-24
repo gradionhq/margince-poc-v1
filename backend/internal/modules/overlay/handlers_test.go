@@ -17,9 +17,9 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// budgetF32 dereferences a generated *float32 wire field, returning -1 for a
-// nil pointer so a missing field fails a numeric assertion loudly.
-func budgetF32(p *float32) float32 {
+// budgetI64 dereferences a generated *int64 wire field, returning -1 for a nil
+// pointer so a missing field fails a numeric assertion loudly.
+func budgetI64(p *int64) int64 {
 	if p == nil {
 		return -1
 	}
@@ -48,14 +48,15 @@ func TestBudgetToWireExposesBreakdownHeadroomAndSearch(t *testing.T) {
 	if w.Sources == nil {
 		t.Fatal("the budget read must carry the per-source breakdown (OVB-AC-1)")
 	}
-	ff, poller, capture := budgetF32(w.Sources.ForceFresh), budgetF32(w.Sources.Poller), budgetF32(w.Sources.Capture)
+	ff, poller, capture := budgetI64(w.Sources.ForceFresh), budgetI64(w.Sources.Poller), budgetI64(w.Sources.Capture)
 	if ff != 4 || poller != 3 || capture != 0 {
 		t.Errorf("breakdown = force_fresh:%v poller:%v capture:%v, want 4/3/0", ff, poller, capture)
 	}
-	if sum := ff + poller + capture; sum != budgetF32(w.Consumed) {
-		t.Errorf("breakdown sum = %v, want consumed %v (OVB-AC-5)", sum, budgetF32(w.Consumed))
+	if sum := ff + poller + capture; sum != budgetI64(w.Consumed) {
+		t.Errorf("breakdown sum = %v, want consumed %v (OVB-AC-5)", sum, budgetI64(w.Consumed))
 	}
-	if w.Search == nil || budgetF32(w.Search.Consumed) != 2 || budgetF32(w.Search.Limit) != 4 ||
+	if w.Search == nil || w.Search.Window == nil || *w.Search.Window != "1s" ||
+		budgetI64(w.Search.Consumed) != 2 || budgetI64(w.Search.Limit) != 4 ||
 		w.Search.Band == nil || *w.Search.Band != crmcontracts.OverlayBudgetSearchBandOk {
 		t.Errorf("search window not carried through: %+v", w.Search)
 	}

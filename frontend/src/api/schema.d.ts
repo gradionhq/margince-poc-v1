@@ -5139,14 +5139,19 @@ export interface components {
         /** @description The incumbent REST budget window's consumption and degradation band, its per-source breakdown, honest headroom, and the per-second Search window (overlay-budget.md "The budget read (wire shape)", OVB-AC-1/AC-5). */
         OverlayBudget: {
             window?: string;
+            /** Format: int64 */
             consumed?: number;
+            /** Format: int64 */
             limit?: number;
             /** @enum {string} */
             band?: "ok" | "warn" | "shed";
-            /** @description Per-source REST breakdown; the values sum exactly to `consumed` (OVB-AC-5). Absent sources have spent nothing this window. */
+            /** @description Per-source REST breakdown; the values sum exactly to `consumed` (OVB-AC-5). Absent sources have spent nothing this window. Integer counts, so the per-source sum equals `consumed` exactly (a float would round independently and could break the sum above 2^24). */
             sources?: {
+                /** Format: int64 */
                 force_fresh?: number;
+                /** Format: int64 */
                 poller?: number;
+                /** Format: int64 */
                 capture?: number;
             };
             /** @description Free REST capacity derived from our own counts, or the `~unknown` sentinel (OVB-PARAM-5) when a share cannot be attributed — never a fabricated number (OVB-AC-1). */
@@ -5156,7 +5161,9 @@ export interface components {
         /** @description The per-second Search-API window — metered, not gated, in branch 1, so the admin surface sees search pressure alongside REST. */
         OverlayBudgetSearch: {
             window?: string;
+            /** Format: int64 */
             consumed?: number;
+            /** Format: int64 */
             limit?: number;
             /** @enum {string} */
             band?: "ok" | "warn" | "shed";

@@ -266,23 +266,23 @@ func (h Handlers) GetOverlayBudget(w http.ResponseWriter, r *http.Request) {
 // window total/cap/band, the per-source breakdown (summing to consumed), the
 // honest headroom (the meter's `~unknown` sentinel is carried through verbatim
 // as a string — never a fabricated number, OVB-AC-1), and the per-second Search
-// window. Consumed/Limit ride as float32 per the generated schema (an OpenAPI
-// integer-as-number artifact), never fractional in practice. A source that
-// spent nothing this window is a map miss (0).
+// window. Counts ride as int64 (exact — a float would round independently and
+// could break the per-source sum above 2^24). A source that spent nothing this
+// window is a map miss (0).
 func budgetToWire(b overlaybudget.Budget) crmcontracts.OverlayBudget {
 	window := b.Window
-	consumed := float32(b.Consumed)
-	limit := float32(b.Limit)
+	consumed := int64(b.Consumed)
+	limit := int64(b.Limit)
 	band := crmcontracts.OverlayBudgetBand(b.Band)
 	headroom := b.Headroom
 
-	forceFresh := float32(b.Breakdown[overlaybudget.SourceForceFresh])
-	poller := float32(b.Breakdown[overlaybudget.SourcePoller])
-	capture := float32(b.Breakdown[overlaybudget.SourceCapture])
+	forceFresh := int64(b.Breakdown[overlaybudget.SourceForceFresh])
+	poller := int64(b.Breakdown[overlaybudget.SourcePoller])
+	capture := int64(b.Breakdown[overlaybudget.SourceCapture])
 
 	searchWindow := b.SearchWindow
-	searchConsumed := float32(b.SearchConsumed)
-	searchLimit := float32(b.SearchLimit)
+	searchConsumed := int64(b.SearchConsumed)
+	searchLimit := int64(b.SearchLimit)
 	searchBand := crmcontracts.OverlayBudgetSearchBand(b.SearchBand)
 
 	return crmcontracts.OverlayBudget{
@@ -292,9 +292,9 @@ func budgetToWire(b overlaybudget.Budget) crmcontracts.OverlayBudget {
 		Band:     &band,
 		Headroom: &headroom,
 		Sources: &struct {
-			Capture    *float32 `json:"capture,omitempty"`
-			ForceFresh *float32 `json:"force_fresh,omitempty"`
-			Poller     *float32 `json:"poller,omitempty"`
+			Capture    *int64 `json:"capture,omitempty"`
+			ForceFresh *int64 `json:"force_fresh,omitempty"`
+			Poller     *int64 `json:"poller,omitempty"`
 		}{Capture: &capture, ForceFresh: &forceFresh, Poller: &poller},
 		Search: &crmcontracts.OverlayBudgetSearch{
 			Window:   &searchWindow,
