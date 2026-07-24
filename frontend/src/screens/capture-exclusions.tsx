@@ -185,7 +185,10 @@ function AddExclusionModal({
             id={`${headingId}-kind`}
             className="input"
             value={kind}
-            onChange={(event) => setKind(event.target.value as ExclusionKind)}
+            onChange={(event) => {
+              const next = KIND_OPTIONS.find((o) => o === event.target.value);
+              if (next) setKind(next);
+            }}
           >
             {KIND_OPTIONS.map((option) => (
               <option key={option} value={option}>

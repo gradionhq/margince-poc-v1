@@ -101,7 +101,9 @@ func flip(s string) string {
 
 func TestConnectStateCarriesReturnToThroughSignAndVerify(t *testing.T) {
 	s := newStateSigner([]byte("0123456789abcdef0123456789abcdef"))
-	now := time.Now()
+	// Fixed instant — the signer's expiry check is deterministic, so no
+	// production clock seam is needed and time.Now() would only add flake.
+	now := time.Unix(1_700_000_000, 0)
 	token := s.sign(connectState{Provider: "gmail", Nonce: "n", ReturnTo: "settings"}, now.Add(time.Minute))
 	got, err := s.verify(token, now)
 	if err != nil {

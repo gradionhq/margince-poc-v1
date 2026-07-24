@@ -99,10 +99,8 @@ describe("CaptureExclusionsCard", () => {
       "family.example",
     );
 
-    const submit = (await screen.findByRole("button", {
-      name: /^add$/i,
-    })) as HTMLButtonElement;
-    expect(submit.disabled).toBe(true);
+    const submit = await screen.findByRole("button", { name: /^add$/i });
+    expect(submit.hasAttribute("disabled")).toBe(true);
     expect(await screen.findByText(/already/i)).toBeTruthy();
   });
 
@@ -121,10 +119,8 @@ describe("CaptureExclusionsCard", () => {
       "other.example",
     );
 
-    const submit = (await screen.findByRole("button", {
-      name: /^add$/i,
-    })) as HTMLButtonElement;
-    expect(submit.disabled).toBe(false);
+    const submit = await screen.findByRole("button", { name: /^add$/i });
+    expect(submit.hasAttribute("disabled")).toBe(false);
   });
 
   it("confirms before removing a rule", async () => {
