@@ -23,9 +23,11 @@ ALTER TABLE overlay_write_ledger
 
 -- overlay_mirror_halt is the fail-safe the collision guard sets (OVA-AC-3 /
 -- UC-E18-02 F2): a detected value-hash collision flags the workspace's mirror as
--- halted, and the webhook receiver refuses to process further signals for it
--- until an operator clears the row — never silently mis-suppressing a real
--- external change. One row per workspace (the halt is workspace-wide).
+-- halted, and both the webhook receiver and the re-fetch worker then refuse to
+-- process further signals for it — never silently mis-suppressing a real
+-- external change. The flag is cleared today only by disconnect/teardown (which
+-- purges the whole overlay); an operator-facing unhalt is a tracked follow-up.
+-- One row per workspace (the halt is workspace-wide).
 CREATE TABLE overlay_mirror_halt (
   workspace_id uuid PRIMARY KEY REFERENCES workspace(id) ON DELETE RESTRICT,
   reason text NOT NULL,
