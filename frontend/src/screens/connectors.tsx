@@ -397,12 +397,14 @@ export function ConnectorsCard() {
           ))}
         </ul>
       )}
-      {!notConfigured && rows.length > 0 && addable.length > 0 && (
-        <div className="connector-add">
-          <SectionHeader title={t("connectors.addConnection")} />
-          {addPanel}
-        </div>
-      )}
+      {!notConfigured &&
+        rows.length > 0 &&
+        (addable.length > 0 || notConfigured501) && (
+          <div className="connector-add">
+            <SectionHeader title={t("connectors.addConnection")} />
+            {addPanel}
+          </div>
+        )}
       {connect.isError && (
         <p className="t-small" style={{ color: "var(--danger)" }}>
           {connect.error.message}

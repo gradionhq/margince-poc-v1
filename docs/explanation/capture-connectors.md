@@ -221,8 +221,10 @@ flag/env table is [reference/configuration.md → Capture connector OAuth](../re
 
 ## The connect UI
 
-Two entry points, both hitting the same API, and both now able to *start* every backend-live connector —
-the connect-initiate gap the roster used to have (a connection with no way to add it) is closed:
+Two entry points, both hitting the same API, and between them able to *start* every backend-live
+connector — the connect-initiate gap the roster used to have (a connection with no way to add it) is
+closed: onboarding starts Gmail, Microsoft, and IMAP; Settings adds those three plus Google Calendar,
+which has no onboarding chip and so is Settings-only.
 
 - **Onboarding → connect step** (`onboarding-connect-panels.tsx`) — where a fresh install *adds* a
   connection. `OAuthConnectPanel` is parametrized by provider (`gmail` or `graph`): a full-page OAuth
@@ -247,7 +249,7 @@ Per [STATUS.md](../../STATUS.md) — the pipeline is live; these were scoped out
 - **No onboarding chip for Calendar.** `gcal` is a fully wired OAuth connector (same
   `connect`/`callback`/`disconnect` + sync as Gmail/Graph); Settings' **Add a connection** footer starts
   one, but the onboarding connect step's three chips (Google, Microsoft, IMAP) don't include it — adding
-  Calendar during first-run onboarding still means a trip to Settings afterwards.
+  Calendar during first-run onboarding still means a trip to Settings afterward.
 - **Graph is poll-only.** The change-notification subscription (validationToken handshake, `clientState`,
   ≤3-day renewal) is unbuilt, so Outlook latency is the poll interval. (The Gmail push-watch renewal runs,
   but the poll remains the active sync path even for Gmail today.)

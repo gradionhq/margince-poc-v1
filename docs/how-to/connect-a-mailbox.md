@@ -303,8 +303,11 @@ curl -X POST http://localhost:8080/v1/connectors/gcal/connect \
 
 ## Current UI gaps
 
-The connect/roster/backfill UI is now live for all four connectors: Gmail, Google Calendar, Graph, and
-IMAP each have a first-connect affordance from **Settings → Integrations**, and Gmail, Microsoft, and
-IMAP have one from **onboarding** too (Google Calendar is Settings-only — there's no onboarding chip for
-it). See [explanation/capture-connectors.md → Honest limitations](../explanation/capture-connectors.md#honest-limitations)
+The connect UI is now live for all four connectors: Gmail, Google Calendar, Graph, and IMAP each have a
+first-connect affordance from **Settings → Integrations**, and Gmail, Microsoft, and IMAP have one from
+**onboarding** too (Google Calendar is Settings-only — there's no onboarding chip for it). The roster and
+backfill panel, though, only apply to Gmail and Graph: IMAP is a one-shot pull with no standing
+connection to roster and no backfill to run, and Google Calendar has no backfill (it syncs forward from
+connect time only — see the [Calendar section](#d2-connect-from-the-ui) above). See
+[explanation/capture-connectors.md → Honest limitations](../explanation/capture-connectors.md#honest-limitations)
 for what's still scoped out of the pipeline overall.

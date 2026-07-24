@@ -1,4 +1,5 @@
 /** @vitest-environment jsdom */
+import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
@@ -359,10 +360,8 @@ describe("restore into the conversational shell", () => {
     expect(screen.getByRole("button", { name: /Google/ })).toBeTruthy();
     // Microsoft is a live OAuth path now — the chip opens the same connect
     // panel Google does, no "Soon" placeholder, and is never disabled.
-    const microsoft = screen.getByRole("button", {
-      name: "Microsoft",
-    }) as HTMLButtonElement;
-    expect(microsoft.disabled).toBe(false);
+    const microsoft = screen.getByRole("button", { name: "Microsoft" });
+    expect(microsoft).not.toBeDisabled();
     expect(screen.queryByText(/Want me to learn how you write\?/)).toBeNull();
     // A member restore never probes the voice surface.
     expect(requestsTo(calls, "/voice-profiles", "GET").length).toBe(0);
