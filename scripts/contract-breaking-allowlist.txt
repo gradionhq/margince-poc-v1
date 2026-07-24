@@ -1,3 +1,4 @@
 # old-contract-git-blob new-contract-git-blob reason
 17ff04c6106719e22ddf0ae5997b7e46584a7242 5ae682d3d4fa64045888d4aa7da7cdf6272417bd ratified-adr-0066-progressive-voice-lifecycle
 1edeaf7a9dda5e28b020b6b733fcf516796eb646 669ee1b68234bfa7062f5f4033a246d814a7ae3f ratified-ova-map-6-overlay-deal-nullable-pipeline-stage-id
+b4223250be1cc92e020424afd015b41480e9b257 16b57ac1fe37b5896ff2f627cfc5274dfe5b674a ratified-imap-lifecycle-unification

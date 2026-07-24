@@ -27,9 +27,11 @@ import (
 	"github.com/emersion/go-imap/v2/imapclient"
 	"github.com/emersion/go-imap/v2/imapserver"
 	"github.com/emersion/go-imap/v2/imapserver/imapmemserver"
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/imap"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
@@ -109,6 +111,10 @@ func TestStandingIMAPConnectTransport(t *testing.T) {
 		imapAuthenticate: plainProbe,
 	}
 
+	// Route through the real mux: calling the handler directly is what let the
+	// shadowed-route defect survive review, so this asserts reachability too.
+	srv := Server{connectorHandlers: h}
+	mux := crmcontracts.HandlerFromMuxWithBaseURL(srv, chi.NewRouter(), "/v1")
 	post := func(t *testing.T, ctx context.Context, body map[string]any) *httptest.ResponseRecorder {
 		t.Helper()
 		payload, err := json.Marshal(body)
@@ -118,7 +124,7 @@ func TestStandingIMAPConnectTransport(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/v1/connectors/imap/connect", bytes.NewReader(payload))
 		req = req.WithContext(ctx)
 		rec := httptest.NewRecorder()
-		h.ConnectConnector(rec, req, "imap")
+		mux.ServeHTTP(rec, req)
 		return rec
 	}
 

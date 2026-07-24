@@ -69,7 +69,6 @@ type Server struct {
 	onboardingStateHandlers
 	siteReadHandlers
 	scrapeHandlers
-	imapConnectHandlers
 	connectorHandlers
 	backfillHandlers
 	captureExclusionHandlers
@@ -247,11 +246,6 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// The Morning Brief always serves on the deterministic §10.1 floor;
 		// the L2 re-order is opt-in via WithBrief (the api role's model path).
 		Handlers: briefs.NewHandlers(briefs.NewBriefEngine(pool, people.NewStore(pool))),
-		// The one-shot IMAP pull shares the capture registry (Sink + the
-		// live-authority principal swap); credentials arrive per request and
-		// are never persisted (RunTransient), so the default registry needs no
-		// vault — WithKeyvault rebuilds it with one for the persisting paths.
-		imapConnectHandlers: imapConnectHandlers{registry: NewCaptureRegistry(pool, nil)},
 		// The RC-2 personal-mail exclusion CRUD over the caller's own rules
 		// (capture.md CAP-WIRE-2); the same store backs the ONE Sink's
 		// pre-ingestion gate (wired in NewCaptureRegistry).

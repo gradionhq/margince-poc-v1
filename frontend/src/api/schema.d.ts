@@ -2086,32 +2086,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/connectors/imap/connect": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * One-shot IMAP pull — capture the most recent mailbox messages as email activities.
-         * @description Dials a user's mailbox over IMAPS with the supplied credentials, pulls the most recent
-         *     `max_messages` messages from `mailbox`, and captures each as an email activity on the
-         *     timeline. This is a ONE-SHOT pull: the credentials are used for this call only — they are
-         *     NEVER persisted (no stored connection, no background sync) and NEVER logged. Automated /
-         *     system mail (no-reply, bounces, auto-submitted) is skipped. The write lands through the
-         *     capture Sink, so every captured row carries its audit + outbox entry in one transaction.
-         *     Human-only: an agent Passport is not an accepted credential here.
-         */
-        post: operations["connectImap"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/connectors": {
         parameters: {
             query?: never;
@@ -2140,10 +2114,11 @@ export interface paths {
             header?: never;
             path: {
                 /**
-                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
-                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
-                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
-                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 * @description The mail/calendar provider (A51 email+calendar parity). Every provider connects through
+                 *     the same operation; gmail/gcal/graph authorize by OAuth redirect, imap by credential
+                 *     submission. `gmail`/`gcal` = Google mail+calendar, `graph` = Microsoft 365 (Outlook via
+                 *     Graph), `imap` = the self-hostable IMAP engine. WhatsApp/Telegram connect is the
+                 *     messaging-channels surface, not this one.
                  */
                 provider: components["parameters"]["CaptureProvider"];
             };
@@ -2173,10 +2148,11 @@ export interface paths {
             header?: never;
             path: {
                 /**
-                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
-                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
-                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
-                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 * @description The mail/calendar provider (A51 email+calendar parity). Every provider connects through
+                 *     the same operation; gmail/gcal/graph authorize by OAuth redirect, imap by credential
+                 *     submission. `gmail`/`gcal` = Google mail+calendar, `graph` = Microsoft 365 (Outlook via
+                 *     Graph), `imap` = the self-hostable IMAP engine. WhatsApp/Telegram connect is the
+                 *     messaging-channels surface, not this one.
                  */
                 provider: components["parameters"]["CaptureProvider"];
             };
@@ -2205,10 +2181,11 @@ export interface paths {
             header?: never;
             path: {
                 /**
-                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
-                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
-                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
-                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 * @description The mail/calendar provider (A51 email+calendar parity). Every provider connects through
+                 *     the same operation; gmail/gcal/graph authorize by OAuth redirect, imap by credential
+                 *     submission. `gmail`/`gcal` = Google mail+calendar, `graph` = Microsoft 365 (Outlook via
+                 *     Graph), `imap` = the self-hostable IMAP engine. WhatsApp/Telegram connect is the
+                 *     messaging-channels surface, not this one.
                  */
                 provider: components["parameters"]["CaptureProvider"];
             };
@@ -2218,9 +2195,11 @@ export interface paths {
         put?: never;
         /**
          * Disconnect the calling user's mail/calendar capture.
-         * @description Revokes the stored provider token, stops the background sync, and flips the user's
-         *     connection to `disconnected` (RC-8). Idempotent. Already-captured activities are retained —
-         *     they are real history; capture simply stops. Human-only.
+         * @description Disconnects the caller's connection: capture stops immediately (the connection flips to
+         *     `disconnected`, RC-8) and the poller no longer selects it. No upstream token revocation is
+         *     performed — the user removes the grant at the provider themselves; the stored credential is
+         *     retired by a background vault sweep, not deleted inline. Idempotent. Already-captured
+         *     activities are retained — they are real history; capture simply stops. Human-only.
          */
         post: operations["disconnectConnector"];
         delete?: never;
@@ -2235,10 +2214,11 @@ export interface paths {
             header?: never;
             path: {
                 /**
-                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
-                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
-                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
-                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 * @description The mail/calendar provider (A51 email+calendar parity). Every provider connects through
+                 *     the same operation; gmail/gcal/graph authorize by OAuth redirect, imap by credential
+                 *     submission. `gmail`/`gcal` = Google mail+calendar, `graph` = Microsoft 365 (Outlook via
+                 *     Graph), `imap` = the self-hostable IMAP engine. WhatsApp/Telegram connect is the
+                 *     messaging-channels surface, not this one.
                  */
                 provider: components["parameters"]["CaptureProvider"];
             };
@@ -2267,10 +2247,11 @@ export interface paths {
             header?: never;
             path: {
                 /**
-                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
-                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
-                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
-                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 * @description The mail/calendar provider (A51 email+calendar parity). Every provider connects through
+                 *     the same operation; gmail/gcal/graph authorize by OAuth redirect, imap by credential
+                 *     submission. `gmail`/`gcal` = Google mail+calendar, `graph` = Microsoft 365 (Outlook via
+                 *     Graph), `imap` = the self-hostable IMAP engine. WhatsApp/Telegram connect is the
+                 *     messaging-channels surface, not this one.
                  */
                 provider: components["parameters"]["CaptureProvider"];
             };
@@ -4550,7 +4531,7 @@ export interface components {
             from_currency: string;
             /** @description The workspace base currency. */
             to_currency: string;
-            /** @description Decimal rate (from -> base) */
+            /** @description Decimal rate (from -> base), always positive. Plain decimal, up to 10 integer and 10 fractional digits (numeric(20,10)). */
             rate: string;
             /** Format: date */
             effective_date: string;
@@ -4561,7 +4542,7 @@ export interface components {
         SetFxRateRequest: {
             /** @description 3-letter ISO; must not equal the base currency. */
             from_currency: string;
-            /** @description Positive decimal (from -> base). Plain decimal */
+            /** @description Positive decimal (from -> base). Plain decimal, up to 10 integer and 10 fractional digits. */
             rate: string;
             /**
              * Format: date
@@ -4586,7 +4567,7 @@ export interface components {
         SetAiModelRateRequest: {
             provider: string;
             model_id: string;
-            /** @description USD per 1M input tokens. Plain non-negative decimal */
+            /** @description USD per 1M input tokens. Plain non-negative decimal, up to 12 integer and 6 fractional digits (keeps the stored µUSD within int64). */
             input_per_mtok: string;
             /** @description USD per 1M output tokens. */
             output_per_mtok: string;
@@ -4698,6 +4679,8 @@ export interface components {
              * @enum {string}
              */
             provider: "gmail" | "gcal" | "graph" | "imap";
+            /** @description Display-only name of the connected account (e.g. the mailbox address). Null when the connector does not report one. */
+            account_label?: string | null;
             /**
              * @description Connection state; `reauth_required` when the stored token expired/was revoked upstream.
              * @enum {string}
@@ -4735,9 +4718,10 @@ export interface components {
             data: components["schemas"]["CaptureConnection"][];
         };
         /**
-         * @description Connect input. OAuth providers (`gmail`/`gcal`/`graph`) need only an optional `redirect_uri`
-         *     (the app page to return to after consent); `imap` supplies direct credentials. The secret is
-         *     written to the vault, never echoed.
+         * @description Connect a capture source. Providers differ in kind, not in path: an OAuth provider
+         *     (gmail, gcal, graph) needs no body and answers with `authorize_url`; a credential
+         *     provider (imap) submits `imap` and answers with the created `connection`. Exactly one
+         *     of `authorize_url` or `connection` is returned.
          */
         ConnectConnectorRequest: {
             /**
@@ -4745,14 +4729,32 @@ export interface components {
              * @description App page to return to after OAuth consent (OAuth providers).
              */
             redirect_uri?: string;
+            /**
+             * @description Which surface the post-consent redirect lands on. Absent means `onboarding`.
+             *     A closed enum, never a URL — the server maps it to a fixed path, so it carries no
+             *     open-redirect surface. Ignored by credential providers, which never redirect.
+             * @enum {string}
+             */
+            return_to?: "onboarding" | "settings";
             /** @description Direct IMAP credentials (the `imap` provider only). */
             imap?: {
                 host: string;
                 /** @default 993 */
                 port: number;
+                /** @description The mailbox login — an email address on most servers. */
                 username: string;
-                /** @description IMAP password / app password — written to the vault, never returned. */
+                /** @description Password or app-specific password. Sealed to the vault; never returned. */
                 secret: string;
+                /**
+                 * @description The mailbox to read.
+                 * @default INBOX
+                 */
+                mailbox: string;
+                /**
+                 * @description Upper bound on messages pulled per sync, and on the bounded recent window a first sync re-anchors with.
+                 * @default 50
+                 */
+                max_messages: number;
             };
         };
         /** @description An OAuth redirect target (OAuth providers). */
@@ -5152,7 +5154,7 @@ export interface components {
              * @default about:blank
              */
             type: string;
-            /** @description Short */
+            /** @description Short, human-readable summary. */
             title?: string;
             /** @description HTTP status code. */
             status: number;
@@ -5441,7 +5443,7 @@ export interface components {
             id: string;
             /** Format: uuid */
             organization_id?: string;
-            /** @description Lowercased */
+            /** @description Lowercased, no scheme, no www. */
             domain: string;
             /** @default false */
             is_primary: boolean;
@@ -6348,7 +6350,7 @@ export interface components {
             resolved_org_id?: string | null;
             /**
              * Format: uuid
-             * @description Optional person resolution — set only under a recorded consent grant
+             * @description Optional person resolution — set only under a recorded consent grant, never inferred.
              */
             resolved_person_id?: string | null;
             /**
@@ -7157,7 +7159,7 @@ export interface components {
         };
         ContextEvidence: {
             snippet: string;
-            /** @description Provenance ref */
+            /** @description Provenance ref, e.g. "activity:018f…". */
             source: string;
         };
         ContextItem: {
@@ -7185,45 +7187,6 @@ export interface components {
         };
         AgentToolListResponse: {
             data: components["schemas"]["AgentTool"][];
-        };
-        ImapConnectRequest: {
-            /** @description IMAP server hostname (e.g. imap.gmail.com). */
-            host: string;
-            /**
-             * @description IMAPS port; defaults to 993.
-             * @default 993
-             */
-            port: number;
-            /**
-             * Format: email
-             * @description Mailbox login / address.
-             */
-            email: string;
-            /** @description Mailbox password (used for this call only — never stored */
-            password: string;
-            /**
-             * @description Folder to pull from; defaults to INBOX.
-             * @default INBOX
-             */
-            mailbox: string;
-            /**
-             * @description Most-recent messages to pull; capped at 200.
-             * @default 50
-             */
-            max_messages: number;
-        };
-        /** @description The outcome of a one-shot IMAP pull. */
-        ImapConnectResult: {
-            /** @description True when the mailbox was reached and read. */
-            connected: boolean;
-            /** @description The folder that was pulled. */
-            mailbox: string;
-            /** @description Messages that landed as email activities. */
-            captured: number;
-            /** @description Messages intentionally dropped (automated/system mail */
-            skipped: number;
-            /** @description Distinct counterparties seen across the captured messages. */
-            contacts: number;
         };
         /**
          * @description EXACTLY ONE input source (B-E01.2b/.13): `url` (fetch+parse a website, ADR-0006), `text` (the
@@ -7377,7 +7340,7 @@ export interface components {
             display_name: string;
             /** @description The company's own domain (acme.com) — stored as its primary domain, the same handle a read-back resolves organizations by. A full URL is accepted on write and reduced to its domain. */
             website?: string | null;
-            /** @description The registered legal entity */
+            /** @description The registered legal entity, when it differs from display_name. */
             legal_name?: string | null;
             /** @description The registered address as one formatted line. */
             registered_address?: string | null;
@@ -7401,7 +7364,7 @@ export interface components {
             history?: string | null;
             fields?: components["schemas"]["CompanyProfileField"][];
             facts?: components["schemas"]["OrganizationFact"][];
-            /** @description True when display_name */
+            /** @description True when display_name, offer_summary and icp are confirmed. */
             minimum_complete?: boolean;
             /** Format: date-time */
             updated_at?: string;
@@ -7752,7 +7715,7 @@ export interface components {
          *     `proposal_hash` are the pair ConfirmCompanySiteRead must echo.
          */
         OnboardingCompanyProposal: {
-            /** @description False while the read is still queued */
+            /** @description False while the read is still queued, deferred, or running. */
             ready: boolean;
             fields?: components["schemas"]["OnboardingCompanyProposalField"][];
             facts?: components["schemas"]["CompanySiteReadFact"][];
@@ -7774,7 +7737,7 @@ export interface components {
             status: "queued" | "deferred" | "reading" | "ready" | "partial" | "failed" | "confirmed" | "abandoned";
             /** @enum {string|null} */
             status_code: null | "budget_deferred";
-            /** @description Safe guidance only; never provider payload */
+            /** @description Safe guidance only; never provider payload, prompt, SQL, or stack data. */
             status_detail: string | null;
             /** Format: date-time */
             next_attempt_at: string | null;
@@ -7855,7 +7818,7 @@ export interface components {
             status: "queued" | "deferred" | "running" | "done" | "partial" | "failed";
             /** @enum {string|null} */
             status_code: null | "budget_deferred";
-            /** @description Safe guidance only; never provider payload */
+            /** @description Safe guidance only; never provider payload, prompt, SQL, or stack data. */
             status_detail: string | null;
             /** Format: date-time */
             next_attempt_at: string | null;
@@ -8020,7 +7983,7 @@ export interface components {
             target_version?: number | null;
             /**
              * Format: date-time
-             * @description Expiry (short TTL — minutes
+             * @description Expiry (short TTL — minutes, not hours).
              */
             exp: string;
             /** @default true */
@@ -8051,7 +8014,7 @@ export interface components {
              * @enum {string|null}
              */
             margin_tier?: null | "tier1_15" | "tier2_20" | "tier3_25";
-            /** @description Program gate metrics (certified seats */
+            /** @description Program gate metrics (certified seats, CSAT, ...). */
             gate_metrics?: {
                 [key: string]: unknown;
             } | null;
@@ -8268,7 +8231,7 @@ export interface components {
             purpose_id: string;
             /** @description Version id of the consent wording shown to the subject. */
             policy_version: string;
-            /** @description The exact wording shown */
+            /** @description The exact wording shown, stored with the consent event for demonstrability. */
             wording?: string | null;
             /** @description Present when the surface delivered its own DOI confirmation (issueDoubleOptIn with deliver=false). */
             double_opt_in_token?: string | null;
@@ -8581,7 +8544,7 @@ export interface components {
             candidate_action: "none" | "auto_activated" | "review_required";
             /** @enum {string|null} */
             status_code: null | "budget_deferred" | "model_unavailable" | "invalid_output" | "quality_regression" | "material_drift" | "internal";
-            /** @description Safe operator guidance; never provider payload */
+            /** @description Safe operator guidance; never provider payload, prompt, SQL, or stack data. */
             status_detail: string | null;
             /** Format: date-time */
             next_attempt_at: string | null;
@@ -8792,7 +8755,7 @@ export interface components {
              * @default false
              */
             is_default: boolean;
-            /** @description Logo/header/footer/terms-block refs — bounded params */
+            /** @description Logo/header/footer/terms-block refs — bounded params, not a CMS. */
             layout: {
                 [key: string]: unknown;
             };
@@ -8835,7 +8798,7 @@ export interface components {
         OfferLineItem: {
             /** Format: uuid */
             id: string;
-            /** @description Display order */
+            /** @description Display order, unique per offer. */
             position: number;
             /**
              * Format: uuid
@@ -8902,7 +8865,7 @@ export interface components {
             workspace_id: string;
             /** Format: uuid */
             deal_id: string;
-            /** @description Human-facing Angebot number */
+            /** @description Human-facing Angebot number, minted server-side, unique per workspace (with revision). */
             readonly offer_number: string;
             /** @description Bumped when a sent offer is regenerated; the prior revision becomes superseded. */
             readonly revision: number;
@@ -8925,17 +8888,17 @@ export interface components {
             terms_text?: string | null;
             /**
              * Format: int64
-             * @description Σ line nets — derived
+             * @description Σ line nets — derived, never client-set.
              */
             readonly net_minor: number;
             /**
              * Format: int64
-             * @description Σ line taxes — derived
+             * @description Σ line taxes — derived, never client-set.
              */
             readonly tax_minor: number;
             /**
              * Format: int64
-             * @description net + tax — derived
+             * @description net + tax — derived, never client-set.
              */
             readonly gross_minor: number;
             /** @description Native→base, frozen at send (RT-PR-C2). Decimal-as-string to avoid float rounding. */
@@ -8947,7 +8910,7 @@ export interface components {
              * @description The offer_template used for locale/layout at render time; unset falls back to the workspace's default template for the offer's locale.
              */
             template_id?: string | null;
-            /** @description Rendered PDF ref */
+            /** @description Rendered PDF ref, set by renderOffer (B-E03.22/WP7). */
             pdf_asset_ref?: string | null;
             /** Format: date-time */
             readonly accepted_at?: string | null;
@@ -9073,7 +9036,7 @@ export interface components {
         IssuePassportResponse: {
             /** Format: uuid */
             passport_id: string;
-            /** @description The bearer token — shown ONCE */
+            /** @description The bearer token — shown ONCE, stored only as a hash. */
             token: string;
             scopes: string[];
             /**
@@ -9092,7 +9055,7 @@ export interface components {
             label: string;
             /** @description The granted MCP scopes (intersected with the minting human's role at bind time). */
             scopes: string[];
-            /** @description The agent this passport is bound to */
+            /** @description The agent this passport is bound to, if any. */
             agent_id?: string | null;
             /** Format: date-time */
             created_at: string;
@@ -9143,7 +9106,7 @@ export interface components {
             id: string;
             /** Format: uuid */
             deal_id: string;
-            /** @description Position in the queue (1 = top) */
+            /** @description Position in the queue (1 = top), after the L2 re-order. */
             rank: number;
             /** @description The deterministic §10.1 composite score. */
             composite: number;
@@ -9178,11 +9141,11 @@ export interface components {
         MorningBriefFeatureVector: {
             /** @description stage win probability / 100. */
             winnability: number;
-            /** @description min(1 */
+            /** @description min(1, base value / REVENUE_NORM); floor 0 when no evidencable amount. */
             revenue: number;
             /** @description bucketed days-until-expected-close urgency. */
             timing: number;
-            /** @description 1.0 with an evidenced overnight change */
+            /** @description 1.0 with an evidenced overnight change, else the 0.4 floor. */
             momentum: number;
             /** @description strongest visible stakeholder's §4 strength / 100; floor 0 without contributing interactions. */
             warmth: number;
@@ -9433,10 +9396,11 @@ export interface components {
     };
     parameters: {
         /**
-         * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
-         *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
-         *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
-         *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+         * @description The mail/calendar provider (A51 email+calendar parity). Every provider connects through
+         *     the same operation; gmail/gcal/graph authorize by OAuth redirect, imap by credential
+         *     submission. `gmail`/`gcal` = Google mail+calendar, `graph` = Microsoft 365 (Outlook via
+         *     Graph), `imap` = the self-hostable IMAP engine. WhatsApp/Telegram connect is the
+         *     messaging-channels surface, not this one.
          */
         CaptureProvider: "gmail" | "gcal" | "graph" | "imap";
         /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
@@ -11811,7 +11775,7 @@ export interface operations {
                         purpose_key: string;
                         /** @enum {string} */
                         state: "granted" | "withdrawn";
-                        /** @description The exact wording shown to the recipient */
+                        /** @description The exact wording shown to the recipient, stored verbatim as proof. */
                         wording?: string;
                     }[];
                 };
@@ -13850,49 +13814,6 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
-    connectImap: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ImapConnectRequest"];
-            };
-        };
-        responses: {
-            /** @description The pull completed; the summary reports what was captured. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ImapConnectResult"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            /** @description The mailbox rejected the credentials, or the request was malformed — no internals leaked. */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description The mail server could not be reached (DNS / TCP / TLS / timeout) — the raw cause stays server-side. */
-            502: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
     listConnectors: {
         parameters: {
             query?: never;
@@ -13920,10 +13841,11 @@ export interface operations {
             header?: never;
             path: {
                 /**
-                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
-                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
-                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
-                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 * @description The mail/calendar provider (A51 email+calendar parity). Every provider connects through
+                 *     the same operation; gmail/gcal/graph authorize by OAuth redirect, imap by credential
+                 *     submission. `gmail`/`gcal` = Google mail+calendar, `graph` = Microsoft 365 (Outlook via
+                 *     Graph), `imap` = the self-hostable IMAP engine. WhatsApp/Telegram connect is the
+                 *     messaging-channels surface, not this one.
                  */
                 provider: components["parameters"]["CaptureProvider"];
             };
@@ -13961,10 +13883,11 @@ export interface operations {
             header?: never;
             path: {
                 /**
-                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
-                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
-                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
-                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 * @description The mail/calendar provider (A51 email+calendar parity). Every provider connects through
+                 *     the same operation; gmail/gcal/graph authorize by OAuth redirect, imap by credential
+                 *     submission. `gmail`/`gcal` = Google mail+calendar, `graph` = Microsoft 365 (Outlook via
+                 *     Graph), `imap` = the self-hostable IMAP engine. WhatsApp/Telegram connect is the
+                 *     messaging-channels surface, not this one.
                  */
                 provider: components["parameters"]["CaptureProvider"];
             };
@@ -13972,7 +13895,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Redirect back into the app — connection established */
+            /** @description Redirect back into the app — connection established, or the denial surfaced honestly. */
             302: {
                 headers: {
                     [name: string]: unknown;
@@ -13988,10 +13911,11 @@ export interface operations {
             header?: never;
             path: {
                 /**
-                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
-                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
-                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
-                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 * @description The mail/calendar provider (A51 email+calendar parity). Every provider connects through
+                 *     the same operation; gmail/gcal/graph authorize by OAuth redirect, imap by credential
+                 *     submission. `gmail`/`gcal` = Google mail+calendar, `graph` = Microsoft 365 (Outlook via
+                 *     Graph), `imap` = the self-hostable IMAP engine. WhatsApp/Telegram connect is the
+                 *     messaging-channels surface, not this one.
                  */
                 provider: components["parameters"]["CaptureProvider"];
             };
@@ -14016,10 +13940,11 @@ export interface operations {
             header?: never;
             path: {
                 /**
-                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
-                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
-                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
-                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 * @description The mail/calendar provider (A51 email+calendar parity). Every provider connects through
+                 *     the same operation; gmail/gcal/graph authorize by OAuth redirect, imap by credential
+                 *     submission. `gmail`/`gcal` = Google mail+calendar, `graph` = Microsoft 365 (Outlook via
+                 *     Graph), `imap` = the self-hostable IMAP engine. WhatsApp/Telegram connect is the
+                 *     messaging-channels surface, not this one.
                  */
                 provider: components["parameters"]["CaptureProvider"];
             };
@@ -14060,10 +13985,11 @@ export interface operations {
             header?: never;
             path: {
                 /**
-                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
-                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
-                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
-                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 * @description The mail/calendar provider (A51 email+calendar parity). Every provider connects through
+                 *     the same operation; gmail/gcal/graph authorize by OAuth redirect, imap by credential
+                 *     submission. `gmail`/`gcal` = Google mail+calendar, `graph` = Microsoft 365 (Outlook via
+                 *     Graph), `imap` = the self-hostable IMAP engine. WhatsApp/Telegram connect is the
+                 *     messaging-channels surface, not this one.
                  */
                 provider: components["parameters"]["CaptureProvider"];
             };
@@ -14090,10 +14016,11 @@ export interface operations {
             header?: never;
             path: {
                 /**
-                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
-                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
-                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
-                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 * @description The mail/calendar provider (A51 email+calendar parity). Every provider connects through
+                 *     the same operation; gmail/gcal/graph authorize by OAuth redirect, imap by credential
+                 *     submission. `gmail`/`gcal` = Google mail+calendar, `graph` = Microsoft 365 (Outlook via
+                 *     Graph), `imap` = the self-hostable IMAP engine. WhatsApp/Telegram connect is the
+                 *     messaging-channels surface, not this one.
                  */
                 provider: components["parameters"]["CaptureProvider"];
             };
@@ -14125,10 +14052,11 @@ export interface operations {
             header?: never;
             path: {
                 /**
-                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
-                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
-                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
-                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 * @description The mail/calendar provider (A51 email+calendar parity). Every provider connects through
+                 *     the same operation; gmail/gcal/graph authorize by OAuth redirect, imap by credential
+                 *     submission. `gmail`/`gcal` = Google mail+calendar, `graph` = Microsoft 365 (Outlook via
+                 *     Graph), `imap` = the self-hostable IMAP engine. WhatsApp/Telegram connect is the
+                 *     messaging-channels surface, not this one.
                  */
                 provider: components["parameters"]["CaptureProvider"];
             };

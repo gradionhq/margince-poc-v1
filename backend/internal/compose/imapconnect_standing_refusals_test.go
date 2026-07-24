@@ -19,6 +19,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
+
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/imap"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -38,6 +41,10 @@ type imapCredsBody struct {
 	Secret   string `json:"secret"`
 }
 
+// postIMAPConnect routes the request through the real generated mux (a stub
+// registry keeps this DB-free) rather than calling the handler directly —
+// calling past the mux is exactly what let the shadowed-route defect survive
+// review, so every refusal case here proves reachability too.
 func postIMAPConnect(ctx context.Context, t *testing.T, h connectorHandlers, body imapConnectBody) *httptest.ResponseRecorder {
 	t.Helper()
 	payload, err := json.Marshal(body)
@@ -47,7 +54,9 @@ func postIMAPConnect(ctx context.Context, t *testing.T, h connectorHandlers, bod
 	req := httptest.NewRequest(http.MethodPost, "/v1/connectors/imap/connect", bytes.NewReader(payload))
 	req = req.WithContext(ctx)
 	rec := httptest.NewRecorder()
-	h.ConnectConnector(rec, req, "imap")
+	srv := Server{connectorHandlers: h}
+	mux := crmcontracts.HandlerFromMuxWithBaseURL(srv, chi.NewRouter(), "/v1")
+	mux.ServeHTTP(rec, req)
 	return rec
 }
 

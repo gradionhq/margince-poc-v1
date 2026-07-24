@@ -39,11 +39,11 @@ type Registry struct {
 	authority  authz.Resolver
 	// vault seals and resolves a connection's credential bundle. The row
 	// carries an opaque credential_ref, never the credential bytes; the vault
-	// is the custodian. May be nil for a role that only runs the transient
-	// one-shot pull (RunTransient), which never persists a credential: Connect
-	// then refuses loudly (it must seal), and SyncOnce refuses only for a row
-	// whose credential lives in the vault — a not-yet-backfilled legacy row
-	// still resolves from its auth column with no vault.
+	// is the custodian. May be nil for a role composed before WithKeyvault
+	// wires one: Connect then refuses loudly (it must seal), and SyncOnce
+	// refuses only for a row whose credential lives in the vault — a
+	// not-yet-backfilled legacy row still resolves from its auth column with
+	// no vault.
 	vault keyvault.Vault
 
 	// The scheduling state machine's knobs (ADR-0063): now is injected so
@@ -59,8 +59,8 @@ const defaultSyncInterval = 2 * time.Minute
 
 // NewRegistry builds the connector registry over the pool, the capture Sink,
 // the live-authority resolver, and the keyvault that seals/resolves each
-// connection's credential. vault may be nil for a role that only runs the
-// transient one-shot pull (which persists no credential).
+// connection's credential. vault may be nil for a role composed before its
+// custodian is wired (WithKeyvault rebuilds the registry once it is).
 func NewRegistry(pool *pgxpool.Pool, sink *Sink, authority authz.Resolver, vault keyvault.Vault) *Registry {
 	return &Registry{
 		connectors:   map[string]connector.Connector{},
@@ -178,35 +178,6 @@ func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth
 		return ids.Nil, fmt.Errorf("capture: storing connection: %w", err)
 	}
 	return id, nil
-}
-
-// RunTransient runs ONE sync of an already-authenticated connector under
-// the CALLING human's live authority, WITHOUT persisting a connection: no
-// capture_connection row, no stored credentials, no cursor. It is the
-// one-shot pull path — the connector holds its live provider session and
-// its own credentials; the registry contributes the run-time connector
-// principal built from the human's LIVE RBAC. Authority is capped where every
-// capture write is: the Sink's per-entry RBAC gate against that principal (a
-// human lacking activity:create cannot land a row — that gate, not any
-// HTTP-layer seat check, is authoritative). The write lands through the same
-// Sink, so audit + outbox hold.
-func (r *Registry) RunTransient(ctx context.Context, c connector.Connector, auth connector.Auth) error {
-	actor, ok := principal.Actor(ctx)
-	if !ok || actor.Type != principal.PrincipalHuman {
-		// A one-shot pull is a human action; a non-human principal here is a
-		// wiring error, surfaced as a 403 rather than an opaque 500.
-		return fmt.Errorf("capture: only a human runs a one-shot connector pull: %w", apperrors.ErrPermissionDenied)
-	}
-	runCtx, err := r.connectorContext(ctx, c.Descriptor().Name, ids.From[ids.UserKind](actor.UserID))
-	if err != nil {
-		return err
-	}
-	// A one-shot pull has no persisted cursor to advance; the connector
-	// bounds the pull itself (last N messages).
-	if _, err := c.Sync(runCtx, auth, nil, r.sink); err != nil {
-		return err
-	}
-	return nil
 }
 
 // SyncOnce runs one incremental sync for a connection: builds the
