@@ -18,7 +18,10 @@ const gmailConnected: CaptureConnection = {
   provider: "gmail",
   status: "connected",
   scopes: ["read"],
+  account_label: "lars@example.de",
   last_synced_at: "2026-07-23T09:30:00Z",
+  next_sync_due_at: "2026-07-23T09:35:00Z",
+  watch_expires_at: "2026-08-01T00:00:00Z",
 };
 
 const gcalReauth: CaptureConnection = {
@@ -26,7 +29,9 @@ const gcalReauth: CaptureConnection = {
   provider: "gcal",
   status: "reauth_required",
   scopes: ["read"],
+  account_label: "lars@example.de",
   last_synced_at: "2026-07-20T08:00:00Z",
+  last_sync_error_class: "auth",
 };
 
 const imapError: CaptureConnection = {
@@ -36,6 +41,20 @@ const imapError: CaptureConnection = {
   scopes: [],
   last_synced_at: "2026-07-18T12:00:00Z",
   last_sync_error_class: "unreachable",
+};
+
+// IMAP is poll-only — there is no push subscription to renew, so
+// watch_expires_at is always null for this provider. The card must read
+// that null as "polled", never as an expired push renewal.
+const imapPolled: CaptureConnection = {
+  id: "018f3a1b-0000-7000-8000-0000000000c4",
+  provider: "imap",
+  status: "connected",
+  scopes: [],
+  account_label: "sales@example.org",
+  last_synced_at: "2026-07-23T09:00:00Z",
+  next_sync_due_at: "2026-07-23T09:15:00Z",
+  watch_expires_at: null,
 };
 
 function cardStory(connections: CaptureConnection[]) {
@@ -71,7 +90,11 @@ export const SyncError: Story = {
 };
 
 export const MixedRows: Story = {
-  render: cardStory([gmailConnected, gcalReauth, imapError]),
+  render: cardStory([gmailConnected, gcalReauth, imapError, imapPolled]),
+};
+
+export const ImapPolled: Story = {
+  render: cardStory([imapPolled]),
 };
 
 export const Empty: Story = {
@@ -83,6 +106,22 @@ export const LoadFailed: Story = {
     installFetchStub({
       "GET /connectors": () =>
         jsonResponse({ title: "Internal Server Error", detail: "boom" }, 500),
+    });
+    return (
+      <StoryProviders>
+        <ConnectorsCard />
+      </StoryProviders>
+    );
+  },
+};
+
+// A deployment that never wired mail capture answers 501 code:not_implemented
+// (httperr.NotImplemented) — a calm, documented feature-off state, never an
+// error card.
+export const NotConfigured: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ code: "not_implemented" }, 501),
     });
     return (
       <StoryProviders>

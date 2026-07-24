@@ -1192,11 +1192,20 @@ export const de = {
   "connectors.statusDisconnected": "Getrennt",
   "connectors.lastSynced": "Zuletzt synchronisiert {at}",
   "connectors.neverSynced": "Wartet auf die erste Synchronisierung",
+  "connectors.nextCheck": "Nächste Prüfung ~{at}",
+  "connectors.polled": "Wird gepollt (kein Push-Abo)",
+  "connectors.pushRenewal": "Push-Erneuerung bis {at}",
+  "connectors.notConfigured":
+    "Die Mail-Erfassung ist in dieser Installation nicht konfiguriert.",
   "connectors.reconnect": "Neu verbinden",
   "connectors.disconnect": "Trennen",
   "connectors.disconnectTitle": "Dieses Postfach trennen?",
   "connectors.disconnectBody":
-    "Die Erfassung stoppt sofort. Alles bereits Erfasste bleibt in deinem CRM, und du kannst jederzeit neu verbinden.",
+    "Dies löscht die für dieses Postfach gespeicherte Zugangsdaten. Die Erfassung stoppt sofort; alles bereits Erfasste bleibt in deinem CRM, und beim erneuten Verbinden wird wieder um Erlaubnis gebeten.",
+  "connectors.disconnectBodyGoogleNote":
+    "Google listet Margince unter Umständen weiterhin unter den Drittanbieter-Zugriffen deines Kontos — entferne es dort, wenn du den Zugriff vollständig widerrufen möchtest.",
+  "connectors.disconnectBodyMicrosoftNote":
+    "Microsoft listet Margince unter Umständen weiterhin unter den verbundenen Apps deines Kontos — entferne es dort, wenn du den Zugriff vollständig widerrufen möchtest.",
   "connectors.errRateLimited":
     "Der Anbieter drosselt uns. Die Erfassung läuft langsamer als sonst; es geht nichts verloren.",
   "connectors.errUnreachable":

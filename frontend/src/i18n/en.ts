@@ -1171,11 +1171,20 @@ export const en = {
   "connectors.statusDisconnected": "Disconnected",
   "connectors.lastSynced": "Last synced {at}",
   "connectors.neverSynced": "Waiting for the first sync",
+  "connectors.nextCheck": "Next check ~{at}",
+  "connectors.polled": "Polled on a schedule (no push subscription)",
+  "connectors.pushRenewal": "Push renewal by {at}",
+  "connectors.notConfigured":
+    "Mail capture isn't configured in this deployment.",
   "connectors.reconnect": "Reconnect",
   "connectors.disconnect": "Disconnect",
   "connectors.disconnectTitle": "Disconnect this inbox?",
   "connectors.disconnectBody":
-    "Capture stops immediately. Everything already captured stays in your CRM, and you can reconnect any time.",
+    "This will delete the credential we stored for this mailbox. Capture stops immediately; everything already captured stays in your CRM, and reconnecting will ask for permission again.",
+  "connectors.disconnectBodyGoogleNote":
+    "Google may still list Margince under your account's third-party access — remove it there if you want to revoke it fully.",
+  "connectors.disconnectBodyMicrosoftNote":
+    "Microsoft may still list Margince among your account's connected apps — remove it there if you want to revoke it fully.",
   "connectors.errRateLimited":
     "The provider is throttling us. Capture is running slower than usual; nothing is lost.",
   "connectors.errUnreachable":

@@ -3,7 +3,6 @@ import { Mail, Plug, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { navigate } from "../app/router";
 import {
   Badge,
   Button,
@@ -15,8 +14,8 @@ import { ConfirmModal } from "../design-system/confirmmodal";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessage } from "./common";
-import { statusLabel, statusTone } from "./connector-status";
+import { problemCode, problemMessage } from "./common";
+import { errorClassKey, statusLabel, statusTone } from "./connector-status";
 import { ImapConnectForm } from "./imap-connect-form";
 
 // The connected-inboxes card (RC-8): the Settings surface the onboarding copy
@@ -40,6 +39,26 @@ const providerLabel: Record<Provider, MessageKey> = {
 // a credential provider never redirects.
 const OAUTH_PROVIDERS = new Set<Provider>(["gmail", "gcal", "graph"]);
 
+// Disconnecting an OAuth connection deletes OUR stored credential; it does
+// not reach out to the vendor to revoke the grant on their side (there is no
+// such API call here), so the confirm names the vendor-specific place a
+// careful user can go finish that themselves. IMAP has no upstream grant —
+// omitted entirely rather than shown as a no-op.
+const OAUTH_DISCONNECT_NOTE: Partial<Record<Provider, MessageKey>> = {
+  gmail: "connectors.disconnectBodyGoogleNote",
+  gcal: "connectors.disconnectBodyGoogleNote",
+  graph: "connectors.disconnectBodyMicrosoftNote",
+};
+
+type ConnectorsResult = {
+  // GET /connectors answers 501 code:not_implemented when this deployment
+  // never wired mail capture (httperr.NotImplemented) — a calm, documented
+  // feature-off state, never an error card (mirrors webhooks.tsx's
+  // webhooks_not_configured treatment).
+  notConfigured: boolean;
+  data: CaptureConnection[];
+};
+
 export function ConnectorsCard() {
   const t = useT();
   const { locale } = useLocale();
@@ -51,12 +70,15 @@ export function ConnectorsCard() {
 
   const connectors = useQuery({
     queryKey: ["connectors"],
-    queryFn: async () => {
-      const { data, error } = await api.GET("/connectors");
+    queryFn: async (): Promise<ConnectorsResult> => {
+      const { data, error, response } = await api.GET("/connectors");
+      if (response.status === 501 && problemCode(error) === "not_implemented") {
+        return { notConfigured: true, data: [] };
+      }
       if (error) {
         throw new Error(problemMessage(error));
       }
-      return data;
+      return { notConfigured: false, data: data.data };
     },
   });
 
@@ -95,9 +117,13 @@ export function ConnectorsCard() {
     },
   });
 
+  const notConfigured = connectors.data?.notConfigured ?? false;
   const rows = (connectors.data?.data ?? []).filter(
     (c) => c.status !== "disconnected",
   );
+  const disconnectNoteKey = pendingDisconnect
+    ? OAUTH_DISCONNECT_NOTE[pendingDisconnect]
+    : undefined;
 
   return (
     <Card>
@@ -112,7 +138,12 @@ export function ConnectorsCard() {
             : t("connectors.loadFailed")}
         </p>
       )}
-      {connectors.isSuccess && rows.length === 0 && (
+      {connectors.isSuccess && notConfigured && (
+        <EmptyState>
+          <p>{t("connectors.notConfigured")}</p>
+        </EmptyState>
+      )}
+      {connectors.isSuccess && !notConfigured && rows.length === 0 && (
         <EmptyState>
           <p>{t("connectors.empty")}</p>
           <div
@@ -126,7 +157,8 @@ export function ConnectorsCard() {
             <Button
               small
               variant="primary"
-              onClick={() => navigate({ screen: "onboarding", id: "connect" })}
+              disabled={reconnect.isPending}
+              onClick={() => reconnect.mutate("gmail")}
             >
               <Plug aria-hidden /> {t("connectors.connectCta")}
             </Button>
@@ -136,7 +168,7 @@ export function ConnectorsCard() {
           </div>
         </EmptyState>
       )}
-      {rows.length > 0 && (
+      {!notConfigured && rows.length > 0 && (
         <ul className="connectors-list">
           {rows.map((conn) => (
             <li key={conn.id} className="connector-row">
@@ -144,6 +176,11 @@ export function ConnectorsCard() {
                 <Mail aria-hidden />
                 <span>
                   <strong>{t(providerLabel[conn.provider])}</strong>
+                  {conn.account_label && (
+                    <span className="t-small connector-account">
+                      {conn.account_label}
+                    </span>
+                  )}
                   <span className="t-small connector-synced">
                     {conn.last_synced_at
                       ? t("connectors.lastSynced", {
@@ -155,6 +192,37 @@ export function ConnectorsCard() {
                         })
                       : t("connectors.neverSynced")}
                   </span>
+                  {conn.next_sync_due_at && (
+                    <span className="t-small connector-synced">
+                      {t("connectors.nextCheck", {
+                        at: formatDateTime(
+                          conn.next_sync_due_at,
+                          locale,
+                          "Europe/Berlin",
+                        ),
+                      })}
+                    </span>
+                  )}
+                  <span className="t-small connector-synced">
+                    {conn.watch_expires_at
+                      ? t("connectors.pushRenewal", {
+                          at: formatDateTime(
+                            conn.watch_expires_at,
+                            locale,
+                            "Europe/Berlin",
+                          ),
+                        })
+                      : t("connectors.polled")}
+                  </span>
+                  {(conn.status === "error" ||
+                    conn.status === "reauth_required") && (
+                    <span
+                      className="t-small"
+                      style={{ color: "var(--danger)" }}
+                    >
+                      {t(errorClassKey(conn.last_sync_error_class))}
+                    </span>
+                  )}
                 </span>
               </span>
               <span className="connector-actions">
@@ -207,6 +275,7 @@ export function ConnectorsCard() {
         }}
       >
         <p className="t-small">{t("connectors.disconnectBody")}</p>
+        {disconnectNoteKey && <p className="t-small">{t(disconnectNoteKey)}</p>}
       </ConfirmModal>
       <ImapConnectForm
         open={imapConnectOpen}

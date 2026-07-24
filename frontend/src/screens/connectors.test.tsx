@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
 import { ConnectorsCard } from "./connectors";
+import { installFetchStub } from "./story-utils";
 
 // The connected-inboxes card makes the onboarding promise ("disconnect in one
 // click", "manage in Settings") real. It renders server facts only, and a
@@ -224,5 +225,100 @@ describe("the connected-inboxes card", () => {
     await waitFor(() =>
       expect(requestsTo(calls, "/disconnect", "POST").length).toBe(1),
     );
+  });
+});
+
+// The richer per-row health line (account_label, next_sync_due_at,
+// watch_expires_at, the error-class sentence) and the 501 calm state, all
+// exercised through the real installFetchStub route-map shape.
+describe("the connected-inboxes card's richer health line", () => {
+  it("shows the account label beside the provider name", async () => {
+    installFetchStub({
+      "GET /connectors": () =>
+        jsonResponse({
+          data: [{ ...gmailConnected, account_label: "lars@example.de" }],
+        }),
+    });
+    render(<ConnectorsCard />);
+    expect(await screen.findByText("lars@example.de")).toBeTruthy();
+  });
+
+  it("reads a null watch_expires_at as polled, never as expired", async () => {
+    installFetchStub({
+      "GET /connectors": () =>
+        jsonResponse({
+          data: [
+            { ...gmailConnected, provider: "imap", watch_expires_at: null },
+          ],
+        }),
+    });
+    render(<ConnectorsCard />);
+    expect(await screen.findByText(/polled/i)).toBeTruthy();
+    expect(screen.queryByText(/expired/i)).toBeNull();
+  });
+
+  it("renders a push renewal deadline when watch_expires_at is set", async () => {
+    installFetchStub({
+      "GET /connectors": () =>
+        jsonResponse({
+          data: [
+            { ...gmailConnected, watch_expires_at: "2026-08-01T00:00:00Z" },
+          ],
+        }),
+    });
+    render(<ConnectorsCard />);
+    expect(await screen.findByText(/push renewal/i)).toBeTruthy();
+  });
+
+  it("renders the error-class sentence for a reauth_required connection", async () => {
+    installFetchStub({
+      "GET /connectors": () =>
+        jsonResponse({
+          data: [{ ...gmailStale, last_sync_error_class: "auth" }],
+        }),
+    });
+    render(<ConnectorsCard />);
+    expect(await screen.findByText(/rejected our credentials/i)).toBeTruthy();
+  });
+
+  it("renders the 501 not-configured response as a calm state, not an error", async () => {
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ code: "not_implemented" }, 501),
+    });
+    render(<ConnectorsCard />);
+    expect(
+      await screen.findByText(/isn't configured in this deployment/i),
+    ).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(/couldn't load/i)).toBeNull();
+  });
+
+  it("shows the updated disconnect copy naming credential deletion and Google's own access list", async () => {
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ data: [gmailConnected] }),
+    });
+    render(<ConnectorsCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^Disconnect$/ }),
+    );
+    expect(
+      await screen.findByText(/delete the credential we stored/i),
+    ).toBeTruthy();
+    expect(screen.getByText(/Google may still list Margince/i)).toBeTruthy();
+  });
+
+  it("omits the vendor-access note for an IMAP disconnect (no upstream grant)", async () => {
+    installFetchStub({
+      "GET /connectors": () =>
+        jsonResponse({ data: [{ ...gmailConnected, provider: "imap" }] }),
+    });
+    render(<ConnectorsCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^Disconnect$/ }),
+    );
+    expect(
+      await screen.findByText(/delete the credential we stored/i),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Google may still list Margince/i)).toBeNull();
   });
 });

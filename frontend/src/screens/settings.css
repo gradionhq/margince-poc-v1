@@ -398,6 +398,9 @@
   display: flex;
   flex-direction: column;
 }
+.connector-account {
+  color: var(--textSecondary);
+}
 .connector-synced {
   color: var(--textSecondary);
 }
