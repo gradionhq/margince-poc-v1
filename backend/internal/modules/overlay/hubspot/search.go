@@ -14,6 +14,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -40,11 +41,24 @@ func (c *Client) SearchModified(
 			Filters: []searchFilter{{
 				PropertyName: watermarkProperty,
 				Operator:     "GTE",
-				Value:        since.UTC().Format(time.RFC3339Nano),
+				Value:        hsMillis(since),
 			}},
 		}},
 	}
 	return c.search(ctx, objectClass, body)
+}
+
+// hsMillis renders t as the epoch-millisecond string HubSpot's Search API
+// requires for a datetime property filter — an RFC 3339 string is rejected
+// with a 400, so the watermark sweep must send millis. A zero/pre-epoch
+// watermark (the first sweep after a fresh connect) floors to "0" so the
+// GTE filter means "everything", never a negative epoch HubSpot would reject.
+func hsMillis(t time.Time) string {
+	ms := t.UnixMilli()
+	if ms < 0 {
+		ms = 0
+	}
+	return strconv.FormatInt(ms, 10)
 }
 
 // searchSort is one entry of a Search request's sorts array. HubSpot

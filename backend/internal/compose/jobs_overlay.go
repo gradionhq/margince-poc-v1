@@ -153,17 +153,6 @@ func (w *overlayRefetchWorker) Work(ctx context.Context, job *river.Job[OverlayR
 	return nil
 }
 
-// overlayObjectClasses are the HubSpot object classes design.md §9 maps —
-// the poller sweeps each, per due connection, resuming each object class's
-// own persisted watermark. The five engagement classes
-// (calls/meetings/emails/notes/tasks) are swept separately: HubSpot v3 has
-// no generic engagements object, and each maps to its own activity kind
-// (OVA-MAP-1).
-var overlayObjectClasses = append([]string{
-	overlay.IncumbentClassContacts, overlay.IncumbentClassCompanies,
-	overlay.IncumbentClassDeals, overlay.IncumbentClassLeads,
-}, overlay.IncumbentEngagementClasses()...)
-
 // overlayReconcileWorker walks every overlay-mode workspace's active
 // incumbent connection (overlay.DueOverlayConnections — the same
 // fleet-walk shape gmailSyncWorker drives via capture.Registry.
@@ -397,12 +386,24 @@ func reconcileConnection(ctx context.Context, pool *pgxpool.Pool, vault keyvault
 	}
 
 	for _, objectClass := range overlayObjectClasses {
-		// A connection-level failure sweeping any class aborts the whole
-		// sweep (the caller backs the connection off); a per-object failure
-		// was already logged inside sweepObjectClass and skips only that
-		// class, so the loop moves on.
+		// A connection-level failure sweeping a SCOPE-BACKED class
+		// (contacts/companies/deals) aborts the whole sweep (the caller backs
+		// the connection off); a per-object failure was already logged inside
+		// sweepObjectClass and skips only that class. leads and the engagement
+		// classes are swept best-effort with no requested scope, so a portal
+		// that gates one of them (a 403/404 for that object alone) skips just
+		// that class here — overlaySweepAborts encodes the distinction.
 		if err := sweepObjectClass(ctx, inc, ms, meter, log, d.Workspace.String(), objectClass); err != nil {
-			return err
+			if overlaySweepAborts(objectClass, err) {
+				return err
+			}
+			// A best-effort class (leads/engagements, swept with no requested
+			// scope) failed on a per-object condition — a missing scope, an
+			// absent object, or a portal-shaped validation error. Log the full
+			// err (the cause varies) and move on; it never breaks the
+			// scope-backed classes.
+			log.WarnContext(ctx, "overlay reconcile: best-effort object class sweep failed, skipping it",
+				"workspace", d.Workspace.String(), "object_class", objectClass, "err", err)
 		}
 	}
 	return nil
