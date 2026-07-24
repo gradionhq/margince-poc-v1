@@ -92,15 +92,25 @@ func (s *Sink) ensureCounterparty(ctx context.Context, rec connector.NormalizedR
 		// creates nothing.
 		return
 	}
+	// T1 correspondence-positive (CAP-DDL-7, ADR-0072): a human the owner has
+	// ever written to is a real contact, never suppressed as infrastructure —
+	// even when their mail carries a List-Unsubscribe footer. This runs BEFORE
+	// the T2 transactional gate, so a known contact's newsletter is spared. The
+	// predicate is an index-backed EXISTS over the owner's outbound activities
+	// to this address (idx_activity_counterparty_email); a fault here is logged
+	// and treated as not-corresponded (fail safe toward the suppression check,
+	// never toward a false suppression — the gate itself still requires
+	// corroboration on the prefix rules).
+	corresponded, err := s.correspondencePositive(ctx, cp.Email)
+	if err != nil {
+		s.logEnsureFault(ctx, rec, err)
+	}
 	// T2 transactional / ESP infrastructure (CAP-PARAM-6, ADR-0072): a
 	// DocuSign envelope or a SendGrid relay is not a counterparty's company.
 	// Suppress person AND org derivation — the activity already committed and
 	// stands (a DocuSign envelope is a real timeline item) — and record the
-	// reason durably for observability. Runs after the internal-domain gate;
-	// the correspondence-positive check that must precede it lands with the
-	// identity column (ADR-0072 phase 2a), and until then the corroboration
-	// requirement on prefix rules keeps a known contact from being suppressed.
-	if s.transactional != nil {
+	// reason durably for observability.
+	if !corresponded && s.transactional != nil {
 		if suppress, reason := s.transactional.Suppress(transactionalInput(cp)); suppress {
 			s.logSuppression(ctx, rec, reason)
 			return
@@ -138,6 +148,30 @@ func (s *Sink) internalDomain(ctx context.Context, domain string) (bool, error) 
 		return false, fmt.Errorf("capture: internal-domain gate: %w", err)
 	}
 	return internal, nil
+}
+
+// correspondencePositive reports whether the owner has ever written to this
+// address — an outbound activity whose counterparty is email exists (CAP-DDL-7).
+// Sending to someone is affirmative intent; the first outbound mail TO an
+// address makes it correspondence-positive immediately (the outbound activity
+// carries counterparty_email). A cold inbound alone does not. The lookup is
+// index-backed (idx_activity_counterparty_email) and RLS-scoped to the
+// workspace.
+func (s *Sink) correspondencePositive(ctx context.Context, email string) (bool, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" {
+		return false, nil
+	}
+	var corresponded bool
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM activity WHERE counterparty_email = $1 AND direction = 'outbound')`,
+			email).Scan(&corresponded)
+	})
+	if err != nil {
+		return false, fmt.Errorf("capture: correspondence-positive check: %w", err)
+	}
+	return corresponded, nil
 }
 
 // transactionalInput builds the transactional-gate input from a captured

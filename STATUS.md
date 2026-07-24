@@ -881,9 +881,20 @@ Open work, roughly in priority order:
   optimization); per-run crawl caps pinned lower for auto reads (12 pages);
   and `ApplySitePersonFields` (auto-filling an exact/unique-match existing
   person instead of always staging a lead).
-  **Still open (contract-first-gated on ADR-0072):** 2a (counterparty identity +
-  disposition ledger + deferred creation), 2b (the verdict job + review queue +
-  noise disposition), 3 (corroborated signature org-name promotion).
+  **Phase 2a (build, landed):** the counterparty-identity column
+  (`activity.counterparty_email`, migration 0123, index-backed) stamped at
+  capture, and the **T1 correspondence-positive gate** that runs BEFORE the T2
+  transactional suppression — a contact the owner has ever written to (an
+  index-backed EXISTS over outbound activities) is never suppressed as
+  infrastructure, even with a List-Unsubscribe footer. (Re-sliced from the plan:
+  the `capture_pending_counterparty` ledger + deferred creation move to 2b so the
+  deferral lands together with its verdict resolver — landing the deferral alone
+  would leave ambiguous senders in limbo. Capture-audit minimization also moves
+  to 2b, alongside the noise-redaction work it shares a theme with.)
+  **Still open (contract-first-gated on ADR-0072):** 2b (the pending ledger +
+  deferred creation + the `capture_counterparty_verdict` job + review queue +
+  noise hide-then-redact + capture-audit minimization), 3 (corroborated
+  signature org-name promotion).
 
 - **Site-read legal census — three known gaps (#162).** `FinishSiteRead`'s CAS
   guards only on `status = 'running'`, so a reclaimed-then-returning worker can

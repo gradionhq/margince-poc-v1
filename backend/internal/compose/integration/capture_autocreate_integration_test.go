@@ -280,6 +280,56 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 		}
 	})
 
+	t.Run("captured mail stamps the counterparty email on the activity", func(t *testing.T) {
+		// The alice thread above captured inbound + outbound mail with alice;
+		// each activity carries her normalized address, so the correspondence
+		// predicate is an index-backed lookup (CAP-DDL-7).
+		if n := countRows(t, e, `SELECT count(*) FROM activity WHERE counterparty_email = 'alice@acme.example'`); n < 1 {
+			t.Fatal("captured activities must stamp counterparty_email")
+		}
+		// An outbound leg stamps it too — that is what makes a later inbound
+		// correspondence-positive.
+		if n := countRows(t, e, `SELECT count(*) FROM activity WHERE counterparty_email = 'alice@acme.example' AND direction = 'outbound'`); n < 1 {
+			t.Fatal("the outbound leg must stamp counterparty_email for the correspondence predicate")
+		}
+	})
+
+	t.Run("a correspondence-positive contact is spared transactional suppression", func(t *testing.T) {
+		// A contact the owner has already written to (a seeded outbound activity
+		// carrying their address) sends a newsletter from a prefix subdomain WITH
+		// a List-Unsubscribe footer — which would otherwise be T2-suppressed. T1
+		// spares them: the person and org are created (ADR-0072/A118, CAP-DDL-7).
+		err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+			_, err := tx.Exec(context.Background(), `
+				INSERT INTO activity (workspace_id, kind, direction, source_system, source_id, source, captured_by, counterparty_email, occurred_at)
+				VALUES ($1, 'email', 'outbound', 'seed', 'seed-known-1', 'seed', 'connector:gmail', 'known@news.realco.example', now())`, e.WS)
+			return err
+		})
+		if err != nil {
+			t.Fatalf("seeding the prior outbound: %v", err)
+		}
+		sync(t, emailWithListUnsub("known@news.realco.example", "Known Contact", autoCreateOwner, "kn1@news.realco.example"))
+		if n := countRows(t, e, `
+			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+			WHERE pe.email = 'known@news.realco.example'`); n != 1 {
+			t.Fatal("a corresponded-with contact must not be transactionally suppressed")
+		}
+
+		// The control: an identical suppressible inbound from a STRANGER (no
+		// prior outbound) IS suppressed — no person, and a durable breadcrumb.
+		sync(t, emailWithListUnsub("cold@news.stranger.example", "Cold Blast", autoCreateOwner, "cs1@news.stranger.example"))
+		if n := countRows(t, e, `
+			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+			WHERE pe.email = 'cold@news.stranger.example'`); n != 0 {
+			t.Fatal("a stranger's corroborated prefix blast must be suppressed")
+		}
+		if n := countRows(t, e, `
+			SELECT count(*) FROM system_log
+			WHERE action = 'capture_transactional_suppressed' AND detail->>'source_id' = 'cs1@news.stranger.example'`); n != 1 {
+			t.Fatal("the stranger suppression must leave a breadcrumb")
+		}
+	})
+
 	t.Run("the workspace's own domain creates nothing", func(t *testing.T) {
 		sync(t, email("carol@myco.example", "Carol Colleague", autoCreateOwner, "c1@myco.example", ""))
 		if n := countRows(t, e, `

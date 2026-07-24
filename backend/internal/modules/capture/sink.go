@@ -349,14 +349,15 @@ func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.Norm
 	occurredAt := defaultOccurredAt(fields.OccurredAt)
 	var id ids.ActivityID
 	err := tx.QueryRow(ctx, `
-		INSERT INTO activity (workspace_id, kind, subject, body, occurred_at, direction, source_system, source_id, source, captured_by, thread_key)
+		INSERT INTO activity (workspace_id, kind, subject, body, occurred_at, direction, source_system, source_id, source, captured_by, thread_key, counterparty_email)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		        $1, NULLIF($2, ''), NULLIF($3, ''), $4, NULLIF($5, ''), $6, $7, $8, $9, NULLIF($10, ''))
+		        $1, NULLIF($2, ''), NULLIF($3, ''), $4, NULLIF($5, ''), $6, $7, $8, $9, NULLIF($10, ''), NULLIF($11, ''))
 		ON CONFLICT (workspace_id, source_system, source_id) WHERE source_system IS NOT NULL AND source_id IS NOT NULL
 		DO NOTHING
 		RETURNING id`,
 		fields.Kind, fields.Subject, fields.Body, occurredAt, fields.Direction,
-		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, captureSource(rec), rec.CapturedBy, rec.ThreadKey).Scan(&id)
+		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, captureSource(rec), rec.CapturedBy, rec.ThreadKey,
+		rec.Counterparty.Email).Scan(&id)
 	if err == nil {
 		// Field-level provenance (B-E02.12) for the content fields this
 		// capture set — same source/author the row itself carries.
