@@ -24,17 +24,19 @@ func RegisterExtensions(exts []extension.Extension) error {
 	if err := validateExtensionSet(exts); err != nil {
 		return err
 	}
+	// Do every fallible step before applying anything, so the whole
+	// reconciliation stays validate-then-apply: adapting the handler-bearing
+	// tools to the core seam can (in principle — preflightTools already
+	// precludes it, but this stays fail-closed) fail, and it must not fail
+	// with a jurisdiction pack already half-applied.
+	tools, err := buildExtensionTools(exts)
+	if err != nil {
+		return err
+	}
 	for _, e := range exts {
 		for _, p := range e.Jurisdictions {
 			jurisdiction.Register(p)
 		}
-	}
-	// Adapt the handler-bearing tools to the core seam and stash them for
-	// every registry compose builds. Mapping failures are impossible after
-	// preflightTools, but stay fail-closed: a bad mapping aborts the boot.
-	tools, err := buildExtensionTools(exts)
-	if err != nil {
-		return err
 	}
 	setComposedTools(tools)
 	return nil

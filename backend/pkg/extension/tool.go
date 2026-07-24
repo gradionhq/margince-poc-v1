@@ -114,7 +114,7 @@ type Tool struct {
 	// are client-facing DOCUMENTATION: the agent reads them to shape a
 	// call, but the tool's own typed decode — not a generic schema check —
 	// enforces its invariants. Optional, and both must be valid JSON when
-	// set. They are not part of the §5 governance descriptor, so the
+	// set. They are not part of the governance descriptor, so the
 	// manifest generator does not read them.
 	InputSchema  json.RawMessage
 	OutputSchema json.RawMessage
