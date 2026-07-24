@@ -14,9 +14,10 @@ import (
 // not parsed JSON); FxCurrencies is the candidate set the FX refresh proposes to
 // bootstrap an empty sheet (worker default: USD/GBP/CHF).
 // ModelPricing maps a provider to its pricing-page URL; absent ⇒ the model-cost
-// refresh no-ops. The FX refresh, by contrast, always has a source and a
-// candidate set (both default), so it never no-ops on absence. Neither refresh
-// auto-applies — a human approves every staged proposal.
+// refresh no-ops. The FX refresh defaults both its source and candidate set, but
+// extracts with the same model lane, so it no-ops when that lane is absent
+// exactly as the model-cost refresh does. Neither refresh auto-applies — a human
+// approves every staged proposal.
 type RatesConfig struct {
 	Fx           string            `yaml:"fx_source"`
 	FxCurrencies []string          `yaml:"fx_currencies"`

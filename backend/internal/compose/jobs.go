@@ -31,7 +31,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
-	"github.com/gradionhq/margince/backend/internal/platform/webread"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -364,7 +363,7 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	// The rate-refresh jobs are not periodic — the api enqueues one per admin
 	// "Refresh from sources" click; the worker registers regardless of whether
 	// a source is configured (a nil brain / empty url no-ops honestly).
-	river.AddWorker(workers, newFxRefreshWorker(pool, webread.New(), cfg.FxExtractBrain, cfg.FxSourceURL, cfg.FxBootstrapCurrencies, log))
+	river.AddWorker(workers, newFxRefreshWorker(pool, cfg.FxExtractBrain, cfg.FxSourceURL, cfg.FxBootstrapCurrencies, log))
 	river.AddWorker(workers, newModelCostRefreshWorker(pool, cfg.RateExtractBrain, cfg.ModelPricingSources, log))
 
 	periodic := []*river.PeriodicJob{
