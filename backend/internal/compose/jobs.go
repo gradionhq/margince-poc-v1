@@ -365,6 +365,9 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	// a source is configured (a nil brain / empty url no-ops honestly).
 	river.AddWorker(workers, newFxRefreshWorker(pool, cfg.FxExtractBrain, cfg.FxSourceURL, cfg.FxBootstrapCurrencies, log))
 	river.AddWorker(workers, newModelCostRefreshWorker(pool, cfg.RateExtractBrain, cfg.ModelPricingSources, log))
+	// The captured-organization auto-enrich sweep (ADR-0072/A118): always
+	// registered, it enqueues system deep reads the worker above applies.
+	river.AddWorker(workers, newCaptureAutoEnrichSweepWorker(pool, log))
 
 	periodic := []*river.PeriodicJob{
 		river.NewPeriodicJob(
@@ -387,6 +390,11 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 			func() (river.JobArgs, *river.InsertOpts) { return VoiceBuildRetryArgs{}, sweepInsertOpts() },
 			&river.PeriodicJobOpts{RunOnStart: true},
 		),
+		// The captured-organization auto-enrich sweep (ADR-0072/A118): daily,
+		// run-on-start to enrich the existing captured backlog on a fresh boot.
+		river.NewPeriodicJob(river.PeriodicInterval(24*time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) { return CaptureAutoEnrichSweepArgs{}, sweepInsertOpts() },
+			&river.PeriodicJobOpts{RunOnStart: true}),
 	}
 
 	if cfg.ClassifyBrain != nil {

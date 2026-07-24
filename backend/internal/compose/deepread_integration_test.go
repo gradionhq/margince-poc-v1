@@ -37,6 +37,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -88,11 +89,12 @@ func newDeepReadTestWorker(e *integration.Env, site *fakeSite, brain completer) 
 	svc.WithEffect(deepReadProposalKind, deepReadAcceptEffect(svc, e.People))
 	svc.WithEffect(siteLeadProposalKind, siteLeadAcceptEffect(svc, newCaptureSink(e.Pool, CaptureConfig{})))
 	return &siteDeepReadWorker{
-		people:    e.People,
-		crawler:   testSiteCrawler(site),
-		extract:   evidenceExtractor{brain: brain, factBrain: brain},
-		approvals: svc,
-		log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
+		people:     e.People,
+		crawler:    testSiteCrawler(site),
+		extract:    evidenceExtractor{brain: brain, factBrain: brain},
+		approvals:  svc,
+		autoEnrich: capture.NewAutoEnrichStore(e.Pool),
+		log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}, svc
 }
 

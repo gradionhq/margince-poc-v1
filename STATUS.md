@@ -842,12 +842,27 @@ Open work, roughly in priority order:
   `GET/PATCH /capture/settings` (new `capture_settings` RBAC object — read all
   roles, PATCH admin/ops human-only, audit-only write EVT-NOEVT-3; migration
   0119 + policy seed; the Settings → Integrations `CaptureSettingsCard`, i18n
-  en+de, vitest). `make check` + `make check-fe` + the full zero-skip
-  integration lane green.
-  **Still open (contract-first-gated on ADR-0072):** Phase 4B (auto deep-read
-  trigger + auto-apply + sweep), 2a (counterparty identity + disposition
-  ledger + deferred creation), 2b (the verdict job + review queue + noise
-  disposition), 3 (corroborated signature org-name promotion).
+  en+de, vitest).
+  **Phase 4B (build, landed):** the captured-organization auto-enrich sweep +
+  auto-apply lane. A run-on-start daily River sweep (`capture_auto_enrich_sweep`)
+  enqueues a system deep read (`system:capture_auto_enrich`) for every
+  domain-named captured org (`name_source='domain'`) with a live domain and no
+  dossier, newest-first, under an atomically-reserved per-workspace daily cap
+  (N=10; migration 0120 adds `capture_auto_enrich_state` cursor +
+  `capture_auto_enrich_budget`, both FORCE-RLS). The deep-read worker's
+  auto-apply lane applies a system-requested read's fields+facts DIRECTLY
+  (fill-empty + human-precedence, idempotent) instead of staging a confirm-first
+  proposal; site people still stage as leads (NEVER-8). The flag is re-read each
+  pass (toggle-off stops new reads). `make check` + `make check-fe` + full
+  zero-skip integration lane green.
+  **Deferred follow-ups (noted, not blocking):** the synchronous
+  enrich-on-capture trigger (the sweep already self-heals, so it's a latency
+  optimization); per-run crawl caps pinned lower for auto reads (12 pages);
+  and `ApplySitePersonFields` (auto-filling an exact/unique-match existing
+  person instead of always staging a lead).
+  **Still open (contract-first-gated on ADR-0072):** 2a (counterparty identity +
+  disposition ledger + deferred creation), 2b (the verdict job + review queue +
+  noise disposition), 3 (corroborated signature org-name promotion).
 
 - **Site-read legal census — three known gaps (#162).** `FinishSiteRead`'s CAS
   guards only on `status = 'running'`, so a reclaimed-then-returning worker can
