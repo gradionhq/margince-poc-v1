@@ -98,3 +98,16 @@ func flip(s string) string {
 	}
 	return "A"
 }
+
+func TestConnectStateCarriesReturnToThroughSignAndVerify(t *testing.T) {
+	s := newStateSigner([]byte("0123456789abcdef0123456789abcdef"))
+	now := time.Now()
+	token := s.sign(connectState{Provider: "gmail", Nonce: "n", ReturnTo: "settings"}, now.Add(time.Minute))
+	got, err := s.verify(token, now)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if got.ReturnTo != "settings" {
+		t.Errorf("ReturnTo = %q, want %q", got.ReturnTo, "settings")
+	}
+}

@@ -195,3 +195,24 @@ func TestCallbackBadStateRedirectsError(t *testing.T) {
 		t.Errorf("Location = %q, want the error landing", loc)
 	}
 }
+
+func TestLandingURLMapsReturnToThroughAClosedSet(t *testing.T) {
+	h := connectorHandlers{publicBaseURL: "https://crm.example.com/"}
+	for _, tc := range []struct {
+		name     string
+		returnTo string
+		want     string
+	}{
+		{"settings", "settings", "https://crm.example.com/#/settings/connections/ok"},
+		{"onboarding", "onboarding", "https://crm.example.com/#/onboarding/connect/ok"},
+		{"absent falls back to onboarding", "", "https://crm.example.com/#/onboarding/connect/ok"},
+		{"unknown falls back to onboarding", "elsewhere", "https://crm.example.com/#/onboarding/connect/ok"},
+		{"a URL is never reflected", "https://evil.example/", "https://crm.example.com/#/onboarding/connect/ok"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := h.landingURL("ok", tc.returnTo); got != tc.want {
+				t.Errorf("landingURL(ok, %q) = %q, want %q", tc.returnTo, got, tc.want)
+			}
+		})
+	}
+}

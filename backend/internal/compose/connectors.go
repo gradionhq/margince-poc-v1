@@ -171,14 +171,24 @@ func (h connectorHandlers) oauthApp(provider string) (oauthApp, bool) {
 	}
 }
 
-// landingURL is the wizard's OAuth-return deep link. The SPA is hash-routed,
-// so the outcome rides the route — the connect step reads it and renders
-// success, the honest denial, or the honest failure. Earlier-step completion
-// is server-derived on mount, so no client state needs to survive the
-// redirect.
-func (h connectorHandlers) landingURL(outcome string) string {
-	return strings.TrimRight(h.publicBaseURL, "/") + "/#/onboarding/connect/" + outcome
+// landingURL is the OAuth-return deep link. The SPA is hash-routed, so the
+// outcome rides the route — the landing surface reads it and renders success,
+// the honest denial, or the honest failure. returnTo names WHICH surface, and
+// is resolved through a closed set: it is an enum, never a URL, so no caller
+// input ever reaches the Location header. Anything unrecognized — including an
+// absent value and a URL-shaped one — lands on onboarding.
+func (h connectorHandlers) landingURL(outcome, returnTo string) string {
+	route := "/#/onboarding/connect/"
+	if returnTo == returnToSettings {
+		route = "/#/settings/connections/"
+	}
+	return strings.TrimRight(h.publicBaseURL, "/") + route + outcome
 }
+
+const (
+	returnToOnboarding = "onboarding"
+	returnToSettings   = "settings"
+)
 
 func (h connectorHandlers) ListConnectors(w http.ResponseWriter, r *http.Request) {
 	if h.registry == nil {
@@ -239,6 +249,18 @@ func (h connectorHandlers) ConnectConnector(w http.ResponseWriter, r *http.Reque
 		})
 		return
 	}
+	// The body is optional for OAuth providers (they submit nothing), so an
+	// absent one is not a failure — only a malformed one is.
+	returnTo := returnToOnboarding
+	if r.ContentLength > 0 {
+		var req crmcontracts.ConnectConnectorRequest
+		if !httperr.Decode(w, r, &req) {
+			return
+		}
+		if req.ReturnTo != nil && string(*req.ReturnTo) == returnToSettings {
+			returnTo = returnToSettings
+		}
+	}
 	// CSRF: a random nonce goes into both a SameSite=Lax cookie and the signed
 	// state; the callback requires them to match, so a victim can't complete an
 	// attacker-initiated flow (account-linking CSRF).
@@ -253,7 +275,7 @@ func (h connectorHandlers) ConnectConnector(w http.ResponseWriter, r *http.Reque
 		SameSite: http.SameSiteLaxMode,
 	})
 	state := h.signer.sign(
-		connectState{Workspace: ws, User: actor.UserID, Provider: string(provider), Nonce: nonce},
+		connectState{Workspace: ws, User: actor.UserID, Provider: string(provider), Nonce: nonce, ReturnTo: returnTo},
 		time.Now().Add(connectStateTTL),
 	)
 	authURL := app.authCodeURL(state, h.callbackURL(string(provider)))
@@ -270,27 +292,30 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 	// The user denied consent at the provider — surface it honestly, never as
 	// an error.
 	if params.Error != nil && *params.Error != "" {
-		http.Redirect(w, r, h.landingURL("denied"), http.StatusFound)
+		http.Redirect(w, r, h.landingURL("denied", returnToOnboarding), http.StatusFound)
 		return
 	}
 	// The signed state is the only trustworthy carrier here (no session cookie
 	// on the cross-site redirect). A bad/expired/mismatched state or a missing
 	// code cannot proceed — redirect with an honest error, details logged only.
+	// No verified state exists yet, so the redirect keeps the default rather
+	// than reading a ReturnTo we cannot trust.
 	st, err := h.signer.verify(params.State, time.Now())
 	if err != nil || st.Provider != string(provider) || params.Code == nil || *params.Code == "" {
 		slog.WarnContext(ctx, "connector callback rejected", "err", err, "provider", string(provider))
-		http.Redirect(w, r, h.landingURL("error"), http.StatusFound)
+		http.Redirect(w, r, h.landingURL("error", returnToOnboarding), http.StatusFound)
 		return
 	}
 	// CSRF: the SameSite=Lax oauth_csrf cookie must match the nonce in the
 	// signed state, proving the browser completing the flow is the one that
 	// started it. Without this, an attacker could trick a victim into
 	// completing the attacker's flow and link the victim's mailbox to the
-	// attacker's account (account-linking CSRF).
+	// attacker's account (account-linking CSRF). The flow isn't fully trusted
+	// until this passes, so this redirect also keeps the default.
 	csrf, cerr := r.Cookie(csrfCookieName(string(provider)))
 	if cerr != nil || st.Nonce == "" || subtle.ConstantTimeCompare([]byte(csrf.Value), []byte(st.Nonce)) != 1 {
 		slog.WarnContext(ctx, "connector callback: CSRF nonce missing/mismatched", "err", cerr, "provider", string(provider))
-		http.Redirect(w, r, h.landingURL("error"), http.StatusFound)
+		http.Redirect(w, r, h.landingURL("error", returnToOnboarding), http.StatusFound)
 		return
 	}
 	// One-shot: clear the CSRF cookie now that it's been consumed (same secure
@@ -303,7 +328,7 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 	auth, err := app.authenticate(ctx, *params.Code, h.callbackURL(string(provider)))
 	if err != nil {
 		slog.ErrorContext(ctx, "connector callback: token exchange", "err", err, "provider", string(provider))
-		http.Redirect(w, r, h.landingURL("error"), http.StatusFound)
+		http.Redirect(w, r, h.landingURL("error", st.ReturnTo), http.StatusFound)
 		return
 	}
 
@@ -322,10 +347,10 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 	})
 	if _, err := h.registry.Connect(runCtx, string(provider), auth); err != nil {
 		slog.ErrorContext(ctx, "connector callback: persisting connection", "err", err, "provider", string(provider))
-		http.Redirect(w, r, h.landingURL("error"), http.StatusFound)
+		http.Redirect(w, r, h.landingURL("error", st.ReturnTo), http.StatusFound)
 		return
 	}
-	http.Redirect(w, r, h.landingURL("ok"), http.StatusFound)
+	http.Redirect(w, r, h.landingURL("ok", st.ReturnTo), http.StatusFound)
 }
 
 func (h connectorHandlers) DisconnectConnector(w http.ResponseWriter, r *http.Request, provider crmcontracts.CaptureProvider) {
