@@ -17,6 +17,7 @@ import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessage } from "./common";
 import { statusLabel, statusTone } from "./connector-status";
+import { ImapConnectForm } from "./imap-connect-form";
 
 // The connected-inboxes card (RC-8): the Settings surface the onboarding copy
 // has always promised ("disconnect in one click", "manage in Settings"). It
@@ -35,7 +36,8 @@ const providerLabel: Record<Provider, MessageKey> = {
 };
 
 // The OAuth providers whose reconnect re-mints a consent URL; imap reconnects
-// through the onboarding form, not a redirect.
+// (and first-connects) through the inline ImapConnectForm below instead, since
+// a credential provider never redirects.
 const OAUTH_PROVIDERS = new Set<Provider>(["gmail", "gcal", "graph"]);
 
 export function ConnectorsCard() {
@@ -45,6 +47,7 @@ export function ConnectorsCard() {
   const [pendingDisconnect, setPendingDisconnect] = useState<Provider | null>(
     null,
   );
+  const [imapConnectOpen, setImapConnectOpen] = useState(false);
 
   const connectors = useQuery({
     queryKey: ["connectors"],
@@ -61,7 +64,9 @@ export function ConnectorsCard() {
     mutationFn: async (provider: Provider) => {
       const { data, error } = await api.POST("/connectors/{provider}/connect", {
         params: { path: { provider } },
-        body: {},
+        // Lands the post-consent redirect back on Settings (Task 2's
+        // contract field) rather than the default onboarding landing.
+        body: { return_to: "settings" },
       });
       if (error) {
         throw new Error(problemMessage(error));
@@ -110,13 +115,25 @@ export function ConnectorsCard() {
       {connectors.isSuccess && rows.length === 0 && (
         <EmptyState>
           <p>{t("connectors.empty")}</p>
-          <Button
-            small
-            variant="primary"
-            onClick={() => navigate({ screen: "onboarding", id: "connect" })}
+          <div
+            style={{
+              display: "flex",
+              gap: "var(--space-2)",
+              justifyContent: "center",
+              flexWrap: "wrap",
+            }}
           >
-            <Plug aria-hidden /> {t("connectors.connectCta")}
-          </Button>
+            <Button
+              small
+              variant="primary"
+              onClick={() => navigate({ screen: "onboarding", id: "connect" })}
+            >
+              <Plug aria-hidden /> {t("connectors.connectCta")}
+            </Button>
+            <Button small onClick={() => setImapConnectOpen(true)}>
+              <Mail aria-hidden /> {t("connectors.imapConnectCta")}
+            </Button>
+          </div>
         </EmptyState>
       )}
       {rows.length > 0 && (
@@ -145,7 +162,7 @@ export function ConnectorsCard() {
                   {t(statusLabel(conn.status))}
                 </Badge>
                 {conn.status === "reauth_required" &&
-                  OAUTH_PROVIDERS.has(conn.provider) && (
+                  (OAUTH_PROVIDERS.has(conn.provider) ? (
                     <Button
                       small
                       disabled={reconnect.isPending}
@@ -153,7 +170,11 @@ export function ConnectorsCard() {
                     >
                       <RefreshCw aria-hidden /> {t("connectors.reconnect")}
                     </Button>
-                  )}
+                  ) : (
+                    <Button small onClick={() => setImapConnectOpen(true)}>
+                      <RefreshCw aria-hidden /> {t("connectors.reconnect")}
+                    </Button>
+                  ))}
                 <Button
                   small
                   variant="ghost"
@@ -187,6 +208,11 @@ export function ConnectorsCard() {
       >
         <p className="t-small">{t("connectors.disconnectBody")}</p>
       </ConfirmModal>
+      <ImapConnectForm
+        open={imapConnectOpen}
+        onClose={() => setImapConnectOpen(false)}
+        onConnected={() => setImapConnectOpen(false)}
+      />
     </Card>
   );
 }

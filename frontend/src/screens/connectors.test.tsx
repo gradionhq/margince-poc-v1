@@ -122,6 +122,17 @@ describe("the connected-inboxes card", () => {
     ).toBeTruthy();
   });
 
+  it("opens the inline IMAP form from the empty state instead of bouncing to onboarding", async () => {
+    stubApi([]);
+    render(<ConnectorsCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Connect an IMAP mailbox/ }),
+    );
+    expect(
+      screen.getByRole("dialog", { name: "Connect an IMAP mailbox" }),
+    ).toBeTruthy();
+  });
+
   it("offers reconnect only for a connection that needs re-auth", async () => {
     stubApi([gmailStale]);
     render(<ConnectorsCard />);
@@ -157,6 +168,33 @@ describe("the connected-inboxes card", () => {
     await waitFor(() =>
       expect(assign).toHaveBeenCalledWith("https://accounts.google/consent"),
     );
+  });
+
+  it("sends return_to=settings on reconnect so consent lands back on Settings", async () => {
+    vi.stubGlobal("location", { ...globalThis.location, assign: vi.fn() });
+    const calls = stubApi([gmailStale], {
+      connect: { authorize_url: "https://accounts.google/consent" },
+    });
+    render(<ConnectorsCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Reconnect/ }),
+    );
+    const connectRequests = await waitFor(() => {
+      const requests = requestsTo(calls, "/connect", "POST");
+      expect(requests.length).toBe(1);
+      return requests;
+    });
+    const body = await connectRequests[0].clone().json();
+    expect(body).toMatchObject({ return_to: "settings" });
+  });
+
+  it("offers the inline IMAP form to reconnect an imap connection instead of an OAuth reconnect", async () => {
+    stubApi([{ ...gmailStale, provider: "imap" }]);
+    render(<ConnectorsCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Reconnect/ }),
+    );
+    expect(await screen.findByText("Connect an IMAP mailbox")).toBeTruthy();
   });
 
   it("surfaces a failed reconnect instead of redirecting", async () => {

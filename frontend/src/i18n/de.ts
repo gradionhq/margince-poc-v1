@@ -1209,6 +1209,22 @@ export const de = {
     "Bei uns ist etwas schiefgelaufen. Wir haben gestoppt, statt unvollständige Daten zu erfassen.",
   "connectors.errUnknown":
     "Bei der Erfassung ist ein Problem aufgetreten, das wir noch nicht einordnen können. Wir versuchen es weiter.",
+
+  // Das eingebettete IMAP-Verbindungsformular (Task 6).
+  "connectors.imapConnectCta": "IMAP-Postfach verbinden",
+  "connectors.imapModalTitle": "IMAP-Postfach verbinden",
+  "connectors.imapHost": "IMAP-Server",
+  "connectors.imapPort": "Port",
+  "connectors.imapUsername": "E-Mail-Adresse",
+  "connectors.imapSecret": "App-Passwort",
+  "connectors.imapMailbox": "Postfach",
+  "connectors.imapMaxMessages": "Nachrichten pro Synchronisierung",
+  "connectors.imapSecretHint":
+    "Verwende ein App-Passwort. Wir versiegeln es im Credential-Vault und lesen deine Mails nach Zeitplan, bis du trennst — beim Trennen wird es gelöscht.",
+  "connectors.imapSubmitCta": "Verbinden",
+  "connectors.imapLoginRejected":
+    "Das Postfach hat diese Zugangsdaten abgelehnt. Prüfe Server, E-Mail und App-Passwort.",
+  "connectors.imapUnreachable": "Der Mailserver konnte nicht erreicht werden.",
   "ob.s4.googleVerifying": "Verbindung wird geprüft…",
   "ob.s4.googleDenied": "Du hast die Google-Einwilligung abgelehnt",
   "ob.s4.googleFailed": "Die Google-Verbindung wurde nicht abgeschlossen",

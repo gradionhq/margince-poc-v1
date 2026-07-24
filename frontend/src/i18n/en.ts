@@ -1188,6 +1188,24 @@ export const en = {
     "Something went wrong on our side. We stopped rather than capture partial data.",
   "connectors.errUnknown":
     "Capture hit a problem we can't classify yet. We'll keep retrying.",
+
+  // The inline IMAP connect form (Task 6): first-connect and reconnect for
+  // the one credential provider, done in Settings instead of bouncing to
+  // onboarding.
+  "connectors.imapConnectCta": "Connect an IMAP mailbox",
+  "connectors.imapModalTitle": "Connect an IMAP mailbox",
+  "connectors.imapHost": "IMAP server",
+  "connectors.imapPort": "Port",
+  "connectors.imapUsername": "Email address",
+  "connectors.imapSecret": "App password",
+  "connectors.imapMailbox": "Mailbox",
+  "connectors.imapMaxMessages": "Messages per sync",
+  "connectors.imapSecretHint":
+    "Use an app-specific password. We seal it in the credential vault and read your mail on a schedule until you disconnect — disconnecting deletes it.",
+  "connectors.imapSubmitCta": "Connect",
+  "connectors.imapLoginRejected":
+    "The mailbox rejected these credentials. Check host, email and app password.",
+  "connectors.imapUnreachable": "The mail server could not be reached.",
   "ob.s4.googleVerifying": "Verifying the connection…",
   "ob.s4.googleDenied": "You declined the Google consent",
   "ob.s4.googleFailed": "The Google connection didn't complete",
