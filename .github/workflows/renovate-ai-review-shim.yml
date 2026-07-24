@@ -16,17 +16,23 @@ name: renovate-ai-review-shim
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  # Manual backfill: `pull_request` triggers are not retroactive, so Renovate
+  # PRs already open when this workflow lands never get the per-PR run. Dispatch
+  # this workflow once to post the status on every currently-open Renovate PR.
+  workflow_dispatch:
 
 permissions:
   contents: read
+  pull-requests: read
   statuses: write
 
 jobs:
+  # Per-PR path: fires as each Renovate PR opens or updates.
   shim:
     name: renovate-ai-review-shim
     # The PR AUTHOR, not github.actor — a human who reopens or rebases a
     # Renovate PR must not slip past the real reviewer.
-    if: github.event.pull_request.user.login == 'renovate[bot]'
+    if: github.event_name == 'pull_request' && github.event.pull_request.user.login == 'renovate[bot]'
     runs-on: ubuntu-latest
     steps:
       # Post the success status on the PR head commit (the SHA branch
@@ -40,3 +46,25 @@ jobs:
             -f state=success \
             -f context=CodeRabbit \
             -f description='Skipped for Renovate bot PR (AI review not run on dependency updates)'
+
+  # Backfill path: one-shot manual run over every open Renovate PR head SHA, for
+  # PRs that were already open before this workflow existed.
+  backfill:
+    name: renovate-ai-review-shim-backfill
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post CodeRabbit status on all open Renovate PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh pr list --repo "$REPO" --author app/renovate --state open \
+            --json number,headRefOid --jq '.[] | "\(.number) \(.headRefOid)"' |
+          while read -r num sha; do
+            echo "Posting CodeRabbit status on #${num} (${sha})"
+            gh api "repos/${REPO}/statuses/${sha}" \
+              -f state=success \
+              -f context=CodeRabbit \
+              -f description='Skipped for Renovate bot PR (backfill)'
+          done
