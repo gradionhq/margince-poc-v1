@@ -23,8 +23,12 @@ BEGIN {
   for (i = 1; i <= n; i++) { keep[names[i]] = 1 }
 }
 
+# Strips CSI sequences by their final letter, not just the SGR "m": Vite emits
+# cursor moves and line clears (\033[K, \033[2A) too, and one of those surviving
+# into a repainted line is the same garbled output the strip-then-repaint pass
+# exists to prevent.
 function stripAnsi(s) {
-  gsub(/\033\[[0-9;]*m/, "", s)
+  gsub(/\033\[[0-9;]*[a-zA-Z]/, "", s)
   return s
 }
 
