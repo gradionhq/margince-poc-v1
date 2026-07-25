@@ -23,12 +23,30 @@ package compose
 import (
 	"context"
 	"net/http"
+	"time"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
+
+// overlayWriteMode answers whether this MUTATING request dispatches to the
+// mirror, resolved uncached (dispatcher.go's isOverlayForWrite) rather than
+// through the read path's TTL cache. A write shadow that took the cached
+// answer could hand a mutation to the native module handler for the rest of
+// the TTL after another process flipped the workspace into overlay — a
+// commit to a native table no overlay read ever serves, which never reaches
+// the incumbent. A mode-resolution failure is written to w (ok=false), the
+// same fail-closed posture overlayReadMode takes.
+func (s Server) overlayWriteMode(w http.ResponseWriter, r *http.Request) (overlayMode, ok bool) {
+	ov, err := s.sorDispatch.isOverlayForWrite(r.Context())
+	if err != nil {
+		httperr.Write(w, r, err)
+		return false, false
+	}
+	return ov, true
+}
 
 // restWriteSource is the provenance Source every human REST write carries
 // into the seam. CapturedBy stays unset: overlay's write-back never reads it
@@ -55,7 +73,7 @@ func overlayUpdate[Req any, Res any](s Server, w http.ResponseWriter, r *http.Re
 	et datasource.EntityType, id crmcontracts.Id, native func(),
 	wire func(context.Context, datasource.Record) (Res, error),
 ) {
-	ov, ok := s.overlayReadMode(w, r)
+	ov, ok := s.overlayWriteMode(w, r)
 	if !ok {
 		return
 	}
@@ -114,23 +132,32 @@ func respondWithMirroredRecord[Res any](s Server, w http.ResponseWriter, r *http
 // (Provider.Read's own auth.Require), just ordered before rather than after
 // the write.
 //
-// Two honest divergences from the native path follow from that ordering,
-// both acceptable because a mirror row has no archived STATE to report in
-// the first place (it is purged, never flagged archived):
-//   - the body can be stale by the width of the pre-read-then-archive
-//     window — an incumbent update landing in that gap is not reflected —
-//     whereas the native path reads and archives in one transaction; and
-//   - the body carries no archived marker (no ArchivedAt, unlike a native
-//     archived row), since it is exactly the pre-archive record, unchanged.
+// markArchived stamps the archive instant onto the assembled body, so the
+// 200 describes the record as it is AFTER the call rather than as it was
+// before. Without it the response says archived_at: null about a record the
+// incumbent has just archived — the contract's archive response is defined
+// as "now carries a non-null archived_at", and answering otherwise reports
+// the write as not having happened.
 //
-// Both are read-only, display-only gaps: the incumbent-first Archive call
-// itself is what actually gates and executes the archive, so neither
-// affects whether the record is genuinely archived.
+// The contract's other archive promise — that the archived row stays
+// fetchable by id — is NOT met here, and cannot be by this transport: the
+// mirror row is purged, so the following GET answers 404. An incumbent
+// archive stops serving the object at the source, so the mirror has no
+// archived state to keep; honoring that promise needs an archived-row
+// substrate and a settled answer to what archive MEANS when the system of
+// record is an incumbent. Both are upstream contract questions, tracked
+// against the spec — this shadow does not paper over the gap by pretending
+// the record is still there.
+//
+// The body can also be stale by the width of the pre-read-then-archive
+// window — an incumbent update landing in that gap is not reflected —
+// whereas the native path reads and archives in one transaction.
 func overlayArchive[Res any](s Server, w http.ResponseWriter, r *http.Request,
 	et datasource.EntityType, id crmcontracts.Id, native func(),
 	wire func(context.Context, datasource.Record) (Res, error),
+	markArchived func(*Res, time.Time),
 ) {
-	ov, ok := s.overlayReadMode(w, r)
+	ov, ok := s.overlayWriteMode(w, r)
 	if !ok {
 		return
 	}
@@ -153,6 +180,7 @@ func overlayArchive[Res any](s Server, w http.ResponseWriter, r *http.Request,
 		httperr.Write(w, r, err)
 		return
 	}
+	markArchived(&body, time.Now().UTC())
 	httperr.WriteJSON(w, http.StatusOK, body)
 }
 
@@ -165,7 +193,8 @@ func (s Server) UpdatePerson(w http.ResponseWriter, r *http.Request, id crmcontr
 // ArchivePerson shadows the person archive.
 func (s Server) ArchivePerson(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
 	overlayArchive(s, w, r, datasource.EntityPerson, id,
-		func() { s.peopleHandlers.ArchivePerson(w, r, id) }, overlayWirePerson)
+		func() { s.peopleHandlers.ArchivePerson(w, r, id) }, overlayWirePerson,
+		func(p *crmcontracts.Person, at time.Time) { p.ArchivedAt = &at })
 }
 
 // UpdateOrganization shadows the organization update.
@@ -177,7 +206,8 @@ func (s Server) UpdateOrganization(w http.ResponseWriter, r *http.Request, id cr
 // ArchiveOrganization shadows the organization archive.
 func (s Server) ArchiveOrganization(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
 	overlayArchive(s, w, r, datasource.EntityOrganization, id,
-		func() { s.peopleHandlers.ArchiveOrganization(w, r, id) }, overlayWireOrganization)
+		func() { s.peopleHandlers.ArchiveOrganization(w, r, id) }, overlayWireOrganization,
+		func(o *crmcontracts.Organization, at time.Time) { o.ArchivedAt = &at })
 }
 
 // UpdateDeal shadows the deal update.
@@ -189,7 +219,8 @@ func (s Server) UpdateDeal(w http.ResponseWriter, r *http.Request, id crmcontrac
 // ArchiveDeal shadows the deal archive.
 func (s Server) ArchiveDeal(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
 	overlayArchive(s, w, r, datasource.EntityDeal, id,
-		func() { s.dealsHandlers.ArchiveDeal(w, r, id) }, overlayWireDeal)
+		func() { s.dealsHandlers.ArchiveDeal(w, r, id) }, overlayWireDeal,
+		func(d *crmcontracts.Deal, at time.Time) { d.ArchivedAt = &at })
 }
 
 // UpdateLead shadows the lead update. Lead has no archive shadow: it is not

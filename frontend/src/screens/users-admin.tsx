@@ -14,6 +14,7 @@ import { ConfirmModal } from "../design-system/confirmmodal";
 import { useT } from "../i18n";
 import { problemMessage, QueryGate, useMe } from "./common";
 import "./users-admin.css";
+import { isOption } from "../app/options";
 
 type User = components["schemas"]["User"];
 type Role = components["schemas"]["ChangeUserRoleRequest"]["role"];
@@ -141,7 +142,10 @@ function InviteForm() {
         className="input"
         aria-label={t("users.roleLabel")}
         value={role}
-        onChange={(e) => setRole(e.target.value as Role)}
+        onChange={(e) => {
+          const value = e.target.value;
+          if (isOption(value, ROLES)) setRole(value);
+        }}
       >
         {ROLES.map((r) => (
           <option key={r} value={r}>
@@ -235,8 +239,9 @@ function MemberRow({ member }: Readonly<{ member: User }>) {
         value=""
         disabled={pending}
         onChange={(e) => {
-          if (e.target.value) {
-            setRole.mutate(e.target.value as Role);
+          const value = e.target.value;
+          if (isOption(value, ROLES)) {
+            setRole.mutate(value);
           }
         }}
       >

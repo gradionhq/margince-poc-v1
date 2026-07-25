@@ -20,6 +20,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
 const problemTypeBase = "https://errors.gradion.com/"
@@ -57,6 +58,65 @@ var mapping = []struct {
 	{apperrors.ErrIncumbentBudgetExhausted, http.StatusServiceUnavailable, "incumbent_budget_exhausted"},
 }
 
+// clientInputValidation maps the typed errors that mean "the CALLER got the
+// request wrong" onto their contract validation shape — each carrying its own
+// field and machine code, so the client is told which input to fix rather than
+// being handed a generic 422. It reports false for anything else, leaving the
+// sentinel table (and ultimately the opaque 500) to answer.
+//
+// They are collected in one place because they share a single decision: none
+// of them is a server fault, so none of them may reach the unhandled-error
+// branch — a client mistake answered as a 500 sends the caller looking for an
+// outage that is not there.
+func clientInputValidation(err error) (error, bool) {
+	// The keyset cursor is client input: a token that fails to decode is
+	// the caller's fault, same 422 shape as every other bad query input.
+	var badCursor *storekit.MalformedCursorError
+	if errors.As(err, &badCursor) {
+		return Validation("cursor", "malformed_cursor", "cursor is not a valid page token"), true
+	}
+
+	// A cursor that decodes but was minted under a different sort carries
+	// the contract's dedicated code — the caller re-issues the query
+	// without the cursor (or under the sort it was minted with).
+	var cursorMismatch *storekit.CursorSortMismatchError
+	if errors.As(err, &cursorMismatch) {
+		return Validation("cursor", "cursor_param_mismatch",
+			"cursor was minted under a different sort; re-issue the query without the cursor"), true
+	}
+
+	// The list vocabularies' typed refusals (data-model §13.5): a sort
+	// spec or filter leaf outside the resource's closed vocabulary carries
+	// its own field and machine code — one wire mapping, like the cursor's.
+	var badSort *storekit.SortError
+	if errors.As(err, &badSort) {
+		return Validation("sort", badSort.Code, badSort.Message), true
+	}
+	var badPredicate *storekit.PredicateError
+	if errors.As(err, &badPredicate) {
+		return Validation(badPredicate.Field, badPredicate.Code, badPredicate.Message), true
+	}
+
+	// A value object refused to parse: client input in the wrong format,
+	// carrying its own field and machine code — the parse-don't-validate
+	// seam's single wire mapping.
+	var badValue *values.ParseError
+	if errors.As(err, &badValue) {
+		return Validation(badValue.Field, badValue.Code, badValue.Message), true
+	}
+
+	// A write payload the datasource seam refused to decode — an unknown or
+	// misspelled field, or a value of the wrong type. datasource's own doc
+	// states it maps to 422 on every surface; this is the branch that makes
+	// that true for HTTP rather than letting it fall through to the 500.
+	var badFields *datasource.FieldDecodeError
+	if errors.As(err, &badFields) {
+		return Validation("fields", "invalid_field", badFields.Cause.Error()), true
+	}
+
+	return nil, false
+}
+
 // Write maps err onto the wire. Unknown errors become an opaque 500 — the
 // cause is logged server-side, never leaked to the client.
 func Write(w http.ResponseWriter, r *http.Request, err error) {
@@ -71,44 +131,8 @@ func Write(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 
-	// The keyset cursor is client input: a token that fails to decode is
-	// the caller's fault, same 422 shape as every other bad query input.
-	var badCursor *storekit.MalformedCursorError
-	if errors.As(err, &badCursor) {
-		Write(w, r, Validation("cursor", "malformed_cursor", "cursor is not a valid page token"))
-		return
-	}
-
-	// A cursor that decodes but was minted under a different sort carries
-	// the contract's dedicated code — the caller re-issues the query
-	// without the cursor (or under the sort it was minted with).
-	var cursorMismatch *storekit.CursorSortMismatchError
-	if errors.As(err, &cursorMismatch) {
-		Write(w, r, Validation("cursor", "cursor_param_mismatch",
-			"cursor was minted under a different sort; re-issue the query without the cursor"))
-		return
-	}
-
-	// The list vocabularies' typed refusals (data-model §13.5): a sort
-	// spec or filter leaf outside the resource's closed vocabulary carries
-	// its own field and machine code — one wire mapping, like the cursor's.
-	var badSort *storekit.SortError
-	if errors.As(err, &badSort) {
-		Write(w, r, Validation("sort", badSort.Code, badSort.Message))
-		return
-	}
-	var badPredicate *storekit.PredicateError
-	if errors.As(err, &badPredicate) {
-		Write(w, r, Validation(badPredicate.Field, badPredicate.Code, badPredicate.Message))
-		return
-	}
-
-	// A value object refused to parse: client input in the wrong format,
-	// carrying its own field and machine code — the parse-don't-validate
-	// seam's single wire mapping.
-	var badValue *values.ParseError
-	if errors.As(err, &badValue) {
-		Write(w, r, Validation(badValue.Field, badValue.Code, badValue.Message))
+	if v, ok := clientInputValidation(err); ok {
+		Write(w, r, v)
 		return
 	}
 

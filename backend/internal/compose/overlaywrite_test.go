@@ -26,7 +26,7 @@ type fakeMode struct {
 	err     error
 }
 
-func (f fakeMode) isOverlay(context.Context) (bool, error) { return f.overlay, f.err }
+func (f fakeMode) isOverlayForWrite(context.Context) (bool, error) { return f.overlay, f.err }
 
 // guardRequest builds a request carrying the chi route pattern the guard
 // keys on — the same shape the contract router populates before running

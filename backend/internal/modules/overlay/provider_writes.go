@@ -170,15 +170,16 @@ func rejectExtraProperties(target any) error {
 // V1 retry-safety limitation: HubSpot's v3 object-create is a bare POST
 // with no caller-supplied idempotency key (no hs_unique_creation_key), so a
 // caller that retries after a mirror-write failure — the incumbent create
-// already committed, the follow-up Ingest did not — can mint a second
+// already committed, the follow-up ingest did not — can mint a second
 // incumbent object. The orphaned first object is not lost (the reconcile
 // poller mirrors it on its next sweep), but a retried Create is NOT
 // idempotent in V1. Retry-safe create (search-before-create or an
-// alternate-key upsert, per S-E19.3/S-E20.3) is a fast-follow; overlay
-// write-back today is reached only through the 🟡 confirm-first agent path
-// (AC-OV-5), whose approval is human-gated and audited, so an unattended
-// retry storm is not the live exposure.
+// alternate-key upsert, per S-E19.3/S-E20.3) is the prerequisite for ever
+// declaring this verb supported.
 func (p *Provider) Create(ctx context.Context, in datasource.CreateInput) (datasource.EntityRef, error) {
+	if err := requireSupportedWrite(WriteCreate, in.EntityType); err != nil {
+		return datasource.EntityRef{}, err
+	}
 	if err := auth.Require(ctx, string(in.EntityType), principal.ActionCreate); err != nil {
 		return datasource.EntityRef{}, err
 	}
@@ -197,14 +198,12 @@ func (p *Provider) Create(ctx context.Context, in datasource.CreateInput) (datas
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
-	// Open the echo-ledger entries BEFORE mirroring so the entry is visible as
-	// early as possible after the incumbent commit — narrowing the window in
-	// which our own echo could arrive before the ledger recognizes it. Never
-	// fails the write (fail-open — see openWriteLedger).
-	p.openWriteLedger(ctx, res)
 	if err := p.mirrorWriteResult(ctx, inc, res.Record); err != nil {
 		return datasource.EntityRef{}, err
 	}
+	// After the mirror write, never before — see openWriteLedger on why the
+	// two orderings are not symmetric.
+	p.openWriteLedger(ctx, res)
 	id, err := externalIDToUUID(res.Record.ExternalID)
 	if err != nil {
 		return datasource.EntityRef{}, err
@@ -215,7 +214,7 @@ func (p *Provider) Create(ctx context.Context, in datasource.CreateInput) (datas
 // Update applies a patch incumbent-first after the stored-baseline drift
 // check (AC-OV-4): the mirror row supplies the baseline captured at
 // mirror-read, and the adapter refuses with ErrVersionSkew (surfaced as a
-// 412 by the transport) if the incumbent moved since — never a blind
+// 409 version_skew by the transport) if the incumbent moved since — never a blind
 // overwrite. On success the incumbent's returned state is re-mirrored.
 //
 // Overlay's optimistic concurrency IS this incumbent stored-baseline drift
@@ -223,6 +222,9 @@ func (p *Provider) Create(ctx context.Context, in datasource.CreateInput) (datas
 // Version (recordFromRow), so in.IfVersion has nothing to compare against
 // here and the incumbent's own record clock is the authority (design.md §4.5).
 func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datasource.EntityRef, error) {
+	if err := requireSupportedWrite(WriteUpdate, in.Ref.Type); err != nil {
+		return datasource.EntityRef{}, err
+	}
 	if err := auth.Require(ctx, string(in.Ref.Type), principal.ActionUpdate); err != nil {
 		return datasource.EntityRef{}, err
 	}
@@ -248,14 +250,23 @@ func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datas
 	if err := p.completeWritePatch(in.Ref.Type, fields, row); err != nil {
 		return datasource.EntityRef{}, err
 	}
+	// The before image is read off the SAME mirror row that supplied the
+	// drift baseline, so the audit trail's before/after pair describes the
+	// exact state the drift check licensed this write against.
+	before := beforeImage(row, fields)
 	res, err := inc.Update(ctx, string(in.Ref.Type), externalID, fields, row.UpdatedAtBaseline)
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
-	p.openWriteLedger(ctx, res) // fail-open, before mirroring (see Create)
-	if err := p.mirrorWriteResult(ctx, inc, res.Record); err != nil {
-		return datasource.EntityRef{}, err
+	// The incumbent has committed. Everything past this line is the local
+	// half, and it runs on a context that outlives the caller (see
+	// afterIncumbentCommit).
+	localCtx, cancel := afterIncumbentCommit(ctx)
+	defer cancel()
+	if err := p.commitUpdateWriteBack(localCtx, inc, res.Record, in.Ref, before, fields); err != nil {
+		return datasource.EntityRef{}, writePathError(err)
 	}
+	p.openWriteLedger(localCtx, res)
 	return in.Ref, nil
 }
 
@@ -269,6 +280,16 @@ func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datas
 // costs a redundant re-fetch when the echo arrives (idempotent, poller-healed),
 // so the failure is logged and swallowed here. No ledger wired (the write-verb
 // unit tests) or a read-only-fields write (no WrittenProps) is a no-op.
+//
+// It runs AFTER the mirror write commits, never before. Opening earlier would
+// narrow the window in which our own echo outruns its ledger entry — but it
+// makes the far worse failure possible: entries committed, mirror write
+// failed. The echo webhook is then classified as ours and DROPPED, so the one
+// signal that would have healed the mirror is suppressed, the mirror serves
+// the pre-write value behind a pre-write baseline, and every retry answers
+// 409 version_skew against our own write until the next poller sweep. The
+// costs are not symmetric: opening late costs one redundant re-fetch, opening
+// early costs a frozen record. So the ledger follows the commit.
 func (p *Provider) openWriteLedger(ctx context.Context, res WriteResult) {
 	if p.ledger == nil || len(res.WrittenProps) == 0 {
 		return
@@ -334,11 +355,34 @@ const (
 	WriteArchive WriteVerb = "archive"
 )
 
+// requireSupportedWrite refuses a verb SupportsWrite does not declare for
+// et — the ONE enforcement point for that declaration, applied inside each
+// write verb rather than at any one transport.
+//
+// The transports are not enough on their own: the composition layer's HTTP
+// write guard (compose/overlaywrite.go) covers REST, but the agent tool
+// surface and the automation engine reach these verbs through the datasource
+// seam directly, with no guard in between. A capability declared unsupported
+// that a seam caller can still execute is not declared at all, so the refusal
+// belongs where every caller passes.
+func requireSupportedWrite(verb WriteVerb, et datasource.EntityType) error {
+	if SupportsWrite(verb, et) {
+		return nil
+	}
+	if _, err := writeContractTarget(et, verb == WriteUpdate); err != nil {
+		// An entity the mirror does not carry at all — the honest answer is
+		// "no such entity here", not "this verb is unsupported".
+		return &datasource.UnsupportedEntityError{Type: string(et)}
+	}
+	return apperrors.ErrUnsupportedBySoR
+}
+
 // SupportsWrite reports whether the overlay provider can serve verb for et.
-// It is the provider's own capability, read by the composition layer's write
-// guard and by the write shadows, so the two cannot disagree about what the
-// mirror can do — a disagreement would let an unsupported write fall through
-// to a native handler and commit to the empty native table.
+// It is the provider's own capability, enforced by requireSupportedWrite
+// inside every write verb and read by the composition layer's write guard and
+// write shadows, so no transport can disagree with it about what the mirror
+// can do — a disagreement would let an unsupported write fall through to a
+// native handler and commit to the empty native table.
 //
 // Create is unsupported for every type: the write mapping declares owner_id
 // read-only, so a created incumbent record is unowned, and the NULL-OWNER RULE
@@ -346,6 +390,11 @@ const (
 // would succeed at the incumbent and then be invisible to everyone, including
 // its author. Owner-on-create is the prerequisite, and it is a mapping
 // decision, not a transport one.
+//
+// Two obligations come with ever flipping WriteCreate to true, both already
+// carried by the verbs that ARE supported: retry-safe create (Create's own
+// doc) and the write-back audit shape (writeaudit.go's commitUpdateWriteBack,
+// which Create does not call because it cannot run).
 func SupportsWrite(verb WriteVerb, et datasource.EntityType) bool {
 	switch verb {
 	case WriteCreate:
@@ -364,8 +413,8 @@ func SupportsWrite(verb WriteVerb, et datasource.EntityType) bool {
 // the stored-baseline drift check, then purges the mirror row so it stops
 // being readable rather than lingering visible until the next sync.
 func (p *Provider) Archive(ctx context.Context, r datasource.EntityRef) (datasource.EntityRef, error) {
-	if !archivableTypes[r.Type] {
-		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(r.Type)}
+	if err := requireSupportedWrite(WriteArchive, r.Type); err != nil {
+		return datasource.EntityRef{}, err
 	}
 	if err := auth.Require(ctx, string(r.Type), principal.ActionDelete); err != nil {
 		return datasource.EntityRef{}, err
@@ -387,10 +436,20 @@ func (p *Provider) Archive(ctx context.Context, r datasource.EntityRef) (datasou
 	if err := inc.Archive(ctx, string(r.Type), externalID, row.UpdatedAtBaseline); err != nil {
 		return datasource.EntityRef{}, err
 	}
-	// Purge through the disconnect fence so a teardown racing the archive
-	// cannot leave the row readable, matching the sync path.
-	if _, err := p.ms.WithFence().PurgeRecord(ctx, Deletion{ObjectClass: string(r.Type), ExternalID: externalID}); err != nil {
-		return datasource.EntityRef{}, err
+	// The incumbent has archived the record; the local half runs detached
+	// from the caller (afterIncumbentCommit) because a closed tab must not
+	// leave a record that no longer exists at the incumbent still listed and
+	// still readable here until the next full reconcile sweep.
+	//
+	// The purge goes through the disconnect fence so a teardown racing the
+	// archive cannot leave the row readable, matching the sync path — and the
+	// archive's audit_log and event_outbox rows commit in that same
+	// transaction, so a record removed from the customer's own CRM can never
+	// be missing from the ledger that answers who removed it.
+	localCtx, cancel := afterIncumbentCommit(ctx)
+	defer cancel()
+	if err := p.commitArchiveWriteBack(localCtx, Deletion{ObjectClass: string(r.Type), ExternalID: externalID}, r); err != nil {
+		return datasource.EntityRef{}, writePathError(err)
 	}
 	return r, nil
 }

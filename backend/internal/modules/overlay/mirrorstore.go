@@ -150,60 +150,21 @@ ON CONFLICT (workspace_id, object_class, external_id) DO UPDATE
 // re-validates that owner's email-sourced mirror_user_map row before
 // projecting (design.md §4.6 rule 5).
 func (s *MirrorStore) Ingest(ctx context.Context, rec Record) error {
-	if rec.ObjectClass == "" || rec.ExternalID == "" {
-		return fmt.Errorf("overlay: ingest requires a non-empty object class and external id")
-	}
-	var ownerArg any
-	if rec.OwnerExternalID != "" {
-		ownerArg = rec.OwnerExternalID
-	}
+	_, err := s.ingestReporting(ctx, rec)
+	return err
+}
+
+// ingestReporting is Ingest, additionally reporting whether the upsert
+// actually landed a row — false when one of the in-SQL guards
+// (tombstone/staleness/no-clobber-dirty) held it back. The reconcile sweep
+// needs that answer: it decides whether an incumbent change DIVERGED from
+// what the mirror held, and only a landed row can have.
+func (s *MirrorStore) ingestReporting(ctx context.Context, rec Record) (bool, error) {
 	var landed bool
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if s.fenced {
-			if err := assertActiveConnection(ctx, tx); err != nil {
-				return err
-			}
-		}
-		// Ingest's owner projection (ProjectOwnerVisibility, and the
-		// owner-change revalidation) mutates mirror_visibility, so it takes
-		// the same per-workspace visibility lock every other mutator takes —
-		// serializing an owner reassignment against a concurrent manual remap
-		// so a record transitioning between owners can never leave a stale
-		// grant. Overlay ingest is driven by the single leader-elected
-		// poller, so this lock is uncontended on the hot path.
-		if err := lockWorkspaceVisibility(ctx, tx); err != nil {
-			return err
-		}
-		var priorOwner string
-		if err := tx.QueryRow(
-			ctx,
-			`SELECT coalesce(owner_external_id, '') FROM overlay_mirror WHERE object_class = $1 AND external_id = $2`,
-			rec.ObjectClass, rec.ExternalID,
-		).Scan(&priorOwner); err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("overlay: reading the prior owner of %s/%s: %w", rec.ObjectClass, rec.ExternalID, err)
-		}
-
-		tag, err := tx.Exec(
-			ctx, ingestSQL,
-			rec.ObjectClass, rec.ExternalID, rec.Fields, rec.ModifiedAt, ownerArg,
-		)
-		if err != nil {
-			return fmt.Errorf("overlay: ingesting %s/%s: %w", rec.ObjectClass, rec.ExternalID, err)
-		}
-		if tag.RowsAffected() == 0 {
-			// Held back by a guard (tombstone/staleness/dirty) — the
-			// mirror row did not change, so there is nothing to
-			// re-project.
-			return nil
-		}
-		landed = true
-
-		if rec.OwnerExternalID != "" && rec.OwnerExternalID != priorOwner {
-			if err := s.revalidateEmailMapping(ctx, tx, s.emails, rec.OwnerExternalID); err != nil {
-				return err
-			}
-		}
-		return ProjectOwnerVisibility(ctx, tx, rec.ObjectClass, rec.ExternalID, rec.OwnerExternalID)
+		var err error
+		landed, err = s.ingestTx(ctx, tx, rec)
+		return err
 	})
 	if err == nil && landed {
 		// Count only a COMMITTED landing toward the inbound sync-rate
@@ -213,7 +174,71 @@ func (s *MirrorStore) Ingest(ctx context.Context, rec Record) error {
 		// the metric ahead of what overlay_mirror actually holds.
 		mirrorSyncedTotal.Add(1)
 	}
-	return err
+	return landed && err == nil, err
+}
+
+// ingestTx is Ingest's body, taking the transaction rather than opening
+// one, so a caller that must commit MORE than the cache refresh in the
+// same transaction can. The write-back path is that caller: a human
+// mutation's audit_log and event_outbox rows commit with the mirror
+// refresh they describe, or neither lands (writeaudit.go). It reports
+// whether the upsert actually landed a row, so the caller can hold the
+// sync metric until its own commit succeeds.
+func (s *MirrorStore) ingestTx(ctx context.Context, tx pgx.Tx, rec Record) (bool, error) {
+	if rec.ObjectClass == "" || rec.ExternalID == "" {
+		return false, fmt.Errorf("overlay: ingest requires a non-empty object class and external id")
+	}
+	var ownerArg any
+	if rec.OwnerExternalID != "" {
+		ownerArg = rec.OwnerExternalID
+	}
+	if s.fenced {
+		if err := assertActiveConnection(ctx, tx); err != nil {
+			return false, err
+		}
+	}
+	// Ingest's owner projection (ProjectOwnerVisibility, and the
+	// owner-change revalidation) mutates mirror_visibility, so it takes
+	// the same per-workspace visibility lock every other mutator takes —
+	// serializing an owner reassignment against a concurrent manual remap
+	// so a record transitioning between owners can never leave a stale
+	// grant. Overlay ingest is driven by the single leader-elected
+	// poller, so this lock is uncontended on the hot path.
+	if err := lockWorkspaceVisibility(ctx, tx); err != nil {
+		return false, err
+	}
+	var priorOwner string
+	if err := tx.QueryRow(
+		ctx,
+		`SELECT coalesce(owner_external_id, '') FROM overlay_mirror WHERE object_class = $1 AND external_id = $2`,
+		rec.ObjectClass, rec.ExternalID,
+	).Scan(&priorOwner); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return false, fmt.Errorf("overlay: reading the prior owner of %s/%s: %w", rec.ObjectClass, rec.ExternalID, err)
+	}
+
+	tag, err := tx.Exec(
+		ctx, ingestSQL,
+		rec.ObjectClass, rec.ExternalID, rec.Fields, rec.ModifiedAt, ownerArg,
+	)
+	if err != nil {
+		return false, fmt.Errorf("overlay: ingesting %s/%s: %w", rec.ObjectClass, rec.ExternalID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		// Held back by a guard (tombstone/staleness/dirty) — the
+		// mirror row did not change, so there is nothing to
+		// re-project.
+		return false, nil
+	}
+
+	if rec.OwnerExternalID != "" && rec.OwnerExternalID != priorOwner {
+		if err := s.revalidateEmailMapping(ctx, tx, s.emails, rec.OwnerExternalID); err != nil {
+			return false, err
+		}
+	}
+	if err := ProjectOwnerVisibility(ctx, tx, rec.ObjectClass, rec.ExternalID, rec.OwnerExternalID); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // upsertAssocSQL keeps the direction/label/category refresh together
