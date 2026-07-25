@@ -185,9 +185,7 @@ func replayedActivity(ctx context.Context, tx pgx.Tx, in LogActivityInput) (*crm
 // target passes the row-scope link check first.
 func insertActivityLinks(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, activityID ids.ActivityID, links []ActivityLinkInput, occurredAt time.Time) error {
 	for _, link := range links {
-		column := map[string]string{
-			"person": "person_id", "organization": "organization_id", "deal": "deal_id", "lead": "lead_id",
-		}[link.EntityType]
+		column := linkColumn(link.EntityType)
 		if column == "" {
 			return &InvalidLinkTypeError{EntityType: link.EntityType}
 		}
@@ -214,7 +212,7 @@ func insertActivityLinks(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, a
 type InvalidLinkTypeError struct{ EntityType string }
 
 func (e *InvalidLinkTypeError) Error() string {
-	return "activity link entity_type " + e.EntityType + " is not person|organization|deal"
+	return "activity link entity_type " + e.EntityType + " is not " + linkVocabulary()
 }
 
 func (s *Store) GetActivity(ctx context.Context, id ids.ActivityID, archived storekit.ArchivedFilter) (crmcontracts.Activity, error) {

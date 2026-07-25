@@ -21,6 +21,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
 type Store struct {
@@ -32,10 +33,16 @@ func NewStore(pool *pgxpool.Pool) *Store {
 }
 
 // memberEntityTables is the closed polymorphic target set — the table
-// name doubles as the RBAC object and the visibility-probe table.
-var memberEntityTables = map[string]bool{
-	"person": true, "organization": true, "deal": true, "lead": true,
-}
+// name doubles as the RBAC object and the visibility-probe table. It is
+// derived from the canonical record vocabulary rather than restated, so a
+// new record type reaches lists, tags and saved views by widening one set.
+var memberEntityTables = func() map[string]bool {
+	m := map[string]bool{}
+	for _, t := range datasource.RecordTypes() {
+		m[string(t)] = true
+	}
+	return m
+}()
 
 const listColumns = `id, workspace_id, name, entity_type, list_type, definition, owner_id, team_id, created_at, updated_at, archived_at`
 
