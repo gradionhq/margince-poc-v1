@@ -103,31 +103,19 @@ func (s *Service) reconnectConnection(ctx context.Context, in ConnectInput, ref 
 	return out, nil
 }
 
-// deleteSupersededRef removes the credential a reconnect replaced. The row now
-// points at the new ref, so the old blob is unreferenced; a failure leaves an
-// inert, encrypted-at-rest blob, logged for operational cleanup rather than
-// failing a reconnect that has already committed — the same posture
-// Disconnect's own post-commit delete carries (teardown.go:94-105). The
-// delete runs after commit, so it must outlive the request: ctx is the
-// caller's cancellable context, and a client that hangs up right after the
-// reconnect response would otherwise cancel this cleanup before it starts,
-// stranding the superseded blob every time — the same shape
-// cleanupOrphanedRef (connection.go) already guards against with its own
-// short-lived, uncancellable context.
+// deleteSupersededRef removes the credential a reconnect replaced: the row now
+// points at the new ref, so the old blob is unreferenced. It is the reconnect
+// half of the post-commit cleanup deleteUnreferencedRef (connection.go) owns —
+// see that function for why the delete outlives the request and why a failure
+// is logged rather than returned. A workspace-less context cannot happen on
+// this path (reconnectConnection only runs inside one) but is a no-op rather
+// than a panic, since there is no workspace whose vault to reach into.
 func (s *Service) deleteSupersededRef(ctx context.Context, ref keyvault.Ref) {
-	if ref == "" {
-		return
-	}
 	ws, ok := principal.WorkspaceID(ctx)
 	if !ok {
 		return
 	}
-	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer cancel()
-	if err := s.vault.Delete(cleanupCtx, ids.From[ids.WorkspaceKind](ws), ref); err != nil {
-		s.log.ErrorContext(ctx, "overlay: reconnect committed, but deleting the superseded incumbent credential failed — the orphaned (inert) blob needs cleanup",
-			"credential_ref", string(ref), "err", err)
-	}
+	s.deleteUnreferencedRef(ctx, ws, ref, "reconnect")
 }
 
 // existingConnectionStatus reports the workspace's incumbent_connection
