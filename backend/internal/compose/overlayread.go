@@ -303,18 +303,21 @@ var overlayMirroredTypes = func() map[string]bool {
 	return set
 }()
 
-// overlaySearchDefaultLimit caps an overlay search page when the request
-// names no limit — the contract's documented default page size.
-const overlaySearchDefaultLimit = 25
+// overlaySearchDefaultLimit sizes an overlay search page when the request
+// names no limit — the shared Limit parameter's own default (crm.yaml's
+// components.parameters.Limit: default 50), which /search refs like every
+// other paged op. Overlay pages the same way native does or the two modes
+// answer different pages for one query.
+const overlaySearchDefaultLimit = 50
 
-// overlaySearchMaxLimit is the contract's SearchParams ceiling (crm.yaml:
-// limit maximum 100). A bound integer that slips past request validation
-// (a negative or oversized ?limit=) must never reach a slice capacity, so
-// the value is clamped here before it sizes any allocation.
-const overlaySearchMaxLimit = 100
+// overlaySearchMaxLimit is that same shared parameter's ceiling (maximum
+// 200). A bound integer that slips past request validation (a negative or
+// oversized ?limit=) must never reach a slice capacity, so the value is
+// clamped here before it sizes any allocation.
+const overlaySearchMaxLimit = 200
 
-// clampOverlaySearchLimit maps a caller-supplied limit onto the contract's
-// 1..100 range so it is safe to use as an allocation size.
+// clampOverlaySearchLimit maps a caller-supplied limit onto the shared
+// parameter's 1..200 range so it is safe to use as an allocation size.
 func clampOverlaySearchLimit(v int) int {
 	switch {
 	case v < 1:

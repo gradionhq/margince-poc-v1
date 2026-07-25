@@ -15,7 +15,6 @@ package overlay
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"testing"
@@ -46,6 +45,7 @@ type writeBackIncumbent struct {
 	incClass    string            // IncumbentClass the write reports (defaults to "contacts" when unset)
 	archiveErr  error
 	archived    bool
+	created     bool
 }
 
 func (w *writeBackIncumbent) Name() string { return "writeback-double" }
@@ -75,6 +75,7 @@ func (w *writeBackIncumbent) OwnerEmail(context.Context, string) (string, error)
 func (w *writeBackIncumbent) Owners(context.Context) ([]OwnerRef, error) { return nil, nil }
 
 func (w *writeBackIncumbent) Create(context.Context, string, map[string]any) (WriteResult, error) {
+	w.created = true
 	if w.createErr != nil {
 		return WriteResult{}, w.createErr
 	}
@@ -146,10 +147,19 @@ func mapActorToOwner(ctx context.Context, t *testing.T, ms *MirrorStore) {
 	}
 }
 
-// TestProviderCreateMirrorsIncumbentResult: Create is incumbent-first — the
-// incumbent's returned state is ingested into the mirror so a follow-up
-// read sees the record, and the returned ref round-trips to it.
-func TestProviderCreateMirrorsIncumbentResult(t *testing.T) {
+// TestProviderCreateIsRefusedBeforeReachingTheIncumbent: create is declared
+// unsupported for every mirrored type (SupportsWrite) because the write
+// mapping leaves owner_id read-only — a created incumbent record would be
+// unowned, and the NULL-OWNER rule then writes no visibility row, so the
+// record would exist in the customer's CRM and be invisible to everyone
+// including its author.
+//
+// The refusal must live in the PROVIDER, not only in the REST guard: the
+// agent tool surface and the automation engine reach this verb through the
+// datasource seam with no router in between, and create_record is an
+// auto-execute tool — an unattended loop retrying a create that appears to
+// fail would mint a new invisible record every attempt.
+func TestProviderCreateIsRefusedBeforeReachingTheIncumbent(t *testing.T) {
 	ctx, pool, _ := testWorkspaceCtx(t)
 	ms := NewMirrorStore(pool, noOwnerEmails{})
 	mapActorToOwner(ctx, t, ms)
@@ -158,35 +168,21 @@ func TestProviderCreateMirrorsIncumbentResult(t *testing.T) {
 	inc := &writeBackIncumbent{createRec: Record{
 		ObjectClass:     "person",
 		ExternalID:      "555",
-		Fields:          map[string]any{"first_name": "Ada", "full_name": "Ada Lovelace"},
+		Fields:          map[string]any{"first_name": "Ada"},
 		ModifiedAt:      time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
 		OwnerExternalID: writebackOwner,
 	}}
 	p := providerFor(ms, inc)
 
-	ref, err := p.Create(ctx, datasource.CreateInput{
+	_, err := p.Create(ctx, datasource.CreateInput{
 		EntityType: datasource.EntityPerson,
 		Fields:     map[string]any{"first_name": "Ada", "last_name": "Lovelace"},
 	})
-	if err != nil {
-		t.Fatalf("Create: %v", err)
+	if !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+		t.Fatalf("Create = %v, want the declared ErrUnsupportedBySoR", err)
 	}
-	rec, err := p.Read(ctx, ref)
-	if err != nil {
-		t.Fatalf("Read after Create: %v", err)
-	}
-	// The incumbent's returned state must actually be ingested — assert the
-	// field content, not just that a row exists.
-	var fields map[string]any
-	if err := json.Unmarshal(rec.Fields, &fields); err != nil {
-		t.Fatalf("decoding read-back fields: %v", err)
-	}
-	if fields["first_name"] != "Ada" {
-		t.Errorf("mirrored first_name = %v, want 'Ada' (the incumbent's created state)", fields["first_name"])
-	}
-	// A mirror read is never authoritative — the incumbent stays the SoR.
-	if rec.Freshness.Authoritative {
-		t.Error("a mirrored write result must not claim incumbent authority (T2, AC-OV-5)")
+	if inc.created {
+		t.Error("the refused create still reached the incumbent — a declared-unsupported verb must never leave the process")
 	}
 }
 
@@ -200,8 +196,17 @@ func TestProviderWriteOpensEchoLedgerEntries(t *testing.T) {
 	mapActorToOwner(ctx, t, ms)
 	seedActiveConnection(ctx, t, pool)
 
+	if err := ms.Ingest(ctx, Record{
+		ObjectClass:     "person",
+		ExternalID:      "555",
+		Fields:          map[string]any{"first_name": "Grace"},
+		ModifiedAt:      time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+		OwnerExternalID: writebackOwner,
+	}); err != nil {
+		t.Fatalf("seeding mirror: %v", err)
+	}
 	inc := &writeBackIncumbent{
-		createRec: Record{
+		updateRec: Record{
 			ObjectClass:     "person",
 			ExternalID:      "555",
 			Fields:          map[string]any{"first_name": "Ada"},
@@ -210,18 +215,22 @@ func TestProviderWriteOpensEchoLedgerEntries(t *testing.T) {
 		},
 		// The incumbent reports the HubSpot properties it wrote — the ledger keys
 		// on exactly these, as the echo webhook will present them.
-		createProps: map[string]string{"firstname": "Ada"},
+		updateProps: map[string]string{"firstname": "Ada"},
 		incClass:    "contacts",
 	}
 	ledger := NewWriteLedger(pool)
 	p := providerFor(ms, inc)
 	p.SetWriteLedger(ledger, slog.New(slog.DiscardHandler))
 
-	if _, err := p.Create(ctx, datasource.CreateInput{
-		EntityType: datasource.EntityPerson,
-		Fields:     map[string]any{"first_name": "Ada"},
+	id, err := externalIDToUUID("555")
+	if err != nil {
+		t.Fatalf("resolving the seeded record's ref: %v", err)
+	}
+	if _, err := p.Update(ctx, datasource.UpdateInput{
+		Ref:   datasource.EntityRef{Type: datasource.EntityPerson, ID: id},
+		Patch: map[string]any{"first_name": "Ada"},
 	}); err != nil {
-		t.Fatalf("Create: %v", err)
+		t.Fatalf("Update: %v", err)
 	}
 
 	// The write's echo — a propertyChange for contacts/555.firstname="Ada" — now

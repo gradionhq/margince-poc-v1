@@ -182,10 +182,11 @@ func copyDirect(fields map[string]any, table []directWriteField, forUpdate bool)
 // overlay (null per OVA-MAP-6/W4) and never written.
 //
 // amount and currency are a PAIR: a caller must supply currency to write
-// amount (the exponent chooses the decimal point), so the write-back engine
-// combines a partial deal patch with the mirror's current amount_minor/
-// currency BEFORE calling mapWrite (Provider.Update) — here, an amount_minor
-// with no currency writes no amount rather than guess an exponent.
+// amount (the exponent chooses the decimal point). Provider.Update refuses a
+// patch carrying one without the other before ever reaching this mapping, so
+// the half-pair never arrives here; the guard below is the second line —
+// an amount_minor with no currency writes no amount rather than guess an
+// exponent.
 //
 //craft:ignore naked-any fields is the JSON-decoded canonical bag; the any is inherent to the decoded shape
 func mapWriteDeal(fields map[string]any, forUpdate bool) (writeMapping, error) {

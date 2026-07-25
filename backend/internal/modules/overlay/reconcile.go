@@ -159,17 +159,25 @@ func reconcileOne(ctx context.Context, ms *MirrorStore, rec Record) error {
 		return fmt.Errorf("overlay: reconcile: reading the prior mirror state of %s/%s: %w", rec.ObjectClass, rec.ExternalID, priorErr)
 	}
 
-	if err := ms.Ingest(ctx, rec); err != nil {
+	landed, err := ms.ingestReporting(ctx, rec)
+	if err != nil {
 		return fmt.Errorf("overlay: reconcile: ingesting %s/%s: %w", rec.ObjectClass, rec.ExternalID, err)
 	}
 
 	// A divergence worth surfacing requires: the row already existed, it
 	// was NOT protected as dirty (pending_sync — Ingest's own no-clobber
 	// guard already held THAT case back with no write at all), and the
-	// incoming value actually landed (strictly newer than the stored
-	// baseline — the same predicate Ingest's staleness guard applies, so
-	// this never emits a conflict for a stale page that changed nothing).
-	if existed && prior.SyncState != syncStatePendingSync && rec.ModifiedAt.After(prior.UpdatedAtBaseline) {
+	// incoming value ACTUALLY landed.
+	//
+	// That last condition is the ingest's own answer, not a re-derivation of
+	// its predicate. Re-deriving it against `prior` compares pre-ingest data:
+	// a write-back committing a newer baseline between the getRaw above and
+	// the ingest makes the staleness guard hold the incoming row back
+	// (nothing changed) while `rec.ModifiedAt.After(prior.UpdatedAtBaseline)`
+	// is still true — announcing a conflict for an overwrite that never
+	// happened, carrying an incumbent timestamp older than what the mirror
+	// now holds.
+	if landed && existed && prior.SyncState != syncStatePendingSync {
 		if err := emitMirrorConflict(ctx, ms, rec, prior); err != nil {
 			return err
 		}

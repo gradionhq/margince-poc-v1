@@ -53,58 +53,11 @@ func mirrorDeletedPayload(objectClass, externalID string, deletedAt time.Time) c
 // must be free to re-mirror; the tombstone is reserved for privacy erasure,
 // which owns its own suppression path.
 func (s *MirrorStore) PurgeRecord(ctx context.Context, del Deletion) (bool, error) {
-	if del.ObjectClass == "" || del.ExternalID == "" {
-		return false, fmt.Errorf("overlay: purge requires a non-empty object class and external id")
-	}
-	id, err := externalIDToUUID(del.ExternalID)
-	if err != nil {
-		return false, fmt.Errorf("overlay: purging %s/%s: %w", del.ObjectClass, del.ExternalID, err)
-	}
-
 	var existed bool
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx,
-			`DELETE FROM overlay_mirror WHERE object_class = $1 AND external_id = $2`,
-			del.ObjectClass, del.ExternalID)
-		if err != nil {
-			return fmt.Errorf("overlay: purging the mirror row %s/%s: %w", del.ObjectClass, del.ExternalID, err)
-		}
-		existed = tag.RowsAffected() > 0
-
-		if _, err := tx.Exec(ctx, `
-			DELETE FROM overlay_association
-			WHERE (from_type = $1 AND from_id = $2) OR (to_type = $1 AND to_id = $2)`,
-			del.ObjectClass, del.ExternalID); err != nil {
-			return fmt.Errorf("overlay: purging the association edges of %s/%s: %w", del.ObjectClass, del.ExternalID, err)
-		}
-		if _, err := tx.Exec(ctx,
-			`DELETE FROM mirror_visibility WHERE object_class = $1 AND external_id = $2`,
-			del.ObjectClass, del.ExternalID); err != nil {
-			return fmt.Errorf("overlay: purging the visibility projection of %s/%s: %w", del.ObjectClass, del.ExternalID, err)
-		}
-
-		// Emit only when the mirror actually held the row, and in THIS
-		// transaction so the event commits with the purge or not at all.
-		// The ledger trace is a system_log row (not audit_log): a mirror
-		// purge is a derived-cache health event, the same posture Ingest and
-		// mirror.conflict take (mirrorstore.go / reconcile.go).
-		if !existed {
-			return nil
-		}
-		detail := map[string]any{
-			"object_class": del.ObjectClass,
-			"external_id":  del.ExternalID,
-			"deleted_at":   del.DeletedAt,
-		}
-		logID, err := storekit.LogSystem(ctx, tx, "mirror.deleted", detail)
-		if err != nil {
-			return fmt.Errorf("overlay: logging the mirror.deleted system event: %w", err)
-		}
-		if err := storekit.EmitEventForEntity(ctx, tx, logID, del.ObjectClass, id,
-			mirrorDeletedPayload(del.ObjectClass, del.ExternalID, del.DeletedAt)); err != nil {
-			return fmt.Errorf("overlay: emitting mirror.deleted: %w", err)
-		}
-		return nil
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		var err error
+		existed, err = s.purgeRecordTx(ctx, tx, del)
+		return err
 	})
 	if err != nil {
 		return false, err
@@ -115,4 +68,74 @@ func (s *MirrorStore) PurgeRecord(ctx context.Context, del Deletion) (bool, erro
 		mirrorDeletedTotal.Add(1)
 	}
 	return existed, nil
+}
+
+// purgeRecordTx is PurgeRecord's body, taking the transaction rather than
+// opening one, so a caller that must commit MORE than the purge in the same
+// transaction can. The write-back path is that caller: a human archive's
+// audit_log and event_outbox rows commit with the purge they describe, or
+// neither lands (writeaudit.go).
+func (s *MirrorStore) purgeRecordTx(ctx context.Context, tx pgx.Tx, del Deletion) (bool, error) {
+	if del.ObjectClass == "" || del.ExternalID == "" {
+		return false, fmt.Errorf("overlay: purge requires a non-empty object class and external id")
+	}
+	// A purge only deletes, so it can never resurrect incumbent-derived data
+	// — but it DOES emit mirror.deleted, and emitting an overlay event into a
+	// workspace that has already gone back to native is the same
+	// post-disconnect write the fence exists to stop. Every other mutation on
+	// this store asserts the connection; so does this one, when fenced.
+	if s.fenced {
+		if err := assertActiveConnection(ctx, tx); err != nil {
+			return false, err
+		}
+	}
+	id, err := externalIDToUUID(del.ExternalID)
+	if err != nil {
+		return false, fmt.Errorf("overlay: purging %s/%s: %w", del.ObjectClass, del.ExternalID, err)
+	}
+
+	tag, err := tx.Exec(ctx,
+		`DELETE FROM overlay_mirror WHERE object_class = $1 AND external_id = $2`,
+		del.ObjectClass, del.ExternalID)
+	if err != nil {
+		return false, fmt.Errorf("overlay: purging the mirror row %s/%s: %w", del.ObjectClass, del.ExternalID, err)
+	}
+	existed := tag.RowsAffected() > 0
+
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM overlay_association
+		WHERE (from_type = $1 AND from_id = $2) OR (to_type = $1 AND to_id = $2)`,
+		del.ObjectClass, del.ExternalID); err != nil {
+		return false, fmt.Errorf("overlay: purging the association edges of %s/%s: %w", del.ObjectClass, del.ExternalID, err)
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM mirror_visibility WHERE object_class = $1 AND external_id = $2`,
+		del.ObjectClass, del.ExternalID); err != nil {
+		return false, fmt.Errorf("overlay: purging the visibility projection of %s/%s: %w", del.ObjectClass, del.ExternalID, err)
+	}
+
+	// Emit only when the mirror actually held the row, and in THIS
+	// transaction so the event commits with the purge or not at all.
+	// The ledger trace is a system_log row (not audit_log): a mirror
+	// purge is a derived-cache health event, the same posture Ingest and
+	// mirror.conflict take (mirrorstore.go / reconcile.go). A HUMAN archive
+	// riding this same transaction adds its own audit_log row on top
+	// (writeaudit.go) — that one IS a domain mutation.
+	if !existed {
+		return false, nil
+	}
+	detail := map[string]any{
+		"object_class": del.ObjectClass,
+		keyExternalID:  del.ExternalID,
+		"deleted_at":   del.DeletedAt,
+	}
+	logID, err := storekit.LogSystem(ctx, tx, "mirror.deleted", detail)
+	if err != nil {
+		return false, fmt.Errorf("overlay: logging the mirror.deleted system event: %w", err)
+	}
+	if err := storekit.EmitEventForEntity(ctx, tx, logID, del.ObjectClass, id,
+		mirrorDeletedPayload(del.ObjectClass, del.ExternalID, del.DeletedAt)); err != nil {
+		return false, fmt.Errorf("overlay: emitting mirror.deleted: %w", err)
+	}
+	return true, nil
 }

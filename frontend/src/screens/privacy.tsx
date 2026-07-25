@@ -45,6 +45,7 @@ import {
   nextStatuses,
 } from "./privacy.logic";
 import "./privacy.css";
+import { isOption } from "../app/options";
 
 type DataSubjectRequest = components["schemas"]["DataSubjectRequest"];
 type CreateDataSubjectRequest =
@@ -350,7 +351,10 @@ function NewDsrForm({ onDone }: Readonly<{ onDone: () => void }>) {
             id={kindId}
             className="input"
             value={kind}
-            onChange={(event) => changeKind(event.target.value as DsrKind)}
+            onChange={(event) => {
+              const value = event.target.value;
+              if (isOption(value, DSR_KINDS)) changeKind(value);
+            }}
           >
             {DSR_KINDS.map((value) => (
               <option key={value} value={value}>

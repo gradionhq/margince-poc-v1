@@ -6,6 +6,7 @@ import { Plug } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { isOption } from "../app/options";
 import {
   Badge,
   Button,
@@ -123,7 +124,10 @@ function OverlayConnectForm({
           id="overlay-region"
           className="input"
           value={region}
-          onChange={(event) => setRegion(event.target.value as Region)}
+          onChange={(event) => {
+            const value = event.target.value;
+            if (isOption(value, REGIONS)) setRegion(value);
+          }}
         >
           {REGIONS.map((r) => (
             <option key={r} value={r}>
