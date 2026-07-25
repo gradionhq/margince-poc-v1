@@ -145,7 +145,7 @@ type NormalizedRecord struct {
 // Email is authoritative; DisplayName is the header's human name (may be
 // empty or hostile — consumers must treat it as untrusted text); Domain is
 // the lowercased mail domain; Direction is the message's direction relative
-// to the mailbox owner (inbound | outbound).
+// to the mailbox owner (DirectionInbound | DirectionOutbound).
 type Counterparty struct {
 	Email       string
 	DisplayName string
@@ -157,7 +157,54 @@ type Counterparty struct {
 	// prefix rule may suppress record creation. Mail connectors populate it;
 	// zero for records that carry no such signal.
 	ListUnsubscribe bool
+	// sentByOwner is the T1 correspondence-positive gate's only evidence
+	// (ADR-0072 §1), and it is deliberately UNEXPORTED. The field is the one
+	// thing on this struct a connector must not be able to state for itself:
+	// whoever sets it can whitelist an arbitrary address past transactional
+	// suppression. Unexported, the compiler refuses every route a convention
+	// could not — a positional literal, a JSON unmarshal, reflection, a
+	// conversion from a look-alike struct, a pointer handed to a decoder.
+	// WithOwnerAttestation is the sole way in, and SentByOwner the sole way out.
+	sentByOwner bool
 }
+
+// Message direction relative to the mailbox owner, as Counterparty.Direction
+// reports it.
+const (
+	DirectionInbound  = "inbound"
+	DirectionOutbound = "outbound"
+)
+
+// WithOwnerAttestation returns a copy recording that the authenticated mailbox
+// owner sent this message. providerFiled is the PROVIDER's own filing — Gmail's
+// SENT label, an IMAP \Sent special-use mailbox, Microsoft's SentItems folder —
+// and it is honored only where Direction independently names the owner as the
+// message's author.
+//
+// The conjunction lives here, in the port that owns the field, because neither
+// half is sufficient and no caller may choose to apply only one. Direction
+// compares the forgeable From header against the owner's address, so a spoofed
+// From:owner delivered to the inbox would otherwise pass as the owner's own
+// correspondence. And placement is not authorship: a server-side rule can file
+// a third party's message into the sent container, where the counterparty is
+// that stranger's own address.
+//
+// Build the Counterparty first: this reads Direction as it stands at the call,
+// so attesting before Direction is populated — or reassigning it afterwards —
+// yields an answer that no longer matches the record. Both mistakes fail toward
+// false, and the unexported field carries the same cost at any serialization
+// boundary: a Counterparty that ever crosses one arrives un-attested rather
+// than wrongly attested.
+//
+// A caller that attests nothing leaves the answer false, which suppresses
+// rather than trusts.
+func (c Counterparty) WithOwnerAttestation(providerFiled bool) Counterparty {
+	c.sentByOwner = providerFiled && c.Direction == DirectionOutbound
+	return c
+}
+
+// SentByOwner reports whether both halves of the attestation agreed.
+func (c Counterparty) SentByOwner() bool { return c.sentByOwner }
 
 // ExclusionAttrs is the normalized, matchable face of a captured message
 // the RC-2 exclusion gate reads: the sender's domain, every recipient's

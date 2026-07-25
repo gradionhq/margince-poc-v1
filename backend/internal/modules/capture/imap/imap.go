@@ -96,9 +96,14 @@ type Connector struct {
 // standing Connector is a registry singleton shared by every IMAP
 // connection, so per-pull state on the struct would race across mailboxes.
 type syncState struct {
-	owner    string
-	stats    Stats
-	contacts map[string]struct{}
+	owner string
+	stats Stats
+	// sentMailbox records that the server reported the selected mailbox with
+	// the \Sent special-use attribute, making every message in it one the
+	// authenticated owner sent — the T1 correspondence evidence (ADR-0072 §1).
+	// A pull selects exactly one mailbox, so the attestation is per-pull.
+	sentMailbox bool
+	contacts    map[string]struct{}
 }
 
 // Stats is one pull's outcome tally — internal bookkeeping accumulated on
@@ -186,6 +191,7 @@ func (c *Connector) capture(ctx context.Context, raw []byte, sink connector.Sink
 		st.stats.Skipped++
 		return nil
 	}
+	parsed = parsed.AttestSentByOwner(st.sentMailbox)
 	if _, err := sink.Upsert(ctx, parsed.ToRecord(connectorName, raw)); err != nil {
 		if errors.Is(err, connector.ErrSkip) {
 			// The Sink dropped it (e.g. an erased subject's suppression list) —

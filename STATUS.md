@@ -919,10 +919,66 @@ Open work, roughly in priority order:
   activity row + raw_capture under their own retention (the "noise is not stored
   in the append-only spine" hardening; human-authored activities keep their full
   image).
-  **Still open (contract-first-gated on ADR-0072):** the rest of 2b — the T1 gate
-  with an authenticated outbound signal + the pending ledger + deferred creation
-  + the `capture_counterparty_verdict` job + review queue + noise
-  hide-then-redact — and 3 (corroborated signature org-name promotion).
+  Slice 2 (landed): **the T1 correspondence-positive gate on a provider-attested
+  outbound signal.** T1 now runs BEFORE T2 (order is load-bearing: a known
+  contact's `List-Unsubscribe` newsletter is no longer suppressed as bulk
+  infrastructure), and its evidence is a new `activity.counterparty_outbound_attested`
+  column (migration 0124 + a partial index serving the EXISTS) stamped only from
+  what the PROVIDER vouches for — Gmail's `SENT` label (read off the same
+  `messages.get` response the body needs), an IMAP `\Sent` **special-use**
+  mailbox (the folder NAME attests nothing — it is operator config text), and
+  Microsoft's SentItems `parentFolderId` (backfill only; the incremental delta is
+  inbox-only). `activity.direction` is never sufficient on its own: it
+  string-compares the forgeable `From` header against the owner, so a spoofed
+  `From:owner` landing in the synced inbox must not whitelist any address it
+  names past T2. A T1 override of a
+  matched suppression rule is its own `system_log` breadcrumb
+  (`capture_correspondence_spared`), so a spare is as diagnosable as a
+  suppression. A provider that attests nothing — Graph's inbox-only
+  delta, an IMAP mailbox without the attribute — yields false, and
+  under-attestation suppresses rather than creates. A probe that FAILS is not
+  the same thing and is never recorded as a determined false: the Graph page
+  stops and the IMAP pull stops, each retrying from its committed cursor,
+  because the activity natural key would otherwise freeze a guessed window
+  permanently. `make check` + the full zero-skip integration lane green.
+  Attestation requires BOTH halves — the provider filed the message as sent AND
+  the message names the owner as author — because the two are derived
+  independently: a server-side rule can file a third party's mail into a `\Sent`
+  mailbox or Sent Items, and that message's counterparty is its *sender*, so
+  attesting on placement alone would buy a stranger the same bypass the forged
+  header would have. Provider evidence accrues asymmetrically and this is
+  inherent, not a bug: continuously from Gmail, from Graph only during backfill
+  (the delta is inbox-only), and from IMAP only when the operator points the
+  connection at a `\Sent` mailbox — so an absent T1 spare on a default-INBOX
+  IMAP workspace is expected.
+  The attestation is unforgeable by the compiler, not by convention: the field is
+  unexported, so a literal, a positional literal, an assignment, an
+  `encoding/json` unmarshal of a provider payload, reflection, and a conversion
+  from a look-alike struct are all refused or inert. What no type can express —
+  that the argument to the minting call comes from an authenticated provider
+  handle — is guarded by a tree-derived fitness test
+  (`backend/attestationproducer_test.go`) keeping `WithOwnerAttestation`
+  callable from the mail mapper alone.
+  **Residuals for the ADR (raised, no code change; also recorded in 0124):** an
+  owner-side rule filing spoofed own-domain mail into the sent container defeats
+  the conjunction on Graph and IMAP (not Gmail, whose SENT label filters cannot
+  set); a forged `Reply-To` that induces one genuine reply attests an address
+  the owner never chose; and the gate is single-shot, one attested message being
+  sufficient evidence. An adversarial review found no path reachable by an
+  unaided outsider — each needs mailbox write access or an owner-side
+  misconfiguration plus a self-domain spoof that DMARC is designed to stop.
+  **Upstream spec raise (not worked around here):** ADR-0072 §1's ladder reads
+  T1 → "ensure person+org NOW", which taken literally would mint a "Gmail"
+  organization for a free-mail address the owner has corresponded with — exactly
+  the junk the ADR exists to prevent. The build keeps T3's free-mail org
+  suppression under a T1 spare (T1 overrides T2 only), gated by an integration
+  subtest that writes to a `gmail.com` address and asserts a person but no
+  organization;
+  the ladder wording needs reconciling upstream.
+  **Still open (contract-first-gated on ADR-0072):** the rest of 2b — the pending
+  ledger + deferred creation + the `capture_counterparty_verdict` job + review
+  queue + noise hide-then-redact — and 3 (corroborated signature org-name
+  promotion).
 
 - **Site-read legal census — three known gaps (#162).** `FinishSiteRead`'s CAS
   guards only on `status = 'running'`, so a reclaimed-then-returning worker can

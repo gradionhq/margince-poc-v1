@@ -190,6 +190,15 @@ func (c *Connector) syncStanding(ctx context.Context, auth connector.Auth, curso
 	if err != nil {
 		return nil, fmt.Errorf("imap: selecting mailbox %q: %w", creds.Mailbox, ErrUnreachable)
 	}
+	// Asked before a single message is captured: the UID watermark advances past
+	// whatever this pull writes, and the activity natural key means a row
+	// stamped un-attested stays that way. A server that will not say what this
+	// mailbox is has not been read yet — the next cycle retries from the same
+	// watermark, exactly as a failed Select does.
+	st.sentMailbox, err = sentSpecialUse(client, creds.Mailbox)
+	if err != nil {
+		return nil, err
+	}
 
 	// A mailbox-identity change, a generation change, or a first sync
 	// re-anchors with the bounded recent window — never a full mailbox walk
@@ -214,6 +223,38 @@ func (c *Connector) syncStanding(ctx context.Context, auth connector.Auth, curso
 	cur.Email = creds.Email
 	cur.Mailbox = creds.Mailbox
 	return marshalIMAPCursor(cur), nil
+}
+
+// sentSpecialUse reports whether the server describes mailbox with RFC 6154's
+// \Sent attribute — the server's own statement that this folder holds mail the
+// authenticated account sent, and the only outbound evidence the T1
+// correspondence gate accepts (ADR-0072 §1; a message's From header is the
+// sender's to write, a mailbox's special-use is not).
+//
+// A folder merely NAMED "Sent" attests nothing: the name is the operator's
+// free text in the connection config, so trusting it would hand the gate back
+// to unauthenticated input. A server without SPECIAL-USE therefore yields
+// false, and the mailbox contributes no correspondence evidence.
+func sentSpecialUse(client *imapclient.Client, mailbox string) (bool, error) {
+	opts := &imapv2.ListOptions{ReturnSpecialUse: client.Caps().Has(imapv2.CapSpecialUse)}
+	entries, err := client.List("", mailbox, opts).Collect()
+	if err != nil {
+		return false, fmt.Errorf("imap: listing mailbox %q: %w", mailbox, errors.Join(ErrUnreachable, err))
+	}
+	return sentAttr(entries, mailbox), nil
+}
+
+// sentAttr reports whether the listed entry FOR mailbox carries \Sent. The name
+// is matched because a configured mailbox is a LIST pattern: one containing a
+// wildcard would return the account's other folders, and a sibling's \Sent
+// would otherwise attest for the mailbox actually being read.
+func sentAttr(entries []*imapv2.ListData, mailbox string) bool {
+	for _, entry := range entries {
+		if entry.Mailbox == mailbox && slices.Contains(entry.Attrs, imapv2.MailboxAttrSent) {
+			return true
+		}
+	}
+	return false
 }
 
 // syncIncremental pulls above the watermark: enumerate first (UIDs only, no

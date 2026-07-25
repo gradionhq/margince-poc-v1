@@ -96,15 +96,31 @@ func (s *Sink) ensureCounterparty(ctx context.Context, rec connector.NormalizedR
 	// DocuSign envelope or a SendGrid relay is not a counterparty's company.
 	// Suppress person AND org derivation — the activity already committed and
 	// stands (a DocuSign envelope is a real timeline item) — and record the
-	// reason durably for observability. The T1 correspondence-positive spare
-	// (CAP-DDL-7) that lets a known contact through lands in phase 2b, where the
-	// "outbound" signal is taken from an authenticated provider label — deriving
-	// it from the forgeable From header (as `direction` does today) would let a
-	// spoofed From:owner mail whitelist an arbitrary address past this gate.
+	// reason durably for observability.
 	if s.transactional != nil {
 		if suppress, reason := s.transactional.Suppress(transactionalInput(cp)); suppress {
-			s.logSuppression(ctx, rec, reason)
-			return
+			// T1 correspondence-positive OUTRANKS T2 (ADR-0072 §1), and the
+			// precedence is load-bearing: a known contact whose newsletter
+			// footer carries a List-Unsubscribe header, or who mails from
+			// `news.acme.com`, must not be suppressed as bulk infrastructure.
+			// Someone the workspace has written to is a counterparty by
+			// demonstrated intent, whatever their mail plumbing looks like.
+			// Asked only here — the tier below is the only place the answer
+			// changes an outcome, and asking costs a query per captured message.
+			corresponded, err := s.correspondencePositive(ctx, cp.Email)
+			if err != nil {
+				s.logEnsureFault(ctx, rec, err)
+				return
+			}
+			if !corresponded {
+				s.logSuppression(ctx, rec, reason)
+				return
+			}
+			// The rule matched and T1 overrode it. Recorded on its own so a
+			// spare is as diagnosable as a suppression — this is the one path
+			// that lets an address the registry calls infrastructure become a
+			// record, and ops must be able to see it happen.
+			s.logCorrespondenceSpare(ctx, rec, reason)
 		}
 	}
 	suppressOrg := s.freemail != nil && s.freemail.IsFreemail(cp.Domain)
@@ -141,6 +157,37 @@ func (s *Sink) internalDomain(ctx context.Context, domain string) (bool, error) 
 	return internal, nil
 }
 
+// correspondencePositive reports whether the workspace has ever sent mail to
+// email — the T1 evidence (ADR-0072 §1). It reads only
+// `counterparty_outbound_attested`, the provider's own attestation that the
+// mailbox owner sent the message, and never `direction`: direction is derived
+// by comparing the forgeable From header against the owner, so honoring it here
+// would let a spoofed From:owner message delivered to the inbox whitelist any
+// address it names past the T2 suppression gate.
+//
+// A single cold inbound is NOT correspondence — receiving mail is not intent.
+// The first outbound message to an address counts immediately: writing to
+// someone is affirmative intent toward them, and it is the message being
+// captured right now that supplies it (the activity commits before this runs).
+func (s *Sink) correspondencePositive(ctx context.Context, email string) (bool, error) {
+	normalized := strings.ToLower(strings.TrimSpace(email))
+	if normalized == "" {
+		return false, nil
+	}
+	var corresponded bool
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			SELECT EXISTS (
+			  SELECT 1 FROM activity
+			  WHERE counterparty_email = $1 AND counterparty_outbound_attested
+			)`, normalized).Scan(&corresponded)
+	})
+	if err != nil {
+		return false, fmt.Errorf("capture: correspondence-positive gate: %w", err)
+	}
+	return corresponded, nil
+}
+
 // transactionalInput builds the transactional-gate input from a captured
 // counterparty: the domain, the address local part (machine-sender
 // corroboration), and the List-Unsubscribe signal the connector parsed.
@@ -169,6 +216,26 @@ func (s *Sink) logSuppression(ctx context.Context, rec connector.NormalizedRecor
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "capture: recording transactional suppression", "err", err, "reason", reason)
+	}
+}
+
+// logCorrespondenceSpare records that T1 overrode a matched T2 suppression
+// rule: the workspace has provably written to this address, so the counterparty
+// is derived despite the registry calling its domain infrastructure. Carries
+// the rule that would have fired, so a wrong registry entry stays diagnosable.
+// Never fails capture: a failed breadcrumb only loses observability.
+func (s *Sink) logCorrespondenceSpare(ctx context.Context, rec connector.NormalizedRecord, reason string) {
+	detail := map[string]any{
+		fieldReason:       reason,
+		fieldSourceSystem: rec.NaturalKey.SourceSystem,
+		fieldSourceID:     rec.NaturalKey.SourceID,
+	}
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		_, logErr := storekit.LogSystem(ctx, tx, "capture_correspondence_spared", detail)
+		return logErr
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "capture: recording correspondence spare", "err", err, "reason", reason)
 	}
 }
 

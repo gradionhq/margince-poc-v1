@@ -12,6 +12,7 @@ package graph
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -48,19 +49,41 @@ func (c *Connector) BackfillPage(ctx context.Context, auth connector.Auth, after
 	if err != nil {
 		return connector.BackfillPageResult{}, err
 	}
-	ids, next, err := c.api.ListAfter(ctx, access, after, pageToken, backfillPageSize)
+	// The backfill walks the whole mailbox, Sent Items included — unlike the
+	// incremental delta, which is inbox-only — so this is where the T1
+	// correspondence evidence (ADR-0072 §1) is available to collect. Resolved
+	// BEFORE anything is captured: a page that cannot tell sent mail from
+	// received would stamp its whole window un-attested, and the natural key
+	// makes that permanent. Treated like any other provider fault — the page
+	// stops without advancing and the engine retries from its committed token.
+	sentFolder, err := c.api.SentFolderID(ctx, access)
 	if err != nil {
 		return connector.BackfillPageResult{}, err
 	}
-	res := connector.BackfillPageResult{NextToken: next, Scanned: len(ids)}
-	for _, id := range ids {
-		raw, err := c.api.GetMIME(ctx, access, id)
+	msgs, next, err := c.api.ListAfter(ctx, access, after, pageToken, backfillPageSize)
+	if err != nil {
+		return connector.BackfillPageResult{}, err
+	}
+	res := connector.BackfillPageResult{NextToken: next, Scanned: len(msgs)}
+	for _, msg := range msgs {
+		raw, err := c.api.GetMIME(ctx, access, msg.ID)
+		if errors.Is(err, connector.ErrSkip) {
+			// A message the provider refuses to hand over: deleted between the
+			// listing and the fetch, or an oversized MIME blob that truncated
+			// would not be honest evidence. Both are per-message drops, counted
+			// and stepped over the same way the incremental pull does —
+			// returning either here would fail the page, and the engine would
+			// retry from its committed token straight back onto the same
+			// message, forever.
+			res.Skipped++
+			continue
+		}
 		if err != nil {
 			// A fetch fault is transient — stop the page without advancing
 			// so the engine retries this page from its committed token.
 			return connector.BackfillPageResult{}, err
 		}
-		captured, err := captureOne(ctx, raw, sink, st.Owner)
+		captured, err := captureOne(ctx, raw, sink, st.Owner, msg.ParentFolderID == sentFolder)
 		if err != nil {
 			return connector.BackfillPageResult{}, err
 		}
