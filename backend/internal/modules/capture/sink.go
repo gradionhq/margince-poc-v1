@@ -214,7 +214,7 @@ func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.Nor
 	// activity never exists without a disposition. A gate fault fails the
 	// capture rather than silently creating: the connector retries the message,
 	// which the natural key makes idempotent.
-	decision, err := s.decideCounterparty(ctx, tx, rec, id.UUID)
+	decision, err := s.decideCounterpartyGuarded(ctx, tx, rec, id.UUID)
 	if err != nil {
 		return datasource.EntityRef{}, false, counterpartyDecision{}, err
 	}

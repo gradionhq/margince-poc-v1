@@ -10,6 +10,7 @@ package capture
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -130,7 +131,7 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 	// records nothing — an internal address is not a disposition anyone reviews.
 	internal, err := s.internalDomainTx(ctx, tx, cp.Domain)
 	if err != nil {
-		return counterpartyDecision{}, s.declineOnFault(ctx, tx, rec, err)
+		return counterpartyDecision{}, err
 	}
 	if internal {
 		return counterpartyDecision{}, nil
@@ -161,7 +162,7 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 		// the question the ledger now holds.
 		row.Status = PendingStatusPending
 		if err := recordDisposition(ctx, tx, row); err != nil {
-			return counterpartyDecision{}, s.declineOnFault(ctx, tx, rec, err)
+			return counterpartyDecision{}, err
 		}
 		return counterpartyDecision{}, nil
 	}
@@ -259,7 +260,7 @@ func (s *Sink) transactionalVerdict(ctx context.Context, tx pgx.Tx, rec connecto
 	}
 	corresponded, err := s.correspondencePositiveTx(ctx, tx, rec.Counterparty.Email)
 	if err != nil {
-		return false, true, s.declineOnFault(ctx, tx, rec, err)
+		return false, true, err
 	}
 	if !corresponded {
 		// T2 stands: person and org are suppressed, the activity keeps its
@@ -267,7 +268,7 @@ func (s *Sink) transactionalVerdict(ctx context.Context, tx pgx.Tx, rec connecto
 		// registry entry is queryable, not only logged.
 		row.Status, row.Reason = PendingStatusSuppressed, reason
 		if err := recordDisposition(ctx, tx, row); err != nil {
-			return false, true, s.declineOnFault(ctx, tx, rec, err)
+			return false, true, err
 		}
 		return false, true, s.logBreadcrumbTx(ctx, tx, "capture_transactional_suppressed", rec, reason)
 	}
@@ -278,17 +279,38 @@ func (s *Sink) transactionalVerdict(ctx context.Context, tx pgx.Tx, rec connecto
 	return true, false, s.logBreadcrumbTx(ctx, tx, "capture_correspondence_spared", rec, reason)
 }
 
-// declineOnFault turns a tier-ladder fault into "derive nothing", recorded, and
-// returns nil so the capture still commits. The ladder decides whether a RECORD
-// is created; it must never decide whether a MESSAGE is kept. Returning the
-// error here would roll back the activity, the raw evidence, the audit row and
-// the outbox event — and because a Sink error stops the connector's pull, one
-// deterministic fault would cost the whole mailbox rather than one derivation.
+// decideCounterpartyGuarded runs the tier ladder inside a SAVEPOINT so a fault
+// costs the derivation and nothing else.
 //
-// Only a failure to RECORD the fault is returned: at that point the database
-// itself is not answering and there is nothing honest left to commit.
-func (s *Sink) declineOnFault(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, cause error) error {
-	return s.logBreadcrumbTx(ctx, tx, "capture_ensure_fault", rec, cause.Error())
+// The ladder decides whether a RECORD is created; it must never decide whether
+// a MESSAGE is kept. But it cannot simply swallow its own errors: the first
+// failed statement poisons the surrounding transaction, so every later
+// statement — including the breadcrumb explaining the failure, and the COMMIT
+// itself — fails too, and the activity, the raw evidence, the audit row and the
+// outbox event all roll back. A Sink error then stops the connector's pull, so
+// one deterministic fault would cost the whole mailbox rather than one
+// derivation.
+//
+// Rolling back to the savepoint returns the transaction to a usable state, so
+// the fault is recorded and the capture commits without its derivation.
+func (s *Sink) decideCounterpartyGuarded(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, activityID ids.UUID) (counterpartyDecision, error) {
+	sp, err := tx.Begin(ctx)
+	if err != nil {
+		return counterpartyDecision{}, fmt.Errorf("capture: opening the counterparty-gate savepoint: %w", err)
+	}
+	decision, gateErr := s.decideCounterparty(ctx, sp, rec, activityID)
+	if gateErr != nil {
+		if rbErr := sp.Rollback(ctx); rbErr != nil {
+			// Without a clean rollback the outer transaction stays poisoned,
+			// so there is no committing anything — report the original fault.
+			return counterpartyDecision{}, errors.Join(gateErr, rbErr)
+		}
+		return counterpartyDecision{}, s.logBreadcrumbTx(ctx, tx, "capture_ensure_fault", rec, gateErr.Error())
+	}
+	if err := sp.Commit(ctx); err != nil {
+		return counterpartyDecision{}, fmt.Errorf("capture: committing the counterparty gate: %w", err)
+	}
+	return decision, nil
 }
 
 // logBreadcrumbTx records one capture-gate decision on the caller's capture
