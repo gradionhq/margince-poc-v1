@@ -183,7 +183,7 @@ export function TasksScreen() {
         params: { query: { kind: "task", limit: 100 } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throw new Error(problemMessage(error, t));
       }
       return data;
     },
@@ -199,7 +199,7 @@ export function TasksScreen() {
         body: input.body,
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throw new Error(problemMessage(error, t));
       }
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tasks"] }),
@@ -222,7 +222,7 @@ export function TasksScreen() {
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throw new Error(problemMessage(error, t));
       }
     },
     onSuccess: () => {

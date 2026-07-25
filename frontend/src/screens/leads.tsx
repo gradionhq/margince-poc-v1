@@ -217,12 +217,13 @@ const leadStatusFilterOptions = [
 async function createLead(
   values: Record<string, string>,
   customFields: Record<string, unknown>,
+  t: (key: MessageKey) => string,
 ): Promise<Lead> {
   const { data, error } = await api.POST("/leads", {
     body: { ...mapLeadBody(values), ...customFields },
   });
   if (error) {
-    throwProblem(error);
+    throwProblem(error, t);
   }
   return data;
 }
@@ -245,7 +246,7 @@ export function LeadsScreen() {
           label={t("create.lead")}
           invalidate="leads"
           screen="leads"
-          create={(values) => createLead(values, cf.toBody(values))}
+          create={(values) => createLead(values, cf.toBody(values), t)}
           resolveExisting={(_code, id) => ({ screen: "leads", id })}
           fields={[...leadCreateFields, ...cf.formFields]}
         />

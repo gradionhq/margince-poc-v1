@@ -264,12 +264,13 @@ async function createCompany(
   values: Record<string, string>,
   rows: FormRows | undefined,
   customFields: Record<string, unknown>,
+  t: (key: MessageKey) => string,
 ): Promise<Organization> {
   const { data, error } = await api.POST("/organizations", {
     body: { ...mapOrgBody(values, rows ?? {}), ...customFields },
   });
   if (error) {
-    throwProblem(error);
+    throwProblem(error, t);
   }
   return data;
 }
@@ -297,7 +298,7 @@ export function CompaniesScreen() {
             invalidate="organizations"
             screen="companies"
             create={(values, rows) =>
-              createCompany(values, rows, cf.toBody(values))
+              createCompany(values, rows, cf.toBody(values), t)
             }
             resolveExisting={(_code, id) => ({ screen: "companies", id })}
             fields={[...companyCreateFields, ...cf.formFields]}

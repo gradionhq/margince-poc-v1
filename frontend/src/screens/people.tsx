@@ -14,6 +14,7 @@ import {
 import { RecordView, type TimelineEntry } from "../design-system/composed";
 import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
 import {
   OverlayUnavailable,
@@ -245,12 +246,13 @@ async function createContact(
   values: Record<string, string>,
   rows: FormRows | undefined,
   customFields: Record<string, unknown>,
+  t: (key: MessageKey) => string,
 ): Promise<Person> {
   const { data, error } = await api.POST("/people", {
     body: { ...mapPersonBody(values, rows ?? {}), ...customFields },
   });
   if (error) {
-    throwProblem(error);
+    throwProblem(error, t);
   }
   return data;
 }
@@ -323,7 +325,7 @@ export function ContactsScreen() {
           invalidate="people"
           screen="contacts"
           create={(values, rows) =>
-            createContact(values, rows, cf.toBody(values))
+            createContact(values, rows, cf.toBody(values), t)
           }
           resolveExisting={(_code, id) => ({ screen: "contacts", id })}
           fields={[...contactCreateFields(t), ...cf.formFields]}

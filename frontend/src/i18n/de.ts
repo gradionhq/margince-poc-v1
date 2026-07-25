@@ -286,6 +286,8 @@ export const de = {
     "Diese Installation liest Datensätze aus einem HubSpot-Spiegel statt aus nativen Tabellen. Öffne Einstellungen → Integrationen, um die Verbindung zu verwalten.",
   "overlay.refused":
     "Beim Lesen aus HubSpot nicht verfügbar — der Spiegel kann diesen Schreibvorgang nicht ausführen.",
+  "overlay.filterUnsupported":
+    "Dieser Filter oder diese Sortierung ist beim Lesen aus HubSpot nicht verfügbar — bitte entfernen und erneut versuchen.",
   "overlay.emptyOwnerHint":
     "Eine leere Liste bedeutet hier meist, dass die HubSpot-E-Mail des Owners keinem Workspace-Benutzer entspricht — nicht, dass das HubSpot-Portal leer ist.",
 

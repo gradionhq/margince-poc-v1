@@ -280,6 +280,8 @@ export const en = {
     "This installation reads records from a HubSpot mirror instead of native tables. Open Settings → Integrations to manage the connection.",
   "overlay.refused":
     "Not available while reading from HubSpot — the mirror can't serve this write.",
+  "overlay.filterUnsupported":
+    "This filter or sort isn't available while reading from HubSpot — remove it and try again.",
   "overlay.emptyOwnerHint":
     "An empty list here usually means the owner's HubSpot email doesn't match a workspace user, not an empty HubSpot portal.",
 

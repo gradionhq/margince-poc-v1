@@ -308,21 +308,26 @@ export function provenanceOf(capturedBy: string | undefined): Provenance {
 // RFC 7807 bodies carry the honest detail; surface it instead of a generic
 // failure so the error state names its cause.
 //
-// A refusal overlay mode causes is a state, not a fault: the server's own
-// detail is terse sentinel text (e.g. "unsupported by the system of record
-// provider"), so a caller holding a translator gets copy naming the mode
-// that refused instead. Callers without a translator — and every other
-// problem code — keep the server's own detail verbatim, exactly as before.
+// A refusal overlay mode causes is a state, not a fault, but it is TWO
+// distinct states, not one: `unsupported_by_sor` is a WRITE the mirror
+// cannot serve (mutating a mirrored record — create/log-activity/advance/
+// merge/promote/disqualify); `unsupported_in_overlay_mode` is a READ whose
+// list/sort/filter dial the mirror does not hold (compose/overlayread.go's
+// unsupportedOverlayParam — e.g. tasks' `kind` filter). Collapsing both onto
+// one "can't serve this write" string would be false for the read case, so a
+// caller holding a translator gets copy naming which kind of refusal
+// happened. Callers without a translator — and every other problem code —
+// keep the server's own detail verbatim, exactly as before.
 export function problemMessage(
   problem: unknown,
   t?: (key: MessageKey) => string,
 ): string {
   const code = problemCode(problem);
-  if (
-    t &&
-    (code === "unsupported_by_sor" || code === "unsupported_in_overlay_mode")
-  ) {
+  if (t && code === "unsupported_by_sor") {
     return t("overlay.refused");
+  }
+  if (t && code === "unsupported_in_overlay_mode") {
+    return t("overlay.filterUnsupported");
   }
   if (problem && typeof problem === "object") {
     const record = problem as Record<string, unknown>;

@@ -93,19 +93,26 @@ describe("CreateAction dedupe link", () => {
 });
 
 describe("problemMessage", () => {
-  it("translates an unsupported_by_sor refusal when given a translator", () => {
+  it("translates an unsupported_by_sor WRITE refusal when given a translator", () => {
     expect(
       problemMessage(
         { code: "unsupported_by_sor", detail: "write not supported by SoR" },
         t,
       ),
     ).toBe(t("overlay.refused"));
-    expect(
-      problemMessage(
-        { code: "unsupported_in_overlay_mode", detail: "422 read gap" },
-        t,
-      ),
-    ).toBe(t("overlay.refused"));
+  });
+
+  it("translates an unsupported_in_overlay_mode READ refusal to its own, different copy", () => {
+    const message = problemMessage(
+      { code: "unsupported_in_overlay_mode", detail: "422 read gap" },
+      t,
+    );
+    expect(message).toBe(t("overlay.filterUnsupported"));
+    // The two refusal codes are different states (a refused write vs. a
+    // refused filter/sort dial) — collapsing them onto one string would
+    // print the write-specific "can't serve this write" for a filter a
+    // caller never tried to write.
+    expect(message).not.toBe(t("overlay.refused"));
   });
 
   it("keeps the server detail when no translator is given", () => {
@@ -115,6 +122,12 @@ describe("problemMessage", () => {
         detail: "write not supported by SoR",
       }),
     ).toBe("write not supported by SoR");
+    expect(
+      problemMessage({
+        code: "unsupported_in_overlay_mode",
+        detail: "422 read gap",
+      }),
+    ).toBe("422 read gap");
   });
 
   it("keeps the server detail for an unrelated code even with a translator", () => {

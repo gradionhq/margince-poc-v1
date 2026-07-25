@@ -705,7 +705,7 @@ export function DealsScreen({
       },
     });
     if (error) {
-      throw new Error(problemMessage(error));
+      throw new Error(problemMessage(error, t));
     }
     return data;
   };
@@ -1112,7 +1112,7 @@ function ReopenAction({
         body: { to_stage_id: toStageId, status: "open" },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throw new Error(problemMessage(error, t));
       }
       return data;
     },
