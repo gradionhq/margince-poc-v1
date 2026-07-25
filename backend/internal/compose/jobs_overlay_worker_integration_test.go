@@ -411,8 +411,8 @@ func TestWorkerCleanStopsOnMidSweepDisconnect(t *testing.T) {
 // via raw SQL — never incumbent_connection or overlay_sync_state, which
 // stay exactly as the teardown left them — so requireOverlayMode passes
 // and RequestSweep is forced through to the fenced write instead of being
-// turned away earlier by the mode gate. This is the actual regression
-// guard for the two P1s the review found: (1) RequestSweep must run
+// turned away earlier by the mode gate. This is the real regression guard
+// for two failure modes that race exposes: (1) RequestSweep must run
 // against the FENCED store (MirrorStore.WithFence), or this stale-mode
 // window would let it silently re-insert the overlay_sync_state row the
 // teardown purged; (2) the fence's ErrConnectionGone must be mapped to

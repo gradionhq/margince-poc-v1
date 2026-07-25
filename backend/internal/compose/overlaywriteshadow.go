@@ -113,6 +113,19 @@ func respondWithMirroredRecord[Res any](s Server, w http.ResponseWriter, r *http
 // assembles — still a read, still carrying the same row-scope/object gate
 // (Provider.Read's own auth.Require), just ordered before rather than after
 // the write.
+//
+// Two honest divergences from the native path follow from that ordering,
+// both acceptable because a mirror row has no archived STATE to report in
+// the first place (it is purged, never flagged archived):
+//   - the body can be stale by the width of the pre-read-then-archive
+//     window — an incumbent update landing in that gap is not reflected —
+//     whereas the native path reads and archives in one transaction; and
+//   - the body carries no archived marker (no ArchivedAt, unlike a native
+//     archived row), since it is exactly the pre-archive record, unchanged.
+//
+// Both are read-only, display-only gaps: the incumbent-first Archive call
+// itself is what actually gates and executes the archive, so neither
+// affects whether the record is genuinely archived.
 func overlayArchive[Res any](s Server, w http.ResponseWriter, r *http.Request,
 	et datasource.EntityType, id crmcontracts.Id, native func(),
 	wire func(context.Context, datasource.Record) (Res, error),

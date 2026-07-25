@@ -9,8 +9,8 @@ package overlay
 // one, and the pre-flight read that tells Connect which of the two branches
 // applies. Split out of connection.go (which keeps the fresh-insert path,
 // Get, and the shared cleanupOrphanedRef both branches call) purely to stay
-// under the file-length cap — no logic moved, only the reconnect-specific
-// symbols.
+// under the file-length cap — a mechanical relocation of the
+// reconnect-specific symbols, with no change to their logic.
 
 import (
 	"context"

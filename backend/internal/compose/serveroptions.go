@@ -16,7 +16,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
-	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
@@ -128,21 +127,6 @@ func WithOverlayBackfillLimit(limit int) Option {
 // no Redis.
 func WithOverlayMeter(meter *overlaybudget.Meter) Option {
 	return func(s *Server, _ *pgxpool.Pool) { s.overlayMeter.RebindFrom(meter) }
-}
-
-// WithOverlayIncumbentResolver overrides the per-request live-incumbent
-// resolver the overlay read dispatch's force-fresh lane AND the write-back
-// seam (Create/Update/Archive) both consult, replacing whatever
-// WithKeyvault would otherwise wire from the connection's own vaulted
-// region+token. No production role applies this — every real deployment
-// reaches HubSpot only through that vaulted path — it exists so an
-// integration test can substitute overlay/fake for the live adapter and
-// exercise write-back over the real HTTP surface without a live HubSpot
-// account or a network call. Apply it AFTER WithKeyvault in the Option
-// list: WithKeyvault's own SetOverlayIncumbentResolver call would otherwise
-// win by running later.
-func WithOverlayIncumbentResolver(resolve func(context.Context) (overlay.Incumbent, error)) Option {
-	return func(s *Server, _ *pgxpool.Pool) { s.sorDispatch.SetOverlayIncumbentResolver(resolve) }
 }
 
 // readinessChecks assembles the /readyz dependency probes for this role.

@@ -51,6 +51,14 @@ func TestOverlayWriteGuard(t *testing.T) {
 		{"SoR write allowed off overlay", "POST", "/v1/people", false, true, http.StatusOK},
 		{"deal advance refused in overlay", "POST", "/v1/deals/{id}/advance", true, false, http.StatusUnprocessableEntity},
 		{"lead promote refused in overlay", "POST", "/v1/leads/{id}/promote", true, false, http.StatusUnprocessableEntity},
+		// DELETE /v1/leads/{id} is disqualify_lead (agentpolicy_gen.go), a
+		// DIFFERENT route and tool from lead promote above — it has no entry
+		// in overlayWriteVerbs, so it is refused on that basis alone, not on
+		// SupportsWrite. Pinned here so a future overlayWriteVerbs entry (or a
+		// policy regen reclassifying the route) that started letting it
+		// through would fail a test, not just fall silently to
+		// DisqualifyLead's native handler.
+		{"lead disqualify refused in overlay", "DELETE", "/v1/leads/{id}", true, false, http.StatusUnprocessableEntity},
 		// Archive of a mirrored type the provider DOES support
 		// (overlay.SupportsWrite(WriteArchive, person) is true — archivableTypes)
 		// is let through rather than refused: it is destined for the write
@@ -105,7 +113,7 @@ func runOverlayWriteGuard(method, pattern string) (nextCalled bool, status int) 
 
 // A native-only entity is not mirrored, so its native table is the live one
 // even in overlay mode: the guard must let its writes through rather than
-// refusing on the tool verb alone (the bug this task fixes).
+// refusing on the tool verb alone.
 func TestOverlayWriteGuardAllowsNativeOnlyEntities(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -153,8 +161,10 @@ func TestGuardRefusalMatchesProviderCapability(t *testing.T) {
 		{datasource.EntityLead, overlay.WriteUpdate, "PATCH", "/v1/leads/{id}"},
 		// Lead has no archive_record route — DELETE /v1/leads/{id} is
 		// disqualify_lead, a lifecycle verb the seam mapping never carries
-		// (overlayWriteVerbs), so it is covered by "lead promote refused in
-		// overlay"'s sibling case above, not here.
+		// (overlayWriteVerbs), so overlay.SupportsWrite has no WriteArchive
+		// opinion about it at all; it is covered on its own terms by
+		// TestOverlayWriteGuard's "lead disqualify refused in overlay" case,
+		// not by this SupportsWrite-driven table.
 		{datasource.EntityActivity, overlay.WriteCreate, "POST", "/v1/activities"}, // log_activity
 		{datasource.EntityActivity, overlay.WriteUpdate, "PATCH", "/v1/activities/{id}"},
 		{datasource.EntityActivity, overlay.WriteArchive, "DELETE", "/v1/activities/{id}"},
@@ -234,14 +244,14 @@ var overlayEntityTitles = map[string]string{
 	string(datasource.EntityActivity):     "Activity",
 }
 
-// TestOverlayWriteShadowsCoverEverySupportedWrite is the fitness function
-// this task exists to keep true: for every mirrored type × verb the
-// provider actually supports (overlay.SupportsWrite), Server must declare
-// its own Update<Type>/Archive<Type> shadow. A supported write with no
-// shadow falls through to the native handler's promoted method instead —
-// exactly the bug class overlaywrite.go's guard was widened to allow
-// through to (Task 3's report), on the understanding that a shadow would
-// catch it here.
+// TestOverlayWriteShadowsCoverEverySupportedWrite keeps the guard and the
+// shadows honest with each other: overlaywrite.go's guard admits a
+// mirrored-type write the whole way to a handler once overlay.SupportsWrite
+// says the provider can serve it — on the promise that a shadow is there to
+// serve it. For every mirrored type × verb the provider actually supports,
+// Server must declare its own Update<Type>/Archive<Type> shadow; a
+// supported write with no shadow falls through to the native handler's
+// promoted method instead and commits to the empty overlay-mode table.
 func TestOverlayWriteShadowsCoverEverySupportedWrite(t *testing.T) {
 	declared := serverDeclaredMethods(t)
 	verbPrefixes := map[overlay.WriteVerb]string{

@@ -8,10 +8,13 @@ package integration
 // The write-shadow story (compose/overlaywriteshadow.go), proven over the
 // real HTTP surface + a real migrated Postgres: an ordinary REST update or
 // archive against a workspace in overlay mode routes THROUGH to the
-// incumbent and answers with the re-mirrored row, instead of the Task-3
-// guard letting a supported write fall through to the native handler's
-// empty overlay-mode table (that window is exactly what this file exists
-// to close — see Task 3's own report on the interim risk).
+// incumbent and answers with the re-mirrored row. The overlay-mode write
+// guard (compose/overlaywrite.go) admits a mirrored-type write the whole
+// way to a handler on the promise that a shadow serves it
+// (overlay.SupportsWrite); a supported write with no shadow falls through
+// to the native module handler's promoted method instead and commits to
+// the empty overlay-mode table — this file is what proves that promise
+// holds for every write the guard admits.
 //
 // Every test here connects the workspace through compose.WithKeyvault (so
 // Connect can seal a credential and the guard sees an active connection),
@@ -216,6 +219,15 @@ func TestOverlayUnsupportedWritesStillRefused(t *testing.T) {
 	if status := e.call(t, "DELETE", "/v1/activities/"+placeholder, nil, nil, nil); status != http.StatusUnprocessableEntity {
 		t.Fatalf("archive activity in overlay mode = %d, want 422 unsupported_by_sor", status)
 	}
+	// DELETE /v1/leads/{id} is disqualify_lead (a lifecycle verb, not a
+	// seam write overlayWriteVerbs carries), refused on that basis alone —
+	// pinned over the real HTTP surface, not just at the guard-unit level
+	// (overlaywrite_test.go's "lead disqualify refused in overlay"), so a
+	// policy regen or a new overlayWriteVerbs entry sending it to
+	// DisqualifyLead's native handler fails a test here too.
+	if status := e.call(t, "DELETE", "/v1/leads/"+placeholder, nil, nil, nil); status != http.StatusUnprocessableEntity {
+		t.Fatalf("disqualify lead in overlay mode = %d, want 422 unsupported_by_sor", status)
+	}
 
 	var personCount int
 	if err := e.owner.QueryRow(context.Background(),
@@ -293,5 +305,99 @@ func TestOverlayUpdateDropsUnmappedFields(t *testing.T) {
 	}
 	if person.OwnerId != nil {
 		t.Fatalf("OwnerId = %v, want nil — overlay mode never wires owner_id onto the Person response", *person.OwnerId)
+	}
+}
+
+// overlayUpdateCase is one type's slice of
+// TestOverlayWriteShadowsRoundTripEveryMirroredType's update table: seed a
+// record, PATCH one field, and assert that EXACT field changed on the
+// response. Asserting the specific field (not just "PATCH answered 200")
+// is what a transposed EntityType or a swapped overlayWire* mapper cannot
+// survive — a wrong entity type answers 404 (no such row natively, or a
+// mismatched mirror lookup), and a wrong mapper answers a response shaped
+// for a different entity, missing the field entirely or holding its
+// unchanged previous value.
+type overlayUpdateCase struct {
+	entityType string
+	path       string
+	externalID string
+	seedFields map[string]any
+	patch      anyMap
+	field      string
+	want       string
+}
+
+// overlayArchiveCase is the archive-table sibling of overlayUpdateCase:
+// seed a record, archive it, and assert the pre-archive snapshot's field
+// value on the response, plus that the fake incumbent no longer holds it.
+type overlayArchiveCase struct {
+	entityType string
+	path       string
+	externalID string
+	seedFields map[string]any
+	field      string
+	want       string
+}
+
+// TestOverlayWriteShadowsRoundTripEveryMirroredType is the behavioral
+// counterpart to the fitness test's existence check
+// (TestOverlayWriteShadowsCoverEverySupportedWrite, compose/overlaywrite_test.go):
+// that test only proves a method with the right NAME exists on Server: it
+// cannot catch a shadow that dispatches the WRONG EntityType or wires the
+// WRONG overlayWire* mapper (e.g. UpdateLead accidentally built on
+// datasource.EntityActivity, or wired to overlayWireActivity) — a
+// transposition that would still satisfy the existence check while
+// silently reading or writing the wrong mirror row. One update and one
+// archive per mirrored type here, each asserting the specific patched
+// field actually changed on the response, closes that gap. Deal-update and
+// person-archive are exercised in more depth by their own dedicated tests
+// above; they are still included here so the table is one complete,
+// uniform proof per type rather than five ad hoc ones.
+func TestOverlayWriteShadowsRoundTripEveryMirroredType(t *testing.T) {
+	updates := []overlayUpdateCase{
+		{"person", "/v1/people", "9301", map[string]any{"first_name": "Marie"}, anyMap{"first_name": "Marie2"}, "first_name", "Marie2"},
+		{"organization", "/v1/organizations", "9302", map[string]any{"display_name": "Acme Org"}, anyMap{"display_name": "Acme Org 2"}, "display_name", "Acme Org 2"},
+		{"deal", "/v1/deals", "9303", map[string]any{"name": "Widget Deal"}, anyMap{"name": "Widget Deal 2"}, "name", "Widget Deal 2"},
+		{"lead", "/v1/leads", "9304", map[string]any{"full_name": "Grace Lead"}, anyMap{"full_name": "Grace Lead 2"}, "full_name", "Grace Lead 2"},
+		{"activity", "/v1/activities", "9305", map[string]any{"kind": "call", "subject": "Intro Call"}, anyMap{"subject": "Intro Call 2"}, "subject", "Intro Call 2"},
+	}
+	for _, tc := range updates {
+		t.Run("update/"+tc.entityType, func(t *testing.T) {
+			e := setupOverlayWrite(t)
+			e.seed(t, tc.entityType, tc.externalID, tc.seedFields)
+			id := firstListedID(t, e.env, tc.path)
+
+			var body anyMap
+			if status := e.call(t, "PATCH", tc.path+"/"+id, tc.patch, nil, &body); status != http.StatusOK {
+				t.Fatalf("PATCH %s/%s = %d", tc.path, id, status)
+			}
+			if got, _ := body[tc.field].(string); got != tc.want {
+				t.Fatalf("%s.%s = %q, want %q — wrong EntityType or overlayWire* mapper wired for this shadow", tc.entityType, tc.field, got, tc.want)
+			}
+		})
+	}
+
+	archives := []overlayArchiveCase{
+		{"person", "/v1/people", "9311", map[string]any{"first_name": "Isaac"}, "first_name", "Isaac"},
+		{"organization", "/v1/organizations", "9312", map[string]any{"display_name": "Beta Org"}, "display_name", "Beta Org"},
+		{"deal", "/v1/deals", "9313", map[string]any{"name": "Small Deal"}, "name", "Small Deal"},
+	}
+	for _, tc := range archives {
+		t.Run("archive/"+tc.entityType, func(t *testing.T) {
+			e := setupOverlayWrite(t)
+			e.seed(t, tc.entityType, tc.externalID, tc.seedFields)
+			id := firstListedID(t, e.env, tc.path)
+
+			var body anyMap
+			if status := e.call(t, "DELETE", tc.path+"/"+id, nil, nil, &body); status != http.StatusOK {
+				t.Fatalf("DELETE %s/%s = %d, want 200", tc.path, id, status)
+			}
+			if got, _ := body[tc.field].(string); got != tc.want {
+				t.Fatalf("%s.%s = %q, want %q — wrong EntityType or overlayWire* mapper wired for this shadow", tc.entityType, tc.field, got, tc.want)
+			}
+			if _, err := e.fake.Get(context.Background(), tc.entityType, tc.externalID); err == nil {
+				t.Fatalf("the fake incumbent still holds the archived %s — the archive never reached the seam", tc.entityType)
+			}
+		})
 	}
 }
