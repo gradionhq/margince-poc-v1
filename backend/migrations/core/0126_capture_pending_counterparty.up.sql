@@ -52,6 +52,13 @@ CREATE TABLE capture_pending_counterparty (
   -- whose lease is in the past is claimable again, so a worker that died
   -- mid-batch releases its work by expiry rather than leaving it stuck.
   claimed_until timestamptz NULL,
+  -- Which claim the current lease belongs to: a fresh token per ClaimDue, and
+  -- the write key every resolution must present. Expiry alone cannot make a
+  -- lease safe — a worker that stalled past its lease is still running, and the
+  -- row it is holding may already have been re-claimed and re-judged by someone
+  -- else. Without this the zombie's UPDATE still matches (the status is
+  -- 'pending' again) and the stale verdict silently overwrites the live one.
+  claimed_by uuid NULL,
   attempts      int NOT NULL DEFAULT 0,
   -- When the verdict job may next consider this row. NULL retires it from the
   -- due-scan: either resolved, or out of attempts. Bounded retries live in the

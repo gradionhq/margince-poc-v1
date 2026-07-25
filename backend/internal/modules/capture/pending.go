@@ -47,6 +47,15 @@ const pendingMaxAttempts = 2
 // its rows by expiry instead of stranding them.
 const pendingLease = 15 * time.Minute
 
+// PendingDeferralCap bounds how many open questions one workspace may hold at
+// once. Every deferral is a promised model call, and the party who creates them
+// is an OUTSIDER: anyone who can mail the connected mailbox from fresh addresses
+// mints ledger rows, so without a ceiling a stranger sets the workspace's AI
+// spend. At the cap capture stops queueing questions — the messages still land
+// on the timeline, they simply go unjudged, which is the safe direction to fail:
+// a backlog of unanswered questions is recoverable, junk records are not.
+const PendingDeferralCap = 500
+
 // PendingCounterparty is one deferred disposition as the verdict engine reads
 // it: the identity to judge and the message that raised the question.
 type PendingCounterparty struct {
@@ -59,6 +68,12 @@ type PendingCounterparty struct {
 	Subject     string
 	Body        string
 	Attempts    int
+
+	// Claim is this lease's token, minted by the ClaimDue that handed the row
+	// out. Every write back to the ledger presents it, so a worker holding an
+	// expired lease can no longer resolve a row that someone else has since
+	// claimed. Carry it; never construct one.
+	Claim ids.UUID
 }
 
 // recordDisposition writes one ledger row inside the caller's capture
@@ -68,14 +83,30 @@ type PendingCounterparty struct {
 // status decides whether anything is deferred — a T2 suppression records its
 // reason and retires immediately (no next_attempt_at), while a T4 ambiguous
 // sender stays due for the verdict engine.
-func recordDisposition(ctx context.Context, tx pgx.Tx, in dispositionRow) error {
+//
+// It reports whether the workspace's deferral cap refused the row, which the
+// caller records as its own breadcrumb: a capture that asks no question is a
+// different event from one that joins an existing one, and only the first means
+// the workspace is being flooded.
+func recordDisposition(ctx context.Context, tx pgx.Tx, in dispositionRow) (bool, error) {
 	email := normalizeEmail(in.Email)
 	if email == "" {
-		return errors.New("capture: a disposition needs a normalized counterparty address")
+		return false, errors.New("capture: a disposition needs a normalized counterparty address")
 	}
-	var nextAttempt any
-	if in.Status == PendingStatusPending {
-		nextAttempt = time.Now()
+	due := in.Status == PendingStatusPending
+	if due {
+		// Asked before the insert rather than folded into it as a WHERE, because
+		// the two zero-row outcomes must stay distinguishable: at the cap nothing
+		// is asked, whereas ON CONFLICT DO NOTHING means the question is already
+		// open. The count is exact under RLS (the policy scopes it to this
+		// workspace) and only the ambiguous tier pays for it.
+		atCap, err := atDeferralCap(ctx, tx)
+		if err != nil {
+			return false, err
+		}
+		if atCap {
+			return true, nil
+		}
 	}
 	// One disposition per address per state, whichever index arbitrates it: a
 	// second message from the same stranger joins the open question, and a
@@ -84,19 +115,40 @@ func recordDisposition(ctx context.Context, tx pgx.Tx, in dispositionRow) error 
 	if in.Status == PendingStatusSuppressed {
 		conflict = "(workspace_id, email) WHERE status = 'suppressed'"
 	}
+	// Due-ness is stamped with the DATABASE's clock, never the caller's. ClaimDue
+	// compares next_attempt_at against Postgres now(), so a next_attempt_at taken
+	// from the app process makes the comparison a cross-clock one: an app running
+	// even milliseconds ahead of the database writes a row that is not yet due and
+	// silently waits out the skew before anything claims it.
 	_, err := tx.Exec(ctx, `
 		INSERT INTO capture_pending_counterparty
 		  (workspace_id, email, domain, display_name, activity_id, owner_id, status, disposition_reason, next_attempt_at)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		        $1, NULLIF($2, ''), NULLIF($3, ''), $4, $5, $6, NULLIF($7, ''), $8)
+		        $1, NULLIF($2, ''), NULLIF($3, ''), $4, $5, $6, NULLIF($7, ''),
+		        CASE WHEN $8::boolean THEN now() END)
 		ON CONFLICT `+conflict+`
 		DO NOTHING`,
 		email, strings.ToLower(strings.TrimSpace(in.Domain)), in.DisplayName,
-		in.ActivityID, in.OwnerID, in.Status, in.Reason, nextAttempt)
+		in.ActivityID, in.OwnerID, in.Status, in.Reason, due)
 	if err != nil {
-		return fmt.Errorf("capture: recording the counterparty disposition: %w", err)
+		return false, fmt.Errorf("capture: recording the counterparty disposition: %w", err)
 	}
-	return nil
+	return false, nil
+}
+
+// atDeferralCap reports whether this workspace already holds its ceiling of open
+// questions. Counts the live states, not just 'pending': an 'unsure' row is a
+// question a human still owes an answer to, so a workspace cannot walk past the
+// bound by leaving its review queue unattended.
+func atDeferralCap(ctx context.Context, tx pgx.Tx) (bool, error) {
+	var live int
+	err := tx.QueryRow(ctx, `
+		SELECT count(*) FROM capture_pending_counterparty
+		 WHERE status IN ('pending', 'unsure')`).Scan(&live)
+	if err != nil {
+		return false, fmt.Errorf("capture: counting open dispositions: %w", err)
+	}
+	return live >= PendingDeferralCap, nil
 }
 
 // dispositionRow names one ledger write.
@@ -123,14 +175,17 @@ func NewPendingStore(pool *pgxpool.Pool) *PendingStore { return &PendingStore{po
 // by expiry.
 //
 // Claiming bumps attempts, so a row that keeps failing walks toward its bound
-// rather than being retried forever.
+// rather than being retried forever, and stamps a fresh claim token every
+// batch shares — the key Resolve and Defer demand back.
 func (s *PendingStore) ClaimDue(ctx context.Context, limit int) ([]PendingCounterparty, error) {
+	claim := ids.NewV7()
 	var out []PendingCounterparty
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			UPDATE capture_pending_counterparty p
 			   SET attempts = p.attempts + 1,
 			       claimed_until = now() + $2::interval,
+			       claimed_by = $4,
 			       updated_at = now()
 			 WHERE p.id IN (
 			   SELECT id FROM capture_pending_counterparty
@@ -150,13 +205,13 @@ func (s *PendingStore) ClaimDue(ctx context.Context, limit int) ([]PendingCounte
 			          p.activity_id, p.owner_id, p.attempts,
 			          coalesce((SELECT a.subject FROM activity a WHERE a.id = p.activity_id), ''),
 			          coalesce((SELECT a.body FROM activity a WHERE a.id = p.activity_id), '')`,
-			limit, pendingLease.String(), pendingMaxAttempts)
+			limit, pendingLease.String(), pendingMaxAttempts, claim)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
-			var p PendingCounterparty
+			p := PendingCounterparty{Claim: claim}
 			if err := rows.Scan(&p.ID, &p.Email, &p.Domain, &p.DisplayName,
 				&p.ActivityID, &p.OwnerID, &p.Attempts, &p.Subject, &p.Body); err != nil {
 				return err
@@ -171,44 +226,53 @@ func (s *PendingStore) ClaimDue(ctx context.Context, limit int) ([]PendingCounte
 	return out, nil
 }
 
-// Resolve closes a claimed row with its verdict. The CAS on `pending` is what
-// makes a racing second worker — or a replayed job — a no-op rather than a
-// second creation: reports whether THIS call was the one that resolved it, and
-// only that caller may act on the verdict.
-func (s *PendingStore) Resolve(ctx context.Context, tx pgx.Tx, id ids.UUID, status, reason string) (bool, error) {
+// Resolve closes a claimed row with its verdict. The CAS on `pending` AND on the
+// caller's own claim is what makes a racing second worker — or a replayed job,
+// or one whose lease expired while it was still running — a no-op rather than a
+// second creation: it reports whether THIS call was the one that resolved the
+// row, and only that caller may act on the verdict.
+//
+// It takes the claimed row rather than an id so the token cannot be lost or
+// mismatched on the way here.
+func (s *PendingStore) Resolve(ctx context.Context, tx pgx.Tx, p PendingCounterparty, status, reason string) (bool, error) {
 	tag, err := tx.Exec(ctx, `
 		UPDATE capture_pending_counterparty
 		   SET status = $2, disposition_reason = NULLIF($3, ''),
-		       resolved_at = now(), next_attempt_at = NULL, claimed_until = NULL, updated_at = now()
-		 WHERE id = $1 AND status = 'pending'`, id, status, reason)
+		       resolved_at = now(), next_attempt_at = NULL,
+		       claimed_until = NULL, claimed_by = NULL, updated_at = now()
+		 WHERE id = $1 AND status = 'pending' AND claimed_by = $4`, p.ID, status, reason, p.Claim)
 	if err != nil {
-		return false, fmt.Errorf("capture: resolving disposition %s: %w", id, err)
+		return false, fmt.Errorf("capture: resolving disposition %s: %w", p.ID, err)
 	}
 	return tag.RowsAffected() == 1, nil
 }
 
-// Defer returns a claimed row to the queue for a later pass, or retires it when
-// it has used its attempts. A row that never gets a usable verdict must stop
-// costing model calls; retiring leaves the record and its reason, so the
-// question is visibly unanswered rather than silently dropped.
-func (s *PendingStore) Defer(ctx context.Context, id ids.UUID, attempts int, backoff time.Duration, reason string) error {
+// Defer returns a claimed row to the queue for a later pass, or retires it to
+// 'unsure' when it has used its attempts. A row that never gets a usable verdict
+// must stop costing model calls; retiring leaves the record and its reason, so
+// the question is visibly unanswered rather than silently dropped.
+//
+// Guarded by the same claim as Resolve, for the same reason: a stalled worker
+// releasing "its" row would otherwise cut short a lease someone else now holds.
+func (s *PendingStore) Defer(ctx context.Context, p PendingCounterparty, backoff time.Duration, reason string) error {
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if attempts >= pendingMaxAttempts {
+		if p.Attempts >= pendingMaxAttempts {
 			_, err := tx.Exec(ctx, `
 				UPDATE capture_pending_counterparty
 				   SET status = 'unsure', disposition_reason = NULLIF($2, ''),
-				       next_attempt_at = NULL, claimed_until = NULL, updated_at = now()
-				 WHERE id = $1 AND status = 'pending'`, id, reason)
+				       next_attempt_at = NULL, claimed_until = NULL, claimed_by = NULL, updated_at = now()
+				 WHERE id = $1 AND status = 'pending' AND claimed_by = $3`, p.ID, reason, p.Claim)
 			return err
 		}
 		_, err := tx.Exec(ctx, `
 			UPDATE capture_pending_counterparty
-			   SET next_attempt_at = now() + $2::interval, claimed_until = NULL, updated_at = now()
-			 WHERE id = $1 AND status = 'pending'`, id, backoff.String())
+			   SET next_attempt_at = now() + $2::interval,
+			       claimed_until = NULL, claimed_by = NULL, updated_at = now()
+			 WHERE id = $1 AND status = 'pending' AND claimed_by = $3`, p.ID, backoff.String(), p.Claim)
 		return err
 	})
 	if err != nil {
-		return fmt.Errorf("capture: deferring disposition %s: %w", id, err)
+		return fmt.Errorf("capture: deferring disposition %s: %w", p.ID, err)
 	}
 	return nil
 }

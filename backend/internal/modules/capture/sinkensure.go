@@ -170,8 +170,17 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 		// stands, no record is minted, and the verdict engine answers the
 		// question the ledger now holds.
 		row.Status = PendingStatusPending
-		if err := recordDisposition(ctx, tx, row); err != nil {
+		capped, err := recordDisposition(ctx, tx, row)
+		if err != nil {
 			return counterpartyDecision{}, err
+		}
+		if capped {
+			// The workspace is holding its ceiling of open questions, which an
+			// outsider can drive by mailing from fresh addresses. Say so where an
+			// operator will see it: silence here would read as a sender that was
+			// judged and dismissed, when in fact nothing was ever asked.
+			return counterpartyDecision{}, s.logBreadcrumbTx(ctx, tx, "capture_deferral_capped", rec,
+				"the workspace is at its open-disposition ceiling; the message stands unjudged")
 		}
 		return counterpartyDecision{}, nil
 	}
@@ -270,7 +279,9 @@ func (s *Sink) registrySuppresses(ctx context.Context, tx pgx.Tx, rec connector.
 		return false, s.logBreadcrumbTx(ctx, tx, "capture_correspondence_spared", rec, reason)
 	}
 	row.Status, row.Reason = PendingStatusSuppressed, reason
-	if err := recordDisposition(ctx, tx, row); err != nil {
+	// A suppression asks nothing and so is never capped; the flag is only
+	// meaningful for the deferring tier.
+	if _, err := recordDisposition(ctx, tx, row); err != nil {
 		return true, err
 	}
 	return true, s.logBreadcrumbTx(ctx, tx, "capture_transactional_suppressed", rec, reason)
