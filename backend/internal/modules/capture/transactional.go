@@ -153,8 +153,10 @@ func corroborated(in TransactionalInput) bool {
 	return in.ListUnsubscribe || isMachineLocalpart(in.Localpart)
 }
 
-// isMachineLocalpart flags the common no-reply / bounce local parts — the same
-// tells the mail mapper drops entirely, reused here as prefix corroboration.
+// isMachineLocalpart flags the common no-reply / notification local parts. The
+// mail mapper deliberately lets these through — dropping them there would leave
+// this rule nothing to judge (ADR-0072 §1: the activity stands, only the
+// derivation is suppressed) — so this is where they are recognized.
 func isMachineLocalpart(localpart string) bool {
 	local := strings.ToLower(strings.TrimSpace(localpart))
 	local = strings.ReplaceAll(local, ".", "")

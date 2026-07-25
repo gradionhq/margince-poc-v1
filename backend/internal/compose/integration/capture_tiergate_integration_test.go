@@ -18,7 +18,7 @@ func TestCaptureTierGateSuppressesWhatIsNotACounterparty(t *testing.T) {
 	env := newCaptureEnv(t)
 	e, sync := env.e, env.sync
 	t.Run("free-mail creates the person, never a company", func(t *testing.T) {
-		sync(t, email("bob@gmail.com", "Bob Person", autoCreateOwner, "b1@gmail.com", ""))
+		sync(t, email("bob@gmail.com", "Bob Person", captureOwner, "b1@gmail.com", ""))
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
 			WHERE pe.email = 'bob@gmail.com'`); n != 1 {
@@ -34,8 +34,8 @@ func TestCaptureTierGateSuppressesWhatIsNotACounterparty(t *testing.T) {
 		// (corroborated) both suppress person+org while the timeline row stands
 		// (ADR-0072/A118, CAP-PARAM-6).
 		sync(t,
-			email("dse@eu.docusign.net", "DocuSign EU", autoCreateOwner, "ds1@docusign.net", ""),
-			emailWithListUnsub("hello@event.gitex.com", "GITEX", autoCreateOwner, "gx1@event.gitex.com"),
+			email("dse@eu.docusign.net", "DocuSign EU", captureOwner, "ds1@docusign.net", ""),
+			emailWithListUnsub("hello@event.gitex.com", "GITEX", captureOwner, "gx1@event.gitex.com"),
 		)
 		if n := countRows(t, e, `SELECT count(*) FROM activity WHERE source_id IN ('ds1@docusign.net', 'gx1@event.gitex.com')`); n != 2 {
 			t.Fatalf("%d transactional activities captured, want 2 — the timeline row must stand", n)
@@ -57,7 +57,7 @@ func TestCaptureTierGateSuppressesWhatIsNotACounterparty(t *testing.T) {
 	t.Run("a conference blast WITHOUT corroboration is a normal counterparty", func(t *testing.T) {
 		// The same prefix subdomain, but no List-Unsubscribe and a human
 		// localpart: not suppressed — a real company can live at event.*.
-		sync(t, email("ada@event.realco.example", "Ada Real", autoCreateOwner, "rc1@event.realco.example", ""))
+		sync(t, email("ada@event.realco.example", "Ada Real", captureOwner, "rc1@event.realco.example", ""))
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
 			WHERE pe.email = 'ada@event.realco.example'`); n != 1 {
@@ -79,14 +79,14 @@ func TestCaptureTierGateLetsCorrespondencePrecedeSuppression(t *testing.T) {
 		// List-Unsubscribe corroboration that suppressed above now survive,
 		// because the mailbox owner wrote to them first.
 		syncSent(t, map[string]bool{"ev1@myco.example": true},
-			email(autoCreateOwner, "", "team@event.expo.example", "ev1@myco.example", ""))
+			email(captureOwner, "", "team@event.expo.example", "ev1@myco.example", ""))
 		if n := countRows(t, e, `
 			SELECT count(*) FROM activity
 			WHERE counterparty_email = 'team@event.expo.example' AND counterparty_outbound_attested`); n != 1 {
 			t.Fatalf("%d attested outbound activities, want 1 — the T1 evidence must be stamped", n)
 		}
 
-		sync(t, emailWithListUnsub("team@event.expo.example", "Expo", autoCreateOwner, "ev2@event.expo.example"))
+		sync(t, emailWithListUnsub("team@event.expo.example", "Expo", captureOwner, "ev2@event.expo.example"))
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
 			WHERE pe.email = 'team@event.expo.example'`); n != 1 {
@@ -103,13 +103,13 @@ func TestCaptureTierGateLetsCorrespondencePrecedeSuppression(t *testing.T) {
 		// header claims the mailbox owner. It parses as outbound — that is all
 		// direction can mean — but the provider filed it in the inbox and
 		// attested nothing, so the address stays suppressed infrastructure.
-		sync(t, email(autoCreateOwner, "", "blast@sendgrid.net", "forge1@evil.example", ""))
+		sync(t, email(captureOwner, "", "blast@sendgrid.net", "forge1@evil.example", ""))
 		if n := countRows(t, e, `
 			SELECT count(*) FROM activity
 			WHERE counterparty_email = 'blast@sendgrid.net' AND counterparty_outbound_attested`); n != 0 {
 			t.Fatal("a forged From:owner message attested correspondence — the gate reads the header, not the provider")
 		}
-		sync(t, emailWithListUnsub("blast@sendgrid.net", "Blast", autoCreateOwner, "forge2@sendgrid.net"))
+		sync(t, emailWithListUnsub("blast@sendgrid.net", "Blast", captureOwner, "forge2@sendgrid.net"))
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
 			WHERE pe.email = 'blast@sendgrid.net'`); n != 0 {
@@ -122,7 +122,7 @@ func TestCaptureTierGateLetsCorrespondencePrecedeSuppression(t *testing.T) {
 		// writing to a gmail.com address buys its owner a person and never an
 		// organization called "Gmail" — the junk this ADR exists to prevent.
 		syncSent(t, map[string]bool{"fm1@myco.example": true},
-			email(autoCreateOwner, "", "carol@gmail.com", "fm1@myco.example", ""))
+			email(captureOwner, "", "carol@gmail.com", "fm1@myco.example", ""))
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
 			WHERE pe.email = 'carol@gmail.com'`); n != 1 {
@@ -132,4 +132,30 @@ func TestCaptureTierGateLetsCorrespondencePrecedeSuppression(t *testing.T) {
 			t.Fatal("a corresponded-with free-mail address minted an organization")
 		}
 	})
+}
+
+// The corroboration rule (CAP-PARAM-6) suppresses a prefix-subdomain sender
+// only when something confirms it is bulk infrastructure — a List-Unsubscribe
+// header, or a machine localpart. Both halves of ADR-0072 §1's promise hold at
+// once: the derivation is suppressed AND the message still reaches the
+// timeline, which is the whole reason a DocuSign envelope is worth capturing.
+func TestCaptureTierGateSuppressesAMachineLocalpartWithoutLosingTheMessage(t *testing.T) {
+	env := newCaptureEnv(t)
+	e, sync := env.e, env.sync
+
+	sync(t, email("no-reply@em.vendor.example", "Vendor", captureOwner, "v1@em.vendor.example", ""))
+
+	if n := countRows(t, e, `SELECT count(*) FROM activity WHERE source_id = 'v1@em.vendor.example'`); n != 1 {
+		t.Fatalf("%d activities for the vendor envelope, want 1 — the timeline row must stand", n)
+	}
+	if n := countRows(t, e, `
+		SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+		WHERE pe.email = 'no-reply@em.vendor.example'`); n != 0 {
+		t.Fatal("a machine localpart on a prefix subdomain must derive no person")
+	}
+	if n := countRows(t, e, `
+		SELECT count(*) FROM system_log
+		WHERE action = 'capture_transactional_suppressed' AND detail->>'source_id' = 'v1@em.vendor.example'`); n != 1 {
+		t.Fatalf("%d suppression breadcrumbs, want 1 — the corroboration rule must be the one that fired", n)
+	}
 }

@@ -112,11 +112,11 @@ func TestNormalizeClassifiesOutboundByOwner(t *testing.T) {
 	}
 }
 
-func TestNormalizeSkipsAutomatedMail(t *testing.T) {
+func TestNormalizeSkipsDeliverySystemMail(t *testing.T) {
 	c := &Connector{owner: "me@myco.com"}
 	cases := map[string][]byte{
-		"no-reply sender": crlf(
-			"From: no-reply@newsletter.com",
+		"delivery-system sender": crlf(
+			"From: mailer-daemon@newsletter.com",
 			"To: me@myco.com",
 			"Subject: Weekly digest",
 			"Message-ID: <n1@newsletter.com>",

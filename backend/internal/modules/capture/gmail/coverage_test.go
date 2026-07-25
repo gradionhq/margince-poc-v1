@@ -162,9 +162,9 @@ func TestSyncStopsOnGetRawFault(t *testing.T) {
 	}
 }
 
-func TestSyncSkipsAutomatedMail(t *testing.T) {
+func TestSyncSkipsDeliverySystemMail(t *testing.T) {
 	auto := func(w http.ResponseWriter, _ *http.Request) {
-		msg := "From: no-reply@x.com\r\nTo: rep@myco.com\r\nSubject: hi\r\nMessage-ID: <a@x>\r\nContent-Type: text/plain\r\n\r\nx"
+		msg := "From: mailer-daemon@x.com\r\nTo: rep@myco.com\r\nSubject: hi\r\nMessage-ID: <a@x>\r\nContent-Type: text/plain\r\n\r\nx"
 		writeStub(w, map[string]any{"raw": base64.RawURLEncoding.EncodeToString([]byte(msg))})
 	}
 	c := realConn(t, fullStub(t, map[string]http.HandlerFunc{"/messages/m1": auto}))
@@ -174,7 +174,7 @@ func TestSyncSkipsAutomatedMail(t *testing.T) {
 		t.Fatalf("Sync: %v", err)
 	}
 	if len(sink.recs) != 0 {
-		t.Fatalf("automated mail should be skipped, but %d record(s) landed", len(sink.recs))
+		t.Fatalf("delivery-system mail should be skipped, but %d record(s) landed", len(sink.recs))
 	}
 }
 
