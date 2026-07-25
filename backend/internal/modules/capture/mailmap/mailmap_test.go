@@ -331,3 +331,51 @@ func TestANoReplyVendorMessageReachesTheTierGate(t *testing.T) {
 		t.Fatal("a bounce reached the tier gate — there is no counterparty behind the transport system")
 	}
 }
+
+// The second door into the same contradiction. Narrowing the machine-sender
+// filter is not enough on its own: a newsletter carries `Precedence: bulk` and
+// a signed envelope carries `Auto-Submitted: auto-generated`, so dropping those
+// would keep the tier gate from ever seeing the mail it is built to judge —
+// and `Precedence: bulk` is itself T2 corroboration.
+//
+// An auto-REPLY stays dropped, and not only for noise: an autoresponder
+// answering a stranger is genuine owner-authored mail, the one shape that could
+// buy a T1 correspondence spare for an address nobody chose to write to.
+func TestOnlyAutoRepliesAreDroppedBeforeTheTierGate(t *testing.T) {
+	reaches := map[string][]string{
+		"bulk newsletter":     {"Precedence: bulk"},
+		"list mail":           {"Precedence: list"},
+		"auto-generated note": {"Auto-Submitted: auto-generated"},
+	}
+	for name, headers := range reaches {
+		t.Run(name, func(t *testing.T) {
+			lines := append([]string{"From: hello@vendor.example", "To: me@myco.com", "Subject: s"}, headers...)
+			lines = append(lines, "Message-ID: <r1@vendor.example>", "Content-Type: text/plain", "", "body", "")
+			msg, err := Parse(crlf(lines...), "me@myco.com")
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if reason, drop := msg.SkipReason(); drop {
+				t.Fatalf("dropped as %q — the tier gate never sees it", reason)
+			}
+		})
+	}
+
+	dropped := map[string][]string{
+		"vacation responder": {"Auto-Submitted: auto-replied"},
+		"junk precedence":    {"Precedence: junk"},
+	}
+	for name, headers := range dropped {
+		t.Run(name, func(t *testing.T) {
+			lines := append([]string{"From: hello@vendor.example", "To: me@myco.com", "Subject: s"}, headers...)
+			lines = append(lines, "Message-ID: <d1@vendor.example>", "Content-Type: text/plain", "", "body", "")
+			msg, err := Parse(crlf(lines...), "me@myco.com")
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if _, drop := msg.SkipReason(); !drop {
+				t.Fatal("an auto-reply reached the tier gate — nobody chose to write it")
+			}
+		})
+	}
+}

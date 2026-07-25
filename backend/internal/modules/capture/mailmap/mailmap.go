@@ -46,9 +46,9 @@ type Message struct {
 	threadKey        string   // conversation identity: References root / In-Reply-To / own Message-ID
 	senderDomain     string   // lowercased domain of From — for the RC-2 gate
 	recipientDomains []string // lowercased, de-duped domains of every To — for the RC-2 gate
-	autoSubmit       bool
-	listUnsubscribe  bool // an RFC 2369 List-Unsubscribe header — transactional-gate corroboration
-	sentByOwner      bool // the PROVIDER attested the owner sent this — set by AttestSentByOwner, never parsed
+	autoReply        bool     // generated in RESPONSE to us — nobody chose to write it
+	listUnsubscribe  bool     // an RFC 2369 List-Unsubscribe header — transactional-gate corroboration
+	sentByOwner      bool     // the PROVIDER attested the owner sent this — set by AttestSentByOwner, never parsed
 }
 
 // AttestSentByOwner returns a copy carrying the provider's own attestation
@@ -102,7 +102,7 @@ func Parse(raw []byte, owner string) (Message, error) {
 		counterpartyName = displayName(toList, counterparty)
 	}
 
-	autoSubmit := isAutoSubmitted(header.Get("Auto-Submitted"), header.Get("Precedence"))
+	autoReply := isAutoReply(header.Get("Auto-Submitted"), header.Get("Precedence"))
 
 	return Message{
 		messageID:        strings.TrimSpace(messageID),
@@ -117,7 +117,7 @@ func Parse(raw []byte, owner string) (Message, error) {
 		threadKey:        threadKey(header.Get("References"), header.Get("In-Reply-To"), messageID),
 		senderDomain:     domainOf(from),
 		recipientDomains: domainsOf(toList),
-		autoSubmit:       autoSubmit,
+		autoReply:        autoReply,
 		listUnsubscribe:  strings.TrimSpace(header.Get("List-Unsubscribe")) != "",
 	}, nil
 }
@@ -165,8 +165,8 @@ func (m Message) SkipReason() (string, bool) {
 	if m.from == "" {
 		return "no From address", true
 	}
-	if m.autoSubmit {
-		return "auto-submitted", true
+	if m.autoReply {
+		return "auto-reply", true
 	}
 	if isDeliverySystemSender(m.from) {
 		return "delivery-system sender", true
@@ -338,15 +338,30 @@ func isDeliverySystemSender(addr string) bool {
 	return false
 }
 
-// isAutoSubmitted reads the RFC 3834 Auto-Submitted header and the legacy
-// Precedence hint: either marks machine-generated mail.
-func isAutoSubmitted(autoSubmitted, precedence string) bool {
-	v := strings.ToLower(strings.TrimSpace(autoSubmitted))
-	if v != "" && v != "no" {
+// isAutoReply reads the RFC 3834 Auto-Submitted header and the legacy
+// Precedence hint for mail generated IN RESPONSE to something the workspace
+// sent — a vacation responder, an auto-reply. Nobody chose to write it, so it
+// is dropped before anything is written.
+//
+// Deliberately narrower than RFC 3834's whole vocabulary. `auto-generated`
+// covers the signed envelopes, invoices and shipping notices ADR-0072 §1 keeps
+// on the timeline, and `Precedence: bulk`/`list` is what a newsletter carries —
+// the very corroboration the T2 registry reads (CAP-PARAM-6). Dropping those
+// here would re-open, through a second door, the contradiction that narrowing
+// the machine-sender filter closed: the tier gate cannot judge mail it never
+// sees.
+//
+// Auto-replies stay dropped, and that is load-bearing beyond noise: an
+// autoresponder answering a stranger produces a genuine owner-authored message,
+// which is the one shape that could induce a T1 correspondence spare for an
+// address nobody chose to write to (ADR-0072 residual (b)).
+func isAutoReply(autoSubmitted, precedence string) bool {
+	switch strings.ToLower(strings.TrimSpace(autoSubmitted)) {
+	case "auto-replied", "auto-notified":
 		return true
 	}
 	switch strings.ToLower(strings.TrimSpace(precedence)) {
-	case "bulk", "list", "junk", "auto_reply":
+	case "junk", "auto_reply":
 		return true
 	}
 	return false
