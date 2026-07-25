@@ -134,28 +134,37 @@ func TestParseCarriesListUnsubscribeOntoCounterparty(t *testing.T) {
 	}
 }
 
-func TestSkipReasonDropsAutomatedMail(t *testing.T) {
-	cases := map[string][]byte{
-		"no-reply sender": crlf(
-			"From: no-reply@newsletter.com", "To: me@myco.com", "Subject: Weekly digest",
-			"Message-ID: <n1@newsletter.com>", "Content-Type: text/plain", "", "news", "",
-		),
-		"auto-submitted header": crlf(
-			"From: system@acme.com", "To: me@myco.com", "Subject: Out of office",
-			"Auto-Submitted: auto-replied", "Message-ID: <ooo1@acme.com>", "Content-Type: text/plain", "", "away", "",
-		),
-		"no message id": crlf(
-			"From: someone@acme.com", "To: me@myco.com", "Subject: hi", "Content-Type: text/plain", "", "body", "",
-		),
+// A message with no stable identity cannot be captured at all: the natural key
+// is what makes capture idempotent, and there is nobody to attribute a message
+// with no sender to. These are the preconditions, distinct from the two rules
+// that judge mail which DOES have an identity — and the reason each gives is
+// asserted here, because it is the only thing a caller sees.
+func TestSkipReasonRefusesAMessageWithNoIdentity(t *testing.T) {
+	cases := map[string]struct {
+		raw        []byte
+		wantReason string
+	}{
+		"no message id": {crlf(
+			"From: someone@acme.com", "To: me@myco.com", "Subject: hi",
+			"Content-Type: text/plain", "", "body", "",
+		), "no Message-ID"},
+		"no from address": {crlf(
+			"To: me@myco.com", "Subject: hi", "Message-ID: <x@acme.com>",
+			"Content-Type: text/plain", "", "body", "",
+		), "no From address"},
 	}
-	for name, raw := range cases {
+	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			msg, err := Parse(raw, "me@myco.com")
+			msg, err := Parse(c.raw, "me@myco.com")
 			if err != nil {
 				t.Fatalf("Parse: %v", err)
 			}
-			if _, drop := msg.SkipReason(); !drop {
-				t.Fatalf("want drop=true for %s", name)
+			reason, drop := msg.SkipReason()
+			if !drop {
+				t.Fatalf("%s was captured — it has no stable identity", name)
+			}
+			if reason != c.wantReason {
+				t.Errorf("reason = %q, want %q", reason, c.wantReason)
 			}
 		})
 	}
