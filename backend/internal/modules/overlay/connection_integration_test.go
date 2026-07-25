@@ -229,3 +229,101 @@ func TestConnectionLifecycleObjectRBACDeniesMemberAllowsAdmin(t *testing.T) {
 		t.Fatalf("admin Disconnect: %v", err)
 	}
 }
+
+// A disconnected workspace can connect again: the revoked row is revived in
+// place, the teardown tombstones that would suppress re-mirroring are gone,
+// and the workspace is back in overlay mode.
+func TestConnectAfterDisconnectRevivesTheConnection(t *testing.T) {
+	ctx, pool, _ := testWorkspaceCtx(t)
+	vault := keyvault.NewMemory()
+	svc := NewService(pool, vault, NewMirrorStore(pool, noOwnerEmails{}))
+
+	first, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "pat-first"})
+	if err != nil {
+		t.Fatalf("first Connect: %v", err)
+	}
+	if err := svc.Disconnect(ctx); err != nil {
+		t.Fatalf("Disconnect: %v", err)
+	}
+
+	second, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "us", Token: "pat-second"})
+	if err != nil {
+		t.Fatalf("reconnect: %v", err)
+	}
+	if second.Status != statusActive {
+		t.Fatalf("reconnect status = %q, want %q", second.Status, statusActive)
+	}
+	if second.Region != "us" {
+		t.Fatalf("reconnect region = %q, want the new region", second.Region)
+	}
+	if !second.ConnectedAt.After(first.ConnectedAt) {
+		t.Fatalf("reconnect connected_at %v did not advance past %v", second.ConnectedAt, first.ConnectedAt)
+	}
+
+	rows, tombstones, mode := 0, 0, ""
+	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM incumbent_connection`).Scan(&rows); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM overlay_tombstone`).Scan(&tombstones); err != nil {
+			return err
+		}
+		return tx.QueryRow(ctx, `SELECT x_sor_mode FROM workspace
+			WHERE id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`).Scan(&mode)
+	}); err != nil {
+		t.Fatalf("post-reconnect read: %v", err)
+	}
+	if rows != 1 {
+		t.Fatalf("incumbent_connection rows = %d, want 1 — the row is revived in place, never duplicated", rows)
+	}
+	if tombstones != 0 {
+		t.Fatalf("overlay_tombstone rows = %d, want 0 — a reconnect clears what teardown suppressed", tombstones)
+	}
+	if mode != "overlay" {
+		t.Fatalf("x_sor_mode = %q, want overlay", mode)
+	}
+}
+
+// The reconnect audit records what actually changed: the PREVIOUS region as
+// the before-state, not the new one echoed back.
+func TestReconnectAuditsThePreviousRegion(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	vault := keyvault.NewMemory()
+	svc := NewService(pool, vault, NewMirrorStore(pool, noOwnerEmails{}))
+
+	if _, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "pat-first"}); err != nil {
+		t.Fatalf("first Connect: %v", err)
+	}
+	if err := svc.Disconnect(ctx); err != nil {
+		t.Fatalf("Disconnect: %v", err)
+	}
+	if _, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "us", Token: "pat-second"}); err != nil {
+		t.Fatalf("reconnect: %v", err)
+	}
+
+	var before, after []byte
+	queryRowWS(ctx, t, pool, `
+		SELECT before, after FROM audit_log
+		WHERE workspace_id = $1 AND entity_type = 'incumbent_connection' AND action = 'update'`,
+		[]any{ws}, &before, &after)
+	if !strings.Contains(string(before), `"region": "eu1"`) {
+		t.Errorf("reconnect audit before = %s, want it to carry the previous region eu1", before)
+	}
+	if !strings.Contains(string(after), `"region": "us"`) {
+		t.Errorf("reconnect audit after = %s, want the new region us", after)
+	}
+}
+
+// An ACTIVE connection still refuses a second connect — only a revoked one reconnects.
+func TestConnectRefusesASecondActiveConnection(t *testing.T) {
+	ctx, pool, _ := testWorkspaceCtx(t)
+	vault := keyvault.NewMemory()
+	svc := NewService(pool, vault, NewMirrorStore(pool, noOwnerEmails{}))
+
+	if _, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "pat-first"}); err != nil {
+		t.Fatalf("first Connect: %v", err)
+	}
+	if _, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "us", Token: "pat-second"}); !errors.Is(err, apperrors.ErrIncumbentAlreadyConnected) {
+		t.Fatalf("second Connect on an active connection = %v, want apperrors.ErrIncumbentAlreadyConnected", err)
+	}
+}
