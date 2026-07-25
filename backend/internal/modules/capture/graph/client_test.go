@@ -382,25 +382,29 @@ func TestGraphRefusalCarriesMicrosoftsErrorCode(t *testing.T) {
 	}
 }
 
-// requestOp names the endpoint, never the per-request query: cursors and filters
-// belong in the request, not in an error string an operator reads.
-func TestRequestOpDropsTheQueryString(t *testing.T) {
+// requestOp names the endpoint as a PATH: the query carries cursors and filters
+// that have no place in an error string, and the scheme+host are fixed for the
+// deployment — so an op reads like the other connectors' rather than embedding a
+// host (an ephemeral port, under test).
+func TestRequestOpReducesAURLToItsPath(t *testing.T) {
+	a := &httpAPI{base: "https://graph.microsoft.com/v1.0"}
 	for name, tc := range map[string]struct{ in, want string }{
 		"filter and count": {
 			"https://graph.microsoft.com/v1.0/me/messages?$filter=x&$count=true",
-			"https://graph.microsoft.com/v1.0/me/messages",
+			"/me/messages",
 		},
 		"delta token": {
 			"https://graph.microsoft.com/v1.0/me/messages/delta?$deltatoken=abc123",
-			"https://graph.microsoft.com/v1.0/me/messages/delta",
+			"/me/messages/delta",
 		},
-		"no query": {
-			"https://graph.microsoft.com/v1.0/me",
-			"https://graph.microsoft.com/v1.0/me",
-		},
+		"no query": {"https://graph.microsoft.com/v1.0/me", "/me"},
+		// A URL that is not under the base keeps its full form rather than being
+		// silently mangled — sameAPIOrigin refuses those before they are fetched,
+		// so one appearing here is worth seeing whole.
+		"off base": {"https://elsewhere.example/x", "https://elsewhere.example/x"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if got := requestOp(tc.in); got != tc.want {
+			if got := a.requestOp(tc.in); got != tc.want {
 				t.Errorf("requestOp(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})

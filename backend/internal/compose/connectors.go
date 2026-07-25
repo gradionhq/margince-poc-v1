@@ -195,7 +195,9 @@ const (
 )
 
 // The OAuth-return outcomes the landing surface renders. They are a closed set
-// the SPA maps to copy (an unrecognized one renders nothing), and they exist
+// the SPA maps to copy (never rendering a raw route segment for one it does not
+// know: Settings shows nothing, onboarding falls back to its generic failure),
+// and they exist
 // because "it failed, try again" is only honest for SOME failures: a declined
 // consent is not a failure at all, a refused credential needs its human to
 // reconnect, and a provider API that was never enabled for the deployment needs

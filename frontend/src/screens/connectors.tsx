@@ -99,8 +99,12 @@ function OAuthOutcomeNote() {
       ? route.id2
       : undefined;
   const [dismissedOutcome, setDismissedOutcome] = useState<string | null>(null);
+  // Object.hasOwn, not a bare index: a route segment like "constructor" would
+  // otherwise resolve to an inherited member and render an empty note.
   const note =
-    oauthOutcome && oauthOutcome !== dismissedOutcome
+    oauthOutcome &&
+    oauthOutcome !== dismissedOutcome &&
+    Object.hasOwn(OAUTH_OUTCOME_NOTE, oauthOutcome)
       ? OAUTH_OUTCOME_NOTE[oauthOutcome]
       : undefined;
   if (!note) {

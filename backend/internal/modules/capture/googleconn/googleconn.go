@@ -14,7 +14,6 @@
 package googleconn
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -56,8 +55,9 @@ var ErrUnreachable = fmt.Errorf("googleconn: could not reach Google: %w", connec
 // Get performs an authorized GET against base+path and JSON-decodes the 200
 // body into out. It returns the HTTP status (so a caller can special-case a
 // provider code like 404/410) and maps a 401/403 to ErrAuthRejected and any
-// other non-2xx/transport failure to ErrUnreachable. Google's raw body is never
-// surfaced to the caller.
+// other non-2xx/transport failure to ErrUnreachable — each carrying the path and
+// Google's own machine reason so the failure is diagnosable. Google's raw body is
+// never surfaced to the caller.
 //
 //craft:ignore naked-any out is the caller-supplied JSON decode target — its concrete type varies per endpoint
 func Get(ctx context.Context, client *http.Client, base, accessToken, path string, q url.Values, out any) (int, error) {
@@ -163,29 +163,55 @@ func Reason(body []byte) string {
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return ""
 	}
+	// Take the first reason that survives validation, not merely the first one
+	// present: a value MachineReason refuses must not shadow a usable code that
+	// follows it, or the body ends up LESS diagnosable than it really was.
 	for _, e := range parsed.Error.Errors {
-		if e.Reason != "" {
-			return connector.MachineReason(e.Reason)
+		if r := connector.MachineReason(e.Reason); r != "" {
+			return r
 		}
 	}
 	for _, d := range parsed.Error.Details {
-		if d.Reason != "" {
-			return connector.MachineReason(d.Reason)
+		if r := connector.MachineReason(d.Reason); r != "" {
+			return r
 		}
 	}
 	return connector.MachineReason(parsed.Error.Status)
 }
 
-// RateLimitBody reports whether a 403 body carries one of Google's rate/quota
-// reasons (rateLimitExceeded, userRateLimitExceeded, dailyLimitExceeded — all
-// share "LimitExceeded" — or quotaExceeded). Those are retryable throttling,
-// distinct from a revoked/insufficient grant, which stays ErrAuthRejected.
+// The Google reason codes that mean THROTTLING rather than a bad credential.
+// Retryable: the registry honors Retry-After and backs off, where a rejected
+// grant would park the connection until its human reconnects. Google spells the
+// same fact in both its classic camelCase reasons and its newer ErrorInfo enums.
+const (
+	reasonRateLimitExceeded     = "rateLimitExceeded"
+	reasonUserRateLimitExceeded = "userRateLimitExceeded"
+	reasonDailyLimitExceeded    = "dailyLimitExceeded"
+	reasonQuotaExceeded         = "quotaExceeded"
+	reasonRateLimitEnum         = "RATE_LIMIT_EXCEEDED"
+	reasonResourceExhausted     = "RESOURCE_EXHAUSTED"
+)
+
+// RateLimitBody reports whether a 403 body names one of Google's rate/quota
+// reasons. It decides a classification, so it reads the parsed machine reason
+// and not the raw bytes: a substring scan over the whole body also matches the
+// literal appearing in prose, or in a later errors[] entry when the FIRST entry
+// says the grant was refused — and misreading that as throttling means a
+// genuinely revoked credential is retried forever instead of being handed back
+// to its human. The conservative direction is to park, so anything that does not
+// positively name a limit is not a limit.
 //
 // Exported for the same reason Reason is: Gmail runs its own transport, and a
-// narrower copy of this predicate there would park a merely-throttled mailbox
-// as if its credential had been revoked. One spelling, both connectors.
+// narrower copy of this predicate there parked merely-throttled mailboxes as if
+// their credential had been revoked. One spelling, both connectors.
 func RateLimitBody(body []byte) bool {
-	return bytes.Contains(body, []byte("LimitExceeded")) || bytes.Contains(body, []byte("quotaExceeded"))
+	switch Reason(body) {
+	case reasonRateLimitExceeded, reasonUserRateLimitExceeded, reasonDailyLimitExceeded,
+		reasonQuotaExceeded, reasonRateLimitEnum, reasonResourceExhausted:
+		return true
+	default:
+		return false
+	}
 }
 
 // retryAfter parses the provider's Retry-After (delta-seconds form; Google does

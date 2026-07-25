@@ -373,12 +373,14 @@ func retryAfter(resp *http.Response) time.Duration {
 // message id, so it names the endpoint rather than the instance.
 const messageOp = "message"
 
-// requestOp names a Graph call in a ProviderError by its URL without the query
-// string: the path identifies the endpoint that failed, while the query carries
-// per-request filters and cursors that have no place in an error string.
-func requestOp(fullURL string) string {
+// requestOp names a Graph call in a ProviderError the way the other connectors
+// do — as a path relative to the API base. The query string is cut because it
+// carries per-request filters and cursors, and the base is trimmed because an
+// error string wants the endpoint that failed, not the scheme and host it lives
+// on (which are fixed for the deployment and, under test, an ephemeral port).
+func (a *httpAPI) requestOp(fullURL string) string {
 	op, _, _ := strings.Cut(fullURL, "?")
-	return op
+	return strings.TrimPrefix(op, a.base)
 }
 
 // graphErrorBody is the subset of Microsoft's OData error envelope that names
@@ -449,7 +451,7 @@ func (a *httpAPI) get(ctx context.Context, accessToken, fullURL string, hdr http
 	// Classify on status/headers first: a 429/401 must be honored even if the
 	// body read failed. Only on an otherwise-OK response does a read failure
 	// matter — a truncated-but-valid-JSON prefix must never pass as complete.
-	if err := classifyStatus(resp, requestOp(fullURL), body); err != nil {
+	if err := classifyStatus(resp, a.requestOp(fullURL), body); err != nil {
 		return resp.StatusCode, err
 	}
 	if readErr != nil {

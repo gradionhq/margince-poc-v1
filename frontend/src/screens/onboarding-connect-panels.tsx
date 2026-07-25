@@ -176,7 +176,12 @@ export function OAuthReturnPanel({
   // renderer knows about falls through to the other's generic advice. These two
   // failures are permanent, so neither may repeat connectRetry's "try again" —
   // they reuse the Settings wording rather than minting a second copy of it.
-  const permanentBody = PERMANENT_FAILURE_BODY[outcome ?? ""];
+  // Object.hasOwn, not a bare index: a route segment like "constructor" would
+  // otherwise resolve to an inherited member and render an empty banner.
+  const permanentBody =
+    outcome && Object.hasOwn(PERMANENT_FAILURE_BODY, outcome)
+      ? PERMANENT_FAILURE_BODY[outcome]
+      : undefined;
   if (permanentBody) {
     return (
       <ConnectWarn

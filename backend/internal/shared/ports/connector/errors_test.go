@@ -19,7 +19,7 @@ func TestMachineReasonAcceptsOnlyCodeShapedValues(t *testing.T) {
 		"google classic":      {"accessNotConfigured", "accessNotConfigured"},
 		"google errorinfo":    {"SERVICE_DISABLED", "SERVICE_DISABLED"},
 		"oauth code":          {"invalid_grant", "invalid_grant"},
-		"microsoft code":      {"AADSTS700016", "AADSTS700016"},
+		"code with digits":    {"AADSTS700016", "AADSTS700016"},
 		"dotted code":         {"foo.bar-baz", "foo.bar-baz"},
 		"empty":               {"", ""},
 		"prose is not a code": {"Google Calendar API has not been used in project", ""},

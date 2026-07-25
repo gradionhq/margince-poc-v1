@@ -198,8 +198,9 @@ func (c *Client) addScope(form url.Values) {
 
 // token posts the form to the token endpoint and decodes the response. A 4xx
 // is an authorization problem (AuthRejected); anything else reaching or
-// reading the endpoint is Unreachable. The provider's raw body never reaches
-// the caller.
+// reading the endpoint is Unreachable. Either way the failure carries the
+// endpoint's status and its RFC 6749 error code, so a refused exchange says
+// which refusal it was. The provider's raw body never reaches the caller.
 func (c *Client) token(ctx context.Context, form url.Values) (tokenResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.TokenURL, strings.NewReader(form.Encode()))
 	if err != nil {

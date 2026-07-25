@@ -81,17 +81,37 @@ type ProviderError struct {
 }
 
 func (e *ProviderError) Error() string {
+	op := boundedOp(e.Op)
 	if e.Reason != "" {
-		return fmt.Sprintf("%s: provider said %d %s: %v", e.Op, e.Status, e.Reason, e.Class)
+		return fmt.Sprintf("%s: provider said %d %s: %v", op, e.Status, e.Reason, e.Class)
 	}
-	return fmt.Sprintf("%s: provider said %d: %v", e.Op, e.Status, e.Class)
+	return fmt.Sprintf("%s: provider said %d: %v", op, e.Status, e.Class)
+}
+
+// maxOpLen bounds the rendered call name. Op is provider-fed on some paths (a
+// continuation link, a path carrying a provider-assigned id), and this string is
+// not only logged — a sync failure persists it in a system_log row — so the same
+// amplification bound Reason gets applies here. Truncation is visible rather than
+// silent: an operator sees the ellipsis and knows the name was longer.
+const maxOpLen = 120
+
+func boundedOp(op string) string {
+	if len(op) <= maxOpLen {
+		return op
+	}
+	return op[:maxOpLen] + "…"
 }
 
 // maxReasonLen bounds a machine reason. Every real one is a short identifier
-// (accessNotConfigured, invalid_grant, AADSTS700016); the bodies they are parsed
-// out of, by contrast, are read up to megabytes. Without a bound, one hostile or
-// corrupted response could put an arbitrarily long string into a log line and
-// into the system_log row a sync failure writes.
+// (Google's accessNotConfigured, OAuth2's invalid_grant, Graph's
+// InvalidAuthenticationToken); the bodies they are parsed out of, by contrast,
+// are read up to megabytes. Without a bound, one hostile or corrupted response
+// could put an arbitrarily long string into a log line and into the system_log
+// row a sync failure writes.
+//
+// Microsoft's finer-grained AADSTS codes live in error_description, which no
+// parser here reads (it is free prose): an operator gets invalid_client and the
+// remedy that follows from it, which is the same remedy either way.
 const maxReasonLen = 64
 
 // MachineReason accepts s only if it looks like a provider's machine code — a

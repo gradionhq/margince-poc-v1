@@ -295,15 +295,8 @@ func (a *httpAPI) Watch(ctx context.Context, accessToken, topic string) (string,
 	//craft:ignore swallowed-errors best-effort close of the watch response body — the decoded result/status is what matters
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return "", time.Time{}, &connector.ProviderError{
-			Op: watchOp, Status: resp.StatusCode, Reason: googleconn.Reason(body), Class: ErrAuthRejected,
-		}
-	}
-	if resp.StatusCode != http.StatusOK {
-		return "", time.Time{}, &connector.ProviderError{
-			Op: watchOp, Status: resp.StatusCode, Reason: googleconn.Reason(body), Class: ErrUnreachable,
-		}
+	if err := classifyStatus(resp, watchOp, body); err != nil {
+		return "", time.Time{}, err
 	}
 	var out struct {
 		HistoryID  string `json:"historyId"`  //nolint:tagliatelle // Google's wire format (camelCase); must match to decode
@@ -317,6 +310,30 @@ func (a *httpAPI) Watch(ctx context.Context, accessToken, topic string) (string,
 		return "", time.Time{}, fmt.Errorf("gmail: unparseable watch expiration %q: %w", out.Expiration, ErrUnreachable)
 	}
 	return out.HistoryID, time.UnixMilli(ms), nil
+}
+
+// classifyStatus is the ONE status verdict for every Gmail call: throttling
+// first (a 429, or a 403 whose reason names a limit) so a paced mailbox backs off
+// with the provider's own Retry-After; then a refused credential; then anything
+// else non-OK. It returns nil for a 200. Both callers go through it — when only
+// one of them knew about quota, a throttled users.watch renewal came back as a
+// rejected credential and parked the mailbox until a human reconnected.
+func classifyStatus(resp *http.Response, op string, body []byte) error {
+	switch {
+	case resp.StatusCode == http.StatusTooManyRequests:
+		return &connector.RateLimitedError{RetryAfter: retryAfter(resp)}
+	case resp.StatusCode == http.StatusForbidden && googleconn.RateLimitBody(body):
+		return &connector.RateLimitedError{RetryAfter: retryAfter(resp)}
+	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+		return &connector.ProviderError{
+			Op: op, Status: resp.StatusCode, Reason: googleconn.Reason(body), Class: ErrAuthRejected,
+		}
+	case resp.StatusCode != http.StatusOK:
+		return &connector.ProviderError{
+			Op: op, Status: resp.StatusCode, Reason: googleconn.Reason(body), Class: ErrUnreachable,
+		}
+	}
+	return nil
 }
 
 // retryAfter parses the provider's Retry-After (delta-seconds form; Google
@@ -375,26 +392,8 @@ func (a *httpAPI) get(ctx context.Context, accessToken, path string, q url.Value
 	if err != nil {
 		return resp.StatusCode, fmt.Errorf("gmail: reading %s: %w", path, ErrUnreachable)
 	}
-	if resp.StatusCode == http.StatusTooManyRequests {
-		return resp.StatusCode, &connector.RateLimitedError{RetryAfter: retryAfter(resp)}
-	}
-	if resp.StatusCode == http.StatusForbidden && googleconn.RateLimitBody(body) {
-		// Google reports quota as a 403 whose reason names a limit
-		// (rateLimitExceeded, userRateLimitExceeded, dailyLimitExceeded,
-		// quotaExceeded) — a pacing problem, not an authorization one. Shared with
-		// the calendar transport: a narrower test here would fall through to the
-		// auth arm below and park a throttled mailbox as needing a reconnect.
-		return resp.StatusCode, &connector.RateLimitedError{RetryAfter: retryAfter(resp)}
-	}
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return resp.StatusCode, &connector.ProviderError{
-			Op: path, Status: resp.StatusCode, Reason: googleconn.Reason(body), Class: ErrAuthRejected,
-		}
-	}
-	if resp.StatusCode != http.StatusOK {
-		return resp.StatusCode, &connector.ProviderError{
-			Op: path, Status: resp.StatusCode, Reason: googleconn.Reason(body), Class: ErrUnreachable,
-		}
+	if err := classifyStatus(resp, path, body); err != nil {
+		return resp.StatusCode, err
 	}
 	if err := json.Unmarshal(body, out); err != nil {
 		return resp.StatusCode, fmt.Errorf("gmail: decoding %s: %w", path, ErrUnreachable)

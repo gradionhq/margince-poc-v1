@@ -299,3 +299,66 @@ func TestGmailTransportCarriesGooglesReasonAndSharesTheQuotaVerdict(t *testing.T
 		t.Errorf("RetryAfter = %v, want 42s from the provider header", rl.RetryAfter)
 	}
 }
+
+// users.watch renewal runs on the sync path like any other call, so a throttled
+// renewal must back off with the provider's Retry-After — not come back as a
+// refused credential and park the mailbox until a human intervenes.
+func TestWatchTreatsThrottlingAsThrottlingNotRejectedAuth(t *testing.T) {
+	for name, tc := range map[string]struct {
+		status int
+		body   string
+	}{
+		"429":              {http.StatusTooManyRequests, `{}`},
+		"403 rate limited": {http.StatusForbidden, `{"error":{"errors":[{"reason":"rateLimitExceeded"}]}}`},
+		"403 daily quota":  {http.StatusForbidden, `{"error":{"errors":[{"reason":"dailyLimitExceeded"}]}}`},
+		"403 newer enum":   {http.StatusForbidden, `{"error":{"details":[{"reason":"RATE_LIMIT_EXCEEDED"}]}}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			mux.HandleFunc("/watch", func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Retry-After", "13")
+				w.WriteHeader(tc.status)
+				//craft:ignore swallowed-errors test stub write
+				_, _ = w.Write([]byte(tc.body))
+			})
+			srv := httptest.NewServer(mux)
+			t.Cleanup(srv.Close)
+
+			_, _, err := NewAPI(srv.Client(), srv.URL).Watch(context.Background(), "access", "projects/p/topics/t")
+
+			if errors.Is(err, ErrAuthRejected) {
+				t.Fatalf("throttled watch classified as rejected auth: %v", err)
+			}
+			rl, ok := errors.AsType[*connector.RateLimitedError](err)
+			if !ok {
+				t.Fatalf("err = %v, want a RateLimitedError so the renewal backs off", err)
+			}
+			if rl.RetryAfter != 13*time.Second {
+				t.Errorf("RetryAfter = %v, want 13s from the provider header", rl.RetryAfter)
+			}
+		})
+	}
+}
+
+// A 403 that does NOT name a limit stays a refused credential. The quota check
+// reads the parsed reason precisely for this: a body merely mentioning a limit in
+// prose must not keep a revoked grant alive and retrying forever.
+func TestForbiddenWithoutALimitReasonStaysRejectedAuth(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/profile", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		//craft:ignore swallowed-errors test stub write
+		_, _ = w.Write([]byte(`{"error":{"errors":[{"reason":"authError","message":"quotaExceeded is not why"}]}}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	_, _, err := NewAPI(srv.Client(), srv.URL).Profile(context.Background(), "access")
+
+	if _, ok := errors.AsType[*connector.RateLimitedError](err); ok {
+		t.Fatalf("prose mentioning a quota literal was read as throttling: %v", err)
+	}
+	if !errors.Is(err, ErrAuthRejected) {
+		t.Errorf("err = %v, want ErrAuthRejected so the connection is parked", err)
+	}
+}
