@@ -285,14 +285,87 @@ export const publicSlots = [
   { start: "2026-07-06T10:00:00Z", end: "2026-07-06T10:30:00Z" },
 ];
 
+// The overlay fixtures (B-EP09.23): the incumbent connection, its two health
+// reads, and the RFC-7807 refusal shape a mirrored write answers with. Field
+// names mirror overlay.test.tsx's unit fixtures (the contract's camelCase on
+// OverlayConnection/OverlaySyncStatus, snake_case on OverlayBudget.sources) —
+// keep the two in sync if the contract shape changes under either.
+export const overlayConnection = {
+  incumbent: "hubspot",
+  region: "eu1",
+  status: "active",
+  connectedAt: "2026-07-20T10:00:00Z",
+  scopes: ["crm.objects.contacts.read", "crm.objects.deals.read"],
+};
+
+export const overlaySyncStatus = {
+  objects: [
+    {
+      object: "person",
+      lastSyncedAt: "2026-07-25T08:00:00Z",
+      state: "fresh",
+      backfillComplete: true,
+    },
+    {
+      object: "organization",
+      lastSyncedAt: "2026-07-25T08:00:00Z",
+      state: "fresh",
+      backfillComplete: true,
+    },
+    {
+      object: "deal",
+      lastSyncedAt: "2026-07-25T07:00:00Z",
+      state: "pending_sync",
+      backfillComplete: false,
+    },
+  ],
+};
+
+export const overlayBudget = {
+  window: "2026-07-25T08:00:00Z/PT1H",
+  consumed: 120,
+  limit: 1000,
+  band: "ok",
+  sources: { force_fresh: 10, poller: 100, capture: 10 },
+  // The server's own "can't attribute a share" sentinel — printed verbatim by
+  // the UI (overlay-health.tsx), never recomputed, so the mock must answer it
+  // literally rather than a plausible-looking number.
+  headroom: "~unknown",
+  search: {
+    window: "2026-07-25T08:00:00Z/PT1S",
+    consumed: 2,
+    limit: 20,
+    band: "ok",
+  },
+};
+
+function unsupportedBySor(detail: string) {
+  return { title: "Unprocessable Entity", detail, code: "unsupported_by_sor" };
+}
+
 function page(data: unknown[]) {
   return { data, page: { next_cursor: null } };
 }
 
-export async function mockApi(target: Page): Promise<void> {
+export type MockApiOptions = Readonly<{
+  // "native" (the default) is the full-capability spine every existing AC
+  // runs against; "overlay" swaps /me's system_of_record.mode and layers the
+  // incumbent-mirror routes on top — same fixtures, so a caller that doesn't
+  // pass this option keeps working unchanged (B-EP09.23).
+  sor?: "native" | "overlay";
+}>;
+
+export async function mockApi(
+  target: Page,
+  options?: MockApiOptions,
+): Promise<void> {
   if (process.env.BASE_URL) {
     return; // live-backend mode: no mocking
   }
+  // Mutable so DELETE /overlay/connection can flip the workspace back to
+  // native within the SAME test (AC-overlay-6) — /me below reads this on
+  // every call, the same per-page-state pattern `automations`/`brief` use.
+  let sorMode: "native" | "overlay" = options?.sor ?? "native";
   // The auth gate (App.tsx) short-circuits to the signup screen when no
   // workspace slug is resolved, before it ever probes /me — so a hermetic run
   // must seed a slug in localStorage or every authed screen renders auth. The
@@ -330,7 +403,74 @@ export async function mockApi(target: Page): Promise<void> {
         user: { id: "u1", email: "lars@brandt.example", locale: "de-DE" },
         roles: ["admin"],
         teams: [],
+        system_of_record: { mode: sorMode },
       });
+    }
+    // The overlay routes: always registered (a native workspace can still
+    // read a stale/absent connection), but the three write verbs below only
+    // change behavior FROM the native one while sorMode is "overlay" — a
+    // caller that never passes { sor: "overlay" } sees the native mock
+    // completely unchanged.
+    if (path === "/overlay/connection" && method === "GET") {
+      return json(overlayConnection);
+    }
+    if (path === "/overlay/connection" && method === "DELETE") {
+      // The real disconnect purges the mirror and flips workspace.x_sor_mode
+      // for the whole installation — the mock's stand-in for that flip is
+      // this flag, read fresh by /me above on the app's next refetch
+      // (OverlayCard's onSuccess invalidates every query, /me included).
+      sorMode = "native";
+      return route.fulfill({ status: 202 });
+    }
+    if (path === "/overlay/sync-status") {
+      return json(overlaySyncStatus);
+    }
+    if (path === "/overlay/budget") {
+      return json(overlayBudget);
+    }
+    if (path === "/overlay/reconcile" && method === "POST") {
+      // Queues a sweep for the worker's next tick — never runs it in-request,
+      // so the response carries no body to report as "finished".
+      return route.fulfill({ status: 202 });
+    }
+    if (sorMode === "overlay" && path === "/people" && method === "POST") {
+      // Create is unsupported for every mirrored type (the write mapping
+      // leaves owner_id unset, so a created incumbent record would be
+      // unowned and invisible — overlay/provider_writes.go's SupportsWrite).
+      return json(
+        unsupportedBySor(
+          "Creating a person isn't supported while reading from HubSpot.",
+        ),
+        422,
+      );
+    }
+    if (
+      sorMode === "overlay" &&
+      path.startsWith("/deals/") &&
+      path.endsWith("/advance")
+    ) {
+      // Stage advance stays unsupported outright (no overlay stage map) —
+      // OVA-MAP-W6.
+      return json(
+        unsupportedBySor(
+          "Advancing a deal isn't supported while reading from HubSpot.",
+        ),
+        422,
+      );
+    }
+    if (
+      sorMode === "overlay" &&
+      path.startsWith("/deals/") &&
+      method === "PATCH"
+    ) {
+      // Update DOES write back through the incumbent seam and succeed
+      // (overlay/provider_writes.go Update) — the mock echoes the patched
+      // fields onto the matching seeded deal, same shape a real mirror
+      // re-read would answer.
+      const id = path.slice("/deals/".length);
+      const base = deals.find((deal) => deal.id === id) ?? deals[0];
+      const body = route.request().postDataJSON();
+      return json({ ...base, ...body });
     }
     if (path === "/company/context/capabilities") {
       return json({

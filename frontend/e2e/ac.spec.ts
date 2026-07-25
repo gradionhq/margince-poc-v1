@@ -315,6 +315,167 @@ test("AC-create-2: the palette's New-deal action opens the create form; only ope
   await expect(page).toHaveURL(/#\/deals\/d-new$/);
 });
 
+// B-EP09.23: the mock-overlay lane — proving the system-of-record mode swap
+// end to end against `mockApi(page, { sor: "overlay" })` rather than a real
+// HubSpot account. Each test re-seeds on top of the global (native)
+// beforeEach — Playwright resolves the most-recently-registered route first,
+// so the overlay routes take over for that test only.
+test.describe("B-EP09.23: overlay mode", () => {
+  test("AC-overlay-1: the mode chip marks an overlay installation (and is absent under the native seed)", async ({
+    page,
+  }) => {
+    // The native seed (this file's global beforeEach) never renders it.
+    await page.goto("/#/home");
+    await expect(page.locator(".badge-accent")).toHaveCount(0);
+
+    // Same route both times, so a plain goto would be a same-document hash
+    // navigation the SPA never reloads for — reload forces the fresh /me
+    // read that actually picks up the newly-registered overlay routes.
+    await mockApi(page, { sor: "overlay" });
+    await page.reload();
+    const chip = page.getByRole("link", {
+      name: "Diese Installation liest Datensätze aus einem HubSpot-Spiegel statt aus nativen Tabellen. Öffne Einstellungen → Integrationen, um die Verbindung zu verwalten.",
+    });
+    await expect(chip).toBeVisible();
+    await expect(chip).toHaveText("Liest aus HubSpot");
+    await expect(chip).toHaveAttribute("href", "#/settings/integrations");
+  });
+
+  test("AC-overlay-2: the card shows connection, sync rows and budget band", async ({
+    page,
+  }) => {
+    await mockApi(page, { sor: "overlay" });
+    await page.goto("/#/settings/integrations");
+    await expect(page.getByText("Verbunden", { exact: true })).toBeVisible();
+    await expect(page.getByText(/eu1/)).toBeVisible();
+    // Per-object sync rows: person + organization landed fresh; deal is still
+    // catching up — three distinct rows, not a collapsed summary.
+    await expect(page.getByText("person", { exact: true })).toBeVisible();
+    await expect(page.getByText("organization", { exact: true })).toBeVisible();
+    await expect(page.getByText("deal", { exact: true })).toBeVisible();
+    await expect(page.getByText("Aktuell")).toHaveCount(2);
+    await expect(page.getByText("Sync ausstehend")).toBeVisible();
+    // "Gesund" bands twice: the REST budget window and the per-second Search
+    // window, both seeded "ok".
+    await expect(page.getByText("Gesund")).toHaveCount(2);
+    // The server's own "can't attribute a share" sentinel prints verbatim —
+    // never a computed substitute.
+    await expect(page.getByText(/~unknown/)).toBeVisible();
+  });
+
+  test("AC-overlay-3: an ordinary edit succeeds in overlay mode — the mirror write-back seam accepts it", async ({
+    page,
+  }) => {
+    // Update (unlike Create) writes back through the incumbent seam and
+    // succeeds (overlay/provider_writes.go) — but every 360 in this branch
+    // hides its Edit affordance uniformly in overlay (contract MeResponse's
+    // own guidance: "hiding mirrored-entity write controls" for a mirrored
+    // screen), so there is no click path to it yet. This exercises the mock's
+    // fidelity to that server contract directly over the page's own network
+    // stack (still intercepted by mockApi, not a bypass of it).
+    await mockApi(page, { sor: "overlay" });
+    await page.goto("/#/deals/d-fleet");
+    const response = await page.evaluate(async () => {
+      const res = await fetch("/v1/deals/d-fleet", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "If-Match": "1" },
+        body: JSON.stringify({ name: "Fleet retrofit — expanded scope" }),
+      });
+      return { status: res.status, body: await res.json() };
+    });
+    expect(response.status).toBe(200);
+    expect(response.body.name).toBe("Fleet retrofit — expanded scope");
+    expect(response.body.id).toBe("d-fleet");
+  });
+
+  test("AC-overlay-4: an unsupported verb explains itself rather than failing", async ({
+    page,
+  }) => {
+    // Sort/filter dials are a read the mirror 422s — the list toolbar never
+    // offers them in overlay (so the user never gets to click a control that
+    // can only fail); it explains the gap in place instead. Search and the
+    // archived toggle are honestly still served, so only the sort/filter
+    // half disappears.
+    await mockApi(page, { sor: "overlay" });
+    await page.goto("/#/contacts");
+    await expect(
+      page.getByText("Sortierung und Filter laufen über HubSpot"),
+    ).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Sortieren" })).toHaveCount(
+      0,
+    );
+    await expect(page.getByRole("searchbox")).toBeVisible();
+    await expect(
+      page.getByRole("checkbox", { name: "Archivierte anzeigen" }),
+    ).toBeVisible();
+  });
+
+  test("AC-overlay-5: sync now reports a queued sweep", async ({ page }) => {
+    await mockApi(page, { sor: "overlay" });
+    await page.goto("/#/settings/integrations");
+    await page.getByRole("button", { name: "Jetzt synchronisieren" }).click();
+    await expect(page.getByText(/Abgleich eingereiht/)).toBeVisible();
+    // Distinct from the per-object "Backfill abgeschlossen" copy already on
+    // this page — this is specifically checking the sweep itself never
+    // claims to be finished.
+    await expect(page.getByText("Abgleich abgeschlossen")).toHaveCount(0);
+  });
+
+  test("AC-overlay-6: disconnect names the purge and the app returns to native", async ({
+    page,
+  }) => {
+    await mockApi(page, { sor: "overlay" });
+    await page.goto("/#/settings/integrations");
+    await expect(page.locator(".badge-accent")).toBeVisible();
+    await page.getByRole("button", { name: "Trennen" }).click();
+    await expect(
+      page.getByText(
+        "Dies löscht die gespiegelten Daten und schaltet den Workspace zurück auf native Datensätze.",
+        { exact: false },
+      ),
+    ).toBeVisible();
+    // Two buttons now share the label (the card's own trigger, already
+    // clicked, and the modal's confirm) — the modal's is the last in the DOM,
+    // the same convention overlay.test.tsx's disconnect test uses.
+    const confirms = page.getByRole("button", { name: "Trennen" });
+    await confirms.last().click();
+    // The whole cache is invalidated on success (/me included) — the chip
+    // (driven purely off /me) disappears once the app re-reads native.
+    await expect(page.locator(".badge-accent")).toHaveCount(0);
+  });
+
+  test("AC-overlay-7: every 360 panel renders its unavailable state, never an error box", async ({
+    page,
+  }) => {
+    await mockApi(page, { sor: "overlay" });
+    const unavailable = "In der HubSpot-Ansicht nicht verfügbar";
+    const errorBox = "Konnten diese Ansicht nicht laden.";
+
+    // Person 360 (overview tab, the default): timeline, relationship
+    // strength, and the related-records context panel each read a native
+    // capability the mirror doesn't hold.
+    await page.goto("/#/contacts/p-anna");
+    await expect(
+      page.getByRole("heading", { name: "Anna Weber" }),
+    ).toBeVisible();
+    await expect(page.getByText(unavailable)).toHaveCount(3);
+    await expect(page.getByText(errorBox)).toHaveCount(0);
+
+    // Deal 360: timeline, stakeholders, offers, and the context panel.
+    await page.goto("/#/deals/d-fleet");
+    await expect(
+      page.getByRole("heading", { name: "Fleet retrofit" }),
+    ).toBeVisible();
+    await expect(page.getByText(unavailable)).toHaveCount(4);
+    await expect(page.getByText(errorBox)).toHaveCount(0);
+
+    // Tasks (nav.tasks): a defining `kind=task` filter the mirror can't honor.
+    await page.goto("/#/tasks");
+    await expect(page.getByText(unavailable)).toHaveCount(1);
+    await expect(page.getByText(errorBox)).toHaveCount(0);
+  });
+});
+
 test.describe("§3.8: 390px mobile", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
