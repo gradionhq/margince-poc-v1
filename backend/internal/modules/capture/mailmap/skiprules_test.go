@@ -128,6 +128,10 @@ func TestMachineTouchedMailNeverAttestsCorrespondence(t *testing.T) {
 		// The modern spelling of Precedence: list must land the same side.
 		"list-id":          {"List-Id: <dev.example.com>"},
 		"list-unsubscribe": {"List-Unsubscribe: <https://x/u>"},
+		// RFC 3834 §5 parameters are attribute=value pairs. A bare token out
+		// there is not one, so the value does not mean what its keyword claims
+		// — and reading the keyword alone would let it vouch for an address.
+		"bare token where a parameter belongs": {"Auto-Submitted: no;auto-replied"},
 		// An unclosed comment swallows whatever followed it, so the survivors
 		// are not the value — even when what survives reads as "no".
 		"not-automatic behind an unclosed comment": {"Auto-Submitted: no (swallows auto-replied"},

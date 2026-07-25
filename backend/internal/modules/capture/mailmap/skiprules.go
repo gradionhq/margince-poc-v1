@@ -116,8 +116,33 @@ func headerKeyword(value string) (keyword string, readable bool) {
 // freely, so anything it cannot read in full is something a machine may have
 // had a hand in.
 func isMalformedValue(value string) bool {
-	_, wellFormed := scanValue(value, false)
-	return !wellFormed
+	if _, wellFormed := scanValue(value, false); !wellFormed {
+		return true
+	}
+	return !hasWellFormedParameters(value)
+}
+
+// hasWellFormedParameters reports whether everything after the keyword parses as
+// RFC 3834 §5 parameters, which are `attribute=value` pairs. A bare token out
+// there is not a parameter, so a value like `no;auto-replied` does not mean what
+// its keyword claims — it means the sender wrote something we cannot read, and
+// the veto treats unreadable as machine-touched.
+func hasWellFormedParameters(value string) bool {
+	whole, wellFormed := scanValue(value, false)
+	if !wellFormed {
+		return false
+	}
+	keyword, _ := scanValue(value, true)
+	rest := strings.TrimPrefix(whole, keyword)
+	for _, param := range strings.Split(rest, ";") {
+		if param = strings.TrimSpace(param); param == "" {
+			continue
+		}
+		if !strings.Contains(param, "=") {
+			return false
+		}
+	}
+	return true
 }
 
 // reachesGate reports whether an Auto-Submitted value names mail the tier gate
@@ -228,37 +253,43 @@ func scanValue(value string, stopAtParameters bool) (scanned string, wellFormed 
 	depth, quoted := 0, false
 	for i := 0; i < len(value); i++ {
 		c := value[i]
-		if c == '\\' && i+1 < len(value) && (depth > 0 || quoted) {
+		switch {
+		case c == '\\' && i+1 < len(value) && (depth > 0 || quoted):
+			// A quoted-pair: the next byte is content, so neither a parenthesis
+			// nor a quote after it can steer the scan.
 			if depth == 0 {
 				out.WriteByte(value[i+1])
 			}
 			i++
-			continue
-		}
-		if quoted {
-			if c == '"' {
-				quoted = false
-			}
+		case quoted:
+			quoted = c != '"'
 			out.WriteByte(c)
-			continue
-		}
-		switch {
-		case c == '"' && depth == 0:
-			quoted = true
-			out.WriteByte(c)
+		case depth > 0:
+			depth += commentDepthDelta(c)
+		case c == ';' && stopAtParameters:
+			return strings.TrimSpace(out.String()), true
 		case c == '(':
 			depth++
-		case c == ')' && depth > 0:
-			depth--
-		case c == ';' && depth == 0 && stopAtParameters:
-			return strings.TrimSpace(out.String()), true
 		default:
-			if depth == 0 {
-				out.WriteByte(c)
-			}
+			// A quoted-string is opaque: RFC 3834 parameters may carry one
+			// (`owner-email="a(b@x"`), and a parenthesis inside it opens no
+			// comment. An unmatched ')' out here is content, not a close.
+			quoted = c == '"'
+			out.WriteByte(c)
 		}
 	}
 	return strings.TrimSpace(out.String()), depth == 0 && !quoted
+}
+
+// commentDepthDelta reports how one byte inside a comment moves its nesting.
+func commentDepthDelta(c byte) int {
+	switch c {
+	case '(':
+		return 1
+	case ')':
+		return -1
+	}
+	return 0
 }
 
 func hasMachineHandledHeader(header mail.Header) bool {
