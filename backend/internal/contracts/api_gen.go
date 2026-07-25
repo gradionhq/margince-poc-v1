@@ -4685,17 +4685,20 @@ func (e SiteReadReportPhase) Valid() bool {
 
 // Defines values for SiteReadReportStatus.
 const (
-	SiteReadReportStatusDeferred SiteReadReportStatus = "deferred"
-	SiteReadReportStatusDone     SiteReadReportStatus = "done"
-	SiteReadReportStatusFailed   SiteReadReportStatus = "failed"
-	SiteReadReportStatusPartial  SiteReadReportStatus = "partial"
-	SiteReadReportStatusQueued   SiteReadReportStatus = "queued"
-	SiteReadReportStatusRunning  SiteReadReportStatus = "running"
+	SiteReadReportStatusCancelled SiteReadReportStatus = "cancelled"
+	SiteReadReportStatusDeferred  SiteReadReportStatus = "deferred"
+	SiteReadReportStatusDone      SiteReadReportStatus = "done"
+	SiteReadReportStatusFailed    SiteReadReportStatus = "failed"
+	SiteReadReportStatusPartial   SiteReadReportStatus = "partial"
+	SiteReadReportStatusQueued    SiteReadReportStatus = "queued"
+	SiteReadReportStatusRunning   SiteReadReportStatus = "running"
 )
 
 // Valid indicates whether the value is a known member of the SiteReadReportStatus enum.
 func (e SiteReadReportStatus) Valid() bool {
 	switch e {
+	case SiteReadReportStatusCancelled:
+		return true
 	case SiteReadReportStatusDeferred:
 		return true
 	case SiteReadReportStatusDone:

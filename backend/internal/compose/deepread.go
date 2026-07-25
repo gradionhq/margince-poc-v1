@@ -183,7 +183,12 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 	if isAutoEnrichRequest(args.RequestedBy) {
 		enabled, err := w.autoEnrichEnabled(ctx)
 		if err != nil {
-			return fmt.Errorf("site deep read %s: reading the auto-enrich setting: %w", args.SiteReadID, err)
+			// Recorded, not returned raw: the read is already claimed, so a
+			// bare error would leave it running until the reclaim window
+			// expires. Every other fault on this path records itself, and the
+			// sweep re-enqueues the org on its next pass.
+			return w.fail(ctx, args.SiteReadID,
+				fmt.Errorf("site deep read %s: reading the auto-enrich setting: %w", args.SiteReadID, err))
 		}
 		if !enabled {
 			return w.abandon(ctx, args.SiteReadID, "auto_enrich_disabled")
