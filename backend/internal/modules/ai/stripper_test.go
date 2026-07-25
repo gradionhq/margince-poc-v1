@@ -14,6 +14,11 @@ import (
 // model-bound payload, whatever shape they were captured in.
 func TestSecretStripperRemovesCredentials(t *testing.T) {
 	stripper := NewSecretStripper()
+	// Built by concatenation so the fixture is not itself a scannable secret:
+	// GitHub push protection blocks a literal sk_live_ Stripe key even when it
+	// is obviously fake. The runtime value is the whole key the stripper catches.
+	stripeSecret := "sk_" + "live_51H8xN2eZvKYlo2CFAKEfakefake0000"
+	stripeRestricted := "rk_" + "test_ABCDefgh1234567890ZZZZ"
 	cases := []struct {
 		name   string
 		text   string
@@ -29,6 +34,13 @@ func TestSecretStripperRemovesCredentials(t *testing.T) {
 		{"jwt", "session eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U expired", "eyJhbGciOiJIUzI1NiJ9", "jwt"},
 		{"password assignment", "the config has password=hunter2secret in it", "hunter2secret", "credential_assignment"},
 		{"password colon", `settings: api_key: "sk_live_verysecretvalue"`, "sk_live_verysecretvalue", "credential_assignment"},
+		// Bare secrets with NO key: prefix — the F-004 gap. Each must be
+		// caught by its own class rule, not only when an api_key: label
+		// happens to precede it.
+		{"bare stripe secret key", "billing uses " + stripeSecret + " now", stripeSecret, "api_key"},
+		{"bare stripe restricted key", "the widget key " + stripeRestricted + " works", stripeRestricted, "api_key"},
+		{"aws secret access key", "aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "aws_secret_key"},
+		{"url embedded credential", "dsn postgres://svc:S3cr3tPass@db.internal:5432/prod set", "S3cr3tPass", "url_credential"},
 		{"pem block", "attached:\n-----BEGIN RSA PRIVATE KEY-----\nMIIEow\nsecretbody\n-----END RSA PRIVATE KEY-----\ndone", "secretbody", "private_key"},
 	}
 	for _, tc := range cases {
