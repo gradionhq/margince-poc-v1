@@ -391,31 +391,53 @@ test.describe("B-EP09.23: overlay mode", () => {
   test("AC-overlay-4: an unsupported verb explains itself rather than failing", async ({
     page,
   }) => {
-    // Advancing a deal's stage is a refused WRITE (unsupported_by_sor,
-    // OVA-MAP-W6 — no overlay stage map, unlike Update/Archive which DO
-    // reach the incumbent seam). It is the same "no click path yet" situation
-    // as AC-overlay-3's PATCH: DealsScreen forces table view and hides the
-    // board/toggle in overlay (usePipelines(!overlay)), and DealScreen's
-    // badges hide Edit/Reopen (the only two callers of POST .../advance)
-    // together with the rest of the write affordances. So this drives the
-    // refusal directly over the page's own network stack, same as
-    // AC-overlay-3 — there is no rendered t("overlay.refused") to assert at
-    // the UI level today because nothing in the shipped SPA calls this
-    // endpoint while in overlay mode. Once a follow-up exposes an advance
-    // affordance in overlay, this should switch to clicking it and asserting
-    // the rendered refusal copy instead of reading the raw problem body.
+    // Every refusable write affordance (advance/edit/merge/promote/
+    // disqualify/create/log-activity) is deliberately HIDDEN once the SPA
+    // knows it's in overlay mode — so there is no click path to a refused
+    // write verb in a freshly-loaded overlay session; a naive "click it and
+    // assert the copy" test is unwritable, and forcing one (or reading the
+    // raw response body off a direct fetch) would only prove the mock
+    // answers 422, not that the SPA does anything with it.
+    //
+    // The copy exists for exactly one real scenario: the stale-["me"]-cache
+    // race. A screen mounts while the installation is still native (its
+    // write affordances render, since the overlay gate reads the cached
+    // ["me"].system_of_record.mode); another process then flips the
+    // installation to overlay server-side. The SPA's own ["me"] read has a
+    // 5-minute staleTime and nothing here triggers a refetch of it, so the
+    // board still renders as native and the drag is still live — but the
+    // request now lands on a server that refuses it. That's reproduced here:
+    // load the board under the native seed (global beforeEach), THEN layer
+    // the overlay mock on top with no intervening navigation/reload/
+    // invalidate, so only the SERVER side (this mock's route table) has
+    // flipped — the mounted screen's own state has not.
+    await page.goto("/#/deals");
+    await expect(page.getByText("Fleet retrofit")).toBeVisible();
     await mockApi(page, { sor: "overlay" });
-    await page.goto("/#/deals/d-fleet");
-    const response = await page.evaluate(async () => {
-      const res = await fetch("/v1/deals/d-fleet/advance", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to_stage_id: "s3" }),
-      });
-      return { status: res.status, body: await res.json() };
-    });
-    expect(response.status).toBe(422);
-    expect(response.body.code).toBe("unsupported_by_sor");
+
+    // d-fleet (stage s2, "Proposal") → s3 ("Negotiation"), both open-semantic
+    // stages: an immediate advance, no confirm modal in the way (AC-deal-6
+    // covers the terminal-stage confirm path separately).
+    const card = page.locator('[data-deal="d-fleet"]');
+    const target = page.locator('[data-stage="s3"]');
+    await card.dragTo(target);
+
+    // The board never refetched ["me"] — the Advance affordance was real,
+    // still native as far as the SPA knew — but the request the server
+    // actually received hit the (now overlay) mock's refused
+    // POST /deals/{id}/advance, and the SPA renders the localized refusal
+    // (overlay.refused), not the raw sentinel and not a generic failure.
+    await expect(
+      page.getByText(
+        "Beim Lesen aus HubSpot nicht verfügbar — der Spiegel kann diesen Schreibvorgang nicht ausführen.",
+      ),
+    ).toBeVisible();
+    // The deal never actually moved (the mutation errored, so nothing
+    // invalidated the deals list) — the card is still in its origin column,
+    // not silently accepted into a state the mirror never agreed to.
+    await expect(
+      page.locator('[data-stage="s2"] [data-deal="d-fleet"]'),
+    ).toBeVisible();
   });
 
   test("overlay mode: an unsupported READ dial (list sort/filter) explains itself rather than failing", async ({
