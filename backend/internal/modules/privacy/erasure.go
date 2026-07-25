@@ -222,6 +222,15 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 	if _, err := tx.Exec(ctx, `DELETE FROM person_social WHERE person_id = $1`, personID); err != nil {
 		return nil, err
 	}
+	// The capture disposition ledger keys on the subject's own address and
+	// carries the display name a message arrived with, so an erasure that
+	// stopped at person_email would leave both readable in the ledger — and
+	// the address would keep answering the correspondence and pending gates.
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM capture_pending_counterparty
+		 WHERE email IN (SELECT email FROM person_email WHERE person_id = $1)`, personID); err != nil {
+		return nil, err
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM person_email WHERE person_id = $1`, personID); err != nil {
 		return nil, err
 	}

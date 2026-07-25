@@ -34,10 +34,13 @@ CREATE TABLE capture_pending_counterparty (
   -- The granting human the created records would be owned by, resolved from the
   -- connector principal at capture. Kept so a verdict arriving days later still
   -- creates under the human who authorized the capture, not the job.
+  -- CASCADE, not RESTRICT: an OUTSIDER causes this row by mailing the connected
+  -- mailbox, so residue a stranger planted must never block offboarding the
+  -- human who happened to own the connection.
   owner_id uuid NOT NULL,
   CONSTRAINT capture_pending_counterparty_owner_id_fkey
     FOREIGN KEY (workspace_id, owner_id)
-    REFERENCES app_user (workspace_id, id) ON DELETE RESTRICT,
+    REFERENCES app_user (workspace_id, id) ON DELETE CASCADE,
 
   status text NOT NULL DEFAULT 'pending'
     CHECK (status IN ('pending', 'unsure', 'real', 'noise', 'suppressed', 'rejected')),
@@ -69,10 +72,19 @@ CREATE TABLE capture_pending_counterparty (
 
 -- One LIVE row per address: a second mail from the same stranger joins the
 -- existing disposition instead of queuing a second verdict for the same
--- question. Resolved rows are history and do not block a later re-appearance.
+-- question.
 CREATE UNIQUE INDEX idx_capture_pending_counterparty_live
   ON capture_pending_counterparty (workspace_id, email)
   WHERE status IN ('pending', 'unsure');
+
+-- And one SUPPRESSED row per address, for the same reason in the other
+-- direction. A suppressed status sits outside the live index, so without this
+-- every message from a newsletter or an ESP would append another row and the
+-- table would grow with total suppressed mail volume — turning "the reason is
+-- queryable" into millions of duplicates of one answer.
+CREATE UNIQUE INDEX idx_capture_pending_counterparty_suppressed
+  ON capture_pending_counterparty (workspace_id, email)
+  WHERE status = 'suppressed';
 
 -- The verdict job's due-scan. Partial on next_attempt_at so resolved and
 -- exhausted rows cost the scan nothing.

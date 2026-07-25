@@ -10,7 +10,6 @@ package capture
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -109,18 +108,14 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 	if s.ensurer == nil || cp.Email == "" {
 		return counterpartyDecision{}, nil
 	}
-	actor, _ := principal.Actor(ctx) // Upsert already validated a connector actor
-	owner := actor.OnBehalfOf
-	if owner.IsZero() {
-		owner = actor.UserID
-	}
+	actor, owner := capturePrincipal(ctx)
 	if owner.IsZero() {
 		// RC-8: a capture connector always acts for a granting human; with no
 		// owner nothing can honestly own the created rows. The ACTIVITY still
 		// stands — refusing the derivation is the honest answer, failing the
 		// capture would throw away a message we successfully read — so the
 		// fault is recorded for the nightly reconcile and creation is skipped.
-		if err := s.logFaultTx(ctx, tx, rec, errors.New("no granting human on the connector principal")); err != nil {
+		if err := s.logBreadcrumbTx(ctx, tx, "capture_ensure_fault", rec, "no granting human on the connector principal"); err != nil {
 			return counterpartyDecision{}, err
 		}
 		return counterpartyDecision{}, nil
@@ -135,7 +130,7 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 	// records nothing — an internal address is not a disposition anyone reviews.
 	internal, err := s.internalDomainTx(ctx, tx, cp.Domain)
 	if err != nil {
-		return counterpartyDecision{}, err
+		return counterpartyDecision{}, s.declineOnFault(ctx, tx, rec, err)
 	}
 	if internal {
 		return counterpartyDecision{}, nil
@@ -145,39 +140,14 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 	// Suppress person AND org derivation — the activity already committed and
 	// stands (a DocuSign envelope is a real timeline item) — and record the
 	// reason durably for observability.
-	if s.transactional != nil {
-		if suppress, reason := s.transactional.Suppress(transactionalInput(cp)); suppress {
-			// T1 correspondence-positive OUTRANKS T2 (ADR-0072 §1), and the
-			// precedence is load-bearing: a known contact whose newsletter
-			// footer carries a List-Unsubscribe header, or who mails from
-			// `news.acme.com`, must not be suppressed as bulk infrastructure.
-			// Someone the workspace has written to is a counterparty by
-			// demonstrated intent, whatever their mail plumbing looks like.
-			// Asked only here — the tier below is the only place the answer
-			// changes an outcome, and asking costs a query per captured message.
-			corresponded, err := s.correspondencePositiveTx(ctx, tx, cp.Email)
-			if err != nil {
-				return counterpartyDecision{}, err
-			}
-			if !corresponded {
-				// T2 stands: person and org are suppressed, the activity keeps
-				// its place on the timeline, and the reason lands on the ledger
-				// so a wrong registry entry is queryable, not only logged.
-				row.Status, row.Reason = PendingStatusSuppressed, reason
-				if err := recordDisposition(ctx, tx, row); err != nil {
-					return counterpartyDecision{}, err
-				}
-				s.logSuppression(ctx, rec, reason)
-				return counterpartyDecision{}, nil
-			}
-			// The rule matched and T1 overrode it. Recorded on its own so a
-			// spare is as diagnosable as a suppression — this is the one path
-			// that lets an address the registry calls infrastructure become a
-			// record, and ops must be able to see it happen.
-			s.logCorrespondenceSpare(ctx, rec, reason)
-			decision.create = true
-		}
+	spared, suppressed, err := s.transactionalVerdict(ctx, tx, rec, row)
+	if err != nil {
+		return counterpartyDecision{}, err
 	}
+	if suppressed {
+		return counterpartyDecision{}, nil
+	}
+	decision.create = spared
 
 	// T3 free-mail (CAP-PARAM-5): a personal mailbox is a person, never a
 	// company — gmail.com is not an organization whatever else is true of it.
@@ -191,7 +161,7 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 		// the question the ledger now holds.
 		row.Status = PendingStatusPending
 		if err := recordDisposition(ctx, tx, row); err != nil {
-			return counterpartyDecision{}, err
+			return counterpartyDecision{}, s.declineOnFault(ctx, tx, rec, err)
 		}
 		return counterpartyDecision{}, nil
 	}
@@ -256,58 +226,84 @@ func transactionalInput(cp connector.Counterparty) TransactionalInput {
 	}
 }
 
-// logSuppression records a T2 transactional suppression in system_log — the
-// activity stands, no counterparty was derived, and the reason is durable for
-// ops (until CAP-DDL-8's disposition row carries it, ADR-0072 phase 2a). Never
-// fails capture: a failed breadcrumb only loses observability, not correctness.
-func (s *Sink) logSuppression(ctx context.Context, rec connector.NormalizedRecord, reason string) {
-	detail := map[string]any{
+// capturePrincipal resolves the acting connector and the human it acts for.
+// The granting human is who anything created would belong to, so a connector
+// acting for nobody can own nothing.
+func capturePrincipal(ctx context.Context) (principal.Principal, ids.UUID) {
+	actor, _ := principal.Actor(ctx) // Upsert already validated a connector actor
+	owner := actor.OnBehalfOf
+	if owner.IsZero() {
+		owner = actor.UserID
+	}
+	return actor, owner
+}
+
+// transactionalVerdict runs T2 against the transactional/ESP registry and the
+// T1 spare that outranks it. It reports whether T1 spared a matched sender
+// (which makes it a counterparty outright) and whether T2 stood (which finishes
+// the ladder here). A sender no rule matches is neither: the ladder continues.
+//
+// T1 outranking T2 is load-bearing (ADR-0072 §1): a known contact whose
+// newsletter footer carries a List-Unsubscribe header, or who mails from
+// `news.acme.com`, must not be suppressed as bulk infrastructure. Someone the
+// workspace has written to is a counterparty by demonstrated intent, whatever
+// their mail plumbing looks like. The correspondence question is asked only
+// here, where the answer is the only thing that changes an outcome.
+func (s *Sink) transactionalVerdict(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, row dispositionRow) (spared, suppressed bool, err error) {
+	if s.transactional == nil {
+		return false, false, nil
+	}
+	suppress, reason := s.transactional.Suppress(transactionalInput(rec.Counterparty))
+	if !suppress {
+		return false, false, nil
+	}
+	corresponded, err := s.correspondencePositiveTx(ctx, tx, rec.Counterparty.Email)
+	if err != nil {
+		return false, true, s.declineOnFault(ctx, tx, rec, err)
+	}
+	if !corresponded {
+		// T2 stands: person and org are suppressed, the activity keeps its
+		// place on the timeline, and the reason lands on the ledger so a wrong
+		// registry entry is queryable, not only logged.
+		row.Status, row.Reason = PendingStatusSuppressed, reason
+		if err := recordDisposition(ctx, tx, row); err != nil {
+			return false, true, s.declineOnFault(ctx, tx, rec, err)
+		}
+		return false, true, s.logBreadcrumbTx(ctx, tx, "capture_transactional_suppressed", rec, reason)
+	}
+	// The rule matched and T1 overrode it. Recorded on its own so a spare is as
+	// diagnosable as a suppression — this is the one path that lets an address
+	// the registry calls infrastructure become a record, and ops must be able
+	// to see it happen.
+	return true, false, s.logBreadcrumbTx(ctx, tx, "capture_correspondence_spared", rec, reason)
+}
+
+// declineOnFault turns a tier-ladder fault into "derive nothing", recorded, and
+// returns nil so the capture still commits. The ladder decides whether a RECORD
+// is created; it must never decide whether a MESSAGE is kept. Returning the
+// error here would roll back the activity, the raw evidence, the audit row and
+// the outbox event — and because a Sink error stops the connector's pull, one
+// deterministic fault would cost the whole mailbox rather than one derivation.
+//
+// Only a failure to RECORD the fault is returned: at that point the database
+// itself is not answering and there is nothing honest left to commit.
+func (s *Sink) declineOnFault(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, cause error) error {
+	return s.logBreadcrumbTx(ctx, tx, "capture_ensure_fault", rec, cause.Error())
+}
+
+// logBreadcrumbTx records one capture-gate decision on the caller's capture
+// transaction. Every tier outcome a human might have to explain — a suppression,
+// a T1 spare that overrode one — commits with the activity it is about, so a
+// rolled-back capture never leaves a breadcrumb for a message that does not
+// exist, and no gate has to borrow a second pool connection while holding one.
+func (s *Sink) logBreadcrumbTx(ctx context.Context, tx pgx.Tx, action string, rec connector.NormalizedRecord, reason string) error {
+	_, err := storekit.LogSystem(ctx, tx, action, map[string]any{
 		fieldReason:       reason,
 		fieldSourceSystem: rec.NaturalKey.SourceSystem,
 		fieldSourceID:     rec.NaturalKey.SourceID,
-	}
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		_, logErr := storekit.LogSystem(ctx, tx, "capture_transactional_suppressed", detail)
-		return logErr
 	})
 	if err != nil {
-		slog.ErrorContext(ctx, "capture: recording transactional suppression", "err", err, "reason", reason)
-	}
-}
-
-// logCorrespondenceSpare records that T1 overrode a matched T2 suppression
-// rule: the workspace has provably written to this address, so the counterparty
-// is derived despite the registry calling its domain infrastructure. Carries
-// the rule that would have fired, so a wrong registry entry stays diagnosable.
-// Never fails capture: a failed breadcrumb only loses observability.
-func (s *Sink) logCorrespondenceSpare(ctx context.Context, rec connector.NormalizedRecord, reason string) {
-	detail := map[string]any{
-		fieldReason:       reason,
-		fieldSourceSystem: rec.NaturalKey.SourceSystem,
-		fieldSourceID:     rec.NaturalKey.SourceID,
-	}
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		_, logErr := storekit.LogSystem(ctx, tx, "capture_correspondence_spared", detail)
-		return logErr
-	})
-	if err != nil {
-		slog.ErrorContext(ctx, "capture: recording correspondence spare", "err", err, "reason", reason)
-	}
-}
-
-// logFaultTx records an ensure fault on the caller's capture transaction. Same
-// breadcrumb as logEnsureFault, written where the tier ladder runs: it must
-// commit with the activity it is about, not in a transaction that could fail
-// separately and leave the fault invisible.
-func (s *Sink) logFaultTx(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, cause error) error {
-	_, err := storekit.LogSystem(ctx, tx, "capture_ensure_fault", map[string]any{
-		fieldReason:       "counterparty_ensure_failed",
-		fieldSourceSystem: rec.NaturalKey.SourceSystem,
-		fieldSourceID:     rec.NaturalKey.SourceID,
-		"error":           cause.Error(),
-	})
-	if err != nil {
-		return fmt.Errorf("capture: recording ensure fault: %w", err)
+		return fmt.Errorf("capture: recording the %s breadcrumb: %w", action, err)
 	}
 	return nil
 }

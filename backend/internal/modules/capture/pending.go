@@ -77,12 +77,19 @@ func recordDisposition(ctx context.Context, tx pgx.Tx, in dispositionRow) error 
 	if in.Status == PendingStatusPending {
 		nextAttempt = time.Now()
 	}
+	// One disposition per address per state, whichever index arbitrates it: a
+	// second message from the same stranger joins the open question, and a
+	// second newsletter does not append another copy of the same answer.
+	conflict := "(workspace_id, email) WHERE status IN ('pending', 'unsure')"
+	if in.Status == PendingStatusSuppressed {
+		conflict = "(workspace_id, email) WHERE status = 'suppressed'"
+	}
 	_, err := tx.Exec(ctx, `
 		INSERT INTO capture_pending_counterparty
 		  (workspace_id, email, domain, display_name, activity_id, owner_id, status, disposition_reason, next_attempt_at)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
 		        $1, NULLIF($2, ''), NULLIF($3, ''), $4, $5, $6, NULLIF($7, ''), $8)
-		ON CONFLICT (workspace_id, email) WHERE status IN ('pending', 'unsure')
+		ON CONFLICT `+conflict+`
 		DO NOTHING`,
 		email, strings.ToLower(strings.TrimSpace(in.Domain)), in.DisplayName,
 		in.ActivityID, in.OwnerID, in.Status, in.Reason, nextAttempt)
@@ -130,6 +137,12 @@ func (s *PendingStore) ClaimDue(ctx context.Context, limit int) ([]PendingCounte
 			    WHERE status = 'pending'
 			      AND next_attempt_at IS NOT NULL AND next_attempt_at <= now()
 			      AND (claimed_until IS NULL OR claimed_until <= now())
+			      -- The bound is a property of the ROW, not of a live worker.
+			      -- A worker that crashes, is killed, or outruns its lease never
+			      -- reaches Defer, so a row whose content reliably kills the
+			      -- verdict step would otherwise be re-claimed every lease
+			      -- expiry forever, at one model call a time.
+			      AND attempts < $3
 			    ORDER BY next_attempt_at
 			    LIMIT $1
 			    FOR UPDATE SKIP LOCKED)
@@ -137,7 +150,7 @@ func (s *PendingStore) ClaimDue(ctx context.Context, limit int) ([]PendingCounte
 			          p.activity_id, p.owner_id, p.attempts,
 			          coalesce((SELECT a.subject FROM activity a WHERE a.id = p.activity_id), ''),
 			          coalesce((SELECT a.body FROM activity a WHERE a.id = p.activity_id), '')`,
-			limit, pendingLease.String())
+			limit, pendingLease.String(), pendingMaxAttempts)
 		if err != nil {
 			return err
 		}
