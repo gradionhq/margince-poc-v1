@@ -81,6 +81,7 @@ make dev                # full local stack: the app on :8080 (api behind it on :
                         # (worker = cmd/worker, always on: outbox relay + Surface-B runner)
                         # (DEV_SLUG=x → isolated margince_dev_<slug> on slug-derived ports)
 make dev-stop           # stop the stack (add DEV_SLUG=x [DROP=1] for an isolated env)
+make dev-logs           # follow the stack log, coloured per process; ROLE=/LEVEL=/ALL=1 filter it
 ```
 
 ### EXACTLY ONE dev stack at a time (non-negotiable)

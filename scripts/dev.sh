@@ -96,6 +96,20 @@ rundir=".tmp/dev/${slug:-_base}"
 log="${rundir}/dev.log"
 state="${rundir}/env"
 
+# Tag every line with the process that wrote it. api, worker and Vite all append
+# to one log, and once their output interleaves there is no way to recover which
+# one said what — a worker sync failure reads exactly like an api request error.
+# The tag is plain text on purpose: no ANSI in the file, so grep, sed and an
+# editor all see clean lines. `make dev-logs` adds the colour at read time.
+#
+# Callers pipe through this with process substitution — `cmd > >(log_as api)`,
+# never `cmd | log_as api` — because a pipeline makes $! the LAST command in it,
+# and this script's $! must stay the server's own pid or dev-stop kills an awk
+# instead of the api.
+log_as() { # role — tag each line of stdin and append to $log
+  awk -v role="$1" '{ printf "%-6s | %s\n", role, $0; fflush() }' >>"$log"
+}
+
 wait_ready() { # url timeout_s — only a 2xx counts as ready (a 401/500/503 is not).
   local url="$1" timeout="$2"
   for _ in $(seq 1 "$timeout"); do
@@ -293,7 +307,7 @@ up)
     ( cd backend && GOWORK="$PWD/../go.work" go run ./tools/gen-composition )
     ( cd backend && GOWORK="$PWD/../build/composition/go.work" go build -o ../bin/api ./cmd/api )
     echo "=== servers ==="
-  } >>"$log" 2>&1
+  } > >(log_as boot) 2>&1
 
   # Per-engineer routing lives in a gitignored config/ai-routing.yaml; seed it
   # from the committed template on first run so `make dev` is green without a
@@ -417,7 +431,7 @@ up)
     MARGINCE_BLOBSTORE_BUCKET=margince-dev \
     ./bin/api --addr ":${api_port}" --dsn "$dev_app_url" --config "$deploy_cfg" \
     --redis "localhost:${REDIS_PORT}" \
-    "${ai_flag[@]}" "${gmail_api_flags[@]+"${gmail_api_flags[@]}"}" >>"$log" 2>&1 &
+    "${ai_flag[@]}" "${gmail_api_flags[@]+"${gmail_api_flags[@]}"}" > >(log_as api) 2>&1 &
   be_pid=$!
 
   if ! wait_ready "http://localhost:${api_port}/readyz" 90; then
@@ -452,7 +466,7 @@ up)
   # only ERASES data past its jurisdiction floor, so on a fresh dev database
   # it is a no-op. The long interval just stops it recurring during a dev
   # session.
-  ( cd backend && GOWORK="$PWD/../build/composition/go.work" go build -o ../bin/worker ./cmd/worker ) >>"$log" 2>&1
+  ( cd backend && GOWORK="$PWD/../build/composition/go.work" go build -o ../bin/worker ./cmd/worker ) > >(log_as boot) 2>&1
   worker_gmail_flags=()
   if [[ "$gmail_enabled" == "1" ]]; then
     # A short poll makes the demo mailbox responsive; the default is 2m.
@@ -466,7 +480,7 @@ up)
     ./bin/worker --dsn "$dev_app_url" --redis "localhost:${REDIS_PORT}" \
     --config "$deploy_cfg" \
     --retention-interval 720h \
-    "${ai_flag[@]}" "${worker_gmail_flags[@]+"${worker_gmail_flags[@]}"}" >>"$log" 2>&1 &
+    "${ai_flag[@]}" "${worker_gmail_flags[@]+"${worker_gmail_flags[@]}"}" > >(log_as worker) 2>&1 &
   worker_pid=$!
   if [[ "$gmail_enabled" == "1" ]]; then
     echo "  worker   background relay + Surface-B runner + time-scan + Gmail sync (poll every 30s)"
@@ -477,7 +491,7 @@ up)
   # The FE's /v1 proxy follows the api via BACKEND_PORT (see vite.config.ts).
   # `pnpm --dir frontend` keeps the cwd at the repo root, so $! is vite itself
   # (a `(cd … & )` subshell would capture the subshell, not the server).
-  BACKEND_PORT="${api_port}" pnpm --dir frontend exec vite --port "${fe_port}" --strictPort >>"$log" 2>&1 &
+  BACKEND_PORT="${api_port}" pnpm --dir frontend exec vite --port "${fe_port}" --strictPort > >(log_as fe) 2>&1 &
   fe_pid=$!
 
   printf 'SLUG=%s\nAPI_PORT=%s\nFE_PORT=%s\nDB=%s\nBACKEND_PID=%s\nFE_PID=%s\nWORKER_PID=%s\nLOG=%s\n' \
