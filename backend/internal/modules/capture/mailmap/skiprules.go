@@ -100,12 +100,24 @@ const (
 // rules read it the same way — two readings would let a value mean one thing to
 // the drop and another to the veto.
 func headerKeyword(value string) (keyword string, readable bool) {
-	stripped, wellFormed := stripHeaderComments(value)
+	// Only the region before the first top-level semicolon can decide the
+	// keyword, so only that region's well-formedness can disqualify it. RFC
+	// 3834 §5 parameters live after the semicolon, and a comment left unclosed
+	// out there says nothing about a keyword that already parsed cleanly.
+	keyword, wellFormed := scanValue(value, true)
 	if !wellFormed {
 		return "", false
 	}
-	k, _, _ := strings.Cut(stripped, ";")
-	return strings.TrimSpace(k), true
+	return keyword, true
+}
+
+// isMalformedValue reports whether the value as a WHOLE failed to parse. The
+// veto asks this rather than the keyword question: it may withhold evidence
+// freely, so anything it cannot read in full is something a machine may have
+// had a hand in.
+func isMalformedValue(value string) bool {
+	_, wellFormed := scanValue(value, false)
+	return !wellFormed
 }
 
 // reachesGate reports whether an Auto-Submitted value names mail the tier gate
@@ -126,7 +138,11 @@ func reachesGate(autoSubmitted string) bool {
 func isAutoReplyPrecedence(value string) bool {
 	keyword, readable := headerKeyword(value)
 	if !readable {
-		return false // Precedence decides nothing on its own; the veto handles it.
+		// An unreadable Precedence cannot be trusted to NAME a reply, and
+		// refusing it would widen the narrow rule — a newsletter the tier gate
+		// must see would be dropped for a malformed header. The wide rule reads
+		// the same value as machine-touched, so nothing is granted by keeping it.
+		return false
 	}
 	switch strings.ToLower(keyword) {
 	case "auto_reply", autoReplied, "auto_replied", "auto-replied":
@@ -156,17 +172,17 @@ func isAutoReply(autoSubmitted, precedence []string) bool {
 // including the bulk-family markers a newsletter carries, which isAutoReply
 // deliberately lets through so the tier gate can judge them.
 //
-// The two questions are separate because they pull opposite ways on the same
-// headers: the drop must be narrow so the tier gate sees transactional mail,
-// and the veto must be wide because it only ever withholds evidence. A single
-// answer cannot satisfy both.
-func isMachineTouched(autoSubmitted, precedence []string, autoresponderHeader bool) bool {
-	if autoresponderHeader {
+// Why this is a second rule rather than a wider first one: see the file header.
+func isMachineTouched(autoSubmitted, precedence []string, machineHandledHeader bool) bool {
+	if machineHandledHeader {
 		return true
 	}
 	for _, v := range autoSubmitted {
 		// The KEYWORD, exactly as the drop rule reads it: `no; owner-email=…`
 		// is legal RFC 3834 and still means a person wrote this.
+		if isMalformedValue(v) {
+			return true
+		}
 		keyword, readable := headerKeyword(v)
 		if !readable || !strings.EqualFold(keyword, notAutomatic) {
 			return true
@@ -176,10 +192,10 @@ func isMachineTouched(autoSubmitted, precedence []string, autoresponderHeader bo
 		if isAutoReplyPrecedence(v) {
 			return true
 		}
-		keyword, readable := headerKeyword(v)
-		if !readable {
+		if isMalformedValue(v) {
 			return true
 		}
+		keyword, _ := headerKeyword(v)
 		switch strings.ToLower(keyword) {
 		case "bulk", "list", "junk":
 			return true
@@ -193,38 +209,59 @@ func isMachineTouched(autoSubmitted, precedence []string, autoresponderHeader bo
 // this walks the bytes rather than trusting a pattern: an unclosed parenthesis
 // swallows the rest, which keeps a malformed value from resolving to a keyword
 // it does not carry.
+
+// scanValue walks a structured header value once, honouring the two RFC 5322
+// constructs that make a byte mean something other than itself: a comment
+// (parenthesized, nesting) and a quoted-string. Comments are dropped, quoted
+// strings are kept verbatim, and a quoted-pair escapes whichever follows.
 //
-// A `(` inside a quoted-string is NOT distinguished from a real comment. That
-// is safe for both callers, which read only the keyword before the first
-// semicolon, and it fails toward swallowing rather than inventing a keyword.
-func stripHeaderComments(value string) (stripped string, wellFormed bool) {
+// stopAtParameters ends the walk at the first semicolon that is neither, which
+// is the RFC 3834 §5 parameter separator — callers wanting only the keyword ask
+// for that, so an unclosed comment out in the parameter region cannot condemn a
+// keyword that already parsed.
+//
+// wellFormed reports that every comment closed and every quote was matched. It
+// is the difference between "the value is X" and "the value might have been
+// anything before something ate it", and no caller may read the text without it.
+func scanValue(value string, stopAtParameters bool) (scanned string, wellFormed bool) {
 	var out strings.Builder
-	depth := 0
+	depth, quoted := 0, false
 	for i := 0; i < len(value); i++ {
-		switch c := value[i]; {
-		case c == '\\' && depth > 0 && i+1 < len(value):
-			i++ // quoted-pair inside a comment: the escaped byte is comment text
+		c := value[i]
+		if c == '\\' && i+1 < len(value) && (depth > 0 || quoted) {
+			if depth == 0 {
+				out.WriteByte(value[i+1])
+			}
+			i++
+			continue
+		}
+		if quoted {
+			if c == '"' {
+				quoted = false
+			}
+			out.WriteByte(c)
+			continue
+		}
+		switch {
+		case c == '"' && depth == 0:
+			quoted = true
+			out.WriteByte(c)
 		case c == '(':
 			depth++
 		case c == ')' && depth > 0:
 			depth--
+		case c == ';' && depth == 0 && stopAtParameters:
+			return strings.TrimSpace(out.String()), true
 		default:
 			if depth == 0 {
 				out.WriteByte(c)
 			}
 		}
 	}
-	// depth > 0 means a comment was opened and never closed: whatever it
-	// swallowed is unknown, so the caller must not read the survivors as the
-	// value. Reporting it is the difference between "the value is `no`" and
-	// "the value might have been anything".
-	return strings.TrimSpace(out.String()), depth == 0
+	return strings.TrimSpace(out.String()), depth == 0 && !quoted
 }
 
-// hasAutoresponderHeader reports the legacy vendor markers a responder sets
-// when it sets nothing standard — the shape that predates RFC 3834 and still
-// ships in Exim recipes and older groupware.
-func hasAutoresponderHeader(header mail.Header) bool {
+func hasMachineHandledHeader(header mail.Header) bool {
 	for _, name := range machineHandledHeaders {
 		if header.Has(name) {
 			return true
