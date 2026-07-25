@@ -394,11 +394,18 @@ func TestOnlyAutoRepliesAreKeptOffTheTimeline(t *testing.T) {
 // the owner never chose to write to (ADR-0072 residual (b)).
 func TestMachineTouchedMailNeverAttestsCorrespondence(t *testing.T) {
 	vetoed := map[string][]string{
-		"vacation responder": {"Auto-Submitted: auto-replied"},
-		"bulk newsletter":    {"Precedence: bulk"},
-		"junk-marked bulk":   {"Precedence: junk"},
-		"legacy autoreply":   {"X-Autoreply: yes"},
-		"auto-generated":     {"Auto-Submitted: auto-generated"},
+		"vacation responder":    {"Auto-Submitted: auto-replied"},
+		"bulk newsletter":       {"Precedence: bulk"},
+		"junk-marked bulk":      {"Precedence: junk"},
+		"legacy autoreply":      {"X-Autoreply: yes"},
+		"legacy autorespond":    {"X-Autorespond: yes"},
+		"homegrown loop marker": {"X-Loop: owner@myco.com"},
+		// The modern spelling of Precedence: list must land the same side.
+		"list-id":          {"List-Id: <dev.example.com>"},
+		"list-unsubscribe": {"List-Unsubscribe: <https://x/u>"},
+		// Legal RFC 3834 parameters on `no` must not read as machine-touched:
+		// both rules read the keyword, so this stays ordinary owner mail.
+		"auto-generated": {"Auto-Submitted: auto-generated"},
 	}
 	for name, headers := range vetoed {
 		t.Run(name, func(t *testing.T) {
@@ -409,11 +416,20 @@ func TestMachineTouchedMailNeverAttestsCorrespondence(t *testing.T) {
 		})
 	}
 
-	// A message the owner actually wrote still attests: the veto must not eat
-	// the evidence the T1 gate is built on.
-	rec := parseWith(t, nil).AttestSentByOwner(true).ToRecord("imap", []byte("x"))
-	if !rec.Counterparty.SentByOwner() {
-		t.Fatal("an ordinary owner-authored message failed to attest")
+	// The veto must not eat the evidence the T1 gate is built on. Both an
+	// unadorned message and one carrying RFC 3834's own "not automatic" value,
+	// with or without the parameters that value may legally carry, still vouch.
+	for name, headers := range map[string][]string{
+		"plain owner mail":          nil,
+		"explicit not-automatic":    {"Auto-Submitted: no"},
+		"not-automatic with params": {"Auto-Submitted: no; owner-email=ops@myco.com"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := parseWith(t, headers).AttestSentByOwner(true).ToRecord("imap", []byte("x"))
+			if !rec.Counterparty.SentByOwner() {
+				t.Fatalf("%s failed to attest — the gate is starved of real evidence", name)
+			}
+		})
 	}
 }
 

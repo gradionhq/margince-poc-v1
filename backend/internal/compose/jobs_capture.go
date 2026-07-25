@@ -5,9 +5,8 @@ package compose
 
 // Capture's job surface: the Gmail dispatch pass, the per-connection sync it
 // fans out to, and the push-watch renewal that keeps Gmail notifying us at all.
-// Split out of jobs.go because these three are one concept — how captured mail
-// gets pulled on a schedule — and the runner file is the composition of every
-// job, not the home of any.
+// These three are one concept — how captured mail gets pulled on a schedule.
+// jobs.go composes every job and is the home of none.
 
 import (
 	"context"
