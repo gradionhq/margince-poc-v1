@@ -174,7 +174,8 @@ func (e *CounterpartyVerdictEngine) Run(ctx context.Context, maxVerdicts int) er
 				// budget-exhausted cycles would otherwise retire the whole
 				// backlog to `unsure` — turning an infrastructure condition into
 				// a per-sender terminal verdict nobody asked for.
-				e.releaseBatch(wsCtx, batch)
+				// No model was reached, so the attempts are refunded.
+				e.releaseBatch(wsCtx, batch, true)
 				e.log.InfoContext(ctx, "counterparty verdict: budget exhausted, stopping the pass", "resolved", resolved)
 				return nil
 			}
@@ -182,48 +183,17 @@ func (e *CounterpartyVerdictEngine) Run(ctx context.Context, maxVerdicts int) er
 				// The claim is already spent, so the rows must be returned to
 				// the queue explicitly — otherwise they wait out the whole lease
 				// for a fault that had nothing to do with them.
-				e.releaseBatch(wsCtx, batch)
+				// A model DID answer and its reply was unusable, which is a
+				// property of the messages in the batch: the rows are charged,
+				// so a sender whose content reliably breaks the answer walks
+				// toward the bound instead of being re-judged forever.
+				e.releaseBatch(wsCtx, batch, false)
 				e.log.WarnContext(ctx, "counterparty verdict: batch failed",
 					"workspace", ws.String(), "err", err)
-				break
-			}
-		}
-	}
-	return nil
-}
-
-// RedactNoise runs the second stage of the noise disposition across every live
-// workspace: for each hidden activity whose undo window has expired, null the
-// message content and stamp the ledger.
-//
-// Ordered content-first, stamp-second, and never in one transaction with the
-// hiding: if this crashes between the two writes the row stays due and the next
-// sweep redacts it again, which costs nothing. The reverse order could stamp a
-// row as redacted whose content survived, and nothing would ever revisit it.
-func (e *CounterpartyVerdictEngine) RedactNoise(ctx context.Context, window time.Duration, maxRows int) error {
-	if maxRows <= 0 {
-		maxRows = verdictCatchUpCap
-	}
-	workspaces, err := liveWorkspaceIDs(ctx, e.pool)
-	if err != nil {
-		return err
-	}
-	for _, ws := range workspaces {
-		wsCtx := e.workspaceCtx(ctx, ws)
-		due, err := e.pending.DueForRedaction(wsCtx, window, maxRows)
-		if err != nil {
-			return err
-		}
-		for _, row := range due {
-			if _, err := e.activities.RedactCapturedNoise(wsCtx, row.Email); err != nil {
-				// One activity's redaction failing must not strand the rest of
-				// the workspace's backlog; the row stays due for the next sweep.
-				e.log.WarnContext(ctx, "counterparty verdict: redacting a hidden activity failed",
-					"disposition", row.ID.String(), "err", err)
+				// The next claim skips these rows (their lease is released but
+				// their backoff is in the future), so continuing drains the rest
+				// of the workspace rather than abandoning it to one bad batch.
 				continue
-			}
-			if err := e.pending.MarkRedacted(wsCtx, row.ID); err != nil {
-				return err
 			}
 		}
 	}
@@ -358,28 +328,68 @@ const verdictReason = "capture_counterparty_verdict"
 // a SAR built from it) that reports `real` for someone with no record would be
 // describing a person who does not exist.
 func (e *CounterpartyVerdictEngine) createCounterparty(ctx context.Context, tx pgx.Tx, row capture.PendingCounterparty) error {
-	res, err := e.people.EnsureCounterpartyTx(ctx, tx, people.EnsureCounterpartyInput{
+	suppressed, err := createCounterpartyRecords(ctx, tx, e.people, e.activities, counterpartyCreation{
 		Email:       row.Email,
 		DisplayName: row.DisplayName,
 		Domain:      row.Domain,
 		OwnerID:     row.OwnerID,
-		ActivityID:  ids.From[ids.ActivityKind](row.ActivityID),
-		Source:      verdictReason,
-		CapturedBy:  verdictReason,
+		ActivityID:  row.ActivityID,
 		SuppressOrg: row.SuppressOrg,
+		Provenance:  verdictReason,
 	})
-	if errors.Is(err, people.ErrCounterpartySuppressed) {
+	if err != nil {
+		return err
+	}
+	if suppressed {
 		_, correctErr := e.pending.Resolve(ctx, tx, row, capture.PendingStatusSuppressed,
 			"the address was erased before the verdict landed")
 		return correctErr
 	}
+	return nil
+}
+
+// counterpartyCreation names one deferred sender being turned into records.
+type counterpartyCreation struct {
+	Email       string
+	DisplayName string
+	Domain      string
+	OwnerID     ids.UUID
+	ActivityID  ids.UUID
+	SuppressOrg bool
+	Provenance  string
+}
+
+// createCounterpartyRecords is the ONE spelling of what a `real` answer does,
+// shared by the machine verdict and the human accept. They differ only in who
+// decided; what gets created — and that the sender's whole captured cohort is
+// linked, not just the message that raised the question — must not.
+//
+// Reports whether the address was suppressed (erased between capture and the
+// answer), which creates nothing: erasure outranks a verdict, and the caller
+// records that rather than claiming records exist.
+func createCounterpartyRecords(ctx context.Context, tx pgx.Tx, store *people.Store,
+	timeline *activities.Store, in counterpartyCreation,
+) (suppressed bool, err error) {
+	res, err := store.EnsureCounterpartyTx(ctx, tx, people.EnsureCounterpartyInput{
+		Email:       in.Email,
+		DisplayName: in.DisplayName,
+		Domain:      in.Domain,
+		OwnerID:     in.OwnerID,
+		ActivityID:  ids.From[ids.ActivityKind](in.ActivityID),
+		Source:      in.Provenance,
+		CapturedBy:  in.Provenance,
+		SuppressOrg: in.SuppressOrg,
+	})
+	if errors.Is(err, people.ErrCounterpartySuppressed) {
+		return true, nil
+	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	// The ensure links the message that raised the question; the sender may have
-	// written several more while it was open, and all of them belong on this
-	// person's timeline rather than only the first.
-	return e.activities.LinkCapturedMailTx(ctx, tx, res.PersonID, row.Email)
+	// written more while it was open, and all of them belong on this person's
+	// timeline rather than only the first.
+	return false, timeline.LinkCapturedMailTx(ctx, tx, res.PersonID, in.Email)
 }
 
 // hideNoise is the `noise` effect's first stage: the mail stops being visible
@@ -387,7 +397,15 @@ func (e *CounterpartyVerdictEngine) createCounterparty(ctx context.Context, tx p
 // hide-then-redact). The delay is the undo window — the whole reason a verdict
 // is allowed to hide anything is that a wrong one can still be taken back.
 func (e *CounterpartyVerdictEngine) hideNoise(ctx context.Context, tx pgx.Tx, row capture.PendingCounterparty) error {
-	_, err := e.activities.HideCapturedNoiseTx(ctx, tx, row.Email)
+	// The scope rule lives with the ledger (noiseMailScope): a verdict may only
+	// reach inbound, unattested, unlinked mail from an address the workspace has
+	// never written to. Resolved on the SAME transaction, so what is hidden is
+	// what was true when the verdict committed.
+	due, err := e.pending.NoiseMailForTx(ctx, tx, row.Email, noiseSweepBatch)
+	if err != nil {
+		return err
+	}
+	_, err = e.activities.HideCapturedNoiseTx(ctx, tx, due)
 	return err
 }
 
@@ -400,9 +418,9 @@ func (e *CounterpartyVerdictEngine) hideNoise(ctx context.Context, tx pgx.Tx, ro
 // read back by operators and by the review queue, and a provider's raw message
 // is exactly the kind of internal detail that must not travel there. The cause
 // reaches the log instead, where it belongs.
-func (e *CounterpartyVerdictEngine) releaseBatch(ctx context.Context, batch []capture.PendingCounterparty) {
+func (e *CounterpartyVerdictEngine) releaseBatch(ctx context.Context, batch []capture.PendingCounterparty, refundAttempt bool) {
 	for _, row := range batch {
-		if err := e.pending.Defer(ctx, row, verdictRetryBackoff, "the verdict batch could not be completed"); err != nil {
+		if err := e.pending.Defer(ctx, row, verdictRetryBackoff, "the verdict batch could not be completed", refundAttempt); err != nil {
 			e.log.WarnContext(ctx, "counterparty verdict: releasing a claimed row failed",
 				"disposition", row.ID.String(), "err", err)
 		}

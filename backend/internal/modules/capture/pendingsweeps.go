@@ -20,6 +20,7 @@ package capture
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -97,95 +98,162 @@ func (s *PendingStore) ReconcileDeclined(ctx context.Context) (int, error) {
 	return closed, nil
 }
 
-// NoiseAddresses lists the addresses this workspace has judged noise. The hide
-// sweep needs them because a verdict is not the last word on a sender: they can
-// keep mailing, and mail that arrives AFTER the verdict is captured without a
-// new question being asked (the ladder already knows the answer). Something has
-// to fold those later messages in, or "noise is not shown" would hold only for
-// the mail that happened to arrive before the verdict.
-func (s *PendingStore) NoiseAddresses(ctx context.Context, limit int) ([]string, error) {
-	var out []string
+// noiseMailScope decides WHICH captured mail a noise disposition is allowed to
+// act on, and it is deliberately much narrower than "every message bearing this
+// address".
+//
+// counterparty_email comes from the message's own From header, which is
+// unauthenticated: an outsider can forge any address they like. Acting on the
+// address alone would hand them a weapon — mail one message as
+// bigcustomer@corp.com, write it to read as bulk marketing, and a `noise`
+// verdict would hide and then redact the workspace's real correspondence with
+// that company, in both directions. The verdict is evidence about the mail the
+// stranger actually sent, so it may only reach mail of that same kind:
+//
+//   - INBOUND only. The workspace's own sent mail is its own record, and a
+//     stranger's forged header must never reach it.
+//   - Never provider-attested outbound (the T1 evidence), for the same reason.
+//   - Never linked to a person. A linked message belongs to somebody's record;
+//     a disposition about an unknown sender has no authority over it.
+//
+// And the disposition stops applying entirely once the workspace CORRESPONDS
+// with the address: writing to someone is the T1 signal that they are a
+// counterparty, and it is the recovery path that makes an automatic hide safe to
+// live with — reply to a wrongly-hidden sender and the sweep lets go.
+const noiseMailScope = `
+	  a.kind = 'email' AND a.captured_by LIKE 'connector:%'
+	  AND a.direction = 'inbound'
+	  AND NOT a.counterparty_outbound_attested
+	  AND NOT EXISTS (
+	    SELECT 1 FROM activity_link l
+	     WHERE l.activity_id = a.id AND l.person_id IS NOT NULL)
+	  AND NOT EXISTS (
+	    SELECT 1 FROM activity c
+	     WHERE c.counterparty_email = p.email
+	       AND c.direction = 'outbound' AND c.counterparty_outbound_attested)`
+
+// NoiseMailToHide lists captured mail from judged-noise senders that is still
+// visible. Driven from the MAIL rather than from the address list: the work is
+// bounded by what is actually outstanding, so a workspace with thousands of
+// noise senders cannot silently stop covering the oldest of them, and a sender
+// who keeps writing after their verdict is folded in without a second pass
+// having to remember they exist.
+func (s *PendingStore) NoiseMailToHide(ctx context.Context, limit int) ([]ids.UUID, error) {
+	return s.noiseMail(ctx, `
+		AND a.archived_at IS NULL`, limit)
+}
+
+// NoiseMailToRedact lists hidden mail from judged-noise senders whose undo
+// window has passed and whose content is still present.
+//
+// Content-keyed, not flag-keyed: a one-shot marker on the ledger row would
+// redact whatever that sender had written by the time it fired and retain
+// everything they wrote afterwards, which is the same "acts on one moment
+// instead of the question" mistake in slower motion.
+func (s *PendingStore) NoiseMailToRedact(ctx context.Context, window time.Duration, limit int) ([]ids.UUID, error) {
+	return s.noiseMail(ctx, `
+		AND a.archived_at IS NOT NULL
+		AND (a.subject IS NOT NULL OR a.body IS NOT NULL OR a.raw IS NOT NULL)
+		AND p.resolved_at IS NOT NULL AND p.resolved_at <= now() - `+quoteInterval(window), limit)
+}
+
+// NoiseMailForTx is NoiseMailToHide for ONE address on the caller's transaction
+// — what the verdict itself hides at the moment it commits. Same scope rule, so
+// the immediate effect and the later sweep can never disagree about which mail a
+// disposition may touch.
+func (s *PendingStore) NoiseMailForTx(ctx context.Context, tx pgx.Tx, email string, limit int) ([]ids.UUID, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT DISTINCT a.id, a.occurred_at
+		  FROM activity a
+		  JOIN capture_pending_counterparty p ON p.email = a.counterparty_email
+		 WHERE p.email = $2 AND p.status = 'noise' AND `+noiseMailScope+`
+		   AND a.archived_at IS NULL
+		 ORDER BY a.occurred_at
+		 LIMIT $1`, limit, normalizeEmail(email))
+	if err != nil {
+		return nil, fmt.Errorf("capture: reading the sender's captured mail: %w", err)
+	}
+	defer rows.Close()
+	var out []ids.UUID
+	for rows.Next() {
+		var id ids.UUID
+		var occurred time.Time
+		if err := rows.Scan(&id, &occurred); err != nil {
+			return nil, fmt.Errorf("capture: reading the sender's captured mail: %w", err)
+		}
+		out = append(out, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("capture: reading the sender's captured mail: %w", err)
+	}
+	return out, nil
+}
+
+// PurgeRawCapture deletes the provider originals behind the given activities.
+//
+// Without this the redaction destroys a copy and leaves the original: capture
+// writes the verbatim provider payload — full headers and body — to raw_capture,
+// keyed on the message's natural key. Nulling activity.subject/body while that
+// row survives would make "the content is destroyed" false, and raw_capture has
+// no retention sweep of its own; the only other purge is Art. 17 erasure, which
+// is scoped to a PERSON and therefore structurally unreachable for a
+// noise-judged sender, who has no person record by construction.
+//
+// The activity row keeps its source key, so the capture natural key still
+// tombstones a replay — what goes is the content, not the fact of the message.
+func (s *PendingStore) PurgeRawCapture(ctx context.Context, activityIDs []ids.UUID) error {
+	if len(activityIDs) == 0 {
+		return nil
+	}
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			DELETE FROM raw_capture r
+			 USING activity a
+			 WHERE a.id = ANY($1)
+			   AND r.source_system = a.source_system AND r.source_id = a.source_id`, activityIDs)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("capture: purging the redacted mail's provider originals: %w", err)
+	}
+	return nil
+}
+
+// noiseMail runs the shared join with one extra predicate.
+func (s *PendingStore) noiseMail(ctx context.Context, extra string, limit int) ([]ids.UUID, error) {
+	var out []ids.UUID
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
-			SELECT email FROM capture_pending_counterparty
-			 WHERE status = 'noise'
-			 ORDER BY resolved_at DESC
+			SELECT DISTINCT a.id, a.occurred_at
+			  FROM activity a
+			  JOIN capture_pending_counterparty p ON p.email = a.counterparty_email
+			 WHERE p.status = 'noise' AND `+noiseMailScope+extra+`
+			 ORDER BY a.occurred_at
 			 LIMIT $1`, limit)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
-			var email string
-			if err := rows.Scan(&email); err != nil {
+			var id ids.UUID
+			var occurred time.Time
+			if err := rows.Scan(&id, &occurred); err != nil {
 				return err
 			}
-			out = append(out, email)
+			out = append(out, id)
 		}
 		return rows.Err()
 	})
 	if err != nil {
-		return nil, fmt.Errorf("capture: reading the noise addresses: %w", err)
+		return nil, fmt.Errorf("capture: reading the noise mail backlog: %w", err)
 	}
 	return out, nil
 }
 
-// NoiseRedaction names one noise disposition whose undo window has expired. It
-// carries the ADDRESS, not the trigger message: the disposition covers every
-// message that sender wrote, so the redaction does too.
-type NoiseRedaction struct {
-	ID    ids.UUID
-	Email string
-}
-
-// DueForRedaction lists noise dispositions resolved longer ago than window and
-// not yet redacted. The window is the undo period: until it passes, a wrong
-// verdict is fully recoverable because the mail is merely hidden.
-//
-// The cutoff is computed by the DATABASE from its own now(), like every other
-// due-scan here — the app's clock never decides whether someone's undo window
-// has run out.
-func (s *PendingStore) DueForRedaction(ctx context.Context, window time.Duration, limit int) ([]NoiseRedaction, error) {
-	var out []NoiseRedaction
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `
-			SELECT id, email FROM capture_pending_counterparty
-			 WHERE status = 'noise' AND redacted_at IS NULL
-			   AND resolved_at IS NOT NULL AND resolved_at <= now() - $1::interval
-			 ORDER BY resolved_at
-			 LIMIT $2`, window.String(), limit)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var r NoiseRedaction
-			if err := rows.Scan(&r.ID, &r.Email); err != nil {
-				return err
-			}
-			out = append(out, r)
-		}
-		return rows.Err()
-	})
-	if err != nil {
-		return nil, fmt.Errorf("capture: reading the redaction backlog: %w", err)
-	}
-	return out, nil
-}
-
-// MarkRedacted records that a disposition's content redaction completed. Stamped
-// only after the content is actually gone, so a crash between the two leaves the
-// row due again — redoing a redaction is harmless, skipping one is not.
-func (s *PendingStore) MarkRedacted(ctx context.Context, id ids.UUID) error {
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `
-			UPDATE capture_pending_counterparty
-			   SET redacted_at = now(), updated_at = now()
-			 WHERE id = $1 AND status = 'noise' AND redacted_at IS NULL`, id)
-		return err
-	})
-	if err != nil {
-		return fmt.Errorf("capture: marking disposition %s redacted: %w", id, err)
-	}
-	return nil
+// quoteInterval renders a duration as a SQL interval literal. The value is a
+// compiled-in constant, never user input — it is spelled here rather than bound
+// because it sits inside a shared predicate fragment where parameter numbering
+// would depend on the caller.
+func quoteInterval(d time.Duration) string {
+	return "interval '" + strconv.Itoa(int(d.Seconds())) + " seconds'"
 }

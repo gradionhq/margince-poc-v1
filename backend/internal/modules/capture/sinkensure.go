@@ -140,6 +140,16 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 		return counterpartyDecision{}, nil
 	}
 
+	// An address this workspace has ALREADY decided about is not the ambiguous
+	// class, whatever its domain — so this runs BEFORE the free-mail tier, which
+	// would otherwise set create=true and skip the check entirely, minting the
+	// person a prior `noise` verdict refused every time that sender wrote again.
+	alreadyKnown, judgedNoise, err := s.alreadyDecided(ctx, tx, rec, cp.Email)
+	if err != nil || judgedNoise {
+		return counterpartyDecision{}, err
+	}
+	decision.create = decision.create || alreadyKnown
+
 	// T3 free-mail (CAP-PARAM-5): a personal mailbox is a person, never a
 	// company — gmail.com is not an organization whatever else is true of it.
 	// Its domain already says what it is, so it is not the ambiguous class.
@@ -149,20 +159,6 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 		// lets a free-mail sender reach T4, whoever creates the records days
 		// later must still know that gmail.com names a person and not a company.
 		row.SuppressOrg = true
-	}
-
-	// An address this workspace has ALREADY decided about is not ambiguous, and
-	// asking again would be both wasteful and wrong. A prior `real` verdict (or
-	// a person a human typed in) means the sender is a counterparty: ensure now.
-	// A prior `noise` verdict means the opposite, and re-deferring would buy the
-	// same paid answer over and over while the new message sat visible on the
-	// timeline until the next verdict landed.
-	if !decision.create {
-		alreadyKnown, judgedNoise, err := s.alreadyDecided(ctx, tx, rec, cp.Email)
-		if err != nil || judgedNoise {
-			return counterpartyDecision{}, err
-		}
-		decision.create = alreadyKnown
 	}
 
 	if !decision.create {
@@ -221,8 +217,8 @@ func (s *Sink) derivationStart(ctx context.Context, tx pgx.Tx, rec connector.Nor
 // alreadyDecided applies the tier for an address this workspace has ALREADY
 // concluded about, which is not the ambiguous class however new the message is.
 // It reports whether the sender is a known counterparty, and whether a prior
-// verdict already judged them noise (in which case the caller stops: no record,
-// no new question, and no model call — the hide sweep folds this message in with
+// answer settles the matter (in which case the caller stops: no record, no new
+// question, and no model call — the hide sweep folds this message in with
 // the rest of that sender's mail on its next pass).
 func (s *Sink) alreadyDecided(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, email string) (known, judgedNoise bool, err error) {
 	prior, err := s.priorDispositionTx(ctx, tx, email)
@@ -235,6 +231,12 @@ func (s *Sink) alreadyDecided(ctx context.Context, tx pgx.Tx, rec connector.Norm
 	case PendingStatusNoise:
 		return false, true, s.logBreadcrumbTx(ctx, tx, "capture_noise_sender", rec,
 			"a prior verdict already judged this sender noise")
+	case PendingStatusRejected, PendingStatusSuppressed:
+		// A human's decline and a registry suppression are answers too. Without
+		// this the next message re-raises the same question, buys another model
+		// call, and offers the human the decision they already made.
+		return false, true, s.logBreadcrumbTx(ctx, tx, "capture_decided_sender", rec,
+			"this sender was already decided: "+prior)
 	default:
 		return false, false, nil
 	}
@@ -253,10 +255,13 @@ func (s *Sink) priorDispositionTx(ctx context.Context, tx pgx.Tx, email string) 
 	var status string
 	err := tx.QueryRow(ctx, `
 		SELECT CASE
-		         WHEN EXISTS (SELECT 1 FROM person_email WHERE email = $1) THEN 'real'
+		         WHEN EXISTS (
+		           SELECT 1 FROM person_email pe JOIN person p ON p.id = pe.person_id
+		            WHERE pe.email = $1 AND p.archived_at IS NULL) THEN 'real'
 		         ELSE coalesce((
 		           SELECT status FROM capture_pending_counterparty
-		            WHERE email = $1 AND status IN ('real', 'noise')
+		            WHERE email = $1
+		              AND status IN ('real', 'noise', 'rejected', 'suppressed')
 		            ORDER BY resolved_at DESC NULLS LAST
 		            LIMIT 1), '')
 		       END`, normalized).Scan(&status)

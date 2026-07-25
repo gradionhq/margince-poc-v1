@@ -83,11 +83,6 @@ CREATE TABLE capture_pending_counterparty (
     REFERENCES approval (workspace_id, id) ON DELETE SET NULL,
 
   resolved_at timestamptz NULL,
-  -- When the noise disposition's content redaction actually ran. The undo
-  -- window is measured from resolved_at, and this column is what makes the
-  -- sweep resumable: a crash mid-sweep leaves the rows it had not reached
-  -- still due, and re-running redacts them rather than starting over.
-  redacted_at timestamptz NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
@@ -114,13 +109,13 @@ CREATE INDEX idx_capture_pending_counterparty_due
   ON capture_pending_counterparty (next_attempt_at)
   WHERE next_attempt_at IS NOT NULL;
 
--- The redaction sweep's due-scan: noise dispositions whose undo window has run
--- out and whose content is still there. Partial, so the index holds only rows
--- with redaction outstanding — it empties as the sweep catches up rather than
--- growing with every noise verdict ever made.
-CREATE INDEX idx_capture_pending_counterparty_redaction_due
-  ON capture_pending_counterparty (resolved_at)
-  WHERE status = 'noise' AND redacted_at IS NULL;
+-- The redaction sweep joins captured mail to its sender's disposition, so it
+-- looks the noise rows up by address. There is deliberately no "already
+-- redacted" flag to index: the absence of unredacted mail IS the completed
+-- state, which is what lets mail arriving after a verdict still be covered.
+CREATE INDEX idx_capture_pending_counterparty_noise
+  ON capture_pending_counterparty (email)
+  WHERE status = 'noise';
 
 ALTER TABLE capture_pending_counterparty ENABLE ROW LEVEL SECURITY;
 ALTER TABLE capture_pending_counterparty FORCE ROW LEVEL SECURITY;

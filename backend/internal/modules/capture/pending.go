@@ -318,26 +318,32 @@ func (s *PendingStore) Resolve(ctx context.Context, tx pgx.Tx, p PendingCounterp
 // Defer returns a claimed row to the queue for a later pass. Ending a row is
 // Retire's job, not this one: a deferral says "ask again later", and conflating
 // the two is how a row ends up retired for reasons that had nothing to do with
-// the question (a provider outage, a budget stop).
+// the question (a provider outage, a budget stop). refundAttempt says whether
+// this cause reached a model — see the note on the UPDATE.
 //
 // Guarded by the same claim as Resolve, for the same reason: a stalled worker
 // releasing "its" row would otherwise cut short a lease someone else now holds.
-func (s *PendingStore) Defer(ctx context.Context, p PendingCounterparty, backoff time.Duration, reason string) error {
+func (s *PendingStore) Defer(ctx context.Context, p PendingCounterparty, backoff time.Duration, reason string, refundAttempt bool) error {
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		// The attempt is GIVEN BACK. ClaimDue spends one at claim time, before
-		// anything is known about how the batch goes, and every caller of Defer
-		// is a path where no model ever answered — a budget stop, a provider
-		// fault, a malformed reply. Charging the row for those would let two bad
-		// cycles exhaust an address's whole allowance without a single verdict
-		// having been attempted on its merits.
+		// Whether the attempt is given back is the difference between a row the
+		// SYSTEM failed and a row that fails on its own content.
+		//
+		// A budget stop never reached a model, so charging for it would let two
+		// quiet cycles exhaust an address's allowance with no verdict ever
+		// attempted on its merits — that one is refunded. A reply the validator
+		// rejected DID reach a model, and its cause is the message itself, which
+		// an outsider writes: refunding those would make the attempt bound
+		// unreachable on exactly the path it exists for, and a sender whose text
+		// reliably breaks the answer would be re-judged forever at one paid call
+		// a time.
 		_, err := tx.Exec(ctx, `
 			UPDATE capture_pending_counterparty
 			   SET next_attempt_at = now() + $2::interval,
-			       attempts = greatest(attempts - 1, 0),
+			       attempts = CASE WHEN $5::boolean THEN greatest(attempts - 1, 0) ELSE attempts END,
 			       disposition_reason = NULLIF($4, ''),
 			       claimed_until = NULL, claimed_by = NULL, updated_at = now()
 			 WHERE id = $1 AND status = 'pending' AND claimed_by = $3`,
-			p.ID, backoff.String(), p.Claim, reason)
+			p.ID, backoff.String(), p.Claim, reason, refundAttempt)
 		return err
 	})
 	if err != nil {

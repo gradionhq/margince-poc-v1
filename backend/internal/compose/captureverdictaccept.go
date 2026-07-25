@@ -19,11 +19,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -99,7 +99,9 @@ func stageCounterpartyReview(ctx context.Context, svc *approvals.Service, row ca
 // effect — the approvals engine only ever runs the approved branch, which is
 // exactly why an offer whose accept merely ADDS records is safe to leave sitting
 // in an inbox indefinitely.
-func counterpartyAcceptEffect(svc *approvals.Service, store *people.Store, pending *capture.PendingStore) approvals.ApprovedEffect {
+func counterpartyAcceptEffect(svc *approvals.Service, store *people.Store,
+	timeline *activities.Store, pending *capture.PendingStore,
+) approvals.ApprovedEffect {
 	return func(ctx context.Context, approvalID ids.ApprovalID, proposedChange json.RawMessage, diffHash string) error {
 		var proposal counterpartyProposal
 		if err := json.Unmarshal(proposedChange, &proposal); err != nil {
@@ -120,7 +122,7 @@ func counterpartyAcceptEffect(svc *approvals.Service, store *people.Store, pendi
 			OnBehalfOf: decider.UserID,
 		})
 		return svc.RedeemAndApply(ctx, approvalID, counterpartyProposalKind, diffHash, func(tx pgx.Tx) error {
-			return applyCounterpartyAccept(execCtx, tx, store, pending, proposal)
+			return applyCounterpartyAccept(execCtx, tx, store, timeline, pending, proposal)
 		})
 	}
 }
@@ -129,22 +131,26 @@ func counterpartyAcceptEffect(svc *approvals.Service, store *people.Store, pendi
 // Both on the redemption's transaction, so the ledger can never read `real`
 // without the records, nor the records exist under a still-open question.
 func applyCounterpartyAccept(ctx context.Context, tx pgx.Tx, store *people.Store,
-	pending *capture.PendingStore, proposal counterpartyProposal,
+	timeline *activities.Store, pending *capture.PendingStore, proposal counterpartyProposal,
 ) error {
-	_, err := store.EnsureCounterpartyTx(ctx, tx, people.EnsureCounterpartyInput{
+	suppressed, err := createCounterpartyRecords(ctx, tx, store, timeline, counterpartyCreation{
 		Email:       proposal.Email,
 		DisplayName: proposal.DisplayName,
 		Domain:      proposal.Domain,
 		OwnerID:     proposal.OwnerID,
-		ActivityID:  ids.From[ids.ActivityKind](proposal.ActivityID),
-		Source:      counterpartyProposalKind,
-		CapturedBy:  counterpartyProposalKind,
+		ActivityID:  proposal.ActivityID,
 		SuppressOrg: proposal.SuppressOrg,
+		Provenance:  counterpartyProposalKind,
 	})
-	// An address erased while the offer sat in the inbox creates nothing;
-	// erasure outranks an approval, and the question is still answered.
-	if err != nil && !errors.Is(err, people.ErrCounterpartySuppressed) {
+	if err != nil {
 		return err
+	}
+	// An address erased while the offer sat in the inbox creates nothing, and
+	// the ledger says so rather than reporting `real` for a person who does not
+	// exist — the same correction the machine verdict makes.
+	if suppressed {
+		return pending.ResolveReviewed(ctx, tx, proposal.DispositionID,
+			capture.PendingStatusSuppressed, "the address was erased before the review was accepted")
 	}
 	return pending.ResolveReviewed(ctx, tx, proposal.DispositionID, capture.PendingStatusReal,
 		"accepted in the review queue")

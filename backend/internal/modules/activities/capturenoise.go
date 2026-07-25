@@ -18,13 +18,15 @@ package activities
 // every message that address sent.
 //
 // This is the ONE sanctioned hide-then-redact, and the shape matters. Hiding is
-// immediate and reversible: the rows stay, their links stay, un-archiving
-// restores them whole. Redaction is delayed by an undo window and nulls the
-// content in place — the rows, their natural keys and their provenance survive
-// as the tombstones that stop a replay from re-capturing what was just redacted.
-// Neither stage deletes a row: a mistaken verdict must always leave something to
-// recover from, and a hard delete would also let the same message land again
-// tomorrow.
+// immediate and recoverable, but un-archiving alone is not the recovery — the
+// sweep would simply hide it again on the next tick. The recovery is to WRITE to
+// the sender: correspondence is the T1 signal that they are a counterparty, and
+// capture's noise scope stops applying to an address the workspace has replied
+// to. Redaction is delayed by an undo window and nulls the content in place —
+// the rows, their natural keys and their provenance survive as the tombstones
+// that stop a replay from re-capturing what was just redacted. Neither stage
+// deletes a row: a mistaken verdict must always leave something to recover from,
+// and a hard delete would also let the same message land again tomorrow.
 //
 // Contrast the capture LABEL (capturelabel.go), which routes attention and
 // changes nothing else. A noise VERDICT is a different authority: it decided the
@@ -43,25 +45,23 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// capturedMailCohort selects every connector-captured message from one address.
-// The provenance predicate matters: a note or a meeting a human recorded about
-// this person is the workspace's own record, not the sender's mail, and a
-// verdict about inbound mail has no authority over it.
-const capturedMailCohort = `
-	  counterparty_email = $1 AND kind = 'email' AND captured_by LIKE 'connector:%'`
-
-// HideCapturedNoiseTx archives every captured message from one address on the
-// CALLER's transaction, so the hiding commits with the verdict that authorized
-// it — a disposition reading `noise` can never be visible without its mail being
-// hidden, nor the reverse. Reports how many messages it hid.
+// HideCapturedNoiseTx archives the given captured messages on the CALLER's
+// transaction, so the hiding commits with the verdict that authorized it — a
+// disposition reading `noise` can never be visible without its mail being
+// hidden, nor the reverse. Reports how many it hid.
 //
+// WHICH messages a noise disposition may touch is decided by the capture module,
+// which owns the ledger and the scope rule; this takes ids and archives them.
 // Idempotent through the archived_at IS NULL guard: a replay, or a message a
 // human archived first, is skipped rather than archived twice.
-func (s *Store) HideCapturedNoiseTx(ctx context.Context, tx pgx.Tx, email string) (int, error) {
+func (s *Store) HideCapturedNoiseTx(ctx context.Context, tx pgx.Tx, activityIDs []ids.UUID) (int, error) {
+	if len(activityIDs) == 0 {
+		return 0, nil
+	}
 	rows, err := tx.Query(ctx, `
 		UPDATE activity SET archived_at = now(), updated_at = now()
-		 WHERE `+capturedMailCohort+` AND archived_at IS NULL
-		RETURNING id`, email)
+		 WHERE id = ANY($1) AND archived_at IS NULL
+		RETURNING id`, activityIDs)
 	if err != nil {
 		return 0, fmt.Errorf("activities: hiding noise-dispositioned mail: %w", err)
 	}
@@ -80,11 +80,7 @@ func (s *Store) HideCapturedNoiseTx(ctx context.Context, tx pgx.Tx, email string
 		if err != nil {
 			return 0, fmt.Errorf("activities: auditing the noise hide: %w", err)
 		}
-		// The same event a human archiving would raise, one per message. Hiding
-		// is hiding however it was decided, and every consumer that drops an
-		// archived row from a timeline, a digest or a count must react
-		// identically — a machine-hidden message that stayed in yesterday's
-		// digest would be the "noise is not shown" promise going unkept.
+		// The same event a human archiving would raise, one per message.
 		if err := storekit.EmitEvent(ctx, tx, auditID, id, crmcontracts.PublicEventActivityArchived{}); err != nil {
 			return 0, fmt.Errorf("activities: announcing the noise hide: %w", err)
 		}
@@ -92,37 +88,42 @@ func (s *Store) HideCapturedNoiseTx(ctx context.Context, tx pgx.Tx, email string
 	return len(hidden), nil
 }
 
-// RedactCapturedNoise nulls the content of one address's hidden mail once its
-// undo window has passed. The rows, their links, their source keys and their
-// provenance stay: what is destroyed is the message text, which is the thing a
-// person whose mail was never wanted has an interest in not being retained.
-// Reports how many messages it redacted.
+// RedactCapturedNoise nulls the content of the given hidden messages once their
+// undo window has passed, and drops the embeddings derived from them.
 //
-// Runs on its own transaction — the sweep processes one address at a time so a
-// fault costs one sender's redaction and never the whole pass, and re-running
-// finishes what a crash interrupted.
-func (s *Store) RedactCapturedNoise(ctx context.Context, email string) (int, error) {
+// The embeddings matter as much as the text: an activity's subject and body are
+// embedded when it is captured, so leaving the vector behind would let a
+// similarity probe reconstruct what was just redacted — the residue is the
+// content, in another shape. What survives is the row, its links, its source key
+// and its provenance: the tombstone that stops a replay re-capturing what was
+// just redacted.
+func (s *Store) RedactCapturedNoise(ctx context.Context, activityIDs []ids.UUID) (int, error) {
+	if len(activityIDs) == 0 {
+		return 0, nil
+	}
 	var redacted int
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		// Only what is already hidden, and only what still has content: the
-		// first guard keeps a redaction from running ahead of its hide, the
-		// second is the sweep's idempotence — a message whose content is already
-		// gone is not redacted twice, so re-running the same window churns no
-		// audit rows.
 		rows, err := tx.Query(ctx, `
 			UPDATE activity
 			   SET subject = NULL, body = NULL, raw = NULL, updated_at = now()
-			 WHERE `+capturedMailCohort+` AND archived_at IS NOT NULL
+			 WHERE id = ANY($1) AND archived_at IS NOT NULL
 			   AND (subject IS NOT NULL OR body IS NOT NULL OR raw IS NOT NULL)
-			RETURNING id`, email)
+			RETURNING id`, activityIDs)
 		if err != nil {
 			return fmt.Errorf("activities: redacting noise-dispositioned mail: %w", err)
 		}
-		redactedIDs, err := pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
+		done, err := pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
 		if err != nil {
 			return fmt.Errorf("activities: redacting noise-dispositioned mail: %w", err)
 		}
-		for _, id := range redactedIDs {
+		if len(done) == 0 {
+			return nil
+		}
+		if _, err := tx.Exec(ctx, `
+			DELETE FROM embedding WHERE entity_type = 'activity' AND entity_id = ANY($1)`, done); err != nil {
+			return fmt.Errorf("activities: dropping the redacted mail's embeddings: %w", err)
+		}
+		for _, id := range done {
 			// 'erase' is the closed vocabulary's verb for content destruction,
 			// which is precisely what this is — narrower in scope than an
 			// Art. 17 erasure, identical in kind.
@@ -130,7 +131,7 @@ func (s *Store) RedactCapturedNoise(ctx context.Context, email string) (int, err
 				return fmt.Errorf("activities: auditing the noise redaction: %w", err)
 			}
 		}
-		redacted = len(redactedIDs)
+		redacted = len(done)
 		return nil
 	})
 	if err != nil {
@@ -144,14 +145,20 @@ func (s *Store) RedactCapturedNoise(ctx context.Context, email string) (int, err
 // ledger row names one message, but the sender may have written several while
 // the question was open, and all of them belong on that person's timeline.
 //
-// Conflict-free on replay: the link table's uniqueness makes a second run a
+// Only mail linked to nobody: a message already attached to a person belongs to
+// that person's record, and a verdict about an unknown sender must not relabel
+// it. Conflict-free on replay — the link table's uniqueness makes a second run a
 // no-op rather than a duplicate.
 func (s *Store) LinkCapturedMailTx(ctx context.Context, tx pgx.Tx, personID ids.PersonID, email string) error {
 	_, err := tx.Exec(ctx, `
 		INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-		SELECT workspace_id, id, 'person', $2
-		  FROM activity
-		 WHERE `+capturedMailCohort+`
+		SELECT a.workspace_id, a.id, 'person', $2
+		  FROM activity a
+		 WHERE a.counterparty_email = $1
+		   AND a.kind = 'email' AND a.captured_by LIKE 'connector:%'
+		   AND NOT EXISTS (
+		     SELECT 1 FROM activity_link l
+		      WHERE l.activity_id = a.id AND l.person_id IS NOT NULL)
 		ON CONFLICT DO NOTHING`, email, personID)
 	if err != nil {
 		return fmt.Errorf("activities: linking captured mail to its counterparty: %w", err)

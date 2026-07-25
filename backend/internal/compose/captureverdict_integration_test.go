@@ -173,10 +173,14 @@ func TestVerdictNoiseHidesNowAndRedactsOnlyAfterTheUndoWindow(t *testing.T) {
 	if n := countIn(t, e, `SELECT count(*) FROM activity WHERE id = $1 AND source_id IS NOT NULL`, activityID); n != 1 {
 		t.Fatal("redaction deleted the row or its natural key — it must null content in place")
 	}
+	// The provider original goes with the text it duplicates — nulling the
+	// activity while raw_capture kept the full message would make "the content
+	// is destroyed" false.
 	if n := countIn(t, e, `
-		SELECT count(*) FROM capture_pending_counterparty
-		 WHERE id = $1 AND redacted_at IS NOT NULL`, dispositionID); n != 1 {
-		t.Fatal("the ledger did not record that redaction ran")
+		SELECT count(*) FROM raw_capture r JOIN activity a
+		    ON a.source_system = r.source_system AND a.source_id = r.source_id
+		 WHERE a.id = $1`, activityID); n != 0 {
+		t.Fatal("the provider original survived the redaction")
 	}
 }
 
@@ -237,15 +241,19 @@ func TestVerdictBelowTheFloorAbstainsAndAsksAHuman(t *testing.T) {
 	}
 }
 
-// seedCapturedMail inserts one captured email activity and returns its id.
+// seedCapturedMail inserts one captured INBOUND email activity and returns its
+// id — the shape the real connector writes (mailmap derives direction on every
+// message). Direction is load-bearing here: a noise disposition may only reach
+// inbound mail, so that a forged From header can never be used to hide the
+// workspace's own correspondence.
 func seedCapturedMail(t *testing.T, e *integration.Env, from, subject string) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO activity (id, workspace_id, kind, subject, body, raw,
+			INSERT INTO activity (id, workspace_id, kind, subject, body, raw, direction,
 			                      source_system, source_id, source, captured_by, counterparty_email)
-			VALUES ($1, $2, 'email', $3, 'the message body', '{"headers":"…"}'::jsonb,
+			VALUES ($1, $2, 'email', $3, 'the message body', '{"headers":"…"}'::jsonb, 'inbound',
 			        'gmail', $4, 'gmail:'||$4, 'connector:gmail', $5)`,
 			id, e.WS, subject, "vrd-"+id.String(), from)
 		return err
@@ -549,4 +557,74 @@ func spendAttempts(t *testing.T, e *integration.Env, id ids.UUID, attempts int) 
 	if err != nil {
 		t.Fatalf("spending the attempts: %v", err)
 	}
+}
+
+// counterparty_email comes from the message's own From header, which nobody
+// authenticates. So an outsider can mail the connected mailbox claiming to be
+// anyone — and if a noise verdict acted on "every message bearing this address",
+// one forged message would hide and then destroy the workspace's real
+// correspondence with whoever was named.
+//
+// The scope is therefore narrower than the address: inbound only, never
+// provider-attested, never linked to a person, and it stops applying entirely
+// once the workspace has written to that address.
+func TestAForgedSenderCannotReachTheWorkspacesOwnCorrespondence(t *testing.T) {
+	e := integration.Setup(t)
+	victim := "bigcustomer@corp.example"
+
+	// The workspace's genuine relationship with the named party: mail it sent,
+	// and inbound mail the provider attested as part of that correspondence.
+	ownSent := seedOutboundMail(t, e, victim, "our proposal")
+	// The attacker's single forged message, which is what actually gets judged.
+	forged := seedCapturedMail(t, e, victim, "🚀 buy followers now")
+	dispositionID := seedPendingDisposition(t, e, victim, "corp.example", forged)
+
+	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.PendingStatusNoise}}
+	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
+	if err := engine.Run(context.Background(), 0); err != nil {
+		t.Fatalf("verdict pass: %v", err)
+	}
+	if err := engine.HideNoiseStragglers(context.Background()); err != nil {
+		t.Fatalf("straggler sweep: %v", err)
+	}
+
+	// The workspace's own sent mail is untouched — a stranger's forged header
+	// has no authority over the record the workspace made itself.
+	if n := countIn(t, e, `SELECT count(*) FROM activity WHERE id = $1 AND archived_at IS NULL`, ownSent); n != 1 {
+		t.Fatal("a forged From header hid the workspace's OWN outbound mail")
+	}
+	if n := countIn(t, e, `SELECT count(*) FROM activity WHERE id = $1 AND body IS NOT NULL`, ownSent); n != 1 {
+		t.Fatal("a forged From header redacted the workspace's own outbound mail")
+	}
+
+	// Writing to a wrongly-hidden sender is the recovery path: correspondence is
+	// the T1 signal that they are a counterparty, so the sweep lets go.
+	backdateResolution(t, e, dispositionID, capture.NoiseUndoWindow+time.Hour)
+	if err := engine.RedactNoise(context.Background(), capture.NoiseUndoWindow, 0); err != nil {
+		t.Fatalf("redaction sweep: %v", err)
+	}
+	if n := countIn(t, e, `SELECT count(*) FROM activity WHERE id = $1 AND body IS NOT NULL`, forged); n != 1 {
+		t.Fatal("mail from an address the workspace corresponds with was redacted — replying must call the sweep off")
+	}
+}
+
+// seedOutboundMail inserts one message the workspace SENT, attested by the
+// provider — the T1 correspondence evidence.
+func seedOutboundMail(t *testing.T, e *integration.Env, to, subject string) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `
+			INSERT INTO activity (id, workspace_id, kind, subject, body, direction,
+			                      source_system, source_id, source, captured_by,
+			                      counterparty_email, counterparty_outbound_attested)
+			VALUES ($1, $2, 'email', $3, 'our own words', 'outbound',
+			        'gmail', $4, 'gmail:'||$4, 'connector:gmail', $5, true)`,
+			id, e.WS, subject, "out-"+id.String(), to)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("seeding outbound mail: %v", err)
+	}
+	return id
 }

@@ -116,6 +116,18 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err := tombstoneCollateralScrubs(ctx, tx, "lead", leadsWiped, reason); err != nil {
 			return err
 		}
+		// The vectors go with the text they were built from. purgeDerivedTraces
+		// reaches embeddings through activity_link, which by construction cannot
+		// see the unlinked captured mail redactSubjectTimeline now covers — and
+		// an embedding of erased text is the erased text in another shape, which
+		// a similarity probe can still reach.
+		if len(activitiesRedacted) > 0 {
+			if _, err := tx.Exec(ctx, `
+				DELETE FROM embedding WHERE entity_type = 'activity' AND entity_id = ANY($1)`,
+				activitiesRedacted); err != nil {
+				return err
+			}
+		}
 		if err := tombstoneCollateralScrubs(ctx, tx, "activity", activitiesRedacted, reason); err != nil {
 			return err
 		}
@@ -319,7 +331,8 @@ const subjectOnlyActivities = `
 	      AND o.person_id IS NOT NULL AND o.person_id <> $1)`
 
 // unlinkedCapturedMail selects captured mail that is ABOUT the subject by
-// address but linked to nobody — the class the link-walk above cannot see.
+// address and linked to no OTHER person — the class the link-walk above cannot
+// see, under the same exclusion it uses.
 //
 // It exists because ADR-0072 stopped creating a counterparty for every captured
 // message. Under ADR-0063 every mail ensured a person, so a link always
@@ -328,9 +341,8 @@ const subjectOnlyActivities = `
 // that only walks links would leave that mail — the address, the subject line
 // and the body — sitting in the timeline after the subject exercised Art. 17.
 //
-// Same exclusion as the link-walk: mail also linked to someone else belongs to
-// that person's record too, and redacting it would erase a different subject's
-// history.
+// Mail also linked to someone else belongs to that person's record too, and
+// redacting it would erase a different subject's history.
 const unlinkedCapturedMail = `
 	SELECT a.id FROM activity a
 	WHERE a.counterparty_email = ANY($3)

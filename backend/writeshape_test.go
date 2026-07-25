@@ -32,7 +32,7 @@ import (
 // events.md gains the missing event types, wiring storekit.Emit into
 // these mutations removes the entries.
 var auditOnlyWrites = map[string]string{
-	"internal/modules/activities:RedactCapturedNoise":    "the ADR-0072 noise redaction nulls content on a row that is ALREADY archived — the archived event fired at hide time, and every consumer dropped the row then; the closed catalog (events.md \u00a75) defines no activity.redacted type and re-announcing an invisible row's content change would tell subscribers nothing they can act on",
+	"internal/modules/activities:RedactCapturedNoise":    "the ADR-0072 noise redaction nulls content on a row that is ALREADY archived, and the one consumer that would not have reacted to the archive — the embedding lane — is handled directly: the redaction deletes the vectors itself, so no subscriber is left holding derived content. The closed catalog (events.md \u00a75) defines no activity.redacted type, and re-announcing an invisible row's content change would tell the rest nothing they can act on",
 	"internal/modules/collections:CreateSavedView":       "saved views are per-user view state, not record facts — events.md §5.3c ratifies this config family as audit-only and defines no saved_view.* type",
 	"internal/modules/collections:UpdateSavedView":       "saved views are per-user view state, not record facts — events.md §5.3c ratifies this config family as audit-only and defines no saved_view.* type",
 	"internal/modules/collections:ArchiveSavedView":      "saved views are per-user view state, not record facts — events.md §5.3c ratifies this config family as audit-only and defines no saved_view.* type",
