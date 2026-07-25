@@ -31,6 +31,12 @@ import (
 // excerpt, not the full multi-megabyte thread with quoted history.
 const maxBodyLen = 8000
 
+// The message's direction relative to the mailbox owner.
+const (
+	directionInbound  = "inbound"
+	directionOutbound = "outbound"
+)
+
 // Message is the pure result of reading one RFC822 message against the
 // mailbox owner — everything the mapping needs, with no provider handle.
 type Message struct {
@@ -48,6 +54,19 @@ type Message struct {
 	recipientDomains []string // lowercased, de-duped domains of every To — for the RC-2 gate
 	autoSubmit       bool
 	listUnsubscribe  bool // an RFC 2369 List-Unsubscribe header — transactional-gate corroboration
+	sentByOwner      bool // the PROVIDER attested the owner sent this — set by AttestSentByOwner, never parsed
+}
+
+// AttestSentByOwner returns a copy carrying the provider's own attestation
+// that the authenticated mailbox owner sent this message — Gmail's SENT
+// label, an IMAP \Sent special-use mailbox, Microsoft's SentItems folder.
+// The signal cannot come from Parse: every header this package reads is
+// attacker-controlled, and the T1 correspondence-positive gate (ADR-0072 §1)
+// treats a sent message as affirmative intent toward its recipient. Only a
+// connector holding an authenticated provider handle can vouch for it.
+func (m Message) AttestSentByOwner(sent bool) Message {
+	m.sentByOwner = sent
+	return m
 }
 
 // Counterparty is the non-owner address on the message (the person this
@@ -80,11 +99,11 @@ func Parse(raw []byte, owner string) (Message, error) {
 	body := extractText(reader)
 
 	ownerLower := strings.ToLower(strings.TrimSpace(owner))
-	direction := "inbound"
+	direction := directionInbound
 	counterparty := from
 	counterpartyName := displayName(fromList, counterparty)
 	if strings.ToLower(from) == ownerLower && ownerLower != "" {
-		direction = "outbound"
+		direction = directionOutbound
 		counterparty = firstNonOwner(toList, ownerLower)
 		counterpartyName = displayName(toList, counterparty)
 	}
@@ -208,6 +227,15 @@ func (m Message) ToRecord(connectorName string, raw []byte) connector.Normalized
 			Domain:          domainOf(m.counterparty),
 			Direction:       m.direction,
 			ListUnsubscribe: m.listUnsubscribe,
+			// BOTH halves of the evidence, because the two are derived
+			// independently: the provider filed this as the owner's sent mail,
+			// AND the message names the owner as its author. A server-side rule
+			// can drop a third party's message into a \Sent mailbox or Sent
+			// Items — that message's counterparty is its SENDER, and attesting
+			// on placement alone would stamp a stranger's address as the
+			// workspace's own correspondence. Neither half is sufficient: the
+			// header alone is forgeable, the folder alone is not authorship.
+			SentByOwner: m.sentByOwner && m.direction == directionOutbound,
 		},
 		ThreadKey: m.threadKey,
 	}

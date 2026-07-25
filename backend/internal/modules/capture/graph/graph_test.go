@@ -49,6 +49,8 @@ type fakeAPI struct {
 	estimate      int
 	estimateAfter time.Time
 	listIDs       []string
+	sentIDs       map[string]bool // listed ids Graph filed under Sent Items
+	sentFolderErr error
 	listNext      string
 	listCalls     int
 	seenPageToken string
@@ -83,10 +85,32 @@ func (f *fakeAPI) EstimateAfter(_ context.Context, _ string, after time.Time) (i
 	return f.estimate, nil
 }
 
-func (f *fakeAPI) ListAfter(_ context.Context, _ string, _ time.Time, pageToken string, _ int) ([]string, string, error) {
+func (f *fakeAPI) ListAfter(_ context.Context, _ string, _ time.Time, pageToken string, _ int) ([]MessageRef, string, error) {
 	f.listCalls++
 	f.seenPageToken = pageToken
-	return f.listIDs, f.listNext, nil
+	msgs := make([]MessageRef, 0, len(f.listIDs))
+	for _, id := range f.listIDs {
+		folder := inboxFolderID
+		if f.sentIDs[id] {
+			folder = sentFolderID
+		}
+		msgs = append(msgs, MessageRef{ID: id, ParentFolderID: folder})
+	}
+	return msgs, f.listNext, nil
+}
+
+// The stub mailbox's two folder ids: a listed message carries one of them, and
+// SentFolderID names which one means the owner sent it.
+const (
+	sentFolderID  = "folder-sent"
+	inboxFolderID = "folder-inbox"
+)
+
+func (f *fakeAPI) SentFolderID(context.Context, string) (string, error) {
+	if f.sentFolderErr != nil {
+		return "", f.sentFolderErr
+	}
+	return sentFolderID, nil
 }
 
 type recordingSink struct{ recs []connector.NormalizedRecord }

@@ -78,7 +78,13 @@ func startMemServer(t *testing.T, n int) (addr string, user *imapmemserver.User)
 		appendMessage(t, user, rfc822(i))
 	}
 	mem.AddUser(user)
+	return listenMem(t, mem), user
+}
 
+// listenMem serves one in-memory mailbox store on a loopback port for the
+// duration of the test, returning the address to dial.
+func listenMem(t *testing.T, mem *imapmemserver.Server) string {
+	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -97,13 +103,18 @@ func startMemServer(t *testing.T, n int) (addr string, user *imapmemserver.User)
 		//craft:ignore swallowed-errors test-server shutdown; the assertions already ran
 		_ = srv.Close()
 	})
-	return ln.Addr().String(), user
+	return ln.Addr().String()
 }
 
 func appendMessage(t *testing.T, user *imapmemserver.User, raw string) {
 	t.Helper()
+	appendTo(t, user, "INBOX", raw)
+}
+
+func appendTo(t *testing.T, user *imapmemserver.User, mailbox, raw string) {
+	t.Helper()
 	buf := []byte(raw)
-	if _, err := user.Append("INBOX", &memLiteral{b: buf}, &imapv2.AppendOptions{}); err != nil {
+	if _, err := user.Append(mailbox, &memLiteral{b: buf}, &imapv2.AppendOptions{}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -141,10 +152,24 @@ func plainDialer(addr string) func(context.Context, Credentials) (*imapclient.Cl
 
 func standingAuth(t *testing.T) connector.Auth {
 	t.Helper()
+	return sealCreds(t, standingCreds(t))
+}
+
+// standingCreds is the normalized credential bundle every standing-sync test
+// starts from; a test that cares about one field adjusts it on the way to
+// sealCreds.
+func standingCreds(t *testing.T) Credentials {
+	t.Helper()
 	creds, err := normalizeCredentials(Credentials{Host: "mem", Email: memUser, Password: memPass, MaxMessages: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
+	return creds
+}
+
+// sealCreds packs credentials into the opaque auth bundle Sync takes.
+func sealCreds(t *testing.T, creds Credentials) connector.Auth {
+	t.Helper()
 	req, err := AuthRequestFrom(creds)
 	if err != nil {
 		t.Fatal(err)
@@ -388,5 +413,61 @@ func TestStandingAnchorOnEmptyMailbox(t *testing.T) {
 	}
 	if parsed.Email != memUser {
 		t.Fatalf("even an empty anchor must plant the mailbox identity, got %+v", parsed)
+	}
+}
+
+// The IMAP half of the T1 correspondence evidence (ADR-0072 §1). A mailbox
+// NAMED "Sent" attests nothing: the name comes from the connection config an
+// operator typed, so honoring it would let a mis-named folder — or an operator
+// who points the connector at a folder an attacker can write to — turn inbound
+// mail into the workspace's own correspondence. Only the server's RFC 6154
+// \Sent attribute counts, and the in-memory server sets none.
+func TestSentAttestationIgnoresTheMailboxName(t *testing.T) {
+	mem := imapmemserver.New()
+	user := imapmemserver.NewUser(memUser, memPass)
+	for _, name := range []string{"INBOX", "Sent"} {
+		if err := user.Create(name, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	appendTo(t, user, "Sent", rfc822(1))
+	mem.AddUser(user)
+	addr := listenMem(t, mem)
+
+	creds := standingCreds(t)
+	creds.Mailbox = "Sent"
+
+	sink := &recordingSink{}
+	c := NewStanding().withDialer(plainDialer(addr))
+	if _, err := c.Sync(context.Background(), sealCreds(t, creds), nil, sink); err != nil {
+		t.Fatalf("sync of the name-only Sent mailbox: %v", err)
+	}
+	if len(sink.records) == 0 {
+		t.Fatal("the pull captured nothing — the assertion below would prove nothing")
+	}
+	for _, rec := range sink.records {
+		if rec.Counterparty.SentByOwner {
+			t.Fatal("a mailbox named Sent attested the owner's authorship: the name is config text, not provider evidence")
+		}
+	}
+}
+
+// The attestation belongs to the mailbox being read, and only to it.
+func TestSentAttrReadsTheSelectedMailboxsAttribute(t *testing.T) {
+	plain := []*imapv2.ListData{{Mailbox: "Sent", Attrs: []imapv2.MailboxAttr{imapv2.MailboxAttrSubscribed}}}
+	if sentAttr(plain, "Sent") {
+		t.Error("a mailbox listed without \\Sent must not attest")
+	}
+	special := []*imapv2.ListData{{
+		Mailbox: "Archive/2026",
+		Attrs:   []imapv2.MailboxAttr{imapv2.MailboxAttrSubscribed, imapv2.MailboxAttrSent},
+	}}
+	if !sentAttr(special, "Archive/2026") {
+		t.Error("a mailbox the server marks \\Sent must attest, whatever it is named")
+	}
+	// A wildcard pattern lists siblings too; a sibling's \Sent is not this
+	// mailbox's evidence.
+	if sentAttr(special, "Archive/*") {
+		t.Error("a sibling mailbox's \\Sent attested for the mailbox being read")
 	}
 }

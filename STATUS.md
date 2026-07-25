@@ -900,10 +900,51 @@ Open work, roughly in priority order:
   activity row + raw_capture under their own retention (the "noise is not stored
   in the append-only spine" hardening; human-authored activities keep their full
   image).
-  **Still open (contract-first-gated on ADR-0072):** the rest of 2b — the T1 gate
-  with an authenticated outbound signal + the pending ledger + deferred creation
-  + the `capture_counterparty_verdict` job + review queue + noise
-  hide-then-redact — and 3 (corroborated signature org-name promotion).
+  Slice 2 (landed): **the T1 correspondence-positive gate on a provider-attested
+  outbound signal.** T1 now runs BEFORE T2 (order is load-bearing: a known
+  contact's `List-Unsubscribe` newsletter is no longer suppressed as bulk
+  infrastructure), and its evidence is a new `activity.counterparty_outbound_attested`
+  column (migration 0124 + a partial index serving the EXISTS) stamped only from
+  what the PROVIDER vouches for — Gmail's `SENT` label (read off the same
+  `messages.get` response the body needs), an IMAP `\Sent` **special-use**
+  mailbox (the folder NAME attests nothing — it is operator config text), and
+  Microsoft's SentItems `parentFolderId` (backfill only; the incremental delta is
+  inbox-only). `activity.direction` is never consulted: it string-compares the
+  forgeable `From` header against the owner, so a spoofed `From:owner` landing in
+  the synced inbox would otherwise whitelist any address it names past T2 — the
+  security review's finding, now gated by an integration test. A T1 override of a
+  matched suppression rule is its own `system_log` breadcrumb
+  (`capture_correspondence_spared`), so a spare is as diagnosable as a
+  suppression. A provider that attests nothing (or a LIST/folder probe that
+  fails) attests false and is logged — under-attestation suppresses, it never
+  creates. `make check` + the full zero-skip integration lane green.
+  Attestation requires BOTH halves — the provider filed the message as sent AND
+  the message names the owner as author — because the two are derived
+  independently: a server-side rule can file a third party's mail into a `\Sent`
+  mailbox or Sent Items, and that message's counterparty is its *sender*, so
+  attesting on placement alone would buy a stranger the same bypass the forged
+  header would have. Provider evidence accrues asymmetrically and this is
+  inherent, not a bug: continuously from Gmail, from Graph only during backfill
+  (the delta is inbox-only), and from IMAP only when the operator points the
+  connection at a `\Sent` mailbox — so an absent T1 spare on a default-INBOX
+  IMAP workspace is expected.
+  **Residual risk for the ADR (raised, no code change):** a rule-based Outlook
+  "reply with template" emits a genuine `From:owner` message with no
+  `Auto-Submitted` header, so an outsider can still induce a T1 spare by mailing
+  in and letting the rule answer. Inherent to the ADR's premise that writing to
+  someone is intent; the cheap mitigations if it ever matters are requiring two
+  attested outbound messages, or discounting an attested message that is an
+  immediate reply to an inbound one.
+  **Upstream spec raise (not worked around here):** ADR-0072 §1's ladder reads
+  T1 → "ensure person+org NOW", which taken literally would mint a "Gmail"
+  organization for a free-mail address the owner has corresponded with — exactly
+  the junk the ADR exists to prevent. The build keeps T3's free-mail org
+  suppression under a T1 spare (T1 overrides T2 only) and gates it with a test;
+  the ladder wording needs reconciling upstream.
+  **Still open (contract-first-gated on ADR-0072):** the rest of 2b — the pending
+  ledger + deferred creation + the `capture_counterparty_verdict` job + review
+  queue + noise hide-then-redact — and 3 (corroborated signature org-name
+  promotion).
 
 - **Site-read legal census — three known gaps (#162).** `FinishSiteRead`'s CAS
   guards only on `status = 'running'`, so a reclaimed-then-returning worker can

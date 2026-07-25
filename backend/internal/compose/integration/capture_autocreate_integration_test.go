@@ -39,6 +39,7 @@ const autoCreateOwner = "owner@myco.example"
 // production mailmap → Sink path — the provider I/O faked, nothing else.
 type mailBatchConnector struct {
 	raws [][]byte
+	sent map[string]bool // Message-IDs the provider filed as the owner's own sent mail
 }
 
 func (m *mailBatchConnector) Descriptor() connector.Descriptor {
@@ -63,6 +64,11 @@ func (m *mailBatchConnector) Sync(ctx context.Context, _ connector.Auth, _ conne
 		if _, drop := msg.SkipReason(); drop {
 			continue
 		}
+		// The provider's own attestation, which a real Gmail sync reads off the
+		// message's SENT label. Keyed by Message-ID so a fixture can be the
+		// owner's outgoing mail without the test forging a From header — which
+		// is precisely what the attestation must not be derivable from.
+		msg = msg.AttestSentByOwner(m.sent[msg.ID()])
 		if _, err := sink.Upsert(ctx, msg.ToRecord("gmail", raw)); err != nil {
 			return nil, err
 		}
@@ -159,7 +165,16 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 	wsCtx := principal.WithWorkspaceID(context.Background(), e.WS)
 	sync := func(t *testing.T, raws ...[]byte) {
 		t.Helper()
-		conn.raws = raws
+		conn.raws, conn.sent = raws, nil
+		if err := registry.SyncOnce(wsCtx, connID); err != nil {
+			t.Fatalf("SyncOnce: %v", err)
+		}
+	}
+	// syncSent is the same pull with the provider attesting the listed
+	// Message-IDs as mail the mailbox owner sent.
+	syncSent := func(t *testing.T, sent map[string]bool, raws ...[]byte) {
+		t.Helper()
+		conn.raws, conn.sent = raws, sent
 		if err := registry.SyncOnce(wsCtx, connID); err != nil {
 			t.Fatalf("SyncOnce: %v", err)
 		}
@@ -266,6 +281,52 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 			SELECT count(*) FROM system_log
 			WHERE action = 'capture_transactional_suppressed' AND detail->>'source_id' IN ('ds1@docusign.net', 'gx1@event.gitex.com')`); n != 2 {
 			t.Fatalf("%d transactional-suppression breadcrumbs, want 2", n)
+		}
+	})
+
+	t.Run("writing to an address spares its later bulk mail from suppression", func(t *testing.T) {
+		// T1 runs BEFORE T2 and the order is load-bearing (ADR-0072 §1): once
+		// the workspace has written to someone, their newsletter footer must not
+		// turn them into infrastructure. The same address and the same
+		// List-Unsubscribe corroboration that suppressed above now survive,
+		// because the mailbox owner wrote to them first.
+		syncSent(t, map[string]bool{"ev1@myco.example": true},
+			email(autoCreateOwner, "", "team@event.expo.example", "ev1@myco.example", ""))
+		if n := countRows(t, e, `
+			SELECT count(*) FROM activity
+			WHERE counterparty_email = 'team@event.expo.example' AND counterparty_outbound_attested`); n != 1 {
+			t.Fatalf("%d attested outbound activities, want 1 — the T1 evidence must be stamped", n)
+		}
+
+		sync(t, emailWithListUnsub("team@event.expo.example", "Expo", autoCreateOwner, "ev2@event.expo.example"))
+		if n := countRows(t, e, `
+			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+			WHERE pe.email = 'team@event.expo.example'`); n != 1 {
+			t.Fatalf("%d persons for a corresponded-with sender, want 1 — T1 must spare it from T2", n)
+		}
+		if n := countRows(t, e, `
+			SELECT count(*) FROM system_log
+			WHERE action = 'capture_correspondence_spared' AND detail->>'source_id' = 'ev2@event.expo.example'`); n != 1 {
+			t.Fatalf("%d spare breadcrumbs, want 1 — an overridden suppression must be as visible as a suppression", n)
+		}
+	})
+
+	t.Run("a forged From:owner does not whitelist the address it names", func(t *testing.T) {
+		// The attack the T1 evidence exists to refuse: inbound mail whose From
+		// header claims the mailbox owner. It parses as outbound — that is all
+		// direction can mean — but the provider filed it in the inbox and
+		// attested nothing, so the address stays suppressed infrastructure.
+		sync(t, email(autoCreateOwner, "", "blast@sendgrid.net", "forge1@evil.example", ""))
+		if n := countRows(t, e, `
+			SELECT count(*) FROM activity
+			WHERE counterparty_email = 'blast@sendgrid.net' AND counterparty_outbound_attested`); n != 0 {
+			t.Fatal("a forged From:owner message attested correspondence — the gate reads the header, not the provider")
+		}
+		sync(t, emailWithListUnsub("blast@sendgrid.net", "Blast", autoCreateOwner, "forge2@sendgrid.net"))
+		if n := countRows(t, e, `
+			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+			WHERE pe.email = 'blast@sendgrid.net'`); n != 0 {
+			t.Fatal("a forged From:owner whitelisted an ESP address past T2 suppression")
 		}
 	})
 

@@ -351,9 +351,9 @@ func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.Norm
 	occurredAt := defaultOccurredAt(fields.OccurredAt)
 	var id ids.ActivityID
 	err := tx.QueryRow(ctx, `
-		INSERT INTO activity (workspace_id, kind, subject, body, occurred_at, direction, source_system, source_id, source, captured_by, thread_key, counterparty_email)
+		INSERT INTO activity (workspace_id, kind, subject, body, occurred_at, direction, source_system, source_id, source, captured_by, thread_key, counterparty_email, counterparty_outbound_attested)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		        $1, NULLIF($2, ''), NULLIF($3, ''), $4, NULLIF($5, ''), $6, $7, $8, $9, NULLIF($10, ''), NULLIF($11, ''))
+		        $1, NULLIF($2, ''), NULLIF($3, ''), $4, NULLIF($5, ''), $6, $7, $8, $9, NULLIF($10, ''), NULLIF($11, ''), $12)
 		ON CONFLICT (workspace_id, source_system, source_id) WHERE source_system IS NOT NULL AND source_id IS NOT NULL
 		DO NOTHING
 		RETURNING id`,
@@ -363,7 +363,11 @@ func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.Norm
 		// header case), matching the person_email normalization, so phase 2b's
 		// index-backed equality on this column matches regardless of the
 		// sender's casing without a runtime case fold.
-		strings.ToLower(strings.TrimSpace(rec.Counterparty.Email))).Scan(&id)
+		strings.ToLower(strings.TrimSpace(rec.Counterparty.Email)),
+		// The provider's attestation, never the From-derived direction: this
+		// column is the T1 correspondence-positive gate's only evidence, and a
+		// forged From:owner must not register as the owner's correspondence.
+		rec.Counterparty.SentByOwner).Scan(&id)
 	if err == nil {
 		// Field-level provenance (B-E02.12) for the content fields this
 		// capture set — same source/author the row itself carries.

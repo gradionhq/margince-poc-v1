@@ -89,13 +89,17 @@ func msStub(t *testing.T) *httptest.Server {
 			return
 		}
 		if r.URL.Query().Get("$skiptoken") == "p2" {
-			writeJSON(w, map[string]any{"value": []map[string]any{{"id": "m2"}}})
+			writeJSON(w, map[string]any{"value": []map[string]any{{"id": "m2", "parentFolderId": "sent-folder"}}})
 			return
 		}
 		writeJSON(w, map[string]any{
-			"value":           []map[string]any{{"id": "m1"}},
+			"value":           []map[string]any{{"id": "m1", "parentFolderId": "inbox-folder"}},
 			"@odata.nextLink": srv.URL + "/me/messages?%24skiptoken=p2",
 		})
+	})
+
+	mux.HandleFunc("/me/mailFolders/sentitems", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]any{"id": "sent-folder"})
 	})
 
 	mux.HandleFunc("/me/messages/m1/$value", func(w http.ResponseWriter, _ *http.Request) {
@@ -317,21 +321,57 @@ func TestEstimateAfterReadsODataCount(t *testing.T) {
 	}
 }
 
-func TestListAfterPagesViaNextLink(t *testing.T) {
+// messageIDs projects a listed page down to its ids so a page assertion reads
+// as the id sequence it is about.
+func messageIDs(msgs []MessageRef) []string {
+	out := make([]string, 0, len(msgs))
+	for _, m := range msgs {
+		out = append(out, m.ID)
+	}
+	return out
+}
+
+// The backfill's T1 evidence: Graph names the folder it filed each message in,
+// and SentFolderID resolves the well-known Sent Items id the comparison needs.
+// Without the pairing the backfill cannot tell the owner's own mail from an
+// inbound message whose From header merely claims to be theirs.
+func TestListAfterCarriesTheParentFolderAgainstSentItems(t *testing.T) {
 	_, api := newTestClients(t)
-	ids, next, err := api.ListAfter(context.Background(), "access-2", time.Date(2026, 1, 18, 0, 0, 0, 0, time.UTC), "", 100)
+	sent, err := api.SentFolderID(context.Background(), "access-2")
+	if err != nil {
+		t.Fatalf("SentFolderID: %v", err)
+	}
+	inbox, next, err := api.ListAfter(context.Background(), "access-2", time.Time{}, "", 100)
 	if err != nil {
 		t.Fatalf("ListAfter: %v", err)
 	}
-	if strings.Join(ids, ",") != "m1" || next == "" {
-		t.Fatalf("first page = %v next=%q, want [m1] and a nextLink", ids, next)
+	if len(inbox) != 1 || inbox[0].ParentFolderID == sent {
+		t.Fatalf("first page = %v, want one message filed outside %q", inbox, sent)
 	}
-	ids2, next2, err := api.ListAfter(context.Background(), "access-2", time.Time{}, next, 100)
+	outbox, _, err := api.ListAfter(context.Background(), "access-2", time.Time{}, next, 100)
 	if err != nil {
 		t.Fatalf("ListAfter page 2: %v", err)
 	}
-	if strings.Join(ids2, ",") != "m2" || next2 != "" {
-		t.Errorf("second page = %v next=%q, want [m2] and the end of the walk", ids2, next2)
+	if len(outbox) != 1 || outbox[0].ParentFolderID != sent {
+		t.Fatalf("second page = %v, want one message filed in %q", outbox, sent)
+	}
+}
+
+func TestListAfterPagesViaNextLink(t *testing.T) {
+	_, api := newTestClients(t)
+	msgs, next, err := api.ListAfter(context.Background(), "access-2", time.Date(2026, 1, 18, 0, 0, 0, 0, time.UTC), "", 100)
+	if err != nil {
+		t.Fatalf("ListAfter: %v", err)
+	}
+	if strings.Join(messageIDs(msgs), ",") != "m1" || next == "" {
+		t.Fatalf("first page = %v next=%q, want [m1] and a nextLink", msgs, next)
+	}
+	msgs2, next2, err := api.ListAfter(context.Background(), "access-2", time.Time{}, next, 100)
+	if err != nil {
+		t.Fatalf("ListAfter page 2: %v", err)
+	}
+	if strings.Join(messageIDs(msgs2), ",") != "m2" || next2 != "" {
+		t.Errorf("second page = %v next=%q, want [m2] and the end of the walk", msgs2, next2)
 	}
 }
 

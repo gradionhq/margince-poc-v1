@@ -102,10 +102,23 @@ type API interface {
 	// EstimateAfter returns the provider-side count of messages received on
 	// or after the given instant ($count=true) — the backfill preview's number.
 	EstimateAfter(ctx context.Context, accessToken string, after time.Time) (int, error)
-	// ListAfter returns one page of message ids received on or after the
-	// given instant; pageToken is the @odata.nextLink of the prior page
-	// ("" starts the walk).
-	ListAfter(ctx context.Context, accessToken string, after time.Time, pageToken string, pageSize int) (ids []string, next string, err error)
+	// ListAfter returns one page of messages received on or after the given
+	// instant; pageToken is the @odata.nextLink of the prior page ("" starts
+	// the walk).
+	ListAfter(ctx context.Context, accessToken string, after time.Time, pageToken string, pageSize int) (msgs []MessageRef, next string, err error)
+	// SentFolderID returns the id of the mailbox's Sent Items well-known
+	// folder, against which a message's ParentFolderID identifies mail the
+	// authenticated owner sent.
+	SentFolderID(ctx context.Context, accessToken string) (string, error)
+}
+
+// MessageRef is one listed message: its id, plus the folder Graph filed it in.
+// The folder is the T1 correspondence evidence (ADR-0072 §1) — Microsoft moves
+// a message into Sent Items because the authenticated account sent it, which no
+// amount of header forgery can imitate.
+type MessageRef struct {
+	ID             string
+	ParentFolderID string
 }
 
 // OAuthConfig wires the OAuth client. Tenant defaults to "common";
@@ -328,12 +341,12 @@ func (a *httpAPI) EstimateAfter(ctx context.Context, accessToken string, after t
 	return out.Count, nil
 }
 
-func (a *httpAPI) ListAfter(ctx context.Context, accessToken string, after time.Time, pageToken string, pageSize int) ([]string, string, error) {
+func (a *httpAPI) ListAfter(ctx context.Context, accessToken string, after time.Time, pageToken string, pageSize int) ([]MessageRef, string, error) {
 	u := pageToken
 	if u == "" {
 		q := url.Values{
 			paramFilter: {receivedAfterFilter(after)},
-			"$select":   {"id"},
+			"$select":   {"id,parentFolderId"},
 			"$top":      {strconv.Itoa(pageSize)},
 		}
 		u = a.base + "/me/messages?" + q.Encode()
@@ -342,18 +355,35 @@ func (a *httpAPI) ListAfter(ctx context.Context, accessToken string, after time.
 	}
 	var out struct {
 		Value []struct {
-			ID string `json:"id"`
+			ID             string `json:"id"`
+			ParentFolderID string `json:"parentFolderId"` //nolint:tagliatelle // Microsoft's wire format; must match to decode
 		} `json:"value"`
 		NextLink string `json:"@odata.nextLink"` //nolint:tagliatelle // Microsoft's wire format; must match to decode
 	}
 	if _, err := a.get(ctx, accessToken, u, nil, &out); err != nil {
 		return nil, "", err
 	}
-	ids := make([]string, 0, len(out.Value))
+	msgs := make([]MessageRef, 0, len(out.Value))
 	for _, m := range out.Value {
-		ids = append(ids, m.ID)
+		msgs = append(msgs, MessageRef{ID: m.ID, ParentFolderID: m.ParentFolderID})
 	}
-	return ids, out.NextLink, nil
+	return msgs, out.NextLink, nil
+}
+
+// SentFolderID resolves the mailbox's Sent Items folder by its well-known
+// name, which Graph accepts in place of the opaque id. The listed messages
+// carry the opaque form, so the comparison needs this resolved once per page
+// walk rather than a name match (folder display names are localized and
+// user-renameable; the well-known id is neither).
+func (a *httpAPI) SentFolderID(ctx context.Context, accessToken string) (string, error) {
+	var out struct {
+		ID string `json:"id"`
+	}
+	q := url.Values{"$select": {"id"}}
+	if _, err := a.get(ctx, accessToken, a.base+"/me/mailFolders/sentitems?"+q.Encode(), nil, &out); err != nil {
+		return "", err
+	}
+	return out.ID, nil
 }
 
 // retryAfter parses the provider's Retry-After (delta-seconds form; Graph's

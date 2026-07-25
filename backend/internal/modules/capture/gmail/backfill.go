@@ -65,7 +65,7 @@ func (c *Connector) BackfillPage(ctx context.Context, auth connector.Auth, after
 	}
 	res := connector.BackfillPageResult{NextToken: next, Scanned: len(ids)}
 	for _, id := range ids {
-		raw, err := c.api.GetRaw(ctx, access, id)
+		msg, err := c.api.GetRaw(ctx, access, id)
 		if errors.Is(err, ErrMessageGone) {
 			// Deleted or moved since this page was listed — nothing to fetch.
 			// Count it scanned-but-skipped and move on; a routine 404 across a
@@ -78,7 +78,7 @@ func (c *Connector) BackfillPage(ctx context.Context, auth connector.Auth, after
 			// so the engine retries this page from its committed token.
 			return connector.BackfillPageResult{}, err
 		}
-		captured, err := captureOne(ctx, raw, sink, st.Owner)
+		captured, err := captureOne(ctx, msg, sink, st.Owner)
 		if err != nil {
 			return connector.BackfillPageResult{}, err
 		}

@@ -91,3 +91,58 @@ func TestBackfillMalformedAuthRejected(t *testing.T) {
 		t.Fatal("BackfillPage with malformed auth must fail")
 	}
 }
+
+// The Graph half of the T1 correspondence evidence (ADR-0072 §1). Only the
+// backfill can supply it: the incremental delta reads the inbox folder alone,
+// while the backfill walks /me/messages across the whole mailbox, Sent Items
+// included. The attestation follows the folder Graph filed the message in —
+// never the From header, which the message's own author writes.
+func TestBackfillAttestsOnlyMailFiledInSentItems(t *testing.T) {
+	api := &fakeAPI{
+		listIDs: []string{"m-in", "m-out"},
+		sentIDs: map[string]bool{"m-out": true},
+		raws: map[string][]byte{
+			"m-in": rawMsg("in@mail.example", "alice@acme.com"),
+			// The same shape a spoofer sends: the From header claims the owner,
+			// yet Graph filed it in the inbox because the owner never sent it.
+			"m-out": rawMsg("out@mail.example", owner),
+		},
+	}
+	sink := &recordingSink{}
+	if _, err := pinnedConn(api).BackfillPage(context.Background(), authBytes(t), time.Time{}, "", sink); err != nil {
+		t.Fatalf("BackfillPage: %v", err)
+	}
+	if len(sink.recs) != 2 {
+		t.Fatalf("sink received %d records, want 2", len(sink.recs))
+	}
+	attested := map[string]bool{}
+	for _, rec := range sink.recs {
+		attested[rec.NaturalKey.SourceID] = rec.Counterparty.SentByOwner
+	}
+	if attested["in@mail.example"] {
+		t.Error("an inbox-filed message attested the owner's authorship")
+	}
+	if !attested["out@mail.example"] {
+		t.Error("a Sent-Items-filed message did not attest the owner's authorship")
+	}
+}
+
+// A page that cannot tell sent mail from received must capture nothing rather
+// than stamp its whole window un-attested: the activity natural key would make
+// that guess permanent, silently costing the mailbox its T1 evidence. The
+// engine retries the page from its committed token, as with any provider fault.
+func TestBackfillStopsWhenTheSentFolderCannotBeResolved(t *testing.T) {
+	api := &fakeAPI{
+		listIDs:       []string{"m-out"},
+		sentIDs:       map[string]bool{"m-out": true},
+		sentFolderErr: ErrUnreachable,
+		raws:          map[string][]byte{"m-out": rawMsg("out@mail.example", owner)},
+	}
+	sink := &recordingSink{}
+	if _, err := pinnedConn(api).BackfillPage(context.Background(), authBytes(t), time.Time{}, "", sink); !errors.Is(err, ErrUnreachable) {
+		t.Fatalf("BackfillPage = %v, want the page to stop on the unresolved folder", err)
+	}
+	if len(sink.recs) != 0 {
+		t.Fatalf("%d records captured, want none — nothing may land with guessed provenance", len(sink.recs))
+	}
+}

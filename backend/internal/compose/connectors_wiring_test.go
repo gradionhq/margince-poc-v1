@@ -12,6 +12,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -58,7 +59,11 @@ func (stubGmailAPI) ListRecent(context.Context, string, int) ([]string, error) {
 func (stubGmailAPI) History(context.Context, string, string) ([]string, string, error) {
 	return nil, "1", nil
 }
-func (stubGmailAPI) GetRaw(context.Context, string, string) ([]byte, error) { return nil, nil }
+
+func (stubGmailAPI) GetRaw(context.Context, string, string) (gmail.Message, error) {
+	return gmail.Message{}, nil
+}
+
 func (stubGmailAPI) Watch(context.Context, string, string) (string, time.Time, error) {
 	return "1", time.Time{}, nil
 }

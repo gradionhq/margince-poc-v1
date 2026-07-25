@@ -35,6 +35,7 @@ type fakeAPI struct {
 	addedHistoryID     string
 	historyErr, getErr error
 	raws               map[string][]byte
+	sent               map[string]bool // ids Gmail filed under the SENT label
 	gone               map[string]bool
 	historyCalls       int
 	listCalls          int
@@ -84,15 +85,15 @@ func (f *fakeAPI) Watch(_ context.Context, _, topic string) (string, time.Time, 
 	return f.watchHistoryID, f.watchExpiry, nil
 }
 
-func (f *fakeAPI) GetRaw(_ context.Context, _, id string) ([]byte, error) {
+func (f *fakeAPI) GetRaw(_ context.Context, _, id string) (Message, error) {
 	if f.gone[id] {
 		// The real client maps a 404 (deleted/moved since enumeration) here.
-		return nil, ErrMessageGone
+		return Message{}, ErrMessageGone
 	}
 	if f.getErr != nil {
-		return nil, f.getErr
+		return Message{}, f.getErr
 	}
-	return f.raws[id], nil
+	return Message{RFC822: f.raws[id], SentByOwner: f.sent[id]}, nil
 }
 
 type recordingSink struct{ recs []connector.NormalizedRecord }
