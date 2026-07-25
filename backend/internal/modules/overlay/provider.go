@@ -6,8 +6,9 @@ package overlay
 // This file implements the frozen datasource.SystemOfRecordProvider seam
 // (interfaces.md §3, design.md §4.5) over the overlay mirror: reads are
 // served from MirrorStore (visibility-joined, T2-labelled honest —
-// Authoritative is always false); every write verb plus RunReport is
-// declared unsupported until branch 2 lands the write-back path.
+// Authoritative is always false). The write verbs live in
+// provider_writes.go; RunReport has no incumbent analogue and is declared
+// unsupported here.
 
 import (
 	"context"

@@ -52,13 +52,6 @@ const overlayUnnamed = "Unnamed"
 // mapper to read, and naming one it cannot verify would be a guess.
 const overlayCapturedByValue = "connector:overlay"
 
-// overlayCapturedBy yields a fresh pointer per call, so no wire struct can
-// alias (or mutate) another's provenance.
-func overlayCapturedBy() *string {
-	v := overlayCapturedByValue
-	return &v
-}
-
 // overlayRecordFields decodes a mirror record's canonical jsonb payload.
 // A record the overlay provider served always carries an object payload;
 // a decode failure is a real defect (the provider marshaled this very
@@ -108,7 +101,7 @@ func overlayWirePerson(ctx context.Context, rec datasource.Record) (crmcontracts
 		Id:          openapi_types.UUID(rec.Ref.ID),
 		WorkspaceId: wsID,
 		Source:      overlaySource,
-		CapturedBy:  overlayCapturedBy(),
+		CapturedBy:  ptrString(overlayCapturedByValue),
 		FullName:    fullName,
 		FirstName:   fieldStringPtr(fields, "first_name"),
 		LastName:    fieldStringPtr(fields, "last_name"),
@@ -141,7 +134,7 @@ func overlayWireOrganization(ctx context.Context, rec datasource.Record) (crmcon
 		Id:          openapi_types.UUID(rec.Ref.ID),
 		WorkspaceId: wsID,
 		Source:      overlaySource,
-		CapturedBy:  overlayCapturedBy(),
+		CapturedBy:  ptrString(overlayCapturedByValue),
 		DisplayName: displayName,
 		Industry:    fieldStringPtr(fields, "industry"),
 		CreatedAt:   syncedAt,
@@ -181,7 +174,7 @@ func overlayWireDeal(ctx context.Context, rec datasource.Record) (crmcontracts.D
 		Id:          openapi_types.UUID(rec.Ref.ID),
 		WorkspaceId: wsID,
 		Source:      overlaySource,
-		CapturedBy:  overlayCapturedBy(),
+		CapturedBy:  ptrString(overlayCapturedByValue),
 		Name:        name,
 		Currency:    fieldStringPtr(fields, "currency"),
 		Status:      overlayDealStatus(fieldString(fields, "stage_id")),
@@ -230,7 +223,7 @@ func overlayWireLead(ctx context.Context, rec datasource.Record) (crmcontracts.L
 		Id:          openapi_types.UUID(rec.Ref.ID),
 		WorkspaceId: wsID,
 		Source:      overlaySource,
-		CapturedBy:  overlayCapturedBy(),
+		CapturedBy:  ptrString(overlayCapturedByValue),
 		FullName:    fieldStringPtr(fields, "full_name"),
 		CompanyName: fieldStringPtr(fields, "company_name"),
 		Score:       0,
@@ -278,7 +271,7 @@ func overlayWireActivity(ctx context.Context, rec datasource.Record) (crmcontrac
 		Id:          openapi_types.UUID(rec.Ref.ID),
 		WorkspaceId: wsID,
 		Source:      overlaySource,
-		CapturedBy:  overlayCapturedBy(),
+		CapturedBy:  ptrString(overlayCapturedByValue),
 		Kind:        kind,
 		Subject:     fieldStringPtr(fields, "subject"),
 		Body:        fieldStringPtr(fields, "body"),

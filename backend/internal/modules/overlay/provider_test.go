@@ -128,6 +128,12 @@ func TestProviderReadVerbsObjectGateBeforeTheMirror(t *testing.T) {
 	if _, err := p.ListFields(ctx, datasource.EntityPerson); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("ListFields without a person read grant: err = %v, want ErrPermissionDenied", err)
 	}
+	// Freshness belongs in this list: a force-fresh answer spends a real
+	// incumbent call against the record, so it is as much a read as the three
+	// above and reaches the provider by the same ungated MCP path.
+	if _, err := p.Freshness(ctx, ref); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("Freshness without a person read grant: err = %v, want ErrPermissionDenied", err)
+	}
 }
 
 func TestProviderRunReportUnsupported(t *testing.T) {

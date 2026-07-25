@@ -174,7 +174,12 @@ func (s *MirrorStore) ingestReporting(ctx context.Context, rec Record) (bool, er
 		// the metric ahead of what overlay_mirror actually holds.
 		mirrorSyncedTotal.Add(1)
 	}
-	return landed && err == nil, err
+	if err != nil {
+		// A guard-passed upsert that then failed to commit did not land: the
+		// caller must not read "landed" off a rolled-back transaction.
+		return false, err
+	}
+	return landed, nil
 }
 
 // ingestTx is Ingest's body, taking the transaction rather than opening

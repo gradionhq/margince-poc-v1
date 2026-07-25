@@ -106,6 +106,13 @@ func TestOverlayUpdateWritesTheAuditTrail(t *testing.T) {
 		t.Fatalf("PATCH /v1/deals/%s = %d", id, status)
 	}
 
+	// captured_by is required on every entity schema. An overlay-served body
+	// that omits it is schema-invalid, and a validating client rejects it —
+	// so the write response is as good a place to pin it as the read.
+	if deal.CapturedBy == nil || *deal.CapturedBy == "" {
+		t.Errorf("overlay deal body captured_by = %v, want the required provenance value", deal.CapturedBy)
+	}
+
 	audits := auditRowsFor(t, e.env, "deal", id)
 	if len(audits) != 1 {
 		t.Fatalf("audit_log rows for the updated deal = %d, want exactly 1 — an overlay write must leave the same trail a native write leaves", len(audits))

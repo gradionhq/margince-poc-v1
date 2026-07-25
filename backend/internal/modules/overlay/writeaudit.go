@@ -60,14 +60,16 @@ const (
 // this write actually touched — the same discipline the native update path
 // keeps (people/lead_update.go's patch Before()/After()), and the reason a
 // write-back audit row does not become a full copy of an incumbent record
-// in audit_log. externalID travels as evidence rather than in those images:
-// it is context ABOUT the mutation (which incumbent record it landed on),
-// and folding it into the field images would make a field-history
-// projection read it as a field change that never happened.
+// in audit_log. Both images are narrowed by minimizeAuditImage first.
+// externalID travels as evidence rather than in those images: it is context
+// ABOUT the mutation (which incumbent record it landed on), and folding it
+// into the field images would make a field-history projection read it as a
+// field change that never happened.
 func auditWriteBack(ctx context.Context, tx pgx.Tx, action string, ref datasource.EntityRef,
 	externalID string, before, after map[string]any,
 ) error {
-	auditID, err := storekit.AuditWithEvidence(ctx, tx, action, string(ref.Type), ref.ID, before, after,
+	auditID, err := storekit.AuditWithEvidence(ctx, tx, action, string(ref.Type), ref.ID,
+		minimizeAuditImage(ref.Type, before), minimizeAuditImage(ref.Type, after),
 		map[string]any{"system_of_record": "incumbent", keyExternalID: externalID})
 	if err != nil {
 		return fmt.Errorf("overlay: auditing the %s write-back of %s %s: %w", action, ref.Type, externalID, err)
@@ -277,6 +279,49 @@ func (p *Provider) commitArchiveWriteBack(ctx context.Context, del Deletion, ref
 		mirrorDeletedTotal.Add(1)
 	}
 	return err
+}
+
+// contentFreeAuditFields names, per entity type, the fields whose VALUE never
+// enters an audit image — only the fact that the write touched them.
+//
+// An activity body is the one such field today, and the rule is the native
+// path's, not a new one: activities/lifecycle.go records `body: true` rather
+// than the text, because bodies are large and are the message content itself.
+// It binds harder on the overlay path than on the native one. A mirrored
+// body is INCUMBENT-sourced — customer correspondence synced out of HubSpot —
+// and audit_log is append-only, sits under the retention floor, and is served
+// verbatim to unbounded compliance readers. Copying that text there would put
+// incumbent message content in the one store neither Art. 17 erasure nor
+// disconnect teardown reaches, which is the opposite of what this file's own
+// header gives as the reason not to audit mirror sync.
+var contentFreeAuditFields = map[datasource.EntityType]map[string]bool{
+	datasource.EntityActivity: {"body": true},
+}
+
+// minimizeAuditImage replaces a content-free field's value with the presence
+// flag `true`, leaving every other field as-is. A nil image stays nil: an
+// archive audits no field values at all, and an empty object would read as
+// "these fields changed to nothing".
+//
+// It is applied inside auditWriteBack rather than at each call site so every
+// verb — and every verb added later — inherits it.
+func minimizeAuditImage(et datasource.EntityType, image map[string]any) map[string]any {
+	if image == nil {
+		return nil
+	}
+	contentFree := contentFreeAuditFields[et]
+	if len(contentFree) == 0 {
+		return image
+	}
+	out := make(map[string]any, len(image))
+	for k, v := range image {
+		if contentFree[k] {
+			out[k] = true
+			continue
+		}
+		out[k] = v
+	}
+	return out
 }
 
 // beforeImage reads the pre-write values of exactly the fields a patch

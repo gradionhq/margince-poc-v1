@@ -60,12 +60,21 @@ const restWriteSource = "api"
 // (the shape overlay.SupportsWrite's writeContractTarget validates against)
 // and a dispatched seam Update, answered with the re-mirrored row.
 //
-// If-Match is deliberately not evaluated here: a mirror row carries no
-// version (overlay/provider.go's recordFromRow), so a caller-supplied
-// If-Match has nothing honest to compare against on this path — the
-// concurrency guard in overlay is the provider's own incumbent
+// If-Match is NOT evaluated here, and the caller is not told: a mirror row
+// carries no version (overlay/provider.go's recordFromRow), so a
+// caller-supplied If-Match has nothing to compare against on this path, and
+// the header is accepted and discarded. State the consequence plainly rather
+// than only the cause — a client that sends If-Match believing it has
+// optimistic concurrency has none here, and gets no signal saying so.
+//
+// What overlay does guard is a DIFFERENT clock: the provider's incumbent
 // stored-baseline drift check (provider_writes.go's Update), applied
-// unconditionally inside the seam call below.
+// unconditionally inside the seam call below. It closes the mirror↔incumbent
+// gap, not the caller↔mirror gap the header is about, so it is not a
+// substitute. Closing that gap needs a version (or baseline echo) the caller
+// can pin, which is a contract question — RowVersion's own text says version
+// semantics apply "not only overlay mode" — and is raised upstream rather
+// than decided here.
 //
 // Go forbids type parameters on methods, so this is a plain function
 // taking Server as its first argument rather than a method.
@@ -134,10 +143,14 @@ func respondWithMirroredRecord[Res any](s Server, w http.ResponseWriter, r *http
 //
 // markArchived stamps the archive instant onto the assembled body, so the
 // 200 describes the record as it is AFTER the call rather than as it was
-// before. Without it the response says archived_at: null about a record the
-// incumbent has just archived — the contract's archive response is defined
-// as "now carries a non-null archived_at", and answering otherwise reports
-// the write as not having happened.
+// before. Without it the response carries archived_at: null about a record
+// the incumbent has just archived — the contract defines the archive
+// response as one that "now carries a non-null archived_at", and answering
+// otherwise reports the write as not having happened.
+//
+// The instant is this server's own: the incumbent acks the archive without
+// reporting when it applied it, so the honest available value is when we
+// observed it, accurate to the width of the call.
 //
 // The contract's other archive promise — that the archived row stays
 // fetchable by id — is NOT met here, and cannot be by this transport: the
@@ -145,9 +158,10 @@ func respondWithMirroredRecord[Res any](s Server, w http.ResponseWriter, r *http
 // archive stops serving the object at the source, so the mirror has no
 // archived state to keep; honoring that promise needs an archived-row
 // substrate and a settled answer to what archive MEANS when the system of
-// record is an incumbent. Both are upstream contract questions, tracked
-// against the spec — this shadow does not paper over the gap by pretending
-// the record is still there.
+// record is an incumbent. Both are upstream contract questions against
+// margince-foundation's overlay chapter; this shadow does not paper over the
+// gap by pretending the record is still there, and the integration test
+// asserts the 404 so the day that answer lands, it fails loudly.
 //
 // The body can also be stale by the width of the pre-read-then-archive
 // window — an incumbent update landing in that gap is not reflected —

@@ -278,8 +278,11 @@ func (d *Dispatcher) StageSemantic(ctx context.Context, stageID ids.UUID) (strin
 }
 
 // Create dispatches to the overlay mirror or the native SoR modules per
-// ctx's workspace.x_sor_mode; overlay has no write-back path yet and
-// always answers apperrors.ErrUnsupportedBySoR until branch 2 lands it.
+// ctx's workspace.x_sor_mode. The mutating verbs here — and only these —
+// resolve the mode UNCACHED (isOverlayForWrite); see its doc for why a write
+// cannot take the cached answer a read happily takes. Overlay serves update
+// and archive; every other write verb it declares unsupported and refuses at
+// the provider (overlay.SupportsWrite).
 func (d *Dispatcher) Create(ctx context.Context, in datasource.CreateInput) (datasource.EntityRef, error) {
 	ov, err := d.isOverlayForWrite(ctx)
 	if err != nil {
@@ -292,7 +295,7 @@ func (d *Dispatcher) Create(ctx context.Context, in datasource.CreateInput) (dat
 }
 
 // Update dispatches to the overlay mirror or the native SoR modules per
-// ctx's workspace.x_sor_mode; see Create's doc on overlay's write gap.
+// ctx's workspace.x_sor_mode; see Create's doc on the uncached mode read.
 func (d *Dispatcher) Update(ctx context.Context, in datasource.UpdateInput) (datasource.EntityRef, error) {
 	ov, err := d.isOverlayForWrite(ctx)
 	if err != nil {
@@ -305,8 +308,8 @@ func (d *Dispatcher) Update(ctx context.Context, in datasource.UpdateInput) (dat
 }
 
 // AdvanceDeal dispatches to the overlay mirror or the native SoR
-// modules per ctx's workspace.x_sor_mode; see Create's doc on overlay's
-// write gap.
+// modules per ctx's workspace.x_sor_mode; see Create's doc on the uncached
+// mode read.
 func (d *Dispatcher) AdvanceDeal(ctx context.Context, in datasource.AdvanceDealInput) (datasource.EntityRef, error) {
 	ov, err := d.isOverlayForWrite(ctx)
 	if err != nil {
@@ -333,7 +336,7 @@ func (d *Dispatcher) Archive(ctx context.Context, ref datasource.EntityRef) (dat
 }
 
 // Merge dispatches to the overlay mirror or the native SoR modules per
-// ctx's workspace.x_sor_mode; see Create's doc on overlay's write gap.
+// ctx's workspace.x_sor_mode; see Create's doc on the uncached mode read.
 func (d *Dispatcher) Merge(ctx context.Context, in datasource.MergeInput) (datasource.EntityRef, error) {
 	ov, err := d.isOverlayForWrite(ctx)
 	if err != nil {
@@ -346,8 +349,8 @@ func (d *Dispatcher) Merge(ctx context.Context, in datasource.MergeInput) (datas
 }
 
 // PromoteLead dispatches to the overlay mirror or the native SoR
-// modules per ctx's workspace.x_sor_mode; see Create's doc on overlay's
-// write gap.
+// modules per ctx's workspace.x_sor_mode; see Create's doc on the uncached
+// mode read.
 func (d *Dispatcher) PromoteLead(ctx context.Context, id ids.UUID, trigger string, evidenceNote *string) (datasource.EntityRef, bool, error) {
 	ov, err := d.isOverlayForWrite(ctx)
 	if err != nil {

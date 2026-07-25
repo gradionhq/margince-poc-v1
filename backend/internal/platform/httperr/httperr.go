@@ -108,10 +108,17 @@ func clientInputValidation(err error) (error, bool) {
 	// A write payload the datasource seam refused to decode — an unknown or
 	// misspelled field, or a value of the wrong type. datasource's own doc
 	// states it maps to 422 on every surface; this is the branch that makes
-	// that true for HTTP rather than letting it fall through to the 500.
+	// that true for HTTP rather than letting it fall through to the 500 a
+	// pure client mistake must never answer with.
+	//
+	// The cause names which field and why, matching what httperr.Decode
+	// already puts on the wire for the same class from the native path; the
+	// sentence after it is what the caller should DO, which a decoder message
+	// on its own never says.
 	var badFields *datasource.FieldDecodeError
 	if errors.As(err, &badFields) {
-		return Validation("fields", "invalid_field", badFields.Cause.Error()), true
+		return Validation("fields", "invalid_field",
+			badFields.Cause.Error()+" — check the field names and value types against this operation's request schema"), true
 	}
 
 	return nil, false
