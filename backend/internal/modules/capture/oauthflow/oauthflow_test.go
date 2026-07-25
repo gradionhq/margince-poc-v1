@@ -207,3 +207,48 @@ func TestTokenEndpointThrottleRateLimits(t *testing.T) {
 		t.Fatalf("Retry-After = %v, want 45s", rl.RetryAfter)
 	}
 }
+
+// A refused exchange is the hardest connector failure to diagnose blind: the
+// remedy for invalid_grant (a stale code — retry the consent) has nothing to do
+// with the remedy for invalid_client (fix the deployment's credentials). The
+// RFC 6749 code must therefore survive into the error, without disturbing the
+// class the scheduler reads.
+func TestRefusedTokenExchangeCarriesTheOAuthErrorCode(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		status     int
+		body       string
+		wantClass  error
+		wantReason string
+	}{
+		{"stale code", http.StatusBadRequest, `{"error":"invalid_grant"}`, errAuth, "invalid_grant"},
+		{"bad credentials", http.StatusUnauthorized, `{"error":"invalid_client"}`, errAuth, "invalid_client"},
+		{"5xx keeps unreachable", http.StatusBadGateway, `{"error":"server_error"}`, errUnre, "server_error"},
+		{"a body naming nothing yields no reason", http.StatusBadRequest, `nope`, errAuth, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var form url.Values
+			srv := tokenServer(t, tc.status, tc.body, &form)
+			c := New(testConfig(srv.URL, false))
+
+			_, err := c.Exchange(context.Background(), "the-code", "https://api.test/callback")
+
+			if !errors.Is(err, tc.wantClass) {
+				t.Fatalf("err = %v, want class %v", err, tc.wantClass)
+			}
+			pe, ok := errors.AsType[*connector.ProviderError](err)
+			if !ok {
+				t.Fatalf("err = %v, want a *connector.ProviderError", err)
+			}
+			if pe.Reason != tc.wantReason {
+				t.Errorf("Reason = %q, want %q", pe.Reason, tc.wantReason)
+			}
+			if pe.Status != tc.status {
+				t.Errorf("Status = %d, want %d", pe.Status, tc.status)
+			}
+			if pe.Op != tokenOp {
+				t.Errorf("Op = %q, want %q", pe.Op, tokenOp)
+			}
+		})
+	}
+}

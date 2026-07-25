@@ -14,7 +14,6 @@
 package googleconn
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -55,9 +54,11 @@ var ErrUnreachable = fmt.Errorf("googleconn: could not reach Google: %w", connec
 
 // Get performs an authorized GET against base+path and JSON-decodes the 200
 // body into out. It returns the HTTP status (so a caller can special-case a
-// provider code like 404/410) and maps a 401/403 to ErrAuthRejected and any
-// other non-2xx/transport failure to ErrUnreachable. Google's raw body is never
-// surfaced to the caller.
+// provider code like 404/410) alongside the classified failure: a 429 or a
+// quota-reason 403 becomes a RateLimitedError carrying Retry-After, a 401/403
+// ErrAuthRejected, and any other non-2xx or transport fault ErrUnreachable —
+// each carrying the path and Google's own machine reason so the failure is
+// diagnosable. Google's raw body is never surfaced to the caller.
 //
 //craft:ignore naked-any out is the caller-supplied JSON decode target — its concrete type varies per endpoint
 func Get(ctx context.Context, client *http.Client, base, accessToken, path string, q url.Values, out any) (int, error) {
@@ -83,14 +84,18 @@ func Get(ctx context.Context, client *http.Client, base, accessToken, path strin
 	if resp.StatusCode == http.StatusTooManyRequests {
 		return resp.StatusCode, &connector.RateLimitedError{RetryAfter: retryAfter(resp)}
 	}
-	if resp.StatusCode == http.StatusForbidden && isRateLimitBody(body) {
+	if resp.StatusCode == http.StatusForbidden && RateLimitBody(body) {
 		return resp.StatusCode, &connector.RateLimitedError{RetryAfter: retryAfter(resp)}
 	}
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return resp.StatusCode, ErrAuthRejected
+		return resp.StatusCode, &connector.ProviderError{
+			Op: path, Status: resp.StatusCode, Reason: Reason(body), Class: ErrAuthRejected,
+		}
 	}
 	if resp.StatusCode != http.StatusOK {
-		return resp.StatusCode, ErrUnreachable
+		return resp.StatusCode, &connector.ProviderError{
+			Op: path, Status: resp.StatusCode, Reason: Reason(body), Class: ErrUnreachable,
+		}
 	}
 	if readErr != nil {
 		// A truncated body that happens to be a valid-JSON prefix must never
@@ -103,13 +108,171 @@ func Get(ctx context.Context, client *http.Client, base, accessToken, path strin
 	return resp.StatusCode, nil
 }
 
-// isRateLimitBody reports whether a 403 body carries one of Google's
-// rate/quota reasons (rateLimitExceeded, userRateLimitExceeded,
-// dailyLimitExceeded — all share "LimitExceeded" — or quotaExceeded). Those are
-// retryable throttling, distinct from a revoked/insufficient grant, which stays
-// ErrAuthRejected.
-func isRateLimitBody(body []byte) bool {
-	return bytes.Contains(body, []byte("LimitExceeded")) || bytes.Contains(body, []byte("quotaExceeded"))
+// The Google reason codes that mean THE DEPLOYMENT IS NOT CONFIGURED, not that
+// a credential went bad: the API this connector calls was never enabled for the
+// Google Cloud project behind the OAuth client. Google reports it as a 403 —
+// indistinguishable, by status alone, from a revoked grant — so without the
+// reason code the failure reads as "reconnect to resume", advice that can never
+// work: only an administrator enabling the API in the project fixes it.
+// accessNotConfigured is the classic reason; SERVICE_DISABLED is the same fact
+// in Google's newer ErrorInfo details.
+const (
+	reasonAccessNotConfigured = "accessNotConfigured"
+	reasonServiceDisabled     = "SERVICE_DISABLED"
+)
+
+// Misconfigured reports whether err is a Google refusal that names a disabled
+// API rather than a bad credential — the one auth-rejected case a human cannot
+// fix by reconnecting.
+func Misconfigured(err error) bool {
+	switch connector.ProviderReason(err) {
+	case reasonAccessNotConfigured, reasonServiceDisabled:
+		return true
+	default:
+		return false
+	}
+}
+
+// googleErrorBody is the subset of Google's standard error envelope that names
+// the failure. errors[].reason is the classic form; details[].reason is the
+// google.rpc.ErrorInfo form the newer APIs return; status is the enum both
+// carry. Only these fixed machine codes are read — the prose message stays in
+// the body and never travels.
+type googleErrorBody struct {
+	Error struct {
+		Status string `json:"status"`
+		Errors []struct {
+			Reason string `json:"reason"`
+		} `json:"errors"`
+		Details []struct {
+			Reason string `json:"reason"`
+		} `json:"details"`
+	} `json:"error"`
+}
+
+// reasonCodes separates the SPECIFIC reason codes (the classic errors[] entries,
+// then the ErrorInfo details[]) from the overall status, so each caller states
+// its own use for the status rather than inheriting one from the order of a
+// single list. Values are raw — validation is the caller's business.
+func reasonCodes(body []byte) (codes []string, status string) {
+	var parsed googleErrorBody
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil, ""
+	}
+	codes = make([]string, 0, len(parsed.Error.Errors)+len(parsed.Error.Details))
+	for _, e := range parsed.Error.Errors {
+		if e.Reason != "" {
+			codes = append(codes, e.Reason)
+		}
+	}
+	for _, d := range parsed.Error.Details {
+		if d.Reason != "" {
+			codes = append(codes, d.Reason)
+		}
+	}
+	return codes, parsed.Error.Status
+}
+
+// Reason extracts Google's machine reason code from an error body. It is
+// exported because the Google connector that predates this package still runs
+// its own transport (Gmail's, which needs a 96 MiB read cap for RAW messages)
+// and must name a failure the SAME way — otherwise one disabled-API 403 stays
+// diagnosable on calendar and undiagnosable on mail.
+//
+// It returns "" when the body names no reason or isn't Google's envelope at
+// all (an HTML error page from a proxy, say) — an absent reason must never look
+// like a present one, so a decode failure yields "" rather than a guess.
+func Reason(body []byte) string {
+	codes, status := reasonCodes(body)
+	// Take the first code that survives validation, not merely the first one
+	// present: a value MachineReason refuses must not shadow a usable one that
+	// follows it, or the body ends up LESS diagnosable than it really was.
+	for _, raw := range codes {
+		if r := connector.MachineReason(raw); r != "" {
+			return r
+		}
+	}
+	return connector.MachineReason(status)
+}
+
+// The rate/quota codes the Gmail and Calendar APIs return: the classic family
+// (rateLimitExceeded, userRateLimitExceeded, dailyLimitExceeded) shares the
+// "LimitExceeded" suffix, so matching the suffix covers a new per-product RATE
+// limit without an edit here; quotaExceeded and the newer ErrorInfo enums have
+// their own spellings. The suffix is not a blanket rule for every Google API —
+// the Drive family spells permanent capacity errors the same way
+// (teamDriveFileLimitExceeded), and those no retry can clear — so a connector
+// added to this package for another API must check its own vocabulary rather
+// than assume this set.
+const (
+	limitExceededSuffix = "LimitExceeded"
+	// The generic usageLimits reason — "cannot be completed due to access or
+	// rate limitations". It is named explicitly because it misses the suffix
+	// above by a single capital letter, and a throttle read as a refusal parks
+	// the connection.
+	reasonLimitExceeded     = "limitExceeded"
+	reasonQuotaExceeded     = "quotaExceeded"
+	reasonQuotaExceededEnum = "QUOTA_EXCEEDED"
+	reasonRateLimitEnum     = "RATE_LIMIT_EXCEEDED"
+	reasonResourceExhausted = "RESOURCE_EXHAUSTED"
+)
+
+// isRateLimitReason reports whether one parsed reason code names throttling.
+func isRateLimitReason(reason string) bool {
+	if strings.HasSuffix(reason, limitExceededSuffix) {
+		return true
+	}
+	switch reason {
+	case reasonLimitExceeded, reasonQuotaExceeded, reasonQuotaExceededEnum,
+		reasonRateLimitEnum, reasonResourceExhausted:
+		return true
+	default:
+		return false
+	}
+}
+
+// RateLimitBody reports whether a 403 body names throttling rather than a bad
+// credential — retryable weather (honor Retry-After, back off) as against a
+// rejected grant, which parks the connection until its human reconnects.
+//
+// It reads the PARSED reason codes, never the raw bytes: a substring scan over
+// the whole body also matches the literal sitting in Google's prose message, and
+// reading that as throttling means a revoked credential is retried instead of
+// being handed back to its human.
+//
+// A specific reason code, when the body names one, is the WHOLE verdict. The
+// status is consulted only when the body names none: this predicate is asked
+// about nothing but 403s, where the status is PERMISSION_DENIED by construction —
+// the canonical restatement of the HTTP code the caller already branched on — so
+// letting it speak alongside a code would veto every throttling verdict. Alone
+// it is the only thing the body says, and being no limit it parks.
+//
+// Among the codes, one we can read and that is NOT a limit vetoes the verdict: a
+// body naming both a refusal and a limit is ambiguous, and a refusal is the more
+// specific claim. A code we cannot read is no evidence either way rather than
+// counter-evidence — the two errors are not equally cheap. Parking a healthy
+// connection stops capture until a human re-runs OAuth and nothing else catches
+// it, whereas a grant that really is revoked is refused again at the token
+// endpoint on the very next sync. So an unreadable field must not be able to
+// turn a rate limit into a reauth prompt.
+func RateLimitBody(body []byte) bool {
+	codes, status := reasonCodes(body)
+	if len(codes) == 0 {
+		// Nothing specific was named, so the status is all the body says.
+		return isRateLimitReason(connector.MachineReason(status))
+	}
+	limit := false
+	for _, raw := range codes {
+		switch code := connector.MachineReason(raw); {
+		case code == "":
+			continue // unreadable — no evidence either way
+		case isRateLimitReason(code):
+			limit = true
+		default:
+			return false // a readable refusal: park rather than retry
+		}
+	}
+	return limit
 }
 
 // retryAfter parses the provider's Retry-After (delta-seconds form; Google does

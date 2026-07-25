@@ -253,3 +253,121 @@ func TestWatchRegistersAndParsesMillisecondExpiration(t *testing.T) {
 		t.Errorf("expiration = %v, want %v", exp, want)
 	}
 }
+
+// Gmail runs its own transport, so the two facts the shared Google plumbing
+// establishes have to hold here independently — otherwise the same provider
+// failure is diagnosable on calendar and opaque on mail.
+func TestGmailTransportCarriesGooglesReasonAndSharesTheQuotaVerdict(t *testing.T) {
+	mux := http.NewServeMux()
+	// The failure this whole change exists for: the API is not enabled for the
+	// project. A 403, but no reconnect can clear it.
+	mux.HandleFunc("/profile", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		//craft:ignore swallowed-errors test stub write
+		_, _ = w.Write([]byte(`{"error":{"code":403,"errors":[{"reason":"accessNotConfigured"}]}}`))
+	})
+	// A daily-quota 403. It shares no substring with "rateLimitExceeded", so a
+	// narrower predicate here would fall through to the auth arm and park a
+	// merely-throttled mailbox as needing a human.
+	mux.HandleFunc("/messages", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "42")
+		w.WriteHeader(http.StatusForbidden)
+		//craft:ignore swallowed-errors test stub write
+		_, _ = w.Write([]byte(`{"error":{"code":403,"errors":[{"reason":"dailyLimitExceeded"}]}}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	api := NewAPI(srv.Client(), srv.URL)
+
+	_, _, err := api.Profile(context.Background(), "access")
+	if !errors.Is(err, ErrAuthRejected) {
+		t.Fatalf("disabled-API err = %v, want ErrAuthRejected", err)
+	}
+	if got := connector.ProviderReason(err); got != "accessNotConfigured" {
+		t.Errorf("ProviderReason = %q, want accessNotConfigured", got)
+	}
+
+	_, err = api.ListRecent(context.Background(), "access", 10)
+	if errors.Is(err, ErrAuthRejected) {
+		t.Fatalf("a daily-quota 403 was classified as rejected auth: %v", err)
+	}
+	rl, ok := errors.AsType[*connector.RateLimitedError](err)
+	if !ok {
+		t.Fatalf("quota err = %v, want a RateLimitedError so the sync backs off", err)
+	}
+	if rl.RetryAfter != 42*time.Second {
+		t.Errorf("RetryAfter = %v, want 42s from the provider header", rl.RetryAfter)
+	}
+}
+
+// users.watch renewal is a Gmail call like any other, so a throttled renewal
+// must read as throttling and carry the provider's Retry-After — not as a
+// refused credential with the delay thrown away. (The renewal's own failure is
+// logged and skipped rather than parking the connection; what is wrong is the
+// verdict, and the next caller to trust it.)
+func TestWatchTreatsThrottlingAsThrottlingNotRejectedAuth(t *testing.T) {
+	for name, tc := range map[string]struct {
+		status int
+		body   string
+	}{
+		"429":              {http.StatusTooManyRequests, `{}`},
+		"403 rate limited": {http.StatusForbidden, `{"error":{"errors":[{"reason":"rateLimitExceeded"}]}}`},
+		"403 daily quota":  {http.StatusForbidden, `{"error":{"errors":[{"reason":"dailyLimitExceeded"}]}}`},
+		"403 newer enum":   {http.StatusForbidden, `{"error":{"details":[{"reason":"RATE_LIMIT_EXCEEDED"}]}}`},
+		// The shape Google actually sends: a limit reason alongside the 403's own
+		// status restated as PERMISSION_DENIED. Letting that status speak for the
+		// body would park a merely-paced mailbox.
+		"403 with the status populated": {
+			http.StatusForbidden,
+			`{"error":{"code":403,"errors":[{"domain":"usageLimits","reason":"userRateLimitExceeded"}],"status":"PERMISSION_DENIED"}}`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			mux.HandleFunc("/watch", func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Retry-After", "13")
+				w.WriteHeader(tc.status)
+				//craft:ignore swallowed-errors test stub write
+				_, _ = w.Write([]byte(tc.body))
+			})
+			srv := httptest.NewServer(mux)
+			t.Cleanup(srv.Close)
+
+			_, _, err := NewAPI(srv.Client(), srv.URL).Watch(context.Background(), "access", "projects/p/topics/t")
+
+			if errors.Is(err, ErrAuthRejected) {
+				t.Fatalf("throttled watch classified as rejected auth: %v", err)
+			}
+			rl, ok := errors.AsType[*connector.RateLimitedError](err)
+			if !ok {
+				t.Fatalf("err = %v, want a RateLimitedError so the renewal backs off", err)
+			}
+			if rl.RetryAfter != 13*time.Second {
+				t.Errorf("RetryAfter = %v, want 13s from the provider header", rl.RetryAfter)
+			}
+		})
+	}
+}
+
+// A 403 that does NOT name a limit stays a refused credential. The quota check
+// reads the parsed reason precisely for this: a body merely mentioning a limit in
+// prose must not keep a revoked grant alive and retrying forever.
+func TestForbiddenWithoutALimitReasonStaysRejectedAuth(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/profile", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		//craft:ignore swallowed-errors test stub write
+		_, _ = w.Write([]byte(`{"error":{"errors":[{"reason":"authError","message":"quotaExceeded is not why"}]}}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	_, _, err := NewAPI(srv.Client(), srv.URL).Profile(context.Background(), "access")
+
+	if _, ok := errors.AsType[*connector.RateLimitedError](err); ok {
+		t.Fatalf("prose mentioning a quota literal was read as throttling: %v", err)
+	}
+	if !errors.Is(err, ErrAuthRejected) {
+		t.Errorf("err = %v, want ErrAuthRejected so the connection is parked", err)
+	}
+}

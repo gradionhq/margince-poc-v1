@@ -58,15 +58,20 @@ const OAUTH_DISCONNECT_NOTE: Partial<Record<Provider, MessageKey>> = {
 };
 
 // The OAuth callback lands back on #/settings/integrations/{outcome} — the
-// route parses to id2 = "ok" | "denied" | "error". Only these three are
-// server-defined (contract-first); any other value is silently ignored
-// rather than rendering a raw route segment.
+// route parses to id2 = "ok" | "denied" | "rejected" | "misconfigured" |
+// "error". Only these are server-defined (contract-first); any other value is
+// silently ignored rather than rendering a raw route segment. "rejected" and
+// "misconfigured" exist so a failure nobody can fix by retrying doesn't tell
+// the reader to retry: the provider refused the grant, or its API was never
+// enabled for this deployment.
 const OAUTH_OUTCOME_NOTE: Record<
   string,
   { key: MessageKey; tone: "success" | "danger" }
 > = {
   ok: { key: "connectors.oauthOk", tone: "success" },
   denied: { key: "connectors.oauthDenied", tone: "danger" },
+  rejected: { key: "connectors.oauthRejected", tone: "danger" },
+  misconfigured: { key: "connectors.oauthMisconfigured", tone: "danger" },
   error: { key: "connectors.oauthError", tone: "danger" },
 };
 
@@ -94,8 +99,12 @@ function OAuthOutcomeNote() {
       ? route.id2
       : undefined;
   const [dismissedOutcome, setDismissedOutcome] = useState<string | null>(null);
+  // Object.hasOwn, not a bare index: a route segment like "constructor" would
+  // otherwise resolve to an inherited member and render an empty note.
   const note =
-    oauthOutcome && oauthOutcome !== dismissedOutcome
+    oauthOutcome &&
+    oauthOutcome !== dismissedOutcome &&
+    Object.hasOwn(OAUTH_OUTCOME_NOTE, oauthOutcome)
       ? OAUTH_OUTCOME_NOTE[oauthOutcome]
       : undefined;
   if (!note) {

@@ -350,3 +350,63 @@ func TestClientUnreachableWhenServerDown(t *testing.T) {
 		t.Fatalf("Profile against a closed server = %v, want ErrUnreachable", err)
 	}
 }
+
+// Microsoft's error.code is what tells an operator WHICH refusal this was —
+// a revoked token reads differently from an app that was never granted the
+// permission — so it has to survive the transport while the class stays put.
+func TestGraphRefusalCarriesMicrosoftsErrorCode(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/me/messages", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		//craft:ignore swallowed-errors test stub write
+		_, _ = w.Write([]byte(`{"error":{"code":"Authorization_RequestDenied","message":"Insufficient privileges."}}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	api := NewAPI(srv.Client(), srv.URL)
+
+	_, err := api.EstimateAfter(context.Background(), "access", time.Time{})
+
+	if !errors.Is(err, ErrAuthRejected) {
+		t.Fatalf("err = %v, want ErrAuthRejected", err)
+	}
+	if got := connector.ProviderReason(err); got != "Authorization_RequestDenied" {
+		t.Errorf("ProviderReason = %q, want Authorization_RequestDenied", got)
+	}
+	pe, ok := errors.AsType[*connector.ProviderError](err)
+	if !ok {
+		t.Fatalf("err = %v, want a *connector.ProviderError", err)
+	}
+	if pe.Status != http.StatusForbidden {
+		t.Errorf("Status = %d, want 403", pe.Status)
+	}
+}
+
+// requestOp names the endpoint as a PATH: the query carries cursors and filters
+// that have no place in an error string, and the scheme+host are fixed for the
+// deployment — so an op reads like the other connectors' rather than embedding a
+// host (an ephemeral port, under test).
+func TestRequestOpReducesAURLToItsPath(t *testing.T) {
+	a := &httpAPI{base: "https://graph.microsoft.com/v1.0"}
+	for name, tc := range map[string]struct{ in, want string }{
+		"filter and count": {
+			"https://graph.microsoft.com/v1.0/me/messages?$filter=x&$count=true",
+			"/me/messages",
+		},
+		"delta token": {
+			"https://graph.microsoft.com/v1.0/me/messages/delta?$deltatoken=abc123",
+			"/me/messages/delta",
+		},
+		"no query": {"https://graph.microsoft.com/v1.0/me", "/me"},
+		// A URL that is not under the base keeps its full form rather than being
+		// silently mangled — sameAPIOrigin refuses those before they are fetched,
+		// so one appearing here is worth seeing whole.
+		"off base": {"https://elsewhere.example/x", "https://elsewhere.example/x"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := a.requestOp(tc.in); got != tc.want {
+				t.Errorf("requestOp(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}

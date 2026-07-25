@@ -92,3 +92,36 @@ it("OAuthReturnPanel reports a confirm-failure when no connection came back", as
     await screen.findByText("We couldn't confirm the connection."),
   ).toBeTruthy();
 });
+
+// Onboarding is the DEFAULT return surface for a consent round-trip, so it sees
+// the same server outcome enum Settings does. A permanent failure that only
+// Settings knows about would fall through to this panel's generic advice —
+// "try connecting again" — which is the one thing that cannot work here.
+it("OAuthReturnPanel names the remedy when the provider's API is not enabled", async () => {
+  installFetchStub({ "GET /connectors": () => jsonResponse({ data: [] }) });
+  render(<OAuthReturnPanel outcome="misconfigured" onComplete={vi.fn()} />);
+  expect(
+    await screen.findByText(/administrator needs to enable it/i),
+  ).toBeTruthy();
+  expect(screen.queryByText(/try connecting again/i)).toBeNull();
+});
+
+it("OAuthReturnPanel tells the reader what to accept when the provider declined", async () => {
+  installFetchStub({ "GET /connectors": () => jsonResponse({ data: [] }) });
+  render(<OAuthReturnPanel outcome="rejected" onComplete={vi.fn()} />);
+  expect(await screen.findByText(/accept every permission/i)).toBeTruthy();
+  // Retrying IS the right advice once the permissions are accepted, so this copy
+  // may say so — what it must not do is fall back to the generic panel text that
+  // names no remedy at all.
+  expect(screen.queryByText(/Head to Settings/i)).toBeNull();
+});
+
+// An outcome this panel does not know must still land on the honest generic
+// failure rather than rendering nothing.
+it("OAuthReturnPanel keeps the generic failure for an unrecognized outcome", async () => {
+  installFetchStub({ "GET /connectors": () => jsonResponse({ data: [] }) });
+  render(<OAuthReturnPanel outcome="something-new" onComplete={vi.fn()} />);
+  expect(
+    await screen.findByText(/couldn't confirm the connection/i),
+  ).toBeTruthy();
+});

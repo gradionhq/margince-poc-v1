@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -197,5 +198,199 @@ func TestGetUnreachableHost(t *testing.T) {
 	srv.Close()
 	if _, err := Get(context.Background(), srv.Client(), url, "tok", "/x", nil, &out); !errors.Is(err, ErrUnreachable) {
 		t.Fatalf("Get to a dead host err = %v, want ErrUnreachable", err)
+	}
+}
+
+// A disabled API and a revoked grant are both 403s. They schedule the same way,
+// but a human can only fix one of them — so the reason code has to survive the
+// transport, or the two stay indistinguishable in a log.
+func TestForbiddenCarriesGoogleReasonAndStaysAuthRejected(t *testing.T) {
+	mux := http.NewServeMux()
+	// Google's classic envelope for an API that was never enabled.
+	mux.HandleFunc("/disabled", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		//craft:ignore swallowed-errors test stub write
+		_, _ = w.Write([]byte(`{"error":{"code":403,"errors":[{"reason":"accessNotConfigured"}],"status":"PERMISSION_DENIED"}}`))
+	})
+	// The newer ErrorInfo form of the same fact.
+	mux.HandleFunc("/disabled-details", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		//craft:ignore swallowed-errors test stub write
+		_, _ = w.Write([]byte(`{"error":{"code":403,"details":[{"reason":"SERVICE_DISABLED"}]}}`))
+	})
+	// A revoked/insufficient grant: rejected, but NOT a misconfiguration.
+	mux.HandleFunc("/revoked", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		//craft:ignore swallowed-errors test stub write
+		_, _ = w.Write([]byte(`{"error":{"code":401,"errors":[{"reason":"authError"}]}}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	var out struct{}
+	for _, tc := range []struct {
+		path          string
+		wantStatus    int
+		wantReason    string
+		wantMisconfig bool
+	}{
+		{"/disabled", http.StatusForbidden, "accessNotConfigured", true},
+		{"/disabled-details", http.StatusForbidden, "SERVICE_DISABLED", true},
+		{"/revoked", http.StatusUnauthorized, "authError", false},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			_, err := Get(context.Background(), srv.Client(), srv.URL, "tok", tc.path, nil, &out)
+			// Classification must be untouched: the scheduler still sees auth.
+			if !errors.Is(err, ErrAuthRejected) {
+				t.Fatalf("err = %v, want ErrAuthRejected", err)
+			}
+			pe, ok := errors.AsType[*connector.ProviderError](err)
+			if !ok {
+				t.Fatalf("err = %v, want a *connector.ProviderError carrying the detail", err)
+			}
+			if pe.Status != tc.wantStatus {
+				t.Errorf("Status = %d, want %d", pe.Status, tc.wantStatus)
+			}
+			if pe.Reason != tc.wantReason {
+				t.Errorf("Reason = %q, want %q", pe.Reason, tc.wantReason)
+			}
+			if pe.Op != tc.path {
+				t.Errorf("Op = %q, want the failing path %q", pe.Op, tc.path)
+			}
+			if got := Misconfigured(err); got != tc.wantMisconfig {
+				t.Errorf("Misconfigured = %v, want %v", got, tc.wantMisconfig)
+			}
+			// The operator has to be able to read all three facts at a glance.
+			if msg := err.Error(); !strings.Contains(msg, tc.path) || !strings.Contains(msg, tc.wantReason) {
+				t.Errorf("Error() = %q, want it to name both the call and the reason", msg)
+			}
+		})
+	}
+}
+
+// A body that is not Google's envelope must yield no reason at all: an absent
+// reason that reads as a present one would misroute the operator.
+func TestReasonIsEmptyForABodyThatNamesNone(t *testing.T) {
+	for name, body := range map[string]string{
+		"not json":       "<html>502 from a proxy</html>",
+		"empty":          "",
+		"no reason":      `{"error":{"code":403}}`,
+		"unrelated json": `{"ok":true}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := Reason([]byte(body)); got != "" {
+				t.Errorf("Reason(%q) = %q, want \"\"", body, got)
+			}
+		})
+	}
+}
+
+// Misconfigured must answer false for errors that carry no provider detail at
+// all — a plain sentinel is not evidence of a disabled API.
+func TestMisconfiguredIsFalseWithoutAProviderReason(t *testing.T) {
+	if Misconfigured(ErrAuthRejected) {
+		t.Error("Misconfigured(bare ErrAuthRejected) = true, want false")
+	}
+	if Misconfigured(nil) {
+		t.Error("Misconfigured(nil) = true, want false")
+	}
+}
+
+// The predicate that decides park-vs-backoff, tested where it lives — including
+// against the envelopes Google really sends, status field and all. A readable
+// refusal beside a limit parks (the refusal is the more specific claim); a field
+// we cannot read does not, because parking a healthy connection is the more
+// expensive mistake.
+func TestRateLimitBodyDistinguishesThrottlingFromARefusal(t *testing.T) {
+	for name, tc := range map[string]struct {
+		body string
+		want bool
+	}{
+		"classic rate limit":                    {`{"error":{"errors":[{"reason":"rateLimitExceeded"}]}}`, true},
+		"per-user rate limit":                   {`{"error":{"errors":[{"reason":"userRateLimitExceeded"}]}}`, true},
+		"daily limit":                           {`{"error":{"errors":[{"reason":"dailyLimitExceeded"}]}}`, true},
+		"quota":                                 {`{"error":{"errors":[{"reason":"quotaExceeded"}]}}`, true},
+		"newer errorinfo enum":                  {`{"error":{"details":[{"reason":"RATE_LIMIT_EXCEEDED"}]}}`, true},
+		"resource exhausted":                    {`{"error":{"status":"RESOURCE_EXHAUSTED"}}`, true},
+		"a limit family we have not enumerated": {`{"error":{"errors":[{"reason":"concurrentLimitExceeded"}]}}`, true},
+
+		// The envelopes Google actually sends. On a 403 the status is
+		// PERMISSION_DENIED — the HTTP code restated, carrying nothing the caller
+		// has not already branched on. Letting it speak for the body would veto
+		// every throttling verdict here, since this predicate is asked about
+		// nothing but 403s.
+		"real gmail per-user limit, status populated": {
+			`{"error":{"code":403,"message":"User-rate limit exceeded.","errors":[{"domain":"usageLimits","reason":"userRateLimitExceeded"}],"status":"PERMISSION_DENIED"}}`,
+			true,
+		},
+		"real calendar quota, status populated": {
+			`{"error":{"code":403,"message":"Calendar usage limits exceeded.","errors":[{"domain":"usageLimits","reason":"quotaExceeded"}],"status":"PERMISSION_DENIED"}}`,
+			true,
+		},
+		"modern ErrorInfo limit, status populated": {
+			`{"error":{"code":403,"errors":[{"reason":"rateLimitExceeded"}],"details":[{"reason":"RATE_LIMIT_EXCEEDED"}],"status":"PERMISSION_DENIED"}}`,
+			true,
+		},
+
+		// The refusal cases. Each names something that is NOT a limit, so the
+		// verdict must be "not throttling" however the limit code is dressed up.
+		"a refusal first, a limit after": {`{"error":{"errors":[{"reason":"authError"},{"reason":"quotaExceeded"}]}}`, false},
+		"a disabled API and a limit":     {`{"error":{"details":[{"reason":"SERVICE_DISABLED"},{"reason":"RATE_LIMIT_EXCEEDED"}]}}`, false},
+		"a refusal with a limit status":  {`{"error":{"status":"RESOURCE_EXHAUSTED","errors":[{"reason":"authError"}]}}`, false},
+		"a limit named only in prose":    {`{"error":{"errors":[{"reason":"authError","message":"quotaExceeded"}]}}`, false},
+		"prose alone":                    {`{"error":{"message":"rateLimitExceeded for this user"}}`, false},
+		// A reason we cannot read is no evidence either way. It must not veto a
+		// limit the body also names: parking a healthy connection stops capture
+		// until a human re-runs OAuth, while a genuinely revoked grant is refused
+		// again at the token endpoint on the next sync — the two mistakes are not
+		// equally cheap.
+		"an unreadable reason does not veto a limit": {`{"error":{"errors":[{"reason":"Rate Limit Exceeded"},{"reason":"rateLimitExceeded"}]}}`, true},
+		// But a reason we CAN read and that is not a limit does veto it.
+		"a readable refusal vetoes a later limit": {`{"error":{"errors":[{"reason":"authError"},{"reason":"rateLimitExceeded"}]}}`, false},
+		"names nothing at all":                    {`{"error":{"code":403}}`, false},
+		// The generic usageLimits reason — one capital letter away from the suffix
+		// the rest of the family shares, so it needs its own case.
+		"the generic limit reason": {`{"error":{"code":403,"errors":[{"domain":"usageLimits","reason":"limitExceeded"}],"status":"PERMISSION_DENIED"}}`, true},
+		// The status fallback pinned in BOTH directions. This is the commonest real
+		// 403 body of all, and if the fallback ever stopped checking for a limit it
+		// would turn every plain refusal into an endless retry.
+		"a bare refusal, status only": {`{"error":{"code":403,"message":"The caller does not have permission","status":"PERMISSION_DENIED"}}`, false},
+		"not google's envelope":       {`<html>502 from a proxy</html>`, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := RateLimitBody([]byte(tc.body)); got != tc.want {
+				t.Errorf("RateLimitBody(%s) = %v, want %v", tc.body, got, tc.want)
+			}
+		})
+	}
+}
+
+// Reason answers a different question from RateLimitBody — "the most diagnosable
+// code" — so it walks past a value it cannot use rather than letting it shadow a
+// usable one, which would make the body less diagnosable than it really was.
+func TestReasonSkipsAnUnusableValueForAUsableOne(t *testing.T) {
+	for name, tc := range map[string]struct{ body, want string }{
+		"prose first, code second": {
+			`{"error":{"errors":[{"reason":"not a code at all"},{"reason":"accessNotConfigured"}]}}`,
+			"accessNotConfigured",
+		},
+		"oversized first, code in details": {
+			`{"error":{"errors":[{"reason":"` + strings.Repeat("a", 70) + `"}],"details":[{"reason":"SERVICE_DISABLED"}]}}`,
+			"SERVICE_DISABLED",
+		},
+		"unusable everywhere but the status": {
+			`{"error":{"errors":[{"reason":"has spaces"}],"status":"PERMISSION_DENIED"}}`,
+			"PERMISSION_DENIED",
+		},
+		"first usable code wins": {
+			`{"error":{"errors":[{"reason":"authError"},{"reason":"accessNotConfigured"}]}}`,
+			"authError",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := Reason([]byte(tc.body)); got != tc.want {
+				t.Errorf("Reason = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

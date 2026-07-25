@@ -1250,6 +1250,13 @@ export const de = {
     "Sie haben den Zugriff abgelehnt — es wurde nichts verbunden.",
   "connectors.oauthError":
     "Die Verbindung konnte nicht hergestellt werden — bitte versuchen Sie es erneut.",
+  // Zwei Fälle, für die "erneut versuchen" falsch wäre: der Anbieter hat die
+  // Freigabe abgelehnt, und die API des Anbieters ist für diese Installation
+  // nicht aktiviert (das kann keine Nutzeraktion beheben).
+  "connectors.oauthRejected":
+    "Der Anbieter hat die Verbindung abgelehnt. Bestätigen Sie alle angefragten Berechtigungen und versuchen Sie es dann erneut.",
+  "connectors.oauthMisconfigured":
+    "Diese Installation kann die Verbindung noch nicht abschließen — die API des Anbieters ist dafür nicht aktiviert. Ein Administrator muss sie aktivieren; das Server-Log nennt die betroffene API.",
   "connectors.dismissOutcome": "Schließen",
 
   // Das immer sichtbare "Verbindung hinzufügen"-Element (Task 1): der

@@ -298,7 +298,7 @@ func (a *httpAPI) GetMIME(ctx context.Context, accessToken, msgID string) ([]byt
 		// that is permanently gone, which would wedge the whole sync.
 		return nil, fmt.Errorf("graph: message %s no longer exists: %w", msgID, connector.ErrSkip)
 	}
-	if err := classifyStatus(resp); err != nil {
+	if err := classifyStatus(resp, messageOp, body); err != nil {
 		return nil, err
 	}
 	if len(body) > maxMIMELen {
@@ -368,17 +368,65 @@ func retryAfter(resp *http.Response) time.Duration {
 	return 0
 }
 
+// messageOp names the raw-MIME fetch in a ProviderError. Its sibling calls carry
+// their URL path as the op; this one is a hand-built request whose URL embeds the
+// message id, so it names the endpoint rather than the instance.
+const messageOp = "message"
+
+// requestOp names a Graph call in a ProviderError the way the other connectors
+// do — as a path relative to the API base. The query string is cut because it
+// carries per-request filters and cursors, and the base is trimmed because an
+// error string wants the endpoint that failed, not the scheme and host it lives
+// on (which are fixed for the deployment and, under test, an ephemeral port).
+func (a *httpAPI) requestOp(fullURL string) string {
+	op, _, _ := strings.Cut(fullURL, "?")
+	trimmed := strings.TrimPrefix(op, a.base)
+	if trimmed == "" {
+		// The base itself, with nothing after it: name the root rather than
+		// render an empty op behind a leading colon.
+		return "/"
+	}
+	return trimmed
+}
+
+// graphErrorBody is the subset of Microsoft's OData error envelope that names
+// the failure. code is the fixed machine code (InvalidAuthenticationToken,
+// accessDenied, …); the prose message beside it is deliberately not read.
+type graphErrorBody struct {
+	Error struct {
+		Code string `json:"code"`
+	} `json:"error"`
+}
+
+// graphReason extracts Microsoft's machine error code from a response body, ""
+// when the body carries none or does not decode — an unparsable body must not
+// masquerade as a named reason.
+func graphReason(body []byte) string {
+	var parsed graphErrorBody
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return ""
+	}
+	return connector.MachineReason(parsed.Error.Code)
+}
+
 // classifyStatus maps a non-2xx Graph response onto the shared connector
 // vocabulary: 429 honors Retry-After, 401/403 parks the credential, anything
-// else backs off. Microsoft's raw body is never surfaced to the caller.
-func classifyStatus(resp *http.Response) error {
+// else backs off. The classification is unchanged by op/body — those only carry
+// Microsoft's own machine code into the error so a log line says WHICH call
+// failed and WHY Microsoft refused it. The raw body is never surfaced to the
+// caller.
+func classifyStatus(resp *http.Response, op string, body []byte) error {
 	switch {
 	case resp.StatusCode == http.StatusTooManyRequests:
 		return &connector.RateLimitedError{RetryAfter: retryAfter(resp)}
 	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
-		return ErrAuthRejected
+		return &connector.ProviderError{
+			Op: op, Status: resp.StatusCode, Reason: graphReason(body), Class: ErrAuthRejected,
+		}
 	case resp.StatusCode < 200 || resp.StatusCode > 299:
-		return ErrUnreachable
+		return &connector.ProviderError{
+			Op: op, Status: resp.StatusCode, Reason: graphReason(body), Class: ErrUnreachable,
+		}
 	}
 	return nil
 }
@@ -409,7 +457,7 @@ func (a *httpAPI) get(ctx context.Context, accessToken, fullURL string, hdr http
 	// Classify on status/headers first: a 429/401 must be honored even if the
 	// body read failed. Only on an otherwise-OK response does a read failure
 	// matter — a truncated-but-valid-JSON prefix must never pass as complete.
-	if err := classifyStatus(resp); err != nil {
+	if err := classifyStatus(resp, a.requestOp(fullURL), body); err != nil {
 		return resp.StatusCode, err
 	}
 	if readErr != nil {

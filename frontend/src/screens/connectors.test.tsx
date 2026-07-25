@@ -359,6 +359,32 @@ describe("the OAuth return outcome", () => {
     expect(screen.queryByText(/you declined access/i)).toBeNull();
   });
 
+  // A permanent failure must not tell the reader to try again: the provider's
+  // API is not enabled for this deployment, and only an administrator can
+  // change that.
+  it("names the remedy when the provider's API is not enabled here", async () => {
+    globalThis.location.hash = "#/settings/integrations/misconfigured";
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ data: [] }),
+    });
+    render(<ConnectorsCard />);
+    expect(
+      await screen.findByText(/administrator needs to enable it/i),
+    ).toBeTruthy();
+    expect(screen.queryByText(/couldn't be completed/i)).toBeNull();
+  });
+
+  it("tells the reader to accept every permission when the provider declined", async () => {
+    globalThis.location.hash = "#/settings/integrations/rejected";
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ data: [] }),
+    });
+    render(<ConnectorsCard />);
+    expect(await screen.findByText(/accept every permission/i)).toBeTruthy();
+    // The generic "couldn't be completed — please try again" must not also show.
+    expect(screen.queryByText(/couldn't be completed/i)).toBeNull();
+  });
+
   it("renders a brief success note on ok — never an error", async () => {
     globalThis.location.hash = "#/settings/integrations/ok";
     installFetchStub({
