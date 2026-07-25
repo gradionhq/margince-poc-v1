@@ -31,9 +31,14 @@ import (
 // one company and one employment, and a replay adds nothing.
 func TestCaptureAutoCreatesTheCounterpartyBehindAThread(t *testing.T) {
 	env := newCaptureEnv(t)
-	e, sync := env.e, env.sync
+	e, sync, syncSent := env.e, env.sync, env.syncSent
 	t.Run("a thread becomes one person, one company, one employment", func(t *testing.T) {
-		sync(t,
+		// The owner's own reply is what makes alice a counterparty: T1
+		// correspondence-positive ensures immediately, where a first-time
+		// stranger would defer to the verdict engine. The outbound leg is
+		// attested, because only a provider-vouched send counts (ADR-0072 §1).
+		syncSent(
+			t, map[string]bool{"m2@myco.example": true},
 			email("alice@acme.example", "Alice Example", captureOwner, "m1@acme.example", ""),
 			email(captureOwner, "", "alice@acme.example", "m2@myco.example", "m1@acme.example"),
 			email("alice@acme.example", "Alice Example", captureOwner, "m3@acme.example", "m1@acme.example"),
@@ -57,11 +62,20 @@ func TestCaptureAutoCreatesTheCounterpartyBehindAThread(t *testing.T) {
 			WHERE r.kind = 'employment' AND r.is_current_primary AND pe.email = 'alice@acme.example'`); n != 1 {
 			t.Fatalf("%d employment edges, want exactly 1", n)
 		}
-		// Person-only links: every captured message links alice, none links the org.
+		// Person-only links, and only from the point alice became a
+		// counterparty: the FIRST message deferred — she was a stranger when it
+		// arrived — so the owner's reply and the message after it link her, and
+		// the deferred one waits for the verdict that resolves its ledger row.
 		if n := countRows(t, e, `
 			SELECT count(*) FROM activity_link al JOIN person_email pe ON pe.person_id = al.person_id
-			WHERE al.entity_type = 'person' AND pe.email = 'alice@acme.example'`); n != 3 {
-			t.Fatalf("%d person links, want 3 (one per captured message)", n)
+			WHERE al.entity_type = 'person' AND pe.email = 'alice@acme.example'`); n != 2 {
+			t.Fatalf("%d person links, want 2 (the reply and what followed it)", n)
+		}
+		// And the first message is not lost — it is deferred, on the ledger.
+		if n := countRows(t, e, `
+			SELECT count(*) FROM capture_pending_counterparty
+			WHERE email = 'alice@acme.example'`); n != 1 {
+			t.Fatalf("%d ledger rows for alice, want 1 — the cold first message deferred", n)
 		}
 		if n := countRows(t, e, `SELECT count(*) FROM activity_link WHERE entity_type = 'organization'`); n != 0 {
 			t.Fatalf("%d org links, want 0 — the org rolls up through employment", n)
@@ -94,7 +108,15 @@ func TestCaptureAutoCreatesTheCounterpartyBehindAThread(t *testing.T) {
 		// score (0.55·name + 0.45·org) crosses the review threshold. The
 		// near-match needs someone to be near, so this captures both halves
 		// rather than leaning on whoever a sibling subtest created.
-		sync(t,
+		// Both are written to first: a stranger defers, so a dedupe pair only
+		// exists once correspondence has made them counterparties.
+		syncSent(
+			t, map[string]bool{"fzo1@myco.example": true, "fzo2@myco.example": true},
+			email(captureOwner, "", "alice@acme.example", "fzo1@myco.example", ""),
+			email(captureOwner, "", "alice2@acme.example", "fzo2@myco.example", ""),
+		)
+		sync(
+			t,
 			email("alice@acme.example", "Alice Example", captureOwner, "fz0@acme.example", ""),
 			email("alice2@acme.example", "Alice Exampel", captureOwner, "f1@acme.example", ""),
 		)
@@ -115,7 +137,8 @@ func TestCaptureRecordsProvenanceWithoutTheMessageBody(t *testing.T) {
 	// Both halves read what a capture WROTE, so this test captures its own
 	// thread — an inbound leg and the owner's reply — rather than reading rows
 	// another test happened to leave behind.
-	sync(t,
+	sync(
+		t,
 		email("alice@acme.example", "Alice Example", captureOwner, "p1@acme.example", ""),
 		email(captureOwner, "", "alice@acme.example", "p2@myco.example", "p1@acme.example"),
 	)
@@ -210,7 +233,8 @@ func TestCaptureRefusesToDeriveARecord(t *testing.T) {
 					Objects:  map[string]principal.ObjectGrant{"activity": {Create: true, Read: true}},
 					RowScope: principal.RowScopeAll,
 				},
-			}), ids.NewV7())
+			},
+		), ids.NewV7())
 		raw := email("ghost@nowhere.example", "Ghost Sender", captureOwner, "g1@nowhere.example", "")
 		msg, err := mailmap.Parse(raw, captureOwner)
 		if err != nil {

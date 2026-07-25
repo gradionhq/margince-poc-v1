@@ -33,7 +33,8 @@ func TestCaptureTierGateSuppressesWhatIsNotACounterparty(t *testing.T) {
 		// conference blast on a prefix subdomain WITH a List-Unsubscribe header
 		// (corroborated) both suppress person+org while the timeline row stands
 		// (ADR-0072/A118, CAP-PARAM-6).
-		sync(t,
+		sync(
+			t,
 			email("dse@eu.docusign.net", "DocuSign EU", captureOwner, "ds1@docusign.net", ""),
 			emailWithListUnsub("hello@event.gitex.com", "GITEX", captureOwner, "gx1@event.gitex.com"),
 		)
@@ -54,14 +55,30 @@ func TestCaptureTierGateSuppressesWhatIsNotACounterparty(t *testing.T) {
 			t.Fatalf("%d transactional-suppression breadcrumbs, want 2", n)
 		}
 	})
-	t.Run("a conference blast WITHOUT corroboration is a normal counterparty", func(t *testing.T) {
+	t.Run("a conference blast WITHOUT corroboration is deferred, not suppressed", func(t *testing.T) {
 		// The same prefix subdomain, but no List-Unsubscribe and a human
-		// localpart: not suppressed — a real company can live at event.*.
+		// localpart: T2 does not fire, because a real company can live at
+		// event.*. What used to happen next was a record on sight; the sender
+		// is now the ambiguous class and waits for a verdict instead.
 		sync(t, email("ada@event.realco.example", "Ada Real", captureOwner, "rc1@event.realco.example", ""))
+
+		if n := countRows(t, e, `
+			SELECT count(*) FROM system_log
+			WHERE action = 'capture_transactional_suppressed' AND detail->>'source_id' = 'rc1@event.realco.example'`); n != 0 {
+			t.Fatal("an uncorroborated prefix sender was suppressed — a real company can live at event.*")
+		}
+		if n := countRows(t, e, `
+			SELECT count(*) FROM capture_pending_counterparty
+			WHERE email = 'ada@event.realco.example' AND status = 'pending'`); n != 1 {
+			t.Fatalf("%d pending ledger rows, want 1 — an unknown sender defers rather than creating", n)
+		}
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
-			WHERE pe.email = 'ada@event.realco.example'`); n != 1 {
-			t.Fatal("an uncorroborated prefix sender must create a normal person")
+			WHERE pe.email = 'ada@event.realco.example'`); n != 0 {
+			t.Fatal("a first-time sender minted a person — ADR-0063's create-on-sight is what this amends")
+		}
+		if n := countRows(t, e, `SELECT count(*) FROM activity WHERE source_id = 'rc1@event.realco.example'`); n != 1 {
+			t.Fatal("the activity must stand — deferring the record never drops the message")
 		}
 	})
 }

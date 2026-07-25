@@ -230,7 +230,8 @@ func TestOverlayUnsupportedWritesStillRefused(t *testing.T) {
 	}
 
 	var personCount int
-	if err := e.owner.QueryRow(context.Background(),
+	if err := e.owner.QueryRow(
+		context.Background(),
 		`SELECT count(*) FROM person WHERE workspace_id = (SELECT id FROM workspace WHERE slug = $1)`, e.slug,
 	).Scan(&personCount); err != nil {
 		t.Fatalf("counting native person rows: %v", err)

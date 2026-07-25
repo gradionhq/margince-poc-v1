@@ -136,30 +136,39 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 	if internal {
 		return counterpartyDecision{}, nil
 	}
-	// T2 transactional / ESP infrastructure (CAP-PARAM-6, ADR-0072): a
-	// DocuSign envelope or a SendGrid relay is not a counterparty's company.
-	// Suppress person AND org derivation — the activity already committed and
-	// stands (a DocuSign envelope is a real timeline item) — and record the
-	// reason durably for observability.
-	spared, suppressed, err := s.transactionalVerdict(ctx, tx, rec, row)
+	// T1 correspondence-positive: the workspace has provably written to this
+	// address, so it is a counterparty by demonstrated intent. Asked of EVERY
+	// sender, not only those a suppression rule matched — since T4 defers the
+	// ambiguous class, the answer now decides create-versus-defer for ordinary
+	// senders too, which is worth a query per captured message.
+	corresponded, err := s.correspondencePositiveTx(ctx, tx, cp.Email)
+	if err != nil {
+		return counterpartyDecision{}, err
+	}
+	decision.create = corresponded
+
+	// T2 transactional / ESP infrastructure, which T1 outranks.
+	suppressed, err := s.registrySuppresses(ctx, tx, rec, row, corresponded)
 	if err != nil {
 		return counterpartyDecision{}, err
 	}
 	if suppressed {
 		return counterpartyDecision{}, nil
 	}
-	decision.create = spared
 
 	// T3 free-mail (CAP-PARAM-5): a personal mailbox is a person, never a
 	// company — gmail.com is not an organization whatever else is true of it.
-	decision.suppressOrg = s.freemail != nil && s.freemail.IsFreemail(cp.Domain)
+	// Its domain already says what it is, so it is not the ambiguous class.
+	if s.freemail != nil && s.freemail.IsFreemail(cp.Domain) {
+		decision.create, decision.suppressOrg = true, true
+	}
 
 	if !decision.create {
-		// T4 ambiguous first-time sender (ADR-0072 §1). Nothing about this
-		// address yet says stranger or customer, and ADR-0063's create-on-sight
-		// is what manufactured junk from exactly this class. Defer instead: the
-		// activity stands, no record is minted, and the verdict engine answers
-		// the question the ledger now holds.
+		// T4 ambiguous first-time sender. Nothing about this address yet says
+		// stranger or customer, and ADR-0063's create-on-sight is what
+		// manufactured junk from exactly this class. Defer: the activity
+		// stands, no record is minted, and the verdict engine answers the
+		// question the ledger now holds.
 		row.Status = PendingStatusPending
 		if err := recordDisposition(ctx, tx, row); err != nil {
 			return counterpartyDecision{}, err
@@ -239,44 +248,32 @@ func capturePrincipal(ctx context.Context) (principal.Principal, ids.UUID) {
 	return actor, owner
 }
 
-// transactionalVerdict runs T2 against the transactional/ESP registry and the
-// T1 spare that outranks it. It reports whether T1 spared a matched sender
-// (which makes it a counterparty outright) and whether T2 stood (which finishes
-// the ladder here). A sender no rule matches is neither: the ladder continues.
+// registrySuppresses runs T2 against the transactional/ESP registry
+// (CAP-PARAM-6): a DocuSign envelope or a SendGrid relay is not a
+// counterparty's company, so person AND org derivation are suppressed while the
+// activity stands — a signed envelope is a real timeline item — and the reason
+// lands on the ledger so a wrong registry entry is queryable, not only logged.
 //
-// T1 outranking T2 is load-bearing (ADR-0072 §1): a known contact whose
-// newsletter footer carries a List-Unsubscribe header, or who mails from
-// `news.acme.com`, must not be suppressed as bulk infrastructure. Someone the
-// workspace has written to is a counterparty by demonstrated intent, whatever
-// their mail plumbing looks like. The correspondence question is asked only
-// here, where the answer is the only thing that changes an outcome.
-func (s *Sink) transactionalVerdict(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, row dispositionRow) (spared, suppressed bool, err error) {
+// T1 OUTRANKS it, and the precedence is load-bearing: a known contact whose
+// newsletter footer carries a List-Unsubscribe header is not infrastructure. A
+// spare is recorded on its own, because it is the one path that lets an address
+// the registry calls infrastructure become a record.
+func (s *Sink) registrySuppresses(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, row dispositionRow, corresponded bool) (bool, error) {
 	if s.transactional == nil {
-		return false, false, nil
+		return false, nil
 	}
 	suppress, reason := s.transactional.Suppress(transactionalInput(rec.Counterparty))
 	if !suppress {
-		return false, false, nil
+		return false, nil
 	}
-	corresponded, err := s.correspondencePositiveTx(ctx, tx, rec.Counterparty.Email)
-	if err != nil {
-		return false, true, err
+	if corresponded {
+		return false, s.logBreadcrumbTx(ctx, tx, "capture_correspondence_spared", rec, reason)
 	}
-	if !corresponded {
-		// T2 stands: person and org are suppressed, the activity keeps its
-		// place on the timeline, and the reason lands on the ledger so a wrong
-		// registry entry is queryable, not only logged.
-		row.Status, row.Reason = PendingStatusSuppressed, reason
-		if err := recordDisposition(ctx, tx, row); err != nil {
-			return false, true, err
-		}
-		return false, true, s.logBreadcrumbTx(ctx, tx, "capture_transactional_suppressed", rec, reason)
+	row.Status, row.Reason = PendingStatusSuppressed, reason
+	if err := recordDisposition(ctx, tx, row); err != nil {
+		return true, err
 	}
-	// The rule matched and T1 overrode it. Recorded on its own so a spare is as
-	// diagnosable as a suppression — this is the one path that lets an address
-	// the registry calls infrastructure become a record, and ops must be able
-	// to see it happen.
-	return true, false, s.logBreadcrumbTx(ctx, tx, "capture_correspondence_spared", rec, reason)
+	return true, s.logBreadcrumbTx(ctx, tx, "capture_transactional_suppressed", rec, reason)
 }
 
 // decideCounterpartyGuarded runs the tier ladder inside a SAVEPOINT so a fault

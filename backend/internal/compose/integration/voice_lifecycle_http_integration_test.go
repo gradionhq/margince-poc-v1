@@ -69,7 +69,8 @@ func seedVoiceLifecycleHistory(t *testing.T, e *env, profileID string) (ids.UUID
 	t.Helper()
 	ctx := context.Background()
 	var workspaceID, ownerID ids.UUID
-	if err := e.owner.QueryRow(ctx,
+	if err := e.owner.QueryRow(
+		ctx,
 		`SELECT workspace_id, owner_id FROM voice_profile WHERE id = $1`, profileID,
 	).Scan(&workspaceID, &ownerID); err != nil {
 		t.Fatal(err)

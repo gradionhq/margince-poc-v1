@@ -133,7 +133,8 @@ func (r *Registry) buildDigestPayload(ctx context.Context, tx pgx.Tx, userID ids
 		since).Scan(
 		&p.Capture.ActivitiesCreated, &p.Capture.PeopleCreated, &p.Capture.OrganizationsCreated,
 		&p.Review.DedupeOpen, &p.Review.ApprovalsPending,
-		&p.Review.Classify.Commitments, &p.Review.Classify.Meetings, &p.Review.Classify.Noise)
+		&p.Review.Classify.Commitments, &p.Review.Classify.Meetings, &p.Review.Classify.Noise,
+	)
 	if err != nil {
 		return DigestPayload{}, fmt.Errorf("capture: digest counts: %w", err)
 	}
