@@ -346,6 +346,8 @@ func TestOnlyAutoRepliesAreDroppedBeforeTheTierGate(t *testing.T) {
 		"bulk newsletter":     {"Precedence: bulk"},
 		"list mail":           {"Precedence: list"},
 		"auto-generated note": {"Auto-Submitted: auto-generated"},
+		// RFC 3834 §5 lets the value carry parameters; the keyword still decides.
+		"parameterized auto-generated": {"Auto-Submitted: auto-generated; owner-email=ops@vendor.example"},
 	}
 	for name, headers := range reaches {
 		t.Run(name, func(t *testing.T) {
@@ -364,6 +366,12 @@ func TestOnlyAutoRepliesAreDroppedBeforeTheTierGate(t *testing.T) {
 	dropped := map[string][]string{
 		"vacation responder": {"Auto-Submitted: auto-replied"},
 		"junk precedence":    {"Precedence: junk"},
+		// The same parameters on the reply side must not smuggle it past —
+		// matching the whole value instead of the keyword is how that happens.
+		"parameterized auto-reply": {"Auto-Submitted: auto-replied; owner-email=ops@vendor.example"},
+		// An extension token nobody has defined yet is still an automatic
+		// message; unknown resolves toward the reading that cannot buy a spare.
+		"unknown extension token": {"Auto-Submitted: auto-forwarded"},
 	}
 	for name, headers := range dropped {
 		t.Run(name, func(t *testing.T) {
