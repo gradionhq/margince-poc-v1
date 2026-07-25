@@ -348,7 +348,14 @@ func TestRateLimitBodyDistinguishesThrottlingFromARefusal(t *testing.T) {
 		// But a reason we CAN read and that is not a limit does veto it.
 		"a readable refusal vetoes a later limit": {`{"error":{"errors":[{"reason":"authError"},{"reason":"rateLimitExceeded"}]}}`, false},
 		"names nothing at all":                    {`{"error":{"code":403}}`, false},
-		"not google's envelope":                   {`<html>502 from a proxy</html>`, false},
+		// The generic usageLimits reason — one capital letter away from the suffix
+		// the rest of the family shares, so it needs its own case.
+		"the generic limit reason": {`{"error":{"code":403,"errors":[{"domain":"usageLimits","reason":"limitExceeded"}],"status":"PERMISSION_DENIED"}}`, true},
+		// The status fallback pinned in BOTH directions. This is the commonest real
+		// 403 body of all, and if the fallback ever stopped checking for a limit it
+		// would turn every plain refusal into an endless retry.
+		"a bare refusal, status only": {`{"error":{"code":403,"message":"The caller does not have permission","status":"PERMISSION_DENIED"}}`, false},
+		"not google's envelope":       {`<html>502 from a proxy</html>`, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if got := RateLimitBody([]byte(tc.body)); got != tc.want {

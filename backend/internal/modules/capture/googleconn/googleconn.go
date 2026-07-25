@@ -151,15 +151,9 @@ type googleErrorBody struct {
 }
 
 // reasonCodes separates the SPECIFIC reason codes (the classic errors[] entries,
-// then the ErrorInfo details[]) from the overall status, because the two callers
-// need opposite things from the status.
-//
-// Reason wants it as a last-resort fallback. The quota verdict must not let it
-// vote at all: that predicate is only ever asked about a 403, and on a 403 the
-// status is PERMISSION_DENIED by construction — the canonical restatement of the
-// HTTP code the caller already branched on. Folding it into a conjunction would
-// veto every throttling verdict on the one status code it is consulted for, and
-// park a merely-paced mailbox as though its credential had been revoked.
+// then the ErrorInfo details[]) from the overall status, so each caller states
+// its own use for the status rather than inheriting one from the order of a
+// single list. Values are raw — validation is the caller's business.
 func reasonCodes(body []byte) (codes []string, status string) {
 	var parsed googleErrorBody
 	if err := json.Unmarshal(body, &parsed); err != nil {
@@ -211,7 +205,12 @@ func Reason(body []byte) string {
 // added to this package for another API must check its own vocabulary rather
 // than assume this set.
 const (
-	limitExceededSuffix     = "LimitExceeded"
+	limitExceededSuffix = "LimitExceeded"
+	// The generic usageLimits reason — "cannot be completed due to access or
+	// rate limitations". It is named explicitly because it misses the suffix
+	// above by a single capital letter, and a throttle read as a refusal parks
+	// the connection.
+	reasonLimitExceeded     = "limitExceeded"
 	reasonQuotaExceeded     = "quotaExceeded"
 	reasonQuotaExceededEnum = "QUOTA_EXCEEDED"
 	reasonRateLimitEnum     = "RATE_LIMIT_EXCEEDED"
@@ -224,7 +223,8 @@ func isRateLimitReason(reason string) bool {
 		return true
 	}
 	switch reason {
-	case reasonQuotaExceeded, reasonQuotaExceededEnum, reasonRateLimitEnum, reasonResourceExhausted:
+	case reasonLimitExceeded, reasonQuotaExceeded, reasonQuotaExceededEnum,
+		reasonRateLimitEnum, reasonResourceExhausted:
 		return true
 	default:
 		return false
@@ -240,9 +240,16 @@ func isRateLimitReason(reason string) bool {
 // reading that as throttling means a revoked credential is retried instead of
 // being handed back to its human.
 //
-// A code we can read and that is NOT a limit vetoes the verdict: a body naming
-// both a refusal and a limit is ambiguous, and a refusal is the more specific
-// claim. A code we cannot read is no evidence either way rather than
+// A specific reason code, when the body names one, is the WHOLE verdict. The
+// status is consulted only when the body names none: this predicate is asked
+// about nothing but 403s, where the status is PERMISSION_DENIED by construction —
+// the canonical restatement of the HTTP code the caller already branched on — so
+// letting it speak alongside a code would veto every throttling verdict. Alone
+// it is the only thing the body says, and being no limit it parks.
+//
+// Among the codes, one we can read and that is NOT a limit vetoes the verdict: a
+// body naming both a refusal and a limit is ambiguous, and a refusal is the more
+// specific claim. A code we cannot read is no evidence either way rather than
 // counter-evidence — the two errors are not equally cheap. Parking a healthy
 // connection stops capture until a human re-runs OAuth and nothing else catches
 // it, whereas a grant that really is revoked is refused again at the token
