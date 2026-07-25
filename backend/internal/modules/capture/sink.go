@@ -224,7 +224,7 @@ func activityCaptureEventPayload(kind, sourceSystem string) crmcontracts.PublicE
 // Emitted only when the activity row is new, so the at-least-once sync loop
 // cannot double-fire it; never a subject heuristic.
 func (s *Sink) emitReply(ctx context.Context, tx pgx.Tx, auditID ids.UUID, id ids.ActivityID, rec connector.NormalizedRecord, fields ActivityFields) error {
-	if fields.Direction != "inbound" || rec.ThreadKey == "" {
+	if fields.Direction != connector.DirectionInbound || rec.ThreadKey == "" {
 		return nil
 	}
 	var matched ids.UUID

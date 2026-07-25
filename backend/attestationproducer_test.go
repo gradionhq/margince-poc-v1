@@ -40,12 +40,9 @@ import (
 
 // The walk below matches the minting call by NAME, so a rename would leave it
 // finding nothing and passing forever, guarding an invariant that had moved.
-// These pin the two names to the real API: renaming either stops the compile
-// here, where the walk is, rather than silently retiring it.
-var (
-	_ = connector.Counterparty{}.WithOwnerAttestation
-	_ = connector.Counterparty{}.SentByOwner
-)
+// This pins the name AND the signature the walk assumes, so either changing
+// stops the compile here, where the walk is, rather than retiring it in silence.
+var _ func(bool) connector.Counterparty = connector.Counterparty{}.WithOwnerAttestation
 
 const (
 	// The sole sanctioned minter, relative to the backend module root.

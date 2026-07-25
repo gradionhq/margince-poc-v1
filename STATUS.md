@@ -932,10 +932,14 @@ Open work, roughly in priority order:
   (the delta is inbox-only), and from IMAP only when the operator points the
   connection at a `\Sent` mailbox — so an absent T1 spare on a default-INBOX
   IMAP workspace is expected.
-  A tree-derived fitness test (`backend/attestationproducer_test.go`) keeps the
-  mail mapper the ONLY producer of the attestation, so the next connector that
-  builds a `Counterparty` from a provider payload cannot set it from
-  attacker-shaped JSON without failing the gate.
+  The attestation is unforgeable by the compiler, not by convention: the field is
+  unexported, so a literal, a positional literal, an assignment, an
+  `encoding/json` unmarshal of a provider payload, reflection, and a conversion
+  from a look-alike struct are all refused or inert. What no type can express —
+  that the argument to the minting call comes from an authenticated provider
+  handle — is guarded by a tree-derived fitness test
+  (`backend/attestationproducer_test.go`) keeping `WithOwnerAttestation`
+  callable from the mail mapper alone.
   **Residuals for the ADR (raised, no code change; also recorded in 0124):** an
   owner-side rule filing spoofed own-domain mail into the sent container defeats
   the conjunction on Graph and IMAP (not Gmail, whose SENT label filters cannot

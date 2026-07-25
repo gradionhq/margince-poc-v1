@@ -22,7 +22,11 @@
 -- attests an address the owner never chose — the reply really was sent, so no
 -- signal here can tell the difference. (c) The gate is single-shot by design:
 -- one attested message is sufficient evidence, and it is written before the
--- predicate reads it, so an attacker never needs a history.
+-- predicate reads it, so an attacker never needs a history. (d) The evidence is
+-- workspace-scoped by design — T1 asks whether the WORKSPACE has written to an
+-- address, so any member's mailbox answers for all of them; narrowing it to the
+-- capturing connection would suppress a colleague's genuine contact, and any
+-- member who can capture can already create the record directly.
 --
 -- NOT NULL DEFAULT false: every existing row, and every record from a provider
 -- that attests nothing, is un-attested. Under-attestation suppresses a

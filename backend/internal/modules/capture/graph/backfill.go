@@ -71,7 +71,7 @@ func (c *Connector) BackfillPage(ctx context.Context, auth connector.Auth, after
 			// so the engine retries this page from its committed token.
 			return connector.BackfillPageResult{}, err
 		}
-		captured, err := captureOne(ctx, raw, sink, st.Owner, msg.ParentFolderID == sentFolder)
+		captured, err := captureOne(ctx, raw, sink, st.Owner, msg.ParentFolderID != "" && msg.ParentFolderID == sentFolder)
 		if err != nil {
 			return connector.BackfillPageResult{}, err
 		}

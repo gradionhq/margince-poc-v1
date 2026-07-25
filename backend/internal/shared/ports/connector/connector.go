@@ -145,7 +145,7 @@ type NormalizedRecord struct {
 // Email is authoritative; DisplayName is the header's human name (may be
 // empty or hostile — consumers must treat it as untrusted text); Domain is
 // the lowercased mail domain; Direction is the message's direction relative
-// to the mailbox owner (inbound | outbound).
+// to the mailbox owner (DirectionInbound | DirectionOutbound).
 type Counterparty struct {
 	Email       string
 	DisplayName string
@@ -188,6 +188,13 @@ const (
 // correspondence. And placement is not authorship: a server-side rule can file
 // a third party's message into the sent container, where the counterparty is
 // that stranger's own address.
+//
+// Build the Counterparty first: this reads Direction as it stands at the call,
+// so attesting before Direction is populated — or reassigning it afterwards —
+// yields an answer that no longer matches the record. Both mistakes fail toward
+// false, and the unexported field carries the same cost at any serialization
+// boundary: a Counterparty that ever crosses one arrives un-attested rather
+// than wrongly attested.
 //
 // A caller that attests nothing leaves the answer false, which suppresses
 // rather than trusts.
