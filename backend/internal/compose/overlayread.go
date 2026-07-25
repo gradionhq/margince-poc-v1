@@ -291,6 +291,18 @@ var overlaySearchTypes = []datasource.EntityType{
 	datasource.EntityActivity,
 }
 
+// overlayMirroredTypes is the set of record types the mirror holds — the same
+// five the read shadows serve, keyed by the string form that is both
+// datasource.EntityType and the generated agentPolicy.RecordType. Derived from
+// overlaySearchTypes rather than re-listed, so reads and writes cannot drift.
+var overlayMirroredTypes = func() map[string]bool {
+	set := make(map[string]bool, len(overlaySearchTypes))
+	for _, et := range overlaySearchTypes {
+		set[string(et)] = true
+	}
+	return set
+}()
+
 // overlaySearchDefaultLimit caps an overlay search page when the request
 // names no limit — the contract's documented default page size.
 const overlaySearchDefaultLimit = 25

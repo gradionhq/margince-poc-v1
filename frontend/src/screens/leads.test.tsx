@@ -423,6 +423,82 @@ describe("LeadScreen — disqualify (P-3)", () => {
   });
 });
 
+describe("LeadScreen — overlay mode write affordances", () => {
+  // The mirror's own write-back seam serves update for a lead
+  // (overlay/provider_writes.go SupportsWrite), so Edit renders here.
+  // DELETE /leads/{id} is disqualify_lead, a cross-type lifecycle
+  // transition the seam refuses outright — Disqualify stays hidden.
+  function meResponse() {
+    return jsonResponse({
+      user: { id: "u1", email: "me@nordwind.example", locale: "en-US" },
+      roles: ["admin"],
+      teams: [],
+      system_of_record: { mode: "overlay" },
+    });
+  }
+
+  it("serves Edit, hides Disqualify", async () => {
+    stubFetch(async (url, method) => {
+      if (url.includes("/me")) {
+        return meResponse();
+      }
+      if (method === "PATCH") {
+        return jsonResponse(lead);
+      }
+      return jsonResponse(lead);
+    });
+    render(<LeadScreen id="l-1" />);
+
+    await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
+    expect(screen.queryByTestId("archive-record")).toBeNull();
+  });
+
+  it("Edit's real click path PATCHes and the 360 shows the saved name", async () => {
+    // Mutable so the refetch after a successful save (useUpdateRecord
+    // invalidates the record query) reflects the write, not a stale echo —
+    // the same "mirror re-read reflects write-back" shape
+    // overlay.Provider.Update gives via mirrorWriteResult.
+    let current = lead;
+    stubFetch(async (url, method, request) => {
+      if (url.includes("/me")) {
+        return meResponse();
+      }
+      if (method === "PATCH") {
+        const body = JSON.parse(await request.text());
+        current = { ...current, ...body };
+        return jsonResponse(current);
+      }
+      return jsonResponse(current);
+    });
+    render(<LeadScreen id="l-1" />);
+
+    await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
+    await userEvent.click(screen.getByTestId("edit-record"));
+    const fullName = await screen.findByLabelText("Full name *");
+    await userEvent.clear(fullName);
+    await userEvent.type(fullName, "Jonas Petersen-Berg");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("Jonas Petersen-Berg")).toBeTruthy();
+  });
+
+  it("names the partial write-back in the edit form", async () => {
+    stubFetch(async (url) => {
+      if (url.includes("/me")) {
+        return meResponse();
+      }
+      return jsonResponse(lead);
+    });
+    render(<LeadScreen id="l-1" />);
+
+    await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
+    await userEvent.click(screen.getByTestId("edit-record"));
+    expect(
+      screen.getByText(/Only the fields HubSpot accepts are written back/),
+    ).toBeTruthy();
+  });
+});
+
 describe("LeadsScreen — archived marking (P-3)", () => {
   it("shows a Disqualified badge on a row with archived_at set", async () => {
     stubFetch(async () =>

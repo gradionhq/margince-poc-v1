@@ -5,65 +5,33 @@ package overlay
 
 // Handlers is the overlay module's transport surface, wired by the
 // composition layer (crm.yaml /overlay/*). It is deliberately
-// zero-value-constructible: a Handlers{} with svc/reconciler unset keeps
-// every operation an explicit 501 (Server embeds it unconditionally, and
-// a role that never wires the vault-backed service must not nil-deref),
+// zero-value-constructible: a Handlers{} with svc unset keeps every
+// operation an explicit 501 (Server embeds it unconditionally, and a
+// role that never wires the vault-backed service must not nil-deref),
 // the same posture as every other declared-but-unimplemented surface.
 
 import (
-	"context"
-	"errors"
-	"fmt"
 	"net/http"
 	"time"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
-
-// Reconciler runs an out-of-band mirror reconciliation sweep for ctx's
-// workspace, right now — the seam ReconcileOverlay drives. Sweeping
-// needs a LIVE incumbent adapter built from this workspace's own
-// vaulted credential (keyvault.Vault.Get keyed by the incumbent_
-// connection row) plus the concrete adapter type (overlay/hubspot), and
-// this package can import neither (the vault provider selection stays
-// out of this module per NewOverlayHandlers' own doc; overlay/hubspot
-// imports THIS package, so the reverse import would cycle) — so compose
-// implements this interface over the real pieces (compose/overlay.go)
-// and injects it here, the same "seam interface here, concrete wiring in
-// compose" shape ai.NewHandlers/agents.NewHandlers already use for their
-// own cross-module dependencies.
-type Reconciler interface {
-	Reconcile(ctx context.Context) error
-}
 
 // Handlers is the overlay module's transport surface (crm.yaml
 // /overlay/*): the incumbent connection lifecycle, mirror sync health,
-// budget, and the read-mode→overlay flip. svc backs the connection-
-// lifecycle ops plus sync-status/budget; reconciler backs
-// ReconcileOverlay; the flip pair (branch 2) stays an explicit 501 until
-// it lands, regardless of whether svc/reconciler are set — a
-// partially-wired Handlers never silently succeeds on an op it doesn't
-// yet serve.
+// budget, reconcile, and the read-mode→overlay flip. svc backs every
+// verb except the flip pair (branch 2), which stays an explicit 501
+// until it lands regardless of whether svc is set — a partially-wired
+// Handlers never silently succeeds on an op it doesn't yet serve.
 type Handlers struct {
-	svc        *Service
-	reconciler Reconciler
+	svc *Service
 }
 
 // NewHandlers constructs Handlers over svc.
 func NewHandlers(svc *Service) Handlers {
 	return Handlers{svc: svc}
-}
-
-// WithReconciler wires Reconciler onto Handlers — ReconcileOverlay stays
-// its declared 501 until this is called (the same "declared or absent"
-// posture WithKeyvault documents for the connection lifecycle).
-func (h Handlers) WithReconciler(r Reconciler) Handlers {
-	h.reconciler = r
-	return h
 }
 
 // GetOverlayConnection returns the workspace's overlay incumbent
@@ -183,63 +151,16 @@ func syncStatusToWire(objects []ObjectSyncStatus) crmcontracts.OverlaySyncStatus
 	return crmcontracts.OverlaySyncStatus{Objects: &wire}
 }
 
-// reconcileTimeout bounds ReconcileOverlay's synchronous, in-request sweep
-// (see the handler's own doc below on why it runs inline at all). Without
-// a cap, a slow or rate-limited HubSpot page walk would hang the request
-// thread indefinitely; 60s is generous enough for a normal per-object-class
-// page walk to land while still failing the request rather than the
-// process. True async (River-enqueue the sweep, answer immediately) is the
-// tracked follow-up once cmd/api gets its own enqueue seam into
-// cmd/worker's job substrate — this is the honest bounded-synchronous
-// branch-1 stopgap, not the final shape.
-const reconcileTimeout = 60 * time.Second
-
-// ReconcileOverlay triggers an out-of-band mirror reconciliation sweep
-// for the calling workspace, right now. Gated by
-// auth.Require("overlay_connection", ActionUpdate): reconcile is a
-// mutating, budget-spending live HubSpot sweep — the same admin/ops-only
-// posture Connect/Disconnect already carry (identity/internal/policy),
-// so a read-only or non-admin seat is refused before the sweep ever
-// starts, never after it has already spent budget.
-//
-// Branch 1 has no seam that lets cmd/api enqueue a River job cmd/worker's
-// own periodic runner would pick up (River's job substrate is wired only
-// into cmd/worker — see compose/jobs.go's NewJobRunner) — the same gap
-// the Disconnect handler already names and answers the same way: this
-// runs the sweep SYNCHRONOUSLY, in-request, reusing the identical
-// overlay.Reconcile sweep the periodic poller drives (compose/overlay.go's
-// Reconciler wiring), bounded by reconcileTimeout so it cannot hang the
-// request thread forever, then answers 202. The 202 here means "the sweep
-// for this window already ran (or was cut off by the timeout)," not
-// "queued for later" — an honest divergence from crm.yaml's "Sweep
-// queued" prose, the same divergence Disconnect's own doc comment already
-// accepts for this branch.
+// ReconcileOverlay asks for an out-of-band mirror reconciliation sweep. The
+// sweep runs in the worker, which owns the vault-backed incumbent adapter and
+// the job substrate; this handler records the request by making the workspace
+// due now, so the 202 means exactly what the contract says — queued.
 func (h Handlers) ReconcileOverlay(w http.ResponseWriter, r *http.Request) {
-	if h.reconciler == nil {
+	if h.svc == nil {
 		httperr.NotImplemented(w, r, "reconcileOverlay")
 		return
 	}
-	ctx := r.Context()
-	if err := auth.Require(ctx, overlayConnectionObject, principal.ActionUpdate); err != nil {
-		httperr.Write(w, r, err)
-		return
-	}
-	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
-	defer cancel()
-	if err := h.reconciler.Reconcile(ctx); err != nil {
-		// Any context cancellation — our own reconcileTimeout (DeadlineExceeded)
-		// OR the caller abandoning the request (Canceled) — is a "cut off, retry"
-		// availability outcome, not an internal error: answer 503, never a
-		// misleading 500. Per-object-class progress already landed is retained,
-		// so a retry continues rather than restarts.
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			httperr.Write(w, r, &httperr.DetailedError{
-				Status: http.StatusServiceUnavailable,
-				Code:   "overlay_reconcile_timeout",
-				Detail: fmt.Sprintf("the mirror reconciliation sweep was cut off before finishing (timeout %s or the request was canceled); per-object-class progress already landed is retained, retry to continue", reconcileTimeout),
-			})
-			return
-		}
+	if err := h.svc.RequestSweep(r.Context()); err != nil {
 		httperr.Write(w, r, err)
 		return
 	}

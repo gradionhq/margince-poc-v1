@@ -3,28 +3,42 @@
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import { LocaleProvider } from "../i18n";
 import {
   ListGate,
   type ListGateState,
   type ListQuery,
   ListToolbar,
 } from "./listquery";
+import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 
-// ListToolbar and ListGate are both prop-driven (the screen owns the
-// react-query wiring via useListQuery) — these stories exercise the toolbar
-// in its searchable and non-searchable (partners-style) shapes, plus the
-// ListGate state ladder (loading/error/empty/loaded) off a hand-built state
-// object rather than a live query.
+// ListToolbar and ListGate are prop-driven for their row data (the screen
+// still owns the react-query wiring via useListQuery), but both also read
+// the shared workspace mode off the cached ["me"] query — ListToolbar to
+// hide the sort/filter dials the mirror refuses, ListGate to show the
+// owner-mapping hint on an empty overlay list — so they need the same
+// QueryClientProvider + stubbed /me every other screen story provides,
+// not just LocaleProvider.
+function nativeMe() {
+  return () =>
+    jsonResponse({
+      user: { id: "u1", email: "ada@acme.test", display_name: "Ada" },
+      roles: ["admin"],
+      teams: [],
+    });
+}
+
 const meta: Meta = {
   title: "Screens/ListQuery",
   parameters: { layout: "padded" },
   decorators: [
-    (Story) => (
-      <LocaleProvider initial="en">
-        <Story />
-      </LocaleProvider>
-    ),
+    (Story) => {
+      installFetchStub({ "GET /me": nativeMe() });
+      return (
+        <StoryProviders>
+          <Story />
+        </StoryProviders>
+      );
+    },
   ],
 };
 export default meta;
@@ -127,6 +141,31 @@ export const GateError: Story = {
 export const GateEmpty: Story = {
   render: () => (
     <ListGate state={gateState({})} empty="Nothing yet">
+      {(rows) => <ul>{rows.map((row) => row.name)}</ul>}
+    </ListGate>
+  ),
+};
+
+// The overlay-mode empty state names the likely cause (a HubSpot owner
+// email with no matching workspace user) instead of leaving the caller's
+// generic empty copy to imply the portal itself has nothing in it.
+export const GateEmptyOverlay: Story = {
+  decorators: [
+    (Story) => {
+      installFetchStub({
+        "GET /me": () =>
+          jsonResponse({
+            user: { id: "u1", email: "ada@acme.test", display_name: "Ada" },
+            roles: ["admin"],
+            teams: [],
+            system_of_record: { mode: "overlay" },
+          }),
+      });
+      return <Story />;
+    },
+  ],
+  render: () => (
+    <ListGate state={gateState({})} empty="No leads yet.">
       {(rows) => <ul>{rows.map((row) => row.name)}</ul>}
     </ListGate>
   ),
