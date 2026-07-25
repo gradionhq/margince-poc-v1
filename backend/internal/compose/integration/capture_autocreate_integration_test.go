@@ -128,7 +128,18 @@ func countRows(t *testing.T, e *searchEnv, query string) int {
 	return n
 }
 
-func TestAutoCreateFromCapturedMail(t *testing.T) {
+// captureEnv is the production capture wiring one test drives: the real
+// registry and resolver (not a bare sink — the auto-create resolver and the
+// tier gate are what these tests prove), a connected gmail connection, and the
+// two pull shapes. Built per test so each starts from a clean mailbox.
+type captureEnv struct {
+	e        *searchEnv
+	sync     func(t *testing.T, raws ...[]byte)
+	syncSent func(t *testing.T, sent map[string]bool, raws ...[]byte)
+}
+
+func newCaptureEnv(t *testing.T) captureEnv {
+	t.Helper()
 	e := setupSearch(t)
 	conn := &mailBatchConnector{}
 	// The PRODUCTION wiring, not the bare test sink: the auto-create
@@ -180,12 +191,20 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 		}
 	}
 
-	// The anchor sync seeds the mailbox's own domain as internal.
+	// The anchor sync seeds the mailbox's own domain as internal — every tier
+	// below depends on the workspace knowing which domain is its own.
 	sync(t)
 	if n := countRows(t, e, `SELECT count(*) FROM workspace_email_domain WHERE domain = 'myco.example'`); n != 1 {
 		t.Fatalf("workspace domain seeded %d times, want 1", n)
 	}
+	return captureEnv{e: e, sync: sync, syncSent: syncSent}
+}
 
+// The ADR-0063 auto-create path: a captured thread yields exactly one person,
+// one company and one employment, and a replay adds nothing.
+func TestCaptureAutoCreatesTheCounterpartyBehindAThread(t *testing.T) {
+	env := newCaptureEnv(t)
+	e, sync := env.e, env.sync
 	t.Run("a thread becomes one person, one company, one employment", func(t *testing.T) {
 		sync(t,
 			email("alice@acme.example", "Alice Example", autoCreateOwner, "m1@acme.example", ""),
@@ -232,7 +251,6 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 			t.Fatalf("%d engagement.reply events, want exactly 1", n)
 		}
 	})
-
 	t.Run("a replay creates nothing new", func(t *testing.T) {
 		sync(t, email("alice@acme.example", "Alice Example", autoCreateOwner, "m1@acme.example", ""))
 		if n := countRows(t, e, `
@@ -244,7 +262,26 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 			t.Fatalf("replay re-emitted engagement.reply (%d total)", n)
 		}
 	})
+	t.Run("a fuzzy near-match creates anyway and queues the pair", func(t *testing.T) {
+		// A near-identical name on the SAME employer domain: the PO-F-1
+		// score (0.55·name + 0.45·org) crosses the review threshold.
+		sync(t, email("alice2@acme.example", "Alice Exampel", autoCreateOwner, "f1@acme.example", ""))
+		if n := countRows(t, e, `
+			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+			WHERE pe.email = 'alice2@acme.example'`); n != 1 {
+			t.Fatal("fuzzy must create — capture never blocks on a human")
+		}
+		if n := countRows(t, e, `SELECT count(*) FROM dedupe_candidate WHERE entity_type = 'person' AND disposition = 'open'`); n != 1 {
+			t.Fatalf("%d open dedupe candidates, want exactly 1", n)
+		}
+	})
+}
 
+// The tiered creation gate (ADR-0072 §1), one tier per subtest: which senders
+// become records, which are suppressed, and which precedence decides it.
+func TestCaptureTierGateDecidesWhoBecomesARecord(t *testing.T) {
+	env := newCaptureEnv(t)
+	e, sync, syncSent := env.e, env.sync, env.syncSent
 	t.Run("free-mail creates the person, never a company", func(t *testing.T) {
 		sync(t, email("bob@gmail.com", "Bob Person", autoCreateOwner, "b1@gmail.com", ""))
 		if n := countRows(t, e, `
@@ -256,7 +293,6 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 			t.Fatal("gmail.com must never become an organization")
 		}
 	})
-
 	t.Run("a corresponded-with free-mail address is still never a company", func(t *testing.T) {
 		// T1 overrides T2 suppression ONLY. Free-mail's org rule is about what a
 		// domain can honestly name, not about whether its sender is trusted, so
@@ -273,7 +309,6 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 			t.Fatal("a corresponded-with free-mail address minted an organization")
 		}
 	})
-
 	t.Run("transactional infrastructure keeps the activity, derives no counterparty", func(t *testing.T) {
 		// A DocuSign envelope (exact infra eSLD, no corroboration needed) and a
 		// conference blast on a prefix subdomain WITH a List-Unsubscribe header
@@ -300,7 +335,6 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 			t.Fatalf("%d transactional-suppression breadcrumbs, want 2", n)
 		}
 	})
-
 	t.Run("writing to an address spares its later bulk mail from suppression", func(t *testing.T) {
 		// T1 runs BEFORE T2 and the order is load-bearing (ADR-0072 §1): once
 		// the workspace has written to someone, their newsletter footer must not
@@ -327,7 +361,6 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 			t.Fatalf("%d spare breadcrumbs, want 1 — an overridden suppression must be as visible as a suppression", n)
 		}
 	})
-
 	t.Run("a forged From:owner does not whitelist the address it names", func(t *testing.T) {
 		// The attack the T1 evidence exists to refuse: inbound mail whose From
 		// header claims the mailbox owner. It parses as outbound — that is all
@@ -346,7 +379,6 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 			t.Fatal("a forged From:owner whitelisted an ESP address past T2 suppression")
 		}
 	})
-
 	t.Run("a conference blast WITHOUT corroboration is a normal counterparty", func(t *testing.T) {
 		// The same prefix subdomain, but no List-Unsubscribe and a human
 		// localpart: not suppressed — a real company can live at event.*.
@@ -357,11 +389,24 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 			t.Fatal("an uncorroborated prefix sender must create a normal person")
 		}
 	})
+}
+
+// What a captured activity carries: the counterparty identity the correspondence
+// gate reads, and an audit image that is metadata-only.
+func TestCaptureRecordsProvenanceWithoutTheMessageBody(t *testing.T) {
+	env := newCaptureEnv(t)
+	e, sync := env.e, env.sync
+	// Both halves read what a capture WROTE, so this test captures its own
+	// thread — an inbound leg and the owner's reply — rather than reading rows
+	// another test happened to leave behind.
+	sync(t,
+		email("alice@acme.example", "Alice Example", autoCreateOwner, "p1@acme.example", ""),
+		email(autoCreateOwner, "", "alice@acme.example", "p2@myco.example", "p1@acme.example"),
+	)
 
 	t.Run("captured mail stamps the counterparty email on the activity", func(t *testing.T) {
-		// The alice thread above captured inbound + outbound mail with alice;
-		// each activity carries her normalized address, so phase 2b's
-		// correspondence predicate will be an index-backed lookup (CAP-DDL-7).
+		// Each activity carries her normalized address, so the correspondence
+		// predicate is an index-backed lookup (CAP-DDL-7).
 		if n := countRows(t, e, `SELECT count(*) FROM activity WHERE counterparty_email = 'alice@acme.example'`); n < 1 {
 			t.Fatal("captured activities must stamp counterparty_email")
 		}
@@ -371,7 +416,6 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 			t.Fatal("the outbound leg must stamp counterparty_email for the correspondence predicate")
 		}
 	})
-
 	t.Run("a captured activity's audit image is metadata-only, never the body", func(t *testing.T) {
 		// Capture-audit minimization (ADR-0072/A118): the connector-captured
 		// activity's audit after-image carries the natural key + kind + direction
@@ -396,7 +440,13 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 			t.Fatal("captured-activity audit after must keep the metadata (kind, natural key)")
 		}
 	})
+}
 
+// The refusals: an address the workspace owns, one an erasure killed, and a
+// connector acting for nobody. Each keeps the activity and creates no person.
+func TestCaptureRefusesToDeriveARecord(t *testing.T) {
+	env := newCaptureEnv(t)
+	e, sync := env.e, env.sync
 	t.Run("the workspace's own domain creates nothing", func(t *testing.T) {
 		sync(t, email("carol@myco.example", "Carol Colleague", autoCreateOwner, "c1@myco.example", ""))
 		if n := countRows(t, e, `
@@ -408,7 +458,6 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 			t.Fatal("the workspace's own domain must not become a CRM organization")
 		}
 	})
-
 	t.Run("an erased address stays dead", func(t *testing.T) {
 		err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 			_, err := tx.Exec(context.Background(), `
@@ -431,21 +480,6 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 			t.Fatal("suppression must not drop the captured activity")
 		}
 	})
-
-	t.Run("a fuzzy near-match creates anyway and queues the pair", func(t *testing.T) {
-		// A near-identical name on the SAME employer domain: the PO-F-1
-		// score (0.55·name + 0.45·org) crosses the review threshold.
-		sync(t, email("alice2@acme.example", "Alice Exampel", autoCreateOwner, "f1@acme.example", ""))
-		if n := countRows(t, e, `
-			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
-			WHERE pe.email = 'alice2@acme.example'`); n != 1 {
-			t.Fatal("fuzzy must create — capture never blocks on a human")
-		}
-		if n := countRows(t, e, `SELECT count(*) FROM dedupe_candidate WHERE entity_type = 'person' AND disposition = 'open'`); n != 1 {
-			t.Fatalf("%d open dedupe candidates, want exactly 1", n)
-		}
-	})
-
 	t.Run("a connector with no granting human records the fault, never a person", func(t *testing.T) {
 		// A bare sink with the ensure seam wired but an ownerless connector
 		// principal: the capture itself must land, the ensure must refuse
