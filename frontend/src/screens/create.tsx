@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
-import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { navigate, type Route } from "../app/router";
 import { Button, Modal, TextInput } from "../design-system/atoms";
 import { useT } from "../i18n";
@@ -586,15 +586,16 @@ export function CreateRecordModal({
   const headingId = useId();
   const [values, setValues] = useState<Record<string, string>>({});
   const [rows, setRows] = useState<FormRows>({});
-  // Only the closed→open TRANSITION should reset the form — `fields` is a
-  // non-primitive prop that a parent re-render (react-query background
-  // refetch, locale change) can hand a new reference to while the modal
-  // stays open, and re-running the effect on that alone would wipe whatever
-  // the user is mid-typing.
-  const wasOpen = useRef(false);
-
-  useEffect(() => {
-    if (open && !wasOpen.current) {
+  // Seeding happens DURING RENDER on the closed→open transition, not in an
+  // effect — see EditRecordModal (edit.tsx) for the race an effect opens and
+  // why this shape closes it. Keying off the transition (rather than `fields`,
+  // a non-primitive prop a background refetch or locale change can re-identify
+  // at any moment) is what keeps a re-render from wiping live input.
+  // Starts false, not `open`: a modal mounted already open still has to seed.
+  const [seededOpen, setSeededOpen] = useState(false);
+  if (open !== seededOpen) {
+    setSeededOpen(open);
+    if (open) {
       // A fresh open starts from the fields' defaults (first select option
       // for required selects), never from a previous attempt's leftovers.
       const defaults: Record<string, string> = {};
@@ -606,8 +607,7 @@ export function CreateRecordModal({
       setValues(defaults);
       setRows({});
     }
-    wasOpen.current = open;
-  }, [open, fields]);
+  }
 
   return (
     <Modal open={open} onClose={onClose} labelledBy={headingId}>

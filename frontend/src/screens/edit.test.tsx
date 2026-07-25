@@ -7,10 +7,11 @@ import {
   waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactNode } from "react";
+import { type ReactNode, useLayoutEffect, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Button } from "../design-system/atoms";
 import { LocaleProvider } from "../i18n";
-import { EditAction } from "./edit";
+import { EditAction, EditRecordModal } from "./edit";
 
 // The shared edit-record form (the mirror of create): a record prefills the
 // form, submit carries only the typed values (the screen attaches ifMatch),
@@ -73,6 +74,61 @@ describe("edit record flow", () => {
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
     expect(update.mock.calls[0][0]).toEqual({ full_name: "Alice M" });
+  });
+
+  // The prefill's timing, not just its result: an edit that silently drops
+  // what the user typed is the bug this pins.
+  const twoFields = [
+    { key: "full_name", label: "create.fullName" as const, required: true },
+    { key: "title", label: "create.personTitle" as const },
+  ];
+  const twoFieldRecord = {
+    id: "p1",
+    version: 3,
+    full_name: "Alice",
+    title: "CTO",
+  };
+
+  it("is prefilled in the very commit that puts the form on screen", async () => {
+    // What the Full name input holds the moment the open modal reaches the
+    // DOM. A layout effect runs inside that commit — after the DOM is
+    // updated, before the browser paints and before any passive effect — so
+    // it sees precisely the first frame a user could see and type into.
+    const firstFrame: string[] = [];
+    function OpenHarness() {
+      const [open, setOpen] = useState(false);
+      useLayoutEffect(() => {
+        const input = screen.queryByLabelText(
+          "Full name *",
+        ) as HTMLInputElement | null;
+        if (input) {
+          firstFrame.push(input.value);
+        }
+      });
+      return (
+        <>
+          <Button small onClick={() => setOpen(true)}>
+            Open
+          </Button>
+          <EditRecordModal
+            open={open}
+            onClose={() => setOpen(false)}
+            title="Edit"
+            fields={twoFields}
+            record={twoFieldRecord}
+            pending={false}
+            error={null}
+            onSubmit={vi.fn()}
+          />
+        </>
+      );
+    }
+    render(<OpenHarness />);
+    await userEvent.click(screen.getByRole("button", { name: "Open" }));
+    // Prefilling in a passive effect puts the form on screen blank and fills
+    // it a commit later; that gap is the window a keystroke lands in and gets
+    // written through empty form state.
+    expect(firstFrame).toEqual(["Alice"]);
   });
 
   it("renders the rejected update's detail verbatim", async () => {
