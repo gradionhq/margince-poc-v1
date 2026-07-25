@@ -184,7 +184,12 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 	// crawling and no further model calls, including from work queued while it
 	// was on. Only the automatic lane is gated — a human who asked for a read
 	// is not governed by the automatic-enrichment setting.
-	if isAutoEnrichRequest(args.RequestedBy) {
+	// claim.RequestedBy, never args: the dossier row is the authority on who
+	// asked for this read, and the job payload is metadata that travelled
+	// beside it. Everything downstream that decides SPEND or AUTHORITY reads
+	// the row — a payload disagreeing with it must not buy a wider budget or
+	// skip a confirm-first proposal.
+	if isAutoEnrichRequest(claim.RequestedBy) {
 		enabled, err := w.autoEnrichEnabled(ctx)
 		if err != nil {
 			// Recorded, not returned raw: the read is already claimed, so a
@@ -211,7 +216,7 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 	// The crawler owns the wall clock (caps.Wall); a seed page that
 	// cannot be read at all is a failed read, not an empty one.
 	progress, publishDraft := w.progressiveCallbacks(ctx, args.SiteReadID)
-	crawler := w.crawler.withPageCeiling(w.pageCeiling(args))
+	crawler := w.crawler.withPageCeiling(w.pageCeiling(claim.RequestedBy, args.MaxPages))
 	crawl, extraction, err := crawlAndExtract(ctx, crawler, w.extract, claim.SeedURL, progress, publishDraft)
 	if err != nil {
 		if deferred, deferErr := w.deferForBudget(ctx, args.SiteReadID, err); deferred {
@@ -254,7 +259,7 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 
 	var proposalIDs []ids.UUID
 	if claim.OrganizationID != nil {
-		if isAutoEnrichRequest(args.RequestedBy) {
+		if isAutoEnrichRequest(claim.RequestedBy) {
 			// The auto-enrich lane applies the org's fields + facts directly
 			// (fill-empty, human-precedence) instead of staging a confirm-first
 			// proposal — the system chose to enrich this company, so there is no
