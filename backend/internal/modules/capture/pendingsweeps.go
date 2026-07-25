@@ -154,6 +154,12 @@ const noiseMailScope = `
 // it is not hidden, and it raises its own question to be judged on its own
 // merits. The grace period keeps the common case whole — a newsletter that sends
 // again the next morning is the same evidence, not new evidence.
+//
+// Keyed on created_at, the capture clock, NOT on occurred_at: the latter is the
+// message's own Date header, as forgeable as the From this whole scope rule
+// exists to distrust. A sender who stamped a date a fortnight in the future
+// would otherwise fall outside every reach predicate at once and opt their bulk
+// mail out of the noise effect entirely.
 const noiseVerdictReach = 14 * 24 * time.Hour
 
 // withinVerdictReach is the scope clause that bounds a disposition to the mail
@@ -161,7 +167,7 @@ const noiseVerdictReach = 14 * 24 * time.Hour
 // noiseMailScope because it carries a duration the const cannot interpolate.
 func withinVerdictReach() string {
 	return `
-	  AND a.occurred_at <= p.resolved_at + ` + quoteInterval(noiseVerdictReach)
+	  AND a.created_at <= p.resolved_at + ` + quoteInterval(noiseVerdictReach)
 }
 
 // NoiseMailToHide lists captured mail from judged-noise senders that is still

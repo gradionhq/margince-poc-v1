@@ -52,10 +52,24 @@ const (
 // "give up".
 const PendingMaxAttempts = 2
 
-// pendingLease is how long a claimed row stays off other workers' scans. Longer
-// than a batch takes, short enough that a worker that died mid-batch releases
-// its rows by expiry instead of stranding them.
-const pendingLease = 15 * time.Minute
+// The bounds on what a claimed row carries into a prompt. Subject, body and
+// display name are all straight from the message headers, which an outsider
+// writes and no format limits: a folded Subject can be megabytes. Bounding them
+// in SQL rather than at prompt-assembly time keeps the unbounded text out of the
+// worker's memory as well as out of the model's context, and stops a mail run
+// from turning into the workspace's whole model budget.
+const (
+	MaxVerdictSubjectChars = 300
+	MaxVerdictBodyChars    = 1200
+)
+
+// pendingLease is how long a claimed row stays off other workers' scans. It has
+// to cover the WHOLE claim: each row is judged on its own call and may be
+// re-asked once, so a claim of verdictClaimSize rows can be a couple of dozen
+// sequential model calls on a slow provider. A lease that expires mid-loop would
+// let another replica re-claim a row this worker is still judging, and every
+// claim spends an attempt — so the row would pay twice for one question.
+const pendingLease = 45 * time.Minute
 
 // NoiseUndoWindow is how long a noise-dispositioned message stays merely hidden
 // before its content is redacted (ADR-0072 §4). The delay is the whole safety
@@ -271,9 +285,10 @@ func (s *PendingStore) ClaimDue(ctx context.Context, limit int) ([]PendingCounte
 			    FOR UPDATE SKIP LOCKED)
 			RETURNING p.id, p.email, coalesce(p.domain, ''), coalesce(p.display_name, ''),
 			          p.activity_id, p.owner_id, p.suppress_org,
-			          coalesce((SELECT a.subject FROM activity a WHERE a.id = p.activity_id), ''),
-			          coalesce((SELECT a.body FROM activity a WHERE a.id = p.activity_id), '')`,
-			limit, pendingLease.String(), PendingMaxAttempts, claim)
+			          coalesce(left((SELECT a.subject FROM activity a WHERE a.id = p.activity_id), $5), ''),
+			          coalesce(left((SELECT a.body FROM activity a WHERE a.id = p.activity_id), $6), '')`,
+			limit, pendingLease.String(), PendingMaxAttempts, claim,
+			MaxVerdictSubjectChars, MaxVerdictBodyChars)
 		if err != nil {
 			return err
 		}

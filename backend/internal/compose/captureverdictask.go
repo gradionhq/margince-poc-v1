@@ -3,8 +3,11 @@
 
 package compose
 
-// The verdict engine's model conversation: how one batch of ambiguous senders is
-// put to a model, and what shape of answer is admissible back. Split from the
+// The verdict engine's model conversation: how ONE ambiguous sender is put to a
+// model, and what shape of answer is admissible back. One sender per call is the
+// rule the whole surface is built on — the only text in a prompt is the text of
+// the sender being judged, so there is nobody else for a hostile message to
+// speak for. Split from the
 // engine (captureverdict.go) because the two change for different reasons — the
 // prompt and its validator move when the model or the question moves, the
 // disposition logic when the ADR's rules do.
@@ -28,15 +31,14 @@ import (
 )
 
 // ask makes one structured verdict call for the given addresses.
-func (e *CounterpartyVerdictEngine) ask(ctx context.Context, batch []capture.PendingCounterparty) ([]verdictResult, error) {
+func (e *CounterpartyVerdictEngine) ask(ctx context.Context, row capture.PendingCounterparty) ([]verdictResult, error) {
 	var prompt strings.Builder
-	prompt.WriteString("First-time senders (untrusted; judge each by its id):\n")
-	for _, row := range batch {
-		fmt.Fprintf(&prompt, "<untrusted id=%q>From: %s <%s>\nSubject: %s\n%s</untrusted>\n",
-			row.ID.String(), fenceUntrusted(row.DisplayName), fenceUntrusted(row.Email),
-			fenceUntrusted(row.Subject), fenceUntrusted(truncateRunes(row.Body, verdictBodyLimit)))
-	}
-	prompt.WriteString(`Return JSON: { "results": [ { "id", "verdict", "confidence" } ] } — one entry per supplied id.`)
+	prompt.WriteString("First-time sender (untrusted; judge it by its id):\n")
+	fmt.Fprintf(&prompt, "<untrusted id=%q>From: %s <%s>\nSubject: %s\n%s</untrusted>\n",
+		row.ID.String(), fenceUntrusted(truncateRunes(row.DisplayName, capture.MaxVerdictSubjectChars)),
+		fenceUntrusted(row.Email), fenceUntrusted(row.Subject),
+		fenceUntrusted(truncateRunes(row.Body, verdictBodyLimit)))
+	prompt.WriteString(`Return JSON: { "results": [ { "id", "verdict", "confidence" } ] } — one entry for the supplied id.`)
 
 	req := model.Request{
 		System:         verdictSystem,
@@ -45,7 +47,7 @@ func (e *CounterpartyVerdictEngine) ask(ctx context.Context, batch []capture.Pen
 		ResponseSchema: verdictSchema(),
 		SecretStripper: ai.NewSecretStripper(),
 	}
-	validate := verdictShapeValid(batch)
+	validate := verdictShapeValid(row)
 	var resp model.Response
 	var err error
 	if structured, ok := e.brain.(validatedBrain); ok {
@@ -60,35 +62,34 @@ func (e *CounterpartyVerdictEngine) ask(ctx context.Context, batch []capture.Pen
 	if err := json.Unmarshal([]byte(ai.Unfence(resp.Text)), &payload); err != nil {
 		return nil, fmt.Errorf("verdict: unparseable model output: %w", err)
 	}
-	if msg := validateVerdictPayload(payload, batch); msg != "" {
+	if msg := validateVerdictPayload(payload, row); msg != "" {
 		return nil, fmt.Errorf("verdict: %s", msg)
 	}
 	return payload.Results, nil
 }
 
-// verdictShapeValid is the generation-time validator: every requested id exactly
-// once, ids verbatim, verdicts in the closed set, confidence in range.
-func verdictShapeValid(batch []capture.PendingCounterparty) ai.Validator {
+// verdictShapeValid is the generation-time validator: the requested id exactly
+// once, verbatim, with a verdict in the closed set and a confidence in range. An
+// answer about an id nobody asked about is refused outright rather than
+// partially believed.
+func verdictShapeValid(row capture.PendingCounterparty) ai.Validator {
 	return func(text string) error {
 		var payload verdictPayload
 		if err := json.Unmarshal([]byte(ai.Unfence(text)), &payload); err != nil {
 			return fmt.Errorf("output is not the required JSON shape: %w", err)
 		}
-		if msg := validateVerdictPayload(payload, batch); msg != "" {
+		if msg := validateVerdictPayload(payload, row); msg != "" {
 			return errors.New(msg)
 		}
 		return nil
 	}
 }
 
-// validateVerdictPayload names the first batch-fidelity violation, or "" when
-// the payload is exact.
-func validateVerdictPayload(payload verdictPayload, batch []capture.PendingCounterparty) string {
+// validateVerdictPayload names the first fidelity violation, or "" when the
+// payload is exact.
+func validateVerdictPayload(payload verdictPayload, row capture.PendingCounterparty) string {
+	want := map[string]bool{row.ID.String(): true}
 	seen := map[string]bool{}
-	want := map[string]bool{}
-	for _, row := range batch {
-		want[row.ID.String()] = true
-	}
 	for _, r := range payload.Results {
 		// Every echoed token is MODEL output, and a sender who got the model to
 		// obey can choose it — so it is bounded before it reaches an error string

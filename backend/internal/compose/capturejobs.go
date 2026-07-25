@@ -207,8 +207,8 @@ type CounterpartyVerdictArgs struct{}
 // Kind is the stable job identifier River persists in river_job.
 func (CounterpartyVerdictArgs) Kind() string { return "capture_counterparty_verdict" }
 
-// counterpartyVerdictWorker drives the disposition ledger's three stages in the
-// order they depend on each other: judge what is due, offer to a human what
+// counterpartyVerdictWorker drives the disposition ledger's stages in the order
+// they depend on each other: judge what is due, offer to a human what
 // judging could not settle, then redact the noise whose undo window has closed.
 //
 // Judging and staging are separate stages rather than one, so a staging failure
@@ -222,7 +222,7 @@ type counterpartyVerdictWorker struct {
 
 func (w *counterpartyVerdictWorker) Work(ctx context.Context, _ *river.Job[CounterpartyVerdictArgs]) error {
 	// Judging is the only stage that needs a model, and it is skipped when none
-	// is configured. The other three still run: rows already on the ledger must
+	// is configured. Every other stage still runs: rows already on the ledger must
 	// still reach a human, declines must still close, and mail already hidden
 	// must still be redacted on schedule — turning AI off is not consent to
 	// retain the content of messages the workspace already decided were noise.

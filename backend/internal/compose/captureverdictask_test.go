@@ -7,7 +7,7 @@ package compose
 // convenience: it is what stops a model — or a sender who talked one into
 // obliging — from answering about an address nobody asked about, answering
 // twice, or inventing a verdict outside the closed set. Each rejection below is
-// a distinct way the batch contract can be broken.
+// a distinct way the one-sender contract can be broken.
 
 import (
 	"strings"
@@ -20,7 +20,6 @@ import (
 func TestValidateVerdictPayloadRejectsEveryBrokenBatchContract(t *testing.T) {
 	asked := capture.PendingCounterparty{ID: ids.NewV7()}
 	other := ids.NewV7()
-	batch := []capture.PendingCounterparty{asked}
 	ok := verdictResult{ID: asked.ID.String(), Verdict: capture.PendingStatusReal, Confidence: 0.9}
 
 	cases := []struct {
@@ -33,8 +32,8 @@ func TestValidateVerdictPayloadRejectsEveryBrokenBatchContract(t *testing.T) {
 			results: []verdictResult{ok},
 		},
 		{
-			// The batch-injection concern in miniature: an answer about someone
-			// who was not in this call must never be applied.
+			// An answer about someone who was not the subject of this call must
+			// never be applied.
 			name:    "an id nobody asked about",
 			results: []verdictResult{{ID: other.String(), Verdict: capture.PendingStatusReal, Confidence: 0.9}},
 			wantMsg: "was not requested",
@@ -70,7 +69,7 @@ func TestValidateVerdictPayloadRejectsEveryBrokenBatchContract(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := validateVerdictPayload(verdictPayload{Results: tc.results}, batch)
+			got := validateVerdictPayload(verdictPayload{Results: tc.results}, asked)
 			if tc.wantMsg == "" {
 				if got != "" {
 					t.Fatalf("a valid payload was rejected: %s", got)
@@ -88,11 +87,11 @@ func TestValidateVerdictPayloadRejectsEveryBrokenBatchContract(t *testing.T) {
 // model to obey can choose. It reaches the operator's log, so it must be bounded
 // — otherwise the log is a writing surface.
 func TestValidationMessagesDoNotEchoUnboundedModelText(t *testing.T) {
-	batch := []capture.PendingCounterparty{{ID: ids.NewV7()}}
+	asked := capture.PendingCounterparty{ID: ids.NewV7()}
 	flood := strings.Repeat("A", 100_000)
 	msg := validateVerdictPayload(verdictPayload{
 		Results: []verdictResult{{ID: flood, Verdict: capture.PendingStatusReal, Confidence: 0.9}},
-	}, batch)
+	}, asked)
 
 	if msg == "" {
 		t.Fatal("an unrequested id was accepted")

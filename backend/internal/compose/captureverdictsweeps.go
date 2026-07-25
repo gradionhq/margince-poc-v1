@@ -6,7 +6,7 @@ package compose
 // The verdict engine's SWEEP stages — the passes that run whether or not a model
 // is configured, because none of them asks one anything.
 //
-// Judging is the only stage that needs AI. These three are the obligations that
+// Judging is the only stage that needs AI. These are the obligations that
 // outlive it: a row nobody can process still has to reach a human, a decline
 // still has to close the question, mail a judged-noise sender keeps sending
 // still has to be hidden, and content already hidden still has to be redacted on

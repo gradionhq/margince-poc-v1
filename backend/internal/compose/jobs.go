@@ -306,7 +306,7 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		river.AddWorker(workers, &counterpartyVerdictWorker{engine: verdicts})
 		// Hourly, like classify: the ledger's due-index makes an empty pass one
 		// cheap probe, and a deferred sender should not wait a day to become a
-		// record. The one job runs all three stages in dependency order —
+		// record. The one job runs every stage in dependency order —
 		// judging fills the unsure backlog that staging then offers, and
 		// redaction only ever acts on windows that closed before this tick.
 		periodic = append(periodic, river.NewPeriodicJob(

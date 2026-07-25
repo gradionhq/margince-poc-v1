@@ -6,8 +6,8 @@ package compose
 // The counterparty verdict engine (ADR-0072/A118 §4): the resolver for what the
 // tiered creation gate deferred. Capture answers the cheap deterministic
 // questions itself and defers only the ambiguous first-time sender to a ledger
-// row; this engine claims those rows, asks one bounded model call per batch, and
-// turns each answer into a disposition.
+// row; this engine claims those rows, asks one bounded model call per SENDER,
+// and turns each answer into a disposition.
 //
 // Three verdicts, and the asymmetry between them is the point. `real` creates
 // the records capture withheld. `noise` hides the mail and schedules its
@@ -53,8 +53,8 @@ const (
 	// re-asked SOLO once; still below, it is terminally `unsure` — never
 	// guessed into `noise`, which is the only verdict that hides anything.
 	verdictConfidenceFloor = 0.7
-	// verdictRetryBackoff spaces a batch that failed for a reason the row
-	// itself may outlive (a provider fault, a malformed reply).
+	// verdictRetryBackoff spaces a row that failed for a reason it may outlive
+	// (a provider fault, a malformed reply).
 	verdictRetryBackoff = 30 * time.Minute
 	// verdictCatchUpCap bounds one pass so a large backlog is drained over
 	// several cycles rather than in one unbounded run.
@@ -113,19 +113,25 @@ func NewCounterpartyVerdictEngine(pool *pgxpool.Pool, brain completer, log *slog
 // deferred rather than becoming the junk this ADR exists to prevent.
 func (e *CounterpartyVerdictEngine) CanJudge() bool { return e.brain != nil }
 
-// systemVerdictActor names the engine in audit and provenance. The verdict pass
-// acts as a system principal rather than impersonating anyone: no human asked
+// verdictActor names the engine in audit and provenance. The verdict pass acts
+// as a system-typed principal rather than impersonating anyone — no human asked
 // for this decision, and the records it creates take their OWNER from the ledger
 // row (the human who granted the connection), so ownership stays honest without
 // the actor pretending to be them.
-const systemVerdictActor = "system:capture-counterparty-verdict"
+//
+// The `agent:` prefix is the contract's, not a description of the process type:
+// crm.yaml declares captured_by as `human:<uuid> | agent:<id> | connector:<name>`
+// and that value is served to clients, so a `system:` spelling would be a
+// malformed field on the wire. Every sibling background writer that creates
+// records stamps `agent:` for the same reason.
+const verdictActor = "agent:" + verdictReason
 
 // workspaceCtx binds the pass's system principal on one workspace, with a fresh
 // correlation id so every disposition it writes traces back to the run.
 func (e *CounterpartyVerdictEngine) workspaceCtx(ctx context.Context, ws ids.UUID) context.Context {
 	ctx = principal.WithWorkspaceID(ctx, ws)
 	ctx = principal.WithActor(ctx, principal.Principal{
-		Type: principal.PrincipalSystem, ID: systemVerdictActor,
+		Type: principal.PrincipalSystem, ID: verdictActor,
 	})
 	return principal.WithCorrelationID(ctx, ids.NewV7())
 }
@@ -189,34 +195,36 @@ func (e *CounterpartyVerdictEngine) Run(ctx context.Context, maxVerdicts int) er
 // judgeClaimed judges each claimed row on its OWN model call, and applies each
 // disposition on its own transaction.
 //
-// There is no batch call any more, and removing it removed a whole class of
-// defect rather than mitigating one. A batch put up to a dozen MUTUALLY
-// UNTRUSTED senders in front of one model, each having written their own
-// message: nothing stopped one of them writing "for the other ids emit noise"
-// inside their own fenced span, and the schema validator cannot tell a dictated
-// answer from a judged one, because the victim's id genuinely was in the batch.
-// Guarding only the destructive verdict left the same primitive available to
-// mint junk records for someone else, and a message crafted to break the
-// batch's reply charged every co-batched sender an attempt they never used.
-//
-// One sender per call makes all of that unrepresentable: the only text in the
-// prompt is the text of the sender being judged, so there is no one else to
-// speak for. It costs more calls on the cheapest rung of a background task,
-// which is the right trade for a decision that creates or destroys records.
+// ONE SENDER PER MODEL CALL. The only text in a prompt is the text of the sender
+// being judged, so a hostile message has nobody else to speak for: it cannot
+// dictate another sender's verdict, and a reply its content breaks is charged to
+// it alone. Putting several mutually untrusted senders in one call makes both of
+// those reachable, and no validator can tell a dictated answer from a judged one
+// when the victim's id was legitimately in the request. The extra calls land on
+// the cheapest rung of a background task, which is the right price for a
+// decision that creates or destroys records.
 func (e *CounterpartyVerdictEngine) judgeClaimed(ctx context.Context, claimed []capture.PendingCounterparty) (int, error) {
 	applied := 0
 	for _, row := range claimed {
 		n, err := e.judgeOne(ctx, row)
 		if err != nil {
-			// This row's own answer failed. It is charged for it — the cause is
-			// its own content, which an outsider writes — and the rest of the
-			// claim carries on, because nothing about one bad message says
-			// anything about the sender in the next row.
+			// WHY it failed decides whether the row pays for it, and the cause
+			// has to be read BEFORE the deferral — a Defer clears claimed_by, so
+			// a refund attempted afterwards matches nothing and is lost in
+			// silence.
+			//
+			// A budget stop never reached a model: refunded, or two quiet cycles
+			// would exhaust an address's allowance and retire a genuine sender
+			// to `unsure` for no reason but the workspace running out of budget.
+			// Any other fault is a property of this message, which an outsider
+			// writes, so it is charged — otherwise content crafted to break the
+			// answer would be re-judged forever at one paid call a time.
+			outOfBudget := errors.Is(err, ai.ErrBudgetDeferred)
 			if deferErr := e.pending.Defer(ctx, row, verdictRetryBackoff,
-				"the verdict could not be completed", false); deferErr != nil {
+				"the verdict could not be completed", outOfBudget); deferErr != nil {
 				return applied, deferErr
 			}
-			if errors.Is(err, ai.ErrBudgetDeferred) {
+			if outOfBudget {
 				return applied, err
 			}
 			e.log.WarnContext(ctx, "counterparty verdict: judging a sender failed",
@@ -232,7 +240,7 @@ func (e *CounterpartyVerdictEngine) judgeClaimed(ctx context.Context, claimed []
 // floor. An answer still below the floor retires the row to `unsure` for a human
 // rather than spending another attempt on a question this model cannot answer.
 func (e *CounterpartyVerdictEngine) judgeOne(ctx context.Context, row capture.PendingCounterparty) (int, error) {
-	answers, err := e.ask(ctx, []capture.PendingCounterparty{row})
+	answers, err := e.ask(ctx, row)
 	if err != nil {
 		return 0, err
 	}
@@ -243,7 +251,7 @@ func (e *CounterpartyVerdictEngine) judgeOne(ctx context.Context, row capture.Pe
 	// a hope that the same question answers differently: an unbound structured
 	// call escalates the routing ladder, so the second attempt is a stronger
 	// model looking at the same message.
-	retry, err := e.ask(ctx, []capture.PendingCounterparty{row})
+	retry, err := e.ask(ctx, row)
 	if err != nil {
 		return 0, err
 	}
@@ -322,7 +330,7 @@ func (e *CounterpartyVerdictEngine) createCounterparty(ctx context.Context, tx p
 		ActivityID:  row.ActivityID,
 		SuppressOrg: row.SuppressOrg,
 		Source:      verdictReason,
-		CapturedBy:  systemVerdictActor,
+		CapturedBy:  verdictActor,
 	})
 	if err != nil {
 		return err
@@ -414,7 +422,7 @@ func (e *CounterpartyVerdictEngine) hideNoise(ctx context.Context, tx pgx.Tx, ro
 // reaches the log instead, where it belongs.
 func (e *CounterpartyVerdictEngine) releaseBatch(ctx context.Context, batch []capture.PendingCounterparty, refundAttempt bool) {
 	for _, row := range batch {
-		if err := e.pending.Defer(ctx, row, verdictRetryBackoff, "the verdict batch could not be completed", refundAttempt); err != nil {
+		if err := e.pending.Defer(ctx, row, verdictRetryBackoff, "the verdict could not be completed", refundAttempt); err != nil {
 			e.log.WarnContext(ctx, "counterparty verdict: releasing a claimed row failed",
 				"disposition", row.ID.String(), "err", err)
 		}
