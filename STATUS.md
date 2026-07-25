@@ -909,10 +909,10 @@ Open work, roughly in priority order:
   `messages.get` response the body needs), an IMAP `\Sent` **special-use**
   mailbox (the folder NAME attests nothing — it is operator config text), and
   Microsoft's SentItems `parentFolderId` (backfill only; the incremental delta is
-  inbox-only). `activity.direction` is never consulted: it string-compares the
-  forgeable `From` header against the owner, so a spoofed `From:owner` landing in
-  the synced inbox would otherwise whitelist any address it names past T2 — the
-  security review's finding, now gated by an integration test. A T1 override of a
+  inbox-only). `activity.direction` is never sufficient on its own: it
+  string-compares the forgeable `From` header against the owner, so a spoofed
+  `From:owner` landing in the synced inbox must not whitelist any address it
+  names past T2. A T1 override of a
   matched suppression rule is its own `system_log` breadcrumb
   (`capture_correspondence_spared`), so a spare is as diagnosable as a
   suppression. A provider that attests nothing (or a LIST/folder probe that
@@ -928,18 +928,25 @@ Open work, roughly in priority order:
   (the delta is inbox-only), and from IMAP only when the operator points the
   connection at a `\Sent` mailbox — so an absent T1 spare on a default-INBOX
   IMAP workspace is expected.
-  **Residual risk for the ADR (raised, no code change):** a rule-based Outlook
-  "reply with template" emits a genuine `From:owner` message with no
-  `Auto-Submitted` header, so an outsider can still induce a T1 spare by mailing
-  in and letting the rule answer. Inherent to the ADR's premise that writing to
-  someone is intent; the cheap mitigations if it ever matters are requiring two
-  attested outbound messages, or discounting an attested message that is an
-  immediate reply to an inbound one.
+  A tree-derived fitness test (`backend/attestationproducer_test.go`) keeps the
+  mail mapper the ONLY producer of the attestation, so the next connector that
+  builds a `Counterparty` from a provider payload cannot set it from
+  attacker-shaped JSON without failing the gate.
+  **Residuals for the ADR (raised, no code change; also recorded in 0124):** an
+  owner-side rule filing spoofed own-domain mail into the sent container defeats
+  the conjunction on Graph and IMAP (not Gmail, whose SENT label filters cannot
+  set); a forged `Reply-To` that induces one genuine reply attests an address
+  the owner never chose; and the gate is single-shot, one attested message being
+  sufficient evidence. An adversarial review found no path reachable by an
+  unaided outsider — each needs mailbox write access or an owner-side
+  misconfiguration plus a self-domain spoof that DMARC is designed to stop.
   **Upstream spec raise (not worked around here):** ADR-0072 §1's ladder reads
   T1 → "ensure person+org NOW", which taken literally would mint a "Gmail"
   organization for a free-mail address the owner has corresponded with — exactly
   the junk the ADR exists to prevent. The build keeps T3's free-mail org
-  suppression under a T1 spare (T1 overrides T2 only) and gates it with a test;
+  suppression under a T1 spare (T1 overrides T2 only), gated by an integration
+  subtest that writes to a `gmail.com` address and asserts a person but no
+  organization;
   the ladder wording needs reconciling upstream.
   **Still open (contract-first-gated on ADR-0072):** the rest of 2b — the pending
   ledger + deferred creation + the `capture_counterparty_verdict` job + review

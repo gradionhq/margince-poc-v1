@@ -88,12 +88,15 @@ const sentLabelID = "SENT"
 
 // Message is one fetched Gmail message: the decoded RFC822 bytes plus the one
 // thing the bytes cannot honestly tell us — whether Gmail itself filed the
-// message as sent by the authenticated mailbox owner (ADR-0072 §1's T1
-// evidence). Both come off the same messages.get response, so the attestation
-// costs no extra call.
+// message under SENT (ADR-0072 §1's provider evidence). Both come off the same
+// messages.get response, so the signal costs no extra call.
 type Message struct {
-	RFC822      []byte
-	SentByOwner bool
+	RFC822 []byte
+	// FiledAsSent is the provider half of the T1 evidence and nothing more:
+	// Gmail labelled this message SENT. On its own it does not mean the owner
+	// wrote it — mailmap composes it with the message's authorship before any
+	// attestation is claimed.
+	FiledAsSent bool
 }
 
 // API is the read-only Gmail surface the connector uses. All calls take a
@@ -285,7 +288,7 @@ func (a *httpAPI) GetRaw(ctx context.Context, accessToken, msgID string) (Messag
 	if err != nil {
 		return Message{}, fmt.Errorf("gmail: decoding raw message %s: %w", msgID, ErrUnreachable)
 	}
-	return Message{RFC822: decoded, SentByOwner: hasSentLabel(out.LabelIDs)}, nil
+	return Message{RFC822: decoded, FiledAsSent: hasSentLabel(out.LabelIDs)}, nil
 }
 
 // hasSentLabel reports whether Gmail filed this message under SENT — the

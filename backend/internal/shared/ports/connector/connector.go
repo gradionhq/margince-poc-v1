@@ -157,14 +157,22 @@ type Counterparty struct {
 	// prefix rule may suppress record creation. Mail connectors populate it;
 	// zero for records that carry no such signal.
 	ListUnsubscribe bool
-	// SentByOwner is the PROVIDER's attestation that the authenticated mailbox
-	// owner sent this message: Gmail's SENT label, an IMAP \Sent special-use
-	// mailbox, Microsoft's SentItems folder. It is deliberately NOT derived
-	// from Direction, which compares the forgeable From header against the
-	// owner's address — a spoofed From:owner mail delivered to the inbox would
-	// otherwise pass as the owner's own correspondence. Only this field may
-	// feed the T1 correspondence-positive gate (ADR-0072 §1); a provider that
-	// attests nothing leaves it false, which suppresses rather than trusts.
+	// SentByOwner reports that the authenticated mailbox owner sent this
+	// message, and it is true only when two independently-derived facts agree:
+	// the PROVIDER filed it as sent (Gmail's SENT label, an IMAP \Sent
+	// special-use mailbox, Microsoft's SentItems folder) AND the message names
+	// the owner as its author.
+	//
+	// Neither half may set it alone. Direction compares the forgeable From
+	// header against the owner's address, so a spoofed From:owner mail
+	// delivered to the inbox would otherwise pass as the owner's own
+	// correspondence; and placement is not authorship, since a server-side rule
+	// can file a third party's message into the sent container, where the
+	// counterparty is that stranger's own address.
+	//
+	// Only this field may feed the T1 correspondence-positive gate (ADR-0072
+	// §1); a provider that attests nothing leaves it false, which suppresses
+	// rather than trusts.
 	SentByOwner bool
 }
 

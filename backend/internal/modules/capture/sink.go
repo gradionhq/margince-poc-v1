@@ -360,13 +360,14 @@ func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.Norm
 		fields.Kind, fields.Subject, fields.Body, occurredAt, fields.Direction,
 		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, captureSource(rec), rec.CapturedBy, rec.ThreadKey,
 		// Normalized lowercased at the write (a connector need not lowercase the
-		// header case), matching the person_email normalization, so phase 2b's
-		// index-backed equality on this column matches regardless of the
-		// sender's casing without a runtime case fold.
+		// header case), matching the person_email normalization, so the T1
+		// correspondence lookup's index-backed equality matches regardless of
+		// the sender's casing without a runtime case fold.
 		strings.ToLower(strings.TrimSpace(rec.Counterparty.Email)),
-		// The provider's attestation, never the From-derived direction: this
-		// column is the T1 correspondence-positive gate's only evidence, and a
-		// forged From:owner must not register as the owner's correspondence.
+		// The provider's filing AND the message's authorship, never the
+		// From-derived direction alone: this column is the T1
+		// correspondence-positive gate's only evidence, and a forged
+		// From:owner must not register as the owner's correspondence.
 		rec.Counterparty.SentByOwner).Scan(&id)
 	if err == nil {
 		// Field-level provenance (B-E02.12) for the content fields this

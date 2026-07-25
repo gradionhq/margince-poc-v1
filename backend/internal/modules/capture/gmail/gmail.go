@@ -234,7 +234,7 @@ func captureOne(ctx context.Context, fetched Message, sink connector.Sink, owner
 	if _, drop := msg.SkipReason(); drop {
 		return false, nil
 	}
-	msg = msg.AttestSentByOwner(fetched.SentByOwner)
+	msg = msg.AttestSentByOwner(fetched.FiledAsSent)
 	if _, err := sink.Upsert(ctx, msg.ToRecord(connectorName, fetched.RFC822)); err != nil {
 		if errors.Is(err, connector.ErrSkip) {
 			return false, nil

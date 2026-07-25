@@ -257,6 +257,23 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 		}
 	})
 
+	t.Run("a corresponded-with free-mail address is still never a company", func(t *testing.T) {
+		// T1 overrides T2 suppression ONLY. Free-mail's org rule is about what a
+		// domain can honestly name, not about whether its sender is trusted, so
+		// writing to a gmail.com address buys its owner a person and never an
+		// organization called "Gmail" — the junk this ADR exists to prevent.
+		syncSent(t, map[string]bool{"fm1@myco.example": true},
+			email(autoCreateOwner, "", "carol@gmail.com", "fm1@myco.example", ""))
+		if n := countRows(t, e, `
+			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+			WHERE pe.email = 'carol@gmail.com'`); n != 1 {
+			t.Fatalf("%d persons for carol, want 1", n)
+		}
+		if n := countRows(t, e, `SELECT count(*) FROM organization WHERE display_name IN ('Gmail', 'gmail.com')`); n != 0 {
+			t.Fatal("a corresponded-with free-mail address minted an organization")
+		}
+	})
+
 	t.Run("transactional infrastructure keeps the activity, derives no counterparty", func(t *testing.T) {
 		// A DocuSign envelope (exact infra eSLD, no corroboration needed) and a
 		// conference blast on a prefix subdomain WITH a List-Unsubscribe header

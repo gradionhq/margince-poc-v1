@@ -65,6 +65,18 @@ func rfc822(n int) string {
 		"body %d", memUser, n, n%10, n, n)
 }
 
+// rfc822FromOwner is a message the owner wrote, so its direction is outbound
+// and the provider's filing is the ONLY thing left deciding attestation.
+func rfc822FromOwner(n int) string {
+	return fmt.Sprintf("From: %s\r\n"+
+		"To: Alice <alice@acme.test>\r\n"+
+		"Subject: hello %d\r\n"+
+		"Date: Wed, 04 Jun 2026 08:0%d:00 +0000\r\n"+
+		"Message-ID: <own%d@myco.test>\r\n"+
+		"Content-Type: text/plain\r\n\r\n"+
+		"body %d", memUser, n, n%10, n, n)
+}
+
 // startMemServer boots an in-memory IMAP server with n messages in INBOX and
 // returns its address plus the append handle for later arrivals.
 func startMemServer(t *testing.T, n int) (addr string, user *imapmemserver.User) {
@@ -430,7 +442,7 @@ func TestSentAttestationIgnoresTheMailboxName(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	appendTo(t, user, "Sent", rfc822(1))
+	appendTo(t, user, "Sent", rfc822FromOwner(1))
 	mem.AddUser(user)
 	addr := listenMem(t, mem)
 
@@ -446,6 +458,10 @@ func TestSentAttestationIgnoresTheMailboxName(t *testing.T) {
 		t.Fatal("the pull captured nothing — the assertion below would prove nothing")
 	}
 	for _, rec := range sink.records {
+		if rec.Counterparty.Direction != "outbound" {
+			t.Fatalf("Direction = %q, want outbound — otherwise authorship, not the folder name, is what withholds attestation",
+				rec.Counterparty.Direction)
+		}
 		if rec.Counterparty.SentByOwner {
 			t.Fatal("a mailbox named Sent attested the owner's authorship: the name is config text, not provider evidence")
 		}

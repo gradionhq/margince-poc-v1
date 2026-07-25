@@ -221,14 +221,14 @@ func TestGetRawReadsTheSentLabelAsTheOwnersAttestation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRaw: %v", err)
 	}
-	if inbound.SentByOwner {
+	if inbound.FiledAsSent {
 		t.Error("an INBOX message must not attest that the owner sent it")
 	}
 	outbound, err := api.GetRaw(context.Background(), "access-2", "m-sent")
 	if err != nil {
 		t.Fatalf("GetRaw on the sent copy: %v", err)
 	}
-	if !outbound.SentByOwner {
+	if !outbound.FiledAsSent {
 		t.Error("a SENT-labelled message must attest that the owner sent it")
 	}
 }

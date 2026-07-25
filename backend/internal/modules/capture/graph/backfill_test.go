@@ -95,16 +95,20 @@ func TestBackfillMalformedAuthRejected(t *testing.T) {
 // The Graph half of the T1 correspondence evidence (ADR-0072 §1). Only the
 // backfill can supply it: the incremental delta reads the inbox folder alone,
 // while the backfill walks /me/messages across the whole mailbox, Sent Items
-// included. The attestation follows the folder Graph filed the message in —
-// never the From header, which the message's own author writes.
-func TestBackfillAttestsOnlyMailFiledInSentItems(t *testing.T) {
+// included. Attestation needs BOTH halves, so each fixture below withholds a
+// different one and only the third carries both.
+func TestBackfillAttestsOnlyMailFiledInSentItemsAndWrittenByTheOwner(t *testing.T) {
 	api := &fakeAPI{
-		listIDs: []string{"m-in", "m-out"},
+		listIDs: []string{"m-in", "m-forged", "m-out"},
 		sentIDs: map[string]bool{"m-out": true},
 		raws: map[string][]byte{
+			// Neither half: a stranger's mail, filed in the inbox.
 			"m-in": rawMsg("in@mail.example", "alice@acme.com"),
-			// The same shape a spoofer sends: the From header claims the owner,
-			// yet Graph filed it in the inbox because the owner never sent it.
+			// Authorship claimed, placement absent — what a spoofer sends: the
+			// From header names the owner, yet Graph filed it in the inbox
+			// because the owner never sent it.
+			"m-forged": rawMsg("forged@mail.example", owner),
+			// Both halves.
 			"m-out": rawMsg("out@mail.example", owner),
 		},
 	}
@@ -112,18 +116,21 @@ func TestBackfillAttestsOnlyMailFiledInSentItems(t *testing.T) {
 	if _, err := pinnedConn(api).BackfillPage(context.Background(), authBytes(t), time.Time{}, "", sink); err != nil {
 		t.Fatalf("BackfillPage: %v", err)
 	}
-	if len(sink.recs) != 2 {
-		t.Fatalf("sink received %d records, want 2", len(sink.recs))
+	if len(sink.recs) != 3 {
+		t.Fatalf("sink received %d records, want 3", len(sink.recs))
 	}
 	attested := map[string]bool{}
 	for _, rec := range sink.recs {
 		attested[rec.NaturalKey.SourceID] = rec.Counterparty.SentByOwner
 	}
 	if attested["in@mail.example"] {
-		t.Error("an inbox-filed message attested the owner's authorship")
+		t.Error("an inbox-filed stranger's message attested the owner's authorship")
+	}
+	if attested["forged@mail.example"] {
+		t.Error("a forged From:owner message attested on authorship alone — the folder must be load-bearing")
 	}
 	if !attested["out@mail.example"] {
-		t.Error("a Sent-Items-filed message did not attest the owner's authorship")
+		t.Error("a Sent-Items-filed message the owner wrote did not attest")
 	}
 }
 
