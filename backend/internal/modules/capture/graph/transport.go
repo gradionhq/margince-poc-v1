@@ -2,13 +2,20 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 // The Graph HTTP request path: the authorized JSON GET every listing and lookup
-// goes through, and the single verdict EVERY call maps its response onto —
-// including the raw-MIME fetch, which builds its own request because it streams
-// bytes rather than decoding JSON. Split out of client.go because it belongs to
-// no individual read, so a reader asking "how does a Graph failure become a
-// sentinel" finds one file rather than a tail. (The OAuth handshake does not
-// come through here — it runs on the shared capture/oauthflow client, with its
-// own classification.)
+// goes through, and the one verdict on a response STATUS — shared by the
+// raw-MIME fetch too, which builds its own request because it streams bytes
+// rather than decoding JSON. Split out of client.go because it belongs to no
+// individual read.
+//
+// It is not the only place a Graph call becomes a sentinel, and should not be
+// read as one: a 2xx whose BODY is not a complete answer — a delta round with
+// neither a next nor a delta link, a listed message naming no parent folder, a
+// sent-items lookup naming no id — is refused beside the call that knows what
+// a complete answer looks like. Status classification is uniform; what counts
+// as a whole answer is per-call.
+//
+// (The OAuth handshake does not come through here — it runs on the shared
+// capture/oauthflow client, with its own classification.)
 
 package graph
 
