@@ -116,7 +116,12 @@ const siteReadBudgetDetail = "AI budget reached its current limit. This website 
 
 // finishedSiteReadStatuses are the terminal states a worker may report;
 // anything else is a programming error caught before the row's CHECK.
-var finishedSiteReadStatuses = map[string]bool{"done": true, "partial": true, "failed": true}
+// cancelled is a read abandoned by a decision rather than a fault — the
+// operator withdrew the standing setting that queued it. Kept distinct from
+// failed because a failure is something to investigate and this is not.
+var finishedSiteReadStatuses = map[string]bool{
+	"done": true, "partial": true, "failed": true, "cancelled": true,
+}
 
 // siteReadStopReasons mirrors the row's stopped_reason CHECK so a bad
 // worker value reads as an actionable error, not a constraint 500.

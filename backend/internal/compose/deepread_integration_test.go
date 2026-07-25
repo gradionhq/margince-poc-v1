@@ -94,6 +94,7 @@ func newDeepReadTestWorker(e *integration.Env, site *fakeSite, brain completer) 
 		extract:    evidenceExtractor{brain: brain, factBrain: brain},
 		approvals:  svc,
 		autoEnrich: capture.NewAutoEnrichStore(e.Pool),
+		settings:   capture.NewSettings(e.Pool),
 		log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}, svc
 }
@@ -762,5 +763,41 @@ func TestDeepReadFinishSurvivesACancelledWorkContext(t *testing.T) {
 	}
 	if got.Status != "partial" {
 		t.Fatalf("dossier status = %q, want partial — the terminal write was starved by the dead work context", got.Status)
+	}
+}
+
+// Turning auto-enrich off must stop the SPENDING, not just the queuing. The
+// sweep checks the flag before it enqueues, but a job queued while the flag was
+// on outlives that check — so without a re-read when the worker claims it, an
+// operator who switched the feature off would keep paying for crawls and model
+// calls until the queue drained.
+//
+// The assertion that matters is pageCalls: cancelling after the crawl would
+// record the same status and save nothing.
+func TestDeepReadCancelsAnAutoEnrichJobWhenTheSettingWentOff(t *testing.T) {
+	e := integration.Setup(t)
+	org := insertOrg(t, e, e.Rep1, "acme.example", "")
+	site := acmeDeepSite()
+	worker, _ := newDeepReadTestWorker(e, site, acmeDeepBrain())
+	read, args := startDeepRead(t, e, org)
+	args.RequestedBy = systemAutoEnrichActor
+
+	// Set directly: the subject here is the worker re-reading the flag, not the
+	// admin-only RBAC on the settings endpoint, which has its own test.
+	e.WsExec(t, `UPDATE workspace SET capture_auto_enrich = false WHERE id = $1`, e.WS)
+
+	if err := worker.run(context.Background(), args); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if n := len(site.pageCalls); n != 0 {
+		t.Errorf("the crawler fetched %d pages — cancelling after the crawl saves nothing", n)
+	}
+	done, err := e.People.GetSiteRead(e.As(e.Rep1, nil, integration.AdminPerms), orgIDOf(org), read.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Status != "cancelled" {
+		t.Errorf("status = %q, want cancelled — the read did not fail, it was withdrawn", done.Status)
 	}
 }

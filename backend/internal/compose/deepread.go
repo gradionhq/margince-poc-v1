@@ -85,9 +85,14 @@ type siteDeepReadWorker struct {
 	extract    evidenceExtractor
 	approvals  *approvals.Service
 	autoEnrich *capture.AutoEnrichStore
-	log        *slog.Logger
-	caps       CrawlCaps
-	now        func() time.Time
+	// settings answers the auto-enrich flag at CLAIM time. The sweep checks it
+	// too, but a job queued while the flag was on outlives that check: without
+	// re-reading here, switching the feature off would keep costing crawls and
+	// model calls until the queue drained.
+	settings *capture.SettingsStore
+	log      *slog.Logger
+	caps     CrawlCaps
+	now      func() time.Time
 }
 
 // newSiteDeepReadWorker assembles the worker-role deep read over one
@@ -104,6 +109,7 @@ func newSiteDeepReadWorker(pool *pgxpool.Pool, brain, factBrain completer, log *
 		extract:    evidenceExtractor{fetch: fetcher, brain: brain, factBrain: factBrain},
 		approvals:  approvals.NewService(pool),
 		autoEnrich: capture.NewAutoEnrichStore(pool),
+		settings:   capture.NewSettings(pool),
 		log:        log,
 		caps:       caps,
 		now:        time.Now,
@@ -169,6 +175,19 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 			return nil
 		}
 		return fmt.Errorf("site deep read %s: begin: %w", args.SiteReadID, err)
+	}
+	// Before ANY spend: an operator who turned auto-enrich off gets no further
+	// crawling and no further model calls, including from work queued while it
+	// was on. Only the automatic lane is gated — a human who asked for a read
+	// is not governed by the automatic-enrichment setting.
+	if isAutoEnrichRequest(args.RequestedBy) {
+		enabled, err := w.autoEnrichEnabled(ctx)
+		if err != nil {
+			return fmt.Errorf("site deep read %s: reading the auto-enrich setting: %w", args.SiteReadID, err)
+		}
+		if !enabled {
+			return w.abandon(ctx, args.SiteReadID, "auto_enrich_disabled")
+		}
 	}
 	if w.extract.brain == nil {
 		return w.fail(ctx, args.SiteReadID,
@@ -440,18 +459,6 @@ func (w *siteDeepReadWorker) finish(ctx context.Context, readID ids.UUID, status
 		return fmt.Errorf("site deep read %s: finish: %w", readID, err)
 	}
 	return nil
-}
-
-// fail records the terminal failure on the dossier and returns the cause
-// so River logs it on the job. A retry after a recorded failure is safe
-// by construction — BeginSiteRead CAS-misses and the attempt no-ops.
-func (w *siteDeepReadWorker) fail(ctx context.Context, readID ids.UUID, cause error) error {
-	tctx, cancel := terminalCtx(ctx)
-	defer cancel()
-	if err := w.people.FinishSiteRead(tctx, readID, people.FinishSiteReadInput{Status: "failed"}); err != nil {
-		return errors.Join(cause, fmt.Errorf("recording the failure on the dossier: %w", err))
-	}
-	return cause
 }
 
 // deepReadProposalKind is the staged proposal's wire identity — one
