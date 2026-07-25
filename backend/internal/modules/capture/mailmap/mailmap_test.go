@@ -403,6 +403,10 @@ func TestMachineTouchedMailNeverAttestsCorrespondence(t *testing.T) {
 		// The modern spelling of Precedence: list must land the same side.
 		"list-id":          {"List-Id: <dev.example.com>"},
 		"list-unsubscribe": {"List-Unsubscribe: <https://x/u>"},
+		// An unclosed comment swallows whatever followed it, so the survivors
+		// are not the value — even when what survives reads as "no".
+		"not-automatic behind an unclosed comment": {"Auto-Submitted: no (swallows auto-replied"},
+		"unclosed comment on precedence":           {"Precedence: bulk (unclosed"},
 		// Legal RFC 3834 parameters on `no` must not read as machine-touched:
 		// both rules read the keyword, so this stays ordinary owner mail.
 		"auto-generated": {"Auto-Submitted: auto-generated"},
