@@ -348,6 +348,11 @@ func TestOnlyAutoRepliesAreDroppedBeforeTheTierGate(t *testing.T) {
 		"auto-generated note": {"Auto-Submitted: auto-generated"},
 		// RFC 3834 §5 lets the value carry parameters; the keyword still decides.
 		"parameterized auto-generated": {"Auto-Submitted: auto-generated; owner-email=ops@vendor.example"},
+		// RFC 5322 permits comments around it. With "unknown" defaulting to
+		// drop, a comment left in place would discard ordinary mail outright.
+		"commented auto-generated": {"Auto-Submitted: auto-generated (invoice run)"},
+		"leading comment on no":    {"Auto-Submitted: (sent by hand) no"},
+		"nested comment":           {"Auto-Submitted: auto-generated (batch (nightly))"},
 	}
 	for name, headers := range reaches {
 		t.Run(name, func(t *testing.T) {
@@ -372,6 +377,8 @@ func TestOnlyAutoRepliesAreDroppedBeforeTheTierGate(t *testing.T) {
 		// An extension token nobody has defined yet is still an automatic
 		// message; unknown resolves toward the reading that cannot buy a spare.
 		"unknown extension token": {"Auto-Submitted: auto-forwarded"},
+		// A comment must not smuggle a reply through either.
+		"commented auto-reply": {"Auto-Submitted: auto-replied (out of office)"},
 	}
 	for name, headers := range dropped {
 		t.Run(name, func(t *testing.T) {
