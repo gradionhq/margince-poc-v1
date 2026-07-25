@@ -87,6 +87,7 @@ type (
 	OrganizationKind struct{}
 	LeadKind         struct{}
 	DealKind         struct{}
+	ProjectKind      struct{}
 	PipelineKind     struct{}
 	StageKind        struct{}
 	OfferKind        struct{}
@@ -109,6 +110,7 @@ func (PersonKind) kind() string       { return "person" }
 func (OrganizationKind) kind() string { return "organization" }
 func (LeadKind) kind() string         { return "lead" }
 func (DealKind) kind() string         { return "deal" }
+func (ProjectKind) kind() string      { return "project" }
 func (PipelineKind) kind() string     { return "pipeline" }
 func (StageKind) kind() string        { return "stage" }
 func (OfferKind) kind() string        { return "offer" }
@@ -131,6 +133,7 @@ type (
 	OrganizationID = ID[OrganizationKind]
 	LeadID         = ID[LeadKind]
 	DealID         = ID[DealKind]
+	ProjectID      = ID[ProjectKind]
 	PipelineID     = ID[PipelineKind]
 	StageID        = ID[StageKind]
 	OfferID        = ID[OfferKind]

@@ -26,7 +26,16 @@ const (
 	EntityDeal         EntityType = "deal"
 	EntityLead         EntityType = "lead"
 	EntityActivity     EntityType = "activity"
+	EntityProject      EntityType = "project"
 )
+
+// EntityTypes returns the vocabulary in a stable order, for the callers
+// that enumerate it — the custom-field target set, the embedding lanes,
+// the provenance surfaces — rather than branch on a single value. It hands
+// back a fresh slice so no caller can widen the vocabulary for the others.
+func EntityTypes() []EntityType {
+	return []EntityType{EntityPerson, EntityOrganization, EntityDeal, EntityLead, EntityActivity, EntityProject}
+}
 
 // RecordType names the entity types that are records — EntityType minus
 // activity, which is a timeline event and so is never itself a grouping
@@ -41,6 +50,7 @@ const (
 	RecordOrganization RecordType = "organization"
 	RecordDeal         RecordType = "deal"
 	RecordLead         RecordType = "lead"
+	RecordProject      RecordType = "project"
 )
 
 // RecordTypes returns the vocabulary in a stable order, for the callers
@@ -48,7 +58,7 @@ const (
 // polymorphic column maps — rather than branch on a single value. It hands
 // back a fresh slice so no caller can widen the vocabulary for the others.
 func RecordTypes() []RecordType {
-	return []RecordType{RecordPerson, RecordOrganization, RecordDeal, RecordLead}
+	return []RecordType{RecordPerson, RecordOrganization, RecordDeal, RecordLead, RecordProject}
 }
 
 // EntityRef points at one record.

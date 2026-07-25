@@ -76,11 +76,15 @@ var tableOwners = map[string]string{
 	"pipeline":           "internal/modules/deals",
 	"stage":              "internal/modules/deals",
 	"deal_stage_history": "internal/modules/deals",
-	"fx_rate":            "internal/modules/deals",
-	"product":            "internal/modules/deals",
-	"offer":              "internal/modules/deals",
-	"offer_line_item":    "internal/modules/deals",
-	"offer_template":     "internal/modules/deals",
+	// The project lives in the deals bounded context (ADR-0073): it is the
+	// body of work the deals hang off, not a context of its own.
+	"project":               "internal/modules/deals",
+	"project_phase_history": "internal/modules/deals",
+	"fx_rate":               "internal/modules/deals",
+	"product":               "internal/modules/deals",
+	"offer":                 "internal/modules/deals",
+	"offer_line_item":       "internal/modules/deals",
+	"offer_template":        "internal/modules/deals",
 	// activities
 	"activity":      "internal/modules/activities",
 	"activity_link": "internal/modules/activities",

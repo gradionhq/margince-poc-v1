@@ -28,6 +28,7 @@ var linkTargets = []linkTarget{
 	{datasource.RecordOrganization, "organization_id"},
 	{datasource.RecordDeal, "deal_id"},
 	{datasource.RecordLead, "lead_id"},
+	{datasource.RecordProject, "project_id"},
 }
 
 // linkColumn resolves a wire entity_type to its id column. The empty
