@@ -301,10 +301,16 @@ func (s *PendingStore) noiseMail(ctx context.Context, extra string, limit int) (
 	return out, nil
 }
 
-// quoteInterval renders a duration as a SQL interval literal. The value is a
-// compiled-in constant, never user input — it is spelled here rather than bound
-// because it sits inside a shared predicate fragment where parameter numbering
-// would depend on the caller.
+// quoteInterval renders a duration as a SQL interval literal in SECONDS.
+//
+// Seconds, never Go's own duration format: time.Duration.String() emits things
+// Postgres cannot parse — the micro sign in "1µs" being the sharp edge — so a
+// duration that happens to be whole minutes today works and the same expression
+// breaks at runtime the moment someone tunes it. Every duration this package
+// hands to SQL goes through seconds for that reason (the bound ones as
+// make_interval(secs => $n), this one inline because it sits in a shared
+// predicate fragment where parameter numbering would depend on the caller).
+// The value is a compiled-in constant, never user input.
 func quoteInterval(d time.Duration) string {
 	return "interval '" + strconv.Itoa(int(d.Seconds())) + " seconds'"
 }

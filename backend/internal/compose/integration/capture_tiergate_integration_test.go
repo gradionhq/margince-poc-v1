@@ -35,6 +35,14 @@ func TestCaptureTierGateSuppressesWhatIsNotACounterparty(t *testing.T) {
 		if n := countRows(t, e, `SELECT count(*) FROM organization WHERE display_name = 'gmail.com'`); n != 0 {
 			t.Fatal("gmail.com must never become an organization")
 		}
+		// And free-mail is decided HERE, not deferred. Nothing but tier order
+		// enforces that: a deferred free-mail sender would be judged later from
+		// a ledger row that carries only the domain, and a `real` verdict would
+		// mint the "Gmail" organization the tier just refused.
+		if n := countRows(t, e, `
+			SELECT count(*) FROM capture_pending_counterparty WHERE email = 'bob@gmail.com'`); n != 0 {
+			t.Fatalf("%d ledger rows for a free-mail sender, want 0 — deferring one lets a later verdict mint a company from gmail.com", n)
+		}
 	})
 	t.Run("transactional infrastructure keeps the activity, derives no counterparty", func(t *testing.T) {
 		// A DocuSign envelope (exact infra eSLD, no corroboration needed) and a
@@ -225,34 +233,5 @@ func resolveDispositionAged(t *testing.T, e *searchEnv, email, status string, ag
 	})
 	if err != nil {
 		t.Fatalf("aging the disposition: %v", err)
-	}
-}
-
-// A free-mail sender must never reach the disposition ledger. The tier ladder
-// creates them immediately (person yes, company no), so they are not the
-// ambiguous class — and nothing downstream re-derives that. A verdict or a
-// review-accept reads the domain off the ledger row and would mint an
-// organization called "Gmail" from it, which is precisely the junk ADR-0072
-// exists to prevent.
-//
-// Nothing but tier ORDER enforces this, so it is asserted rather than left to
-// whoever next edits the ladder.
-func TestCaptureTierGateNeverDefersAFreeMailSender(t *testing.T) {
-	env := newCaptureEnv(t)
-	e, sync := env.e, env.sync
-
-	sync(t, email("someone@gmail.com", "Someone", captureOwner, "fm-defer@gmail.com", ""))
-
-	if n := countRows(t, e, `
-		SELECT count(*) FROM capture_pending_counterparty WHERE email = 'someone@gmail.com'`); n != 0 {
-		t.Fatalf("%d ledger rows for a free-mail sender, want 0 — deferring one would let a later verdict mint a company from gmail.com", n)
-	}
-	if n := countRows(t, e, `
-		SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
-		WHERE pe.email = 'someone@gmail.com'`); n != 1 {
-		t.Fatalf("%d persons for a free-mail sender, want 1 — they are a person, decided at capture", n)
-	}
-	if n := countRows(t, e, `SELECT count(*) FROM organization WHERE display_name IN ('Gmail', 'gmail.com')`); n != 0 {
-		t.Fatal("a free-mail domain became an organization")
 	}
 }

@@ -34,10 +34,15 @@ import (
 func (e *CounterpartyVerdictEngine) ask(ctx context.Context, row capture.PendingCounterparty) ([]verdictResult, error) {
 	var prompt strings.Builder
 	prompt.WriteString("First-time sender (untrusted; judge it by its id):\n")
-	fmt.Fprintf(&prompt, "<untrusted id=%q>From: %s <%s>\nSubject: %s\n%s</untrusted>\n",
-		row.ID.String(), fenceUntrusted(row.DisplayName),
-		fenceUntrusted(row.Email), fenceUntrusted(row.Subject),
-		fenceUntrusted(row.Body))
+	// Assembled first, fenced ONCE, then wrapped. Fencing the fields separately
+	// would let a subject ending in "<" and a body beginning "/untrusted>" close
+	// the span between them — each piece safe alone, the concatenation not. The
+	// address is in parentheses rather than angle brackets for the same reason:
+	// a template-supplied "<" is a bracket the sender did not have to write.
+	sender := fmt.Sprintf("From: %s (%s)\nSubject: %s\n%s",
+		row.DisplayName, row.Email, row.Subject, row.Body)
+	fmt.Fprintf(&prompt, "<untrusted id=%q>%s</untrusted>\n",
+		row.ID.String(), fenceUntrusted(sender))
 	prompt.WriteString(`Return JSON: { "results": [ { "id", "verdict", "confidence" } ] } — one entry for the supplied id.`)
 
 	req := model.Request{

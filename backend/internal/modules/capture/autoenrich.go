@@ -161,13 +161,13 @@ func (s *AutoEnrichStore) MarkQueued(ctx context.Context, orgID ids.Organization
 			INSERT INTO capture_auto_enrich_state
 			  (organization_id, workspace_id, attempts, last_attempt_at, next_attempt_at, last_outcome)
 			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid, 1, now(),
-			        now() + $2::interval, 'queued')
+			        now() + make_interval(secs => $2), 'queued')
 			ON CONFLICT (organization_id) DO UPDATE SET
 			  attempts = capture_auto_enrich_state.attempts + 1,
 			  last_attempt_at = now(),
-			  next_attempt_at = now() + $2::interval,
+			  next_attempt_at = now() + make_interval(secs => $2),
 			  last_outcome = 'queued',
-			  updated_at = now()`, orgID, backoff.String())
+			  updated_at = now()`, orgID, backoff.Seconds())
 		return err
 	})
 	if err != nil {

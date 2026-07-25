@@ -8,39 +8,41 @@ package compose
 //
 // Every prompt that shows a model captured data wraps it in <untrusted> markers
 // and tells the model that what sits between them is DATA, never instructions.
-// That promise is only as good as the fence: text that contains the closing
-// marker ends the fence early, and everything the sender wrote after it reads as
-// the prompt's own voice.
+// That promise is only as good as the fence, and the fence is built out of text
+// the sender writes: a body containing the closing marker ends the span early,
+// and everything after it reads as the prompt's own voice. The sender needs no
+// access to try it — an email is enough — and in the counterparty verdict the
+// payoff is direct: escape the fence, tell the model to answer "real" with
+// confidence 1.0, and a spam address writes itself into the CRM.
 //
-// The sender is the attacker here, and they need no access to exploit it — an
-// email body is enough. In the counterparty verdict the payoff is direct: escape
-// the fence, tell the model to answer "real" with confidence 1.0, and a spam
-// address writes itself into the CRM. The schema validator bounds the damage (a
-// forged answer can only carry an id that was actually asked about, so a sender
-// cannot vote on anyone else's disposition) but it cannot see a verdict that was
-// dictated rather than judged.
+// The marker is made UNSPELLABLE rather than matched. Recognising it was a
+// losing game: the attacker picks from the whole of Unicode, so every list of
+// space-like categories missed the next one (Go's \s is ASCII-only, so a
+// non-breaking space slipped through; adding the space and format categories
+// still let a vertical tab past; adding the control category still let a line
+// separator through). And no character class could have caught the two attacks
+// that need no exotic characters at all: an invisible rune placed INSIDE the
+// word, and a marker spliced across two fields fenced separately — a subject
+// ending in "<" and a body beginning "/untrusted>".
 //
-// So the marker is neutralized in the DATA, not defended against in the prompt:
-// a fence a sender cannot close is a fence.
+// A tag needs its opening bracket. Take the bracket away and no spelling of it
+// survives: not in another script, not with zero-width filler inside the word,
+// and not assembled from two fields, because neither field can contribute the
+// one character the tag cannot do without.
 
-import "regexp"
+import "strings"
 
-// untrustedMarker matches any attempt to write an <untrusted> fence marker —
-// opening or closing, in any casing, with whitespace anywhere a parser would
-// tolerate it. Deliberately broad: the cost of neutralizing a marker that
-// appears innocently in someone's mail is a slightly odd-looking prompt, while
-// the cost of missing one is a prompt written by the sender.
-// The character class is deliberately wider than Go's \s (which is ASCII only):
-// a vertical tab, a non-breaking space or a zero-width joiner between the
-// bracket and the word is invisible to \s but may still read as a boundary to a
-// tokenizer. \p{Zs} covers unicode spaces, \p{Cf} the format/zero-width
-// characters an attacker would reach for first.
-var untrustedMarker = regexp.MustCompile(`(?i)<[\s\p{Zs}\p{Cf}]*/?[\s\p{Zs}\p{Cf}]*untrusted`)
+// fencedAngle replaces the ASCII "<" in untrusted text. A visible lookalike
+// rather than a deletion, because a reader of a captured prompt should be able
+// to tell that a sender tried this, and the model should see mangled text rather
+// than a boundary.
+const fencedAngle = "‹"
 
-// fenceUntrusted makes s safe to place between <untrusted> markers by defusing
-// any marker it contains. The replacement is visible on purpose — a reader of a
-// captured prompt should be able to tell that a sender tried this, and the model
-// sees a mangled token rather than a boundary.
+// fenceUntrusted makes s safe to place between <untrusted> markers.
+//
+// Fence the whole untrusted REGION in one call. Fencing field by field does not
+// compose: separately-safe pieces can still be concatenated into a marker, which
+// is exactly how the subject-plus-body splice worked.
 func fenceUntrusted(s string) string {
-	return untrustedMarker.ReplaceAllString(s, "[removed-marker]")
+	return strings.ReplaceAll(s, "<", fencedAngle)
 }

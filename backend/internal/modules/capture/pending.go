@@ -267,7 +267,7 @@ func (s *PendingStore) ClaimDue(ctx context.Context, limit int) ([]PendingCounte
 		rows, err := tx.Query(ctx, `
 			UPDATE capture_pending_counterparty p
 			   SET attempts = p.attempts + 1,
-			       claimed_until = now() + $2::interval,
+			       claimed_until = now() + make_interval(secs => $2),
 			       claimed_by = $4,
 			       updated_at = now()
 			 WHERE p.id IN (
@@ -288,7 +288,7 @@ func (s *PendingStore) ClaimDue(ctx context.Context, limit int) ([]PendingCounte
 			          p.activity_id, p.owner_id,
 			          coalesce(left((SELECT a.subject FROM activity a WHERE a.id = p.activity_id), $6), ''),
 			          coalesce(left((SELECT a.body FROM activity a WHERE a.id = p.activity_id), $7), '')`,
-			limit, pendingLease.String(), PendingMaxAttempts, claim,
+			limit, pendingLease.Seconds(), PendingMaxAttempts, claim,
 			MaxCapturedNameChars, MaxCapturedSubjectChars, MaxCapturedBodyChars)
 		if err != nil {
 			return err
@@ -379,12 +379,12 @@ func (s *PendingStore) Defer(ctx context.Context, p PendingCounterparty, backoff
 		// a time.
 		_, err := tx.Exec(ctx, `
 			UPDATE capture_pending_counterparty
-			   SET next_attempt_at = now() + $2::interval,
+			   SET next_attempt_at = now() + make_interval(secs => $2),
 			       attempts = CASE WHEN $5::boolean THEN greatest(attempts - 1, 0) ELSE attempts END,
 			       disposition_reason = NULLIF($4, ''),
 			       claimed_until = NULL, claimed_by = NULL, updated_at = now()
 			 WHERE id = $1 AND status = 'pending' AND claimed_by = $3`,
-			p.ID, backoff.String(), p.Claim, reason, refundAttempt)
+			p.ID, backoff.Seconds(), p.Claim, reason, refundAttempt)
 		return err
 	})
 	if err != nil {

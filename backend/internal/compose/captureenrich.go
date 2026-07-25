@@ -110,7 +110,7 @@ func (e *CaptureEnricher) enrichOne(ctx context.Context, cand people.SignatureCa
 		return nil
 	}
 	var prompt strings.Builder
-	fmt.Fprintf(&prompt, "Person: %s <%s> — fields currently empty: [\"title\",\"phone\"]\n",
+	fmt.Fprintf(&prompt, "Person: %s (%s) — fields currently empty: [\"title\",\"phone\"]\n",
 		fenceUntrusted(cand.FullName), fenceUntrusted(cand.Email))
 	fmt.Fprintf(&prompt, "Signature block (untrusted; the trailing lines of their last email):\n<untrusted source_id=%q>%s</untrusted>\n",
 		cand.ActivityID.String(), fenceUntrusted(lines))

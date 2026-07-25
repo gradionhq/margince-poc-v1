@@ -277,10 +277,10 @@ func (s *Sink) priorDispositionTx(ctx context.Context, tx pgx.Tx, email string) 
 		              -- are decisions about the SENDER, not about one message.
 		              AND (status <> 'noise'
 		                   OR resolved_at IS NULL
-		                   OR resolved_at >= now() - $2::interval)
+		                   OR resolved_at >= now() - make_interval(secs => $2))
 		            ORDER BY resolved_at DESC NULLS LAST
 		            LIMIT 1), '')
-		       END`, normalized, noiseVerdictReach.String()).Scan(&status)
+		       END`, normalized, noiseVerdictReach.Seconds()).Scan(&status)
 	if err != nil {
 		return "", fmt.Errorf("capture: reading the prior disposition: %w", err)
 	}
