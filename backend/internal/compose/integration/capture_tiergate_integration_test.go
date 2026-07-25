@@ -136,11 +136,9 @@ func TestCaptureTierGateLetsCorrespondencePrecedeSuppression(t *testing.T) {
 
 // The corroboration rule (CAP-PARAM-6) suppresses a prefix-subdomain sender
 // only when something confirms it is bulk infrastructure — a List-Unsubscribe
-// header, or a machine localpart. The machine-localpart half was unreachable
-// while the mapper dropped those senders outright, so this pins both halves of
-// ADR-0072 §1's promise at once: the derivation is suppressed AND the message
-// still reaches the timeline, which is the whole reason a DocuSign envelope is
-// worth capturing.
+// header, or a machine localpart. Both halves of ADR-0072 §1's promise hold at
+// once: the derivation is suppressed AND the message still reaches the
+// timeline, which is the whole reason a DocuSign envelope is worth capturing.
 func TestCaptureTierGateSuppressesAMachineLocalpartWithoutLosingTheMessage(t *testing.T) {
 	env := newCaptureEnv(t)
 	e, sync := env.e, env.sync
