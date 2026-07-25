@@ -547,6 +547,7 @@ export const en = {
   "deepread.statusDone": "Done",
   "deepread.statusPartial": "Stopped early",
   "deepread.statusFailed": "Failed",
+  "deepread.statusCancelled": "Cancelled",
   "deepread.resumesAt": "Resumes automatically {when}.",
   "deepread.pagesSoFar.one": "{count} page read so far",
   "deepread.pagesSoFar.other": "{count} pages read so far",
