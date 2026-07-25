@@ -371,7 +371,7 @@ describe("the OAuth return outcome", () => {
     expect(
       await screen.findByText(/administrator needs to enable it/i),
     ).toBeTruthy();
-    expect(screen.queryByText(/please try again/i)).toBeNull();
+    expect(screen.queryByText(/couldn't be completed/i)).toBeNull();
   });
 
   it("tells the reader to accept every permission when the provider declined", async () => {
@@ -381,7 +381,8 @@ describe("the OAuth return outcome", () => {
     });
     render(<ConnectorsCard />);
     expect(await screen.findByText(/accept every permission/i)).toBeTruthy();
-    expect(screen.queryByText(/please try again/i)).toBeNull();
+    // The generic "couldn't be completed — please try again" must not also show.
+    expect(screen.queryByText(/couldn't be completed/i)).toBeNull();
   });
 
   it("renders a brief success note on ok — never an error", async () => {

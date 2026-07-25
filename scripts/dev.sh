@@ -99,15 +99,24 @@ state="${rundir}/env"
 # Tag every line with the process that wrote it. api, worker and Vite all append
 # to one log, and once their output interleaves there is no way to recover which
 # one said what — a worker sync failure reads exactly like an api request error.
-# The tag is plain text on purpose: no ANSI in the file, so grep, sed and an
-# editor all see clean lines. `make dev-logs` adds the colour at read time.
+#
+# At debug level the tag and the severity are ALSO coloured in the file itself,
+# so a plain `tail -f` on it is readable without going through `make dev-logs`.
+# That is deliberately limited to debug: colour in a file is escape codes in
+# `grep` output, and a normal info-level run keeps the file clean. Debug is
+# already the "I am staring at this log" mode, and it is where the job queue's
+# heartbeat makes an uncoloured tail hardest to read.
 #
 # Callers pipe through this with process substitution — `cmd > >(log_as api)`,
 # never `cmd | log_as api` — because a pipeline makes $! the LAST command in it,
 # and this script's $! must stay the server's own pid or dev-stop kills an awk
 # instead of the api.
+log_colour=0
+[[ "${MARGINCE_LOG_LEVEL:-info}" == "debug" ]] && log_colour=1
+
 log_as() { # role — tag each line of stdin and append to $log
-  awk -v role="$1" '{ printf "%-6s | %s\n", role, $0; fflush() }' >>"$log"
+  awk -v mode=tag -v role="$1" -v colour="$log_colour" \
+    -f "${repo_root}/scripts/lib/devlog.awk" >>"$log"
 }
 
 wait_ready() { # url timeout_s — only a 2xx counts as ready (a 401/500/503 is not).

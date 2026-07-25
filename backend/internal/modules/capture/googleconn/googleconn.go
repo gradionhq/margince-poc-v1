@@ -83,11 +83,13 @@ func Get(ctx context.Context, client *http.Client, base, accessToken, path strin
 	if resp.StatusCode == http.StatusTooManyRequests {
 		return resp.StatusCode, &connector.RateLimitedError{RetryAfter: retryAfter(resp)}
 	}
-	if resp.StatusCode == http.StatusForbidden && isRateLimitBody(body) {
+	if resp.StatusCode == http.StatusForbidden && RateLimitBody(body) {
 		return resp.StatusCode, &connector.RateLimitedError{RetryAfter: retryAfter(resp)}
 	}
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return resp.StatusCode, rejected(path, resp.StatusCode, body)
+		return resp.StatusCode, &connector.ProviderError{
+			Op: path, Status: resp.StatusCode, Reason: Reason(body), Class: ErrAuthRejected,
+		}
 	}
 	if resp.StatusCode != http.StatusOK {
 		return resp.StatusCode, &connector.ProviderError{
@@ -130,14 +132,6 @@ func Misconfigured(err error) bool {
 	}
 }
 
-// rejected builds the auth-rejected failure for a 401/403, carrying Google's
-// reason code so the log distinguishes a revoked grant from a disabled API.
-func rejected(path string, status int, body []byte) error {
-	return &connector.ProviderError{
-		Op: path, Status: status, Reason: Reason(body), Class: ErrAuthRejected,
-	}
-}
-
 // googleErrorBody is the subset of Google's standard error envelope that names
 // the failure. errors[].reason is the classic form; details[].reason is the
 // google.rpc.ErrorInfo form the newer APIs return; status is the enum both
@@ -171,23 +165,26 @@ func Reason(body []byte) string {
 	}
 	for _, e := range parsed.Error.Errors {
 		if e.Reason != "" {
-			return e.Reason
+			return connector.MachineReason(e.Reason)
 		}
 	}
 	for _, d := range parsed.Error.Details {
 		if d.Reason != "" {
-			return d.Reason
+			return connector.MachineReason(d.Reason)
 		}
 	}
-	return parsed.Error.Status
+	return connector.MachineReason(parsed.Error.Status)
 }
 
-// isRateLimitBody reports whether a 403 body carries one of Google's
-// rate/quota reasons (rateLimitExceeded, userRateLimitExceeded,
-// dailyLimitExceeded — all share "LimitExceeded" — or quotaExceeded). Those are
-// retryable throttling, distinct from a revoked/insufficient grant, which stays
-// ErrAuthRejected.
-func isRateLimitBody(body []byte) bool {
+// RateLimitBody reports whether a 403 body carries one of Google's rate/quota
+// reasons (rateLimitExceeded, userRateLimitExceeded, dailyLimitExceeded — all
+// share "LimitExceeded" — or quotaExceeded). Those are retryable throttling,
+// distinct from a revoked/insufficient grant, which stays ErrAuthRejected.
+//
+// Exported for the same reason Reason is: Gmail runs its own transport, and a
+// narrower copy of this predicate there would park a merely-throttled mailbox
+// as if its credential had been revoked. One spelling, both connectors.
+func RateLimitBody(body []byte) bool {
 	return bytes.Contains(body, []byte("LimitExceeded")) || bytes.Contains(body, []byte("quotaExceeded"))
 }
 

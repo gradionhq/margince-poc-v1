@@ -350,3 +350,59 @@ func TestClientUnreachableWhenServerDown(t *testing.T) {
 		t.Fatalf("Profile against a closed server = %v, want ErrUnreachable", err)
 	}
 }
+
+// Microsoft's error.code is what tells an operator WHICH refusal this was —
+// a revoked token reads differently from an app that was never granted the
+// permission — so it has to survive the transport while the class stays put.
+func TestGraphRefusalCarriesMicrosoftsErrorCode(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/me/messages", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		//craft:ignore swallowed-errors test stub write
+		_, _ = w.Write([]byte(`{"error":{"code":"Authorization_RequestDenied","message":"Insufficient privileges."}}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	api := NewAPI(srv.Client(), srv.URL)
+
+	_, err := api.EstimateAfter(context.Background(), "access", time.Time{})
+
+	if !errors.Is(err, ErrAuthRejected) {
+		t.Fatalf("err = %v, want ErrAuthRejected", err)
+	}
+	if got := connector.ProviderReason(err); got != "Authorization_RequestDenied" {
+		t.Errorf("ProviderReason = %q, want Authorization_RequestDenied", got)
+	}
+	pe, ok := errors.AsType[*connector.ProviderError](err)
+	if !ok {
+		t.Fatalf("err = %v, want a *connector.ProviderError", err)
+	}
+	if pe.Status != http.StatusForbidden {
+		t.Errorf("Status = %d, want 403", pe.Status)
+	}
+}
+
+// requestOp names the endpoint, never the per-request query: cursors and filters
+// belong in the request, not in an error string an operator reads.
+func TestRequestOpDropsTheQueryString(t *testing.T) {
+	for name, tc := range map[string]struct{ in, want string }{
+		"filter and count": {
+			"https://graph.microsoft.com/v1.0/me/messages?$filter=x&$count=true",
+			"https://graph.microsoft.com/v1.0/me/messages",
+		},
+		"delta token": {
+			"https://graph.microsoft.com/v1.0/me/messages/delta?$deltatoken=abc123",
+			"https://graph.microsoft.com/v1.0/me/messages/delta",
+		},
+		"no query": {
+			"https://graph.microsoft.com/v1.0/me",
+			"https://graph.microsoft.com/v1.0/me",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := requestOp(tc.in); got != tc.want {
+				t.Errorf("requestOp(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}

@@ -298,7 +298,7 @@ func (a *httpAPI) GetMIME(ctx context.Context, accessToken, msgID string) ([]byt
 		// that is permanently gone, which would wedge the whole sync.
 		return nil, fmt.Errorf("graph: message %s no longer exists: %w", msgID, connector.ErrSkip)
 	}
-	if err := classifyStatus(resp, "message", body); err != nil {
+	if err := classifyStatus(resp, messageOp, body); err != nil {
 		return nil, err
 	}
 	if len(body) > maxMIMELen {
@@ -368,6 +368,11 @@ func retryAfter(resp *http.Response) time.Duration {
 	return 0
 }
 
+// messageOp names the raw-MIME fetch in a ProviderError. Its sibling calls carry
+// their URL path as the op; this one is a hand-built request whose URL embeds the
+// message id, so it names the endpoint rather than the instance.
+const messageOp = "message"
+
 // requestOp names a Graph call in a ProviderError by its URL without the query
 // string: the path identifies the endpoint that failed, while the query carries
 // per-request filters and cursors that have no place in an error string.
@@ -393,7 +398,7 @@ func graphReason(body []byte) string {
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return ""
 	}
-	return parsed.Error.Code
+	return connector.MachineReason(parsed.Error.Code)
 }
 
 // classifyStatus maps a non-2xx Graph response onto the shared connector

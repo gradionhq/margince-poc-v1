@@ -69,8 +69,9 @@ type ProviderError struct {
 	// Op is the failing call, in the provider's own terms: an API path
 	// ("/calendars/primary") or the handshake step ("token").
 	Op string
-	// Status is the provider's HTTP status; zero when the failure was not an
-	// HTTP response.
+	// Status is the provider's HTTP status. Every construction site is an
+	// HTTP-response path, so it is always set — a transport failure that never
+	// reached a response carries its own wrapped sentinel instead.
 	Status int
 	// Reason is the provider's machine reason code; empty when it named none.
 	Reason string
@@ -80,14 +81,38 @@ type ProviderError struct {
 }
 
 func (e *ProviderError) Error() string {
-	switch {
-	case e.Reason != "" && e.Status != 0:
+	if e.Reason != "" {
 		return fmt.Sprintf("%s: provider said %d %s: %v", e.Op, e.Status, e.Reason, e.Class)
-	case e.Status != 0:
-		return fmt.Sprintf("%s: provider said %d: %v", e.Op, e.Status, e.Class)
-	default:
-		return fmt.Sprintf("%s: %v", e.Op, e.Class)
 	}
+	return fmt.Sprintf("%s: provider said %d: %v", e.Op, e.Status, e.Class)
+}
+
+// maxReasonLen bounds a machine reason. Every real one is a short identifier
+// (accessNotConfigured, invalid_grant, AADSTS700016); the bodies they are parsed
+// out of, by contrast, are read up to megabytes. Without a bound, one hostile or
+// corrupted response could put an arbitrarily long string into a log line and
+// into the system_log row a sync failure writes.
+const maxReasonLen = 64
+
+// MachineReason accepts s only if it looks like a provider's machine code — a
+// short identifier of letters, digits, '_', '-' and '.' — and returns "" for
+// anything else. Every parser passes its extracted reason through here, so
+// prose, an oversized value, and control characters (a newline would be a
+// log-forgery attempt) are all rejected at one chokepoint rather than trusted
+// because the provider is nominally reputable.
+func MachineReason(s string) string {
+	if s == "" || len(s) > maxReasonLen {
+		return ""
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '_', r == '-', r == '.':
+		default:
+			return ""
+		}
+	}
+	return s
 }
 
 // Unwrap exposes the wrapped class, so errors.Is(err, ErrAuthRejected) — and

@@ -21,6 +21,15 @@ import { imapErrorMessage } from "./imap-connect-form";
 // the per-purpose consent turn; connecting stays value-before-permission
 // and the panels never claim a connection the server did not confirm.
 
+// The OAuth outcomes that no retry can clear: the provider refused the grant,
+// or its API was never enabled for this deployment. Keyed off the server's
+// outcome segment, and pointing at the same copy Settings renders so the two
+// surfaces cannot drift apart.
+const PERMANENT_FAILURE_BODY: Record<string, MessageKey | undefined> = {
+  misconfigured: "connectors.oauthMisconfigured",
+  rejected: "connectors.oauthRejected",
+};
+
 // The honest-failure banner the connect panels share.
 function ConnectWarn({ title, body }: { title: string; body: string }) {
   return (
@@ -159,6 +168,20 @@ export function OAuthReturnPanel({
       <ConnectWarn
         title={t("ob.s4.connectDenied")}
         body={t("ob.s4.connectRetry")}
+      />
+    );
+  }
+  // Onboarding is the DEFAULT return surface, so it sees the same server
+  // outcome enum Settings does and must handle all of it: an outcome only one
+  // renderer knows about falls through to the other's generic advice. These two
+  // failures are permanent, so neither may repeat connectRetry's "try again" —
+  // they reuse the Settings wording rather than minting a second copy of it.
+  const permanentBody = PERMANENT_FAILURE_BODY[outcome ?? ""];
+  if (permanentBody) {
+    return (
+      <ConnectWarn
+        title={t("ob.s4.connectConfirmFailed")}
+        body={t(permanentBody)}
       />
     );
   }

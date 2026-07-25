@@ -118,7 +118,32 @@ func oauthErrorCode(body []byte) string {
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return ""
 	}
-	return parsed.Error
+	return connector.MachineReason(parsed.Error)
+}
+
+// The RFC 6749 §5.2 codes that mean THE DEPLOYMENT'S OAuth CLIENT is wrong, not
+// that this human's grant went bad: the client failed to authenticate
+// (invalid_client — a wrong client id/secret) or is not allowed this grant type
+// (unauthorized_client). Both need whoever configured the deployment; no amount
+// of re-consenting clears either. Distinct from invalid_grant, where the code
+// really is stale and retrying the consent is the right advice.
+//
+// This is provider-independent by construction: every OAuth connector on this
+// flow (gmail, gcal, graph) reports a misconfigured client the same way.
+const (
+	codeInvalidClient      = "invalid_client"
+	codeUnauthorizedClient = "unauthorized_client"
+)
+
+// Misconfigured reports whether err is a token-endpoint refusal of the
+// deployment's own OAuth client rather than of the human's grant.
+func Misconfigured(err error) bool {
+	switch connector.ProviderReason(err) {
+	case codeInvalidClient, codeUnauthorizedClient:
+		return true
+	default:
+		return false
+	}
 }
 
 // Exchange redeems the authorization code for a durable refresh token.

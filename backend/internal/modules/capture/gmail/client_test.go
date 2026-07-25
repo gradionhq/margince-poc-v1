@@ -253,3 +253,49 @@ func TestWatchRegistersAndParsesMillisecondExpiration(t *testing.T) {
 		t.Errorf("expiration = %v, want %v", exp, want)
 	}
 }
+
+// Gmail runs its own transport, so the two facts the shared Google plumbing
+// establishes have to hold here independently — otherwise the same provider
+// failure is diagnosable on calendar and opaque on mail.
+func TestGmailTransportCarriesGooglesReasonAndSharesTheQuotaVerdict(t *testing.T) {
+	mux := http.NewServeMux()
+	// The failure this whole change exists for: the API is not enabled for the
+	// project. A 403, but no reconnect can clear it.
+	mux.HandleFunc("/profile", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		//craft:ignore swallowed-errors test stub write
+		_, _ = w.Write([]byte(`{"error":{"code":403,"errors":[{"reason":"accessNotConfigured"}]}}`))
+	})
+	// A daily-quota 403. It shares no substring with "rateLimitExceeded", so a
+	// narrower predicate here would fall through to the auth arm and park a
+	// merely-throttled mailbox as needing a human.
+	mux.HandleFunc("/messages", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "42")
+		w.WriteHeader(http.StatusForbidden)
+		//craft:ignore swallowed-errors test stub write
+		_, _ = w.Write([]byte(`{"error":{"code":403,"errors":[{"reason":"dailyLimitExceeded"}]}}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	api := NewAPI(srv.Client(), srv.URL)
+
+	_, _, err := api.Profile(context.Background(), "access")
+	if !errors.Is(err, ErrAuthRejected) {
+		t.Fatalf("disabled-API err = %v, want ErrAuthRejected", err)
+	}
+	if got := connector.ProviderReason(err); got != "accessNotConfigured" {
+		t.Errorf("ProviderReason = %q, want accessNotConfigured", got)
+	}
+
+	_, err = api.ListRecent(context.Background(), "access", 10)
+	if errors.Is(err, ErrAuthRejected) {
+		t.Fatalf("a daily-quota 403 was classified as rejected auth: %v", err)
+	}
+	rl, ok := errors.AsType[*connector.RateLimitedError](err)
+	if !ok {
+		t.Fatalf("quota err = %v, want a RateLimitedError so the sync backs off", err)
+	}
+	if rl.RetryAfter != 42*time.Second {
+		t.Errorf("RetryAfter = %v, want 42s from the provider header", rl.RetryAfter)
+	}
+}

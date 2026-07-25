@@ -52,41 +52,9 @@ colour=1
 heartbeat='producer: Producer job counts|producer: Distributed batch of jobs|jobcompleter\.|leadership\.Elector|Client: Job stats'
 
 # shellcheck disable=SC2016 # the awk program is deliberately single-quoted: $0/$1 are awk fields, not shell
-# Written with plain if/else rather than ternaries: BSD awk (the awk on a stock
-# macOS, which is most of this repo's dev machines) rejects a ternary inside a
-# printf argument list.
-awk_prog='
-function paint(s, c) {
-  if (!colour || c == "") { return s }
-  return "\033[" c "m" s "\033[0m"
-}
-{
-  tag = $1
-  rest = substr($0, index($0, "|") + 2)
-
-  if (role != "" && tag != role) { next }
-  if (!all && rest ~ heartbeat) { next }
-
-  lvl = ""
-  if (match(rest, /level=[A-Z]+/)) { lvl = substr(rest, RSTART + 6, RLENGTH - 6) }
-  if (want != "" && !(lvl in keep)) { next }
-
-  # One colour per process, so the eye separates streams without reading the tag.
-  tagc = "90"
-  if (tag == "api")    { tagc = "36" }
-  if (tag == "worker") { tagc = "35" }
-  if (tag == "fe")     { tagc = "34" }
-
-  # Severity outranks the process: an error must look like one whoever said it.
-  lvlc = ""
-  if (lvl == "ERROR") { lvlc = "1;31" }
-  if (lvl == "WARN")  { lvlc = "33" }
-  if (lvl == "DEBUG") { lvlc = "90" }
-
-  printf "%s %s\n", paint(sprintf("%-6s", tag), tagc), paint(rest, lvlc)
-  fflush()
-}
-'
+# The colour scheme and line shape live in scripts/lib/devlog.awk, shared with
+# the writer in dev.sh so the two ends cannot drift apart.
+awk_lib="scripts/lib/devlog.awk"
 
 # LEVEL names a floor, so LEVEL=warn shows warnings AND errors: asking for
 # warnings and being shown no errors would be actively misleading.
@@ -101,10 +69,14 @@ keep_for_level() {
 }
 
 run_awk() {
-  awk -v colour="$colour" -v role="$role" -v all="$all" \
-      -v heartbeat="$heartbeat" -v want="$level" \
+  # ALL=1 is expressed by handing the library an empty heartbeat pattern, so the
+  # "hide it" decision lives in exactly one place.
+  local hb="$heartbeat"
+  [[ "$all" == "1" ]] && hb=""
+  awk -v mode=view -v colour="$colour" -v role="$role" \
+      -v heartbeat="$hb" -v want="$level" \
       -v keeplist="$(keep_for_level "$level")" \
-      'BEGIN { n = split(keeplist, a, " "); for (i = 1; i <= n; i++) keep[a[i]] = 1 }'"$awk_prog"
+      -f "$awk_lib" -
 }
 
 if [[ "$follow" == "1" ]]; then

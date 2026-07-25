@@ -235,20 +235,33 @@ func TestConnectFailureOutcomeMatchesTheRemedy(t *testing.T) {
 		Op: "token", Status: http.StatusBadGateway, Class: gcal.ErrUnreachable,
 	}
 
+	// A refused OAuth client is the deployment's own credentials, not the
+	// human's grant — and unlike the disabled API it is provider-independent.
+	badClient := &connector.ProviderError{
+		Op: "token", Status: http.StatusUnauthorized,
+		Reason: "invalid_client", Class: gcal.ErrAuthRejected,
+	}
+
 	for _, tc := range []struct {
-		name string
-		err  error
-		want string
+		name     string
+		provider string
+		err      error
+		want     string
 	}{
-		{"a disabled provider API needs an administrator", disabledAPI, outcomeMisconfigured},
-		{"a refused grant needs its human", revokedGrant, outcomeRejected},
-		{"an unreachable provider is worth retrying", unreachable, outcomeError},
-		{"a bare auth sentinel carries no remedy detail", gcal.ErrAuthRejected, outcomeRejected},
-		{"an unattributed failure stays generic", errors.New("something of ours broke"), outcomeError},
+		{"a disabled provider API needs an administrator", providerGcal, disabledAPI, outcomeMisconfigured},
+		{"a refused OAuth client needs an administrator too", providerGcal, badClient, outcomeMisconfigured},
+		{"a refused OAuth client is provider-independent", providerGraph, badClient, outcomeMisconfigured},
+		{"a refused grant needs its human", providerGcal, revokedGrant, outcomeRejected},
+		{"an unreachable provider is worth retrying", providerGcal, unreachable, outcomeError},
+		{"a bare auth sentinel carries no remedy detail", providerGcal, gcal.ErrAuthRejected, outcomeRejected},
+		{"an unattributed failure stays generic", providerGcal, errors.New("something of ours broke"), outcomeError},
+		// Google's reason vocabulary must not be read against Microsoft: the
+		// remedy names a Google Cloud project that has nothing to do with it.
+		{"a Google reason code is not consulted for graph", providerGraph, disabledAPI, outcomeRejected},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := connectFailureOutcome(tc.err); got != tc.want {
-				t.Errorf("connectFailureOutcome(%v) = %q, want %q", tc.err, got, tc.want)
+			if got := connectFailureOutcome(tc.provider, tc.err); got != tc.want {
+				t.Errorf("connectFailureOutcome(%s, %v) = %q, want %q", tc.provider, tc.err, got, tc.want)
 			}
 		})
 	}

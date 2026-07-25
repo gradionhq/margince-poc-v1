@@ -38,6 +38,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/googleconn"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/graph"
+	"github.com/gradionhq/margince/backend/internal/modules/capture/oauthflow"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -207,13 +208,29 @@ const (
 	outcomeError         = "error"
 )
 
+// disabledProviderAPI reports whether the failure is a provider API that was
+// never enabled for this deployment. The reason vocabulary is Google's, so the
+// question is only asked of the Google connectors — a Microsoft failure that
+// happened to reuse one of those code names must not be answered with Google's
+// remedy.
+func disabledProviderAPI(provider string, err error) bool {
+	if provider != providerGmail && provider != providerGcal {
+		return false
+	}
+	return googleconn.Misconfigured(err)
+}
+
 // connectFailureOutcome picks the landing outcome for a failed consent
 // completion, so what the human reads matches what they can actually do about
-// it. Anything we cannot attribute to the provider stays the generic error —
-// an honest "we don't know yet", never a guess at whose fault it is.
-func connectFailureOutcome(err error) string {
+// it. Two distinct deployment faults land on misconfigured — a provider API that
+// was never enabled, and an OAuth client the provider refused to authenticate
+// (a wrong client id/secret, which is provider-independent) — because a human
+// re-consenting clears neither. Anything we cannot attribute to the provider
+// stays the generic error: an honest "we don't know yet", never a guess at whose
+// fault it is.
+func connectFailureOutcome(provider string, err error) string {
 	switch {
-	case googleconn.Misconfigured(err):
+	case disabledProviderAPI(provider, err), oauthflow.Misconfigured(err):
 		return outcomeMisconfigured
 	case errors.Is(err, connector.ErrAuthRejected):
 		return outcomeRejected
@@ -223,18 +240,28 @@ func connectFailureOutcome(err error) string {
 }
 
 // logConnectFailure records a failed consent completion for the operator. The
-// misconfigured case gets its own line naming the remedy: it is the one failure
-// here that no user action can clear, and the reason code alone
-// ("accessNotConfigured") does not tell whoever reads the log what to go do.
+// two deployment faults each get a line naming their OWN remedy: a machine
+// reason code ("accessNotConfigured", "invalid_client") says what the provider
+// refused but not what to go do about it, and the two remedies are different
+// places. The generic line deliberately does not name a step — the failure can
+// come from the token exchange, the refresh, or the owner lookup, and
+// ProviderError.Op already carries which call it actually was.
 func logConnectFailure(ctx context.Context, provider string, err error) {
-	if googleconn.Misconfigured(err) {
+	switch {
+	case disabledProviderAPI(provider, err):
 		slog.ErrorContext(ctx,
 			"connector callback: this provider's API is not enabled for the deployment — "+
 				"enable it in the Google Cloud project behind the OAuth client, then reconnect",
 			"err", err, "provider", provider)
-		return
+	case oauthflow.Misconfigured(err):
+		slog.ErrorContext(ctx,
+			"connector callback: the provider refused this deployment's OAuth client — "+
+				"check the configured client id and secret for this connector",
+			"err", err, "provider", provider)
+	default:
+		slog.ErrorContext(ctx, "connector callback: completing consent failed",
+			"err", err, "provider", provider)
 	}
-	slog.ErrorContext(ctx, "connector callback: token exchange", "err", err, "provider", provider)
 }
 
 func (h connectorHandlers) ListConnectors(w http.ResponseWriter, r *http.Request) {
@@ -369,12 +396,13 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 	// signed state, proving the browser completing the flow is the one that
 	// started it. Without this, an attacker could trick a victim into
 	// completing the attacker's flow and link the victim's mailbox to the
-	// attacker's account (account-linking CSRF). The flow isn't fully trusted
-	// until this passes, so this redirect also keeps the default.
+	// attacker's account (account-linking CSRF). The signed state is already
+	// verified by this point — what this check establishes is the BROWSER's
+	// identity — so the redirect can honor the surface the flow started from.
 	csrf, cerr := r.Cookie(csrfCookieName(string(provider)))
 	if cerr != nil || st.Nonce == "" || subtle.ConstantTimeCompare([]byte(csrf.Value), []byte(st.Nonce)) != 1 {
 		slog.WarnContext(ctx, "connector callback: CSRF nonce missing/mismatched", "err", cerr, "provider", string(provider))
-		http.Redirect(w, r, h.landingURL("error", returnToOnboarding), http.StatusFound)
+		http.Redirect(w, r, h.landingURL(outcomeError, returnTo), http.StatusFound)
 		return
 	}
 	// One-shot: clear the CSRF cookie now that it's been consumed (same secure
@@ -387,7 +415,7 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 	auth, err := app.authenticate(ctx, *params.Code, h.callbackURL(string(provider)))
 	if err != nil {
 		logConnectFailure(ctx, string(provider), err)
-		http.Redirect(w, r, h.landingURL(connectFailureOutcome(err), st.ReturnTo), http.StatusFound)
+		http.Redirect(w, r, h.landingURL(connectFailureOutcome(string(provider), err), returnTo), http.StatusFound)
 		return
 	}
 
@@ -406,10 +434,10 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 	})
 	if _, err := h.registry.Connect(runCtx, string(provider), auth); err != nil {
 		slog.ErrorContext(ctx, "connector callback: persisting connection", "err", err, "provider", string(provider))
-		http.Redirect(w, r, h.landingURL(outcomeError, st.ReturnTo), http.StatusFound)
+		http.Redirect(w, r, h.landingURL(outcomeError, returnTo), http.StatusFound)
 		return
 	}
-	http.Redirect(w, r, h.landingURL(outcomeOK, st.ReturnTo), http.StatusFound)
+	http.Redirect(w, r, h.landingURL(outcomeOK, returnTo), http.StatusFound)
 }
 
 func (h connectorHandlers) DisconnectConnector(w http.ResponseWriter, r *http.Request, provider crmcontracts.CaptureProvider) {

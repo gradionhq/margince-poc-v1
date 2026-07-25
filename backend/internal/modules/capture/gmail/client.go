@@ -378,9 +378,12 @@ func (a *httpAPI) get(ctx context.Context, accessToken, path string, q url.Value
 	if resp.StatusCode == http.StatusTooManyRequests {
 		return resp.StatusCode, &connector.RateLimitedError{RetryAfter: retryAfter(resp)}
 	}
-	if resp.StatusCode == http.StatusForbidden && bytes.Contains(body, []byte("ateLimitExceeded")) {
-		// Google reports per-user quota as 403 with reason rateLimitExceeded /
-		// userRateLimitExceeded — a pacing problem, not an authorization one.
+	if resp.StatusCode == http.StatusForbidden && googleconn.RateLimitBody(body) {
+		// Google reports quota as a 403 whose reason names a limit
+		// (rateLimitExceeded, userRateLimitExceeded, dailyLimitExceeded,
+		// quotaExceeded) — a pacing problem, not an authorization one. Shared with
+		// the calendar transport: a narrower test here would fall through to the
+		// auth arm below and park a throttled mailbox as needing a reconnect.
 		return resp.StatusCode, &connector.RateLimitedError{RetryAfter: retryAfter(resp)}
 	}
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
