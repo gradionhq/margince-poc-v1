@@ -804,3 +804,29 @@ func TestDeepReadCancelsAnAutoEnrichJobWhenTheSettingWentOff(t *testing.T) {
 		t.Errorf("status = %q, want cancelled — the read did not fail, it was withdrawn", done.Status)
 	}
 }
+
+// Provenance follows the dossier row, not the job payload. The human named on
+// what a read creates is the one who asked for it, and the row is where that is
+// recorded — a payload naming someone else would hang their name on the rows,
+// which no later gate catches, because provenance is written once and never
+// re-derived.
+func TestDeepReadAttributesItsWritesToTheRequesterTheRowNames(t *testing.T) {
+	e := integration.Setup(t)
+	org := insertOrg(t, e, e.Rep1, "acme.example", "")
+	worker, _ := newDeepReadTestWorker(e, acmeDeepSite(), acmeDeepBrain())
+	read, args := startDeepRead(t, e, org)
+
+	// The row says Rep2 asked; the payload still says Rep1. If the worker
+	// believes the payload, the staged proposal carries the wrong human.
+	e.WsExec(t, `UPDATE site_read SET requested_by = $1 WHERE id = $2`, "human:"+e.Rep2.String(), read.ID)
+
+	if err := worker.run(context.Background(), args); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM approval WHERE kind = 'deepread' AND on_behalf_of = $1`, e.Rep2); n != 1 {
+		t.Errorf("%d proposals on behalf of the requester the row names, want 1", n)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM approval WHERE kind = 'deepread' AND on_behalf_of = $1`, e.Rep1); n != 0 {
+		t.Errorf("%d proposals attributed to the payload's requester — the row is the authority", n)
+	}
+}

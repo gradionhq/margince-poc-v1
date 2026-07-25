@@ -153,19 +153,33 @@ func (w *siteDeepReadWorker) reclaimAfter() time.Duration {
 // the site again is a human's next start, never an automatic retry.
 // deepReadWorkerCtx attaches the worker's principal, workspace and correlation
 // onto the job context — the values every store write (and terminalCtx) needs.
+//
+// The requester it carries comes from the job payload, because the claim that
+// yields the authoritative one needs a context to be made at all. It is
+// replaced by withClaimedRequester the moment the row is in hand, so nothing
+// the worker writes is attributed on the payload's word.
 func deepReadWorkerCtx(ctx context.Context, args SiteDeepReadArgs) context.Context {
-	requester := requestedByUserID(args.RequestedBy)
-	ctx = principal.WithWorkspaceID(ctx, args.WorkspaceID)
+	return withClaimedRequester(
+		principal.WithWorkspaceID(ctx, args.WorkspaceID), args.RequestedBy, args.SiteReadID)
+}
+
+// withClaimedRequester stamps the principal every store write is attributed to.
+// The human named here owns what this read creates, so it must be the one the
+// DOSSIER ROW records: a payload that disagreed would hang another person's
+// name on the rows, which no later gate would catch — provenance is written
+// once and never re-derived.
+func withClaimedRequester(ctx context.Context, requestedBy string, readID ids.UUID) context.Context {
+	requester := requestedByUserID(requestedBy)
 	ctx = principal.WithActor(ctx, principal.Principal{
 		Type:       principal.PrincipalSystem,
 		ID:         "agent:deepread",
 		UserID:     requester,
 		OnBehalfOf: requester,
 	})
-	if args.SiteReadID.IsZero() {
+	if readID.IsZero() {
 		return principal.WithCorrelationID(ctx, ids.NewV7())
 	}
-	return principal.WithCorrelationID(ctx, args.SiteReadID)
+	return principal.WithCorrelationID(ctx, readID)
 }
 
 func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) error {
@@ -184,6 +198,10 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 	// crawling and no further model calls, including from work queued while it
 	// was on. Only the automatic lane is gated — a human who asked for a read
 	// is not governed by the automatic-enrichment setting.
+	// Everything past the claim runs as the requester the ROW names, so the
+	// provenance on what this read writes is the row's answer too.
+	ctx = withClaimedRequester(ctx, claim.RequestedBy, args.SiteReadID)
+
 	// claim.RequestedBy, never args: the dossier row is the authority on who
 	// asked for this read, and the job payload is metadata that travelled
 	// beside it. Everything downstream that decides SPEND or AUTHORITY reads
