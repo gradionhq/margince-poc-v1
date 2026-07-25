@@ -45,7 +45,7 @@ const (
 	syncStateStale = "stale"
 )
 
-// requireOverlayMode gates SyncStatus/Budget/Reconcile: each answers
+// requireOverlayMode gates SyncStatus/Budget/RequestSweep: each answers
 // apperrors.ErrModeNotOverlay (404 mode_not_overlay) for a workspace that
 // never connected an incumbent — these ops have no SoR-mode equivalent
 // (crm.yaml's own doc comment on the /overlay cluster). It reads
@@ -232,6 +232,32 @@ func (s *Service) backfillCompleteFor(ctx context.Context, tx pgx.Tx, canonicalO
 		}
 	}
 	return true, nil
+}
+
+// RequestSweep asks the worker to reconcile this workspace's mirror on its
+// next tick. Gated by auth.Require("overlay_connection", ActionUpdate): a
+// sweep spends live incumbent budget, so it carries the same admin/ops-only
+// posture as Connect/Disconnect.
+//
+// The store is fenced for this call: a request that races a disconnect must
+// not re-insert the sync state the teardown purged, which the bare store the
+// composition layer builds would happily do. The fence's ErrConnectionGone is
+// an internal signal, never a wire shape — it becomes the same
+// mode_not_overlay 404 every other overlay op answers off overlay mode.
+func (s *Service) RequestSweep(ctx context.Context) error {
+	if err := auth.Require(ctx, overlayConnectionObject, principal.ActionUpdate); err != nil {
+		return err
+	}
+	if err := s.requireOverlayMode(ctx); err != nil {
+		return err
+	}
+	if err := s.ms.WithFence().RequestSweep(ctx); err != nil {
+		if errors.Is(err, ErrConnectionGone) {
+			return apperrors.ErrModeNotOverlay
+		}
+		return err
+	}
+	return nil
 }
 
 // Budget answers ctx's workspace current OVB consumption window (design

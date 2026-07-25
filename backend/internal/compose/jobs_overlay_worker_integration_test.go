@@ -402,31 +402,62 @@ func TestWorkerCleanStopsOnMidSweepDisconnect(t *testing.T) {
 	}
 }
 
-// TestOnDemandReconcileRacingDisconnectAnswersModeNotOverlay proves the
-// on-demand /overlay/reconcile boundary translates the disconnect-race
-// sentinel into the same ErrModeNotOverlay a workspace with no active
-// connection already gets — never an opaque 500.
+// TestOnDemandReconcileRacingDisconnectAnswersModeNotOverlay reproduces the
+// real race a TTL-caching mode dispatcher opens: another process's
+// Disconnect can already have committed (connection revoked,
+// overlay_sync_state purged, workspace flipped to native) while THIS
+// process is still serving a stale cached "overlay" read. After a genuine
+// Connect + Disconnect, it restores ONLY workspace.x_sor_mode/x_incumbent
+// via raw SQL — never incumbent_connection or overlay_sync_state, which
+// stay exactly as the teardown left them — so requireOverlayMode passes
+// and RequestSweep is forced through to the fenced write instead of being
+// turned away earlier by the mode gate. This is the real regression guard
+// for two failure modes that race exposes: (1) RequestSweep must run
+// against the FENCED store (MirrorStore.WithFence), or this stale-mode
+// window would let it silently re-insert the overlay_sync_state row the
+// teardown purged; (2) the fence's ErrConnectionGone must be mapped to
+// apperrors.ErrModeNotOverlay before it can cross the wire, or this
+// answers an opaque 500 instead. Deleting either one independently fails
+// this test.
 func TestOnDemandReconcileRacingDisconnectAnswersModeNotOverlay(t *testing.T) {
 	e := integration.Setup(t)
 	vault := keyvault.NewMemory()
 	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
-	if _, err := overlay.NewService(e.Pool, vault, ms).
-		Connect(overlayAdminCtx(e.WS, e.Rep1), overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
+	svc := overlay.NewService(e.Pool, vault, ms)
+	adminCtx := overlayAdminCtx(e.WS, e.Rep1)
+
+	if _, err := svc.Connect(adminCtx, overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
-	fakeInc := fake.New()
-	fakeInc.SeedOwner("owner-1", "a@authz.test")
-
-	r := overlayReconciler{
-		pool: e.Pool, vault: vault, ms: ms,
-		meter: workerBudgetMeter(t),
-		log:   slog.New(slog.DiscardHandler),
-		newIncumbent: func(_, _ string) overlay.Incumbent {
-			return &revokeOnOwnersIncumbent{Incumbent: fakeInc, pool: e.Pool}
-		},
+	if err := svc.Disconnect(adminCtx); err != nil {
+		t.Fatalf("Disconnect: %v", err)
 	}
-	if err := r.Reconcile(overlayAdminCtx(e.WS, e.Rep1)); !errors.Is(err, apperrors.ErrModeNotOverlay) {
-		t.Fatalf("on-demand reconcile racing a disconnect = %v, want apperrors.ErrModeNotOverlay (not an opaque 500)", err)
+
+	// Simulate the stale cached "overlay" mode read: restore ONLY
+	// workspace.x_sor_mode/x_incumbent, leaving incumbent_connection
+	// revoked and overlay_sync_state purged exactly as Disconnect left
+	// them — so the mode gate passes and the call reaches the fence.
+	if err := database.WithWorkspaceTx(adminCtx, e.Pool, func(tx pgx.Tx) error {
+		_, execErr := tx.Exec(adminCtx,
+			`UPDATE workspace SET x_sor_mode = 'overlay', x_incumbent = 'hubspot'
+			 WHERE id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`)
+		return execErr
+	}); err != nil {
+		t.Fatalf("restoring the stale cached overlay mode: %v", err)
+	}
+
+	if err := svc.RequestSweep(adminCtx); !errors.Is(err, apperrors.ErrModeNotOverlay) {
+		t.Fatalf("RequestSweep racing a disconnect = %v, want apperrors.ErrModeNotOverlay (not an opaque 500)", err)
+	}
+
+	var syncStateRows int
+	if err := database.WithWorkspaceTx(adminCtx, e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(adminCtx, `SELECT count(*) FROM overlay_sync_state`).Scan(&syncStateRows)
+	}); err != nil {
+		t.Fatalf("counting overlay_sync_state rows: %v", err)
+	}
+	if syncStateRows != 0 {
+		t.Errorf("overlay_sync_state has %d row(s) after a sweep request racing a disconnect, want 0 — the fence must not repopulate what the teardown purged", syncStateRows)
 	}
 }
 

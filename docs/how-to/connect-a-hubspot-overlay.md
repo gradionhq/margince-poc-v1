@@ -7,11 +7,14 @@ first.
 
 **Read, continuous sync, and write-back.** HubSpot stays canonical; records flow into Margince's
 mirror, and a write to an overlay-mode record is applied to HubSpot **first**, then re-mirrored
-(incumbent-first, with a stored-baseline drift check). The mapped write verbs —
-create/update/archive on person, organization, and deal — are live; `advance-deal`, `merge`, and
-`promote-lead` still answer `unsupported_by_sor` (not yet wired for overlay). To test write-back
-locally against an isolated HubSpot test account, see
-[test-overlay-locally.md](test-overlay-locally.md).
+(incumbent-first, with a stored-baseline drift check). Update and archive on person, organization, and
+deal are live, plus update on lead and activity; the 360 screens show Edit and Archive whenever the type
+supports them, and Settings → Integrations manages the connection itself. `create`, `merge`,
+`advance-deal`, `promote-lead`, and `disqualify-lead` still answer `422 unsupported_by_sor`: `create`
+because a record made this way would carry no `owner_id`, and the fail-closed visibility rule makes an
+unowned record invisible to everyone, including its author; the mirror implements none of the other
+four. To test write-back locally against an isolated HubSpot test account — including the field-level
+detail of what's actually writable — see [test-overlay-locally.md](test-overlay-locally.md).
 
 > **Single-organization installation (ADR-0061/A107).** One installation serves one organization; the
 > server resolves its singleton organization itself, so no request selects a tenant — there is no
@@ -123,6 +126,15 @@ audit history of the connection itself. (Branch 1 builds no FTS index or embeddi
 so there is nothing of that kind to purge yet — see
 [explanation/overlay-augmentation.md](../explanation/overlay-augmentation.md#teardown-purge-and-tombstone).)
 
+**Reconnecting.** The same `POST /v1/overlay/connection` call from step 2 revives a disconnected
+connection rather than refusing it: it re-points the existing (revoked) connection row at a freshly
+sealed credential, flips it back to `active`, and clears the tombstones the disconnect above left, so
+the sweep after a reconnect mirrors those records again instead of finding them suppressed.
+
+**Manage it in the UI.** Settings → Integrations carries this whole lifecycle for an admin/ops seat:
+connect/reconnect (behind a confirmation), disconnect, per-object sync status, and the budget meter —
+everything above without a terminal.
+
 ## Verify the connection end-to-end
 
 Beyond watching `sync-status` reach `fresh`, confirm the mirror is actually faithful to the source
@@ -134,10 +146,15 @@ rather than just present:
    PID=$(curl -s --cookie 'crm_session=<session>' \
      http://localhost:8080/v1/people?limit=1 | jq -r '.data[0].id')
    curl -s --cookie 'crm_session=<session>' \
-     http://localhost:8080/v1/people/$PID | jq '{full_name, freshness, trust_tier}'
+     http://localhost:8080/v1/people/$PID | jq '{full_name, title, owner_id, updated_at}'
    ```
-   Expect `trust_tier: "external"` (T2, not `authoritative`) and an honest `freshness` — `authoritative:
-   false` plus a real `last_synced_at`, never a false "live" claim.
+   `Person` carries neither `freshness` nor `trust_tier` — a record read has no per-record provenance
+   field to check. Check trust per-record through search instead, which does emit it:
+   ```sh
+   curl -s --cookie 'crm_session=<session>' \
+     'http://localhost:8080/v1/search?q=<a mirrored record display name>' | jq '.data[0].trust_tier'
+   ```
+   Expect `"external"` (never `"authoritative"`) for a hit that came from the mirror.
 2. **Fail-closed visibility.** A user whose email matched no HubSpot owner (so auto-seeding wrote no
    `mirror_user_map` row) must see **zero** mirrored rows (`GET /people` returns an empty list,
    `GET /people/{id}` answers 404, not 403 — existence-hiding). A user whose email *did* match an owner

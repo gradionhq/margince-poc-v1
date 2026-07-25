@@ -13,6 +13,8 @@ import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
 import {
+  ListGate,
+  type ListGateState,
   type ListPage,
   type ListQuery,
   ListToolbar,
@@ -26,6 +28,7 @@ import {
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
 });
 
 function render(ui: ReactNode) {
@@ -271,5 +274,59 @@ describe("ListToolbar", () => {
     );
     const lastCall = setQuery.mock.calls.at(-1)?.[0] as ListQuery;
     expect(lastCall.filters).not.toHaveProperty("status");
+  });
+});
+
+describe("ListGate", () => {
+  function emptyState(): ListGateState<{ id: string }> {
+    return {
+      rows: [],
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: () => {},
+      hasMore: false,
+      loadMore: () => {},
+    };
+  }
+
+  function stubMe(mode: "native" | "overlay") {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              user: { id: "u1", email: "a@example.test", display_name: "A" },
+              roles: ["admin"],
+              teams: [],
+              system_of_record: { mode },
+            }),
+            { headers: { "Content-Type": "application/json" } },
+          ),
+      ),
+    );
+  }
+
+  it("explains owner mapping in the overlay empty state", async () => {
+    stubMe("overlay");
+    render(
+      <ListGate state={emptyState()} empty="No leads yet.">
+        {() => null}
+      </ListGate>,
+    );
+    await screen.findByText("No leads yet.");
+    expect(await screen.findByText(/owner's HubSpot email/i)).toBeTruthy();
+  });
+
+  it("shows only the caller's empty copy in native mode", async () => {
+    stubMe("native");
+    render(
+      <ListGate state={emptyState()} empty="No leads yet.">
+        {() => null}
+      </ListGate>,
+    );
+    await screen.findByText("No leads yet.");
+    expect(screen.queryByText(/owner's HubSpot email/i)).toBeNull();
   });
 });

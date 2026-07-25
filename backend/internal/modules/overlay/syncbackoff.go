@@ -104,6 +104,33 @@ func (s *MirrorStore) RecordSweepSuccess(ctx context.Context, now time.Time) err
 	})
 }
 
+// RequestSweep marks ctx's workspace due for a reconcile sweep right now and
+// clears the failure ladder, so the worker's due-gate picks it up on its next
+// tick. It is the whole of an on-demand "sync now": the sweep itself needs a
+// live incumbent adapter built from the workspace's vaulted credential, which
+// only the worker role holds. Clearing the ladder is deliberate — an operator
+// asking for a sweep is overriding the backoff the last failure imposed.
+func (s *MirrorStore) RequestSweep(ctx context.Context) error {
+	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if s.fenced {
+			if err := assertActiveConnection(ctx, tx); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO overlay_sync_state (workspace_id, next_sweep_at, consecutive_failures, last_error_class, updated_at)
+			VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, now(), 0, NULL, now())
+			ON CONFLICT (workspace_id) DO UPDATE SET
+			  next_sweep_at = now(),
+			  consecutive_failures = 0,
+			  last_error_class = NULL,
+			  updated_at = now()`); err != nil {
+			return fmt.Errorf("overlay: requesting a reconcile sweep: %w", err)
+		}
+		return nil
+	})
+}
+
 // RecordSweepFailure classifies sweepErr, increments the failure ladder,
 // and pushes the next sweep out by the backoff (a rate-limit honors the
 // longer floor) — so a failing connection stops re-sweeping hot. It never

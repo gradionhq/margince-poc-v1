@@ -628,6 +628,107 @@ describe("DealScreen — edit, archive, FX line (A3)", () => {
   });
 });
 
+describe("DealScreen — overlay mode write affordances", () => {
+  beforeEach(() => localStorage.setItem("margince.workspaceSlug", "acme"));
+
+  function overlayBackend(
+    d: Deal,
+    opts: {
+      onPatch?: (body: unknown) => void;
+      onDelete?: () => void;
+    } = {},
+  ) {
+    // Mutable so a refetch after a successful PATCH (useUpdateRecord
+    // invalidates the record query) sees the write applied — the same
+    // "mirror re-read reflects the write-back" shape the real overlay
+    // Provider.Update gives (mirrorWriteResult), not a stale echo.
+    let current = d;
+    return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : null;
+      const url = String(request ? request.url : input);
+      const method = request ? request.method : (init?.method ?? "GET");
+      if (url.includes("/me")) {
+        return jsonResponse({
+          user: {
+            id: "u-me",
+            email: "me@acme.test",
+            display_name: "Me",
+            workspace_id: "w",
+            timezone: "UTC",
+            status: "active",
+            is_agent: false,
+          },
+          roles: ["admin"],
+          teams: [],
+          system_of_record: { mode: "overlay" },
+        });
+      }
+      if (method === "PATCH") {
+        const body = request
+          ? await request.json()
+          : JSON.parse(String(init?.body));
+        opts.onPatch?.(body);
+        current = { ...current, ...(body as Partial<Deal>) };
+        return jsonResponse(current);
+      }
+      if (method === "DELETE") {
+        opts.onDelete?.();
+        return jsonResponse(current);
+      }
+      if (url.includes("/deals/")) {
+        return jsonResponse(current);
+      }
+      return jsonResponse({ data: [], page: { next_cursor: null } });
+    });
+  }
+
+  it("serves Edit and Archive — the mirror write-back seam accepts both", async () => {
+    const d = deal({ id: "x", version: 3 });
+    vi.stubGlobal("fetch", overlayBackend(d));
+    render(<DealScreen id="x" />);
+    expect(await screen.findByTestId("edit-record")).toBeTruthy();
+    expect(screen.getByTestId("archive-record")).toBeTruthy();
+  });
+
+  it("Edit's real click path PATCHes and the 360 renders the updated value", async () => {
+    const patches: unknown[] = [];
+    const d = deal({ id: "x", version: 3 });
+    vi.stubGlobal(
+      "fetch",
+      overlayBackend(d, { onPatch: (body) => patches.push(body) }),
+    );
+    render(<DealScreen id="x" />);
+    await userEvent.click(await screen.findByTestId("edit-record"));
+    const nameInput = screen.getByLabelText("Deal name *");
+    await userEvent.clear(nameInput);
+    await userEvent.type(nameInput, "Fleet retrofit — expanded scope");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(patches).toHaveLength(1));
+    expect(
+      await screen.findByText("Fleet retrofit — expanded scope"),
+    ).toBeTruthy();
+  });
+
+  it("Edit's overlay notice names the partial write-back honestly", async () => {
+    const d = deal({ id: "x" });
+    vi.stubGlobal("fetch", overlayBackend(d));
+    render(<DealScreen id="x" />);
+    await userEvent.click(await screen.findByTestId("edit-record"));
+    expect(
+      screen.getByText(/Only the fields HubSpot accepts are written back/),
+    ).toBeTruthy();
+  });
+
+  it("keeps Reopen and Share hidden even for a won deal", async () => {
+    const d = deal({ id: "x", status: "won", stage_id: "s3" });
+    vi.stubGlobal("fetch", overlayBackend(d));
+    render(<DealScreen id="x" />);
+    await screen.findByTestId("edit-record");
+    expect(screen.queryByTestId("reopen-open")).toBeNull();
+    expect(screen.queryByTestId("share-record")).toBeNull();
+  });
+});
+
 describe("DealScreen reopen", () => {
   beforeEach(() => localStorage.setItem("margince.workspaceSlug", "acme"));
 

@@ -217,12 +217,13 @@ const leadStatusFilterOptions = [
 async function createLead(
   values: Record<string, string>,
   customFields: Record<string, unknown>,
+  t: (key: MessageKey) => string,
 ): Promise<Lead> {
   const { data, error } = await api.POST("/leads", {
     body: { ...mapLeadBody(values), ...customFields },
   });
   if (error) {
-    throwProblem(error);
+    throwProblem(error, t);
   }
   return data;
 }
@@ -245,7 +246,7 @@ export function LeadsScreen() {
           label={t("create.lead")}
           invalidate="leads"
           screen="leads"
-          create={(values) => createLead(values, cf.toBody(values))}
+          create={(values) => createLead(values, cf.toBody(values), t)}
           resolveExisting={(_code, id) => ({ screen: "leads", id })}
           fields={[...leadCreateFields, ...cf.formFields]}
         />
@@ -697,8 +698,12 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
   const queryClient = useQueryClient();
   const headingId = useId();
   const [tab, setTab] = useState<LeadTab>("overview");
-  // Edit/archive write to a mirrored lead — hidden in overlay (every such
-  // write answers unsupported_by_sor).
+  // The seam serves update for a mirrored lead (write-back projects onto the
+  // incumbent, overlay/provider_writes.go), so Edit renders in overlay too.
+  // DELETE /leads/{id} is disqualify_lead, not an archive — a cross-type
+  // lifecycle transition the seam refuses outright, so it and share stay
+  // hidden (share: a record grant probes the native lead row, which a
+  // mirror lead has no row in — see deals.tsx's DealBadges).
   const overlay = useSorMode() === "overlay";
   const leadQuery = useQuery({
     queryKey: ["lead", id],
@@ -730,7 +735,7 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
         body,
       });
       if (error) {
-        throwProblem(error);
+        throwProblem(error, t);
       }
       return data;
     },
@@ -772,40 +777,43 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
                   the backend rejects edit/disqualify/promote/score-override on
                   it, so those affordances would only 404. Read-only past that
                   point. */}
+              {!lead.archived_at && (
+                <EditAction
+                  label={t("record.edit")}
+                  notice={overlay ? t("overlay.partialWriteBack") : undefined}
+                  fields={[...leadEditFields, ...cf.formFields]}
+                  record={{
+                    id: lead.id,
+                    version: lead.version,
+                    full_name: lead.full_name ?? "",
+                    email: lead.email ?? "",
+                    title: lead.title ?? "",
+                    company_name: lead.company_name ?? "",
+                    candidate_org_key: lead.candidate_org_key ?? "",
+                    ...cf.recordSlice(lead),
+                  }}
+                  update={async (values) => {
+                    const { data, error } = await api.PATCH("/leads/{id}", {
+                      params: {
+                        path: { id },
+                        ...ifMatch(lead.version),
+                      },
+                      body: {
+                        ...mapLeadUpdate(values),
+                        ...cf.toBody(values),
+                      },
+                    });
+                    if (error) {
+                      throwProblem(error);
+                    }
+                    return data;
+                  }}
+                  invalidate="leads"
+                  recordKey="lead"
+                />
+              )}
               {!lead.archived_at && !overlay && (
                 <>
-                  <EditAction
-                    label={t("record.edit")}
-                    fields={[...leadEditFields, ...cf.formFields]}
-                    record={{
-                      id: lead.id,
-                      version: lead.version,
-                      full_name: lead.full_name ?? "",
-                      email: lead.email ?? "",
-                      title: lead.title ?? "",
-                      company_name: lead.company_name ?? "",
-                      candidate_org_key: lead.candidate_org_key ?? "",
-                      ...cf.recordSlice(lead),
-                    }}
-                    update={async (values) => {
-                      const { data, error } = await api.PATCH("/leads/{id}", {
-                        params: {
-                          path: { id },
-                          ...ifMatch(lead.version),
-                        },
-                        body: {
-                          ...mapLeadUpdate(values),
-                          ...cf.toBody(values),
-                        },
-                      });
-                      if (error) {
-                        throwProblem(error);
-                      }
-                      return data;
-                    }}
-                    invalidate="leads"
-                    recordKey="lead"
-                  />
                   <ArchiveAction
                     label={t("record.disqualify")}
                     confirmText={t("record.disqualifyConfirm")}
@@ -814,7 +822,7 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
                         params: { path: { id } },
                       });
                       if (error) {
-                        throwProblem(error);
+                        throwProblem(error, t);
                       }
                       return data;
                     }}

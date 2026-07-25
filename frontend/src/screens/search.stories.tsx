@@ -32,6 +32,14 @@ const hits = () =>
         score: 0.74,
         trust_tier: "authoritative",
       },
+      {
+        type: "lead",
+        id: "l1",
+        title: "Bettina Krause",
+        snippet: "…mirrored via HubSpot…",
+        score: 0.61,
+        trust_tier: "external",
+      },
     ],
     page: { next_cursor: null, has_more: false },
   });

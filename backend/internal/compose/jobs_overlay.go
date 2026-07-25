@@ -266,19 +266,16 @@ func isConnectionLevelIncumbentError(err error) bool {
 }
 
 // reconcileConnection builds a live incumbent adapter over d's vaulted
-// credential and sweeps every overlayObjectClasses class for it —
-// extracted so both the periodic fleet worker above (Work, one call per
-// due connection, wrapped in its own synthesized system ctx) and
-// overlay.go's on-demand overlayReconciler (the ReconcileOverlay
-// handler, one call for the calling request's own workspace) drive the
-// exact same sweep sequence rather than each keeping their own copy of
-// it (the "fix the invariant, not the call site" rule: a future change
-// to how a connection is swept — e.g. a second incumbent — must not risk
-// updating one call site and missing the other). ctx is already scoped
-// to d's own workspace and carries whatever actor/correlation the caller
-// bound (a synthesized system principal for the periodic sweep, the
-// calling admin's own principal for the on-demand one) — reconcileConnection
-// itself makes no assumption about which. A per-object-class failure
+// credential and sweeps every overlayObjectClasses class for it — the
+// periodic fleet worker's (Work, above) per-connection sweep body, kept as
+// its own function so the "resolve the vaulted token, build a live adapter,
+// sweep every object class" sequence has one place to change (the "fix the
+// invariant, not the call site" rule). ctx is already scoped to d's own
+// workspace and carries the synthesized system principal Work bound;
+// reconcileConnection itself makes no assumption about that. The on-demand
+// /overlay/reconcile request (overlay.Service.RequestSweep) does not call
+// this at all — it only marks the workspace due, and this same periodic
+// worker picks the sweep up on its next tick. A per-object-class failure
 // (unreadable watermark, a failed sweep page, a failed watermark save)
 // is logged and skipped, never aborting the rest of the classes. A
 // CONNECTION-level failure — an unsupported incumbent, a failed vault

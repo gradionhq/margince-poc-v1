@@ -57,7 +57,7 @@ export function LogActivity({
         },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throw new Error(problemMessage(error, t));
       }
       return data;
     },

@@ -11,7 +11,14 @@ package overlay
 // (mirrorstore.go), which is a derived-cache refresh with no audit
 // trail. Disconnect's teardown/purge/scrub lives in teardown.go — this
 // file only flips the connection row and the workspace mode columns on
-// the way in.
+// the way in. Connect's OTHER branch — reviving a revoked row instead of
+// inserting a fresh one — lives in reconnect.go
+// (reconnectConnection/deleteSupersededRef/existingConnectionStatus),
+// split out purely to stay under the file-length cap; cleanupOrphanedRef
+// stays here since both branches call it. The write shape the two
+// branches share once their own row-level work is done — Audit + Emit +
+// the workspace mode flip — is activateConnection (activation.go), so
+// neither this file nor reconnect.go carries its own copy of it.
 
 import (
 	"context"
@@ -207,14 +214,15 @@ func (s *Service) WithLogger(log *slog.Logger) *Service {
 // the mirror on Disconnect and flips sor_mode for every seat), so it is
 // admin/ops-only (identity/internal/policy), the same posture as quota.
 //
-// UNIQUE(workspace_id) means a second Connect on an already-connected
-// workspace answers apperrors.ErrIncumbentAlreadyConnected. existingConnection
-// checks for that BEFORE sealing anything, so the common duplicate-connect
-// case never touches the vault; the vault.Put below still runs ahead of the
-// insert (put-then-commit, the same posture capture.Registry.Connect
+// UNIQUE(workspace_id) means a second Connect on an already-active
+// connection answers apperrors.ErrIncumbentAlreadyConnected; a revoked one
+// reconnects instead (reconnectConnection). existingConnectionStatus checks
+// for that BEFORE sealing anything, so the common duplicate-connect case
+// never touches the vault; the vault.Put below still runs ahead of the
+// insert/update (put-then-commit, the same posture capture.Registry.Connect
 // documents), so a genuine concurrent-Connect race can still lose the
-// INSERT after sealing — that path deletes its own orphaned ref rather
-// than leaving it unreferenced.
+// INSERT/UPDATE after sealing — that path deletes its own orphaned ref
+// rather than leaving it unreferenced.
 func (s *Service) Connect(ctx context.Context, in ConnectInput) (Connection, error) {
 	if err := auth.Require(ctx, overlayConnectionObject, principal.ActionCreate); err != nil {
 		return Connection{}, err
@@ -227,11 +235,14 @@ func (s *Service) Connect(ctx context.Context, in ConnectInput) (Connection, err
 		return Connection{}, errors.New("overlay: connect called outside a workspace context")
 	}
 
-	if exists, err := s.hasConnection(ctx); err != nil {
+	status, found, err := s.existingConnectionStatus(ctx)
+	if err != nil {
 		return Connection{}, err
-	} else if exists {
+	}
+	if found && status != statusRevoked {
 		return Connection{}, apperrors.ErrIncumbentAlreadyConnected
 	}
+	reconnect := found
 
 	// Fetch the incumbent's portal id BEFORE sealing the token (it is a network
 	// call — never held inside a DB transaction, and kept OUT of the
@@ -248,7 +259,12 @@ func (s *Service) Connect(ctx context.Context, in ConnectInput) (Connection, err
 		return Connection{}, fmt.Errorf("overlay: sealing the incumbent credential: %w", err)
 	}
 
-	out, err := s.insertConnection(ctx, in, ref, accountID)
+	var out Connection
+	if reconnect {
+		out, err = s.reconnectConnection(ctx, in, ref, accountID)
+	} else {
+		out, err = s.insertConnection(ctx, in, ref, accountID)
+	}
 	if err != nil {
 		// Clean up the just-sealed ref ONLY on the unique-violation path: a lost
 		// concurrent-connect race is the one insert failure that guarantees the
@@ -354,9 +370,11 @@ func incumbentConnectedPayload(incumbent, region string, scopes []string, status
 	}
 }
 
-// insertConnection runs Connect's write-shape transaction: the domain
-// row + Audit + Emit + the workspace mode flip, all in one
-// database.WithWorkspaceTx.
+// insertConnection runs Connect's fresh-connect branch: INSERT the domain
+// row, then hand off to activateConnection (activation.go) for the write
+// shape both branches share (Audit + Emit + the workspace mode flip), all
+// in one database.WithWorkspaceTx. There is no prior state to record, so
+// the audit action is "create" and before is nil.
 func (s *Service) insertConnection(ctx context.Context, in ConnectInput, ref keyvault.Ref, accountID string) (Connection, error) {
 	var out Connection
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
@@ -376,35 +394,11 @@ func (s *Service) insertConnection(ctx context.Context, in ConnectInput, ref key
 			return scanErr
 		}
 
-		after := map[string]any{
-			auditFieldIncumbent: in.Incumbent,
-			auditFieldRegion:    in.Region,
-			"scopes":            leastPrivilegeHubSpotScopes,
-			auditFieldStatus:    statusActive,
+		activated, actErr := activateConnection(ctx, tx, id, in, connectedAt, "create", nil)
+		if actErr != nil {
+			return actErr
 		}
-		auditID, auditErr := storekit.Audit(ctx, tx, "create", "incumbent_connection", id, nil, after)
-		if auditErr != nil {
-			return fmt.Errorf("overlay: auditing the incumbent connection: %w", auditErr)
-		}
-		if emitErr := storekit.EmitEvent(ctx, tx, auditID, id,
-			incumbentConnectedPayload(in.Incumbent, in.Region, leastPrivilegeHubSpotScopes, statusActive)); emitErr != nil {
-			return fmt.Errorf("overlay: emitting incumbent.connected: %w", emitErr)
-		}
-
-		if _, updErr := tx.Exec(ctx, `
-			UPDATE workspace SET x_sor_mode = 'overlay', x_incumbent = $1
-			WHERE id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`,
-			in.Incumbent); updErr != nil {
-			return fmt.Errorf("overlay: flipping the workspace to overlay mode: %w", updErr)
-		}
-
-		out = Connection{
-			Incumbent:   in.Incumbent,
-			Region:      in.Region,
-			Status:      statusActive,
-			ConnectedAt: connectedAt,
-			Scopes:      leastPrivilegeHubSpotScopes,
-		}
+		out = activated
 		return nil
 	})
 	if err != nil {
@@ -429,25 +423,6 @@ func (s *Service) cleanupOrphanedRef(ctx context.Context, ws ids.UUID, ref keyva
 		return fmt.Errorf("overlay: connect lost a concurrent race (already connected) and failed to clean up its orphaned vault entry: %w", delErr)
 	}
 	return apperrors.ErrIncumbentAlreadyConnected
-}
-
-// hasConnection reports whether the workspace already has an
-// incumbent_connection row (any status) — Connect's pre-flight check so
-// the common duplicate-connect case answers ErrIncumbentAlreadyConnected
-// before ever calling vault.Put.
-func (s *Service) hasConnection(ctx context.Context) (bool, error) {
-	var exists bool
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(
-			ctx, `
-			SELECT EXISTS(SELECT 1 FROM incumbent_connection
-				WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid)`,
-		).Scan(&exists)
-	})
-	if err != nil {
-		return false, fmt.Errorf("overlay: checking for an existing incumbent connection: %w", err)
-	}
-	return exists, nil
 }
 
 // Get reads the workspace's current incumbent connection. Gated by

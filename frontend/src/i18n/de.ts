@@ -92,6 +92,7 @@ export const de = {
   "search.why": "Warum dieses Ergebnis",
   "search.relevance": "Relevanz {pct}%",
   "search.tier.authoritative": "verifiziert",
+  "search.tier.mirrored": "aus HubSpot",
 
   "context.title": "Verwandte Belege",
   "context.empty": "Noch nichts Verwandtes.",
@@ -280,6 +281,73 @@ export const de = {
     "Sortierung und Filter laufen über HubSpot — dort öffnen",
   "overlay.unavailable":
     "In der HubSpot-Ansicht nicht verfügbar — in HubSpot öffnen",
+  "overlay.chipLabel": "Liest aus HubSpot",
+  "overlay.chipAria":
+    "Diese Installation liest Datensätze aus einem HubSpot-Spiegel statt aus nativen Tabellen. Öffne Einstellungen → Integrationen, um die Verbindung zu verwalten.",
+  "overlay.refused":
+    "Beim Lesen aus HubSpot nicht verfügbar — der Spiegel kann diesen Schreibvorgang nicht ausführen.",
+  "overlay.filterUnsupported":
+    "Dieser Filter oder diese Sortierung ist beim Lesen aus HubSpot nicht verfügbar — bitte entfernen und erneut versuchen.",
+  "overlay.emptyOwnerHint":
+    "Eine leere Liste bedeutet hier meist, dass die HubSpot-E-Mail des Owners keinem Workspace-Benutzer entspricht — nicht, dass das HubSpot-Portal leer ist.",
+  "overlay.partialWriteBack":
+    "Nur die Felder, die HubSpot akzeptiert, werden zurückgeschrieben — alles andere hier, einschließlich Custom Fields und Owner, wird überhaupt nicht angewendet; der aktuelle Wert in HubSpot bleibt bestehen.",
+
+  "overlay.title": "HubSpot-Spiegel",
+  "overlay.sub":
+    "Verbindet das führende CRM des Workspaces, damit Datensätze aus dessen Spiegel statt aus nativen Tabellen gelesen werden.",
+  "overlay.loading": "Lade die Anbieter-Verbindung…",
+  "overlay.notConfigured":
+    "Overlay-Modus ist in diesem Deployment nicht konfiguriert.",
+  "overlay.loadFailed": "Die Anbieter-Verbindung konnte nicht geladen werden.",
+  "overlay.empty":
+    "Kein führendes System verbunden. Verbinde HubSpot, um Datensätze aus dessen Spiegel zu lesen.",
+  "overlay.adminOnly":
+    "Bitte eine Admin- oder Ops-Person bitten, HubSpot zu verbinden oder zu trennen.",
+  "overlay.region": "Region",
+  "overlay.regionEu1": "EU",
+  "overlay.regionUs": "USA",
+  "overlay.token": "Private-App-Token",
+  "overlay.tokenHint": "Wird im Vault versiegelt; wird nie wieder angezeigt.",
+  "overlay.connect": "HubSpot verbinden",
+  "overlay.reconnect": "Erneut verbinden",
+  "overlay.connectConfirmTitle": "HubSpot für den ganzen Workspace verbinden?",
+  "overlay.reconnectConfirmTitle":
+    "HubSpot für den ganzen Workspace erneut verbinden?",
+  "overlay.connectConfirmBody":
+    "Dies schaltet die Lesezugriffe aller Sitze sofort auf den HubSpot-Spiegel um, und Datensätze werden schreibgeschützt, wo immer der Spiegel kein Schreiben unterstützt. Dies betrifft die gesamte Installation, nicht nur die eigene Sitzung.",
+  "overlay.statusActive": "Verbunden",
+  "overlay.statusRevoked": "Widerrufen",
+  "overlay.statusError": "Sync-Fehler",
+  "overlay.connectedAt": "Verbunden {at}",
+  "overlay.syncTitle": "Spiegel-Synchronisierung",
+  "overlay.syncLoading": "Lade Sync-Status…",
+  "overlay.syncLoadFailed": "Sync-Status konnte nicht geladen werden.",
+  "overlay.syncEmpty": "Noch nichts synchronisiert.",
+  "overlay.syncStateFresh": "Aktuell",
+  "overlay.syncStatePending": "Sync ausstehend",
+  "overlay.syncStateStale": "Veraltet",
+  "overlay.backfillDone": "Backfill abgeschlossen",
+  "overlay.backfillPending": "Backfill läuft",
+  "overlay.lastSynced": "Zuletzt synchronisiert {at}",
+  "overlay.neverSynced": "Noch nie synchronisiert",
+  "overlay.budgetTitle": "API-Budget",
+  "overlay.budgetLoading": "Lade das Budget-Fenster…",
+  "overlay.budgetLoadFailed": "Das Budget-Fenster konnte nicht geladen werden.",
+  "overlay.budgetHeadroom": "Spielraum: {headroom}",
+  "overlay.budgetSources":
+    "Force-Fresh {forceFresh} · Poller {poller} · Capture {capture}",
+  "overlay.budgetSearch": "Such-API: {consumed} / {limit} pro Sekunde",
+  "overlay.bandOk": "Gesund",
+  "overlay.bandWarn": "Nähert sich dem Limit",
+  "overlay.bandShed": "Drosselt Last",
+  "overlay.reconcile": "Jetzt synchronisieren",
+  "overlay.reconcileQueued":
+    "Abgleich eingereiht — der Worker holt ihn beim nächsten Poll ab (etwa alle 2 Minuten).",
+  "overlay.disconnect": "Trennen",
+  "overlay.disconnectTitle": "HubSpot trennen?",
+  "overlay.disconnectBody":
+    "Dies löscht die gespiegelten Daten und schaltet den Workspace zurück auf native Datensätze. Das Audit-Protokoll bleibt erhalten.",
 
   "people.name": "Name",
   "people.email": "E-Mail",
