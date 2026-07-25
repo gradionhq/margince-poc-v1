@@ -121,7 +121,7 @@ func TestBackfillAttestsOnlyMailFiledInSentItemsAndWrittenByTheOwner(t *testing.
 	}
 	attested := map[string]bool{}
 	for _, rec := range sink.recs {
-		attested[rec.NaturalKey.SourceID] = rec.Counterparty.SentByOwner
+		attested[rec.NaturalKey.SourceID] = rec.Counterparty.SentByOwner()
 	}
 	if attested["in@mail.example"] {
 		t.Error("an inbox-filed stranger's message attested the owner's authorship")

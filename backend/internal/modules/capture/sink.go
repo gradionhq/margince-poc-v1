@@ -368,7 +368,7 @@ func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.Norm
 		// From-derived direction alone: this column is the T1
 		// correspondence-positive gate's only evidence, and a forged
 		// From:owner must not register as the owner's correspondence.
-		rec.Counterparty.SentByOwner).Scan(&id)
+		rec.Counterparty.SentByOwner()).Scan(&id)
 	if err == nil {
 		// Field-level provenance (B-E02.12) for the content fields this
 		// capture set — same source/author the row itself carries.

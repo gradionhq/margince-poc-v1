@@ -394,7 +394,7 @@ func TestSyncCarriesTheSentLabelOntoTheRecord(t *testing.T) {
 	}
 	attested := map[string]bool{}
 	for _, rec := range sink.recs {
-		attested[rec.NaturalKey.SourceID] = rec.Counterparty.SentByOwner
+		attested[rec.NaturalKey.SourceID] = rec.Counterparty.SentByOwner()
 	}
 	if attested["in@mail.gmail.com"] {
 		t.Error("an unlabelled stranger's message attested the owner's authorship")

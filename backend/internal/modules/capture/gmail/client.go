@@ -111,7 +111,7 @@ type API interface {
 	// advanced historyId; ErrHistoryGone if the cursor is too old.
 	History(ctx context.Context, accessToken, startHistoryID string) (addedIDs []string, historyID string, err error)
 	// GetRaw fetches one message as its decoded RFC822 bytes (format=RAW)
-	// together with the label ids Gmail returns on the same response.
+	// together with Gmail's own SENT filing of it, read off the same response.
 	GetRaw(ctx context.Context, accessToken, msgID string) (Message, error)
 	// EstimateAfter returns the provider-side message count for a query
 	// (resultSizeEstimate) — the backfill preview's number.

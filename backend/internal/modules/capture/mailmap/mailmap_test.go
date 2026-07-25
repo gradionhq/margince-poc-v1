@@ -266,10 +266,10 @@ func TestSentByOwnerComesFromTheProviderNotTheHeaders(t *testing.T) {
 	if rec.Counterparty.Direction != "outbound" {
 		t.Fatalf("Direction = %q, want outbound — the From header claims the owner", rec.Counterparty.Direction)
 	}
-	if rec.Counterparty.SentByOwner {
+	if rec.Counterparty.SentByOwner() {
 		t.Fatal("SentByOwner = true from headers alone: a forged From:owner would whitelist its recipient past suppression")
 	}
-	if attested := msg.AttestSentByOwner(true).ToRecord("imap", spoofed); !attested.Counterparty.SentByOwner {
+	if attested := msg.AttestSentByOwner(true).ToRecord("imap", spoofed); !attested.Counterparty.SentByOwner() {
 		t.Fatal("AttestSentByOwner(true) must carry the provider's attestation onto the record")
 	}
 }
@@ -293,7 +293,7 @@ func TestAttestationRequiresAuthorshipNotJustPlacement(t *testing.T) {
 	if rec.Counterparty.Email != "blast@sendgrid.net" {
 		t.Fatalf("Counterparty = %q, want the sender — this message is inbound", rec.Counterparty.Email)
 	}
-	if rec.Counterparty.SentByOwner {
+	if rec.Counterparty.SentByOwner() {
 		t.Fatal("a third party's message filed into the sent container attested the owner's authorship")
 	}
 }

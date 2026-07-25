@@ -3,49 +3,66 @@
 
 package backendarch
 
-// Attestation-producer fitness function (ADR-0072 §1). The T1
+// Attestation-minting fitness function (ADR-0072 §1). The T1
 // correspondence-positive gate spares an address from transactional
-// suppression, and its whole safety rests on connector.Counterparty.SentByOwner
-// being unforgeable. That property is not enforced by the type — the field is a
-// plain bool on a struct any connector may build — it is enforced by there
-// being exactly ONE producer, capture/mailmap, which sets it only where the
-// provider's filing and the message's own authorship agree.
+// suppression, and its whole safety rests on connector.Counterparty's
+// outbound attestation being something a connector cannot state for itself.
 //
-// Today that is true by accident of there being one mail mapper. The next
-// connector to populate a Counterparty from a provider payload — a webhook
-// body, a CRM export, a transcript import — could set the field straight from
-// attacker-shaped JSON and bypass both halves without touching a line of the
-// gate. So the obligation is derived from the tree rather than remembered: any
-// new assignment outside the mapper fails here, at the moment it is written.
+// The field itself is unexported, so the compiler — not this test — refuses
+// every route that sets it directly: a keyed or positional literal, an
+// encoding/json unmarshal of a provider payload, reflection, a conversion from
+// a look-alike struct, a pointer handed to a row scanner. What the compiler
+// cannot refuse is the minting call, WithOwnerAttestation, which is exported
+// because the mapper lives in another package. This test keeps that call in one
+// place, so the set of code that can mint correspondence evidence stays a set of
+// one and is reviewed as such.
+//
+// The honest boundary: the argument to that call is trusted by construction,
+// not by this test. Today's mail connectors pass a bool derived from an
+// authenticated provider handle — Gmail's SENT label, an IMAP \Sent special-use
+// mailbox, Microsoft's SentItems folder. A future caller passing something
+// shaped like `payload.Folder == "SentItems"` from an unauthenticated webhook
+// body would satisfy both the compiler and this test while forging exactly what
+// the field exists to prevent. Reviewing that argument is a human obligation,
+// which is why this test exists to make the call sites few enough to review.
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io/fs"
-	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
-// The sole sanctioned producer, relative to the backend module root.
-const attestationProducer = "internal/modules/capture/mailmap"
+// The walk below matches the minting call by NAME, so a rename would leave it
+// finding nothing and passing forever, guarding an invariant that had moved.
+// These pin the two names to the real API: renaming either stops the compile
+// here, where the walk is, rather than silently retiring it.
+var (
+	_ = connector.Counterparty{}.WithOwnerAttestation
+	_ = connector.Counterparty{}.SentByOwner
+)
 
-// guardFile is this file: it names the field in its own pattern and message.
-const guardFile = "attestationproducer_test.go"
+const (
+	// The sole sanctioned minter, relative to the backend module root.
+	attestationMinter = "internal/modules/capture/mailmap"
+	// The port's constructor — the one way into the unexported field.
+	attestationCall = "WithOwnerAttestation"
+)
 
-// An assignment to the field in a composite literal (`SentByOwner: x`) or by
-// selector (`… .SentByOwner = x`). Reads — the gate's own consumption — carry
-// neither form and are not matched.
-var attestationAssign = regexp.MustCompile(`SentByOwner\s*[:=][^=]`)
-
-func TestOnlyTheMailMapperProducesTheOutboundAttestation(t *testing.T) {
+func TestOnlyTheMailMapperMintsTheOutboundAttestation(t *testing.T) {
 	var offenders []string
 	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
-			if d.Name() == "testdata" || d.Name() == "build" {
+			// testdata is never compiled, so nothing in it can mint anything.
+			if d.Name() == "testdata" {
 				return fs.SkipDir
 			}
 			return nil
@@ -54,32 +71,39 @@ func TestOnlyTheMailMapperProducesTheOutboundAttestation(t *testing.T) {
 			return nil
 		}
 		slashed := filepath.ToSlash(path)
-		if strings.HasPrefix(slashed, attestationProducer+"/") {
+		if strings.HasPrefix(slashed, attestationMinter+"/") {
 			return nil
 		}
-		// The port declares the field and this file names it in the pattern
-		// above; neither declares a value for it.
-		if slashed == "internal/shared/ports/connector/connector.go" || slashed == guardFile {
-			return nil
+		// Parsed with mode 0 so build constraints are ignored: a file excluded
+		// on this platform still has to obey the rule.
+		fset := token.NewFileSet()
+		file, parseErr := parser.ParseFile(fset, path, nil, 0)
+		if parseErr != nil {
+			return parseErr
 		}
-		body, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return readErr
-		}
-		if attestationAssign.Match(body) {
-			offenders = append(offenders, slashed)
-		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			if sel, isSel := call.Fun.(*ast.SelectorExpr); isSel && sel.Sel.Name == attestationCall {
+				offenders = append(offenders, fset.Position(sel.Pos()).String())
+			}
+			return true
+		})
 		return nil
 	})
 	if err != nil {
 		t.Fatalf("walking the backend tree: %v", err)
 	}
 	if len(offenders) > 0 {
-		t.Errorf("SentByOwner is assigned outside %s:\n  %s\n\n"+
-			"That field is the T1 correspondence gate's only evidence (ADR-0072 §1). It may be set\n"+
-			"ONLY where a provider's own filing of the message and the message's authorship agree —\n"+
-			"which is what the mail mapper does. Setting it anywhere else lets whatever produced that\n"+
-			"value whitelist an arbitrary address past transactional suppression.",
-			attestationProducer, strings.Join(offenders, "\n  "))
+		t.Errorf("%s is called outside %s:\n  %s\n\n"+
+			"That call mints the T1 correspondence gate's only evidence (ADR-0072 §1). It may be made\n"+
+			"ONLY where the message's authorship and a provider's own filing of it are both known —\n"+
+			"which is what the mail mapper does. Minting it anywhere else lets whatever supplied that\n"+
+			"argument whitelist an arbitrary address past transactional suppression.\n\n"+
+			"To produce an attested record, build it through capture/mailmap (Parse → AttestSentByOwner),\n"+
+			"passing your provider's own filing of the message — never a value derived from its content.",
+			attestationCall, attestationMinter, strings.Join(offenders, "\n  "))
 	}
 }

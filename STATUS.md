@@ -915,9 +915,13 @@ Open work, roughly in priority order:
   names past T2. A T1 override of a
   matched suppression rule is its own `system_log` breadcrumb
   (`capture_correspondence_spared`), so a spare is as diagnosable as a
-  suppression. A provider that attests nothing (or a LIST/folder probe that
-  fails) attests false and is logged — under-attestation suppresses, it never
-  creates. `make check` + the full zero-skip integration lane green.
+  suppression. A provider that attests nothing — Graph's inbox-only
+  delta, an IMAP mailbox without the attribute — yields false, and
+  under-attestation suppresses rather than creates. A probe that FAILS is not
+  the same thing and is never recorded as a determined false: the Graph page
+  stops and the IMAP pull stops, each retrying from its committed cursor,
+  because the activity natural key would otherwise freeze a guessed window
+  permanently. `make check` + the full zero-skip integration lane green.
   Attestation requires BOTH halves — the provider filed the message as sent AND
   the message names the owner as author — because the two are derived
   independently: a server-side rule can file a third party's mail into a `\Sent`

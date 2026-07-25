@@ -462,7 +462,7 @@ func TestSentAttestationIgnoresTheMailboxName(t *testing.T) {
 			t.Fatalf("Direction = %q, want outbound — otherwise authorship, not the folder name, is what withholds attestation",
 				rec.Counterparty.Direction)
 		}
-		if rec.Counterparty.SentByOwner {
+		if rec.Counterparty.SentByOwner() {
 			t.Fatal("a mailbox named Sent attested the owner's authorship: the name is config text, not provider evidence")
 		}
 	}

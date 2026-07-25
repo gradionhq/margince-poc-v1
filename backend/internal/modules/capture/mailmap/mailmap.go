@@ -31,12 +31,6 @@ import (
 // excerpt, not the full multi-megabyte thread with quoted history.
 const maxBodyLen = 8000
 
-// The message's direction relative to the mailbox owner.
-const (
-	directionInbound  = "inbound"
-	directionOutbound = "outbound"
-)
-
 // Message is the pure result of reading one RFC822 message against the
 // mailbox owner — everything the mapping needs, with no provider handle.
 type Message struct {
@@ -99,11 +93,11 @@ func Parse(raw []byte, owner string) (Message, error) {
 	body := extractText(reader)
 
 	ownerLower := strings.ToLower(strings.TrimSpace(owner))
-	direction := directionInbound
+	direction := connector.DirectionInbound
 	counterparty := from
 	counterpartyName := displayName(fromList, counterparty)
 	if strings.ToLower(from) == ownerLower && ownerLower != "" {
-		direction = directionOutbound
+		direction = connector.DirectionOutbound
 		counterparty = firstNonOwner(toList, ownerLower)
 		counterpartyName = displayName(toList, counterparty)
 	}
@@ -227,16 +221,7 @@ func (m Message) ToRecord(connectorName string, raw []byte) connector.Normalized
 			Domain:          domainOf(m.counterparty),
 			Direction:       m.direction,
 			ListUnsubscribe: m.listUnsubscribe,
-			// BOTH halves of the evidence, because the two are derived
-			// independently: the provider filed this as the owner's sent mail,
-			// AND the message names the owner as its author. A server-side rule
-			// can drop a third party's message into a \Sent mailbox or Sent
-			// Items — that message's counterparty is its SENDER, and attesting
-			// on placement alone would stamp a stranger's address as the
-			// workspace's own correspondence. Neither half is sufficient: the
-			// header alone is forgeable, the folder alone is not authorship.
-			SentByOwner: m.sentByOwner && m.direction == directionOutbound,
-		},
+		}.WithOwnerAttestation(m.sentByOwner),
 		ThreadKey: m.threadKey,
 	}
 }

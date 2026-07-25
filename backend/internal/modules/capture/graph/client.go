@@ -371,10 +371,10 @@ func (a *httpAPI) ListAfter(ctx context.Context, accessToken string, after time.
 }
 
 // SentFolderID resolves the mailbox's Sent Items folder by its well-known
-// name, which Graph accepts in place of the opaque id. The listed messages
-// carry the opaque form, so the comparison needs this resolved once per page
-// walk rather than a name match (folder display names are localized and
-// user-renameable; the well-known id is neither).
+// name, which Graph accepts in place of the opaque id the listed messages
+// carry. Resolved once per page (the connector holds no per-connection state)
+// rather than matched by name: display names are localized and renameable, the
+// well-known id is neither.
 func (a *httpAPI) SentFolderID(ctx context.Context, accessToken string) (string, error) {
 	var out struct {
 		ID string `json:"id"`
