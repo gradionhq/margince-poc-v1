@@ -73,12 +73,12 @@ curl -sS -X POST http://localhost:8080/v1/overlay/connection -b cookies.txt \
   -H 'content-type: application/json' \
   -d '{"incumbent":"hubspot","region":"us","privateAppToken":"pat-XXXX"}'
 
-# 4. Trigger the initial backfill now (else it runs on the poller interval).
-#    Call the API DIRECTLY on :18080, not the :8080 Vite proxy: the first
-#    sweep is synchronous and can run ~30s+, and the dev proxy hangs up long
-#    requests (you'd see a spurious 500 / "socket hang up" even though the API
-#    returns 202). The background poller also runs it every ~2min regardless.
-curl -sS -X POST http://localhost:18080/v1/overlay/reconcile -b cookies.txt
+# 4. Trigger the initial backfill now (else it waits for the worker's next poll
+#    tick). The call is queued, not synchronous: it answers 202 immediately and
+#    the worker's poller (default ~2min, --overlay-reconcile-interval) picks it
+#    up on its next tick and runs the sweep. Poll sync-status (step 5) until
+#    every object class reaches backfillComplete/fresh.
+curl -sS -X POST http://localhost:8080/v1/overlay/reconcile -b cookies.txt
 
 # 5. Watch it hydrate, then read the fixture back FROM THE MIRROR
 curl -sS http://localhost:8080/v1/overlay/sync-status -b cookies.txt | jq '.objects'
@@ -87,8 +87,10 @@ curl -sS 'http://localhost:8080/v1/people?limit=10'        -b cookies.txt | jq '
 curl -sS 'http://localhost:8080/v1/organizations?limit=10' -b cookies.txt | jq '.data[].name'
 curl -sS http://localhost:8080/v1/overlay/budget           -b cookies.txt | jq  # window/consumed/band + per-source sources + ~unknown headroom + search
 ```
-Or just open **http://localhost:8080** and log in — the SPA renders the mirrored records with their
-`last_synced_at` freshness affordance.
+Or just open **http://localhost:8080** and log in — records list and open normally, a topbar mode chip
+marks this as an overlay installation, and Settings → Integrations' overlay card shows the per-object
+sync status and the HubSpot rate budget. No screen renders a per-record freshness affordance (there is no
+`last_synced_at` on a record read — see the next section for what a write does and does not touch).
 
 ### Test write-back (mutates the test portal only)
 ```sh
@@ -97,13 +99,51 @@ curl -sS -X PATCH "http://localhost:8080/v1/deals/$DEAL" -b cookies.txt \
   -H 'content-type: application/json' -d '{"name":"[fixture] Acme Renewal (edited)"}'
 ```
 It writes to HubSpot **first**, then re-mirrors — confirm the rename in the test account's HubSpot UI.
-(`advance-deal`, `merge`, and `promote-lead` still answer `unsupported_by_sor` — they're not wired for
-overlay yet.)
+Update and archive on person/organization/deal, plus update on lead and activity, all write back this
+way; the 360 screens show Edit/Archive in overlay mode for every type that supports them. `create`,
+`merge`, `advance-deal`, `promote-lead`, and `disqualify-lead` still answer `422 unsupported_by_sor`:
+`create` because a record made this way would carry no `owner_id`, and the fail-closed visibility rule
+makes an unowned record invisible to everyone, including whoever created it; the mirror implements none
+of the other four.
+
+#### What actually goes over the wire
+
+Only the fields below project onto a writable HubSpot property
+(`backend/internal/modules/overlay/hubspot/mapwrite.go`); anything else on the entity — including every
+custom field and `owner_id` — has no writable counterpart and is dropped from the projection silently:
+
+| Entity | Writable fields |
+| --- | --- |
+| person | `first_name`, `last_name`, `title` |
+| organization | `display_name`, `industry` |
+| lead | `full_name` |
+| deal | `name`, `expected_close_date`, `amount_minor` + `currency` (a pair — supply both or neither; `pipeline_id`/`stage_id` are read-only and always `null` in overlay) |
+
+A `PATCH` touching only fields outside that table still answers **200 with the change never applied** —
+the mapping drops what it doesn't recognize instead of rejecting it, so nothing in the response says so.
+Confirm it directly:
+
+```sh
+curl -sS -X PATCH "http://localhost:8080/v1/deals/$DEAL" -b cookies.txt \
+  -H 'content-type: application/json' -d '{"owner_id":"00000000-0000-0000-0000-000000000000"}'
+# 200; re-read the deal and owner_id is unchanged — the field was never sent to HubSpot.
+```
 
 ### Disconnect + teardown
 ```sh
 curl -sS -X DELETE http://localhost:8080/v1/overlay/connection -b cookies.txt   # 202; purges the mirror
 ```
+
+### Reconnect
+A revoked connection revives in place through the same connect call — there is no separate reconnect
+endpoint:
+```sh
+curl -sS -X POST http://localhost:8080/v1/overlay/connection -b cookies.txt \
+  -H 'content-type: application/json' \
+  -d '{"incumbent":"hubspot","region":"us","privateAppToken":"pat-XXXX"}'
+```
+It clears the tombstones the disconnect above left, so the next sweep mirrors those records again
+instead of finding them suppressed. Trigger one (step 4) rather than waiting out the poll interval.
 
 ## Reset / re-seed
 ```sh

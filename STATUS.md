@@ -905,6 +905,24 @@ Open work, roughly in priority order:
   + the `capture_counterparty_verdict` job + review queue + noise
   hide-then-redact — and 3 (corroborated signature org-name promotion).
 
+- **`EditAction` prefill race — every call site, native mode included.** In
+  `frontend/src/screens/edit.tsx`, the open-transition `useEffect` that
+  prefills the edit modal's form values (around line 159) is not the only
+  writer of that state: `RecordFormBody`'s per-field `onChange` also calls
+  `setValues` from the `values` it holds in its own closure rather than a
+  functional update. If a keystroke lands in the same tick the modal opens,
+  whichever `setValues` call commits second wins with the state it captured
+  BEFORE the other ran — so a fast typist's first keystroke can commit
+  through with every other field back to blank, and Save then writes those
+  blanks over the record's real values. The prefill effect and the per-field
+  writer both need to update off the current state (a functional `setValues`
+  update, or gating input until prefill has committed) rather than each
+  closing over a `values` snapshot the other can invalidate. It reaches
+  every `EditAction` call site — this is a form-state bug, not an
+  overlay-specific one. Measured empirically: typing into a freshly-opened
+  modal without first waiting for a known prefilled value to render fails
+  roughly 22 times in 25 runs.
+
 - **Site-read legal census — three known gaps (#162).** `FinishSiteRead`'s CAS
   guards only on `status = 'running'`, so a reclaimed-then-returning worker can
   overwrite the dossier (pre-existing; the finish half now lives in
