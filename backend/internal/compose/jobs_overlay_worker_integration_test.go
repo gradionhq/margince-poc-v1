@@ -403,30 +403,41 @@ func TestWorkerCleanStopsOnMidSweepDisconnect(t *testing.T) {
 }
 
 // TestOnDemandReconcileRacingDisconnectAnswersModeNotOverlay proves the
-// on-demand /overlay/reconcile boundary translates the disconnect-race
-// sentinel into the same ErrModeNotOverlay a workspace with no active
-// connection already gets — never an opaque 500.
+// on-demand /overlay/reconcile boundary (overlay.Service.RequestSweep)
+// translates a disconnected workspace's sentinel into the same
+// ErrModeNotOverlay a workspace with no active connection already gets —
+// never an opaque 500 — and that the request leaves no overlay_sync_state
+// row behind: a sweep request racing a teardown must not repopulate what
+// the purge already removed. This is the regression guard for the P1 the
+// review found: RequestSweep must run against the FENCED store
+// (MirrorStore.WithFence), or a request racing a disconnect would silently
+// re-insert the sync-state row the teardown purged.
 func TestOnDemandReconcileRacingDisconnectAnswersModeNotOverlay(t *testing.T) {
 	e := integration.Setup(t)
 	vault := keyvault.NewMemory()
 	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
-	if _, err := overlay.NewService(e.Pool, vault, ms).
-		Connect(overlayAdminCtx(e.WS, e.Rep1), overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
+	svc := overlay.NewService(e.Pool, vault, ms)
+	adminCtx := overlayAdminCtx(e.WS, e.Rep1)
+
+	if _, err := svc.Connect(adminCtx, overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
-	fakeInc := fake.New()
-	fakeInc.SeedOwner("owner-1", "a@authz.test")
-
-	r := overlayReconciler{
-		pool: e.Pool, vault: vault, ms: ms,
-		meter: workerBudgetMeter(t),
-		log:   slog.New(slog.DiscardHandler),
-		newIncumbent: func(_, _ string) overlay.Incumbent {
-			return &revokeOnOwnersIncumbent{Incumbent: fakeInc, pool: e.Pool}
-		},
+	if err := svc.Disconnect(adminCtx); err != nil {
+		t.Fatalf("Disconnect: %v", err)
 	}
-	if err := r.Reconcile(overlayAdminCtx(e.WS, e.Rep1)); !errors.Is(err, apperrors.ErrModeNotOverlay) {
-		t.Fatalf("on-demand reconcile racing a disconnect = %v, want apperrors.ErrModeNotOverlay (not an opaque 500)", err)
+
+	if err := svc.RequestSweep(adminCtx); !errors.Is(err, apperrors.ErrModeNotOverlay) {
+		t.Fatalf("RequestSweep on a disconnected workspace = %v, want apperrors.ErrModeNotOverlay (not an opaque 500)", err)
+	}
+
+	var syncStateRows int
+	if err := database.WithWorkspaceTx(adminCtx, e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(adminCtx, `SELECT count(*) FROM overlay_sync_state`).Scan(&syncStateRows)
+	}); err != nil {
+		t.Fatalf("counting overlay_sync_state rows: %v", err)
+	}
+	if syncStateRows != 0 {
+		t.Errorf("overlay_sync_state has %d row(s) after a sweep request on a disconnected workspace, want 0 — the fence must not repopulate what the teardown purged", syncStateRows)
 	}
 }
 
