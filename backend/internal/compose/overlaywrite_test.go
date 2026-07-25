@@ -10,6 +10,9 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
 // fakeMode is an overlayModeChecker stub returning a fixed answer.
@@ -43,7 +46,14 @@ func TestOverlayWriteGuard(t *testing.T) {
 		{"SoR write allowed off overlay", "POST", "/v1/people", false, true, http.StatusOK},
 		{"deal advance refused in overlay", "POST", "/v1/deals/{id}/advance", true, false, http.StatusUnprocessableEntity},
 		{"lead promote refused in overlay", "POST", "/v1/leads/{id}/promote", true, false, http.StatusUnprocessableEntity},
-		{"archive refused in overlay", "DELETE", "/v1/people/{id}", true, false, http.StatusUnprocessableEntity},
+		// Archive of a mirrored type the provider DOES support
+		// (overlay.SupportsWrite(WriteArchive, person) is true — archivableTypes)
+		// is let through rather than refused: it is destined for the write
+		// shadow, never the native handler.
+		{"supported archive allowed in overlay", "DELETE", "/v1/people/{id}", true, true, http.StatusOK},
+		// Archive of a mirrored type the provider does NOT support (activity
+		// is not in archivableTypes) is still refused.
+		{"unsupported archive refused in overlay", "DELETE", "/v1/activities/{id}", true, false, http.StatusUnprocessableEntity},
 		// Native governance write (human-only, e.g. an approval decision) is
 		// NOT a SoR record write — it stays available in overlay.
 		{"governance write allowed in overlay", "POST", "/v1/approvals/{id}/approve", true, true, http.StatusOK},
@@ -68,6 +78,96 @@ func TestOverlayWriteGuard(t *testing.T) {
 			}
 			if rec.Code != tc.wantStatus {
 				t.Errorf("status = %d, want %d", rec.Code, tc.wantStatus)
+			}
+		})
+	}
+}
+
+// runOverlayWriteGuard drives the guard for one request in overlay mode and
+// reports whether it reached next and with what status — the shared shape
+// TestOverlayWriteGuardAllowsNativeOnlyEntities and
+// TestGuardRefusalMatchesProviderCapability both drive.
+func runOverlayWriteGuard(method, pattern string) (nextCalled bool, status int) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+	h := overlayWriteGuard(fakeMode{overlay: true})(next)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, guardRequest(method, pattern))
+	return nextCalled, rec.Code
+}
+
+// A native-only entity is not mirrored, so its native table is the live one
+// even in overlay mode: the guard must let its writes through rather than
+// refusing on the tool verb alone (the bug this task fixes).
+func TestOverlayWriteGuardAllowsNativeOnlyEntities(t *testing.T) {
+	tests := []struct {
+		name    string
+		method  string
+		pattern string
+	}{
+		{"offer line-item create", "POST", "/v1/offers/{id}/line-items"},
+		{"product update", "PATCH", "/v1/products/{id}"},
+		{"tag create", "POST", "/v1/tags"},
+		{"saved view archive", "DELETE", "/v1/views/{id}"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			nextCalled, status := runOverlayWriteGuard(tc.method, tc.pattern)
+			if !nextCalled {
+				t.Errorf("next called = false, want true (native-only entity must not be refused)")
+			}
+			if status != http.StatusOK {
+				t.Errorf("status = %d, want %d", status, http.StatusOK)
+			}
+		})
+	}
+}
+
+// The guard refuses exactly what the provider cannot serve — no more, no
+// less. A verb/type the provider supports must reach its shadow (i.e. pass
+// the guard); one it refuses must never reach a native handler.
+func TestGuardRefusalMatchesProviderCapability(t *testing.T) {
+	tests := []struct {
+		entityType datasource.EntityType
+		verb       overlay.WriteVerb
+		method     string
+		pattern    string
+	}{
+		{datasource.EntityPerson, overlay.WriteCreate, "POST", "/v1/people"},
+		{datasource.EntityPerson, overlay.WriteUpdate, "PATCH", "/v1/people/{id}"},
+		{datasource.EntityPerson, overlay.WriteArchive, "DELETE", "/v1/people/{id}"},
+		{datasource.EntityOrganization, overlay.WriteCreate, "POST", "/v1/organizations"},
+		{datasource.EntityOrganization, overlay.WriteUpdate, "PATCH", "/v1/organizations/{id}"},
+		{datasource.EntityOrganization, overlay.WriteArchive, "DELETE", "/v1/organizations/{id}"},
+		{datasource.EntityDeal, overlay.WriteCreate, "POST", "/v1/deals"},
+		{datasource.EntityDeal, overlay.WriteUpdate, "PATCH", "/v1/deals/{id}"},
+		{datasource.EntityDeal, overlay.WriteArchive, "DELETE", "/v1/deals/{id}"},
+		{datasource.EntityLead, overlay.WriteCreate, "POST", "/v1/leads"},
+		{datasource.EntityLead, overlay.WriteUpdate, "PATCH", "/v1/leads/{id}"},
+		// Lead has no archive_record route — DELETE /v1/leads/{id} is
+		// disqualify_lead, a lifecycle verb the seam mapping never carries
+		// (overlayWriteVerbs), so it is covered by "lead promote refused in
+		// overlay"'s sibling case above, not here.
+		{datasource.EntityActivity, overlay.WriteCreate, "POST", "/v1/activities"}, // log_activity
+		{datasource.EntityActivity, overlay.WriteUpdate, "PATCH", "/v1/activities/{id}"},
+		{datasource.EntityActivity, overlay.WriteArchive, "DELETE", "/v1/activities/{id}"},
+	}
+	for _, tc := range tests {
+		t.Run(string(tc.entityType)+"/"+string(tc.verb), func(t *testing.T) {
+			nextCalled, status := runOverlayWriteGuard(tc.method, tc.pattern)
+			wantNext := overlay.SupportsWrite(tc.verb, tc.entityType)
+			if nextCalled != wantNext {
+				t.Errorf("next called = %v, want %v (SupportsWrite(%s, %s) = %v)",
+					nextCalled, wantNext, tc.verb, tc.entityType, wantNext)
+			}
+			wantStatus := http.StatusOK
+			if !wantNext {
+				wantStatus = http.StatusUnprocessableEntity
+			}
+			if status != wantStatus {
+				t.Errorf("status = %d, want %d", status, wantStatus)
 			}
 		})
 	}

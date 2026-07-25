@@ -324,6 +324,42 @@ var archivableTypes = map[datasource.EntityType]bool{
 	datasource.EntityDeal:         true,
 }
 
+// WriteVerb names the three record-write verbs the SoR seam exposes.
+type WriteVerb string
+
+// The three WriteVerb values, one per Provider write method.
+const (
+	WriteCreate  WriteVerb = "create"
+	WriteUpdate  WriteVerb = "update"
+	WriteArchive WriteVerb = "archive"
+)
+
+// SupportsWrite reports whether the overlay provider can serve verb for et.
+// It is the provider's own capability, read by the composition layer's write
+// guard and by the write shadows, so the two cannot disagree about what the
+// mirror can do — a disagreement would let an unsupported write fall through
+// to a native handler and commit to the empty native table.
+//
+// Create is unsupported for every type: the write mapping declares owner_id
+// read-only, so a created incumbent record is unowned, and the NULL-OWNER RULE
+// (visibility.go) writes no visibility row for an unowned record — the create
+// would succeed at the incumbent and then be invisible to everyone, including
+// its author. Owner-on-create is the prerequisite, and it is a mapping
+// decision, not a transport one.
+func SupportsWrite(verb WriteVerb, et datasource.EntityType) bool {
+	switch verb {
+	case WriteCreate:
+		return false
+	case WriteUpdate:
+		_, err := writeContractTarget(et, true)
+		return err == nil
+	case WriteArchive:
+		return archivableTypes[et]
+	default:
+		return false
+	}
+}
+
 // Archive removes a record from the incumbent (its own archive/delete) after
 // the stored-baseline drift check, then purges the mirror row so it stops
 // being readable rather than lingering visible until the next sync.
