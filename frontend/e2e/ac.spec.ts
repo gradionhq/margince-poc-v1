@@ -391,11 +391,45 @@ test.describe("B-EP09.23: overlay mode", () => {
   test("AC-overlay-4: an unsupported verb explains itself rather than failing", async ({
     page,
   }) => {
-    // Sort/filter dials are a read the mirror 422s — the list toolbar never
-    // offers them in overlay (so the user never gets to click a control that
-    // can only fail); it explains the gap in place instead. Search and the
-    // archived toggle are honestly still served, so only the sort/filter
-    // half disappears.
+    // Advancing a deal's stage is a refused WRITE (unsupported_by_sor,
+    // OVA-MAP-W6 — no overlay stage map, unlike Update/Archive which DO
+    // reach the incumbent seam). It is the same "no click path yet" situation
+    // as AC-overlay-3's PATCH: DealsScreen forces table view and hides the
+    // board/toggle in overlay (usePipelines(!overlay)), and DealScreen's
+    // badges hide Edit/Reopen (the only two callers of POST .../advance)
+    // together with the rest of the write affordances. So this drives the
+    // refusal directly over the page's own network stack, same as
+    // AC-overlay-3 — there is no rendered t("overlay.refused") to assert at
+    // the UI level today because nothing in the shipped SPA calls this
+    // endpoint while in overlay mode. Once a follow-up exposes an advance
+    // affordance in overlay, this should switch to clicking it and asserting
+    // the rendered refusal copy instead of reading the raw problem body.
+    await mockApi(page, { sor: "overlay" });
+    await page.goto("/#/deals/d-fleet");
+    const response = await page.evaluate(async () => {
+      const res = await fetch("/v1/deals/d-fleet/advance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to_stage_id: "s3" }),
+      });
+      return { status: res.status, body: await res.json() };
+    });
+    expect(response.status).toBe(422);
+    expect(response.body.code).toBe("unsupported_by_sor");
+  });
+
+  test("overlay mode: an unsupported READ dial (list sort/filter) explains itself rather than failing", async ({
+    page,
+  }) => {
+    // Distinct from AC-overlay-4 above: sort/filter is a refused READ dial
+    // (unsupported_in_overlay_mode, compose/overlayread.go), not a refused
+    // write verb — a different server code path with its own copy
+    // (list.overlayReadOnly / t("overlay.filterUnsupported")), so it gets its
+    // own test rather than being folded into "an unsupported verb". The list
+    // toolbar never offers the controls in overlay (so the user never gets
+    // to click one that can only fail); it explains the gap in place
+    // instead. Search and the archived toggle are honestly still served, so
+    // only the sort/filter half disappears.
     await mockApi(page, { sor: "overlay" });
     await page.goto("/#/contacts");
     await expect(
