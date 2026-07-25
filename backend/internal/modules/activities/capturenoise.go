@@ -40,7 +40,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -88,8 +87,16 @@ func (s *Store) HideCapturedNoiseTx(ctx context.Context, tx pgx.Tx, activityIDs 
 	return len(hidden), nil
 }
 
-// RedactCapturedNoise nulls the content of the given hidden messages once their
-// undo window has passed, and drops the embeddings derived from them.
+// RedactCapturedNoiseTx nulls the content of the given hidden messages and drops
+// the embeddings derived from them, on the CALLER's transaction — so the
+// activity's text, its vectors, and (in the caller) the provider original behind
+// it are destroyed together or not at all.
+//
+// It returns the ids it ACTUALLY redacted, which is not always what it was
+// handed: a message a human un-archived since the sweep read its backlog keeps
+// its content, and must therefore keep its original too. A destructive follow-up
+// keyed on the proposed set rather than the done set would quietly destroy half
+// of one.
 //
 // The embeddings matter as much as the text: an activity's subject and body are
 // embedded when it is captured, so leaving the vector behind would let a
@@ -97,47 +104,69 @@ func (s *Store) HideCapturedNoiseTx(ctx context.Context, tx pgx.Tx, activityIDs 
 // content, in another shape. What survives is the row, its links, its source key
 // and its provenance: the tombstone that stops a replay re-capturing what was
 // just redacted.
-func (s *Store) RedactCapturedNoise(ctx context.Context, activityIDs []ids.UUID) (int, error) {
+func (s *Store) RedactCapturedNoiseTx(ctx context.Context, tx pgx.Tx, activityIDs []ids.UUID) ([]ids.UUID, error) {
 	if len(activityIDs) == 0 {
-		return 0, nil
+		return nil, nil
 	}
-	var redacted int
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `
-			UPDATE activity
-			   SET subject = NULL, body = NULL, raw = NULL, updated_at = now()
-			 WHERE id = ANY($1) AND archived_at IS NOT NULL
-			   AND (subject IS NOT NULL OR body IS NOT NULL OR raw IS NOT NULL)
-			RETURNING id`, activityIDs)
-		if err != nil {
-			return fmt.Errorf("activities: redacting noise-dispositioned mail: %w", err)
-		}
-		done, err := pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
-		if err != nil {
-			return fmt.Errorf("activities: redacting noise-dispositioned mail: %w", err)
-		}
-		if len(done) == 0 {
-			return nil
-		}
-		if _, err := tx.Exec(ctx, `
-			DELETE FROM embedding WHERE entity_type = 'activity' AND entity_id = ANY($1)`, done); err != nil {
-			return fmt.Errorf("activities: dropping the redacted mail's embeddings: %w", err)
-		}
-		for _, id := range done {
-			// 'erase' is the closed vocabulary's verb for content destruction,
-			// which is precisely what this is — narrower in scope than an
-			// Art. 17 erasure, identical in kind.
-			if _, err := storekit.Audit(ctx, tx, "erase", "activity", id, nil, nil); err != nil {
-				return fmt.Errorf("activities: auditing the noise redaction: %w", err)
-			}
-		}
-		redacted = len(done)
-		return nil
-	})
+	// Two different questions, and conflating them is what made an earlier
+	// version skip its own follow-up work. AUTHORITY to destroy is "this message
+	// is still hidden" — a human who un-archived one during the undo window has
+	// withdrawn that authority. Whether there is text left to null is a separate
+	// matter: a message whose activity was already stripped but whose provider
+	// original survives is unfinished work, and the caller still has to purge
+	// that original. So the target set is the archived ones, and only the subset
+	// that actually held content is audited as an erasure.
+	rows, err := tx.Query(ctx, `
+		WITH target AS (
+		  SELECT id, (subject IS NOT NULL OR body IS NOT NULL OR raw IS NOT NULL) AS had_content
+		    FROM activity
+		   WHERE id = ANY($1) AND archived_at IS NOT NULL
+		   FOR UPDATE
+		), stripped AS (
+		  UPDATE activity a
+		     SET subject = NULL, body = NULL, raw = NULL, updated_at = now()
+		    FROM target t
+		   WHERE a.id = t.id AND t.had_content
+		)
+		SELECT id, had_content FROM target`, activityIDs)
 	if err != nil {
-		return 0, err
+		return nil, fmt.Errorf("activities: redacting noise-dispositioned mail: %w", err)
 	}
-	return redacted, nil
+	defer rows.Close()
+	var done, destroyed []ids.UUID
+	for rows.Next() {
+		var id ids.UUID
+		var hadContent bool
+		if err := rows.Scan(&id, &hadContent); err != nil {
+			return nil, fmt.Errorf("activities: redacting noise-dispositioned mail: %w", err)
+		}
+		done = append(done, id)
+		if hadContent {
+			destroyed = append(destroyed, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("activities: redacting noise-dispositioned mail: %w", err)
+	}
+	if len(destroyed) == 0 {
+		return done, nil
+	}
+	// The vectors go with the text they were built from: an embedding of
+	// redacted mail is that mail in another shape, still reachable by a
+	// similarity probe.
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM embedding WHERE entity_type = 'activity' AND entity_id = ANY($1)`, destroyed); err != nil {
+		return nil, fmt.Errorf("activities: dropping the redacted mail's embeddings: %w", err)
+	}
+	for _, id := range destroyed {
+		// 'erase' is the closed vocabulary's verb for content destruction, which
+		// is precisely what this is — narrower in scope than an Art. 17 erasure,
+		// identical in kind.
+		if _, err := storekit.Audit(ctx, tx, "erase", "activity", id, nil, nil); err != nil {
+			return nil, fmt.Errorf("activities: auditing the noise redaction: %w", err)
+		}
+	}
+	return done, nil
 }
 
 // LinkCapturedMailTx links every captured message from one address to the person

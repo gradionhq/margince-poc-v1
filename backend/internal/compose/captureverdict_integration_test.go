@@ -150,6 +150,10 @@ func TestVerdictNoiseHidesNowAndRedactsOnlyAfterTheUndoWindow(t *testing.T) {
 		t.Fatal("a noise verdict created a person")
 	}
 
+	if n := rawCaptureRows(t, e, activityID); n != 1 {
+		t.Fatalf("%d provider originals before the sweep, want 1 — the fixture must hold what the sweep has to destroy", n)
+	}
+
 	// A sweep inside the window must do nothing at all.
 	if err := engine.RedactNoise(context.Background(), capture.NoiseUndoWindow, 0); err != nil {
 		t.Fatalf("redaction sweep inside the window: %v", err)
@@ -159,7 +163,7 @@ func TestVerdictNoiseHidesNowAndRedactsOnlyAfterTheUndoWindow(t *testing.T) {
 	}
 
 	// Age the disposition past the window rather than waiting seven days for it.
-	backdateResolution(t, e, dispositionID, capture.NoiseUndoWindow+time.Hour)
+	backdateArchive(t, e, activityID, capture.NoiseUndoWindow+time.Hour)
 	if err := engine.RedactNoise(context.Background(), capture.NoiseUndoWindow, 0); err != nil {
 		t.Fatalf("redaction sweep past the window: %v", err)
 	}
@@ -176,11 +180,8 @@ func TestVerdictNoiseHidesNowAndRedactsOnlyAfterTheUndoWindow(t *testing.T) {
 	// The provider original goes with the text it duplicates — nulling the
 	// activity while raw_capture kept the full message would make "the content
 	// is destroyed" false.
-	if n := countIn(t, e, `
-		SELECT count(*) FROM raw_capture r JOIN activity a
-		    ON a.source_system = r.source_system AND a.source_id = r.source_id
-		 WHERE a.id = $1`, activityID); n != 0 {
-		t.Fatal("the provider original survived the redaction")
+	if n := rawCaptureRows(t, e, activityID); n != 0 {
+		t.Fatalf("%d provider originals survived the redaction", n)
 	}
 }
 
@@ -256,6 +257,16 @@ func seedCapturedMail(t *testing.T, e *integration.Env, from, subject string) id
 			VALUES ($1, $2, 'email', $3, 'the message body', '{"headers":"…"}'::jsonb, 'inbound',
 			        'gmail', $4, 'gmail:'||$4, 'connector:gmail', $5)`,
 			id, e.WS, subject, "vrd-"+id.String(), from)
+		if err != nil {
+			return err
+		}
+		// The provider original, exactly as capture writes it. Without this the
+		// redaction test asserts zero raw_capture rows where zero always
+		// existed — a test that cannot fail.
+		_, err = tx.Exec(context.Background(), `
+			INSERT INTO raw_capture (workspace_id, source_system, source_id, payload)
+			VALUES ($1, 'gmail', $2, '{"headers":"…","body":"the message body"}'::jsonb)`,
+			e.WS, "vrd-"+id.String())
 		return err
 	})
 	if err != nil {
@@ -466,7 +477,9 @@ func TestANoiseVerdictHidesEveryMessageThatSenderWrote(t *testing.T) {
 		}
 	}
 
-	backdateResolution(t, e, dispositionID, capture.NoiseUndoWindow+time.Hour)
+	for _, id := range []ids.UUID{first, second, third} {
+		backdateArchive(t, e, id, capture.NoiseUndoWindow+time.Hour)
+	}
 	if err := engine.RedactNoise(context.Background(), capture.NoiseUndoWindow, 0); err != nil {
 		t.Fatalf("redaction sweep: %v", err)
 	}
@@ -627,4 +640,75 @@ func seedOutboundMail(t *testing.T, e *integration.Env, to, subject string) ids.
 		t.Fatalf("seeding outbound mail: %v", err)
 	}
 	return id
+}
+
+// rawCaptureRows counts the provider originals still held for one activity.
+func rawCaptureRows(t *testing.T, e *integration.Env, activityID ids.UUID) int {
+	t.Helper()
+	return countIn(t, e, `
+		SELECT count(*) FROM raw_capture r JOIN activity a
+		    ON a.workspace_id = r.workspace_id
+		   AND a.source_system = r.source_system AND a.source_id = r.source_id
+		 WHERE a.id = $1`, activityID)
+}
+
+// The destruction is one transaction, so a failure cannot leave the activity
+// stripped while the provider original survives. This drives the case that
+// worried a reviewer: redact the activity's content by itself — the state a
+// crash between two separate transactions would leave — and assert the sweep
+// still collects it. A message whose original outlives its text is unfinished
+// work, not finished work, and nothing else in the system would ever collect it.
+func TestRedactionCollectsMailWhoseOriginalOutlivedItsText(t *testing.T) {
+	e := integration.Setup(t)
+	activityID := seedCapturedMail(t, e, "loud@bulk.example", "offer")
+	dispositionID := seedPendingDisposition(t, e, "loud@bulk.example", "bulk.example", activityID)
+
+	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.PendingStatusNoise}}
+	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
+	if err := engine.Run(context.Background(), 0); err != nil {
+		t.Fatalf("verdict pass: %v", err)
+	}
+
+	// Simulate the half-done state: content gone, original still held.
+	stripActivityContent(t, e, activityID)
+	if n := rawCaptureRows(t, e, activityID); n != 1 {
+		t.Fatal("the fixture did not reproduce the half-done state")
+	}
+
+	backdateArchive(t, e, activityID, capture.NoiseUndoWindow+time.Hour)
+	if err := engine.RedactNoise(context.Background(), capture.NoiseUndoWindow, 0); err != nil {
+		t.Fatalf("redaction sweep: %v", err)
+	}
+	if n := rawCaptureRows(t, e, activityID); n != 0 {
+		t.Fatal("the sweep skipped mail whose original outlived its text — that original would be retained forever")
+	}
+}
+
+// stripActivityContent nulls only the activity's text, leaving the provider
+// original — the state a non-atomic redaction would commit.
+func stripActivityContent(t *testing.T, e *integration.Env, id ids.UUID) {
+	t.Helper()
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(),
+			`UPDATE activity SET subject = NULL, body = NULL, raw = NULL WHERE id = $1`, id)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("stripping the activity content: %v", err)
+	}
+}
+
+// backdateArchive ages a hidden message so its own undo window has passed. The
+// window is measured per message, not per verdict, so this is what the sweep
+// actually reads.
+func backdateArchive(t *testing.T, e *integration.Env, id ids.UUID, by time.Duration) {
+	t.Helper()
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(),
+			`UPDATE activity SET archived_at = now() - $2::interval WHERE id = $1`, id, by.String())
+		return err
+	})
+	if err != nil {
+		t.Fatalf("backdating the archive: %v", err)
+	}
 }

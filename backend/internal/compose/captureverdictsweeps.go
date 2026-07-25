@@ -143,17 +143,32 @@ func (e *CounterpartyVerdictEngine) RedactNoise(ctx context.Context, window time
 		if err != nil {
 			return err
 		}
-		redacted, err := e.activities.RedactCapturedNoise(wsCtx, due)
+		// ONE transaction for the whole destruction: the activity's text, the
+		// vectors derived from it, and the provider original behind it commit
+		// together or not at all.
+		//
+		// Splitting them was not survivable. Once the activity's content is
+		// nulled it no longer looks like outstanding work, so a failure between
+		// two transactions would strand the original in raw_capture with nothing
+		// left that would ever collect it — a silent, permanent retention of the
+		// exact message the workspace decided to destroy.
+		redacted := 0
+		err = database.WithWorkspaceTx(wsCtx, e.pool, func(tx pgx.Tx) error {
+			done, err := e.activities.RedactCapturedNoiseTx(wsCtx, tx, due)
+			if err != nil {
+				return err
+			}
+			// Keyed on what was actually redacted, never on what was proposed: a
+			// message a human un-archived since the backlog was read keeps its
+			// content, and must keep its original with it.
+			if err := e.pending.PurgeRawCaptureTx(wsCtx, tx, done); err != nil {
+				return err
+			}
+			redacted = len(done)
+			return nil
+		})
 		if err != nil {
 			return fmt.Errorf("verdict: redacting noise mail: %w", err)
-		}
-		// The provider original goes with the text it is a copy of. Ordered
-		// after, so a crash between the two leaves mail whose activity is
-		// already redacted and whose raw row the next pass still collects —
-		// the reverse order would drop the original while the content it
-		// duplicates stayed readable.
-		if err := e.pending.PurgeRawCapture(wsCtx, due); err != nil {
-			return err
 		}
 		if redacted > 0 {
 			e.log.InfoContext(ctx, "counterparty verdict: redacted hidden mail past its undo window",

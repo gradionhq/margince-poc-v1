@@ -113,8 +113,12 @@ func (s *PendingStore) ReconcileDeclined(ctx context.Context) (int, error) {
 //   - INBOUND only. The workspace's own sent mail is its own record, and a
 //     stranger's forged header must never reach it.
 //   - Never provider-attested outbound (the T1 evidence), for the same reason.
-//   - Never linked to a person. A linked message belongs to somebody's record;
-//     a disposition about an unknown sender has no authority over it.
+//   - Never linked to a person, and never for an address a person EXISTS for.
+//     A linked message belongs to somebody's record; and once the workspace has
+//     a contact at that address — by any route, including a human typing it in
+//     to correct a wrong verdict — the sender is a counterparty and a stale
+//     disposition has no authority over their mail. Linkage alone is not enough:
+//     a manually created contact backfills no activity_link.
 //
 // And the disposition stops applying entirely once the workspace CORRESPONDS
 // with the address: writing to someone is the T1 signal that they are a
@@ -130,7 +134,10 @@ const noiseMailScope = `
 	  AND NOT EXISTS (
 	    SELECT 1 FROM activity c
 	     WHERE c.counterparty_email = p.email
-	       AND c.direction = 'outbound' AND c.counterparty_outbound_attested)`
+	       AND c.direction = 'outbound' AND c.counterparty_outbound_attested)
+	  AND NOT EXISTS (
+	    SELECT 1 FROM person_email pe JOIN person pr ON pr.id = pe.person_id
+	     WHERE pe.email = p.email AND pr.archived_at IS NULL)`
 
 // NoiseMailToHide lists captured mail from judged-noise senders that is still
 // visible. Driven from the MAIL rather than from the address list: the work is
@@ -144,17 +151,32 @@ func (s *PendingStore) NoiseMailToHide(ctx context.Context, limit int) ([]ids.UU
 }
 
 // NoiseMailToRedact lists hidden mail from judged-noise senders whose undo
-// window has passed and whose content is still present.
+// window has passed and that still has content to destroy.
 //
-// Content-keyed, not flag-keyed: a one-shot marker on the ledger row would
-// redact whatever that sender had written by the time it fired and retain
-// everything they wrote afterwards, which is the same "acts on one moment
-// instead of the question" mistake in slower motion.
+// The window is measured from when THIS MESSAGE was hidden, not from when the
+// verdict was reached. A sender keeps writing after their verdict, and keying
+// the window off the disposition would give mail that arrived a month later no
+// undo window at all — for exactly the messages a wrong verdict is most likely
+// to catch.
+//
+// "Still has content" includes the provider original: a message whose activity
+// is already nulled but whose raw_capture row survives is unfinished work, not
+// finished work. That is what makes the sweep resumable across a crash between
+// the two writes, and self-healing if a re-sync ever re-inserts an original for
+// a message that was already redacted.
+//
+// Content-keyed, not flag-keyed, throughout: a one-shot marker on the ledger row
+// would redact whatever that sender had written by the time it fired and retain
+// everything afterwards.
 func (s *PendingStore) NoiseMailToRedact(ctx context.Context, window time.Duration, limit int) ([]ids.UUID, error) {
 	return s.noiseMail(ctx, `
-		AND a.archived_at IS NOT NULL
-		AND (a.subject IS NOT NULL OR a.body IS NOT NULL OR a.raw IS NOT NULL)
-		AND p.resolved_at IS NOT NULL AND p.resolved_at <= now() - `+quoteInterval(window), limit)
+		AND p.resolved_at IS NOT NULL
+		AND a.archived_at IS NOT NULL AND a.archived_at <= now() - `+quoteInterval(window)+`
+		AND (a.subject IS NOT NULL OR a.body IS NOT NULL OR a.raw IS NOT NULL
+		     OR EXISTS (
+		       SELECT 1 FROM raw_capture r
+		        WHERE r.workspace_id = a.workspace_id
+		          AND r.source_system = a.source_system AND r.source_id = a.source_id))`, limit)
 }
 
 // NoiseMailForTx is NoiseMailToHide for ONE address on the caller's transaction
@@ -189,7 +211,8 @@ func (s *PendingStore) NoiseMailForTx(ctx context.Context, tx pgx.Tx, email stri
 	return out, nil
 }
 
-// PurgeRawCapture deletes the provider originals behind the given activities.
+// PurgeRawCaptureTx deletes the provider originals behind the given activities,
+// on the caller's transaction so they die with the text they duplicate.
 //
 // Without this the redaction destroys a copy and leaves the original: capture
 // writes the verbatim provider payload — full headers and body — to raw_capture,
@@ -201,19 +224,16 @@ func (s *PendingStore) NoiseMailForTx(ctx context.Context, tx pgx.Tx, email stri
 //
 // The activity row keeps its source key, so the capture natural key still
 // tombstones a replay — what goes is the content, not the fact of the message.
-func (s *PendingStore) PurgeRawCapture(ctx context.Context, activityIDs []ids.UUID) error {
+func (s *PendingStore) PurgeRawCaptureTx(ctx context.Context, tx pgx.Tx, activityIDs []ids.UUID) error {
 	if len(activityIDs) == 0 {
 		return nil
 	}
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `
-			DELETE FROM raw_capture r
-			 USING activity a
-			 WHERE a.id = ANY($1)
-			   AND r.source_system = a.source_system AND r.source_id = a.source_id`, activityIDs)
-		return err
-	})
-	if err != nil {
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM raw_capture r
+		 USING activity a
+		 WHERE a.id = ANY($1)
+		   AND r.workspace_id = a.workspace_id
+		   AND r.source_system = a.source_system AND r.source_id = a.source_id`, activityIDs); err != nil {
 		return fmt.Errorf("capture: purging the redacted mail's provider originals: %w", err)
 	}
 	return nil

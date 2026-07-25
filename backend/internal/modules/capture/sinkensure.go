@@ -144,9 +144,19 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 	// class, whatever its domain — so this runs BEFORE the free-mail tier, which
 	// would otherwise set create=true and skip the check entirely, minting the
 	// person a prior `noise` verdict refused every time that sender wrote again.
-	alreadyKnown, judgedNoise, err := s.alreadyDecided(ctx, tx, rec, cp.Email)
-	if err != nil || judgedNoise {
+	alreadyKnown, settled, err := s.alreadyDecided(ctx, tx, rec, cp.Email)
+	if err != nil {
 		return counterpartyDecision{}, err
+	}
+	// T1 OUTRANKS a stale terminal answer, exactly as it outranks the T2
+	// registry, and for the same reason: the workspace writing to an address is
+	// the strongest evidence it owns that the address is a counterparty. Without
+	// this, a `noise` or `suppressed` row would bar that sender from ever
+	// becoming a record again no matter how much the owner corresponded with
+	// them — and since nothing clears those statuses, "reply to recover" would
+	// only half work: the hide would stop, the record would still be refused.
+	if settled && !corresponded {
+		return counterpartyDecision{}, nil
 	}
 	decision.create = decision.create || alreadyKnown
 
@@ -220,7 +230,7 @@ func (s *Sink) derivationStart(ctx context.Context, tx pgx.Tx, rec connector.Nor
 // answer settles the matter (in which case the caller stops: no record, no new
 // question, and no model call — the hide sweep folds this message in with
 // the rest of that sender's mail on its next pass).
-func (s *Sink) alreadyDecided(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, email string) (known, judgedNoise bool, err error) {
+func (s *Sink) alreadyDecided(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, email string) (known, settled bool, err error) {
 	prior, err := s.priorDispositionTx(ctx, tx, email)
 	if err != nil {
 		return false, false, err
